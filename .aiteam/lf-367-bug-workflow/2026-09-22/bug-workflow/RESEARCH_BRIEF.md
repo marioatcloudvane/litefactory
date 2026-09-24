@@ -2,64 +2,62 @@
 
 ## Request
 
-Shape #367: a standalone bug-label workflow with Root Cause, Impact and Solution analysis, approved repair, a separate full-suite test graph and approved delivery; deliver the ten Bug-specific lf_bug_* activities within #367 without requiring #319.
+Challenge the saved assumptions for #367, a standalone bug-label workflow (analysis, approved repair, separate test graph, approved delivery) with Bug-only lf_bug_* activities and no dependency on #319, against the current code before shaping continues.
 
 ## Decisions
 
 - **d1** — Owner-set direction: use the existing graph engine and keep the bug workflow lighter than the existing feature workflows.
-- **d2** — Owner correction: #319 is not a prerequisite, and #367 must deliver its missing activities with authority limited to the Bug workflow.
+- **d2** — Owner correction: #319 is not a prerequisite, and #367 delivers its missing activities with authority limited to the Bug workflow.
 - **d3** — Owner-set content: analysis covers Root Cause, Impact and Solution; repair covers code, unit tests and a suite rerun, with clarification when the bug location is ambiguous.
-- **d4** — Shaping decision: keep one versioned bug record instead of requiring a feature story breakdown.
-- **d5** — Shaping decision: record engineering completion, validation, owner acceptance and delivery as separate outcomes.
-- **d6** — Shaping decision: preserve evidence and unresolved decisions when the lightweight workflow cannot safely complete its agreed repair.
-- **d7** — Owner answer q1: the existing bug label selects a standalone Bug workflow outside Research, Plan, Implement and Validate, without requiring a Mode label.
-- **d8** — Owner answer q2: obtain one approval of the recorded analysis, remedy and success criteria before repair, with renewed approval only for material scope changes.
-- **d9** — Owner answer q3, interpreted under the stated condition: carry repair, full-suite checks, PR review, approved integration and issue closure within one Bug workflow without mode switches.
-- **d10** — Owner answer q4: require a separately executed test graph with durable invocation, recovery, cancellation and result handling.
+- **d4** — Keep one versioned bug record instead of a feature story breakdown.
+- **d5** — Record engineering completion, validation, owner acceptance and delivery as separate outcomes.
+- **d6** — Preserve evidence and unresolved decisions when the lightweight workflow cannot safely complete its repair.
+- **d7** — Owner answer q1: the existing bug label selects a standalone Bug workflow outside Research, Plan, Implement and Validate, without a Mode label. Its interaction with existing bug-labelled issues that carry Mode labels is challenged in f11 and left open.
+- **d8** — Owner answer q2: one approval of the recorded analysis, remedy and success criteria before repair, with renewed approval only for material scope changes.
+- **d9** — Owner answer q3, under the stated condition: repair, full-suite checks, PR review, approved integration and issue closure within one Bug workflow without mode switches.
+- **d10** — Owner answer q4: a separately executed test graph with durable invocation, recovery, cancellation and result handling. Restated as the largest cost in f4.
 - **d11** — Owner-set communication: agents use MCP and the standard versioned JSON contract.
-- **d12** — Owner-set role format: every introduced agent specification includes Role, Voice, Goal, How you are invoked, When you are done, Must Do, Must Not Do, Writing the Report and Output.
-- **d13** — Shaping decision: introduce a Bug analyst that combines investigation and shaping and a Bug fixer that handles initial repair and bounded corrections.
-- **d14** — Shaping decision: the graph owns orchestration, publication and delivery while deterministic factory activities run the test child.
-- **d15** — Shaping decision: present parent and child DOT diagrams as illustrative scope samples rather than executable shipped graph definitions.
-- **d16** — Shaping decision: deliver lf_bug_prepare, lf_bug_recipe, lf_bug_checks, lf_bug_repair, lf_bug_record and lf_bug_handoff for one approved bug.
-- **d17** — Shaping decision: deliver lf_bug_test_graph, lf_bug_pr, lf_bug_merge and lf_bug_close for the separate test child and approved bug delivery.
-- **d18** — Shaping decision: admit the new lf_bug_* activities in Bug's own namespace, remove the cross-prefix exception and leave feature Implement enablement and story scheduling outside this scope.
-- **d19** — Owner-set naming rule: use lf_implement_* only for activities reusable unchanged by later Implement, and use lf_bug_* otherwise.
+- **d12** — Owner-set role format: every agent specification has Role, Voice, Goal, How you are invoked, When you are done, Must Do, Must Not Do, Writing the Report and Output.
+- **d13** — Two roles: a Bug analyst (investigation and shaping) and a Bug fixer (repair and bounded corrections).
+- **d14** — The graph owns orchestration, publication and delivery; deterministic factory activities run the test child.
+- **d15** — Parent and child DOT diagrams are illustrative scope samples, not shipped executable graphs.
+- **d16** — Proposed inventory for one approved bug: lf_bug_prepare, lf_bug_recipe, lf_bug_checks, lf_bug_repair, lf_bug_record, lf_bug_handoff. The count is challenged in f16.
+- **d17** — Proposed inventory for the test child and delivery: lf_bug_test_graph, lf_bug_pr, lf_bug_merge, lf_bug_close.
+- **d18** — Admit lf_bug_* only for the Bug workflow, with no cross-prefix exception and no Implement enablement. The mechanism is open (f12).
+- **d19** — Owner-set naming rule: lf_implement_* only for activities reusable unchanged by later Implement; lf_bug_* otherwise. All ten are lf_bug_*.
 
 
 ## Assumptions
 
-- **a1** — Root Cause, Impact and Solution remain separate sections produced by the Bug analyst, which also shapes the remedy and handles review feedback.
-- **a2** — The owner's acceptance of delivery if it stays in one mode is taken to accept the proposed integration-and-closure boundary within one standalone Bug workflow.
-- **a3** — All four earlier questions are settled by the reply; the revised scope is a new draft for review, not blanket owner approval of its new details.
-- **a4** — Earlier #319 activity proposals are historical naming context only; #367 owns the required Bug-only activity contracts and does not wait for #319 or enable feature Implement execution.
-- **a5** — The primary story is one reporter taking one defect from observed failure to a scoped repair and confirmed delivery using the current issue, branch and repository context.
-- **a6** — The bug record contains expected behavior, actual behavior, affected environment/version, reproduction steps and status, evidence references, root cause, trigger, preconditions, impact, severity rationale, remedy, complexity and observable success criteria.
-- **a7** — The execution record contains analysis and approved scope revisions, owner answers, source and target revisions, graph versions, child run and durable call identities, test recipe/environment, attempts/outcomes, remaining budgets and delivery references.
-- **a8** — States distinguish analyzing, awaiting owner, ready for repair, repairing, checking, ready for review, integrating, pending closure, blocked, delivered and stopped, with engineering, validation, acceptance and delivery tracked separately.
-- **a9** — The existing bug label selects the new workflow within normal repository/task admission, and existing issue comments and durable replies provide reports, questions and approvals without a new dashboard or public API.
-- **a10** — Only authenticated owner replies authorize repair or delivery; analysis permits bounded reproduction but no product repair, the fixer edits only the task worktree within approved scope, and factory activities alone perform approved remote effects.
-- **a11** — Before repair, require concrete expected versus actual behavior, a reproduced failure or equivalent existing failing evidence, a supported cause, a bounded remedy and observable success criteria; unsupported hypotheses remain labeled and block repair.
-- **a12** — Use descriptive severity levels critical, high, medium and low with a consequence-based rationale, and complexity small, moderate or large with an explanation, as reporting fields rather than automatic authority.
-- **a13** — The lightweight boundary permits localized corrections within existing behavior and excludes remedies requiring product decisions, architecture redesign, destructive migration or coordinated cross-repository release.
-- **a14** — An unreproduced defect triggers a batched request for missing context and remains incomplete if unsupported; a broader remedy returns to analysis inside Bug without automatically selecting another workflow.
-- **a15** — Regression evidence must demonstrate the recorded failure before the fix and success after it, or explicitly explain an unavailable before-fix run; acceptance requires all mandatory checks against the final source revision.
-- **a16** — A missing test recipe, environment failure, unrelated failing check or flaky result is recorded distinctly and cannot silently become a passing result or authorize unrelated changes.
-- **a17** — Default to eight analyst invocations and two repair attempts after the initial fix, with configurable persistent accounting delivered in #367 and no dependency on #319.
-- **a18** — Preserve answers, budgets and completed outcomes across restart, invalidate approvals after material scope changes, and invalidate affected check evidence when source, recipe or relevant target changes.
-- **a19** — Cancellation stops new work and propagates to the child; duplicate replies and resumed attempts cannot repeat a recorded child invocation, publication, integration or closure effect.
-- **a20** — For new admitted tasks the bug label takes precedence over feature-mode labels, while existing tasks retain their admitted workflow and label removal alone does not cancel work or revoke approval.
-- **a21** — Workflow validation must cover label routing, analysis approval, child invocation/recovery/cancellation, regression and full-suite failure, stale evidence, repair exhaustion, changed scope, delivery approval and confirmed closure.
-- **a22** — The parent durably invokes one test child at a time using approved criteria, exact source, recipe/environment and parent identity, then consumes its pass, fail, blocked or cancelled outcome with check-level evidence.
-- **a23** — The test child runs regression and focused checks before the full suite and required quality checks, may stop early on failure, and must complete every mandatory check before returning pass.
-- **a24** — A fixable test failure or scoped PR feedback consumes the same repair budget, while material feedback returns to the bounded analyst loop and needs renewed scope approval.
-- **a25** — The Bug analyst returns ask, done, approved or blocked, and the Bug fixer returns done, reshape or blocked, through a versioned Bug result contract that keeps local stage completion distinct from workflow completion.
-- **a26** — MCP preflight, correction, submission and matching receipt recovery retain each agent candidate, its terminal envelope echoes that candidate, and graph activities alone publish reports or open waits.
-- **a27** — The separate-child capability is limited to the required test workflow, excluding arbitrary recursive graph invocation and parallel child fan-out.
-- **a28** — Delivery requires a tested PR and approval of its current head and target, integration confirmation precedes closure, and a failed closure remains pending rather than claiming delivery finished.
-- **a29** — Owner rejection stops with retained evidence, unknown child outcomes prevent parent advancement, and exhausted budgets require explicit authorized continuation rather than an automatic reset.
-- **a30** — lf_bug_prepare binds the approved scope and initial attempt, lf_bug_repair atomically reserves only additional attempts, and lf_agent remains the sole invocation mechanism for the Bug fixer.
-- **a31** — lf_bug_recipe binds mandatory focused and full-suite checks, lf_bug_checks executes a phase, lf_bug_record persists evidence, and lf_bug_handoff returns a source-bound child result without granting owner approval.
-- **a32** — lf_bug_test_graph durably invokes or recovers one child, lf_bug_pr presents the tested change, lf_bug_merge checks current approval and integration, and lf_bug_close confirms issue closure.
-- **a33** — Scope validation must demonstrate the full Bug lifecycle without #319 and reject use of the new activities by unrelated feature workflows.
-- **a34** — Like-for-like Implement compatibility is not established for any of the ten Bug contracts, so all use lf_bug_* while shared internal code remains reusable without promising identical activity contracts.
+- **a1** — Root Cause, Impact and Solution are separate sections in one analysis by the Bug analyst, which also shapes the remedy and handles review feedback.
+- **a2** — Owner acceptance of one-mode delivery is taken to accept integration and closure inside the Bug workflow.
+- **a4** — Earlier #319 proposals are naming history only; #367 does not wait for #319 or enable feature Implement. Confirmed by f17.
+- **a6** — The bug record holds expected and actual behavior, environment/version, reproduction, evidence, root cause, preconditions, impact, severity, remedy, complexity and success criteria.
+- **a7** — The execution record holds scope revisions, owner answers, source and target revisions, graph versions, child run and call identity, recipe, attempts, outcomes, budgets and delivery references.
+- **a9** — REVISED. The bug label is a candidate selector, not a sufficient one. Recommended rule: bug selects the Bug workflow only when no Mode label is present; an explicit Mode label wins. Alternative: require the bug label plus an explicit owner trigger. Rests on f11; needs shaping to settle.
+- **a10** — Only authenticated owner replies authorize repair or delivery; analysis may reproduce but not repair; the fixer edits only the task worktree; only factory activities perform remote effects. Bug analyst question permission needs an explicit grant (f7).
+- **a11** — Before repair require expected vs actual behavior, reproduced or equivalent failing evidence, a supported cause, a bounded remedy and observable success criteria.
+- **a13** — The lightweight boundary permits localized corrections and excludes product decisions, redesign, destructive migration and cross-repository release.
+- **a14** — An unreproduced defect triggers one batched question and stays incomplete if unsupported; a broader remedy returns to analysis inside Bug.
+- **a17** — REVISED. Default eight analyst invocations and two repair attempts after the initial fix, persisted across restarts. Whether lf_loop can express one shared budget across two loops is unverified (f15); may need a new persisted counter.
+- **a20** — REVISED, replaces bug-label precedence. Existing tasks keep their admitted workflow; removing the label does not cancel work or revoke approval. Precedence of bug over Mode labels for new tasks is withdrawn as unsafe (f11).
+- **a22** — The parent durably invokes one test child at a time with approved criteria, exact source, recipe and parent identity, and consumes pass, fail, blocked or cancelled with check-level evidence.
+- **a23** — The child runs regression and focused checks before the full suite and quality checks and returns pass only when every mandatory check passed on the final source.
+- **a25** — Bug analyst returns ask, done, approved or blocked; Bug fixer returns done, reshape or blocked; local stage completion stays distinct from workflow completion.
+- **a26** — MCP preflight, submit and receipt retain each agent candidate and the terminal envelope echoes it; graph activities alone publish. The Bug policy must not use a terminal-text bypass (f17).
+- **a27** — Child-graph capability is limited to the test workflow: no recursion, no parallel fan-out.
+- **a28** — Delivery needs a tested PR, approval of its current head and target, and confirmed integration before closure; a failed closure stays pending.
+- **a31** — REVISED. lf_bug_recipe, lf_bug_checks, lf_bug_record and lf_bug_handoff are new capability, not reuse: no factory-run project test runner was found (f13).
+- **a32** — REVISED. lf_bug_pr, lf_bug_merge and lf_bug_close reuse the GitHub client merge and close calls but need Bug-specific or generalized proposal bookkeeping (f14).
+- **a33** — Validation must show the Bug lifecycle works without #319 and that unrelated feature workflows gain no new activity authority.
+- **a34** — Like-for-like Implement compatibility is not established for any of the ten contracts, so all use lf_bug_*.
+- **a35** — NEW. The ten activities are a starting inventory. Shaping should test each for necessity; prepare, record and handoff are the likeliest to merge into neighbors (f16).
+- **a36** — NEW. Giving Bug its own activity namespace needs either a Bug mode value or a workflow-identity concept beside mode. The recommended direction is a workflow identity so no Mode: Bug label appears (f12).
+- **a8** — States distinguish analyzing, awaiting owner, ready for repair, repairing, checking, ready for review, integrating, pending closure, blocked, delivered and stopped; engineering, validation, acceptance and delivery are tracked separately.
+- **a15** — Regression evidence shows the failure before the fix and success after it, or explains why a before-fix run is unavailable; acceptance needs all mandatory checks on the final source.
+- **a16** — A missing recipe, environment failure, unrelated failure or flaky result is recorded distinctly and never counts as a pass.
+- **a18** — Answers, budgets and completed outcomes survive restart; material scope change invalidates approval; changed source, recipe or target invalidates affected check evidence.
+- **a19** — Cancellation stops new work and propagates to the child; duplicate replies and resumed attempts cannot repeat a recorded child call, publication, merge or closure.
+- **a24** — A fixable test failure or scoped PR feedback consumes the same repair budget; material feedback returns to analysis and needs renewed approval.
+- **a29** — Owner rejection stops with retained evidence; an unknown child outcome blocks the parent; exhausted budgets need explicit authorized continuation.
+- **a30** — lf_bug_prepare binds the approved scope and first attempt; lf_bug_repair reserves only additional attempts; lf_agent stays the only way to run the fixer.
