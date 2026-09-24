@@ -13,7 +13,7 @@ func TestResearchMainRoleEveryLaunchPath(t *testing.T) {
 	for _, p := range []agent.RunPath{PathCold, PathResume, PathColdAfterResumeRefused} {
 		req := agent.Request{Path: p, Delivery: &agent.Delivery{Root: "/retained", Identity: "hash", Roles: []string{"research"}, MainRole: "research", MainModel: "node-model"}}
 		args := strings.Join(runner.args(req), " ")
-		for _, want := range []string{"--agent litefactory-research:research", "--model node-model", "--plugin-dir /retained/plugin", "--append-system-prompt-file /retained/bootstrap.md", "--tools Read", "--strict-mcp-config"} {
+		for _, want := range []string{"--agent litefactory-workflow:research", "--model node-model", "--plugin-dir /retained/plugin", "--append-system-prompt-file /retained/bootstrap.md", "--tools Read", "--strict-mcp-config"} {
 			if !strings.Contains(args, want) {
 				t.Errorf("%s missing %q: %s", p, want, args)
 			}
@@ -35,7 +35,7 @@ func TestResearchMainRoleFakeProcess(t *testing.T) {
 			t.Fatalf("%s: %v %+v", launch, err, result)
 		}
 		args := f.dump(t, "argv.dump")
-		for _, want := range []string{"--agent\nlitefactory-research:research\n", "--model\nworker-model\n", "--tools\nRead,Edit\n"} {
+		for _, want := range []string{"--agent\nlitefactory-workflow:research\n", "--model\nworker-model\n", "--tools\nRead,Edit\n"} {
 			if !strings.Contains(args, want) {
 				t.Errorf("%s missing %q", launch, want)
 			}
