@@ -22,6 +22,11 @@ type NativeRole struct {
 	Model  string
 	Tools  []string
 	Skills []string
+	// InheritTools renders a Claude role without a tools line, so it gets the
+	// session's tools, attempt MCP tools included, within the --tools ceiling.
+	// A written list is an allowlist: materializing the native ceiling there
+	// hid the MCP tools from every graph node. Tools is ignored when set.
+	InheritTools bool
 }
 
 // Native renders file-backed native roles, not skill-shaped approximations of
@@ -36,13 +41,18 @@ func Native(kind string, role NativeRole, sandbox string) (RenderedFile, error) 
 	}
 	switch kind {
 	case "claude":
+		var tools *string
+		if !role.InheritTools {
+			joined := strings.Join(role.Tools, ",")
+			tools = &joined
+		}
 		header, err := yaml.Marshal(struct {
 			Name        string   `yaml:"name"`
 			Description string   `yaml:"description"`
 			Model       string   `yaml:"model"`
-			Tools       string   `yaml:"tools"`
+			Tools       *string  `yaml:"tools,omitempty"`
 			Skills      []string `yaml:"skills,omitempty"`
-		}{fm.Name, fm.Description, role.Model, strings.Join(role.Tools, ","), role.Skills})
+		}{fm.Name, fm.Description, role.Model, tools, role.Skills})
 		if err != nil {
 			return RenderedFile{}, fmt.Errorf("render native role: %w", err)
 		}

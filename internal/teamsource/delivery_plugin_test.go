@@ -2,6 +2,7 @@ package teamsource
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -53,8 +54,15 @@ func TestClaudeDeliveryAddressesItsRenderedRole(t *testing.T) {
 			t.Errorf("%s: plugin renders as %q, harness addresses %q", name, manifest.Name, agent.DeliveryPlugin)
 		}
 		role := node.Role.Frontmatter.Name
-		if _, ok := rendered["plugin/agents/"+role+".md"]; !ok {
+		file, ok := rendered["plugin/agents/"+role+".md"]
+		if !ok {
 			t.Errorf("%s: harness asks for %s:%s but no plugin/agents/%s.md was rendered", name, agent.DeliveryPlugin, role, role)
+			continue
+		}
+		// A role without its own tool list inherits the session's tools, which
+		// carry the attempt's MCP tools. A written list would hide them.
+		if node.Role.Frontmatter.Tools == nil && strings.Contains(strings.SplitN(string(file), "---\n\n", 2)[0], "tools:") {
+			t.Errorf("%s: inheriting role renders a tools allowlist that hides MCP tools", name)
 		}
 	}
 	if checked == 0 {

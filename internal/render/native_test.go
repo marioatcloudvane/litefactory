@@ -46,3 +46,38 @@ func TestNativeRoleRefusesUnsafeNameAndUnknownHarness(t *testing.T) {
 		})
 	}
 }
+
+// A Claude role's tools line is an allowlist. An inherited role must render
+// without one, so it gets the session's tools including attempt MCP tools; an
+// explicit list, even an empty one, must still render as written.
+func TestNativeClaudeRoleToolsLine(t *testing.T) {
+	t.Parallel()
+	source := render.ResolvedSource{Frontmatter: render.Frontmatter{Name: "research", Description: "Research"}, Body: "BODY"}
+	for _, tc := range []struct {
+		name string
+		role render.NativeRole
+		want string // "" means no tools line at all
+	}{
+		{"inherit", render.NativeRole{Source: source, Model: "m", Tools: []string{"Read"}, InheritTools: true}, ""},
+		{"explicit", render.NativeRole{Source: source, Model: "m", Tools: []string{"Read", "Grep"}}, "tools: Read,Grep\n"},
+		{"explicit-empty", render.NativeRole{Source: source, Model: "m", Tools: []string{}}, "tools: \"\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := render.Native("claude", tc.role, "read-only")
+			if err != nil {
+				t.Fatal(err)
+			}
+			header := strings.SplitN(string(got.Bytes), "---\n\n", 2)[0]
+			if tc.want == "" {
+				if strings.Contains(header, "tools:") {
+					t.Fatalf("inherited role renders a tools allowlist:\n%s", header)
+				}
+				return
+			}
+			if !strings.Contains(header, tc.want) {
+				t.Fatalf("want %q in header:\n%s", tc.want, header)
+			}
+		})
+	}
+}

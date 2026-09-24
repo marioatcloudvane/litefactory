@@ -55,7 +55,7 @@ func NativeWorkflow(kind string, node WorkflowNode, model string, allowedTools [
 			tools = append(tools, tool)
 		}
 	}
-	role, err := render.Native(kind, render.NativeRole{Source: node.Role, Model: model, Tools: tools, Skills: names}, sandbox)
+	role, err := render.Native(kind, render.NativeRole{Source: node.Role, Model: model, Tools: tools, Skills: names, InheritTools: node.Role.Frontmatter.Tools == nil}, sandbox)
 	if err != nil {
 		return nil, err
 	}

@@ -50,11 +50,9 @@ func planWorkflowDelivery(opts Options, req Request, definition *teamsource.Work
 	if sandbox == "" {
 		sandbox = "read-only"
 	}
-	// An omitted shipped tool list inherits the factory's ceiling. An explicit
-	// list remains narrowed by NativeResearch's intersection.
-	if node.Role.Frontmatter.Tools == nil {
-		node.Role.Frontmatter.Tools = slices.Clone(req.Tools)
-	}
+	// An omitted shipped tool list inherits the session's tools, which the
+	// --tools ceiling bounds and which include the attempt's MCP tools. An
+	// explicit list remains narrowed by NativeWorkflow's intersection.
 	files, err := teamsource.NativeWorkflow(string(req.Agent), node, model, req.Tools, sandbox)
 	if err != nil {
 		return nil, err
