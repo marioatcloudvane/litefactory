@@ -46,7 +46,7 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 	f.forge.addIssue(fakeIssue{ID: 1230, Number: testIssue, Title: "Parent Plan", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
 	f.settle()
 	session := f.sessionOf(testIssue)
-	if _, err := f.db.AdmitPlanPath(t.Context(), session.ID); err != nil {
+	if _, err := f.db.AdmitPlanWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	draft := planbrief.PlanDraft{Key: "story", Name: "Child", UserStory: planbrief.UserStoryContent{Actor: "owner", Want: "clear intent", Benefit: "review"}, Problem: "Scope unclear", InScope: []string{"draft"}, NotInScope: []string{}}

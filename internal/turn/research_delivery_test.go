@@ -20,8 +20,10 @@ func TestResearchDeliveryIdentityAndNativeClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(p.files["plugin/agents/research.md"]), "tools: Read") {
-		t.Fatal("omitted role tools did not inherit the factory ceiling")
+	// Omitted role tools inherit the session's tools: the --tools ceiling still
+	// bounds them, and a written list would hide the attempt's MCP tools.
+	if header := strings.SplitN(string(p.files["plugin/agents/research.md"]), "---\n\n", 2)[0]; strings.Contains(header, "tools:") {
+		t.Fatalf("omitted role tools rendered an allowlist instead of inheriting:\n%s", header)
 	}
 	if p.mainRole != "research" || p.mainModel != "worker" || len(p.roles) != 1 {
 		t.Fatalf("main role not selected: %+v", p)

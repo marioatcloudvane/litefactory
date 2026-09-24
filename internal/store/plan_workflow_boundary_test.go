@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -52,9 +53,20 @@ func TestPlanWorkflowStore_AdmissionBackfillAndIsolation(t *testing.T) {
 	if _, err = db.AdmitResearchPath(ctx, fresh.ID, "legacy"); err != nil {
 		t.Fatal(err)
 	}
-	path, err = db.AdmitPlanPath(ctx, fresh.ID)
+	path, err = db.PlanExecutionPath(ctx, fresh.ID)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatal("fresh session already has a Plan route", path, err)
+	}
+	other := testSession(t, db, 364)
+	if path, err = db.AdmitPlanPath(ctx, other.ID); err != nil || path != "legacy" {
+		t.Fatal("new sessions must default to legacy Plan", path, err)
+	}
+	path, err = db.AdmitPlanWorkflowPath(ctx, fresh.ID, "graph")
 	if err != nil || path != "graph" {
 		t.Fatal(path, err)
+	}
+	if path, err = db.AdmitPlanPath(ctx, fresh.ID); err != nil || path != "graph" {
+		t.Fatal("an admitted graph route must survive the legacy default", path, err)
 	}
 	research, err := db.AdmitResearchPath(ctx, fresh.ID, "graph")
 	if err != nil || research != "legacy" {

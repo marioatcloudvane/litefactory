@@ -51,7 +51,7 @@ func newLifecycleBoundaryFixture(t *testing.T) *lifecycleBoundaryFixture {
 	f.forge.addIssue(fakeIssue{ID: 1230, Number: testIssue, Title: "Parent Plan", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
 	f.settle()
 	x.session = f.sessionOf(testIssue)
-	if _, err := f.db.AdmitPlanPath(t.Context(), x.session.ID); err != nil {
+	if _, err := f.db.AdmitPlanWorkflowPath(t.Context(), x.session.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
 	state := planbrief.PlanState{SharedRevision: "shared"}
