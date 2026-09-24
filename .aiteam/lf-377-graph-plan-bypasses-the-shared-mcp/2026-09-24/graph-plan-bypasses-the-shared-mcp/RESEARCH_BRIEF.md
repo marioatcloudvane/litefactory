@@ -14,7 +14,8 @@ Widen scope for #377: make graph Plan deliver results through the shared MCP res
 - **d6** — Shaping decision: preflight names each create rule separately (no section list, no expected revision, story stage only) and carries the Plan-only binding checks; conversation stays a valid section name.
 - **d7** — Shaping decision: 'workflow role' means a role named by a shipped graph definition's agent entries; the nine-section guard walks those, so a new workflow cannot dodge it. Tests also run each worked contract example through the real validator with factory-bound fields filled.
 - **d8** — Settled by owner: the Plan result extends the shared Plan payload with a story request and a story set (Q4 = a), and the factory fills stage, candidate, request identity, upstream references and shared-decision revision (Q5 = a). Owner asked to see the JSON differences; they are in the comment.
-- **d9** — Shaping evaluation for Q3: recommend a graph cycle over the existing story stage (one agent run per story) rather than a new loop activity or a bulk create. Rests on findings f17 and f18. Awaiting owner confirmation.
+- **d9** — Settled by owner (Q3 = a): after set promotion, a graph cycle over the existing story stage creates each sub-issue, one agent run per story, rather than a new loop activity or a bulk create. Rests on findings f17 and f18.
+- **d10** — Settled by owner (Q1 = a): #377 stays one main issue. The Plan stage splits it into ordered sub-issues under #377: (1) shared route, failures, guards; (2) roles, contract, written rules; (3) set stage and decomposition.
 
 
 ## Assumptions
@@ -28,22 +29,3 @@ Widen scope for #377: make graph Plan deliver results through the shared MCP res
 - **a7** — The set agent reads the parent issue thread and the saved research scope as its input, as the legacy product-owner role read the reviewed specification. More than 12 stories is refused with advice to split the parent.
 - **a8** — Plan skills are corrected only where they contradict the new contract; they are not rewritten to Research depth. The role files and the contract are.
 - **a9** — I did not read the implementation-constraint documents for this stage, as instructed. The written rule is added to the two architecture documents in build, where the designer will read them.
-
-
-## Open questions
-
-### q1 — Keep #377 as one main issue that Plan splits into sub-issues, or split it into separate main issues now?
-
-_Asked of: Product Owner Questions_
-
-- **a** — One main issue (#377). The Plan stage splits it into ordered sub-issues under #377: (1) shared route, failures, guards; (2) roles, contract, rules; (3) set stage and decomposition. Recommended: the parts depend on each other, graph Plan goes live only when all are done, and there is one place to track it.  *(recommended)*
-- **b** — Three separate main issues, each with its own stories. Smaller reviews, but the dependencies and the final hold-back lift must be tracked by hand across issues.
-- **c** — Two main issues: the standard (parts 1 and 2) and decomposition (part 3).
-
-### q3 — After the set is promoted, create the sub-issues with a loop (one agent run per story), one activity for all, or a hybrid?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Loop, one agent run per story, reusing the existing story stage as the loop body. Recommended: focused drafts, per-story failure and recovery, per-story questions, and the create step is reused. Cost: about 80 seconds per story and a fresh story pick on each pass.  *(recommended)*
-- **b** — One activity: a single agent drafts all stories and one effect creates them all. Fastest and simplest graph, but needs a new list result shape, is all-or-nothing at preflight, gives shallower drafts, and needs new half-done recovery.
-- **c** — Hybrid: one agent drafts all stories, then a loop applies one create per story. Saves agent runs but keeps the bulk-draft weaknesses and still needs the loop.
