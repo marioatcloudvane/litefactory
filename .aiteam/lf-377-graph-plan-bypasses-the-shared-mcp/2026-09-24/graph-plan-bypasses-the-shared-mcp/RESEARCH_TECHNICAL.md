@@ -159,3 +159,22 @@ Evidence:
 - `internal/turn/plan_graph.go:192`
 - `internal/turn/plan_graph.go:238`
 - `internal/teamsource/plan/plan.dot:77`
+
+## f17
+
+Checked for the Q3 evaluation. The Plan runtime picks the story and stage once, at admission, and every node reads that fixed choice, so a loop over stories needs a fresh pick on each pass. The Go graph checker pins exactly 28 nodes and every edge, and the story loop bound is 8 while a set may reach 12. Both would have to change. The topology is therefore partly fixed in Go today.
+
+Evidence:
+
+- `internal/turn/plan_graph.go:142`
+- `internal/graphexec/plan_control.go:46`
+- `internal/teamsource/plan/plan.dot:14`
+
+## f18
+
+Checked for the Q3 evaluation. At the story stage a story is eligible when it is active, not waiting, not blocked, and its dependency keys exist; it does not need earlier stories to be approved. A story with an open review wait is skipped, so waiting stories do not block others. A loop can therefore create every sub-issue in one pass, but its condition must be 'promoted and no draft yet', because the general eligibility would also pick later stages of approved stories.
+
+Evidence:
+
+- `internal/planbrief/plan_workflow.go:94`
+- `internal/planbrief/plan_workflow.go:238`
