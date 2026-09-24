@@ -25,16 +25,21 @@ type PlanState struct {
 
 // PlanStoryState retains one story's current stage, candidate and owner gates.
 type PlanStoryState struct {
-	Key          string            `json:"key"`
-	Stage        string            `json:"stage"`
-	Candidate    string            `json:"candidate"`
-	Draft        PlanDraft         `json:"draft"`
-	Approvals    map[string]string `json:"approvals"`
-	Wait         *PlanWait         `json:"wait,omitempty"`
-	Retired      bool              `json:"retired"`
-	Replacements []string          `json:"replacements,omitempty"`
-	Hold         string            `json:"hold,omitempty"`
-	Effect       string            `json:"effect,omitempty"`
+	Key           string            `json:"key"`
+	Stage         string            `json:"stage"`
+	Candidate     string            `json:"candidate"`
+	Draft         PlanDraft         `json:"draft"`
+	Approvals     map[string]string `json:"approvals"`
+	Wait          *PlanWait         `json:"wait,omitempty"`
+	Retired       bool              `json:"retired"`
+	Replacements  []string          `json:"replacements,omitempty"`
+	Hold          string            `json:"hold,omitempty"`
+	Lifecycle     PlanLifecycle     `json:"lifecycle,omitempty"`
+	LifecycleHold string            `json:"lifecycle_hold,omitempty"`
+	EffectHolds   map[string]string `json:"effect_holds,omitempty"`
+	EffectRequest string            `json:"effect_request,omitempty"`
+	EffectHold    string            `json:"effect_hold,omitempty"`
+	Effect        string            `json:"effect,omitempty"`
 }
 
 // PlanWait binds a displayed candidate and dependency/shared revision set.
@@ -104,8 +109,8 @@ func (s *PlanState) ReviewRevision(key, stage string) (string, error) {
 		if err != nil {
 			return err
 		}
-		if item.Retired {
-			return fmt.Errorf("plan dependency %s is retired", k)
+		if !item.Active() || item.Blocked() {
+			return fmt.Errorf("plan dependency %s is inactive or unresolved", k)
 		}
 		visiting[k] = true
 		for _, dep := range item.Draft.Dependencies.StoryKeys {
@@ -233,7 +238,7 @@ func (s *PlanState) SetSharedRevision(revision string) error {
 func (s *PlanState) EligiblePlanStories() []string {
 	var keys []string
 	for _, item := range s.Stories {
-		if item.Retired || item.Wait != nil || item.Hold != "" || (item.Effect != "" && item.Effect != "applied") {
+		if !item.Active() || item.Wait != nil || item.Blocked() {
 			continue
 		}
 		if _, err := s.ReviewRevision(item.Key, item.Stage); err != nil {
@@ -266,7 +271,7 @@ func (s *PlanState) OpenPlanWait(key, id, kind string, issueID int64) error {
 	if err != nil {
 		return err
 	}
-	if id == "" || issueID < 1 || !slices.Contains([]string{"question", "review", "retire"}, kind) || item.Retired {
+	if id == "" || issueID < 1 || !slices.Contains([]string{"question", "review", "retire"}, kind) || !item.Active() || item.Blocked() {
 		return errors.New("invalid Plan wait")
 	}
 	ref, err := s.ReviewRevision(key, item.Stage)
@@ -356,7 +361,7 @@ func (s *PlanState) MarkRetired(key string, replacements []string, replyID int64
 	}
 	for _, key := range replacements {
 		other, err := s.story(key)
-		if err != nil || other.Retired || key == item.Key {
+		if err != nil || !other.Active() || other.Blocked() || key == item.Key {
 			return errors.New("invalid retirement replacement")
 		}
 	}
@@ -365,6 +370,7 @@ func (s *PlanState) MarkRetired(key string, replacements []string, replyID int64
 	item.Wait = nil
 	s.ConsumedReplies = append(s.ConsumedReplies, replyID)
 	s.Invalidate(key, "technical", "retired dependency requires owner resolution")
+	item.Hold = ""
 	return nil
 }
 
@@ -372,7 +378,7 @@ func (s *PlanState) MarkRetired(key string, replacements []string, replyID int64
 func (s *PlanState) PlanSetRevision() string {
 	refs := map[string]string{}
 	for _, item := range s.Stories {
-		if !item.Retired {
+		if item.Active() {
 			refs[item.Key] = item.Draft.Revision()
 		}
 	}
@@ -386,7 +392,10 @@ func (s *PlanState) PlanSetRevision() string {
 func (s *PlanState) ValidateComplete(scope ContentScope) error {
 	active := 0
 	for _, item := range s.Stories {
-		if item.Retired {
+		if item.Blocked() {
+			return fmt.Errorf("plan story %s has unresolved work", item.Key)
+		}
+		if !item.Active() {
 			continue
 		}
 		active++

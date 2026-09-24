@@ -439,6 +439,9 @@ func (d *Daemon) discover(
 		}
 	}
 
+	if err := d.graphPlanParents(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
 	if err := d.managedParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -1171,10 +1174,20 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
-	if handled, err := d.refinePlanChildren(ctx, t); err != nil {
+	if err := d.recoverPlanStories(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not reconcile Plan stories", err)
+		return
+	}
+	handledPlan, err := d.refinePlanChildren(ctx, t)
+	if err != nil {
 		d.stopped(ctx, t, "could not route Plan child discussion", err)
 		return
-	} else if handled {
+	}
+	if err = d.reportPlanProgress(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not report Plan progress", err)
+		return
+	}
+	if handledPlan {
 		return
 	}
 	if deferred, err := d.refineStories(ctx, t); err != nil {

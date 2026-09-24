@@ -105,6 +105,29 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 		f.settle()
 	}
 	calls := f.turns.calls()
+	if ownerBody == "/approve-plan foreign story candidate" || ownerBody == "/approve-plan story story old" {
+		if len(calls) != 0 {
+			t.Fatalf("stale reply invoked executor: %+v", calls)
+		}
+		explanation, err := f.db.PlanReplyExplanation(t.Context(), session.TaskRef, 60)
+		if err != nil || explanation.Reason == "" {
+			t.Fatalf("missing stale explanation %+v %v", explanation, err)
+		}
+		delivery, err := f.db.GetReportDelivery(t.Context(), explanation.DeliveryKey)
+		if err != nil || !delivery.Completed {
+			t.Fatalf("unconfirmed explanation %+v %v", delivery, err)
+		}
+		cursor, err := f.db.StoryDiscoveryCursor(t.Context(), session.ID, 200)
+		if err != nil || cursor != 60 || f.watermark() != 0 {
+			t.Fatalf("unsafe cursor=%d err=%v parent=%d", cursor, err, f.watermark())
+		}
+		f.daemon = f.newDaemon(daemon.Options{Forge: refinementForge{Client: f.client, parent: testIssue}})
+		f.settle()
+		if len(f.turns.calls()) != 0 {
+			t.Fatal("restart dispatched stale reply")
+		}
+		return
+	}
 	expectedCalls := 1
 	if locked {
 		expectedCalls = 2

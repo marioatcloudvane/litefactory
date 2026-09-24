@@ -128,11 +128,12 @@ func newPublicationIO(t *testing.T) *publicationIO {
 				_, _ = io.WriteString(w, `[]`)
 				return
 			}
-			body := ""
-			if len(f.bodies) > 0 {
-				body = f.bodies[len(f.bodies)-1]
+			comments := []any{}
+			for i, body := range f.bodies {
+				id := 991 + i
+				comments = append(comments, map[string]any{"id": id, "body": body, "html_url": fmt.Sprintf("https://github.com/owner/api/issues/278#issuecomment-%d", id), "user": map[string]any{"id": 20, "type": "Bot"}})
 			}
-			_ = json.NewEncoder(w).Encode([]any{map[string]any{"id": 991, "body": body, "user": map[string]any{"id": 20, "type": "Bot"}}})
+			_ = json.NewEncoder(w).Encode(comments)
 			return
 		}
 		_, _ = io.WriteString(w, `{"id":2780,"number":278,"state":"open"}`)

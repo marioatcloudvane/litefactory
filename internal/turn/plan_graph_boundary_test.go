@@ -77,6 +77,7 @@ func (s *graphPlanHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if s.failAttach {
+			s.attached[int(payload.SubIssueID/10)] = true
 			s.failAttach = false
 			http.Error(w, `{"message":"attachment interrupted"}`, http.StatusInternalServerError)
 			return
