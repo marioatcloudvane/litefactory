@@ -194,7 +194,8 @@ func (rep RunReport) validate() error {
 
 // ReplyRequest is a run-less answer to a comment litefactory will not act on.
 type ReplyRequest struct {
-	Creation *report.CreationReply
+	Creation           *report.CreationReply
+	CreationAcceptance *report.CreationAcceptance
 	// Ref is the task the comment is on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -295,6 +296,9 @@ func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInva
 // A refusal names its own kind; everything else is the command's, through the
 // mapping at [replyKind].
 func (req ReplyRequest) kind() (report.ReplyKind, bool) {
+	if req.CreationAcceptance != nil {
+		return report.ReplyCreationAccepted, true
+	}
 	if req.Creation != nil {
 		return report.ReplyCreationProposal, true
 	}
@@ -319,6 +323,8 @@ func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 
 func (req ReplyRequest) validate() error {
 	switch {
+	case req.CreationAcceptance != nil && (req.Creation != nil || req.refusing() || req.ScheduleKind != report.ReplyInvalid || req.ConfirmKind != report.ReplyInvalid):
+		return invalidRequest("creation acceptance cannot be combined with another reply")
 	case req.SessionID <= 0:
 		return invalidRequest("a session id is required to reply to a comment")
 	// A refusal needs one as much as any other reply does. The issue-body path
@@ -345,7 +351,7 @@ func (req ReplyRequest) validate() error {
 	// response. A refusal is triggered by a command that would have spawned
 	// a run, and a command that spawns a run draws no reply — so asking this
 	// question of a refusal refuses the refusal.
-	case req.Creation == nil && !req.refusing() && req.ScheduleKind == report.ReplyInvalid && req.ConfirmKind == report.ReplyInvalid &&
+	case req.Creation == nil && req.CreationAcceptance == nil && !req.refusing() && req.ScheduleKind == report.ReplyInvalid && req.ConfirmKind == report.ReplyInvalid &&
 		!req.Command.NeedsReply():
 		return invalidRequest("%s draws no reply", req.Command.Kind)
 	}
@@ -600,15 +606,20 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	if err := req.validate(); err != nil {
 		return Posted{}, err
 	}
-	destination, refinement, err := r.refinementDestination(ctx, req.SessionID, req.CommentID, req.Ref)
-	if err != nil {
-		return Posted{}, err
-	}
+	destination := req.Ref
 	var sourceStory int
 	var sourceComment int64
-	if refinement != nil {
-		sourceStory = refinement.ChildNumber
-		sourceComment = refinement.CommentID
+	// Creation consent always belongs to its original source issue.
+	if req.CreationAcceptance == nil {
+		target, refinement, err := r.refinementDestination(ctx, req.SessionID, req.CommentID, req.Ref)
+		if err != nil {
+			return Posted{}, err
+		}
+		destination = target
+		if refinement != nil {
+			sourceStory = refinement.ChildNumber
+			sourceComment = refinement.CommentID
+		}
 	}
 	kind, ok := req.kind()
 	if !ok {
@@ -634,6 +645,9 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	if kind == report.ReplyCreationProposal {
 		purpose = "creation-preparation"
 	}
+	if kind == report.ReplyCreationAccepted {
+		purpose = "creation-acceptance"
+	}
 	intent := r.deliveryIntent(req.Ref, destination, req.SessionID, req.CommentID, 0, purpose)
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
 		return r.renderer.RenderReply(ctx, report.Reply{
@@ -656,6 +670,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 			ConflictSuggestionReason: req.ConflictSuggestionReason,
 			Schedule:                 req.Schedule,
 			Creation:                 req.Creation,
+			CreationAcceptance:       req.CreationAcceptance,
 			Confirm:                  req.Confirm,
 		})
 	})

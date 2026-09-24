@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(retained prior findings)*
 - [x] **Plan** — `plan_brief.md` + typed two-story proposal *(completed planning iteration; factory publication and save pending)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — both scoped engineering stories complete; run 601 aggregate build and make check passed; factory evidence retention/save remain separate
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -20,3 +20,7 @@
 ## Notes
 
 Plan publication and readiness remain factory decisions after successful processing and save.
+
+- 2026-09-24 — Run 599: both frozen stories implemented and final-byte scoped race checks passed. Final engineering checkpoints retained. Build, format, vet and lint passed; aggregate race suite failed baseline Plan contract checks and was interrupted at the gate ceiling. Isolated harness recheck passed, Plan checks still failed. Implement remains incomplete; no acceptance review or save/publication claim.
+
+- 2026-09-24 — Run 601: aggregate-only engineering recovery. Build and make check (format, vet, pinned lint, full race suite) passed; gate completed in 362.62 seconds. No source changes, acceptance review or story events. Prior run 599 failures retained as historical evidence. Aggregate capture and final shared result remain the dispatcher's responsibility; save/publication not claimed.
