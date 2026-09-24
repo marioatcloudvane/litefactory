@@ -144,7 +144,7 @@ func TestPlanRecoveryDaemonBoundaryNoCommentRestart(t *testing.T) {
 					t.Fatal("lost retirement response hidden")
 				}
 			}
-			_, err = f.db.AdmitPlanPath(t.Context(), f.session.ID)
+			_, err = f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "graph")
 			publicationMust(t, err)
 			// Reopen the database to remove any dependence on process memory.
 			publicationMust(t, f.runtime.Authority.Close(t.Context()))

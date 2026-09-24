@@ -145,7 +145,7 @@ func TestWorkflowReuseSecondModeFileRoleWaitRestart(t *testing.T) {
 	req.Trigger.Body = "/plan inspect fixture"
 	req.Command = ParseCommand(req.Trigger.Body)
 	req.Tools = []string{"Read"}
-	_, err = f.db.AdmitPlanPath(t.Context(), f.session.ID)
+	_, err = f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "graph")
 	mustProgress(t, err)
 	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "test", Mode: "plan", ProfileVersion: 1, Path: "workflow.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	mustProgress(t, err)

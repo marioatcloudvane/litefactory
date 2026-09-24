@@ -207,6 +207,9 @@ func graphPlanFixture(t *testing.T, kind string, mutate ...func(*graphexec.PlanN
 	client, err := github.New(github.Options{APIBase: server.URL + "/", Token: secrets.NewToken("fixture"), HTTPClient: server.Client()})
 	mustProgress(t, err)
 	f.opts.SubIssueCreator = client
+	// New sessions default to legacy Plan; these tests exercise the graph route.
+	_, err = f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "graph")
+	mustProgress(t, err)
 	base.Mode = agent.ModePlan
 	base.Command = ParseCommand("/plan shape stories")
 	base.Trigger.Body = "/plan shape stories"

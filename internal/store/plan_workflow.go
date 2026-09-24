@@ -10,10 +10,13 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
-// AdmitPlanPath selects graph only for sessions without an existing Plan cohort.
-// Migration backfills legacy runs; an admitted route never changes on reply.
+// AdmitPlanPath freezes the Plan route for a session on its first admission.
+// New sessions get legacy Plan: graph Plan is held back until it decomposes the
+// work into a story set and meets the shared agent standard (#377); its first
+// real run created a single story for a multi-story scope. Sessions already
+// admitted keep their route, and an admitted route never changes on reply.
 func (db *DB) AdmitPlanPath(ctx context.Context, sessionID int64) (string, error) {
-	return db.AdmitPlanWorkflowPath(ctx, sessionID, "graph")
+	return db.AdmitPlanWorkflowPath(ctx, sessionID, "legacy")
 }
 
 // AdmitPlanWorkflowPath freezes a factory-selected route on first admission.
