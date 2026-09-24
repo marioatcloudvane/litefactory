@@ -94,6 +94,9 @@ func (db *DB) SavePlanWorkflowState(ctx context.Context, parent string, expected
 		if n != 1 {
 			return errors.New("plan state revision conflict")
 		}
+		if e = retainPlanNoticesTx(ctx, tx, parent, state); e != nil {
+			return e
+		}
 		_, e = tx.ExecContext(ctx, `INSERT INTO plan_workflow_history(parent,revision,state_json) VALUES(?,?,?)`, parent, revision, string(raw))
 		return e
 	})

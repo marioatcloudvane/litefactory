@@ -39,6 +39,9 @@ type PlanStoryAuthority struct {
 	ContentScope                            planbrief.ContentScope
 	OwnerID, ActorID                        int64
 	RetirementCandidate, RetirementRevision string
+	Confirmation                            *planbrief.PlanOwnerReply
+	ReviewRevision                          string
+	Recovery                                bool
 }
 
 // PlanStoryReceipt describes draft publication only, never implementation readiness.
@@ -155,6 +158,9 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		return receipt, effectErr
 	}
 	if effectErr == nil && latest.Outcome == "applied" {
+		if err = h.repairCompletion(ctx, a, r, d, latest); err != nil {
+			return receipt, err
+		}
 		receipt.Outcome = latest.Outcome
 		receipt.Detail = latest.Detail
 		receipt.Revision = latest.Revision
@@ -173,7 +179,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	candidate := r.Draft
 	if r.Operation != "create" {
 		if d.Retired || d.IssueID == 0 || d.Revision != r.ExpectedRevision {
-			return receipt, errors.New("plan story retired, unpublished or stale")
+			return receipt, heldPlanStory("plan story retired, unpublished or stale")
 		}
 		var prior planbrief.PlanDraft
 		if err = json.Unmarshal([]byte(d.DraftJSON), &prior); err != nil {
@@ -188,7 +194,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			candidate = prior
 		}
 	} else if d.Candidate != "" {
-		return receipt, errors.New("duplicate Plan story identity")
+		return receipt, heldPlanStory("duplicate Plan story identity")
 	}
 	if r.Operation == "create" {
 		err = candidate.Validate(r.Stage, a.ContentScope)
@@ -199,15 +205,40 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		return receipt, err
 	}
 	if r.Operation == "retire" && (a.OwnerID < 1 || a.ActorID != a.OwnerID || a.RetirementCandidate != d.Candidate || a.RetirementRevision != d.Revision) {
-		return receipt, errors.New("retirement lacks authenticated exact-candidate owner confirmation")
+		return receipt, heldPlanStory("retirement lacks authenticated exact-candidate owner confirmation")
 	}
 	for _, key := range r.Replacements {
 		other, getErr := h.DB.GetPlanStoryDraft(ctx, a.Parent, key)
-		if getErr != nil || other.Retired || key == d.Key {
-			return receipt, errors.New("retirement replacement is missing, foreign, retired or self")
+		if getErr != nil {
+			if errors.Is(getErr, store.ErrNotFound) {
+				return receipt, heldPlanStory("retirement replacement missing")
+			}
+			return receipt, getErr
+		}
+		if other.Retired || other.IssueID == 0 || key == d.Key {
+			return receipt, heldPlanStory("retirement replacement is missing, foreign, retired or self")
 		}
 	}
 	if err = h.DB.PutPlanStoryCandidate(ctx, store.PlanStoryCandidate{Parent: a.Parent, RequestID: r.RequestID, Key: r.Draft.Key, Candidate: r.Candidate, RequestJSON: string(raw)}); err != nil {
+		return receipt, err
+	}
+	if r.Operation == "retire" {
+		if err = h.retainRetirement(ctx, &a, r, d); err != nil {
+			return receipt, err
+		}
+	} else {
+		original := a
+		original.Recovery = false
+		authorityRaw, marshalErr := json.Marshal(original)
+		if marshalErr != nil {
+			return receipt, marshalErr
+		}
+		if err = h.DB.RetainPlanStoryAuthority(ctx, a.Parent, r.RequestID, string(authorityRaw)); err != nil {
+			return receipt, err
+		}
+	}
+	state, stateRevision, err := h.prepareCompletion(ctx, a, r, candidate)
+	if err != nil {
 		return receipt, err
 	}
 	record := func(phase, outcome, detail string) (PlanStoryReceipt, error) {
@@ -215,12 +246,23 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		receipt.Detail = detail
 		return receipt, h.DB.AppendPlanStoryEffect(ctx, store.PlanStoryEffect{Parent: a.Parent, RequestID: r.RequestID, Phase: phase, Outcome: outcome, IssueID: receipt.IssueID, IssueNumber: receipt.IssueNumber, Detail: detail})
 	}
+	remoteFailure := func(phase string, cause error) (PlanStoryReceipt, error) {
+		result, saveErr := record(phase, "uncertain", cause.Error())
+		if saveErr != nil {
+			return result, saveErr
+		}
+		if errors.Is(cause, github.ErrNotFound) {
+			return result, nil
+		}
+		return result, cause
+	}
 	parent, getErr := h.Forge.GetIssue(ctx, a.Repo, a.ParentNumber)
 	if getErr != nil {
-		return record("observe", "uncertain", getErr.Error())
+		result, saveErr := record("observe", "uncertain", getErr.Error())
+		return result, errors.Join(getErr, saveErr)
 	}
 	if parent.ID != a.ParentID || parent.State != github.StateOpen {
-		return record("observe", "conflict", "authorized parent identity or state changed")
+		return receipt, errors.New("authorized parent identity or state changed")
 	}
 	render := report.RenderPlanDraft
 	if r.Operation != "create" {
@@ -252,7 +294,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		if createIntent {
 			issues, listErr := h.Forge.ListFollowupIssues(ctx, a.Repo)
 			if listErr != nil {
-				return record("create", "uncertain", listErr.Error())
+				return remoteFailure("create", listErr)
 			}
 			var found *github.Issue
 			for i := range issues {
@@ -277,7 +319,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			}
 			created, createErr := h.Forge.CreateIssue(ctx, a.Repo, safeTitle, safeBody)
 			if createErr != nil {
-				return record("create", "uncertain", createErr.Error())
+				return remoteFailure("create", createErr)
 			}
 			d.IssueID, d.IssueNumber = created.ID, created.Number
 		}
@@ -288,13 +330,20 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	}
 	child, getErr := h.Forge.GetIssue(ctx, a.Repo, d.IssueNumber)
 	if getErr != nil {
-		return record("observe", "uncertain", getErr.Error())
+		return remoteFailure("observe", getErr)
 	}
 	if child.ID != d.IssueID || !strings.HasPrefix(child.Body, planStoryMarker(a, d.Key)+"\n") {
 		return record("observe", "conflict", "story identity or provenance changed")
 	}
 	observedParent, parentErr := h.Forge.GetParentIssue(ctx, a.Repo, d.IssueNumber)
 	if r.Operation == "create" && errors.Is(parentErr, github.ErrNotFound) {
+		attachIntent, intentErr := h.DB.HasPlanStoryMutation(ctx, a.Parent, r.RequestID, "attach")
+		if intentErr != nil {
+			return receipt, intentErr
+		}
+		if attachIntent {
+			return record("attach", "uncertain", "attachment outcome or later detachment is ambiguous; verify the original request before reattachment")
+		}
 		if child.State != github.StateOpen || child.Title != title || child.Body != body {
 			return record("attach", "conflict", "created issue was edited or closed")
 		}
@@ -302,12 +351,12 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			return receipt, err
 		}
 		if err = h.Forge.AddSubIssue(ctx, a.Repo, a.ParentNumber, d.IssueID); err != nil {
-			return record("attach", "uncertain", err.Error())
+			return remoteFailure("attach", err)
 		}
 		observedParent, parentErr = h.Forge.GetParentIssue(ctx, a.Repo, d.IssueNumber)
 	}
 	if parentErr != nil {
-		return record("observe", "uncertain", parentErr.Error())
+		return remoteFailure("observe", parentErr)
 	}
 	if observedParent.ID != a.ParentID || observedParent.Number != a.ParentNumber {
 		return record("observe", "conflict", "story was reparented")
@@ -320,6 +369,9 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		if child.State == "closed" && child.StateReason == "not_planned" && retireIntent && PlanIssueRevision(child.Title, child.Body) == r.ExpectedRevision {
 			// An exact retained retirement intent permits lost-response reconciliation.
 		} else {
+			if retireIntent || a.Recovery {
+				return record("retire", "uncertain", "retirement ordering is ambiguous; confirm current lifecycle before issuing a new request")
+			}
 			if child.State != github.StateOpen || PlanIssueRevision(child.Title, child.Body) != r.ExpectedRevision {
 				return record("retire", "conflict", "retirement target changed or closed")
 			}
@@ -327,19 +379,24 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 				return receipt, err
 			}
 			if err = h.Forge.RetirePlanStory(ctx, a.Repo, a.ParentNumber, a.ParentID, d.IssueNumber, d.IssueID); err != nil {
-				return record("retire", "uncertain", err.Error())
+				return remoteFailure("retire", err)
 			}
 			child, getErr = h.Forge.GetIssue(ctx, a.Repo, d.IssueNumber)
 			if getErr != nil {
-				return record("retire", "uncertain", getErr.Error())
+				return remoteFailure("retire", getErr)
 			}
-			if child.ID != d.IssueID || child.State != "closed" || child.StateReason != "not_planned" {
+			if child.ID != d.IssueID || child.State != "closed" || child.StateReason != "not_planned" || PlanIssueRevision(child.Title, child.Body) != r.ExpectedRevision {
 				return record("retire", "uncertain", "retirement readback did not confirm not-planned closure")
 			}
 		}
 		d.Retired = true
 	} else {
 		if child.State != github.StateOpen {
+			if child.State == "closed" {
+				if err = h.DB.ObservePlanStoryLifecycle(ctx, a.Parent, d.Key, planbrief.PlanLifecycle{State: child.State, Reason: child.StateReason, Revision: PlanIssueRevision(child.Title, child.Body)}, ""); err != nil {
+					return receipt, err
+				}
+			}
 			return record("observe", "conflict", "story was closed")
 		}
 		if r.Operation == "update" && (effectErr != nil || child.Title != title || child.Body != body) {
@@ -350,12 +407,12 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 				return receipt, err
 			}
 			if _, err = h.Forge.UpdateIssue(ctx, a.Repo, d.IssueNumber, safeTitle, safeBody); err != nil {
-				return record("update", "uncertain", err.Error())
+				return remoteFailure("update", err)
 			}
 		}
 		child, getErr = h.Forge.GetIssue(ctx, a.Repo, d.IssueNumber)
 		if getErr != nil {
-			return record("verify", "uncertain", getErr.Error())
+			return remoteFailure("verify", getErr)
 		}
 		if child.ID != d.IssueID || child.State != github.StateOpen || child.Title != title || child.Body != body {
 			return record("verify", "uncertain", "remote concurrent edit or incomplete mutation; no atomic CAS guarantee")
@@ -364,7 +421,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	}
 	verifiedParent, verifyErr := h.Forge.GetParentIssue(ctx, a.Repo, d.IssueNumber)
 	if verifyErr != nil {
-		return record("verify", "uncertain", verifyErr.Error())
+		return remoteFailure("verify", verifyErr)
 	}
 	if verifiedParent.ID != a.ParentID || verifiedParent.Number != a.ParentNumber {
 		return record("verify", "uncertain", "parent changed during mutation")
@@ -380,7 +437,10 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	receipt.Outcome = "applied"
 	receipt.Detail = "confirmed by readback; GitHub provides no atomic content compare-and-swap"
 	effect := store.PlanStoryEffect{Parent: a.Parent, RequestID: r.RequestID, Phase: r.Operation, Outcome: "applied", IssueID: d.IssueID, IssueNumber: d.IssueNumber, Detail: receipt.Detail, Revision: d.Revision}
-	if err = h.DB.ApplyPlanStoryDraft(ctx, d, r.ExpectedRevision, effect); err != nil {
+	if err = completePlanState(&state, a, r, d, child); err != nil {
+		return receipt, err
+	}
+	if err = h.DB.CompletePlanStoryEffect(ctx, d, r.ExpectedRevision, effect, state, stateRevision, false); err != nil {
 		return receipt, err
 	}
 	return receipt, nil

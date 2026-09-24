@@ -6,7 +6,7 @@
 
 - [x] **Research** — retained `RESEARCH_BRIEF.md`
 - [x] **Plan** — completed typed proposal, `feature-spec.md`, `ARCH_REVIEW.md`, `plan_brief.md`; publication/save/readiness pending factory processing
-- [ ] **Implement** — not started
+- [x] **Implement** — run 0007 aggregate checks passed; three retained engineering-complete stories; save/push pending factory
 - [ ] **Validate** — not started
 - [ ] **Spike** — not started
 
@@ -25,3 +25,7 @@ Plan continues the owner's GitHub-as-source-of-truth decision. Publication and r
 - Complete preflight passed with no diagnostics or unchecked paths. Matching receipt read.
 - Input accepted; engineering pending; acceptance pending; publication pending.
 - No implementation or tests executed. Publication, save and readiness remain factory-owned.
+
+## Implement run 0007 aggregate recovery
+
+All aggregate checks passed, including full `make check` with race tests and separate build/format/whitespace checks. Existing final3 story evidence reused unchanged; no story events, implementation edits, acceptance review or forge mutations. Actual aggregate output retained in `aggregate-run7.log`. Aggregate capture and application submission follow.

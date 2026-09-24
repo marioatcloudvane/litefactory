@@ -412,7 +412,7 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 	if request.Operation == "retire" {
 		return ActivityResult{Outcome: "applied", Kind: store.GraphOutputJSON, Output: []byte(`{"retirement":"owner_confirmation_required"}`)}, nil
 	}
-	authority := PlanStoryAuthority{Parent: r.result.Ref.String(), Repo: github.Repo{Owner: r.result.Ref.Owner, Name: r.result.Ref.Repo}, ParentNumber: r.req.Issue.Number, ParentID: r.parentID, SelectedKey: r.selected, Candidate: request.Candidate, Stage: r.stage, ContentScope: r.scope}
+	authority := PlanStoryAuthority{Parent: r.result.Ref.String(), Repo: github.Repo{Owner: r.result.Ref.Owner, Name: r.result.Ref.Repo}, ParentNumber: r.req.Issue.Number, ParentID: r.parentID, SelectedKey: r.selected, Candidate: request.Candidate, Stage: r.stage, ContentScope: r.scope, OwnerID: r.ownerID}
 	forge, err := r.storyForge()
 	if err != nil {
 		return ActivityResult{}, err
@@ -421,26 +421,6 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 	receipt, err := h.Apply(ctx, authority, request)
 	if err != nil {
 		return ActivityResult{}, err
-	}
-	if receipt.Outcome == "applied" {
-		stored, err := r.opts.DB.GetPlanStoryDraft(ctx, authority.Parent, r.selected)
-		if err != nil {
-			return ActivityResult{}, err
-		}
-		var draft planbrief.PlanDraft
-		if err = json.Unmarshal([]byte(stored.DraftJSON), &draft); err != nil {
-			return ActivityResult{}, err
-		}
-		s, rev, err := r.state(ctx)
-		if err != nil {
-			return ActivityResult{}, err
-		}
-		if err = s.PutCandidate(draft, r.stage, request.Candidate); err != nil {
-			return ActivityResult{}, err
-		}
-		if err = r.persist(ctx, s, rev); err != nil {
-			return ActivityResult{}, err
-		}
 	}
 	raw, err := json.Marshal(receipt)
 	return ActivityResult{Outcome: receipt.Outcome, Kind: store.GraphOutputJSON, Output: raw}, err
@@ -515,7 +495,10 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: payload}, err
 }
 
-func (r *planGraphRuntime) retire(ctx context.Context, s planbrief.PlanState, revision int64, reply planbrief.PlanOwnerReply) error {
+func (r *planGraphRuntime) retire(ctx context.Context, s planbrief.PlanState, _ int64, reply planbrief.PlanOwnerReply) error {
+	if slices.Contains(s.ConsumedReplies, reply.ID) {
+		return nil
+	}
 	if err := s.ConfirmRetirement(reply); err != nil {
 		return err
 	}
@@ -576,7 +559,7 @@ func (r *planGraphRuntime) retire(ctx context.Context, s planbrief.PlanState, re
 	if err != nil {
 		return err
 	}
-	a := PlanStoryAuthority{Parent: r.result.Ref.String(), Repo: github.Repo{Owner: r.result.Ref.Owner, Name: r.result.Ref.Repo}, ParentNumber: r.req.Issue.Number, ParentID: r.parentID, SelectedKey: reply.Key, Candidate: node.Request.Candidate, Stage: reply.Stage, ContentScope: r.scope, OwnerID: r.ownerID, ActorID: reply.ActorID, RetirementCandidate: reply.Candidate, RetirementRevision: binding.Revision}
+	a := PlanStoryAuthority{Parent: r.result.Ref.String(), Repo: github.Repo{Owner: r.result.Ref.Owner, Name: r.result.Ref.Repo}, ParentNumber: r.req.Issue.Number, ParentID: r.parentID, SelectedKey: reply.Key, Candidate: node.Request.Candidate, Stage: reply.Stage, ContentScope: r.scope, OwnerID: r.ownerID, ActorID: reply.ActorID, RetirementCandidate: reply.Candidate, RetirementRevision: binding.Revision, Confirmation: &reply}
 	forge, err := r.storyForge()
 	if err != nil {
 		return err
@@ -589,40 +572,17 @@ func (r *planGraphRuntime) retire(ctx context.Context, s planbrief.PlanState, re
 	if receipt.Outcome != "applied" {
 		return fmt.Errorf("retirement %s: %s", receipt.Outcome, receipt.Detail)
 	}
-	if err = s.MarkRetired(reply.Key, node.Request.Replacements, reply.ID); err != nil {
-		return err
-	}
-	return r.persist(ctx, s, revision)
+	return nil
 }
 
 func (r *planGraphRuntime) recoverStoryEffects(ctx context.Context) error {
-	pending, err := r.opts.DB.PendingPlanStoryCandidates(ctx, r.result.Ref.String())
+	forge, err := r.storyForge()
 	if err != nil {
 		return err
 	}
-	for _, candidate := range pending {
-		request, err := graphexec.ParsePlanStoryRequest([]byte(candidate.RequestJSON))
-		if err != nil {
-			return err
-		}
-		if request.Operation == "retire" {
-			return errors.New("retirement effect requires original confirmed owner reply reconciliation")
-		}
-		a := PlanStoryAuthority{Parent: candidate.Parent, Repo: github.Repo{Owner: r.result.Ref.Owner, Name: r.result.Ref.Repo}, ParentNumber: r.req.Issue.Number, ParentID: r.parentID, SelectedKey: candidate.Key, Candidate: candidate.Candidate, Stage: request.Stage, ContentScope: r.scope}
-		forge, err := r.storyForge()
-		if err != nil {
-			return err
-		}
-		h := PlanStoryActivity{DB: r.opts.DB, Forge: forge, Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
-		receipt, err := h.Apply(ctx, a, request)
-		if err != nil {
-			return err
-		}
-		if receipt.Outcome != "applied" {
-			return fmt.Errorf("original Plan request %s remains %s: %s", request.RequestID, receipt.Outcome, receipt.Detail)
-		}
-	}
-	return nil
+	h := PlanStoryActivity{DB: r.opts.DB, Forge: forge, Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
+	return h.Reconcile(ctx, PlanStoryAuthority{Parent: r.result.Ref.String(), Repo: github.Repo{Owner: r.result.Ref.Owner, Name: r.result.Ref.Repo}, ParentNumber: r.req.Issue.Number, ParentID: r.parentID, ContentScope: r.scope, OwnerID: r.ownerID}, 8)
+
 }
 
 func (r *planGraphRuntime) storyForge() (PlanStoryForge, error) {

@@ -3,10 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 
-	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -16,11 +14,14 @@ import (
 // Numeric owner identity and current parent relation are observed before routing.
 func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) {
 	route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
-	if errors.Is(err, store.ErrNotFound) || route != "graph" {
+	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
+	}
+	if route != "graph" {
+		return false, nil
 	}
 	state, _, err := d.db.GetPlanWorkflowState(ctx, t.ref.String())
 	if err != nil {
@@ -36,26 +37,28 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 	}
 	ids := d.filter.Identities()
 	for _, draft := range drafts {
-		if draft.Retired || draft.IssueNumber < 1 {
+		if draft.IssueNumber < 1 {
 			continue
 		}
-		child, err := d.discoveryIssue(ctx, t.forgeRepo, draft.IssueNumber)
+		child, available, err := d.observePlanChild(ctx, t, draft, relation)
 		if err != nil {
 			return false, err
 		}
-		parent, err := discoveryCall(ctx, d, discoveryKey(t.forgeRepo, "parent", draft.IssueNumber), 1, func(ctx context.Context) (github.Issue, error) {
-			return relation.GetParentIssue(ctx, t.forgeRepo, draft.IssueNumber)
-		})
+		state, _, err = d.db.GetPlanWorkflowState(ctx, t.ref.String())
 		if err != nil {
 			return false, err
 		}
-		if child.ID != draft.IssueID || parent.ID != t.issue.ID || parent.Number != t.issue.Number || child.State != github.StateOpen {
-			return false, fmt.Errorf("plan child %s identity, state or parent changed", draft.Key)
-		}
-		if turn.PlanIssueRevision(child.Title, child.Body) != draft.Revision {
+
+		if available && turn.PlanIssueRevision(child.Title, child.Body) != draft.Revision {
 			scope := planbrief.ContentScope{Roles: []string{"go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}, IssueRefs: []string{}}
 			if err = turn.ReconcilePlanChildEdit(ctx, d.db, t.ref.String(), t.issue.Number, t.issue.ID, child, scope); err != nil {
-				return false, err
+				if !errors.Is(err, turn.ErrPlanChildEdit) {
+					return false, err
+				}
+				if err = d.db.ObservePlanStoryLifecycle(ctx, t.ref.String(), draft.Key, planbrief.PlanLifecycle{}, planChildContentHold); err != nil {
+					return false, err
+				}
+				available = false
 			}
 			state, _, err = d.db.GetPlanWorkflowState(ctx, t.ref.String())
 			if err != nil {
@@ -63,6 +66,26 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			}
 		}
 
+		// A restored valid revision resolves only the discovery content hold.
+		for _, item := range state.Stories {
+			if available && item.Key == draft.Key && item.LifecycleHold == planChildContentHold {
+				if err = d.db.ObservePlanStoryLifecycle(ctx, t.ref.String(), draft.Key, planbrief.PlanLifecycle{}, ""); err != nil {
+					return false, err
+				}
+				state, _, err = d.db.GetPlanWorkflowState(ctx, t.ref.String())
+				if err != nil {
+					return false, err
+				}
+				break
+			}
+		}
+
+		if child.ID != draft.IssueID || child.Number != draft.IssueNumber {
+			continue
+		}
+		if !available && state.PlanReplyHold(draft.Key) == "" {
+			continue
+		}
 		var wait *planbrief.PlanWait
 		for _, item := range state.Stories {
 			if item.Key == draft.Key {
@@ -86,6 +109,25 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 				if err = d.db.AdvanceStoryDiscovery(ctx, t.session.ID, draft.IssueNumber, comment.ID); err != nil {
 					return false, err
 				}
+				continue
+			}
+			explanation, explainErr := d.db.PlanReplyExplanation(ctx, t.ref.String(), comment.ID)
+			if explainErr != nil && !errors.Is(explainErr, store.ErrNotFound) {
+				return false, explainErr
+			}
+			reason := state.PlanReplyReason(draft.Key, comment.Body)
+			if explainErr == nil {
+				reason = explanation.Reason
+			}
+			if reason != "" {
+				confirmed, err := d.explainPlanReply(ctx, t, draft, comment.ID, reason)
+				if err != nil {
+					return false, err
+				}
+				if !confirmed {
+					break
+				}
+				after = comment.ID
 				continue
 			}
 			if wait == nil {

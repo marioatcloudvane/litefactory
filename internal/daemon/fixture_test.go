@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -100,12 +101,13 @@ func toFakeLabels(names ...string) []fakeLabel {
 }
 
 type fakeIssue struct {
-	ID     int64    `json:"id,omitempty"`
-	Number int      `json:"number"`
-	Title  string   `json:"title"`
-	Body   string   `json:"body"`
-	State  string   `json:"state"`
-	User   fakeUser `json:"user"`
+	ID          int64    `json:"id,omitempty"`
+	Number      int      `json:"number"`
+	Title       string   `json:"title"`
+	Body        string   `json:"body"`
+	State       string   `json:"state"`
+	StateReason string   `json:"state_reason,omitempty"`
+	User        fakeUser `json:"user"`
 	// Assignees is who the issue is assigned to. GitHub always sends the
 	// member, as [] for an unassigned issue, so it is not omitempty: an
 	// absent member is a shape the client is tested against directly, not one
@@ -184,6 +186,7 @@ type forgeServer struct {
 	// the repository count; this is the cost that scales with whatever the
 	// daemon re-reads, which is where a standing per-tick leak shows up.
 	issueReads       map[int]int
+	issueMutations   int
 	listIssues       int
 	listComments     int
 	listRepoComments int
@@ -284,6 +287,9 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-RateLimit-Limit", "5000")
 		f.mu.Lock()
+		if r.Method == http.MethodPatch || ((r.Method == http.MethodPost || r.Method == http.MethodDelete) && strings.Contains(r.URL.Path, "/sub_issues")) {
+			f.issueMutations++
+		}
 		remaining := f.quotaRemaining
 		if f.quotaNow != nil {
 			at := f.quotaNow()
