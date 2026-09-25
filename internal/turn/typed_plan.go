@@ -56,7 +56,7 @@ func prepareTypedPlanSubmission(ctx context.Context, o Options, prep *preparatio
 	if renderer == nil {
 		return nil, fmt.Errorf("typed Plan renderer unavailable")
 	}
-	scope := planbrief.ContentScope{Roles: []string{"go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}, IssueRefs: []string{}}
+	scope := planbrief.TaskOwnerScope()
 	if prep.repo.ExternalTeam != "" {
 		roster, err := teamsource.Capture(ctx, o.Paths, prep.repo.ExternalTeam, "implement")
 		if err != nil {

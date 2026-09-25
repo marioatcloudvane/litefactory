@@ -19,6 +19,24 @@ func (db *DB) AdmitPlanPath(ctx context.Context, sessionID int64) (string, error
 	return db.AdmitPlanWorkflowPath(ctx, sessionID, "graph")
 }
 
+// GraphPlanStoryParent returns the parent task of a live graph Plan story
+// issue, identified by its forge issue id. That parent observes the issue's
+// comments as Plan input, so the issue is never a task of its own.
+func (db *DB) GraphPlanStoryParent(ctx context.Context, issueID int64) (string, bool, error) {
+	if issueID < 1 {
+		return "", false, nil
+	}
+	var parent string
+	err := db.sql.QueryRowContext(ctx, `SELECT d.parent FROM plan_story_drafts d JOIN sessions s ON s.task_ref=d.parent JOIN plan_execution_paths p ON p.session_id=s.id WHERE d.issue_id=? AND d.retired=0 AND p.path='graph' LIMIT 1`, issueID).Scan(&parent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("store: graph plan story parent: %w", err)
+	}
+	return parent, true, nil
+}
+
 // AdmitPlanWorkflowPath freezes a factory-selected route on first admission.
 // This compatibility seam is not agent input or an upgrade/downgrade operation:
 // an existing persisted route always wins, including against a changed default.

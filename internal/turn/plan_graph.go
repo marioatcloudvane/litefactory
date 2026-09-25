@@ -81,7 +81,7 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if err != nil {
 		return result, true, err
 	}
-	r := &planGraphRuntime{opts: o, req: req, result: result, ownerID: owner.UserID, scope: planbrief.ContentScope{Roles: []string{"go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}, IssueRefs: []string{}}}
+	r := &planGraphRuntime{opts: o, req: req, result: result, ownerID: owner.UserID, scope: planbrief.TaskOwnerScope()}
 	parent, err := forge.GetIssue(ctx, github.Repo{Owner: result.Ref.Owner, Name: result.Ref.Repo}, req.Issue.Number)
 	if err != nil {
 		return result, true, err
@@ -323,6 +323,7 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 	binding := planSetBinding(s)
 	if r.stage != planSetStage {
 		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; the factory binds the stage, candidate, request identity, upstream references and shared-decision revision to your result. Never supply them, and set draft.key to the selected story.\n", r.selected, r.stage)
+		binding += planOwnerRolesBinding(r.scope)
 		if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), r.selected); e == nil && d.IssueID > 0 {
 			binding += fmt.Sprintf("Existing issue %d, expected_revision %s; operation update unless proposing retirement.\n", d.IssueNumber, d.Revision)
 		} else if e != nil && !errors.Is(e, store.ErrNotFound) {
@@ -576,4 +577,11 @@ func (r *planGraphRuntime) storyForge() (PlanStoryForge, error) {
 		return nil, errors.New("plan forge lacks story capabilities")
 	}
 	return forge, nil
+}
+
+// planOwnerRolesBinding tells the agent which roles may own a task: the same
+// scope its result is validated against, so the agent never has to ask the
+// owner for them.
+func planOwnerRolesBinding(scope planbrief.ContentScope) string {
+	return "Authorized task owner roles (assign every task to one of these): " + strings.Join(scope.Roles, ", ") + ".\n"
 }
