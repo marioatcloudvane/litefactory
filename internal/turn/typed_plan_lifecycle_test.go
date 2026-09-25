@@ -270,3 +270,40 @@ func TestTypedPlanRunnerPublicationAndDurableReceipt(t *testing.T) {
 		t.Fatalf("successful save not reflected: feature=%+v receipt=%+v", feature, receipt)
 	}
 }
+
+// A graph Plan story issue carries the typed layout, not the legacy prose
+// sections. Its typed projection is what readiness checks, so approval accepts
+// it; the legacy section check applies only to prose generations.
+func TestTypedApprovalAcceptsGraphPlanStoryLayout(t *testing.T) {
+	f, prep, o, proposal, forge := typedPublicationFixture(t)
+	_, err := PublishPlan(t.Context(), o, proposal)
+	mustProgress(t, err)
+	issue := forge.issues[0]
+	published, err := f.db.GetSubmissionProjection(t.Context(), o.Parent.String(), 1, "US-001", planbrief.StoryHash(issue.Title, issue.Body))
+	mustProgress(t, err)
+
+	body := "# Userstory\n\nAs an owner I want typed stories.\n\n# Task\n\n- T-001\n\n# Acceptance Criteria\n\n- AC-001\n\n# Architecture\n\nKeep ownership.\n"
+	if planbrief.ValidateStoryBody(body) == nil {
+		t.Fatal("fixture body unexpectedly carries the legacy sections")
+	}
+	revision := planbrief.StoryHash(issue.Title, body)
+	graph := published
+	graph.Revision, graph.Body = revision, body
+	mustProgress(t, f.db.PutSubmissionProjection(t.Context(), graph))
+	forge.issues[0].Body, forge.issues[0].State = body, github.StateOpen
+	stories, err := f.db.ListManagedStories(t.Context(), o.Parent.String(), 1)
+	mustProgress(t, err)
+	story := stories[0]
+	story.BodyHash = revision
+	mustProgress(t, f.db.PutManagedStory(t.Context(), story))
+
+	feature, err := f.db.GetManagedFeature(t.Context(), o.Parent.String())
+	mustProgress(t, err)
+	revisions, err := readScopeForApproval(t.Context(), Options{DB: f.db, SubIssueCreator: forge}, prep.ref, feature)
+	if err != nil {
+		t.Fatalf("a typed graph Plan story was refused: %v", err)
+	}
+	if len(revisions) != 1 || revisions[0].Body != body || revisions[0].Hash != revision {
+		t.Fatalf("wrong frozen revision: %+v", revisions)
+	}
+}
