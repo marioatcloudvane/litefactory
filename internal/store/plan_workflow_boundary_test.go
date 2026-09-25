@@ -58,15 +58,15 @@ func TestPlanWorkflowStore_AdmissionBackfillAndIsolation(t *testing.T) {
 		t.Fatal("fresh session already has a Plan route", path, err)
 	}
 	other := testSession(t, db, 364)
-	if path, err = db.AdmitPlanPath(ctx, other.ID); err != nil || path != "legacy" {
-		t.Fatal("new sessions must default to legacy Plan", path, err)
+	if path, err = db.AdmitPlanPath(ctx, other.ID); err != nil || path != "graph" {
+		t.Fatal("new sessions must default to graph Plan", path, err)
 	}
 	path, err = db.AdmitPlanWorkflowPath(ctx, fresh.ID, "graph")
 	if err != nil || path != "graph" {
 		t.Fatal(path, err)
 	}
 	if path, err = db.AdmitPlanPath(ctx, fresh.ID); err != nil || path != "graph" {
-		t.Fatal("an admitted graph route must survive the legacy default", path, err)
+		t.Fatal("an admitted graph route must survive admission", path, err)
 	}
 	research, err := db.AdmitResearchPath(ctx, fresh.ID, "graph")
 	if err != nil || research != "legacy" {
