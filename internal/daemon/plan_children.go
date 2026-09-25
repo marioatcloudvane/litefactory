@@ -50,7 +50,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		}
 
 		if available && turn.PlanIssueRevision(child.Title, child.Body) != draft.Revision {
-			scope := planbrief.ContentScope{Roles: []string{"go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}, IssueRefs: []string{}}
+			scope := planbrief.TaskOwnerScope()
 			if err = turn.ReconcilePlanChildEdit(ctx, d.db, t.ref.String(), t.issue.Number, t.issue.ID, child, scope); err != nil {
 				if !errors.Is(err, turn.ErrPlanChildEdit) {
 					return false, err

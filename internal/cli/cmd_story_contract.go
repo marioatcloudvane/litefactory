@@ -94,7 +94,7 @@ func runStoryContractUpgrade(ctx context.Context, env *Env, parent string, apply
 	if err != nil {
 		return err
 	}
-	scope := planbrief.ContentScope{Roles: []string{"go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}, IssueRefs: []string{}}
+	scope := planbrief.TaskOwnerScope()
 	if repo.ExternalTeam != "" {
 		roster, err := teamsource.Capture(ctx, paths, repo.ExternalTeam, "implement")
 		if err != nil {
