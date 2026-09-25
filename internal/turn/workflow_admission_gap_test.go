@@ -50,10 +50,10 @@ func TestRegisteredWorkflowPolicies_EachRefusesTerminalOnlyCompletion(t *testing
 	}
 }
 
-// AC-012: a new session's Plan route is still legacy, so graph Plan stays held
-// back; a repeat is idempotent; a mode other than Plan is never admitted; and a
-// session already admitted to graph keeps the graph route instead of falling back.
-func TestPlanAdmission_NewSessionsStayOnLegacyAndExistingRoutesAreKept(t *testing.T) {
+// AC-012: a new session's Plan route is graph and never falls back to legacy; a
+// repeat is idempotent; a mode other than Plan is never admitted; and a session
+// already admitted to either route keeps it.
+func TestPlanAdmission_NewSessionsGetGraphAndExistingRoutesAreKept(t *testing.T) {
 	t.Parallel()
 	newFixtureWithoutRun := func(t *testing.T) *fixture {
 		return newFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
@@ -68,21 +68,20 @@ func TestPlanAdmission_NewSessionsStayOnLegacyAndExistingRoutesAreKept(t *testin
 		req.Trigger.Body = "/plan shape stories"
 		return req
 	}
-	t.Run("new session selects legacy and creates no graph", func(t *testing.T) {
+	t.Run("new session selects graph and never falls back to legacy", func(t *testing.T) {
 		t.Parallel()
 		f := newFixtureWithoutRun(t)
 		req := planRequest(f)
 		for range 2 {
-			out, handled, err := admitPlanExecution(t.Context(), f.opts, req, Result{Ref: f.ref(), Session: f.session, SessionID: f.session.ID})
-			if err != nil || handled || out.ResearchGraph {
-				t.Fatalf("new session left the legacy route: handled=%v graph=%v err=%v", handled, out.ResearchGraph, err)
+			// Without durable reporting the graph route refuses; the refusal is the
+			// graph's own and the turn is not handed to legacy Plan.
+			_, handled, err := admitPlanExecution(t.Context(), f.opts, req, Result{Ref: f.ref(), Session: f.session, SessionID: f.session.ID})
+			if !handled || err == nil || !strings.Contains(err.Error(), "graph Plan requires durable reporting") {
+				t.Fatalf("new session did not take the graph route: handled=%v err=%v", handled, err)
 			}
 		}
-		if route, err := f.db.PlanExecutionPath(t.Context(), f.session.ID); err != nil || route != "legacy" {
+		if route, err := f.db.PlanExecutionPath(t.Context(), f.session.ID); err != nil || route != "graph" {
 			t.Fatalf("route = %q %v", route, err)
-		}
-		if _, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan"); !errors.Is(err, store.ErrNotFound) {
-			t.Fatalf("a graph Plan instance exists for a legacy session: %v", err)
 		}
 	})
 	t.Run("other modes are never admitted to a Plan route", func(t *testing.T) {
@@ -115,7 +114,7 @@ func TestPlanAdmission_NewSessionsStayOnLegacyAndExistingRoutesAreKept(t *testin
 	t.Run("an admitted legacy session cannot be moved by a later graph selection", func(t *testing.T) {
 		t.Parallel()
 		f := newFixtureWithoutRun(t)
-		if route, err := f.db.AdmitPlanPath(t.Context(), f.session.ID); err != nil || route != "legacy" {
+		if route, err := f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "legacy"); err != nil || route != "legacy" {
 			t.Fatalf("setup: %q %v", route, err)
 		}
 		if route, err := f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "graph"); err != nil || route != "legacy" {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -101,12 +102,17 @@ func mutatedShippedPlan(t *testing.T, f func(string) string) error {
 // are refused.
 func TestShippedPlanGraphIsJudgedByItsDeclaredStructure(t *testing.T) {
 	t.Parallel()
+	// The graph aligns its columns for readers, so a single space in old matches
+	// any run of whitespace.
 	replace := func(old, next string) func(string) string {
+		pattern := regexp.MustCompile(strings.ReplaceAll(regexp.QuoteMeta(old), " ", `\s+`))
 		return func(g string) string {
-			if !strings.Contains(g, old) {
+			loc := pattern.FindStringIndex(g)
+			if loc == nil {
 				t.Errorf("shipped graph lacks %q", old)
+				return g
 			}
-			return strings.Replace(g, old, next, 1)
+			return g[:loc[0]] + next + g[loc[1]:]
 		}
 	}
 	rename := func(old, next string) func(string) string {

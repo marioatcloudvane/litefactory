@@ -11,10 +11,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
-// Story-003 T-022/T-023 gap tests: the story set survives real SQLite, and the
-// hold-back that keeps new sessions on the legacy Plan route is unchanged (AC-045,
-// AC-012). CONC-24: graph Plan stays held back until the owner-run tryout and a
-// separately approved lift.
+// Story-003 T-022/T-023 gap tests: the story set survives real SQLite, and Plan
+// route admission is frozen per session (AC-012).
 
 // A story set proposed, promoted and saved is what a later turn, or a restart,
 // reads back: revisions, reserved keys, the promoted revision and the stories.
@@ -67,10 +65,10 @@ func TestPlanWorkflowStore_StorySetSurvivesSaveAndRestartReads(t *testing.T) {
 	}
 }
 
-// New sessions select the legacy Plan route through the factory's admission seam;
-// the choice is frozen on first admission and neither a repeat nor a later graph
-// selection moves it (AC-045 hold-back retained).
-func TestAdmitPlanPath_NewSessionsStayLegacyAndRoutesAreFrozen(t *testing.T) {
+// New sessions select the graph Plan route through the factory's admission seam;
+// the choice is frozen on first admission, and a session already on legacy Plan
+// stays there when the default is graph.
+func TestAdmitPlanPath_NewSessionsGetGraphAndRoutesAreFrozen(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	db := newTestDB(t)
@@ -80,22 +78,22 @@ func TestAdmitPlanPath_NewSessionsStayLegacyAndRoutesAreFrozen(t *testing.T) {
 		t.Fatalf("a session had a route before admission: %v", err)
 	}
 	for i := range 2 {
-		if route, err := db.AdmitPlanPath(ctx, fresh.ID); err != nil || route != "legacy" {
-			t.Fatalf("admission %d selected %q, %v; new sessions must stay on the legacy route", i, route, err)
+		if route, err := db.AdmitPlanPath(ctx, fresh.ID); err != nil || route != "graph" {
+			t.Fatalf("admission %d selected %q, %v; new sessions must get the graph route", i, route, err)
 		}
 	}
-	if route, err := db.AdmitPlanWorkflowPath(ctx, fresh.ID, "graph"); err != nil || route != "legacy" {
-		t.Fatalf("a later graph selection moved a legacy session to %q, %v", route, err)
+	if route, err := db.AdmitPlanWorkflowPath(ctx, fresh.ID, "legacy"); err != nil || route != "graph" {
+		t.Fatalf("a later legacy selection moved a graph session to %q, %v", route, err)
 	}
 
 	existing := testSession(t, db, 502)
-	if route, err := db.AdmitPlanWorkflowPath(ctx, existing.ID, "graph"); err != nil || route != "graph" {
+	if route, err := db.AdmitPlanWorkflowPath(ctx, existing.ID, "legacy"); err != nil || route != "legacy" {
 		t.Fatalf("setup: %q %v", route, err)
 	}
-	if route, err := db.AdmitPlanPath(ctx, existing.ID); err != nil || route != "graph" {
-		t.Fatalf("a session already on graph Plan was moved to %q, %v", route, err)
+	if route, err := db.AdmitPlanPath(ctx, existing.ID); err != nil || route != "legacy" {
+		t.Fatalf("a session already on legacy Plan was moved to %q, %v", route, err)
 	}
-	if route, err := db.PlanExecutionPath(ctx, existing.ID); err != nil || route != "graph" {
+	if route, err := db.PlanExecutionPath(ctx, existing.ID); err != nil || route != "legacy" {
 		t.Fatalf("persisted route %q, %v", route, err)
 	}
 
