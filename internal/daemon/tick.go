@@ -1424,12 +1424,13 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		log.DebugContext(ctx, "the issue body has nothing to act on; nothing runs")
 		return nil
 	}
-	if !command.Spawns() {
+	if !command.Spawns() || command.Kind == turn.KindPlanControl {
 		// /plan, /frobnicate, a bare /spike: nothing runs, and — unlike the
 		// same command in a comment — nothing is posted either (AC-2.16c). A
 		// reply would be litefactory answering a question nobody asked it, on
 		// an issue whose author may not even have meant the first line as a
-		// command.
+		// command. A Plan control answers a proposal the factory posted, so an
+		// issue body cannot carry one.
 		log.DebugContext(ctx, "the issue body names a command that spawns nothing; "+
 			"nothing runs and nothing is posted",
 			slog.String("command", command.Name),
@@ -1662,8 +1663,35 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.handleConfirm(ctx, t, c, command, log)
 	}
 
+	if command.Kind == turn.KindPlanControl {
+		return d.handlePlanControl(ctx, t, c, command, log)
+	}
+
 	if !command.Spawns() {
 		return d.reply(ctx, t, c, command, log)
+	}
+	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	return d.run(ctx, t, trigger, command, log)
+}
+
+// handlePlanControl delivers a graph Plan control on the parent issue, such as
+// `/approve-plan set <revision>`, to a Plan turn. The graph Plan runtime applies
+// or refuses it from the exact comment body. A session not admitted to graph
+// Plan has no such controls, so the comment is answered as an unknown command,
+// as it was before graph Plan existed.
+func (d *Daemon) handlePlanControl(
+	ctx context.Context,
+	t *task,
+	c github.Comment,
+	command turn.Command,
+	log *slog.Logger,
+) error {
+	route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return d.leave(ctx, t, log, "could not read the Plan route for "+command.Name, err)
+	}
+	if route != "graph" {
+		return d.reply(ctx, t, c, turn.Command{Kind: turn.KindUnknown, Name: command.Name, Tagged: command.Tagged}, log)
 	}
 	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
 	return d.run(ctx, t, trigger, command, log)
