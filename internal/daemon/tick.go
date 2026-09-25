@@ -1617,6 +1617,17 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
 	}
 
+	// A graph Plan story issue belongs to its parent, whose worker reads the
+	// issue's comments as Plan input. Acting here as well would answer the
+	// same reply twice, or start a second run beside the Plan revision.
+	if parent, owned, err := d.db.GraphPlanStoryParent(ctx, t.issue.ID); err != nil || owned {
+		if err != nil {
+			return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
+		}
+		log.InfoContext(ctx, "comment on a graph Plan story issue; its parent Plan handles it", slog.String("parent", parent))
+		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
+		return d.leave(ctx, t, log, "could not consume a graph Plan story comment", err)
+	}
 	if pending, err := d.resumeReport(ctx, t, c.ID); pending || err != nil {
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}

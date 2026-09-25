@@ -178,6 +178,11 @@ func graphPlanFixtureWithForge(t *testing.T, kind string, mutate ...func(*graphP
 			t.Fatal("factory story binding missing")
 		}
 		key, stage := matched[1], matched[2]
+		// Every story stage is told which roles may own a task, so the
+		// acceptance agent never has to ask the owner for them.
+		if !strings.Contains(req.Prompt, strings.TrimSpace(planOwnerRolesBinding(planbrief.TaskOwnerScope()))) {
+			t.Fatalf("the %s stage prompt does not name the task owner roles", stage)
+		}
 		d := planbrief.PlanDraft{Key: key, Name: "Bounded Plan", UserStory: planbrief.UserStoryContent{Actor: "owner", Want: "shape intent", Benefit: "clear scope", Notes: []string{}}, Problem: "Unclear plan", InScope: []string{"Story discussion"}, NotInScope: []string{"Implementation"}, Dependencies: planbrief.DependencyContent{StoryKeys: []string{}, IssueRefs: []string{}}}
 		d.Frontend = kind == "frontend"
 		operation, expected := "create", ""
