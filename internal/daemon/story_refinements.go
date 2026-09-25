@@ -146,7 +146,7 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	}
 	if f.State != "planning" || f.Generation != r.Generation || completed {
 		refusal = report.ReplyStoryLocked
-	} else if command.Kind != turn.KindFreeText && (!commanded || commandMode != agent.ModePlan) {
+	} else if command.Kind == turn.KindPlanControl || (command.Kind != turn.KindFreeText && (!commanded || commandMode != agent.ModePlan)) {
 		refusal = report.ReplyStoryPlanOnly
 	}
 	if refusal != report.ReplyInvalid {

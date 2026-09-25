@@ -86,36 +86,43 @@ func (s *PlanState) ProposeStorySet(entries []PlanStorySetEntry) (revision strin
 }
 
 // RenderPlanStorySet writes the owner-facing account of a proposed set: its
-// revision, the ordered stories with their temporary ids, names, intents and the
-// stories each depends on by name, and the exact command that promotes it. The
-// text only asks; it promotes nothing.
+// revision, a table of the ordered stories with their temporary ids, names,
+// intents and the ids of the stories each depends on, and the exact command
+// that promotes it. The text only asks; it promotes nothing.
 func RenderPlanStorySet(s *PlanStorySetState) (string, error) {
 	if s == nil || s.Revision == "" || len(s.Entries) == 0 {
 		return "", errors.New("there is no proposed story set to render")
 	}
-	names := make(map[string]string, len(s.Entries))
+	ids := make(map[string]bool, len(s.Entries))
 	for _, e := range s.Entries {
-		names[e.ID] = e.Name
+		ids[e.ID] = true
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "Proposed story set, revision `%s`\n\n", s.Revision)
-	for i, e := range s.Entries {
+	out.WriteString("| ID | Name | Description | Dependencies |\n|---|---|---|---|\n")
+	for _, e := range s.Entries {
 		deps := make([]string, 0, len(e.DependsOn))
 		for _, id := range e.DependsOn {
-			name, ok := names[id]
-			if !ok {
+			if !ids[id] {
 				return "", fmt.Errorf("story %q depends on unknown %q", e.ID, id)
 			}
-			deps = append(deps, name)
+			deps = append(deps, "`"+id+"`")
 		}
 		dependsOn := "none"
 		if len(deps) > 0 {
 			dependsOn = strings.Join(deps, ", ")
 		}
-		fmt.Fprintf(&out, "%d. `%s` %s: %s (depends on: %s)\n", i+1, e.ID, e.Name, e.Intent, dependsOn)
+		fmt.Fprintf(&out, "| `%s` | %s | %s | %s |\n", e.ID, tableCell(e.Name), tableCell(e.Intent), dependsOn)
 	}
 	out.WriteString("\nThis is a proposal only: no story exists until you promote it.\n")
 	fmt.Fprintf(&out, "To promote exactly this set, reply `%s`.\n", PlanSetPromotionCommand(s.Revision))
 	out.WriteString("To change it, reply with what to change. A changed set gets a new revision and needs a new review; a reply naming an older revision is refused.")
 	return out.String(), nil
+}
+
+// tableCell keeps agent text inside one Markdown table cell: a pipe would end
+// the cell and a line break would end the row.
+func tableCell(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	return strings.ReplaceAll(text, "|", `\|`)
 }

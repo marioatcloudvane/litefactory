@@ -17,7 +17,11 @@
 #
 # Usage: scripts/deploy-daemon.sh [git-ref]    (default: origin/main)
 #
-# Run it from Terminal.app: launchctl needs the user's GUI session.
+# From a screen-login Terminal the launchd agent is managed with launchctl.
+# From SSH the GUI domain is unreachable, even as root. There the daemon is
+# stopped with SIGTERM (KeepAlive is off, so launchd does not restart it) and
+# started detached with the plist's environment, after unlocking the login
+# keychain that holds its token.
 
 set -euo pipefail
 
@@ -31,6 +35,8 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$REPO/dist/litefactory"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
+if launchctl print "$DOMAIN" >/dev/null 2>&1; then ROUTE=launchctl; else ROUTE=ssh; fi
+
 say() { echo "deploy: $*"; }
 die() { echo "deploy: $*" >&2; exit 1; }
 
@@ -39,6 +45,31 @@ daemon_pid() { pgrep -f "^$BIN daemon run" || true; }
 [ -f "$PLIST" ] || die "no launch agent at $PLIST"
 [ -f "$DB" ] || die "no database at $DB"
 command -v sqlite3 >/dev/null || die "sqlite3 is not installed"
+
+stop_daemon() {
+	if [ "$ROUTE" = launchctl ]; then
+		launchctl bootout "$DOMAIN/$LABEL" || say "bootout failed; waiting in case the daemon exits anyway"
+	else
+		pkill -TERM -f "^$BIN daemon run" || true
+	fi
+}
+
+start_daemon() {
+	if [ "$ROUTE" = launchctl ]; then
+		launchctl bootstrap "$DOMAIN" "$PLIST"
+	else
+		local agent_path
+		agent_path="$(/usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:PATH" "$PLIST")"
+		(cd / && /usr/bin/env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="${SHELL:-/bin/zsh}" TMPDIR="${TMPDIR:-/tmp/}" LF_HOME="$LF_HOME" PATH="$agent_path" \
+			nohup "$BIN" daemon run >>"$LF_HOME/logs/launchd.out.log" 2>>"$LF_HOME/logs/launchd.err.log" </dev/null &)
+	fi
+}
+
+say "route: $ROUTE"
+if [ "$ROUTE" = ssh ]; then
+	say "unlock the login keychain (your login password); the daemon reads its token from it"
+	security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
+fi
 
 # ---- Build ----------------------------------------------------------------
 say "fetching origin"
@@ -72,7 +103,7 @@ cp "$BUILT" "$BIN.new"
 # ---- Stop -----------------------------------------------------------------
 OLD_PID="$(daemon_pid)"
 say "stopping the daemon${OLD_PID:+ (pid $OLD_PID)}"
-launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+stop_daemon
 for _ in $(seq 1 30); do
 	[ -z "$(daemon_pid)" ] && break
 	sleep 1
@@ -92,7 +123,7 @@ mv -f "$BIN.new" "$BIN"
 
 # ---- Start and verify -----------------------------------------------------
 say "starting the daemon"
-launchctl bootstrap "$DOMAIN" "$PLIST"
+start_daemon
 NEW_PID=""
 for _ in $(seq 1 15); do
 	NEW_PID="$(daemon_pid)"
@@ -100,7 +131,7 @@ for _ in $(seq 1 15); do
 	sleep 1
 done
 
-rollback="to roll back: launchctl bootout $DOMAIN/$LABEL; mv -f $BIN.prev-$STAMP $BIN; launchctl bootstrap $DOMAIN $PLIST"
+rollback="to roll back: stop the daemon, mv -f $BIN.prev-$STAMP $BIN, and rerun its start ($ROUTE route)"
 [ -n "$NEW_PID" ] || die "daemon did not start; see $LF_HOME/logs/launchd.err.log; $rollback"
 [ "$NEW_PID" != "$OLD_PID" ] || die "pid did not change ($NEW_PID); $rollback"
 cmp -s "$BUILT" "$BIN" || die "dist/litefactory does not match the build; $rollback"

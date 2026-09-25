@@ -106,7 +106,7 @@ func TestPlanState_SavedBeforeStorySetsStillLoads(t *testing.T) {
 func TestRenderPlanStorySet_ShowsRevisionOrderDependenciesAndTheCommand(t *testing.T) {
 	t.Parallel()
 	s := PlanState{SharedRevision: "initial"}
-	rev, _, err := s.ProposeStorySet([]PlanStorySetEntry{{ID: "s1", Name: "Storage", Intent: "Keep data", DependsOn: []string{"s2"}}, {ID: "s2", Name: "Schema", Intent: "Define tables"}})
+	rev, _, err := s.ProposeStorySet([]PlanStorySetEntry{{ID: "s1", Name: "Storage", Intent: "Keep data | safely\nacross restarts", DependsOn: []string{"s2"}}, {ID: "s2", Name: "Schema", Intent: "Define tables"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,11 @@ func TestRenderPlanStorySet_ShowsRevisionOrderDependenciesAndTheCommand(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "Proposed story set, revision `" + rev + "`\n\n1. `s1` Storage: Keep data (depends on: Schema)\n2. `s2` Schema: Define tables (depends on: none)\n"
+	// A pipe or line break in agent text stays inside its cell.
+	want := "Proposed story set, revision `" + rev + "`\n\n" +
+		"| ID | Name | Description | Dependencies |\n|---|---|---|---|\n" +
+		"| `s1` | Storage | Keep data \\| safely across restarts | `s2` |\n" +
+		"| `s2` | Schema | Define tables | none |\n"
 	if !strings.HasPrefix(text, want) || !strings.Contains(text, "`/approve-plan set "+rev+"`") || PlanSetPromotionCommand(rev) != "/approve-plan set "+rev {
 		t.Fatalf("rendering:\n%s", text)
 	}

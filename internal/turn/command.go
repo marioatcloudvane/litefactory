@@ -18,6 +18,12 @@ const ScheduleCommand = "/schedule"
 // proposal. Like [ScheduleCommand] it never spawns an agent run.
 const ConfirmCommand = "/confirm"
 
+// PlanControlCommands are the owner's graph Plan controls on the parent issue:
+// promoting a proposed story set, approving the assembled plan and requesting
+// a new story. They are not modes; the graph Plan runtime interprets the
+// comment body exactly, so the parser only has to deliver it to a Plan turn.
+var PlanControlCommands = []string{"/approve-plan", "/approve-plan-set", "/plan-new-story"}
+
 // CommandKind is what a comment body turned out to be asking for.
 //
 // Every kind advances the watermark once it has been handled. Consuming the
@@ -61,6 +67,12 @@ const (
 
 	// KindUnknown is any slash command outside Litefactory's active vocabulary.
 	KindUnknown
+
+	// KindPlanControl is one of [PlanControlCommands]. It starts a Plan turn
+	// only for a session admitted to graph Plan; the daemon answers it as an
+	// unknown command everywhere else. Text is the whole trimmed body, because
+	// the graph Plan runtime matches the exact command text.
+	KindPlanControl
 )
 
 // String renders the kind for logs and test failures.
@@ -80,6 +92,8 @@ func (k CommandKind) String() string {
 		return "confirm"
 	case KindUnknown:
 		return "unknown"
+	case KindPlanControl:
+		return "plan_control"
 	default:
 		return "invalid"
 	}
@@ -126,8 +140,11 @@ type Command struct {
 	Tagged bool
 }
 
-// Spawns reports whether this command starts a run.
-func (c Command) Spawns() bool { return c.Kind == KindSpike || c.Kind == KindFreeText }
+// Spawns reports whether this command starts a run. A Plan control spawns a
+// Plan turn only where the daemon admits it; see [KindPlanControl].
+func (c Command) Spawns() bool {
+	return c.Kind == KindSpike || c.Kind == KindFreeText || c.Kind == KindPlanControl
+}
 
 // NeedsReply reports whether this command should draw a comment back. The
 // kinds that act — a spike and free text — are answered by the run report, and
@@ -136,7 +153,7 @@ func (c Command) NeedsReply() bool {
 	switch c.Kind {
 	case KindSpikeEmpty, KindUnknown:
 		return true
-	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm:
+	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm, KindPlanControl:
 		return false
 	default:
 		return false
@@ -217,6 +234,8 @@ func ParseCommand(body string) Command {
 		return Command{Kind: KindSchedule, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case ConfirmCommand:
 		return Command{Kind: KindConfirm, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
+	case PlanControlCommands[0], PlanControlCommands[1], PlanControlCommands[2]:
+		return Command{Kind: KindPlanControl, Name: name, Text: strings.TrimSpace(body), Tagged: tagged}
 	default:
 		return Command{Kind: KindUnknown, Name: name, Tagged: tagged}
 	}
@@ -224,6 +243,9 @@ func ParseCommand(body string) Command {
 
 // Mode returns the concrete mode named by an actionable slash command.
 func (c Command) Mode() (agent.Mode, bool) {
+	if c.Kind == KindPlanControl {
+		return agent.ModePlan, true
+	}
 	if c.Kind != KindSpike || len(c.Name) < 2 {
 		return "", false
 	}
