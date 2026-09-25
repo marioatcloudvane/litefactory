@@ -90,3 +90,18 @@ Evidence:
 Retrieved #367 BUG_SCOPE.md revision 5 through GitHub, blob 519b886b1e2d0aa45521511887cc17366422d1c2, on 2026-09-25. It supplies the prior agent duties, bug/execution record fields and illustrative DOT graphs. Those graphs omit explicit regression phase and some failure edges; PR feedback routes through analysis rather than expressing #385's two repair entry edges directly. Older prose also allows an explicit continuation to reset budgets, unlike #385's no-reset requirement. Use this reference as historical evidence, not an executable profile or final schema. Shaping must reconcile these differences with #385 and preserve visible failure handling. Reference: https://github.com/marioatcloudvane/litefactory/blob/lf/367-bug-workflow/.aiteam/lf-367-bug-workflow/2026-09-22/bug-workflow/BUG_SCOPE.md
 
 _No source reference was recorded for this finding._
+
+## f9
+
+At shaping, checkout b95c12b155211cff0da15120ea150c74c53648c0 has no diff from research baseline fb060b9c06ce923c47aa231b85975490200e2712 in the inspected configuration, delivery, graph, result-policy and agent-contract areas; a read-only remote lookup returned that research baseline for main, alongside a credential-storage-lock warning, without fetching or updating refs.
+
+_No source reference was recorded for this finding._
+
+## f10
+
+The existing PR creation call explicitly rejects targets other than main, while merge guards the expected head but has no atomic target-SHA guard; the scope must distinguish exact branch approval from target-tip evidence and retain this delivery limitation.
+
+Evidence:
+
+- `internal/github/delivery.go:98` @ `b95c12b155211cff0da15120ea150c74c53648c0`
+- `internal/github/delivery.go:128` @ `b95c12b155211cff0da15120ea150c74c53648c0`
