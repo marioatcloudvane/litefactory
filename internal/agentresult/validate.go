@@ -154,7 +154,7 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 		}
 	}
 	if p := r.Payload.Plan; p != nil {
-		validatePlan(p, r.Outcome, ctx, &d)
+		validatePlanMode(p, r.Outcome, len(r.Questions), ctx, &d)
 	}
 	if p := r.Payload.Implement; p != nil {
 		validateImplement(p, r.Outcome, ctx, &d)

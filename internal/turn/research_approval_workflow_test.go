@@ -31,6 +31,8 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 					if !got.Validation.Valid {
 						t.Fatalf("stage update: %+v", got)
 					}
+				} else {
+					submitLiveResult(t, req, researchDoneJSON)
 				}
 				raw := researchDoneJSON
 				if calls == 2 {
@@ -135,12 +137,13 @@ func TestResearchContinuationRechecksGeneratedDocuments(t *testing.T) {
 	for _, variant := range []string{"handoff", "owner-reply"} {
 		t.Run(variant, func(t *testing.T) {
 			calls := 0
-			runner := lifecycleMCPHost(func(_ context.Context, _ agent.Request) (*agent.RunResult, error) {
+			runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
 				calls++
 				raw := researchDoneJSON
 				if variant == "owner-reply" {
 					raw = researchAskJSON
 				}
+				submitLiveResult(t, req, raw)
 				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: raw, FinishedAt: time.Now()}, nil
 			})
 			f, _, req := assembledResearchFixture(t, runner)

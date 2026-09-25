@@ -29,8 +29,8 @@ func ResearchSpecs() (graphexec.Registry, error) {
 // WorkflowSpecs registers generic mechanisms only for the explicitly admitted policy.
 func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
 	specs := graphexec.Registry{Policy: func(p *graphexec.Profile) error { return graphexec.ValidateControlGraph(p, policy.Control) }}
-	if !policy.Mode.Valid() || policy.Control.Mode != policy.Mode || (policy.Decode == nil && policy.NodeProtocol == nil) {
-		return specs, errors.New("workflow registry requires consistent admitted mode and result policy")
+	if err := policy.Admit(); err != nil {
+		return specs, fmt.Errorf("workflow registry requires consistent admitted mode and result policy: %w", err)
 	}
 	comments, asks := ResearchCommentSpec(), ResearchAskSpec()
 	comments.Mode, asks.Mode = policy.Mode, policy.Mode

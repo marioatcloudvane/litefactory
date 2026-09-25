@@ -113,7 +113,7 @@ func DecodeUpdate(data []byte) (UpdateInput, Diagnostics) {
 			}
 			known := false
 			for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
-				if allowed(op.Target, EditTargets(mode), mode) {
+				if allowed(op.Target, maximumTargets(mode), mode) {
 					known = true
 					break
 				}
@@ -152,7 +152,7 @@ func EditTargets(mode string) []Target {
 	return out
 }
 func allowed(t Target, grants []Target, mode string) bool {
-	if !slices.ContainsFunc(EditTargets(mode), func(g Target) bool { return g.Field == t.Field }) || (t.Story != "" && !ValidID(t.Story)) || (t.ID != "" && !ValidID(t.ID)) {
+	if !slices.ContainsFunc(maximumTargets(mode), func(g Target) bool { return g.Field == t.Field }) || (t.Story != "" && !ValidID(t.Story)) || (t.ID != "" && !ValidID(t.ID)) {
 		return false
 	}
 	nested := strings.HasPrefix(t.Field, "payload.plan.stories.")
@@ -263,6 +263,9 @@ func ApplyUpdate(s Snapshot, retired RetiredIDs, input UpdateInput, ctx Context,
 	if err != nil {
 		return fail("encoding", "Supply a serializable baseline.")
 	}
+	// The factory's binding is not the agent's to edit, so the edit is judged
+	// without it and the binding current at this revision is recorded afterwards.
+	unbindPlanGraph(&r)
 	history := RetiredIDs{}
 	for k, v := range retired {
 		history[k] = slices.Clone(v)
@@ -287,6 +290,7 @@ func ApplyUpdate(s Snapshot, retired RetiredIDs, input UpdateInput, ctx Context,
 	if !d.Valid {
 		return PreparedUpdate{}, d
 	}
+	bindPlanGraph(&r, ctx)
 	s.Result = r
 	s.Meta.ResultRevision++
 	return PreparedUpdate{Snapshot: s, Retired: history}, d

@@ -625,6 +625,14 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 			return result, graphErr
 		}
 		result.ResearchGraph = graph
+		// A failed graph Plan run may be replayed before its failure comment was
+		// published. The owner's comment is handled only together with that
+		// comment, so it is completed here or the replay fails and stays unhandled.
+		if graph && existing.Mode == string(agent.ModePlan) && !existing.Succeeded() {
+			if reportErr := ensurePlanFailureReported(ctx, opts, req, existing); reportErr != nil {
+				return result, fmt.Errorf("publish the failure comment of failed Plan run %d: %w", existing.ID, reportErr)
+			}
+		}
 		return replayed(result, existing, logger), nil
 	}
 

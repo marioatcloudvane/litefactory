@@ -60,3 +60,27 @@ func TestParsePlanStoryRequest_Bounds(t *testing.T) {
 		t.Fatal("oversize input accepted")
 	}
 }
+
+func TestPlanStoryRequest_CreateRefusalsNameTheirField(t *testing.T) {
+	create := graphexec.PlanStoryRequest{RequestID: "request-1", Operation: "create", Stage: "technical", Candidate: "candidate-1", SharedRevision: "shared-1", ExpectedRevision: strings.Repeat("a", 64), ChangedSections: []string{"conversation"}}
+	faults := create.Faults()
+	got := map[string]string{}
+	for _, f := range faults {
+		got[f.Field] = f.Message
+	}
+	for field, advice := range map[string]string{"changed_sections": "remove changed_sections", "expected_revision": "remove expected_revision", "stage": "use operation update"} {
+		if !strings.Contains(got[field], advice) || strings.Contains(got[field], "initial story candidate") {
+			t.Errorf("%s message %q lacks %q", field, got[field], advice)
+		}
+	}
+	if len(faults) != 3 {
+		t.Fatalf("want three separate faults, got %v", faults)
+	}
+	update := graphexec.PlanStoryRequest{RequestID: "request-1", Operation: "update", Stage: "story", Candidate: "candidate-1", SharedRevision: "shared-1", ExpectedRevision: strings.Repeat("a", 64), ChangedSections: []string{"conversation"}}
+	if faults := update.Faults(); len(faults) != 0 {
+		t.Fatalf("update with a section list refused: %v", faults)
+	}
+	if err := create.Validate(); err == nil || !strings.Contains(err.Error(), "changed_sections") {
+		t.Fatalf("Validate hides the faults: %v", err)
+	}
+}

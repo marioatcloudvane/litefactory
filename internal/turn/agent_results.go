@@ -177,7 +177,7 @@ func (s *AgentResultService) prepare(ctx context.Context, data []byte) (candidat
 	defer func() {
 		restricted, _ := ctx.Value(mcpCommunicationKey{}).(bool)
 		plan := candidate.Snapshot.Result.Payload.Plan
-		if restricted && diagnostics.Valid && plan != nil && (candidate.Snapshot.Result.Outcome == "completed" || len(plan.Stories) > 0) {
+		if restricted && diagnostics.Valid && creationCapablePlan(plan, candidate.Snapshot.Result.Outcome) {
 			diagnostics.Valid = false
 			diagnostics.Diagnostics.Diagnostics = append(diagnostics.Diagnostics.Diagnostics, agentresult.Diagnostic{Path: "$.result.payload.plan", Code: "mcp_creation_refused", Expected: "discussion without publishable stories", Actual: "creation-capable Plan", Message: "MCP cannot submit a publishable Plan; use the owner-controlled Plan workflow. No proposal was accepted."})
 			candidate = agentresult.PreparedUpdate{}
@@ -216,6 +216,18 @@ func (s *AgentResultService) prepare(ctx context.Context, data []byte) (candidat
 	}
 	return candidate, v, nil
 }
+
+// creationCapablePlan reports whether a Plan payload could publish stories on its
+// own. A graph Plan's story request or story set is not one: it is a proposal the
+// factory-bound owner path alone promotes, and only a graph-bound run can carry it,
+// because validation refuses those branches under the legacy Plan contract.
+func creationCapablePlan(plan *agentresult.Plan, outcome string) bool {
+	if plan == nil || plan.StoryRequest != nil || plan.StorySet != nil {
+		return false
+	}
+	return outcome == "completed" || len(plan.Stories) > 0
+}
+
 func (s *AgentResultService) metadata(revision int64) agentresult.Metadata {
 	return agentresult.Metadata{SchemaVersion: s.binding.SchemaVersion, Task: s.binding.Task, RunID: s.binding.RunID, AttemptID: s.binding.Attempt, Mode: s.binding.Mode, ResultID: fmt.Sprintf("result-%d", s.binding.ResultID), ResultRevision: revision, ScopeRef: s.binding.ContextHash, WorkflowVersion: s.binding.WorkflowVersion, SubmissionContractVersion: s.binding.SubmissionVersion}
 }
@@ -246,7 +258,7 @@ func (s *AgentResultService) Submit(ctx context.Context, requestID string, data 
 		}
 		if restricted && response.Snapshot != nil {
 			plan := response.Snapshot.Result.Payload.Plan
-			if plan != nil && (response.Snapshot.Result.Outcome == "completed" || len(plan.Stories) > 0) {
+			if creationCapablePlan(plan, response.Snapshot.Result.Outcome) {
 				return AgentResultSubmission{}, fmt.Errorf("MCP cannot replay a publishable Plan; use receipt lookup")
 			}
 		}
@@ -335,6 +347,32 @@ func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt
 		}
 	}
 	return response, nil
+}
+
+// errNoRetainedResult means this attempt has no accepted shared result. A terminal
+// envelope, however well formed, is not one.
+var errNoRetainedResult = errors.New("no accepted shared result was retained for this attempt")
+
+// retainedCurrent reads the latest accepted revision and requires it to be this
+// attempt's own. It is the only source of application data for a graph node: an
+// earlier attempt's revision is a baseline to update, never this attempt's input,
+// and nothing the runner printed can stand in for it.
+func (s *AgentResultService) retainedCurrent(ctx context.Context) (agentresult.Snapshot, int64, error) {
+	retained, err := s.db.GetResultRevision(ctx, s.binding, 0)
+	if errors.Is(err, store.ErrNotFound) {
+		return agentresult.Snapshot{}, 0, errNoRetainedResult
+	}
+	if err != nil {
+		return agentresult.Snapshot{}, 0, fmt.Errorf("read retained result: %w", err)
+	}
+	snapshot, _, err := decodeRetainedResult(retained)
+	if err != nil {
+		return snapshot, 0, err
+	}
+	if snapshot.Meta.AttemptID != s.binding.Attempt || snapshot.Meta.RunID != s.binding.RunID {
+		return agentresult.Snapshot{}, 0, errNoRetainedResult
+	}
+	return snapshot, retained.Revision, nil
 }
 
 // Receipt observes authorized historical correlation without granting writing.

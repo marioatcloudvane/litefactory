@@ -45,12 +45,12 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 	scope := func(_ context.Context, _ store.GraphNodeAttempt) (agentresult.Context, error) {
 		return agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(policy.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: questionPermission(req.mode(), req.Command)}, nil
 	}
-	if policy.NodeProtocol != nil {
+	if policy.Handlers != nil {
 		for _, name := range []string{graphexec.ResearchLoopAction, graphexec.ResearchIfAction} {
 			if err := specs.Register(graphexec.ControlSpec(name, policy.Control)); err != nil {
 				return result, err
 			}
-			if err := activities.Register(name, policy.NodeProtocol.Control); err != nil {
+			if err := activities.Register(name, policy.Handlers.Control); err != nil {
 				return result, err
 			}
 		}
@@ -59,7 +59,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			if err := specs.Register(spec); err != nil {
 				return result, err
 			}
-			if err := activities.Register(spec.Name, policy.NodeProtocol.Comment); err != nil {
+			if err := activities.Register(spec.Name, policy.Handlers.Comment); err != nil {
 				return result, err
 			}
 		}
@@ -83,7 +83,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 	}
 	for {
 		if err := ctx.Err(); err != nil {
-			return w.finish(ctx, err)
+			return w.finish(ctx, w.failed(ctx, scope, GraphNodeResult{}, err, true))
 		}
 		instance, err := opts.DB.GetGraphInstance(ctx, admission.Instance.ID)
 		if err != nil {
@@ -107,7 +107,10 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				// instance on its current node and finish successfully: the
 				// work is not failed, it is owed, and a dispatch now carries
 				// the identity the next run will be allocated under.
-				if _, parkErr := opts.DB.ParkGraphInstance(context.WithoutCancel(ctx), instance.ID, node.Name, opts.MCP.Now(), opts.MCP.Now()); parkErr != nil {
+				// A run a dispatch allocated is that dispatch's; the next stage is owed
+				// under a new one, so the spent one is closed with the same write.
+				spent, _ := store.GraphTriggerDispatch(req.Trigger.CommentID)
+				if _, parkErr := opts.DB.ParkGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, node.Name, opts.MCP.Now(), opts.MCP.Now(), spent); parkErr != nil {
 					return w.finish(ctx, fmt.Errorf("park research graph at %q: %w", node.Name, parkErr))
 				}
 				opts.Logger.Info("research graph parked for its next stage",
@@ -137,14 +140,10 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			w.process = step.Activity.ProcessResult
 		}
 		if err != nil {
-			return w.finish(ctx, err)
+			return w.finish(ctx, w.failed(ctx, scope, step, err, true))
 		}
 		if step.Status == store.GraphFailed {
-			cause := errors.New(step.Activity.Diagnostic)
-			if policy.NodeProtocol != nil {
-				return w.finish(ctx, cause)
-			}
-			return w.finish(ctx, errors.Join(cause, w.publishFailure(ctx, scope, step, cause)))
+			return w.finish(ctx, w.failed(ctx, scope, step, errors.New(step.Activity.Diagnostic), false))
 		}
 		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" {
 			return w.finish(ctx, nil)
@@ -165,8 +164,8 @@ type researchWorkflow struct {
 }
 
 func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a ActivityRequest) (ResearchInvocation, error) {
-	if w.policy.NodeProtocol != nil {
-		return w.policy.NodeProtocol.Prepare(ctx, w, a)
+	if w.policy.Handlers != nil {
+		return w.policy.Handlers.Prepare(ctx, w, a)
 	}
 	prep := w.prep
 	if prep == nil || prep.run.ID != a.RunID {
@@ -209,47 +208,19 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 		}
 	}
 	w.artifactSession = sessionPath
-	p, spec, err := prepareMCP(ctx, prep, req, nil)
+	route, err := w.openResultRoute(ctx, &req, nil)
 	if err != nil {
 		return ResearchInvocation{}, err
 	}
-	closeWithError := func(err error) (ResearchInvocation, error) {
-		return ResearchInvocation{}, errors.Join(err, p.close(context.WithoutCancel(ctx)))
-	}
-	if host, ok := prep.runner.(interface{ SupportsMCP() bool }); ok && host.SupportsMCP() && !w.opts.MCP.DisableMCP {
-		req.MCPLaunch = spec
-	}
-	guidance, err := mcpGuidance(ctx, req.MCPLaunch, p.service, nil)
+	saved, err := WorkflowReplyContext(ctx, w.opts.DB, a.InstanceID, a.NodeAttemptID, route.scope, w.policy)
 	if err != nil {
-		return closeWithError(err)
+		return ResearchInvocation{}, route.abort(ctx, err)
 	}
-	scope, err := p.service.trustedContext(ctx)
+	predecessor, err := w.predecessorContext(ctx, route.scope)
 	if err != nil {
-		return closeWithError(err)
+		return ResearchInvocation{}, route.abort(ctx, err)
 	}
-	saved, err := WorkflowReplyContext(ctx, w.opts.DB, a.InstanceID, a.NodeAttemptID, scope, w.policy)
-	if err != nil {
-		return closeWithError(err)
-	}
-	predecessor, err := w.predecessorContext(ctx, scope)
-	if err != nil {
-		return closeWithError(err)
-	}
-	suffix := "\nFactory supplied session artifact directory: " + sessionPath + "\n" + saved + predecessor + guidance
-	req.Prompt += suffix
-	beforeRoute := len(req.Prompt)
-	if err := p.bindFinalRoute(ctx, &req, nil); err != nil {
-		return closeWithError(err)
-	}
-	coldInput := prep.promptInput
-	coldInput.Resume = false
-	coldPrompt, err := harness.BuildPrompt(coldInput)
-	if err != nil {
-		return closeWithError(err)
-	}
-	cold := req
-	cold.Prompt = coldPrompt + suffix + req.Prompt[beforeRoute:]
-	return ResearchInvocation{Request: req, ColdRequest: &cold, Kind: w.req.Agent, Observe: func(actual agent.Request) { prep.request = actual; prep.prompt = actual.Prompt }, SessionPath: sessionPath, Results: p.service, Close: func() error { return p.closeTransports(context.WithoutCancel(ctx)) }, Release: func() error { return w.opts.DB.EndResultAttempt(context.WithoutCancel(ctx), p.service.Binding()) }}, nil
+	return w.finishRoute(ctx, route, &req, "\nFactory supplied session artifact directory: "+sessionPath+"\n"+saved+predecessor, sessionPath)
 }
 
 func (w *researchWorkflow) predecessorContext(ctx context.Context, scope agentresult.Context) (string, error) {
@@ -355,8 +326,8 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 		return out, cause
 	}
 	bookkeeping := context.WithoutCancel(ctx)
-	if cause == nil && w.policy.NodeProtocol != nil && w.policy.NodeProtocol.BeforeSave != nil {
-		cause = w.policy.NodeProtocol.BeforeSave(ctx, w)
+	if cause == nil && w.policy.Handlers != nil && w.policy.Handlers.BeforeSave != nil {
+		cause = w.policy.Handlers.BeforeSave(ctx, w)
 	}
 	out.Disposition = DispositionRan
 	out.Harness = w.process
@@ -392,8 +363,8 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 	out.Run = run
 	if cause == nil && w.process != nil && w.process.Succeeded() {
 		out = save(bookkeeping, w.opts, w.prep, out, w.process, w.opts.Logger)
-		if out.Err == nil && w.policy.NodeProtocol != nil && w.policy.NodeProtocol.AfterSave != nil {
-			out.Err = w.policy.NodeProtocol.AfterSave(bookkeeping, w, &out)
+		if out.Err == nil && w.policy.Handlers != nil && w.policy.Handlers.AfterSave != nil {
+			out.Err = w.policy.Handlers.AfterSave(bookkeeping, w, &out)
 		}
 	}
 	state := store.SessionIdle

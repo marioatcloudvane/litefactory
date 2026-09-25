@@ -159,7 +159,16 @@ func mcpApplicationExample(ctx context.Context, service *AgentResultService) (co
 	case "spike":
 		r.Payload.Spike = &agentresult.Spike{Request: "Describe the bounded exploration."}
 	case "plan":
-		r.Payload.Plan = &agentresult.Plan{Summary: "Describe current planning discussion."}
+		// An unreadable context falls back to the legacy example: the example is
+		// illustrative, and authority is judged where the result is submitted.
+		if c, contextErr := service.trustedContext(ctx); contextErr == nil && c.PlanGraph != nil {
+			// A graph Plan asks with questions and no story branch. The done shape
+			// (storyrequest or storyset) is in the node-result contract.
+			r.Payload.Plan = &agentresult.Plan{}
+			r.Questions = []agentresult.Question{{ID: "q-1", Audience: "business", Text: "Replace with the question that blocks the story."}}
+		} else {
+			r.Payload.Plan = &agentresult.Plan{Summary: "Describe current planning discussion."}
+		}
 	case "implement":
 		r.Payload.Implement = &agentresult.Implement{}
 	case "validate":

@@ -21,6 +21,9 @@ type PlanState struct {
 	ConsumedReplies   []int64          `json:"consumed_replies,omitempty"`
 	PublishedRevision string           `json:"published_revision,omitempty"`
 	SavedRevision     string           `json:"saved_revision,omitempty"`
+	// StorySet is the proposed or promoted story set. It is absent in a Plan saved
+	// before story sets existed, and in one whose scope needed no decomposition.
+	StorySet *PlanStorySetState `json:"story_set,omitempty"`
 }
 
 // PlanStoryState retains one story's current stage, candidate and owner gates.
@@ -196,6 +199,15 @@ func (s *PlanState) Invalidate(key, stage, hold string) {
 	for i := range s.Stories {
 		st := &s.Stories[i]
 		if !affected[st.Key] {
+			continue
+		}
+		// A dependant that has not reached the invalidated stage holds nothing
+		// from it: no approval to drop and no review that the change outdates.
+		// Moving it forward to that stage would skip its own earlier review, and
+		// clearing its wait would lose the request the owner is answering, so
+		// an unrelated story waiting at an earlier stage stays exactly as it is.
+		// Unknown impact (a hold) still applies to every dependant.
+		if st.Key != key && hold == "" && slices.Index(planStages, st.Stage) < from {
 			continue
 		}
 		for _, phase := range planStages[from:] {

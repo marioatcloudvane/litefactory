@@ -336,6 +336,9 @@ func TestUpdate_SchemaParity(t *testing.T) {
 			expected[target.Field] = true
 		}
 	}
+	for _, target := range ar.PlanGraphEditTargets() {
+		expected[target.Field] = true
+	}
 	if !reflect.DeepEqual(seen, expected) {
 		t.Fatal("schema edit matrix differs from Go")
 	}

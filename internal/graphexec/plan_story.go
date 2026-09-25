@@ -59,46 +59,113 @@ func ParsePlanStoryRequest(data []byte) (PlanStoryRequest, error) {
 	return r, nil
 }
 
-// Validate checks operation shape independently from factory authorization.
+// PlanStoryFault is one refused request field with the correction to make. Field
+// is the JSON member name the correction concerns, so a caller can point at it.
+type PlanStoryFault struct {
+	Field   string
+	Message string
+}
+
+// Validate checks operation shape independently from factory authorization. It
+// reports every fault at once, joined in field order, so one correction pass can
+// fix them all.
 func (r PlanStoryRequest) Validate() error {
-	if !slices.Contains([]string{"create", "update", "retire"}, r.Operation) || !slices.Contains([]string{"story", "technical", "acceptance"}, r.Stage) {
-		return errors.New("unsupported Plan story operation or stage")
+	faults := r.Faults()
+	if len(faults) == 0 {
+		return nil
 	}
-	for _, ref := range append([]string{r.RequestID, r.Candidate, r.SharedRevision}, r.Upstream...) {
-		if strings.TrimSpace(ref) == "" || len(ref) > 256 {
-			return errors.New("bounded nonempty request/candidate/shared/upstream references required")
+	messages := make([]string, len(faults))
+	for i, f := range faults {
+		messages[i] = f.Message
+	}
+	return errors.New(strings.Join(messages, "; "))
+}
+
+// Faults returns the shape faults of a complete request, each naming the field
+// to correct. Nothing is returned for a request the effect owner may accept.
+func (r PlanStoryRequest) Faults() []PlanStoryFault {
+	var faults []PlanStoryFault
+	fault := func(field, format string, args ...any) {
+		faults = append(faults, PlanStoryFault{Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	operationKnown := slices.Contains([]string{"create", "update", "retire"}, r.Operation)
+	stageKnown := slices.Contains([]string{"story", "technical", "acceptance"}, r.Stage)
+	if !operationKnown {
+		fault("operation", "unsupported Plan story operation or stage: operation must be create, update or retire")
+	}
+	if !stageKnown {
+		fault("stage", "unsupported Plan story operation or stage: stage must be story, technical or acceptance")
+	}
+	refs := []struct{ field, value string }{{"request_id", r.RequestID}, {"candidate", r.Candidate}, {"shared_revision", r.SharedRevision}}
+	for _, u := range r.Upstream {
+		refs = append(refs, struct{ field, value string }{"upstream", u})
+	}
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.value) == "" || len(ref.value) > 256 {
+			fault(ref.field, "bounded nonempty request/candidate/shared/upstream references required: %s is blank or over 256 bytes", ref.field)
 		}
 	}
 	if len(r.Upstream) > 100 || len(r.ChangedSections) > 9 || len(r.Replacements) > 100 {
-		return errors.New("plan story references exceed bounds")
+		fault("changed_sections", "plan story references exceed bounds")
+	}
+	if !operationKnown {
+		return faults
 	}
 	if r.Operation != "create" && len(r.ExpectedRevision) != 64 {
-		return errors.New("update/retire requires expected content revision")
+		fault("expected_revision", "update/retire requires expected content revision: set expected_revision to the 64-character revision of the story being changed")
 	}
-	if r.Operation == "create" && (r.ExpectedRevision != "" || len(r.ChangedSections) > 0 || r.Stage != "story") {
-		return errors.New("create requires an initial story candidate")
+	if r.Operation == "create" {
+		// Three separate messages, because each names a different field and a
+		// different correction. One shared sentence told the agent nothing about
+		// which of its fields to remove.
+		if len(r.ChangedSections) > 0 {
+			fault("changed_sections", "create must not carry changed_sections: remove changed_sections; a section list is valid only when updating an existing story")
+		}
+		if r.ExpectedRevision != "" {
+			fault("expected_revision", "create must not carry expected_revision: remove expected_revision; a new story has no revision to expect")
+		}
+		if stageKnown && r.Stage != "story" {
+			fault("stage", "create is valid only at the story stage, but the stage is %q: use operation update to change an existing story at this stage", r.Stage)
+		}
 	}
 	if r.Operation != "retire" && len(r.Replacements) > 0 {
-		return errors.New("replacement references require retirement")
+		fault("replacements", "replacement references require retirement: remove replacements or use operation retire")
 	}
 	if r.Operation == "retire" && len(r.ChangedSections) > 0 {
-		return errors.New("retirement cannot edit candidate content")
+		fault("changed_sections", "retirement cannot edit candidate content: remove changed_sections")
 	}
 	seen := map[string]bool{}
 	for _, v := range r.Upstream {
 		if seen[v] {
-			return fmt.Errorf("duplicate upstream %q", v)
+			fault("upstream", "duplicate upstream %q", v)
 		}
 		seen[v] = true
 	}
 	seen = map[string]bool{}
 	for _, key := range r.Replacements {
 		if strings.TrimSpace(key) == "" || len(key) > 256 || seen[key] {
-			return errors.New("invalid or duplicate replacement")
+			fault("replacements", "invalid or duplicate replacement")
 		}
 		seen[key] = true
 	}
-	return nil
+	return faults
+}
+
+// PlanSectionFaults applies the per-stage authority over changed sections: the
+// story role may touch only intent, dependencies and conversation, and the
+// technical role may not touch criteria or tasks. Section names themselves are
+// checked when the change is merged.
+func PlanSectionFaults(stage string, sections []string) []PlanStoryFault {
+	var faults []PlanStoryFault
+	for _, section := range sections {
+		if stage == "story" && section != "intent" && section != "dependencies" && section != "conversation" {
+			faults = append(faults, PlanStoryFault{Field: "changed_sections", Message: fmt.Sprintf("story role cannot author later-stage sections: remove %q from changed_sections (the story stage may change intent, dependencies and conversation)", section)})
+		}
+		if stage == "technical" && (section == "criteria" || section == "tasks") {
+			faults = append(faults, PlanStoryFault{Field: "changed_sections", Message: fmt.Sprintf("technical role cannot author acceptance sections: remove %q from changed_sections", section)})
+		}
+	}
+	return faults
 }
 
 // Reject duplicate object members at every depth rather than accepting the

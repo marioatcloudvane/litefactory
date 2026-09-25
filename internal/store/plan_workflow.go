@@ -15,6 +15,13 @@ import (
 // work into a story set and meets the shared agent standard (#377); its first
 // real run created a single story for a multi-story scope. Sessions already
 // admitted keep their route, and an admitted route never changes on reply.
+//
+// The hold-back stays after the three #377 stories (shared result route, agent
+// standard, story set) have landed. Two parent obligations remain unsatisfied
+// and are recorded in the #377 plan brief: (1) an owner-run real graph Plan
+// tryout on a multi-deliverable parent, and (2) a subsequent, separately
+// owner-approved change that lifts this hold-back and is verified against real
+// new-session admission. Offline fake-agent tests satisfy neither.
 func (db *DB) AdmitPlanPath(ctx context.Context, sessionID int64) (string, error) {
 	return db.AdmitPlanWorkflowPath(ctx, sessionID, "legacy")
 }

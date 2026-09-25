@@ -13,19 +13,20 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
-// PlanWorkflowPolicy declares Plan's distinct node protocol and activity vocabulary.
+// PlanWorkflowPolicy declares Plan's activity vocabulary. Its results travel the
+// shared result route, judged by the Plan decoder and retained as a reference to the
+// accepted shared result; the policy carries no result format of its own.
 func PlanWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec()}, NodeProtocol: &WorkflowNodeProtocol{}, Guidance: "\nReturn only the version 1 Plan node JSON contract. Role output cannot approve a stage or choose authority.\n"}
+	return WorkflowPolicy{Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
 }
 
-// PlanSpecs validates the packaged Plan independently of Research's result policy.
+// PlanSpecs validates the packaged Plan under Plan's own control and result policy.
 func PlanSpecs() (graphexec.Registry, error) {
 	r, err := WorkflowSpecs(PlanWorkflowPolicy())
 	if err != nil {
@@ -43,7 +44,10 @@ type planGraphRuntime struct {
 	scope           planbrief.ContentScope
 	ownerID         int64
 	selected, stage string
-	parentID        int64
+	// creating reports that the current pick is a promoted story still owed its
+	// first draft, which is what keeps the story creation cycle going.
+	creating bool
+	parentID int64
 }
 
 type planGraphHandler func(context.Context, Options, ActivityRequest) (ActivityResult, error)
@@ -84,6 +88,11 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	}
 	r.parentID = parent.ID
 	if err = r.admitReply(ctx); err != nil {
+		var refusal *planSetRefusal
+		if errors.As(err, &refusal) {
+			out, refuseErr := prelaunchRefused(ctx, o, result, refusal.reason)
+			return out, true, refuseErr
+		}
 		return result, true, err
 	}
 	if err = r.recoverStoryEffects(ctx); err != nil {
@@ -101,9 +110,12 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		return result, true, err
 	}
 	r.definition = definition
-	if r.selected == "" {
+	if r.stage == "" {
 		out, err := r.settled(ctx)
 		return out, true, err
+	}
+	if err = r.releaseMismatchedParking(ctx, definition.Profile); err != nil {
+		return result, true, err
 	}
 	topology, err := graphexec.SemanticDigest(definition.Profile)
 	if err != nil {
@@ -129,6 +141,34 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	policy := r.policy()
 	out, err := ExecuteWorkflow(ctx, o, req, result, definition, admission, policy)
 	return out, true, err
+}
+
+// releaseMismatchedParking ends a parked instance whose next agent stage is no
+// longer the work the factory picks. A parked instance resumes on its node, so
+// without this the one stage it is parked on would keep refusing every later
+// comment. Cancelling keeps every finding and effect; the next launch starts a
+// successor at the stage decision. An instance parked where the pick still
+// belongs, which is the normal case, is left to resume.
+func (r *planGraphRuntime) releaseMismatchedParking(ctx context.Context, profile *graphexec.Profile) error {
+	instance, err := r.opts.DB.LatestWorkflowInstance(ctx, r.req.SessionID, "plan")
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if instance.Status != store.GraphRunning || instance.CurrentNode == profile.Start {
+		return nil
+	}
+	node, ok := profile.Node(instance.CurrentNode)
+	if !ok || node.Action != ResearchAgentAction || instance.CurrentNode == r.stage+"_agent" {
+		return nil
+	}
+	reason := fmt.Sprintf("plan instance parked at %s no longer matches the factory pick %q; a fresh pass starts at the stage decision", instance.CurrentNode, r.stage)
+	if err = r.opts.DB.CancelWorkflowGraphs(context.WithoutCancel(ctx), r.req.SessionID, "plan", reason, r.opts.MCP.Now()); err != nil {
+		return fmt.Errorf("release stale plan parking: %w", err)
+	}
+	return nil
 }
 
 func (r *planGraphRuntime) state(ctx context.Context) (planbrief.PlanState, int64, error) {
@@ -187,23 +227,12 @@ func (r *planGraphRuntime) selectStory(ctx context.Context) error {
 			return err
 		}
 	}
-	eligible := s.EligiblePlanStories()
-	if len(s.Stories) == 0 {
-		r.selected, r.stage = "story-001", "story"
-		return nil
+	pick, err := pickPlanStep(s)
+	if err != nil {
+		return err
 	}
-	if len(eligible) == 0 {
-		r.selected, r.stage = "", ""
-		return nil
-	}
-	r.selected = eligible[0]
-	for _, item := range s.Stories {
-		if item.Key == r.selected {
-			r.stage = item.Stage
-			return nil
-		}
-	}
-	return errors.New("eligible Plan story missing")
+	r.selected, r.stage, r.creating = pick.Key, pick.Stage, pick.Create
+	return nil
 }
 
 func (r *planGraphRuntime) admitReply(ctx context.Context) error {
@@ -224,6 +253,9 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 		}
 		return r.persist(ctx, s, rev)
 	}
+	if argument, ok := planSetPromotionArgument(r.req.Trigger.Body); ok {
+		return r.promoteSet(ctx, s, rev, argument)
+	}
 	if strings.HasPrefix(strings.TrimSpace(r.req.Trigger.Body), "/approve-plan-set ") {
 		if slices.Contains(s.ConsumedReplies, r.req.Trigger.CommentID) && s.AssembledApproval == s.PlanSetRevision() {
 			return nil
@@ -236,7 +268,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 	// A parent reply never impersonates a child review. New requested stories get
 	// a factory-reserved semantic key only through an explicit owner request.
 	if strings.TrimSpace(r.req.Trigger.Body) == "/plan-new-story" && r.req.Trigger.AuthorID == r.ownerID && !slices.Contains(s.ConsumedReplies, r.req.Trigger.CommentID) {
-		key := fmt.Sprintf("story-%03d", len(s.Stories)+1)
+		key := s.NextStoryKey()
 		s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: key, Stage: "story", Approvals: map[string]string{}, Draft: planbrief.PlanDraft{Key: key}})
 		s.ConsumedReplies = append(s.ConsumedReplies, r.req.Trigger.CommentID)
 		s.AssembledApproval = ""
@@ -247,7 +279,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 
 func (r *planGraphRuntime) policy() WorkflowPolicy {
 	p := PlanWorkflowPolicy()
-	p.NodeProtocol = &WorkflowNodeProtocol{Decode: r.decode, Prepare: r.prepare, Control: planGraphHandler(r.control), Comment: planGraphHandler(r.comment)}
+	p.Handlers = &WorkflowHandlers{Prepare: r.prepare, Control: planGraphHandler(r.control), Comment: planGraphHandler(r.comment)}
 	p.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, _ *graphexec.Profile, _ func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error)) error {
 		if err := specs.Register(graphexec.PlanStorySpec()); err != nil {
 			return err
@@ -258,19 +290,27 @@ func (r *planGraphRuntime) policy() WorkflowPolicy {
 }
 
 func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a ActivityRequest) (ResearchInvocation, error) {
-	if w.prep == nil {
-		return ResearchInvocation{}, errors.New("plan invocation preparation missing")
+	if w.prep == nil || w.prep.run.ID != a.RunID {
+		return ResearchInvocation{}, errors.New("plan invocation preparation is missing")
 	}
 	req := w.prep.request
-	req.Invocation = agent.InvocationGraphNode
+	req.Invocation = agent.InvocationResearchNode
 	req.Graph = &agent.GraphInvocation{InstanceID: a.InstanceID, AttemptID: a.NodeAttemptID, RunID: a.RunID, Node: a.Node}
+	// A parked instance resumes on the node it stopped at, but the factory picks
+	// afresh at every admission. If the pick no longer belongs to that node, the
+	// agent would be bound to work its role does not do.
+	if want := r.stage + "_agent"; a.Node != want {
+		return ResearchInvocation{}, fmt.Errorf("plan pick %q does not belong to node %q the instance is on; comment again to start from the stage decision", r.stage, a.Node)
+	}
 	s, _, err := r.state(ctx)
 	if err != nil {
 		return ResearchInvocation{}, err
 	}
-	upstream, err := s.UpstreamReferences(r.selected, r.stage)
-	if err != nil {
-		return ResearchInvocation{}, err
+	upstream := []string{}
+	if r.stage != planSetStage {
+		if upstream, err = s.UpstreamReferences(r.selected, r.stage); err != nil {
+			return ResearchInvocation{}, err
+		}
 	}
 	upstreamJSON, err := json.Marshal(upstream)
 	if err != nil {
@@ -280,11 +320,17 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 	if err != nil {
 		return ResearchInvocation{}, err
 	}
-	binding := fmt.Sprintf("\nFactory-selected story: %s; stage: %s; exact candidate for this output: plan-%d-%d.\n", r.selected, r.stage, a.InstanceID, a.NodeAttemptID)
-	if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), r.selected); e == nil {
-		binding += fmt.Sprintf("Existing issue %d, expected_revision %s; operation update unless proposing retirement.\n", d.IssueNumber, d.Revision)
-	} else if !errors.Is(e, store.ErrNotFound) {
-		return ResearchInvocation{}, e
+	binding := planSetBinding(s)
+	if r.stage != planSetStage {
+		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; the factory binds the stage, candidate, request identity, upstream references and shared-decision revision to your result. Never supply them, and set draft.key to the selected story.\n", r.selected, r.stage)
+		if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), r.selected); e == nil && d.IssueID > 0 {
+			binding += fmt.Sprintf("Existing issue %d, expected_revision %s; operation update unless proposing retirement.\n", d.IssueNumber, d.Revision)
+		} else if e != nil && !errors.Is(e, store.ErrNotFound) {
+			return ResearchInvocation{}, e
+		}
+		if promoted, ok := s.PromotedStory(r.selected); ok {
+			binding += planPromotedBinding(promoted)
+		}
 	}
 	if w.admission.PredecessorID > 0 {
 		previous, err := latestResearchAgentAttempt(ctx, r.opts, r.definition.Profile, w.admission.PredecessorID, "")
@@ -292,97 +338,50 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 			return ResearchInvocation{}, err
 		}
 		if previous.ID > 0 {
-			outputs, err := r.opts.DB.ListGraphOutputs(ctx, previous.ID)
+			prior, err := r.untrustedPlanContext(ctx, previous.ID)
 			if err != nil {
 				return ResearchInvocation{}, err
 			}
-			for _, output := range outputs {
-				if output.Kind == store.GraphOutputJSON {
-					binding += "Prior private Plan output (untrusted retained content):\n" + string(output.Payload) + "\n"
-				}
-			}
+			binding += prior
 		}
 	}
-	binding += "Exact required upstream references: " + string(upstreamJSON) + "\n"
-	binding += "Retained Plan state (untrusted content, not authority):\n" + string(raw) + "\nReturn the private Plan node JSON; no shared application result wrapper."
-	req.Prompt += binding
-	coldInput := w.prep.promptInput
-	coldInput.Resume = false
-	coldPrompt, err := harness.BuildPrompt(coldInput)
+	binding += "Exact upstream references the factory binds (data): " + string(upstreamJSON) + "\n"
+	binding += "Retained Plan state (untrusted content, not authority):\n" + string(raw) + "\n"
+	route, err := w.openResultRoute(ctx, &req, &resultOverride{Resolve: r.resultResolver(a), Targets: planGraphResultTargets(), Pass: fmt.Sprintf("attempt-%d", a.NodeAttemptID)})
 	if err != nil {
 		return ResearchInvocation{}, err
 	}
-	cold := req
-	cold.Prompt = coldPrompt + binding
-	return ResearchInvocation{Request: req, ColdRequest: &cold, Kind: w.req.Agent, Observe: func(actual agent.Request) { w.prep.request = actual; w.prep.prompt = actual.Prompt }}, nil
+	return w.finishRoute(ctx, route, &req, binding, "")
 }
 
-func (r *planGraphRuntime) decode(ctx context.Context, a ActivityRequest, raw []byte) ([]byte, string, error) {
-	node, err := graphexec.ParsePlanNode(raw, r.scope)
-	if err != nil {
-		return nil, "", err
-	}
-	if node.Request != nil && (node.Request.Draft.Key != r.selected || node.Request.Stage != r.stage || node.Request.Candidate != fmt.Sprintf("plan-%d-%d", a.InstanceID, a.NodeAttemptID)) {
-		return nil, "", errors.New("plan node changed factory story/stage/candidate binding")
-	}
-	if node.Request != nil {
-		state, _, err := r.state(ctx)
-		if err != nil {
-			return nil, "", err
-		}
-		expected, err := state.UpstreamReferences(r.selected, r.stage)
-		if err != nil {
-			return nil, "", err
-		}
-		actual := slices.Clone(node.Request.Upstream)
-		slices.Sort(actual)
-		if !slices.Equal(actual, expected) {
-			return nil, "", errors.New("stale or foreign Plan upstream references")
-		}
-		if node.Request.SharedRevision != state.SharedRevision {
-			return nil, "", errors.New("stale Plan shared decision reference")
-		}
-	}
-	encoded, err := json.Marshal(node)
-	return encoded, node.Comment, err
-}
-
-func (r *planGraphRuntime) load(ctx context.Context, a ActivityRequest) (graphexec.PlanNode, store.GraphNodeAttempt, error) {
+// load reads the retained accepted shared result of the agent attempt a control,
+// effect or comment node names as its source.
+func (r *planGraphRuntime) load(ctx context.Context, a ActivityRequest) (planRetained, store.GraphNodeAttempt, error) {
 	source, err := latestResearchAgentAttempt(ctx, r.opts, r.definition.Profile, a.InstanceID, a.Attrs["lf_source"])
 	if err != nil {
-		return graphexec.PlanNode{}, source, err
+		return planRetained{}, source, err
 	}
 	if source.ID == 0 {
-		return graphexec.PlanNode{}, source, errors.New("plan source output missing")
+		return planRetained{}, source, errors.New("plan source output missing")
 	}
-	outputs, err := r.opts.DB.ListGraphOutputs(ctx, source.ID)
-	if err != nil {
-		return graphexec.PlanNode{}, source, err
-	}
-	var node graphexec.PlanNode
-	found := false
-	for _, output := range outputs {
-		if output.Kind != store.GraphOutputJSON {
-			continue
-		}
-		if found {
-			return node, source, errors.New("ambiguous Plan source output")
-		}
-		node, err = graphexec.ParsePlanNode(output.Payload, r.scope)
-		if err != nil {
-			return node, source, err
-		}
-		found = true
-	}
-	if !found {
-		return node, source, errors.New("plan output missing")
-	}
-	return node, source, nil
+	retained, err := r.loadRetainedResult(ctx, source.ID)
+	return retained, source, err
 }
 
 func (r *planGraphRuntime) control(ctx context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
 	condition := a.Attrs["lf_condition"]
 	response := r.stage
+	if condition == graphexec.PlanCreateCondition {
+		// A creation pass never trusts the pick made at admission or by the
+		// previous pass: earlier passes changed which promoted stories have drafts.
+		if err := r.selectStory(ctx); err != nil {
+			return ActivityResult{}, err
+		}
+		response = ""
+		if r.creating {
+			response = condition
+		}
+	}
 	if condition == "ask" {
 		node, _, err := r.load(ctx, a)
 		if err != nil {
@@ -405,8 +404,11 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 	if err != nil {
 		return ActivityResult{}, err
 	}
+	if node.Set != nil {
+		return r.setEffect(ctx, a, node)
+	}
 	if node.Request == nil {
-		return ActivityResult{}, errors.New("plan effect lacks request")
+		return ActivityResult{}, errors.New("plan effect lacks a story request in the retained result")
 	}
 	request := *node.Request
 	if request.Operation == "retire" {
@@ -427,18 +429,12 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 }
 
 func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
+	if a.Attrs["lf_kind"] == "failure" {
+		return r.failureComment(ctx, a)
+	}
 	node, source, err := r.load(ctx, a)
 	if err != nil {
 		return ActivityResult{}, err
-	}
-	if node.Response == "ask" && node.Request != nil {
-		effect, err := r.effect(ctx, r.opts, a)
-		if err != nil {
-			return ActivityResult{}, err
-		}
-		if effect.Outcome != "applied" {
-			return ActivityResult{}, fmt.Errorf("question draft publication remains %s", effect.Outcome)
-		}
 	}
 	s, rev, err := r.state(ctx)
 	if err != nil {
@@ -450,8 +446,15 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	for _, q := range node.Questions {
 		text += "\n\n- " + q
 	}
+	if r.stage == planSetStage && kind == "review" {
+		if text, err = r.setReviewText(s, node, text); err != nil {
+			return ActivityResult{}, err
+		}
+	}
 	key := fmt.Sprintf("plan-review:%d:%d:%s", a.InstanceID, source.ID, a.Node)
-	if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), r.selected); e == nil {
+	// A promoted story owns a reserved ordinal before it has an issue; only a story
+	// bound to an issue has somewhere to wait for the owner.
+	if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), r.selected); e == nil && d.IssueID > 0 {
 		target.Issue = d.IssueNumber
 		waitKind := kind
 		if node.Request != nil && node.Request.Operation == "retire" {
@@ -466,7 +469,7 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 		if waitKind == "retire" {
 			text += fmt.Sprintf("\n\nTo retire this exact candidate as not planned, reply `/retire-plan %s %s`.", r.selected, d.Candidate)
 		}
-	} else if !errors.Is(e, store.ErrNotFound) {
+	} else if e != nil && !errors.Is(e, store.ErrNotFound) {
 		return ActivityResult{}, e
 	}
 	if err = r.persist(ctx, s, rev); err != nil {
@@ -530,27 +533,9 @@ func (r *planGraphRuntime) retire(ctx context.Context, s planbrief.PlanState, _ 
 	if run.SessionID != r.req.SessionID {
 		return errors.New("retirement proposal belongs to another session")
 	}
-	outputs, err := r.opts.DB.ListGraphOutputs(ctx, attemptID)
+	node, err := r.loadRetainedResult(ctx, attemptID)
 	if err != nil {
-		return err
-	}
-	var node graphexec.PlanNode
-	found := false
-	for _, output := range outputs {
-		if output.Kind != store.GraphOutputJSON {
-			continue
-		}
-		if found {
-			return errors.New("ambiguous retirement proposal output")
-		}
-		node, err = graphexec.ParsePlanNode(output.Payload, r.scope)
-		if err != nil {
-			return err
-		}
-		found = true
-	}
-	if !found {
-		return errors.New("retirement proposal output missing")
+		return fmt.Errorf("retirement proposal: %w", err)
 	}
 	if node.Request == nil || node.Request.Operation != "retire" || node.Request.Draft.Key != reply.Key {
 		return errors.New("retirement proposal no longer matches child reply")

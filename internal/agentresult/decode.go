@@ -191,6 +191,11 @@ func Create(data []byte, ctx Context) (Result, Diagnostics) {
 			Recommendation *struct {
 				Action *string `json:"action"`
 			} `json:"recommendation"`
+			Payload struct {
+				Plan *struct {
+					StoryRequest map[string]json.RawMessage `json:"storyrequest"`
+				} `json:"plan"`
+			} `json:"payload"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(data, &presence); err != nil {
@@ -201,6 +206,16 @@ func Create(data []byte, ctx Context) (Result, Diagnostics) {
 	}
 	if presence.Result.Recommendation != nil && presence.Result.Recommendation.Action != nil && *presence.Result.Recommendation.Action == "" {
 		add(&d, "$.result.recommendation.action", "enum", "action.moveto.planmode or omitted", "empty action", "Omit unused optional actions.")
+	}
+	// Presence, not value: an empty or repeated factory-owned member is still one
+	// the agent tried to supply. Only graph Plan has them; legacy Plan refuses the
+	// whole branch elsewhere.
+	if ctx.PlanGraph != nil && presence.Result.Payload.Plan != nil {
+		for _, name := range planFactoryFields {
+			if _, supplied := presence.Result.Payload.Plan.StoryRequest[name]; supplied {
+				add(&d, "$.result.payload.plan.storyrequest."+name, "factory_owned", "member absent: the factory binds it", "supplied", "Remove "+name+": the factory fills stage, candidate, request identity, upstream references and shared-decision revision, and an agent never supplies them.")
+			}
+		}
 	}
 	finish(&d)
 	if !d.Valid {
@@ -240,5 +255,6 @@ func Assemble(r Result, meta Metadata, ctx Context) (Snapshot, Diagnostics) {
 		finish(&d)
 		return Snapshot{}, d
 	}
+	bindPlanGraph(&cloned, ctx)
 	return Snapshot{Meta: meta, Result: cloned}, d
 }

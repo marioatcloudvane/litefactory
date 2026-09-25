@@ -43,6 +43,15 @@ func IsGraphTrigger(id int64) bool { return id > graphTriggerBase && id < automa
 
 const graphDispatchColumns = `id,instance_id,session_id,node,due_at,status,allocated_run_id,reserved_at,finished_at,cancellation_reason,attempts,created_at`
 
+// GraphTriggerDispatch returns the dispatch a factory-private run identity was
+// allocated under, and false for any identity that is not a graph dispatch's.
+func GraphTriggerDispatch(id int64) (int64, bool) {
+	if !IsGraphTrigger(id) {
+		return 0, false
+	}
+	return id - graphTriggerBase, true
+}
+
 // ParkGraphInstance records that an instance stopped mid-graph with work left,
 // and schedules the run that will continue it. The instance keeps its current
 // node, so the next run resumes exactly where this one stopped.
@@ -50,6 +59,17 @@ const graphDispatchColumns = `id,instance_id,session_id,node,due_at,status,alloc
 // A second park while one is open is not an error: the open dispatch already
 // describes the same intent, and returning it keeps a retried turn idempotent.
 func (db *DB) ParkGraphInstance(ctx context.Context, instanceID int64, node string, dueAt, now time.Time) (GraphDispatch, error) {
+	return db.ParkGraphInstanceAfter(ctx, instanceID, node, dueAt, now, 0)
+}
+
+// ParkGraphInstanceAfter parks an instance from inside the run that a dispatch
+// allocated. That run's own dispatch is open until the run finishes, so a plain
+// park would find it, treat it as the intent already recorded and schedule
+// nothing: an instance with a third stage would then be stranded after its second.
+// The spent dispatch is closed in the same transaction that schedules the next, so
+// a crash between the two cannot lose the continuation. spent is zero for a run
+// that no dispatch allocated.
+func (db *DB) ParkGraphInstanceAfter(ctx context.Context, instanceID int64, node string, dueAt, now time.Time, spent int64) (GraphDispatch, error) {
 	var out GraphDispatch
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		instance, err := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, instanceID))
@@ -61,6 +81,11 @@ func (db *DB) ParkGraphInstance(ctx context.Context, instanceID int64, node stri
 		}
 		if instance.CurrentNode != node {
 			return graphInvariant("park disagrees with the instance's current node")
+		}
+		if spent > 0 {
+			if _, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='finished', finished_at=? WHERE id=? AND instance_id=? AND status IN ('reserved','running')`, FormatTime(now), spent, instanceID); err != nil {
+				return err
+			}
 		}
 		existing, err := scanGraphDispatch(tx.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE instance_id=? AND status IN ('pending','reserved','running')`, instanceID))
 		if err == nil {

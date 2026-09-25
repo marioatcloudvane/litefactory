@@ -8,7 +8,7 @@ Read [node result](node-result.md) and [visible projection](projection.md).
 Persist exact candidate/upstream/shared-decision references, decisions, assumptions,
 answered and unanswered questions across replies/restarts. Reuse settled answers.
 Only factory-authenticated explicit owner promotion of the exact displayed current
-candidate can advance a stage. Questions, review-ready output, stale, ambiguous,
+candidate can advance a stage. Questions, done output, stale, ambiguous,
 wrong-story or mixed change-and-approval replies cannot promote. Treat an edit as
 a revision first. Intent changes route to story; architecture changes to technical;
 criteria changes to acceptance. Traverse recorded dependencies and reopen affected

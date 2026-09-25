@@ -22,7 +22,7 @@ import (
 func planPackageRegistry(t *testing.T) graphexec.Registry {
 	t.Helper()
 	var r graphexec.Registry
-	policy := graphexec.ControlPolicy{Mode: agent.ModePlan, Responses: []string{"story", "technical", "acceptance", "ask", "review_ready", "approved"}}
+	policy := graphexec.PlanControlPolicy()
 	specs := []graphexec.ActionSpec{
 		{Name: "lf_agent", Mode: agent.ModePlan, Outcomes: []string{"success", "failed"}},
 		graphexec.ControlSpec("lf_if", policy), graphexec.ControlSpec("lf_loop", policy),
@@ -70,8 +70,14 @@ func TestPlanPackageClosureAndDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(definition.Nodes) != 3 || len(definition.Files) != 12 {
-		t.Fatalf("closure: %d roles, %d files", len(definition.Nodes), len(definition.Files))
+	agents := 0
+	for _, node := range definition.Profile.Nodes {
+		if node.Action == "lf_agent" {
+			agents++
+		}
+	}
+	if agents == 0 || len(definition.Nodes) != agents {
+		t.Fatalf("closure: %d roles for %d agent nodes", len(definition.Nodes), agents)
 	}
 	fixture := planPackageFixture(t)
 	if len(fixture) != len(definition.Files) {
@@ -162,9 +168,15 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, stage := range []string{"story", "technical", "acceptance"} {
+	for _, stage := range []string{"set", "story", "technical", "acceptance"} {
 		t.Run(stage, func(t *testing.T) {
-			cases := []struct{ node, outcome, want string }{{stage + "_loop", "false", "stopped"}, {stage + "_question", "true", stage + "_ask"}, {stage + "_draft", "applied", stage + "_gate"}, {stage + "_draft", "uncertain", "stopped"}, {stage + "_draft", "conflict", "stopped"}, {stage + "_gate", "false", stage + "_review"}, {stage + "_gate", "true", "promoted"}, {stage + "_review", "published", "waiting"}, {stage + "_ask", "published", "waiting"}}
+			// A story review hands on to the creation cycle's pick; every other
+			// review is a durable owner wait.
+			afterReview := "waiting"
+			if stage == "story" {
+				afterReview = "story_pick"
+			}
+			cases := []struct{ node, outcome, want string }{{stage + "_loop", "false", "stopped"}, {stage + "_question", "true", stage + "_ask"}, {stage + "_draft", "applied", stage + "_gate"}, {stage + "_draft", "uncertain", "failed"}, {stage + "_draft", "conflict", "failed"}, {stage + "_draft", "failed", "failed"}, {stage + "_agent", "failed", "failed"}, {stage + "_gate", "false", stage + "_review"}, {stage + "_gate", "true", "promoted"}, {stage + "_review", "published", afterReview}, {stage + "_ask", "published", "waiting"}}
 			for _, tt := range cases {
 				got, ok := graphexec.Decide(d.Profile, tt.node, tt.outcome)
 				if !ok || got != tt.want {
@@ -184,6 +196,51 @@ func TestPlanPackagePositiveGatesAndStoppedExhaustion(t *testing.T) {
 		if !node.Terminal && node.Limit <= 0 {
 			t.Errorf("unbounded activity %s", node.Name)
 		}
+	}
+}
+
+// The set stage, its owner wait and the story creation cycle are declared in the
+// graph definition file: the definition alone says where a session starts, how a
+// session that already has stories skips the set stage and when the cycle ends.
+func TestPlanPackageDeclaresSetStageAndCreationCycle(t *testing.T) {
+	t.Parallel()
+	d, err := CapturePlan(t.Context(), planPackageRegistry(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Profile.Start != "select_set" {
+		t.Fatalf("the set stage does not come first: start %q", d.Profile.Start)
+	}
+	for _, c := range []struct{ node, outcome, want string }{
+		{"select_set", "true", "set_loop"},
+		{"select_set", "false", "select_story"},
+		{"set_review", "published", "waiting"},
+		{"story_review", "published", "story_pick"},
+		{"story_pick", "true", "story_agent"},
+		{"story_pick", "false", "waiting"},
+	} {
+		if got, ok := graphexec.Decide(d.Profile, c.node, c.outcome); !ok || got != c.want {
+			t.Errorf("%s/%s=%q,%v want %s", c.node, c.outcome, got, ok, c.want)
+		}
+	}
+	for _, name := range []string{"select_set", "set_loop", "set_agent", "set_question", "set_draft", "set_gate", "set_ask", "set_review", "story_pick"} {
+		if _, ok := d.Profile.Node(name); !ok {
+			t.Errorf("node %s is not declared", name)
+		}
+	}
+	set, _ := d.Profile.Node("set_agent")
+	if _, captured := d.Nodes["set_agent"]; set.Attrs["lf_agent_markdown"] != "plan-set" || !captured {
+		t.Errorf("set stage lacks its captured role: %v", set.Attrs)
+	}
+	// Every node of the creation cycle carries the bound that covers a full set.
+	for _, name := range []string{"story_pick", "story_agent", "story_question", "story_draft", "story_gate", "story_review"} {
+		n, _ := d.Profile.Node(name)
+		if n.Limit < graphexec.PlanCreationBound {
+			t.Errorf("%s bound %d does not cover %d stories", name, n.Limit, planbrief.MaxPlanStorySetEntries)
+		}
+	}
+	if err := graphexec.ValidatePlanControlGraph(d.Profile); err != nil {
+		t.Fatalf("shipped graph fails the declared-structure check: %v", err)
 	}
 }
 
@@ -211,7 +268,7 @@ func TestPlanPackageNativeContracts(t *testing.T) {
 					seen[file.Path] = true
 					all.Write(file.Bytes)
 				}
-				for _, required := range []string{"plan-evidence", "node result", "review_ready", "proof_method", "lf_plan_story", "Architecture - General"} {
+				for _, required := range []string{"plan-evidence", "node result", "storyrequest", "proof_method", "lf_plan_story", "Architecture - General"} {
 					if !strings.Contains(all.String(), required) {
 						t.Errorf("native closure omitted %q", required)
 					}
@@ -304,7 +361,7 @@ func TestPlanPackageStageContractsAndResearchPreservation(t *testing.T) {
 		"plan-technical.md":                         {"technology-neutral", "reuse", "permissions", "invariants", "failure behavior", "advice cannot approve or retire", "Architecture - General"},
 		"plan-acceptance.md":                        {"stable explicit IDs", "future proof methods", "task-to-criterion links", "same third stage", "never a fourth stage", "not executed evidence", "active story set"},
 		"skills/plan-evidence/SKILL.md":             {"exact candidate/upstream/shared-decision", "Reuse settled answers", "mixed change-and-approval", "presentation-only", "independently", "Exhaustion", "never grants approval", "successful save", "never freeze implementation scope"},
-		"skills/plan-evidence/node-result.md":       {"version: integer 1", "ask or review_ready", "Unknown fields, duplicate object members", "missing required fields", "128 KiB", "at 32", "proof_method", "changed_sections"},
+		"skills/plan-evidence/node-result.md":       {"version: integer 1", "ask or done", "Unknown fields, duplicate object members", "missing required fields", "1 MiB", "proof_method", "changed_sections", "communication_preflight", "communication_submit", "communication_receipt", "<!-- example: positive", "<!-- example: negative", "<!-- walkthrough:", "never role output", "consistency evidence only", "stale_revision", "new request identity"},
 		"skills/plan-agent-setup-guidance/SKILL.md": {"role/skill responsibilities", "workflow contracts", "Do not force service/data layers", "Preserve settled instructions"},
 	}
 	for name, required := range obligations {
