@@ -39,7 +39,8 @@ func saveProposedSet(t *testing.T, f *fixture, entries []planbrief.PlanStorySetE
 
 func promoteTrigger(base Request, id, author int64, body string) Request {
 	base.Trigger = Trigger{CommentID: id, Body: body, Author: "someone", AuthorID: author}
-	base.Command = Command{Kind: KindFreeText, Text: body}
+	// The daemon parses the owner's comment; a promotion arrives as a Plan control.
+	base.Command = ParseCommand(body)
 	return base
 }
 
