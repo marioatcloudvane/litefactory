@@ -1,0 +1,18 @@
+version: 1
+phases:
+  regression:
+    commands:
+      - argv: [go, build, ./...]
+        timeout_seconds: 900
+      - argv: [go, test, ./...]
+        timeout_seconds: 2400
+  focused:
+    commands:
+      - argv: [go, vet, ./...]
+        timeout_seconds: 900
+      - argv: [golangci-lint, run]
+        timeout_seconds: 1200
+  full:
+    commands:
+      - argv: [go, test, -race, -timeout=0, ./...]
+        timeout_seconds: 3600
