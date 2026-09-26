@@ -82,3 +82,37 @@ Evidence:
 
 - `internal/teamsource/research/research.dot:45`
 - `internal/teamsource/bug/bug.dot:1`
+
+## f9
+
+The if step reads only the response word of an agent result, and each mode declares its own closed word list. A 'small fix or hand back' verdict therefore cannot be routed from a payload field; it needs a gate activity or an extra response word.
+
+Evidence:
+
+- `internal/graphexec/research_control.go:39`
+
+## f10
+
+A mode-specific activity is admitted only if its name starts with the workflow name. Spike's own activities must be named for Spike; Bug's check runner cannot be registered under Spike.
+
+Evidence:
+
+- `internal/graphexec/registry.go:38`
+
+## f11
+
+The document generation step is Research-only and the shared node decoder refuses any mode but Research or Plan. Spike needs its own note activity and decoder variant; the envelope itself is reused.
+
+Evidence:
+
+- `internal/turn/workflow_policy.go:45`
+- `internal/agentresult/research_node.go:75`
+
+## f12
+
+Bug already gives its two roles separate tool profiles, and Plan and Bug each supply a workflow policy object. This is the pattern Spike would follow for a read-only investigator and a write-capable fixer.
+
+Evidence:
+
+- `internal/agent/bug_permissions.go:8`
+- `internal/turn/workflow_policy.go:45`
