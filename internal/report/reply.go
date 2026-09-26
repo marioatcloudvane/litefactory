@@ -200,6 +200,13 @@ const (
 	ReplyCreationRejected
 	// ReplyCreationAccepted acknowledges durable creation consent.
 	ReplyCreationAccepted
+
+	// ReplyGraphReplyBetweenQuestions refuses an owner comment that was written
+	// while the Research workflow was working between two questions, before the
+	// question that is now open was published. It can never answer that
+	// question, so it is refused once, visibly, and consumed rather than
+	// retried forever. It is appended last so no existing kind is renumbered.
+	ReplyGraphReplyBetweenQuestions
 )
 
 // String renders the kind for logs and test failures.
@@ -277,6 +284,8 @@ func (k ReplyKind) String() string {
 		return "confirm_failed"
 	case ReplyAppliesResolution:
 		return "applies_resolution"
+	case ReplyGraphReplyBetweenQuestions:
+		return "graph_reply_between_questions"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -298,6 +307,8 @@ func (k ReplyKind) valid() bool {
 	case ReplyRefusesSync, ReplySuggestsResolution, ReplyRefusesSyncTooFarBehind:
 		return true
 	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
+		return true
+	case ReplyGraphReplyBetweenQuestions:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -331,10 +342,13 @@ func (k ReplyKind) IsConfirmationReply() bool {
 	}
 }
 
-// RefusesMode reports whether k is a mode-selection refusal.
+// RefusesMode reports whether k is a mode-selection refusal: a workflow
+// admission refusal delivered through the daemon's refuseMode path, which
+// consumes the comment only after the reply is confirmed. That includes
+// [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly:
+	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions:
 		return true
 	default:
 		return false
@@ -827,6 +841,10 @@ func (r Reply) body() string {
 		b.WriteString("This user story is locked after promotion to Implement. The approved scope is retained. Comment `replan` on the parent after the active run finishes to reopen Plan for unfinished stories. Completed stories remain completed; new scope requires a successor.")
 	case ReplyStoryPlanOnly:
 		b.WriteString("Story comments refine the parent plan only. Use the parent issue for workflow commands; nothing was run.")
+	case ReplyGraphReplyBetweenQuestions:
+		b.WriteString(graphReplyBetweenQuestionsSentence)
+		b.WriteString(sectionGap)
+		b.WriteString("If it still applies, please post it again as a reply to the open question.")
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")
 		b.WriteString(sectionGap)
@@ -1057,6 +1075,11 @@ func (r Reply) body() string {
 // will act on. It is a single constant so the replies cannot drift into
 // different accounts of the active command vocabulary.
 const onlyCommandSentence = "Litefactory accepts `/research`, `/plan`, `/implement`, `/validate`, `/spike`, and `/schedule`."
+
+// graphReplyBetweenQuestionsSentence is [ReplyGraphReplyBetweenQuestions]'s
+// explanation. It is a constant so tests can find the one reply by its words.
+const graphReplyBetweenQuestionsSentence = "This comment arrived while Research was still working, " +
+	"before its current question was posted, so it was not used and nothing was run for it."
 
 // confirmationPhraseText mirrors internal/confirm.Phrase verbatim. It is a
 // literal here rather than an import of that package, the same way
