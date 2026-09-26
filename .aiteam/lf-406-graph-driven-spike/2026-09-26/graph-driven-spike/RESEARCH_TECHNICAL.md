@@ -116,3 +116,30 @@ Evidence:
 
 - `internal/agent/bug_permissions.go:8`
 - `internal/turn/workflow_policy.go:45`
+
+## f13
+
+Plan hard-codes its stage and node names in a Go topology validator, so part of Plan's flow lives in Go. Spike must not copy that pattern if the DOT file is to lead.
+
+Evidence:
+
+- `internal/graphexec/plan_control.go:74`
+
+## f14
+
+The engine validates only attributes an action declares, against a closed list of values, and a graph may use a subset of an action's outcomes. So thresholds, access level and status can be declared in the DOT file, but numeric values must fit the closed list or the engine needs a small generic addition.
+
+Evidence:
+
+- `internal/graphexec/validate.go:132`
+- `internal/graphexec/validate.go:152`
+
+## f15
+
+Spike is woven through the product as a mode identity: about 50 non-test source files reference it, including the store schema, the daemon, the harness and reporting. Retiring the legacy route is feasible; removing the identity is a large migration.
+
+Evidence:
+
+- `internal/agent/workflow.go:14`
+- `internal/store/migrations/0001_init.sql:1`
+- `internal/daemon/mode.go:1`
