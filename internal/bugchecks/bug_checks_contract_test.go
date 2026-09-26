@@ -128,23 +128,32 @@ func TestBugChecksContractUnsupportedIsolation(t *testing.T) {
 func TestBugChecksContractSandboxProfile(t *testing.T) {
 	t.Parallel()
 	p := Isolation{WritableRoots: []string{"/cache/go-build"}, DenyRead: []string{"/Users/op/.litefactory", "/Users/op/.ssh"}}
-	args, err := p.sandboxArgs("/work/tree", "/tmp/lf-bug-check-1", "/work/tree/sub", "/usr/bin/make", []string{"make", "check", "-j2"})
+	args, err := p.sandboxArgs("/work/tree", "/var/tmp/lf-bug-check-1", "/private/tmp", "/work/tree/sub", "/usr/bin/make", []string{"make", "check", "-j2"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"sandbox", "-P", SandboxProfile,
-		"-c", "permissions." + SandboxProfile + `.filesystem={"/"="read","/work/tree"="write","/tmp/lf-bug-check-1"="write","/cache/go-build"="write","/Users/op/.litefactory"="none","/Users/op/.ssh"="none"}`,
+		"-c", "permissions." + SandboxProfile + `.filesystem={"/"="read","/work/tree"="write","/var/tmp/lf-bug-check-1"="write","/private/tmp"="write","/cache/go-build"="write","/Users/op/.litefactory"="none","/Users/op/.ssh"="none"}`,
 		"-c", "permissions." + SandboxProfile + ".network.enabled=false",
 		"-C", "/work/tree/sub", "--", "/usr/bin/make", "check", "-j2"}
 	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("sandbox args:\n got %q\nwant %q", args, want)
+	}
+	p.Network = true
+	args, err = p.sandboxArgs("/work/tree", "/var/tmp/lf-bug-check-1", "/private/tmp", "/work/tree", "/usr/bin/make", []string{"make"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "network.enabled=true") || !strings.Contains(joined, "network.allow_local_binding=true") {
+		t.Fatalf("network grant missing loopback binding: %q", args)
 	}
 	for name, bad := range map[string]Isolation{
 		"duplicate path":  {WritableRoots: []string{"/work/tree"}},
 		"write then deny": {WritableRoots: []string{"/c"}, DenyRead: []string{"/c"}},
 		"quote in path":   {DenyRead: []string{`/x"y`}},
 	} {
-		if _, err := bad.sandboxArgs("/work/tree", "/tmp/t", "/work/tree", "/usr/bin/make", []string{"make"}); err == nil {
+		if _, err := bad.sandboxArgs("/work/tree", "/var/tmp/t", "/private/tmp", "/work/tree", "/usr/bin/make", []string{"make"}); err == nil {
 			t.Errorf("%s: ambiguous sandbox profile built", name)
 		}
 	}

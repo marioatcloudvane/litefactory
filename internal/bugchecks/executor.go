@@ -34,8 +34,9 @@ const SandboxProfile = "lf-bug-checks"
 // command runs under the Codex sandbox (macOS Seatbelt, Linux Landlock) with
 // the same kind of containment the agents run under: the whole filesystem is
 // readable except DenyRead, writes are limited to the worktree, a private
-// temporary directory and WritableRoots, and the network is off. There is
-// deliberately no unisolated fallback.
+// temporary directory, the system /tmp (as in Codex's workspace-write) and
+// WritableRoots, and the network is off unless granted. There is deliberately
+// no unisolated fallback.
 type Isolation struct {
 	// Binary is the Codex CLI that applies the sandbox.
 	Binary        string
@@ -46,7 +47,11 @@ type Isolation struct {
 	// configuration and the caches WritableRoots opens.
 	Home        string
 	Environment map[string]string
-	Revision    string
+	// Network opens the network, loopback included. The sandbox has no
+	// loopback-only mode, and tests that start local servers need one; with it
+	// off, checks are fully offline.
+	Network  bool
+	Revision string
 }
 
 // CommandResult retains process completion, output capture and cleanup observations.
@@ -148,9 +153,13 @@ func sandboxPath(path string) bool {
 // sandboxArgs defines the per-command permission profile and the command.
 // Later entries in the filesystem table never widen a denied path: the
 // launcher refuses duplicate keys, so each path appears once.
-func (p Isolation) sandboxArgs(root, tmp, cwd, executable string, argv []string) ([]string, error) {
+func (p Isolation) sandboxArgs(root, tmp, sharedTmp, cwd, executable string, argv []string) ([]string, error) {
 	access := map[string]string{"/": "read", root: "write", tmp: "write"}
 	order := []string{"/", root, tmp}
+	if _, dup := access[sharedTmp]; sharedTmp != "" && !dup {
+		access[sharedTmp] = "write"
+		order = append(order, sharedTmp)
+	}
 	add := func(path, mode string) error {
 		if !sandboxPath(path) {
 			return fmt.Errorf("unsupported check sandbox path %q", path)
@@ -172,7 +181,7 @@ func (p Isolation) sandboxArgs(root, tmp, cwd, executable string, argv []string)
 			return nil, err
 		}
 	}
-	for _, path := range order[:3] {
+	for _, path := range order {
 		if !sandboxPath(path) {
 			return nil, fmt.Errorf("unsupported check sandbox path %q", path)
 		}
@@ -188,8 +197,11 @@ func (p Isolation) sandboxArgs(root, tmp, cwd, executable string, argv []string)
 	table.WriteString("}")
 	args := []string{"sandbox", "-P", SandboxProfile,
 		"-c", "permissions." + SandboxProfile + ".filesystem=" + table.String(),
-		"-c", "permissions." + SandboxProfile + ".network.enabled=false",
-		"-C", cwd, "--", executable}
+		"-c", fmt.Sprintf("permissions.%s.network.enabled=%t", SandboxProfile, p.Network)}
+	if p.Network {
+		args = append(args, "-c", "permissions."+SandboxProfile+".network.allow_local_binding=true")
+	}
+	args = append(args, "-C", cwd, "--", executable)
 	return append(args, argv[1:]...), nil
 }
 
@@ -324,7 +336,12 @@ func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCo
 	if tmp, err = filepath.EvalSymlinks(tmp); err != nil {
 		return fail(err)
 	}
-	args, err := p.sandboxArgs(root, tmp, cwd, executable, c.Argv)
+	// Many toolchains and tests use /tmp directly rather than TMPDIR.
+	sharedTmp, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		return fail(errors.Join(err, os.RemoveAll(tmp)))
+	}
+	args, err := p.sandboxArgs(root, tmp, sharedTmp, cwd, executable, c.Argv)
 	if err != nil {
 		return fail(errors.Join(err, os.RemoveAll(tmp)))
 	}

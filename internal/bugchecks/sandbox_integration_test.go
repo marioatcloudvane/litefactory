@@ -67,6 +67,23 @@ func TestBugChecksSandboxRunsRecipeCommandContained(t *testing.T) {
 	}
 }
 
+// Offline checks cannot even use loopback; with the network grant, local test
+// servers work.
+func TestBugChecksSandboxLoopbackFollowsNetworkGrant(t *testing.T) {
+	p, _ := sandboxFixture(t)
+	listen := []string{"/usr/bin/python3", "-c", "import socket;s=socket.socket();s.bind(('127.0.0.1',0));s.listen();c=socket.socket();c.connect(s.getsockname())"}
+	noop := func(CommandResult) error { return nil }
+	offline := p.Run(t.Context(), t.TempDir(), config.BugCheckCommand{Argv: listen, TimeoutSeconds: 60}, noop)
+	if offline.Outcome == "passed" {
+		t.Fatal("offline check bound a loopback socket")
+	}
+	p.Network = true
+	online := p.Run(t.Context(), t.TempDir(), config.BugCheckCommand{Argv: listen, TimeoutSeconds: 60}, noop)
+	if online.Outcome != "passed" {
+		t.Fatalf("network grant did not allow loopback: %s %s", online.Reason, online.Output)
+	}
+}
+
 func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 	p, _ := sandboxFixture(t)
 	worktree := t.TempDir()

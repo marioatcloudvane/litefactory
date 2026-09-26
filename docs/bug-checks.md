@@ -56,8 +56,9 @@ Every command runs under the **Codex sandbox** (`codex sandbox`: Seatbelt on
 macOS, Landlock on Linux), the same containment the Codex agents run under. The
 factory passes one explicit permission profile per command: the whole filesystem
 is readable except `$LF_HOME` and the operator's `deny_read` paths; writes are
-limited to the worktree, a private temporary directory (`TMPDIR`) and the
-operator's `writable_roots` (for example compiler caches); the network is off.
+limited to the worktree, a private temporary directory (`TMPDIR`), the system
+`/tmp` (as in Codex's `workspace-write`) and the operator's `writable_roots` (for example compiler caches); the network is off
+unless the operator grants `network`, which opens it loopback included.
 The command sees only `PATH`, `HOME`, `LANG`, `TMPDIR` and declared environment
 names; nothing is inherited from the daemon. Each command runs in its own process
 group. When it ends, every remaining member is stopped and cleanup is confirmed

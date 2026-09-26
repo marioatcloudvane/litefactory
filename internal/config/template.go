@@ -162,6 +162,7 @@ tool_profiles:
 #   writable_roots: [] # e.g. compiler caches, as for agents.codex.writable_roots
 #   deny_read: [] # e.g. ~/.ssh, ~/.config/gh
 #   environment: [] # names of operator environment values, never inline secrets
+#   network: false # true opens the network, loopback included (tests with local servers)
 `)
 	return []byte(b.String())
 }

@@ -38,14 +38,18 @@ bug_checks:
   writable_roots: [/Users/me/Library/Caches/go-build, /Users/me/go/pkg/mod]
   deny_read: [/Users/me/.ssh, /Users/me/.config/gh]
   environment: []
+  network: true
 ```
 
 `binary` is the Codex CLI; when it is the npm launcher, `path` must also reach
 `node`. `path` lists the directories recipe commands resolve bare names from.
 `writable_roots` opens extra directories for writing, typically the toolchain
 caches that `agents.codex.writable_roots` opens for the agents. Everything is
-readable except `$LF_HOME`, which is always hidden, and `deny_read`. There is
-no network. `environment` contains variable names whose values are resolved
+readable except `$LF_HOME`, which is always hidden, and `deny_read`.
+`network` is off by default, and then checks are fully offline, loopback
+included. The sandbox has no loopback-only mode, so projects whose tests start
+local servers (for example Go `httptest`) need `network: true`, which opens the
+network as for Codex agents with `network_access: true`. `environment` contains variable names whose values are resolved
 from the operator process environment at startup. Values are never written
 inline in configuration. Recipes may request only those names; protected
 provider, forge and result-service credentials and environment overrides remain

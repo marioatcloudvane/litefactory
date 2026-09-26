@@ -20,6 +20,9 @@ type BugCheckIsolation struct {
 	PATH          string   `yaml:"path"`
 	// Environment names reference operator process values, never inline secrets.
 	Environment []string `yaml:"environment"`
+	// Network opens the network, loopback included, for projects whose tests
+	// start local servers. The sandbox has no loopback-only mode.
+	Network bool `yaml:"network"`
 }
 
 func validateBugIsolation(p *BugCheckIsolation) []error {
