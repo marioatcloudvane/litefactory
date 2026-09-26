@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/bugrepair"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -352,35 +353,16 @@ func (h *BugPRActivity) prepareReview(ctx context.Context, db *store.DB, in BugP
 		return BugPROutput{}, err
 	}
 	r = store.BugDeliveryReview{SessionID: in.SessionID, Digest: digest, Evidence: e, PR: p, Presentation: in.Presentation, DeliveryKey: "bug-delivery:" + digest, BotID: h.BotID}
-	analysis, err := json.MarshalIndent(struct {
-		Analysis store.BugAnalysisRevision
-		Approval store.BugAnalysisApproval
-	}{e.Analysis, e.Approval}, "", "  ")
-	if err != nil {
-		return BugPROutput{}, err
-	}
-	repair, err := json.MarshalIndent(e.Coverage, "", "  ")
-	if err != nil {
-		return BugPROutput{}, err
-	}
-	view := report.BugDeliveryReview{Task: fmt.Sprintf("github:%s#%d", e.Identity.Repository, e.Identity.IssueNumber), Digest: digest, Head: p.Head, Target: e.Child.Request.Binding.TargetCommit, Recipe: e.Child.Request.Binding.RecipeDigest, PR: p.Number, Analysis: string(analysis), Repair: string(repair), ApprovalCommand: r.ApprovalCommand()}
+	view := report.BugDeliveryReview{Task: fmt.Sprintf("github:%s#%d", e.Identity.Repository, e.Identity.IssueNumber), Digest: digest, Head: p.Head, Target: e.Child.Request.Binding.TargetCommit, Recipe: e.Child.Request.Binding.RecipeDigest, PR: p.Number, Analysis: renderBugAnalysis(e.Analysis.Revision, e.Analysis.Digest, e.Analysis.Analysis), Repair: renderBugRepair(e.Coverage), ApprovalCommand: r.ApprovalCommand()}
 	for n, phase := range []string{"regression", "focused", "full"} {
 		b := e.Child.PhaseBinding(phase)
 		record, readErr := db.GetBugCheckPhase(ctx, in.SessionID, b.Operation)
 		if readErr != nil {
 			return BugPROutput{}, readErr
 		}
-		summary, marshalErr := json.Marshal(struct {
-			Binding  store.BugCheckBinding
-			Outcome  string
-			Commands int
-			Evidence string
-		}{record.Binding, record.Outcome, len(record.Commands), b.Operation})
-		if marshalErr != nil {
-			return BugPROutput{}, marshalErr
-		}
-		view.Phases[n] = string(summary)
+		view.Phases[n] = bugCheckRow(phase, record)
 	}
+	view.Lead = bugDeliveryLead(p.Number, e)
 	for _, c := range in.Presentation {
 		references := strings.Join(c.References, ", ")
 		if references == "" {
@@ -413,4 +395,67 @@ func (h *BugPRActivity) prepareReview(ctx context.Context, db *store.DB, in BugP
 		return BugPROutput{Outcome: "review-ready", Review: &published}, nil
 	}
 	return BugPROutput{Outcome: "blocked", Reason: "Bug review retained; publication is pending", Review: &r}, nil
+}
+
+// bugDeliveryLead is what the owner scans first: the PR is ready, what it
+// fixes, that every check phase passed and whether every criterion is covered.
+func bugDeliveryLead(pr int, e store.BugDeliveryEvidence) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "**The fix is ready for your review in PR #%d, and all project checks passed.**\n\n", pr)
+	fmt.Fprintf(&b, "- **Bug:** %s\n", firstSentence(e.Analysis.Analysis.Actual))
+	fmt.Fprintf(&b, "- **Fix:** %s\n", firstSentence(e.Coverage.Summary))
+	var gaps []string
+	for _, c := range e.Coverage.Coverage {
+		if strings.TrimSpace(c.Gap) != "" {
+			gaps = append(gaps, "`"+c.Criterion+"`")
+		}
+	}
+	total := len(e.Coverage.Coverage)
+	if len(gaps) == 0 {
+		fmt.Fprintf(&b, "- **Success criteria:** all %d covered by changes and tests.\n", total)
+	} else {
+		fmt.Fprintf(&b, "- **Success criteria:** %d of %d covered; gaps in %s (see below).\n", total-len(gaps), total, strings.Join(gaps, ", "))
+	}
+	b.WriteString("- **Checks:** regression, focused and full all passed on the tested head.\n")
+	b.WriteString("\n**Next:** review the PR; to merge it, reply with the approval line at the end of this comment. Otherwise reply with `/bug-review` and what should change.\n")
+	return b.String()
+}
+
+// renderBugRepair lays out the fixer's summary and per-criterion coverage.
+func renderBugRepair(e bugrepair.Evidence) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n\n| Criterion | Changed | Tested by | Gap |\n|---|---|---|---|\n", strings.TrimSpace(e.Summary))
+	codes := func(paths []string) string {
+		if len(paths) == 0 {
+			return "—"
+		}
+		out := make([]string, len(paths))
+		for i, p := range paths {
+			out[i] = "`" + p + "`"
+		}
+		return strings.Join(out, "<br>")
+	}
+	for _, c := range e.Coverage {
+		gap := bugCell(c.Gap)
+		if gap == "" {
+			gap = "none"
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", c.Criterion, codes(c.Changes), codes(c.Tests), gap)
+	}
+	return b.String()
+}
+
+// bugCheckRow is one row of the delivery review's check table.
+func bugCheckRow(phase string, record store.BugCheckPhaseRecord) string {
+	var spent time.Duration
+	for _, c := range record.Commands {
+		if !c.Observation.Ended.IsZero() && c.Observation.Ended.After(c.Observation.Started) {
+			spent += c.Observation.Ended.Sub(c.Observation.Started)
+		}
+	}
+	result := record.Outcome
+	if reason := strings.TrimSpace(record.Reason); reason != "" {
+		result += ": " + bugCell(reason)
+	}
+	return fmt.Sprintf("| %s | %s | %d | %s |", phase, result, len(record.Commands), spent.Round(time.Second))
 }

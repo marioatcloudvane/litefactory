@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/buganalysis"
+	"github.com/cloudvane/litefactory/internal/bugrepair"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // The owner reads the recorded analysis as prose and a criteria table, with
@@ -38,6 +40,54 @@ func TestRenderBugAnalysisIsReadable(t *testing.T) {
 	}
 	if strings.Contains(out, `"expected"`) || strings.Contains(out, "{") {
 		t.Fatalf("analysis still rendered as JSON:\n%s", out)
+	}
+}
+
+// Both Bug reviews open with a plain-language lead the owner can scan: what
+// goes wrong, when, why, the fix and what to do next.
+func TestBugReviewsLeadWithPlainSummary(t *testing.T) {
+	a := buganalysis.BugAnalysis{
+		Actual:       "Every tick logs an error for accepted stories. It repeats forever.",
+		Reproduction: buganalysis.BugReproduction{Steps: []string{"Accept a story.", "Run a tick."}, Observation: "observed"},
+		Cause:        "The follow-up marker is never materialized. More detail follows.",
+		Remedy:       "Materialize the marker when the story is accepted. Then add a test.",
+		Questions:    []buganalysis.BugQuestion{{ID: "Q1", Text: "Backfill?", Material: true}},
+	}
+	review := bugAnalysisLead("review", 3, a)
+	for _, want := range []string{
+		"**I traced the bug and reproduced it.**",
+		"- **What goes wrong:** Every tick logs an error for accepted stories.\n",
+		"- **When:** Accept a story → Run a tick\n",
+		"- **Why:** The follow-up marker is never materialized.\n",
+		"- **Proposed fix:** Materialize the marker when the story is accepted.\n",
+		"`/approve-bug analysis 3`",
+	} {
+		if !strings.Contains(review, want) {
+			t.Errorf("analysis lead lacks %q:\n%s", want, review)
+		}
+	}
+	if q := bugAnalysisLead("question", 3, a); !strings.Contains(q, "one question below needs your answer") || strings.Contains(q, "/approve-bug") {
+		t.Errorf("question lead does not ask for the answer:\n%s", q)
+	}
+
+	e := store.BugDeliveryEvidence{Coverage: bugrepair.Evidence{Summary: "Marks the marker on acceptance. Adds a store test.", Coverage: []bugrepair.Coverage{
+		{Criterion: "C1", Changes: []string{"internal/store/followups.go"}, Tests: []string{"internal/store/followups_test.go"}},
+		{Criterion: "C2", Gap: "Needs a live daemon."},
+	}}}
+	e.Analysis.Analysis = a
+	delivery := bugDeliveryLead(403, e)
+	for _, want := range []string{
+		"**The fix is ready for your review in PR #403, and all project checks passed.**",
+		"- **Fix:** Marks the marker on acceptance.\n",
+		"1 of 2 covered; gaps in `C2`",
+	} {
+		if !strings.Contains(delivery, want) {
+			t.Errorf("delivery lead lacks %q:\n%s", want, delivery)
+		}
+	}
+	repair := renderBugRepair(e.Coverage)
+	if !strings.Contains(repair, "| `C1` | `internal/store/followups.go` | `internal/store/followups_test.go` | none |") || strings.Contains(repair, "{") {
+		t.Errorf("repair not rendered as a table:\n%s", repair)
 	}
 }
 

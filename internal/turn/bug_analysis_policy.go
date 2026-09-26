@@ -214,7 +214,7 @@ func (h bugAnalysisComment) Execute(ctx context.Context, opts Options, req Activ
 	}
 	// The owner reads the recorded analysis itself, laid out as prose and a
 	// criteria table; the wording is the analysis's own, unchanged.
-	body := renderBugAnalysis(revision.Revision, revision.Digest, revision.Analysis)
+	body := bugAnalysisLead(kind, revision.Revision, revision.Analysis) + "\n---\n\n" + renderBugAnalysis(revision.Revision, revision.Digest, revision.Analysis)
 	if reason := strings.TrimSpace(revision.Reason); reason != "" {
 		body += "\n" + reason + "\n"
 	}
@@ -340,6 +340,57 @@ func renderBugAnalysis(revision int64, digest string, a buganalysis.BugAnalysis)
 	}
 	fmt.Fprintf(&b, "\n<sub>Recorded analysis `%s`.</sub>\n", short)
 	return b.String()
+}
+
+// bugAnalysisLead is what the owner scans first: whether the bug was
+// reproduced, what goes wrong and when, why, the proposed fix, and what they
+// need to do next. It only condenses the analysis's own wording.
+func bugAnalysisLead(kind string, revision int64, a buganalysis.BugAnalysis) string {
+	var b strings.Builder
+	switch a.Reproduction.Observation {
+	case "observed":
+		b.WriteString("**I traced the bug and reproduced it.**\n\n")
+	case "owner_reported":
+		b.WriteString("**I traced the bug from your report; I did not reproduce it myself.**\n\n")
+	default:
+		b.WriteString("**I traced the bug but could not observe it happening.**\n\n")
+	}
+	fmt.Fprintf(&b, "- **What goes wrong:** %s\n", firstSentence(a.Actual))
+	if len(a.Reproduction.Steps) > 0 {
+		steps := make([]string, len(a.Reproduction.Steps))
+		for i, step := range a.Reproduction.Steps {
+			steps[i] = strings.TrimSuffix(oneLine(step), ".")
+		}
+		fmt.Fprintf(&b, "- **When:** %s\n", strings.Join(steps, " → "))
+	}
+	fmt.Fprintf(&b, "- **Why:** %s\n", firstSentence(a.Cause))
+	fmt.Fprintf(&b, "- **Proposed fix:** %s\n", firstSentence(a.Remedy))
+	open := 0
+	for _, q := range a.Questions {
+		if q.Material {
+			open++
+		}
+	}
+	switch {
+	case kind == "review":
+		fmt.Fprintf(&b, "\n**Next:** if this is right, reply `/approve-bug analysis %d` and the fix starts; otherwise reply with what should change.\n", revision)
+	case open == 1:
+		b.WriteString("\n**Next:** one question below needs your answer before the fix can start.\n")
+	case open > 1:
+		fmt.Fprintf(&b, "\n**Next:** %d questions below need your answers before the fix can start.\n", open)
+	}
+	return b.String()
+}
+
+// firstSentence keeps the lead short; the full text follows in the details.
+func firstSentence(text string) string {
+	line := oneLine(text)
+	for i := 0; i+1 < len(line); i++ {
+		if (line[i] == '.' || line[i] == '!' || line[i] == '?') && line[i+1] == ' ' && i >= 20 {
+			return line[:i+1]
+		}
+	}
+	return line
 }
 
 func bullets(b *strings.Builder, title string, items []string) {

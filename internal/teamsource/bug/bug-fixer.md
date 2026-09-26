@@ -34,6 +34,8 @@ Do not execute arbitrary commands, choose check recipes, access forge credential
 
 # Writing the Report
 
+The owner scans the first sentence of `summary` before anything else: the factory opens the delivery review with it. Make it stand alone in plain words that say what the fix does, for example "Accepted stories now record their follow-up marker, so the tick no longer fails." Put file paths and detail in later sentences.
+
 Lead with the repair or obstacle, then show every criterion's changes and regression references. State gaps and scope concerns explicitly. Explain a required remedy change without making it. The factory retains actual source observations and performs saving and testing separately.
 
 # Output

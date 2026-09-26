@@ -11,6 +11,7 @@ func bugReviewFixture() report.BugDeliveryReview {
 	digest, head, target := strings.Repeat("d", 64), strings.Repeat("a", 40), strings.Repeat("b", 40)
 	return report.BugDeliveryReview{
 		Task: "github:owner/repo#385", Digest: digest, Head: head, Target: target, Recipe: strings.Repeat("c", 64), PR: 42,
+		Lead:            "**The fix is ready for your review in PR #42.**",
 		Analysis:        "Expected: one result. Actual: duplicate result. Cause: retry. Remedy: deduplicate. Exclusions: routing. AC-001: exactly one result.",
 		Repair:          "AC-001 covered by dedupe.go and dedupe_test.go",
 		Phases:          [3]string{"regression evidence #11 passed", "focused evidence #12 passed", "full evidence #13 passed"},
@@ -30,6 +31,9 @@ func TestRenderBugDeliveryReview_PreservesRequiredEvidence(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("required review evidence/control %q missing from %q", want, got)
 		}
+	}
+	if !strings.HasPrefix(got, r.Lead) {
+		t.Errorf("review does not open with its plain-language lead:\n%s", got)
 	}
 	for _, control := range []string{"clarify", "repair", "reshape"} {
 		if !strings.Contains(got, control) {
@@ -53,6 +57,7 @@ func TestRenderBugDeliveryReview_RefusesIncompleteEvidence(t *testing.T) {
 		{"target", func(r *report.BugDeliveryReview) { r.Target = "" }},
 		{"recipe", func(r *report.BugDeliveryReview) { r.Recipe = "" }},
 		{"PR", func(r *report.BugDeliveryReview) { r.PR = 0 }},
+		{"lead", func(r *report.BugDeliveryReview) { r.Lead = "" }},
 		{"analysis", func(r *report.BugDeliveryReview) { r.Analysis = " \n" }},
 		{"repair", func(r *report.BugDeliveryReview) { r.Repair = "" }},
 		{"regression", func(r *report.BugDeliveryReview) { r.Phases[0] = "" }},

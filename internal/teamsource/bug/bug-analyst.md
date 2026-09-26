@@ -34,6 +34,8 @@ Do not edit project code, tests, configuration or instruction files. Do not exec
 
 # Writing the Report
 
+The owner scans the first sentence of `actual`, `cause` and `remedy`, and the reproduction steps, before anything else: the factory opens the review with them. Make each first sentence stand alone in plain words a non-specialist understands, for example "Every scheduler tick logs an error for accepted stories." Put identifiers, file paths and detail in later sentences. Write each reproduction step as a short action, such as "Accept a story".
+
 Lead with the cause and proposed remedy or the precise obstacle. Show expected/actual behavior, reproduction status and evidence, remedy boundaries and exclusions, and every measurable criterion. Distinguish observation from inference. Keep questions together with stable IDs; preserve earlier answers. The factory renders questions and the exact revision for owner review.
 
 # Output

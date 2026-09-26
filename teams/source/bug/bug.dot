@@ -1,61 +1,99 @@
-// Lifetime budgets live in Bug ledgers. These finite envelope bounds include
+// Bug takes one reported bug from record to a merged, closed fix, with two
+// owner approvals: the analysis before any code changes, and the delivery
+// before the pull request merges.
+//
+// 1. Record    the bug; an already approved analysis skips straight to repair.
+// 2. Analyse   it with the analyst, until the owner approves the analysis or
+//              answers its questions. Each reply re-enters here.
+// 3. Repair    within a reserved attempt; the fixer may ask for a reshape,
+//              which returns to the analyst.
+// 4. Test      the repair in a separate child graph (bug_tests.dot); a failed
+//              check spends another repair attempt.
+// 5. Deliver   the PR for review, then merge and close once approved.
+//
+// Publishing a question or review parks the instance; an owner reply carries it
+// on. Lifetime budgets live in Bug ledgers. These finite envelope bounds include
 // one final exhausted reservation probe; observation-only continuations park.
 digraph bug {
  graph [team="builtin",workflow="bug",profile_version="1",start="record"];
- record [lf_action="lf_bug_record",lf_outcomes="recorded,approved,exhausted,blocked",lf_limit="1"];
- analysis_needed [lf_action="lf_loop",lf_outcomes="true,false",lf_field="response",lf_condition="ask",lf_default="ask",lf_source="record",lf_limit="1"];
- analyst [lf_action="lf_agent",lf_agent_markdown="bug-analyst",lf_skills="bug-analysis-result",lf_outcomes="success,failed",lf_limit="8"];
- record_analysis [lf_action="lf_bug_record",lf_source="analyst",lf_outcomes="recorded,approved,exhausted,blocked",lf_limit="8"];
- analysis_done [lf_action="lf_if",lf_field="response",lf_condition="done",lf_source="record_analysis",lf_outcomes="true,false",lf_limit="8"];
+
+ // ---- 1. Record ------------------------------------------------------------
+ record           [lf_action="lf_bug_record",lf_outcomes="recorded,approved,exhausted,blocked",lf_limit="1"];
+
+ // ---- 2. Analyse -----------------------------------------------------------
+ analysis_needed  [lf_action="lf_loop",lf_outcomes="true,false",lf_field="response",lf_condition="ask",lf_default="ask",lf_source="record",lf_limit="1"];
+ analyst          [lf_action="lf_agent",lf_agent_markdown="bug-analyst",lf_skills="bug-analysis-result",lf_outcomes="success,failed",lf_limit="8"];
+ record_analysis  [lf_action="lf_bug_record",lf_source="analyst",lf_outcomes="recorded,approved,exhausted,blocked",lf_limit="8"];
+ analysis_done    [lf_action="lf_if",lf_field="response",lf_condition="done",lf_source="record_analysis",lf_outcomes="true,false",lf_limit="8"];
  analysis_questions [lf_action="lf_ask",lf_kind="question",lf_source="record_analysis",lf_outcomes="published",lf_limit="8"];
- analysis_review [lf_action="lf_ask",lf_kind="review",lf_source="record_analysis",lf_outcomes="published",lf_limit="8"];
- attempt [lf_action="lf_bug_attempt",lf_outcomes="reserved,exhausted,reshape,blocked",lf_limit="4"];
- fixer [lf_action="lf_agent",lf_agent_markdown="bug-fixer",lf_skills="bug-repair-result",lf_outcomes="success,failed",lf_limit="3"];
- record_repair [lf_action="lf_if",lf_field="response",lf_condition="done",lf_source="fixer",lf_outcomes="true,false",lf_limit="3"];
- fixer_reshape [lf_action="lf_if",lf_field="response",lf_condition="reshape",lf_source="fixer",lf_outcomes="true,false",lf_limit="3"];
- test [lf_action="lf_bug_test_graph",lf_outcomes="passed,failed,blocked,cancelled",lf_limit="6"];
- pr [lf_action="lf_bug_pr",lf_outcomes="review-ready,approved,clarify,repair,reshape,stale,blocked",lf_limit="6"];
- delivery_review [lf_action="lf_ask",lf_kind="delivery",lf_source="pr",lf_outcomes="published",lf_limit="3"];
- merge [lf_action="lf_bug_merge",lf_outcomes="confirmed,stale,blocked,failed,pending",lf_limit="4"];
- close [lf_action="lf_bug_close",lf_outcomes="confirmed,blocked,failed,pending",lf_limit="1"];
- report [lf_action="lf_comment",lf_kind="notice",lf_outcomes="published",lf_limit="1"];
- stopped [lf_terminal="true"];
+ analysis_review  [lf_action="lf_ask",lf_kind="review",lf_source="record_analysis",lf_outcomes="published",lf_limit="8"];
+
+ // ---- 3. Repair ------------------------------------------------------------
+ attempt          [lf_action="lf_bug_attempt",lf_outcomes="reserved,exhausted,reshape,blocked",lf_limit="4"];
+ fixer            [lf_action="lf_agent",lf_agent_markdown="bug-fixer",lf_skills="bug-repair-result",lf_outcomes="success,failed",lf_limit="3"];
+ record_repair    [lf_action="lf_if",lf_field="response",lf_condition="done",lf_source="fixer",lf_outcomes="true,false",lf_limit="3"];
+ fixer_reshape    [lf_action="lf_if",lf_field="response",lf_condition="reshape",lf_source="fixer",lf_outcomes="true,false",lf_limit="3"];
+
+ // ---- 4. Test --------------------------------------------------------------
+ test             [lf_action="lf_bug_test_graph",lf_outcomes="passed,failed,blocked,cancelled",lf_limit="6"];
+
+ // ---- 5. Deliver -----------------------------------------------------------
+ pr               [lf_action="lf_bug_pr",lf_outcomes="review-ready,approved,clarify,repair,reshape,stale,blocked",lf_limit="6"];
+ delivery_review  [lf_action="lf_ask",lf_kind="delivery",lf_source="pr",lf_outcomes="published",lf_limit="3"];
+ merge            [lf_action="lf_bug_merge",lf_outcomes="confirmed,stale,blocked,failed,pending",lf_limit="4"];
+ close            [lf_action="lf_bug_close",lf_outcomes="confirmed,blocked,failed,pending",lf_limit="1"];
+
+ // ---- Report and terminal --------------------------------------------------
+ report           [lf_action="lf_comment",lf_kind="notice",lf_outcomes="published",lf_limit="1"];
+ stopped          [lf_terminal="true"];
+
+ // 1. Record: a new bug is analysed; an approved analysis goes to repair.
  record -> analysis_needed [lf_on="recorded"];
  record -> attempt [lf_on="approved"];
  record -> report [lf_on="blocked"];
  record -> report [lf_on="exhausted"];
+
+ // 2. Analyse until the analysis is complete, then ask the owner to approve
+ //    it; open questions are asked first. Both park until the owner replies.
  analysis_needed -> analyst [lf_on="true"];
  analysis_needed -> record_analysis [lf_on="false"];
  analyst -> record_analysis [lf_on="success"];
  analyst -> report [lf_on="failed"];
  record_analysis -> analysis_done [lf_on="recorded"];
- record_analysis -> attempt [lf_on="approved"];
+ record_analysis -> attempt [lf_on="approved"];              // the owner approved
  record_analysis -> report [lf_on="blocked"];
  record_analysis -> report [lf_on="exhausted"];
- analysis_done -> analysis_review [lf_on="true"];
- analysis_done -> analysis_questions [lf_on="false"];
+ analysis_done -> analysis_review [lf_on="true"];             // complete: ask for approval
+ analysis_done -> analysis_questions [lf_on="false"];         // needs answers first
  analysis_questions -> stopped [lf_on="published"];
  analysis_review -> stopped [lf_on="published"];
+
+ // 3. Repair within a reserved attempt; a reshape goes back to the analyst.
  attempt -> fixer [lf_on="reserved"];
  attempt -> analyst [lf_on="reshape"];
  attempt -> report [lf_on="blocked"];
  attempt -> report [lf_on="exhausted"];
  fixer -> record_repair [lf_on="success"];
  fixer -> report [lf_on="failed"];
- record_repair -> test [lf_on="true"];
+ record_repair -> test [lf_on="true"];                        // repair done: test it
  record_repair -> fixer_reshape [lf_on="false"];
- fixer_reshape -> analyst [lf_on="true"];
+ fixer_reshape -> analyst [lf_on="true"];                     // remedy does not fit
  fixer_reshape -> report [lf_on="false"];
+
+ // 4. Test: a failed check spends another repair attempt.
  test -> pr [lf_on="passed"];
  test -> attempt [lf_on="failed"];
  test -> report [lf_on="blocked"];
  test -> report [lf_on="cancelled"];
+
+ // 5. Deliver: publish the review and park; the owner's reply comes back to
+ //    pr as approved, clarify, repair or reshape.
  pr -> delivery_review [lf_on="review-ready"];
  pr -> delivery_review [lf_on="clarify"];
  pr -> attempt [lf_on="repair"];
  pr -> analyst [lf_on="reshape"];
  pr -> merge [lf_on="approved"];
- pr -> test [lf_on="stale"];
+ pr -> test [lf_on="stale"];                                  // main moved: test again
  pr -> report [lf_on="blocked"];
  delivery_review -> stopped [lf_on="published"];
  merge -> close [lf_on="confirmed"];
@@ -67,5 +105,7 @@ digraph bug {
  close -> report [lf_on="blocked"];
  close -> report [lf_on="failed"];
  close -> report [lf_on="pending"];
+
+ // Every end reports to the owner once, then stops.
  report -> stopped [lf_on="published"];
 }
