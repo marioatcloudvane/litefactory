@@ -229,6 +229,18 @@ func TestBugResultBoundaryReceiptAndTerminalCannotApplyWithoutSuccessfulInvocati
 	if _, revision, err := activity.acceptRetained(t.Context(), service, string(terminal)); err != nil || revision != 1 {
 		t.Fatalf("matching retained confirmation: %d %v", revision, err)
 	}
+	// A Bug result routes by its own response, so a prose or truncated terminal
+	// text does not discard it (#384); a contradicting envelope still fails.
+	for _, text := range []string{"The analysis is submitted; the cause is the placeholder row.", string(terminal[:len(terminal)-1])} {
+		node, revision, err := activity.acceptRetained(t.Context(), service, text)
+		if err != nil || revision != 1 || node.Response != "blocked" || node.Result.Payload.Bug == nil {
+			t.Fatalf("retained Bug result discarded for terminal %q: %+v %d %v", text[:20], node.Response, revision, err)
+		}
+	}
+	contradicting := strings.Replace(string(terminal), `"response":"blocked"`, `"response":"done"`, 1)
+	if _, _, err := activity.acceptRetained(t.Context(), service, contradicting); err == nil {
+		t.Fatal("a contradicting envelope was accepted")
+	}
 
 	exit := int64(0)
 	if _, err := db.FinishRun(t.Context(), options.Attempt.RunID, store.RunOutcome{Status: store.RunSucceeded, ExitCode: &exit}); err != nil {

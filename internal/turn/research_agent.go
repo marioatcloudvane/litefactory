@@ -236,6 +236,11 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 // The policy's decoder judges the terminal envelope, and it does so under the
 // mode's own trusted context, so a mode with a richer result contract is held to
 // it here too. Only the response of a consistent envelope is carried over.
+//
+// A result that carries its own response (Bug) needs no envelope to route: when
+// the terminal text is prose or broken JSON rather than an envelope, the
+// retained result stands on its own (#384). An envelope that parses but does
+// not confirm the retained result is still refused, and so is empty output.
 func (h AgentActivity) acceptRetained(ctx context.Context, service *AgentResultService, terminal string) (agentresult.ResearchNode, int64, error) {
 	snapshot, revision, err := service.retainedCurrent(ctx)
 	if err != nil {
@@ -250,12 +255,24 @@ func (h AgentActivity) acceptRetained(ctx context.Context, service *AgentResultS
 	}
 	envelope, d := h.Policy.Decode([]byte(terminal), trusted)
 	if !d.Valid || !d.Complete {
+		if response, ok := retainedResponse(snapshot.Result); ok && strings.TrimSpace(terminal) != "" && !json.Valid([]byte(strings.TrimSpace(terminal))) {
+			return agentresult.ResearchNode{Version: 1, Response: response, Result: snapshot.Result}, revision, nil
+		}
 		return agentresult.ResearchNode{}, 0, fmt.Errorf("terminal envelope is not a valid confirmation of the retained result: %w", resultDiagnosticError(d))
 	}
 	if !agentresult.SameResult(snapshot.Result, envelope.Result) {
 		return agentresult.ResearchNode{}, 0, errors.New("terminal envelope result differs from the retained accepted result; return the result you submitted, or submit the correction first")
 	}
 	return agentresult.ResearchNode{Version: envelope.Version, Response: envelope.Response, Result: snapshot.Result}, revision, nil
+}
+
+// retainedResponse is the routing response a retained result carries itself.
+// Only Bug results do; other workflows route by the terminal envelope.
+func retainedResponse(r agentresult.Result) (string, bool) {
+	if r.Payload.Bug != nil && r.Payload.Bug.Response != "" {
+		return r.Payload.Bug.Response, true
+	}
+	return "", false
 }
 
 // researchCommitNarrative is what a reader of the repository history sees for
