@@ -319,6 +319,22 @@ func bugContinuationEntryTx(ctx context.Context, tx *sql.Tx, l BugLifecycle, c B
 			return "", errors.New("bug test continuation lacks exact retained resolution")
 		}
 		return "test", nil
+	case "failure-retry":
+		// An authenticated owner comment retries a parent that failed in an
+		// agent node. Effect nodes are never retried this way: their retained
+		// intents own recovery, and a blind retry could repeat a remote effect.
+		comment, e := strconv.ParseInt(c.Reference, 10, 64)
+		if e != nil || comment <= 0 || c.Operation != fmt.Sprintf("owner-reply:%d", comment) {
+			return "", errors.New("bug failure retry requires the owner comment that asked for it")
+		}
+		prior, e := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, l.ParentInstance))
+		if e != nil {
+			return "", e
+		}
+		if prior.Status != GraphFailed || (prior.CurrentNode != "analyst" && prior.CurrentNode != "fixer") {
+			return "", errors.New("only a Bug parent that failed in its analyst or fixer can be retried")
+		}
+		return prior.CurrentNode, nil
 	case "merge-reconcile":
 		m, e := bugMergeTx(ctx, tx, c.SessionID, c.Reference)
 		if e != nil {
@@ -458,6 +474,14 @@ func (d *DB) GetBugOwnerContinuation(ctx context.Context, session, comment, auth
 		e = tx.QueryRowContext(ctx, `SELECT c.successor,w.reply_body,w.reply_author_id,w.reply_id FROM bug_parent_continuations c JOIN graph_owner_waits w ON w.instance_id=c.prior_instance WHERE c.session_id=? AND c.operation=? AND w.state='allocated' AND w.reply_id=?`, session, fmt.Sprintf("owner-reply:%d", comment), comment).Scan(&successor, &actualBody, &actualAuthor, &actualComment)
 		if errors.Is(e, sql.ErrNoRows) {
 			e = tx.QueryRowContext(ctx, `SELECT c.successor,r.body,r.author_id,r.comment_id FROM bug_parent_continuations c JOIN bug_test_resolutions r ON r.session_id=c.session_id AND CAST(r.call_id AS TEXT)=c.reference WHERE c.session_id=? AND c.operation=? AND c.cause='test-resolved' AND r.comment_id=?`, session, fmt.Sprintf("owner-reply:%d", comment), comment).Scan(&successor, &actualBody, &actualAuthor, &actualComment)
+		}
+		if errors.Is(e, sql.ErrNoRows) {
+			// A failure retry has no wait or resolution row; the owner comment id
+			// is its reference, and the owner was checked above.
+			e = tx.QueryRowContext(ctx, `SELECT successor FROM bug_parent_continuations WHERE session_id=? AND operation=? AND cause='failure-retry' AND reference=?`, session, fmt.Sprintf("owner-reply:%d", comment), fmt.Sprint(comment)).Scan(&successor)
+			if e == nil {
+				actualBody, actualAuthor, actualComment = body, author, comment
+			}
 		}
 		if errors.Is(e, sql.ErrNoRows) {
 			return ErrNotFound

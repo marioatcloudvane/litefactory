@@ -161,3 +161,69 @@ func TestBugParentResolvedInfrastructureContinuation(t *testing.T) {
 		})
 	}
 }
+
+// An owner comment retries a parent that failed in an agent node, once, with
+// replay; a failed effect node and a live parent are never restarted this way.
+func TestBugParentFailureRetryContinuation(t *testing.T) {
+	for _, variant := range []string{"analyst", "fixer", "merge", "running", "wrong-reference"} {
+		t.Run(variant, func(t *testing.T) {
+			db, e := Open(t.Context(), filepath.Join(t.TempDir(), "retry.db"))
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer db.Close()
+			if e = db.Migrate(t.Context()); e != nil {
+				t.Fatal(e)
+			}
+			request := testChildRequest(t, db)
+			life, e := db.EnsureBugLifecycle(t.Context(), request.SessionID, request.ParentInstance, request.ChildDefinition)
+			if e != nil {
+				t.Fatal(e)
+			}
+			node, status := variant, GraphFailed
+			switch variant {
+			case "running":
+				node, status = "analyst", GraphRunning
+			case "wrong-reference":
+				node = "analyst"
+			}
+			if _, e = db.sql.ExecContext(t.Context(), `UPDATE graph_instances SET current_node=? WHERE id=?`, node, request.ParentInstance); e != nil {
+				t.Fatal(e)
+			}
+			if status != GraphRunning {
+				if e = db.SetGraphInstanceStatus(t.Context(), request.ParentInstance, status, time.Time{}, graphTestTime()); e != nil {
+					t.Fatal(e)
+				}
+			}
+			c := BugParentContinuation{SessionID: request.SessionID, Operation: "owner-reply:333", Cause: "failure-retry", Reference: "333", ExpectedRevision: life.Revision, At: graphTestTime()}
+			if variant == "wrong-reference" {
+				c.Reference = "334"
+			}
+			next, e := db.ClaimBugContinuation(t.Context(), c)
+			if variant != "analyst" && variant != "fixer" {
+				if e == nil {
+					t.Fatalf("%s parent was retried: %+v", variant, next)
+				}
+				return
+			}
+			if e != nil || next.CurrentNode != variant || next.Status != GraphRunning || next.ID == request.ParentInstance {
+				t.Fatalf("failed %s not retried: %+v %v", variant, next, e)
+			}
+			current, e := db.GetBugLifecycle(t.Context(), request.SessionID)
+			if e != nil || current.ParentInstance != next.ID || current.Disposition != "running" {
+				t.Fatalf("lifecycle not moved to the successor: %+v %v", current, e)
+			}
+			var owner int64
+			if e = db.sql.QueryRowContext(t.Context(), `SELECT owner_id FROM bug_records WHERE session_id=?`, request.SessionID).Scan(&owner); e != nil {
+				t.Fatal(e)
+			}
+			replay, e := db.GetBugOwnerContinuation(t.Context(), request.SessionID, 333, owner, "try again")
+			if e != nil || replay.ID != next.ID {
+				t.Fatalf("retry replay %+v %v", replay, e)
+			}
+			if again, e := db.ClaimBugContinuation(t.Context(), c); e != nil || again.ID != next.ID {
+				t.Fatalf("repeated claim created another successor: %+v %v", again, e)
+			}
+		})
+	}
+}
