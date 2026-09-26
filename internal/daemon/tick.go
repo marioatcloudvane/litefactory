@@ -780,6 +780,7 @@ type task struct {
 	scheduled          *store.Schedule
 	continuation       *store.Continuation
 	continuationLocked bool
+	bugDispatchLocked  bool
 
 	refining  bool
 	repo      store.Repo
@@ -1635,6 +1636,21 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "successful creation intake recovery pending", err)
 	}
 	command := turn.ParseCommand(c.Body)
+	if d.bug != nil && (command.Name == "/approve-bug" || command.Name == "/bug-review" || command.Name == "/retry-bug-tests") {
+		admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return d.leave(ctx, t, log, "could not read Bug control admission", err)
+		}
+		if err == nil && admission.Workflow == string(agent.WorkflowBug) {
+			// The runtime authenticates and parses the exact original body against
+			// its published wait. This only routes an existing task's control.
+			trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+			return d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
+		}
+	}
+	if command.Name == "/approve-bug" {
+		return d.handleBugAnalysisApproval(ctx, t, c, command, log)
+	}
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)
 	}
@@ -1850,13 +1866,16 @@ func (d *Daemon) run(
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
 
-	mode, err := d.admitMode(ctx, t, trigger, command)
+	workflow, mode, err := d.admitWorkflow(ctx, t, trigger, command)
 	if err != nil {
 		var refusal *modeRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind)
 		}
 		return d.leave(ctx, t, log, "mode selection was refused", err)
+	}
+	if workflow == agent.WorkflowBug && d.bug == nil {
+		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable)
 	}
 	// Resolve the agent-selection label before checking for an obsolete
 	// permission label and before anything is locked, fetched, or written.
@@ -1882,7 +1901,12 @@ func (d *Daemon) run(
 	// Select permissions only after both the concrete mode and effective agent
 	// are known. A missing entry is an invariant violation, never a reason to
 	// fall back to a potentially broader agent-global surface.
-	tools, ok := d.resolveTools(mode, agent.Kind(selectedAgent))
+	tools, ok := d.resolveWorkflowTools(workflow, mode, agent.Kind(selectedAgent))
+	if workflow == agent.WorkflowBug && d.bug != nil {
+		// This carries identity only. The runtime resolves the particular
+		// analyst/fixer grant when dispatching that role, including resumes.
+		tools, ok = toolDecision{Profile: "bug"}, true
+	}
 	if !ok {
 		return d.leave(ctx, t, log, "could not select permissions for the resolved mode and agent",
 			fmt.Errorf("no permission profile for mode %q and agent %q", mode, selectedAgent))
@@ -1919,6 +1943,7 @@ func (d *Daemon) run(
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
 		Continuation: t.continuation,
 		Mode:         mode,
+		Workflow:     workflow,
 		SessionID:    t.session.ID,
 		Issue: turn.Issue{
 			Number: t.issue.Number,
@@ -1968,6 +1993,7 @@ func (d *Daemon) run(
 	if turnResult.Disposition == turn.DispositionLocked {
 		t.recordWorkerStatus(workerDeferred)
 		t.continuationLocked = t.continuation != nil
+		t.bugDispatchLocked = workflow == agent.WorkflowBug
 		// RD-4: a lock lost to a second process is promoted from a drop to a
 		// marker-set. The dispatch above has already set the flag and the drain's
 		// deferral keeps it, but this is the one disposition whose entire meaning
@@ -1989,6 +2015,12 @@ func (d *Daemon) run(
 		return nil
 	}
 
+	if workflow == agent.WorkflowBug {
+		// Bug owns durable notices, review publication and input consumption.
+		// Generic mode reporting would duplicate them and could consume a reply
+		// before its publication or domain operation has been confirmed.
+		return nil
+	}
 	return d.completeTurn(ctx, t, trigger, mode, turnResult, log)
 }
 

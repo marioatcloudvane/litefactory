@@ -1,0 +1,22 @@
+digraph bug_tests {
+ graph [team="builtin", workflow="bug", profile_version="1", start="regression"];
+ regression [lf_action="lf_bug_checks",lf_phase="regression",lf_outcomes="passed,failed,blocked,cancelled",lf_limit="1"];
+ focused [lf_action="lf_bug_checks",lf_phase="focused",lf_outcomes="passed,failed,blocked,cancelled",lf_limit="1"];
+ full [lf_action="lf_bug_checks",lf_phase="full",lf_outcomes="passed,failed,blocked,cancelled",lf_limit="1"];
+ passed [lf_terminal="true"];
+ failed [lf_terminal="true"];
+ blocked [lf_terminal="true"];
+ cancelled [lf_terminal="true"];
+ regression -> focused [lf_on="passed"];
+ focused -> full [lf_on="passed"];
+ full -> passed [lf_on="passed"];
+ regression -> failed [lf_on="failed"];
+ regression -> blocked [lf_on="blocked"];
+ regression -> cancelled [lf_on="cancelled"];
+ focused -> failed [lf_on="failed"];
+ focused -> blocked [lf_on="blocked"];
+ focused -> cancelled [lf_on="cancelled"];
+ full -> failed [lf_on="failed"];
+ full -> blocked [lf_on="blocked"];
+ full -> cancelled [lf_on="cancelled"];
+}

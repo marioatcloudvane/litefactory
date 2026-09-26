@@ -99,6 +99,10 @@ const (
 
 	// ReplyMalformedModeLabel answers a malformed or unknown Mode label.
 	ReplyMalformedModeLabel
+	// ReplyBugModeSwitch refuses replacing an admitted standalone task.
+	ReplyBugModeSwitch
+	// ReplyBugUnavailable retains admission while its execution package is absent.
+	ReplyBugUnavailable
 	// ReplyAmbiguousModeLabels answers multiple competing Mode labels.
 	ReplyAmbiguousModeLabels
 	// ReplyConflictingModeSelection answers an owner edit conflicting with a pending transition.
@@ -225,6 +229,10 @@ func (k ReplyKind) String() string {
 		return "sync_refused_with_suggestion"
 	case ReplyRefusesSyncTooFarBehind:
 		return "sync_refused_too_far_behind"
+	case ReplyBugModeSwitch:
+		return "bug_mode_switch_refused"
+	case ReplyBugUnavailable:
+		return "bug_execution_unavailable"
 	case ReplyMalformedModeLabel:
 		return "malformed_mode_label"
 	case ReplyAmbiguousModeLabels:
@@ -289,7 +297,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyRefusesSync, ReplySuggestsResolution, ReplyRefusesSyncTooFarBehind:
 		return true
-	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
+	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -326,7 +334,7 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // RefusesMode reports whether k is a mode-selection refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly:
+	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly:
 		return true
 	default:
 		return false
@@ -799,6 +807,10 @@ func (r Reply) body() string {
 		b.WriteString("Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label " +
 			"text is not repeated here on purpose.")
 
+	case ReplyBugModeSwitch:
+		b.WriteString("This task is already admitted to the standalone Bug workflow. A mode command cannot replace or cancel it. Its workflow and retained progress are unchanged.")
+	case ReplyBugUnavailable:
+		b.WriteString("Bug admission is retained, but execution is unavailable: the registered Bug policy, graph package, result decoder, shared-service preparation and factory role permission bindings are not installed. No agent was launched. The task remains resumable in Bug.")
 	case ReplyMalformedModeLabel:
 		b.WriteString("The `Mode: …` label on this issue is malformed or unknown. Nothing was run.")
 		b.WriteString(sectionGap)

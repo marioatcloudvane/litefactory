@@ -95,6 +95,8 @@ const (
 // ordinal safe: a run that crashes still owns its number, so NNNN.jsonl files
 // never collide (S-1).
 type Run struct {
+	Workflow string
+
 	SemanticOutcome string
 	RecoveryReason  string
 	// ID is the surrogate key.
@@ -212,6 +214,8 @@ func (r Run) Succeeded() bool {
 
 // AllocateRunParams describes the run to allocate.
 type AllocateRunParams struct {
+	Workflow string
+
 	// Prelaunch makes allocation retryable until StartRun claims execution.
 	Prelaunch bool
 
@@ -263,7 +267,9 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 		return Run{}, errors.New("store: allocate run: session id is required")
 	case params.SegmentID == 0:
 		return Run{}, errors.New("store: allocate run: segment id is required")
-	case params.Mode == "":
+	case params.Workflow != "" && (params.Workflow != "bug" || params.Mode != ""):
+		return Run{}, errors.New("store: allocate run: invalid workflow binding")
+	case params.Mode == "" && params.Workflow != "bug":
 		return Run{}, errors.New("store: allocate run: mode is required")
 	case params.Agent == "":
 		return Run{}, errors.New("store: allocate run: agent is required")
@@ -288,6 +294,15 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 	}
 	var run Run
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if params.Workflow == "bug" {
+			a, err := readTaskWorkflowAdmission(ctx, tx, params.SessionID)
+			if err != nil {
+				return err
+			}
+			if a.Workflow != "bug" || a.Family != "standalone" {
+				return errors.New("store: Bug run requires admitted Bug task")
+			}
+		}
 		if IsAutomaticTrigger(params.TriggerCommentID) {
 			if err := validateAutomaticAllocation(ctx, tx, params); err != nil {
 				return err
@@ -309,11 +324,11 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 		run, err = scanRun(tx.QueryRowContext(ctx, `
 INSERT INTO runs (
     session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
-    started_at, log_path
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    started_at, log_path, workflow
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING `+runColumns,
 			params.SessionID, params.SegmentID, ordinal, params.Mode, params.Agent,
-			params.TriggerCommentID, string(status), FormatTime(startedAt), logPath))
+			params.TriggerCommentID, string(status), FormatTime(startedAt), logPath, params.Workflow))
 		if isUniqueViolation(err) {
 			return ErrDuplicateRun
 		}
@@ -863,7 +878,7 @@ const runColumns = `
     exit_code, error, started_at, finished_at, duration_ms, cost_usd,
     log_path, commit_sha, result_comment_id, sync_outcome, sync_behind,
     sync_ahead, sync_commit_sha, semantic_outcome, recovery_reason, sync_observations,
-    published, publication`
+    published, publication, workflow`
 
 func scanRun(s scanner) (Run, error) {
 	var (
@@ -885,7 +900,7 @@ func scanRun(s scanner) (Run, error) {
 		&run.TriggerCommentID, &status, &exitCode, &reason, &startedAt, &finishedAt,
 		&durationMS, &costUSD, &run.LogPath, &commitSHA, &resultCommentID, &syncOutcome,
 		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA, &run.SemanticOutcome, &run.RecoveryReason, &syncObservations,
-		&run.Published, &run.Publication)
+		&run.Published, &run.Publication, &run.Workflow)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Run{}, ErrNotFound

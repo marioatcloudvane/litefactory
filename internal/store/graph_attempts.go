@@ -125,6 +125,9 @@ func finishGraphAttemptTx(ctx context.Context, tx *sql.Tx, id int64, status, out
 // status and no transition, preserving current_node and prior history.
 func (db *DB) CompleteGraphNodeAttempt(ctx context.Context, id int64, in GraphCompletion) error {
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if e := bugTestConsumeTx(ctx, tx, id, in); e != nil {
+			return e
+		}
 		old, e := finishGraphAttemptTx(ctx, tx, id, in.Status, in.Outcome, in.FinishedAt)
 		if e != nil {
 			return e

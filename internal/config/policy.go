@@ -413,7 +413,9 @@ func validatePermissionProfiles(c *Config) []error {
 		}
 	}
 	for _, name := range sortedProfileNames(profiles) {
-		if !slices.Contains(canonicalPermissionProfiles, name) {
+		if name == "bug-analyst" || name == "bug-fixer" {
+			errs = append(errs, validateBugRoleProfile(c, name, profiles[name])...)
+		} else if !slices.Contains(canonicalPermissionProfiles, name) {
 			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, or validate", name))
 		}
 	}
@@ -427,6 +429,38 @@ func validatePermissionProfiles(c *Config) []error {
 		}
 		if profile.Codex != nil && profile.Codex.Sandbox != "read-only" {
 			errs = append(errs, errors.New("tool_profiles.permissions[\"validate\"].codex.sandbox: validate must use read-only"))
+		}
+	}
+	return errs
+}
+
+// Bug roles are optional independent operator grants, never mode aliases.
+// Older configurations remain valid; absent roles block only Bug dispatch.
+func validateBugRoleProfile(c *Config, name string, profile ToolProfile) []error {
+	var errs []error
+	if profile.Attachments {
+		errs = append(errs, fmt.Errorf("%s cannot grant attachment ingestion", name))
+	}
+	if profile.Claude == nil && profile.Codex == nil {
+		errs = append(errs, fmt.Errorf("%s requires an explicit configured agent", name))
+	}
+	if profile.Claude != nil {
+		if c.Agents.Claude == nil || name == "bug-fixer" {
+			errs = append(errs, fmt.Errorf("%s has no supported configured Claude capability surface", name))
+		}
+		for _, tool := range append(slices.Clone(profile.Claude.Tools), profile.Claude.AllowedTools...) {
+			if tool != "Read" && tool != "Glob" && tool != "Grep" {
+				errs = append(errs, fmt.Errorf("%s permits only Read, Glob and Grep", name))
+			}
+		}
+	}
+	if profile.Codex != nil {
+		want := "read-only"
+		if name == "bug-fixer" {
+			want = "workspace-write"
+		}
+		if c.Agents.Codex == nil || profile.Codex.Sandbox != want {
+			errs = append(errs, fmt.Errorf("%s requires configured Codex with sandbox %s", name, want))
 		}
 	}
 	return errs

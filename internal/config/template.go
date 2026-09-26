@@ -145,6 +145,20 @@ tool_profiles:
 	for _, name := range canonicalPermissionProfiles {
 		renderToolProfile(&b, name, profiles.Permissions[name])
 	}
+	b.WriteString(`
+# Optional independent Bug role grants go under tool_profiles.permissions:
+#   bug-analyst:
+#     codex: {sandbox: read-only}
+#   bug-fixer:
+#     codex: {sandbox: workspace-write}
+# An absent role blocks that Bug agent. Existing modes never supply its grant.
+# Optional Linux check isolation ceiling; no unisolated fallback exists:
+# bug_checks:
+#   binary: /usr/bin/bwrap
+#   read_only_roots: [/usr, /bin, /lib, /lib64]
+#   path: /usr/bin:/bin
+#   environment: [] # names of operator environment values, never inline secrets
+`)
 	return []byte(b.String())
 }
 

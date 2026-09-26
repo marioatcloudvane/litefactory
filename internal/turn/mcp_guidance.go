@@ -154,6 +154,19 @@ func mcpApplicationExample(ctx context.Context, service *AgentResultService) (co
 	}
 	r := agentresult.Result{Outcome: "incomplete", Comment: "Replace with the actual result summary.", Reason: "Describe what remains."}
 	switch service.binding.Mode {
+	case "":
+		if service.binding.Workflow != "bug" {
+			return nil, nil, errors.New("MCP guidance has unsupported workflow")
+		}
+		scope, e := service.trustedContext(ctx)
+		if e != nil {
+			return nil, nil, e
+		}
+		if scope.Bug == nil {
+			return nil, nil, errors.New("bug guidance has no bound role")
+		}
+		r.Outcome = "blocked"
+		r.Payload.Bug = &agentresult.Bug{Response: "blocked", Invocation: scope.Bug.Invocation, BaseRevision: scope.Bug.BaseRevision, Evidence: []string{"Replace with retained obstacle evidence."}}
 	case "research":
 		r.Payload.Research = &agentresult.Research{Request: "Describe the actual research request."}
 	case "spike":

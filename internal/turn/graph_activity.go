@@ -12,6 +12,7 @@ import (
 // ActivityRequest is one bounded dispatch. Attrs belongs to the handler;
 // ResumeRef is runtime-only and conveys no implemented session-resume behavior.
 type ActivityRequest struct {
+	Workflow                         agent.Workflow
 	Team                             string
 	Mode                             agent.Mode
 	Node                             string
@@ -25,6 +26,8 @@ type ActivityRequest struct {
 // retained as opaque diagnostic output; future publishers must redact it.
 type ActivityResult struct {
 	// ProcessResult retains subprocess facts independently from private node validation.
+	// Suspended is permitted only for a durably recorded Bug child wait.
+	Suspended     bool
 	ProcessResult *agent.RunResult
 	Outcome       string
 	Kind          string

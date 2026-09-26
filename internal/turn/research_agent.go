@@ -73,7 +73,7 @@ func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, hand
 	if _, exists := activities.Resolve(ResearchAgentAction); exists {
 		return errors.New("research agent activity already registered")
 	}
-	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: handler.Policy.Mode, Outcomes: []string{"success", "failed"}}); err != nil {
+	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: handler.Policy.Mode, Workflow: handler.Policy.Workflow, Outcomes: []string{"success", "failed"}}); err != nil {
 		return err
 	}
 	return activities.Register(ResearchAgentAction, handler)
@@ -83,6 +83,14 @@ func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, hand
 func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequest) (out ActivityResult, returnedErr error) {
 	if opts.DB == nil || h.Prepare == nil || a.Mode != h.Policy.Mode || a.RunID < 1 {
 		return out, errors.New("research agent requires a real Research run and preparation")
+	}
+	workflow, err := agent.ResolveWorkflow(h.Policy.Workflow, h.Policy.Mode)
+	if err != nil {
+		return out, err
+	}
+	actual, err := agent.ResolveWorkflow(a.Workflow, a.Mode)
+	if err != nil || actual != workflow {
+		return out, errors.New("agent workflow policy binding mismatch")
 	}
 	attempt, err := opts.DB.GetGraphNodeAttempt(ctx, a.NodeAttemptID)
 	if err != nil {
@@ -95,7 +103,7 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 	if err != nil {
 		return out, err
 	}
-	if run.Status != store.RunRunning || run.Mode != string(h.Policy.Mode) {
+	if run.Status != store.RunRunning || run.Mode != string(h.Policy.Mode) || (workflow == agent.WorkflowBug && run.Workflow != "bug") || (workflow != agent.WorkflowBug && run.Workflow != "") {
 		return out, errors.New("research agent run is not active Research")
 	}
 	invocation, err := h.Prepare(ctx, opts, a)
@@ -112,10 +120,14 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 			returnedErr = errors.Join(returnedErr, invocation.Close())
 		}
 	}()
-	if invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != string(h.Policy.Mode) {
+	if invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != string(h.Policy.Mode) || (workflow == agent.WorkflowBug && invocation.Results.binding.Workflow != "bug") {
 		return out, errors.New("research invocation lacks matching application-result authority")
 	}
 	req := invocation.Request
+	requestWorkflow, err := agent.ResolveWorkflow(req.Workflow, agent.Mode(req.Mode))
+	if err != nil || requestWorkflow != workflow {
+		return out, errors.New("agent request workflow binding mismatch")
+	}
 	segment, err := opts.DB.GetSegment(ctx, run.SegmentID)
 	if err != nil {
 		return out, err

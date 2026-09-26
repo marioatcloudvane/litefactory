@@ -28,6 +28,7 @@ func (db *DB) AdmitWorkflowPath(ctx context.Context, sessionID int64, selected s
 // WorkflowLaunch pins the actual owned package bytes at an authorized boundary.
 // The foundation definition remains immutable when only instructions change.
 type WorkflowLaunch struct {
+	Workflow                             string
 	Mode                                 string
 	SessionID, TriggerID                 int64
 	DefinitionID                         int64
@@ -60,6 +61,14 @@ func (db *DB) LatestWorkflowInstance(ctx context.Context, sessionID int64, mode 
 // or an owner continues terminal work, links a successor at the current start.
 // Calling it is explicit owner authority; recovery must never call this method.
 func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out WorkflowAdmission, err error) {
+	if in.Workflow == "bug" {
+		if in.Mode != "" {
+			return out, graphInvariant("standalone launch cannot have a mode")
+		}
+		in.Mode = standaloneGraphStorageKey
+	} else if in.Workflow != "" && in.Workflow != in.Mode {
+		return out, graphInvariant("conflicting launch workflow binding")
+	}
 	validDigest := func(s string) bool {
 		raw, e := hex.DecodeString(s)
 		return e == nil && len(raw) == 32 && hex.EncodeToString(raw) == s
@@ -68,6 +77,16 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 		return out, graphInvariant("invalid workflow launch capture")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
+		admission, admissionErr := readTaskWorkflowAdmission(ctx, tx, in.SessionID)
+		if admissionErr != nil && !errors.Is(admissionErr, ErrNotFound) {
+			return admissionErr
+		}
+		if in.Workflow == "bug" && (admissionErr != nil || admission.Family != "standalone") {
+			return graphInvariant("Bug launch requires retained standalone admission")
+		}
+		if admissionErr == nil && admission.Family == "standalone" && in.Workflow != "bug" {
+			return graphInvariant("mode launch conflicts with standalone admission")
+		}
 		var mode string
 		if e := tx.QueryRowContext(ctx, `SELECT mode FROM graph_definitions WHERE id=?`, in.DefinitionID).Scan(&mode); e != nil {
 			return e
@@ -214,4 +233,9 @@ func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (Resea
 // ResearchPredecessor returns retained predecessor identity and owner reply.
 func (db *DB) ResearchPredecessor(ctx context.Context, instanceID int64) (int64, string, error) {
 	return db.WorkflowPredecessor(ctx, instanceID)
+}
+
+// LatestStandaloneBugInstance recovers only the admitted standalone graph pins.
+func (db *DB) LatestStandaloneBugInstance(ctx context.Context, sessionID int64) (GraphInstance, error) {
+	return scanGraphInstance(db.sql.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? AND definition_id IN (SELECT id FROM graph_definitions WHERE workflow='bug' AND mode=?) ORDER BY id DESC LIMIT 1`, sessionID, standaloneGraphStorageKey))
 }

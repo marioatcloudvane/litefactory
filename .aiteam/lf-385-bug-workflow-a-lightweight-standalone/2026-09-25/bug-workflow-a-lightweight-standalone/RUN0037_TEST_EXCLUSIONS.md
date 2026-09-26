@@ -1,0 +1,43 @@
+# Run0037 authorized test exclusions
+
+The owner instructed this run to ignore story002 tests and continue engineering. Aggregate make commands use `/tmp/lf385-go`, which delegates to the installed Go executable unchanged except that `go test` receives an anchored exact-name `-skip` expression for the following39 story002 tests. Composed story009 owner/repair/child/recovery tests remain included. This is not an unfiltered full-suite claim. Unsupported host sandbox observations remain skipped; runtime isolation requirements are unchanged.
+
+- `TestBugAnalysisBoundaryTickMechanicalEighthPassApproval`
+- `TestBugAnalysis_DigestBindsProposal`
+- `TestBugAnalysis_ValidatePartialSnapshot`
+- `TestBugAnalysis_ValidateReviewCompleteness`
+- `TestBugAnalysis_ValidateStableIdentifiers`
+- `TestBugAnalyst_CancelledCapture`
+- `TestBugAnalyst_CapturedResourceClosure`
+- `TestBugAnalyst_NativePackage`
+- `TestBugAnalyst_NativeRoleInheritsFactorySurface`
+- `TestBugAnalyst_ReadOnlyArgv`
+- `TestBugAnalyst_ReadSurfaceOnColdAndResumeArgv`
+- `TestBugAnalyst_RefusesUnsafeToolSurface`
+- `TestBugAnalyst_ResultCatalogAugmentsReadSurface`
+- `TestBugAnalyst_SourceEmbeddedParity`
+- `TestBugBoundaryAgentCannotPatchExecutionAuthority`
+- `TestBugBoundaryAnalysisHistoryAndAuthenticatedAnswers`
+- `TestBugBoundaryCancellationAndAtomicWriteFailure`
+- `TestBugBoundaryCompetingFreshInvocationsSpendOnePass`
+- `TestBugBoundaryConcurrentReservationAndDispatch`
+- `TestBugBoundaryEightPassesSurviveReopenAndFreshGraphs`
+- `TestBugBoundaryEighthPassPublishedApprovalConsumesNoInvocation`
+- `TestBugBoundaryIdentityIsImmutableAndTaskBound`
+- `TestBugBoundaryRejectsOtherTaskAttemptAndRun`
+- `TestBugBoundarySectionsCASReplayAndNoAuthority`
+- `TestBugBoundarySupersededApprovalRemainsHistorical`
+- `TestBugBoundarySurrogateModeCannotDispatchOrBindResult`
+- `TestBugResultBoundaryAnalystReservationAndRecovery`
+- `TestBugResultBoundaryLocalBrokerCommunicationOnly`
+- `TestBugResultBoundaryReceiptAndTerminalCannotApplyWithoutSuccessfulInvocation`
+- `TestBugResultBoundaryServiceReceiptRecoveryAndCorrection`
+- `TestBugResultBoundaryServiceRejectsMismatchedAuthority`
+- `TestBugResult_BindingGuards`
+- `TestBugResult_MetadataProjectionAndUpdate`
+- `TestBugResult_RefusesMetadataAndUpdateAuthorityChanges`
+- `TestBugResult_ResponseGuards`
+- `TestBugResult_StrictInput`
+- `TestBugResult_StrictNode`
+- `TestBugResult_UpdateProposalRetainsInvocation`
+- `TestBugResult_ValidResponses`

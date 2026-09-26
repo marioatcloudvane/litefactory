@@ -145,7 +145,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		if step.Status == store.GraphFailed {
 			return w.finish(ctx, w.failed(ctx, scope, step, errors.New(step.Activity.Diagnostic), false))
 		}
-		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" {
+		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" || step.Status == "waiting_child" {
 			return w.finish(ctx, nil)
 		}
 	}
@@ -361,8 +361,18 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 		return out, errors.Join(cause, err)
 	}
 	out.Run = run
-	if cause == nil && w.process != nil && w.process.Succeeded() {
+	if cause == nil && w.process != nil && w.process.Succeeded() && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
 		out = save(bookkeeping, w.opts, w.prep, out, w.process, w.opts.Logger)
+		if w.req.Workflow == agent.WorkflowBug {
+			commit := out.SHAAfter
+			if commit == "" {
+				commit = out.CommitSHA
+			}
+			if commit != "" {
+				out.Err = errors.Join(out.Err, w.opts.DB.SetRunCommit(bookkeeping, w.prep.run.ID, commit))
+			}
+			out.Err = errors.Join(out.Err, w.opts.DB.SetRunPublication(bookkeeping, w.prep.run.ID, out.Pushed, out.Publication))
+		}
 		if out.Err == nil && w.policy.Handlers != nil && w.policy.Handlers.AfterSave != nil {
 			out.Err = w.policy.Handlers.AfterSave(bookkeeping, w, &out)
 		}

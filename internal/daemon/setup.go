@@ -3,17 +3,21 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
+	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -341,7 +345,40 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Logger:                    s.Logger,
 	}
 
+	var isolation bugchecks.Isolation
+	if profile := s.Config.BugChecks; profile != nil {
+		allowed := make(map[string]bool, len(profile.Environment))
+		for _, name := range profile.Environment {
+			allowed[name] = true
+		}
+		values := make(map[string]string, len(allowed))
+		for _, entry := range environ {
+			name, value, found := strings.Cut(entry, "=")
+			if found && allowed[name] {
+				values[name] = value
+			}
+		}
+		isolation = bugchecks.Isolation{Binary: profile.Binary, ReadOnlyRoots: append([]string(nil), profile.ReadOnlyRoots...), PATH: profile.PATH, Environment: values}
+		// Hash the actual operator profile, including declared values, without
+		// retaining or exposing those values in check evidence.
+		encoded, encodeErr := json.Marshal(isolation)
+		if encodeErr != nil {
+			return nil, Startup{}, errors.Join(encodeErr, lock.Close())
+		}
+		digest := sha256.Sum256(encoded)
+		isolation.Revision = hex.EncodeToString(digest[:])
+	}
+	bugRuntime, err := turn.NewBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
+		Forge: client, OwnerID: identities.OwnerUserID,
+		Permissions: bugRolePermissions(toolProfiles, toolCeiling), Isolation: isolation,
+	})
+	if err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
+	turnOpts.Bug = bugRuntime
 	daemon, err := New(Options{
+		Bug:                      bugRuntime,
+		BugTests:                 bugRuntime.Child,
 		Retirement:               RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		DB:                       s.DB,

@@ -11,8 +11,10 @@ import (
 	"testing"
 )
 
-// Research and Plan have explicit production entries to the shared driver,
-// which owns the only activity dispatch call.
+// Research and Plan enter the shared driver. The pinned Bug child and the
+// factory-selected Bug parent runtime dispatch their own retained node identities.
+// BugRuntime binds package pins, role permissions and domain recovery before
+// this call; only its exact production method is an additional approved entry.
 // Reject other wiring, including function-value references and nested callbacks.
 func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 	t.Parallel()
@@ -46,7 +48,21 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 					allowed[fn.Name] = true
 				}
 				planEntry := filepath.Clean(path) == filepath.Join("..", "turn", "plan_graph.go") && fn.Name.Name == "admitPlanExecution"
-				if (!planEntry && filepath.Clean(path) != filepath.Join("..", "turn", "research_workflow.go")) || fn.Recv != nil {
+				bugChildEntry := false
+				if filepath.Clean(path) == filepath.Join("..", "turn", "bug_test_graph.go") && fn.Name.Name == "Advance" && fn.Recv != nil && len(fn.Recv.List) == 1 {
+					if pointer, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
+						name, ok := pointer.X.(*ast.Ident)
+						bugChildEntry = ok && name.Name == "BugTestChild"
+					}
+				}
+				bugParentEntry := false
+				if filepath.Clean(path) == filepath.Join("..", "turn", "bug_runtime.go") && fn.Name.Name == "Execute" && fn.Recv != nil && len(fn.Recv.List) == 1 {
+					if pointer, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
+						name, ok := pointer.X.(*ast.Ident)
+						bugParentEntry = ok && name.Name == "BugRuntime"
+					}
+				}
+				if !bugParentEntry && !bugChildEntry && ((!planEntry && filepath.Clean(path) != filepath.Join("..", "turn", "research_workflow.go")) || fn.Recv != nil) {
 					continue
 				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -58,7 +74,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 						return true
 					}
 					id, ok := call.Fun.(*ast.Ident)
-					if !ok || (owners[id.Name] != fn.Name.Name && (!planEntry || id.Name != "ExecuteWorkflow")) {
+					if !ok || (owners[id.Name] != fn.Name.Name && (!planEntry || id.Name != "ExecuteWorkflow") && ((!bugChildEntry && !bugParentEntry) || id.Name != "ExecuteNodeAction")) {
 						return true
 					}
 					allowed[id] = true
@@ -100,9 +116,9 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 		}
 	}
 	for name, owner := range owners {
-		want := 1
-		if name == "ExecuteWorkflow" {
-			want = 2
+		want := 2
+		if name == "ExecuteNodeAction" {
+			want = 3
 		}
 		if calls[name] != want {
 			t.Errorf("found %d direct %s calls from approved %s entries, want %d", calls[name], name, owner, want)

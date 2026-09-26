@@ -57,7 +57,7 @@ func NewToolDispatcher(guard *AttemptGuard, service MCPResultService) (*ToolDisp
 	if guard == nil || service == nil || guard.Binding() != service.Binding() || service.MCPPermissionDigest() == "" || guard.Lease().PermissionDigest != service.MCPPermissionDigest() {
 		return nil, errors.New("MCP dispatcher requires matching immutable authority and service scope")
 	}
-	profile, err := submission.NewToolProfile(guard.Binding().Mode)
+	profile, err := submission.NewWorkflowToolProfile(guard.Binding().Workflow, guard.Binding().Mode)
 	if err != nil {
 		return nil, err
 	}

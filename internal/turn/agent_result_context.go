@@ -15,6 +15,10 @@ import (
 )
 
 func cloneResultContext(c agentresult.Context) agentresult.Context {
+	if c.Bug != nil {
+		bug := *c.Bug
+		c.Bug = &bug
+	}
 	c.PlanScope.Roles = slices.Clone(c.PlanScope.Roles)
 	c.PlanScope.IssueRefs = slices.Clone(c.PlanScope.IssueRefs)
 	c.PlanGraph = c.PlanGraph.Clone()

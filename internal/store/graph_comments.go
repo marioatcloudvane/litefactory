@@ -74,15 +74,23 @@ func (db *DB) GetGraphComment(ctx context.Context, key string) (GraphCommentInte
 // graphReportDeliveryTx prevents graph publication from finalizing a whole run
 // or consuming owner input. Only a retained, exactly bound graph intent qualifies.
 func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (bool, error) {
-	var session, run int64
-	err := tx.QueryRowContext(ctx, `SELECT i.session_id,a.run_id FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id JOIN graph_node_attempts a ON a.id=c.source_attempt_id WHERE c.delivery_key=?`, d.Key).Scan(&session, &run)
+	var session int64
+	var run sql.NullInt64
+	var workflow, status, kind string
+	err := tx.QueryRowContext(ctx, `SELECT i.session_id,a.run_id,COALESCE(g.workflow,''),a.status,c.kind FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id JOIN graph_definitions g ON g.id=i.definition_id JOIN graph_node_attempts a ON a.id=c.source_attempt_id AND a.instance_id=i.id WHERE c.delivery_key=?`, d.Key).Scan(&session, &run, &workflow, &status, &kind)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	if session != d.SessionID || run != d.RunID {
+	// Bug factory activities have no subprocess run. Their actual succeeded
+	// or failed source attempt remains the publication authority; never invent
+	// a run or extend this exception to existing agent-backed workflows.
+	if !run.Valid && (workflow != "bug" || d.RunID != 0 || (kind == "failure" && status != GraphFailed) || (kind != "failure" && status != GraphSucceeded)) {
+		return false, errors.New("store: runless graph report requires a terminal Bug factory source")
+	}
+	if session != d.SessionID || run.Int64 != d.RunID {
 		return false, errors.New("store: graph report run/session mismatch")
 	}
 	return true, nil
