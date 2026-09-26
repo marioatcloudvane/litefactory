@@ -330,7 +330,7 @@ func (req ReplyRequest) validate() error {
 	// A refusal needs one as much as any other reply does. The issue-body path
 	// has no comment to answer and does not come here at all: it refuses the run
 	// and logs it, and the next comment on the issue is refused on the thread.
-	case req.CommentID <= 0:
+	case req.CommentID < 0 || (req.CommentID == 0 && req.Refusal != report.ReplyBugUnavailable):
 		return invalidRequest("a comment id is required to reply to a comment")
 	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
 		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode() && !req.Refusal.RefusesSync():
@@ -636,7 +636,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	if err != nil {
 		return Posted{}, err
 	}
-	if consumed {
+	if consumed && req.CommentID != 0 {
 		log.InfoContext(ctx, "comment has already been consumed; posting no reply")
 		return Posted{Skipped: true}, nil
 	}

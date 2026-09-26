@@ -800,11 +800,12 @@ func checkResultContract(content string) []string {
 	return fails
 }
 
-// workflowResultContracts finds node-result.md files under a workflow package.
+// workflowResultContracts finds named result contracts under a workflow package.
+// Bug uses result.md in its two role-specific result skills.
 func workflowResultContracts(w shippedWorkflow) ([]string, error) {
 	var out []string
 	err := fs.WalkDir(w.FS, ".", func(name string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && d.Name() == "node-result.md" {
+		if err == nil && !d.IsDir() && (d.Name() == "node-result.md" || (w.Name == "bug" && d.Name() == "result.md")) {
 			out = append(out, name)
 		}
 		return err

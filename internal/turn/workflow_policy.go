@@ -31,6 +31,7 @@ type WorkflowPolicy struct {
 	BeforePublish   func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.Result, agentresult.Context) error
 	Failure         func(Request, error) agentresult.Result
 	Mode            agent.Mode
+	Workflow        agent.Workflow
 	Control         graphexec.ControlPolicy
 	Decode          func([]byte, agentresult.Context) (agentresult.ResearchNode, agentresult.Diagnostics)
 	Artifacts       func(string, string, agentresult.Result) error

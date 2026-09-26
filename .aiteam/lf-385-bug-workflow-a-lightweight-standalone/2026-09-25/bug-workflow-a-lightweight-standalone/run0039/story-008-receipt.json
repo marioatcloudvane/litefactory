@@ -1,0 +1,20 @@
+{
+  "request_id": "ba5f994711ced103fd1648917d33648c",
+  "result": {
+    "ID": 365,
+    "RunID": 666,
+    "Attempt": "5e2cf5749a51816cb1a0a37027edb420",
+    "RequestID": "ba5f994711ced103fd1648917d33648c",
+    "RequestHash": "3931c58256a131a4cd9b41ad68e6f75d9782b53f44fce9d93ffbca58f8db40d9",
+    "Story": "story-008",
+    "Revision": "c594f6821abb1984c42257eccaa6f3e8fa61ead85514cb952a395c761964a3da",
+    "Sequence": 1,
+    "StoryAttempt": 1,
+    "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=",
+    "InputState": "valid",
+    "EngineeringState": "recorded",
+    "AcceptanceState": "not_applicable",
+    "EffectState": "pending",
+    "PlanState": "not_applicable"
+  }
+}

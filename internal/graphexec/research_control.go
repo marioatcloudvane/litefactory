@@ -23,6 +23,7 @@ func ResearchControlSpec(action string) ActionSpec {
 type ControlPolicy struct {
 	Generation          string
 	Mode                agent.Mode
+	Workflow            agent.Workflow
 	Responses, Defaults []string
 	Ask, Approved       string
 }
@@ -41,7 +42,7 @@ func ControlSpec(action string, policy ControlPolicy) ActionSpec {
 	if action == ResearchLoopAction {
 		attrs["lf_default"] = AttributeSpec{Values: policy.Defaults}
 	}
-	return ActionSpec{Name: action, Mode: policy.Mode, Outcomes: []string{"true", "false"}, Attributes: attrs}
+	return ActionSpec{Name: action, Mode: policy.Mode, Workflow: policy.Workflow, Outcomes: []string{"true", "false"}, Attributes: attrs}
 }
 
 // ResearchResponses are the three things a Research agent can say about its own

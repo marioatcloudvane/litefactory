@@ -145,6 +145,25 @@ tool_profiles:
 	for _, name := range canonicalPermissionProfiles {
 		renderToolProfile(&b, name, profiles.Permissions[name])
 	}
+	b.WriteString(`
+# Optional independent Bug role grants go under tool_profiles.permissions:
+#   bug-analyst:
+#     codex: {sandbox: read-only}
+#   bug-fixer:
+#     codex: {sandbox: workspace-write}
+# An absent role blocks that Bug agent. Existing modes never supply its grant.
+# Optional check sandbox ceiling (macOS or Linux); no unisolated fallback exists.
+# Checks run under the Codex sandbox: everything readable except deny_read and
+# $LF_HOME, writes only to the worktree, a private temp dir and writable_roots,
+# no network.
+# bug_checks:
+#   binary: /absolute/path/to/codex
+#   path: /usr/local/bin:/usr/bin:/bin # must also reach node when codex is the npm launcher
+#   writable_roots: [] # e.g. compiler caches, as for agents.codex.writable_roots
+#   deny_read: [] # e.g. ~/.ssh, ~/.config/gh
+#   environment: [] # names of operator environment values, never inline secrets
+#   network: false # true opens the network, loopback included (tests with local servers)
+`)
 	return []byte(b.String())
 }
 

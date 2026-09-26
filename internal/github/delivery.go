@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/redact"
 	gogithub "github.com/google/go-github/v90/github"
@@ -15,13 +16,14 @@ type DeliveryPR struct {
 	Number                                                                 int
 	Title, Body, Head, Branch, Target, HeadRepo, BaseRepo, State, MergeSHA string
 	Merged                                                                 bool
+	MergedAt                                                               time.Time
 }
 
 func convertDeliveryPR(p *gogithub.PullRequest) DeliveryPR {
 	if p == nil {
 		return DeliveryPR{}
 	}
-	return DeliveryPR{ID: p.GetID(), CreatorID: p.GetUser().GetID(), Number: p.GetNumber(), Title: p.GetTitle(), Body: p.GetBody(), Head: p.GetHead().GetSHA(), Branch: p.GetHead().GetRef(), Target: p.GetBase().GetRef(), HeadRepo: p.GetHead().GetRepo().GetFullName(), BaseRepo: p.GetBase().GetRepo().GetFullName(), State: p.GetState(), MergeSHA: p.GetMergeCommitSHA(), Merged: p.GetMerged()}
+	return DeliveryPR{ID: p.GetID(), CreatorID: p.GetUser().GetID(), Number: p.GetNumber(), Title: p.GetTitle(), Body: p.GetBody(), Head: p.GetHead().GetSHA(), Branch: p.GetHead().GetRef(), Target: p.GetBase().GetRef(), HeadRepo: p.GetHead().GetRepo().GetFullName(), BaseRepo: p.GetBase().GetRepo().GetFullName(), State: p.GetState(), MergeSHA: p.GetMergeCommitSHA(), Merged: p.GetMerged(), MergedAt: p.GetMergedAt().Time}
 }
 func validDeliverySHA(s string) bool {
 	return len(s) == 40 && strings.Trim(s, "0123456789abcdef") == ""

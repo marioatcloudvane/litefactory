@@ -35,13 +35,7 @@ func TestPlanWorkflowStore_AdmissionBackfillAndIsolation(t *testing.T) {
 		}
 	}
 	legacy := testSession(t, db, 362)
-	segment, err := db.GetOrCreateSegment(ctx, legacy.ID, FirstSegmentOrdinal, "prior-plan", AgentClaude)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.AllocateRun(ctx, AllocateRunParams{SessionID: legacy.ID, SegmentID: segment.ID, Mode: "plan", Agent: AgentClaude, TriggerCommentID: 10, LogPath: func(int) string { return "/fixture/plan.log" }}); err != nil {
-		t.Fatal(err)
-	}
+	historicalRun(t, db, legacy.ID, 10, "plan")
 	if err = db.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}

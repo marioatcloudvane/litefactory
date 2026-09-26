@@ -85,6 +85,7 @@ type Options struct {
 	// ResearchDriver is the application-owned DOT execution path. An explicit
 	// graph selection fails closed when the driver is unavailable.
 	ResearchDriver   ResearchLaunchDriver
+	Bug              *BugRuntime
 	ResearchReporter *Reporter
 	// MCP is the optional startup-owned automatic tool runtime.
 	MCP *MCPRuntime
@@ -340,6 +341,7 @@ type Trigger struct {
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
 	workflowPolicy     *WorkflowPolicy
+	bugAdmitted        bool
 	researchDefinition *teamsource.ResearchDefinition
 	researchNode       string
 	// researchInstance scopes this run's application result to one graph
@@ -352,7 +354,8 @@ type Request struct {
 	Continuation *store.Continuation
 
 	// Mode is the concrete workflow mode selected before this turn starts.
-	Mode agent.Mode
+	Mode     agent.Mode
+	Workflow agent.Workflow
 	// SessionID is the task, from store.GetOrCreateSession.
 	SessionID int64
 	// Issue describes the issue.
@@ -441,6 +444,10 @@ func (r Request) validate() error {
 		return invalidRequest("%s has no instruction text", r.Command.Kind)
 	case r.Agent == "":
 		return invalidRequest("no coding agent was selected")
+	case r.Workflow != "" && !validRequestWorkflow(r.Workflow, r.Mode):
+		return invalidRequest("workflow %q conflicts with mode %q", r.Workflow, r.Mode)
+	case r.Workflow == agent.WorkflowBug && !r.bugAdmitted:
+		return invalidRequest("Bug execution requires a registered policy, package and factory role permissions")
 	case r.Mode != "" && !r.Mode.Valid():
 		return invalidRequest("mode %q is not research, plan, implement, validate or spike", r.Mode)
 	default:
@@ -453,7 +460,17 @@ func (r Request) validate() error {
 // the same thing and none of them has to be kept in step by hand. Free text
 // named no command. The fallback is retained for old direct callers and tests;
 // production daemon requests always carry [Request.Mode].
+func (r Request) storedWorkflow() string {
+	if r.Workflow == agent.WorkflowBug {
+		return "bug"
+	}
+	return ""
+}
+
 func (r Request) mode() string {
+	if r.Workflow == agent.WorkflowBug {
+		return ""
+	}
 	if r.Mode.Valid() {
 		return string(r.Mode)
 	}
@@ -492,6 +509,9 @@ func (r Request) mode() string {
 func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr error) {
 	if err := opts.validate(); err != nil {
 		return Result{}, err
+	}
+	if req.Workflow == agent.WorkflowBug && opts.Bug != nil {
+		req.bugAdmitted = true
 	}
 	if err := req.validate(); err != nil {
 		return Result{}, err
@@ -605,6 +625,10 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 			logger.Error("release the task lock", slog.Any("error", releaseErr))
 		}
 	}()
+
+	if req.Workflow == agent.WorkflowBug {
+		return opts.Bug.Execute(ctx, req, result)
+	}
 
 	// AC-3.4: a comment that already produced a run never produces a second
 	// one. The unique index on (session, trigger comment) would refuse the
@@ -876,4 +900,9 @@ func repairWithLock(repair func(context.Context) (Result, error), release func(c
 		}
 		return result, nil
 	}
+}
+
+func validRequestWorkflow(w agent.Workflow, m agent.Mode) bool {
+	_, err := agent.ResolveWorkflow(w, m)
+	return err == nil
 }

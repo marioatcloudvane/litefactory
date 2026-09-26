@@ -376,6 +376,7 @@ func prepare(
 		FeatureSlug:       session.FeatureSlug,
 		Branch:            branch,
 		Mode:              req.mode(),
+		Workflow:          req.Workflow,
 		RunOrdinal:        run.Ordinal,
 		Instruction:       req.Command.Text,
 		IssueTitle:        req.Issue.Title,
@@ -525,6 +526,7 @@ func prepare(
 				Resume: segment.ResumeToken,
 			},
 			Mode:         req.mode(),
+			Workflow:     req.Workflow,
 			Path:         path,
 			WorktreePath: worktree.Path(),
 			Prompt:       prompt,
@@ -1590,6 +1592,7 @@ func allocateRun(
 		SessionID: session.ID,
 		SegmentID: segment.ID,
 		Mode:      req.mode(),
+		Workflow:  req.storedWorkflow(),
 		// The segment's own value, never req.Agent recomputed: by the time
 		// this is called, segment.Agent is already guaranteed to equal
 		// resolvedKind — prepareDeliverySegment reconciles an ordinary turn's

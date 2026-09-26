@@ -80,6 +80,23 @@ func OpenAgentResultReader(ctx context.Context, db *store.DB, b store.ResultBind
 }
 
 func resultAttemptContext(a store.ResultAttempt, c agentresult.Context) (store.ResultAttempt, error) {
+	if c.Workflow != "" {
+		if _, err := agent.ResolveWorkflow(c.Workflow, agent.Mode(c.Mode)); err != nil {
+			return a, fmt.Errorf("application workflow binding: %w", err)
+		}
+		if c.Workflow == agent.WorkflowBug && (c.Bug == nil || (c.Bug.Role != "bug-analyst" && c.Bug.Role != "bug-fixer") || c.Bug.Invocation == "" || a.Workflow != "bug") {
+			return a, fmt.Errorf("bug shared-service result requires exact role workflow and invocation binding")
+		}
+	}
+	if c.Workflow == agent.WorkflowBug && c.Bug != nil && c.Bug.Role == "bug-fixer" {
+		b := c.Bug
+		if b.Reservation == "" || b.Invocation != b.Reservation || b.ApprovedRevision <= 0 || b.ApprovedRevision != b.BaseRevision || b.ApprovedDigest == "" || b.ApprovalReview == "" || b.SourceCommit == "" || b.SourceTree == "" || b.CriteriaJSON == "" {
+			return a, fmt.Errorf("bug fixer shared-service context lacks exact approved repair binding")
+		}
+	}
+	if a.Workflow != "" && a.Workflow != string(c.Workflow) {
+		return a, fmt.Errorf("application workflow differs from trusted run")
+	}
 	if a.Mode != c.Mode || a.SchemaVersion != c.SchemaVersion || a.WorkflowVersion != c.WorkflowVersion {
 		return a, fmt.Errorf("application context conflicts with trusted run binding")
 	}
@@ -105,7 +122,7 @@ func (s *AgentResultService) Read(ctx context.Context, revision int64, selection
 	if err != nil {
 		return agentresult.Projection{}, agentresult.Diagnostics{}, err
 	}
-	p, d := agentresult.Project(snapshot, selections, s.readTargets, agentresult.Context{Mode: s.binding.Mode, SchemaVersion: s.binding.SchemaVersion})
+	p, d := agentresult.Project(snapshot, selections, s.readTargets, agentresult.Context{Workflow: agent.Workflow(s.binding.Workflow), Mode: s.binding.Mode, SchemaVersion: s.binding.SchemaVersion})
 	return p, d, nil
 }
 func decodeRetainedResult(r store.ResultRevision) (agentresult.Snapshot, agentresult.RetiredIDs, error) {
@@ -229,7 +246,7 @@ func creationCapablePlan(plan *agentresult.Plan, outcome string) bool {
 }
 
 func (s *AgentResultService) metadata(revision int64) agentresult.Metadata {
-	return agentresult.Metadata{SchemaVersion: s.binding.SchemaVersion, Task: s.binding.Task, RunID: s.binding.RunID, AttemptID: s.binding.Attempt, Mode: s.binding.Mode, ResultID: fmt.Sprintf("result-%d", s.binding.ResultID), ResultRevision: revision, ScopeRef: s.binding.ContextHash, WorkflowVersion: s.binding.WorkflowVersion, SubmissionContractVersion: s.binding.SubmissionVersion}
+	return agentresult.Metadata{Workflow: agent.Workflow(s.binding.Workflow), SchemaVersion: s.binding.SchemaVersion, Task: s.binding.Task, RunID: s.binding.RunID, AttemptID: s.binding.Attempt, Mode: s.binding.Mode, ResultID: fmt.Sprintf("result-%d", s.binding.ResultID), ResultRevision: revision, ScopeRef: s.binding.ContextHash, WorkflowVersion: s.binding.WorkflowVersion, SubmissionContractVersion: s.binding.SubmissionVersion}
 }
 
 // Preflight performs the same fresh scope/evidence reads as Submit without
@@ -339,7 +356,7 @@ func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt
 		if s.completeReadGrant() {
 			response.Snapshot = &snapshot
 		} else {
-			projection, d := agentresult.Project(snapshot, resultBaselineTargets(s.readTargets), s.readTargets, agentresult.Context{Mode: s.binding.Mode, SchemaVersion: s.binding.SchemaVersion})
+			projection, d := agentresult.Project(snapshot, resultBaselineTargets(s.readTargets), s.readTargets, agentresult.Context{Workflow: agent.Workflow(s.binding.Workflow), Mode: s.binding.Mode, SchemaVersion: s.binding.SchemaVersion})
 			if !d.Valid || !d.Complete {
 				return response, resultDiagnosticError(d)
 			}

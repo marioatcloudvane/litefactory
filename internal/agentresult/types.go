@@ -29,6 +29,8 @@ type CreateInput struct {
 
 // Metadata contains factory-owned attribution, never credentials.
 type Metadata struct {
+	Workflow agent.Workflow `json:"workflow,omitempty"`
+
 	SchemaVersion             int    `json:"schema_version"`
 	Task                      string `json:"task"`
 	RunID                     int64  `json:"run_id"`
@@ -51,6 +53,9 @@ type Snapshot struct {
 // Context is factory input, never decoded from authored JSON. AggregateValidator
 // resolves retained aggregate facts; absence cannot establish aggregate proof.
 type Context struct {
+	Bug *BugBinding
+
+	Workflow            agent.Workflow
 	SchemaVersion       int
 	Mode                string
 	WorkflowVersion     int
@@ -124,6 +129,8 @@ type Artifact struct {
 
 // Payload selects one of the five factory-bound work modes.
 type Payload struct {
+	Bug *Bug `json:"bug,omitempty"`
+
 	Research  *Research  `json:"research,omitempty"`
 	Plan      *Plan      `json:"plan,omitempty"`
 	Implement *Implement `json:"implement,omitempty"`

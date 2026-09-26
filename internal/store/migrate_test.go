@@ -394,3 +394,23 @@ INSERT INTO runs (
 			resumed, segmentID, seededSessionRef)
 	}
 }
+
+// historicalRun seeds the pre-workflow run schema for populated migration tests.
+// Calling AllocateRun here would require additive columns from newer migrations
+// and prevent the fixture from exercising the actual historical schema.
+func historicalRun(t *testing.T, db *DB, sessionID, triggerID int64, mode string) Run {
+	t.Helper()
+	segment, err := db.GetOrCreateSegment(t.Context(), sessionID, FirstSegmentOrdinal, "migration-session", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := Run{SessionID: sessionID, SegmentID: segment.ID, Mode: mode, Agent: AgentClaude, TriggerCommentID: triggerID, Status: RunRunning, StartedAt: nowUTC(), LogPath: "/logs/historical.jsonl"}
+	err = db.sql.QueryRowContext(t.Context(), `INSERT INTO runs
+ (session_id,segment_id,ordinal,mode,agent,trigger_comment_id,status,started_at,log_path)
+ VALUES (?,?,(SELECT COALESCE(MAX(ordinal),0)+1 FROM runs WHERE session_id=?),?,?,?,?,?,?) RETURNING id,ordinal`,
+		sessionID, segment.ID, sessionID, mode, AgentClaude, triggerID, string(RunRunning), FormatTime(run.StartedAt), run.LogPath).Scan(&run.ID, &run.Ordinal)
+	if err != nil {
+		t.Fatalf("seed historical run: %v", err)
+	}
+	return run
+}

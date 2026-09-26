@@ -97,7 +97,7 @@ func TestReportDeliveryMigrationPreservesLegacyProvenance(t *testing.T) {
 	})
 	applyMigrationsThrough(t, db, migrationVersionBefore(t, "report_deliveries"))
 	session := testSession(t, db, 123)
-	old := testRun(t, db, session.ID, 1)
+	old := historicalRun(t, db, session.ID, 1, ModeSpike)
 	if err := db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}

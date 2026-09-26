@@ -89,6 +89,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments
 		"ListCommentsPage",    // GET one bounded /repos/{o}/{r}/issues/{n}/comments page for observation
 		"GetDeliveryHead",
+		"GetDeliveryCommit", // GET exact commit and ordered parents for Bug integration
 		"ListDeliveryPRs",
 		"GetDeliveryPR",
 		"CreateDeliveryPR",

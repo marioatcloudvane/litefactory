@@ -15,37 +15,56 @@ import (
 
 // AC-001, AC-033: every registered workflow is admitted, and none of them can
 // complete an attempt from terminal output alone, whatever decoder it names. A new
-// registered mode has to add a result fixture here or this test fails: it cannot
+// registered workflow has to add a result fixture here or this test fails: it cannot
 // join the registry without the guard being exercised for it.
 func TestRegisteredWorkflowPolicies_EachRefusesTerminalOnlyCompletion(t *testing.T) {
 	t.Parallel()
-	seen := map[agent.Mode]bool{}
+	seen := map[agent.Workflow]bool{}
 	for _, policy := range RegisteredWorkflowPolicies() {
-		mode := policy.Mode
-		t.Run(string(mode), func(t *testing.T) {
+		workflow, err := agent.ResolveWorkflow(policy.Workflow, policy.Mode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(string(workflow), func(t *testing.T) {
 			t.Parallel()
 			if err := policy.Admit(); err != nil {
 				t.Fatalf("registered policy refused: %v", err)
 			}
-			if mode != agent.ModeResearch && mode != agent.ModePlan {
-				t.Fatalf("registered mode %q has no result fixture in this guard; add one", mode)
+			var f *retainedFixture
+			response := "done"
+			switch workflow {
+			case agent.WorkflowResearch, agent.WorkflowPlan:
+				f = newRetainedFixture(t, string(policy.Mode))
+			case agent.WorkflowBug:
+				if policy.Mode != "" {
+					t.Fatal("standalone Bug acquired an effective mode")
+				}
+				db, session, options, _ := bugResultBoundaryFixture(t)
+				service, bindErr := BindAgentResultService(t.Context(), options)
+				if bindErr != nil {
+					t.Fatal(bindErr)
+				}
+				result := strings.TrimSuffix(strings.TrimPrefix(string(bugResultBoundaryBlocked()), `{"result":`), "}")
+				f = &retainedFixture{db: db, session: session, opts: options, service: service, policy: policy, result: result}
+				response = "blocked"
+			default:
+				t.Fatalf("registered workflow %q has no result fixture in this guard; add one", workflow)
 			}
-			f := newRetainedFixture(t, string(mode))
-			_, _, err := AgentActivity{Policy: policy}.acceptRetained(t.Context(), f.service, envelope("done", f.result))
+			_, _, err := AgentActivity{Policy: policy}.acceptRetained(t.Context(), f.service, envelope(response, f.result))
 			if !errors.Is(err, errNoRetainedResult) {
-				t.Fatalf("terminal-only output completed the %s attempt: %v", mode, err)
+				t.Fatalf("terminal-only output completed the %s attempt: %v", workflow, err)
 			}
 			f.submit(t, f.result)
-			if _, _, err = (AgentActivity{Policy: policy}).acceptRetained(t.Context(), f.service, envelope("done", f.result)); err != nil {
+			if _, _, err = (AgentActivity{Policy: policy}).acceptRetained(t.Context(), f.service, envelope(response, f.result)); err != nil {
 				t.Fatalf("the confirmed retained result was refused: %v", err)
 			}
 		})
-		if seen[mode] {
-			t.Fatalf("mode %q is registered twice", mode)
+		if seen[workflow] {
+			t.Fatalf("workflow %q is registered twice", workflow)
 		}
-		seen[mode] = true
+		seen[workflow] = true
 	}
-	if !seen[agent.ModeResearch] || !seen[agent.ModePlan] {
+	if !seen[agent.WorkflowResearch] || !seen[agent.WorkflowPlan] || !seen[agent.WorkflowBug] {
 		t.Fatalf("the registry lost a shipped workflow: %v", seen)
 	}
 }

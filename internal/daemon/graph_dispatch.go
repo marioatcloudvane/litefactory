@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -55,7 +56,22 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		// A closed issue withdraws the authority the instance was admitted
 		// under. Cancelling the dispatch leaves the instance and its findings
 		// exactly as they are; only the owed run goes away.
-		if issue.State != github.StateOpen {
+		bugParent, err := d.isBugParentDispatch(ctx, dispatch)
+		if err != nil {
+			return err
+		}
+		if issue.State != github.StateOpen && !bugParent {
+			if call, lookupErr := d.db.BugTestDispatchCall(ctx, dispatch.ID); lookupErr == nil {
+				if d.bugTests != nil {
+					if cancelErr := d.bugTests.Cancel(ctx, call.ID, at.UTC()); cancelErr != nil {
+						return cancelErr
+					}
+				} else if cancelErr := d.db.CancelBugTestCall(ctx, call.ID); cancelErr != nil {
+					return cancelErr
+				}
+			} else if !errors.Is(lookupErr, store.ErrNotFound) {
+				return lookupErr
+			}
 			if err := d.db.CancelGraphDispatch(ctx, dispatch.ID, "issue closed before the next graph stage could run", at.UTC()); err != nil {
 				return err
 			}
@@ -135,7 +151,12 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 			log.ErrorContext(ctx, "graph step issue observation failed; leaving it to the tick", slog.Any("error", err))
 			return
 		}
-		if issue.State != github.StateOpen {
+		bugParent, lookupErr := d.isBugParentDispatch(ctx, dispatch)
+		if lookupErr != nil {
+			t.recordWorkerError(lookupErr)
+			return
+		}
+		if issue.State != github.StateOpen && !bugParent {
 			if err := d.db.CancelGraphDispatch(ctx, dispatch.ID, "issue closed before the next graph stage could run", t.tickAt.UTC()); err != nil {
 				t.recordWorkerError(err)
 			}
@@ -165,10 +186,30 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 // recovery and manual schedules do; without one it could not exist beside the
 // comment-triggered run that parked it.
 func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.GraphDispatch) {
+	if d.runBugTestDispatch(ctx, t, dispatch) {
+		return
+	}
 	trigger, command := graphStepRequest(dispatch, d.filter.Identities().OwnerHandle)
 	err := d.run(ctx, t, trigger, command, t.log)
 	if err != nil {
 		t.recordWorkerError(err)
+	}
+	admission, admissionErr := d.db.GetTaskWorkflowAdmission(ctx, dispatch.SessionID)
+	if admissionErr != nil && !errors.Is(admissionErr, store.ErrNotFound) {
+		t.recordWorkerError(admissionErr)
+		return
+	}
+	if admissionErr == nil && admission.Workflow == "bug" && d.bug != nil {
+		if t.bugDispatchLocked {
+			_, retryErr := d.db.RequeueGraphDispatch(ctx, dispatch.ID, t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts)), "Bug parent waits for task ownership")
+			if retryErr != nil {
+				t.recordWorkerError(retryErr)
+			}
+		}
+		// The Bug runtime closes the exact dispatch as part of its persisted
+		// transition/suspension. Factory-only nodes deliberately have no agent
+		// run, so the mode driver must not interpret that absence as nonexecution.
+		return
 	}
 	run, exists, lookupErr := d.db.GetRunByTrigger(ctx, dispatch.SessionID, dispatch.TriggerID())
 	if lookupErr != nil {
@@ -208,6 +249,24 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		t.log.ErrorContext(ctx, "close graph step", slog.Any("error", finishErr))
 	}
 	t.log.InfoContext(ctx, "graph step finished", slog.String("status", string(run.Status)), slog.Int("run_ordinal", run.Ordinal))
+}
+
+// A closed Bug issue still owes integration/closure observations and reports.
+// Only the domain runtime decides whether those obligations are fulfilled;
+// closing remotely never supplies missing approvals or authorizes repair.
+func (d *Daemon) isBugParentDispatch(ctx context.Context, dispatch store.GraphDispatch) (bool, error) {
+	a, err := d.db.GetTaskWorkflowAdmission(ctx, dispatch.SessionID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil || a.Workflow != "bug" {
+		return false, err
+	}
+	_, err = d.db.BugTestDispatchCall(ctx, dispatch.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return true, nil
+	}
+	return false, err
 }
 
 // graphStepRequest builds the trigger and command one owed stage runs under.

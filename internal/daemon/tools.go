@@ -20,6 +20,22 @@ type toolDecision struct {
 	Attachments bool
 }
 
+// resolveWorkflowTools preserves mode profiles only for a matching mode-backed
+// workflow. Standalone Bug needs factory role-specific bindings supplied by its
+// analyst/fixer increments; a label or an operator profile named bug cannot
+// substitute a mode profile or create that authority.
+func (d *Daemon) resolveWorkflowTools(workflow agent.Workflow, mode agent.Mode, kind agent.Kind) (toolDecision, bool) {
+	resolved, err := agent.ResolveWorkflow(workflow, mode)
+	if err != nil || resolved == agent.WorkflowBug {
+		return toolDecision{}, false
+	}
+	mapped, ok := resolved.Mode()
+	if !ok {
+		return toolDecision{}, false
+	}
+	return d.resolveTools(mapped, kind)
+}
+
 // resolveTools selects permissions from the already-resolved workflow mode and
 // coding agent. Spike remains its own mode while borrowing implement authority.
 func (d *Daemon) resolveTools(mode agent.Mode, kind agent.Kind) (toolDecision, bool) {

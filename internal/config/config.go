@@ -56,7 +56,10 @@ type Config struct {
 	// Claude above. See [Agents].
 	Agents       Agents       `yaml:"agents"`
 	ToolProfiles ToolProfiles `yaml:"tool_profiles"`
-	agentOrder   []Kind
+	// BugChecks is an optional operator-owned check isolation ceiling. A
+	// missing stanza leaves Bug checks blocked, without affecting other work.
+	BugChecks  *BugCheckIsolation `yaml:"bug_checks"`
+	agentOrder []Kind
 }
 
 // AgentOrder returns configured coding agents in YAML declaration order. The
@@ -901,4 +904,93 @@ func decodeResearchExecution(raw []byte) (string, error) {
 		return "", errors.New("research execution must be legacy or graph")
 	}
 	return cfg.Execution, nil
+}
+
+// UnmarshalYAML applies command defaults after strict recipe-node validation.
+func (c *BugCheckCommand) UnmarshalYAML(n *yaml.Node) error {
+	type plain BugCheckCommand
+	value := plain{CWD: ".", TimeoutSeconds: 1800}
+	if err := n.Decode(&value); err != nil {
+		return err
+	}
+	*c = BugCheckCommand(value)
+	return nil
+}
+
+// decodeBugCheckRecipe owns YAML syntax and defaults at the package decode boundary.
+func decodeBugCheckRecipe(data []byte) (BugCheckRecipe, error) {
+	var r BugCheckRecipe
+	var document yaml.Node
+	d := yaml.NewDecoder(bytes.NewReader(data))
+	if err := d.Decode(&document); err != nil {
+		return r, fmt.Errorf("bug recipe: %w", err)
+	}
+	var extra yaml.Node
+	if err := d.Decode(&extra); !errors.Is(err, io.EOF) {
+		return r, errors.New("bug recipe requires one YAML document")
+	}
+	if len(document.Content) != 1 {
+		return r, errors.New("empty Bug recipe")
+	}
+	if err := validateBugYAML(document.Content[0], "recipe"); err != nil {
+		return r, err
+	}
+	if err := document.Decode(&r); err != nil {
+		return r, fmt.Errorf("bug recipe: %w", err)
+	}
+	return r, nil
+}
+
+// Explicit node validation also covers custom command decoding, where yaml's
+// KnownFields option otherwise does not apply, and refuses scalar coercion.
+func validateBugYAML(n *yaml.Node, kind string) error {
+	if n.Kind == yaml.AliasNode || n.Anchor != "" {
+		return errors.New("bug recipe forbids aliases and anchors")
+	}
+	fields := map[string]map[string]string{
+		"recipe":  {"version": "int", "phases": "phases"},
+		"phases":  {"regression": "phase", "focused": "phase", "full": "phase"},
+		"phase":   {"commands": "commands"},
+		"command": {"argv": "strings", "cwd": "string", "env": "strings", "timeout_seconds": "int"},
+	}
+	if allowed, ok := fields[kind]; ok {
+		if n.Kind != yaml.MappingNode {
+			return fmt.Errorf("bug %s must be mapping", kind)
+		}
+		seen := map[string]bool{}
+		var faults []error
+		for i := 0; i < len(n.Content); i += 2 {
+			k, v := n.Content[i], n.Content[i+1]
+			child, ok := allowed[k.Value]
+			if k.Tag != "!!str" || !ok || seen[k.Value] {
+				faults = append(faults, fmt.Errorf("unknown or duplicate Bug %s key %q", kind, k.Value))
+				continue
+			}
+			seen[k.Value] = true
+			faults = append(faults, validateBugYAML(v, child))
+		}
+		return errors.Join(faults...)
+	}
+	if kind == "commands" || kind == "strings" {
+		if n.Kind != yaml.SequenceNode {
+			return errors.New("bug recipe expects sequence")
+		}
+		child := "string"
+		if kind == "commands" {
+			child = "command"
+		}
+		var faults []error
+		for _, v := range n.Content {
+			faults = append(faults, validateBugYAML(v, child))
+		}
+		return errors.Join(faults...)
+	}
+	tag := "!!str"
+	if kind == "int" {
+		tag = "!!int"
+	}
+	if n.Kind != yaml.ScalarNode || n.Tag != tag {
+		return fmt.Errorf("bug recipe expects %s", kind)
+	}
+	return nil
 }

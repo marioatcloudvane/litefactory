@@ -239,7 +239,7 @@ func Clone(r Result) (Result, error) {
 // start at revision one; history callers explicitly supply subsequent revisions.
 func Assemble(r Result, meta Metadata, ctx Context) (Snapshot, Diagnostics) {
 	d := ValidateResult(r, ctx)
-	if meta.SchemaVersion != SchemaVersion || meta.Mode != ctx.Mode || meta.ResultRevision < 1 || meta.RunID < 1 || strings.TrimSpace(meta.Task) == "" || strings.TrimSpace(meta.AttemptID) == "" || strings.TrimSpace(meta.ResultID) == "" {
+	if meta.SchemaVersion != SchemaVersion || meta.Mode != ctx.Mode || !resultWorkflowMatches(meta, ctx) || meta.ResultRevision < 1 || meta.RunID < 1 || strings.TrimSpace(meta.Task) == "" || strings.TrimSpace(meta.AttemptID) == "" || strings.TrimSpace(meta.ResultID) == "" {
 		add(&d, "$.meta", "scope", "complete supported factory metadata", "invalid binding", "Bind the result to trusted identity, mode and positive revision.")
 	}
 	if (meta.WorkflowVersion != 0 && meta.WorkflowVersion != ctx.WorkflowVersion) || (meta.SubmissionContractVersion != 0 && meta.SubmissionContractVersion != 2) {

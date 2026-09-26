@@ -116,6 +116,15 @@ type WorkflowNode = ResearchNode
 
 // CaptureWorkflow reads a bounded factory-owned package against an admitted registry.
 func CaptureWorkflow(ctx context.Context, source fs.FS, graphPath, teamName string, mode agent.Mode, registry graphexec.Registry) (*WorkflowDefinition, error) {
+	workflow, ok := agent.WorkflowForMode(mode)
+	if !ok {
+		return nil, fmt.Errorf("invalid workflow compatibility mode %q", mode)
+	}
+	return CaptureWorkflowIdentity(ctx, source, graphPath, teamName, workflow, registry)
+}
+
+// CaptureWorkflowIdentity captures a package using its distinct workflow identity.
+func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamName string, workflow agent.Workflow, registry graphexec.Registry) (*WorkflowDefinition, error) {
 	r := researchReader{ctx: ctx, source: source, files: map[string][]byte{}}
 	raw, err := r.read(graphPath)
 	if err != nil {
@@ -126,7 +135,8 @@ func CaptureWorkflow(ctx context.Context, source fs.FS, graphPath, teamName stri
 		return nil, err
 	}
 	var faults []error
-	if profile.Team != teamName || profile.Mode != mode || !mode.Valid() {
+	owner, bindingErr := agent.ResolveWorkflow(profile.Workflow, profile.Mode)
+	if profile.Team != teamName || bindingErr != nil || owner != workflow || !workflow.Valid() {
 		faults = append(faults, errors.New("workflow package differs from admitted team or mode"))
 	}
 	faults = append(faults, graphexec.Validate(profile, registry))

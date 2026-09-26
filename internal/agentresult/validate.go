@@ -93,7 +93,7 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 			add(&d, p+".recommended_option", "reference", "existing option ID", "unresolved", "Reference a supplied option.")
 		}
 	}
-	if len(r.Questions) > 0 && (!ctx.QuestionsAllowed || (ctx.Mode != "research" && ctx.Mode != "plan") || r.Outcome == "completed") {
+	if len(r.Questions) > 0 && (!ctx.QuestionsAllowed || (ctx.Mode != "research" && ctx.Mode != "plan" && ctx.Workflow != agent.WorkflowBug) || r.Outcome == "completed") {
 		add(&d, "$.result.questions", "authorization", "permitted questions on unfinished Research or Plan", "disallowed questions", "Follow trusted question permission and report an unfinished outcome.")
 	}
 	arts := map[string]bool{}
@@ -111,17 +111,20 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 	modes := []struct {
 		name    string
 		present bool
-	}{{"research", r.Payload.Research != nil}, {"plan", r.Payload.Plan != nil}, {"implement", r.Payload.Implement != nil}, {"validate", r.Payload.Validate != nil}, {"spike", r.Payload.Spike != nil}}
+	}{{"research", r.Payload.Research != nil}, {"plan", r.Payload.Plan != nil}, {"implement", r.Payload.Implement != nil}, {"validate", r.Payload.Validate != nil}, {"spike", r.Payload.Spike != nil}, {"bug", r.Payload.Bug != nil}}
 	count := 0
 	matching := false
 	for _, m := range modes {
 		if m.present {
 			count++
-			matching = matching || m.name == ctx.Mode
+			matching = matching || m.name == ctx.Mode || (m.name == "bug" && ctx.Workflow == agent.WorkflowBug && ctx.Mode == "")
 		}
 	}
 	if count != 1 || !matching {
 		add(&d, "$.result.payload", "mode", "exactly one payload matching trusted mode", "mismatched payload", "Use only the factory-selected mode payload.")
+	}
+	if r.Payload.Bug != nil {
+		validateBug(r, ctx, &d)
 	}
 	if p := r.Payload.Research; p != nil {
 		required(&d, "$.result.payload.research.request", p.Request)

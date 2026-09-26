@@ -171,6 +171,12 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Bug is the complete factory-bound parent runtime. Nil retains admission
+	// but refuses execution without substituting a mode workflow.
+	Bug *turn.BugRuntime
+	// BugTests executes only recorded Bug child instances under check permissions.
+	BugTests *turn.BugTestChild
+
 	// Retirement shares turn coordination; zero options disable automatic retirement.
 	Retirement RetirementExecutionOptions
 
@@ -333,6 +339,9 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	bugTests *turn.BugTestChild
+	bug      *turn.BugRuntime
+
 	publications publicationRecovery
 	mcpClose     func() error
 	retirement   RetirementExecutionOptions
@@ -430,6 +439,8 @@ func New(opts Options) (*Daemon, error) {
 
 	return &Daemon{
 		db:                       opts.DB,
+		bugTests:                 opts.BugTests,
+		bug:                      opts.Bug,
 		forge:                    opts.Forge,
 		filter:                   opts.Filter,
 		turn:                     opts.Turn,
@@ -517,9 +528,22 @@ type Reconciled struct {
 // listed. Refusing to start because GitHub is having a bad minute would be the
 // worse failure.
 func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
+	if d.bug != nil {
+		if err := d.bug.Reconcile(ctx); err != nil {
+			return Reconciled{}, err
+		}
+	}
 	reconciliation, err := d.db.ReconcileOrphans(ctx, d.instanceID)
 	if err != nil {
 		return Reconciled{}, fmt.Errorf("reconcile what a previous daemon left behind: %w", err)
+	}
+
+	// The legacy child-only adapter has no agent runs to recover. Reuse the
+	// store's startup observation; the complete runtime reconciles before orphans.
+	if d.bug == nil && d.bugTests != nil {
+		if err := d.bugTests.Reconcile(ctx, reconciliation.At); err != nil {
+			return Reconciled{}, err
+		}
 	}
 
 	if _, err := d.db.ReconcileResearchGraphs(ctx, reconciliation.At); err != nil {

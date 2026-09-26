@@ -3,17 +3,21 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
+	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -341,7 +345,47 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Logger:                    s.Logger,
 	}
 
+	var isolation bugchecks.Isolation
+	if profile := s.Config.BugChecks; profile != nil {
+		allowed := make(map[string]bool, len(profile.Environment))
+		for _, name := range profile.Environment {
+			allowed[name] = true
+		}
+		values := make(map[string]string, len(allowed))
+		for _, entry := range environ {
+			name, value, found := strings.Cut(entry, "=")
+			if found && allowed[name] {
+				values[name] = value
+			}
+		}
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return nil, Startup{}, errors.Join(fmt.Errorf("resolve operator home for Bug checks: %w", homeErr), lock.Close())
+		}
+		// Daemon state and credentials are never readable by a check, whatever
+		// the operator lists.
+		deny := append([]string{filepath.Clean(s.Paths.Home())}, profile.DenyRead...)
+		isolation = bugchecks.Isolation{Binary: profile.Binary, WritableRoots: append([]string(nil), profile.WritableRoots...), DenyRead: deny, PATH: profile.PATH, Home: home, Environment: values, Network: profile.Network}
+		// Hash the actual operator profile, including declared values, without
+		// retaining or exposing those values in check evidence.
+		encoded, encodeErr := json.Marshal(isolation)
+		if encodeErr != nil {
+			return nil, Startup{}, errors.Join(encodeErr, lock.Close())
+		}
+		digest := sha256.Sum256(encoded)
+		isolation.Revision = hex.EncodeToString(digest[:])
+	}
+	bugRuntime, err := turn.NewBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
+		Forge: client, OwnerID: identities.OwnerUserID,
+		Permissions: bugRolePermissions(toolProfiles, toolCeiling), Isolation: isolation,
+	})
+	if err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
+	turnOpts.Bug = bugRuntime
 	daemon, err := New(Options{
+		Bug:                      bugRuntime,
+		BugTests:                 bugRuntime.Child,
 		Retirement:               RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		DB:                       s.DB,
