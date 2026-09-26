@@ -11,37 +11,52 @@ bug-fixer:
   codex: {sandbox: workspace-write}
 ```
 
-Codex must also be configured as an agent. Claude can investigate with an explicit
-`bug-analyst.claude` profile containing only `Read`, `Glob` and `Grep`, constrained
-by its configured tool ceiling. Claude fixer execution is currently unsupported
-and refused. Missing role profiles block the corresponding agent; existing mode
+Either agent can take either role. For Claude, list the tools explicitly, within
+its configured tool ceiling:
+
+```yaml
+bug-analyst:
+  claude: {tools: [Read, Glob, Grep], allowed_tools: [Read, Glob, Grep]}
+bug-fixer:
+  claude: {tools: [Read, Glob, Grep, Edit, Write], allowed_tools: [Read, Glob, Grep, Edit, Write]}
+```
+
+The analyst only reads. The Claude fixer may also use `Edit`, `MultiEdit` and
+`Write`; it never receives a shell, delegation or web tools, and its edits are
+confined by Claude Code's workspace scope, not an operating-system sandbox as
+for Codex. Missing role profiles block the corresponding agent; existing mode
 profiles never supply substitute permissions. Fixer shell and delegation remain
-disabled by the adapter, independently of these grants.
+disabled by the adapter, independently of these grants; the factory runs checks.
 
 Check execution has a separate optional operator ceiling at the configuration
-root. The current backend requires Linux with bubblewrap and usable namespaces:
+root. Checks run under the Codex sandbox on macOS or Linux:
 
 ```yaml
 bug_checks:
-  binary: /usr/bin/bwrap
-  read_only_roots: [/usr, /bin, /lib, /lib64]
-  path: /usr/bin:/bin
+  binary: /absolute/path/to/codex
+  path: /Users/me/.nvm/versions/node/v24/bin:/usr/local/bin:/usr/bin:/bin
+  writable_roots: [/Users/me/Library/Caches/go-build, /Users/me/go/pkg/mod]
+  deny_read: [/Users/me/.ssh, /Users/me/.config/gh]
   environment: []
 ```
 
-Select only installed runtime system trees and the required executable paths.
-`environment` contains variable names whose values are resolved from the operator
-process environment at startup. Values are never written inline in configuration.
-Recipes may request only those names; protected provider, forge and result-service
-credentials and environment overrides remain forbidden even when named here.
-The retained configuration revision hashes the effective bindings without exposing
-their values. No network or shared-cache grant is added by this profile.
+`binary` is the Codex CLI; when it is the npm launcher, `path` must also reach
+`node`. `path` lists the directories recipe commands resolve bare names from.
+`writable_roots` opens extra directories for writing, typically the toolchain
+caches that `agents.codex.writable_roots` opens for the agents. Everything is
+readable except `$LF_HOME`, which is always hidden, and `deny_read`. There is
+no network. `environment` contains variable names whose values are resolved
+from the operator process environment at startup. Values are never written
+inline in configuration. Recipes may request only those names; protected
+provider, forge and result-service credentials and environment overrides remain
+forbidden even when named here. The retained configuration revision hashes the
+effective bindings without exposing their values.
 
-Missing configuration, unsupported hosts (including macOS for this backend), and
-denied namespaces block checks before an unisolated command can run. They do not
-prevent analysis or change the requirements for recorded passing evidence.
-Project command authority remains the exact target commit's
-`.litefactory/bug-checks.yaml`; see [check recipes](../bug-checks.md).
+A missing configuration or an unavailable sandbox launcher blocks checks before
+an unisolated command can run. It does not prevent analysis or change the
+requirements for recorded passing evidence. Project command authority remains
+the exact target commit's `.litefactory/bug-checks.yaml`; see
+[check recipes](../bug-checks.md).
 
 The parent runtime owns Bug reports, review waits and reply consumption. The daemon
 dispatches its persisted parent and child identities without a mode surrogate.

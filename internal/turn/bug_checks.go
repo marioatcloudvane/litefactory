@@ -44,7 +44,7 @@ type BugChecksOutput struct {
 // across restart; no recovered operation is relaunched based on a bare PID.
 type BugChecksActivity struct {
 	// ObserveStopped optionally supplies an operator-owned process observer. Nil
-	// selects the concrete Linux namespace observer; graph input cannot set it.
+	// selects the concrete process-group observer; graph input cannot set it.
 	ObserveStopped func(context.Context, string) (bool, error)
 	Profile        *graphexec.Profile
 	Resolve        func(context.Context, ActivityRequest) (BugChecksInput, error)
@@ -69,7 +69,7 @@ func bugCheckKey(session int64, operation string) string {
 	return fmt.Sprintf("%d:%s", session, operation)
 }
 
-// Cancel records intent before notifying the locally active namespace process.
+// Cancel records intent before stopping the locally active command.
 func (h *BugChecksActivity) Cancel(ctx context.Context, db *store.DB, session int64, operation string) error {
 	if db == nil {
 		return errors.New("bug check cancellation requires store")

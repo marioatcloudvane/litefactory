@@ -414,16 +414,18 @@ func (r *Runner) Timeout() time.Duration { return r.timeout }
 // widen this run past it.
 func (r *Runner) validateRequest(req agent.Request) error {
 	if req.Workflow == agent.WorkflowBug {
-		if req.Permissions.Profile == "bug-fixer" {
-			return invalidRequest("Bug fixer contained edit enforcement is unavailable in this adapter")
+		role := req.Permissions.Profile
+		allowed := config.BugRoleClaudeTools(role)
+		if allowed == nil {
+			return invalidRequest("unknown Bug role %q", role)
 		}
 		ts := toolSurface(req)
 		if len(ts.Tools) == 0 {
-			return invalidRequest("Bug analyst requires explicit read-only tools")
+			return invalidRequest("%s requires explicit tools", role)
 		}
 		for _, tool := range append(append([]string{}, ts.Tools...), ts.AllowedTools...) {
-			if tool != "Read" && tool != "Glob" && tool != "Grep" {
-				return invalidRequest("Bug analyst cannot grant tool %q", tool)
+			if !slices.Contains(allowed, tool) {
+				return invalidRequest("%s cannot grant tool %q", role, tool)
 			}
 		}
 	}

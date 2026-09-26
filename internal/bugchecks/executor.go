@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,8 +13,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
@@ -25,15 +26,27 @@ import (
 // OutputLimit bounds captured command output before execution is cancelled.
 const OutputLimit = 4 << 20
 
-// Isolation is operator configuration, never recipe or agent input. Linux
-// bubblewrap supplies a private PID namespace: teardown kills descendants even
-// if they create new sessions. There is deliberately no unisolated fallback.
+// SandboxProfile names the permission profile the check launcher defines for
+// each command. It is supplied on the command line, never from recipe input.
+const SandboxProfile = "lf-bug-checks"
+
+// Isolation is operator configuration, never recipe or agent input. Every
+// command runs under the Codex sandbox (macOS Seatbelt, Linux Landlock) with
+// the same kind of containment the agents run under: the whole filesystem is
+// readable except DenyRead, writes are limited to the worktree, a private
+// temporary directory and WritableRoots, and the network is off. There is
+// deliberately no unisolated fallback.
 type Isolation struct {
+	// Binary is the Codex CLI that applies the sandbox.
 	Binary        string
-	ReadOnlyRoots []string
+	WritableRoots []string
+	DenyRead      []string
 	PATH          string
-	Environment   map[string]string
-	Revision      string
+	// Home is the operator home the command sees, so toolchains find their
+	// configuration and the caches WritableRoots opens.
+	Home        string
+	Environment map[string]string
+	Revision    string
 }
 
 // CommandResult retains process completion, output capture and cleanup observations.
@@ -86,26 +99,30 @@ func protected(name string) bool {
 }
 
 // Validate fails before launch when the host cannot enforce the configured
-// containment. Runtime sandbox denial is an observed blocked command.
+// containment. Runtime sandbox denial is an observed failed or blocked command.
 func (p Isolation) Validate() error {
-	if runtime.GOOS != "linux" {
-		return errors.New("bug checks require Linux bubblewrap PID/mount isolation on this host")
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return errors.New("bug checks require the Codex sandbox on macOS or Linux")
 	}
-	if p.Revision == "" || !filepath.IsAbs(p.Binary) || len(p.ReadOnlyRoots) == 0 {
+	if p.Revision == "" || !filepath.IsAbs(p.Binary) || !filepath.IsAbs(p.Home) {
 		return errors.New("missing operator check isolation profile")
 	}
 	st, err := os.Stat(p.Binary)
 	if err != nil || !st.Mode().IsRegular() || st.Mode()&0111 == 0 {
-		return errors.New("check isolation executable unavailable")
+		return errors.New("check sandbox launcher unavailable")
 	}
-	for _, root := range p.ReadOnlyRoots {
-		// Only runtime system trees may be exposed; never HOME, daemon state or a
-		// broad filesystem root. An operator chooses a subset of these trees.
-		switch root {
-		case "/usr", "/bin", "/sbin", "/lib", "/lib64":
-		default:
-			return errors.New("unsupported check runtime mount")
+	for _, root := range p.WritableRoots {
+		if !sandboxPath(root) || root == "/" || filepath.Clean(root) == filepath.Clean(p.Home) {
+			return errors.New("unsupported writable check root")
 		}
+	}
+	for _, path := range p.DenyRead {
+		if !sandboxPath(path) || path == "/" {
+			return errors.New("unsupported unreadable check path")
+		}
+	}
+	if p.PATH == "" {
+		return errors.New("operator check PATH requires absolute runtime directories")
 	}
 	for _, dir := range filepath.SplitList(p.PATH) {
 		if !filepath.IsAbs(dir) || dir == "/" {
@@ -113,6 +130,67 @@ func (p Isolation) Validate() error {
 		}
 	}
 	return nil
+}
+
+// sandboxPath accepts only absolute paths the launcher can quote literally.
+func sandboxPath(path string) bool {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return false
+	}
+	for _, r := range path {
+		if r == '"' || r == '\\' || r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// sandboxArgs defines the per-command permission profile and the command.
+// Later entries in the filesystem table never widen a denied path: the
+// launcher refuses duplicate keys, so each path appears once.
+func (p Isolation) sandboxArgs(root, tmp, cwd, executable string, argv []string) ([]string, error) {
+	access := map[string]string{"/": "read", root: "write", tmp: "write"}
+	order := []string{"/", root, tmp}
+	add := func(path, mode string) error {
+		if !sandboxPath(path) {
+			return fmt.Errorf("unsupported check sandbox path %q", path)
+		}
+		if _, dup := access[path]; dup {
+			return fmt.Errorf("check sandbox path %q declared twice", path)
+		}
+		access[path] = mode
+		order = append(order, path)
+		return nil
+	}
+	for _, path := range p.WritableRoots {
+		if err := add(path, "write"); err != nil {
+			return nil, err
+		}
+	}
+	for _, path := range p.DenyRead {
+		if err := add(path, "none"); err != nil {
+			return nil, err
+		}
+	}
+	for _, path := range order[:3] {
+		if !sandboxPath(path) {
+			return nil, fmt.Errorf("unsupported check sandbox path %q", path)
+		}
+	}
+	var table strings.Builder
+	table.WriteString("{")
+	for i, path := range order {
+		if i > 0 {
+			table.WriteString(",")
+		}
+		table.WriteString(`"` + path + `"="` + access[path] + `"`)
+	}
+	table.WriteString("}")
+	args := []string{"sandbox", "-P", SandboxProfile,
+		"-c", "permissions." + SandboxProfile + ".filesystem=" + table.String(),
+		"-c", "permissions." + SandboxProfile + ".network.enabled=false",
+		"-C", cwd, "--", executable}
+	return append(args, argv[1:]...), nil
 }
 
 func (p Isolation) resolve(root string, c config.BugCheckCommand) (string, string, []string, error) {
@@ -123,10 +201,13 @@ func (p Isolation) resolve(root string, c config.BugCheckCommand) (string, strin
 	if err != nil {
 		return "", "", nil, err
 	}
+	pathDirs := filepath.SplitList(p.PATH)
 	var executable string
+	trusted := false
 	if strings.ContainsRune(c.Argv[0], filepath.Separator) {
 		if filepath.IsAbs(c.Argv[0]) {
 			executable = c.Argv[0]
+			trusted = slices.Contains(pathDirs, filepath.Dir(executable))
 		} else {
 			executable, err = contained(root, filepath.Join(cwd, c.Argv[0]))
 			if err != nil {
@@ -134,11 +215,12 @@ func (p Isolation) resolve(root string, c config.BugCheckCommand) (string, strin
 			}
 		}
 	} else {
-		for _, dir := range filepath.SplitList(p.PATH) {
+		for _, dir := range pathDirs {
 			candidate := filepath.Join(dir, c.Argv[0])
 			st, e := os.Stat(candidate)
 			if e == nil && st.Mode().IsRegular() && st.Mode()&0111 != 0 {
 				executable = candidate
+				trusted = true
 				break
 			}
 		}
@@ -150,16 +232,16 @@ func (p Isolation) resolve(root string, c config.BugCheckCommand) (string, strin
 	if err != nil {
 		return "", "", nil, err
 	}
-	allowed := executable == root || strings.HasPrefix(executable, root+string(filepath.Separator))
-	for _, r := range p.ReadOnlyRoots {
-		if strings.HasPrefix(executable, r+"/") {
-			allowed = true
-		}
+	// Operator PATH directories are trusted as named; worktree executables must
+	// resolve inside the worktree. Anything else was never granted.
+	if !trusted && executable != root && !strings.HasPrefix(executable, root+string(filepath.Separator)) {
+		return "", "", nil, errors.New("check executable outside the operator PATH and worktree")
 	}
-	if !allowed {
-		return "", "", nil, errors.New("check executable outside operator mounts")
+	lang := "C.UTF-8"
+	if runtime.GOOS == "darwin" {
+		lang = "en_US.UTF-8"
 	}
-	env := []string{"PATH=" + p.PATH, "HOME=/home/check", "TMPDIR=/tmp", "LANG=C.UTF-8"}
+	env := []string{"PATH=" + p.PATH, "HOME=" + p.Home, "LANG=" + lang}
 	for _, name := range c.Env {
 		value, ok := p.Environment[name]
 		if !ok || protected(name) || strings.ContainsRune(value, 0) {
@@ -192,9 +274,13 @@ func (w *capture) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// Run performs exactly one command, never a retry. The callback runs after the
-// namespace process starts and must durably retain its identity; failure kills
-// that same process. No recovery path signals a stored bare PID.
+// Run performs exactly one command, never a retry. The command runs in its own
+// process group under the sandbox launcher; the callback durably retains the
+// group's identity right after launch, and a failed callback stops the group.
+// A crash before that point leaves a claimed launch without identity, which
+// reconciliation keeps unresolved. After the command ends, every remaining
+// member of its group is stopped and cleanup is confirmed only when the group
+// is empty. No recovery path signals a stored bare PID.
 func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCommand, started func(CommandResult) error) (out CommandResult) {
 	out.Outcome = "blocked"
 	out.CleanupConfirmed = true
@@ -231,94 +317,44 @@ func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCo
 	out.Executable = executable
 	out.CWD = cwd
 	out.Environment = append([]string(nil), c.Env...)
+	tmp, err := os.MkdirTemp("", "lf-bug-check-")
+	if err != nil {
+		return fail(err)
+	}
+	if tmp, err = filepath.EvalSymlinks(tmp); err != nil {
+		return fail(err)
+	}
+	args, err := p.sandboxArgs(root, tmp, cwd, executable, c.Argv)
+	if err != nil {
+		return fail(errors.Join(err, os.RemoveAll(tmp)))
+	}
+	env = append(env, "TMPDIR="+tmp)
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(c.TimeoutSeconds)*time.Second)
 	defer cancel()
-	args := []string{"--die-with-parent", "--unshare-all", "--new-session", "--clearenv"}
-	for _, r := range p.ReadOnlyRoots {
-		args = append(args, "--ro-bind", r, r)
-	}
-	args = append(args, "--bind", root, root, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", "/home", "--dir", "/home/check", "--chdir", cwd)
-	for _, v := range env {
-		k, value, _ := strings.Cut(v, "=")
-		args = append(args, "--setenv", k, value)
-	}
-	args = append(args, "--", executable)
-	args = append(args, c.Argv[1:]...)
-	infoRead, infoWrite, pipeErr := os.Pipe()
-	if pipeErr != nil {
-		return fail(pipeErr)
-	}
-	defer infoRead.Close()
-	defer infoWrite.Close()
-	syncRead, syncWrite, syncErr := os.Pipe()
-	if syncErr != nil {
-		if closeErr := infoWrite.Close(); closeErr != nil {
-			syncErr = errors.Join(syncErr, closeErr)
-		}
-		return fail(syncErr)
-	}
-	defer syncRead.Close()
-	defer syncWrite.Close()
-	blockRead, blockWrite, blockErr := os.Pipe()
-	if blockErr != nil {
-		return fail(errors.Join(blockErr, infoWrite.Close(), syncWrite.Close()))
-	}
-	defer blockRead.Close()
-	defer blockWrite.Close()
-	args = append([]string{"--json-status-fd", "3", "--sync-fd", "4", "--block-fd", "5"}, args...)
-	// #nosec G204 -- operator-selected isolator and validated recipe argv; no shell or inherited credentials.
+	// #nosec G204 -- operator-selected sandbox launcher and validated recipe argv; no shell or inherited credentials.
 	cmd := exec.CommandContext(runCtx, p.Binary, args...)
-	cmd.ExtraFiles = []*os.File{infoWrite, syncWrite, blockRead}
-	cmd.Env = []string{"PATH=" + p.PATH}
+	cmd.Dir = cwd
+	cmd.Env = env
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return stopGroup(cmd.Process.Pid) }
 	cmd.WaitDelay = 5 * time.Second
 	output := &capture{cancel: cancel}
 	cmd.Stdout = output
 	cmd.Stderr = output
-	// Re-resolve immediately before launch; namespace mounts enforce containment
-	// even if host paths change after this final observation.
+	// Re-resolve immediately before launch; the sandbox profile enforces
+	// containment even if host paths change after this final observation.
 	if _, err = contained(root, cwd); err != nil {
-		return fail(err)
+		return fail(errors.Join(err, os.RemoveAll(tmp)))
 	}
 	out.Started = time.Now().UTC()
 	if err = cmd.Start(); err != nil {
-		if closeErr := infoWrite.Close(); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-		if closeErr := syncWrite.Close(); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-		return fail(fmt.Errorf("launch isolated check: %w", err))
-	}
-	if closeErr := infoWrite.Close(); closeErr != nil {
-		cancel()
-	}
-	if closeErr := syncWrite.Close(); closeErr != nil {
-		cancel()
+		return fail(errors.Join(fmt.Errorf("launch sandboxed check: %w", err), os.RemoveAll(tmp)))
 	}
 	out.CleanupConfirmed = false
+	group := cmd.Process.Pid
+	out.ProcessID = group
 	var persistErr error
-	if closeErr := blockRead.Close(); closeErr != nil {
-		persistErr = closeErr
-	}
-	if deadlineErr := infoRead.SetReadDeadline(time.Now().Add(5 * time.Second)); deadlineErr != nil {
-		persistErr = errors.Join(persistErr, deadlineErr)
-	}
-	decoder := json.NewDecoder(io.LimitReader(infoRead, 4097))
-	var initial struct {
-		ChildPID int `json:"child-pid"`
-	}
-	if decodeErr := decoder.Decode(&initial); decodeErr != nil {
-		persistErr = errors.Join(persistErr, decodeErr)
-	}
-	if initial.ChildPID <= 0 {
-		persistErr = errors.Join(persistErr, errors.New("sandbox did not report namespace process"))
-	} else {
-		out.ProcessID = initial.ChildPID
-		out.ProcessIdentity, err = captureProcessIdentity(initial.ChildPID)
-		if err != nil {
-			persistErr = errors.Join(persistErr, err)
-		}
-	}
+	out.ProcessIdentity, persistErr = captureProcessIdentity(group)
 	if persistErr == nil {
 		if started == nil {
 			persistErr = errors.New("missing durable process observation callback")
@@ -326,52 +362,19 @@ func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCo
 			persistErr = started(out)
 		}
 	}
-	// The sandbox remains behind its launch barrier until the kernel start and
-	// namespace identity have been durably recorded. Failure cancels it in place.
-	if persistErr == nil {
-		_, persistErr = blockWrite.Write([]byte{1})
-	}
 	if persistErr != nil {
 		cancel()
 	}
 	err = cmd.Wait()
 	out.Ended = time.Now().UTC()
-	if deadlineErr := infoRead.SetReadDeadline(time.Now().Add(time.Second)); deadlineErr != nil {
-		return fail(deadlineErr)
-	}
-	childPID := initial.ChildPID
-	var childExit *int
-	statusValid := persistErr == nil
-	for statusValid {
-		var status struct {
-			Exit *int `json:"exit-code"`
-		}
-		decodeErr := decoder.Decode(&status)
-		if errors.Is(decodeErr, io.EOF) {
-			break
-		}
-		if decodeErr != nil {
-			statusValid = false
-			break
-		}
-		if status.Exit != nil {
-			if childExit != nil {
-				statusValid = false
-				break
-			}
-			childExit = status.Exit
+	// The launcher has exited; anything its command left behind in the group is
+	// stopped now, and cleanup counts only once the group is observed empty.
+	out.CleanupConfirmed = groupEmptyAfterStop(group) && !errors.Is(err, exec.ErrWaitDelay)
+	if out.CleanupConfirmed {
+		if removeErr := os.RemoveAll(tmp); removeErr != nil {
+			out.CleanupConfirmed = false
 		}
 	}
-
-	sandboxReady := statusValid && childPID > 0 && childExit != nil
-
-	// The namespace supervisor exits only after the PID namespace is torn down;
-	// a pipe-drain timeout is still indeterminate and retains the work guard.
-	if deadlineErr := syncRead.SetReadDeadline(time.Now().Add(5 * time.Second)); deadlineErr != nil {
-		return fail(deadlineErr)
-	}
-	syncBytes, syncReadErr := io.ReadAll(io.LimitReader(syncRead, 1))
-	out.CleanupConfirmed = syncReadErr == nil && len(syncBytes) == 0 && !errors.Is(err, exec.ErrWaitDelay)
 	output.mu.Lock()
 	raw := output.String()
 	overflow := output.overflow
@@ -406,12 +409,8 @@ func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCo
 		return fail(errors.New("check timed out"))
 	case !out.CaptureComplete:
 		return fail(errors.New("check output capture incomplete"))
-	case !sandboxReady:
-		return fail(errors.New("sandbox setup did not confirm child launch"))
 	case out.Exit == nil:
 		return fail(errors.New("check exit status unavailable"))
-	case childExit == nil || *childExit != *out.Exit:
-		return fail(errors.New("sandbox child completion differs from supervisor"))
 	case *out.Exit == 0 && err == nil:
 		out.Outcome = "passed"
 	case *out.Exit == 1:
@@ -421,4 +420,31 @@ func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCo
 		out.Reason = "check infrastructure failure or signal"
 	}
 	return out
+}
+
+// stopGroup kills every member of the command's process group.
+func stopGroup(group int) error {
+	err := syscall.Kill(-group, syscall.SIGKILL)
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	return err
+}
+
+// groupEmptyAfterStop stops any remaining group member and waits briefly for
+// the group to disappear. Members that are already exiting can make the kill
+// itself fail, so it is repeated until the group is observed empty; only that
+// observation confirms cleanup.
+func groupEmptyAfterStop(group int) bool {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_ = stopGroup(group)
+		if errors.Is(syscall.Kill(-group, 0), syscall.ESRCH) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }

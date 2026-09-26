@@ -434,6 +434,21 @@ func validatePermissionProfiles(c *Config) []error {
 	return errs
 }
 
+// BugRoleClaudeTools is the complete Claude tool surface a Bug role may be
+// granted. The analyst only reads. The fixer also edits files, but has no
+// shell, delegation or network tools: Claude Code keeps its edits inside the
+// worktree it runs in, and the factory, not the fixer, runs the checks.
+func BugRoleClaudeTools(role string) []string {
+	switch role {
+	case "bug-analyst":
+		return []string{"Read", "Glob", "Grep"}
+	case "bug-fixer":
+		return []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write"}
+	default:
+		return nil
+	}
+}
+
 // Bug roles are optional independent operator grants, never mode aliases.
 // Older configurations remain valid; absent roles block only Bug dispatch.
 func validateBugRoleProfile(c *Config, name string, profile ToolProfile) []error {
@@ -445,12 +460,14 @@ func validateBugRoleProfile(c *Config, name string, profile ToolProfile) []error
 		errs = append(errs, fmt.Errorf("%s requires an explicit configured agent", name))
 	}
 	if profile.Claude != nil {
-		if c.Agents.Claude == nil || name == "bug-fixer" {
+		if c.Agents.Claude == nil {
 			errs = append(errs, fmt.Errorf("%s has no supported configured Claude capability surface", name))
 		}
+		allowed := BugRoleClaudeTools(name)
 		for _, tool := range append(slices.Clone(profile.Claude.Tools), profile.Claude.AllowedTools...) {
-			if tool != "Read" && tool != "Glob" && tool != "Grep" {
-				errs = append(errs, fmt.Errorf("%s permits only Read, Glob and Grep", name))
+			if !slices.Contains(allowed, tool) {
+				errs = append(errs, fmt.Errorf("%s permits only %s", name, strings.Join(allowed, ", ")))
+				break
 			}
 		}
 	}

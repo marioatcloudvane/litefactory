@@ -125,7 +125,7 @@ func (r *BugRuntime) identity(ctx context.Context, session int64) (store.BugIden
 
 // Reconcile recovers child and parent operations before generic orphan finalization.
 func (r *BugRuntime) Reconcile(ctx context.Context) error {
-	// The child owns process identities and namespace cleanup. Agent and remote
+	// The child owns process identities and process-group cleanup. Agent and remote
 	// effect journals are reconciled only when their exact parent node is owed.
 	if e := r.Child.Reconcile(ctx, r.opts.MCP.Now()); e != nil {
 		return e

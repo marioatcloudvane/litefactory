@@ -4,57 +4,41 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strconv"
-	"strings"
+	"syscall"
 )
 
+// identityVersion marks a process-group identity taken under the sandbox
+// launcher. Earlier namespace identities are refused as unverifiable.
+const identityVersion = 2
+
 type processIdentity struct {
-	Version   int    `json:"version"`
-	PID       int    `json:"pid"`
-	Boot      string `json:"boot"`
-	Start     string `json:"start"`
-	Namespace string `json:"namespace"`
+	Version int    `json:"version"`
+	PID     int    `json:"pid"`
+	Group   int    `json:"group"`
+	Boot    string `json:"boot"`
+	Start   string `json:"start"`
 }
 
 func readProcessIdentity(pid int) (processIdentity, error) {
-	out := processIdentity{Version: 1, PID: pid}
-	if runtime.GOOS != "linux" || pid <= 0 {
-		return out, errors.New("process recovery requires Linux identity")
+	out := processIdentity{Version: identityVersion, PID: pid, Group: pid}
+	if pid <= 0 {
+		return out, errors.New("invalid check process")
 	}
-	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	boot, err := bootIdentity()
 	if err != nil {
 		return out, err
 	}
-	out.Boot = strings.TrimSpace(string(boot))
-	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	start, err := processStart(pid)
 	if err != nil {
 		return out, err
 	}
-	closeIndex := strings.LastIndexByte(string(stat), ')')
-	if closeIndex < 0 {
-		return out, errors.New("malformed process identity")
-	}
-	fields := strings.Fields(string(stat[closeIndex+1:]))
-	if len(fields) < 20 {
-		return out, errors.New("missing process start identity")
-	}
-	out.Start = fields[19]
-	if _, err = strconv.ParseUint(out.Start, 10, 64); err != nil {
-		return out, err
-	}
-	out.Namespace, err = os.Readlink(fmt.Sprintf("/proc/%d/ns/pid", pid))
-	if err != nil {
-		return out, err
-	}
-	if out.Boot == "" || !strings.HasPrefix(out.Namespace, "pid:[") {
+	if boot == "" || start == "" {
 		return out, errors.New("invalid process kernel identity")
 	}
+	out.Boot, out.Start = boot, start
 	return out, nil
 }
+
 func captureProcessIdentity(pid int) (string, error) {
 	before, err := readProcessIdentity(pid)
 	if err != nil {
@@ -71,58 +55,32 @@ func captureProcessIdentity(pid int) (string, error) {
 	return string(raw), err
 }
 
-// ProcessStopped proves the recorded PID namespace has no surviving processes.
-// It never signals a PID. Missing or legacy launch identity, unreadable process
-// observations and a live namespace remain unresolved. A different boot proves
-// no process from the original kernel survived. PID reuse does not imply stop.
+// ProcessStopped proves the recorded process group has no surviving member. It
+// only probes the group and never signals it. Missing or earlier identities,
+// unreadable observations and a live group remain unresolved. A different boot
+// proves no process from the original kernel survived. A reused leader PID does
+// not imply stop: the group itself must be empty.
 func ProcessStopped(ctx context.Context, identity string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	if runtime.GOOS != "linux" {
-		return false, errors.New("check process reconciliation requires Linux")
-	}
 	var expected processIdentity
-	if len(identity) > 4096 || json.Unmarshal([]byte(identity), &expected) != nil || expected.Version != 1 || expected.PID <= 0 || expected.Start == "" || expected.Boot == "" || !strings.HasPrefix(expected.Namespace, "pid:[") {
+	if len(identity) > 4096 || json.Unmarshal([]byte(identity), &expected) != nil || expected.Version != identityVersion || expected.PID <= 0 || expected.Group <= 0 || expected.Start == "" || expected.Boot == "" {
 		return false, errors.New("missing verified check process start identity")
 	}
-	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	boot, err := bootIdentity()
 	if err != nil {
 		return false, err
 	}
-	if strings.TrimSpace(string(boot)) != expected.Boot {
+	if boot != expected.Boot {
 		return true, nil
 	}
-	current, err := readProcessIdentity(expected.PID)
-	if err == nil && current == expected {
+	switch err := syscall.Kill(-expected.Group, 0); {
+	case errors.Is(err, syscall.ESRCH):
+		return true, nil
+	case err == nil, errors.Is(err, syscall.EPERM):
 		return false, nil
-	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	default:
 		return false, err
 	}
-	// A reused PID is never signalled and cannot certify cleanup. Inspect the
-	// retained namespace itself; its descendants may outlive the original PID.
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return false, err
-	}
-	for _, entry := range entries {
-		if err = ctx.Err(); err != nil {
-			return false, err
-		}
-		if _, err = strconv.Atoi(entry.Name()); err != nil {
-			continue
-		}
-		namespace, readErr := os.Readlink(filepath.Join("/proc", entry.Name(), "ns/pid"))
-		if errors.Is(readErr, os.ErrNotExist) {
-			continue
-		}
-		if readErr != nil {
-			return false, readErr
-		}
-		if namespace == expected.Namespace {
-			return false, nil
-		}
-	}
-	return true, nil
 }

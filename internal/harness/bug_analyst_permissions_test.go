@@ -26,12 +26,52 @@ func TestBugAnalyst_RefusesUnsafeToolSurface(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			runner := &Runner{}
-			err := runner.validateRequest(agent.Request{Workflow: agent.WorkflowBug, Permissions: agent.Permissions{Payload: tt.surface}})
-			if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "Bug analyst") {
+			err := runner.validateRequest(agent.Request{Workflow: agent.WorkflowBug, Permissions: agent.Permissions{Profile: "bug-analyst", Payload: tt.surface}})
+			if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "bug-analyst") {
 				t.Fatalf("expected analyst permission refusal before other validation, got %v", err)
 			}
 		})
 	}
+}
+
+// The Claude fixer edits files but gets no shell, delegation or forge tools:
+// the factory runs the checks and owns every remote effect.
+func TestBugFixer_ClaudeToolSurface(t *testing.T) {
+	t.Parallel()
+	refused := []struct {
+		name    string
+		surface ToolSurface
+	}{
+		{"missing explicit tools", ToolSurface{}},
+		{"shell", ToolSurface{Tools: []string{"Read", "Edit", "Bash"}}},
+		{"delegate", ToolSurface{Tools: []string{"Read", "Edit", "Agent"}}},
+		{"web", ToolSurface{Tools: []string{"Read", "Edit", "WebFetch"}}},
+		{"forge mutation", ToolSurface{Tools: []string{"Read", "mcp__forge__merge"}}},
+		{"allowed shell rule", ToolSurface{Tools: []string{"Read", "Edit"}, AllowedTools: []string{"Bash(go test:*)"}}},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := (&Runner{}).validateRequest(agent.Request{Workflow: agent.WorkflowBug, Permissions: agent.Permissions{Profile: "bug-fixer", Payload: tt.surface}})
+			if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "bug-fixer") {
+				t.Fatalf("expected fixer permission refusal, got %v", err)
+			}
+		})
+	}
+	t.Run("edit surface passes the role check", func(t *testing.T) {
+		t.Parallel()
+		err := (&Runner{}).validateRequest(agent.Request{Workflow: agent.WorkflowBug, Permissions: agent.Permissions{Profile: "bug-fixer", Payload: ToolSurface{Tools: []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write"}}}})
+		if err != nil && strings.Contains(err.Error(), "bug-fixer") {
+			t.Fatalf("the fixer edit surface was refused: %v", err)
+		}
+	})
+	t.Run("unknown role", func(t *testing.T) {
+		t.Parallel()
+		err := (&Runner{}).validateRequest(agent.Request{Workflow: agent.WorkflowBug, Permissions: agent.Permissions{Payload: ToolSurface{Tools: []string{"Read"}}}})
+		if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "unknown Bug role") {
+			t.Fatalf("expected unknown role refusal, got %v", err)
+		}
+	})
 }
 
 func TestBugAnalyst_ReadSurfaceOnColdAndResumeArgv(t *testing.T) {

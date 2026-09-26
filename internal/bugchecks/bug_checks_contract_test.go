@@ -3,6 +3,8 @@ package bugchecks
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -90,16 +92,60 @@ func TestBugChecksContractConcurrentCapture(t *testing.T) {
 
 func TestBugChecksContractUnsupportedIsolation(t *testing.T) {
 	t.Parallel()
-	// The empty profile is refused before any filesystem lookup on all hosts.
-	profiles := []Isolation{{}}
-	if runtime.GOOS != "linux" {
-		profiles = append(profiles, Isolation{
-			Binary: "/operator/bwrap", ReadOnlyRoots: []string{"/usr"}, PATH: "/usr/bin", Revision: "operator-v1",
-		})
+	launcher := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(launcher, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	for _, p := range profiles {
+	valid := Isolation{Binary: launcher, PATH: "/usr/bin:/bin", Home: "/Users/op", Revision: "operator-v1"}
+	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+		if err := valid.Validate(); err != nil {
+			t.Fatalf("valid sandbox profile refused: %v", err)
+		}
+	}
+	for name, change := range map[string]func(*Isolation){
+		"empty profile":            func(p *Isolation) { *p = Isolation{} },
+		"missing revision":         func(p *Isolation) { p.Revision = "" },
+		"missing launcher":         func(p *Isolation) { p.Binary = filepath.Join(filepath.Dir(launcher), "absent") },
+		"relative home":            func(p *Isolation) { p.Home = "op" },
+		"writable filesystem root": func(p *Isolation) { p.WritableRoots = []string{"/"} },
+		"writable home":            func(p *Isolation) { p.WritableRoots = []string{"/Users/op"} },
+		"quoted writable root":     func(p *Isolation) { p.WritableRoots = []string{`/tmp/a"b`} },
+		"unreadable filesystem":    func(p *Isolation) { p.DenyRead = []string{"/"} },
+		"relative PATH entry":      func(p *Isolation) { p.PATH = ".:/usr/bin" },
+		"empty PATH":               func(p *Isolation) { p.PATH = "" },
+	} {
+		p := valid
+		change(&p)
 		if err := p.Validate(); err == nil {
-			t.Fatal("unsupported or missing isolation accepted")
+			t.Errorf("%s: unsafe isolation accepted", name)
+		}
+	}
+}
+
+// The launcher receives one explicit profile per command: the whole
+// filesystem readable, the worktree, private temp dir and operator roots
+// writable, operator secrets unreadable and no network.
+func TestBugChecksContractSandboxProfile(t *testing.T) {
+	t.Parallel()
+	p := Isolation{WritableRoots: []string{"/cache/go-build"}, DenyRead: []string{"/Users/op/.litefactory", "/Users/op/.ssh"}}
+	args, err := p.sandboxArgs("/work/tree", "/tmp/lf-bug-check-1", "/work/tree/sub", "/usr/bin/make", []string{"make", "check", "-j2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"sandbox", "-P", SandboxProfile,
+		"-c", "permissions." + SandboxProfile + `.filesystem={"/"="read","/work/tree"="write","/tmp/lf-bug-check-1"="write","/cache/go-build"="write","/Users/op/.litefactory"="none","/Users/op/.ssh"="none"}`,
+		"-c", "permissions." + SandboxProfile + ".network.enabled=false",
+		"-C", "/work/tree/sub", "--", "/usr/bin/make", "check", "-j2"}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("sandbox args:\n got %q\nwant %q", args, want)
+	}
+	for name, bad := range map[string]Isolation{
+		"duplicate path":  {WritableRoots: []string{"/work/tree"}},
+		"write then deny": {WritableRoots: []string{"/c"}, DenyRead: []string{"/c"}},
+		"quote in path":   {DenyRead: []string{`/x"y`}},
+	} {
+		if _, err := bad.sandboxArgs("/work/tree", "/tmp/t", "/work/tree", "/usr/bin/make", []string{"make"}); err == nil {
+			t.Errorf("%s: ambiguous sandbox profile built", name)
 		}
 	}
 }

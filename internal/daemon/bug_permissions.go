@@ -34,12 +34,13 @@ func bugRolePermissions(profiles map[string]config.ToolProfile, ceiling []string
 			}
 			out.Sandbox = want
 		case agent.Kind(config.KindClaude):
-			if role != "bug-analyst" || len(profile.Claude.Tools) == 0 {
-				return out, fmt.Errorf("%s enforcement is unavailable for Claude", role)
+			if len(profile.Claude.Tools) == 0 {
+				return out, fmt.Errorf("%s requires explicit Claude tools", role)
 			}
+			allowed := config.BugRoleClaudeTools(role)
 			for _, tool := range append(slices.Clone(profile.Claude.Tools), profile.Claude.AllowedTools...) {
-				if (tool != "Read" && tool != "Glob" && tool != "Grep") || !slices.Contains(ceiling, tool) {
-					return out, fmt.Errorf("%s tool is outside the read-only operator ceiling", role)
+				if !slices.Contains(allowed, tool) || !slices.Contains(ceiling, tool) {
+					return out, fmt.Errorf("%s tool %q is outside the role surface or the operator ceiling", role, tool)
 				}
 			}
 			out.Tools = slices.Clone(profile.Claude.Tools)

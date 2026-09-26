@@ -358,7 +358,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 				values[name] = value
 			}
 		}
-		isolation = bugchecks.Isolation{Binary: profile.Binary, ReadOnlyRoots: append([]string(nil), profile.ReadOnlyRoots...), PATH: profile.PATH, Environment: values}
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return nil, Startup{}, errors.Join(fmt.Errorf("resolve operator home for Bug checks: %w", homeErr), lock.Close())
+		}
+		// Daemon state and credentials are never readable by a check, whatever
+		// the operator lists.
+		deny := append([]string{filepath.Clean(s.Paths.Home())}, profile.DenyRead...)
+		isolation = bugchecks.Isolation{Binary: profile.Binary, WritableRoots: append([]string(nil), profile.WritableRoots...), DenyRead: deny, PATH: profile.PATH, Home: home, Environment: values}
 		// Hash the actual operator profile, including declared values, without
 		// retaining or exposing those values in check evidence.
 		encoded, encodeErr := json.Marshal(isolation)

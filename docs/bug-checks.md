@@ -52,20 +52,18 @@ partial capture. Declared environment values and recognized credential shapes ar
 redacted before output enters evidence. Environment names, not their values, are
 retained in command metadata.
 
-The current concrete backend uses operator-selected **Linux bubblewrap** with
-private mount, PID and network namespaces, `--die-with-parent`, an isolated HOME
-and temporary directory, and an empty inherited environment. Only the worktree
-is writable/persistent. Operator-selected runtime mounts are subsets of `/usr`,
-`/bin`, `/sbin`, `/lib`, `/lib64`; daemon state and host HOME are not mounted.
-No host cache or network access is granted by this backend. Sandbox initialization
-must report both a child launch and matching child exit through its JSON status
-channel before an exit can count as a check result. This avoids treating sandbox
-setup or exec failure as an ordinary test failure. The protocol is documented in
-the [bubblewrap manual](https://github.com/containers/bubblewrap/blob/main/bwrap.xml). Hosts
-without this enforceable backend, including macOS, return blocked before launch.
-The supervisor also waits for closure of bubblewrap's sandbox-lifetime sync
-channel; a timeout keeps cleanup unknown and worktree ownership retained. There
-is no fallback to running tests with daemon permissions.
+Every command runs under the **Codex sandbox** (`codex sandbox`: Seatbelt on
+macOS, Landlock on Linux), the same containment the Codex agents run under. The
+factory passes one explicit permission profile per command: the whole filesystem
+is readable except `$LF_HOME` and the operator's `deny_read` paths; writes are
+limited to the worktree, a private temporary directory (`TMPDIR`) and the
+operator's `writable_roots` (for example compiler caches); the network is off.
+The command sees only `PATH`, `HOME`, `LANG`, `TMPDIR` and declared environment
+names; nothing is inherited from the daemon. Each command runs in its own process
+group. When it ends, every remaining member is stopped and cleanup is confirmed
+only once the group is observed empty; otherwise cleanup stays unknown and the
+worktree guard is retained. There is no fallback to running tests with daemon
+permissions, and an unavailable sandbox launcher blocks before launch.
 
 The factory binds each phase to task, repair, caller generation, source commit
 and tree, target repository/main/commit, retained recipe digest and bytes, and
@@ -79,7 +77,7 @@ progress; conflicting input is refused. Completed commands are not repeated.
 After an uncertain launch or cleanup, recovery remains blocked and retains the
 worktree guard; it never signals a stored PID without verified process identity.
 Durable cancellation prevents subsequent launches; the activity's `Cancel`
-method also reaches its live namespace process. A cancellation is confirmed only
+method also stops its live process group. A cancellation is confirmed only
 with observed cleanup. The child owner is responsible for routing cancellation
 and scheduling reconciliation after restart.
 
@@ -90,10 +88,10 @@ this activity neither retries checks nor changes analysis or repair budgets.
 Passing evidence remains historical when invalidated; consumers must require
 its current-validity and reliability fields as well as matching bindings.
 
-On Linux, command launch is held behind bubblewrap's block descriptor until the
-factory retains the sandbox process's kernel boot ID, PID, start ticks and PID
-namespace. Recovery checks that exact identity and scans for surviving members
-of the recorded namespace. A changed boot or fully observed namespace absence
+Right after launch the factory retains the command's process group with the
+kernel boot identity and the leader's start time (macOS and Linux). A crash
+before that record keeps the claimed launch unresolved. Recovery never signals:
+it only probes the recorded group. A changed boot or an observed empty group
 can settle interruption as blocked (or confirmed cancellation when requested).
 Unreadable observations, legacy launch records without kernel identity, and
 claimed launches without a recorded process remain unresolved. No stored PID is
