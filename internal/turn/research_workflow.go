@@ -419,11 +419,61 @@ func recoverResearchPublications(ctx context.Context, opts Options, sessionID in
 				return err
 			}
 			if pin.Digest != current.Profile.Digest {
-				return errors.New("unsupported pre-cutover or changed Research capture; effects and dispatch refused")
+				owes, err := researchInstanceOwesWork(ctx, opts, instance)
+				if err != nil {
+					return err
+				}
+				if owes {
+					return errors.New("unsupported pre-cutover or changed Research capture; effects and dispatch refused")
+				}
 			}
 		}
 	}
 	return RecoverWorkflowPublications(ctx, opts, sessionID, ResearchWorkflowPolicy())
+}
+
+// researchInstanceOwesWork reports whether a Research instance still has
+// outstanding work: a non-terminal status (pending dispatches, owner waits or
+// active attempts) or any graph comment in its predecessor chain without a
+// completed report delivery. A finished instance that owes nothing cannot be
+// affected by a changed capture, so it must not block later modes.
+func researchInstanceOwesWork(ctx context.Context, opts Options, instance store.GraphInstance) (bool, error) {
+	switch instance.Status {
+	case store.GraphSucceeded, store.GraphFailed, store.GraphCancelled:
+	default:
+		return true, nil
+	}
+	for id := instance.ID; id != 0; {
+		after := ""
+		for {
+			page, err := opts.DB.ListGraphComments(ctx, id, after, 100)
+			if err != nil {
+				return false, err
+			}
+			for _, intent := range page {
+				delivery, err := opts.DB.GetReportDelivery(ctx, intent.Key)
+				if errors.Is(err, store.ErrNotFound) {
+					return true, nil
+				}
+				if err != nil {
+					return false, err
+				}
+				if !delivery.Completed {
+					return true, nil
+				}
+			}
+			if len(page) < 100 {
+				break
+			}
+			after = page[len(page)-1].Key
+		}
+		prior, _, err := opts.DB.WorkflowPredecessor(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		id = prior
+	}
+	return false, nil
 }
 
 // RecoverWorkflowPublications reconciles pending retained effects for the admitted mode.
