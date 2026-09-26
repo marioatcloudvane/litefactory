@@ -300,6 +300,44 @@ func TestBugTestPersistenceGenerationEligibility(t *testing.T) {
 	}
 }
 
+// Main moving after a passing child was consumed makes it stale; the retest
+// that drift requires must be admitted as the next generation.
+func TestBugTestPersistenceStalePassedChildAllowsRetest(t *testing.T) {
+	db := newTestDB(t)
+	r := testChildRequest(t, db)
+	c := testChildCreate(t, db, r)
+	for _, phase := range []string{"regression", "focused", "full"} {
+		testChildFinishPhase(t, db, c, phase, "passed")
+	}
+	if _, e := db.SettleBugTestCall(t.Context(), c.ID, graphTestTime()); e != nil {
+		t.Fatal(e)
+	}
+	if e := testChildConsume(t, db, c, "passed"); e != nil {
+		t.Fatal(e)
+	}
+	if e := db.InvalidateBugTestCall(t.Context(), c.ID, "main changed before merge dispatch"); e != nil {
+		t.Fatal(e)
+	}
+	if got, e := db.GetBugTestCall(t.Context(), c.ID); e != nil || got.Current || got.Outcome != "passed" {
+		t.Fatalf("stale consumed child still current or lost its outcome: %+v %v", got, e)
+	}
+	if _, e := db.sql.ExecContext(t.Context(), `UPDATE graph_instances SET current_node='test' WHERE id=?`, r.ParentInstance); e != nil {
+		t.Fatal(e)
+	}
+	a, e := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: r.ParentInstance, Node: "test", StartedAt: graphTestTime(), Limit: 20})
+	if e != nil {
+		t.Fatal(e)
+	}
+	next := r
+	next.Operation, next.ParentAttempt, next.PreviousCall = "child-2", a.ID, c.ID
+	next.Binding.TargetCommit = strings.Repeat("e", 40)
+	next.Resolution = "Factory observed target, recipe or execution-context drift for the same confirmed repair"
+	got, e := db.CreateBugTestCall(t.Context(), next, graphTestTime())
+	if e != nil || got.Generation != 2 {
+		t.Fatal(got, e)
+	}
+}
+
 func TestBugTestPersistenceAtomicAllocationFailure(t *testing.T) {
 	db := newTestDB(t)
 	r := testChildRequest(t, db)

@@ -199,12 +199,15 @@ func (d *DB) SettleBugTestCall(ctx context.Context, id int64, at time.Time) (Bug
 }
 
 // InvalidateBugTestCall retains the original binding and passing history.
+// Drift is observed after the parent consumed the passing call (main moved
+// before review or merge), so a consumed call must stop being current too;
+// otherwise the retest that drift requires can never start.
 func (d *DB) InvalidateBugTestCall(ctx context.Context, id int64, reason string) error {
 	if reason == "" {
 		return errors.New("bug child invalidation requires cause")
 	}
 	return d.withTx(ctx, func(tx *sql.Tx) error {
-		if _, e := tx.ExecContext(ctx, `UPDATE bug_test_calls SET current=0,reason=? WHERE id=? AND consumed=0`, reason, id); e != nil {
+		if _, e := tx.ExecContext(ctx, `UPDATE bug_test_calls SET current=0,reason=? WHERE id=?`, reason, id); e != nil {
 			return e
 		}
 		_, e := tx.ExecContext(ctx, `INSERT INTO bug_test_events(call_id,kind,evidence) VALUES(?,'invalidated',?)`, id, reason)
