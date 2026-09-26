@@ -89,6 +89,12 @@ func (db *DB) ReconcileSubmissionEffects(ctx context.Context) error {
 	return err
 }
 
+// SubmissionAssessmentMarker is the exact context_json/result_json of the
+// submission-v2 compatibility row in validation_assessments. It is not a v1
+// validation context and must never reach the legacy validation parser.
+// Migration 0077 repeats this literal for its backfill.
+const SubmissionAssessmentMarker = `{"submission_version":2,"findings_source":"submission_receipts"}`
+
 // CommitSubmissionAssessment retains a per-story new-contract assessment and its
 // receipt atomically. The compatibility run row is a version marker; full typed
 // findings and frozen correlation remain in immutable submission receipts.
@@ -121,8 +127,15 @@ func (db *DB) CommitSubmissionAssessment(ctx context.Context, id int64, d Accept
 		if n != 1 {
 			return fmt.Errorf("store: assessment frozen attribution mismatch")
 		}
-		const marker = `{"submission_version":2,"findings_source":"submission_receipts"}`
+		marker := SubmissionAssessmentMarker
 		if _, err := tx.ExecContext(ctx, `INSERT INTO validation_assessments(run_id,parent_task,generation,context_json,result_json,materialized) VALUES(?,?,?,?,?,1) ON CONFLICT DO NOTHING`, d.RunID, d.Parent, d.Generation, marker, marker); err != nil {
+			return err
+		}
+		// The marker carries no v1 findings; follow-ups come from submission
+		// receipts. Record it as follow-up-materialized so the legacy follow-up
+		// parser never sees it. Only a genuine marker row qualifies, never a
+		// pre-existing v1 assessment for the same run.
+		if _, err := tx.ExecContext(ctx, `INSERT INTO followup_materializations(run_id) SELECT run_id FROM validation_assessments WHERE run_id=? AND context_json=? ON CONFLICT(run_id) DO NOTHING`, d.RunID, marker); err != nil {
 			return err
 		}
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM acceptance_decisions WHERE parent_task=? AND generation=? AND story_key=? AND accepted=1`, d.Parent, d.Generation, d.Story).Scan(&n); err != nil {

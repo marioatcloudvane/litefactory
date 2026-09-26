@@ -102,9 +102,11 @@ func (db *DB) SaveFollowupEffects(ctx context.Context, p FollowupProposal) error
 	return err
 }
 
-// ListFollowupAssessments loads assessments whose follow-up findings are not materialized.
+// ListFollowupAssessments loads assessments whose follow-up findings are not
+// materialized. Submission-v2 marker rows are excluded: their findings live in
+// submission receipts and they are not v1 validation contexts.
 func (db *DB) ListFollowupAssessments(ctx context.Context) ([]ValidationAssessment, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT run_id,parent_task,generation,context_json,result_json FROM validation_assessments WHERE run_id NOT IN (SELECT run_id FROM followup_materializations) ORDER BY run_id`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT run_id,parent_task,generation,context_json,result_json FROM validation_assessments WHERE context_json<>? AND run_id NOT IN (SELECT run_id FROM followup_materializations) ORDER BY run_id`, SubmissionAssessmentMarker)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +137,7 @@ func (db *DB) MarkFollowupsMaterialized(ctx context.Context, runID int64) error 
 
 // ListPendingFollowupParents lists parents with materialization or publication debt.
 func (db *DB) ListPendingFollowupParents(ctx context.Context) ([]string, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT parent_task FROM validation_assessments WHERE run_id NOT IN (SELECT run_id FROM followup_materializations) UNION SELECT parent_task FROM followup_proposals WHERE proposed=0 OR (approval_comment>0 AND reported=0)`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT parent_task FROM validation_assessments WHERE context_json<>? AND run_id NOT IN (SELECT run_id FROM followup_materializations) UNION SELECT parent_task FROM followup_proposals WHERE proposed=0 OR (approval_comment>0 AND reported=0)`, SubmissionAssessmentMarker)
 	if err != nil {
 		return nil, err
 	}
