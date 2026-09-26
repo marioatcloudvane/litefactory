@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -351,6 +352,79 @@ func TestResearchPreCutoverCaptureRefusesRecoveryEffects(t *testing.T) {
 	mustProgress(t, err)
 	if retained.Digest != definition.Digest {
 		t.Fatal("unsupported capture was rewritten")
+	}
+}
+
+// finishedOldResearchInstance retains a terminal Research instance pinned to a
+// capture digest that differs from the current research.dot. It holds one final
+// graph comment whose report delivery is completed only when delivered is set.
+func finishedOldResearchInstance(t *testing.T, f *fixture, status string, delivered bool) store.GraphInstance {
+	t.Helper()
+	at := time.Date(2026, 9, 20, 1, 0, 0, 0, time.UTC)
+	definition, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+	mustProgress(t, err)
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "investigate", StartedAt: at})
+	mustProgress(t, err)
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "investigate", StartedAt: at})
+	mustProgress(t, err)
+	mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, FinishedAt: at.Add(time.Minute), InstanceStatus: status}))
+	key := "research-old-capture-final"
+	mustProgress(t, f.db.RetainGraphComment(t.Context(), store.GraphCommentIntent{Key: key, InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "investigate", Kind: "final", Candidate: []byte(researchDoneJSON)}))
+	if delivered {
+		probe, err := sql.Open("sqlite", store.DSN(f.db.Path()))
+		mustProgress(t, err)
+		defer func() { mustProgress(t, probe.Close()) }()
+		_, err = probe.ExecContext(t.Context(), `INSERT INTO report_deliveries(delivery_key,identity_version,session_id,trigger_id,task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,comment_id,completed) VALUES(?,1,?,0,'task','issue','graph','research-final',9999,'body','marker',1,77,1)`, key, f.session.ID)
+		mustProgress(t, err)
+	}
+	instance, err = f.db.GetGraphInstance(t.Context(), instance.ID)
+	mustProgress(t, err)
+	if instance.Status != status {
+		t.Fatalf("fixture instance status %q, want %q", instance.Status, status)
+	}
+	return instance
+}
+
+// A finished Research instance that owes nothing must not block later modes
+// after research.dot changes (#404 case 3).
+func TestResearchFinishedOldCaptureDoesNotBlockLaterModes(t *testing.T) {
+	for _, status := range []string{store.GraphSucceeded, store.GraphFailed} {
+		t.Run(status, func(t *testing.T) {
+			f := newFixture(t, nil)
+			forge := newFakeForge(t)
+			f.opts.ResearchReporter = newReporter(t, f, forge, nil)
+			instance := finishedOldResearchInstance(t, f, status, true)
+			if err := recoverResearchPublications(t.Context(), f.opts, f.session.ID); err != nil {
+				t.Fatalf("finished old Research instance blocked later modes: %v", err)
+			}
+			attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+			mustProgress(t, err)
+			deliveries, err := f.db.ListPendingReportDeliveries(t.Context())
+			mustProgress(t, err)
+			if len(attempts) != 1 || len(deliveries) != 0 || forge.attemptCount() != 0 {
+				t.Fatalf("finished instance created effects: attempts=%v deliveries=%v posts=%d", attempts, deliveries, forge.attemptCount())
+			}
+		})
+	}
+}
+
+// A terminal instance that still owes a graph comment delivery is outstanding
+// work and remains refused under a changed capture.
+func TestResearchFinishedOldCaptureWithUndeliveredCommentStaysRefused(t *testing.T) {
+	f := newFixture(t, nil)
+	forge := newFakeForge(t)
+	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
+	instance := finishedOldResearchInstance(t, f, store.GraphSucceeded, false)
+	err := recoverResearchPublications(t.Context(), f.opts, f.session.ID)
+	if err == nil || !strings.Contains(err.Error(), "unsupported pre-cutover or changed Research capture") {
+		t.Fatalf("outstanding old capture recovery: %v", err)
+	}
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	mustProgress(t, err)
+	deliveries, err := f.db.ListPendingReportDeliveries(t.Context())
+	mustProgress(t, err)
+	if len(attempts) != 1 || len(deliveries) != 0 || forge.attemptCount() != 0 {
+		t.Fatalf("refused capture created effects: attempts=%v deliveries=%v posts=%d", attempts, deliveries, forge.attemptCount())
 	}
 }
 

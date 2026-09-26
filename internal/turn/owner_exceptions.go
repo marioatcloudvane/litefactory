@@ -98,13 +98,18 @@ func (p *StoryProgress) ApplyOwnerException(ctx context.Context, c OwnerExceptio
 		return err
 	}
 	old, err := p.db.GetOwnerException(ctx, c.Parent, c.CommentID)
+	edited := false
 	switch {
 	case err == nil:
-		if old.ActorID != c.ActorID || old.RequestJSON != string(raw) {
-			return fmt.Errorf("exception replay changed authority or content")
-		}
+		// An edited source comment can never match its retained exception
+		// again. The retained record stays authoritative and is never
+		// re-expanded from the edited body; the edit gets one refusal reply.
+		edited = old.ActorID != c.ActorID || old.RequestJSON != string(raw)
 	case errors.Is(err, store.ErrNotFound):
 		feature, err := p.db.GetManagedFeature(ctx, c.Parent)
+		if errors.Is(err, store.ErrNotFound) {
+			return p.reportException(ctx, c, 0, "Exception refused: no approved separated workflow exists for this parent.", false)
+		}
 		if err != nil {
 			return err
 		}
@@ -146,19 +151,33 @@ func (p *StoryProgress) ApplyOwnerException(ctx context.Context, c OwnerExceptio
 	if err := p.deliverAcceptance(ctx, c.Parent); err != nil {
 		return err
 	}
-	if old.ReportCommentID > 0 {
+	if old.ReportCommentID == 0 {
+		// The acknowledgement is built only from the retained record, so an
+		// edited replay finishes delivering the original exception unchanged.
+		var retained OwnerExceptionRequest
+		if err := json.Unmarshal([]byte(old.RequestJSON), &retained); err != nil {
+			return err
+		}
+		var expansion []store.ExceptionObligation
+		if err := json.Unmarshal([]byte(old.ExpansionJSON), &expansion); err != nil {
+			return err
+		}
+		counts := map[string]int{}
+		for _, o := range expansion {
+			counts[o.Kind]++
+		}
+		detail := fmt.Sprintf("Reason: %s\nImmutable owner exception %d; generation %d. Exact expansion digest: %s.\nExpanded scope: %d criteria, %d review obligations, %d readiness obligations.\nFull exact identities, original findings and evidence attribution are retained in exception record %d. Per-story projection comments show criterion/review exceptions. Replay cannot expand this scope; later children require a new exception.", retained.Reason, old.ID, old.Generation, agent.StoryDigest([]byte(old.ExpansionJSON)), counts["criterion"], counts["review"], counts["readiness"], old.ID)
+		original := c
+		original.ActorID = old.ActorID
+		if err := p.reportException(ctx, original, old.ID, detail, true); err != nil {
+			return err
+		}
+	}
+	if !edited {
 		return nil
 	}
-	var expansion []store.ExceptionObligation
-	if err := json.Unmarshal([]byte(old.ExpansionJSON), &expansion); err != nil {
-		return err
-	}
-	counts := map[string]int{}
-	for _, o := range expansion {
-		counts[o.Kind]++
-	}
-	detail := fmt.Sprintf("Reason: %s\nImmutable owner exception %d; generation %d. Exact expansion digest: %s.\nExpanded scope: %d criteria, %d review obligations, %d readiness obligations.\nFull exact identities, original findings and evidence attribution are retained in exception record %d. Per-story projection comments show criterion/review exceptions. Replay cannot expand this scope; later children require a new exception.", request.Reason, old.ID, old.Generation, agent.StoryDigest([]byte(old.ExpansionJSON)), counts["criterion"], counts["review"], counts["readiness"], old.ID)
-	return p.reportException(ctx, c, old.ID, detail, true)
+	detail := fmt.Sprintf("This source comment was edited after owner exception %d was retained. The edit was ignored: it grants, widens or narrows nothing. The originally retained exception stays authoritative; post a new /waive comment for a different exception.", old.ID)
+	return p.postExceptionNotice(ctx, c, 0, report.OwnerExceptionNotice{Parent: c.Parent, CommentID: c.CommentID, ActorID: c.ActorID, Detail: detail, EditRefused: true})
 }
 
 func (p *StoryProgress) expandOwnerException(ctx context.Context, parent string, r OwnerExceptionRequest) ([]store.AcceptanceDecision, []store.ExceptionObligation, error) {
@@ -296,6 +315,12 @@ func (p *StoryProgress) expandOwnerException(ctx context.Context, parent string,
 }
 
 func (p *StoryProgress) reportException(ctx context.Context, c OwnerExceptionControl, id int64, detail string, accepted bool) error {
+	return p.postExceptionNotice(ctx, c, id, report.OwnerExceptionNotice{Parent: c.Parent, CommentID: c.CommentID, ActorID: c.ActorID, Detail: detail, Accepted: accepted})
+}
+
+// postExceptionNotice posts one notice per stable marker and returns nil only
+// once the reply is confirmed; replay finds the marker and never posts twice.
+func (p *StoryProgress) postExceptionNotice(ctx context.Context, c OwnerExceptionControl, id int64, n report.OwnerExceptionNotice) error {
 	renderer, ok := p.renderer.(exceptionRenderer)
 	if !ok {
 		return fmt.Errorf("exception renderer unavailable")
@@ -305,7 +330,6 @@ func (p *StoryProgress) reportException(ctx context.Context, c OwnerExceptionCon
 		return err
 	}
 	repo := github.RepoFromRef(ref)
-	n := report.OwnerExceptionNotice{Parent: c.Parent, CommentID: c.CommentID, ActorID: c.ActorID, Detail: detail, Accepted: accepted}
 	comments, err := p.forge.ListCommentsAfter(ctx, repo, ref.Issue, 0)
 	if err != nil {
 		return err
