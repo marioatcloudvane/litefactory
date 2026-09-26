@@ -43,8 +43,11 @@ func typedAcceptanceLines(body string, expected map[string]bool) ([]string, map[
 	positions := make(map[string]int, len(expected))
 	active, found := false, false
 	for i, line := range lines {
-		if strings.HasPrefix(line, "## ") {
-			active = line == "## Acceptance Criteria"
+		// Graph Plan story bodies head the section with the level-1
+		// PlanAcceptanceHeading; earlier typed stories use a level-2 heading.
+		// Either section ends at the next level-1 or level-2 heading.
+		if strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ") {
+			active = line == "## Acceptance Criteria" || line == PlanAcceptanceHeading
 			if active && found {
 				return nil, nil, fmt.Errorf("duplicate typed acceptance section")
 			}
