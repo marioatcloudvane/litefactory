@@ -1934,6 +1934,14 @@ func (d *Daemon) run(
 	// this input as a runless refusal; preparation failure retains the claim.
 	if mode == agent.ModeResearch && t.continuation == nil {
 		if err := d.claimResearchReply(ctx, t, trigger); err != nil {
+			// A comment written before the open question was published can
+			// never answer it. Refuse it once, visibly; the reply path consumes
+			// it only after confirmed delivery, so later comments proceed.
+			if errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
+				log.InfoContext(ctx, "Research owner comment predates the open question; refusing it with a reply",
+					slog.Any("error", err))
+				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+			}
 			return d.leave(ctx, t, log, "Research owner reply admission failed", err)
 		}
 	}
