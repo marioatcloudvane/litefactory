@@ -321,8 +321,10 @@ func bugContinuationEntryTx(ctx context.Context, tx *sql.Tx, l BugLifecycle, c B
 		return "test", nil
 	case "failure-retry":
 		// An authenticated owner comment retries a parent that failed in an
-		// agent node. Effect nodes are never retried this way: their retained
-		// intents own recovery, and a blind retry could repeat a remote effect.
+		// agent node, or in recording the analyst's output (whose cause is that
+		// output, so the analyst runs again). Effect nodes are never retried this
+		// way: their retained intents own recovery, and a blind retry could repeat
+		// a remote effect.
 		comment, e := strconv.ParseInt(c.Reference, 10, 64)
 		if e != nil || comment <= 0 || c.Operation != fmt.Sprintf("owner-reply:%d", comment) {
 			return "", errors.New("bug failure retry requires the owner comment that asked for it")
@@ -331,10 +333,11 @@ func bugContinuationEntryTx(ctx context.Context, tx *sql.Tx, l BugLifecycle, c B
 		if e != nil {
 			return "", e
 		}
-		if prior.Status != GraphFailed || (prior.CurrentNode != "analyst" && prior.CurrentNode != "fixer") {
+		entry := map[string]string{"analyst": "analyst", "record_analysis": "analyst", "fixer": "fixer"}[prior.CurrentNode]
+		if prior.Status != GraphFailed || entry == "" {
 			return "", errors.New("only a Bug parent that failed in its analyst or fixer can be retried")
 		}
-		return prior.CurrentNode, nil
+		return entry, nil
 	case "merge-reconcile":
 		m, e := bugMergeTx(ctx, tx, c.SessionID, c.Reference)
 		if e != nil {

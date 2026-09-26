@@ -165,7 +165,7 @@ func TestBugParentResolvedInfrastructureContinuation(t *testing.T) {
 // An owner comment retries a parent that failed in an agent node, once, with
 // replay; a failed effect node and a live parent are never restarted this way.
 func TestBugParentFailureRetryContinuation(t *testing.T) {
-	for _, variant := range []string{"analyst", "fixer", "merge", "running", "wrong-reference"} {
+	for _, variant := range []string{"analyst", "fixer", "record_analysis", "merge", "running", "wrong-reference"} {
 		t.Run(variant, func(t *testing.T) {
 			db, e := Open(t.Context(), filepath.Join(t.TempDir(), "retry.db"))
 			if e != nil {
@@ -200,14 +200,15 @@ func TestBugParentFailureRetryContinuation(t *testing.T) {
 				c.Reference = "334"
 			}
 			next, e := db.ClaimBugContinuation(t.Context(), c)
-			if variant != "analyst" && variant != "fixer" {
+			want := map[string]string{"analyst": "analyst", "fixer": "fixer", "record_analysis": "analyst"}[variant]
+			if want == "" {
 				if e == nil {
 					t.Fatalf("%s parent was retried: %+v", variant, next)
 				}
 				return
 			}
-			if e != nil || next.CurrentNode != variant || next.Status != GraphRunning || next.ID == request.ParentInstance {
-				t.Fatalf("failed %s not retried: %+v %v", variant, next, e)
+			if e != nil || next.CurrentNode != want || next.Status != GraphRunning || next.ID == request.ParentInstance {
+				t.Fatalf("failed %s not retried at %s: %+v %v", variant, want, next, e)
 			}
 			current, e := db.GetBugLifecycle(t.Context(), request.SessionID)
 			if e != nil || current.ParentInstance != next.ID || current.Disposition != "running" {

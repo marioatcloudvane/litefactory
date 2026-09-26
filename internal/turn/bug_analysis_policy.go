@@ -11,6 +11,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/buganalysis"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -211,16 +212,12 @@ func (h bugAnalysisComment) Execute(ctx context.Context, opts Options, req Activ
 	if err != nil {
 		return ActivityResult{}, err
 	}
-	raw, err := json.MarshalIndent(revision.Analysis, "", "  ")
-	if err != nil {
-		return ActivityResult{}, err
+	// The owner reads the recorded analysis itself, laid out as prose and a
+	// criteria table; the wording is the analysis's own, unchanged.
+	body := renderBugAnalysis(revision.Revision, revision.Digest, revision.Analysis)
+	if reason := strings.TrimSpace(revision.Reason); reason != "" {
+		body += "\n" + reason + "\n"
 	}
-	// JSON indentation keeps every line a literal owner-facing projection.
-	body := fmt.Sprintf("Bug analysis revision %d (%s)\n\n", revision.Revision, revision.Digest)
-	for _, line := range strings.Split(string(raw), "\n") {
-		body += "    " + line + "\n"
-	}
-	body += "\n" + revision.Reason
 	if kind == "review" {
 		body += fmt.Sprintf("\n\nTo authorize this exact remedy, reply `/approve-bug analysis %d`.", revision.Revision)
 	}
@@ -285,3 +282,78 @@ func BugWorkflowPolicy() WorkflowPolicy {
 		Guidance: "Bug analyst results use the version-1 shared result helper and service: preflight, correct diagnostics, submit and read the matching receipt. Lost replies retain request identity and identical bytes; corrected content needs a new request. Terminal output only confirms the accepted result. Only factory-authenticated exact owner approval authorizes repair.",
 	}
 }
+
+// renderBugAnalysis lays one recorded analysis revision out for the owner:
+// what goes wrong, why, the proposed fix and its limits, and the measurable
+// criteria the repair will be held to. Every sentence is the analysis's own.
+func renderBugAnalysis(revision int64, digest string, a buganalysis.BugAnalysis) string {
+	var b strings.Builder
+	short := digest
+	if len(short) > 12 {
+		short = short[:12]
+	}
+	fmt.Fprintf(&b, "## Bug analysis, revision %d\n\n", revision)
+	fmt.Fprintf(&b, "**Expected:** %s\n\n**Actual:** %s\n\n", oneLine(a.Expected), oneLine(a.Actual))
+	observation := map[string]string{"observed": "reproduced", "owner_reported": "reported by the owner, not reproduced", "not_observed": "not observed"}[a.Reproduction.Observation]
+	if observation == "" {
+		observation = a.Reproduction.Observation
+	}
+	fmt.Fprintf(&b, "### Reproduction (%s)\n\n", observation)
+	for i, step := range a.Reproduction.Steps {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, oneLine(step))
+	}
+	if env := strings.TrimSpace(a.Reproduction.Environment); env != "" {
+		fmt.Fprintf(&b, "\n**Environment:** %s\n", oneLine(env))
+	}
+	fmt.Fprintf(&b, "\n### Cause\n\n%s\n", strings.TrimSpace(a.Cause))
+	bullets(&b, "Evidence", a.Evidence)
+	fmt.Fprintf(&b, "\n### Proposed fix\n\n%s\n", strings.TrimSpace(a.Remedy))
+	if a.Boundaries != nil {
+		codes := func(paths []string) []string {
+			out := make([]string, len(paths))
+			for i, p := range paths {
+				out[i] = "`" + p + "`"
+			}
+			return out
+		}
+		bullets(&b, "Files the fix may change", codes(a.Boundaries.AllowedPaths))
+		bullets(&b, "Files the fix must not change", codes(a.Boundaries.ExcludedPaths))
+	}
+	bullets(&b, "Not included", a.Exclusions)
+	if len(a.Criteria) > 0 {
+		b.WriteString("\n### Success criteria\n\n| ID | Criterion | How it is measured |\n|---|---|---|\n")
+		for _, c := range a.Criteria {
+			fmt.Fprintf(&b, "| `%s` | %s | %s |\n", c.ID, bugCell(c.Requirement), bugCell(c.Measurement))
+		}
+	}
+	bullets(&b, "Decisions", a.Decisions)
+	bullets(&b, "Assumptions", a.Assumptions)
+	if len(a.Questions) > 0 {
+		b.WriteString("\n### Open questions\n\n")
+		for _, q := range a.Questions {
+			blocking := ""
+			if q.Material {
+				blocking = " (needs an answer before the fix)"
+			}
+			fmt.Fprintf(&b, "- `%s`%s: %s\n", q.ID, blocking, oneLine(q.Text))
+		}
+	}
+	fmt.Fprintf(&b, "\n<sub>Recorded analysis `%s`.</sub>\n", short)
+	return b.String()
+}
+
+func bullets(b *strings.Builder, title string, items []string) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n### %s\n\n", title)
+	for _, item := range items {
+		fmt.Fprintf(b, "- %s\n", oneLine(item))
+	}
+}
+
+// oneLine keeps an agent sentence on one Markdown line.
+func oneLine(text string) string { return strings.Join(strings.Fields(text), " ") }
+
+// bugCell keeps agent text inside one Markdown table cell.
+func bugCell(text string) string { return strings.ReplaceAll(oneLine(text), "|", `\|`) }

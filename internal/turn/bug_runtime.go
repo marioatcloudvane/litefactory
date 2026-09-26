@@ -239,7 +239,7 @@ func (r *BugRuntime) Execute(ctx context.Context, req Request, result Result) (R
 	a, e := r.admission(ctx, req)
 	if e != nil {
 		reporter := BugParentPolicy{Reporter: r.opts.ResearchReporter}
-		reportErr := reporter.PublishEvent(context.WithoutCancel(ctx), req.SessionID, 0, fmt.Sprintf("bug-admission:%d:%d", req.SessionID, req.Trigger.CommentID), "pre-dispatch", e.Error())
+		reportErr := reporter.PublishEvent(context.WithoutCancel(ctx), req.SessionID, 0, fmt.Sprintf("bug-admission:%d:%d", req.SessionID, req.Trigger.CommentID), "pre-dispatch", bugAdmissionComment(e))
 		return result, errors.Join(e, reportErr)
 	}
 	if !store.IsGraphTrigger(req.Trigger.CommentID) {
@@ -380,7 +380,7 @@ func (r *BugRuntime) finishDispatch(ctx context.Context, w *researchWorkflow, ca
 			}
 			event := fmt.Sprintf("bug-error:%d:%s:%d", instance.ID, instance.CurrentNode, attempt)
 			policy := r.parentPolicy(w)
-			cause = errors.Join(cause, policy.PublishEvent(bookkeeping, w.req.SessionID, attempt, event, kind, cause.Error()))
+			cause = errors.Join(cause, policy.PublishEvent(bookkeeping, w.req.SessionID, attempt, event, kind, bugFailureComment(instance.CurrentNode, cause)))
 		} else {
 			cause = errors.Join(cause, e)
 		}

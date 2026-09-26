@@ -1,0 +1,65 @@
+package turn
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/cloudvane/litefactory/internal/buganalysis"
+)
+
+// The owner reads the recorded analysis as prose and a criteria table, with
+// the analysis's own wording, not as a JSON dump.
+func TestRenderBugAnalysisIsReadable(t *testing.T) {
+	a := buganalysis.BugAnalysis{
+		Expected: "No parser error.", Actual: "Every tick logs\nan error.",
+		Reproduction: buganalysis.BugReproduction{Steps: []string{"Accept a story.", "Run a tick."}, Environment: "daemon", Observation: "owner_reported"},
+		Cause:        "The marker is never materialized.", Evidence: []string{"store/followups.go:107"},
+		Boundaries: &buganalysis.BugRepairBoundaries{AllowedPaths: []string{"internal/store/followups.go"}, ExcludedPaths: []string{"internal/agent/validation.go"}},
+		Remedy:     "Mark the marker materialized.", Exclusions: []string{"No parser change."},
+		Criteria:  []buganalysis.BugCriterion{{ID: "C1", Requirement: "Marker a | b is materialized.", Measurement: "Store test."}},
+		Questions: []buganalysis.BugQuestion{{ID: "Q1", Text: "Backfill?", Material: true}},
+	}
+	out := renderBugAnalysis(2, strings.Repeat("a", 64), a)
+	for _, want := range []string{
+		"## Bug analysis, revision 2",
+		"**Actual:** Every tick logs an error.",
+		"### Reproduction (reported by the owner, not reproduced)",
+		"1. Accept a story.\n2. Run a tick.",
+		"### Cause\n\nThe marker is never materialized.",
+		"### Files the fix may change\n\n- `internal/store/followups.go`",
+		"### Files the fix must not change",
+		"| `C1` | Marker a \\| b is materialized. | Store test. |",
+		"- `Q1` (needs an answer before the fix): Backfill?",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered analysis lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `"expected"`) || strings.Contains(out, "{") {
+		t.Fatalf("analysis still rendered as JSON:\n%s", out)
+	}
+}
+
+// A stopped Bug parent explains itself to the owner and says what to do; the
+// raw error stays available, collapsed.
+func TestBugFailureCommentExplainsAndOffersNextStep(t *testing.T) {
+	cause := errors.New(`execute graph activity "lf_bug_record": store: Bug criterion "C1" changes an existing meaning`)
+	out := bugFailureComment("record_analysis", cause)
+	for _, want := range []string{"**The Bug workflow stopped while recording the analysis.**", "keep their exact wording", "Reply on this issue", "<details><summary>Technical details</summary>", `Bug criterion "C1" changes an existing meaning`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("failure comment lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.HasPrefix(out, "execute graph activity") {
+		t.Fatal("the raw error is still the message")
+	}
+	merge := bugFailureComment("merge", errors.New("remote refused"))
+	if !strings.Contains(merge, "while merging the pull request") || !strings.Contains(merge, "cannot restart this step") || strings.Contains(merge, "Reply on this issue") {
+		t.Fatalf("an effect step offered a retry:\n%s", merge)
+	}
+	admission := bugAdmissionComment(errors.New("this Bug task is not waiting for an owner reply; nothing can be continued from this comment"))
+	if !strings.Contains(admission, "could not be applied") || !strings.Contains(admission, "not waiting for a reply right now") {
+		t.Fatalf("admission comment unclear:\n%s", admission)
+	}
+}

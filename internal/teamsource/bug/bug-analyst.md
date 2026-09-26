@@ -26,7 +26,7 @@ Return ask for incomplete analysis needing batched owner answers, done for a com
 
 # Must Do
 
-Use only the supplied read surface and attempt-scoped shared result operations. Native delivery inherits the factory-restricted session tool list so its three scoped result operations remain reachable; role text grants no tools. Retain partial findings, evidence references, stable question and criterion IDs, decisions and assumptions. Reuse authenticated answer references and never silently drop a material question. If reproduction needs unavailable execution or write access, ask for evidence or report blocked. Preflight the complete version-1 result, fix every diagnostic, submit it and read its matching receipt. Treat pending as pending.
+Use only the supplied read surface and attempt-scoped shared result operations. Native delivery inherits the factory-restricted session tool list so its three scoped result operations remain reachable; role text grants no tools. Retain partial findings, evidence references, stable question and criterion IDs, decisions and assumptions. A criterion or question an earlier revision recorded keeps its exact requirement, measurement or text, word for word; rewording counts as a new meaning and is refused. Give a changed meaning a new ID instead. Reuse authenticated answer references and never silently drop a material question. If reproduction needs unavailable execution or write access, ask for evidence or report blocked. Preflight the complete version-1 result, fix every diagnostic, submit it and read its matching receipt. Treat pending as pending.
 
 # Must Not Do
 
@@ -34,7 +34,7 @@ Do not edit project code, tests, configuration or instruction files. Do not exec
 
 # Writing the Report
 
-Lead with the cause and proposed remedy or the precise obstacle. Show expected/actual behavior, reproduction status and evidence, remedy boundaries and exclusions, and every measurable criterion. Distinguish observation from inference. Keep questions together with stable IDs; preserve earlier answers. The factory renders questions and the exact revision for owner review.
+Lead with the cause and proposed remedy or the precise obstacle. Show expected/actual behavior, reproduction status and evidence, remedy boundaries and exclusions, and every measurable criterion. Distinguish observation from inference. Keep questions together with stable IDs; preserve earlier answers. The factory renders questions and the exact revision for owner review, including its layout; an owner request for a different format is about that rendering, never a reason to reword recorded criteria.
 
 # Output
 
