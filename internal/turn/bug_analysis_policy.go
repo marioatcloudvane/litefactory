@@ -316,8 +316,8 @@ func renderBugAnalysis(revision int64, digest string, a buganalysis.BugAnalysis)
 			}
 			return out
 		}
-		bullets(&b, "Files the fix may change", codes(a.Boundaries.AllowedPaths))
-		bullets(&b, "Files the fix must not change", codes(a.Boundaries.ExcludedPaths))
+		bullets(&b, "Files the fix is expected to change", codes(a.Boundaries.AllowedPaths))
+		bullets(&b, "Files the fix should leave alone", codes(a.Boundaries.ExcludedPaths))
 	}
 	bullets(&b, "Not included", a.Exclusions)
 	if len(a.Criteria) > 0 {

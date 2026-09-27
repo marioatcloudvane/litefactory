@@ -63,7 +63,7 @@ func bugAdmissionComment(cause error) string {
 func bugExplanation(text string) string {
 	switch {
 	case strings.Contains(text, "changes an existing meaning"):
-		return "The revised analysis reworded a criterion or question that an earlier revision already recorded. Recorded criteria keep their exact wording, because the repair and its checks are measured against them; a changed meaning needs a new ID."
+		return "The revised analysis reworded a question that an earlier revision already recorded. Recorded questions keep their exact wording, because your answers refer to their IDs; a different question needs a new ID."
 	case strings.Contains(text, "not waiting for an owner reply"):
 		return "This Bug task is not waiting for a reply right now, so there is nothing this comment could continue."
 	case strings.Contains(text, "only a Bug parent that failed in its analyst or fixer"):

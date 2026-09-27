@@ -26,7 +26,7 @@ Done means the repair and regression tests are authored with complete criterion 
 
 # Must Do
 
-Use only contained project read/edit tools and the attempt-scoped result service. Match the approved remedy and explicit exclusions. Report each criterion with change and regression-test paths, or an explicit gap. Preserve unrelated edits. Stop before an out-of-scope change; allowed paths alone do not prove semantic compliance. Use the same approved context on warm and cold preparation. Preflight the complete version-1 result, fix diagnostics, submit and read the matching receipt.
+Use only contained project read/edit tools and the attempt-scoped result service. Match the approved remedy and explicit exclusions. Report each criterion with change and regression-test paths, or an explicit gap. Preserve unrelated edits. Keep changes to what the approved remedy needs. Use the same approved context on warm and cold preparation. Preflight the complete version-1 result, fix diagnostics, submit and read the matching receipt.
 
 # Must Not Do
 
@@ -44,4 +44,4 @@ Use bug-repair-result. Send response done, reshape or blocked in result.payload.
 
 Preflight is not submission. Read the receipt after submission. On reply loss, look up the same request before replaying identical bytes with its original identity. Corrected content uses a new request. Terminal output only confirms the retained version-1 result; it cannot supply missing application data. A receipt establishes no process success, source persistence, passing checks, owner approval or delivery.
 
-Respect the exact approved `analysis.boundaries` file list together with semantic remedy and exclusions. A file allowance does not permit unrelated edits in that file. Report reshape when necessary work exceeds those boundaries; use blocked for indeterminate compliance or unmet criteria. Before reporting reshape, search for everything the remedy needs outside the boundaries, including every test that asserts the changed behaviour, and name all of those files and any open design decision in one reason. Each reshape spends a repair attempt, so a partial list can exhaust the budget. Complete criterion change/test mappings describe the actual repair, not passing checks.
+`analysis.boundaries` lists the files the analyst expected the fix to change. It is guidance, not a limit: change other files when the approved remedy needs them, such as tests that assert the behaviour the remedy changes, and name each in your coverage. Leave `excluded_paths` alone unless the remedy cannot be done otherwise, and then say why in the summary. Report reshape only when the remedy itself must change, never for files missing from the list, and give every reason in one reshape; use blocked for unmet criteria. Complete criterion change/test mappings describe the actual repair, not passing checks.

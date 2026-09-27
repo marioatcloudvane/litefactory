@@ -733,3 +733,19 @@ func TestBugBoundaryAgentCannotPatchExecutionAuthority(t *testing.T) {
 		})
 	}
 }
+
+// A later revision may reword a criterion under the same ID: the owner
+// approves each revision, and repair and checks bind to the approved one
+// (#409 stopped on this rule).
+func TestBugBoundaryRevisionMayRewordCriterion(t *testing.T) {
+	db := newTestDB(t)
+	identity := bugBoundaryIdentity(t, db, 393)
+	first, _, _ := bugBoundaryApply(t, db, identity, 0, "done", bugBoundaryCompleteAnalysis())
+	reworded := bugBoundaryCompleteAnalysis()
+	reworded.Criteria[0].Requirement = "Read the saved value after normalization"
+	reworded.Criteria[0].Measurement = "Lookup regression returns the saved value for mixed-case keys"
+	second, _, _ := bugBoundaryApply(t, db, identity, 1, "done", reworded)
+	if second.Revision != first.Revision+1 || second.Analysis.Criteria[0] != reworded.Criteria[0] {
+		t.Fatalf("reworded criterion not recorded as a new revision: %+v", second)
+	}
+}

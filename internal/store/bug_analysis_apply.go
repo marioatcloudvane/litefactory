@@ -181,7 +181,6 @@ func validateBugHistoryTx(ctx context.Context, tx *sql.Tx, session int64, a buga
 	if err != nil {
 		return err
 	}
-	oldCriteria := make(map[string]buganalysis.BugCriterion)
 	oldQuestions := make(map[string]buganalysis.BugQuestion)
 	for rows.Next() {
 		var b []byte
@@ -192,9 +191,6 @@ func validateBugHistoryTx(ctx context.Context, tx *sql.Tx, session int64, a buga
 		if err = json.Unmarshal(b, &prior); err != nil {
 			return errors.Join(err, rows.Close())
 		}
-		for _, c := range prior.Criteria {
-			oldCriteria[c.ID] = c
-		}
 		for _, q := range prior.Questions {
 			oldQuestions[q.ID] = q
 		}
@@ -202,11 +198,9 @@ func validateBugHistoryTx(ctx context.Context, tx *sql.Tx, session int64, a buga
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
 		return err
 	}
-	for _, c := range a.Criteria {
-		if old, ok := oldCriteria[c.ID]; ok && old != c {
-			return fmt.Errorf("store: Bug criterion %q changes an existing meaning", c.ID)
-		}
-	}
+	// Criteria may be reworded in a new revision: the owner approves each
+	// revision, and repair and checks bind to the approved one. Questions keep
+	// their text because owner answers refer to their IDs.
 	for _, q := range a.Questions {
 		if old, ok := oldQuestions[q.ID]; ok && old != q {
 			return fmt.Errorf("store: Bug question %q changes an existing meaning", q.ID)
