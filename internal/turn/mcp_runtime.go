@@ -363,10 +363,11 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		}
 	}
 	// Drafting a proposal needs no grant and publishes nothing, so unlike the
-	// grant above it is offered on every Research invocation, including a graph
-	// Research node, and never looks up an owner intent. Installing it must not
-	// touch AllowCreation. It reads no session: a graph node has none.
-	if req.Mode == "research" && nativeSupported && nativeRunner.SupportsMCP() && !runtime.DisableMCP && runtime.CreationAuthorizer != nil && runtime.CreationAuthorizer.enabled && runtime.Creation != nil {
+	// grant above it is offered on every invocation in every mode, including
+	// graph nodes, and never looks up an owner intent: the factory publishes an
+	// approved proposal itself. Installing it must not touch AllowCreation. It
+	// reads no session: a graph node has none.
+	if nativeSupported && nativeRunner.SupportsMCP() && !runtime.DisableMCP && runtime.CreationAuthorizer != nil && runtime.CreationAuthorizer.enabled && runtime.Creation != nil {
 		proposals, err := NewCreationProposalService(o.DB, receipts, runtime.CreationAuthorizer, runtime.Redactor)
 		if err != nil {
 			return nil, nil, err

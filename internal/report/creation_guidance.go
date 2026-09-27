@@ -10,11 +10,17 @@ const (
 	CreationPublicationLegacy
 	CreationPublicationGraph
 	CreationPublicationUnavailable
+	// CreationPublicationFactory means the factory publishes an approved
+	// proposal itself, whatever mode or workflow path the task is on.
+	CreationPublicationFactory
 )
 
 // CreationGuidance remains conditional because a retained reply can arrive after
 // the proposal, workflow configuration or approval deadline has changed.
 func CreationGuidance(publication CreationPublication) string {
+	if publication == CreationPublicationFactory {
+		return "Approving publishes these exact issues right away; no further comment or run is needed. Only the newest proposal on this issue can be approved, and a changed draft needs a new proposal."
+	}
 	text := "Approval alone starts no publication. Its 30-minute lifetime begins at the trusted approval-comment timestamp; an eligible publishing attempt must bind the approval before expiry.\n\n"
 	switch publication {
 	case CreationPublicationLegacy:
