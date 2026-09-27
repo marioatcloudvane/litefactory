@@ -46,6 +46,12 @@ func TestSharedFinalizationTerminationMatrix(t *testing.T) {
 					if got.ResumeToken != original.ResumeToken || got.ExitCode != original.ExitCode || original.Outcome != outcome {
 						t.Fatalf("process metadata changed: %+v", got)
 					}
+					// Research and Plan results travel only the shared result route
+					// (#410): printed JSON is never parsed or resubmitted, so for them
+					// every output here is a missing result.
+					if mode == "research" || mode == "plan" {
+						output = "missing"
+					}
 					switch {
 					case outcome != agent.OutcomeSucceeded:
 						if got.Outcome != outcome || got.Reason != original.Reason {
@@ -77,38 +83,26 @@ func TestSharedFinalizationTerminationMatrix(t *testing.T) {
 }
 
 func TestSharedFinalizationCurrentAttemptAndConflicts(t *testing.T) {
+	// Spike keeps terminal handling: printed JSON is still reconciled against the
+	// live submission, so a full replacement conflicts and an update applies. Its
+	// incomplete outcome never becomes workflow success, so only the revision
+	// allocation is observed for it.
 	for _, scenario := range []string{"duplicate", "conflict", "prose", "update", "stale", "earlier_attempt"} {
-		t.Run(scenario, func(t *testing.T) {
-			db, session, o := agentResultFixture(t, "research")
+		t.Run("spike/"+scenario, func(t *testing.T) {
+			db, session, o := agentResultFixture(t, "spike")
 			service, err := BindAgentResultService(t.Context(), o)
 			mustProgress(t, err)
-			live, err := service.Submit(t.Context(), "live", resultCreate("research"))
+			live, err := service.Submit(t.Context(), "live", resultCreate("spike"))
 			mustProgress(t, err)
 			if live.Snapshot == nil {
 				t.Fatalf("live input rejected: %+v", live)
 			}
 			p := &preparedMCP{service: service}
-			text := string(resultCreate("research"))
-			switch scenario {
-			case "conflict":
-				text = strings.ReplaceAll(text, "Initial result", "Changed full replacement")
-			case "prose":
-				text = "The live contribution is final."
-			case "update":
-				text = `{"expected_revision":1,"operations":[{"op":"set","target":{"field":"comment"},"value":"Explicit update"}]}`
-			case "stale":
-				text = `{"expected_revision":7,"operations":[{"op":"set","target":{"field":"comment"},"value":"Stale update"}]}`
-			case "earlier_attempt":
-				o.Attempt = agentResultRun(t, db, session, "research", "next-attempt", 2)
-				p.service, err = BindAgentResultService(t.Context(), o)
-				mustProgress(t, err)
-				text = "Earlier prose cannot count as current input."
-			}
+			text := sharedFinalizationScenario(t, scenario, "spike", db, session, &o, p)
 			got, err := p.finalize(t.Context(), &preparation{}, nil, &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: text}, nil)
 			mustProgress(t, err)
-			reject := scenario == "conflict" || scenario == "stale" || scenario == "earlier_attempt"
-			if got.Succeeded() == reject {
-				t.Fatalf("finalization: %+v", got)
+			if got.Succeeded() {
+				t.Fatalf("incomplete spike became success: %+v", got)
 			}
 			revisions, err := db.ResultRevisionNumbers(t.Context(), p.service.Binding())
 			mustProgress(t, err)
@@ -120,6 +114,100 @@ func TestSharedFinalizationCurrentAttemptAndConflicts(t *testing.T) {
 				t.Fatalf("unexpected revision allocation: %v", revisions)
 			}
 		})
+	}
+	// C6 (#410): for Research the printed text is never parsed or resubmitted.
+	// A full replacement, an update or a stale update printed after a valid
+	// submission changes nothing: the current-attempt retained result stands and
+	// no "terminal-" request is recorded. Only an attempt with no current result
+	// fails, reported as absent.
+	for _, scenario := range []string{"duplicate", "conflict", "prose", "update", "stale", "earlier_attempt"} {
+		t.Run("research/"+scenario, func(t *testing.T) {
+			db, session, o := agentResultFixture(t, "research")
+			service, err := BindAgentResultService(t.Context(), o)
+			mustProgress(t, err)
+			live, err := service.Submit(t.Context(), "live", resultCreate("research"))
+			mustProgress(t, err)
+			if live.Snapshot == nil {
+				t.Fatalf("live input rejected: %+v", live)
+			}
+			p := &preparedMCP{service: service}
+			text := sharedFinalizationScenario(t, scenario, "research", db, session, &o, p)
+			got, err := p.finalize(t.Context(), &preparation{}, nil, &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: text}, nil)
+			mustProgress(t, err)
+			reject := scenario == "earlier_attempt"
+			if got.Succeeded() == reject {
+				t.Fatalf("finalization: %+v", got)
+			}
+			if reject {
+				if !strings.Contains(got.Reason, "required current-attempt output is absent") {
+					t.Fatalf("missing result not reported as absent: %+v", got)
+				}
+			} else if got.ResultText != "Initial result" {
+				t.Fatalf("printed text replaced the retained result: %+v", got)
+			}
+			revisions, err := db.ResultRevisionNumbers(t.Context(), p.service.Binding())
+			mustProgress(t, err)
+			if len(revisions) != 1 {
+				t.Fatalf("printed text allocated a revision: %v", revisions)
+			}
+			if !reject {
+				if _, err := p.service.Receipt(t.Context(), o.Attempt.RunID, "terminal-"+o.Attempt.Attempt); err == nil {
+					t.Fatal("printed text was resubmitted as a terminal- request")
+				}
+			}
+		})
+	}
+}
+
+// sharedFinalizationScenario returns the printed text of one finalization
+// scenario, rebinding the service to a new attempt for earlier_attempt.
+func sharedFinalizationScenario(t *testing.T, scenario, mode string, db *store.DB, session store.Session, o *AgentResultServiceOptions, p *preparedMCP) string {
+	t.Helper()
+	text := string(resultCreate(mode))
+	switch scenario {
+	case "conflict":
+		text = strings.ReplaceAll(text, "Initial result", "Changed full replacement")
+	case "prose":
+		text = "The live contribution is final."
+	case "update":
+		text = `{"expected_revision":1,"operations":[{"op":"set","target":{"field":"comment"},"value":"Explicit update"}]}`
+	case "stale":
+		text = `{"expected_revision":7,"operations":[{"op":"set","target":{"field":"comment"},"value":"Stale update"}]}`
+	case "earlier_attempt":
+		o.Attempt = agentResultRun(t, db, session, mode, "next-attempt", 2)
+		var err error
+		p.service, err = BindAgentResultService(t.Context(), *o)
+		mustProgress(t, err)
+		text = "Earlier prose cannot count as current input."
+	}
+	return text
+}
+
+// C6 (#410): a Plan binding gets the same treatment as Research. A printed copy
+// of the submitted result that starts with "{" (here missing its closing brace)
+// is never parsed or resubmitted, and the retained snapshot is what finalization
+// returns.
+func TestSharedFinalizationPlanNeverReadsPrintedJSON(t *testing.T) {
+	db, _, o := agentResultFixture(t, "plan")
+	service, err := BindAgentResultService(t.Context(), o)
+	mustProgress(t, err)
+	live, err := service.Submit(t.Context(), "live", resultCreate("plan"))
+	mustProgress(t, err)
+	if live.Snapshot == nil {
+		t.Fatalf("live input rejected: %+v", live)
+	}
+	printed := string(resultCreate("plan"))
+	snapshot, err := (&preparedMCP{service: service}).consumeFinalResult(t.Context(), nil, printed[:len(printed)-1])
+	if err != nil || !agentresult.SameResult(snapshot.Result, live.Snapshot.Result) {
+		t.Fatalf("printed JSON replaced or failed the retained Plan result: %+v %v", snapshot, err)
+	}
+	if _, err := service.Receipt(t.Context(), o.Attempt.RunID, "terminal-"+o.Attempt.Attempt); err == nil {
+		t.Fatal("printed Plan JSON was resubmitted as a terminal- request")
+	}
+	revisions, err := db.ResultRevisionNumbers(t.Context(), service.Binding())
+	mustProgress(t, err)
+	if len(revisions) != 1 {
+		t.Fatalf("printed text allocated a revision: %v", revisions)
 	}
 }
 
@@ -224,6 +312,12 @@ func TestSharedRunnerHelperAndTerminalBindings(t *testing.T) {
 								t.Fatal("shared helper absent")
 							}
 							raw, _, _ := strings.Cut(tail, "\n")
+							// C8 (#410): Research and Plan are told never to print a
+							// JSON result; other modes keep the terminal sentence.
+							const terminalRoute = "or return the application JSON as your final terminal response"
+							if submittedOnly := mode == "research" || mode == "plan"; submittedOnly == strings.Contains(req.Prompt, terminalRoute) || submittedOnly != strings.Contains(req.Prompt, "Do not print a JSON result: terminal text is never read as a result.") {
+								t.Fatalf("%s final route sentence is wrong: %s", mode, req.Prompt)
+							}
 							var access struct{ Executable, Descriptor string }
 							mustProgress(t, json.Unmarshal([]byte(raw), &access))
 							descriptor = access.Descriptor
@@ -256,12 +350,19 @@ func TestSharedRunnerHelperAndTerminalBindings(t *testing.T) {
 						})
 						got, err := runMCPBound(t.Context(), prep, agent.Request{Mode: mode, Path: path, Permissions: permissions}, nil)
 						mustProgress(t, err)
-						if mode == "spike" {
+						switch {
+						case mode == "spike":
 							if got.Succeeded() {
 								t.Fatal("incomplete spike accepted as workflow success")
 							}
-						} else if !got.Succeeded() {
-							t.Fatalf("valid helper/terminal result failed: %+v", got)
+						case transport == "terminal":
+							// Research and Plan never read printed JSON (#410): a
+							// result that was only printed is a missing result.
+							if got.Succeeded() || !strings.Contains(got.Reason, "required current-attempt output is absent") {
+								t.Fatalf("printed-only %s result was accepted: %+v", mode, got)
+							}
+						case !got.Succeeded():
+							t.Fatalf("valid helper result failed: %+v", got)
 						}
 						if _, err := os.Stat(descriptor); !os.IsNotExist(err) {
 							t.Fatalf("helper capability retained: %v", err)
@@ -403,6 +504,10 @@ func TestSharedManagedRunnerModesAndPermissions(t *testing.T) {
 						if !strings.Contains(req.Prompt, "Required final route:") {
 							t.Fatal("missing authoritative route")
 						}
+						// C8 (#410): only Research and Plan lose the terminal sentence.
+						if !strings.Contains(req.Prompt, "or return the application JSON as your final terminal response") || strings.Contains(req.Prompt, "Do not print a JSON result") {
+							t.Fatalf("%s final route sentence changed: %s", mode, req.Prompt)
+						}
 						if mode == "validate" && (req.SubmissionRoot != "" || strings.Contains(req.Prompt, "Shared result helper access")) {
 							t.Fatalf("Validate gained helper grant: %+v", req)
 						}
@@ -487,6 +592,13 @@ func TestSharedPlanFinalizationUsesPublicationOwner(t *testing.T) {
 			defer func() { mustProgress(t, p.close(context.WithoutCancel(t.Context()))) }()
 			raw, err := json.Marshal(agentresult.CreateInput{Result: result})
 			mustProgress(t, err)
+			// A Plan result travels only the shared result route (#410): it is
+			// submitted, and the printed copy below is never read.
+			submitted, err := p.service.Submit(t.Context(), "live-plan", raw)
+			mustProgress(t, err)
+			if !submitted.Validation.Valid || submitted.Snapshot == nil {
+				t.Fatalf("Plan submission refused: %+v", submitted.Validation)
+			}
 			outcome := agent.OutcomeSucceeded
 			if scenario == "failed_process" {
 				outcome = agent.OutcomeFailed
@@ -524,7 +636,10 @@ func TestSharedUnsupportedNativeProviderStillFinalizes(t *testing.T) {
 	prep.runner = runner
 	got, err := runMCPBound(t.Context(), prep, agent.Request{Mode: "research"}, nil)
 	mustProgress(t, err)
-	if !got.Succeeded() || got.ResultText != "Initial result" || runner.request.MCPLaunch != nil || !strings.Contains(runner.request.Prompt, "Required final route:") {
+	// The shared route still finalizes the attempt. A Research result that was
+	// only printed is never read (#410), so it is reported as absent; the helper
+	// named in the prompt is the route for a provider without native tools.
+	if got.Succeeded() || !strings.Contains(got.Reason, "required current-attempt output is absent") || runner.request.MCPLaunch != nil || !strings.Contains(runner.request.Prompt, "Required final route:") || !strings.Contains(runner.request.Prompt, "Shared result helper access") {
 		t.Fatalf("unsupported native provider skipped shared route: %+v %+v", got, runner.request)
 	}
 }

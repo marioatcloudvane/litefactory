@@ -142,13 +142,15 @@ func (s *graphPlanHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // factory selected and the story request it authors. The factory-owned members are
 // never part of it, which is what the shared route requires.
 //
-// TerminalOnly skips the live submission, and Terminal replaces the envelope's
-// result, so a test can present terminal-only and mismatched output.
+// TerminalOnly skips the live submission, Terminal replaces the envelope's
+// result, and Printed replaces the printed text entirely, so a test can present
+// terminal-only, mismatched and arbitrary printed output.
 type graphPlanAnswer struct {
 	Stage        string
 	Request      *ar.PlanStoryRequest
 	TerminalOnly bool
 	Terminal     *ar.Result
+	Printed      *string
 	Ask          bool
 	// Stop ends the process with this outcome instead of a result, and Reason
 	// is what the provider reported.
@@ -235,7 +237,11 @@ func graphPlanFixtureWithForge(t *testing.T, kind string, mutate ...func(*graphP
 				t.Fatal(err)
 			}
 		}
-		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: string(envelope), FinishedAt: time.Now()}, nil
+		printed := string(envelope)
+		if answer.Printed != nil {
+			printed = *answer.Printed
+		}
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: printed, FinishedAt: time.Now()}, nil
 	})
 	var remote *graphPlanHTTP
 	var base Request
@@ -457,17 +463,47 @@ func TestPlanGraphBoundary_AgentSuppliedFactoryValuesRefused(t *testing.T) {
 	}
 }
 
-func TestPlanGraphBoundary_TerminalOnlyAndMismatchedOutputCannotCreateStories(t *testing.T) {
+// C1 (#410): a Plan step whose valid result was submitted succeeds on it
+// whatever it printed afterwards, and the story effect applies the retained
+// request.
+func TestPlanGraphBoundary_SubmittedResultStandsWhateverIsPrinted(t *testing.T) {
+	printed := func(text string) func(*graphPlanAnswer) {
+		return func(a *graphPlanAnswer) { a.Printed = &text }
+	}
+	for name, change := range map[string]func(*graphPlanAnswer){
+		"differing envelope": func(a *graphPlanAnswer) {
+			other := ar.Result{Outcome: "completed", Comment: "A different result.", Payload: ar.Payload{Plan: &ar.Plan{StoryRequest: a.Request}}}
+			a.Terminal = &other
+		},
+		"missing closing brace": printed(`{"version":1,"response":"done","result":{"outcome":"completed","comment":"Please review this candidate."}`),
+		"json, not an envelope": printed(`{"outcome":"completed"}`),
+		"prose":                 printed("Submitted; the receipt is accepted."),
+		"empty":                 printed(""),
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, remote, base, _ := graphPlanFixture(t, "agent", change)
+			executeGraphPlan(t, f, base)
+			if remote.creates != 1 {
+				t.Fatalf("the retained story request was not applied: creates=%d", remote.creates)
+			}
+			binding, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001")
+			mustProgress(t, err)
+			var draft planbrief.PlanDraft
+			mustProgress(t, json.Unmarshal([]byte(binding.DraftJSON), &draft))
+			if draft.Name != "Bounded Plan" {
+				t.Fatalf("story does not carry the retained draft: %+v", draft)
+			}
+		})
+	}
+}
+
+func TestPlanGraphBoundary_TerminalOnlyOutputCannotCreateStories(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		change func(*graphPlanAnswer)
 		want   string
 	}{
 		{"terminal only", func(a *graphPlanAnswer) { a.TerminalOnly = true }, "no accepted shared result"},
-		{"mismatched", func(a *graphPlanAnswer) {
-			other := ar.Result{Outcome: "completed", Comment: "A different result.", Payload: ar.Payload{Plan: &ar.Plan{StoryRequest: a.Request}}}
-			a.Terminal = &other
-		}, "differs from the retained accepted result"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f, remote, base, _ := graphPlanFixture(t, "agent", tt.change)

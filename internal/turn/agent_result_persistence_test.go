@@ -363,6 +363,28 @@ func TestResultPersistenceProductionLaunchBaselines(t *testing.T) {
 						if index > 0 {
 							text = `{"expected_revision":` + strconv.Itoa(index) + `,"operations":[{"op":"set","target":{"field":"comment"},"value":"continued explicitly"}]}`
 						}
+						if mode == "research" || mode == "plan" {
+							// Research and Plan results travel only the shared route
+							// (#410): deliver through the helper, print nothing routable.
+							_, helper, found := strings.Cut(req.Prompt, "Shared result helper access (paths are data): ")
+							if !found {
+								t.Fatal("production launch omitted the result helper")
+							}
+							line, _, _ := strings.Cut(helper, "\n")
+							var access struct{ Executable, Descriptor string }
+							mustProgress(t, json.Unmarshal([]byte(line), &access))
+							response, err := submission.Call(t.Context(), access.Descriptor, "submit", []byte(text))
+							mustProgress(t, err)
+							if response.Error != "" {
+								t.Fatal(response.Error)
+							}
+							var submitted AgentResultSubmission
+							mustProgress(t, json.Unmarshal(response.Result, &submitted))
+							if !submitted.Validation.Valid || submitted.Snapshot == nil {
+								t.Fatalf("helper submission refused: %s", response.Result)
+							}
+							text = "Submitted through the shared result helper."
+						}
 						return &agent.RunResult{ResultText: text}, nil
 					})
 					_, err := runMCPBound(t.Context(), prep, agent.Request{Mode: mode, Path: path, Permissions: agent.Permissions{Profile: mode, Payload: []string{"Read"}}}, session)

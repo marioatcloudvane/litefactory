@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -108,8 +109,10 @@ func TestResearchWorkflowProductionOutcomes(t *testing.T) {
 				if len(due) != 1 || due[0].InstanceID != instance.ID || due[0].Node != "shape" {
 					t.Fatalf("the parked stage owes exactly one dispatch: %+v", due)
 				}
-			} else if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 0 {
-				t.Fatalf("failure lost %+v posts=%d err=%v", out, forge.attemptCount(), err)
+			} else if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 1 {
+				// A failed investigate step is reported through the declared
+				// failure comment, never silently (#410).
+				t.Fatalf("failure lost or went unreported %+v posts=%d err=%v", out, forge.attemptCount(), err)
 			}
 			replay, e := Execute(t.Context(), f.opts, req)
 			mustProgress(t, e)
@@ -428,27 +431,61 @@ func TestResearchFinishedOldCaptureWithUndeliveredCommentStaysRefused(t *testing
 	}
 }
 
-// The retained accepted result is the only source of application data. A terminal
-// envelope confirms it: with no accepted submission, or with a different result,
-// the attempt fails with its cause and nothing is published.
-func TestResearchWorkflowTerminalEnvelopeOnlyConfirmsTheRetainedResult(t *testing.T) {
-	for _, tt := range []struct{ name, want string }{
-		{"terminal only", "no accepted shared result"},
-		{"mismatched", "differs from the retained accepted result"},
+// The retained accepted result is the only source of application data (#410).
+// With no accepted submission the attempt fails with its cause, and the owner
+// is told through the one declared failure comment; nothing else is published.
+func TestResearchWorkflowTerminalOnlyOutputFailsAndIsReported(t *testing.T) {
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: researchDoneJSON, FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledResearchFixture(t, runner)
+	out, err := Execute(t.Context(), f.opts, req)
+	if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 1 || !strings.Contains(err.Error(), "no accepted shared result") {
+		t.Fatalf("terminal-only output completed, lost its cause or went unreported: %+v posts=%d err=%v", out.Run, forge.attemptCount(), err)
+	}
+	instance, e := f.db.LatestResearchInstance(t.Context(), f.session.ID)
+	mustProgress(t, e)
+	intents, e := f.db.ListGraphComments(t.Context(), instance.ID, "", 100)
+	mustProgress(t, e)
+	if len(intents) != 1 || intents[0].Kind != "failure" || intents[0].Node != "failed" {
+		t.Fatalf("want exactly the declared failure comment, got %+v", intents)
+	}
+}
+
+// C1 (#410): a Research step whose valid result was submitted succeeds whatever
+// the agent printed afterwards: a copy missing one closing brace (the #351 run
+// 627 failure), valid JSON that is not an envelope, a differing envelope, prose
+// or nothing at all. The retained result is what is published.
+func TestResearchWorkflowSubmittedResultStandsWhateverIsPrinted(t *testing.T) {
+	for name, terminal := range map[string]string{
+		"missing closing brace": researchDoneJSON[:len(researchDoneJSON)-1],
+		"json, not an envelope": `{"outcome":"completed","unknown":true}`,
+		"differing envelope":    strings.Replace(researchDoneJSON, "Investigation finished.", "A different summary.", 1),
+		"prose":                 "I submitted the result and read its receipt.",
+		"empty":                 "",
 	} {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-				terminal := researchDoneJSON
-				if tt.name == "mismatched" {
-					submitLiveResult(t, req, researchDoneJSON)
-					terminal = strings.Replace(researchDoneJSON, "Investigation finished.", "A different summary.", 1)
-				}
+				submitLiveResult(t, req, researchDoneJSON)
 				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: terminal, FinishedAt: time.Now()}, nil
 			})
 			f, forge, req := assembledResearchFixture(t, runner)
 			out, err := Execute(t.Context(), f.opts, req)
-			if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 0 || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("output that is not the retained result completed or lost its cause: %+v posts=%d err=%v", out.Run, forge.attemptCount(), err)
+			if err != nil || !out.Succeeded() || forge.attemptCount() != 1 {
+				t.Fatalf("a submitted result failed on its printed copy: %+v posts=%d err=%v", out, forge.attemptCount(), err)
+			}
+			instance, e := f.db.LatestResearchInstance(t.Context(), f.session.ID)
+			mustProgress(t, e)
+			if instance.CurrentNode != "shape" {
+				t.Fatalf("investigate did not hand over on its retained result: %+v", instance)
+			}
+			attempt, e := f.db.LatestGraphNodeAttempt(t.Context(), instance.ID, "investigate")
+			mustProgress(t, e)
+			scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "research", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
+			node, e := LoadResearchNodeOutput(t.Context(), f.db, attempt.ID, scope)
+			mustProgress(t, e)
+			if node.Response != "done" || node.Result.Comment != "Investigation finished." {
+				t.Fatalf("node output is not the retained result: %+v", node)
 			}
 		})
 	}

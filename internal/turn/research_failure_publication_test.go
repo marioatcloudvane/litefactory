@@ -1,9 +1,13 @@
 package turn
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -36,6 +40,66 @@ func TestResearchFailureCandidateIsPublishable(t *testing.T) {
 				t.Error("a failed attempt must not ask the owner anything")
 			}
 		})
+	}
+}
+
+// C7 (#410): when the investigate agent's activity returns an error, the owner
+// is told. Exactly one declared failure comment is published with the cause and
+// how to retry, and the workflow still returns the original error.
+func TestResearchAgentActivityErrorPublishesTheFailureComment(t *testing.T) {
+	const marker = "provider transport lost: marker-410"
+	runner := lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "provider crashed", FinishedAt: time.Now()}, errors.New(marker)
+	})
+	f, forge, req := assembledResearchFixture(t, runner)
+	out, err := Execute(t.Context(), f.opts, req)
+	if err == nil || !strings.Contains(err.Error(), marker) || out.Run.Status != store.RunFailed {
+		t.Fatalf("the original cause was lost: run=%+v err=%v", out.Run, err)
+	}
+	posts := forge.all()
+	if len(posts) != 1 || forge.attemptCount() != 1 {
+		t.Fatalf("want exactly one failure comment, got %d posts (%d attempts)", len(posts), forge.attemptCount())
+	}
+	for _, want := range []string{marker, "Why this is unfinished", "comment again to start a fresh attempt"} {
+		if !strings.Contains(posts[0].body, want) {
+			t.Fatalf("failure comment lacks %q:\n%s", want, posts[0].body)
+		}
+	}
+	instance, err := f.db.LatestResearchInstance(t.Context(), f.session.ID)
+	mustProgress(t, err)
+	intents, err := f.db.ListGraphComments(t.Context(), instance.ID, "", 100)
+	mustProgress(t, err)
+	if len(intents) != 1 || intents[0].Kind != "failure" || intents[0].Node != "failed" {
+		t.Fatalf("failure was not published under the declared failure node: %+v", intents)
+	}
+	var candidate agentresult.Result
+	if d := agentresult.Decode(intents[0].Candidate, &candidate); !d.Valid || !strings.Contains(candidate.Reason, marker) {
+		t.Fatalf("failure candidate reason lacks the cause: %+v", candidate)
+	}
+	// A replay of the same trigger neither reruns the agent nor posts again.
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if forge.attemptCount() != 1 {
+		t.Fatalf("replay reposted the failure comment: %d", forge.attemptCount())
+	}
+}
+
+// Only lf_agent dispatch errors gain the comment (#410): a failure of another
+// activity keeps its graph routing, so no failure comment is published for it.
+func TestResearchNonAgentDispatchErrorKeepsItsRouting(t *testing.T) {
+	w := &researchWorkflow{definition: &teamsource.ResearchDefinition{Profile: &graphexec.Profile{Nodes: []graphexec.Node{{Name: "investigate", Action: ResearchAgentAction}, {Name: "brief", Action: "lf_research_brief"}}}}}
+	if !w.agentStep(GraphNodeResult{Node: "investigate", AttemptID: 1}) {
+		t.Fatal("an agent step was not recognised")
+	}
+	for _, step := range []GraphNodeResult{{Node: "brief", AttemptID: 1}, {Node: "investigate"}, {}} {
+		if w.agentStep(step) {
+			t.Fatalf("step %+v gained the agent failure comment", step)
+		}
+	}
+	cause := errors.New("brief generation failed")
+	if err := w.failed(t.Context(), nil, GraphNodeResult{Node: "brief", AttemptID: 1}, cause, true); err != cause {
+		t.Fatalf("a non-agent dispatch error changed: %v", err)
 	}
 }
 

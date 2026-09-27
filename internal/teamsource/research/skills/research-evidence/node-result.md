@@ -1,5 +1,9 @@
-Your terminal output is one strict JSON object. The worked envelope for each
-response follows; replace the illustrative content, keep the shape.
+Deliver your result only through the shared result route: communication
+preflight, submit and receipt. Do not print a JSON result; terminal text is never
+read as a result. The accepted submission is this step's result, and the factory
+derives the step's response from it. The worked result for each response follows:
+each is exactly what you pass to preflight and submit. Replace the illustrative
+content, keep the shape.
 
 # response ask
 
@@ -13,8 +17,6 @@ rest. Ask each question of whoever can actually settle it.
 
 ```json
 {
-  "version": 1,
-  "response": "ask",
   "result": {
     "outcome": "incomplete",
     "comment": "Summarise what is established so far; do not submit this example unchanged.",
@@ -66,8 +68,6 @@ A completed result and no questions.
 
 ```json
 {
-  "version": 1,
-  "response": "done",
   "result": {
     "outcome": "completed",
     "comment": "Summarise the finished research; do not submit this example unchanged.",
@@ -110,62 +110,18 @@ A completed result and no questions.
 }
 ```
 
+Any other shape, such as a completed result that still carries questions, fails
+the step.
+
 # response approved
 
-The `done` envelope above, unchanged except for the response value:
-
-```json
-{
-  "version": 1,
-  "response": "approved",
-  "result": {
-    "outcome": "completed",
-    "comment": "Summarise the work the reply accepted; do not submit this example unchanged.",
-    "artifacts": [
-      {
-        "id": "brief",
-        "kind": "brief",
-        "path": "path/to/session/RESEARCH_BRIEF.md"
-      },
-      {
-        "id": "technical",
-        "kind": "technical",
-        "path": "path/to/session/RESEARCH_TECHNICAL.md"
-      }
-    ],
-    "payload": {
-      "research": {
-        "request": "Restate the owner's request.",
-        "findings": [
-          {
-            "id": "f1",
-            "text": "Record one observed claim.",
-            "evidence": [
-              {
-                "path": "path/to/file",
-                "line": 1
-              }
-            ]
-          }
-        ],
-        "decisions": [
-          {
-            "id": "d1",
-            "text": "Record one settled decision."
-          }
-        ]
-      }
-    }
-  }
-}
-```
-
-It reports that a reply you were given accepted the work. It is never your own
-verdict, and only a role whose instructions define an approved response may
-return it. Approving unfinished work is not something an owner can be asked to
-mean, so the result must be as complete as a `done` result and carry no
-questions. Recording the approval in your comment does not report it; the
-response value does.
+There is no separate result for approval, and you never claim it. It reports
+the owner's verdict, never your own. The factory records `approved` for a
+completed result only when it holds the owner's reply accepting the review of
+that same candidate. When a reply you were given accepted the work, submit the
+reviewed `done` result unchanged; if you change it, the factory shows the owner a
+new review instead. Only a role whose instructions define an approved response
+can reach it, and recording the approval in your comment does not report it.
 
 # Artifacts
 
@@ -185,18 +141,20 @@ a data model, a schema, an interface table. `technical` is evidence for a claim;
 
 Any other artifact path is worktree-relative, not session-relative, sits strictly
 under the supplied session directory, and must already exist as a regular file
-when you return, with no symlink anywhere in its path, no leading slash, no dot
+when you submit, with no symlink anywhere in its path, no leading slash, no dot
 segment, no backslash and no colon.
 
 # Delivering the result
 
-When the factory supplies the result helper, deliver through it: preflight your
-result, correct every diagnostic it reports, submit, then read the matching
-receipt. Do this before you return, and do it whether or not you have anything
-to correct — it is how a result is delivered, not only how one is amended.
+Deliver through communication preflight, submit and receipt, or the equivalent
+methods of the factory-supplied result helper: preflight your result, correct
+every diagnostic it reports, submit, then read the matching receipt. Do this
+before you finish, and do it whether or not you have anything to correct — it is
+how a result is delivered, not only how one is amended.
 
-Your terminal JSON then echoes what was accepted: the `result` member must agree
-with the last accepted candidate.
+Do not print a JSON result afterwards. The accepted submission is the step's
+result; an attempt without one fails whatever you print. End with a short
+plain-language note.
 
 A receipt only acknowledges input. It neither publishes your report nor
 completes the graph, and acknowledgment is not acceptance. Missing authentic

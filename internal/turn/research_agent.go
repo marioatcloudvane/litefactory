@@ -16,19 +16,18 @@ import (
 // ResearchAgentAction names the registered private Research invocation activity.
 const ResearchAgentAction = "lf_agent"
 
-const researchNodeInstructions = "\nFactory invocation: private Research graph node. Return exactly one JSON object with version=1, response=ask or done, and result containing the complete application result. ask requires an incomplete result and permitted nonempty owner questions; done requires a completed result without questions. The entire object is limited to 1 MiB. Use the existing result helper for application-result preflight/correction/receipts, and submit the result first: the terminal node result only confirms the retained accepted result and never supplies it, so one with no accepted submission, or with a different result, fails the attempt. Returning a node result retains private progress only; only an explicit graph comment activity may publish it.\n"
+const researchNodeInstructions = "\nFactory invocation: private Research graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id (the result helper's preflight, submit and receipt methods are the same route). The accepted submission is this step's result, and the factory derives the step's response from it. Do not print a JSON result: terminal text is never read as a result, so end with a short plain-language note. The result is limited to 1 MiB. Submitting retains private progress only; only an explicit graph comment activity may publish it.\n"
 
 // researchNodeGuidance is what every invocation carries in its persistent
-// instruction channel, so it holds only what is fatal to get wrong: the
-// envelope's shape in one line and the two pairing rules the decoder enforces.
-// The worked envelopes live in the research-evidence skill, which the host
-// loads on demand — they are needed once, when the agent composes its answer,
-// not on every resumed pass.
+// instruction channel, so it holds only what is fatal to get wrong: the route
+// and the two shapes the factory routes on. The worked results live in the
+// research-evidence skill, which the host loads on demand — they are needed
+// once, when the agent composes its answer, not on every resumed pass.
 func researchNodeGuidance() string {
 	return researchNodeInstructions + researchNodeHardRules
 }
 
-const researchNodeHardRules = "\nEnvelope: {\"version\":1,\"response\":\"ask\"|\"done\",\"result\":{...}}. ask requires result.outcome incomplete, a nonblank result.reason and a nonempty result.questions, each naming audience business or technical; done requires result.outcome completed and no result.questions. Read the research-evidence skill's node-result resource for the worked envelope of each response, the artifact path rules and the correction contract, before you return.\n"
+const researchNodeHardRules = "\nResult shapes: to ask the owner, submit result.outcome incomplete with a nonblank result.reason and a nonempty result.questions, each naming audience business or technical; when the work is done, submit result.outcome completed with no result.questions. Any other shape fails the step. Approval is the owner's reply, never something you claim. Read the research-evidence skill's node-result resource for the worked result of each shape, the artifact path rules and the correction contract, before you submit.\n"
 
 // ResearchInvocation contains factory-prepared delivery and result authority.
 // Close joins the live helper transports before exit-time result validation.
@@ -179,7 +178,9 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 	if closeErr != nil {
 		return out, closeErr
 	}
-	if len(result.ResultText) > agentresult.MaxResearchNodeBytes {
+	// Printed text is read only by Bug's unchanged confirmation; for every other
+	// policy it is never read, so its size cannot fail the step (#410).
+	if !h.Policy.routesRetained() && len(result.ResultText) > agentresult.MaxResearchNodeBytes {
 		return out, errors.New("research node output exceeds 1 MiB")
 	}
 	node, revision, err := h.acceptRetained(ctx, invocation.Results, result.ResultText)
@@ -190,6 +191,17 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 		attempt, err := opts.DB.GetGraphNodeAttempt(ctx, a.NodeAttemptID)
 		if err != nil {
 			return out, err
+		}
+		// Approval is the owner's, never the agent's: a completed Research result
+		// is approved only when this attempt holds the authenticated owner "done"
+		// reply to the displayed review of the same candidate. Otherwise it stays
+		// done and the graph shows a new review, rather than failing the step.
+		if h.Policy.routesRetained() && h.Policy.Mode == agent.ModeResearch && node.Response == "done" {
+			approved := node
+			approved.Response = "approved"
+			if h.Policy.AuthorizeOutput(ctx, opts.DB, attempt, approved) == nil {
+				node = approved
+			}
 		}
 		if err := h.Policy.AuthorizeOutput(ctx, opts.DB, attempt, node); err != nil {
 			return out, err
@@ -227,20 +239,21 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 
 // acceptRetained is the runtime result boundary of every graph node. The
 // retained accepted shared result is the only source of the node's application
-// data and of every effect input derived from it. The runner's terminal text is
-// parsed for one purpose: to confirm completion and consistency against that
-// retained result. It cannot supply, reconstruct or replace one, so terminal-only
-// output and output that differs from the retained result both fail here, each
-// with its own cause, before anything is retained or any effect can follow.
+// data and of every effect input derived from it. Terminal text can never supply,
+// reconstruct or replace one, so terminal-only output fails here before anything
+// is retained or any effect can follow.
 //
-// The policy's decoder judges the terminal envelope, and it does so under the
-// mode's own trusted context, so a mode with a richer result contract is held to
-// it here too. Only the response of a consistent envelope is carried over.
+// Research, Plan and every policy other than Bug take the routing response from
+// the retained result too, through the policy's Respond hook or the shared
+// ask/done mapping: the terminal text is not read at all, so a broken, partial,
+// differing or missing printed copy cannot fail a step whose result was
+// accepted (#410).
 //
-// A result that carries its own response (Bug) needs no envelope to route: when
-// the terminal text is prose or broken JSON rather than an envelope, the
-// retained result stands on its own (#384). An envelope that parses but does
-// not confirm the retained result is still refused, and so is empty output.
+// Bug keeps its own finalization unchanged. Its result carries its response, and
+// the policy's decoder still judges a terminal envelope when one is printed:
+// prose or broken JSON leaves the retained result standing on its own (#384),
+// while an envelope that parses but does not confirm it, or empty output, is
+// refused.
 func (h AgentActivity) acceptRetained(ctx context.Context, service *AgentResultService, terminal string) (agentresult.ResearchNode, int64, error) {
 	snapshot, revision, err := service.retainedCurrent(ctx)
 	if err != nil {
@@ -252,6 +265,13 @@ func (h AgentActivity) acceptRetained(ctx context.Context, service *AgentResultS
 	}
 	if d := agentresult.ValidateResult(snapshot.Result, trusted); !d.Valid || !d.Complete {
 		return agentresult.ResearchNode{}, 0, fmt.Errorf("retained application result is not complete: %w", resultDiagnosticError(d))
+	}
+	if h.Policy.routesRetained() {
+		response, err := h.Policy.respond(snapshot.Result)
+		if err != nil {
+			return agentresult.ResearchNode{}, 0, fmt.Errorf("retained application result %s revision %d cannot be routed: %w", snapshot.Meta.ResultID, revision, err)
+		}
+		return agentresult.ResearchNode{Version: 1, Response: response, Result: snapshot.Result}, revision, nil
 	}
 	envelope, d := h.Policy.Decode([]byte(terminal), trusted)
 	if !d.Valid || !d.Complete {
@@ -267,7 +287,7 @@ func (h AgentActivity) acceptRetained(ctx context.Context, service *AgentResultS
 }
 
 // retainedResponse is the routing response a retained result carries itself.
-// Only Bug results do; other workflows route by the terminal envelope.
+// Only Bug results do; other workflows derive theirs through WorkflowPolicy.respond.
 func retainedResponse(r agentresult.Result) (string, bool) {
 	if r.Payload.Bug != nil && r.Payload.Bug.Response != "" {
 		return r.Payload.Bug.Response, true
