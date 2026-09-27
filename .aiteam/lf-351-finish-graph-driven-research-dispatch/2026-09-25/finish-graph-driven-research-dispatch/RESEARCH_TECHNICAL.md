@@ -40,7 +40,7 @@ Evidence:
 
 ## f5
 
-Item 3 open: the DOT loops exit as soon as the response is not ask, and the stage response vocabulary has no 'invoke again' value (ask, done, approved). New since the issue: ParkGraphInstanceAfter chains different stages one open dispatch at a time. It does not repeat a stage.
+Item 3 open: the DOT loops exit as soon as the response is not ask, and the stage response vocabulary has no 'invoke again' value (ask, done, approved). New since the issue: ParkGraphInstanceAfter chains different stages one open dispatch at a time. It does not repeat a stage. Classified as a missing capability, not a bug: the issue itself describes it as something the graph does not have yet.
 
 Evidence:
 
@@ -50,7 +50,7 @@ Evidence:
 
 ## f6
 
-Item 4 open: Plan is offered only RESEARCH_BRIEF.md by the brief-candidate list. RESEARCH_TECHNICAL.md is unreachable by omission.
+Item 4 open: Plan is offered only RESEARCH_BRIEF.md by the brief-candidate list. RESEARCH_TECHNICAL.md is unreachable by omission. Classified as a bug and filed separately: the split changed the brief's shape but the reachability and the role text were not updated to match.
 
 Evidence:
 
@@ -76,7 +76,7 @@ Evidence:
 
 ## f9
 
-Item 5 open: the doc still says opt-in and default activation disabled, and requires authorized observations on the exact shipped snapshot and CLI versions for both hosts. This run is itself a Claude graph node run, and commits fixed Claude role naming and tool inheritance. That is new evidence but not the authorized observation the gate requires.
+Item 5 open: the doc still says opt-in and default activation disabled, and requires authorized observations on the exact shipped snapshot and CLI versions for both hosts. Classified as a rollout decision, not a bug: opt-in is stated as deliberate.
 
 Evidence:
 
@@ -85,9 +85,18 @@ Evidence:
 
 ## f10
 
-Item 6 open: the doc states a wait has no expiry. The owner wait store has no expiry or reminder field or logic.
+Item 6 open: the doc states a wait has no expiry by design. The owner wait store has no expiry or reminder field or logic. Classified as a design decision, not a bug.
 
 Evidence:
 
 - `docs/workflow/research-graph.md:40`
 - `internal/store/graph_owner_waits.go:13`
+
+## f11
+
+This repository's own factory already runs a separate, dedicated Bug workflow (record, reproduce, fix, PR) alongside the mode chain. An issue enters it only when it carries the literal `bug` label and no explicit mode label or command takes precedence. The issue-drafting tool used to file the three bug reports below has no field to attach a label, so the label has to be added after creation for these to run through that workflow instead of the default Research flow.
+
+Evidence:
+
+- `internal/daemon/workflow.go:42`
+- `docs/workflow/bug-runtime.md:3`
