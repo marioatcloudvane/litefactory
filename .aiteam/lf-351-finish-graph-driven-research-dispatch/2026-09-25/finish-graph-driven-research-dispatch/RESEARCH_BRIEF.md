@@ -16,6 +16,7 @@ Shape stage, continuing after the owner's bug-triage instruction was actioned: s
 - **sd5** — Recommended: owner waits get one reminder comment after a fixed number of days of silence, but keep the no-expiry guarantee and never auto-cancel a wait.
 - **sd6** — The loop capability should ship after the dispatch-binding bug is fixed, since looping multiplies how often that gap gets exercised.
 - **sd7** — A hard wait-expiry option is not recommended until the cancelled-dispatch recovery bug ships, since expiring a wait with no recovery path reproduces the same stranded-instance failure.
+- **sd8** — Per the owner's request for a new publishing approval, re-drafted the same three bug issues into a fresh creation proposal (hash 1797f023e7fdf3ec1d1519f28b25c7bec36e2140b3984f2ce43b239e27a01553, 3 drafts, linked), superseding the earlier proposal (hash ecaa054a73fc687b49d9ef6bcf6a30aef0b3db2a91da46f0aac5c35241704a6c) which the owner indicated needed reissuing.
 
 
 ## Assumptions
