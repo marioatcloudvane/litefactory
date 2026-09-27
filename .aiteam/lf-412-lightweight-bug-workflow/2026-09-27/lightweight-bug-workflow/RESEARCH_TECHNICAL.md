@@ -112,3 +112,21 @@ Evidence:
 
 - `internal/store/migrations/0074_bug_merges.sql:1`
 - `internal/store/migrations/0075_bug_closures.sql:1`
+
+## f14
+
+The 33 existing bug tables sort cleanly into the six groups the underlying ticket names (task/state, analysis/approval, repair attempts, checks, PR/merge/close, one event log), so the consolidation target is structurally reachable without dropping any tracked concern.
+
+Evidence:
+
+- `internal/store/migrations/0066_bug_analysis.sql:1`
+- `internal/store/migrations/0076_bug_lifecycle.sql:1`
+
+## f15
+
+The merge and closure 'retry' tables the ticket calls never-used are reachable through a real, currently-used code path (recording evidence when a merge or close comes back uncertain and must not blindly repeat), so they are live behavior to fold into the consolidated tables, not dead code to delete outright.
+
+Evidence:
+
+- `internal/store/bug_merges.go:413`
+- `internal/store/bug_closures.go:279`
