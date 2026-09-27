@@ -334,10 +334,23 @@ func bugContinuationEntryTx(ctx context.Context, tx *sql.Tx, l BugLifecycle, c B
 			return "", e
 		}
 		entry := map[string]string{"analyst": "analyst", "record_analysis": "analyst", "fixer": "fixer"}[prior.CurrentNode]
-		if prior.Status != GraphFailed || entry == "" {
-			return "", errors.New("only a Bug parent that failed in its analyst or fixer can be retried")
+		if prior.Status == GraphFailed && entry != "" {
+			return entry, nil
 		}
-		return entry, nil
+		// A parent that reported the analyst's own stop (blocked analysis or a
+		// failed analyst outcome) and ended has no owner wait either; the owner
+		// comment runs the analyst again. Every other reported stop stays final.
+		if prior.Status == GraphSucceeded && l.Disposition == "blocked" {
+			var from, on string
+			e = tx.QueryRowContext(ctx, `SELECT from_node,on_outcome FROM graph_transitions WHERE instance_id=? AND to_node='report' ORDER BY id DESC LIMIT 1`, prior.ID).Scan(&from, &on)
+			if e != nil && !errors.Is(e, sql.ErrNoRows) {
+				return "", e
+			}
+			if (from == "record_analysis" && on == "blocked") || (from == "analyst" && on == "failed") {
+				return "analyst", nil
+			}
+		}
+		return "", errors.New("only a Bug parent that failed in its analyst or fixer, or stopped on a blocked analysis, can be retried")
 	case "merge-reconcile":
 		m, e := bugMergeTx(ctx, tx, c.SessionID, c.Reference)
 		if e != nil {
@@ -359,6 +372,20 @@ func bugContinuationEntryTx(ctx context.Context, tx *sql.Tx, l BugLifecycle, c B
 	default:
 		return "", fmt.Errorf("unsupported Bug continuation cause %q", c.Cause)
 	}
+}
+
+// BugRetryComment is the owner comment that restarted this parent instance
+// after a failure or blocked analysis, or ErrNotFound when another cause did.
+func (d *DB) BugRetryComment(ctx context.Context, session, instance int64) (int64, error) {
+	var ref string
+	err := d.sql.QueryRowContext(ctx, `SELECT reference FROM bug_parent_continuations WHERE session_id=? AND successor=? AND cause='failure-retry'`, session, instance).Scan(&ref)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(ref, 10, 64)
 }
 
 // ClaimBugContinuation atomically consumes a retained cause and creates one

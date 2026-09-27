@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -76,13 +75,13 @@ func (h bugParentActivity) publishNotice(ctx context.Context, opts Options, req 
 	if e != nil {
 		return ActivityResult{}, e
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "Bug workflow stopped at %s: %s.\nEvidence: graph %d, attempt %d.\n", source.Node, source.Outcome, i.ID, source.ID)
-	for _, v := range values {
-		fmt.Fprintf(&b, "\n    %s\n", strings.ReplaceAll(string(v.Payload), "\n", "\n    "))
+	payloads := make([]string, len(values))
+	for n, v := range values {
+		payloads[n] = string(v.Payload)
 	}
+	body := bugNoticeComment(source.Node, source.Outcome, payloads, i.ID, source.ID)
 	event := fmt.Sprintf("attempt:%d", source.ID)
-	if e = h.p.PublishEvent(ctx, i.SessionID, source.ID, event, kind, b.String()); e != nil {
+	if e = h.p.PublishEvent(ctx, i.SessionID, source.ID, event, kind, body); e != nil {
 		return ActivityResult{}, e
 	}
 	// Closure remains observed even if the final report or another required effect

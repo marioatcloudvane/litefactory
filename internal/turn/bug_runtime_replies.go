@@ -48,10 +48,11 @@ func (r *BugRuntime) continueOwner(ctx context.Context, req Request, life store.
 	if err != nil {
 		return zero, err
 	}
-	// A parent that failed in an agent node has no owner wait. The owner's
-	// comment asks for another attempt at that node; the store refuses any
-	// other failed node, and the lifetime budgets still apply.
-	if parent.Status == store.GraphFailed {
+	// A parent that failed in an agent node, or ended on a blocked analysis,
+	// has no owner wait. The owner's comment asks for another attempt at that
+	// node; the store refuses any other stop, and the lifetime budgets still
+	// apply.
+	if parent.Status == store.GraphFailed || (parent.Status == store.GraphSucceeded && life.Disposition == "blocked") {
 		return r.opts.DB.ClaimBugContinuation(ctx, store.BugParentContinuation{SessionID: req.SessionID, Operation: fmt.Sprintf("owner-reply:%d", req.Trigger.CommentID), Cause: "failure-retry", Reference: strconv.FormatInt(req.Trigger.CommentID, 10), ExpectedRevision: life.Revision, At: r.opts.MCP.Now()})
 	}
 	wait, err := r.opts.DB.GetGraphOwnerWait(ctx, life.ParentInstance)
