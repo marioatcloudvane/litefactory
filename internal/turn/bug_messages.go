@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -65,8 +66,8 @@ func bugExplanation(text string) string {
 		return "The revised analysis reworded a criterion or question that an earlier revision already recorded. Recorded criteria keep their exact wording, because the repair and its checks are measured against them; a changed meaning needs a new ID."
 	case strings.Contains(text, "not waiting for an owner reply"):
 		return "This Bug task is not waiting for a reply right now, so there is nothing this comment could continue."
-	case strings.Contains(text, "only a Bug parent that failed in its analyst or fixer can be retried"):
-		return "Only a failed analysis or repair can be restarted by a comment."
+	case strings.Contains(text, "only a Bug parent that failed in its analyst or fixer"):
+		return "Only a failed analysis or repair, or a blocked analysis, can be restarted by a comment."
 	default:
 		return ""
 	}
@@ -76,4 +77,48 @@ func bugExplanation(text string) string {
 // without making it the message.
 func bugDetails(b *strings.Builder, text string) {
 	fmt.Fprintf(b, "\n<details><summary>Technical details</summary>\n\n```text\n%s\n```\n</details>\n", strings.ReplaceAll(text, "```", "'''"))
+}
+
+// bugNoticeComment is the owner-facing report when a Bug parent ends through
+// its report node: a finished delivery, or a stop with the step's own reason
+// and whether a comment can restart it. The retained outputs stay available,
+// collapsed.
+func bugNoticeComment(node, outcome string, payloads []string, instance, attempt int64) string {
+	var b strings.Builder
+	if node == "close" && outcome == "confirmed" {
+		b.WriteString("**The Bug workflow is done: the fix is merged and this issue is closed.**\n")
+	} else {
+		step := bugSteps[node]
+		if step == "" {
+			step = "at step `" + node + "`"
+		}
+		how := map[string]string{"blocked": "it is blocked", "exhausted": "its budget is used up", "failed": "it failed", "pending": "a remote effect is still unconfirmed", "cancelled": "it was cancelled"}[outcome]
+		if how == "" {
+			how = "its outcome was `" + outcome + "`"
+		}
+		fmt.Fprintf(&b, "**The Bug workflow stopped while %s: %s.**\n\n", step, how)
+		for _, p := range payloads {
+			var v struct {
+				Reason string `json:"reason"`
+			}
+			if json.Unmarshal([]byte(p), &v) == nil && strings.TrimSpace(v.Reason) != "" {
+				b.WriteString(strings.TrimSpace(v.Reason) + "\n\n")
+				break
+			}
+		}
+		switch {
+		case (node == "record_analysis" && outcome == "blocked") || (node == "analyst" && outcome == "failed"):
+			b.WriteString("Reply on this issue with what the analyst should do differently, and it runs again. This counts against the analysis budget.\n")
+		case outcome == "exhausted":
+			b.WriteString("A comment cannot restart it; the budget for this bug is spent.\n")
+		default:
+			b.WriteString("A comment cannot restart this step; the factory keeps its evidence for recovery.\n")
+		}
+	}
+	details := fmt.Sprintf("graph %d, attempt %d, %s: %s", instance, attempt, node, outcome)
+	for _, p := range payloads {
+		details += "\n\n" + p
+	}
+	bugDetails(&b, details)
+	return b.String()
 }

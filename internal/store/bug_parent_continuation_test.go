@@ -165,7 +165,7 @@ func TestBugParentResolvedInfrastructureContinuation(t *testing.T) {
 // An owner comment retries a parent that failed in an agent node, once, with
 // replay; a failed effect node and a live parent are never restarted this way.
 func TestBugParentFailureRetryContinuation(t *testing.T) {
-	for _, variant := range []string{"analyst", "fixer", "record_analysis", "merge", "running", "wrong-reference"} {
+	for _, variant := range []string{"analyst", "fixer", "record_analysis", "merge", "running", "wrong-reference", "blocked-analysis", "failed-analyst-outcome", "blocked-tests"} {
 		t.Run(variant, func(t *testing.T) {
 			db, e := Open(t.Context(), filepath.Join(t.TempDir(), "retry.db"))
 			if e != nil {
@@ -190,6 +190,26 @@ func TestBugParentFailureRetryContinuation(t *testing.T) {
 			if _, e = db.sql.ExecContext(t.Context(), `UPDATE graph_instances SET current_node=? WHERE id=?`, node, request.ParentInstance); e != nil {
 				t.Fatal(e)
 			}
+			// A reported stop ends the parent at stopped with a blocked
+			// disposition; only the analyst's own stop may be retried.
+			stop := map[string][2]string{"blocked-analysis": {"record_analysis", "blocked"}, "failed-analyst-outcome": {"analyst", "failed"}, "blocked-tests": {"test", "blocked"}}[variant]
+			if from, on := stop[0], stop[1]; from != "" {
+				node, status = "stopped", GraphSucceeded
+				for _, edge := range [][3]string{{from, on, "report"}, {"report", "published", "stopped"}} {
+					if _, e = db.sql.ExecContext(t.Context(), `INSERT INTO graph_transitions(instance_id,from_node,on_outcome,to_node,at) VALUES(?,?,?,?,?)`, request.ParentInstance, edge[0], edge[1], edge[2], FormatTime(graphTestTime())); e != nil {
+						t.Fatal(e)
+					}
+				}
+				if e = db.RecordBugLifecycleDisposition(t.Context(), request.SessionID, request.ParentInstance, "report", "blocked", "attempt:1"); e != nil {
+					t.Fatal(e)
+				}
+				if life, e = db.GetBugLifecycle(t.Context(), request.SessionID); e != nil {
+					t.Fatal(e)
+				}
+				if _, e = db.sql.ExecContext(t.Context(), `UPDATE graph_instances SET current_node=? WHERE id=?`, node, request.ParentInstance); e != nil {
+					t.Fatal(e)
+				}
+			}
 			if status != GraphRunning {
 				if e = db.SetGraphInstanceStatus(t.Context(), request.ParentInstance, status, time.Time{}, graphTestTime()); e != nil {
 					t.Fatal(e)
@@ -200,7 +220,7 @@ func TestBugParentFailureRetryContinuation(t *testing.T) {
 				c.Reference = "334"
 			}
 			next, e := db.ClaimBugContinuation(t.Context(), c)
-			want := map[string]string{"analyst": "analyst", "fixer": "fixer", "record_analysis": "analyst"}[variant]
+			want := map[string]string{"analyst": "analyst", "fixer": "fixer", "record_analysis": "analyst", "blocked-analysis": "analyst", "failed-analyst-outcome": "analyst"}[variant]
 			if want == "" {
 				if e == nil {
 					t.Fatalf("%s parent was retried: %+v", variant, next)
@@ -209,6 +229,9 @@ func TestBugParentFailureRetryContinuation(t *testing.T) {
 			}
 			if e != nil || next.CurrentNode != want || next.Status != GraphRunning || next.ID == request.ParentInstance {
 				t.Fatalf("failed %s not retried at %s: %+v %v", variant, want, next, e)
+			}
+			if comment, e := db.BugRetryComment(t.Context(), request.SessionID, next.ID); e != nil || comment != 333 {
+				t.Fatalf("retry comment not retained for the successor: %d %v", comment, e)
 			}
 			current, e := db.GetBugLifecycle(t.Context(), request.SessionID)
 			if e != nil || current.ParentInstance != next.ID || current.Disposition != "running" {
