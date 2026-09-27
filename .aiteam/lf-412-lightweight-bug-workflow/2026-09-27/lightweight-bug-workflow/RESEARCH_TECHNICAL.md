@@ -70,3 +70,45 @@ The five specific defects the underlying ticket lists as already fixed are all p
 Evidence:
 
 - `internal/teamsource/bug/bug.dot:1`
+
+## f9
+
+The factory already has a full sandboxed command runner built for its own post-hoc checks (permission-limited filesystem, output capture and redaction, process-group cleanup); a fixer-triggered self-check would reuse that exact machinery, not new sandboxing.
+
+Evidence:
+
+- `internal/bugchecks/executor.go:296`
+
+## f10
+
+Check commands are pinned to a specific commit and validated up front as a fixed set of three phases with bounded command lists; a fixer-triggered self-check would run those exact same commands, never commands the fixer picks.
+
+Evidence:
+
+- `internal/config/bug_checks.go:63`
+
+## f11
+
+The three-attempt lifetime cap is a hard count check spanning every cause (initial fix, test-failure repair, review-feedback repair, reshape); there is no existing path to add attempts once the count is reached.
+
+Evidence:
+
+- `internal/store/bug_repairs.go:121`
+
+## f12
+
+While the fixer is working it already holds exclusive claim on the worktree, so a mid-turn self-check would not need to contend with the factory's own post-hoc check step for that claim; they never run at the same time.
+
+Evidence:
+
+- `internal/turn/bug_checks.go:193`
+- `internal/store/bug_repairs.go:245`
+
+## f13
+
+The database's heaviness comes from a repeated five-piece pattern (an intent record, an observation record, a retry table, an event log, and a revision every write must match) applied separately to merging, closing and each check phase; collapsing that touches every one of those steps, not a contained patch.
+
+Evidence:
+
+- `internal/store/migrations/0074_bug_merges.sql:1`
+- `internal/store/migrations/0075_bug_closures.sql:1`
