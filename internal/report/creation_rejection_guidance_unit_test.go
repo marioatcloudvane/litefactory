@@ -16,7 +16,7 @@ func TestReporter_CreationRejectionSafeGuidance(t *testing.T) {
 	}{
 		{"syntax", []string{"64", "lowercase", "linked", "attach", "JSON"}},
 		{"payload", []string{"JSON"}}, {"version", []string{"version 1"}},
-		{"fields", []string{"fields", "limits", "binding"}}, {"mode", []string{"one Research"}},
+		{"fields", []string{"fields", "limits", "binding"}}, {"mode", []string{"one Mode label"}},
 		{"disabled", []string{"operator", "configuration"}}, {"proposal", []string{"current eligible proposal", "fresh comment"}},
 		{"controls", []string{"fresh owner comment"}},
 	}

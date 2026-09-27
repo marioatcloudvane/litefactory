@@ -60,15 +60,9 @@ func TestCreationGuidanceIOPreparation(t *testing.T) {
 					t.Fatalf("posts=%d publications=%d", f.posts, f.creationPosts)
 				}
 				reply := f.bodies[0]
-				expected := []string{string(original.Envelope), "`/mcp-create " + original.Hash + " linked`", "Approval alone starts no publication", "30-minute", "trusted approval-comment timestamp", "bind the approval before expiry", "fresh approval comment", "current and eligible", "new eligible proposal"}
-				switch path {
-				case "legacy":
-					expected = append(expected, "post a further ordinary comment", "does not guarantee publication")
-				case "graph":
-					expected = append(expected, "Graph Research cannot publish", "Another ordinary comment does not enable publication")
-				case "unavailable":
-					expected = append(expected, "Publishing capability was unavailable")
-				}
+				// Factory publishing needs no agent MCP launch, so even a
+				// disabled MCP runtime publishes on approval, on either path.
+				expected := []string{string(original.Envelope), "`/mcp-create " + original.Hash + " linked`", "Approving publishes these exact issues right away", "no further comment or run is needed"}
 				for _, want := range expected {
 					if !strings.Contains(reply, want) {
 						t.Errorf("missing %q in %s", want, reply)

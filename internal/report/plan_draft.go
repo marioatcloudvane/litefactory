@@ -8,6 +8,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
+// planDraftMarkerReserve keeps room for the story and request markers the story
+// activity prepends, so a draft that renders within budget also publishes.
+const planDraftMarkerReserve = 512
+
 // RenderPlanDraft is the only visible graph-Plan issue projection. The ordinal
 // is reserved by the store; neither the parent nor sequence comes from a role.
 func RenderPlanDraft(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope) (string, string, error) {
@@ -97,8 +101,10 @@ func renderPlanDraft(parent, ordinal int64, d planbrief.PlanDraft, stage string,
 		return "", "", err
 	}
 	fmt.Fprintf(&b, "\n<!-- lf:plan-content v=1 data=%s -->\n", string(raw))
-	if b.Len() > planbrief.MaxStoryBodyBytes {
-		return "", "", fmt.Errorf("rendered Plan draft exceeds byte budget")
+	// The hidden metadata repeats the draft, so the visible text gets roughly
+	// half the budget; the raw-draft check in Validate alone cannot catch that.
+	if limit := planbrief.MaxStoryBodyBytes - planDraftMarkerReserve; b.Len() > limit {
+		return "", "", fmt.Errorf("rendered Plan draft exceeds byte budget: %d bytes rendered, %d allowed; shorten the draft", b.Len(), limit)
 	}
 	return title, b.String(), nil
 }

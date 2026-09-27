@@ -232,6 +232,15 @@ func (c *CreationStore) BindGrant(ctx context.Context, l MCPLease, intentID int6
 		if task != l.Binding.Task || now.UnixNano() >= expiry {
 			return ErrCreationAuthority
 		}
+		// The factory already publishes this approval itself; an agent grant
+		// for the same intent could publish the batch a second time.
+		var owned int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM creation_owner_publications WHERE intent_id=?`, intentID).Scan(&owned); err != nil {
+			return err
+		}
+		if owned > 0 {
+			return ErrCreationAuthority
+		}
 		p, _, err := creationProposalTx(ctx, tx, hash)
 		if err != nil {
 			return err
@@ -356,8 +365,8 @@ func (c *CreationStore) ReserveCreation(ctx context.Context, l MCPLease, p Creat
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		var charged int64
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(artifacts),0) FROM mcp_creation_operations WHERE repository=? AND state<>'released' AND (state<>'confirmed' OR confirmed_ns>?)`, p.Repository, now.Add(-MCPCreationWindow).UnixNano()).Scan(&charged); err != nil {
+		charged, err := chargedCreationUnits(ctx, tx, p.Repository, now.Add(-MCPCreationWindow).UnixNano())
+		if err != nil {
 			return err
 		}
 		if charged+int64(p.Artifacts) > MCPCreationRepositoryLimit {

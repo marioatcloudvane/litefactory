@@ -123,8 +123,6 @@ func TestCreationAuthorizer_ConfirmedIntakeRefusalCategories(t *testing.T) {
 		change       func(*turn.OwnerGrantControl)
 	}{
 		{"loaded capability disabled", "disabled", true, func(*turn.OwnerGrantControl) {}},
-		{"missing mode", "mode", false, func(c *turn.OwnerGrantControl) { c.Mode = "" }},
-		{"wrong mode", "mode", false, func(c *turn.OwnerGrantControl) { c.Mode = "implement" }},
 		{"numeric nonowner", "controls", false, func(c *turn.OwnerGrantControl) { c.ActorID = 11 }},
 		{"bot identity", "controls", false, func(c *turn.OwnerGrantControl) { c.ActorID = 20 }},
 		{"owner marked bot", "controls", false, func(c *turn.OwnerGrantControl) { c.Bot = true }},

@@ -31,7 +31,7 @@ func TestCreationRejectionQueueIO_BacklogReleasesLaterWork(t *testing.T) {
 				t.Fatal(err)
 			}
 			delivery, err := f.db.GetReportDelivery(t.Context(), row.Delivery.Key)
-			if err != nil || !delivery.Completed || delivery.CommentID == 0 || !strings.Contains(delivery.Body, "Research") {
+			if err != nil || !delivery.Completed || delivery.CommentID == 0 || !strings.Contains(delivery.Body, "disabled") {
 				t.Fatalf("missing confirmed guidance %+v %v", delivery, err)
 			}
 			f.settle()

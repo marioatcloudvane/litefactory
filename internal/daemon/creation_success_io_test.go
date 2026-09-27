@@ -123,7 +123,9 @@ func TestCreationSuccessIO_ApprovalConsumptionRestart(t *testing.T) {
 	rejectionWatermark(t, f, 70)
 	after, err := f.db.GetCreationAcknowledgment(t.Context(), source)
 	publicationMust(t, err)
-	if after != before || f.posts != 1 || f.creationPosts != 0 {
+	// The first approval published (uncertainly: the fixture forge truncates
+	// its reply); the disabled, relabelled restart must not publish again.
+	if after != before || f.posts != 1 || f.creationPosts != 1 {
 		t.Fatalf("changed admission/effects: %+v -> %+v posts=%d creations=%d", before, after, f.posts, f.creationPosts)
 	}
 	if _, _, err = f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
@@ -155,7 +157,9 @@ func TestCreationAcceptanceIO_AdmissionGapAndReceiptRecovery(t *testing.T) {
 					original := f.server.Config.Handler
 					f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						original.ServeHTTP(w, r)
-						if r.Method == http.MethodPost {
+						// Only the reply comment's confirmation is lost; the
+						// issue publication before it records normally.
+						if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/comments") {
 							if e := f.db.Close(); e != nil {
 								t.Error(e)
 							}
@@ -204,12 +208,18 @@ func TestCreationAcceptanceIO_AdmissionGapAndReceiptRecovery(t *testing.T) {
 				t.Fatalf("recovery altered consent: %+v -> %+v", before, after)
 			}
 			body := f.bodies[len(f.bodies)-1]
-			for _, want := range []string{before.Hash, "linked", before.ExpiresAt.Format(time.RFC3339Nano), "30-minute", "fresh approval"} {
+			// Admission without publication meets the disabled restart and is
+			// refused; a publication begun before the restart is only reported.
+			want, creations := "stopped part-way", 1
+			if phase == "admitted-before-retention" {
+				want, creations = "nothing was published", 0
+			}
+			for _, want := range []string{before.Hash, want} {
 				if !strings.Contains(body, want) {
 					t.Errorf("missing %q: %s", want, body)
 				}
 			}
-			if strings.Contains(body, newer.Hash) || f.posts != 1 || f.creationPosts != 0 {
+			if strings.Contains(body, newer.Hash) || f.posts != 1 || f.creationPosts != creations {
 				t.Fatalf("wrong original reply/effects: posts=%d creations=%d body=%s", f.posts, f.creationPosts, body)
 			}
 			if pending {
@@ -323,7 +333,7 @@ func TestCreationAcceptanceIO_ConsumedApprovalNoBackfillAndFreshRenewal(t *testi
 		t.Fatalf("fresh source did not renew correctly: old=%+v fresh=%+v", old, fresh)
 	}
 	rejectionWatermark(t, f, 71)
-	if f.posts != 1 || f.creationPosts != 0 {
+	if f.posts != 1 || f.creationPosts != 1 {
 		t.Fatalf("unexpected effects: %d/%d", f.posts, f.creationPosts)
 	}
 	source.CommentID = 70

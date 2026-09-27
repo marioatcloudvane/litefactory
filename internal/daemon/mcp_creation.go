@@ -31,18 +31,16 @@ func AdmitMCPOwnerCommand(ctx context.Context, authorizer *turn.CreationAuthoriz
 	return authorizer.AdmitOwnerGrantIntent(ctx, turn.OwnerGrantControl{Repository: repo.String(), SourceTask: source.String(), Mode: mode, Body: comment.Body, CommentID: comment.ID, ActorID: comment.Author.ID, CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt, Bot: comment.Author.IsBot})
 }
 
-// handleMCPCreation records exact owner approval without launching or changing mode.
+// handleMCPCreation records exact owner approval and publishes it, in any mode,
+// without launching a run or changing mode.
 func (d *Daemon) handleMCPCreation(ctx context.Context, t *task, c github.Comment, log *slog.Logger) error {
-	mode, found, err := resolveModeLabel(t.issue.Labels)
+	mode, _, err := resolveModeLabel(t.issue.Labels)
 	if err != nil {
 		return d.rejectMCPCreation(ctx, t, c, log, "mode")
 	}
-	if !found || string(mode) != "research" {
-		return d.rejectMCPCreation(ctx, t, c, log, "mode")
-	}
 	e, ok := d.turn.(turnExecutor)
-	if !ok || e.opts.MCP == nil {
-		return d.leave(ctx, t, log, "creation owner intake unavailable", fmt.Errorf("creation owner intake unavailable"))
+	if !ok || e.opts.MCP == nil || e.opts.MCP.CreationAuthorizer == nil {
+		return d.rejectMCPCreation(ctx, t, c, log, "disabled")
 	}
 	control := turn.OwnerGrantControl{Repository: t.forgeRepo.String(), SourceTask: t.ref.String(), Mode: string(mode), Body: c.Body, CommentID: c.ID, ActorID: c.Author.ID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, Bot: c.Author.IsBot}
 	if strings.HasPrefix(c.Body, "/mcp-create prepare ") {
@@ -62,7 +60,7 @@ func (d *Daemon) handleMCPCreation(ctx context.Context, t *task, c github.Commen
 		return d.creationIntakeError(ctx, t, c, log, err)
 	}
 	_, err = d.resumeCreationSuccess(ctx, t, c)
-	return d.leave(ctx, t, log, "creation acceptance delivery pending", err)
+	return d.leave(ctx, t, log, "creation publication or its reply pending", err)
 }
 
 func (d *Daemon) creationIntakeError(ctx context.Context, t *task, c github.Comment, log *slog.Logger, err error) error {
@@ -94,7 +92,16 @@ func (d *Daemon) rejectMCPCreation(ctx context.Context, t *task, c github.Commen
 func (d *Daemon) resumeCreationSuccess(ctx context.Context, t *task, c github.Comment) (bool, error) {
 	source := store.CreationSource{Repository: t.forgeRepo.String(), SourceTask: t.ref.String(), CommentID: c.ID, OwnerID: c.Author.ID}
 	if admitted, err := d.db.GetCreationAcknowledgment(ctx, source); err == nil {
-		_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: admitted.Source.CommentID, CreationAcceptance: &report.CreationAcceptance{Hash: admitted.Hash, Relationship: admitted.Relationship, CreatedAt: admitted.CreatedAt, ExpiresAt: admitted.ExpiresAt, Publication: d.creationPublicationContext(ctx, t)}})
+		acceptance := &report.CreationAcceptance{Hash: admitted.Hash, Relationship: admitted.Relationship, CreatedAt: admitted.CreatedAt, ExpiresAt: admitted.ExpiresAt, Publication: d.creationPublicationContext(ctx, t)}
+		// Publishing is idempotent per approval, so a retried comment resumes or
+		// reports the same publication before its reply is (re)delivered.
+		if e, ok := d.turn.(turnExecutor); ok && e.opts.MCP != nil && e.opts.MCP.Creation != nil {
+			acceptance.Published, err = e.opts.MCP.PublishApprovedCreation(ctx, admitted.IntentID)
+			if err != nil {
+				return true, fmt.Errorf("publish approved creation proposal %s: %w", admitted.Hash, err)
+			}
+		}
+		_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: admitted.Source.CommentID, CreationAcceptance: acceptance})
 		return true, err
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return false, err
