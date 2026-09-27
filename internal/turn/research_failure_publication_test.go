@@ -72,8 +72,11 @@ func TestResearchAgentActivityErrorPublishesTheFailureComment(t *testing.T) {
 	if len(intents) != 1 || intents[0].Kind != "failure" || intents[0].Node != "failed" {
 		t.Fatalf("failure was not published under the declared failure node: %+v", intents)
 	}
+	// The listing omits candidates; read the retained intent itself.
+	intent, err := f.db.GetGraphComment(t.Context(), intents[0].Key)
+	mustProgress(t, err)
 	var candidate agentresult.Result
-	if d := agentresult.Decode(intents[0].Candidate, &candidate); !d.Valid || !strings.Contains(candidate.Reason, marker) {
+	if d := agentresult.Decode(intent.Candidate, &candidate); !d.Valid || !strings.Contains(candidate.Reason, marker) {
 		t.Fatalf("failure candidate reason lacks the cause: %+v", candidate)
 	}
 	// A replay of the same trigger neither reruns the agent nor posts again.

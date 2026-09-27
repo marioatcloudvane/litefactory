@@ -16,7 +16,7 @@ import (
 // ResearchAgentAction names the registered private Research invocation activity.
 const ResearchAgentAction = "lf_agent"
 
-const researchNodeInstructions = "\nFactory invocation: private Research graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id (the result helper's preflight, submit and receipt methods are the same route). The accepted submission is this step's result, and the factory derives the step's response from it. Do not print a JSON result: terminal text is never read as a result, so end with a short plain-language note. The result is limited to 1 MiB. Submitting retains private progress only; only an explicit graph comment activity may publish it.\n"
+const researchNodeInstructions = "\nFactory invocation: private Research graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id (the shared result helper's preflight, submit and receipt methods are the same route). The accepted submission is this step's result, and the factory derives the step's response from it. Do not print a JSON result: terminal text is never read as a result, so end with a short plain-language note. The result is limited to 1 MiB. Submitting retains private progress only; only an explicit graph comment activity may publish it.\n"
 
 // researchNodeGuidance is what every invocation carries in its persistent
 // instruction channel, so it holds only what is fatal to get wrong: the route
