@@ -165,7 +165,7 @@ func TestBugParentResolvedInfrastructureContinuation(t *testing.T) {
 // An owner comment retries a parent that failed in an agent node, once, with
 // replay; a failed effect node and a live parent are never restarted this way.
 func TestBugParentFailureRetryContinuation(t *testing.T) {
-	for _, variant := range []string{"analyst", "fixer", "record_analysis", "merge", "running", "wrong-reference", "blocked-analysis", "failed-analyst-outcome", "blocked-tests"} {
+	for _, variant := range []string{"analyst", "fixer", "record_analysis", "record_repair", "merge", "running", "wrong-reference", "blocked-analysis", "failed-analyst-outcome", "blocked-tests"} {
 		t.Run(variant, func(t *testing.T) {
 			db, e := Open(t.Context(), filepath.Join(t.TempDir(), "retry.db"))
 			if e != nil {
@@ -220,7 +220,7 @@ func TestBugParentFailureRetryContinuation(t *testing.T) {
 				c.Reference = "334"
 			}
 			next, e := db.ClaimBugContinuation(t.Context(), c)
-			want := map[string]string{"analyst": "analyst", "fixer": "fixer", "record_analysis": "analyst", "blocked-analysis": "analyst", "failed-analyst-outcome": "analyst"}[variant]
+			want := map[string]string{"analyst": "analyst", "fixer": "fixer", "record_analysis": "analyst", "record_repair": "record_repair", "blocked-analysis": "analyst", "failed-analyst-outcome": "analyst"}[variant]
 			if want == "" {
 				if e == nil {
 					t.Fatalf("%s parent was retried: %+v", variant, next)

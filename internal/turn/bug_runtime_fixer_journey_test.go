@@ -28,6 +28,8 @@ func (f bugFixerJourneyForge) GetDeliveryHead(context.Context, github.Repo, stri
 	return f.target, nil
 }
 
+// The analysis expects only repair.go; the fixer also adds repair_test.go. The
+// file list is guidance, so the handoff still completes (#410 was refused).
 func TestBugRuntimeFixerAuthoredRepairAndImmutableHandoff(t *testing.T) {
 	var f *fixture
 	calls := map[string]int{}
@@ -37,7 +39,7 @@ func TestBugRuntimeFixerAuthoredRepairAndImmutableHandoff(t *testing.T) {
 		var result agentresult.Result
 		switch role {
 		case "bug-analyst":
-			analysis := buganalysis.BugAnalysis{Expected: "One result", Actual: "Duplicate results", Reproduction: buganalysis.BugReproduction{Steps: []string{"Call Count"}, Environment: "controlled fixture", Observation: "owner_reported"}, Cause: "The function returns two instead of one", Evidence: []string{"repair.go"}, Remedy: "Return one and add regression coverage", Exclusions: []string{"Do not change other functions"}, Boundaries: &buganalysis.BugRepairBoundaries{AllowedPaths: []string{"repair.go", "repair_test.go"}}, Criteria: []buganalysis.BugCriterion{{ID: "C1", Requirement: "Count returns one", Measurement: "Assert Count()==1"}}}
+			analysis := buganalysis.BugAnalysis{Expected: "One result", Actual: "Duplicate results", Reproduction: buganalysis.BugReproduction{Steps: []string{"Call Count"}, Environment: "controlled fixture", Observation: "owner_reported"}, Cause: "The function returns two instead of one", Evidence: []string{"repair.go"}, Remedy: "Return one and add regression coverage", Exclusions: []string{"Do not change other functions"}, Boundaries: &buganalysis.BugRepairBoundaries{AllowedPaths: []string{"repair.go"}}, Criteria: []buganalysis.BugCriterion{{ID: "C1", Requirement: "Count returns one", Measurement: "Assert Count()==1"}}}
 			result = agentresult.Result{Outcome: "completed", Comment: "Review the exact remedy.", Payload: agentresult.Payload{Bug: &agentresult.Bug{Response: "done", Invocation: fmt.Sprintf("analysis:%d:%d", f.session.ID, req.Graph.AttemptID), Analysis: &analysis}}}
 		case "bug-fixer":
 			repair, e := f.db.LatestBugRepair(ctx, f.session.ID)
