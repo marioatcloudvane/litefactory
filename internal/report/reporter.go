@@ -27,9 +27,9 @@ type Options struct {
 	Logger *slog.Logger
 
 	// HostRoots are absolute directories on the factory host (the home, bundle
-	// and worktree roots) whose paths are never published. Nil uses the current
-	// user's home directory. Paths inside a .litefactory or .lf-worktrees
-	// directory are stripped whatever the roots.
+	// and worktree roots) whose paths are never published. The caller supplies
+	// them; this package does not read the filesystem. Paths inside a
+	// .litefactory or .lf-worktrees directory are stripped whatever the roots.
 	HostRoots []string
 }
 
@@ -70,15 +70,11 @@ func New(opts Options) (*Reporter, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	roots := opts.HostRoots
-	if roots == nil {
-		roots = defaultHostRoots()
-	}
 	return &Reporter{
 		redactor:  opts.Redactor,
 		limit:     opts.Limit,
 		log:       log,
-		hostRoots: cleanHostRoots(roots),
+		hostRoots: cleanHostRoots(opts.HostRoots),
 		budget:    redact.Budget(opts.Limit),
 	}, nil
 }

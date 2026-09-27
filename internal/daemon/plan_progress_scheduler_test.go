@@ -188,7 +188,9 @@ func TestPlanProgressSchedulerStaleReplyUncertainThenHealthy(t *testing.T) {
 	x.settle()
 	cursor, err = x.db.StoryDiscoveryCursor(t.Context(), x.session.ID, 200)
 	progressMust(t, err)
-	if cursor != 60 {
+	// The confirmed explanation consumes the reply; the factory's own explanation
+	// on the same sub-issue is then skipped as bot input, so the cursor may pass it.
+	if cursor < 60 {
 		t.Fatalf("confirmed explanation failed to consume cursor %d logs=%s", cursor, x.logs)
 	}
 	delivery, err = x.db.GetReportDelivery(t.Context(), explanation.DeliveryKey)

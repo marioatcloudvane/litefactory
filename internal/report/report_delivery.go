@@ -3,8 +3,7 @@ package report
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"path"
 	"regexp"
 	"strings"
 
@@ -43,18 +42,10 @@ var hostLink = regexp.MustCompile(`\[([^\]\n]*)\]\((/[^)\s]*)\)`)
 // after whitespace or an opening delimiter.
 var hostToken = regexp.MustCompile("(?:^|[\\s(\\[<\"'`=:])(/[^\\s()\\[\\]<>\"'`]+)")
 
-func defaultHostRoots() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-	return []string{home}
-}
-
 func cleanHostRoots(roots []string) []string {
 	var out []string
 	for _, root := range roots {
-		root = filepath.ToSlash(filepath.Clean(strings.TrimSpace(root)))
+		root = path.Clean(strings.TrimSpace(root))
 		if !strings.HasPrefix(root, "/") || root == "/" {
 			continue // never treat the filesystem root as a host root
 		}
