@@ -169,7 +169,11 @@ func (r *BugRuntime) admission(ctx context.Context, req Request) (store.Workflow
 		if e != nil {
 			return store.WorkflowAdmission{}, e
 		}
-		if pin.Digest != r.definition.Profile.Digest || pin.TeamSnapshotDigest != r.definition.Digest {
+		// Only the graph is pinned: a task keeps the topology it started on,
+		// while role text and skills follow the current package like Research
+		// and Plan. Pinning the whole package stranded every open Bug task on
+		// any instruction change (#401).
+		if pin.Digest != r.definition.Profile.Digest {
 			return store.WorkflowAdmission{}, errors.New("bug package differs from retained definition")
 		}
 		if i.Status != store.GraphRunning && life.Disposition == "pending-effect" {
@@ -237,6 +241,10 @@ func (r *BugRuntime) Execute(ctx context.Context, req Request, result Result) (R
 		return result, e
 	}
 	a, e := r.admission(ctx, req)
+	if errors.Is(e, store.ErrGraphReplyPredatesQuestion) {
+		// The daemon replies and consumes the comment.
+		return result, e
+	}
 	if e != nil {
 		reporter := BugParentPolicy{Reporter: r.opts.ResearchReporter}
 		reportErr := reporter.PublishEvent(context.WithoutCancel(ctx), req.SessionID, 0, fmt.Sprintf("bug-admission:%d:%d", req.SessionID, req.Trigger.CommentID), "pre-dispatch", bugAdmissionComment(e))

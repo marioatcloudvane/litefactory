@@ -69,6 +69,13 @@ func (r *BugRuntime) continueOwner(ctx context.Context, req Request, life store.
 	if !delivery.Completed || delivery.CommentID <= 0 {
 		return zero, errors.New("bug owner wait publication is unconfirmed")
 	}
+	// A comment written before the open review or question was posted can
+	// never answer it (for example a retry request queued behind the run it
+	// started). The daemon refuses it once and consumes it, so later
+	// comments are not held behind it (#401).
+	if req.Trigger.CommentID <= delivery.CommentID && wait.ReplyID != req.Trigger.CommentID {
+		return zero, store.ErrGraphReplyPredatesQuestion
+	}
 	at := r.opts.MCP.Now()
 	if wait.ReplyID == req.Trigger.CommentID && !wait.ClaimedAt.IsZero() {
 		at = wait.ClaimedAt

@@ -163,8 +163,8 @@ var planRoleObligations = []struct {
 		// Lost-reply recovery and correction identity.
 		"keep the request identity and the exact bytes you submitted if a submit reply is lost", "look up the receipt for that identity before any retry", "resend identical bytes only when no receipt exists",
 		"the corrected content is a new request with a new identity", "never change accepted content just to force a retry",
-		// Terminal object confirms.
-		"one final json object that echoes the result the factory accepted", "it confirms that result and never supplies one",
+		// The accepted submission is the result; nothing is printed (#410).
+		"do not print a json result", "the accepted submission is this step's result", "terminal text is never read as a result",
 	}},
 	{"Must Not Do", []string{
 		"do not return `approved`",
@@ -173,12 +173,16 @@ var planRoleObligations = []struct {
 		"do not treat a receipt as approval or publication", "it only acknowledges input",
 	}},
 	{"Output", []string{
-		"preflight, submit and receipt first", "`response` `ask` or `done`",
+		"preflight, submit and receipt only", "do not print a json result", "the factory derives `response` `ask` or `done` from the result you submitted",
 		"`ask` carries an incomplete result, a non-blank reason and at least one shared question", "neither a story request nor a story set", "authorizes no story effect",
 		"`done` carries a completed result, no questions and exactly one branch", "`approved` is never role output",
-		"final object only confirms the retained accepted result", "one with no accepted submission, or with a different result, fails the attempt",
+		"the accepted submission is the step's result", "an attempt without one fails", "terminal text is never read as a result",
 	}},
 }
+
+// planRoleBannedTerms are the printed-result instructions a Plan role must no
+// longer carry anywhere (#410).
+var planRoleBannedTerms = []string{"strict json object", "final json object", "confirming object", "final object only confirms", "echoes the result the factory accepted"}
 
 // checkPlanRoleGuidance reports every obligation a Plan role file does not meet.
 func checkPlanRoleGuidance(content string) []string {
@@ -198,6 +202,12 @@ func checkPlanRoleGuidance(content string) []string {
 			if !strings.Contains(body, term) {
 				fails = append(fails, fmt.Sprintf("%s does not say %q", o.section, term))
 			}
+		}
+	}
+	whole := squash(content)
+	for _, banned := range planRoleBannedTerms {
+		if strings.Contains(whole, banned) {
+			fails = append(fails, fmt.Sprintf("role still asks for a printed result: %q", banned))
 		}
 	}
 	// A role may name approved only to refuse it: it is never a value to return.
@@ -221,6 +231,35 @@ func TestPlanRolesCarryAskDoneAndRecoveryGuidance(t *testing.T) {
 				t.Error(f)
 			}
 		})
+	}
+}
+
+// Both copies of every Plan role and of the node-result skill direct the agent
+// to the shared result route only and never ask for a printed JSON result (#410).
+// The byte-identity test covers parity; this reads the source copy directly so a
+// regression in either tree names its own file.
+func TestPlanGuidanceNeverAsksForAPrintedResultInEitherCopy(t *testing.T) {
+	t.Parallel()
+	source, embedded := planSourceTree(t), planEmbeddedTree(t)
+	for tree, files := range map[string]map[string][]byte{"teams/source/plan": source, "internal/teamsource/plan": embedded} {
+		for _, name := range append([]string{"skills/plan-evidence/node-result.md"}, planRoleFiles...) {
+			raw, ok := files[name]
+			if !ok {
+				t.Errorf("%s lacks %s", tree, name)
+				continue
+			}
+			text := squash(string(raw))
+			for _, banned := range planRoleBannedTerms {
+				if strings.Contains(text, banned) {
+					t.Errorf("%s/%s still asks for a printed result: %q", tree, name, banned)
+				}
+			}
+			for _, want := range []string{"do not print a json result", "preflight", "submit", "receipt"} {
+				if !strings.Contains(text, want) {
+					t.Errorf("%s/%s does not say %q", tree, name, want)
+				}
+			}
+		}
 	}
 }
 
@@ -297,6 +336,8 @@ func TestPlanRoleGuidanceCheckerCatchesDrift(t *testing.T) {
 		{"ask may carry a branch", "It carries neither a story request nor a story set, and it authorizes no story effect.", "It may carry a story request.", "neither a story request nor a story set"},
 		{"done may carry two branches", "exactly one branch", "one or two branches", "exactly one branch"},
 		{"receipt treated as approval", "Do not treat a receipt as approval or publication. It only acknowledges input.", "", "do not treat a receipt as approval"},
+		{"printed result asked for again", "Deliver your result through preflight, submit and receipt only, and do not print a JSON result.", "Deliver your result through preflight, submit and receipt first. Then return one strict JSON object.", "strict json object"},
+		{"no-print rule dropped", " - Do not print a JSON result. The accepted submission is this step's result", " - The accepted submission is this step's result", "do not print a json result"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

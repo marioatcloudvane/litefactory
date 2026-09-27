@@ -148,14 +148,14 @@ func (d *DB) CreateBugTestCall(ctx context.Context, r BugTestRequest, at time.Ti
 		if nested != 0 {
 			return errors.New("nested Bug children forbidden")
 		}
-		var childDigest, childWorkflow, path, parentSnapshot, childSnapshot string
-		if e = tx.QueryRowContext(ctx, `SELECT digest,workflow,path,COALESCE(team_snapshot_digest,'') FROM graph_definitions WHERE id=?`, r.ChildDefinition).Scan(&childDigest, &childWorkflow, &path, &childSnapshot); e != nil {
+		// The package itself is pinned per task by its launch record; shared
+		// definition rows cannot prove it, so only the child's own identity is
+		// checked here.
+		var childDigest, childWorkflow, path string
+		if e = tx.QueryRowContext(ctx, `SELECT digest,workflow,path FROM graph_definitions WHERE id=?`, r.ChildDefinition).Scan(&childDigest, &childWorkflow, &path); e != nil {
 			return e
 		}
-		if e = tx.QueryRowContext(ctx, `SELECT COALESCE(team_snapshot_digest,'') FROM graph_definitions WHERE id=?`, definition).Scan(&parentSnapshot); e != nil {
-			return e
-		}
-		if childDigest != r.DefinitionDigest || childWorkflow != "bug" || path != "bug_tests.dot" || parentSnapshot != childSnapshot || !validSubmissionDigest(parentSnapshot) {
+		if childDigest != r.DefinitionDigest || childWorkflow != "bug" || path != "bug_tests.dot" {
 			return errors.New("bug child definition is not pinned to parent package")
 		}
 		var generation int

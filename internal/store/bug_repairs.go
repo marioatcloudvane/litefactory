@@ -176,6 +176,39 @@ func (d *DB) GetBugRepair(ctx context.Context, session int64, request string) (B
 	return out, err
 }
 
+// BugRepairReshapes lists every repair the fixer handed back for reshaping, in
+// order. Lifetime reservations bound the list to three.
+func (d *DB) BugRepairReshapes(ctx context.Context, session int64) ([]BugRepair, error) {
+	var out []BugRepair
+	err := d.withTx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT request FROM bug_repairs WHERE session_id=? AND state='reshape' ORDER BY ordinal`, session)
+		if err != nil {
+			return err
+		}
+		var requests []string
+		for rows.Next() {
+			var request string
+			if err = rows.Scan(&request); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			requests = append(requests, request)
+		}
+		if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+			return err
+		}
+		for _, request := range requests {
+			r, err := bugRepairTx(ctx, tx, session, request)
+			if err != nil {
+				return err
+			}
+			out = append(out, r)
+		}
+		return nil
+	})
+	return out, err
+}
+
 // ClaimBugRepairDispatch rechecks exact approval and source and atomically
 // excludes checks/save work. A started reservation can never launch again.
 func (d *DB) ClaimBugRepairDispatch(ctx context.Context, session int64, request, commit, tree string, attempt, runID int64) (bool, error) {

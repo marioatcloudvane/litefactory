@@ -844,7 +844,7 @@ func (r Reply) body() string {
 	case ReplyGraphReplyBetweenQuestions:
 		b.WriteString(graphReplyBetweenQuestionsSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("If it still applies, please post it again as a reply to the open question.")
+		b.WriteString("If it still applies, please post it again as a reply to the open question or review.")
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")
 		b.WriteString(sectionGap)
@@ -1078,8 +1078,8 @@ const onlyCommandSentence = "Litefactory accepts `/research`, `/plan`, `/impleme
 
 // graphReplyBetweenQuestionsSentence is [ReplyGraphReplyBetweenQuestions]'s
 // explanation. It is a constant so tests can find the one reply by its words.
-const graphReplyBetweenQuestionsSentence = "This comment arrived while Research was still working, " +
-	"before its current question was posted, so it was not used and nothing was run for it."
+const graphReplyBetweenQuestionsSentence = "This comment arrived while the workflow was still working, " +
+	"before its current question or review was posted, so it was not used and nothing was run for it."
 
 // confirmationPhraseText mirrors internal/confirm.Phrase verbatim. It is a
 // literal here rather than an import of that package, the same way

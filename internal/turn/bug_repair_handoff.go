@@ -43,8 +43,12 @@ func (h BugRepairHandoff) Complete(ctx context.Context, db *store.DB, in store.B
 	if !observed.Clean || !observed.SaveConfirmed || observed.SaveOperation == "" || observed.Commit == "" || observed.Tree == "" {
 		return store.BugRepairCompletion{}, errors.New("bug repair source save remains pending")
 	}
-	if observed.Scope != "within" || strings.TrimSpace(observed.ScopeEvidence) == "" {
-		return store.BugRepairCompletion{}, errors.New("bug repair scope is outside or indeterminate")
+	// The analysis's file list is guidance, not a gate: files outside it are
+	// retained as scope evidence and shown in the delivery review, where the
+	// owner decides. Refusing them made every missed test file cost a repair
+	// attempt (#384, #409).
+	if strings.TrimSpace(observed.ScopeEvidence) == "" {
+		return store.BugRepairCompletion{}, errors.New("bug repair scope evidence is missing")
 	}
 	for _, path := range observed.ChangedPaths {
 		if !fs.ValidPath(path) || path == "." || strings.ContainsAny(path, "\\\x00") {

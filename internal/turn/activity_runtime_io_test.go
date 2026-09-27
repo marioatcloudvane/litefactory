@@ -242,6 +242,14 @@ func TestActivityRuntimeIO_RunnerTermination(t *testing.T) {
 				response := mcpToolCall(t, client, "activity_update", activityArgs(1, "working"))
 				activityResponse(t, response)
 				receiptID = response.RequestID
+				if tc.name == "success" {
+					// A Research result travels only the shared route (#410); the
+					// printed copy below is never read.
+					submitted := mcpDecodeSubmission(t, mcpToolCall(t, client, "communication_submit", resultCreate("research")))
+					if !submitted.Validation.Valid || submitted.Receipt == nil {
+						t.Fatalf("live result refused: %+v", submitted.Validation)
+					}
+				}
 				if tc.cancel {
 					cancel()
 				}

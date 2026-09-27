@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -416,9 +417,33 @@ func bugDeliveryLead(pr int, e store.BugDeliveryEvidence) string {
 	} else {
 		fmt.Fprintf(&b, "- **Success criteria:** %d of %d covered; gaps in %s (see below).\n", total-len(gaps), total, strings.Join(gaps, ", "))
 	}
+	if extra := bugFilesBeyondAnalysis(e); len(extra) > 0 {
+		fmt.Fprintf(&b, "- **Also changed:** %s, beyond the files the analysis expected; check these in the PR.\n", strings.Join(extra, ", "))
+	}
 	b.WriteString("- **Checks:** regression, focused and full all passed on the tested head.\n")
 	b.WriteString("\n**Next:** review the PR; to merge it, reply with the approval line at the end of this comment. Otherwise reply with `/bug-review` and what should change.\n")
 	return b.String()
+}
+
+// bugFilesBeyondAnalysis lists files the repair changed or tested that the
+// approved analysis did not expect; the list is guidance, so the owner sees them.
+func bugFilesBeyondAnalysis(e store.BugDeliveryEvidence) []string {
+	b := e.Analysis.Analysis.Boundaries
+	if b == nil {
+		return nil
+	}
+	expected := b.AllowedPaths
+	seen := map[string]bool{}
+	var extra []string
+	for _, c := range e.Coverage.Coverage {
+		for _, p := range append(slices.Clone(c.Changes), c.Tests...) {
+			if !seen[p] && !slices.Contains(expected, p) {
+				seen[p] = true
+				extra = append(extra, "`"+p+"`")
+			}
+		}
+	}
+	return extra
 }
 
 // renderBugRepair lays out the fixer's summary and per-criterion coverage.

@@ -24,7 +24,7 @@ var bugSteps = map[string]string{
 
 // bugRetryable are the steps an owner comment restarts after a failure; the
 // store enforces the same set.
-var bugRetryable = map[string]bool{"analyst": true, "record_analysis": true, "fixer": true}
+var bugRetryable = map[string]bool{"analyst": true, "record_analysis": true, "fixer": true, "record_repair": true}
 
 // bugFailureComment explains a stopped Bug parent to the owner: where it
 // stopped, what that means when the cause is known, and what they can do.
@@ -63,7 +63,9 @@ func bugAdmissionComment(cause error) string {
 func bugExplanation(text string) string {
 	switch {
 	case strings.Contains(text, "changes an existing meaning"):
-		return "The revised analysis reworded a criterion or question that an earlier revision already recorded. Recorded criteria keep their exact wording, because the repair and its checks are measured against them; a changed meaning needs a new ID."
+		return "The revised analysis reworded a question that an earlier revision already recorded. Recorded questions keep their exact wording, because your answers refer to their IDs; a different question needs a new ID."
+	case strings.Contains(text, "bug package differs from retained definition"):
+		return "This Bug task started on an earlier version of the Bug workflow's graph, which the factory has since changed, so it cannot continue. File the bug again as a new issue to run it on the current workflow."
 	case strings.Contains(text, "not waiting for an owner reply"):
 		return "This Bug task is not waiting for a reply right now, so there is nothing this comment could continue."
 	case strings.Contains(text, "only a Bug parent that failed in its analyst or fixer"):

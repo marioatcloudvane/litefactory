@@ -95,10 +95,10 @@ func TestAcceptRetained_MatchingTerminalYieldsRetainedContent(t *testing.T) {
 	}
 }
 
-// AC-033, AC-003: terminal output can only confirm. With no accepted submission, a
-// different result, an inconsistent envelope, or one that is not an envelope at
-// all, the attempt is refused with its own cause and yields no node.
-func TestAcceptRetained_TerminalOutputCannotSupplyOrReplaceTheResult(t *testing.T) {
+// AC-033, AC-003: terminal output can never supply the result. With no accepted
+// submission the attempt is refused with its own cause and yields no node,
+// whatever the terminal text claims.
+func TestAcceptRetained_TerminalOutputCannotSupplyTheResult(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"research", "plan"} {
 		base := retainedResearchResult
@@ -106,47 +106,17 @@ func TestAcceptRetained_TerminalOutputCannotSupplyOrReplaceTheResult(t *testing.
 			base = retainedPlanResult
 		}
 		other := strings.Replace(base, `"comment":"`, `"comment":"Not the retained result. `, 1)
-		cases := []struct {
-			name     string
-			retained bool
-			terminal string
-			want     string
-			is       error
-		}{
-			{"terminal only", false, envelope("done", base), "submit it through the shared result route", errNoRetainedResult},
-			{"terminal only, different result", false, envelope("done", other), "submit it through the shared result route", errNoRetainedResult},
-			{"mismatched content", true, envelope("done", other), "differs from the retained accepted result", nil},
-			{"ask claimed for a completed result", true, envelope("ask", base), "not a valid confirmation", nil},
-			{"unsupported response", true, envelope("review_ready", base), "not a valid confirmation", nil},
-			{"not an envelope", true, `{"outcome":"completed"}`, "not a valid confirmation", nil},
-			{"empty output", true, ``, "not a valid confirmation", nil},
-		}
-		if mode == "plan" {
-			// Approval is the owner's, so a Plan role reporting it is never a confirmation.
-			cases = append(cases, struct {
-				name     string
-				retained bool
-				terminal string
-				want     string
-				is       error
-			}{"approved response", true, envelope("approved", base), "not a valid confirmation", nil})
-		}
-		for _, tt := range cases {
-			t.Run(mode+"/"+tt.name, func(t *testing.T) {
+		for name, terminal := range map[string]string{
+			"terminal only":                   envelope("done", base),
+			"terminal only, different result": envelope("done", other),
+			"nothing at all":                  ``,
+		} {
+			t.Run(mode+"/"+name, func(t *testing.T) {
 				t.Parallel()
 				f := newRetainedFixture(t, mode)
-				if tt.retained {
-					f.submit(t, f.result)
-				}
-				node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, tt.terminal)
-				if err == nil {
-					t.Fatalf("output that is not a confirmation was accepted: %+v", node)
-				}
-				if !strings.Contains(err.Error(), tt.want) {
-					t.Fatalf("cause = %q, want it to contain %q", err, tt.want)
-				}
-				if tt.is != nil && !errors.Is(err, tt.is) {
-					t.Fatalf("error does not unwrap to %v: %v", tt.is, err)
+				node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, terminal)
+				if err == nil || !strings.Contains(err.Error(), "submit it through the shared result route") || !errors.Is(err, errNoRetainedResult) {
+					t.Fatalf("terminal output stood in for a missing result: %v", err)
 				}
 				if revision != 0 || node.Result.Comment != "" || node.Response != "" {
 					t.Fatalf("a refused attempt yielded content: revision=%d %+v", revision, node)
@@ -156,10 +126,52 @@ func TestAcceptRetained_TerminalOutputCannotSupplyOrReplaceTheResult(t *testing.
 	}
 }
 
+// C1 (#410): once a valid result was submitted, the step succeeds on it whatever
+// the terminal text is. A copy missing its closing brace (#351 run 627), valid
+// JSON that is not an envelope (#384), a differing or inconsistent envelope, an
+// approval claim, prose and empty output all yield the retained result, with the
+// response derived from it.
+func TestAcceptRetained_SubmittedResultStandsWhateverIsPrinted(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"research", "plan"} {
+		base := retainedResearchResult
+		if mode == "plan" {
+			base = retainedPlanResult
+		}
+		other := strings.Replace(base, `"comment":"`, `"comment":"Not the retained result. `, 1)
+		confirming := envelope("done", base)
+		for name, terminal := range map[string]string{
+			"missing closing brace":              confirming[:len(confirming)-1],
+			"valid json, not an envelope":        `{"outcome":"completed","unknown":true}`,
+			"envelope with a different result":   envelope("done", other),
+			"ask claimed for a completed result": envelope("ask", base),
+			"unsupported response":               envelope("review_ready", base),
+			"approval claimed":                   envelope("approved", base),
+			"prose":                              "The result is submitted and its receipt read.",
+			"empty":                              ``,
+			"matching envelope":                  confirming,
+		} {
+			t.Run(mode+"/"+name, func(t *testing.T) {
+				t.Parallel()
+				f := newRetainedFixture(t, mode)
+				f.submit(t, f.result)
+				node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, terminal)
+				if err != nil {
+					t.Fatalf("a submitted result failed on its printed copy: %v", err)
+				}
+				retained, _, err := f.service.retainedCurrent(t.Context())
+				mustProgress(t, err)
+				if revision != 1 || node.Version != 1 || node.Response != "done" || !ar.SameResult(retained.Result, node.Result) || node.Result.Comment != retainedCommentOf(f.result) {
+					t.Fatalf("node is not the retained result: revision=%d %+v", revision, node)
+				}
+			})
+		}
+	}
+}
+
 // AC-033: the guard is the runtime's, not the decoder's. A policy whose decoder
-// accepts anything, and even hands back the terminal's own result, still cannot
-// complete from terminal output alone or from output that differs from the
-// retained result, and nothing it returns is used as the node's result.
+// accepts anything still cannot complete from terminal output alone, and the
+// decoder is never consulted on terminal text: the node is the retained result.
 func TestAcceptRetained_NominalDecoderIsNotTheGuard(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"research", "plan"} {
@@ -183,17 +195,90 @@ func TestAcceptRetained_NominalDecoderIsNotTheGuard(t *testing.T) {
 			}
 			f.submit(t, f.result)
 			other := strings.Replace(f.result, `"comment":"`, `"comment":"Changed. `, 1)
-			if _, _, err := h.acceptRetained(t.Context(), f.service, envelope("done", other)); err == nil || !strings.Contains(err.Error(), "differs from the retained accepted result") {
-				t.Fatalf("mismatched output accepted under a nominal decoder: %v", err)
-			}
-			node, _, err := h.acceptRetained(t.Context(), f.service, envelope("done", f.result))
+			node, _, err := h.acceptRetained(t.Context(), f.service, envelope("done", other))
 			if err != nil || node.Result.Comment != retainedCommentOf(f.result) {
-				t.Fatalf("matching output refused or not the retained content: %+v %v", node.Result, err)
+				t.Fatalf("differing output replaced or failed the retained content: %+v %v", node.Result, err)
 			}
-			if decoded == 0 {
-				t.Fatal("the decoder was never consulted")
+			if decoded != 0 {
+				t.Fatalf("terminal text was decoded %d time(s); it must never be read as a result", decoded)
 			}
 		})
+	}
+}
+
+// C2 (#410): the response is derived from the retained result. Incomplete with
+// questions is ask, completed without questions is done, and any other shape
+// fails with a diagnostic naming the retained result.
+func TestRetainedRoute_DerivesAskAndDoneAndRefusesOtherShapes(t *testing.T) {
+	t.Parallel()
+	question := []ar.Question{{ID: "q1", Audience: "business", Text: "Which?"}}
+	for _, tt := range []struct {
+		name   string
+		result ar.Result
+		want   string
+	}{
+		{"incomplete with questions", ar.Result{Outcome: "incomplete", Questions: question}, "ask"},
+		{"completed without questions", ar.Result{Outcome: "completed"}, "done"},
+		{"completed with questions", ar.Result{Outcome: "completed", Questions: question}, ""},
+		{"incomplete without questions", ar.Result{Outcome: "incomplete"}, ""},
+		{"blocked", ar.Result{Outcome: "blocked", Questions: question}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := retainedRoute(tt.result)
+			if tt.want == "" {
+				if err == nil || !strings.Contains(err.Error(), "neither ask") {
+					t.Fatalf("shape %q routed to %q: %v", tt.name, got, err)
+				}
+				return
+			}
+			if err != nil || got != tt.want {
+				t.Fatalf("got %q %v, want %q", got, err, tt.want)
+			}
+		})
+	}
+	for _, mode := range []string{"research", "plan"} {
+		t.Run(mode+"/ask through the runtime", func(t *testing.T) {
+			t.Parallel()
+			f := newRetainedFixture(t, mode)
+			payload := `{"research":{"request":"Inspect boundaries"}}`
+			if mode == "plan" {
+				payload = `{"plan":{}}`
+			}
+			f.submit(t, `{"outcome":"incomplete","reason":"Need input.","comment":"Asking.","questions":[{"id":"q1","audience":"business","text":"Which?"}],"payload":`+payload+`}`)
+			node, _, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, "")
+			if err != nil || node.Response != "ask" {
+				t.Fatalf("incomplete result with questions did not route to ask: %+v %v", node, err)
+			}
+		})
+	}
+	// A valid retained Research result that is neither shape (blocked, no
+	// questions) fails the step, naming the retained result.
+	t.Run("research/other shape through the runtime", func(t *testing.T) {
+		t.Parallel()
+		f := newRetainedFixture(t, "research")
+		f.submit(t, `{"outcome":"blocked","reason":"No access.","comment":"Stuck.","payload":{"research":{"request":"Inspect boundaries"}}}`)
+		node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, envelope("done", retainedResearchResult))
+		if err == nil || !strings.Contains(err.Error(), "retained application result result-") || !strings.Contains(err.Error(), "revision 1") || !strings.Contains(err.Error(), `"blocked"`) {
+			t.Fatalf("a result that is neither ask nor done was routed: %+v %v", node, err)
+		}
+		if revision != 0 || node.Response != "" {
+			t.Fatalf("a refused shape yielded a node: %d %+v", revision, node)
+		}
+	})
+}
+
+// Bug keeps its own finalization (#410 exclusion): the Respond derivation is not
+// applied to it, so its terminal confirmation rules are unchanged.
+func TestWorkflowPolicy_RoutesRetainedExcludesBug(t *testing.T) {
+	t.Parallel()
+	if BugWorkflowPolicy().routesRetained() {
+		t.Fatal("Bug finalization must not derive its response from the shared mapping")
+	}
+	for _, p := range []WorkflowPolicy{ResearchWorkflowPolicy(), PlanWorkflowPolicy(), workflowReusePolicy()} {
+		if !p.routesRetained() {
+			t.Fatalf("%s policy does not derive its response from the retained result", p.Mode)
+		}
 	}
 }
 

@@ -10,7 +10,7 @@ ask pairs with incomplete and includes matching common/analysis questions and pa
 
 Preflight complete input; correct every diagnostic. Submit, retain request_id, and read its matching receipt. On lost replies recover the known receipt before retrying identical input; corrections use a new request. The final version-1 response/result envelope confirms the retained bytes. Receipt acknowledgment, terminal text and process completion are separate facts.
 
-`analysis.boundaries` is an optional version-1 typed detail of the immutable remedy: `{ "allowed_paths": ["src/search.go", "src/search_test.go"], "excluded_paths": ["src/ranking.go"] }`. Include concrete boundaries in new review-ready analysis. These fields are covered by the analysis digest and the same exact owner approval. They never grant tools or authority by themselves.
+`analysis.boundaries` is an optional version-1 typed detail of the immutable remedy: `{ "allowed_paths": ["src/search.go", "src/search_test.go"], "excluded_paths": ["src/ranking.go"] }`. Include the files you expect the fix to change in new review-ready analysis; they guide the fixer and review and do not limit it. These fields are covered by the analysis digest and the same exact owner approval. They never grant tools or authority by themselves.
 
 A blocked result example (replace invocation and evidence with the bound facts):
 

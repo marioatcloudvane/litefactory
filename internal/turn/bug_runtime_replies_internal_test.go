@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,11 +15,15 @@ import (
 )
 
 func TestBugRuntimeOwnerApprovalAndReplay(t *testing.T) {
-	t.Run("approval", func(t *testing.T) { bugRuntimeOwnerReply(t, false, false) })
-	t.Run("answers", func(t *testing.T) { bugRuntimeOwnerReply(t, true, false) })
-	t.Run("review-change-crash", func(t *testing.T) { bugRuntimeOwnerReply(t, false, true) })
+	t.Run("approval", func(t *testing.T) { bugRuntimeOwnerReply(t, false, false, false) })
+	t.Run("answers", func(t *testing.T) { bugRuntimeOwnerReply(t, true, false, false) })
+	t.Run("review-change-crash", func(t *testing.T) { bugRuntimeOwnerReply(t, false, true, false) })
+	// Definition rows are shared by graph-file digest, and only the graph is
+	// pinned: a task continues after a deploy that changed Bug role files,
+	// whether it started before (#401) or after (#408) that deploy.
+	t.Run("approval-after-role-only-change", func(t *testing.T) { bugRuntimeOwnerReply(t, false, false, true) })
 }
-func bugRuntimeOwnerReply(t *testing.T, questions, change bool) {
+func bugRuntimeOwnerReply(t *testing.T, questions, change, sharedPin bool) {
 	var session int64
 	calls := 0
 	runner := lifecycleMCPHost(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
@@ -86,6 +91,16 @@ func bugRuntimeOwnerReply(t *testing.T, questions, change bool) {
 		t.Fatal(e)
 	}
 	f.opts.Bug = runtime
+	if sharedPin {
+		for _, d := range []struct {
+			path   string
+			digest string
+		}{{"bug/bug.dot", runtime.definition.Profile.Digest}, {"bug_tests.dot", runtime.childDefinition.Profile.Digest}} {
+			if _, e = f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Workflow: "bug", Team: "builtin", ProfileVersion: 1, Path: d.path, Digest: d.digest, TeamSnapshotDigest: strings.Repeat("e", 64)}); e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
 
 	disposition := "analysis-review"
 	if questions {
@@ -125,6 +140,14 @@ func bugRuntimeOwnerReply(t *testing.T, questions, change bool) {
 			t.Fatal(e)
 		}
 		body = fmt.Sprintf("/approve-bug analysis %d", review.AnalysisRevision)
+	}
+	// A comment written before the review was posted (a retry queued behind
+	// the run it started) can never answer it: the daemon refuses and consumes
+	// it rather than holding the queue behind it (#401).
+	early := req
+	early.Trigger = Trigger{CommentID: published.CommentID - 1, AuthorID: 42, Body: "try again"}
+	if _, e = Execute(t.Context(), f.opts, early); !errors.Is(e, store.ErrGraphReplyPredatesQuestion) {
+		t.Fatalf("comment older than the open review was not refused as predating it: %v", e)
 	}
 	req.Trigger = Trigger{CommentID: published.CommentID + 1, AuthorID: 42, Body: body}
 	if change {

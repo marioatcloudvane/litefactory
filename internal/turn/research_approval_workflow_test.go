@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
@@ -63,12 +65,10 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 			_, err = Execute(t.Context(), f.opts, req)
 			instance, loadErr := f.db.LatestResearchInstance(t.Context(), f.session.ID)
 			mustProgress(t, loadErr)
-			if response == "approved" {
-				if instance.Status == store.GraphSucceeded || err == nil {
-					t.Fatalf("worker invented approval: status=%s err=%v calls=%d posts=%d", instance.Status, err, calls, forge.attemptCount())
-				}
-				return
-			}
+			// The response comes from the retained result, never the printed
+			// text (#410): a worker that prints "approved" with no authorised
+			// owner reply is routed as done, so the step succeeds and the owner
+			// is shown a review; it neither fails nor completes the stage.
 			mustProgress(t, err)
 			wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
 			mustProgress(t, err)
@@ -112,8 +112,24 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 			req.Command = ParseCommand(reply.Body)
 			final, err := Execute(t.Context(), f.opts, req)
 			if response == "changed-approved" || response == "unapproved-reply" {
-				if err == nil || forge.attemptCount() != 2 {
-					t.Fatalf("changed candidate reused approval: err=%v posts=%d", err, forge.attemptCount())
+				// Without the owner's done reply to this exact candidate the
+				// result is done, not approved: the step succeeds and the owner
+				// is shown a new review instead of the stage completing (#410).
+				mustProgress(t, err)
+				instance, err = f.db.LatestResearchInstance(t.Context(), f.session.ID)
+				mustProgress(t, err)
+				again, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+				mustProgress(t, err)
+				if !final.Succeeded() || instance.Status == store.GraphSucceeded || again.State != "waiting" || again.DeliveryKey == wait.DeliveryKey || calls != 3 || forge.attemptCount() != 3 {
+					t.Fatalf("changed or unapproved candidate completed the stage: %+v %+v %+v calls=%d posts=%d", final, instance, again, calls, forge.attemptCount())
+				}
+				review, err := f.db.GetGraphComment(t.Context(), again.DeliveryKey)
+				mustProgress(t, err)
+				if review.Kind != "review" {
+					t.Fatalf("done did not display a new review: %+v", review)
+				}
+				if got := latestShapeResponse(t, f, instance.ID); got != "done" {
+					t.Fatalf("unauthorised approval was retained as %q, want done", got)
 				}
 				return
 			}
@@ -123,6 +139,11 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 			if !final.Succeeded() || instance.Status != store.GraphSucceeded || calls != 3 || forge.attemptCount() != 3 {
 				t.Fatalf("authenticated approval failed: %+v %+v calls=%d posts=%d", final, instance, calls, forge.attemptCount())
 			}
+			// C3 (#410): approved is derived by the factory from the owner's
+			// allocated done reply to this attempt, not read from printed text.
+			if got := latestShapeResponse(t, f, instance.ID); got != "approved" {
+				t.Fatalf("authorised approval was retained as %q", got)
+			}
 			replay, err := Execute(t.Context(), f.opts, req)
 			mustProgress(t, err)
 			if replay.Run.ID != final.Run.ID || calls != 3 || forge.attemptCount() != 3 {
@@ -131,6 +152,25 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 
 		})
 	}
+}
+
+// latestShapeResponse is the response retained for the newest shape attempt.
+func latestShapeResponse(t *testing.T, f *fixture, instanceID int64) string {
+	t.Helper()
+	attempt, err := f.db.LatestGraphNodeAttempt(t.Context(), instanceID, "shape")
+	mustProgress(t, err)
+	outputs, err := f.db.ListGraphOutputsBounded(t.Context(), attempt.ID, agentresult.MaxResearchNodeBytes, 16)
+	mustProgress(t, err)
+	for _, output := range outputs {
+		if output.Kind != store.GraphOutputJSON {
+			continue
+		}
+		var node agentresult.ResearchNode
+		mustProgress(t, json.Unmarshal(output.Payload, &node))
+		return node.Response
+	}
+	t.Fatal("shape attempt retained no node output")
+	return ""
 }
 
 func TestResearchContinuationRechecksGeneratedDocuments(t *testing.T) {
