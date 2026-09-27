@@ -169,11 +169,11 @@ func (r *BugRuntime) admission(ctx context.Context, req Request) (store.Workflow
 		if e != nil {
 			return store.WorkflowAdmission{}, e
 		}
-		launched, e := r.opts.DB.BugLaunchContentDigest(ctx, req.SessionID)
-		if e != nil {
-			return store.WorkflowAdmission{}, e
-		}
-		if pin.Digest != r.definition.Profile.Digest || launched != r.definition.Digest {
+		// Only the graph is pinned: a task keeps the topology it started on,
+		// while role text and skills follow the current package like Research
+		// and Plan. Pinning the whole package stranded every open Bug task on
+		// any instruction change (#401).
+		if pin.Digest != r.definition.Profile.Digest {
 			return store.WorkflowAdmission{}, errors.New("bug package differs from retained definition")
 		}
 		if i.Status != store.GraphRunning && life.Disposition == "pending-effect" {

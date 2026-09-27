@@ -185,3 +185,14 @@ func TestBugNoticeCommentIsReadable(t *testing.T) {
 		t.Errorf("finished delivery reported as a stop:\n%s", done)
 	}
 }
+
+// A task whose graph changed since it started says so and what to do, instead
+// of only the raw refusal (#401).
+func TestBugAdmissionCommentExplainsChangedGraph(t *testing.T) {
+	got := bugAdmissionComment(errors.New("bug package differs from retained definition"))
+	for _, want := range []string{"earlier version of the Bug workflow's graph", "File the bug again as a new issue", "<details><summary>Technical details</summary>"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("admission comment lacks %q:\n%s", want, got)
+		}
+	}
+}

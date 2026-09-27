@@ -17,9 +17,9 @@ func TestBugRuntimeOwnerApprovalAndReplay(t *testing.T) {
 	t.Run("approval", func(t *testing.T) { bugRuntimeOwnerReply(t, false, false, false) })
 	t.Run("answers", func(t *testing.T) { bugRuntimeOwnerReply(t, true, false, false) })
 	t.Run("review-change-crash", func(t *testing.T) { bugRuntimeOwnerReply(t, false, true, false) })
-	// Definition rows are shared by graph-file digest. After a deploy that
-	// changed only Bug role files, a new task reuses the older row; its own
-	// launch record, not that row, is its package identity (#408).
+	// Definition rows are shared by graph-file digest, and only the graph is
+	// pinned: a task continues after a deploy that changed Bug role files,
+	// whether it started before (#401) or after (#408) that deploy.
 	t.Run("approval-after-role-only-change", func(t *testing.T) { bugRuntimeOwnerReply(t, false, false, true) })
 }
 func bugRuntimeOwnerReply(t *testing.T, questions, change, sharedPin bool) {

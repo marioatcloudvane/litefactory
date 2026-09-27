@@ -376,19 +376,6 @@ func bugContinuationEntryTx(ctx context.Context, tx *sql.Tx, l BugLifecycle, c B
 	}
 }
 
-// BugLaunchContentDigest is the Bug package digest retained when this session's
-// Bug workflow was launched. Definition rows are shared by every task whose
-// graph file has the same digest, so their team snapshot is only the first
-// launch's; the launch record is the task's own package identity.
-func (d *DB) BugLaunchContentDigest(ctx context.Context, session int64) (string, error) {
-	var digest string
-	err := d.sql.QueryRowContext(ctx, `SELECT l.content_digest FROM research_launch_definitions l JOIN graph_instances i ON i.id=l.instance_id JOIN graph_definitions g ON g.id=i.definition_id WHERE l.session_id=? AND g.workflow='bug' ORDER BY l.id LIMIT 1`, session).Scan(&digest)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
-	}
-	return digest, err
-}
-
 // BugContinuationPrior is the instance a continuation succeeded, or ErrNotFound
 // when the instance was not created by one.
 func (d *DB) BugContinuationPrior(ctx context.Context, session, successor int64) (int64, error) {
