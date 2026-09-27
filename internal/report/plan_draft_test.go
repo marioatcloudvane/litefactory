@@ -151,3 +151,14 @@ func TestRenderRetainedPlanDraft_BacktrackingPreservesSections(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderPlanDraft_BudgetCountsHiddenMetadata(t *testing.T) {
+	d := renderDraftFixture()
+	d.Problem = strings.Repeat("x", 40000)
+	if err := d.Validate("story", planbrief.ContentScope{}); err != nil {
+		t.Fatalf("fixture must pass the raw-draft check: %v", err)
+	}
+	if _, _, err := report.RenderPlanDraft(362, 1, d, "story", planbrief.ContentScope{}); err == nil || !strings.Contains(err.Error(), "exceeds byte budget") {
+		t.Fatalf("draft repeated as metadata rendered past the budget: %v", err)
+	}
+}
