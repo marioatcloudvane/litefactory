@@ -40,6 +40,7 @@ type publicationIO struct {
 	mu                          sync.Mutex
 	posts                       int
 	bodies                      []string
+	postPaths                   []string
 	pages                       []string
 	lost                        bool
 	// createOK makes the fake forge answer an issue POST with a well-formed
@@ -102,13 +103,20 @@ func newPublicationIO(t *testing.T) *publicationIO {
 			_, _ = io.WriteString(w, `[]`)
 			return
 		}
-		if r.URL.Path != "/repos/owner/api/issues/278/comments" && r.URL.Path != "/repos/owner/api/issues/278" {
+		// Issue 200 is a Plan story sub-issue of parent 278: a stale reply there is
+		// answered on that sub-issue.
+		issue := "278"
+		if strings.HasPrefix(r.URL.Path, "/repos/owner/api/issues/200/") {
+			issue = "200"
+		}
+		if r.URL.Path != "/repos/owner/api/issues/278/comments" && r.URL.Path != "/repos/owner/api/issues/278" && r.URL.Path != "/repos/owner/api/issues/200/comments" {
 			t.Errorf("foreign path %s", r.URL.Path)
 			http.NotFound(w, r)
 			return
 		}
 		if r.Method == http.MethodPost {
 			f.posts++
+			f.postPaths = append(f.postPaths, r.URL.Path)
 			var p struct {
 				Body string `json:"body"`
 			}
@@ -131,14 +139,14 @@ func newPublicationIO(t *testing.T) *publicationIO {
 				t.Error("unbounded page")
 			}
 			if page == "1" {
-				w.Header().Set("Link", fmt.Sprintf(`<%s/repos/owner/api/issues/278/comments?page=2&per_page=100>; rel="next"`, f.server.URL))
+				w.Header().Set("Link", fmt.Sprintf(`<%s/repos/owner/api/issues/%s/comments?page=2&per_page=100>; rel="next"`, f.server.URL, issue))
 				_, _ = io.WriteString(w, `[]`)
 				return
 			}
 			comments := []any{}
 			for i, body := range f.bodies {
 				id := 991 + i
-				comments = append(comments, map[string]any{"id": id, "body": body, "html_url": fmt.Sprintf("https://github.com/owner/api/issues/278#issuecomment-%d", id), "user": map[string]any{"id": 20, "type": "Bot"}})
+				comments = append(comments, map[string]any{"id": id, "body": body, "html_url": fmt.Sprintf("https://github.com/owner/api/issues/%s#issuecomment-%d", issue, id), "user": map[string]any{"id": 20, "type": "Bot"}})
 			}
 			_ = json.NewEncoder(w).Encode(comments)
 			return

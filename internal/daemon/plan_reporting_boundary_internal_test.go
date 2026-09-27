@@ -142,9 +142,17 @@ func TestPlanReportingBoundaryStaleReplyLossRetainsCursor(t *testing.T) {
 	publicationMust(t, err)
 	f.mu.Lock()
 	posts := f.posts
+	paths := append([]string(nil), f.postPaths...)
 	f.mu.Unlock()
 	if posts != 1 {
 		t.Fatalf("duplicate explanation posts=%d", posts)
+	}
+	// C4: the explanation is posted on the sub-issue the owner replied on.
+	if len(paths) != 1 || paths[0] != "/repos/owner/api/issues/200/comments" {
+		t.Fatalf("explanation posted to %v, want the child issue 200", paths)
+	}
+	if delivery.Destination != "github:owner/api#200" && !strings.HasSuffix(delivery.Destination, "#200") {
+		t.Fatalf("explanation destination %q is not the child issue", delivery.Destination)
 	}
 	watermark, exists, err := f.db.GetWatermark(t.Context(), f.session.ID)
 	publicationMust(t, err)
