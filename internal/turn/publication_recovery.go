@@ -130,9 +130,6 @@ func (r *MCPRuntime) PrepareCreationProposal(ctx context.Context, c OwnerGrantCo
 	if !r.CreationAuthorizer.enabled {
 		return PreparedCreation{}, rejectCreation("disabled", store.ErrCreationAuthority)
 	}
-	if c.Mode != "research" {
-		return PreparedCreation{}, rejectCreation("mode", store.ErrCreationAuthority)
-	}
 
 	if !strings.HasPrefix(c.Body, "/mcp-create prepare ") {
 		return PreparedCreation{}, rejectCreation("controls", store.ErrCreationAuthority)

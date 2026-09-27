@@ -93,17 +93,9 @@ func (r *Reporter) ReportCreationPresentation(ctx context.Context, runID int64) 
 	if proposal.SourceTask != row.SourceTask || proposal.Hash != row.ProposalHash {
 		return Posted{}, invalidRequest("retained proposal %s does not match its presentation row", row.ProposalHash)
 	}
-	publication := report.CreationPublicationUnknown
-	if run.Mode == "research" {
-		graph, graphErr := r.db.HasResearchGraphRun(ctx, run.ID)
-		if graphErr != nil {
-			return Posted{}, fmt.Errorf("present creation proposal: read workflow provenance: %w", graphErr)
-		}
-		publication = report.CreationPublicationLegacy
-		if graph {
-			publication = report.CreationPublicationGraph
-		}
-	}
+	// The factory publishes an approved proposal itself, whatever the run's
+	// mode or workflow path; the proposal row exists only when creation is on.
+	publication := report.CreationPublicationFactory
 	reply := report.Reply{Ref: ref, Kind: report.ReplyCreationProposal, Creation: &report.CreationReply{Envelope: string(proposal.Envelope), Hash: proposal.Hash, Relationship: proposal.Relationship, Publication: publication}}
 
 	intent := r.deliveryIntent(ref, ref, row.SessionID, run.TriggerCommentID, 0, creationPresentationPurpose+proposal.Hash)

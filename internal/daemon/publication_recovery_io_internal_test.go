@@ -42,7 +42,10 @@ type publicationIO struct {
 	bodies                      []string
 	pages                       []string
 	lost                        bool
-	server                      *httptest.Server
+	// createOK makes the fake forge answer an issue POST with a well-formed
+	// bot-authored issue instead of a truncated reply.
+	createOK bool
+	server   *httptest.Server
 }
 
 func publicationMust(t *testing.T, err error) {
@@ -77,6 +80,10 @@ func newPublicationIO(t *testing.T) *publicationIO {
 				}
 				f.creationTitle, f.creationBody = a.Title, a.Body
 				w.WriteHeader(http.StatusCreated)
+				if f.createOK {
+					_ = json.NewEncoder(w).Encode(map[string]any{"id": 9000 + f.creationPosts, "number": 900 + f.creationPosts, "title": a.Title, "body": a.Body, "state": "open", "user": map[string]any{"id": 20, "type": "Bot"}})
+					return
+				}
 				_, _ = io.WriteString(w, `{"id":`)
 				return
 			}
@@ -273,16 +280,21 @@ func TestPublicationDaemonIO_TrustedPreparationApproval(t *testing.T) {
 	good.ID++
 	good.Author.ID = 10
 	publicationMust(t, f.d.handleComment(t.Context(), task, good))
-	id, p, err := f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef)
+	source := store.CreationSource{Repository: "owner/api", SourceTask: f.session.TaskRef, CommentID: good.ID, OwnerID: 10}
+	admitted, err := f.db.GetCreationAcknowledgment(t.Context(), source)
 	publicationMust(t, err)
-	if id == 0 || p.Hash != prepared.Hash || p.Relationship != "linked" {
-		t.Fatalf("approval not bound %+v", p)
+	if admitted.IntentID == 0 || admitted.Hash != prepared.Hash || admitted.Relationship != "linked" || f.creationPosts != 1 {
+		t.Fatalf("approval not published %+v creations=%d", admitted, f.creationPosts)
+	}
+	// The factory published it, so no agent run may bind it a second time.
+	if _, _, err = f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("published approval still grantable: %v", err)
 	}
 	publicationMust(t, f.d.handleComment(t.Context(), task, good))
-	again, _, err := f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef)
+	again, err := f.db.GetCreationAcknowledgment(t.Context(), source)
 	publicationMust(t, err)
-	if again != id {
-		t.Fatal("approval retry minted new intent")
+	if again.IntentID != admitted.IntentID || f.creationPosts != 1 {
+		t.Fatalf("approval retry minted new intent or republished: creations=%d", f.creationPosts)
 	}
 }
 

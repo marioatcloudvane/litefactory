@@ -32,16 +32,15 @@ func TestCreationGuidanceIOPostRun(t *testing.T) {
 			_, err = newReporter(t, p.fixture, forge, nil).ReportCreationPresentation(t.Context(), p.run.ID)
 			mustProgress(t, err)
 			body := forge.only(t).body
-			expected := []string{string(p.proposal.Envelope), "`/mcp-create " + p.proposal.Hash + " linked`", "Approval alone starts no publication", "trusted approval-comment timestamp", "30-minute", "bind the approval before expiry", "fresh approval comment", "current and eligible", "new eligible proposal"}
-			if graph {
-				expected = append(expected, "Graph Research cannot publish", "Another ordinary comment does not enable publication")
-			} else {
-				expected = append(expected, "post a further ordinary comment", "does not guarantee publication")
-			}
+			// Legacy and graph runs alike: the factory publishes on approval.
+			expected := []string{string(p.proposal.Envelope), "`/mcp-create " + p.proposal.Hash + " linked`", "Approving publishes these exact issues right away", "no further comment or run is needed"}
 			for _, want := range expected {
 				if !strings.Contains(body, want) {
 					t.Errorf("missing %q in %s", want, body)
 				}
+			}
+			if strings.Contains(body, "cannot publish") {
+				t.Errorf("guidance still refuses publication: %s", body)
 			}
 			retained, err := p.cs.RetainedCreationProposal(t.Context(), p.proposal.Hash)
 			mustProgress(t, err)

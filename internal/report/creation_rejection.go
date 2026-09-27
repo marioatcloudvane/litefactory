@@ -21,7 +21,7 @@ func (r CreationRejection) guidance() (string, bool) {
 	case "fields":
 		advice = "The preparation fields or limits are invalid. Check the relationship, source binding, artifact fields and existing size and count limits."
 	case "mode":
-		advice = "Creation requires exactly one Research mode selection. Select Research before submitting a fresh command."
+		advice = "The issue's Mode labels could not be read; keep at most one Mode label before submitting a fresh command."
 	case "disabled":
 		advice = "Creation is disabled in the loaded operator configuration. Ask the operator to enable creation before submitting a fresh command."
 	case "proposal":
