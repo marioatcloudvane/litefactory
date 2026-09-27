@@ -133,3 +133,9 @@ Evidence:
 Run 0009 live MCP preparation returned disposition confirmed, relationship linked and drafts 3 for hash 9fa1ee2fa963783e21bbdd8c3f37d2559927bf0b2f046863dc9bba32206cacb8; receipt 605d692d50512da45482b86602129987 confirms accepted input and retained proposal 728, not issue publication.
 
 _No source reference was recorded for this finding._
+
+## sf5
+
+Run 0010 MCP preparation and matching receipt d947267f462b23d630614b558937e23d confirm retained proposal 733 with three linked drafts and hash fab436eba6a08c58abcedfc7d23651c80c66a0e08d9600a43b8f91e0533579db; input is accepted, but publication has not occurred through preparation.
+
+_No source reference was recorded for this finding._
