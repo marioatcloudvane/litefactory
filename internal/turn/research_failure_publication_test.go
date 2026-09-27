@@ -98,7 +98,7 @@ func TestResearchNonAgentDispatchErrorKeepsItsRouting(t *testing.T) {
 		}
 	}
 	cause := errors.New("brief generation failed")
-	if err := w.failed(t.Context(), nil, GraphNodeResult{Node: "brief", AttemptID: 1}, cause, true); err != cause {
+	if err := w.failed(t.Context(), nil, GraphNodeResult{Node: "brief", AttemptID: 1}, cause, true); !errors.Is(err, cause) || err.Error() != cause.Error() {
 		t.Fatalf("a non-agent dispatch error changed: %v", err)
 	}
 }

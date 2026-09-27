@@ -139,7 +139,7 @@ func TestSharedFinalizationCurrentAttemptAndConflicts(t *testing.T) {
 				t.Fatalf("finalization: %+v", got)
 			}
 			if reject {
-				if !strings.Contains(got.Reason, "required current-attempt output is absent") {
+				if !strings.Contains(got.Reason, "Shared final result rejected") {
 					t.Fatalf("missing result not reported as absent: %+v", got)
 				}
 			} else if got.ResultText != "Initial result" {
