@@ -209,10 +209,17 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
+	// Published comments never carry paths on this host: the home directory holds
+	// the factory state, instruction bundles and worktrees.
+	var hostRoots []string
+	if home, homeErr := os.UserHomeDir(); homeErr == nil {
+		hostRoots = append(hostRoots, home)
+	}
 	renderer, err := report.New(report.Options{
-		Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}),
-		Limit:    github.CommentSizeLimit,
-		Logger:   s.Logger,
+		Redactor:  redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}),
+		Limit:     github.CommentSizeLimit,
+		Logger:    s.Logger,
+		HostRoots: hostRoots,
 	})
 	if err != nil {
 		return nil, Startup{}, err

@@ -173,7 +173,7 @@ func (db *DB) CompleteReportDelivery(ctx context.Context, key string) (ReportDel
 			return err
 		}
 		// Graph publication does not settle the graph or its subprocess.
-		if d.TriggerNamespace == "plan-observation" || d.TriggerNamespace == "plan-reply" {
+		if d.TriggerNamespace == "plan-observation" || d.TriggerNamespace == "plan-reply" || d.TriggerNamespace == PlanNoticeNamespace {
 			if err = completePlanNoticeTx(ctx, tx, d); err != nil {
 				return err
 			}
@@ -211,7 +211,7 @@ func consumeReportSource(ctx context.Context, tx *sql.Tx, sessionID, triggerID i
 // FindPendingReportDelivery permits source recovery before an executor can
 // reinterpret the trigger against changed readiness or task state.
 func (db *DB) FindPendingReportDelivery(ctx context.Context, sessionID, triggerID int64) (ReportDelivery, bool, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE session_id=? AND trigger_id=? AND completed=0 AND trigger_namespace NOT IN ('plan-observation','plan-reply') ORDER BY delivery_key LIMIT 2`, sessionID, triggerID)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE session_id=? AND trigger_id=? AND completed=0 AND trigger_namespace NOT IN ('plan-observation','plan-reply','plan-notice') ORDER BY delivery_key LIMIT 2`, sessionID, triggerID)
 	if err != nil {
 		return ReportDelivery{}, false, err
 	}

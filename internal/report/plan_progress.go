@@ -61,9 +61,11 @@ func PlanStoryNoticeText(n planbrief.PlanNoticeState) string {
 	return "Plan story update\n\n" + fence + "text\n" + text + "\n" + fence + "\n\n" + action
 }
 
-// PlanReplyExplanationText renders a bounded explanation for one stale child reply.
-func PlanReplyExplanationText(key string, child int, commentID int64, reason string) string {
-	details := fmt.Sprintf("Story: %s\nChild: #%d\nReply: %d\n%s", planNoticeValue(key), child, commentID, planNoticeValue(reason))
+// PlanReplyExplanationText renders a bounded, plain-language explanation for
+// one reply on a story sub-issue that could not act. It is posted on that
+// sub-issue; the reason carries the command that works now when there is one.
+func PlanReplyExplanationText(key string, child int, _ int64, reason string) string {
+	details := planNoticeValue(reason)
 	fence := fenceFor(details)
-	return "Plan reply could not change the current candidate.\n\n" + fence + "text\n" + details + "\n" + fence + "\n\nThe reply is acknowledged only after this explanation is confirmed. Use the current review prompt after resolving the reported state."
+	return fmt.Sprintf("Your reply on #%d did not change story %s, and nothing was approved.\n\n", child, planNoticeValue(key)) + fence + "text\n" + details + "\n" + fence + "\n\nReply on this issue again when you are ready."
 }

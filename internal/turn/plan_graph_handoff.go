@@ -31,6 +31,13 @@ func (r *planGraphRuntime) settled(ctx context.Context) (Result, error) {
 	for _, story := range s.Stories {
 		if story.Blocked() || (story.Active() && story.Wait != nil) {
 			out.Reason = "planning waits for story feedback or effect reconciliation"
+			// The run found only owner waits: say so where the owner asked, with
+			// the command that works now on each sub-issue.
+			applies, noticeErr := r.storiesCreated(ctx)
+			r.logNotice(noticeErr, "plan-stories-created")
+			if !applies {
+				r.logNotice(r.waiting(ctx, s), "plan-waiting")
+			}
 			return out, nil
 		}
 	}
@@ -69,29 +76,43 @@ func (r *planGraphRuntime) assembledComment(ctx context.Context, s planbrief.Pla
 	}
 	key := "plan-assembled:" + ref
 	intent := reporter.deliveryIntent(r.result.Ref, r.result.Ref, r.req.SessionID, run.TriggerCommentID, run.ID, key)
-	var body strings.Builder
-	fmt.Fprintf(&body, "Acceptance and assembled Plan review\n\nCurrent shared decisions: %s\n\n", s.SharedRevision)
-	for _, item := range s.Stories {
-		if !item.Active() {
-			fmt.Fprintf(&body, "- Inactive scope: %s.\n", item.Key)
-			continue
-		}
-		draft, err := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), item.Key)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(&body, "- [%s](https://github.com/%s/%s/issues/%d): candidate %s.\n", item.Key, r.result.Ref.Owner, r.result.Ref.Repo, draft.IssueNumber, item.Candidate)
+	text, err := r.assembledText(ctx, s, ref)
+	if err != nil {
+		return err
 	}
-	fmt.Fprintf(&body, "\nThis third-stage approval binds the exact current active story/dependency/shared-decision set. Reply `/approve-plan-set %s`.\n", ref)
-	raw, err := json.Marshal(planPublication{Intent: intent, Text: body.String()})
+	raw, err := json.Marshal(planPublication{Intent: intent, Text: text})
 	if err != nil {
 		return err
 	}
 	if err = reporter.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: instance.ID, SourceAttemptID: source.ID, Node: "acceptance_review", Kind: "final", Candidate: raw}); err != nil {
 		return err
 	}
-	_, err = reporter.deliver(ctx, intent, func() (redact.Body, error) { return reporter.renderer.RenderReportDelivery(ctx, body.String(), "") })
+	_, err = reporter.deliver(ctx, intent, func() (redact.Body, error) { return reporter.renderer.RenderReportDelivery(ctx, text, "") })
 	return err
+}
+
+// assembledText is the final plan review: the story set table with each
+// story's sub-issue and approved stages, stories no longer in the plan, and the
+// exact command that approves the plan as it stands.
+func (r *planGraphRuntime) assembledText(ctx context.Context, s planbrief.PlanState, ref string) (string, error) {
+	rows, _, err := r.planStoryRows(ctx, s)
+	if err != nil {
+		return "", err
+	}
+	var body strings.Builder
+	body.WriteString("**Final plan review**\n\nEvery story below has all three stages approved on its sub-issue. This is the whole plan as it stands now:\n\n")
+	body.WriteString(renderPlanStoryTable(r.result.Ref, rows, true))
+	var inactive []string
+	for _, item := range s.Stories {
+		if !item.Active() {
+			inactive = append(inactive, "`"+item.Key+"`")
+		}
+	}
+	if len(inactive) > 0 {
+		fmt.Fprintf(&body, "\nNo longer part of the plan (closed or retired): %s.\n", strings.Join(inactive, ", "))
+	}
+	fmt.Fprintf(&body, "\nTo approve exactly this plan, reply `/approve-plan-set %s`.\nTo change something, reply on the story's sub-issue in plain words; a changed plan gets a new final review.\n", ref)
+	return body.String(), nil
 }
 
 func (r *planGraphRuntime) finalize(ctx context.Context, s planbrief.PlanState, revision int64) (out Result, returned error) {
@@ -242,6 +263,8 @@ func (r *planGraphRuntime) finalize(ctx context.Context, s planbrief.PlanState, 
 	if err = r.opts.DB.SetManagedFeatureReady(ctx, feature.ParentTask, feature.Generation, true); err != nil {
 		return out, err
 	}
+	// The owner's final approval is confirmed on the parent with the next step.
+	r.logNotice(r.planReady(ctx, s), "plan-ready")
 	out.Outcome = agent.OutcomeSucceeded
 	return out, nil
 }

@@ -41,18 +41,44 @@ func (s PlanNoticeState) Significant() bool {
 func (s *PlanState) PlanReplyHold(key string) string {
 	item, err := s.story(key)
 	if err != nil {
-		return "This story is no longer in the current Plan. Review the current active scope."
+		return "This story is no longer part of the plan. Review the remaining stories on the parent issue."
 	}
 	if !item.Active() {
-		return "This child is closed or retired. Its reply cannot approve an inactive candidate. Review the remaining Plan; reopening requires a fresh review."
+		return "This story is closed or retired, so a reply here cannot approve it. Review the remaining stories; reopening it starts a fresh review."
 	}
 	if item.Blocked() {
-		return "This story has unresolved lifecycle or request debt. Resolve the reported holds before approving its current candidate."
+		return "This story has an unresolved problem reported earlier. Resolve it before approving this story."
 	}
 	if _, err = s.ReviewRevision(key, item.Stage); err != nil {
-		return "A dependency is inactive or unresolved. Resolve its reported state before approving this candidate."
+		return "A story this one depends on is closed or has an unresolved problem. Resolve that story first, then approve this one."
 	}
 	return ""
+}
+
+// PlanCurrentCommand is the exact command that acts on the story's current
+// owner wait, or empty when the story waits for no owner command. It reads only
+// saved state, so the command it names is the one the latest review shows.
+func (s *PlanState) PlanCurrentCommand(key string) string {
+	item, err := s.story(key)
+	if err != nil || item.Wait == nil || item.Candidate == "" || item.Wait.Candidate != item.Candidate {
+		return ""
+	}
+	switch item.Wait.Kind {
+	case "review":
+		return "/approve-plan " + key + " " + item.Stage + " " + item.Candidate
+	case "retire":
+		return "/retire-plan " + key + " " + item.Candidate
+	}
+	return ""
+}
+
+// withCurrentCommand appends the command that works now, or says that nothing
+// is waiting for one.
+func (s *PlanState) withCurrentCommand(key, reason string) string {
+	if command := s.PlanCurrentCommand(key); command != "" {
+		return reason + " The command that works now is `" + command + "`."
+	}
+	return reason + " Nothing on this story is waiting for your approval right now; its next review will show the command to use."
 }
 
 // PlanReplyReason checks exact approval commands against the current display.
@@ -63,33 +89,33 @@ func (s *PlanState) PlanReplyReason(key, body string) string {
 	}
 	item, err := s.story(key)
 	if err != nil {
-		return "The current story could not be verified."
+		return "This story could not be found in the plan."
 	}
 	w := item.Wait
 	if w != nil {
 		revision, err := s.ReviewRevision(key, item.Stage)
 		if err != nil || revision != w.Revision {
-			return "This review refers to changed content, dependencies or shared decisions. Use a fresh review of the current candidate."
+			return "This story, a story it depends on, or a shared decision changed after the latest review. Wait for the updated review and use the command it shows."
 		}
 	}
 	parts := strings.Fields(body)
 	if len(parts) == 4 && parts[0] == "/approve-plan" {
 		if w == nil || w.Kind != "review" || parts[1] != key || parts[2] != item.Stage || parts[3] != item.Candidate || w.Candidate != item.Candidate {
-			return "This approval names a stale candidate or review. Use the current story review prompt."
+			return s.withCurrentCommand(key, "This approval does not match the latest review of this story, so nothing was approved.")
 		}
 		if len(item.Draft.Questions) > 0 {
-			return "Open questions still require an owner response before this candidate can be approved."
+			return "This story still has open questions. Answer them on this issue before approving it."
 		}
 		for _, stage := range planStages[:max(0, slices.Index(planStages, item.Stage))] {
 			ref, err := s.ReviewRevision(key, stage)
 			if err != nil || item.Approvals[stage] != ref {
-				return "An earlier stage needs current approval before this candidate can advance."
+				return "An earlier stage of this story needs your approval again before this stage can be approved."
 			}
 		}
 	}
 	if len(parts) > 0 && parts[0] == "/retire-plan" {
 		if len(parts) != 3 || w == nil || w.Kind != "retire" || parts[1] != key || parts[2] != item.Candidate || w.Candidate != item.Candidate {
-			return "This retirement reply names a stale candidate or proposal. Review the current story before confirming retirement."
+			return s.withCurrentCommand(key, "This retirement reply does not match the latest proposal for this story, so nothing was retired.")
 		}
 	}
 	return ""
