@@ -24,7 +24,7 @@ var bugSteps = map[string]string{
 
 // bugRetryable are the steps an owner comment restarts after a failure; the
 // store enforces the same set.
-var bugRetryable = map[string]bool{"analyst": true, "record_analysis": true, "fixer": true}
+var bugRetryable = map[string]bool{"analyst": true, "record_analysis": true, "fixer": true, "record_repair": true}
 
 // bugFailureComment explains a stopped Bug parent to the owner: where it
 // stopped, what that means when the cause is known, and what they can do.

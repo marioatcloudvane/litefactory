@@ -333,7 +333,9 @@ func bugContinuationEntryTx(ctx context.Context, tx *sql.Tx, l BugLifecycle, c B
 		if e != nil {
 			return "", e
 		}
-		entry := map[string]string{"analyst": "analyst", "record_analysis": "analyst", "fixer": "fixer"}[prior.CurrentNode]
+		// Recording the repair is factory work over the fixer's retained
+		// result, so it is retried in place and runs no agent.
+		entry := map[string]string{"analyst": "analyst", "record_analysis": "analyst", "fixer": "fixer", "record_repair": "record_repair"}[prior.CurrentNode]
 		if prior.Status == GraphFailed && entry != "" {
 			return entry, nil
 		}
@@ -385,6 +387,17 @@ func (d *DB) BugLaunchContentDigest(ctx context.Context, session int64) (string,
 		return "", ErrNotFound
 	}
 	return digest, err
+}
+
+// BugContinuationPrior is the instance a continuation succeeded, or ErrNotFound
+// when the instance was not created by one.
+func (d *DB) BugContinuationPrior(ctx context.Context, session, successor int64) (int64, error) {
+	var prior int64
+	err := d.sql.QueryRowContext(ctx, `SELECT prior_instance FROM bug_parent_continuations WHERE session_id=? AND successor=?`, session, successor).Scan(&prior)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return prior, err
 }
 
 // BugRetryComment is the owner comment that restarted this parent instance

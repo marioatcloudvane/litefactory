@@ -129,10 +129,13 @@ func (d *DB) CompleteBugRepair(ctx context.Context, in BugRepairCompletion, expe
 			return errors.New("store: repair graph result mismatch")
 		}
 		var scopeCount int
-		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM bug_repair_scope_observations WHERE session_id=? AND request=? AND source_commit=? AND source_tree=? AND disposition='within'`, in.SessionID, in.Request, in.SourceCommit, in.SourceTree).Scan(&scopeCount); err != nil {
+		// The factory must have observed the actual changes; whether they stay
+		// within the analysis's expected files is evidence for the delivery
+		// review, not a gate.
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM bug_repair_scope_observations WHERE session_id=? AND request=? AND source_commit=? AND source_tree=?`, in.SessionID, in.Request, in.SourceCommit, in.SourceTree).Scan(&scopeCount); err != nil {
 			return err
 		}
-		if scopeCount != 1 {
+		if scopeCount < 1 {
 			return errors.New("store: repair scope is not established for immutable source")
 		}
 		evidence, err := json.Marshal(e)

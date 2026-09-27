@@ -190,6 +190,15 @@ func (r *BugRuntime) parentPolicy(w *researchWorkflow) BugParentPolicy {
 	}}
 	return BugParentPolicy{Profile: profile, Analyst: analyst, Fixer: fixer, Record: record, Attempt: attempt, Tests: tests, PR: pr, Merge: merge, Close: closeActivity, Reporter: r.opts.ResearchReporter, RepairRecord: func(ctx context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
 		v, e := r.retained(ctx, a.InstanceID, "fixer")
+		if errors.Is(e, store.ErrNotFound) {
+			// An owner retry of this step starts a new instance at
+			// record_repair; the fixer's result is in the one it replaced.
+			prior, pe := r.opts.DB.BugContinuationPrior(ctx, session, a.InstanceID)
+			if pe != nil {
+				return ActivityResult{}, errors.Join(e, pe)
+			}
+			v, e = r.retained(ctx, prior, "fixer")
+		}
 		if e != nil {
 			return ActivityResult{}, e
 		}
