@@ -127,3 +127,9 @@ Evidence:
 
 - `internal/cli/commands.go:8`
 - `internal/report/creation_guidance.go:22`
+
+## sf4
+
+Run 0009 live MCP preparation returned disposition confirmed, relationship linked and drafts 3 for hash 9fa1ee2fa963783e21bbdd8c3f37d2559927bf0b2f046863dc9bba32206cacb8; receipt 605d692d50512da45482b86602129987 confirms accepted input and retained proposal 728, not issue publication.
+
+_No source reference was recorded for this finding._
