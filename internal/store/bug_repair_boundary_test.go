@@ -321,3 +321,24 @@ func TestBugRepairReshapeRequiresRenewedApproval(t *testing.T) {
 		t.Fatalf("spent reshape replay: %+v %v", replay, err)
 	}
 }
+
+// Every reshape reason stays readable for the analyst, in order; other stops
+// are not reshapes.
+func TestBugRepairReshapesListsHandBacks(t *testing.T) {
+	db := newTestDB(t)
+	identity, analysis := repairBoundaryApproved(t, db)
+	if got, err := db.BugRepairReshapes(t.Context(), identity.SessionID); err != nil || len(got) != 0 {
+		t.Fatalf("reshapes before any repair: %+v %v", got, err)
+	}
+	req, _ := repairBoundaryRequest(t, db, identity, analysis, 0, "initial")
+	if _, err := db.ReserveBugRepair(t.Context(), req, repairBoundaryRevision(t, db, identity.SessionID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.StopBugRepair(t.Context(), identity.SessionID, req.Request, "reshape", "Add internal/a_test.go to the allowed paths.", true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.BugRepairReshapes(t.Context(), identity.SessionID)
+	if err != nil || len(got) != 1 || got[0].Request != req.Request || got[0].Reason != "Add internal/a_test.go to the allowed paths." || got[0].AnalysisRevision != analysis.Revision {
+		t.Fatalf("reshape not listed: %+v %v", got, err)
+	}
+}
