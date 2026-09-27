@@ -50,7 +50,7 @@ Evidence:
 
 ## f6
 
-Item 4 open: Plan is offered only RESEARCH_BRIEF.md by the brief-candidate list. RESEARCH_TECHNICAL.md is unreachable by omission. Classified as a bug and filed separately: the split changed the brief's shape but the reachability and the role text were not updated to match.
+Item 4 open in the supplied investigation: Plan is offered only RESEARCH_BRIEF.md by the brief-candidate list, leaving RESEARCH_TECHNICAL.md unreachable by omission; the separate bug report was drafted, not confirmed published.
 
 Evidence:
 
@@ -108,3 +108,22 @@ The default-activation gate explicitly requires externally authorized observatio
 Evidence:
 
 - `docs/workflow/research-graph.md:68`
+
+## sf2
+
+At f68a5b2148dc158cbfbf6675a50ee0c56067c1fb on 2026-09-27, creation approval intake records consent without launching; publishing-tool registration excludes Research graph nodes even when an approval exists, while proposal preparation includes them.
+
+Evidence:
+
+- `internal/daemon/mcp_creation.go:34`
+- `internal/turn/mcp_runtime.go:347`
+- `internal/turn/mcp_runtime.go:365`
+
+## sf3
+
+At f68a5b2148dc158cbfbf6675a50ee0c56067c1fb the registered CLI command surface has no issue-batch publication command, and the factory guidance explicitly says another ordinary comment cannot enable publication in Graph Research.
+
+Evidence:
+
+- `internal/cli/commands.go:8`
+- `internal/report/creation_guidance.go:22`
