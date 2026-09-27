@@ -1987,6 +1987,13 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
+		// A Bug owner comment written before the open review or question can
+		// never answer it; refuse it once and consume it, as for Research.
+		if workflow == agent.WorkflowBug && errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
+			log.InfoContext(ctx, "Bug owner comment predates the open review or question; refusing it with a reply",
+				slog.Any("error", err))
+			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+		}
 		left := d.leave(ctx, t, log, "the turn could not be conducted", err)
 		if trigger.PlanReply != nil && left == nil {
 			// A child reply's cursor advances whenever run returns nil, and leave

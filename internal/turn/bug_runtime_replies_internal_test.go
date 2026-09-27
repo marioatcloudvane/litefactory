@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -139,6 +140,14 @@ func bugRuntimeOwnerReply(t *testing.T, questions, change, sharedPin bool) {
 			t.Fatal(e)
 		}
 		body = fmt.Sprintf("/approve-bug analysis %d", review.AnalysisRevision)
+	}
+	// A comment written before the review was posted (a retry queued behind
+	// the run it started) can never answer it: the daemon refuses and consumes
+	// it rather than holding the queue behind it (#401).
+	early := req
+	early.Trigger = Trigger{CommentID: published.CommentID - 1, AuthorID: 42, Body: "try again"}
+	if _, e = Execute(t.Context(), f.opts, early); !errors.Is(e, store.ErrGraphReplyPredatesQuestion) {
+		t.Fatalf("comment older than the open review was not refused as predating it: %v", e)
 	}
 	req.Trigger = Trigger{CommentID: published.CommentID + 1, AuthorID: 42, Body: body}
 	if change {

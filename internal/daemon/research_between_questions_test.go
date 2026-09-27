@@ -22,7 +22,7 @@ const (
 )
 
 // betweenRefusalText identifies the one diagnostic reply.
-const betweenRefusalText = "arrived while Research was still working"
+const betweenRefusalText = "arrived while the workflow was still working"
 
 type betweenQuestions struct {
 	f        *fixture

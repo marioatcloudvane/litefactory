@@ -241,6 +241,10 @@ func (r *BugRuntime) Execute(ctx context.Context, req Request, result Result) (R
 		return result, e
 	}
 	a, e := r.admission(ctx, req)
+	if errors.Is(e, store.ErrGraphReplyPredatesQuestion) {
+		// The daemon replies and consumes the comment.
+		return result, e
+	}
 	if e != nil {
 		reporter := BugParentPolicy{Reporter: r.opts.ResearchReporter}
 		reportErr := reporter.PublishEvent(context.WithoutCancel(ctx), req.SessionID, 0, fmt.Sprintf("bug-admission:%d:%d", req.SessionID, req.Trigger.CommentID), "pre-dispatch", bugAdmissionComment(e))

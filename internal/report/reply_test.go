@@ -49,10 +49,10 @@ func TestGraphReplyBetweenQuestionsRefusalSaysNotUsedAndResend(t *testing.T) {
 		t.Error("a run-less reply carries a run attribute")
 	}
 	containsAll(t, "between-questions refusal", text,
-		"arrived while Research was still working",
-		"before its current question was posted",
+		"arrived while the workflow was still working",
+		"before its current question or review was posted",
 		"it was not used",
 		"nothing was run for it",
-		"post it again as a reply to the open question",
+		"post it again as a reply to the open question or review",
 	)
 }
