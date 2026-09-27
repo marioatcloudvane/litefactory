@@ -46,9 +46,17 @@ func (r *Reporter) ReportPlanNotices(ctx context.Context, parent naming.Ref, ses
 
 // ReportPlanReply persists one immutable explanation per original child input.
 // Store completion advances only the child cursor and only after confirmation.
+// The explanation is posted on the sub-issue the owner replied on, because that
+// is where the owner acts. The delivery key keeps its original identity, so an
+// explanation retained before this destination existed resumes unchanged.
 func (r *Reporter) ReportPlanReply(ctx context.Context, parent naming.Ref, sessionID int64, key string, child int, commentID int64, reason string) (Posted, error) {
 	intent := r.deliveryIntent(parent, parent, sessionID, commentID, 0, "plan-reply")
 	intent.TriggerNamespace = "plan-reply"
+	if child > 0 {
+		destination := parent
+		destination.Issue = child
+		intent.Destination = destination.String()
+	}
 	explanation, err := r.db.RetainPlanReplyExplanation(ctx, store.PlanReplyExplanation{DeliveryKey: intent.Key, Parent: parent.String(), Key: key, ChildNumber: child, CommentID: commentID, Reason: reason})
 	if err != nil {
 		return Posted{}, err

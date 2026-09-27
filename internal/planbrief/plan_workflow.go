@@ -442,6 +442,10 @@ func (s *PlanState) OpenAssembledReview(scope ContentScope) (string, error) {
 	return s.AssembledWait, nil
 }
 
+// ErrPlanAssembledStale reports a final plan approval that does not name the
+// plan set as it stands now, or arrives while no final review is waiting.
+var ErrPlanAssembledStale = errors.New("stale or ambiguous assembled Plan approval")
+
 // ApproveAssembled binds authenticated parent approval to the exact displayed set.
 func (s *PlanState) ApproveAssembled(ownerID, actorID, replyID int64, body string, scope ContentScope) error {
 	if ownerID < 1 || actorID != ownerID || replyID < 1 || slices.Contains(s.ConsumedReplies, replyID) {
@@ -452,7 +456,7 @@ func (s *PlanState) ApproveAssembled(ownerID, actorID, replyID int64, body strin
 	}
 	ref := s.PlanSetRevision()
 	if s.AssembledWait != ref || strings.TrimSpace(body) != "/approve-plan-set "+ref {
-		return errors.New("stale or ambiguous assembled Plan approval")
+		return ErrPlanAssembledStale
 	}
 	s.AssembledApproval = ref
 	s.AssembledWait = ""

@@ -86,9 +86,14 @@ func TestPlanProgressText_OutboundSafety(t *testing.T) {
 				t.Fatalf("untrusted text escaped fence or lost marker: %s", got)
 			}
 			if reply {
-				for _, want := range []string{"Child: #42", "Reply: 123", "acknowledged only after this explanation is confirmed"} {
+				for _, want := range []string{"Your reply on #42", "did not change story story-a", "nothing was approved"} {
 					if !strings.Contains(got, want) {
 						t.Errorf("missing %q", want)
+					}
+				}
+				for _, internal := range []string{"acknowledged only after", "candidate"} {
+					if strings.Contains(got, internal) {
+						t.Errorf("reply explanation uses internal wording %q: %s", internal, got)
 					}
 				}
 			}
@@ -99,7 +104,56 @@ func TestPlanProgressText_OutboundSafety(t *testing.T) {
 func TestPlanReplyExplanationText_BoundedDetails(t *testing.T) {
 	t.Parallel()
 	got := report.PlanReplyExplanationText(strings.Repeat("story", 2000), 42, 123, strings.Repeat("原因", 2000))
-	if len(got) > 2600 || !utf8.ValidString(got) || !strings.Contains(got, "Child: #42") || !strings.Contains(got, "Reply: 123") {
+	if len(got) > 2600 || !utf8.ValidString(got) || !strings.Contains(got, "Your reply on #42") {
 		t.Fatalf("bounded explanation lost identity or valid Unicode: %d bytes", len(got))
+	}
+}
+
+// C4: the explanation quotes the command that works now, in plain words.
+func TestPlanReplyExplanationText_QuotesTheCurrentCommand(t *testing.T) {
+	t.Parallel()
+	reason := "This approval does not match the latest review of this story, so nothing was approved. The command that works now is `/approve-plan story-009 acceptance plan-55-600`."
+	got := report.PlanReplyExplanationText("story-009", 398, 5, reason)
+	for _, want := range []string{"Your reply on #398 did not change story story-009", "/approve-plan story-009 acceptance plan-55-600"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("explanation lacks %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "acknowledged only after") || strings.Contains(got, "current candidate") {
+		t.Fatalf("explanation uses internal wording: %s", got)
+	}
+}
+
+// C7: the delivery renderer never publishes a path on the factory host. A
+// markdown link to a host file keeps only its text; a bare path keeps only its
+// last two names. Rendering the result again changes nothing.
+func TestRenderReportDelivery_StripsFactoryHostPaths(t *testing.T) {
+	t.Parallel()
+	const home = "/Users/tester"
+	rep, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: 65536, HostRoots: []string{home}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := "Read the [plan-acceptance-shaping skill](" + home + "/.litefactory/bundles/x/skills/plan-acceptance-shaping/SKILL.md) first.\n" +
+		"Also " + home + "/.litefactory/bundles/x/SKILL.md, and `" + home + "/.lf-worktrees/litefactory/task-401`.\n" +
+		"Elsewhere: /opt/other/.litefactory/bundles/y/SKILL.md and https://github.com/o/r/issues/1 stay readable."
+	got, err := rep.RenderReportDelivery(context.Background(), body, "<!-- marker -->")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := got.String()
+	for _, leak := range []string{home, "/.litefactory/bundles", "/opt/other"} {
+		if strings.Contains(text, leak) {
+			t.Fatalf("host path %q published: %s", leak, text)
+		}
+	}
+	for _, want := range []string{"Read the plan-acceptance-shaping skill first.", "…/x/SKILL.md", "`…/litefactory/task-401`", "…/y/SKILL.md", "https://github.com/o/r/issues/1", "<!-- marker -->"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered body lacks %q: %s", want, text)
+		}
+	}
+	again, err := rep.RenderReportDelivery(context.Background(), text, "")
+	if err != nil || again.String() != text {
+		t.Fatalf("stripping is not stable on a retained body: %v\n%s\n%s", err, text, again.String())
 	}
 }
