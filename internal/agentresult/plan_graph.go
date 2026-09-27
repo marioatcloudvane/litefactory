@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/report"
 )
 
 const (
@@ -283,6 +284,17 @@ func validatePlanStoryRequest(r *PlanStoryRequest, ctx Context, d *Diagnostics) 
 		if err != nil {
 			for _, fault := range splitErrors(err) {
 				add(d, base+".draft", "draft", "valid draft for the stage", "invalid draft", fault.Error()+".")
+			}
+		} else if r.Operation != "retire" {
+			// The published body repeats the draft as hidden metadata, so a draft
+			// within the raw budget can still render too large; catch it here,
+			// where the agent can shorten it, not after submission.
+			render := report.RenderPlanDraft
+			if r.Operation != "create" {
+				render = report.RenderRetainedPlanDraft
+			}
+			if _, _, renderErr := render(1, 1, r.Draft, b.Stage, ctx.PlanScope); renderErr != nil {
+				add(d, base+".draft", "draft_size", "a draft whose rendered story fits the byte budget", "rendered story too large", renderErr.Error()+". Tighten task descriptions, criteria and architecture rows, or split the story.")
 			}
 		}
 	}

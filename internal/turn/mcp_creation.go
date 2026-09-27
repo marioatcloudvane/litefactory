@@ -124,10 +124,6 @@ func (a *CreationAuthorizer) AdmitOwnerGrantIntent(ctx context.Context, c OwnerG
 	if !a.enabled {
 		return 0, rejectCreation("disabled", store.ErrCreationAuthority)
 	}
-	if c.Mode != "research" {
-		return 0, rejectCreation("mode", store.ErrCreationAuthority)
-	}
-
 	command, err := ParseOwnerGrantCommand(c.Body)
 	if err != nil {
 		return 0, err

@@ -270,7 +270,10 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	}
 	title, body, err := render(int64(a.ParentNumber), d.Ordinal, candidate, r.Stage, a.ContentScope)
 	if err != nil {
-		return receipt, err
+		// Rendering is deterministic and precedes every remote mutation, so the
+		// request can never publish: record it as failed rather than erroring,
+		// which recovery would otherwise retry on every turn.
+		return record("render", "failed", err.Error())
 	}
 	body = planStoryMarker(a, d.Key) + "\n" + planRequestMarker(r) + "\n" + body
 	safeTitle, err := h.Redactor.Apply(ctx, title, 256)

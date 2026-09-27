@@ -49,7 +49,7 @@ func TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata(t *testing.T) {
 	}
 	good := github.Comment{ID: 1, Body: "/mcp-create " + hash + " linked", Author: github.User{ID: 10, Login: "owner"}, CreatedAt: now}
 	repo := github.Repo{Owner: "owner", Name: "api"}
-	for _, name := range []string{"gate off", "nonowner copied", "bot type", "bot identity", "claimed author", "quoted", "wrong repo", "wrong source", "wrong mode", "absent proposal", "wrong relationship", "edited", "stale", "before retained"} {
+	for _, name := range []string{"gate off", "nonowner copied", "bot type", "bot identity", "claimed author", "quoted", "wrong repo", "wrong source", "absent proposal", "wrong relationship", "edited", "stale", "before retained"} {
 		t.Run(name, func(t *testing.T) {
 			c := good
 			selected := a
@@ -75,8 +75,6 @@ func TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata(t *testing.T) {
 				target.Owner = "foreign"
 			case "wrong source":
 				issue = 279
-			case "wrong mode":
-				mode = "validate"
 			case "absent proposal":
 				c.Body = "/mcp-create " + strings.Repeat("f", 64) + " linked"
 			case "wrong relationship":

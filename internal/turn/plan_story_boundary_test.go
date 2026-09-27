@@ -435,3 +435,26 @@ func planAuthorizeRetirement(t *testing.T, h *PlanStoryActivity, a *PlanStoryAut
 	}
 	a.Confirmation = &planbrief.PlanOwnerReply{ID: 99, OwnerID: a.OwnerID, ActorID: a.ActorID, IssueID: 4000, Key: r.Draft.Key, Stage: r.Stage, Candidate: a.RetirementCandidate, WaitID: "retire-wait", Body: "/retire-plan " + r.Draft.Key + " " + a.RetirementCandidate}
 }
+
+// A draft within the raw budget can still render too large once the hidden
+// metadata repeats it. That request can never publish, so it fails without a
+// remote mutation and recovery settles it instead of retrying it every turn.
+func TestPlanBoundaryOversizedRenderFailsAndSettles(t *testing.T) {
+	h, f, a, r, restart := planBoundarySetup(t)
+	r.Draft.Problem = strings.Repeat("x", 40000)
+	got := planApply(t, h, a, r, "failed")
+	if f.creates != 0 || f.patches != 0 || !strings.Contains(got.Detail, "exceeds byte budget") {
+		t.Fatalf("oversized draft reached the forge or lost its cause: %+v creates=%d patches=%d", got, f.creates, f.patches)
+	}
+	restart()
+	if err := h.Reconcile(t.Context(), a, 8); err != nil {
+		t.Fatalf("recovery failed instead of settling: %v", err)
+	}
+	debt, err := h.DB.PlanStoryRecoveryDebt(t.Context(), a.Parent, 8)
+	if err != nil || len(debt) != 0 {
+		t.Fatalf("unpublishable request still owed: %+v err=%v", debt, err)
+	}
+	if err = h.Reconcile(t.Context(), a, 8); err != nil || f.creates != 0 {
+		t.Fatalf("settled request replayed: err=%v creates=%d", err, f.creates)
+	}
+}

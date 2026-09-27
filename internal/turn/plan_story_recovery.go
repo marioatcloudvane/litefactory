@@ -72,7 +72,7 @@ func (h PlanStoryActivity) Reconcile(ctx context.Context, a PlanStoryAuthority, 
 			return applyErr
 		}
 		if applyErr != nil || receipt.Outcome != "applied" {
-			settled, settleErr := h.supersedeKnownIntent(ctx, c, request)
+			settled, settleErr := h.supersedeKnownIntent(ctx, c, request, applyErr == nil && receipt.Outcome == "failed")
 			if settleErr != nil {
 				return settleErr
 			}
@@ -390,8 +390,10 @@ func validateRetirementReview(state planbrief.PlanState, a PlanStoryAuthority, r
 }
 
 // supersedeKnownIntent settles obsolete intent only when no mutation could have
-// occurred. A retained unknown remote outcome survives any newer lifecycle.
-func (h PlanStoryActivity) supersedeKnownIntent(ctx context.Context, c store.PlanStoryCandidate, r graphexec.PlanStoryRequest) (bool, error) {
+// occurred. A retained unknown remote outcome survives any newer lifecycle. A
+// failed request, such as a draft too large to render, can never publish, so it
+// is obsolete as soon as no mutation is on record; a new attempt replaces it.
+func (h PlanStoryActivity) supersedeKnownIntent(ctx context.Context, c store.PlanStoryCandidate, r graphexec.PlanStoryRequest, failed bool) (bool, error) {
 	for _, phase := range []string{"create", "attach", "update", "retire"} {
 		mutated, err := h.DB.HasPlanStoryMutation(ctx, c.Parent, c.RequestID, phase)
 		if err != nil {
@@ -409,7 +411,7 @@ func (h PlanStoryActivity) supersedeKnownIntent(ctx context.Context, c store.Pla
 	if err != nil {
 		return false, err
 	}
-	obsolete := r.Operation != "create" && draft.Revision != r.ExpectedRevision
+	obsolete := failed || (r.Operation != "create" && draft.Revision != r.ExpectedRevision)
 	for i := range state.Stories {
 		item := &state.Stories[i]
 		if item.Key != c.Key {

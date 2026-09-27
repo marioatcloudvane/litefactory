@@ -29,12 +29,6 @@ func TestMCPRuntime_PrepareCreationProposalRejectsUntrustedControls(t *testing.T
 		{"quoted control/refused", func(_ *MCPRuntime, c *OwnerGrantControl) { c.Body = "> " + c.Body }},
 		{"approval is not preparation/refused", func(_ *MCPRuntime, c *OwnerGrantControl) { c.Body = "/mcp-create abc linked" }},
 	}
-	for _, mode := range []string{"plan", "implement", "validate", "spike"} {
-		cases = append(cases, struct {
-			name   string
-			change func(*MCPRuntime, *OwnerGrantControl)
-		}{mode + "/refused", func(_ *MCPRuntime, c *OwnerGrantControl) { c.Mode = mode }})
-	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

@@ -35,6 +35,11 @@ func CreationPublicationContext(ctx context.Context, db *store.DB, sessionID int
 	}
 }
 
+// CreationEnabled reports the loaded creation gate.
+func (r *MCPRuntime) CreationEnabled() bool {
+	return r != nil && r.CreationAuthorizer != nil && r.CreationAuthorizer.enabled
+}
+
 // CreationPublishingAvailable observes configured capability only. It neither
 // discovers a grant nor prepares the native tool catalog.
 func (r *MCPRuntime) CreationPublishingAvailable(runner Runner) bool {
