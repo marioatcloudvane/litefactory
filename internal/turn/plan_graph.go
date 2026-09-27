@@ -140,6 +140,12 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	definition.Profile.Digest = actual.Digest
 	policy := r.policy()
 	out, err := ExecuteWorkflow(ctx, o, req, result, definition, admission, policy)
+	if err == nil && out.Err == nil {
+		// Where the run stopped, the owner hears why and what to do next.
+		_, noticeErr := r.storiesCreated(ctx)
+		r.logNotice(noticeErr, "plan-stories-created")
+		r.logNotice(r.reportStop(ctx, admission.Instance.ID), "plan-stopped")
+	}
 	return out, true, err
 }
 
@@ -261,6 +267,9 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 			return nil
 		}
 		if err = s.ApproveAssembled(r.ownerID, r.req.Trigger.AuthorID, r.req.Trigger.CommentID, r.req.Trigger.Body, r.scope); err != nil {
+			if errors.Is(err, planbrief.ErrPlanAssembledStale) {
+				return assembledRefused(s)
+			}
 			return err
 		}
 		return r.persist(ctx, s, rev)

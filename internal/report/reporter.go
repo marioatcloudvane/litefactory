@@ -25,6 +25,12 @@ type Options struct {
 
 	// Logger records what was cut from a body and why. Nil discards.
 	Logger *slog.Logger
+
+	// HostRoots are absolute directories on the factory host (the home, bundle
+	// and worktree roots) whose paths are never published. Nil uses the current
+	// user's home directory. Paths inside a .litefactory or .lf-worktrees
+	// directory are stripped whatever the roots.
+	HostRoots []string
 }
 
 // Reporter renders outbound comment bodies.
@@ -32,9 +38,10 @@ type Options struct {
 // It is immutable after construction and safe for concurrent use; every render
 // works on per-call state.
 type Reporter struct {
-	redactor *redact.Redactor
-	limit    int
-	log      *slog.Logger
+	redactor  *redact.Redactor
+	limit     int
+	log       *slog.Logger
+	hostRoots []string
 
 	// budget is the size the body is assembled to, below limit by
 	// [redact.Margin]. Redaction runs after assembly and can grow a body — a
@@ -63,11 +70,16 @@ func New(opts Options) (*Reporter, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
+	roots := opts.HostRoots
+	if roots == nil {
+		roots = defaultHostRoots()
+	}
 	return &Reporter{
-		redactor: opts.Redactor,
-		limit:    opts.Limit,
-		log:      log,
-		budget:   redact.Budget(opts.Limit),
+		redactor:  opts.Redactor,
+		limit:     opts.Limit,
+		log:       log,
+		hostRoots: cleanHostRoots(roots),
+		budget:    redact.Budget(opts.Limit),
 	}, nil
 }
 

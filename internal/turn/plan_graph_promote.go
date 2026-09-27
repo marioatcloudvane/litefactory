@@ -42,6 +42,20 @@ func planSetRefused(s planbrief.PlanState, why string) error {
 	return &planSetRefusal{reason: reason}
 }
 
+// assembledRefused declines a final plan approval that does not name the plan
+// as it stands now. Like a refused set promotion it is a settled outcome posted
+// on the parent, and it quotes the command that works now when the final review
+// is waiting for one.
+func assembledRefused(s planbrief.PlanState) error {
+	reason := "Final plan not approved: the approval does not match the plan as it stands now."
+	if ref := s.PlanSetRevision(); s.AssembledWait != "" && s.AssembledWait == ref {
+		reason += fmt.Sprintf(" To approve the current plan, reply `/approve-plan-set %s`.", ref)
+	} else {
+		reason += " The plan changed after its last final review, so no final approval is waiting right now; the next final review will show the command to use."
+	}
+	return &planSetRefusal{reason: reason}
+}
+
 // promoteSet applies the owner's `/approve-plan set <revision>` parent comment.
 //
 // Authority is the same as for every other owner command on the parent: the

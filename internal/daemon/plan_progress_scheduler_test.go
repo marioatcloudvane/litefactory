@@ -180,7 +180,11 @@ func TestPlanProgressSchedulerStaleReplyUncertainThenHealthy(t *testing.T) {
 	if cursor >= 60 {
 		t.Fatal("healthy reply consumed held child's cursor")
 	}
-	x.forge.addCommentAt(testIssue, 900060, bot(), delivery.Body, x.clock.Now())
+	// The explanation is posted on the child sub-issue the owner replied on.
+	if !strings.HasSuffix(delivery.Destination, "#200") {
+		t.Fatalf("explanation destination %q is not the child issue", delivery.Destination)
+	}
+	x.forge.addCommentAt(200, 900060, bot(), delivery.Body, x.clock.Now())
 	x.settle()
 	cursor, err = x.db.StoryDiscoveryCursor(t.Context(), x.session.ID, 200)
 	progressMust(t, err)

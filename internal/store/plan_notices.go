@@ -132,11 +132,19 @@ func (db *DB) RetainPlanReplyExplanation(ctx context.Context, e PlanReplyExplana
 	return retained, nil
 }
 
+// PlanNoticeNamespace marks a factory-authored graph Plan comment to the owner
+// (stories created, plan ready, owner waits, a stopped run). Its identity is its
+// purpose alone, so a repeat on any later tick resumes the one delivery; it
+// answers no input, so completing it consumes nothing.
+const PlanNoticeNamespace = "plan-notice"
+
 // completePlanNoticeTx replaces ordinary parent input consumption for semantic
 // notices and child explanations. A confirmed reply receipt advances only its
 // own child's discovery cursor, atomically with delivery completion.
 func completePlanNoticeTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) error {
 	switch d.TriggerNamespace {
+	case PlanNoticeNamespace:
+		return nil
 	case "plan-observation":
 		var id int64
 		if _, err := fmt.Sscanf(d.Purpose, "plan-observation:%d", &id); err != nil || id < 1 {
