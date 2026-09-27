@@ -17,6 +17,7 @@ Shape stage, continuing after the owner's bug-triage instruction was actioned: s
 - **sd6** — The loop capability should ship after the dispatch-binding bug is fixed, since looping multiplies how often that gap gets exercised.
 - **sd7** — A hard wait-expiry option is not recommended until the cancelled-dispatch recovery bug ships, since expiring a wait with no recovery path reproduces the same stranded-instance failure.
 - **sd8** — Per the owner's request for a new publishing approval, re-drafted the same three bug issues into a fresh creation proposal (hash 1797f023e7fdf3ec1d1519f28b25c7bec36e2140b3984f2ce43b239e27a01553, 3 drafts, linked), superseding the earlier proposal (hash ecaa054a73fc687b49d9ef6bcf6a30aef0b3db2a91da46f0aac5c35241704a6c) which the owner indicated needed reissuing.
+- **sd9** — The owner asked in a plain comment reply to 'create the issues'; clarified that no tool available here can create or approve issue publication — that requires the owner to act on the factory's own presentation of the already-prepared proposal (hash 1797f023e7fdf3ec1d1519f28b25c7bec36e2140b3984f2ce43b239e27a01553), so no new proposal was drafted and the existing one stands unchanged.
 
 
 ## Assumptions
