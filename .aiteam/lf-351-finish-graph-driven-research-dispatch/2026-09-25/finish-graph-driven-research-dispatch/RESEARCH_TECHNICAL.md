@@ -100,3 +100,11 @@ Evidence:
 
 - `internal/daemon/workflow.go:42`
 - `docs/workflow/bug-runtime.md:3`
+
+## sf1
+
+The default-activation gate explicitly requires externally authorized observations, not just a graph-path run happening to occur; the documentation calls out that offline fixtures and historical CLI versions cannot supply those observations, which by the same logic makes an agent's own self-reported run insufficient too.
+
+Evidence:
+
+- `docs/workflow/research-graph.md:68`
