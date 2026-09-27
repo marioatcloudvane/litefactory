@@ -306,7 +306,9 @@ func (w *researchWorkflow) publishFailure(ctx context.Context, scope func(contex
 func researchFailureCandidate(req Request, cause error) agentresult.Result {
 	reason := "Research failed before it produced a reportable result."
 	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
-		reason = cause.Error()
+		// A joined activity error can be long; the owner needs the cause, not the
+		// whole chain (#410 publishes activity errors too).
+		reason = boundedFailureReason(strings.TrimSpace(cause.Error()))
 	}
 	request := strings.TrimSpace(req.Trigger.Body)
 	if request == "" {

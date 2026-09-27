@@ -54,7 +54,11 @@ func (p *preparedMCP) bindFinalRoute(ctx context.Context, req *agent.Request, se
 	if err != nil {
 		return err
 	}
-	req.Prompt += "\nRequired final route: submit a shared application result using the result helper or permitted communication tools, or return the application JSON as your final terminal response. The factory validates the complete merged result again after exit. A receipt is input acknowledgment, not workflow completion or publication. Missing or malformed output prevents nominal process success. Do not fabricate a correction after exit. Preserve request identity on reply loss; corrected input uses a new request. Existing Plan publication and story checkpoint owners still decide workflow states.\nApplication input example (replace illustrative content with factual results): " + string(example) + "\n"
+	route := "Required final route: submit a shared application result using the result helper or permitted communication tools, or return the application JSON as your final terminal response."
+	if p.service.submittedOnly() {
+		route = "Required final route: submit a shared application result with communication preflight, submit and receipt (or the equivalent result helper methods) only. Do not print a JSON result: terminal text is never read as a result."
+	}
+	req.Prompt += "\n" + route + " The factory validates the complete merged result again after exit. A receipt is input acknowledgment, not workflow completion or publication. Missing or malformed output prevents nominal process success. Do not fabricate a correction after exit. Preserve request identity on reply loss; corrected input uses a new request. Existing Plan publication and story checkpoint owners still decide workflow states.\nApplication input example (replace illustrative content with factual results): " + string(example) + "\n"
 	if len(baseline) > 0 {
 		req.Prompt += "Prior authorized comment data: " + string(baseline) + "\n"
 	}
@@ -191,7 +195,10 @@ func (p *preparedMCP) consumeFinalResult(ctx context.Context, session *Submissio
 		return snapshot, readErr
 	}
 	current := readErr == nil && snapshot.Meta.AttemptID == p.service.binding.Attempt
-	if strings.HasPrefix(trimmed, "{") {
+	// Research and Plan results travel only the shared result route: their
+	// terminal text is never parsed or resubmitted, so a broken or differing
+	// printed copy cannot replace or fail an accepted submission (#410).
+	if !p.service.submittedOnly() && strings.HasPrefix(trimmed, "{") {
 		// A byte-equivalent decoded create can repeat a live submission without
 		// allocating another revision. Different full results need an explicit
 		// revision-bound update, preventing accidental last-writer wins.
@@ -243,6 +250,13 @@ func (p *preparedMCP) consumeFinalResult(ctx context.Context, session *Submissio
 		}
 	}
 	return snapshot, nil
+}
+
+// submittedOnly reports whether the binding is a Research or Plan result, whose
+// only route is the shared result service. Bug, Implement and Validate keep
+// their terminal handling.
+func (s *AgentResultService) submittedOnly() bool {
+	return s.binding.Workflow != string(agent.WorkflowBug) && (s.binding.Mode == string(agent.ModeResearch) || s.binding.Mode == string(agent.ModePlan))
 }
 
 func resultDiagnosticError(d agentresult.Diagnostics) error {

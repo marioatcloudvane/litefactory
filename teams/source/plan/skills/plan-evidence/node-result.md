@@ -1,7 +1,7 @@
 # Plan node result, version 1
 
 Every Plan role delivers its application result through the shared result route
-first, then returns one confirming JSON object. Nothing in this document is a
+only, and prints no JSON result. Nothing in this document is a
 private Plan format: the result is the shared application result, checked by the
 same validator whether you preflight it or submit it.
 
@@ -32,17 +32,17 @@ real validator. The convention is exact:
   extracted as an example.
 - Any json fence without a positive or negative marker is illustrative only.
 
-## The confirming object
+## The step's result
 
-After the accepted submission, return exactly one JSON object as your final response:
-- version: integer 1.
-- response: ask or done. approved is factory-policy-only, never role output.
-- result: exactly the application result you submitted and the factory accepted.
-The final object only confirms the retained accepted result. It never supplies a
-result, and one with no accepted submission, or with a different result, fails the
-attempt. Terminal content is consistency evidence only: the retained accepted
-result is the sole source the factory applies, and a terminal object cannot
-replace a missing one. The whole object is bounded at 1 MiB.
+The accepted submission is the step's result. The retained accepted result is the
+sole source the factory applies, and the factory derives the step's response from
+it: an incomplete result with questions is ask, a completed result without
+questions is done, and any other shape fails the step. approved is
+factory-policy-only, never role output.
+Do not print a JSON result. Terminal text is never read as a result: it never
+supplies a result, cannot replace a missing one and cannot change an accepted one,
+so an attempt with no accepted submission fails whatever you print. End with a
+short plain-language note instead. The whole result is bounded at 1 MiB.
 Unknown fields, duplicate object members, trailing values, unsupported versions and
 missing required fields must fail validation.
 
@@ -595,8 +595,8 @@ stage or complete the graph, and acknowledgment is not acceptance.
    Keep it.
 3. communication_receipt({"request_id": ID}): read the state. Accepted content is
    now the retained result; pending, failed or uncertain stay that way.
-4. Return the confirming object {"version":1,"response":"done","result": ...}
-   whose result is exactly P.
+4. Do not print a JSON result. The accepted content is the step's result; end
+   with a short plain-language note.
 ```
 
 <!-- walkthrough: id=lost-reply -->

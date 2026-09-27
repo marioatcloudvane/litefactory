@@ -221,8 +221,11 @@ func (w *researchWorkflow) reportStepFailure(ctx context.Context, step GraphNode
 
 // failed settles a failed or stopped graph step. A mode with its own handlers
 // reports every one, dispatch errors included, so nothing fails silently; a mode
-// without keeps its established behavior, publishing only where the graph
-// declares a failure edge. The result always carries the original cause.
+// without publishes where the graph declares a failure edge, and that includes
+// an agent step whose activity returned an error (#410): a Research investigate
+// or shape step that errors reaches the owner through the declared failure
+// comment instead of ending silently. Other dispatch errors keep their graph
+// routing. The result always carries the original cause.
 func (w *researchWorkflow) failed(ctx context.Context, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), step GraphNodeResult, cause error, dispatched bool) error {
 	if w.policy.Handlers != nil {
 		if w.prep == nil {
@@ -232,10 +235,19 @@ func (w *researchWorkflow) failed(ctx context.Context, scope func(context.Contex
 		}
 		return errors.Join(cause, w.reportStepFailure(ctx, step, cause))
 	}
-	if dispatched {
+	if dispatched && !w.agentStep(step) {
 		return cause
 	}
 	return errors.Join(cause, w.publishFailure(ctx, scope, step, cause))
+}
+
+// agentStep reports whether a failed step was a graph agent (lf_agent) node.
+func (w *researchWorkflow) agentStep(step GraphNodeResult) bool {
+	if step.Node == "" || step.AttemptID < 1 || w.definition == nil || w.definition.Profile == nil {
+		return false
+	}
+	node, ok := w.definition.Profile.Node(step.Node)
+	return ok && node.Action == ResearchAgentAction
 }
 
 // failureComment publishes the shipped failure node when the graph itself
