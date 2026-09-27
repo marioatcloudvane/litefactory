@@ -10,6 +10,7 @@ import (
 // Profile is a byte-digested workflow definition, frozen after construction.
 type Profile struct {
 	Mode           agent.Mode
+	Workflow       agent.Workflow `json:",omitempty"`
 	Team           string
 	ProfileVersion int
 	Digest         string

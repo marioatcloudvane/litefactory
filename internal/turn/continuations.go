@@ -42,7 +42,7 @@ func finishInterruption(ctx context.Context, opts Options, prep *preparation, re
 		case prior.Attempt >= store.MaxAutomaticAttempts:
 			reason = "The three automatic invocation limit is exhausted; manual recovery is required."
 		default:
-			snapshot := store.ContinuationContext{Task: prep.ref.String(), Worktree: prep.worktree.Path(), Agent: prep.segment.Agent, Mode: prep.run.Mode, Request: prep.promptInput.Instruction, ResumeIdentity: identity, SessionRef: prep.segment.SessionRef, SegmentOrdinal: prep.segment.Ordinal, OwnerCommentID: prep.run.TriggerCommentID}
+			snapshot := store.ContinuationContext{Task: prep.ref.String(), Worktree: prep.worktree.Path(), Agent: prep.segment.Agent, Mode: prep.run.Mode, Workflow: string(prep.request.Workflow), Request: prep.promptInput.Instruction, ResumeIdentity: identity, SessionRef: prep.segment.SessionRef, SegmentOrdinal: prep.segment.Ordinal, OwnerCommentID: prep.run.TriggerCommentID}
 			if prep.promptInput.ApprovedStories != nil {
 				snapshot.ApprovedGeneration = prep.promptInput.ApprovedStories.Generation
 			}

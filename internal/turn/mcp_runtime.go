@@ -170,7 +170,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	if override != nil && override.Pass != "" {
 		workContext += "#" + override.Pass
 	}
-	contextValue := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
+	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if prep.typedPlan != nil {
 		contextValue.PlanScope = prep.typedPlan.scope
 	}
@@ -197,7 +197,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		}
 	}
 	var service *AgentResultService
-	o := AgentResultServiceOptions{DB: runtime.Authority.db, Attempt: store.ResultAttempt{Task: prep.ref.String(), Mode: req.Mode, WorkContext: workContext, Attempt: attempt, RunID: prep.run.ID, SchemaVersion: agentresult.SchemaVersion, WorkflowVersion: workflow, SubmissionVersion: 2}, Resolve: func(check context.Context) (agentresult.Context, error) {
+	o := AgentResultServiceOptions{DB: runtime.Authority.db, Attempt: store.ResultAttempt{Workflow: string(req.Workflow), Task: prep.ref.String(), Mode: req.Mode, WorkContext: workContext, Attempt: attempt, RunID: prep.run.ID, SchemaVersion: agentresult.SchemaVersion, WorkflowVersion: workflow, SubmissionVersion: 2}, Resolve: func(check context.Context) (agentresult.Context, error) {
 		if err := check.Err(); err != nil {
 			return agentresult.Context{}, err
 		}
@@ -216,6 +216,9 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		}
 		return cloneResultContext(contextValue), nil
 	}, ReadTargets: agentresult.EditTargets(req.Mode), EditTargets: agentresult.EditTargets(req.Mode)}
+	if req.Workflow != agent.WorkflowBug {
+		o.Attempt.Workflow = ""
+	}
 	if override != nil {
 		if override.Resolve == nil {
 			return nil, nil, errors.New("result override requires a trusted resolver")
@@ -264,6 +267,16 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 			err = errors.Join(err, p.close(context.WithoutCancel(ctx)))
 		}
 	}()
+	if req.Workflow == agent.WorkflowBug {
+		if req.Mode != "" || override == nil || runtime.DisableMCP {
+			return nil, nil, errors.New("bug analyst requires scoped native result service")
+		}
+		spec, err := prepareBugResultBroker(ctx, p, attempt)
+		if err != nil {
+			return nil, nil, err
+		}
+		return p, spec, nil
+	}
 	projections := map[string]FamilyProjection{"result": ResultReceiptProjection(o.DB, service.Binding()), "tool:issues_comment": CommentReceiptProjection(o.DB)}
 	if runtime.CreationAuthorizer != nil {
 		projections["tool:issues_create_batch"] = CreationPublicationProjection(o.DB, runtime.CreationAuthorizer.store)
@@ -426,4 +439,33 @@ func researchWorkContext(base string, instance int64) string {
 		return base
 	}
 	return fmt.Sprintf("%s#graph-%d", base, instance)
+}
+
+// prepareBugResultBroker exposes only attempt-scoped communication operations.
+// It never constructs issue, publication, checkpoint, or activity families.
+func prepareBugResultBroker(ctx context.Context, p *preparedMCP, attempt string) (*agent.MCPLaunchSpec, error) {
+	runtime := p.runtime
+	now := runtime.Now()
+	expires := now.Add(24 * time.Hour)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
+	var err error
+	p.guard, err = runtime.Authority.Bind(ctx, p.service.Binding(), p.service.MCPPermissionDigest(), expires)
+	if err != nil {
+		return nil, err
+	}
+	dispatcher, err := NewToolDispatcher(p.guard, p.service)
+	if err != nil {
+		return nil, err
+	}
+	dir := runtime.Paths.SubmissionDir()
+	if err = os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	p.broker, err = submission.Start(ctx, submission.Options{Directory: dir, AllowTools: true, AttemptReference: attempt, MaxWorkers: 4, RequestTimeout: 30 * time.Second, Handler: dispatcher.Handler})
+	if err != nil {
+		return nil, err
+	}
+	return BuildMCPLaunchSpec(ctx, true, runtime.Executable, p.broker, p.guard)
 }

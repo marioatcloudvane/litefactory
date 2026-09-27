@@ -11,19 +11,30 @@ import (
 )
 
 // AdmitPlanPath freezes the Plan route for a session on its first admission.
-// New sessions get legacy Plan: graph Plan is held back until it decomposes the
-// work into a story set and meets the shared agent standard (#377); its first
-// real run created a single story for a multi-story scope. Sessions already
-// admitted keep their route, and an admitted route never changes on reply.
-//
-// The hold-back stays after the three #377 stories (shared result route, agent
-// standard, story set) have landed. Two parent obligations remain unsatisfied
-// and are recorded in the #377 plan brief: (1) an owner-run real graph Plan
-// tryout on a multi-deliverable parent, and (2) a subsequent, separately
-// owner-approved change that lifts this hold-back and is verified against real
-// new-session admission. Offline fake-agent tests satisfy neither.
+// New sessions get graph Plan, which decomposes the work into a story set and
+// returns every node result through the shared MCP result service (#377).
+// Sessions already admitted keep their route, including legacy sessions, and an
+// admitted route never changes on reply.
 func (db *DB) AdmitPlanPath(ctx context.Context, sessionID int64) (string, error) {
-	return db.AdmitPlanWorkflowPath(ctx, sessionID, "legacy")
+	return db.AdmitPlanWorkflowPath(ctx, sessionID, "graph")
+}
+
+// GraphPlanStoryParent returns the parent task of a live graph Plan story
+// issue, identified by its forge issue id. That parent observes the issue's
+// comments as Plan input, so the issue is never a task of its own.
+func (db *DB) GraphPlanStoryParent(ctx context.Context, issueID int64) (string, bool, error) {
+	if issueID < 1 {
+		return "", false, nil
+	}
+	var parent string
+	err := db.sql.QueryRowContext(ctx, `SELECT d.parent FROM plan_story_drafts d JOIN sessions s ON s.task_ref=d.parent JOIN plan_execution_paths p ON p.session_id=s.id WHERE d.issue_id=? AND d.retired=0 AND p.path='graph' LIMIT 1`, issueID).Scan(&parent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("store: graph plan story parent: %w", err)
+	}
+	return parent, true, nil
 }
 
 // AdmitPlanWorkflowPath freezes a factory-selected route on first admission.

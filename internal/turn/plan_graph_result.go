@@ -14,10 +14,10 @@ import (
 )
 
 // planNodeGuidance is what every graph Plan invocation carries in its persistent
-// instruction channel: the terminal envelope in one line, the two branch rules the
-// validator enforces, and the fact that the terminal object confirms a submitted
-// result and never supplies one.
-const planNodeGuidance = "\nFactory invocation: private Plan graph node. Submit the complete application result with the shared result helper or permitted communication tools, then return exactly one JSON object {\"version\":1,\"response\":\"ask\"|\"done\",\"result\":{...}} whose result is exactly the one you submitted. ask requires an incomplete result with a nonblank reason and nonempty owner questions, and neither storyrequest nor storyset. done requires a completed result without questions and exactly one of result.payload.plan.storyrequest (create, update or retire the factory-selected story) or result.payload.plan.storyset (propose several stories). Never supply stage, candidate, request_id, upstream or shared_revision: the factory fills them. If a submit reply is lost, look up its receipt by request_id before retrying, and resend identical bytes only when no receipt exists: identical bytes keep the request identity and never create a second result. A corrected payload after a refusal gets a new request identity from the helper, so fix the reported diagnostics rather than resending. Do not change accepted content just to force a retry. The terminal object only confirms the retained accepted result and never supplies it; one with no accepted submission, or with a different result, fails the attempt. The entire object is limited to 1 MiB. Role output cannot approve a stage, promote anything or choose authority.\n"
+// instruction channel: the shared result route, the two branch rules the
+// validator enforces, and the fact that the accepted submission is the step's
+// result and printed text is never read as one.
+const planNodeGuidance = "\nFactory invocation: private Plan graph node. Deliver the complete application result only through the shared result route: communication preflight, correct every diagnostic, communication submit, then communication receipt for the same request_id (the shared result helper's preflight, submit and receipt methods are the same route). The accepted submission is this step's result, and the factory derives the step's response from it. To ask the owner, submit an incomplete result with a nonblank reason and nonempty owner questions, and neither storyrequest nor storyset. When done, submit a completed result without questions and exactly one of result.payload.plan.storyrequest (create, update or retire the factory-selected story) or result.payload.plan.storyset (propose several stories). Never supply stage, candidate, request_id, upstream or shared_revision: the factory fills them. If a submit reply is lost, look up its receipt by request_id before retrying, and resend identical bytes only when no receipt exists: identical bytes keep the request identity and never create a second result. A corrected payload after a refusal gets a new request identity from the helper, so fix the reported diagnostics rather than resending. Do not change accepted content just to force a retry. Do not print a JSON result: terminal text is never read as a result, so end with a short plain-language note. The result is limited to 1 MiB. Role output cannot approve a stage, promote anything or choose authority.\n"
 
 // planResultRefKind marks a graph output that references a retained shared result.
 const planResultRefKind = "shared_result"
@@ -35,8 +35,8 @@ type planResultRef struct {
 }
 
 // retainPlanResult is the policy's Retain hook. The reference is built from the
-// retained result's binding and revision; only the response, already checked for
-// consistency with that result, comes from the envelope.
+// retained result's binding and revision, and the response is the one derived
+// from that same retained result.
 func retainPlanResult(binding store.ResultBinding, revision int64, node agentresult.ResearchNode) ([]byte, error) {
 	return json.Marshal(planResultRef{Version: 1, Kind: planResultRefKind, Binding: binding, Revision: revision, Response: node.Response})
 }

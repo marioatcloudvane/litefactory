@@ -145,7 +145,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		if step.Status == store.GraphFailed {
 			return w.finish(ctx, w.failed(ctx, scope, step, errors.New(step.Activity.Diagnostic), false))
 		}
-		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" {
+		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" || step.Status == "waiting_child" {
 			return w.finish(ctx, nil)
 		}
 	}
@@ -306,7 +306,9 @@ func (w *researchWorkflow) publishFailure(ctx context.Context, scope func(contex
 func researchFailureCandidate(req Request, cause error) agentresult.Result {
 	reason := "Research failed before it produced a reportable result."
 	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
-		reason = cause.Error()
+		// A joined activity error can be long; the owner needs the cause, not the
+		// whole chain (#410 publishes activity errors too).
+		reason = boundedFailureReason(strings.TrimSpace(cause.Error()))
 	}
 	request := strings.TrimSpace(req.Trigger.Body)
 	if request == "" {
@@ -361,8 +363,18 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 		return out, errors.Join(cause, err)
 	}
 	out.Run = run
-	if cause == nil && w.process != nil && w.process.Succeeded() {
+	if cause == nil && w.process != nil && w.process.Succeeded() && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
 		out = save(bookkeeping, w.opts, w.prep, out, w.process, w.opts.Logger)
+		if w.req.Workflow == agent.WorkflowBug {
+			commit := out.SHAAfter
+			if commit == "" {
+				commit = out.CommitSHA
+			}
+			if commit != "" {
+				out.Err = errors.Join(out.Err, w.opts.DB.SetRunCommit(bookkeeping, w.prep.run.ID, commit))
+			}
+			out.Err = errors.Join(out.Err, w.opts.DB.SetRunPublication(bookkeeping, w.prep.run.ID, out.Pushed, out.Publication))
+		}
 		if out.Err == nil && w.policy.Handlers != nil && w.policy.Handlers.AfterSave != nil {
 			out.Err = w.policy.Handlers.AfterSave(bookkeeping, w, &out)
 		}
@@ -409,11 +421,61 @@ func recoverResearchPublications(ctx context.Context, opts Options, sessionID in
 				return err
 			}
 			if pin.Digest != current.Profile.Digest {
-				return errors.New("unsupported pre-cutover or changed Research capture; effects and dispatch refused")
+				owes, err := researchInstanceOwesWork(ctx, opts, instance)
+				if err != nil {
+					return err
+				}
+				if owes {
+					return errors.New("unsupported pre-cutover or changed Research capture; effects and dispatch refused")
+				}
 			}
 		}
 	}
 	return RecoverWorkflowPublications(ctx, opts, sessionID, ResearchWorkflowPolicy())
+}
+
+// researchInstanceOwesWork reports whether a Research instance still has
+// outstanding work: a non-terminal status (pending dispatches, owner waits or
+// active attempts) or any graph comment in its predecessor chain without a
+// completed report delivery. A finished instance that owes nothing cannot be
+// affected by a changed capture, so it must not block later modes.
+func researchInstanceOwesWork(ctx context.Context, opts Options, instance store.GraphInstance) (bool, error) {
+	switch instance.Status {
+	case store.GraphSucceeded, store.GraphFailed, store.GraphCancelled:
+	default:
+		return true, nil
+	}
+	for id := instance.ID; id != 0; {
+		after := ""
+		for {
+			page, err := opts.DB.ListGraphComments(ctx, id, after, 100)
+			if err != nil {
+				return false, err
+			}
+			for _, intent := range page {
+				delivery, err := opts.DB.GetReportDelivery(ctx, intent.Key)
+				if errors.Is(err, store.ErrNotFound) {
+					return true, nil
+				}
+				if err != nil {
+					return false, err
+				}
+				if !delivery.Completed {
+					return true, nil
+				}
+			}
+			if len(page) < 100 {
+				break
+			}
+			after = page[len(page)-1].Key
+		}
+		prior, _, err := opts.DB.WorkflowPredecessor(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		id = prior
+	}
+	return false, nil
 }
 
 // RecoverWorkflowPublications reconciles pending retained effects for the admitted mode.

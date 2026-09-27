@@ -99,6 +99,10 @@ const (
 
 	// ReplyMalformedModeLabel answers a malformed or unknown Mode label.
 	ReplyMalformedModeLabel
+	// ReplyBugModeSwitch refuses replacing an admitted standalone task.
+	ReplyBugModeSwitch
+	// ReplyBugUnavailable retains admission while its execution package is absent.
+	ReplyBugUnavailable
 	// ReplyAmbiguousModeLabels answers multiple competing Mode labels.
 	ReplyAmbiguousModeLabels
 	// ReplyConflictingModeSelection answers an owner edit conflicting with a pending transition.
@@ -196,6 +200,13 @@ const (
 	ReplyCreationRejected
 	// ReplyCreationAccepted acknowledges durable creation consent.
 	ReplyCreationAccepted
+
+	// ReplyGraphReplyBetweenQuestions refuses an owner comment that was written
+	// while the Research workflow was working between two questions, before the
+	// question that is now open was published. It can never answer that
+	// question, so it is refused once, visibly, and consumed rather than
+	// retried forever. It is appended last so no existing kind is renumbered.
+	ReplyGraphReplyBetweenQuestions
 )
 
 // String renders the kind for logs and test failures.
@@ -225,6 +236,10 @@ func (k ReplyKind) String() string {
 		return "sync_refused_with_suggestion"
 	case ReplyRefusesSyncTooFarBehind:
 		return "sync_refused_too_far_behind"
+	case ReplyBugModeSwitch:
+		return "bug_mode_switch_refused"
+	case ReplyBugUnavailable:
+		return "bug_execution_unavailable"
 	case ReplyMalformedModeLabel:
 		return "malformed_mode_label"
 	case ReplyAmbiguousModeLabels:
@@ -269,6 +284,8 @@ func (k ReplyKind) String() string {
 		return "confirm_failed"
 	case ReplyAppliesResolution:
 		return "applies_resolution"
+	case ReplyGraphReplyBetweenQuestions:
+		return "graph_reply_between_questions"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -289,7 +306,9 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyRefusesSync, ReplySuggestsResolution, ReplyRefusesSyncTooFarBehind:
 		return true
-	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
+	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
+		return true
+	case ReplyGraphReplyBetweenQuestions:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -323,10 +342,13 @@ func (k ReplyKind) IsConfirmationReply() bool {
 	}
 }
 
-// RefusesMode reports whether k is a mode-selection refusal.
+// RefusesMode reports whether k is a mode-selection refusal: a workflow
+// admission refusal delivered through the daemon's refuseMode path, which
+// consumes the comment only after the reply is confirmed. That includes
+// [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly:
+	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions:
 		return true
 	default:
 		return false
@@ -799,6 +821,10 @@ func (r Reply) body() string {
 		b.WriteString("Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label " +
 			"text is not repeated here on purpose.")
 
+	case ReplyBugModeSwitch:
+		b.WriteString("This task is already admitted to the standalone Bug workflow. A mode command cannot replace or cancel it. Its workflow and retained progress are unchanged.")
+	case ReplyBugUnavailable:
+		b.WriteString("Bug admission is retained, but execution is unavailable: the registered Bug policy, graph package, result decoder, shared-service preparation and factory role permission bindings are not installed. No agent was launched. The task remains resumable in Bug.")
 	case ReplyMalformedModeLabel:
 		b.WriteString("The `Mode: …` label on this issue is malformed or unknown. Nothing was run.")
 		b.WriteString(sectionGap)
@@ -815,6 +841,10 @@ func (r Reply) body() string {
 		b.WriteString("This user story is locked after promotion to Implement. The approved scope is retained. Comment `replan` on the parent after the active run finishes to reopen Plan for unfinished stories. Completed stories remain completed; new scope requires a successor.")
 	case ReplyStoryPlanOnly:
 		b.WriteString("Story comments refine the parent plan only. Use the parent issue for workflow commands; nothing was run.")
+	case ReplyGraphReplyBetweenQuestions:
+		b.WriteString(graphReplyBetweenQuestionsSentence)
+		b.WriteString(sectionGap)
+		b.WriteString("If it still applies, please post it again as a reply to the open question or review.")
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")
 		b.WriteString(sectionGap)
@@ -1045,6 +1075,11 @@ func (r Reply) body() string {
 // will act on. It is a single constant so the replies cannot drift into
 // different accounts of the active command vocabulary.
 const onlyCommandSentence = "Litefactory accepts `/research`, `/plan`, `/implement`, `/validate`, `/spike`, and `/schedule`."
+
+// graphReplyBetweenQuestionsSentence is [ReplyGraphReplyBetweenQuestions]'s
+// explanation. It is a constant so tests can find the one reply by its words.
+const graphReplyBetweenQuestionsSentence = "This comment arrived while the workflow was still working, " +
+	"before its current question or review was posted, so it was not used and nothing was run for it."
 
 // confirmationPhraseText mirrors internal/confirm.Phrase verbatim. It is a
 // literal here rather than an import of that package, the same way

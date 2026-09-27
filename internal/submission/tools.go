@@ -19,6 +19,7 @@ type ToolSpec struct {
 // ToolProfile is immutable, deny by default, and independent of agent.Permissions.
 type ToolProfile struct {
 	mode     string
+	workflow string
 	families []string
 	creation bool
 }
@@ -31,9 +32,22 @@ func NewToolProfile(mode string) (ToolProfile, error) {
 	return ToolProfile{mode: mode}, nil
 }
 
+// NewWorkflowToolProfile preserves mode-only admission while providing the
+// standalone Bug communication-only catalog. Actual authority remains bound by
+// the service and its attempt guard, never by selecting a catalog.
+func NewWorkflowToolProfile(workflow, mode string) (ToolProfile, error) {
+	if workflow == "bug" && mode == "" {
+		return ToolProfile{workflow: "bug"}, nil
+	}
+	if workflow != "" && workflow != mode {
+		return ToolProfile{}, errors.New("submission: conflicting workflow catalog")
+	}
+	return NewToolProfile(mode)
+}
+
 // Allows checks the same registered catalog used for discovery, denying unknown names.
 func (p ToolProfile) Allows(name string) bool {
-	if p.mode == "" {
+	if p.mode == "" && p.workflow != "bug" {
 		return false
 	}
 	for _, tool := range p.List() {
@@ -61,7 +75,7 @@ const sharedResultCreate = `"result":{"type":"object","properties":{` +
 	`"options":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string"}},"required":["id","text"]}},` +
 	`"recommended_option":{"type":"string"}},"required":["id","audience","text"]}},` +
 	`"recommendation":{"type":"object"},"artifacts":{"type":"array","items":{"type":"object"}},` +
-	`"payload":{"type":"object","description":"Exactly one mode key: research, plan, implement, validate or spike."}},` +
+	`"payload":{"type":"object","description":"Exactly one bound workflow key: research, plan, implement, validate, spike or bug."}},` +
 	`"required":["outcome","comment","payload"]}`
 
 const sharedResultUpdate = `"expected_revision":{"type":"integer","description":"The supplied authorized baseline revision."},` +
@@ -81,7 +95,7 @@ const implementResultSchema = `{"type":"object","description":"Shared result cre
 
 // List returns independent specifications for the installed, permitted catalog.
 func (p ToolProfile) List() []ToolSpec {
-	if p.mode == "" {
+	if p.mode == "" && p.workflow != "bug" {
 		return []ToolSpec{}
 	}
 	tools := []ToolSpec{

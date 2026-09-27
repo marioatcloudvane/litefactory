@@ -39,6 +39,14 @@ func (d *Daemon) retainStoppedResult(t *task, repair func(context.Context) (turn
 
 // releaseWorker transfers ownership to repair debt only after its worker body
 // has finished. A concurrent tick cannot run the repair against live cleanup.
+// owes reports whether a session carries a stopped result not yet persisted.
+// Nothing else may run on that session until its repair succeeds.
+func (s *stoppedResults) owes(sessionID int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.items[sessionID] != nil
+}
+
 func (s *stoppedResults) releaseWorker(sessionID int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

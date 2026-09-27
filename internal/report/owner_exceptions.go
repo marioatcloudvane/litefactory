@@ -15,10 +15,17 @@ type OwnerExceptionNotice struct {
 	CommentID, ActorID int64
 	Detail             string
 	Accepted           bool
+	// EditRefused marks the single reply to an edited source comment whose
+	// original exception is already retained. It uses its own stable marker so
+	// that it never collides with the retained exception's acknowledgement.
+	EditRefused bool
 }
 
 // Marker returns the stable source-comment acknowledgement marker.
 func (n OwnerExceptionNotice) Marker() string {
+	if n.EditRefused {
+		return fmt.Sprintf("<!-- litefactory:owner-exception:%s:%d:edit-refused -->", n.Parent, n.CommentID)
+	}
 	return fmt.Sprintf("<!-- litefactory:owner-exception:%s:%d -->", n.Parent, n.CommentID)
 }
 
@@ -31,7 +38,10 @@ func (r *Reporter) RenderOwnerException(ctx context.Context, n OwnerExceptionNot
 		return redact.Body{}, fmt.Errorf("invalid exception notice")
 	}
 	state := "Exception refused; no acceptance authority recorded."
-	if n.Accepted {
+	switch {
+	case n.EditRefused:
+		state = "Edited exception comment ignored; the originally retained owner exception stays authoritative and unchanged."
+	case n.Accepted:
 		state = "Owner exception recorded. Original failed/unverified evidence remains unchanged. This is not merge approval."
 	}
 	detail := strings.ReplaceAll(strings.ReplaceAll(n.Detail, "\r", ""), "\n", "\n    ")

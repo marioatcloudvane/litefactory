@@ -16,6 +16,7 @@ const automaticTriggerBase int64 = 1 << 61
 // ContinuationContext snapshots identity and the original instruction, never
 // credentials or current permissions. Admission resolves permissions afresh.
 type ContinuationContext struct {
+	Workflow                                             string `json:",omitempty"`
 	Task, Worktree, Agent, Mode, Request, ResumeIdentity string
 	SessionRef                                           string
 	SegmentOrdinal                                       int

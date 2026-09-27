@@ -156,9 +156,12 @@ func TestExecuteRequiresACloneGate(t *testing.T) {
 //
 // # Registered sections
 //
-// prepareClone and commitAndPush own the two critical sections. Managed Plan
-// publication uses the normal save path; obsolete discovery no longer has a
-// separate index-commit section.
+// prepareClone and commitAndPush own ordinary turn preparation and saving.
+// Bug adds separate lifecycle operations: reopening or restoring a worktree,
+// fetching a fresh target without
+// merging it into approved source, and publishing an already saved immutable
+// repair without committing or relaunching a fixer. Each owns one acquisition.
+// Managed Plan publication continues to use the normal save path.
 //
 // # Where the teeth are
 //
@@ -184,8 +187,11 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 	// sections is every function in this package that may take the clone gate,
 	// mapped to the file it must be declared in.
 	sections := map[string]string{
-		"prepareClone":  "prepare.go",
-		"commitAndPush": "harvest.go",
+		"prepareClone":                        "prepare.go",
+		"commitAndPush":                       "harvest.go",
+		"BugRuntime.fetchTarget":              "bug_runtime.go",
+		"BugRuntime.worktree":                 "bug_runtime.go",
+		"BugRuntime.recoverRepairPublication": "bug_runtime_save.go",
 	}
 
 	// gated names each call that must not happen outside a critical section,
@@ -213,7 +219,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"CompleteMerge":      {"prepareClone"},
 		// Confirmed proposal application also pushes inside prepareClone's
 		// existing acquisition.
-		"Push": {"commitAndPush", "prepareClone"},
+		"Push": {"commitAndPush", "prepareClone", "BugRuntime.recoverRepairPublication"},
 	}
 
 	funcs := packageFuncs(t)
@@ -241,6 +247,15 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 			t.Errorf("%s calls release() %d times outside a defer, want 0: "+
 				"a release that is not deferred is a release an early return skips", name, immediate)
 		}
+	}
+
+	// Bug target observation fetches remote objects in its own checked section;
+	// it never runs the ordinary preparation path that could sync approved source.
+	if got := countCalls(funcs["BugRuntime.fetchTarget"].decl, "Fetch"); got != 1 {
+		t.Errorf("BugRuntime.fetchTarget calls Fetch %d times, want exactly1", got)
+	}
+	if got := countCalls(funcs["BugRuntime.worktree"].decl, "EnsureWorktree"); got != 1 {
+		t.Errorf("BugRuntime.worktree calls EnsureWorktree %d times, want exactly 1", got)
 	}
 
 	for _, call := range slices.Sorted(maps.Keys(gated)) {

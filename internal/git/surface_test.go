@@ -88,6 +88,9 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		"RemoteHead",
 		// US-1 bounded immutable blob/mode collection, no index/worktree/ref mutations.
 		"CollectConflictSnapshots",
+		// Bug stories003/004: read immutable repair diffs, clean source identity
+		// and the exact target-commit recipe; no index, worktree or ref writes.
+		"ObserveBugRepair", "ObserveBugCheckSource", "ReadBugCheckRecipe",
 		// Mutating, pre-US-12: the only three operations that write to a
 		// repository or a remote before this story.
 		"Commit", "Push", "MergeBase",

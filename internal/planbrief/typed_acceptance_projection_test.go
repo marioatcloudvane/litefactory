@@ -37,3 +37,21 @@ func TestProjectTypedAcceptanceExplicitFrozenIDs(t *testing.T) {
 		})
 	}
 }
+
+// Graph Plan renders the section under its level-1 PlanAcceptanceHeading and
+// follows it with level-1 and level-2 architecture headings (#385's stories).
+func TestProjectTypedAcceptanceGraphPlanLayout(t *testing.T) {
+	frozen := "## Scope\n\n- [ ] not a criterion\n\n" + PlanAcceptanceHeading + "\n\n- [ ] AC-001: Bug is a distinct workflow&#46;\n- [ ] AC-002: Admission is stored&#46;\n\n# Architecture\n\n## Architecture - General\n\n- [ ] AC-003: architecture text, not a criterion\n"
+	got, err := ProjectTypedAcceptance(frozen, frozen, []string{"AC-001", "AC-002"}, map[string]bool{"AC-001": true, "AC-002": false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(frozen, "- [ ] AC-001:", "- [x] AC-001:", 1)
+	if got != want {
+		t.Fatalf("graph Plan projection changed other content:\n%s", got)
+	}
+	both := frozen + "\n## Acceptance Criteria\n\n- [ ] AC-001: again\n"
+	if _, err := ProjectTypedAcceptance(frozen, both, []string{"AC-001", "AC-002"}, map[string]bool{"AC-001": true, "AC-002": false}); err == nil {
+		t.Fatal("two acceptance sections accepted")
+	}
+}

@@ -405,6 +405,67 @@ func TestSubmissionValidationConsumesRetainedEvidenceOnly(t *testing.T) {
 	}
 }
 
+// Issue #370 (C4): a v2-accepted story leaves a submission marker row in
+// validation_assessments. A following StoryProgress.Poll must not hand that
+// marker to the legacy v1 validation parser.
+func TestSubmissionV2AcceptedStoryPollHasNoValidationParserError(t *testing.T) {
+	f, forge, engineering, o := submissionSessionFixture(t, store.WorkflowSeparated)
+	callContribution(t, engineering, "submit", capturedContribution(t, o.Worktree, "US-1", "engineering"))
+	retained, err := f.db.EngineeringEvidence(t.Context(), f.session.TaskRef, 1, "US-1")
+	mustProgress(t, err)
+	event, err := agent.ParseStoryEvent(retained.Payload)
+	mustProgress(t, err)
+	mustProgress(t, engineering.Close(t.Context()))
+	exitCode := int64(0)
+	_, err = f.db.FinishRun(t.Context(), o.RunID, store.RunOutcome{Status: store.RunSucceeded, ExitCode: &exitCode})
+	mustProgress(t, err)
+	run, err := f.db.GetRun(t.Context(), o.RunID)
+	mustProgress(t, err)
+	next, err := f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: run.SegmentID, Mode: "validate", Agent: store.AgentClaude, TriggerCommentID: 2, LogPath: func(int) string { return "validate.log" }})
+	mustProgress(t, err)
+	validation := &agent.ValidationContext{Version: 1, Parent: f.session.TaskRef, Generation: 1, Stories: []agent.ValidationStory{{Story: o.Bundle.Stories[0], Criteria: []string{"AC-001"}, Snapshot: event.Evidence.ImplementationDigest, Evidence: event.Evidence, EvidenceStatus: "satisfied"}}}
+	session, err := StartSubmissionSession(t.Context(), SubmissionSessionOptions{DB: f.db, Progress: f.opts.StoryProgress, Paths: f.opts.Paths, RunID: next.ID, Worktree: o.Worktree, Validation: validation})
+	mustProgress(t, err)
+	defer session.Close(t.Context())
+	assessment := agent.Contribution{Stage: "validate", Story: "US-1", Outcome: "assessed", Assessment: &agent.AssessmentContribution{SnapshotID: event.Evidence.ImplementationDigest, Criteria: []agent.ContributionFinding{{Name: "AC-001", Status: "satisfied", Classification: "blocking", Evidence: []agent.EvidenceExplanation{{CheckIDs: []string{event.Evidence.Tests[0].Name}, Summary: "Retained scoped execution passed."}}}}, Reviews: []agent.ContributionFinding{}}}
+	for _, name := range []string{"code", "architecture", "plan"} {
+		assessment.Assessment.Reviews = append(assessment.Assessment.Reviews, agent.ContributionFinding{Name: name, Status: "satisfied", Classification: "blocking", Evidence: []agent.EvidenceExplanation{{CheckIDs: []string{}, Summary: "Reviewed retained source."}}})
+	}
+	response := callContribution(t, session, "submit", assessment)
+	var receipt store.SubmissionReceipt
+	mustProgress(t, json.Unmarshal(response.Result, &receipt))
+	if receipt.AcceptanceState != "accepted" {
+		t.Fatalf("v2 assessment not accepted: %+v", receipt)
+	}
+	marker, err := f.db.GetValidationAssessment(t.Context(), next.ID)
+	mustProgress(t, err)
+	if marker.ContextJSON != store.SubmissionAssessmentMarker {
+		t.Fatalf("v2 acceptance did not leave the marker row: %+v", marker)
+	}
+	pending, err := f.db.ListFollowupAssessments(t.Context())
+	mustProgress(t, err)
+	for _, a := range pending {
+		if a.RunID == next.ID {
+			t.Fatal("v2 marker offered to the legacy follow-up parser")
+		}
+	}
+	// Acceptance delivery needs the body gateway; the marker path under test is
+	// the follow-up step that runs after it in the same parent poll.
+	acceptance := &acceptanceTestForge{progressForge: forge, db: f.db}
+	progress, err := NewStoryProgress(f.db, acceptance, f.opts.StoryProgress.renderer, 9, filepath.Join(filepath.Dir(f.db.Path()), "submission-locks"))
+	mustProgress(t, err)
+	// Two ticks: the original failure repeated on every tick.
+	for tick := 1; tick <= 2; tick++ {
+		err := progress.Poll(t.Context())
+		if err != nil && strings.Contains(err.Error(), "invalid validation scope or output size") {
+			t.Fatalf("tick %d passed the v2 marker to the v1 validation parser: %v", tick, err)
+		}
+		if err != nil {
+			t.Fatalf("tick %d: %v", tick, err)
+		}
+	}
+}
+
 func TestSubmissionReferenceReworkChecksCurrentBytes(t *testing.T) {
 	for _, recovery := range []bool{false, true} {
 		t.Run(fmt.Sprintf("recovery=%t", recovery), func(t *testing.T) {

@@ -23,7 +23,9 @@ cover.html
 profile.cov
 
 # Local runtime state, in case anyone points $LF_HOME at the checkout
-/.litefactory/
+/.litefactory/*
+# The Bug check recipe is project policy read from main; it must be tracked.
+!/.litefactory/bug-checks.yaml
 *.db
 *.db-wal
 *.db-shm

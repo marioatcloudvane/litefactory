@@ -270,6 +270,14 @@ func (d *Daemon) sessionRecoveryHeld(sessionID int64, at time.Time) bool {
 }
 
 func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bool, error) {
+	// Bug domain journals own publication, including recovery of native runs.
+	admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
+	if err == nil && admission.Workflow == "bug" {
+		return false, nil
+	}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return true, err
+	}
 	reporter, ok := d.reporter.(interface {
 		ReportPending(context.Context, int64, int64) (turn.Posted, bool, error)
 	})

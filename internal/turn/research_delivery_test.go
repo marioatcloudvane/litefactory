@@ -31,7 +31,7 @@ func TestResearchDeliveryIdentityAndNativeClosure(t *testing.T) {
 	if _, ok := p.files["plugin/skills/evidence/SKILL.md"]; !ok {
 		t.Fatal("missing selected native skill")
 	}
-	if !strings.Contains(string(p.files["bootstrap.md"]), "version=1") {
+	if !strings.Contains(string(p.files["bootstrap.md"]), "Do not print a JSON result") {
 		t.Fatal("missing persistent node result context")
 	}
 	for _, name := range []string{"first", "second"} {

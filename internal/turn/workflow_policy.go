@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -24,6 +25,13 @@ type WorkflowPolicy struct {
 	// derived from the retained result, never from the terminal envelope.
 	Retain func(binding store.ResultBinding, revision int64, node agentresult.ResearchNode) ([]byte, error)
 
+	// Respond maps a node's retained accepted result to the policy's routing
+	// response. Nil uses the shared mapping: an incomplete result with questions
+	// is ask, a completed result without questions is done, and any other shape
+	// is refused. It reads only the retained result, never what the agent printed.
+	// Bug routes by its own payload.bug.response and does not use it.
+	Respond func(agentresult.Result) (string, error)
+
 	AuthorizeOutput func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.ResearchNode) error
 	BeforeContinue  func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.Result, agentresult.Context, int64) error
 	Specs           []graphexec.ActionSpec
@@ -31,6 +39,7 @@ type WorkflowPolicy struct {
 	BeforePublish   func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.Result, agentresult.Context) error
 	Failure         func(Request, error) agentresult.Result
 	Mode            agent.Mode
+	Workflow        agent.Workflow
 	Control         graphexec.ControlPolicy
 	Decode          func([]byte, agentresult.Context) (agentresult.ResearchNode, agentresult.Diagnostics)
 	Artifacts       func(string, string, agentresult.Result) error
@@ -47,6 +56,34 @@ func ResearchWorkflowPolicy() WorkflowPolicy {
 	}, NextStep: researchNextStep, Artifacts: func(root, session string, r agentresult.Result) error {
 		return ValidateResearchArtifactDeclarations(root, session, r.Artifacts)
 	}}
+}
+
+// routesRetained reports whether the policy's node response is derived from the
+// retained result (Research, Plan and every non-Bug policy). Bug finalization is
+// unchanged and keeps its own response and terminal confirmation.
+func (p WorkflowPolicy) routesRetained() bool {
+	return p.Workflow != agent.WorkflowBug
+}
+
+// respond derives the routing response from the retained accepted result.
+func (p WorkflowPolicy) respond(r agentresult.Result) (string, error) {
+	if p.Respond != nil {
+		return p.Respond(r)
+	}
+	return retainedRoute(r)
+}
+
+// retainedRoute is the shared Research and Plan mapping from a retained result
+// to its response. Approval is never derived here: only an authorized owner
+// reply turns a Research done into approved, in AgentActivity.Execute.
+func retainedRoute(r agentresult.Result) (string, error) {
+	switch {
+	case r.Outcome == "incomplete" && len(r.Questions) > 0:
+		return "ask", nil
+	case r.Outcome == "completed" && len(r.Questions) == 0:
+		return "done", nil
+	}
+	return "", fmt.Errorf("outcome %q with %d question(s) is neither ask (incomplete with owner questions) nor done (completed without questions)", r.Outcome, len(r.Questions))
 }
 
 func (p WorkflowPolicy) load(ctx context.Context, db *store.DB, id int64, scope agentresult.Context) (agentresult.ResearchNode, error) {

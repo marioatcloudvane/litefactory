@@ -65,5 +65,5 @@ func (d *Daemon) recoverPlanStories(ctx context.Context, t *task) error {
 		return errors.New("plan recovery requires story forge")
 	}
 	h := turn.PlanStoryActivity{DB: d.db, Forge: forge, Redactor: runtime.Redactor, LockDir: runtime.Paths.StoryProgressLocksDir()}
-	return h.Reconcile(ctx, turn.PlanStoryAuthority{Parent: t.ref.String(), Repo: github.Repo{Owner: t.ref.Owner, Name: t.ref.Repo}, ParentNumber: t.issue.Number, ParentID: t.issue.ID, OwnerID: d.filter.Identities().OwnerUserID, ContentScope: planbrief.ContentScope{Roles: []string{"go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}, IssueRefs: []string{}}}, 8)
+	return h.Reconcile(ctx, turn.PlanStoryAuthority{Parent: t.ref.String(), Repo: github.Repo{Owner: t.ref.Owner, Name: t.ref.Repo}, ParentNumber: t.issue.Number, ParentID: t.issue.ID, OwnerID: d.filter.Identities().OwnerUserID, ContentScope: planbrief.TaskOwnerScope()}, 8)
 }

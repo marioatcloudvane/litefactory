@@ -12,6 +12,15 @@ import (
 // ErrGraphOwnerWait prevents dispatch while an owner question has no admitted reply.
 var ErrGraphOwnerWait = errors.New("store: graph awaits an authorized owner reply")
 
+// ErrGraphReplyPredatesQuestion refuses an otherwise authenticated owner
+// comment that was written before the open question was published, for
+// example while a node was still running between two questions. Unlike a
+// running attempt it is permanent: the comment can never answer this question,
+// so the caller must refuse it visibly and consume it rather than retry it.
+// It is deliberately distinct from ErrGraphInvariant, which still covers every
+// other mismatch (task, mode, instance status or incomplete publication).
+var ErrGraphReplyPredatesQuestion = errors.New("store: owner comment predates the published graph question")
+
 // GraphOwnerWait retains a reply until its continuation attempt is allocated.
 // Publication is read from the original report journal, never inferred from state.
 type GraphOwnerWait struct {
@@ -76,7 +85,7 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 		if e != nil {
 			return e
 		}
-		if task != in.TaskRef || mode != in.Mode || status != GraphRunning || !completed || question != in.QuestionCommentID || in.CommentID <= question {
+		if task != in.TaskRef || mode != in.Mode || status != GraphRunning || !completed || question != in.QuestionCommentID {
 			return graphInvariant("reply does not match published active graph question")
 		}
 		var running int
@@ -85,6 +94,12 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 		}
 		if running != 0 {
 			return ErrGraphAttemptRunning
+		}
+		// The wait is open and its question is published and completed, but this
+		// comment is not newer than that question: it was written before the
+		// question existed and can never answer it.
+		if in.CommentID <= question {
+			return ErrGraphReplyPredatesQuestion
 		}
 		_, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=? WHERE delivery_key=?`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), in.DeliveryKey)
 		if e != nil {

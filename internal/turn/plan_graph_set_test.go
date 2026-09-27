@@ -99,9 +99,10 @@ func TestPlanSet_RecordsRevisionAndPublishesOnTheParent(t *testing.T) {
 	for _, needle := range []string{
 		"Here is the proposed split.",
 		"Proposed story set, revision `" + want + "`",
-		"1. `s1` Storage: Deliver Storage (depends on: Schema)",
-		"2. `s2` Schema: Deliver Schema (depends on: none)",
-		"3. `s3` Screens: Deliver Screens (depends on: Storage, Schema)",
+		"| ID | Name | Description | Dependencies |",
+		"| `s1` | Storage | Deliver Storage | `s2` |",
+		"| `s2` | Schema | Deliver Schema | none |",
+		"| `s3` | Screens | Deliver Screens | `s1`, `s2` |",
 		"reply `/approve-plan set " + want + "`",
 	} {
 		if !strings.Contains(posts[0], needle) {

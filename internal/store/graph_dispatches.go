@@ -131,6 +131,22 @@ func (db *DB) ListDueGraphDispatches(ctx context.Context, now time.Time, limit i
 	return out, nil
 }
 
+// NextFreshGraphDispatch returns the oldest pending dispatch of a session that
+// has never been attempted: a stage its instance parked for and is owed at
+// once. A dispatch that failed to start keeps its back-off and is left to the
+// tick.
+func (db *DB) NextFreshGraphDispatch(ctx context.Context, sessionID int64) (GraphDispatch, bool, error) {
+	row := db.sql.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE session_id=? AND status='pending' AND attempts=0 ORDER BY due_at,id LIMIT 1`, sessionID)
+	d, err := scanGraphDispatch(row)
+	if errors.Is(err, ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
+		return GraphDispatch{}, false, nil
+	}
+	if err != nil {
+		return GraphDispatch{}, false, fmt.Errorf("store: next fresh graph dispatch: %w", err)
+	}
+	return d, true, nil
+}
+
 // ReserveGraphDispatch claims one pending dispatch. Exactly one caller wins,
 // which is what keeps two daemons, or two ticks, from starting the same stage.
 func (db *DB) ReserveGraphDispatch(ctx context.Context, id int64, at time.Time) (GraphDispatch, bool, error) {

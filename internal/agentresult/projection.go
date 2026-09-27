@@ -26,11 +26,11 @@ type ProjectedValue struct {
 func Project(s Snapshot, selections, authorized []Target, ctx Context) (Projection, Diagnostics) {
 	d := newDiagnostics()
 	out := Projection{ResultID: s.Meta.ResultID, Revision: s.Meta.ResultRevision, Selections: []ProjectedValue{}}
-	if s.Meta.Mode != ctx.Mode || s.Meta.SchemaVersion != SchemaVersion || s.Meta.ResultRevision < 1 {
+	if s.Meta.Mode != ctx.Mode || !resultWorkflowMatches(s.Meta, ctx) || s.Meta.SchemaVersion != SchemaVersion || s.Meta.ResultRevision < 1 {
 		add(&d, "$", "scope", "bound snapshot", "invalid binding", "Read a snapshot belonging to the authorized mode.")
 	}
 	for _, t := range selections {
-		if !allowed(t, authorized, ctx.Mode) {
+		if !allowed(t, authorized, resultTargetScope(ctx)) {
 			add(&d, "$.selections", "authorization", "authorized selection", "forbidden selection", "Request only factory-authorized fields or items.")
 			continue
 		}

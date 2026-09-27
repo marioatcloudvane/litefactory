@@ -122,7 +122,7 @@ func TestMeterRefusalMigrationPreservesUnknownHistory(t *testing.T) {
 	}()
 	applyMigrationsThrough(t, db, migrationVersionBefore(t, "meter_refusal"))
 	session := testSession(t, db, 261)
-	run := testRun(t, db, session.ID, 262)
+	run := historicalRun(t, db, session.ID, 262, ModeSpike)
 	attempt, err := db.StartMeterAttempt(ctx, run.ID, "claude")
 	if err != nil {
 		t.Fatal(err)

@@ -160,6 +160,7 @@ func (c *Config) Validate() error {
 	errs = append(errs, validateTiers(c)...)
 	errs = append(errs, validateAgents(&c.Agents)...)
 	errs = append(errs, validatePermissionProfiles(c)...)
+	errs = append(errs, validateBugIsolation(c.BugChecks)...)
 	errs = append(errs, scanSecrets(c)...)
 
 	return errors.Join(errs...)

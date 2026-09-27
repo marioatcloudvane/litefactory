@@ -197,15 +197,18 @@ func checkContractExample(ex contractExample) []string {
 		if (ex.Attrs["response"] == "ask") != (branches == 0) || branches > 1 {
 			fails = append(fails, fmt.Sprintf("positive %q: %d story branches for response=%s", ex.ID, branches, ex.Attrs["response"]))
 		}
-		// The confirming object the role returns afterwards must also decode over
-		// the same context: the example's result inside the version-1 envelope.
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(ex.Body, &fields); err != nil {
-			return append(fails, fmt.Sprintf("positive %q: %v", ex.ID, err))
+		// The factory derives the step's response from the accepted result alone
+		// (#410): incomplete with questions is ask, completed without is done. The
+		// marker's response must be the one the factory would derive.
+		derived := ""
+		switch {
+		case result.Outcome == "incomplete" && len(result.Questions) > 0:
+			derived = "ask"
+		case result.Outcome == "completed" && len(result.Questions) == 0:
+			derived = "done"
 		}
-		envelope, _ := json.Marshal(map[string]any{"version": 1, "response": ex.Attrs["response"], "result": fields["result"]})
-		if node, nd := agentresult.DecodePlanNode(envelope, ctx); !nd.Valid || node.Response != ex.Attrs["response"] {
-			fails = append(fails, fmt.Sprintf("positive %q: confirming object refused: %s", ex.ID, diagList(nd)))
+		if derived != ex.Attrs["response"] {
+			fails = append(fails, fmt.Sprintf("positive %q: the factory derives response %q, marker says %q", ex.ID, derived, ex.Attrs["response"]))
 		}
 		return fails
 	}
@@ -659,7 +662,7 @@ func checkWalkthroughs(doc string) []string {
 		byID[w.ID] = strings.ToLower(strings.Join(strings.Fields(w.Text), " "))
 	}
 	required := map[string][]string{
-		"delivery":          {"communication_preflight", "communication_submit", "communication_receipt", "request_id", "confirming object"},
+		"delivery":          {"communication_preflight", "communication_submit", "communication_receipt", "request_id", "do not print a json result"},
 		"lost-reply":        {"communication_receipt", "do not change p", "same request identity", "identical, unchanged bytes", "do not resend"},
 		"corrected-content": {"refused", "communication_preflight", "new request identity", "never resend the refused bytes"},
 		"authority-changed": {"stale_revision", "stale_binding", "bytes are unchanged", "nothing is retained", "new request identity"},
@@ -677,10 +680,10 @@ func checkWalkthroughs(doc string) []string {
 		}
 	}
 	// Order inside the delivery walkthrough is the contract: preflight, then
-	// submit, then receipt, then the confirming object.
+	// submit, then receipt, and no printed result afterwards.
 	if text := byID["delivery"]; text != "" {
 		last := -1
-		for _, term := range []string{"communication_preflight(p)", "communication_submit(p)", "communication_receipt(", "confirming object"} {
+		for _, term := range []string{"communication_preflight(p)", "communication_submit(p)", "communication_receipt(", "do not print a json result"} {
 			i := strings.Index(text, term)
 			if i < 0 || i < last {
 				fails = append(fails, fmt.Sprintf("delivery walkthrough is out of order at %q", term))
@@ -691,20 +694,26 @@ func checkWalkthroughs(doc string) []string {
 	return fails
 }
 
-// checkTerminalConsistencyOnly verifies the document states that terminal content
-// is consistency evidence and never the source of application data.
+// checkTerminalConsistencyOnly verifies the document states that the accepted
+// submission is the step's result and terminal text is never read as one (#410).
 func checkTerminalConsistencyOnly(doc string) []string {
 	text := strings.ToLower(strings.Join(strings.Fields(doc), " "))
 	var fails []string
 	for _, term := range []string{
-		"terminal content is consistency evidence only",
+		"the accepted submission is the step's result",
 		"retained accepted result is the sole source",
-		"a terminal object cannot replace a missing one",
-		"one with no accepted submission, or with a different result, fails the attempt",
+		"do not print a json result",
+		"terminal text is never read as a result",
 		"never supplies a result",
+		"an attempt with no accepted submission fails",
 	} {
 		if !strings.Contains(text, term) {
 			fails = append(fails, fmt.Sprintf("the contract does not state %q", term))
+		}
+	}
+	for _, banned := range []string{"confirming object", "confirming json object", "return exactly one json object"} {
+		if strings.Contains(text, banned) {
+			fails = append(fails, fmt.Sprintf("the contract still asks for a printed result: %q", banned))
 		}
 	}
 	return fails
@@ -776,8 +785,11 @@ func TestContractWalkthroughCheckerFailsOnGaps(t *testing.T) {
 			}
 		})
 	}
-	if got := checkTerminalConsistencyOnly(strings.ReplaceAll(doc, "consistency evidence only", "authoritative")); len(got) == 0 {
+	if got := checkTerminalConsistencyOnly(strings.ReplaceAll(doc, "never read as a result", "read as the result")); len(got) == 0 {
 		t.Fatal("terminal-content checker accepted a document that dropped the rule")
+	}
+	if got := checkTerminalConsistencyOnly(doc + "\nReturn the confirming object whose result is exactly P.\n"); len(got) == 0 {
+		t.Fatal("terminal-content checker accepted a document that asks for a printed result")
 	}
 }
 
@@ -800,11 +812,12 @@ func checkResultContract(content string) []string {
 	return fails
 }
 
-// workflowResultContracts finds node-result.md files under a workflow package.
+// workflowResultContracts finds named result contracts under a workflow package.
+// Bug uses result.md in its two role-specific result skills.
 func workflowResultContracts(w shippedWorkflow) ([]string, error) {
 	var out []string
 	err := fs.WalkDir(w.FS, ".", func(name string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && d.Name() == "node-result.md" {
+		if err == nil && !d.IsDir() && (d.Name() == "node-result.md" || (w.Name == "bug" && d.Name() == "result.md")) {
 			out = append(out, name)
 		}
 		return err

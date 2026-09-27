@@ -51,7 +51,7 @@ func SemanticDigest(p *Profile) (string, error) {
 func semanticAttrs(attrs map[string]string) map[string]string {
 	out := map[string]string{}
 	for key, value := range attrs {
-		if strings.HasPrefix(key, "lf_") || key == "team" || key == "mode" || key == "profile_version" || key == "start" {
+		if strings.HasPrefix(key, "lf_") || key == "team" || key == "mode" || key == "workflow" || key == "profile_version" || key == "start" {
 			out[key] = value
 		}
 	}

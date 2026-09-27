@@ -1,6 +1,10 @@
 package turn
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/cloudvane/litefactory/internal/agent"
+)
 
 func TestParseCommand(t *testing.T) {
 	t.Parallel()
@@ -91,6 +95,11 @@ func TestParseCommand(t *testing.T) {
 		{name: "plan", body: "/plan", want: Command{Kind: KindSpikeEmpty, Name: "/plan"}},
 		{name: "implement", body: "/implement T-001.2", want: Command{Kind: KindSpike, Name: "/implement", Text: "T-001.2"}},
 		{name: "schedule is kept for factory grammar", body: "/schedule -by 02:00:00 /implement T-001.2", want: Command{Kind: KindSchedule, Name: "/schedule", Text: "-by 02:00:00 /implement T-001.2"}},
+
+		// Graph Plan controls carry the whole body, which the Plan runtime matches exactly.
+		{name: "promote a story set", body: "  /approve-plan set abc123 \n", want: Command{Kind: KindPlanControl, Name: "/approve-plan", Text: "/approve-plan set abc123"}},
+		{name: "approve the assembled plan", body: "/approve-plan-set ref", want: Command{Kind: KindPlanControl, Name: "/approve-plan-set", Text: "/approve-plan-set ref"}},
+		{name: "request a new story", body: "/plan-new-story", want: Command{Kind: KindPlanControl, Name: "/plan-new-story", Text: "/plan-new-story"}},
 
 		// Retired commands have no special status: all are unknown commands.
 		{name: "retired approve", body: "/approve", want: Command{Kind: KindUnknown, Name: "/approve"}},
@@ -184,7 +193,7 @@ func TestParseCommand(t *testing.T) {
 			if (got.Text != "") != carriesText {
 				t.Errorf("ParseCommand(%q) = %+v: text is set exactly for work or scheduling controls", tt.body, got)
 			}
-			if got.Spawns() != (got.Kind == KindSpike || got.Kind == KindFreeText) {
+			if got.Spawns() != (got.Kind == KindSpike || got.Kind == KindFreeText || got.Kind == KindPlanControl) {
 				t.Errorf("ParseCommand(%q) = %+v: Spawns() disagrees with the kind", tt.body, got)
 			}
 			// Name is what a reply quotes back, so only a kind that really
@@ -215,6 +224,7 @@ func TestCommandDisposition(t *testing.T) {
 		{kind: KindSpikeEmpty, needsReply: true, kindAsString: "spike_empty"},
 		{kind: KindSchedule, kindAsString: "schedule"},
 		{kind: KindUnknown, needsReply: true, kindAsString: "unknown"},
+		{kind: KindPlanControl, spawns: true, kindAsString: "plan_control"},
 	}
 
 	for _, tt := range tests {
@@ -254,5 +264,21 @@ func TestActiveCommandsAreNotUnknown(t *testing.T) {
 	}
 	if got := ParseCommand(SpikeCommand + " x"); got.Kind != KindSpike {
 		t.Errorf("%q classified as %v, want %v", SpikeCommand, got.Kind, KindSpike)
+	}
+}
+
+// A Plan control always names Plan as its mode, whatever mode label the issue
+// carries, so the promotion reaches the graph Plan runtime.
+func TestPlanControlCommandsSelectPlan(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range PlanControlCommands {
+		got := ParseCommand(name + " argument")
+		if got.Kind != KindPlanControl || got.Name != name {
+			t.Errorf("ParseCommand(%q) = %+v, want a Plan control", name, got)
+		}
+		if mode, ok := got.Mode(); !ok || mode != agent.ModePlan {
+			t.Errorf("%q selects mode %q, %t; want plan", name, mode, ok)
+		}
 	}
 }

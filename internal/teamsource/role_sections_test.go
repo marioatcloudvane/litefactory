@@ -42,7 +42,7 @@ type shippedWorkflow struct {
 // it. A new workflow directory with a graph but no entry here fails the walk, so
 // it cannot ship uncovered.
 func embeddedWorkflowRoots() map[string]fs.FS {
-	return map[string]fs.FS{"plan": planAssets, "research": researchAssets}
+	return map[string]fs.FS{"plan": planAssets, "research": researchAssets, "bug": bugAssets}
 }
 
 // discoverShippedWorkflows finds workflow packages from the source layout (any
@@ -208,6 +208,10 @@ func TestShippedWorkflowRolesHaveTheNineSections(t *testing.T) {
 				t.Fatal(err)
 			}
 			roles := dotAgentRoles(string(dot))
+			if len(roles) == 0 && w.Name == "bug" && w.Dot == "bug_tests.dot" {
+				// The sole approved test child executes factory checks, never agents.
+				return
+			}
 			if len(roles) == 0 {
 				t.Fatalf("%s/%s names no agent role: the guard would pass vacuously", w.Name, w.Dot)
 			}
@@ -227,7 +231,7 @@ func TestShippedWorkflowRolesHaveTheNineSections(t *testing.T) {
 			roleCount[w.Name+"/"+role]++
 		}
 	}
-	for _, want := range []string{"research/research", "research/shaping", "plan/plan-story", "plan/plan-technical", "plan/plan-acceptance"} {
+	for _, want := range []string{"research/research", "research/shaping", "plan/plan-story", "plan/plan-technical", "plan/plan-acceptance", "bug/bug-analyst", "bug/bug-fixer"} {
 		if roleCount[want] == 0 {
 			t.Errorf("shipped graphs no longer name role %s", want)
 		}

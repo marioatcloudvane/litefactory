@@ -15,45 +15,64 @@ import (
 
 // AC-001, AC-033: every registered workflow is admitted, and none of them can
 // complete an attempt from terminal output alone, whatever decoder it names. A new
-// registered mode has to add a result fixture here or this test fails: it cannot
+// registered workflow has to add a result fixture here or this test fails: it cannot
 // join the registry without the guard being exercised for it.
 func TestRegisteredWorkflowPolicies_EachRefusesTerminalOnlyCompletion(t *testing.T) {
 	t.Parallel()
-	seen := map[agent.Mode]bool{}
+	seen := map[agent.Workflow]bool{}
 	for _, policy := range RegisteredWorkflowPolicies() {
-		mode := policy.Mode
-		t.Run(string(mode), func(t *testing.T) {
+		workflow, err := agent.ResolveWorkflow(policy.Workflow, policy.Mode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(string(workflow), func(t *testing.T) {
 			t.Parallel()
 			if err := policy.Admit(); err != nil {
 				t.Fatalf("registered policy refused: %v", err)
 			}
-			if mode != agent.ModeResearch && mode != agent.ModePlan {
-				t.Fatalf("registered mode %q has no result fixture in this guard; add one", mode)
+			var f *retainedFixture
+			response := "done"
+			switch workflow {
+			case agent.WorkflowResearch, agent.WorkflowPlan:
+				f = newRetainedFixture(t, string(policy.Mode))
+			case agent.WorkflowBug:
+				if policy.Mode != "" {
+					t.Fatal("standalone Bug acquired an effective mode")
+				}
+				db, session, options, _ := bugResultBoundaryFixture(t)
+				service, bindErr := BindAgentResultService(t.Context(), options)
+				if bindErr != nil {
+					t.Fatal(bindErr)
+				}
+				result := strings.TrimSuffix(strings.TrimPrefix(string(bugResultBoundaryBlocked()), `{"result":`), "}")
+				f = &retainedFixture{db: db, session: session, opts: options, service: service, policy: policy, result: result}
+				response = "blocked"
+			default:
+				t.Fatalf("registered workflow %q has no result fixture in this guard; add one", workflow)
 			}
-			f := newRetainedFixture(t, string(mode))
-			_, _, err := AgentActivity{Policy: policy}.acceptRetained(t.Context(), f.service, envelope("done", f.result))
+			_, _, err := AgentActivity{Policy: policy}.acceptRetained(t.Context(), f.service, envelope(response, f.result))
 			if !errors.Is(err, errNoRetainedResult) {
-				t.Fatalf("terminal-only output completed the %s attempt: %v", mode, err)
+				t.Fatalf("terminal-only output completed the %s attempt: %v", workflow, err)
 			}
 			f.submit(t, f.result)
-			if _, _, err = (AgentActivity{Policy: policy}).acceptRetained(t.Context(), f.service, envelope("done", f.result)); err != nil {
+			if _, _, err = (AgentActivity{Policy: policy}).acceptRetained(t.Context(), f.service, envelope(response, f.result)); err != nil {
 				t.Fatalf("the confirmed retained result was refused: %v", err)
 			}
 		})
-		if seen[mode] {
-			t.Fatalf("mode %q is registered twice", mode)
+		if seen[workflow] {
+			t.Fatalf("workflow %q is registered twice", workflow)
 		}
-		seen[mode] = true
+		seen[workflow] = true
 	}
-	if !seen[agent.ModeResearch] || !seen[agent.ModePlan] {
+	if !seen[agent.WorkflowResearch] || !seen[agent.WorkflowPlan] || !seen[agent.WorkflowBug] {
 		t.Fatalf("the registry lost a shipped workflow: %v", seen)
 	}
 }
 
-// AC-012: a new session's Plan route is still legacy, so graph Plan stays held
-// back; a repeat is idempotent; a mode other than Plan is never admitted; and a
-// session already admitted to graph keeps the graph route instead of falling back.
-func TestPlanAdmission_NewSessionsStayOnLegacyAndExistingRoutesAreKept(t *testing.T) {
+// AC-012: a new session's Plan route is graph and never falls back to legacy; a
+// repeat is idempotent; a mode other than Plan is never admitted; and a session
+// already admitted to either route keeps it.
+func TestPlanAdmission_NewSessionsGetGraphAndExistingRoutesAreKept(t *testing.T) {
 	t.Parallel()
 	newFixtureWithoutRun := func(t *testing.T) *fixture {
 		return newFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
@@ -68,21 +87,20 @@ func TestPlanAdmission_NewSessionsStayOnLegacyAndExistingRoutesAreKept(t *testin
 		req.Trigger.Body = "/plan shape stories"
 		return req
 	}
-	t.Run("new session selects legacy and creates no graph", func(t *testing.T) {
+	t.Run("new session selects graph and never falls back to legacy", func(t *testing.T) {
 		t.Parallel()
 		f := newFixtureWithoutRun(t)
 		req := planRequest(f)
 		for range 2 {
-			out, handled, err := admitPlanExecution(t.Context(), f.opts, req, Result{Ref: f.ref(), Session: f.session, SessionID: f.session.ID})
-			if err != nil || handled || out.ResearchGraph {
-				t.Fatalf("new session left the legacy route: handled=%v graph=%v err=%v", handled, out.ResearchGraph, err)
+			// Without durable reporting the graph route refuses; the refusal is the
+			// graph's own and the turn is not handed to legacy Plan.
+			_, handled, err := admitPlanExecution(t.Context(), f.opts, req, Result{Ref: f.ref(), Session: f.session, SessionID: f.session.ID})
+			if !handled || err == nil || !strings.Contains(err.Error(), "graph Plan requires durable reporting") {
+				t.Fatalf("new session did not take the graph route: handled=%v err=%v", handled, err)
 			}
 		}
-		if route, err := f.db.PlanExecutionPath(t.Context(), f.session.ID); err != nil || route != "legacy" {
+		if route, err := f.db.PlanExecutionPath(t.Context(), f.session.ID); err != nil || route != "graph" {
 			t.Fatalf("route = %q %v", route, err)
-		}
-		if _, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan"); !errors.Is(err, store.ErrNotFound) {
-			t.Fatalf("a graph Plan instance exists for a legacy session: %v", err)
 		}
 	})
 	t.Run("other modes are never admitted to a Plan route", func(t *testing.T) {
@@ -115,7 +133,7 @@ func TestPlanAdmission_NewSessionsStayOnLegacyAndExistingRoutesAreKept(t *testin
 	t.Run("an admitted legacy session cannot be moved by a later graph selection", func(t *testing.T) {
 		t.Parallel()
 		f := newFixtureWithoutRun(t)
-		if route, err := f.db.AdmitPlanPath(t.Context(), f.session.ID); err != nil || route != "legacy" {
+		if route, err := f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "legacy"); err != nil || route != "legacy" {
 			t.Fatalf("setup: %q %v", route, err)
 		}
 		if route, err := f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "graph"); err != nil || route != "legacy" {

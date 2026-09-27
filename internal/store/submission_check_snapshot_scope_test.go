@@ -64,7 +64,8 @@ func TestMigration0047PreservesPopulatedEvidenceAndIsIdempotent(t *testing.T) {
 
 	// Every table submission_checks depends on (managed features/stories,
 	// approvals, submission attempts/snapshots) already exists one migration
-	// earlier, so this is written with the real store API rather than raw SQL.
+	// earlier, so their fixtures use the real store API; the run uses the historical
+	// column set because AllocateRun now requires newer additive columns.
 	session := testSession(t, db, 741)
 	if err := db.PutManagedFeature(t.Context(), ManagedFeature{ParentTask: session.TaskRef, Generation: 1, State: "planning"}); err != nil {
 		t.Fatal(err)
@@ -85,14 +86,7 @@ func TestMigration0047PreservesPopulatedEvidenceAndIsIdempotent(t *testing.T) {
 	if err := db.ApproveManagedStories(t.Context(), session.TaskRef, 1, []ApprovedStoryRevision{revision}); err != nil {
 		t.Fatal(err)
 	}
-	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "pre-migration", AgentClaude)
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := db.AllocateRun(t.Context(), AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: AgentClaude, TriggerCommentID: 1, LogPath: func(n int) string { return fmt.Sprintf("/logs/%d.jsonl", n) }})
-	if err != nil {
-		t.Fatal(err)
-	}
+	run := historicalRun(t, db, session.ID, 1, "implement")
 	attempt := SubmissionAttempt{RunID: run.ID, Attempt: "attempt-1", Parent: session.TaskRef, Generation: 1, Stage: "engineering", Stories: []SubmissionStoryBinding{{Story: key, IssueID: story.IssueID, Revision: revision.Hash}}}
 	if err := db.BindSubmissionAttempt(t.Context(), attempt); err != nil {
 		t.Fatal(err)

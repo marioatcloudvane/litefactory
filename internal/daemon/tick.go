@@ -780,6 +780,7 @@ type task struct {
 	scheduled          *store.Schedule
 	continuation       *store.Continuation
 	continuationLocked bool
+	bugDispatchLocked  bool
 
 	refining  bool
 	repo      store.Repo
@@ -1424,12 +1425,13 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		log.DebugContext(ctx, "the issue body has nothing to act on; nothing runs")
 		return nil
 	}
-	if !command.Spawns() {
+	if !command.Spawns() || command.Kind == turn.KindPlanControl {
 		// /plan, /frobnicate, a bare /spike: nothing runs, and — unlike the
 		// same command in a comment — nothing is posted either (AC-2.16c). A
 		// reply would be litefactory answering a question nobody asked it, on
 		// an issue whose author may not even have meant the first line as a
-		// command.
+		// command. A Plan control answers a proposal the factory posted, so an
+		// issue body cannot carry one.
 		log.DebugContext(ctx, "the issue body names a command that spawns nothing; "+
 			"nothing runs and nothing is posted",
 			slog.String("command", command.Name),
@@ -1616,6 +1618,17 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
 	}
 
+	// A graph Plan story issue belongs to its parent, whose worker reads the
+	// issue's comments as Plan input. Acting here as well would answer the
+	// same reply twice, or start a second run beside the Plan revision.
+	if parent, owned, err := d.db.GraphPlanStoryParent(ctx, t.issue.ID); err != nil || owned {
+		if err != nil {
+			return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
+		}
+		log.InfoContext(ctx, "comment on a graph Plan story issue; its parent Plan handles it", slog.String("parent", parent))
+		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
+		return d.leave(ctx, t, log, "could not consume a graph Plan story comment", err)
+	}
 	if pending, err := d.resumeReport(ctx, t, c.ID); pending || err != nil {
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
@@ -1623,6 +1636,21 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "successful creation intake recovery pending", err)
 	}
 	command := turn.ParseCommand(c.Body)
+	if d.bug != nil && (command.Name == "/approve-bug" || command.Name == "/bug-review" || command.Name == "/retry-bug-tests") {
+		admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return d.leave(ctx, t, log, "could not read Bug control admission", err)
+		}
+		if err == nil && admission.Workflow == string(agent.WorkflowBug) {
+			// The runtime authenticates and parses the exact original body against
+			// its published wait. This only routes an existing task's control.
+			trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+			return d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
+		}
+	}
+	if command.Name == "/approve-bug" {
+		return d.handleBugAnalysisApproval(ctx, t, c, command, log)
+	}
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)
 	}
@@ -1662,8 +1690,35 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.handleConfirm(ctx, t, c, command, log)
 	}
 
+	if command.Kind == turn.KindPlanControl {
+		return d.handlePlanControl(ctx, t, c, command, log)
+	}
+
 	if !command.Spawns() {
 		return d.reply(ctx, t, c, command, log)
+	}
+	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	return d.run(ctx, t, trigger, command, log)
+}
+
+// handlePlanControl delivers a graph Plan control on the parent issue, such as
+// `/approve-plan set <revision>`, to a Plan turn. The graph Plan runtime applies
+// or refuses it from the exact comment body. A session not admitted to graph
+// Plan has no such controls, so the comment is answered as an unknown command,
+// as it was before graph Plan existed.
+func (d *Daemon) handlePlanControl(
+	ctx context.Context,
+	t *task,
+	c github.Comment,
+	command turn.Command,
+	log *slog.Logger,
+) error {
+	route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return d.leave(ctx, t, log, "could not read the Plan route for "+command.Name, err)
+	}
+	if route != "graph" {
+		return d.reply(ctx, t, c, turn.Command{Kind: turn.KindUnknown, Name: command.Name, Tagged: command.Tagged}, log)
 	}
 	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
 	return d.run(ctx, t, trigger, command, log)
@@ -1811,13 +1866,16 @@ func (d *Daemon) run(
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
 
-	mode, err := d.admitMode(ctx, t, trigger, command)
+	workflow, mode, err := d.admitWorkflow(ctx, t, trigger, command)
 	if err != nil {
 		var refusal *modeRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind)
 		}
 		return d.leave(ctx, t, log, "mode selection was refused", err)
+	}
+	if workflow == agent.WorkflowBug && d.bug == nil {
+		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable)
 	}
 	// Resolve the agent-selection label before checking for an obsolete
 	// permission label and before anything is locked, fetched, or written.
@@ -1843,7 +1901,12 @@ func (d *Daemon) run(
 	// Select permissions only after both the concrete mode and effective agent
 	// are known. A missing entry is an invariant violation, never a reason to
 	// fall back to a potentially broader agent-global surface.
-	tools, ok := d.resolveTools(mode, agent.Kind(selectedAgent))
+	tools, ok := d.resolveWorkflowTools(workflow, mode, agent.Kind(selectedAgent))
+	if workflow == agent.WorkflowBug && d.bug != nil {
+		// This carries identity only. The runtime resolves the particular
+		// analyst/fixer grant when dispatching that role, including resumes.
+		tools, ok = toolDecision{Profile: "bug"}, true
+	}
 	if !ok {
 		return d.leave(ctx, t, log, "could not select permissions for the resolved mode and agent",
 			fmt.Errorf("no permission profile for mode %q and agent %q", mode, selectedAgent))
@@ -1871,6 +1934,14 @@ func (d *Daemon) run(
 	// this input as a runless refusal; preparation failure retains the claim.
 	if mode == agent.ModeResearch && t.continuation == nil {
 		if err := d.claimResearchReply(ctx, t, trigger); err != nil {
+			// A comment written before the open question was published can
+			// never answer it. Refuse it once, visibly; the reply path consumes
+			// it only after confirmed delivery, so later comments proceed.
+			if errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
+				log.InfoContext(ctx, "Research owner comment predates the open question; refusing it with a reply",
+					slog.Any("error", err))
+				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+			}
 			return d.leave(ctx, t, log, "Research owner reply admission failed", err)
 		}
 	}
@@ -1880,6 +1951,7 @@ func (d *Daemon) run(
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
 		Continuation: t.continuation,
 		Mode:         mode,
+		Workflow:     workflow,
 		SessionID:    t.session.ID,
 		Issue: turn.Issue{
 			Number: t.issue.Number,
@@ -1915,6 +1987,13 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
+		// A Bug owner comment written before the open review or question can
+		// never answer it; refuse it once and consume it, as for Research.
+		if workflow == agent.WorkflowBug && errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
+			log.InfoContext(ctx, "Bug owner comment predates the open review or question; refusing it with a reply",
+				slog.Any("error", err))
+			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+		}
 		left := d.leave(ctx, t, log, "the turn could not be conducted", err)
 		if trigger.PlanReply != nil && left == nil {
 			// A child reply's cursor advances whenever run returns nil, and leave
@@ -1929,6 +2008,7 @@ func (d *Daemon) run(
 	if turnResult.Disposition == turn.DispositionLocked {
 		t.recordWorkerStatus(workerDeferred)
 		t.continuationLocked = t.continuation != nil
+		t.bugDispatchLocked = workflow == agent.WorkflowBug
 		// RD-4: a lock lost to a second process is promoted from a drop to a
 		// marker-set. The dispatch above has already set the flag and the drain's
 		// deferral keeps it, but this is the one disposition whose entire meaning
@@ -1950,6 +2030,12 @@ func (d *Daemon) run(
 		return nil
 	}
 
+	if workflow == agent.WorkflowBug {
+		// Bug owns durable notices, review publication and input consumption.
+		// Generic mode reporting would duplicate them and could consume a reply
+		// before its publication or domain operation has been confirmed.
+		return nil
+	}
 	return d.completeTurn(ctx, t, trigger, mode, turnResult, log)
 }
 

@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -515,6 +516,221 @@ func TestSubmissionRunBudgetRejectsOverflowAtomically(t *testing.T) {
 				t.Fatalf("overflow mutated accounting: %d", size)
 			}
 		})
+	}
+}
+
+// submissionAssessmentDecision allocates a valid validate-stage receipt and the
+// matching accepted decision for the fixture's first story.
+func submissionAssessmentDecision(t *testing.T, db *DB, a SubmissionAttempt) (SubmissionReceipt, AcceptanceDecision) {
+	t.Helper()
+	r, err := db.AllocateSubmission(t.Context(), submissionRequest(a, "assessment"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisions, err := db.ListApprovedStoryRevisions(t.Context(), a.Parent, a.Generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s ApprovedStoryRevision
+	for _, candidate := range revisions {
+		if candidate.Key == a.Stories[0].Story {
+			s = candidate
+		}
+	}
+	if s.Key == "" {
+		t.Fatal("approved revision missing")
+	}
+	findings := AcceptanceFindings{Criteria: []AcceptanceFinding{{Name: "AC-001", Status: "satisfied", Classification: "blocking", Evidence: `["retained"]`}}}
+	for _, name := range []string{"code", "architecture", "plan"} {
+		findings.Reviews = append(findings.Reviews, AcceptanceFinding{Name: name, Status: "satisfied", Classification: "blocking", Evidence: `["reviewed"]`})
+	}
+	encoded, err := json.Marshal(findings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := AcceptanceDecision{RunID: a.RunID, Parent: a.Parent, Generation: a.Generation, Story: s.Key, IssueNumber: s.IssueNumber, IssueID: s.IssueID, ParentID: s.ParentID, Revision: s.Hash, Snapshot: "snapshot-1", FrozenBody: s.Body, FindingsJSON: string(encoded), Accepted: findings.Accepted()}
+	if !d.Accepted {
+		t.Fatal("fixture findings not accepted")
+	}
+	return r, d
+}
+
+func followupMaterialized(t *testing.T, db *DB, runID int64) bool {
+	t.Helper()
+	var n int
+	if err := db.sql.QueryRowContext(t.Context(), `SELECT count(*) FROM followup_materializations WHERE run_id=?`, runID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n == 1
+}
+
+func followupDebt(t *testing.T, db *DB, runID int64, parent string) (assessment, parentPending bool) {
+	t.Helper()
+	assessments, err := db.ListFollowupAssessments(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range assessments {
+		if a.RunID == runID {
+			assessment = true
+		}
+	}
+	parents, err := db.ListPendingFollowupParents(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range parents {
+		if p == parent {
+			parentPending = true
+		}
+	}
+	return assessment, parentPending
+}
+
+// Issue #370 (C1): a submission-v2 marker is recorded as follow-up-materialized
+// in the same transaction, so the legacy follow-up parser never sees it.
+func TestSubmissionAssessmentMarkerIsFollowupMaterialized(t *testing.T) {
+	t.Parallel()
+	db, a := submissionFixture(t, "validate")
+	r, d := submissionAssessmentDecision(t, db, a)
+	if err := db.CommitSubmissionAssessment(t.Context(), r.ID, d); err != nil {
+		t.Fatal(err)
+	}
+	marker, err := db.GetValidationAssessment(t.Context(), a.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker.ContextJSON != SubmissionAssessmentMarker || marker.ResultJSON != SubmissionAssessmentMarker {
+		t.Fatalf("marker row not written: %+v", marker)
+	}
+	if !followupMaterialized(t, db, a.RunID) {
+		t.Fatal("v2 marker run not recorded in followup_materializations")
+	}
+	if assessment, pending := followupDebt(t, db, a.RunID, a.Parent); assessment || pending {
+		t.Fatalf("v2 marker still reported as follow-up debt: assessment=%t parent=%t", assessment, pending)
+	}
+	got, err := db.GetSubmissionReceipt(t.Context(), a.RunID, r.RequestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AcceptanceState != "accepted" {
+		t.Fatalf("assessment decision changed: %+v", got)
+	}
+}
+
+// Issue #370 (C2): a pre-existing v1 assessment for the same run keeps its
+// follow-up debt; only a genuine marker row is marked.
+func TestSubmissionAssessmentKeepsExistingV1FollowupDebt(t *testing.T) {
+	t.Parallel()
+	db, a := submissionFixture(t, "validate")
+	v1 := ValidationAssessment{RunID: a.RunID, Parent: a.Parent, Generation: a.Generation, ContextJSON: `{"version":1}`, ResultJSON: `{"stories":[]}`}
+	if err := db.RetainValidationAssessment(t.Context(), v1); err != nil {
+		t.Fatal(err)
+	}
+	r, d := submissionAssessmentDecision(t, db, a)
+	if err := db.CommitSubmissionAssessment(t.Context(), r.ID, d); err != nil {
+		t.Fatal(err)
+	}
+	if followupMaterialized(t, db, a.RunID) {
+		t.Fatal("v2 commit suppressed a pre-existing v1 assessment")
+	}
+	got, err := db.GetValidationAssessment(t.Context(), a.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != v1 {
+		t.Fatalf("v1 assessment rewritten: %+v", got)
+	}
+	if assessment, pending := followupDebt(t, db, a.RunID, a.Parent); !assessment || !pending {
+		t.Fatalf("v1 follow-up debt lost: assessment=%t parent=%t", assessment, pending)
+	}
+}
+
+// Issue #370 (C3): migration 0077 backfills existing unmaterialized marker rows
+// (production runs 430 and 564), leaves v1 rows alone and is idempotent.
+func TestSubmissionMarkerFollowupMigrationBackfills(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 370)
+	var backfill migration
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations {
+		if m.version == 77 {
+			backfill = m
+		}
+	}
+	if backfill.name != "submission_marker_followups" {
+		t.Fatalf("migration 0077 missing: %+v", backfill)
+	}
+	if !strings.Contains(backfill.sql, SubmissionAssessmentMarker) {
+		t.Fatal("migration marker literal differs from SubmissionAssessmentMarker")
+	}
+	markerA := historicalRun(t, db, session.ID, 4300, "validate")
+	markerB := historicalRun(t, db, session.ID, 5640, "validate")
+	legacy := historicalRun(t, db, session.ID, 3700, "validate")
+	for _, runID := range []int64{markerA.ID, markerB.ID} {
+		if _, err := db.sql.ExecContext(t.Context(), `INSERT INTO validation_assessments(run_id,parent_task,generation,context_json,result_json,materialized) VALUES(?,?,1,?,?,1)`, runID, session.TaskRef, SubmissionAssessmentMarker, SubmissionAssessmentMarker); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.sql.ExecContext(t.Context(), `INSERT INTO validation_assessments(run_id,parent_task,generation,context_json,result_json,materialized) VALUES(?,?,1,'{"version":1}','{"stories":[]}',0)`, legacy.ID, session.TaskRef); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func() string {
+		t.Helper()
+		var out string
+		if err := db.sql.QueryRowContext(t.Context(), `SELECT group_concat(run_id||'|'||parent_task||'|'||generation||'|'||context_json||'|'||result_json||'|'||materialized, ';') FROM (SELECT * FROM validation_assessments ORDER BY run_id)`).Scan(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	before := snapshot()
+	for i := 0; i < 2; i++ {
+		if _, err := db.sql.ExecContext(t.Context(), backfill.sql); err != nil {
+			t.Fatalf("migration run %d: %v", i+1, err)
+		}
+		for _, runID := range []int64{markerA.ID, markerB.ID} {
+			if !followupMaterialized(t, db, runID) {
+				t.Fatalf("run %d: marker %d not backfilled", i+1, runID)
+			}
+		}
+		if followupMaterialized(t, db, legacy.ID) {
+			t.Fatalf("run %d: v1 assessment backfilled", i+1)
+		}
+		var n int
+		if err := db.sql.QueryRowContext(t.Context(), `SELECT count(*) FROM followup_materializations`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 2 {
+			t.Fatalf("run %d: followup_materializations rows=%d, want 2", i+1, n)
+		}
+		if after := snapshot(); after != before {
+			t.Fatalf("run %d: assessment rows changed:\n%s\n%s", i+1, before, after)
+		}
+	}
+	if assessment, _ := followupDebt(t, db, markerA.ID, session.TaskRef); assessment {
+		t.Fatal("backfilled marker still listed")
+	}
+	if assessment, pending := followupDebt(t, db, legacy.ID, session.TaskRef); !assessment || !pending {
+		t.Fatal("v1 follow-up debt lost after backfill")
+	}
+}
+
+// Issue #370 defense in depth: a marker row without a materialization record is
+// still never offered to the legacy follow-up parser.
+func TestFollowupListsExcludeSubmissionMarkerRows(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 371)
+	run := historicalRun(t, db, session.ID, 4301, "validate")
+	if _, err := db.sql.ExecContext(t.Context(), `INSERT INTO validation_assessments(run_id,parent_task,generation,context_json,result_json,materialized) VALUES(?,?,1,?,?,1)`, run.ID, session.TaskRef, SubmissionAssessmentMarker, SubmissionAssessmentMarker); err != nil {
+		t.Fatal(err)
+	}
+	if assessment, pending := followupDebt(t, db, run.ID, session.TaskRef); assessment || pending {
+		t.Fatalf("unmaterialized marker offered to follow-ups: assessment=%t parent=%t", assessment, pending)
 	}
 }
 

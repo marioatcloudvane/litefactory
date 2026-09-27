@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -107,8 +109,10 @@ func TestResearchWorkflowProductionOutcomes(t *testing.T) {
 				if len(due) != 1 || due[0].InstanceID != instance.ID || due[0].Node != "shape" {
 					t.Fatalf("the parked stage owes exactly one dispatch: %+v", due)
 				}
-			} else if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 0 {
-				t.Fatalf("failure lost %+v posts=%d err=%v", out, forge.attemptCount(), err)
+			} else if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 1 {
+				// A failed investigate step is reported through the declared
+				// failure comment, never silently (#410).
+				t.Fatalf("failure lost or went unreported %+v posts=%d err=%v", out, forge.attemptCount(), err)
 			}
 			replay, e := Execute(t.Context(), f.opts, req)
 			mustProgress(t, e)
@@ -354,27 +358,134 @@ func TestResearchPreCutoverCaptureRefusesRecoveryEffects(t *testing.T) {
 	}
 }
 
-// The retained accepted result is the only source of application data. A terminal
-// envelope confirms it: with no accepted submission, or with a different result,
-// the attempt fails with its cause and nothing is published.
-func TestResearchWorkflowTerminalEnvelopeOnlyConfirmsTheRetainedResult(t *testing.T) {
-	for _, tt := range []struct{ name, want string }{
-		{"terminal only", "no accepted shared result"},
-		{"mismatched", "differs from the retained accepted result"},
+// finishedOldResearchInstance retains a terminal Research instance pinned to a
+// capture digest that differs from the current research.dot. It holds one final
+// graph comment whose report delivery is completed only when delivered is set.
+func finishedOldResearchInstance(t *testing.T, f *fixture, status string, delivered bool) store.GraphInstance {
+	t.Helper()
+	at := time.Date(2026, 9, 20, 1, 0, 0, 0, time.UTC)
+	definition, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+	mustProgress(t, err)
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "investigate", StartedAt: at})
+	mustProgress(t, err)
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "investigate", StartedAt: at})
+	mustProgress(t, err)
+	mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, FinishedAt: at.Add(time.Minute), InstanceStatus: status}))
+	key := "research-old-capture-final"
+	mustProgress(t, f.db.RetainGraphComment(t.Context(), store.GraphCommentIntent{Key: key, InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "investigate", Kind: "final", Candidate: []byte(researchDoneJSON)}))
+	if delivered {
+		probe, err := sql.Open("sqlite", store.DSN(f.db.Path()))
+		mustProgress(t, err)
+		defer func() { mustProgress(t, probe.Close()) }()
+		_, err = probe.ExecContext(t.Context(), `INSERT INTO report_deliveries(delivery_key,identity_version,session_id,trigger_id,task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,comment_id,completed) VALUES(?,1,?,0,'task','issue','graph','research-final',9999,'body','marker',1,77,1)`, key, f.session.ID)
+		mustProgress(t, err)
+	}
+	instance, err = f.db.GetGraphInstance(t.Context(), instance.ID)
+	mustProgress(t, err)
+	if instance.Status != status {
+		t.Fatalf("fixture instance status %q, want %q", instance.Status, status)
+	}
+	return instance
+}
+
+// A finished Research instance that owes nothing must not block later modes
+// after research.dot changes (#404 case 3).
+func TestResearchFinishedOldCaptureDoesNotBlockLaterModes(t *testing.T) {
+	for _, status := range []string{store.GraphSucceeded, store.GraphFailed} {
+		t.Run(status, func(t *testing.T) {
+			f := newFixture(t, nil)
+			forge := newFakeForge(t)
+			f.opts.ResearchReporter = newReporter(t, f, forge, nil)
+			instance := finishedOldResearchInstance(t, f, status, true)
+			if err := recoverResearchPublications(t.Context(), f.opts, f.session.ID); err != nil {
+				t.Fatalf("finished old Research instance blocked later modes: %v", err)
+			}
+			attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+			mustProgress(t, err)
+			deliveries, err := f.db.ListPendingReportDeliveries(t.Context())
+			mustProgress(t, err)
+			if len(attempts) != 1 || len(deliveries) != 0 || forge.attemptCount() != 0 {
+				t.Fatalf("finished instance created effects: attempts=%v deliveries=%v posts=%d", attempts, deliveries, forge.attemptCount())
+			}
+		})
+	}
+}
+
+// A terminal instance that still owes a graph comment delivery is outstanding
+// work and remains refused under a changed capture.
+func TestResearchFinishedOldCaptureWithUndeliveredCommentStaysRefused(t *testing.T) {
+	f := newFixture(t, nil)
+	forge := newFakeForge(t)
+	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
+	instance := finishedOldResearchInstance(t, f, store.GraphSucceeded, false)
+	err := recoverResearchPublications(t.Context(), f.opts, f.session.ID)
+	if err == nil || !strings.Contains(err.Error(), "unsupported pre-cutover or changed Research capture") {
+		t.Fatalf("outstanding old capture recovery: %v", err)
+	}
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	mustProgress(t, err)
+	deliveries, err := f.db.ListPendingReportDeliveries(t.Context())
+	mustProgress(t, err)
+	if len(attempts) != 1 || len(deliveries) != 0 || forge.attemptCount() != 0 {
+		t.Fatalf("refused capture created effects: attempts=%v deliveries=%v posts=%d", attempts, deliveries, forge.attemptCount())
+	}
+}
+
+// The retained accepted result is the only source of application data (#410).
+// With no accepted submission the attempt fails with its cause, and the owner
+// is told through the one declared failure comment; nothing else is published.
+func TestResearchWorkflowTerminalOnlyOutputFailsAndIsReported(t *testing.T) {
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: researchDoneJSON, FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledResearchFixture(t, runner)
+	out, err := Execute(t.Context(), f.opts, req)
+	if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 1 || !strings.Contains(err.Error(), "no accepted shared result") {
+		t.Fatalf("terminal-only output completed, lost its cause or went unreported: %+v posts=%d err=%v", out.Run, forge.attemptCount(), err)
+	}
+	instance, e := f.db.LatestResearchInstance(t.Context(), f.session.ID)
+	mustProgress(t, e)
+	intents, e := f.db.ListGraphComments(t.Context(), instance.ID, "", 100)
+	mustProgress(t, e)
+	if len(intents) != 1 || intents[0].Kind != "failure" || intents[0].Node != "failed" {
+		t.Fatalf("want exactly the declared failure comment, got %+v", intents)
+	}
+}
+
+// C1 (#410): a Research step whose valid result was submitted succeeds whatever
+// the agent printed afterwards: a copy missing one closing brace (the #351 run
+// 627 failure), valid JSON that is not an envelope, a differing envelope, prose
+// or nothing at all. The retained result is what is published.
+func TestResearchWorkflowSubmittedResultStandsWhateverIsPrinted(t *testing.T) {
+	for name, terminal := range map[string]string{
+		"missing closing brace": researchDoneJSON[:len(researchDoneJSON)-1],
+		"json, not an envelope": `{"outcome":"completed","unknown":true}`,
+		"differing envelope":    strings.Replace(researchDoneJSON, "Investigation finished.", "A different summary.", 1),
+		"prose":                 "I submitted the result and read its receipt.",
+		"empty":                 "",
 	} {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-				terminal := researchDoneJSON
-				if tt.name == "mismatched" {
-					submitLiveResult(t, req, researchDoneJSON)
-					terminal = strings.Replace(researchDoneJSON, "Investigation finished.", "A different summary.", 1)
-				}
+				submitLiveResult(t, req, researchDoneJSON)
 				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: terminal, FinishedAt: time.Now()}, nil
 			})
 			f, forge, req := assembledResearchFixture(t, runner)
 			out, err := Execute(t.Context(), f.opts, req)
-			if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 0 || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("output that is not the retained result completed or lost its cause: %+v posts=%d err=%v", out.Run, forge.attemptCount(), err)
+			if err != nil || !out.Succeeded() || forge.attemptCount() != 1 {
+				t.Fatalf("a submitted result failed on its printed copy: %+v posts=%d err=%v", out, forge.attemptCount(), err)
+			}
+			instance, e := f.db.LatestResearchInstance(t.Context(), f.session.ID)
+			mustProgress(t, e)
+			if instance.CurrentNode != "shape" {
+				t.Fatalf("investigate did not hand over on its retained result: %+v", instance)
+			}
+			attempt, e := f.db.LatestGraphNodeAttempt(t.Context(), instance.ID, "investigate")
+			mustProgress(t, e)
+			scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "research", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
+			node, e := LoadResearchNodeOutput(t.Context(), f.db, attempt.ID, scope)
+			mustProgress(t, e)
+			if node.Response != "done" || node.Result.Comment != "Investigation finished." {
+				t.Fatalf("node output is not the retained result: %+v", node)
 			}
 		})
 	}

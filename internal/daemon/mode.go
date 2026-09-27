@@ -117,7 +117,7 @@ func (d *Daemon) classifyMode(ctx context.Context, t *task, instruction string) 
 }
 
 func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, kind report.ReplyKind) error {
-	if trigger.CommentID == 0 {
+	if trigger.CommentID == 0 && kind != report.ReplyBugUnavailable {
 		t.log.InfoContext(ctx, "refusing issue-body mode selection; there is no comment to answer")
 		return nil
 	}
@@ -193,6 +193,17 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 	}
 	if !enabled || !mode.Valid() {
 		return mode, nil
+	}
+	workflow, mapped := agent.WorkflowForMode(mode)
+	if !mapped {
+		return "", fmt.Errorf("invalid selected workflow mode %q", mode)
+	}
+	admission, admissionErr := d.db.AdmitWorkflow(ctx, store.TaskWorkflowAdmission{SessionID: t.session.ID, Version: 1, Family: "mode", Workflow: string(workflow), SourceTrigger: trigger.CommentID})
+	if admissionErr != nil {
+		return "", admissionErr
+	}
+	if admission.Family == "standalone" {
+		return "", &modeRefusal{kind: report.ReplyBugModeSwitch}
 	}
 	previous := ""
 	if labelled && observed != mode {

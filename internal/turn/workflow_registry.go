@@ -3,6 +3,7 @@ package turn
 import (
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/agent"
 	"strings"
 )
 
@@ -11,7 +12,7 @@ import (
 // walks this list, so a policy that skips the shared result route fails before
 // any dispatch and is caught by the same test that covers Research and Plan.
 func RegisteredWorkflowPolicies() []WorkflowPolicy {
-	return []WorkflowPolicy{ResearchWorkflowPolicy(), PlanWorkflowPolicy()}
+	return []WorkflowPolicy{ResearchWorkflowPolicy(), PlanWorkflowPolicy(), BugWorkflowPolicy()}
 }
 
 // Admit is the policy-level requirement of every workflow: results are judged by
@@ -24,10 +25,12 @@ func RegisteredWorkflowPolicies() []WorkflowPolicy {
 // retained accepted result whatever the decoder says.
 func (p WorkflowPolicy) Admit() error {
 	var faults []error
-	if !p.Mode.Valid() {
-		faults = append(faults, errors.New("policy names no valid mode"))
+	workflow, err := agent.ResolveWorkflow(p.Workflow, p.Mode)
+	if err != nil {
+		faults = append(faults, err)
 	}
-	if p.Control.Mode != p.Mode {
+	control, err := agent.ResolveWorkflow(p.Control.Workflow, p.Control.Mode)
+	if err != nil || control != workflow {
 		faults = append(faults, fmt.Errorf("policy control mode %q differs from its mode %q", p.Control.Mode, p.Mode))
 	}
 	if p.Decode == nil {
