@@ -14,11 +14,15 @@ import (
 )
 
 func TestBugRuntimeOwnerApprovalAndReplay(t *testing.T) {
-	t.Run("approval", func(t *testing.T) { bugRuntimeOwnerReply(t, false, false) })
-	t.Run("answers", func(t *testing.T) { bugRuntimeOwnerReply(t, true, false) })
-	t.Run("review-change-crash", func(t *testing.T) { bugRuntimeOwnerReply(t, false, true) })
+	t.Run("approval", func(t *testing.T) { bugRuntimeOwnerReply(t, false, false, false) })
+	t.Run("answers", func(t *testing.T) { bugRuntimeOwnerReply(t, true, false, false) })
+	t.Run("review-change-crash", func(t *testing.T) { bugRuntimeOwnerReply(t, false, true, false) })
+	// Definition rows are shared by graph-file digest. After a deploy that
+	// changed only Bug role files, a new task reuses the older row; its own
+	// launch record, not that row, is its package identity (#408).
+	t.Run("approval-after-role-only-change", func(t *testing.T) { bugRuntimeOwnerReply(t, false, false, true) })
 }
-func bugRuntimeOwnerReply(t *testing.T, questions, change bool) {
+func bugRuntimeOwnerReply(t *testing.T, questions, change, sharedPin bool) {
 	var session int64
 	calls := 0
 	runner := lifecycleMCPHost(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
@@ -86,6 +90,16 @@ func bugRuntimeOwnerReply(t *testing.T, questions, change bool) {
 		t.Fatal(e)
 	}
 	f.opts.Bug = runtime
+	if sharedPin {
+		for _, d := range []struct {
+			path   string
+			digest string
+		}{{"bug/bug.dot", runtime.definition.Profile.Digest}, {"bug_tests.dot", runtime.childDefinition.Profile.Digest}} {
+			if _, e = f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Workflow: "bug", Team: "builtin", ProfileVersion: 1, Path: d.path, Digest: d.digest, TeamSnapshotDigest: strings.Repeat("e", 64)}); e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
 
 	disposition := "analysis-review"
 	if questions {

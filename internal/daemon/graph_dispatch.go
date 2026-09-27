@@ -200,8 +200,17 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		return
 	}
 	if admissionErr == nil && admission.Workflow == "bug" && d.bug != nil {
-		if t.bugDispatchLocked {
-			_, retryErr := d.db.RequeueGraphDispatch(ctx, dispatch.ID, t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts)), "Bug parent waits for task ownership")
+		// A step refused before the Bug runtime took it (locked task, or an
+		// admission error) still holds its reservation; requeue it so the
+		// owed step is retried instead of staying reserved for good. The
+		// store only requeues an unallocated reservation, so a step the
+		// runtime already closed is untouched.
+		if t.bugDispatchLocked || err != nil {
+			cause := "Bug parent waits for task ownership"
+			if !t.bugDispatchLocked {
+				cause = err.Error()
+			}
+			_, retryErr := d.db.RequeueGraphDispatch(ctx, dispatch.ID, t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts)), cause)
 			if retryErr != nil {
 				t.recordWorkerError(retryErr)
 			}

@@ -169,7 +169,11 @@ func (r *BugRuntime) admission(ctx context.Context, req Request) (store.Workflow
 		if e != nil {
 			return store.WorkflowAdmission{}, e
 		}
-		if pin.Digest != r.definition.Profile.Digest || pin.TeamSnapshotDigest != r.definition.Digest {
+		launched, e := r.opts.DB.BugLaunchContentDigest(ctx, req.SessionID)
+		if e != nil {
+			return store.WorkflowAdmission{}, e
+		}
+		if pin.Digest != r.definition.Profile.Digest || launched != r.definition.Digest {
 			return store.WorkflowAdmission{}, errors.New("bug package differs from retained definition")
 		}
 		if i.Status != store.GraphRunning && life.Disposition == "pending-effect" {
