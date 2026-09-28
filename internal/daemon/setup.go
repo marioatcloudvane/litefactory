@@ -382,6 +382,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		digest := sha256.Sum256(encoded)
 		isolation.Revision = hex.EncodeToString(digest[:])
 	}
+	// The bug-fixer's self-check tools run under the same operator sandbox
+	// profile as the factory's own final check; a zero value here (no profile
+	// configured) simply makes self-checking unavailable, never blocking the
+	// fixer.
+	mcpRuntime.BugChecksIsolation = isolation
 	bugRuntime, err := turn.NewBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
 		Forge: client, OwnerID: identities.OwnerUserID,
 		Permissions: bugRolePermissions(toolProfiles, toolCeiling), Isolation: isolation,
@@ -390,6 +395,12 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	turnOpts.Bug = bugRuntime
+	// A crash mid self-check leaves its run pending with no observed result;
+	// restart cancels every such run once, here, before any work is
+	// dispatched, and never reruns it (AC-011).
+	if err := turn.RecoverBugSelfChecks(ctx, s.DB); err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
 	daemon, err := New(Options{
 		Bug:                      bugRuntime,
 		BugTests:                 bugRuntime.Child,

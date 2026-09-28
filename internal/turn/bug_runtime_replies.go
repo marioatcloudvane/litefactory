@@ -10,11 +10,22 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
+// bugExhaustionNotWaitingText names both owner commands so every refusal on an
+// exhausted bug -- wrong author, a stale comment, or an unrecognized reply --
+// explains what would have worked instead (AC-004).
+const bugExhaustionNotWaitingText = "this Bug task is waiting for the owner to reply /grant-bug-attempt <n> [instructions] or /stop-bug <n> to its exhaustion question"
+
 // continueOwner consumes only the published wait's authenticated reply. Domain
 // stores establish authority; parent continuation merely selects its checkpoint.
 func (r *BugRuntime) continueOwner(ctx context.Context, req Request, life store.BugLifecycle) (store.GraphInstance, error) {
 	var zero store.GraphInstance
-	if req.Trigger.CommentID <= 0 || store.IsGraphTrigger(req.Trigger.CommentID) || req.Trigger.AuthorID != r.cfg.OwnerID || strings.TrimSpace(req.Trigger.Body) == "" {
+	if req.Trigger.CommentID <= 0 || store.IsGraphTrigger(req.Trigger.CommentID) || strings.TrimSpace(req.Trigger.Body) == "" {
+		return zero, errors.New("bug continuation requires an authenticated owner comment")
+	}
+	if life.Disposition == "exhausted" {
+		return r.continueExhausted(ctx, req, life)
+	}
+	if req.Trigger.AuthorID != r.cfg.OwnerID {
 		return zero, errors.New("bug continuation requires an authenticated owner comment")
 	}
 	prior, replayErr := r.opts.DB.GetBugOwnerContinuation(ctx, req.SessionID, req.Trigger.CommentID, req.Trigger.AuthorID, req.Trigger.Body)
@@ -139,5 +150,84 @@ func (r *BugRuntime) continueOwner(ctx context.Context, req Request, life store.
 	default:
 		return zero, fmt.Errorf("bug lifecycle %q has no owner review wait", life.Disposition)
 	}
-	return r.opts.DB.ClaimBugContinuation(ctx, store.BugParentContinuation{SessionID: req.SessionID, Operation: fmt.Sprintf("owner-reply:%d", reply.CommentID), Cause: cause, Reference: reference, ExpectedRevision: life.Revision, At: at})
+	// The domain write above (ApproveBugAnalysis, ConsumeBugAnalysisAnswers,
+	// ConsumeBugAnalysisReviewChange or ApplyBugDeliveryReply) may itself have
+	// bumped bug_tasks' single revision counter; life was fetched before that
+	// write, so refetch it fresh rather than let the continuation check a
+	// value its own reply already advanced.
+	current, err := r.opts.DB.GetBugLifecycle(ctx, req.SessionID)
+	if err != nil {
+		return zero, err
+	}
+	return r.opts.DB.ClaimBugContinuation(ctx, store.BugParentContinuation{SessionID: req.SessionID, Operation: fmt.Sprintf("owner-reply:%d", reply.CommentID), Cause: cause, Reference: reference, ExpectedRevision: current.Revision, At: at})
+}
+
+// continueExhausted answers an open repair-budget exhaustion question: the
+// owner may grant one more attempt, optionally with instructions, or stop the
+// bug outright. Any other reply -- wrong author, a comment that predates the
+// question, an unrecognized command or a stale/future exhaustion number -- is
+// refused with the same message naming both commands (AC-004).
+func (r *BugRuntime) continueExhausted(ctx context.Context, req Request, life store.BugLifecycle) (store.GraphInstance, error) {
+	var zero store.GraphInstance
+	notWaiting := errors.New(bugExhaustionNotWaitingText)
+	n, err := strconv.Atoi(strings.TrimPrefix(life.Reference, "exhaustion:"))
+	if err != nil || n <= 0 {
+		return zero, fmt.Errorf("bug exhaustion lacks a valid reference: %q", life.Reference)
+	}
+	if req.Trigger.AuthorID != r.cfg.OwnerID {
+		return zero, notWaiting
+	}
+	question, err := r.opts.DB.BugExhaustionQuestionComment(ctx, req.SessionID, n)
+	if err != nil {
+		return zero, err
+	}
+	if req.Trigger.CommentID <= question {
+		return zero, notWaiting
+	}
+	body := strings.TrimSpace(req.Trigger.Body)
+	at := r.opts.MCP.Now()
+	switch {
+	case strings.HasPrefix(body, "/grant-bug-attempt"):
+		fields := strings.SplitN(body, " ", 3)
+		if len(fields) < 2 {
+			return zero, notWaiting
+		}
+		want, err := strconv.Atoi(strings.TrimSpace(fields[1]))
+		if err != nil || want != n {
+			return zero, notWaiting
+		}
+		instructions := ""
+		if len(fields) == 3 {
+			instructions = strings.TrimSpace(fields[2])
+		}
+		outcome, err := r.opts.DB.DecideBugExhaustion(ctx, store.BugExhaustionDecisionRequest{SessionID: req.SessionID, N: n, Decision: "grant", CommentID: req.Trigger.CommentID, AuthorID: req.Trigger.AuthorID, Instructions: instructions, ExpectedRevision: life.Revision, At: at})
+		if err != nil {
+			return zero, err
+		}
+		return outcome.Successor, nil
+	case strings.HasPrefix(body, "/stop-bug"):
+		fields := strings.SplitN(body, " ", 2)
+		if len(fields) != 2 {
+			return zero, notWaiting
+		}
+		want, err := strconv.Atoi(strings.TrimSpace(fields[1]))
+		if err != nil || want != n {
+			return zero, notWaiting
+		}
+		if _, err = r.opts.DB.DecideBugExhaustion(ctx, store.BugExhaustionDecisionRequest{SessionID: req.SessionID, N: n, Decision: "stop", CommentID: req.Trigger.CommentID, AuthorID: req.Trigger.AuthorID, ExpectedRevision: life.Revision, At: at}); err != nil {
+			return zero, err
+		}
+		source, err := r.opts.DB.BugExhaustionSourceAttempt(ctx, req.SessionID, n)
+		if err != nil {
+			return zero, err
+		}
+		reporter := BugParentPolicy{Reporter: r.opts.ResearchReporter}
+		ack := "**Stopped.** This Bug task will not attempt another repair. The issue stays open for a person to continue outside the workflow.\n"
+		if err = reporter.PublishEvent(ctx, req.SessionID, source, fmt.Sprintf("stop:%d", n), "notice", ack); err != nil {
+			return zero, err
+		}
+		return r.opts.DB.GetGraphInstance(ctx, life.ParentInstance)
+	default:
+		return zero, notWaiting
+	}
 }

@@ -2,6 +2,7 @@ package buganalysis_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -25,6 +26,127 @@ func reviewableBugAnalysis() buganalysis.BugAnalysis {
 			ID: "AC-001", Requirement: "Empty queries return no matches without panic.",
 			Measurement: "A regression test calls Search with an empty query and checks an empty result.",
 		}},
+	}
+}
+
+// Story-002 (REFUSAL_REVIEW.md): the boundaries count/duplicate rules are
+// policy, downgraded to Notices the caller records as facts and continues past
+// -- never an error. A zero-path remedy and an escaping/malformed path stay
+// hard errors (guard and integrity, respectively), unchanged.
+func TestBugRepairBoundaries_PolicyNoticesAndHardStops(t *testing.T) {
+	t.Parallel()
+	t.Run("zero allowed paths/hard guard error", func(t *testing.T) {
+		t.Parallel()
+		notices, err := buganalysis.BugRepairBoundaries{}.Validate()
+		if err == nil {
+			t.Fatal("empty boundary accepted")
+		}
+		if len(notices) != 0 {
+			t.Fatalf("error path returned notices: %+v", notices)
+		}
+	})
+	t.Run("escaping allowed path/hard integrity error", func(t *testing.T) {
+		t.Parallel()
+		for _, path := range []string{"../escape.go", "/tmp/escape.go", ".", "a\\b", "a\x00b", "a*b"} {
+			_, err := buganalysis.BugRepairBoundaries{AllowedPaths: []string{path}}.Validate()
+			if err == nil {
+				t.Fatalf("accepted escaping/malformed allowed path %q", path)
+			}
+		}
+	})
+	t.Run("escaping excluded path/hard integrity error", func(t *testing.T) {
+		t.Parallel()
+		_, err := buganalysis.BugRepairBoundaries{AllowedPaths: []string{"a.go"}, ExcludedPaths: []string{"../escape.go"}}.Validate()
+		if err == nil {
+			t.Fatal("accepted escaping excluded path")
+		}
+	})
+	t.Run("valid boundaries/no notices no error", func(t *testing.T) {
+		t.Parallel()
+		notices, err := buganalysis.BugRepairBoundaries{AllowedPaths: []string{"a.go", "b.go"}, ExcludedPaths: []string{"c.go"}}.Validate()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(notices) != 0 {
+			t.Fatalf("unexpected notices: %+v", notices)
+		}
+	})
+	t.Run("more than 256 allowed paths/policy notice not error", func(t *testing.T) {
+		t.Parallel()
+		paths := make([]string, 257)
+		for i := range paths {
+			paths[i] = fmt.Sprintf("file%d.go", i)
+		}
+		notices, err := buganalysis.BugRepairBoundaries{AllowedPaths: paths}.Validate()
+		if err != nil {
+			t.Fatalf("boundaries count downgraded to a hard error: %v", err)
+		}
+		if len(notices) != 1 || notices[0].Reference != "buganalysis.boundaries_count" {
+			t.Fatalf("want exactly one boundaries_count notice, got %+v", notices)
+		}
+	})
+	t.Run("duplicate path/policy notice not error", func(t *testing.T) {
+		t.Parallel()
+		notices, err := buganalysis.BugRepairBoundaries{AllowedPaths: []string{"a.go", "a.go", "b.go"}}.Validate()
+		if err != nil {
+			t.Fatalf("duplicate path downgraded to a hard error: %v", err)
+		}
+		if len(notices) != 1 || notices[0].Reference != "buganalysis.boundaries_duplicate:a.go" {
+			t.Fatalf("want exactly one boundaries_duplicate notice, got %+v", notices)
+		}
+		if !strings.Contains(notices[0].Text, "a.go") {
+			t.Fatalf("notice text does not name the repeated path: %q", notices[0].Text)
+		}
+	})
+	t.Run("duplicate across allowed and excluded/each list notices independently", func(t *testing.T) {
+		t.Parallel()
+		notices, err := buganalysis.BugRepairBoundaries{AllowedPaths: []string{"a.go", "a.go"}, ExcludedPaths: []string{"b.go", "b.go"}}.Validate()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(notices) != 2 {
+			t.Fatalf("want one notice per list's duplicate, got %+v", notices)
+		}
+	})
+}
+
+// The boundaries notices flow through BugAnalysis.Validate unchanged, and
+// never appear when Boundaries is nil.
+func TestBugAnalysis_ValidatePropagatesBoundaryNotices(t *testing.T) {
+	t.Parallel()
+	a := reviewableBugAnalysis()
+	a.Boundaries = &buganalysis.BugRepairBoundaries{AllowedPaths: []string{"a.go", "a.go"}}
+	notices, err := a.Validate(true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notices) != 1 || notices[0].Reference != "buganalysis.boundaries_duplicate:a.go" {
+		t.Fatalf("boundary notice not propagated: %+v", notices)
+	}
+	plain := reviewableBugAnalysis()
+	notices, err = plain.Validate(true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notices) != 0 {
+		t.Fatalf("unexpected notices without boundaries: %+v", notices)
+	}
+}
+
+// Named pain point (REFUSAL_REVIEW.md, "frozen criterion wording"): correcting
+// a criterion's requirement/measurement wording is content, not identity, and
+// is never rejected by Validate -- there is no prior-revision comparison here.
+func TestBugAnalysis_CorrectedCriterionWordingIsAccepted(t *testing.T) {
+	t.Parallel()
+	original := reviewableBugAnalysis()
+	corrected := reviewableBugAnalysis()
+	corrected.Criteria[0].Requirement = "Fixed typo: empty queries return no matches without a panic."
+	corrected.Criteria[0].Measurement = "Fixed typo: a regression test asserts an empty result."
+	if _, err := original.Validate(true); err != nil {
+		t.Fatalf("original wording refused: %v", err)
+	}
+	if _, err := corrected.Validate(true); err != nil {
+		t.Fatalf("corrected wording refused as though frozen: %v", err)
 	}
 }
 
@@ -56,7 +178,7 @@ func TestBugAnalysis_ValidateReviewCompleteness(t *testing.T) {
 			t.Parallel()
 			analysis := reviewableBugAnalysis()
 			tt.change(&analysis)
-			err := analysis.Validate(true)
+			_, err := analysis.Validate(true)
 			if (err == nil) != tt.valid {
 				t.Fatalf("Validate(review=true) error = %v; want valid %v", err, tt.valid)
 			}
@@ -88,7 +210,7 @@ func TestBugAnalysis_ValidatePartialSnapshot(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := tt.analysis.Validate(false)
+			_, err := tt.analysis.Validate(false)
 			if (err == nil) != tt.valid {
 				t.Fatalf("Validate(review=false) error = %v; want valid %v", err, tt.valid)
 			}
@@ -121,7 +243,7 @@ func TestBugAnalysis_ValidateStableIdentifiers(t *testing.T) {
 						analysis.Questions = append(analysis.Questions, buganalysis.BugQuestion{ID: id, Text: "What input failed?", Material: true})
 					}
 				}
-				err := analysis.Validate(false)
+				_, err := analysis.Validate(false)
 				if (err == nil) != tt.valid {
 					t.Fatalf("Validate error = %v; want valid %v", err, tt.valid)
 				}

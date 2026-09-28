@@ -24,8 +24,15 @@ func (req Request) ValidateBugAnalyst() error {
 			return invalidRequest("Bug analyst is missing scoped result operation %q", required)
 		}
 	}
+	// The two self-check tools are optional and, when present, permitted only
+	// for the bug-fixer profile; the analyst's surface stays exactly the three
+	// shared result operations above.
+	allowed := []string{"communication_preflight", "communication_submit", "communication_receipt"}
+	if req.Permissions.Profile == "bug-fixer" {
+		allowed = append(allowed, "bug_self_check_start", "bug_self_check_status")
+	}
 	for _, tool := range tools {
-		if tool != "communication_preflight" && tool != "communication_submit" && tool != "communication_receipt" {
+		if !slices.Contains(allowed, tool) {
 			return invalidRequest("Bug analyst cannot receive capability %q", tool)
 		}
 	}
