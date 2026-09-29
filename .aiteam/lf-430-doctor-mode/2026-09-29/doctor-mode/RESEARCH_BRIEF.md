@@ -15,12 +15,17 @@ Add a /doctor <instructions> GitHub command and a CLI command that share one imp
 - **d7** — Doctor is conversational: analyze, propose, owner replies with /doctor, repeat until the fix goes live. (Owner comment D.)
 - **d8** — One forced factory restart, only after a repair is applied. (Owner comment D.)
 - **d9** — A backup of affected rows and files is taken and every change logged before applying. (Shaping decision.)
+- **d10** — A /doctor comment has absolute priority for its issue and runs even when that issue's workflow is stuck, wedged or failing; it never waits behind the queue or a running stage. (Owner, run 4.)
+- **d11** — The doctor session is saved per issue and resumes from that saved state after any pause or factory restart; it ends when the fix is applied or the owner says stop. (Owner, run 4.)
+- **d12** — Every doctor message must start with /doctor, even mid-conversation; comments without the prefix go to the normal workflow. (Owner, run 4.)
 
 
 ## Assumptions
 
 - **a1** — 'Cannot change litefactory's code' means the doctor only repairs data at runtime (database rows, worktrees, session files). Rests on the issue also asking for a new command.
 - **a2** — Live daemon logs and the live database were not inspected. The incident list comes from earlier session write-ups in the repo.
-- **a3** — 'Not a new mode' means doctor is a control command outside the workflow stages, though it does run an agent. Rests on owner comments B and the issue text.
-- **a4** — Approval of a proposed fix is an explicit reply such as /doctor apply; other replies continue the conversation. Chosen to prevent accidental repairs.
+- **a3** — 'Not a new mode' means doctor is a control command outside the workflow stages, though it does run an agent.
+- **a4** — Approval of a proposed fix is an explicit /doctor apply reply; other /doctor replies continue the conversation. Chosen to prevent accidental repairs.
 - **a5** — The CLI names the issue explicitly, since scope is one issue.
+- **a6** — The saved doctor session lives in the factory database, so it survives restarts and is shared by GitHub and the CLI.
+- **a7** — The doctor's apply step stops that issue's stranded runs before repairing, so a stuck workflow cannot overlap with the fix.
