@@ -67,6 +67,13 @@ func (h bugParentActivity) publishNotice(ctx context.Context, opts Options, req 
 	if source.ID == 0 {
 		return ActivityResult{}, errors.New("bug notice lacks actual source")
 	}
+	// Only the repair-budget exhaustion (the attempt node's own outcome) asks a
+	// person; the unrelated 8-pass analysis limit keeps today's plain notice
+	// (AC-002). bug.dot is unchanged: this is the report node's existing
+	// notice path choosing a question instead of a notice, not a new node.
+	if source.Node == "attempt" && source.Outcome == "exhausted" {
+		return h.publishExhaustionQuestion(ctx, opts, req, i, source)
+	}
 	kind := "notice"
 	if source.Status == store.GraphFailed {
 		kind = "failure"
@@ -104,6 +111,28 @@ func (h bugParentActivity) publishNotice(ctx context.Context, opts Options, req 
 	return ActivityResult{Outcome: "published"}, e
 }
 
+// publishExhaustionQuestion turns a spent repair budget into a question
+// instead of a one-way notice: it records the sequential exhaustion event with
+// its bounded history digest, then posts that history and the two owner
+// commands, and finally records the "exhausted" disposition the owner's reply
+// resumes from (AC-001, AC-003, AC-011).
+func (h bugParentActivity) publishExhaustionQuestion(ctx context.Context, opts Options, req ActivityRequest, i store.GraphInstance, source store.GraphNodeAttempt) (ActivityResult, error) {
+	n, e := opts.DB.RecordBugExhaustion(ctx, i.SessionID, source.ID)
+	if e != nil {
+		return ActivityResult{}, e
+	}
+	history, e := opts.DB.BugRepairHistory(ctx, i.SessionID)
+	if e != nil {
+		return ActivityResult{}, e
+	}
+	event := fmt.Sprintf("exhaustion:%d", n)
+	if e = h.p.PublishEvent(ctx, i.SessionID, source.ID, event, "question", bugExhaustionQuestionComment(n, history)); e != nil {
+		return ActivityResult{}, e
+	}
+	e = opts.DB.RecordBugLifecycleDisposition(ctx, i.SessionID, i.ID, req.Node, "exhausted", event)
+	return ActivityResult{Outcome: "published"}, e
+}
+
 // PublishEvent also handles failures before dispatch without forging an attempt.
 // A retained delivery resumes its exact bytes and identity, never business work.
 func (p BugParentPolicy) PublishEvent(ctx context.Context, session, attempt int64, event, kind, body string) error {
@@ -128,7 +157,10 @@ func (p BugParentPolicy) PublishEvent(ctx context.Context, session, attempt int6
 		return errors.New("bug required report evidence exceeds bound")
 	}
 	intent.Body = rendered.String()
-	if e = db.RetainBugLifecycleReport(ctx, store.BugLifecycleReport{SessionID: session, AttemptID: attempt, Event: event, Kind: kind, Body: intent.Body, DeliveryKey: intent.Key}); e != nil {
+	// Only the delivery key, source attempt and reported flag are retained; the
+	// body itself is regenerated above on every call (including a post-crash
+	// retry), and report_deliveries' delivery-key dedup prevents a duplicate post.
+	if e = db.RetainBugLifecycleReport(ctx, store.BugLifecycleReport{SessionID: session, AttemptID: attempt, Event: event, Kind: kind, DeliveryKey: intent.Key}); e != nil {
 		return e
 	}
 	saved, e := db.EnsureReportDelivery(ctx, intent)

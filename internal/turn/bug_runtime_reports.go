@@ -9,6 +9,45 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
+// bugRestartDiagnosticReason recovers the plain interruption reason
+// ReconcileBugParentGraphs recorded as a graph_outputs diagnostic, so a
+// restart-attempt report can be re-rendered without retaining its body.
+func bugRestartDiagnosticReason(ctx context.Context, db *store.DB, attemptID int64) (string, error) {
+	outputs, e := db.ListGraphOutputsBounded(ctx, attemptID, 1<<20, 16)
+	if e != nil {
+		return "", e
+	}
+	for i := len(outputs) - 1; i >= 0; i-- {
+		if outputs[i].Kind == "diagnostic" {
+			return string(outputs[i].Payload), nil
+		}
+	}
+	return "", errors.New("bug restart diagnostic evidence is missing")
+}
+
+// bugNoticeBody regenerates the exact notice/failure comment publishNotice
+// renders, from the source attempt's retained node, outcome and outputs. The
+// body is never retained: this recomputation is what a post-crash retry uses.
+func bugNoticeBody(ctx context.Context, db *store.DB, attemptID int64) (string, error) {
+	source, e := db.GetGraphNodeAttempt(ctx, attemptID)
+	if e != nil {
+		return "", e
+	}
+	instance, e := db.GetGraphInstance(ctx, source.InstanceID)
+	if e != nil {
+		return "", e
+	}
+	values, e := db.ListGraphOutputsBounded(ctx, attemptID, 1<<20, 16)
+	if e != nil {
+		return "", e
+	}
+	payloads := make([]string, len(values))
+	for n, v := range values {
+		payloads[n] = string(v.Payload)
+	}
+	return bugNoticeComment(source.Node, source.Outcome, payloads, instance.ID, attemptID), nil
+}
+
 func (r *BugRuntime) reconcileReports(ctx context.Context) error {
 	reports, e := r.opts.DB.PendingBugLifecycleReports(ctx)
 	if e != nil {
@@ -27,12 +66,17 @@ func (r *BugRuntime) reconcileReports(ctx context.Context) error {
 			continue
 		}
 		intent := r.opts.ResearchReporter.deliveryIntent(ref, ref, report.SessionID, 0, 0, "bug-event:"+report.Event)
-		if intent.Key != report.DeliveryKey {
-			if !strings.HasPrefix(report.Event, "restart-attempt:") {
-				failures = append(failures, errors.New("bug report identity differs from retained event"))
+		// The body is never retained; it is regenerated here every time,
+		// including a post-crash retry, and report_deliveries' delivery-key
+		// dedup keeps a retry from posting a duplicate comment (AC-007).
+		var body string
+		if strings.HasPrefix(report.Event, "restart-attempt:") {
+			reason, re := bugRestartDiagnosticReason(ctx, r.opts.DB, report.AttemptID)
+			if re != nil {
+				failures = append(failures, re)
 				continue
 			}
-			rendered, re := r.opts.ResearchReporter.renderer.RenderReportDelivery(ctx, report.Body, intent.Marker)
+			rendered, re := r.opts.ResearchReporter.renderer.RenderReportDelivery(ctx, reason, intent.Marker)
 			if re != nil {
 				failures = append(failures, re)
 				continue
@@ -41,13 +85,26 @@ func (r *BugRuntime) reconcileReports(ctx context.Context) error {
 				failures = append(failures, errors.New("bug restart diagnostic exceeds report bound"))
 				continue
 			}
-			report.Body = rendered.String()
-			if re = r.opts.DB.BindBugRestartReport(ctx, report.SessionID, report.Event, intent.Key, report.Body); re != nil {
+			body = rendered.String()
+			if intent.Key != report.DeliveryKey {
+				if re = r.opts.DB.BindBugRestartReport(ctx, report.SessionID, report.Event, intent.Key, body); re != nil {
+					failures = append(failures, re)
+					continue
+				}
+			}
+		} else {
+			if intent.Key != report.DeliveryKey {
+				failures = append(failures, errors.New("bug report identity differs from retained event"))
+				continue
+			}
+			var re error
+			body, re = bugNoticeBody(ctx, r.opts.DB, report.AttemptID)
+			if re != nil {
 				failures = append(failures, re)
 				continue
 			}
 		}
-		intent.Body = report.Body
+		intent.Body = body
 		delivery, e := r.opts.DB.EnsureReportDelivery(ctx, intent)
 		if e == nil {
 			_, e = r.opts.ResearchReporter.dispatchDelivery(ctx, delivery)
