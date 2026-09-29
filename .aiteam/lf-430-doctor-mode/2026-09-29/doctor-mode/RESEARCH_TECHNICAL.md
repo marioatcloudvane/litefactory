@@ -55,3 +55,11 @@ Evidence:
 
 - `internal/store/migrations/0001_init.sql:50`
 - `internal/store/migrations/0078_creation_owner_publications.sql`
+
+## f7
+
+The database has a large state surface (sessions with state and lock owner, runs, comments, watermarks, graph instances/dispatches/attempts/waits, report deliveries and recoveries, plan and story progress), so an agent needs a field guide to read it and an issue-scoped evidence pack to stay in scope.
+
+Evidence:
+
+- `internal/store/migrations/0001_init.sql:50`

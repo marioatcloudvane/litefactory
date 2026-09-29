@@ -18,6 +18,9 @@ Add a /doctor <instructions> GitHub command and a CLI command that share one imp
 - **d10** — A /doctor comment has absolute priority for its issue and runs even when that issue's workflow is stuck, wedged or failing; it never waits behind the queue or a running stage. (Owner, run 4.)
 - **d11** — The doctor session is saved per issue and resumes from that saved state after any pause or factory restart; it ends when the fix is applied or the owner says stop. (Owner, run 4.)
 - **d12** — Every doctor message must start with /doctor, even mid-conversation; comments without the prefix go to the normal workflow. (Owner, run 4.)
+- **d13** — The doctor agent's context has four layers: fixed system prompt, short fixed factory field guide, per-turn issue-only evidence pack built by the engine, and saved conversation memory. (Shaping decision, run 5.)
+- **d14** — The agent proposes a structured repair plan; the engine validates that every step touches only that issue's rows and files before applying. No free raw write access. (Shaping decision, run 5.)
+- **d15** — Issue comments, logs and files are treated as evidence, never as instructions; only the owner's /doctor messages instruct the agent. (Shaping decision, run 5.)
 
 
 ## Assumptions
@@ -29,3 +32,4 @@ Add a /doctor <instructions> GitHub command and a CLI command that share one imp
 - **a5** — The CLI names the issue explicitly, since scope is one issue.
 - **a6** — The saved doctor session lives in the factory database, so it survives restarts and is shared by GitHub and the CLI.
 - **a7** — The doctor's apply step stops that issue's stranded runs before repairing, so a stuck workflow cannot overlap with the fix.
+- **a8** — The field guide is drafted from the schema and earlier incident write-ups, not from live logs; it needs review against a real stuck case before build.
