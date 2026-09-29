@@ -13,3 +13,5 @@ Shared decisions remain one-issue scope, shared engine/memory, owner-prefixed co
 Binding record for assembly, not an authority claim: active promoted set 6cdffa1031da4116796b9039d5d1583f23364d58745afd86ddd08ba8cf4d226b; shared decisions initial. Supplied current drafts: story-001 plan-139-1315, story-002 plan-140-1324 (this criteria/tasks proposal updates it), story-003 plan-141-1333. Factory must bind the resulting current candidate before owner review. No supplied scope is omitted and no pending stage is declared complete.
 
 Run 0019: supplied state records story-003 technical owner evidence and advancement to acceptance. Story-002 remains the factory-selected acceptance work; its criterion and task IDs and content are unchanged. Its prior input receipt is not evidence of an applied story effect.
+
+Run 0020: publication failures diagnosed from live read-only effect records. Corrected task wording retains IDs, ownership, coverage and dependency graph; criteria/proof methods/architecture unchanged. Current proposal is ACCEPTANCE_SUBMISSION_STORY_002_RUN_0020.json. Publication remains pending; see PUBLICATION_FAILURE_DIAGNOSIS.md.
