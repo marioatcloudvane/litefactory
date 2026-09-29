@@ -1,0 +1,13 @@
+Current parent index (links only):
+
+- [story-001](https://github.com/marioatcloudvane/litefactory/issues/432)
+- [story-002](https://github.com/marioatcloudvane/litefactory/issues/433)
+- [story-003](https://github.com/marioatcloudvane/litefactory/issues/434)
+
+Story-002 proposes 12 observable criteria and nine linked tasks. Completion will show owner-only GitHub diagnosis despite a wedged workflow, shared CLI memory, effective stop, bounded restart recovery and durable reviewable replies. Apply remains unavailable. No owner decision blocks these criteria. All proof methods describe future work; no criterion is claimed met. The settled intent, architecture and dependency on story-001 are retained unchanged.
+
+The current assembled scope remains story-001 (#432), story-002 (#433) and story-003 (#434), with dependencies story-002 → story-001 and story-003 → story-001, story-002. No story is retired. Story-001 retains its acceptance draft and recorded owner evidence; this submission adds only story-002 criteria/tasks; story-003 retains its current technical draft and pending technical review, with acceptance still to be shaped. The complete current review is therefore not an implementation-ready whole-plan claim. The factory binds current revisions and shared decisions and publishes the parent link-only index; story-specific criteria and tasks remain on #433.
+
+Shared decisions remain one-issue scope, shared engine/memory, owner-prefixed commands, read-only diagnosis, flagship per turn without downgrade, explicit approval for scoped agent repair, retained backups and one recovery restart after verified repair. Successful-copy cleanup remains #413 and is not a dependency. Retained assumptions include initial activation time, one reserved doctor worker, immutable admitted comments and at most one diagnosis recovery attempt. Authentic provider isolation and real stuck-case field-guide evidence remain story-001 obligations; live GitHub/daemon observations are not claimed. Criteria review and assembled-plan review stay within the third Plan stage. After the exact whole plan has completed owner review and factory readiness, the next requested mode can be /implement <instruction>.
+
+Binding record for assembly, not an authority claim: active promoted set 6cdffa1031da4116796b9039d5d1583f23364d58745afd86ddd08ba8cf4d226b; shared decisions initial. Supplied current drafts: story-001 plan-139-1315, story-002 plan-140-1324 (this criteria/tasks proposal updates it), story-003 plan-141-1333. Factory must bind the resulting current candidate before owner review. No supplied scope is omitted and no pending stage is declared complete.
