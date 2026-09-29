@@ -38,21 +38,49 @@ type BugRepairBoundaries struct {
 	ExcludedPaths []string `json:"excluded_paths,omitempty"`
 }
 
-// Validate checks that approved boundaries name concrete repository paths.
-func (b BugRepairBoundaries) Validate() error {
-	if len(b.AllowedPaths) == 0 || len(b.AllowedPaths) > 256 || len(b.ExcludedPaths) > 256 {
-		return errors.New("bug analysis: bounded remedy needs 1–256 explicit allowed paths")
+// Notice is a policy-class observation Validate makes instead of refusing:
+// the caller records it as a fact and continues (REFUSAL_REVIEW.md, T-003).
+// Reference is stable across replays; Text is short and plain-language.
+type Notice struct {
+	Reference string
+	Text      string
+}
+
+// Validate checks that approved boundaries name concrete repository paths. An
+// escaping or malformed path stays a hard error (integrity: it could name
+// something outside the project). The 1-256 count bound and a repeated path
+// are policy, not integrity — nothing unapproved can merge, close or spend
+// budget over a remedy that merely lists more paths than usual or repeats
+// one; the owner still reads the approved remedy at analysis review
+// (REFUSAL_REVIEW.md: buganalysis.boundaries_count, buganalysis.boundaries_duplicate).
+func (b BugRepairBoundaries) Validate() ([]Notice, error) {
+	if len(b.AllowedPaths) == 0 {
+		return nil, errors.New("bug analysis: bounded remedy needs at least one explicit allowed path")
+	}
+	var notices []Notice
+	if len(b.AllowedPaths) > 256 || len(b.ExcludedPaths) > 256 {
+		notices = append(notices, Notice{
+			Reference: "buganalysis.boundaries_count",
+			Text:      fmt.Sprintf("remedy boundaries list %d allowed and %d excluded paths, beyond the usual 256-path guidance", len(b.AllowedPaths), len(b.ExcludedPaths)),
+		})
 	}
 	seen := map[string]bool{}
 	for _, paths := range [][]string{b.AllowedPaths, b.ExcludedPaths} {
 		for _, p := range paths {
-			if !fs.ValidPath(p) || p == "." || strings.ContainsAny(p, "\\\x00\r\n*?[") || seen[p] {
-				return errors.New("bug analysis: invalid, duplicate or conflicting remedy path")
+			if !fs.ValidPath(p) || p == "." || strings.ContainsAny(p, "\\\x00\r\n*?[") {
+				return notices, errors.New("bug analysis: invalid or escaping remedy path")
+			}
+			if seen[p] {
+				notices = append(notices, Notice{
+					Reference: "buganalysis.boundaries_duplicate:" + p,
+					Text:      fmt.Sprintf("remedy boundaries repeat path %q", p),
+				})
+				continue
 			}
 			seen[p] = true
 		}
 	}
-	return nil
+	return notices, nil
 }
 
 // BugReproduction records the steps, environment and observation status.
@@ -81,10 +109,16 @@ var bugStableID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,127}$`)
 // Validate checks a bounded partial snapshot or a complete review proposal.
 // Answer references are checked against retained authenticated observations by
 // the store; an authored reference alone cannot resolve a material question.
-func (a BugAnalysis) Validate(review bool) error {
+// The returned notices are policy-class observations (from Boundaries.Validate)
+// that the caller records as facts instead of refusing; every other rule here
+// protects the minimum content a review needs and stays a hard error.
+func (a BugAnalysis) Validate(review bool) ([]Notice, error) {
 	var faults []error
+	var notices []Notice
 	if a.Boundaries != nil {
-		if err := a.Boundaries.Validate(); err != nil {
+		n, err := a.Boundaries.Validate()
+		notices = append(notices, n...)
+		if err != nil {
 			faults = append(faults, err)
 		}
 	}
@@ -140,7 +174,7 @@ func (a BugAnalysis) Validate(review bool) error {
 	} else if len(encoded) > 1<<20 {
 		faults = append(faults, errors.New("bug analysis exceeds 1 MiB"))
 	}
-	return errors.Join(faults...)
+	return notices, errors.Join(faults...)
 }
 
 // Digest binds the complete canonical structured proposal, including references.

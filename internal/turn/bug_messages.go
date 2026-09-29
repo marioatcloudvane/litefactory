@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // bugSteps names each Bug parent node the way the owner thinks of it.
@@ -70,6 +72,8 @@ func bugExplanation(text string) string {
 		return "This Bug task is not waiting for a reply right now, so there is nothing this comment could continue."
 	case strings.Contains(text, "only a Bug parent that failed in its analyst or fixer"):
 		return "Only a failed analysis or repair, or a blocked analysis, can be restarted by a comment."
+	case strings.Contains(text, bugExhaustionNotWaitingText):
+		return "This Bug task is waiting for the owner to answer its exhaustion question: reply `/grant-bug-attempt <n> [instructions]` to give it one more repair attempt, or `/stop-bug <n>` to stop here."
 	default:
 		return ""
 	}
@@ -123,4 +127,86 @@ func bugNoticeComment(node, outcome string, payloads []string, instance, attempt
 	}
 	bugDetails(&b, details)
 	return b.String()
+}
+
+// bugExhaustionAttemptFullBytes bounds each fully rendered attempt in the
+// exhaustion question so the newest six attempts stay inside the report size
+// bound alongside every older one-line entry (AC-011).
+const bugExhaustionAttemptFullBytes = 1024
+
+// bugExhaustionQuestionComment renders the exhaustion question: the bounded
+// full history of every repair attempt, every earlier exhaustion and its
+// decision, and the two commands the owner can reply with.
+func bugExhaustionQuestionComment(n int, history store.BugRepairHistory) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "**This Bug task's repair budget is spent (exhaustion %d).** A person needs to decide what happens next.\n\n", n)
+	b.WriteString("Here is everything tried so far:\n\n")
+	total := len(history.Attempts)
+	fullFrom := total - 6
+	if fullFrom < 0 {
+		fullFrom = 0
+	}
+	for i, a := range history.Attempts {
+		if i < fullFrom {
+			b.WriteString(bugRepairAttemptOneLine(a) + "\n")
+			continue
+		}
+		b.WriteString(bugRepairAttemptFull(a) + "\n")
+	}
+	if len(history.Exhaustions) > 0 {
+		b.WriteString("\n**Earlier exhaustions:**\n\n")
+		for _, x := range history.Exhaustions {
+			decision := x.Decision
+			if decision == "" {
+				decision = "undecided"
+			}
+			if x.Decision == "grant" && x.Instructions != "" {
+				fmt.Fprintf(&b, "- exhaustion %d: %s (instructions: %s)\n", x.N, decision, x.Instructions)
+			} else {
+				fmt.Fprintf(&b, "- exhaustion %d: %s\n", x.N, decision)
+			}
+		}
+	}
+	fmt.Fprintf(&b, "\nReply `/grant-bug-attempt %d` (optionally followed by instructions for what to try differently) to give this bug one more repair attempt, or `/stop-bug %d` to stop here. Either way this issue stays open.\n", n, n)
+	return b.String()
+}
+
+// bugRepairAttemptFull renders one attempt's full record, bounded to 1 KiB.
+func bugRepairAttemptFull(a store.BugRepairHistoryAttempt) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "**Attempt %d** (cause: %s", a.Ordinal, a.Cause)
+	if a.GrantReference != "" {
+		b.WriteString(", granted")
+		if a.GrantInstructions != "" {
+			fmt.Fprintf(&b, " with instructions: %s", a.GrantInstructions)
+		}
+	}
+	b.WriteString(")\n")
+	if a.Summary != "" {
+		fmt.Fprintf(&b, "- Summary: %s\n", a.Summary)
+	}
+	if a.FellShort != "" {
+		fmt.Fprintf(&b, "- Fell short: %s\n", a.FellShort)
+	} else {
+		fmt.Fprintf(&b, "- State: %s\n", a.State)
+	}
+	text := b.String()
+	if len(text) > bugExhaustionAttemptFullBytes {
+		text = text[:bugExhaustionAttemptFullBytes-1] + "…\n"
+	}
+	return text
+}
+
+// bugRepairAttemptOneLine renders one older attempt as a single bounded line.
+func bugRepairAttemptOneLine(a store.BugRepairHistoryAttempt) string {
+	short := a.FellShort
+	if short == "" {
+		short = a.State
+	}
+	line := fmt.Sprintf("- Attempt %d (%s): %s", a.Ordinal, a.Cause, short)
+	const limit = 200
+	if len(line) > limit {
+		line = line[:limit-1] + "…"
+	}
+	return line
 }

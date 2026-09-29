@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/buganalysis"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -219,7 +220,15 @@ func (h bugAnalysisComment) Execute(ctx context.Context, opts Options, req Activ
 		body += "\n" + reason + "\n"
 	}
 	if kind == "review" {
-		body += fmt.Sprintf("\n\nTo authorize this exact remedy, reply `/approve-bug analysis %d`.", revision.Revision)
+		// Analysis-stage facts are part of this review, so a fact recorded
+		// after publish changes ContentDigest below and the review goes stale
+		// (AC-006, AC-007).
+		facts, err := opts.DB.BugFacts(ctx, instance.SessionID, store.BugFactStageAnalysis)
+		if err != nil {
+			return ActivityResult{}, err
+		}
+		body += "\n\n" + report.RenderBugFactsSection(bugFactLines(facts))
+		body += fmt.Sprintf("\nTo authorize this exact remedy, reply `/approve-bug analysis %d`.", revision.Revision)
 	}
 	purpose := fmt.Sprintf("bug-analysis:%d:%s:%s:%d", instance.ID, req.Node, kind, revision.Revision)
 	intent := h.reporter.deliveryIntent(ref, ref, instance.SessionID, run.TriggerCommentID, run.ID, purpose)
