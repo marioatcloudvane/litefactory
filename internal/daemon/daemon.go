@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -171,6 +172,9 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Doctor is the independent diagnostic service; nil disables dispatch.
+	Doctor *doctor.Service
+
 	// Bug is the complete factory-bound parent runtime. Nil retains admission
 	// but refuses execution without substituting a mode workflow.
 	Bug *turn.BugRuntime
@@ -339,6 +343,10 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	doctorHostOptions *DoctorHostOptions
+	doctorHost        *DoctorRepairHost
+	doctor            doctorLane
+
 	bugTests *turn.BugTestChild
 	bug      *turn.BugRuntime
 
@@ -446,6 +454,7 @@ func New(opts Options) (*Daemon, error) {
 		turn:                     opts.Turn,
 		reporter:                 opts.Reporter,
 		diagnosticRedactor:       opts.DiagnosticRedactor,
+		doctor:                   doctorLane{service: opts.Doctor, pool: newPool(1)},
 		proposals:                opts.ProposalGenerator,
 		confirmer:                opts.Confirmer,
 		conflictProposalTTL:      opts.ConflictProposalTTL,
@@ -492,7 +501,11 @@ func (d *Daemon) Close() error {
 	if d.mcpClose != nil {
 		authorityErr = d.mcpClose()
 	}
-	return errors.Join(authorityErr, d.lock.Close())
+	var hostErr error
+	if d.doctorHost != nil {
+		hostErr = d.doctorHost.Close()
+	}
+	return errors.Join(authorityErr, hostErr, d.lock.Close())
 }
 
 // Reconciled is what the startup reconciliation repaired (D-B, AC-2.21).
@@ -528,6 +541,9 @@ type Reconciled struct {
 // listed. Refusing to start because GitHub is having a bad minute would be the
 // worse failure.
 func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
+	if err := d.recoverDoctor(ctx); err != nil {
+		return Reconciled{}, err
+	}
 	if d.bug != nil {
 		if err := d.bug.Reconcile(ctx); err != nil {
 			return Reconciled{}, err
@@ -589,6 +605,24 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 			slog.Int("abandoned_runs", result.AbandonedRuns),
 			slog.Int("failure_comments_posted", result.Reported),
 			slog.Int("reclaimed_locks", result.ReclaimedLocks))
+	}
+	if d.doctorHostOptions != nil {
+		host, err := d.startDoctorRepairHost(ctx, *d.doctorHostOptions)
+		if err != nil {
+			if d.doctorHostOptions.Recovery != nil {
+				return result, err
+			}
+			if d.doctor.service != nil {
+				d.doctor.service.RepairEnvironment = nil
+				d.doctor.service.RestartRoute = nil
+			}
+			d.log.WarnContext(ctx, "doctor local host control unavailable", slog.Any("error", err))
+			return result, nil
+		}
+		d.doctorHost = host
+		if err = host.prepare(ctx); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
@@ -766,6 +800,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 // whole shutdown — N runs included — without a line of Run changing.
 func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time) {
 	defer d.pool.wait()
+	defer d.doctor.pool.wait()
 
 	for {
 		select {

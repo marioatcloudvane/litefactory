@@ -1,6 +1,9 @@
 package daemon
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // inflight is the set of sessions this daemon process is running a turn for
 // right now, plus the largest that set has ever been.
@@ -41,6 +44,8 @@ import "sync"
 type inflight struct {
 	mu        sync.Mutex
 	sessions  map[int64]struct{}
+	cancels   map[int64]context.CancelFunc
+	settled   map[int64]chan struct{}
 	highWater int
 }
 
@@ -61,6 +66,10 @@ func (f *inflight) enter(sessionID int64) bool {
 		f.sessions = make(map[int64]struct{})
 	}
 	f.sessions[sessionID] = struct{}{}
+	if f.settled == nil {
+		f.settled = make(map[int64]chan struct{})
+	}
+	f.settled[sessionID] = make(chan struct{})
 	if len(f.sessions) > f.highWater {
 		f.highWater = len(f.sessions)
 	}
@@ -75,6 +84,11 @@ func (f *inflight) leave(sessionID int64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.sessions, sessionID)
+	delete(f.cancels, sessionID)
+	if done := f.settled[sessionID]; done != nil {
+		close(done)
+		delete(f.settled, sessionID)
+	}
 }
 
 // size reports how many sessions are in flight at this instant.
@@ -96,4 +110,33 @@ func (f *inflight) peak() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.highWater
+}
+
+func (f *inflight) bindCancel(session int64, cancel context.CancelFunc) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cancels == nil {
+		f.cancels = make(map[int64]context.CancelFunc)
+	}
+	if _, ok := f.sessions[session]; ok {
+		f.cancels[session] = cancel
+	}
+}
+func (f *inflight) drain(ctx context.Context, session int64, interrupt bool) error {
+	f.mu.Lock()
+	done := f.settled[session]
+	cancel := f.cancels[session]
+	f.mu.Unlock()
+	if interrupt && cancel != nil {
+		cancel()
+	}
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

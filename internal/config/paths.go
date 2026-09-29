@@ -142,3 +142,15 @@ func (p Paths) EnsureHome() error {
 
 // StoryProgressLocksDir holds factory-owned cross-process story delivery locks.
 func (p Paths) StoryProgressLocksDir() string { return filepath.Join(p.home, "story-progress-locks") }
+
+// DoctorLocksDir separates doctor serialization from workflow admission locks.
+func (p Paths) DoctorLocksDir() string { return filepath.Join(p.home, "doctor", "locks") }
+
+// DoctorScratchDir contains private invocation context, never issue files.
+func (p Paths) DoctorScratchDir() string { return filepath.Join(p.home, "doctor", "scratch") }
+
+// DoctorBackupsDir retains repair copies outside all worktree and session cleanup roots.
+func (p Paths) DoctorBackupsDir() string { return filepath.Join(p.home, "doctor", "backups") }
+
+// DoctorRepairLocksDir serializes repair effects and stop across local processes.
+func (p Paths) DoctorRepairLocksDir() string { return filepath.Join(p.home, "doctor", "repair-locks") }

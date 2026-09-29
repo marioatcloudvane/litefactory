@@ -68,10 +68,10 @@ func settleContinuationPrerequisite(ctx context.Context, tx *sql.Tx, c Continuat
 // Reservations without allocations spent no attempt; allocated runs may never
 // be replayed just because their worker vanished before updating queue state.
 func reconcileContinuations(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE automatic_continuations SET status='pending', reserved_at=NULL WHERE status='reserved' AND allocated_run_id IS NULL`); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE automatic_continuations SET status='pending', reserved_at=NULL WHERE status='reserved' AND allocated_run_id IS NULL AND session_id NOT IN (SELECT session_id FROM doctor_held_session_owners)`); err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT `+continuationColumns+` FROM automatic_continuations WHERE status='running' ORDER BY id`)
+	rows, err := tx.QueryContext(ctx, `SELECT `+continuationColumns+` FROM automatic_continuations WHERE status='running' AND session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) ORDER BY id`)
 	if err != nil {
 		return err
 	}

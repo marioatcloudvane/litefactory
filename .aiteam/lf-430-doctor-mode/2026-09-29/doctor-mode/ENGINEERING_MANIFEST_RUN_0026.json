@@ -1,0 +1,775 @@
+{
+  "implementation_digest": "d681a93b396931c35b5d8dd3378a959c612e77daf2fe64d68935bc1ccd3fae19",
+  "files": [
+    {
+      "path": "docs/features/doctor-github.md",
+      "sha256": "a37eecac8baa37cbdacfa5ec1140b85c91a81843ad9c38bb570193d3022b8c4e",
+      "deleted": false
+    },
+    {
+      "path": "docs/features/doctor-host-control.md",
+      "sha256": "7c2e596d5248347a50c5e66c99e2b41383ab49d5f6c1c647ab921167b9de8ee2",
+      "deleted": false
+    },
+    {
+      "path": "internal/agent/doctor.go",
+      "sha256": "4752371762744d94ac7de8e62a55153498c10990b4151b243e183dcfdbc9802f",
+      "deleted": false
+    },
+    {
+      "path": "internal/agent/repair.go",
+      "sha256": "6df60e6c84b8fc105d5da658bdbbed5ad8c7dcfdb236ff8528b088ed1908aaa0",
+      "deleted": false
+    },
+    {
+      "path": "internal/agent/repair_test.go",
+      "sha256": "437d20ca0e8a6e0d10c2222c77018d636eba7c621a48a89f98c299472fe04d5f",
+      "deleted": false
+    },
+    {
+      "path": "internal/bugrepair/evidence_test.go",
+      "sha256": "cfa628b6c84f1e8ec824c25e46bdef4dbdf64a866a3c939394bfa1626f43cd49",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/cmd_daemon.go",
+      "sha256": "8709837ce6332bce7e950dfd37ff4ffd544fb3d775ded729f88626b5b2f001eb",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/cmd_daemon_recovery_test.go",
+      "sha256": "3fd192e9b5430c2731c4d724aea53915c8bfcad77c8d0bb9aad6c49be098f33c",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/cmd_doctor.go",
+      "sha256": "df82a8880760a9b56cfa30bc9d112687c2ada044b23f135014d457c3f40950b0",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/commands.go",
+      "sha256": "5c179c134e57de13e970289c9ccedd3ed12d8d3737ab6d5acc94612e33e763ae",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/doctor_native.go",
+      "sha256": "7b1a207b745d49d5cb5e87e3ee005dea4062c10f4386654bcb08647093eae7fc",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/doctor_unit_test.go",
+      "sha256": "5c739cd1f49f69b993bed620600ca0e48f8751afc40a95ef8e69e6d4b1aedef3",
+      "deleted": false
+    },
+    {
+      "path": "internal/codex/doctor.go",
+      "sha256": "a910966af692def8f494bc70ac1efdb07cf23c486a1ac884e626cad1cd3bd19c",
+      "deleted": false
+    },
+    {
+      "path": "internal/codex/doctor_transport_test.go",
+      "sha256": "986c184e20e74c9ae1493844b29e85e65d6b51e6caab219e206a15253ec31e43",
+      "deleted": false
+    },
+    {
+      "path": "internal/codex/repair.go",
+      "sha256": "e65a4401a9ccf9cbc1e6311f2326c2be4e567d600a7dced3a5e443dae7baaeec",
+      "deleted": false
+    },
+    {
+      "path": "internal/codex/repair_transport_test.go",
+      "sha256": "85920f9bfdf3a5c596de69b24688d360886b3523e780c6facd5b26e4483aeee9",
+      "deleted": false
+    },
+    {
+      "path": "internal/codex/usage.go",
+      "sha256": "dad8284d433c2abd1e4b3b46faa326d477b7d6fe2fbd3d74b8e2b04ba830bdc8",
+      "deleted": false
+    },
+    {
+      "path": "internal/config/doctor_host_paths.go",
+      "sha256": "46a32eeca54a6f74c4153e7628ab31122e684f8e1a8ea45f4a2f023b559c7bc5",
+      "deleted": false
+    },
+    {
+      "path": "internal/config/paths.go",
+      "sha256": "2dda9a42227d4d846338c291e46c56e4639a2cc3df7ad9f9d5ee8609156f282c",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/continuation_cancellations.go",
+      "sha256": "68e9f30d9d95148a81c708b7e57908c3a124711e19646a295a7dbfcb5a611623",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/continuation_dispatch.go",
+      "sha256": "01732ee7afa4de90f2c32edbe686040e9d5cdf7da065ca43675e985a06b90e54",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/continuation_reports.go",
+      "sha256": "db2c2ea81248fc16a81dc0f9d5dcb0192c5c05b471397478da70b5b01163a830",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/creation_presentation.go",
+      "sha256": "73dab1b95aab1f3b11b3711a6d02e38fc00f4cd62e9ed735ab3f205493515fd9",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/daemon.go",
+      "sha256": "aae164125ec8f5c453571137d760c9eb2650db71ea52ddd07a131ae19e70b317",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor.go",
+      "sha256": "f5438795ef33a2a3b136d358bbcfab64e64c88298545762872101884fcf26396",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_drain_test.go",
+      "sha256": "11965d61e0cc9bbcb348245213734c5af831b9f9e02097371517cc62991ef2b7",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_repair_control.go",
+      "sha256": "f8ec273dcf7f8f6e2567927d67bf1ef5e4325d077e29788cfa636664c1d34fe2",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_repair_environment.go",
+      "sha256": "c04577bb3ff7d6e305a60a3b22c674eb4d51a5f2d996edf1f17ad6b63a2214a4",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_repair_host.go",
+      "sha256": "a2a45d4342d874f07b3beff97e46604ed7592ee30a4019cb69fa638fcbf50440",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_repair_host_files.go",
+      "sha256": "8d6aa7494baedc84004a032671c9115f7e829398387dc4c3da117239dbeaaa10",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_repair_host_launchd.go",
+      "sha256": "2b853a076b9b05186527725a9087e030743a5aaec62752af6c81915a5def306b",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_repair_host_launchd_test.go",
+      "sha256": "4cdc2c457f80db7ee24f713e04c3eae981bdbdca9559a2df91372e1dc8133296",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_repair_host_restart.go",
+      "sha256": "34a03391ff61aaf64d0adc1978e19c55b073d39c442a3b487250e206b8fcec33",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_repair_host_test.go",
+      "sha256": "cba4f2b96eb0507aa2c41e06c53b324d40a664145d11617eb2a2856802086d17",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_repair_recovery.go",
+      "sha256": "bdffc7b65239f89732183ad90364d441a888061c9417ec88bfcfc69b70df26eb",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/doctor_test.go",
+      "sha256": "90c45a65cf55985191b0f1dda629d8d68e08ba5c3cd98d5bf45093540043a03c",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/graph_dispatch.go",
+      "sha256": "4b4b0b0eaa53b6077395c7577645de676bf5b102398f11d2debce920d5e902a3",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/inflight.go",
+      "sha256": "b211f7d5f52ddce96a1310ad650bd2f256f33b8deba06cb1b9a1c7cb78c9f3c4",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/mcp_creation.go",
+      "sha256": "48e52dfd68a92695a7629d94cc537c3d7bf4e4abf9eecb8d39c79a8e0266fc14",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/plan_children.go",
+      "sha256": "e4af7b9bbe4be08d1b22d0157994aaa852d1559de2d7ba6042d4efa05c64b643",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/pool.go",
+      "sha256": "27b8e8f6e17e3b8e342f22c43d1c2f37fd9fd06dbaddcfd139ee3558783badca",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/report_recovery.go",
+      "sha256": "375c3502750d1bfe2f30c9371c565c7f859cfaa79882162b5c82b215b6ef61a5",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/report_recovery_doctor_test.go",
+      "sha256": "7de1f3c5a0e94dd70d05c071d36bd16d9be406e6b8980d32f7eb290fa3abac89",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/research_owner_resume.go",
+      "sha256": "22fe6ffb139d9ff2ce319f48d3ef370d4992579a9a3173e82c8b77623dc6b525",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/retirement_execute.go",
+      "sha256": "bb2b1b5d5cf2e758b216a7c7d43ec4bf92f232bc6875f1650ebd31af1e2c81d6",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/schedules.go",
+      "sha256": "e6d808bf860131a9316915afc302855ac2a33877549cbdbd62b06db62694f781",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/setup.go",
+      "sha256": "f01ee985d42577bff2ba11cec351be7a185bb2c60903ed1db10e93edfd6e2672",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/stopped_results.go",
+      "sha256": "518f7c2dffc46a626018268dae9f95917f471c7f0f42738a0719913cb03a0508",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/stopped_results_db_test.go",
+      "sha256": "e1b5d01b4b4ca6be88992af63cee1a1bcea6dd50dc30623343bd53213551ac7a",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/story_refinements.go",
+      "sha256": "eca028140e9dc75761f8bf5f85d3344e85c97957667c33ff2e77805ef4fc4a9e",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/tick.go",
+      "sha256": "05cc0bbcd63dc3d10c7b502621aed7675d3025e0aba969f3152fe497bb86611d",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/worker.go",
+      "sha256": "af161814a3158835e3f81d126874866f652d9aeddb3b2eee0e9b5da850a29e65",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/absent_file.go",
+      "sha256": "887ff73543055439f4e199b42c430142d768a2f9eb5e206de6c2f032ccb22b8b",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/adapters.go",
+      "sha256": "203613377421f68e8d791a04d8e1fdd052ba02ca865d22e14e05c55c00a3817e",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/broker.go",
+      "sha256": "d59bc5b2cb0b72a3e7316866a454021b499b0c8fd1682e9bdd48e53dfeff3118",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/cli_presentation.go",
+      "sha256": "e85da80b760dae10484072b4c865edf289b07da8be378e9958a90bdbdfaa419a",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/command.go",
+      "sha256": "0e32d5459708c9a9bb569766e0bb9c3af3a82dfda0d50340b12c762fdbe99c74",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/command_test.go",
+      "sha256": "dce18b0ce104aca70c76b526a31f17d13e7691f98755a2be9489571c06873d05",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/command_unit_test.go",
+      "sha256": "77ca9d3fa59c1883291620f6ad3db13fa8fbe49774b8eb4fa8f65c6a3b9ee54e",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/contract_unit_test.go",
+      "sha256": "1d293eec473f890b862713fe67fadbefd54c142e71ad109e7cb700b6fd64ed50",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/files.go",
+      "sha256": "2d225be00bba8cc1995bb4ca39131c4e86adbd498ce5af3a64da93fabcc7d436",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/invoke.go",
+      "sha256": "513dfed43464f59c7b1ac922f36db06fcf1f1d7e3b04e98aca0d6558f99928f7",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/invoke_io_test.go",
+      "sha256": "e76727e1fc68c3ddf49bd5ba87af43a12727653086afff22b3ab4263cb683bc3",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/presentation.go",
+      "sha256": "589828b307b0d19ddef95a72344f9d302f6efd990d56ab22acd00c1d825bfcc9",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/presentation_unit_test.go",
+      "sha256": "edb16f68c04a5bea29bb92fb97181b405eab94c28e298ca183ac19b57ab1c21f",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/private_directory.go",
+      "sha256": "dc335767484c9c52525436354d1f1f79614f25da3128099d222d645290b18d71",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/prompt.go",
+      "sha256": "3646cf26a618b23db0563d424edfa9c7635b721af9e187697a61b350f8b586f2",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/provider.go",
+      "sha256": "0dd70ac380862ad8de95bc28c4cbb707f0ee2aba46ffe9d9f02d34f70155c87e",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/recovery.go",
+      "sha256": "242efd36c1ca48ac07ffa342319d4db0addfaec9cb487190f02b623feddf02eb",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair.go",
+      "sha256": "690169459dd784400ccf54ffa413766bca8790c71ae309a0127ccc656670b9fe",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_adapters.go",
+      "sha256": "3f0ceb3e8ce6293dc651203b1fd3333e2bfc408bded6137f6e1a06e3007ba315",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_adapters_test.go",
+      "sha256": "756502c4624ac725e0b82011286549493c69a54c807b3a2b9d47f500286c4052",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_admission.go",
+      "sha256": "e66d11563c1d3cb6209f140d8180962ccbbd674c121dda4116d4ca9f030c2891",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_boundary_io_test.go",
+      "sha256": "1dcedc7653c9f478a76e62cbc48631d74517d02b2f317120e945f0a77946a68a",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_broker.go",
+      "sha256": "f6dd4eef81d2c598deb17a05bb8f8ca6541f1dcf84d0476a0bb554442937a48c",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_files.go",
+      "sha256": "0ed967d7d09b67be3b51203ce3a4824c7b78d1296ecbccc3eab71b5025e1e8ab",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_io_test.go",
+      "sha256": "8ff3dbfc0ac018536c19e878c655d0a2ac3884deac19a42881033fdb9da17bcf",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_recovery.go",
+      "sha256": "4ba149aa3bc3563bea050ad754da2d984108ebe1c0d261914a5dd7c128ce008c",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_recovery_test.go",
+      "sha256": "5b817a83802dedac535e64705637717e0513e858f0e59fd0cb8abe57f68413ec",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/repair_summary_unit_test.go",
+      "sha256": "df31b4449fe292966224ca84bf1abde18b3ac5b4662c62b834a04914349aa094",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/restart.go",
+      "sha256": "7155eed220120ad7410c2bda3760018dd19ace78a8b27946f3b9fd58ea8a540d",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/result.go",
+      "sha256": "a9e92fd44e4cda0353a5d379d3d66785afed9f6c871ea02c2885a7f6ecf66b38",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/result_unit_test.go",
+      "sha256": "0dc5c64b34107c8a2bbd0bf62d479155344a6fedeac9b8f4417aca1f5ee08de6",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/results.go",
+      "sha256": "2c0329e81fb122316b7c2477300423439e4fd63cbad93eb967e59f659995ff38",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/service.go",
+      "sha256": "d0ed52644ea9e8e0004fa4b7814c1334c538dc7139ef97db79494c81050cd0f6",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/service_io_test.go",
+      "sha256": "9b2f49fdb1ed960417d6727b043a342a09754c5bdc5dfbf84cae93c4d5260329",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/usage_io_test.go",
+      "sha256": "343add58befcd62e120d273874412bd41272bab4effa1ca7a79d9b0073d26379",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/worktree_files.go",
+      "sha256": "5326fa5eafcff55aacefc2424175bc43cf4db6f07088a454277c125d2eaad8a5",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/worktree_git_test.go",
+      "sha256": "700d344e77d2fa031bbd05418ff837707fcb10895cf3024c8bf180c79ea85107",
+      "deleted": false
+    },
+    {
+      "path": "internal/doctor/worktree_repair_test.go",
+      "sha256": "bce352cfa48cdad4897a9c698ce8d2697fc3f393193e71376c3c2f2c47078ebb",
+      "deleted": false
+    },
+    {
+      "path": "internal/git/doctor.go",
+      "sha256": "ee9f2030a3065ac209e7a5693c23ed1cf2434aad1521928d6fec2a3923697e22",
+      "deleted": false
+    },
+    {
+      "path": "internal/git/exec.go",
+      "sha256": "6f2542b39dd54bc94eab5112e825c085ab3b7f160294b6938e47331c1b4413fa",
+      "deleted": false
+    },
+    {
+      "path": "internal/github/doctor_comments.go",
+      "sha256": "f5809d76307537cf17a62792e1f53f12cd11c619942bdcc973f8b733dca29cf9",
+      "deleted": false
+    },
+    {
+      "path": "internal/github/doctor_comments_test.go",
+      "sha256": "f19cdaf6cba704435ccab375f3b5b0cf9048f4d5b170c0ff701f26d3dbb65acc",
+      "deleted": false
+    },
+    {
+      "path": "internal/github/doctor_page_io_test.go",
+      "sha256": "fae235f7941b0049eb263e27a6d886d39afd149a8ac280d3195a240e23bc2a2b",
+      "deleted": false
+    },
+    {
+      "path": "internal/github/surface_test.go",
+      "sha256": "439a6489a154c5d4888a607862b81f79695faf74b0252552552f6e0d92e1b479",
+      "deleted": false
+    },
+    {
+      "path": "internal/harness/doctor.go",
+      "sha256": "416c4fa3d20145063786e911ec5901dd630fa1cab13bbb445601c43a30687c91",
+      "deleted": false
+    },
+    {
+      "path": "internal/harness/doctor_transport_test.go",
+      "sha256": "9da2a4482ed737559360c7d02a503632c3dfa062cd16c99a8987165614e775b4",
+      "deleted": false
+    },
+    {
+      "path": "internal/harness/repair.go",
+      "sha256": "8d1db457eaa3e2cd0cf024dc8e841707b3e445b41a526e5fd4f3554277b5551a",
+      "deleted": false
+    },
+    {
+      "path": "internal/harness/repair_transport_test.go",
+      "sha256": "2bb875c92e1a989d3d744b973efb4631a2218910c27ce696eb78642d0fb9de42",
+      "deleted": false
+    },
+    {
+      "path": "internal/harness/usage.go",
+      "sha256": "05c95aacc31bf7f582727cf13c42396850b0c60d75e646f5e16f65e4584a7c9d",
+      "deleted": false
+    },
+    {
+      "path": "internal/launchd/recovery_identity.go",
+      "sha256": "ff3dee5a9f1edfd0fe98eb966a016e7852cb749460d0b62350975dca95419546",
+      "deleted": false
+    },
+    {
+      "path": "internal/launchd/recovery_identity_test.go",
+      "sha256": "a079dfdbeea91d1e9a26d820f8e4cda8215aa964906ab03c3798e58eb56def39",
+      "deleted": false
+    },
+    {
+      "path": "internal/launchd/restart.go",
+      "sha256": "9a5e17b5b0d4a01b721bfc8d8a9502b098d2ced9790c36d5b85d5646677c1571",
+      "deleted": false
+    },
+    {
+      "path": "internal/launchd/restart_test.go",
+      "sha256": "d23a40e2130e0c2385a7d05915e006338d8c1145277cbffd4c80aad3112f39fd",
+      "deleted": false
+    },
+    {
+      "path": "internal/providerprocess/doctor.go",
+      "sha256": "94fd3531d57565b8376ace21a6d84d234bb51643148df2b27e10ac37ad201a22",
+      "deleted": false
+    },
+    {
+      "path": "internal/providerprocess/doctor_test.go",
+      "sha256": "9029c3f6147e70fcfa55408178e9afac9578e4f26db3c846a3e3591f2709090d",
+      "deleted": false
+    },
+    {
+      "path": "internal/resultservice/submit.go",
+      "sha256": "78511c83fe3f9abd91876ebdc9aa47b0a48bf3baf398d7f702368962eff49cda",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/bug_analyses.go",
+      "sha256": "abe0b2e267d3d16f0cbe1dfbae3565d14a1757fd5a1eaa4a9c97434d75ee69ac",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/bug_events.go",
+      "sha256": "d1545a4ff78208d48d5d6e60a8cff4d7400d55aa60849e8703bab9f8b54191ed",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/bug_repairs.go",
+      "sha256": "b4a4da282d1b596f8fa8f5dfd83bac551fcd05e7d7e005f20ac55878836dfdd8",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/bug_tasks.go",
+      "sha256": "d37491ee47cf76a44db3fc2807541e77ca58b92a8c33ce8175e0ec64121acdba",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/continuation_settlement.go",
+      "sha256": "3bd2e56b38c186c4949296ec2aa79843e16111b8197289bd6440ae1c2041e332",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor.go",
+      "sha256": "26b0a09b964df618d7ed43be53effeb089b3e0d241d9d8e3e3a966cf513bbaae",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_deliveries.go",
+      "sha256": "e5873397b30853160244a1d4903a7964841b8baf9226e4b172a6e4ebc4119324",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_discovery_io_test.go",
+      "sha256": "ae4762000468d6cb742e8abd30467dbd803f61e2b6e3a8889e9380a5239e7073",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_evidence.go",
+      "sha256": "8fb6b464df0dfb131ccd2c4a291a134300b1570089ae54e03cce3d1037ab625c",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_inbox.go",
+      "sha256": "2fd5065ada9b9f680b2a90ae25a28b99c11f22c2c8a555f08b2d0a1813d94fe1",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_inbox_test.go",
+      "sha256": "96ad3ea865591d09afdca28bd93682c5b8ceb7b1723285e4fbd6200dd7187977",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_io_test.go",
+      "sha256": "904767dd60c2cc001415a2f42809807a9b22571056f703c40ededf27ba791fe1",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_meter.go",
+      "sha256": "a71930a7a24eec12a2bffeb4bd2414c9ac2b330e4702869c7876964c4d75535f",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_recovery.go",
+      "sha256": "78580c66a347b5fd305561a3bb5771ac3147255078a1566f4e33261e18da3dab",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_repair_catalog_test.go",
+      "sha256": "4bd069bac3561a4faedbbb48dc90e74fea8f0d63934052c8252b22e9f79b9cca",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_repair_io_test.go",
+      "sha256": "93acf5f46b1c33f55b4d7abbaee174325ad4dd9b1e26979d597d4a31f6b84198",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_repair_journal.go",
+      "sha256": "5b862fad8de7d0c3aabaa88a8945cfa2bf2a0f473782415217dd36855ad18941",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_repair_outcomes.go",
+      "sha256": "d144f42dc789c7a50241ef1f2209205098fe94861a203d98f9c5523881e567e5",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_repair_publication_io_test.go",
+      "sha256": "e7a25713acb5db0376e4a649301f1d539129504326d541e73050c134ea81504a",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_repair_recovery.go",
+      "sha256": "bbace5e22772cf5c0892525aa21473662b63ac9198b7e42342b1bca92b7978a7",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_repair_rows.go",
+      "sha256": "38c23da69375c73e79c9966826d082df28f4c7266df6401261501aeb62e9ad25",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_repair_target_unit_test.go",
+      "sha256": "9de4ba1108ad82b9a36200015b54f620ce90014307044d18efecbdc9d1fd06a1",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_repairs.go",
+      "sha256": "f45452b2ec06b619650618f2b341dadc310a872e1e4341f623ac29c72a8ad412",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_restart.go",
+      "sha256": "7c3f33a60dad49df91726ccdf80bde72b8053a5d43aa7c679b6a4746ef5e4610",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_results.go",
+      "sha256": "3f37049f50cb14d40e930163ee3c31b17b476fd9a1691871525f7bc355e8a8d6",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/doctor_tool_receipt_test.go",
+      "sha256": "98fccb8de3b47e8fa9192435a48c66901b621ebfc2e4f53d14508d39ae1dab10",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/graph_recovery.go",
+      "sha256": "7baaf8404650ca3445830351c3baadf1ecdd7f820480024762b3c861b24595bd",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/meter.go",
+      "sha256": "48f0fc0bd866f07aa0b3c671e82dde8923eef208bf1bad77450f7cc52e68b8fe",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/meter_events.go",
+      "sha256": "6942ed68c7a72a7797d3ff39996c0c85c907255db4242b01c0b4dd39c498cc74",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/meter_snapshot.go",
+      "sha256": "91df9d1d94e27a02fedf30f76bef91a6a2eb66a32e32168896dad6a96e45ebe2",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/migrations/0081_doctor.sql",
+      "sha256": "f2017bcfce272655c373452c8193bf6341a3cdcaa417464a5533b46ce4258ae5",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/migrations/0082_doctor_results.sql",
+      "sha256": "b47e7b152da77f4e25c5204b6996993180e5ad9c65caaa4434d00244b9043e18",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/migrations/0083_doctor_meter.sql",
+      "sha256": "d28c4619b905791daeebf4d43c80760c59588fe944852a490377bf4780d1216c",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/migrations/0084_doctor_inbox.sql",
+      "sha256": "25a8416f389797c08206fd1766e6c04a8cf432a720ba4287a69cd0ec8f0ae4ec",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/migrations/0085_doctor_repairs.sql",
+      "sha256": "ca94ca0aeaf59d605df5a7022a749e9a9478c7b55bc26dd0ab6231815a0c70f6",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/report_deliveries.go",
+      "sha256": "3213f0509f37b9b3944413bbdd59ba660af609f2d7380b89451d7f6339fd7bd3",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/result_bindings.go",
+      "sha256": "cd505e24fad3674588fa4bcb3403cc5631892e7003cc55c5334d34c821eed7d8",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/result_history.go",
+      "sha256": "461d358f078e4b69fc15289f9da5f5d7396b7c54ddd24faa32e063771a580165",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/result_observations.go",
+      "sha256": "68f0c84b579ed84dd0f0cb6a64d8f21aeacdb5fb2b1ab93d372f58fc67bd427f",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/runs.go",
+      "sha256": "5df97116b4f20161a5829ac4420e0b670b51274ed7d5694acba5bb590fc0e8ba",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/agent_results.go",
+      "sha256": "5ea36f51e0b604e7599819b3fccb1726b3ff57e6c480ff474784d40d99088ce2",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/bug_runtime_reports.go",
+      "sha256": "e69f9e87e4ad95d85862c0490262ca722b62da1bb1e53f87ba118a437d66c993",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/bug_self_check.go",
+      "sha256": "4636304f9d9dae55a49666345b0d2cea25df2b07aeb17c711d8f1249b81058c0",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/command.go",
+      "sha256": "e67cfaf922c45cc17c3f71115d55d165e1067f54faf5c44407656ca06f6c518b",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/meter.go",
+      "sha256": "73b480db42675e93ebd1e9c8a7ebdae8175b896e13907581a201ee73e5eec139",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/prepare.go",
+      "sha256": "9c804f534fbbf6af8ddfb627a9bc7f46888b697ea67243a8315e01802241ae70",
+      "deleted": false
+    }
+  ]
+}

@@ -694,7 +694,7 @@ func (db *DB) ReconcileOrphans(ctx context.Context, instanceID string) (Reconcil
 	var result Reconciliation
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		orphans, err := collectRuns(ctx, tx,
-			`SELECT `+runColumns+` FROM runs WHERE status = ? ORDER BY id`, string(RunRunning))
+			`SELECT `+runColumns+` FROM runs WHERE status = ? AND session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) ORDER BY id`, string(RunRunning))
 		if err != nil {
 			return fmt.Errorf("find abandoned runs: %w", err)
 		}
@@ -738,7 +738,7 @@ RETURNING `+runColumns,
 		// This is intentionally in the same transaction as orphan reconciliation
 		// so a restart cannot observe a reconciled run and stale reservation.
 		rows, err := tx.QueryContext(ctx,
-			`SELECT `+scheduleColumns+` FROM schedules WHERE status = ? ORDER BY id`, string(ScheduleRunning))
+			`SELECT `+scheduleColumns+` FROM schedules WHERE status = ? AND session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) ORDER BY id`, string(ScheduleRunning))
 		if err != nil {
 			return fmt.Errorf("find abandoned schedule reservations: %w", err)
 		}
@@ -788,7 +788,7 @@ RETURNING `+runColumns,
 			_, err = tx.ExecContext(ctx, `
 UPDATE sessions
 SET lock_owner = NULL, lock_acquired_at = NULL, updated_at = ?
-WHERE lock_owner IS NOT NULL AND lock_owner <> ?`,
+WHERE lock_owner IS NOT NULL AND lock_owner <> ? AND id NOT IN (SELECT session_id FROM doctor_held_session_owners)`,
 				FormatTime(now), instanceID)
 			if err != nil {
 				return fmt.Errorf("release stale locks: %w", err)
@@ -810,7 +810,7 @@ func collectReclaimedLocks(ctx context.Context, tx *sql.Tx, instanceID string) (
 	rows, err := tx.QueryContext(ctx, `
 SELECT id, task_ref, lock_owner, lock_acquired_at
 FROM sessions
-WHERE lock_owner IS NOT NULL AND lock_owner <> ?
+WHERE lock_owner IS NOT NULL AND lock_owner <> ? AND id NOT IN (SELECT session_id FROM doctor_held_session_owners)
 ORDER BY id`, instanceID)
 	if err != nil {
 		return nil, err
