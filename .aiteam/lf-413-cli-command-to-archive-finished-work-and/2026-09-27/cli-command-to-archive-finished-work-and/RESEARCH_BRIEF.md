@@ -16,36 +16,15 @@ Automatically archive a task's finished database evidence when its GitHub issue 
 - **d8** — A reopened issue starts fresh; nothing is restored.
 - **d9** — Per-issue run logs are removed when their archive expires.
 - **d10** — Scope covers all data tied to one issue, not only the three biggest tables.
+- **d11** — Owner decision: keep the newest N deploy database backups, N configurable, default 5; delete older ones. Worktree file backups are ignored.
+- **d12** — Owner decision: global daemon and launchd logs are deleted after a separate log_retain_days setting, default 30.
+- **d13** — Owner decision: the archive job alone may delete plan history rows, after verification, through one narrow exception to the delete block.
 
 
 ## Assumptions
 
 - **a1** — The archive is database evidence for the task, not the git worktree.
 - **a2** — The job is its own sweep with its own schedule state, separate from worktree retirement.
-- **a3** — Issue #430 could not be read; its temp files and backups are assumed to be files on disk, handled per the open question.
+- **a3** — Issue #430 could not be read; its database backups are taken to be the deploy script's .bak-pre-deploy- copies, which never get cleaned up today.
 - **a5** — The archive's compression format is chosen by the builder; gzip is acceptable.
-
-
-## Open questions
-
-### q6 — Which backup and temp files should be cleaned up, and by what rule?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Delete deploy database backups and #430 temp files after the same `archive_retain_days`, but always keep the newest 5 backups. Same daily job.  *(recommended)*
-- **b** — Keep only the newest N backups, no age rule; delete #430 temp files right after use.
-- **c** — Tell me what #430 creates, and I will decide.
-
-### q7 — How should global logs that belong to no issue be trimmed?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Delete daemon and launchd log files older than a separate `log_retain_days` setting, default 30, by rotating them daily.  *(recommended)*
-- **b** — Only delete per-issue run logs with the archive; leave global logs alone.
-
-### q8 — Plan history tables refuse deletes by design; may the archive job remove them?
-
-_Asked of: Technical Questions_
-
-- **a** — Yes: only the archive job may delete them, after the archive is verified, through one narrow, tested exception to the delete block.  *(recommended)*
-- **b** — No: leave those tables in the database and archive only the rest.
+- **a6** — Old binary copies (.prev-) made by deploys are left alone, as replaceable files.
