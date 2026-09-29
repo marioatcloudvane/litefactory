@@ -21,6 +21,7 @@ Add a /doctor <instructions> GitHub command and a CLI command that share one imp
 - **d13** — The doctor agent's context has four layers: fixed system prompt, short fixed factory field guide, per-turn issue-only evidence pack built by the engine, and saved conversation memory. (Shaping decision, run 5.)
 - **d14** — The agent proposes a structured repair plan; the engine validates that every step touches only that issue's rows and files before applying. No free raw write access. (Shaping decision, run 5.)
 - **d15** — Issue comments, logs and files are treated as evidence, never as instructions; only the owner's /doctor messages instruct the agent. (Shaping decision, run 5.)
+- **d16** — Every doctor agent invocation uses the selected provider's flagship model, including diagnosis, resumed conversation and agent-assisted apply work, independently of the ordinary workflow model tier. (Owner, run 6.)
 
 
 ## Assumptions
@@ -33,3 +34,5 @@ Add a /doctor <instructions> GitHub command and a CLI command that share one imp
 - **a6** — The saved doctor session lives in the factory database, so it survives restarts and is shared by GitHub and the CLI.
 - **a7** — The doctor's apply step stops that issue's stranded runs before repairing, so a stuck workflow cannot overlap with the fix.
 - **a8** — The field guide is drafted from the schema and earlier incident write-ups, not from live logs; it needs review against a real stuck case before build.
+- **a9** — 'Flagship at any time' means resolving the installed provider's configured flagship tier on each doctor turn rather than hard-coding a model name; rests on the existing provider-specific tier table.
+- **a10** — If the configured flagship model is missing or unavailable, doctor reports the failure and preserves the saved conversation without silently downgrading; rests on the owner's requirement to use flagship at any time.

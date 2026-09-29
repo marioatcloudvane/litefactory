@@ -63,3 +63,12 @@ The database has a large state surface (sessions with state and lock owner, runs
 Evidence:
 
 - `internal/store/migrations/0001_init.sql:50`
+
+## f8
+
+The repository defines flagship as a provider's strongest available model and resolves concrete model names through a provider-specific tier table; missing entries return no model, leaving fallback behavior to the caller.
+
+Evidence:
+
+- `internal/config/tier.go:30`
+- `internal/config/tier.go:125`
