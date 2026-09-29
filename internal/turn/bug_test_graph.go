@@ -66,7 +66,7 @@ func (h *BugTestGraphActivity) Execute(ctx context.Context, opts Options, req Ac
 				if readErr != nil {
 					return ActivityResult{}, readErr
 				}
-				_, writeErr := opts.DB.UpdateBugFailureReferences(ctx, instance.SessionID, state.Revision, fmt.Sprintf("test-setup:%d", req.NodeAttemptID), store.BugFailureReferences{Reasons: []string{blocked.Reason}, Evidence: []string{"factory target recipe validation"}})
+				writeErr := opts.DB.RecordBugFailure(ctx, instance.SessionID, state.Revision, fmt.Sprintf("test-setup:%d", req.NodeAttemptID), blocked.Reason, []string{"factory target recipe validation"})
 				raw, marshalErr := json.Marshal(BugChecksOutput{SessionID: instance.SessionID, Reason: blocked.Reason})
 				return ActivityResult{Outcome: "blocked", Kind: store.GraphOutputJSON, Output: raw}, errors.Join(writeErr, marshalErr)
 			}

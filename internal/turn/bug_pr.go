@@ -303,7 +303,15 @@ func (h *BugPRActivity) applyReply(ctx context.Context, db *store.DB, in BugPRIn
 	if err != nil {
 		return BugPROutput{}, err
 	}
-	digest, err := store.BugDeliveryReviewDigest(e, p, r.Presentation...)
+	facts, err := db.BugFacts(ctx, in.SessionID, "")
+	if err != nil {
+		return BugPROutput{}, err
+	}
+	selfChecks, err := db.BugSelfChecks(ctx, in.SessionID, e.Repair.Request)
+	if err != nil {
+		return BugPROutput{}, err
+	}
+	digest, err := store.BugDeliveryReviewDigest(e, p, facts, store.SummarizeBugSelfChecks(selfChecks), r.Presentation...)
 	if err != nil {
 		return BugPROutput{}, err
 	}
@@ -325,7 +333,16 @@ func (h *BugPRActivity) applyReply(ctx context.Context, db *store.DB, in BugPRIn
 	return BugPROutput{Outcome: outcome, Review: &r, Decision: &decision}, nil
 }
 func (h *BugPRActivity) prepareReview(ctx context.Context, db *store.DB, in BugPRInput, e store.BugDeliveryEvidence, p store.BugPullRequest, revision int64) (BugPROutput, error) {
-	digest, err := store.BugDeliveryReviewDigest(e, p, in.Presentation...)
+	facts, err := db.BugFacts(ctx, in.SessionID, "")
+	if err != nil {
+		return BugPROutput{}, err
+	}
+	selfChecks, err := db.BugSelfChecks(ctx, in.SessionID, e.Repair.Request)
+	if err != nil {
+		return BugPROutput{}, err
+	}
+	selfCheckSummary := store.SummarizeBugSelfChecks(selfChecks)
+	digest, err := store.BugDeliveryReviewDigest(e, p, facts, selfCheckSummary, in.Presentation...)
 	if err != nil {
 		return BugPROutput{}, err
 	}
@@ -354,7 +371,7 @@ func (h *BugPRActivity) prepareReview(ctx context.Context, db *store.DB, in BugP
 		return BugPROutput{}, err
 	}
 	r = store.BugDeliveryReview{SessionID: in.SessionID, Digest: digest, Evidence: e, PR: p, Presentation: in.Presentation, DeliveryKey: "bug-delivery:" + digest, BotID: h.BotID}
-	view := report.BugDeliveryReview{Task: fmt.Sprintf("github:%s#%d", e.Identity.Repository, e.Identity.IssueNumber), Digest: digest, Head: p.Head, Target: e.Child.Request.Binding.TargetCommit, Recipe: e.Child.Request.Binding.RecipeDigest, PR: p.Number, Analysis: renderBugAnalysis(e.Analysis.Revision, e.Analysis.Digest, e.Analysis.Analysis), Repair: renderBugRepair(e.Coverage), ApprovalCommand: r.ApprovalCommand()}
+	view := report.BugDeliveryReview{Task: fmt.Sprintf("github:%s#%d", e.Identity.Repository, e.Identity.IssueNumber), Digest: digest, Head: p.Head, Target: e.Child.Request.Binding.TargetCommit, Recipe: e.Child.Request.Binding.RecipeDigest, PR: p.Number, Analysis: renderBugAnalysis(e.Analysis.Revision, e.Analysis.Digest, e.Analysis.Analysis), Repair: renderBugRepair(e.Coverage), Facts: bugFactLines(facts), SelfCheck: bugSelfCheckLine(selfCheckSummary), ApprovalCommand: r.ApprovalCommand()}
 	for n, phase := range []string{"regression", "focused", "full"} {
 		b := e.Child.PhaseBinding(phase)
 		record, readErr := db.GetBugCheckPhase(ctx, in.SessionID, b.Operation)

@@ -94,7 +94,10 @@ func BugRepairBoundedScope(a store.BugAnalysisRevision, s git.BugRepairSnapshot)
 	if b == nil {
 		return d
 	}
-	if err := b.Validate(); err != nil {
+	// Boundary notices (path count, duplicates) were already recorded as facts
+	// when this analysis was approved (internal/store/bug_analyses.go); only a
+	// hard fault here (an escaping path) forces an indeterminate disposition.
+	if _, err := b.Validate(); err != nil {
 		d.Evidence = err.Error()
 		return d
 	}

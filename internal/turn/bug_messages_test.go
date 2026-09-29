@@ -2,6 +2,7 @@ package turn
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -194,5 +195,162 @@ func TestBugAdmissionCommentExplainsChangedGraph(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("admission comment lacks %q:\n%s", want, got)
 		}
+	}
+}
+
+// Story-004 AC-002 regression: only repair-budget exhaustion (source node
+// "attempt") is redirected to the exhaustion question by publishNotice; any
+// other node's "exhausted" outcome (for example the unrelated 8-pass analysis
+// limit) still renders through bugNoticeComment exactly as it always has.
+func TestBugNoticeComment_AnalysisPassExhaustionStaysAPlainNotice(t *testing.T) {
+	got := bugNoticeComment("record_analysis", "exhausted", nil, 5, 9)
+	for _, want := range []string{
+		"**The Bug workflow stopped while recording the analysis: its budget is used up.**",
+		"A comment cannot restart it; the budget for this bug is spent.",
+		"graph 5, attempt 9, record_analysis: exhausted",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("analysis-pass exhaustion notice lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "grant-bug-attempt") || strings.Contains(got, "stop-bug") {
+		t.Fatalf("analysis-pass exhaustion rendered the repair-budget question:\n%s", got)
+	}
+}
+
+// Story-004 AC-004: any reply on an exhausted bug that is not one of the two
+// commands is refused naming both commands; bugExplanation supplies the
+// admission comment's plain-language text for that refusal.
+func TestBugExplanation_NamesBothExhaustionCommands(t *testing.T) {
+	got := bugAdmissionComment(errors.New(bugExhaustionNotWaitingText))
+	for _, want := range []string{"/grant-bug-attempt <n> [instructions]", "/stop-bug <n>", "waiting for the owner to answer its exhaustion question"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("exhaustion admission comment lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+// Story-004 AC-011: the exhaustion question shows the newest 6 attempts in
+// full (bounded to 1 KiB each) and every older attempt as a single bounded
+// line, plus every earlier exhaustion and its decision, and names both
+// commands with the exact exhaustion number.
+func TestBugExhaustionQuestionComment_BoundedHistory(t *testing.T) {
+	t.Parallel()
+	var attempts []store.BugRepairHistoryAttempt
+	for i := 1; i <= 8; i++ {
+		attempts = append(attempts, store.BugRepairHistoryAttempt{
+			Ordinal: i, Cause: "test_failure", Summary: "Attempted a fix.",
+			FellShort: strings.Repeat("d", 50), State: "failed",
+		})
+	}
+	// Mark attempt 8 as granted, with instructions, so the full-rendering path
+	// (newest 6) covers the granted-with-instructions branch.
+	attempts[7].GrantReference = "exhaustion:1"
+	attempts[7].GrantInstructions = "Try normalizing the key before lookup."
+	history := store.BugRepairHistory{
+		Attempts: attempts,
+		Exhaustions: []store.BugRepairHistoryExhaustion{
+			{N: 1, Decision: "grant", Instructions: "Try normalizing the key before lookup."},
+			{N: 2, Decision: "stop"},
+			{N: 3, Decision: ""},
+		},
+	}
+	got := bugExhaustionQuestionComment(3, history)
+	if !strings.Contains(got, "exhaustion 3") || !strings.Contains(got, "A person needs to decide what happens next.") {
+		t.Fatalf("question lacks the exhaustion number/lead:\n%s", got)
+	}
+	// Attempts 1 and 2 (the oldest, beyond the newest 6) render as one-line
+	// entries; the exact "Attempt N (cause): fell-short" shape, not the full
+	// multi-line block.
+	if !strings.Contains(got, "- Attempt 1 (test_failure):") || strings.Contains(got, "**Attempt 1**") {
+		t.Fatalf("oldest attempt not rendered as a one-line entry:\n%s", got)
+	}
+	if !strings.Contains(got, "- Attempt 2 (test_failure):") || strings.Contains(got, "**Attempt 2**") {
+		t.Fatalf("second-oldest attempt not rendered as a one-line entry:\n%s", got)
+	}
+	// Attempts 3..8 (the newest 6) render in full.
+	for i := 3; i <= 8; i++ {
+		if !strings.Contains(got, fmt.Sprintf("**Attempt %d**", i)) {
+			t.Fatalf("attempt %d not rendered in full:\n%s", i, got)
+		}
+	}
+	if !strings.Contains(got, "granted") || !strings.Contains(got, "Try normalizing the key before lookup.") {
+		t.Fatalf("granted attempt's instructions missing from its full rendering:\n%s", got)
+	}
+	// Earlier exhaustions and their decisions.
+	for _, want := range []string{
+		"**Earlier exhaustions:**",
+		"exhaustion 1: grant (instructions: Try normalizing the key before lookup.)",
+		"exhaustion 2: stop",
+		"exhaustion 3: undecided",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("exhaustion question lacks %q:\n%s", want, got)
+		}
+	}
+	// Both commands, naming exhaustion 3, and the issue explicitly stays open.
+	if !strings.Contains(got, "/grant-bug-attempt 3") || !strings.Contains(got, "/stop-bug 3") || !strings.Contains(got, "this issue stays open") {
+		t.Fatalf("question does not name both commands for exhaustion 3:\n%s", got)
+	}
+}
+
+// A single, short attempt list renders every attempt in full (fewer than 6
+// total) and omits the "Earlier exhaustions" section entirely when there are
+// none yet.
+func TestBugExhaustionQuestionComment_ShortHistoryNoEarlierExhaustions(t *testing.T) {
+	t.Parallel()
+	history := store.BugRepairHistory{Attempts: []store.BugRepairHistoryAttempt{
+		{Ordinal: 1, Cause: "initial", Summary: "First attempt.", State: "failed", FellShort: "Repair failed: ran out of budget"},
+	}}
+	got := bugExhaustionQuestionComment(1, history)
+	if !strings.Contains(got, "**Attempt 1**") {
+		t.Fatalf("sole attempt not rendered in full:\n%s", got)
+	}
+	if strings.Contains(got, "Earlier exhaustions") {
+		t.Fatalf("rendered an earlier-exhaustions section with none recorded:\n%s", got)
+	}
+	if !strings.Contains(got, "/grant-bug-attempt 1") || !strings.Contains(got, "/stop-bug 1") {
+		t.Fatalf("question does not name both commands for exhaustion 1:\n%s", got)
+	}
+}
+
+// A single attempt's full rendering never exceeds its 1 KiB bound, even with
+// an oversized summary/fell-short/instructions combination.
+func TestBugRepairAttemptFull_BoundsSize(t *testing.T) {
+	t.Parallel()
+	a := store.BugRepairHistoryAttempt{
+		Ordinal: 4, Cause: "reshape", GrantReference: "exhaustion:1",
+		GrantInstructions: strings.Repeat("g", 2000),
+		Summary:           strings.Repeat("s", 2000),
+		FellShort:         strings.Repeat("f", 2000),
+		State:             "reshape",
+	}
+	got := bugRepairAttemptFull(a)
+	// The truncation marker itself is a multi-byte "…\n"; the bound is on the
+	// text truncated *before* appending it, so the final byte length is the
+	// bound plus that marker's own few bytes, not exactly the bound.
+	if len(got) > bugExhaustionAttemptFullBytes+len("…\n") {
+		t.Fatalf("full attempt rendering exceeds its bound: %d bytes", len(got))
+	}
+	if !strings.HasSuffix(got, "…\n") {
+		t.Fatalf("truncated attempt rendering lacks its truncation marker: %q", got[len(got)-20:])
+	}
+}
+
+// A one-line attempt entry never exceeds its 200-character bound.
+func TestBugRepairAttemptOneLine_BoundsSize(t *testing.T) {
+	t.Parallel()
+	a := store.BugRepairHistoryAttempt{Ordinal: 1, Cause: "test_failure", FellShort: strings.Repeat("x", 500)}
+	got := bugRepairAttemptOneLine(a)
+	// Same multi-byte "…" truncation-marker allowance as the full rendering.
+	if len(got) > 200+len("…") {
+		t.Fatalf("one-line attempt rendering exceeds 200 characters: %d", len(got))
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("truncated one-line rendering lacks its truncation marker: %q", got)
+	}
+	short := store.BugRepairHistoryAttempt{Ordinal: 2, Cause: "initial", State: "reserved"}
+	if got := bugRepairAttemptOneLine(short); got != "- Attempt 2 (initial): reserved" {
+		t.Fatalf("short one-line rendering = %q", got)
 	}
 }

@@ -289,7 +289,7 @@ func retainCheckSetupBlock(ctx context.Context, db *store.DB, b store.BugCheckBi
 		return ActivityResult{}, err
 	}
 	reason := cause.Error()
-	_, err = db.UpdateBugFailureReferences(ctx, b.SessionID, state.Revision, "checks:"+b.Operation+":"+config.BugRecipeDigest([]byte(reason)), store.BugFailureReferences{Reasons: []string{reason}, Evidence: []string{b.Operation}})
+	err = db.RecordBugFailure(ctx, b.SessionID, state.Revision, "checks:"+b.Operation+":"+config.BugRecipeDigest([]byte(reason)), reason, []string{b.Operation})
 	if err != nil {
 		return ActivityResult{}, err
 	}

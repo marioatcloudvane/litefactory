@@ -96,7 +96,7 @@ func (h BugAttemptActivity) Execute(ctx context.Context, opts Options, req Activ
 		if readErr != nil {
 			return ActivityResult{}, readErr
 		}
-		_, writeErr := opts.DB.UpdateBugFailureReferences(ctx, instance.SessionID, state.Revision, "repair-outcome:"+input.Request.Request, store.BugFailureReferences{Reasons: []string{reason}, Evidence: []string{input.Request.Evidence}})
+		writeErr := opts.DB.RecordBugFailure(ctx, instance.SessionID, state.Revision, "repair-outcome:"+input.Request.Request, reason, []string{input.Request.Evidence})
 		if writeErr != nil {
 			return ActivityResult{}, writeErr
 		}

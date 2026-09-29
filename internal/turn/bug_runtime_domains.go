@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
@@ -127,6 +128,20 @@ func (r *BugRuntime) parentPolicy(w *researchWorkflow) BugParentPolicy {
 		if e = tree.ObserveBugCheckSource(ctx, commit, sha); e != nil {
 			return BugAttemptInput{}, e
 		}
+		life, le := r.opts.DB.GetBugLifecycle(ctx, session)
+		if le != nil {
+			return BugAttemptInput{}, le
+		}
+		grantReference := ""
+		if strings.HasPrefix(life.Reference, "exhaustion:") {
+			// A granted attempt re-enters here through the budget-grant
+			// continuation, whose own reference names the exhaustion, not the
+			// review reply (or other cause) that originally asked for this
+			// repair. Recover that from the exhausted reservation's retained
+			// failure evidence instead of trusting life.Reference for cause
+			// below (builder note on re-entry cause recomputation).
+			grantReference = life.Reference
+		}
 		cause, evidence := "initial", approval.Review
 		prior, pe := r.opts.DB.LatestBugRepair(ctx, session)
 		if pe == nil {
@@ -137,20 +152,23 @@ func (r *BugRuntime) parentPolicy(w *researchWorkflow) BugParentPolicy {
 				if ce == nil && child.Request.Binding.Repair == prior.Request && child.Outcome == "failed" {
 					cause, evidence = "test_failure", fmt.Sprintf("child:%d", child.ID)
 				} else {
-					life, le := r.opts.DB.GetBugLifecycle(ctx, session)
-					if le != nil {
-						return BugAttemptInput{}, le
+					reference := life.Reference
+					if grantReference != "" {
+						reference, le = r.opts.DB.BugExhaustedReservationEvidence(ctx, session, grantReference)
+						if le != nil {
+							return BugAttemptInput{}, le
+						}
 					}
-					if life.Reference == "" {
+					if reference == "" {
 						return BugAttemptInput{}, errors.New("bug repair lacks retained feedback cause")
 					}
-					cause, evidence = "pr_feedback", life.Reference
+					cause, evidence = "pr_feedback", reference
 				}
 			}
 		} else if !errors.Is(pe, store.ErrNotFound) {
 			return BugAttemptInput{}, pe
 		}
-		return BugAttemptInput{ExpectedRevision: state.Revision, Request: store.BugRepairRequest{SessionID: session, Request: fmt.Sprintf("repair:%d:%d", session, a.NodeAttemptID), GraphAttemptID: a.NodeAttemptID, AnalysisRevision: analysis.Revision, AnalysisDigest: analysis.Digest, ApprovalReview: approval.Review, Cause: cause, Evidence: evidence, SourceCommit: commit, SourceTree: sha}}, nil
+		return BugAttemptInput{ExpectedRevision: state.Revision, Request: store.BugRepairRequest{SessionID: session, Request: fmt.Sprintf("repair:%d:%d", session, a.NodeAttemptID), GraphAttemptID: a.NodeAttemptID, AnalysisRevision: analysis.Revision, AnalysisDigest: analysis.Digest, ApprovalReview: approval.Review, Cause: cause, Evidence: evidence, SourceCommit: commit, SourceTree: sha, GrantReference: grantReference}}, nil
 	}}
 	tests := &BugTestGraphActivity{Observe: r.observe, Resolve: func(ctx context.Context, a ActivityRequest) (store.BugTestRequest, error) {
 		return r.testRequest(ctx, session, a)

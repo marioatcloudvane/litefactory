@@ -58,6 +58,16 @@ func (h BugRepairHandoff) Complete(ctx context.Context, db *store.DB, in store.B
 	if repair.State == "completed" {
 		return db.CompletedBugRepair(ctx, in.SessionID, in.Request, observed.Commit, observed.Tree)
 	}
+	// Any running self-check is stopped and marked cancelled before this step
+	// observes and saves the source, so no self-check command is still writing
+	// to the worktree while that happens (AC-007). The process group itself was
+	// already stopped when the fixer's own MCP launch closed
+	// (BugSelfCheckService.Stop, called from preparedMCP.closeTransports); this
+	// is the durable safety net for any run that call could not reach, and it
+	// never fails just because nothing was pending.
+	if _, err := db.StopBugSelfChecks(ctx, in.SessionID, in.Request); err != nil {
+		return store.BugRepairCompletion{}, err
+	}
 	in.SourceCommit, in.SourceTree, in.SaveOperation = observed.Commit, observed.Tree, observed.SaveOperation
 	state, _, _, err := db.CurrentBugAnalysis(ctx, in.SessionID)
 	if err != nil {
