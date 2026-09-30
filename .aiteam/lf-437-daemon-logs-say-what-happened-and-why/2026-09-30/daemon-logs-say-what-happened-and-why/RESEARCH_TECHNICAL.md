@@ -4,42 +4,64 @@ _Technical detail behind [the brief](RESEARCH_BRIEF.md). Findings carry the sour
 
 ## F-1
 
-Request counters are logged per tick and per worker. discoverySummary logs 'discovery request summary' at INFO with 20+ counters, deferred in Tick (scope tick) and in work (scope worker), so it fires several times a minute. Source: internal/daemon/discovery_budget.go:236; internal/daemon/tick.go:134,1177
+Request counters are logged per tick and per worker at INFO, so they fire several times a minute.
 
-_No source reference was recorded for this finding._
+Evidence:
+
+- `internal/daemon/discovery_budget.go:241`
 
 ## F-2
 
-Discovery pause is silent. acquire denies non-probe requests when freshLocked() is false and returns ErrDiscoveryDeferred. Fresh needs a limit, a future reset, and an observation under 2 minutes old. No transition is logged; only quota_fresh=false hints at it. Source: internal/daemon/discovery_budget.go:86,114-172
+Discovery pause is silent; only quota_fresh=false hints at it.
 
-_No source reference was recorded for this finding._
+Evidence:
+
+- `internal/daemon/discovery_budget.go:114`
 
 ## F-3
 
-A deferred tick does not update last tick. Tick returns before SetPollCursor, so LastTickAt freezes and 'tick complete' is not logged. Source: internal/daemon/tick.go:214 and the early return before SetPollCursor
+A deferred tick does not update last tick, so status freezes.
 
-_No source reference was recorded for this finding._
+Evidence:
+
+- `internal/daemon/tick.go:214`
 
 ## F-4
 
-daemon status shows only launchd state and last tick from the poll cursor. No paused state, last attempt or in-flight count; the daemon persists none of these. Source: internal/cli/cmd_daemon_agent.go:127-150; internal/store/pollcursor.go:12-24
+daemon status reads only last tick from the poll cursor; no paused state, last attempt or in-flight count is stored.
 
-_No source reference was recorded for this finding._
+Evidence:
+
+- `internal/store/pollcursor.go:22`
 
 ## F-5
 
-Per-comment decisions are scattered across INFO and DEBUG logs (no free slot, first sight, refused runs, comment asks for nothing). No single line per owner comment states its outcome. Source: internal/daemon/tick.go:972-987,1329,1442,1675,1796,2026
+Per-comment decisions are scattered across INFO and DEBUG lines; none states the outcome in one line.
 
-_No source reference was recorded for this finding._
+Evidence:
+
+- `internal/daemon/tick.go:972`
 
 ## F-6
 
-A GitHub rate-limit refusal logs a WARN, but the backoff-skip tick logs only at DEBUG. This is separate from discovery budget deferral. Source: internal/daemon/tick.go:159,2322
+A rate-limit refusal logs WARN but the backoff-skip tick logs DEBUG only.
 
-_No source reference was recorded for this finding._
+Evidence:
+
+- `internal/daemon/tick.go:159`
 
 ## F-7
 
-litefactory logs already exists with tail and level filters. Source: internal/cli/cmd_logs.go, cmd_logs_app.go, cmd_logs_tail.go
+litefactory logs already exists with tail and level filter.
 
-_No source reference was recorded for this finding._
+Evidence:
+
+- `internal/cli/cmd_logs.go`
+
+## F-8
+
+An existing test asserts the 'tick complete' INFO record and its alias fields, so those names must stay.
+
+Evidence:
+
+- `internal/daemon/quiet_polling_test.go:62`
