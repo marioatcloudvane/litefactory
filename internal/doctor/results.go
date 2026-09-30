@@ -153,7 +153,9 @@ func (s *ResultService) Preflight(ctx context.Context, data []byte) (ResultDiagn
 	}
 	input, _, err := s.prepare(ctx, data)
 	if err != nil {
-		return ResultDiagnostics{Errors: []string{"Invalid diagnosis: check structure, bounds, evidence references and coverage gaps"}}, nil //nolint:nilerr // Preflight reports invalid input as diagnostics, not a transport failure.
+		// Name the failed check: a generic message left the agent guessing
+		// shapes until it gave up. Messages come from our own validators.
+		return ResultDiagnostics{Errors: []string{"Invalid diagnosis: " + err.Error()}}, nil //nolint:nilerr // Preflight reports invalid input as diagnostics, not a transport failure.
 	}
 	revision, err := s.db.GetResultRevision(ctx, s.binding, 0)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {

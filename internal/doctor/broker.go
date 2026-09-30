@@ -24,9 +24,9 @@ func (s *ResultService) handle(ctx context.Context, q submission.Request) (json.
 		if err := s.db.CheckResultWriter(ctx, s.binding); err != nil {
 			return nil, err
 		}
-		input := json.RawMessage(`{"type":"object","properties":{"expected_revision":{"type":"integer"},"diagnosis":{"type":"object","properties":{"findings":{"type":"array"},"coverage_gaps":{"type":"array"},"questions":{"type":"array"},"proposal":{"type":"array"}},"required":["findings","coverage_gaps","questions","proposal"]}},"required":["expected_revision","diagnosis"],"additionalProperties":false}`)
+		input := diagnosisInputSchema(false)
 		if s.repairID != "" {
-			input = json.RawMessage(`{"type":"object","properties":{"expected_revision":{"type":"integer"},"diagnosis":{"type":"object","properties":{"findings":{"type":"array"},"coverage_gaps":{"type":"array"},"questions":{"type":"array"},"proposal":{"type":"array","maxItems":0},"repair":{"type":"object","properties":{"operation_id":{"type":"string"},"completed_steps":{"type":"array","items":{"type":"integer","minimum":1,"maximum":30}},"observations":{"type":"array","items":{"type":"string"}},"unresolved":{"type":"array","items":{"type":"string"}}},"required":["operation_id","completed_steps","observations","unresolved"],"additionalProperties":false}},"required":["findings","coverage_gaps","questions","proposal","repair"],"additionalProperties":false}},"required":["expected_revision","diagnosis"],"additionalProperties":false}`)
+			input = diagnosisInputSchema(true)
 		}
 
 		return json.Marshal(struct {
@@ -85,4 +85,25 @@ func (s *ResultService) handle(ctx context.Context, q submission.Request) (json.
 	default:
 		return nil, errors.New("doctor method is not permitted")
 	}
+}
+
+// Item shapes mirror Diagnosis and are checked again by ValidateDiagnosis. An
+// untyped array made the agent guess, and every guess failed preflight.
+const (
+	findingSchema = `{"type":"object","description":"One conclusion.","properties":{"explanation":{"type":"string","minLength":1,"maxLength":8192,"description":"Plain-language conclusion"},"evidence":{"type":"array","maxItems":30,"items":{"type":"string"},"description":"Evidence handles exactly as given in the prepared context (kind:id, e.g. session:229). May be empty only when coverage_gaps is not."},"uncertainty":{"type":"string","minLength":1,"maxLength":8192,"description":"What is not known or not observed"}},"required":["explanation","evidence","uncertainty"],"additionalProperties":false}`
+	gapsSchema    = `{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":8192},"description":"Must contain every collector coverage gap from the prepared context verbatim, character for character; you may add your own."}`
+	textsSchema   = `{"type":"array","maxItems":30,"items":{"type":"string","minLength":1,"maxLength":8192}}`
+	stepSchema    = `{"type":"object","description":"One inert proposed step; never executed by diagnosis.","properties":{"number":{"type":"integer","minimum":1,"description":"1-based position; steps are numbered 1, 2, 3 in order"},"target":{"type":"string","description":"Evidence handle of the observed issue-owned record to change"},"precondition":{"type":"string"},"change":{"type":"string"},"reason":{"type":"string"},"reversibility":{"type":"string"},"rollback":{"type":"string"},"action":{"type":"object","properties":{"kind":{"type":"string"},"before":{"type":"string","description":"Observed current value"},"after":{"type":"string"}},"required":["kind","before","after"],"additionalProperties":false}},"required":["number","target","precondition","change","reason","reversibility","rollback"],"additionalProperties":false}`
+)
+
+func diagnosisInputSchema(repair bool) json.RawMessage {
+	proposal := `{"type":"array","maxItems":30,"items":` + stepSchema + `}`
+	required := `"findings","coverage_gaps","questions","proposal"`
+	extra := ""
+	if repair {
+		proposal = `{"type":"array","maxItems":0}`
+		required += `,"repair"`
+		extra = `,"repair":{"type":"object","properties":{"operation_id":{"type":"string"},"completed_steps":{"type":"array","items":{"type":"integer","minimum":1,"maximum":30}},"observations":{"type":"array","items":{"type":"string"}},"unresolved":{"type":"array","items":{"type":"string"}}},"required":["operation_id","completed_steps","observations","unresolved"],"additionalProperties":false}`
+	}
+	return json.RawMessage(`{"type":"object","properties":{"expected_revision":{"type":"integer","minimum":0},"diagnosis":{"type":"object","properties":{"findings":{"type":"array","minItems":1,"maxItems":30,"items":` + findingSchema + `},"coverage_gaps":` + gapsSchema + `,"questions":` + textsSchema + `,"proposal":` + proposal + extra + `},"required":[` + required + `],"additionalProperties":false}},"required":["expected_revision","diagnosis"],"additionalProperties":false}`)
 }

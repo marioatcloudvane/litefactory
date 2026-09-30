@@ -98,7 +98,7 @@ func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 	}
 	for _, gap := range e.Gaps {
 		if !gaps[gap] {
-			return errors.New("doctor result omitted a collector coverage gap")
+			return fmt.Errorf("doctor result omitted collector coverage gap %q; copy it verbatim into coverage_gaps", gap)
 		}
 	}
 	for _, q := range d.Questions {
