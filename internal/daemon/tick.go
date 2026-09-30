@@ -1127,6 +1127,9 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		if err := d.db.CancelResearchGraphs(ctx, c.session.ID, "issue closed", tickAt); err != nil {
 			return nil, fmt.Errorf("clear graph execution before retiring closed %s#%d backlog: %w", c.forgeRepo, c.session.IssueNumber, err)
 		}
+		if err := d.db.CancelWorkflowGraphs(ctx, c.session.ID, "spike", "issue closed", tickAt); err != nil {
+			return nil, fmt.Errorf("clear spike graph execution before retiring closed %s#%d backlog: %w", c.forgeRepo, c.session.IssueNumber, err)
+		}
 		if err := d.db.ClearSessionNeedsPoll(ctx, c.session.ID); err != nil {
 			return nil, fmt.Errorf("retire polling backlog for closed %s#%d: %w",
 				c.forgeRepo, c.session.IssueNumber, err)
@@ -1945,8 +1948,8 @@ func (d *Daemon) run(
 
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
-	if mode == agent.ModeResearch && t.continuation == nil {
-		if err := d.claimResearchReply(ctx, t, trigger); err != nil {
+	if (mode == agent.ModeResearch || mode == agent.ModeSpike) && t.continuation == nil {
+		if err := d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
 			// A comment written before the open question was published can
 			// never answer it. Refuse it once, visibly; the reply path consumes
 			// it only after confirmed delivery, so later comments proceed.

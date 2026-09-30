@@ -109,7 +109,7 @@ func TestPlanFailureRetainsTransportForRetry(t *testing.T) {
 			}
 			advanceSyncBase(t, f.repo, 1)
 			phase = 1
-			req.Mode = agent.ModeSpike
+			req.Mode = agent.ModeResearch
 			req.Command = ParseCommand("finish retained work")
 			req.Trigger.Body = "finish retained work"
 			req.Trigger.CommentID++

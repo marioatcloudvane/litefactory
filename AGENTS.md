@@ -15,7 +15,7 @@ Read supporting contracts only when relevant and not already supplied in full.
 | Plan | `plan-orchestrator` |
 | Implement | `implement-orchestrator` |
 | Validate | `go-code-reviewer`, read-only contract |
-| Spike | nobody — read `docs/workflow/spike.md` and do it here |
+| Spike | nobody here — the factory runs the graph in `docs/workflow/spike.md`; never execute it in this session |
 
 Skills live at `.codex/skills/<name>/SKILL.md` and are listed to you
 automatically. Session setup is in `docs/workflow/session.md`.

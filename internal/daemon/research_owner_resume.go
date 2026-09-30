@@ -12,6 +12,11 @@ import (
 )
 
 func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.Trigger) error {
+	return d.claimGraphReply(ctx, t, trigger, "research")
+}
+
+// claimGraphReply claims an owner reply for the admitted mode's parked question.
+func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) error {
 	// Replaying an already allocated input performs report recovery only. It
 	// cannot be reinterpreted as an answer to the question that input produced.
 	run, found, err := d.db.GetRunByTrigger(ctx, t.session.ID, trigger.CommentID)
@@ -21,7 +26,7 @@ func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.T
 	if found && run.Status != store.RunPrelaunch {
 		return nil
 	}
-	instance, err := d.db.LatestResearchInstance(ctx, t.session.ID)
+	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, mode)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}
@@ -49,7 +54,7 @@ func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.T
 	if wait.State != "waiting" {
 		return nil
 	}
-	_, err = AdmitResearchOwnerReply(ctx, d.db, instance.ID, d.filter.Identities().OwnerUserID, t.session.TaskRef, t.ref.String(), "research", github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
+	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, d.filter.Identities().OwnerUserID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
 	return err
 }
 

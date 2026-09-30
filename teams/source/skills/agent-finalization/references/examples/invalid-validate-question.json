@@ -3,9 +3,7 @@
     "outcome": "incomplete",
     "comment": "Offline contract fixture.",
     "payload": {
-      "spike": {
-        "request": "Inspect contract."
-      }
+      "validate": {}
     },
     "reason": "Further evidence or work is required.",
     "questions": [

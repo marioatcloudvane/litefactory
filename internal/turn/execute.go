@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
+	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -87,6 +88,12 @@ type Options struct {
 	ResearchDriver   ResearchLaunchDriver
 	Bug              *BugRuntime
 	ResearchReporter *Reporter
+	// spikeCapture replaces the shipped Spike capture. It exists so a test can
+	// run a different graph file through the unchanged Go; production leaves it nil.
+	spikeCapture func(context.Context, WorkflowPolicy) (*teamsource.WorkflowDefinition, error)
+	// spikeRunCommand replaces the sandboxed recipe runner. It exists so a test can
+	// supply command results without a sandbox; production leaves it nil.
+	spikeRunCommand func(ctx context.Context, worktree string, command config.BugCheckCommand) bugchecks.CommandResult
 	// MCP is the optional startup-owned automatic tool runtime.
 	MCP *MCPRuntime
 	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
@@ -349,6 +356,13 @@ type Request struct {
 	// without this every run on a task shares one result and every run after
 	// the first has to revise it rather than author one.
 	researchInstance int64
+	// nodeWrite marks a graph agent node the runtime granted write access, and
+	// noQuestions one whose graph offers no owner wait for its questions. Both
+	// are derived by the factory from the graph, never from a comment or agent.
+	nodeWrite, noQuestions bool
+	// resultPass gives this node's application result an identity of its own
+	// within the graph instance, when its policy asks for one per node.
+	resultPass string
 
 	// Continuation is factory-owned saved context, never supplied by a comment.
 	Continuation *store.Continuation
@@ -639,6 +653,9 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	if err := recoverResearchPublications(ctx, opts, session.ID); err != nil {
 		return result, err
 	}
+	if err := RecoverWorkflowPublications(ctx, opts, session.ID, SpikeWorkflowPolicy()); err != nil {
+		return result, err
+	}
 	existing, replay, err := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)
 	if err != nil {
 		return result, fmt.Errorf("look for an existing run of comment %d: %w", req.Trigger.CommentID, err)
@@ -664,6 +681,9 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		return graphResult, graphErr
 	}
 	if graphResult, handled, graphErr := admitResearchExecution(ctx, opts, req, result); handled {
+		return graphResult, graphErr
+	}
+	if graphResult, handled, graphErr := admitSpikeExecution(ctx, opts, req, result); handled {
 		return graphResult, graphErr
 	}
 

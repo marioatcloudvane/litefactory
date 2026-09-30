@@ -235,7 +235,7 @@ func (w *researchWorkflow) failed(ctx context.Context, scope func(context.Contex
 		}
 		return errors.Join(cause, w.reportStepFailure(ctx, step, cause))
 	}
-	if dispatched && !w.agentStep(step) {
+	if dispatched && !w.agentStep(step) && !w.failureRouted(step) {
 		return cause
 	}
 	return errors.Join(cause, w.publishFailure(ctx, scope, step, cause))
@@ -248,6 +248,21 @@ func (w *researchWorkflow) agentStep(step GraphNodeResult) bool {
 	}
 	node, ok := w.definition.Profile.Node(step.Node)
 	return ok && node.Action == ResearchAgentAction
+}
+
+// failureRouted reports whether the graph itself routes a failed step to the
+// shipped failure comment. A step whose failed edge ends elsewhere, such as a
+// terminal, keeps its graph routing and publishes nothing.
+func (w *researchWorkflow) failureRouted(step GraphNodeResult) bool {
+	if step.Node == "" || w.definition == nil || w.definition.Profile == nil {
+		return false
+	}
+	target, declared := graphexec.Decide(w.definition.Profile, step.Node, "failed")
+	if !declared {
+		return false
+	}
+	node, ok := w.definition.Profile.Node(target)
+	return ok && node.Action == ResearchCommentAction && node.Attrs["lf_kind"] == "failure"
 }
 
 // failureComment publishes the shipped failure node when the graph itself

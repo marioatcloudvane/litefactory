@@ -91,6 +91,9 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// Bug stories003/004: read immutable repair diffs, clean source identity
 		// and the exact target-commit recipe; no index, worktree or ref writes.
 		"ObserveBugRepair", "ObserveBugCheckSource", "ReadBugCheckRecipe",
+		// Spike fix check: the unique paths changed since a saved commit
+		// (committed, staged, unstaged, untracked); read-only, takes no index lock.
+		"ChangedSince",
 		// Mutating, pre-US-12: the only three operations that write to a
 		// repository or a remote before this story.
 		"Commit", "Push", "MergeBase",

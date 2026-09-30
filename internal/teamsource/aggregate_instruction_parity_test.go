@@ -242,7 +242,7 @@ const rootRouting = "`- Mode: X` in the prompt header is authoritative: never cl
 	"\x00Plan | `plan-orchestrator`" +
 	"\x00Implement | `implement-orchestrator`" +
 	"\x00Validate | `go-code-reviewer`, read-only contract" +
-	"\x00Spike | nobody — read `docs/workflow/spike.md` and do it here" +
+	"\x00Spike | nobody here — the factory runs the graph in `docs/workflow/spike.md`; never execute it in this session" +
 	"\x00Outside Validate, scaffold `$session` per `docs/workflow/session.md` first" +
 	"\x00Validate reuses the supplied session and frozen scope read-only." +
 	"\x00Do not scaffold a directory or MANIFEST, write artifacts, or require artifact existence to route or finish Validate." +

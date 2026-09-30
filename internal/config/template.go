@@ -114,7 +114,8 @@ tiers:
 %s
 # Permissions are selected automatically from the resolved workflow mode.
 # research, plan and implement may write their required artifacts/source;
-# validate is read-only. Spike intentionally uses implement permissions.
+# validate is read-only. Spike graph roles have their own grants below; an
+# absent spike-investigator or spike-fixer blocks Spike, and no mode supplies it.
 tool_profiles:
   permissions:
 `,
@@ -143,6 +144,9 @@ tool_profiles:
 		renderModelByTier(d.Tiers.ModelByTier),
 	)
 	for _, name := range canonicalPermissionProfiles {
+		renderToolProfile(&b, name, profiles.Permissions[name])
+	}
+	for _, name := range []string{SpikeInvestigatorProfile, SpikeFixerProfile} {
 		renderToolProfile(&b, name, profiles.Permissions[name])
 	}
 	b.WriteString(`

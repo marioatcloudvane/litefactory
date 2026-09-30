@@ -46,7 +46,7 @@ func ResearchBriefSpec() graphexec.ActionSpec {
 	return graphexec.ActionSpec{Name: ResearchBriefAction, Mode: agent.ModeResearch, Outcomes: []string{"success", "failed"}}
 }
 
-func registerResearchBrief(specs *graphexec.Registry, activities *ActivityRegistry, profile *graphexec.Profile, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), destinations func() (string, string, error)) error {
+func registerResearchBrief(specs *graphexec.Registry, activities *ActivityRegistry, profile *graphexec.Profile, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), destinations func() (string, string, error), _ WorkflowEnv) error {
 	if err := specs.Register(ResearchBriefSpec()); err != nil {
 		return err
 	}
