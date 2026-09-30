@@ -56,7 +56,7 @@ func TestResumeDecisionComesFromTheRunsTable(t *testing.T) {
 			name: "one prior run that succeeded",
 			seed: func(f *fixture) {
 				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
-					seededComment, store.ModeSpike, store.RunSucceeded)
+					seededComment, "implement", store.RunSucceeded)
 			},
 			want: harness.PathResume,
 		},
@@ -64,7 +64,7 @@ func TestResumeDecisionComesFromTheRunsTable(t *testing.T) {
 			name: "one prior run that failed",
 			seed: func(f *fixture) {
 				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
-					seededComment, store.ModeSpike, store.RunFailed)
+					seededComment, "implement", store.RunFailed)
 			},
 			want: harness.PathResume,
 		},
@@ -72,7 +72,7 @@ func TestResumeDecisionComesFromTheRunsTable(t *testing.T) {
 			name: "one prior run that has been reported",
 			seed: func(f *fixture) {
 				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
-					seededComment, store.ModeSpike, store.RunReported)
+					seededComment, "implement", store.RunReported)
 			},
 			want: harness.PathResume,
 		},
@@ -83,7 +83,7 @@ func TestResumeDecisionComesFromTheRunsTable(t *testing.T) {
 			name: "one prior run still marked running",
 			seed: func(f *fixture) {
 				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
-					seededComment, store.ModeSpike, store.RunRunning)
+					seededComment, "implement", store.RunRunning)
 			},
 			want: harness.PathCold,
 		},
@@ -91,9 +91,9 @@ func TestResumeDecisionComesFromTheRunsTable(t *testing.T) {
 			name: "several prior runs, the newest still running",
 			seed: func(f *fixture) {
 				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
-					seededComment, store.ModeSpike, store.RunReported)
+					seededComment, "implement", store.RunReported)
 				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
-					otherSeededComment, store.ModeSpike, store.RunRunning)
+					otherSeededComment, "implement", store.RunRunning)
 			},
 			want: harness.PathResume,
 		},
@@ -105,7 +105,7 @@ func TestResumeDecisionComesFromTheRunsTable(t *testing.T) {
 			name: "a prior run on a different segment",
 			seed: func(f *fixture) {
 				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
-					seededComment, store.ModeSpike, store.RunSucceeded)
+					seededComment, "implement", store.RunSucceeded)
 				nextRef, err := naming.SessionRef(f.ref(), store.FirstSegmentOrdinal+1)
 				if err != nil {
 					f.t.Fatalf("derive next segment ref: %v", err)
@@ -155,7 +155,7 @@ func TestResumedRunSendsTheDeltaPrompt(t *testing.T) {
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunReported)
+	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunReported)
 
 	f.execute(f.request())
 
@@ -241,7 +241,7 @@ func TestResumeRefusalRerunsOnceCold(t *testing.T) {
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunReported)
+	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunReported)
 
 	result := f.execute(f.request())
 	if !result.Succeeded() {
@@ -348,7 +348,7 @@ func TestResumeRefusalDoesNotFireOnOtherFailures(t *testing.T) {
 			})
 			f = newFixture(t, runner)
 			f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
-				seededComment, store.ModeSpike, store.RunReported)
+				seededComment, "implement", store.RunReported)
 
 			result := f.execute(f.request())
 
@@ -377,7 +377,7 @@ func TestResumeRefusalDoesNotLoop(t *testing.T) {
 		return refused(req, f.paths.Home())
 	})
 	f = newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunReported)
+	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunReported)
 
 	result := f.execute(f.request())
 
@@ -411,7 +411,7 @@ func TestResumeRefusalIsMatchedThroughWrapping(t *testing.T) {
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunReported)
+	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunReported)
 
 	if result := f.execute(f.request()); !result.Succeeded() {
 		t.Fatalf("the wrapped sentinel was not recognised: %+v\nlogs:\n%s", result, f.logs)

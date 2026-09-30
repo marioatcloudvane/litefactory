@@ -137,7 +137,7 @@ func TestColdRerunCarriesTheSameProfile(t *testing.T) {
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunReported)
+	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunReported)
 
 	req := f.request()
 	req.Tools = []string{"Read", "Bash"}

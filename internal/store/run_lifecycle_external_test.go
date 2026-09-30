@@ -94,7 +94,7 @@ func TestRunLifecycleStorageBoundaries(t *testing.T) {
 			}
 			runner := &lifecycleRunner{}
 			opts := turn.Options{DB: db, Git: binary, Runners: turn.RunnerSet{agent.Kind(store.AgentClaude): runner}, Paths: paths, InstanceID: "owner", Author: git.Author{Name: "Test", Email: "test@example.invalid"}, CloneGate: &lifecycleGate{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-			req := turn.Request{SessionID: session.ID, Agent: agent.Kind(store.AgentClaude), Mode: agent.ModeSpike, Issue: turn.Issue{Number: 123, Title: "Fault recovery"}, Trigger: turn.Trigger{CommentID: 1, Body: "/spike work"}, Command: turn.ParseCommand("/spike work")}
+			req := turn.Request{SessionID: session.ID, Agent: agent.Kind(store.AgentClaude), Mode: agent.ModeImplement, Issue: turn.Issue{Number: 123, Title: "Fault recovery"}, Trigger: turn.Trigger{CommentID: 1, Body: "/implement work"}, Command: turn.ParseCommand("/implement work")}
 			result, err := turn.Execute(t.Context(), opts, req)
 			if err == nil {
 				t.Fatal("injected boundary did not fail")

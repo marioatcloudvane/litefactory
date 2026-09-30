@@ -79,14 +79,14 @@ func TestPrepareSetsPreviousFailedFields(t *testing.T) {
 		{
 			name: "predecessor succeeded",
 			seed: func(t *testing.T, f *fixture) {
-				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunSucceeded)
+				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunSucceeded)
 			},
 			wantNote: false,
 		},
 		{
 			name: "predecessor succeeded and was reported",
 			seed: func(t *testing.T, f *fixture) {
-				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunReported)
+				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunReported)
 			},
 			wantNote: false,
 		},
@@ -94,7 +94,7 @@ func TestPrepareSetsPreviousFailedFields(t *testing.T) {
 			name: "predecessor failed with a plain exit",
 			seed: func(t *testing.T, f *fixture) {
 				seedFailedRunWithReason(t, f, store.FirstSegmentOrdinal, storedClaudeSessionID,
-					seededComment, store.ModeSpike, "claude exited with status 2", false)
+					seededComment, "implement", "claude exited with status 2", false)
 			},
 			wantNote:       true,
 			wantReasonText: "claude exited with status 2",
@@ -103,7 +103,7 @@ func TestPrepareSetsPreviousFailedFields(t *testing.T) {
 			name: "predecessor timed out",
 			seed: func(t *testing.T, f *fixture) {
 				seedFailedRunWithReason(t, f, store.FirstSegmentOrdinal, storedClaudeSessionID,
-					seededComment, store.ModeSpike, "timed out after 30m0s; the process subtree was killed", false)
+					seededComment, "implement", "timed out after 30m0s; the process subtree was killed", false)
 			},
 			wantNote:       true,
 			wantReasonText: "timed out after 30m0s",
@@ -112,7 +112,7 @@ func TestPrepareSetsPreviousFailedFields(t *testing.T) {
 			name: "predecessor failed and was reported (error survives the move to reported)",
 			seed: func(t *testing.T, f *fixture) {
 				seedFailedRunWithReason(t, f, store.FirstSegmentOrdinal, storedClaudeSessionID,
-					seededComment, store.ModeSpike, "claude exited with status 1", true)
+					seededComment, "implement", "claude exited with status 1", true)
 			},
 			wantNote:       true,
 			wantReasonText: "claude exited with status 1",
@@ -172,7 +172,7 @@ func TestResumeDecisionTrueForAFailedClaudePredecessor(t *testing.T) {
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunFailed)
+	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunFailed)
 
 	result := f.execute(f.request())
 

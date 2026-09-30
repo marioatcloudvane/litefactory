@@ -26,12 +26,12 @@ func TestModesSelectCanonicalPermissionsForBothAgents(t *testing.T) {
 		{"Claude plan", "/plan design", "plan", "", agent.ModePlan, agent.Kind(store.AgentClaude), true},
 		{"Claude implement", "/implement build", "implement", "", agent.ModeImplement, agent.Kind(store.AgentClaude), false},
 		{"Claude validate", "/validate check", "validate", "", agent.ModeValidate, agent.Kind(store.AgentClaude), false},
-		{"Claude spike", "/spike experiment", "implement", "", agent.ModeSpike, agent.Kind(store.AgentClaude), false},
+		{"Claude spike", "/spike experiment", "spike", "", agent.ModeSpike, agent.Kind(store.AgentClaude), false},
 		{"Codex research", "/research inspect", "research", "workspace-write", agent.ModeResearch, agent.Kind(store.AgentCodex), true},
 		{"Codex plan", "/plan design", "plan", "workspace-write", agent.ModePlan, agent.Kind(store.AgentCodex), true},
 		{"Codex implement", "/implement build", "implement", "workspace-write", agent.ModeImplement, agent.Kind(store.AgentCodex), false},
 		{"Codex validate", "/validate check", "validate", "read-only", agent.ModeValidate, agent.Kind(store.AgentCodex), false},
-		{"Codex spike", "/spike experiment", "implement", "workspace-write", agent.ModeSpike, agent.Kind(store.AgentCodex), false},
+		{"Codex spike", "/spike experiment", "spike", "workspace-write", agent.ModeSpike, agent.Kind(store.AgentCodex), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -65,7 +65,12 @@ func TestModesSelectCanonicalPermissionsForBothAgents(t *testing.T) {
 			if req.Mode != tt.mode || req.Agent != tt.kind || req.ToolProfile != tt.profile || req.AttachmentsAllowed != tt.attachments {
 				t.Fatalf("routing = mode %q agent %q profile %q attachments %t", req.Mode, req.Agent, req.ToolProfile, req.AttachmentsAllowed)
 			}
-			profile := config.DefaultToolProfiles().Permissions[tt.profile]
+			// Spike's ceiling is its own explicit fixer binding, never implement.
+			source := tt.profile
+			if source == "spike" {
+				source = config.SpikeFixerProfile
+			}
+			profile := config.DefaultToolProfiles().Permissions[source]
 			if tt.kind == agent.Kind(store.AgentClaude) {
 				if !equalStringSlices(req.Tools, profile.Claude.Tools) || !equalStringSlices(req.AllowedTools, profile.Claude.AllowedTools) {
 					t.Fatalf("Claude payload = tools %v allowed %v", req.Tools, req.AllowedTools)

@@ -307,5 +307,10 @@ func (d *Daemon) markResearchModeApplied(ctx context.Context, t *task, selection
 			return err
 		}
 	}
+	if selection.Mode != "spike" {
+		if err := d.db.CancelWorkflowGraphs(ctx, selection.SessionID, "spike", "explicit mode switch", t.tickAt); err != nil {
+			return err
+		}
+	}
 	return d.db.MarkModeLabelApplied(ctx, selection.SessionID, selection.TriggerCommentID)
 }

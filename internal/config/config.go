@@ -523,11 +523,17 @@ func DefaultToolProfiles() ToolProfiles {
 			Attachments: attachments,
 		}
 	}
+	// The default operator ceiling does not list MultiEdit, so the default
+	// fixer grant is the role surface inside that ceiling.
+	fixerTools := slices.DeleteFunc(BugRoleClaudeTools(SpikeFixerProfile), func(tool string) bool { return !slices.Contains(implementTools, tool) })
 	return ToolProfiles{Permissions: map[string]ToolProfile{
 		"research":  profile(researchTools, researchAllowed, "workspace-write", true),
 		"plan":      profile(artifactTools, artifactAllowed, "workspace-write", true),
 		"implement": profile(implementTools, implementAllowed, "workspace-write", false),
 		"validate":  profile(readTools, readAllowed, "read-only", false),
+		// Spike graph roles are explicit grants, never an alias of implement.
+		SpikeInvestigatorProfile: profile(BugRoleClaudeTools(SpikeInvestigatorProfile), BugRoleClaudeTools(SpikeInvestigatorProfile), "read-only", false),
+		SpikeFixerProfile:        profile(fixerTools, fixerTools, "workspace-write", false),
 	}}
 }
 
@@ -885,23 +891,23 @@ func strictMCPAutoStart(data []byte) error {
 	return nil
 }
 
-// decodeResearchExecution keeps repository YAML decoding in the package's sole
+// decodeExecution keeps repository YAML decoding in the package's sole
 // third-party decoding boundary.
-func decodeResearchExecution(raw []byte) (string, error) {
+func decodeExecution(raw []byte, label string) (string, error) {
 	var cfg struct {
 		Execution string `yaml:"execution"`
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(raw))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&cfg); err != nil {
-		return "", fmt.Errorf("research configuration: %w", err)
+		return "", fmt.Errorf("%s configuration: %w", label, err)
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return "", errors.New("research configuration requires exactly one document")
+		return "", fmt.Errorf("%s configuration requires exactly one document", label)
 	}
 	if cfg.Execution != "legacy" && cfg.Execution != "graph" {
-		return "", errors.New("research execution must be legacy or graph")
+		return "", fmt.Errorf("%s execution must be legacy or graph", label)
 	}
 	return cfg.Execution, nil
 }
