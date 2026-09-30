@@ -126,17 +126,9 @@ func (s *Service) Diagnose(ctx context.Context, r DiagnoseRequest) (out Conversa
 	if e = s.sanitizeEvidence(ctx, &evidence); e != nil {
 		return failure(e)
 	}
-	provider := config.Kind(evidence.Provider)
-	if provider == "" {
-		var ok bool
-		provider, ok = s.Config.DefaultAgent()
-		if !ok {
-			return failure(errors.New("doctor has no configured provider"))
-		}
-	}
-	model, ok := s.Config.Tiers.ResolveModel(provider, config.TierFlagship)
-	if !ok || strings.TrimSpace(model) == "" {
-		return failure(errors.New("doctor provider has no flagship mapping"))
+	provider, model, _, isolationErr, e := s.selectProvider(ctx, config.Kind(evidence.Provider))
+	if e != nil {
+		return failure(e)
 	}
 	encoded, e := json.Marshal(evidence)
 	if e != nil {
@@ -152,17 +144,54 @@ func (s *Service) Diagnose(ctx context.Context, r DiagnoseRequest) (out Conversa
 	if e = s.DB.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: id, ConversationID: c.ID, Provider: string(provider), ConfiguredModel: model, Evidence: safe.String()}); e != nil {
 		return failure(e)
 	}
-	if s.Runner == nil {
-		return failure(ErrIsolationUnavailable)
-	}
-	observation, e := s.Runner.IsolationEvidence(ctx, string(provider))
-	if e != nil {
-		return failure(e)
-	}
-	if observation == "" {
-		return failure(ErrIsolationUnavailable)
+	if isolationErr != nil {
+		return failure(isolationErr)
 	}
 	return s.invoke(ctx, r, c, id, string(provider), model, evidence, body.String(), failure)
+}
+
+// selectProvider tries the issue's own agent first, then every configured
+// agent in config order, each at its flagship model. The first one whose
+// isolation is available wins. When none is, it still returns the first
+// candidate with a flagship mapping so the attempt is recorded, together with
+// that candidate's isolation refusal.
+func (s *Service) selectProvider(ctx context.Context, preferred config.Kind) (provider config.Kind, model, observation string, isolationErr, err error) {
+	candidates := s.Config.AgentOrder()
+	if preferred != "" {
+		candidates = append([]config.Kind{preferred}, candidates...)
+	}
+	seen := map[config.Kind]bool{}
+	for _, kind := range candidates {
+		if seen[kind] {
+			continue
+		}
+		seen[kind] = true
+		m, ok := s.Config.Tiers.ResolveModel(kind, config.TierFlagship)
+		if !ok || strings.TrimSpace(m) == "" {
+			continue
+		}
+		refusal := ErrIsolationUnavailable
+		evidence := ""
+		if s.Runner != nil {
+			evidence, refusal = s.Runner.IsolationEvidence(ctx, string(kind))
+			if refusal == nil && evidence == "" {
+				refusal = ErrIsolationUnavailable
+			}
+		}
+		if refusal == nil {
+			return kind, m, evidence, nil, nil
+		}
+		if provider == "" {
+			provider, model, isolationErr = kind, m, refusal
+		}
+	}
+	if provider != "" {
+		return provider, model, "", isolationErr, nil
+	}
+	if len(seen) == 0 {
+		return "", "", "", nil, errors.New("doctor has no configured provider")
+	}
+	return "", "", "", nil, errors.New("doctor provider has no flagship mapping")
 }
 
 func (s *Service) validate(ctx context.Context, ref naming.Ref) error {

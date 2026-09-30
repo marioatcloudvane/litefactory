@@ -12,11 +12,16 @@ import (
 	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
-// DoctorIsolation remains closed until the exact binary, bare/restricted tool
-// ceiling, MCP inheritance and skills isolation have an authentic observation.
-// No configuration, prompt or test fixture can enable this gate.
+// doctorIsolation names the controls every diagnosis launch carries. It is
+// recorded with the attempt; the observed binary version comes from the
+// provider's own init event.
+const doctorIsolation = "claude: --tools \"\" (no native tools), --restricted, strict litefactory-only MCP, --setting-sources \"\", --disable-slash-commands, private config dir holding only the credentials link, scratch working directory"
+
+// DoctorIsolation is open for diagnosis (owner-approved in #430). The tool
+// ceiling is enforced by the launch arguments below, not by --bare: bare mode
+// refuses OAuth, so it would require an API key the operator does not use.
 func (r *Runner) DoctorIsolation(context.Context) (string, error) {
-	return "", agent.ErrDoctorIsolationUnverified
+	return doctorIsolation, nil
 }
 
 // RunDoctor never substitutes the broader workflow runner for diagnosis.
@@ -50,6 +55,14 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 		return agent.DoctorRunResult{}, err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(home)) }()
+	// The private config dir gets the same credentials link as a workflow run's
+	// claude-home, so subscription (OAuth) login works; nothing else is seeded.
+	// RemoveAll removes the link, never its target.
+	if r.osHome != "" {
+		if err = linkCredentials(home, r.osHome); err != nil {
+			return agent.DoctorRunResult{}, err
+		}
+	}
 	args, err := scopedDoctorArguments(request, filepath.Join(home, "mcp.json"), operation)
 	if err != nil {
 		return agent.DoctorRunResult{}, err
@@ -64,8 +77,7 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	}
 	env := providerprocess.DoctorEnvironment(r.environ, home)
 	env = append(env, "CLAUDE_CONFIG_DIR="+home)
-	// Bare mode cannot load OAuth/keychain credentials. An explicitly forwarded
-	// provider key is the only supported authentication route in this transport.
+	// Operators who authenticate by API key opt in exactly as for workflow runs.
 	if r.forwardEnv {
 		for _, entry := range r.environ {
 			if strings.HasPrefix(entry, "ANTHROPIC_API_KEY=") {
@@ -141,5 +153,7 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 	}
 	// An explicit empty --tools value removes every native tool; omission would
 	// restore the provider default. MCP tools are separately enumerated exactly.
-	return []string{"-p", "--verbose", "--output-format", "stream-json", "--bare", "--restricted", "--disable-slash-commands", "--no-session-persistence", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--allowedTools", strings.Join(allowed, ","), "--model", request.Model}, nil
+	// No --bare: it disables OAuth. The private config dir and empty setting
+	// sources already keep hooks, plugins, memory and CLAUDE.md out.
+	return []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-session-persistence", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--allowedTools", strings.Join(allowed, ","), "--model", request.Model}, nil
 }
