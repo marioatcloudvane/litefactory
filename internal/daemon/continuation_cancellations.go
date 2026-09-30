@@ -44,14 +44,14 @@ func (d *Daemon) replayContinuationCancellations(ctx context.Context, repos []st
 }
 
 func (d *Daemon) replayContinuationCancellation(ctx context.Context, notice store.Continuation, session store.Session) (err error) {
-	allowed, gateErr := d.recoveryAllowed(ctx, store.ReportRecovery{Key: recoveryKey(session.ID, notice.TriggerID()), SessionID: session.ID, TriggerID: notice.TriggerID()}, recoveryTime(ctx))
+	allowed, gateErr := d.guardedRecoveryAllowed(ctx, store.ReportRecovery{Key: recoveryKey(session.ID, notice.TriggerID()), SessionID: session.ID, TriggerID: notice.TriggerID()}, recoveryTime(ctx))
 	if gateErr != nil {
 		return gateErr
 	}
 	if !allowed {
 		return &recoveryPending{}
 	}
-	if !d.inflight.enter(session.ID) {
+	if !d.enterDoctorGuarded(ctx, session.ID) {
 		return nil
 	}
 	defer d.inflight.leave(session.ID)

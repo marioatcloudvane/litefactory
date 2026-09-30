@@ -814,12 +814,6 @@ func bugAnalysisReviewByDeliveryKeyTx(ctx context.Context, tx *sql.Tx, session i
 	return BugAnalysisReview{SessionID: session, Review: c.Review, AnalysisRevision: c.AnalysisRevision, AnalysisDigest: c.AnalysisDigest, DeliveryKey: c.DeliveryKey, ContentDigest: c.ContentDigest, CommentID: c.CommentID, Active: false}, nil
 }
 
-// bugReviewTx is retained for readability at call sites that already hold a
-// review identifier from a known-live path.
-func bugReviewTx(ctx context.Context, tx *sql.Tx, session int64, review string) (BugAnalysisReview, error) {
-	return bugAnalysisReviewByReviewTx(ctx, tx, session, review)
-}
-
 // RetainBugAnalysisReview records the immutable review before publication. It
 // does not mark publication or grant approval. Its source is the exact pass
 // that produced the current reviewable analysis, never another task's comment.

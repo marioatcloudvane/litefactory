@@ -133,6 +133,7 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "tick", counts)
 	ctx = context.WithValue(ctx, recoveryTickKey{}, startedAt)
+	d.doctorTick(ctx, startedAt)
 	d.refreshRecoveries(ctx, startedAt)
 	// Stopped execution debt is independent of discovery/storage availability.
 	stoppedDispatched := d.retryStoppedResults(ctx, startedAt)
@@ -964,7 +965,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	if d.sessionRecoveryHeld(c.session.ID, tickAt) {
 		return offerSkipped
 	}
-	if !d.inflight.enter(c.session.ID) {
+	if !d.enterDoctorGuarded(ctx, c.session.ID) {
 		// AC-PAR-5.3: a session this daemon is already running a turn for is
 		// skipped, and skipping it posts nothing and moves no watermark. Its
 		// backlog flag is standing — the tick that dispatched it set it, and
@@ -1066,7 +1067,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 
 	// The dispatch point uses the daemon's long-lived context. runWorker owns
 	// the shared pool and in-flight lifetime through terminal diagnostics.
-	go d.runWorker(ctx, t, func() { d.work(ctx, t) })
+	go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
 
 	result.Dispatched++
 	return offerDispatched
@@ -1599,6 +1600,18 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 // on a later tick — including a rate limit, which arms the backoff where it was
 // met and then leaves by that same door. See [Daemon.leave].
 func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) error {
+	if held, e := d.doctorHeldSession(ctx, t.session.ID); e != nil {
+		return e
+	} else if held {
+		return errors.New("issue held for doctor repair")
+	}
+	if routed, err := d.admitDoctor(ctx, t.repo, t.issue, c); routed {
+		if err != nil {
+			return err
+		}
+		_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
+		return err
+	}
 	log := t.log.With(
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),

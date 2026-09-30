@@ -5,6 +5,7 @@ import (
 	"unicode"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/doctor"
 )
 
 // SpikeCommand names the original explicit work command.
@@ -207,6 +208,9 @@ func (c Command) NeedsReply() bool {
 // comment the daemon reads has to be disposed of one way or another — and the
 // tag parser cannot fail either, precisely so that contract still holds.
 func ParseCommand(body string) Command {
+	if _, ok := doctor.ParseCommand(body); ok {
+		return Command{Kind: KindNone, Name: "/doctor"}
+	}
 	tagged := HasAskTag(body)
 	if tagged {
 		body = stripAskTag(body)

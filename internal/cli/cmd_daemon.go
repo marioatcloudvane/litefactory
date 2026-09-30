@@ -43,11 +43,15 @@ type daemonRunOptions struct {
 	// command's Handler ever runs. See the comment on the handler below and
 	// on [LogLevelOverride] for why the flag is declared in two places
 	// (DEV-1, US-6).
-	level string
+	level        string
+	doctorRepair string
+	doctorToken  string
 }
 
 // bind registers the daemon run flags on fs.
 func (o *daemonRunOptions) bind(fs *flag.FlagSet) {
+	fs.StringVar(&o.doctorRepair, "doctor-repair", "", "Factory recovery operation identity")
+	fs.StringVar(&o.doctorToken, "doctor-token", "", "Factory recovery handoff token")
 	fs.StringVar(&o.level, "level", "", "run at this log `level` instead of the configured one "+
 		"(debug, info, warn, error)")
 }
@@ -62,7 +66,7 @@ func newDaemonRunCommand() *Command {
 		Long: "Run the poll loop in this process, in the foreground, until SIGINT or\n" +
 			"SIGTERM. This is what the launchd agent executes; run it directly to watch\n" +
 			"the loop work.\n\n" +
-			"It never forks and writes no pid file. A second instance refuses to start:\n" +
+			"Ordinary startup stays in this process and writes no pid file. A second instance refuses to start:\n" +
 			"the first one holds an exclusive lock on $LF_HOME/daemon.lock.\n\n" +
 			"git and claude are resolved before the first tick, so a binary that is not\n" +
 			"where the configuration says fails here rather than three hours into a run.\n\n" +
@@ -78,7 +82,7 @@ func newDaemonRunCommand() *Command {
 				// the router (and this command) existed. Binding it again here
 				// costs nothing and buys correct --help text and correct
 				// unknown-flag handling (DEV-1, US-6).
-				return runDaemonRun(ctx, env)
+				return runDaemonRunWithRecovery(ctx, env, opts.doctorRepair, opts.doctorToken)
 			}
 		},
 	}
@@ -157,7 +161,12 @@ func LogLevelOverride(args []string) (slog.Level, bool, error) {
 // configuration, database, credential — maps the "not ready" failures onto exit
 // 3, and hands the result to internal/daemon. The context is the root signal
 // context from main and is the only thing that can stop the loop.
-func runDaemonRun(ctx context.Context, env *Env) (err error) {
+func runDaemonRunWithRecovery(ctx context.Context, env *Env, repairID, recoveryToken string) (err error) {
+	if (repairID == "") != (recoveryToken == "") {
+		return errors.New("daemon recovery requires both operation identity and token")
+	}
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	paths, err := config.Locate()
 	if err != nil {
 		return err
@@ -182,13 +191,32 @@ func runDaemonRun(ctx context.Context, env *Env) (err error) {
 		return err
 	}
 
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	replacement, err := daemon.NewDoctorServiceReplacement(db, executable, paths, os.Environ())
+	if err != nil {
+		return err
+	}
+	host := &daemon.DoctorHostOptions{Paths: paths, Replacement: replacement, Stop: stop}
+	if repairID == "" {
+		host.Recovery, err = daemon.ReadDoctorLaunchdRecovery(ctx, db, paths)
+		if err != nil {
+			return err
+		}
+	}
+	if repairID != "" {
+		host.Recovery = &store.DoctorRestart{RepairID: repairID, Token: recoveryToken}
+	}
 	loop, startup, err := daemon.Open(ctx, daemon.Setup{
-		Paths:     paths,
-		Config:    cfg,
-		DB:        db,
-		Token:     token,
-		Logger:    env.Logger,
-		UserAgent: initUserAgent(env),
+		DoctorHost: host,
+		Paths:      paths,
+		Config:     cfg,
+		DB:         db,
+		Token:      token,
+		Logger:     env.Logger,
+		UserAgent:  initUserAgent(env),
 	})
 	if err != nil {
 		return daemonRunError(err)

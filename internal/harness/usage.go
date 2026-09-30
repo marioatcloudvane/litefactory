@@ -59,13 +59,16 @@ func (m messageUsage) tokens() agent.TokenUsage {
 }
 
 func newUsageCollector(ctx context.Context, req agent.Request) *usageCollector {
-	if req.Usage == nil {
+	return newUsageCaptureCollector(ctx, req.Usage, req.Session.Ref, req.Path.Resuming())
+}
+func newUsageCaptureCollector(ctx context.Context, capture *agent.UsageCapture, session string, resumed bool) *usageCollector {
+	if capture == nil {
 		return nil
 	}
-	collector := &usageCollector{ctx: ctx, capture: *req.Usage, session: req.Session.Ref,
+	collector := &usageCollector{ctx: ctx, capture: *capture, session: session,
 		coverage:    agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "stream-json", Diagnostics: []string{"capability_evidence_missing"}},
 		invocations: make(map[string]string), messages: make(map[string]agent.TokenUsage), seen: make(map[string]bool), agents: make(map[string]string), measured: make(map[string]bool), completed: make(map[string]bool), totals: make(map[string]agent.TokenUsage), summaries: make(map[string]agent.TokenUsage)}
-	if req.Path.Resuming() {
+	if resumed {
 		collector.resumed = true
 	}
 	return collector

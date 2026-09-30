@@ -79,15 +79,16 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		// from — and because this package is the only one holding the
 		// installation token, so it is the only place an attachment fetch
 		// can safely happen (US-3).
-		"FetchAsset",          // GET <allow-listed attachment URL>
-		"GetParentIssue",      // GET …/issues/{n}/parent
-		"RetirePlanStory",     // PATCH verified direct child closed with not_planned reason
-		"SetStoryState",       // PATCH verified managed story state and reason
-		"UpdateIssue",         // PATCH …/issues/{n}, full title and body
-		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
-		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
-		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments
-		"ListCommentsPage",    // GET one bounded /repos/{o}/{r}/issues/{n}/comments page for observation
+		"FetchAsset",                 // GET <allow-listed attachment URL>
+		"GetParentIssue",             // GET …/issues/{n}/parent
+		"RetirePlanStory",            // PATCH verified direct child closed with not_planned reason
+		"SetStoryState",              // PATCH verified managed story state and reason
+		"UpdateIssue",                // PATCH …/issues/{n}, full title and body
+		"GetIssue",                   // GET  /repos/{o}/{r}/issues/{n}
+		"ListCommentedIssues",        // GET  /repos/{o}/{r}/issues/comments?since=
+		"ListCommentsAfter",          // GET  /repos/{o}/{r}/issues/{n}/comments
+		"ListRepositoryCommentsPage", // bounded doctor routing metadata; no issue history expansion
+		"ListCommentsPage",           // GET one bounded /repos/{o}/{r}/issues/{n}/comments page for observation
 		"GetDeliveryHead",
 		"GetDeliveryCommit", // GET exact commit and ordered parents for Bug integration
 		"ListDeliveryPRs",
