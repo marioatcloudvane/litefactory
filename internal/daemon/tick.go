@@ -262,6 +262,18 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		}
 	}
 
+	// The archive pass follows retirement and is bounded the same way: one owner
+	// per tick, after normal admission, held back by the same discovery backoff.
+	if archiveErr := d.RunArchiveBatch(ctx, startedAt); archiveErr != nil {
+		d.log.ErrorContext(ctx, "archive batch incomplete", slog.Bool("completed", false))
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+	}
+
+	// Local housekeeping runs last and never fails a tick.
+	d.RunHousekeeping(ctx, startedAt)
+
 	// The cursor is a pure watermark now: it advances to this tick's start time
 	// on every tick that completed, whatever any worker went on to do (T-PAR-13).
 	// Holding it back to the oldest issue that did not finish was the only way
