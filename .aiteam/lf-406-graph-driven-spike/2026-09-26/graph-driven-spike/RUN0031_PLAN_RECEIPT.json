@@ -1,0 +1,46 @@
+{
+  "request_id": "2373b7386d041afb9733ecc472bd47e8",
+  "validation": {
+    "valid": true,
+    "complete": true,
+    "diagnostics": [],
+    "unchecked_paths": [],
+    "expected_revision": 0,
+    "current_revision": 0
+  },
+  "receipt": {
+    "ID": 284,
+    "ResultID": 158,
+    "RunID": 747,
+    "AppliedRevision": 1,
+    "SubmissionReceiptID": 0,
+    "Attempt": "5800105c9c10de1b2c6993dc171b7c0e",
+    "RequestID": "2373b7386d041afb9733ecc472bd47e8",
+    "RequestHash": "b21417926dd1c504bafaf67306aa9c755d1aa88e645c24769ffe2acff82eb8c6",
+    "InputState": "accepted",
+    "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXSwiZXhwZWN0ZWRfcmV2aXNpb24iOjAsImN1cnJlbnRfcmV2aXNpb24iOjB9",
+    "Observations": [
+      {
+        "Sequence": 1,
+        "RunID": 747,
+        "Attempt": "5800105c9c10de1b2c6993dc171b7c0e",
+        "Dimension": "received",
+        "State": "received"
+      },
+      {
+        "Sequence": 2,
+        "RunID": 747,
+        "Attempt": "5800105c9c10de1b2c6993dc171b7c0e",
+        "Dimension": "input",
+        "State": "accepted"
+      }
+    ],
+    "Latest": {
+      "Received": "received",
+      "Input": "accepted",
+      "Engineering": "pending",
+      "Acceptance": "pending",
+      "Publication": "pending"
+    }
+  }
+}

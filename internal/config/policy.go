@@ -367,7 +367,7 @@ func validateToolProfiles(c *Claude, profiles map[string]ToolProfile) []error {
 	for _, name := range sortedProfileNames(profiles) {
 		profile := profiles[name]
 		if !profileKeyRE.MatchString(name) {
-			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, or validate", name))
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, validate, or a bug or spike role", name))
 		}
 
 		if profile.Claude == nil && profile.Codex == nil {
@@ -413,10 +413,10 @@ func validatePermissionProfiles(c *Config) []error {
 		}
 	}
 	for _, name := range sortedProfileNames(profiles) {
-		if name == "bug-analyst" || name == "bug-fixer" {
+		if name == "bug-analyst" || name == "bug-fixer" || name == SpikeInvestigatorProfile || name == SpikeFixerProfile {
 			errs = append(errs, validateBugRoleProfile(c, name, profiles[name])...)
 		} else if !slices.Contains(canonicalPermissionProfiles, name) {
-			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, or validate", name))
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, validate, or a bug or spike role", name))
 		}
 	}
 	if c.Agents.Claude != nil {
@@ -440,17 +440,28 @@ func validatePermissionProfiles(c *Config) []error {
 // worktree it runs in, and the factory, not the fixer, runs the checks.
 func BugRoleClaudeTools(role string) []string {
 	switch role {
-	case "bug-analyst":
+	case "bug-analyst", SpikeInvestigatorProfile:
 		return []string{"Read", "Glob", "Grep"}
-	case "bug-fixer":
+	case "bug-fixer", SpikeFixerProfile:
 		return []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write"}
 	default:
 		return nil
 	}
 }
 
-// Bug roles are optional independent operator grants, never mode aliases.
-// Older configurations remain valid; absent roles block only Bug dispatch.
+// Spike graph roles are bound by these two independent operator grants; no
+// other mode's profile ever supplies them. The fixer profile is the mode
+// ceiling every Spike node is narrowed from, and the investigator profile may
+// never exceed it. Configurations without both roles still load, and Spike work
+// is then refused before any agent is dispatched.
+const (
+	SpikeInvestigatorProfile = "spike-investigator"
+	SpikeFixerProfile        = "spike-fixer"
+)
+
+// Bug and Spike roles are optional independent operator grants, never mode
+// aliases. Older configurations remain valid; absent roles block only that
+// workflow's dispatch.
 func validateBugRoleProfile(c *Config, name string, profile ToolProfile) []error {
 	var errs []error
 	if profile.Attachments {
@@ -473,7 +484,7 @@ func validateBugRoleProfile(c *Config, name string, profile ToolProfile) []error
 	}
 	if profile.Codex != nil {
 		want := "read-only"
-		if name == "bug-fixer" {
+		if name == "bug-fixer" || name == SpikeFixerProfile {
 			want = "workspace-write"
 		}
 		if c.Agents.Codex == nil || profile.Codex.Sandbox != want {

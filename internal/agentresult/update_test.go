@@ -277,7 +277,7 @@ func TestDecodeUpdate_StrictAndLimits(t *testing.T) {
 var updateCorpus embed.FS
 
 func TestUpdate_VersionedCorpus(t *testing.T) {
-	for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
+	for _, mode := range []string{"research", "plan", "implement", "validate"} {
 		t.Run(mode, func(t *testing.T) {
 			data, err := updateCorpus.ReadFile("testdata/v1/updates/" + mode + ".json")
 			if err != nil {

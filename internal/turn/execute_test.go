@@ -135,7 +135,7 @@ func TestExecuteCommitCarriesTheTrailersAndStripsForgeries(t *testing.T) {
 	for _, want := range []string{
 		"Added a /health endpoint.",
 		"Litefactory-Task: " + f.session.TaskRef,
-		"Litefactory-Mode: spike",
+		"Litefactory-Mode: implement",
 		"Litefactory-Run: 1",
 	} {
 		if !strings.Contains(message, want) {

@@ -32,9 +32,34 @@ func DecodePlanNode(data []byte, ctx Context) (ResearchNode, Diagnostics) {
 	return decodeNode(data, ctx, true)
 }
 
-// decodeNode is the one envelope decoder. plan selects the Plan vocabulary:
-// which mode the invocation must be, and that "approved" is not a response.
+// DecodeSpikeNode validates a graph Spike node over the same envelope and the
+// same application result. A Spike role answers ask or done and never approved:
+// Spike has no owner approval step.
+func DecodeSpikeNode(data []byte, ctx Context) (ResearchNode, Diagnostics) {
+	return decodeNodeFor(data, ctx, nodeSpike)
+}
+
+type nodeVocabulary int
+
+const (
+	nodeResearch nodeVocabulary = iota
+	nodePlan
+	nodeSpike
+)
+
 func decodeNode(data []byte, ctx Context, plan bool) (ResearchNode, Diagnostics) {
+	if plan {
+		return decodeNodeFor(data, ctx, nodePlan)
+	}
+	return decodeNodeFor(data, ctx, nodeResearch)
+}
+
+// decodeNodeFor is the one envelope decoder. The vocabulary selects which mode
+// the invocation must be, and whether "approved" is a response: it is one only
+// for Research, whose owner approval is the factory-bound reply.
+func decodeNodeFor(data []byte, ctx Context, vocabulary nodeVocabulary) (ResearchNode, Diagnostics) {
+	plan := vocabulary == nodePlan
+	closed := vocabulary != nodeResearch
 	d := newDiagnostics()
 	// The bound applies to what the agent actually emitted, before narrowing:
 	// otherwise an oversized preamble is a way past it.
@@ -71,7 +96,9 @@ func decodeNode(data []byte, ctx Context, plan bool) (ResearchNode, Diagnostics)
 	switch {
 	case plan && ctx.Mode != "plan":
 		add(&d, "$", "scope", "Plan invocation", "different mode", "Use the factory-selected Plan mode.")
-	case !plan && ctx.Mode != "research":
+	case vocabulary == nodeSpike && ctx.Mode != "spike":
+		add(&d, "$", "scope", "Spike invocation", "different mode", "Use the factory-selected Spike mode.")
+	case vocabulary == nodeResearch && ctx.Mode != "research":
 		add(&d, "$", "scope", "Research invocation", "different mode", "Use the factory-selected Research mode.")
 	}
 	switch node.Response {
@@ -84,12 +111,18 @@ func decodeNode(data []byte, ctx Context, plan bool) (ResearchNode, Diagnostics)
 			advice := "Complete Research only when no owner questions remain."
 			if plan {
 				advice = "Return done only with a completed result, no questions and exactly one story request or story set; use ask for owner questions."
+			} else if closed {
+				advice = "Return done only with a completed result and no questions; use ask for owner questions."
 			}
 			add(&d, "$.response", "consistency", "done with completed result without questions", "inconsistent result", advice)
 		}
 	case "approved":
-		if plan {
-			add(&d, "$.response", "enum", "ask or done", "approved", "Plan roles return ask for owner questions or done for a story request or story set; approval belongs to the owner and is never a role response.")
+		if closed {
+			advice := "Return ask for owner questions or done for finished work; approval belongs to the owner and is never a role response."
+			if plan {
+				advice = "Plan roles return ask for owner questions or done for a story request or story set; approval belongs to the owner and is never a role response."
+			}
+			add(&d, "$.response", "enum", "ask or done", "approved", advice)
 			break
 		}
 		// Reporting the owner's verdict, not forming one. The result has to be
@@ -99,8 +132,12 @@ func decodeNode(data []byte, ctx Context, plan bool) (ResearchNode, Diagnostics)
 			add(&d, "$.response", "consistency", "approved with completed result without questions", "inconsistent result", "Report the owner's approval only over work you would otherwise call done.")
 		}
 	default:
-		if plan {
-			add(&d, "$.response", "enum", "ask or done", "unsupported response", "Choose ask for owner questions, or done to return exactly one story request or story set.")
+		if closed {
+			advice := "Choose ask for owner questions, or done for finished work."
+			if plan {
+				advice = "Choose ask for owner questions, or done to return exactly one story request or story set."
+			}
+			add(&d, "$.response", "enum", "ask or done", "unsupported response", advice)
 			break
 		}
 		add(&d, "$.response", "enum", "ask, done or approved", "unsupported response", "Choose ask for owner questions, done to show your work, or approved to report that the owner accepted it.")

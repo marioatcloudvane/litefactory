@@ -15,6 +15,10 @@ import (
 type AttributeSpec struct {
 	Required bool
 	Values   []string
+	// List makes the attribute a comma-separated set: every element must be one
+	// of Values, and none may repeat or be empty. The vocabulary stays closed;
+	// only the shape of a value changes.
+	List bool
 }
 
 // ActionSpec defines membership and outcomes, never executable attribute text.
@@ -94,4 +98,15 @@ func cloneActionSpec(spec ActionSpec) ActionSpec {
 		spec.Attributes[name] = attribute
 	}
 	return spec
+}
+
+// AccessAttribute names the agent node attribute that declares its tool access.
+const AccessAttribute = "lf_access"
+
+// AccessValues are the closed access levels an agent node may declare.
+var AccessValues = []string{"read", "write"}
+
+// AgentAttributes declares the optional attributes of the shared agent action.
+func AgentAttributes() map[string]AttributeSpec {
+	return map[string]AttributeSpec{AccessAttribute: {Values: slices.Clone(AccessValues)}}
 }

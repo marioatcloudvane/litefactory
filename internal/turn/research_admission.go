@@ -36,7 +36,7 @@ func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
 	comments.Mode, asks.Mode = policy.Mode, policy.Mode
 	comments.Workflow, asks.Workflow = policy.Workflow, policy.Workflow
 	for _, spec := range []graphexec.ActionSpec{
-		{Name: ResearchAgentAction, Mode: policy.Mode, Workflow: policy.Workflow, Outcomes: []string{"success", "failed"}},
+		{Name: ResearchAgentAction, Mode: policy.Mode, Workflow: policy.Workflow, Outcomes: []string{"success", "failed"}, Attributes: graphexec.AgentAttributes()},
 		graphexec.ControlSpec(graphexec.ResearchLoopAction, policy.Control),
 		graphexec.ControlSpec(graphexec.ResearchIfAction, policy.Control), comments, asks,
 	} {

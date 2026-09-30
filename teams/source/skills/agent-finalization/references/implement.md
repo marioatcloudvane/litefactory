@@ -15,7 +15,7 @@ Executable application-v1 examples (synthetic offline identities):
 - [incomplete](examples/implement-incomplete.json)
 - [blocked](examples/implement-blocked.json)
 - [revision-checked update](examples/implement-update.json)
-- [disallowed question](examples/invalid-spike-question.json); questions reject in this mode too.
+- [disallowed question](examples/invalid-implement-question.json); questions reject in this mode too.
 
 Use the separate checkpoint descriptor for scoped story evidence. The shared result
 adapter accepts the declared aggregate engineering/capture shape, retaining actual

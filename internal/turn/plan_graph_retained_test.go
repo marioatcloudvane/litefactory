@@ -17,6 +17,7 @@ import (
 
 const (
 	retainedResearchResult = `{"outcome":"completed","comment":"Investigation finished.","payload":{"research":{"request":"Inspect boundaries"}}}`
+	retainedSpikeResult    = `{"outcome":"completed","comment":"Answered.","payload":{"spike":{"request":"Why does staging fail?","findings":["Staging is correct"]}}}`
 	retainedPlanResult     = `{"outcome":"completed","comment":"Proposed.","payload":{"plan":{"storyrequest":{"operation":"create","draft":` + graphBindingDraft + `}}}}`
 )
 
@@ -34,14 +35,17 @@ func newRetainedFixture(t *testing.T, mode string) *retainedFixture {
 	t.Helper()
 	db, session, o := agentResultFixture(t, mode)
 	f := &retainedFixture{db: db, session: session, opts: o}
-	if mode == "plan" {
+	switch mode {
+	case "plan":
 		f.binding = &ar.PlanGraphBinding{Story: "story-001", Stage: "story", Candidate: "plan-1-1", RequestID: "plan-request-1-1", Upstream: []string{"a", "b"}, SharedRevision: "initial"}
 		o.Resolve = func(context.Context) (ar.Context, error) {
 			return ar.Context{SchemaVersion: 1, WorkflowVersion: 2, Mode: "plan", QuestionsAllowed: true, PlanScope: planbrief.ContentScope{Roles: []string{"engineer"}}, PlanGraph: f.binding.Clone()}, nil
 		}
 		o.ReadTargets, o.EditTargets = planGraphResultTargets(), planGraphResultTargets()
 		f.policy, f.result = PlanWorkflowPolicy(), retainedPlanResult
-	} else {
+	case "spike":
+		f.policy, f.result = SpikeWorkflowPolicy(), retainedSpikeResult
+	default:
 		f.policy, f.result = ResearchWorkflowPolicy(), retainedResearchResult
 	}
 	f.opts = o
