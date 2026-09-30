@@ -10,6 +10,8 @@ Make daemon logs say what happened and why: outcome-per-tick line, pause/resume 
 - **D-2** — Decided by me: one INFO line per owner comment, logged once, naming issue and outcome.
 - **D-3** — Decided by me: a deferred tick still records its attempt time, separate from the completed-tick time the cursor logic relies on.
 - **D-4** — Decided by me: the current tick-complete field names stay; renaming applies to the request-accounting fields.
+- **D-20** — Owner answered Q1 a: idle ticks at DEBUG, INFO health line every 10 minutes, ticks with news at INFO.
+- **D-21** — Owner answered Q2 a: per-endpoint accounting at DEBUG, compact request summary on the 10-minute health line.
 
 
 ## Assumptions
@@ -21,26 +23,10 @@ Make daemon logs say what happened and why: outcome-per-tick line, pause/resume 
 
 ## Open questions
 
-### q1 — How loud should a tick be when nothing new happened?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Quiet: log idle ticks at DEBUG only, and print one INFO health line every 10 minutes (healthy, nothing new, last attempt time). Ticks with news log at INFO.  *(recommended)*
-- **b** — Every tick logs one INFO line, even 'tick: nothing new'. Complete, but two or three lines a minute again.
-- **c** — Silent when idle. No heartbeat. Smallest log, but you cannot tell a healthy quiet daemon from a dead one.
-
-### q2 — What happens to the request accounting?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Full per-endpoint detail moves to DEBUG. Every 10 minutes the health line adds one compact line: requests, ok, not-modified, errors, quota left and reset time.  *(recommended)*
-- **b** — Move everything to DEBUG. Nothing at INFO.
-- **c** — Keep it at INFO but only every 10 minutes, with renamed fields.
-
-### q3 — Where does the daemon keep the facts that `daemon status` shows?
+### q3 — Where should the daemon store the facts that `daemon status` will show?
 
 _Asked of: Technical Questions_
 
-- **a** — In the database, next to the last-tick time: last attempt time, paused flag with reason and resume time. Runs in flight are read from the existing runs records. Status keeps working the way it does now.  *(recommended)*
-- **b** — In a small state file the daemon rewrites each tick. Simpler to read, but a second place for state and can disagree with the database.
-- **c** — Ask the running daemon over a socket. Freshest, but status then fails when the daemon is down, which is when you need it.
+- **a** — In the database, beside the last-tick time it already reads. The daemon saves last attempt, paused flag with reason and resume time. In-flight runs come from the run records already in the database. Status keeps its current shape and works when the daemon is down.  *(recommended)*
+- **b** — In a small state file the daemon rewrites each tick. Easy to read, but it creates a second place for state that can disagree with the database.
+- **c** — Ask the running daemon over a socket. Freshest, but status fails exactly when the daemon is down.

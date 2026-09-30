@@ -65,3 +65,12 @@ An existing test asserts the 'tick complete' INFO record and its alias fields, s
 Evidence:
 
 - `internal/daemon/quiet_polling_test.go:62`
+
+## F-20
+
+The daemon writes its own JSONL daemon.log in the logs folder; launchd output goes to separate launchd.out.log and launchd.err.log. daemon status reads only the poll-cursor last-tick time from the database.
+
+Evidence:
+
+- `internal/config/paths.go:106`
+- `internal/cli/cmd_daemon_agent.go:187`
