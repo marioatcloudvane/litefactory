@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
 
@@ -24,7 +25,9 @@ import (
 // daemon's loop; and main's second-signal watcher — plus at most
 // max_concurrent_runs turn workers. That setting is validated against
 // [MinConcurrentRuns]..[MaxConcurrentRuns] and refused, never clamped, outside
-// it (AC-PAR-6.1), so the inventory has a hard ceiling of twenty.
+// it (AC-PAR-6.1). Doctor adds one reserved diagnostic worker, independently
+// bounded and joined by the same Quiesce/shutdown mechanism. The ceiling is
+// twenty-one; doctor stop and discovery run on the existing tick goroutine.
 //
 // Termination condition, as one named thing: [Daemon.Quiesce]. Every worker
 // ends on one of three bounded conditions — its comment list is exhausted, a
@@ -179,5 +182,8 @@ func (p *pool) quiesce(ctx context.Context) error {
 // Shutdown deliberately does not come through here: see [pool.wait] for why
 // that path must not take a context at all.
 func (d *Daemon) Quiesce(ctx context.Context) error {
-	return d.pool.quiesce(ctx)
+	if d.doctor.pool == nil {
+		return d.pool.quiesce(ctx)
+	}
+	return errors.Join(d.pool.quiesce(ctx), d.doctor.pool.quiesce(ctx))
 }

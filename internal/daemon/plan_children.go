@@ -105,6 +105,16 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			if comment.ID <= after || slices.Contains(state.ConsumedReplies, comment.ID) {
 				continue
 			}
+			routed, routeErr := d.admitDoctor(ctx, t.repo, child, comment)
+			if routeErr != nil {
+				return false, routeErr
+			}
+			if routed {
+				if err := d.db.AdvanceStoryDiscovery(ctx, t.session.ID, draft.IssueNumber, comment.ID); err != nil {
+					return false, err
+				}
+				continue
+			}
 			if comment.Author.ID != ids.OwnerUserID || comment.Author.ID == ids.BotUserID || comment.Author.IsBot || turn.HasMarker(comment.Body) {
 				if err = d.db.AdvanceStoryDiscovery(ctx, t.session.ID, draft.IssueNumber, comment.ID); err != nil {
 					return false, err

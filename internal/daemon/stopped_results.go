@@ -75,7 +75,7 @@ func (d *Daemon) retryStoppedResults(ctx context.Context, tickAt time.Time) (dis
 			continue
 		}
 		source := stoppedRecovery(debt)
-		allowed, err := d.recoveryAllowed(ctx, source, tickAt)
+		allowed, err := d.guardedRecoveryAllowed(ctx, source, tickAt)
 		if err != nil {
 			d.recoveryFailure(ctx, source, tickAt, err)
 			continue
@@ -92,7 +92,7 @@ func (d *Daemon) retryStoppedResults(ctx context.Context, tickAt time.Time) (dis
 		workerCtx := context.WithValue(ctx, recoveryTickKey{}, tickAt)
 		// Existing pool and Quiesce bound this worker exactly like execution.
 		t.workerLog.DebugContext(ctx, "stopped-result repair worker dispatched")
-		go d.runWorker(workerCtx, &t, func() { d.repairStoppedResult(workerCtx, &t, debt) })
+		go d.runDoctorGuardedWorker(workerCtx, &t, func(workerCtx context.Context) { d.repairStoppedResult(workerCtx, &t, debt) })
 		dispatched++
 	}
 	return dispatched

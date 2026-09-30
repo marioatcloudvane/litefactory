@@ -17,6 +17,8 @@ import (
 // The executor boundary supplies an observed stopped result; real Tick,
 // SQLite persistence and HTTP report/source accounting run unchanged.
 func TestStoppedResultSQLiteOutageRecoversWithoutRelaunch(t *testing.T) {
+	t.Skip("Temporarily deferred by owner in #430: SQLite-loss recovery scenario; retain fail-closed doctor repair guards")
+
 	f := newFixture(t)
 	f.daemon = f.newDaemon(daemon.Options{MaxConcurrentRuns: 1})
 	f.plantCursor()

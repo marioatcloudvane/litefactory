@@ -218,6 +218,10 @@ func (r runner) run(ctx context.Context, timeout time.Duration, args ...string) 
 
 // runRaw preserves exact blob bytes, including all trailing newlines.
 func (r runner) runRaw(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
+	return r.runRawLimit(ctx, timeout, 0, args...)
+}
+
+func (r runner) runRawLimit(ctx context.Context, timeout time.Duration, limit int, args ...string) (string, error) {
 	if r.binary == "" || r.dir == "" {
 		return "", ErrUninitialized
 	}
@@ -235,11 +239,13 @@ func (r runner) runRaw(ctx context.Context, timeout time.Duration, args ...strin
 	cmd.Stdin = nil
 	cmd.WaitDelay = waitDelay
 
-	var stdout, stderr bytes.Buffer
+	stdout, stderr := gitBoundedOutput{limit: limit}, gitBoundedOutput{limit: limit}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-
 	err := cmd.Run()
+	if stdout.exceeded || stderr.exceeded {
+		return "", fmt.Errorf("git observation exceeds %d byte budget", limit)
+	}
 	if err == nil {
 		return stdout.String(), nil
 	}
@@ -378,4 +384,26 @@ func checkName(what, value string) error {
 		return fmt.Errorf("%s %q: %w: must not contain control characters", what, value, ErrInvalidArgument)
 	}
 	return nil
+}
+
+// gitBoundedOutput discards excess bytes while draining subprocess pipes, so a
+// large status cannot allocate without bound or leave the child blocked.
+type gitBoundedOutput struct {
+	bytes.Buffer
+	limit    int
+	exceeded bool
+}
+
+func (b *gitBoundedOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	if b.limit <= 0 {
+		return b.Buffer.Write(p)
+	}
+	remaining := b.limit - b.Len()
+	if len(p) > remaining {
+		b.exceeded = true
+		p = p[:remaining]
+	}
+	_, err := b.Buffer.Write(p)
+	return n, err
 }

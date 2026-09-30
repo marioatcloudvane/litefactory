@@ -22,7 +22,7 @@ type ReportDelivery struct {
 	Completed, Legacy                            bool
 }
 
-const reportDeliveryColumns = `delivery_key,identity_version,session_id,trigger_id,COALESCE(run_id,0),task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,COALESCE(comment_id,0),completed,legacy`
+const reportDeliveryColumns = `delivery_key,identity_version,COALESCE(session_id,0),trigger_id,COALESCE(run_id,0),task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,COALESCE(comment_id,0),completed,legacy`
 
 func scanReportDelivery(row scanner) (ReportDelivery, error) {
 	var d ReportDelivery
@@ -168,6 +168,9 @@ func (db *DB) CompleteReportDelivery(ctx context.Context, key string) (ReportDel
 		if d.CommentID <= 0 {
 			return errors.New("report delivery has no confirmed receipt")
 		}
+		if d.TriggerNamespace == "doctor" {
+			return errors.New("doctor delivery requires doctor completion")
+		}
 		graph, err := graphReportDeliveryTx(ctx, tx, d)
 		if err != nil {
 			return err
@@ -237,7 +240,7 @@ func (db *DB) FindPendingReportDelivery(ctx context.Context, sessionID, triggerI
 
 // ListPendingReportDeliveries is durable recovery debt independent of watermarks.
 func (db *DB) ListPendingReportDeliveries(ctx context.Context) ([]ReportDelivery, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE completed=0 ORDER BY session_id,trigger_id,delivery_key`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE completed=0 AND doctor_command_id IS NULL ORDER BY session_id,trigger_id,delivery_key`)
 	if err != nil {
 		return nil, err
 	}

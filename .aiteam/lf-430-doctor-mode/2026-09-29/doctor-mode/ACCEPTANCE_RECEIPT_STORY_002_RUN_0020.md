@@ -1,0 +1,1 @@
+Request 43978540cef49c71cf506a7bd1284191; receipt 321. Preflight and submit valid and complete, no diagnostics or unchecked paths. Matching receipt read. Input accepted; engineering, acceptance and publication pending. Exact payload retained in ACCEPTANCE_SUBMISSION_STORY_002_RUN_0020.json. This receipt does not prove the later story effect.

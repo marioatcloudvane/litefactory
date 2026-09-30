@@ -394,7 +394,7 @@ func (d *DB) ConfirmBugLifecycleReport(ctx context.Context, session int64, event
 // acknowledgment was interrupted. Reading it never turns an acknowledgment into
 // completion; the report guard is checked again when the factory settles it.
 func (d *DB) PendingBugLifecycleReports(ctx context.Context) ([]BugLifecycleReport, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT session_id,COALESCE(attempt_id,0),reference,content,delivery_key,reported FROM bug_events WHERE kind='report' AND reported=0 ORDER BY session_id,reference`)
+	rows, err := d.sql.QueryContext(ctx, `SELECT session_id,COALESCE(attempt_id,0),reference,content,delivery_key,reported FROM bug_events WHERE kind='report' AND reported=0 AND session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) ORDER BY session_id,reference`)
 	if err != nil {
 		return nil, err
 	}
@@ -883,7 +883,7 @@ func (d *DB) ReconcileBugParentGraphs(ctx context.Context, at time.Time) error {
 		return errors.New("bug parent recovery requires observation time")
 	}
 	return d.withTx(ctx, func(tx *sql.Tx) error {
-		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,a.node,COALESCE(a.run_id,0),i.session_id,a.started_at FROM bug_tasks t JOIN graph_instances i ON i.id=t.parent_instance JOIN graph_definitions g ON g.id=i.definition_id JOIN graph_node_attempts a ON a.instance_id=i.id AND a.node=i.current_node WHERE g.workflow='bug' AND i.status='running' AND a.status IN ('pending','running') AND NOT EXISTS(SELECT 1 FROM bug_repairs c WHERE c.test_parent_attempt=a.id AND c.test_consumed=0) ORDER BY a.id`)
+		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,a.node,COALESCE(a.run_id,0),i.session_id,a.started_at FROM bug_tasks t JOIN graph_instances i ON i.id=t.parent_instance JOIN graph_definitions g ON g.id=i.definition_id JOIN graph_node_attempts a ON a.instance_id=i.id AND a.node=i.current_node WHERE g.workflow='bug' AND i.session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) AND i.status='running' AND a.status IN ('pending','running') AND NOT EXISTS(SELECT 1 FROM bug_repairs c WHERE c.test_parent_attempt=a.id AND c.test_consumed=0) ORDER BY a.id`)
 		if e != nil {
 			return e
 		}
@@ -1030,7 +1030,7 @@ func (d *DB) GetBugAnalysisReviewForWait(ctx context.Context, session int64, key
 // PendingBugRemoteContinuations selects observation-only recovery checkpoints.
 // ClaimBugContinuation rechecks each domain operation and the lifecycle revision.
 func (d *DB) PendingBugRemoteContinuations(ctx context.Context) ([]BugParentContinuation, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT t.session_id,t.parent_instance,t.revision,CASE WHEN c.close_operation IS NOT NULL THEN 'close-reconcile' ELSE 'merge-reconcile' END,COALESCE(c.close_operation,c.merge_operation) FROM bug_tasks t JOIN graph_instances i ON i.id=t.parent_instance JOIN bug_delivery c ON c.session_id=t.session_id WHERE t.cancelled=0 AND i.status IN ('succeeded','failed') AND ((c.close_outcome='pending' AND c.close_dispatched=1 AND c.close_conflict=0) OR (c.merge_outcome='pending' AND c.merge_dispatched=1 AND c.merge_exception=''))`)
+	rows, err := d.sql.QueryContext(ctx, `SELECT t.session_id,t.parent_instance,t.revision,CASE WHEN c.close_operation IS NOT NULL THEN 'close-reconcile' ELSE 'merge-reconcile' END,COALESCE(c.close_operation,c.merge_operation) FROM bug_tasks t JOIN graph_instances i ON i.id=t.parent_instance JOIN bug_delivery c ON c.session_id=t.session_id WHERE t.cancelled=0 AND t.session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) AND i.status IN ('succeeded','failed') AND ((c.close_outcome='pending' AND c.close_dispatched=1 AND c.close_conflict=0) OR (c.merge_outcome='pending' AND c.merge_dispatched=1 AND c.merge_exception=''))`)
 	if err != nil {
 		return nil, err
 	}

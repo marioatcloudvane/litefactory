@@ -81,7 +81,7 @@ func (d *Daemon) rejectMCPCreation(ctx context.Context, t *task, c github.Commen
 		kind = "preparation"
 	}
 	source := store.ReportRecovery{Key: recoveryKey(t.session.ID, c.ID), SessionID: t.session.ID, TriggerID: c.ID, Task: t.ref.String()}
-	_, err := d.reportAttempt(ctx, source, func() (turn.Posted, error) {
+	_, err := d.guardedReportAttempt(ctx, source, func() (turn.Posted, error) {
 		return reporter.ReportCreationRejection(ctx, t.ref, t.session.ID, c.ID, kind, reason)
 	})
 	return d.leave(ctx, t, log, "creation rejection delivery pending", err)

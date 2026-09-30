@@ -34,7 +34,7 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 		return 0, graphInvariant("reconciliation requires a timestamp")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,COALESCE(r.error,''),a.started_at FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id LEFT JOIN runs r ON r.id=a.run_id WHERE d.mode=? AND a.status IN ('pending','running') AND NOT EXISTS(SELECT 1 FROM bug_repairs c WHERE (c.test_parent_attempt=a.id AND c.test_consumed=0) OR (c.test_child_instance=i.id AND c.test_outcome='pending')) ORDER BY a.id`, mode)
+		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,COALESCE(r.error,''),a.started_at FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id LEFT JOIN runs r ON r.id=a.run_id WHERE d.mode=? AND i.session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) AND a.status IN ('pending','running') AND NOT EXISTS(SELECT 1 FROM bug_repairs c WHERE (c.test_parent_attempt=a.id AND c.test_consumed=0) OR (c.test_child_instance=i.id AND c.test_outcome='pending')) ORDER BY a.id`, mode)
 		if e != nil {
 			return e
 		}

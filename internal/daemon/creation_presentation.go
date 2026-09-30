@@ -103,7 +103,7 @@ func (d *Daemon) presentCreationProposal(ctx context.Context, t *task, runID, tr
 	if !ok {
 		return fmt.Errorf("creation proposal %s of run %d is owed but the reporter cannot present it", row.ProposalHash, runID)
 	}
-	_, err = d.reportAttempt(ctx, source, func() (turn.Posted, error) {
+	_, err = d.guardedReportAttempt(ctx, source, func() (turn.Posted, error) {
 		unresolved, found, err := d.db.FindPendingReportDelivery(ctx, t.session.ID, triggerID)
 		if err != nil {
 			return turn.Posted{}, fmt.Errorf("check unresolved deliveries: %w", err)
