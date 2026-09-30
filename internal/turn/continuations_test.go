@@ -150,7 +150,7 @@ func TestInterruptionRetainsHandleOnResumedTurn(t *testing.T) {
 		return res, nil
 	})
 	f = newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunSucceeded)
+	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunSucceeded)
 	f.execute(f.request())
 	runs := f.runs()
 	latest := runs[len(runs)-1]

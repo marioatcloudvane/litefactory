@@ -153,9 +153,9 @@ func newFixture(t *testing.T, runner Runner) *fixture {
 // request is the turn every test runs unless it says otherwise: the owner
 // asking for a spike on issue 123.
 func (f *fixture) request() Request {
-	body := "/spike add a health endpoint that reports the build sha"
+	body := "/implement add a health endpoint that reports the build sha"
 	return Request{
-		Mode:      agent.ModeSpike,
+		Mode:      agent.ModeImplement,
 		Agent:     agent.Kind(store.AgentClaude),
 		SessionID: f.session.ID,
 		Issue: Issue{

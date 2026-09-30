@@ -289,7 +289,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 func (r *planGraphRuntime) policy() WorkflowPolicy {
 	p := PlanWorkflowPolicy()
 	p.Handlers = &WorkflowHandlers{Prepare: r.prepare, Control: planGraphHandler(r.control), Comment: planGraphHandler(r.comment)}
-	p.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, _ *graphexec.Profile, _ func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error)) error {
+	p.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, _ *graphexec.Profile, _ func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error), _ WorkflowEnv) error {
 		if err := specs.Register(graphexec.PlanStorySpec()); err != nil {
 			return err
 		}

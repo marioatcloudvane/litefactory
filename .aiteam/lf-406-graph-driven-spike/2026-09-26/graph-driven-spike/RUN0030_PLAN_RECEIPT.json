@@ -1,0 +1,20 @@
+{
+  "request_id": "5cca122a7fa71a4ad476c688988be394",
+  "validation": {
+    "valid": true,
+    "complete": true,
+    "diagnostics": [],
+    "unchecked_paths": [],
+    "expected_revision": 0,
+    "current_revision": 0
+  },
+  "receipt_id": 282,
+  "request_hash": "983048ced78a3a28e7f0df9522c602c918fa2b875431279b8a690a3fb21d9261",
+  "states": {
+    "Received": "received",
+    "Input": "accepted",
+    "Engineering": "pending",
+    "Acceptance": "pending",
+    "Publication": "pending"
+  }
+}

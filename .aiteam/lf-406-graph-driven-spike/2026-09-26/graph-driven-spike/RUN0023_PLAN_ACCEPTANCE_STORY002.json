@@ -1,0 +1,693 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "The publication blocker is now identified: story-002's issue body exceeds the redactor's safe input budget. Recorded effects for the last four proposals say 'complete draft cannot be truncated'; an earlier proposal exceeded the renderer budget. The renderer reserves 512 bytes, while redaction reserves 2048 bytes. Input acknowledgment therefore did not establish that publication would succeed. This pass shortens only acceptance wording, retaining all 16 criterion IDs, 29 tasks, proof obligations, owners, links and dependencies, and all settled intent and architecture. No owner scope decision or repeat approval is needed.\n\nStory-002 will demonstrate one gated, measured and tested fix, truthful fixed/unverified/too-big/blocked reporting, and safe follow-up issue creation only for post-fix too-big outcomes. Tests remain future obligations, ordinary Go tests without integration tags; no implementation criterion is claimed met.\n\nThe current assembly remains five active stories: 001 answer path, 002 small fix (#415), 003 guide (#416), 004 default switch (#417), 005 legacy retirement (#418). Dependencies remain 002→001, 003→002, 004→002 and 003, 005→004. None is retired. Supplied state records story-001's owner acceptance; story-002 still needs its applied acceptance proposal and review, story-003 needs technical and acceptance work, and 004/005 need their remaining stages. The parent remains the factory-owned link-only index, shared decisions and assembled review; detail stays on sub-issues. Shared decisions remain DOT-owned flow, shared MCP results, bounded investigation/fix, opt-in then default adoption then retirement, preserving /spike, mode identity and archived notes. The factory binds exact active revisions. The five-story Plan is not complete.\n\nRecovery is to deliver this smaller proposal through the existing story activity, then use the factory-published acceptance review. Submission receipt alone does not prove application or publication. No implementation or daemon change is made.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "9f5f99c46ddff67739c16e6fcd9fadbf67d42aa15d4d90e2ebac04816ef917c9",
+          "changed_sections": [
+            "criteria",
+            "tasks"
+          ],
+          "draft": {
+            "key": "story-002",
+            "name": "Graph Spike makes one small tested fix",
+            "user_story": {
+              "actor": "An engineer whose graph-driven Spike investigation (story-001) found one small, fixable defect",
+              "want": "Spike to go one step further than just reporting: make the one small tested fix itself, then verify the real change really stayed small and correct, and say plainly in the report whether it is fixed, unverified, or turned out too big; and when it turns out too big, have Spike file a ready-to-use issue for it instead of only writing a hand-back recommendation",
+              "benefit": "they get a working, tested fix out of the spike itself for genuinely small defects, instead of only a write-up they still have to act on; and when a fix turns out bigger than it looked, they get a real, trackable issue waiting for them instead of a note they would have to turn into an issue by hand",
+              "notes": [
+                "This only runs after story-001's size check says the proposed fix is small; the investigation, question round and size check themselves are not part of this story.",
+                "A failed check is reported as unverified; nothing retries automatically. Bundling more than one defect into the fix is treated as too big.",
+                "The fixer cannot ask the owner anything. If it gets stuck, it reports what is not done; it does not pause and wait.",
+                "When the after-the-fix check says the real change is too big, Spike files the issue itself using the issue-creation capability the factory already has; the owner does not have to turn the report into an issue by hand."
+              ]
+            },
+            "problem": "Story-001 gives Spike a fixed way to investigate and report, but it stops before touching any code, so even a one-line fix with an obvious test still needs a separate follow-up. The owner wants Spike to close that gap for the smallest defects: when the earlier size check says a fix is small enough, let a write-capable step actually make the fix, then have a second check confirm the real change stayed within the same limits and that the repository's own checks pass, before Spike writes its final note and report. Today, when that after-the-fact check finds the real change too big, Spike only writes a recommendation to hand the work back to Research or Plan; the owner still has to read that recommendation and open a new issue themselves. The owner now wants that hand-back to be a real, ready-to-use issue that Spike creates on its own, using the same kind of issue-creation capability the factory already has, so a too-big outcome leaves something the owner can act on directly instead of a paragraph they have to turn into an issue by hand.",
+            "in_scope": [
+              "A write-capable fixing step that only runs after the size check says the proposed fix is small.",
+              "The fix covers one defect plus a regression test that shows the defect and then shows it is gone.",
+              "A check after the fix that recounts the changed files and confirms none of them add a new dependency, package, schema or API change, and runs the repository's existing checks.",
+              "Three possible outcomes from that check: fixed, unverified (the check failed), or too big (the real change went past the agreed limits after the fact).",
+              "When the outcome is too big, Spike files a new issue capturing the original question, what the investigation and fix attempt found, and why it is too big, using the issue-creation capability the factory already has, instead of only writing that recommendation into the report.",
+              "SPIKE.md and the one issue report cover this fixed/unverified/too-big outcome alongside the outcomes story-001 already covers, and the report references the filed issue when one was created.",
+              "No automatic retry when the check fails; it is reported as unverified.",
+              "The fixer cannot ask the owner a question; a stuck fixer reports what is not done instead of waiting for a reply."
+            ],
+            "not_in_scope": [
+              "The investigation itself, the question round, and the first size check on the proposed fix; those belong to story-001.",
+              "Filing an issue for the unverified outcome (the check failed for a reason other than size); that stays a written report only.",
+              "Whether the earlier, before-the-fix size check in the investigation story should also file an issue; that is a separate decision for that story, not this one.",
+              "A repair or retry loop that tries again after a failed check.",
+              "Fixing more than one defect in a single spike; bundles are handed back, not attempted.",
+              "Comparing several possible approaches (a decision spike); that stays with Research and Plan.",
+              "Changing or retiring today's single-agent Spike.",
+              "Any change to the Research, Plan or Bug flows."
+            ],
+            "dependencies": {
+              "story_keys": [
+                "story-001"
+              ],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "agent-setup"
+            ],
+            "decisions": [
+              "The too-big outcome now files a real issue instead of leaving the hand-back as prose in the report and note, reusing the issue-creation capability the factory already has rather than adding a new one.",
+              "The gate's small edge is re-pointed in spike.dot from note(fix_proposed) to the fixer; no Go change picks the path.",
+              "One generic validator rule: a listed measure step may hand off to a different agent; Research, Plan and Bug are unaffected.",
+              "The check reuses Bug's sandboxed runner and pinned recipe (phases named in the DOT) and the existing git diff and status helpers; it does not reuse Bug's activity layer or tables.",
+              "lf_spike_issue reuses forge CreateIssue and lf_plan_story's intent-and-marker replay guard; the followup mechanism is not used because it needs owner approval.",
+              "The fixer gets Bug's fixer tool set (no shell); the check, not the fixer, runs the tests."
+            ],
+            "assumptions": [
+              "The filed issue captures the original question, what the investigation and fix attempt found, and why the real change is too big, so a reader does not need to open the Spike report to understand it.",
+              "This covers only this story's own too-big outcome, which happens after the fixer's attempt; whether the investigation story's earlier, before-the-fix too-big outcome should also file an issue is left open for that story.",
+              "The unverified outcome (the check failed for a reason other than size) is not itself grounds for filing an issue in this story; it stays a written report.",
+              "Repositories that want the fix path provide .litefactory/bug-checks.yaml; without it the check reports blocked. Spike does not get its own recipe format.",
+              "The fixer's changes stay in the worktree for every outcome and are committed by the factory as usual; unverified and too-big changes are labelled as not ready in the report and are never discarded automatically.",
+              "The filed issue is a plain repository issue that links back to the Spike issue in its body; it is not attached as a sub-issue, so it cannot mix with Plan's sub-issues.",
+              "An API change cannot be detected from file paths; it counts only when the investigator or the fixer declares it.",
+              "The graph cannot prove the regression test failed before the fix; the check only proves the checks pass after it."
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Fit with story-001",
+                  "decision": "Build only on what story-001 adds: the Spike policy, spike.dot, lf_spike_gate, lf_spike_note, the lf_access attribute, the measure-action list in ControlPolicy and the comma-list attribute option. The only change to story-001's flow is in spike.dot: the gate's 'small' edge now points to the fixer instead of note(fix_proposed). The fix_proposed status value stays valid, so an alternative DOT may still use it.",
+                  "rationale": "This keeps story-002 a clear test of 'the DOT leads'. The graph change is one re-pointed edge plus new nodes, and no Go code picks the path."
+                },
+                {
+                  "area": "Flow in spike.dot (fix path)",
+                  "decision": "The flow runs gate(small) -> fixer [lf_agent, lf_access=write] -> check [lf_spike_check]. From the check: passed -> note(fixed) -> report; failed -> note(fix_unverified) -> report; too_big -> note(fix_too_big) -> issue [lf_spike_issue] -> report; blocked -> note(blocked) -> report. The fixer's 'ask' edge goes to note(blocked) -> report, and no lf_ask node can be reached from the fixer. A fixer or note failure goes to the failure comment. No edge leads back to the fixer or the check. That limits both to one run and rules out a retry loop.",
+                  "rationale": "Every branch and limit lives in the DOT (owner rule d13). Having no edge back is the simplest way to say 'no retry', and it adds no counter in Go."
+                },
+                {
+                  "area": "Generic validator: handing off to a second agent",
+                  "decision": "Add one mode-neutral rule to ValidateControlGraph. When an answer path crosses a measure action from the policy's measure list, an outcome edge of that action may lead to a different lf_agent, never to the source agent itself. That agent's own answer paths are then validated with the same rules. In practice this means ask and done must both be routed, and a note must come before every publication. Research, Plan and Bug have an empty measure list, so nothing changes for them.",
+                  "rationale": "Today the validator refuses an agent on an answer path unless an lf_if/lf_loop names a different source and a final publication comes first. The gate-to-fixer hand-off has neither. A Spike-only exception would put Spike flow into Go. Tying the hand-off to a measure step means only a factory measurement can start the fixer, never the investigator's own word."
+                },
+                {
+                  "area": "Write access for the fixer",
+                  "decision": "lf_access=write is now enforced. For Claude, the step gets Read, Glob, Grep, Edit, MultiEdit and Write. For Codex, it gets the workspace-write sandbox. These are the same sets Bug's fixer uses, taken from the existing role-tool mapping in the config policy, not a copy. Write can never go past the mode's ceiling. A missing lf_access still means read.",
+                  "rationale": "The owner wants the DOT to decide access (d5, d13). Reusing Bug's fixer tool set avoids a third definition of write tools, and it does not depend on the borrowed Implement profile that story-005 removes. The fixer gets no shell, because the check runs the tests, not the fixer."
+                },
+                {
+                  "area": "Reuse: running the repository checks",
+                  "decision": "lf_spike_check runs commands through the existing sandboxed runner, bugchecks.Isolation.Run. The commands come from the existing pinned recipe, .litefactory/bug-checks.yaml, parsed by config.ParseBugCheckRecipe. The DOT names which recipe phases to run in a closed comma-list attribute, lf_phases, with the values regression, focused and full. spike.dot uses focused,full. A missing recipe or phase gives the outcome blocked. The Bug activity layer and the Bug store tables are not reused, because they are tied to Bug types.",
+                  "rationale": "The runner handles the sandbox, timeouts, process-group kill, output caps and redaction, and it depends only on the command type. A second recipe format or runner would duplicate it. Naming the phases in the DOT keeps the choice of checks out of Go."
+                },
+                {
+                  "area": "Reuse: measuring the real change",
+                  "decision": "When the gate returns small, it also records the worktree HEAD as the fixer's baseline in its retained output. The check measures the change against that baseline. It combines a name-only diff of commits (the same observation ObserveBugRepair uses) with git.Worktree.Status for uncommitted and untracked files. Files under the session artifact directory, SPIKE.md included, are left out of the count. The check then applies the same thresholds as the gate, which the DOT declares on the check node (lf_max_files, lf_forbid). Forbidden kinds are found from file paths, such as dependency manifests, lock files and migrations, and from any kind the fixer declares.",
+                  "rationale": "The owner's rule is 'checked on the proposal and again on the real change'. Using the same declared thresholds and the existing git helpers means small is measured one way. Leaving out the session directory stops the factory's own note from counting against the fix."
+                },
+                {
+                  "area": "Order of the check",
+                  "decision": "The check measures size first. If the change is too big, the result is too_big and no commands run. If the size is fine, it runs the named phases, and any failing command gives failed. Setup, sandbox or timeout problems give blocked. The outcome is exactly one of passed, failed, too_big and blocked. Cancellation follows the runner's existing cancel path.",
+                  "rationale": "There is no point testing a change that will be handed back anyway, and measuring first is cheaper. A distinct blocked outcome keeps 'the checks could not run' apart from 'the fix is wrong'."
+                },
+                {
+                  "area": "Filing the too-big issue",
+                  "decision": "A new activity, lf_spike_issue, files one plain repository issue through the existing forge CreateIssue call. It copies lf_plan_story's replay guard. First it records a create intent. The issue body carries hidden markers for the session and the node. On replay it searches for those markers and never blindly creates a second issue: if nothing is found, the outcome is uncertain. The outcomes are filed and failed, and both edges go to the report. The renderer shows the issue link when one was filed, or says it could not be filed.",
+                  "rationale": "The owner asked to reuse the factory's issue creation. The existing followup mechanism needs a /followup owner approval, so it cannot serve an automatic hand-back. The new activity is needed only because the engine admits mode activities by name prefix. The marker guard stops a restarted run from creating duplicate issues."
+                },
+                {
+                  "area": "Note before publication",
+                  "decision": "The too-big path runs note(fix_too_big) before lf_spike_issue, and the issue before the report. SPIKE.md records why the change was too big. The report, not SPIKE.md, carries the issue link. New closed lf_status values are fixed, fix_unverified and fix_too_big.",
+                  "rationale": "This keeps story-001's rule that a note comes first, before any outside effect, so an issue can never exist without a SPIKE.md. The story only requires that the report references the issue."
+                },
+                {
+                  "area": "The fixer cannot ask",
+                  "decision": "The fixer's result is decoded with the same Spike decoder, but the runtime does not mark questions as allowed for a node whose ask edge reaches no lf_ask node. A fixer answer of ask is routed by the DOT to note(blocked). The fixer role and the skill tell it to report blockers in not_done instead.",
+                  "rationale": "This meets 'the fixer cannot ask' through the graph shape, not a Spike rule in Go. It also keeps a13: an unexpected word is routed or fails, and is never ignored."
+                },
+                {
+                  "area": "Roles and skills",
+                  "decision": "Add one role, spike-fixer, next to spike.dot in internal/teamsource/spike, in a single embedded copy. It makes exactly the proposed fix and one regression test, changes nothing else, and never commits or describes a next step. Extend the spike-result skill with the fix_report block. Neither role mentions nodes, edges or outcomes.",
+                  "rationale": "Roles carry the job, not the flow (proof check 5). One copy keeps the 'flow exists once' check true."
+                },
+                {
+                  "area": "Failure behaviour",
+                  "decision": "An unreadable or inconsistent fixer result, a missing baseline or a git failure gives the check outcome blocked, never an error that stops the graph silently. An issue-creation error or an uncertain replay gives failed and still reaches the report. A fixer run failure goes to the failure comment, as in story-001. Every path ends in exactly one report.",
+                  "rationale": "This keeps story-001's promise of one visible ending on every path. It also means a network problem cannot hide the fix outcome."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "fix_report (new block in the spike payload)",
+                  "definition": "Written by the fixer. It holds defect (text), files (the list it changed, test included), regression_test (a name), change_kinds (a list) and summary. Blockers go in the existing not_done list.",
+                  "constraints": "The block is optional in the payload, and the decoder requires it only on a done answer from a write-access node. regression_test must not be blank and must be among the files. change_kinds items are package, dependency, schema or api only. The check measures this claim against the real change."
+                },
+                {
+                  "entity": "Gate baseline (extends story-001's gate output)",
+                  "definition": "The worktree HEAD commit, recorded when the gate returns small.",
+                  "constraints": "It is written once per gate pass and read only by the check. If it is missing, the check returns blocked."
+                },
+                {
+                  "entity": "Spike check record",
+                  "definition": "This is retained per session and node. It holds the outcome, the counted files, the forbidden kinds found, the phases run, and for each command its argv, exit status and redacted, capped output.",
+                  "constraints": "The record is Spike-owned and does not use the Bug check tables. The outcome is exactly one of passed, failed, too_big and blocked. A restart re-runs the whole check, because measuring and running the checks can be repeated safely."
+                },
+                {
+                  "entity": "Spike issue record",
+                  "definition": "This is retained per session and node. It holds the create intent, the marker, the issue number and URL, and the state (filed, failed or uncertain).",
+                  "constraints": "The intent is written before the forge call. On replay the activity searches by marker and never creates twice. The record is read by the renderer."
+                },
+                {
+                  "entity": "SPIKE.md note (extended)",
+                  "definition": "It adds the statuses fixed, fix_unverified and fix_too_big. It includes the fix_report and the check's counted files and outcome.",
+                  "constraints": "The status comes only from the DOT node. The note is written before the issue and the report."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "lf_spike_check activity (internal/turn)",
+                  "responsibility": "It reads the gate baseline, the fixer's retained result and the attributes the DOT declares (lf_source, lf_max_files, lf_forbid, lf_phases). It measures the change, runs the named recipe phases through bugchecks.Isolation.Run, keeps the check record and returns one outcome.",
+                  "access": "It reads the worktree and git, and it runs the recipe commands inside the existing sandbox. It writes only its own record. It never picks a node."
+                },
+                {
+                  "component": "lf_spike_issue activity (internal/turn)",
+                  "responsibility": "It builds the issue title and body from the source result and the check record. It records the intent, creates the issue through the forge interface, or recovers it by marker, and returns filed or failed.",
+                  "access": "It uses the factory's forge issue-create permission, which no agent ever receives. It writes only its own record."
+                },
+                {
+                  "component": "Spike policy (from story-001, extended)",
+                  "responsibility": "It registers the specs for lf_spike_check and lf_spike_issue and adds both to the measure-action list. It adds the new lf_status values and the lf_phases attribute. The renderer shows the check outcome and the issue link.",
+                  "access": "It reads retained records only. It holds no flow and no node names."
+                },
+                {
+                  "component": "Control validator (internal/graphexec)",
+                  "responsibility": "It holds the generic rule for handing off to a different agent after a measure step.",
+                  "access": "It checks the graph only when the graph loads."
+                },
+                {
+                  "component": "Agent step access mapping",
+                  "responsibility": "It maps lf_access=write to the existing fixer tool set and sandbox and caps it at the mode ceiling.",
+                  "access": "It can narrow a step's tools or give write only up to the ceiling. It never goes past the ceiling."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Check contract",
+                  "contract": "Input: the gate baseline, lf_source, lf_max_files, lf_forbid and lf_phases from the DOT. Output: exactly one of passed, failed, too_big and blocked. Size is checked first, and commands run only when the size is fine.",
+                  "rationale": "It is deterministic and the DOT sets its parameters. The same thresholds as the gate make 'small' mean one thing."
+                },
+                {
+                  "element": "Issue contract",
+                  "contract": "Input: lf_source and the check record. Effect: at most one issue per session and node, found again by hidden marker. Output: filed or failed.",
+                  "rationale": "It is safe to replay, and both outcomes still reach the single report."
+                },
+                {
+                  "element": "Measure hand-off rule",
+                  "contract": "An outcome edge of a listed measure action may enter a different lf_agent. That agent's ask and done paths must each be routed and validated by the existing rules.",
+                  "rationale": "It is generic and needed for the gate-to-fixer step. Modes with an empty list are unaffected."
+                },
+                {
+                  "element": "Proof that the DOT leads (extended)",
+                  "contract": "Swap tests with no Go change: point small back to note(fix_proposed) and the fixer never runs; declare lf_phases=full and only full runs; route too_big straight to the report and no issue is filed. No Spike Go code contains a node name from spike.dot.",
+                  "rationale": "It extends story-001's proof checks to the fix path."
+                }
+              ]
+            },
+            "criteria": [
+              {
+                "id": "AC-001",
+                "text": "Only gate(small) starts the write-capable fixer; investigator done alone and gate none, too_big or blocked do not.",
+                "proof_method": "A future workflow test will trace investigator, gate and fixer dispatches; small must grant write access and start the fixer, while none, too_big and blocked must not."
+              },
+              {
+                "id": "AC-002",
+                "text": "The fixer makes only the proposed single-defect fix and regression test within three files, declares both in fix_report, and has no shell or access above the mode ceiling.",
+                "proof_method": "A future seeded-defect workflow test will inspect the actual patch and fix_report, then independently run the regression test against the unfixed fixture and the fixed fixture to demonstrate failure and success. Provider access tests will inspect effective Claude and Codex grants, including absent access and a narrower ceiling. The fixture proof does not claim the production graph verifies a pre-fix failure."
+              },
+              {
+                "id": "AC-003",
+                "text": "The check counts unique committed, uncommitted and untracked changes against saved gate HEAD, excludes only session artifacts, and detects forbidden kinds from paths and declarations.",
+                "proof_method": "Future temporary-repository tests will cover committed, staged, unstaged, untracked and overlapping files, three versus four files, session artifacts, dependency manifests, migrations and each declared forbidden kind; the retained counted set must match the fixture."
+              },
+              {
+                "id": "AC-004",
+                "text": "The check measures size before commands, runs only DOT-named pinned phases, and returns passed, failed, too_big or blocked, separating command failure from setup, sandbox and timeout blockage.",
+                "proof_method": "Future table-driven tests will cover all outcomes, missing recipe/phase, runner setup failure and timeout. A recording runner will prove no commands run for too_big, the default phases are focused and full, and cancellation follows the existing runner path."
+              },
+              {
+                "id": "AC-005",
+                "text": "A passed check writes SPIKE.md status fixed with fix_report and measured outcome before exactly one final report.",
+                "proof_method": "A future workflow test will record note and comment ordering and inspect their content for a passing fixture, including the regression-test and counted-file details."
+              },
+              {
+                "id": "AC-006",
+                "text": "A command failure writes fix_unverified and one unverified/not-ready report, retains the patch, files no issue and starts no repair retry.",
+                "proof_method": "A future failing-command workflow test will inspect the note and report, count fixer/check/comment/issue calls, and confirm the patch remains in the worktree."
+              },
+              {
+                "id": "AC-007",
+                "text": "A too_big check writes fix_too_big before filing one plain repository issue with the original question, investigation/fix findings, size reason and source backlink.",
+                "proof_method": "A future workflow test will inspect event ordering and the complete issue body, including the source issue backlink; it will verify the issue is not attached as a Plan sub-issue and commands were not run on the oversized change."
+              },
+              {
+                "id": "AC-008",
+                "text": "Issue intent precedes creation; replay recovers by session/node marker without duplication. The report links the confirmed issue.",
+                "proof_method": "Future activity tests will interrupt before the call, after remote creation but before local confirmation, and after confirmation; replay must recover by marker or fail uncertain without a second create call. A workflow test will verify the report URL matches the recorded issue."
+              },
+              {
+                "id": "AC-009",
+                "text": "Creation failure or uncertain replay still yields one report saying filing is unconfirmed; a missing marker match never authorizes recreation.",
+                "proof_method": "Future tests will cover forge errors and an existing intent with no marker match; they will verify the failed outcome, retained failed/uncertain state, no blind recreate and the report wording."
+              },
+              {
+                "id": "AC-010",
+                "text": "Bad fixer content, missing baseline, git failure or unavailable checks yields blocked, a blocked note and exactly one report.",
+                "proof_method": "Future activity tests will inject each cause and verify blocked; workflow tests will verify the note appears before the single report and no success claim or issue filing occurs."
+              },
+              {
+                "id": "AC-011",
+                "text": "The fixer's ask path yields a blocked note and report without owner questions or waiting; its role puts blockers in not_done.",
+                "proof_method": "Future workflow tests will exercise a fixer ask and a blocker result, inspect question permissions and assert zero owner-question publications or wait states. A role review will check the blocker instruction."
+              },
+              {
+                "id": "AC-012",
+                "text": "The default DOT has no return path from fixer/check to either step. Initial entry is valid; restart may safely replay the check without restarting the fixer.",
+                "proof_method": "A future graph reachability test will allow gate-to-fixer and fixer-to-check entry, reject return cycles, and trace failed and too_big paths to a terminal without redispatch. A restart fixture will separately verify safe check replay without restarting the fixer."
+              },
+              {
+                "id": "AC-013",
+                "text": "A listed measure may hand off to a different agent, never its source. Validation covers that agent's ask/done and note-before-publication paths; other modes remain unchanged.",
+                "proof_method": "Future validator tests will include the valid hand-off, source-agent recurrence, missing response edges and publication without generation; existing Research, Plan and Bug graph fixtures will be run unchanged."
+              },
+              {
+                "id": "AC-014",
+                "text": "Fixer run or fix-note failure reaches one failure comment and the stopped terminal, with no issue or success report.",
+                "proof_method": "Future workflow tests will inject a fixer dispatch failure and each fix-path note failure, then assert one failure comment, stopped status and no issue creation or success report."
+              },
+              {
+                "id": "AC-015",
+                "text": "DOT swaps can bypass the fixer, change phases or skip issue filing without Go changes. Spike Go has no flow node names or topology validator.",
+                "proof_method": "Future swap tests will route small to fix_proposed, select only full, and route the too-big note directly to report while preserving note-before-publication. They will assert no fixer, only full, and no issue respectively. A source/embedding review will check one flow copy and no Go topology or node-name coupling."
+              },
+              {
+                "id": "AC-016",
+                "text": "Shared preflight/submit/receipt carries fix_report and enforces its fields for write-node done. Measured check records remain separate from fixer claims.",
+                "proof_method": "Future decoder and communication-route tests will cover valid results, missing or inconsistent fix_report, blank/out-of-files regression_test and invalid change_kinds. Record tests will verify per-session/node isolation, measured files, outcome, phases, command argv/status and capped redacted output; they will confirm the renderer uses the check record."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-01",
+                "description": "Route small to the write fixer in DOT; retain alternate fix_proposed.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-015"
+                ],
+                "depends_on": [
+                  "T-02",
+                  "T-03",
+                  "T-04"
+                ]
+              },
+              {
+                "id": "T-02",
+                "description": "Reuse provider fixer grants without shell; cap authority and default Spike to read.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-03",
+                "description": "Embed one fixer role and extend spike-result: one defect/test, fix_report, not_done; no commits or flow instructions.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-011",
+                  "AC-016"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-04",
+                "description": "Allow generic measure hand-off to another agent; validate response/publication paths and preserve other modes.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-013",
+                  "AC-015"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-05",
+                "description": "Save gate HEAD once on small.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-003",
+                  "AC-010"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-06",
+                "description": "Count diff/status union against HEAD; exclude session artifacts, enforce DOT limits, retain evidence; bad input/git blocks.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-003",
+                  "AC-004",
+                  "AC-010",
+                  "AC-016"
+                ],
+                "depends_on": [
+                  "T-05",
+                  "T-28"
+                ]
+              },
+              {
+                "id": "T-07",
+                "description": "Run pinned phases through the sandbox after sizing; retain capped/redacted evidence; distinguish failed, blocked and cancelled.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-004",
+                  "AC-006",
+                  "AC-010",
+                  "AC-016"
+                ],
+                "depends_on": [
+                  "T-06"
+                ]
+              },
+              {
+                "id": "T-08",
+                "description": "Register check/measure and closed phase list; default DOT to focused,full.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-004",
+                  "AC-013",
+                  "AC-015"
+                ],
+                "depends_on": [
+                  "T-07",
+                  "T-04"
+                ]
+              },
+              {
+                "id": "T-09",
+                "description": "Add fix statuses and measured notes before reports; mark unverified/oversized changes not ready.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-010",
+                  "AC-016"
+                ],
+                "depends_on": [
+                  "T-08",
+                  "T-01"
+                ]
+              },
+              {
+                "id": "T-10",
+                "description": "Register issue/measure; reuse forge creation with durable intent/marker recovery, complete body and source backlink.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-008",
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-07",
+                  "T-04"
+                ]
+              },
+              {
+                "id": "T-11",
+                "description": "Wire too_big through note, issue and report; render confirmed URL or unconfirmed filing from retained records.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-008",
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-10",
+                  "T-09"
+                ]
+              },
+              {
+                "id": "T-12",
+                "description": "Wire fixer ask to blocked and fixer/note failures to failure comment; prevent return cycles and derive question permission from ask reachability.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-011",
+                  "AC-012",
+                  "AC-014"
+                ],
+                "depends_on": [
+                  "T-01",
+                  "T-09"
+                ]
+              },
+              {
+                "id": "T-13",
+                "description": "Test both provider grants, missing access, narrower ceilings and shell exclusion.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-002"
+                ],
+                "depends_on": [
+                  "T-02"
+                ]
+              },
+              {
+                "id": "T-14",
+                "description": "Test actual diff/status unions, file boundaries, forbidden kinds, exclusions, all outcomes, phase order, blocked setup and cancellation.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-003",
+                  "AC-004",
+                  "AC-010",
+                  "AC-016"
+                ],
+                "depends_on": [
+                  "T-06",
+                  "T-07"
+                ]
+              },
+              {
+                "id": "T-15",
+                "description": "Test intent ordering, interrupted issue creation/recovery, duplicate prevention, forge failure and uncertain replay.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-008",
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-10"
+                ]
+              },
+              {
+                "id": "T-16",
+                "description": "Test valid/invalid hand-offs and publication paths; rerun other modes' unchanged graph fixtures.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-013"
+                ],
+                "depends_on": [
+                  "T-04",
+                  "T-08"
+                ]
+              },
+              {
+                "id": "T-17",
+                "description": "Test DOT reachability allowing initial entry but rejecting fixer/check return cycles and fixer-to-owner-ask.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-011",
+                  "AC-012"
+                ],
+                "depends_on": [
+                  "T-12"
+                ]
+              },
+              {
+                "id": "T-18",
+                "description": "Review embedded role/skill uniqueness, blocker instructions and absence of flow instructions.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-011",
+                  "AC-015",
+                  "AC-016"
+                ],
+                "depends_on": [
+                  "T-03"
+                ]
+              },
+              {
+                "id": "T-19",
+                "description": "Test gated fixer entry and non-small exclusions; inspect a seeded patch and independently run its regression test unfixed and fixed.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002"
+                ],
+                "depends_on": [
+                  "T-01",
+                  "T-05",
+                  "T-08",
+                  "T-28"
+                ]
+              },
+              {
+                "id": "T-20",
+                "description": "Test fixed note content, measured evidence, note-before-report and exactly one report.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T-09",
+                  "T-12"
+                ]
+              },
+              {
+                "id": "T-21",
+                "description": "Test unverified/not-ready reporting, retained patch, no issue and no retry after command failure.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-006",
+                  "AC-012"
+                ],
+                "depends_on": [
+                  "T-11",
+                  "T-12"
+                ]
+              },
+              {
+                "id": "T-22",
+                "description": "Test oversized note-before-issue, complete issue/backlink, no check commands, report URL and duplicate-free replay.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-008"
+                ],
+                "depends_on": [
+                  "T-11",
+                  "T-12"
+                ]
+              },
+              {
+                "id": "T-23",
+                "description": "Test blocked note/report for missing recipe, git failure and bad result/baseline; forbid success claims.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-010"
+                ],
+                "depends_on": [
+                  "T-09",
+                  "T-12"
+                ]
+              },
+              {
+                "id": "T-24",
+                "description": "Test fixer ask/blocker produces blocked note/report without question publication or waiting.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-011"
+                ],
+                "depends_on": [
+                  "T-12",
+                  "T-28"
+                ]
+              },
+              {
+                "id": "T-25",
+                "description": "Test fixer and note failures yield one failure comment, stopped state and no issue/success report.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-014"
+                ],
+                "depends_on": [
+                  "T-11",
+                  "T-12"
+                ]
+              },
+              {
+                "id": "T-26",
+                "description": "Test filing errors and uncertain replay still yield one truthful report with no duplicate creation.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-11",
+                  "T-12"
+                ]
+              },
+              {
+                "id": "T-27",
+                "description": "Test DOT swaps and check replay without fixer restart; review absence of Go flow coupling. Run make check for future delivery evidence. Use ordinary Go tests without integration tags.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-012",
+                  "AC-015"
+                ],
+                "depends_on": [
+                  "T-11",
+                  "T-12",
+                  "T-13",
+                  "T-14",
+                  "T-15",
+                  "T-16",
+                  "T-17",
+                  "T-18",
+                  "T-19",
+                  "T-20",
+                  "T-21",
+                  "T-22",
+                  "T-23",
+                  "T-24",
+                  "T-25",
+                  "T-26",
+                  "T-29"
+                ]
+              },
+              {
+                "id": "T-28",
+                "description": "Extend shared Spike decoding/retention for write-node done fix_report requirements; separate claims from measured evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-010",
+                  "AC-016"
+                ],
+                "depends_on": [
+                  "T-03"
+                ]
+              },
+              {
+                "id": "T-29",
+                "description": "Test decoder/shared-route validity, access-specific requirements, record isolation, redaction/caps and renderer consumption.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-016"
+                ],
+                "depends_on": [
+                  "T-28",
+                  "T-07",
+                  "T-09"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

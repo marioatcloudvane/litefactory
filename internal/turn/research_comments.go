@@ -120,6 +120,9 @@ func (h CommentActivity) Execute(ctx context.Context, opts Options, req Activity
 		var output agentresult.ResearchNode
 		output, err = h.Policy.load(ctx, opts.DB, source.ID, scope)
 		candidate = output.Result
+		if err == nil && h.Policy.Annotate != nil {
+			candidate, err = h.Policy.Annotate(ctx, opts.DB, source, kind, candidate)
+		}
 	}
 	if err != nil {
 		return ActivityResult{}, err

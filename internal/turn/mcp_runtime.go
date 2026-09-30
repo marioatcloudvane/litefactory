@@ -182,8 +182,10 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	workContext = researchWorkContext(workContext, prep.researchInstance)
 	if override != nil && override.Pass != "" {
 		workContext += "#" + override.Pass
+	} else if prep.resultPass != "" {
+		workContext += "#" + prep.resultPass
 	}
-	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
+	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && req.Mode == "spike", RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if prep.typedPlan != nil {
 		contextValue.PlanScope = prep.typedPlan.scope
 	}

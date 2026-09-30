@@ -679,9 +679,9 @@ func (f *fixture) otherSession(issue int) store.Session {
 func (f *fixture) requestFor(session store.Session, issue int, title string, comment int64) Request {
 	f.t.Helper()
 
-	body := fmt.Sprintf("/spike work on issue %d", issue)
+	body := fmt.Sprintf("/implement work on issue %d", issue)
 	return Request{
-		Mode:      agent.ModeSpike,
+		Mode:      agent.ModeImplement,
 		Agent:     agent.Kind(store.AgentClaude),
 		SessionID: session.ID,
 		Issue: Issue{
