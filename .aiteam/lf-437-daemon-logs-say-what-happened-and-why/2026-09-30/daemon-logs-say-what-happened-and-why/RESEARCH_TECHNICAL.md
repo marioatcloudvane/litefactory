@@ -68,9 +68,26 @@ Evidence:
 
 ## F-20
 
-The daemon writes its own JSONL daemon.log in the logs folder; launchd output goes to separate launchd.out.log and launchd.err.log. daemon status reads only the poll-cursor last-tick time from the database.
+The daemon writes its own JSONL daemon.log in the logs folder, opened append-only through a file sink; launchd output goes to separate launchd.out.log and launchd.err.log. daemon status reads only the poll-cursor last-tick time from the database.
 
 Evidence:
 
 - `internal/config/paths.go:106`
+- `internal/logging/filesink.go:63`
 - `internal/cli/cmd_daemon_agent.go:187`
+
+## F-21
+
+On the owner's machine daemon.log is about 99 MB, unrotated since 25 August (roughly 2 to 3 MB a day on average). Size taken from a directory listing; line counts were not read.
+
+_No source reference was recorded for this finding._
+
+## F-22
+
+The daemon log path is used by the file sink at startup, by litefactory logs (tail and read) and by the doctor check, so per-day files touch all three.
+
+Evidence:
+
+- `cmd/litefactory/main.go:111`
+- `internal/cli/cmd_logs_app.go:85`
+- `internal/doctor/files.go:87`
