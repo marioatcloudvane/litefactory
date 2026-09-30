@@ -246,6 +246,30 @@ func TestDiscoveryBudget_ResetRequiresFreshEvidence(t *testing.T) {
 	budgetAcquire(t, b, "history", 100, false).finish()
 }
 
+func TestDiscoveryBudget_EarlierFutureResetStaysFresh(t *testing.T) {
+	b, now := budgetFixture(5000, 4900)
+	later := now.Add(3 * time.Minute)
+	b.tick(later)
+	if b.freshLocked() {
+		t.Fatal("budget fresh after 3 minutes without observation")
+	}
+	earlier := now.Add(50 * time.Minute)
+	b.observe(github.RequestObservation{StatusCode: 200, CoreRateValid: true, Limit: 5000, Remaining: 4800, Reset: earlier})
+	if !b.freshLocked() || !b.observedAt.Equal(later) {
+		t.Fatalf("earlier future reset not accepted: fresh=%v observedAt=%v", b.freshLocked(), b.observedAt)
+	}
+	if b.remaining != 4800 || !b.reset.Equal(earlier) {
+		t.Fatalf("remaining=%d reset=%v; want 4800, %v", b.remaining, b.reset, earlier)
+	}
+	// A response from an expired window is still ignored.
+	b.tick(now.Add(10 * time.Minute))
+	seen := b.observedAt
+	b.observe(github.RequestObservation{StatusCode: 200, CoreRateValid: true, Limit: 5000, Remaining: 1, Reset: now.Add(10 * time.Minute)})
+	if !b.observedAt.Equal(seen) || b.remaining == 1 {
+		t.Fatalf("expired-window observation was accepted: observedAt=%v remaining=%d", b.observedAt, b.remaining)
+	}
+}
+
 func TestDiscoveryBudget_MissingMetadataPreservesReserve(t *testing.T) {
 	b, now := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+1)
 	b.observe(github.RequestObservation{StatusCode: 200})

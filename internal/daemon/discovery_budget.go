@@ -102,11 +102,14 @@ func (b *discoveryBudget) observeLocked(o github.RequestObservation) {
 	switch {
 	case b.reset.IsZero() || o.Reset.After(b.reset):
 		b.limit, b.remaining, b.reset, b.spent = o.Limit, o.Remaining, o.Reset, 0
-	case o.Reset.Equal(b.reset):
+	default:
+		// An equal or earlier reset that is still in the future is the same
+		// window, reported with a slightly different reset. Keep the earlier
+		// reset and the smaller counts, and refresh freshness. A reset that is
+		// not after now was rejected above.
 		b.limit = min(b.limit, o.Limit)
 		b.remaining = min(b.remaining, o.Remaining)
-	default:
-		return
+		b.reset = o.Reset
 	}
 	b.observedAt = b.now
 }
