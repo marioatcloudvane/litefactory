@@ -12,6 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/codex"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -1186,6 +1187,9 @@ func commentHistory(
 	var previousTriggerBody string
 	history := make([]harness.HistoryEntry, 0, len(comments))
 	for _, comment := range comments {
+		if _, ok := doctor.ParseCommand(comment.Body); ok {
+			continue
+		}
 		// Matched before the trigger is skipped, not after. The two ids are
 		// different on every path that reaches here — a comment that has already
 		// produced a run cannot produce a second one — but a match that depended

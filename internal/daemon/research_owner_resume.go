@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -57,6 +58,9 @@ func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.T
 // question identity comes from durable wait/publication records, not reply text.
 // A claimed reply survives process exit before allocation, with no held worker.
 func AdmitGraphOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID int64, taskRef, sourceRef, mode string, comment github.Comment, at time.Time) (store.GraphOwnerWait, error) {
+	if _, ok := doctor.ParseCommand(comment.Body); ok {
+		return store.GraphOwnerWait{}, store.ErrGraphOwnerWait
+	}
 	if db == nil {
 		return store.GraphOwnerWait{}, errors.New("graph admission requires store")
 	}

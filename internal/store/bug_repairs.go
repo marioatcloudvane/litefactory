@@ -717,16 +717,17 @@ func (d *DB) RetainBugRepairScope(ctx context.Context, in BugRepairScopeObservat
 			return err
 		}
 		if sourceCommit.Valid {
-			if sourceCommit.String != in.SourceCommit {
+			switch {
+			case sourceCommit.String != in.SourceCommit:
 				// A distinct historical observation for an earlier immutable source is
 				// preserved (kept in bug_events) rather than lost, matching that this
 				// table used to key on (request,source_commit).
 				if err = bugEventJSONTx(ctx, tx, in.SessionID, "repair_scope", fmt.Sprintf("%s:%s", in.Request, sourceCommit.String), in); err != nil {
 					return err
 				}
-			} else if tree.String != in.SourceTree || digest.String != in.DiffDigest || disposition.String != in.Disposition || evidence.String != in.Evidence || string(paths) != string(raw) {
+			case tree.String != in.SourceTree || digest.String != in.DiffDigest || disposition.String != in.Disposition || evidence.String != in.Evidence || string(paths) != string(raw):
 				return errors.New("store: immutable repair scope observation conflict")
-			} else {
+			default:
 				return nil
 			}
 		}
@@ -1228,7 +1229,7 @@ func bugTestConsumeTx(ctx context.Context, tx *sql.Tx, attempt int64, in GraphCo
 
 // ListUnresolvedBugTests is bounded by active task count, not dispatch polling.
 func (d *DB) ListUnresolvedBugTests(ctx context.Context) ([]BugTestCall, error) {
-	rows, e := d.sql.QueryContext(ctx, `SELECT `+bugTestColumns+` FROM bug_repairs WHERE test_outcome='pending' ORDER BY test_child_instance`)
+	rows, e := d.sql.QueryContext(ctx, `SELECT `+bugTestColumns+` FROM bug_repairs WHERE test_outcome='pending' AND session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) ORDER BY test_child_instance`)
 	if e != nil {
 		return nil, e
 	}

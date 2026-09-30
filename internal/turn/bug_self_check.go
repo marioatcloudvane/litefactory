@@ -145,7 +145,7 @@ func (s *BugSelfCheckService) Start(ctx context.Context) (json.RawMessage, error
 	case "pending":
 		return json.Marshal(bugSelfCheckStartResponse{RunID: started.RunID, Ordinal: started.Ordinal, Remaining: started.Remaining})
 	case "started":
-		s.launch(started, parsed, template, recipe)
+		s.launch(ctx, started, parsed, template, recipe)
 		return json.Marshal(bugSelfCheckStartResponse{RunID: started.RunID, Ordinal: started.Ordinal, Remaining: started.Remaining})
 	default:
 		return unavailableResponse(errors.New("unrecognized bug self-check start outcome"))
@@ -172,8 +172,8 @@ func (s *BugSelfCheckService) pendingRun(ctx context.Context) (store.BugSelfChec
 // launch starts the run's background execution: regression, then focused only
 // if regression passed, stopping at the first failed phase (AC-002). It owns
 // the goroutine it starts: Stop cancels it and waits for it to end.
-func (s *BugSelfCheckService) launch(started store.BugSelfCheckStart, recipe config.BugCheckRecipe, template store.BugCheckBinding, recipeBytes []byte) {
-	runCtx, cancel := context.WithCancel(context.WithoutCancel(context.Background()))
+func (s *BugSelfCheckService) launch(ctx context.Context, started store.BugSelfCheckStart, recipe config.BugCheckRecipe, template store.BugCheckBinding, recipeBytes []byte) {
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	active := &bugSelfCheckActive{cancel: cancel, done: make(chan struct{})}
 	s.mu.Lock()
 	s.run = active

@@ -1,0 +1,173 @@
+{
+  "expected_revision": 3,
+  "operations": [
+    {
+      "op": "set",
+      "target": {
+        "field": "outcome"
+      },
+      "value": "completed"
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "comment"
+      },
+      "value": "Temporarily disabled only TestStoppedResultSQLiteOutageRecoversWithoutRelaunch, as requested, with an explicit owner-deferral skip. Its original body and all production repair guards remain unchanged. The skipped scenario is deferred and unverified, not fixed.\n\nAll remaining engineering checks passed: build, formatting, vet, pinned lint, the complete bounded non-race suite, focused recovery tests (12 passed, 1 requested skip), scoped doctor/repair unit checks, and the full final race matrix of 48 batches. One original 40-test turn batch exceeded its cumulative eight-minute limit; its timeout output is retained, and the exact tests subsequently passed in four smaller batches without changing the timeout or test behavior.\n\nEngineering checkpoints are recorded for all three frozen stories. Native providers remain disabled pending authentic isolation evidence; authentic stuck-case, process-drain and restart observations remain unverified. No live repair or restart occurred. Acceptance is reserved for Validate. Input acknowledgment, engineering evidence and remote publication remain separate; no commit, push or remote completion is claimed."
+    },
+    {
+      "op": "remove",
+      "target": {
+        "field": "reason"
+      }
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "artifacts"
+      },
+      "value": [
+        {
+          "id": "run26-tests",
+          "kind": "test_report",
+          "path": ".aiteam/lf-430-doctor-mode/2026-09-29/doctor-mode/TEST_REPORT.md"
+        },
+        {
+          "id": "run26-aggregate",
+          "kind": "engineering_evidence",
+          "path": ".aiteam/lf-430-doctor-mode/2026-09-29/doctor-mode/AGGREGATE_RUN_0026.json"
+        },
+        {
+          "id": "run26-manifest",
+          "kind": "engineering_manifest",
+          "path": ".aiteam/lf-430-doctor-mode/2026-09-29/doctor-mode/ENGINEERING_MANIFEST_RUN_0026.json"
+        },
+        {
+          "id": "run26-scoped",
+          "kind": "engineering_evidence",
+          "path": ".aiteam/lf-430-doctor-mode/2026-09-29/doctor-mode/SCOPED_CHECKS_RUN_0026.json"
+        },
+        {
+          "id": "run26-scope",
+          "kind": "drift_report",
+          "path": ".aiteam/lf-430-doctor-mode/2026-09-29/doctor-mode/DRIFT_REPORT.md"
+        },
+        {
+          "id": "run26-receipts",
+          "kind": "engineering_evidence",
+          "path": ".aiteam/lf-430-doctor-mode/2026-09-29/doctor-mode/IMPLEMENT_RECEIPTS_RUN_0026.md"
+        },
+        {
+          "id": "run24-aggregate",
+          "kind": "engineering_evidence",
+          "path": ".aiteam/lf-430-doctor-mode/2026-09-29/doctor-mode/AGGREGATE_RUN_0024.json"
+        },
+        {
+          "id": "run25-failure-analysis",
+          "kind": "blocker_report",
+          "path": ".aiteam/lf-430-doctor-mode/2026-09-29/doctor-mode/BUG_REPORT_RUN_0025.md"
+        }
+      ]
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.implement.stories"
+      },
+      "value": [
+        {
+          "story": "story-001",
+          "outcome": "engineering_complete",
+          "engineering": {
+            "snapshot_id": "run26-story-001-engineering",
+            "check_ids": [
+              "run26-scoped-doctor-unit"
+            ]
+          }
+        },
+        {
+          "story": "story-002",
+          "outcome": "engineering_complete",
+          "engineering": {
+            "snapshot_id": "run26-story-002-engineering",
+            "check_ids": [
+              "run26-scoped-doctor-unit"
+            ]
+          }
+        },
+        {
+          "story": "story-003",
+          "outcome": "engineering_complete",
+          "engineering": {
+            "snapshot_id": "run26-story-003-engineering",
+            "check_ids": [
+              "run26-scoped-doctor-unit",
+              "run26-scoped-repair-catalog-unit"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.implement.aggregate_checks"
+      },
+      "value": {
+        "snapshot_id": "run26-aggregate-final",
+        "check_ids": [
+          "run26-aggregate-run26-build",
+          "run26-aggregate-run26-make-check",
+          "run26-aggregate-packages-1",
+          "run26-aggregate-packages-2",
+          "run26-aggregate-packages-3",
+          "run26-aggregate-packages-4",
+          "run26-aggregate-packages-5",
+          "run26-aggregate-packages-6",
+          "run26-aggregate-packages-7",
+          "run26-aggregate-daemon-1",
+          "run26-aggregate-daemon-2",
+          "run26-aggregate-daemon-3",
+          "run26-aggregate-daemon-4",
+          "run26-aggregate-daemon-5",
+          "run26-aggregate-daemon-6",
+          "run26-aggregate-daemon-7",
+          "run26-aggregate-daemon-8",
+          "run26-aggregate-daemon-9",
+          "run26-aggregate-store-1",
+          "run26-aggregate-store-2",
+          "run26-aggregate-store-3",
+          "run26-aggregate-store-4",
+          "run26-aggregate-store-5",
+          "run26-aggregate-store-6",
+          "run26-aggregate-store-7",
+          "run26-aggregate-store-8",
+          "run26-aggregate-turn-1",
+          "run26-aggregate-turn-2",
+          "run26-aggregate-turn-3",
+          "run26-aggregate-turn-4",
+          "run26-aggregate-turn-5",
+          "run26-aggregate-turn-6",
+          "run26-aggregate-turn-7",
+          "run26-aggregate-turn-8",
+          "run26-aggregate-turn-9",
+          "run26-aggregate-turn-10",
+          "run26-aggregate-turn-12",
+          "run26-aggregate-turn-13",
+          "run26-aggregate-turn-14",
+          "run26-aggregate-turn-15",
+          "run26-aggregate-turn-16",
+          "run26-aggregate-turn-17",
+          "run26-aggregate-turn-18",
+          "run26-aggregate-turn-19",
+          "run26-aggregate-turn-20",
+          "run26-aggregate-turn-21",
+          "run26-aggregate-turn-11-part-1",
+          "run26-aggregate-turn-11-part-2",
+          "run26-aggregate-turn-11-part-3",
+          "run26-aggregate-turn-11-part-4"
+        ]
+      }
+    }
+  ]
+}

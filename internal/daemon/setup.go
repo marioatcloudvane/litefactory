@@ -19,6 +19,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -37,6 +38,8 @@ import (
 // token is read exactly once, by the command, and held for the process
 // lifetime. Nothing below re-resolves it, and there is no path here that could.
 type Setup struct {
+	// DoctorHost installs factory-owned local lifecycle control; nil keeps it unavailable.
+	DoctorHost *DoctorHostOptions
 	// Paths is the resolved $LF_HOME layout. Required.
 	Paths config.Paths
 	// Config is the validated config.yaml. Required.
@@ -254,7 +257,12 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
-	lock, err := AcquireLock(s.Paths.LockPath())
+	var lock *Lock
+	if s.DoctorHost != nil && s.DoctorHost.Recovery != nil {
+		lock, err = WaitDoctorRecoveryLock(ctx, s.DB, s.Paths, *s.DoctorHost.Recovery)
+	} else {
+		lock, err = AcquireLock(s.Paths.LockPath())
+	}
 	if err != nil {
 		return nil, Startup{}, err
 	}
@@ -402,6 +410,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	daemon, err := New(Options{
+		Doctor:                   &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
 		Bug:                      bugRuntime,
 		BugTests:                 bugRuntime.Child,
 		Retirement:               RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
@@ -449,6 +458,23 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
 	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
+	daemon.doctorHostOptions = s.DoctorHost
+	diagnosisProviders := make(map[string]agent.DoctorRunner)
+	repairProviders := make(map[string]agent.DoctorRepairRunner)
+	for kind, runner := range runners {
+		if native, ok := runner.(agent.DoctorRunner); ok {
+			diagnosisProviders[string(kind)] = native
+		}
+		if native, ok := runner.(agent.DoctorRepairRunner); ok {
+			repairProviders[string(kind)] = native
+		}
+	}
+	daemon.doctor.service.Runner = &doctor.Adapters{Providers: diagnosisProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
+	daemon.doctor.service.RepairRunner = &doctor.RepairAdapters{Providers: repairProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
+	if s.DoctorHost != nil {
+		daemon.doctor.service.RepairEnvironment = &DoctorRepairEnvironment{DB: s.DB, Paths: s.Paths, Live: daemon, Replacement: s.DoctorHost.Replacement}
+		daemon.doctor.service.RestartRoute = &DoctorHostRestart{DB: s.DB, Paths: s.Paths, Live: &DoctorLocalControl{Paths: s.Paths}, Replacement: s.DoctorHost.Replacement}
+	}
 
 	startup := Startup{
 		DefaultAgent:      defaultAgent,

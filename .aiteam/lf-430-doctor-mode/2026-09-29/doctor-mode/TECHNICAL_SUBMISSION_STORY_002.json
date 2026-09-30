@@ -1,0 +1,204 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Story-002 fits as an independent GitHub intake adapter over story-001's shared doctor service. It reuses diagnosis, saved conversations, flagship selection and durable result/report mechanics. The main additions are a doctor inbox and cursor, reserved execution capacity, numeric-owner routing and report completion that cannot advance normal workflow state. Closed issues and story children route directly to their own doctor conversation. No owner decision blocks this design.\n\nI retained the exact story intent and dependency on story-001, and added architecture plus go and agent-setup guidance only. Recorded assumptions cover initial activation, bounded independent capacity, comment-edit handling and interruption recovery. Applying repairs remains story-003. No live behavior, engineering completion, owner acceptance or publication is claimed.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "055d3b5e1a1e0259b4988883eba6d83cd47155aa9aebccec339ae574ff0a24a7",
+          "changed_sections": [
+            "architecture",
+            "guidance"
+          ],
+          "draft": {
+            "key": "story-002",
+            "name": "Priority doctor conversations on GitHub",
+            "user_story": {
+              "actor": "factory owner",
+              "want": "start and resume diagnosis of one issue through /doctor comments on GitHub, even when that issue's workflow is stuck",
+              "benefit": "get findings and a repair proposal where I already discuss the issue, without waiting for the blocked workflow or repeating the diagnosis",
+              "notes": [
+                "Settled boundary: GitHub doctor commands require a live daemon; CLI diagnosis remains available when it is down.",
+                "Retained assumption: GitHub and CLI share the saved doctor conversation in the factory database, including findings, the current proposal and previous attempts.",
+                "Retained model assumption: each agent turn resolves the selected provider's flagship tier; an unavailable flagship is reported without downgrade or loss of saved conversation.",
+                "Evidence limitation: known incidents come from saved reports rather than fresh live log or database inspection. Review of the factory field guide belongs to the prerequisite CLI diagnosis story."
+              ]
+            },
+            "problem": "When an issue's normal workflow is blocked, the owner's next comment can be trapped behind the same blockage. The owner needs a way to discuss the problem on that issue, get an explanation and continue toward a proposed fix without losing earlier diagnostic work.",
+            "in_scope": [
+              "Allow the authenticated factory owner to start, resume and explicitly stop a doctor conversation through comments on the selected issue, including closed issues.",
+              "Require /doctor at the start of every doctor message, including follow-up answers. Leave unprefixed replies to normal workflow handling and silently ignore doctor commands from other users.",
+              "Give doctor commands priority over the issue's normal queue and running stage. A blocked comment-processing position, including one caused by a malformed earlier command, must not prevent doctor diagnosis.",
+              "Use the shared diagnosis capability and saved conversation from the CLI story so the owner can continue the same issue's discussion through either entry point without starting over.",
+              "Post plain-language findings, supporting evidence, uncertainty, questions and repair proposals back to the issue so the owner can continue the discussion using /doctor.",
+              "Preserve unhandled doctor commands and conversation progress across daemon restarts so discussion can resume.",
+              "Carry forward the shared diagnosis limits: examine only the selected issue, remove secrets from agent evidence and reports, treat evidence as data rather than instructions, and use the provider's flagship model on every agent turn.",
+              "Keep diagnosis read-only apart from saving doctor conversation records and posting doctor replies. Report diagnosis or model failures without losing the saved conversation."
+            ],
+            "not_in_scope": [
+              "Applying a repair through /doctor apply or the CLI, changing workflow state or files as a repair, stopping conflicting activity for repair, creating backups, rollback, cleanup or forcing a factory restart.",
+              "Replacing the shared CLI diagnosis, evidence collection, prompt, field guide, model selection or saved conversation capability owned by the prerequisite story.",
+              "Processing GitHub doctor commands while the daemon is down; the CLI is the fallback.",
+              "Accepting doctor instructions from non-owners or treating unprefixed replies as doctor messages.",
+              "Examining other issues or repositories, scanning the whole factory, deleting history, or changing remote labels, branches or issue state as repairs.",
+              "Runtime edits to factory source, migrations, configuration or workflow rules; adding a workflow mode or starting workflow stages from doctor.",
+              "Using a weaker model when the flagship model is unavailable."
+            ],
+            "dependencies": {
+              "story_keys": [
+                "story-001"
+              ],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "agent-setup"
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Fit and reuse",
+                  "decision": "Add a daemon-owned GitHub adapter to story-001's independent doctor service. Reuse its Diagnose, ReadConversation and Stop operations, history, evidence, flagship selection, result receipts and usage ownership. Do not create a workflow run, mode or graph to diagnose.",
+                  "rationale": "internal/daemon/tick.go routes normal work through session admission, capacity, open-issue checks and ordered drain. internal/turn/command.go currently classifies /doctor as unknown. Those paths inherit the blockage this story must bypass."
+                },
+                {
+                  "area": "Priority boundary",
+                  "decision": "Run doctor discovery and durable inbox dispatch before ordinary workflow admission, outside normal task locks and worker capacity. Reserve one separate doctor diagnosis worker per daemon and retain excess commands durably. Do not cancel or pause normal running work for diagnosis.",
+                  "rationale": "internal/daemon/pool.go and inflight.go would otherwise make doctor wait for a running stage. Priority is independence from workflow work, not unlimited parallel agents. A busy doctor or unavailable external service remains a real limit."
+                },
+                {
+                  "area": "Owner and target authority",
+                  "decision": "Authenticate the configured numeric factory owner and exclude bot identities before admitting doctor input. Derive the target from the verified repository and comment's issue; ignore targets or credentials supplied in message text. Accept closed issues and managed story children directly, without redirecting diagnosis to their parent.",
+                  "rationale": "SEC-8 requires numeric identity. tick.go:sight/materialise excludes closed issues, while commentedIssues and handleComment redirect managed children; neither behavior fits the selected-issue boundary."
+                },
+                {
+                  "area": "Independent consumption",
+                  "decision": "Give doctor input and publication their own durable states. Doctor intake and reply completion never advance normal watermarks, consume owner waits, change mode labels or alter workflow progress. All normal comment consumers must recognize doctor envelopes and exclude them from workflow instructions.",
+                  "rationale": "tick.go:drain stops on the first unconsumed comment. store.CompleteReportDelivery normally consumes a source and can advance its watermark. Reusing those side effects would either block doctor or skip unrelated owner work."
+                },
+                {
+                  "area": "Guidance and agent contract",
+                  "decision": "Apply plan-go-guidance to daemon, GitHub, persistence and reporting changes, and plan-agent-setup-guidance to command authority and prompt/result integration. Retain story-001's four context layers and isolated tool ceiling; the GitHub adapter supplies only authenticated current instructions and the fixed issue identity.",
+                  "rationale": "This scope includes Go services and the agent's instruction boundary. GitHub transport needs no new agent role, independent prompt, provider selection logic or frontend design."
+                },
+                {
+                  "area": "Dependencies and assumptions",
+                  "decision": "Depend only on story-001. Export authenticated source-command and report contracts for story-003, with apply explicitly unavailable in this increment. Assume a live responsive daemon, usable database and supported isolated flagship provider. Retain field-guide and provider-evidence prerequisites from story-001.",
+                  "rationale": "Doctor cannot bypass a stopped daemon, corrupt database, exhausted provider or GitHub refusal. CLI remains the daemon-down fallback. No owner-only architecture choice remains open; no live observation or implementation result is claimed."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Doctor discovery position",
+                  "definition": "Doctor-owned per-registered-repository activation boundary, completed scan boundary and pending scan window/page state, separate from the ordinary poll cursor.",
+                  "constraints": "Persist completed input pages before progressing their scan state. Keep a fixed window with overlap and comment-ID deduplication; do not advance the completed boundary on partial, failed or truncated discovery. On restart revisit the unfinished window. Initial enablement uses a recorded activation time rather than replaying every historical /doctor comment; this is an architectural assumption."
+                },
+                {
+                  "entity": "Doctor command inbox",
+                  "definition": "Immutable accepted input keyed by forge/repository identity and comment ID, carrying exact issue ID/number, numeric actor, source timestamps, redacted instruction snapshot/digest, operation, admission sequence, state and linked doctor turn/attempt.",
+                  "constraints": "Unique source identity across normal intake, doctor polling and replay. Store admission before agent launch. States distinguish queued, claimed, completed, rejected, stopped and interrupted; report debt is separate. No workflow session is required. Edits to an admitted comment cannot revise executed instructions or create new authority; ask the owner to send a new prefixed comment for a new turn."
+                },
+                {
+                  "entity": "Shared conversation and fencing",
+                  "definition": "Reuse story-001's per-issue conversation, generation, revision, immutable proposals and attempts. Link each admitted GitHub command to its shared source request identity.",
+                  "constraints": "One live doctor writer across GitHub and CLI. Process diagnosis commands in durable issue admission order; a busy shared lock leaves GitHub input queued. Stop revokes the current generation and cancels queued inputs admitted before that stop, retaining their history. Later input starts a new generation. Stale completions cannot overwrite findings."
+                },
+                {
+                  "entity": "Doctor report delivery",
+                  "definition": "Extend the existing report_deliveries ownership and namespace to a doctor command/turn, with issue destination, retained redacted body, stable marker, bot identity, possibly-sent state and confirmed remote comment ID.",
+                  "constraints": "Exactly one workflow or doctor owner; do not fabricate a workflow session to satisfy today's session_id requirement. Delivery identity includes source command and response purpose. Complete only doctor delivery state after confirmation. Preserve result, publication debt and source history independently; use new embedded store migrations and existing receipt mechanics."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Daemon doctor discovery",
+                  "responsibility": "Discover prefixed owner comments across registered repositories using a separate durable cursor, validate the issue identity and enqueue input independently of normal discovery errors, graph progress, labels, open-state filters and workflow locks.",
+                  "access": "Extend internal/github's existing repository-comment transport with a bounded page result retaining comment and issue identity; ListCommentedIssues currently discards bodies and actor details. Reuse SDK transport, conditional revalidation, request observations and daemon-owned rate-limit handling. No shell or second credential path."
+                },
+                {
+                  "component": "Doctor command classifier and routing",
+                  "responsibility": "Provide one pure envelope parser shared by independent intake and every normal parent/child comment consumer. Recognize diagnosis text, exact stop and reserved apply; return typed results for empty or malformed controls.",
+                  "access": "Place the mode-free parser with the doctor contract, and adapt internal/turn command classification without making doctor a mode. Authenticate in factory code, never in the parser or agent. Reserve /doctor envelopes before graph Plan replies, story refinements, research owner waits and generic free-text handling."
+                },
+                {
+                  "component": "Doctor dispatch worker",
+                  "responsibility": "Claim persisted commands, call the shared service, retain accepted findings or truthful failures, and enqueue report intent. Handle Stop as a short engine control independently of the long diagnosis worker so an active agent cannot block stop.",
+                  "access": "Daemon owns scheduling, bounded retries and tick time. Reuse story-001's cross-process locking and generation checks. One additional worker is bounded by daemon cancellation and joined by Quiesce/shutdown; document the reasoned CONC-2 budget extension and associated package guidance. No waiting on ordinary inflight or session locks."
+                },
+                {
+                  "component": "Shared doctor service",
+                  "responsibility": "Accept typed authenticated GitHub provenance and source identity while reusing the same diagnosis, memory, evidence and result-adoption path as CLI. Return persisted diagnosis outcomes and typed busy, unavailable, interrupted or refused statuses.",
+                  "access": "Keep GitHub polling and report delivery policy in the daemon adapter, not internal/doctor. Agent invocation still resolves the flagship per turn and uses only prepared context plus scoped result tools. Shared communication preflight, submit and receipt remain the application result route."
+                },
+                {
+                  "component": "Report rendering and delivery",
+                  "responsibility": "Render plain-language findings, evidence references, uncertainty, questions and reviewable proposals; instruct follow-ups to use /doctor. Persist publication intent before posting and recover independently of workflow backlog.",
+                  "access": "Reuse internal/report pure renderers, Redactor.Apply and internal/github PostComment with typed redact.Body. Extract reusable delivery mechanics from turn-owned reporting into a lower-level service as needed; preserve ordinary workflow façades. Doctor completion uses its own namespace and owner, not consumeReportSource."
+                },
+                {
+                  "component": "Store boundary",
+                  "responsibility": "Own scoped inbox, scan progress, claim/fencing and doctor delivery accessors, including atomic adoption of an input and its source identity and durable recovery queries.",
+                  "access": "All SQL stays in internal/store. Context-first APIs, explicit embedded migration lifecycle and the one-connection pool remain. No transaction or cursor spans network, provider or output I/O. Short claims and bounded reads prevent diagnosis from holding the database while an agent runs."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Command grammar",
+                  "contract": "Match a complete /doctor token as the first non-whitespace token, case-insensitively like existing commands. Embedded, quoted or fenced occurrences and /doctor-like prefixes are not doctor commands. Preserve the remaining diagnostic text. Exact /doctor stop ends the conversation; exact /doctor apply returns an explicit unavailable response here and never becomes diagnostic text or saved repair approval. Bare /doctor returns usage. Malformed reserved controls return a bounded owner-facing explanation without launching an agent.",
+                  "rationale": "A shared explicit grammar prevents duplicate interpretations and accidental repair authority. Leading-whitespace and case behavior follow internal/turn/command.go; each follow-up still requires its own prefix."
+                },
+                {
+                  "element": "Discovery and scope",
+                  "contract": "Read bounded repository comment pages as factory routing metadata, filter numeric author and command prefix, then verify each target as an issue in that registered repository, including closed and child issues. Do not collect unrelated issue histories or expose the repository stream to any agent. Persist admitted inputs before advancing scan progress; continue unfinished windows after restarts with overlapping reads and deduplication. Initial activation skips older comments; subsequent daemon downtime retains the last durable boundary.",
+                  "rationale": "Existing ListCommentedIssues already uses repository comments independently of issue-update indexing, but loses input content. A command stream can discover closed/no-session targets without scanning every issue's evidence. This routing use does not expand diagnosis beyond its selected issue."
+                },
+                {
+                  "element": "Capacity and errors",
+                  "contract": "Schedule the doctor lane before ordinary admission, with one reserved diagnosis slot, bounded per-tick discovery work and fair selection between issues. Give doctor discovery a reserved share of the existing request budget before background scans. Respect actual GitHub quota/backoff; run already-admitted local diagnosis while remote calls are held and retain reports for later. An ordinary publication or workflow-discovery error must not prevent doctor processing.",
+                  "rationale": "Reordering normal workers alone cannot meet priority when their pool is full. Bounded independent capacity avoids unbounded subprocesses while keeping workflow faults from blocking the control path. Network/provider outages are reported as limits, not hidden by retry loops."
+                },
+                {
+                  "element": "Normal workflow coexistence",
+                  "contract": "At every normal input surface, hand a doctor envelope to the idempotent inbox adapter and exclude it from workflow instruction batches. When the normal ordered drain eventually reaches that comment after all earlier normal work is settled, it may record the routing disposition and advance its own cursor normally. Never advance it out of order from doctor. Non-owner doctor envelopes are silent dispositions with no doctor history, agent launch or reply; unprefixed owner text keeps existing workflow behavior.",
+                  "rationale": "Normal consumers include tick.go:handleComment, story_refinements.go and graph owner-reply paths. Merely adding a /doctor switch in handleComment would miss children and can allow doctor text to resume a waiting workflow. Independent diagnosis must not clear the original wedge."
+                },
+                {
+                  "element": "Conversation and stop",
+                  "contract": "Use the same issue conversation whichever entry point receives the next command. Persist a GitHub message once and defer it on shared doctor busy rather than interleaving turns. A short authenticated stop operation advances the fence, records stopped state and cancels only that conversation's doctor invocation where reachable; delayed output is refused. No diagnosis/stop cancels normal workflow processes. Do not let delayed pre-stop inputs reopen the stopped generation.",
+                  "rationale": "The owner can switch between CLI and GitHub without losing work. A stop has to remain reachable while diagnosis runs. Fencing provides correctness even when a separate CLI process cannot be immediately interrupted."
+                },
+                {
+                  "element": "Agent authority",
+                  "contract": "Only the authenticated command's diagnostic text is the latest owner instruction. All comments, logs, files and saved agent text remain bounded untrusted evidence. Keep story-001's private scratch execution and absence of native file, shell, network, ambient MCP or delegation tools. The engine resolves issue identity, model and permissions; a comment cannot override them. Fail closed on missing isolation or flagship, preserving memory and reporting the failure.",
+                  "rationale": "GitHub is a new instruction transport, not a broader agent permission grant. The shared engine owns the four-layer prompt and proposal validation, so this story must not duplicate them."
+                },
+                {
+                  "element": "Durable result and restart recovery",
+                  "contract": "Persist accepted results before attempting a reply. At restart recover queued commands and doctor-only abandoned claims; if a durable accepted result exists, finish adoption/publication without launching a second agent. Otherwise record the interrupted attempt and make at most one recovery attempt for that input before requiring a new owner command. Preserve previous findings/proposal on all failures. Recovery and report retry never invoke workflow orphan reconciliation as a doctor effect.",
+                  "rationale": "Restart must not lose unhandled commands or generate an unbounded paid-model loop. Distinct attempts and source deduplication reuse story-001's receipt and metering contract; a failed reply does not mean diagnosis needs rerunning."
+                },
+                {
+                  "element": "Publication and uncertainty",
+                  "contract": "Bind the report destination to the triggering issue, never an agent-chosen target or the story parent. Post retained redacted content with a stable doctor marker and verify numeric bot provenance when reconciling a lost response. A possibly-sent report remains uncertain until observation confirms its exact marker/destination; an empty bounded page is not proof that no post happened. Retry publication without replaying diagnosis. Keep reporting debt independent so one uncertain post does not prevent a later doctor stop or diagnosis.",
+                  "rationale": "internal/turn/report_delivery.go already distinguishes possibly-sent and confirmed delivery. Its default runless completion and legacy task-only probes need explicit doctor handling. Reusing them unchanged risks consuming normal comments or blocking a fresh doctor report behind an unrelated old report."
+                },
+                {
+                  "element": "Reviewable proposals and future repair",
+                  "contract": "Persist the exact proposal revision and rendered presentation identity; record confirmed GitHub presentation separately from CLI presentation. Preserve full target, precondition and rollback information within bounded reply sizes, or split deterministically into retained numbered parts and mark presentation complete only after all required parts are confirmed. Expose these records for story-003's exact approval binding, without implementing apply, backups, restart or cleanup here.",
+                  "rationale": "Later /doctor apply must approve a proposal the owner could review, not whichever model output happens to be current after a delay. Story-003 already requires exact proposal and source binding; this story supplies reliable presentation provenance."
+                },
+                {
+                  "element": "Evidence limits",
+                  "contract": "This design is grounded in current intake, parser, pool, store and delivery source plus retained story-001 and story-003 contracts. It adds no tasks or acceptance criteria and claims no live GitHub, daemon or provider observation. Keep authentic provider isolation and real stuck-case field-guide review with story-001; carry unresolved infrastructure outages as explicit operational failures.",
+                  "rationale": "Further reading would not change component ownership or the priority and durability boundaries. Acceptance shaping can define future proof without treating this architecture or its input receipt as implementation evidence."
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/resultservice"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -266,54 +267,59 @@ func (s *AgentResultService) Submit(ctx context.Context, requestID string, data 
 	if len(data) > agentresult.MaxBytes {
 		return AgentResultSubmission{}, fmt.Errorf("application result input exceeds contribution ceiling")
 	}
-	old, err := s.db.ReplayResultRequest(ctx, s.binding, requestID, data)
-	if err == nil {
-		restricted, _ := ctx.Value(mcpCommunicationKey{}).(bool)
-		response, responseErr := s.response(ctx, old)
+
+	// Aggregate capture retains its separate protocol; normal application results
+	// share replay-before-validation mechanics with the doctor service.
+	if aggregateInput(data) {
+		if old, e := s.db.ReplayResultRequest(ctx, s.binding, requestID, data); e == nil {
+			return s.response(ctx, old)
+		} else if !errors.Is(e, store.ErrNotFound) {
+			return AgentResultSubmission{}, e
+		}
+		return s.submitAggregateInput(ctx, requestID, data)
+	}
+	var d agentresult.UpdateDiagnostics
+	receipt, replayed, err := resultservice.Submit(ctx, s.db, s.binding, requestID, data, func(ctx context.Context) (*store.ResultRecord, error) {
+		candidate, diagnostics, e := s.prepare(ctx, data)
+		d = diagnostics
+		if e != nil {
+			return nil, e
+		}
+		for _, fault := range d.Diagnostics.Diagnostics {
+			if fault.Code == "stale_revision" {
+				return nil, nil
+			}
+		}
+		encoded, e := json.Marshal(d)
+		if e != nil {
+			return nil, fmt.Errorf("encode result diagnostics: %w", e)
+		}
+		q := store.ResultRecord{Diagnostics: encoded, ExpectedRevision: d.CurrentRevision, Accepted: d.Valid}
+		if d.Valid {
+			candidate.Snapshot.Meta.RequestID = requestID
+			q.Snapshot, e = json.Marshal(candidate.Snapshot)
+			if e != nil {
+				return nil, fmt.Errorf("encode result snapshot: %w", e)
+			}
+			q.Retired, e = json.Marshal(candidate.Retired)
+			if e != nil {
+				return nil, fmt.Errorf("encode result retirement: %w", e)
+			}
+		}
+		return &q, nil
+	})
+	if replayed {
+		response, responseErr := s.response(ctx, *receipt)
 		if responseErr != nil {
 			return response, responseErr
 		}
-		if restricted && response.Snapshot != nil {
-			plan := response.Snapshot.Result.Payload.Plan
-			if creationCapablePlan(plan, response.Snapshot.Result.Outcome) {
-				return AgentResultSubmission{}, fmt.Errorf("MCP cannot replay a publishable Plan; use receipt lookup")
-			}
+		restricted, _ := ctx.Value(mcpCommunicationKey{}).(bool)
+		if restricted && response.Snapshot != nil && creationCapablePlan(response.Snapshot.Result.Payload.Plan, response.Snapshot.Result.Outcome) {
+			return AgentResultSubmission{}, fmt.Errorf("MCP cannot replay a publishable Plan; use receipt lookup")
 		}
 		return response, nil
 	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return AgentResultSubmission{}, err
-	}
-	if aggregateInput(data) {
-		return s.submitAggregateInput(ctx, requestID, data)
-	}
-	candidate, d, err := s.prepare(ctx, data)
-	if err != nil {
-		return AgentResultSubmission{}, err
-	}
-	// A stale update gets actionable concurrency diagnostics and no durable write.
-	for _, fault := range d.Diagnostics.Diagnostics {
-		if fault.Code == "stale_revision" {
-			return AgentResultSubmission{Validation: d}, nil
-		}
-	}
-	diagnostics, err := json.Marshal(d)
-	if err != nil {
-		return AgentResultSubmission{}, fmt.Errorf("encode result diagnostics: %w", err)
-	}
-	q := store.ResultRecord{Binding: s.binding, RequestID: requestID, Payload: slices.Clone(data), Diagnostics: diagnostics, ExpectedRevision: d.CurrentRevision, Accepted: d.Valid}
-	if d.Valid {
-		candidate.Snapshot.Meta.RequestID = requestID
-		q.Snapshot, err = json.Marshal(candidate.Snapshot)
-		if err != nil {
-			return AgentResultSubmission{}, fmt.Errorf("encode result snapshot: %w", err)
-		}
-		q.Retired, err = json.Marshal(candidate.Retired)
-		if err != nil {
-			return AgentResultSubmission{}, fmt.Errorf("encode result retirement: %w", err)
-		}
-	}
-	receipt, err := s.db.RecordResult(ctx, q)
+
 	var conflict *store.ResultRevisionConflict
 	if errors.As(err, &conflict) {
 		baseline, readErr := s.Baseline(ctx)
@@ -329,7 +335,10 @@ func (s *AgentResultService) Submit(ctx context.Context, requestID string, data 
 	if err != nil {
 		return AgentResultSubmission{}, err
 	}
-	return s.response(ctx, receipt)
+	if receipt == nil {
+		return AgentResultSubmission{Validation: d}, nil
+	}
+	return s.response(ctx, *receipt)
 }
 func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt) (AgentResultSubmission, error) {
 	response := AgentResultSubmission{Receipt: &r}
