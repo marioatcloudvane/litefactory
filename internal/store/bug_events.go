@@ -86,14 +86,6 @@ func bugEventByDeliveryKeyTx(ctx context.Context, tx *sql.Tx, session int64, kin
 	return content, err
 }
 
-// BugEventCount counts retained events of one kind for a bug; used by replay
-// and history-bound checks (for example counting prior test generations).
-func bugEventCountTx(ctx context.Context, tx *sql.Tx, session int64, kind string) (int, error) {
-	var n int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM bug_events WHERE session_id=? AND kind=?`, session, kind).Scan(&n)
-	return n, err
-}
-
 // bugEventJSONFullTx is bugEventJSONTx with an explicit attempt and delivery
 // key, for the few event kinds (like "report") that need both.
 func bugEventJSONFullTx(ctx context.Context, tx *sql.Tx, session int64, kind, reference string, attempt int64, deliveryKey string, v any) error {

@@ -47,6 +47,7 @@ func TestRepairEvidence_CriterionCoverage(t *testing.T) {
 		})
 	}
 }
+
 // AC-004/AC-006 (story-002): the downgraded coverage-gap site continues and
 // records exactly one Notice, with a stable reference and plain-language text,
 // per occurrence -- never an error, and never touching more than that one

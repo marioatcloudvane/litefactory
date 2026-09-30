@@ -81,7 +81,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		if _, held := d.backoff.hold(at); held {
 			continue
 		}
-		if !d.inflight.enter(session.ID) {
+		if !d.enterDoctorGuarded(ctx, session.ID) {
 			log.DebugContext(ctx, "graph step waits for this task's in-flight turn")
 			continue
 		}
@@ -101,7 +101,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		}
 		t.workerLog = log.With(slog.Any("dispatch_sources", []string{"graph_step"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")
-		go d.runWorker(ctx, t, func() { d.runGraphStep(ctx, t, reserved) })
+		go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })
 		result.Dispatched++
 	}
 	return nil

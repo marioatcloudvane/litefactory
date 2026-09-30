@@ -40,7 +40,7 @@ func (db *DB) ObserveResult(ctx context.Context, b ResultBinding, runID int64, r
 		if dimension == "engineering" && state == "recorded" && b.Mode != "implement" {
 			return fmt.Errorf("store: result mode cannot observe engineering")
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_observations(request_row,sequence,run_id,attempt,dimension,state) SELECT ?,COALESCE(MAX(sequence),0)+1,?,?,?,? FROM application_result_observations WHERE request_row=?`, r.ID, b.RunID, b.Attempt, dimension, state, r.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_observations(request_row,sequence,run_id,attempt,dimension,state,doctor_attempt_id) SELECT ?,COALESCE(MAX(sequence),0)+1,?,?,?,?,? FROM application_result_observations WHERE request_row=?`, r.ID, nullID(b.RunID), b.Attempt, dimension, state, nullString(b.DoctorAttemptID), r.ID); err != nil {
 			return err
 		}
 		receipt, err = resultReceiptTx(ctx, tx, b.ResultID, runID, requestID)

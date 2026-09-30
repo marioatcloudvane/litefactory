@@ -55,6 +55,13 @@ func (r *BugRuntime) reconcileReports(ctx context.Context) error {
 	}
 	var failures []error
 	for _, report := range reports {
+		held, e := r.opts.DB.DoctorRepairHeldSession(ctx, report.SessionID)
+		if e != nil {
+			return e
+		}
+		if held {
+			continue
+		}
 		session, e := r.opts.DB.GetSession(ctx, report.SessionID)
 		if e != nil {
 			failures = append(failures, e)

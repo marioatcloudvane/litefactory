@@ -30,10 +30,13 @@ type usageCollector struct {
 }
 
 func newUsageCollector(ctx context.Context, req agent.Request) *usageCollector {
-	if req.Usage == nil {
+	return newUsageCaptureCollector(ctx, req.Usage)
+}
+func newUsageCaptureCollector(ctx context.Context, capture *agent.UsageCapture) *usageCollector {
+	if capture == nil {
 		return nil
 	}
-	return &usageCollector{ctx: ctx, capture: *req.Usage, parents: make(map[string]string), coverage: agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "exec-jsonl", Diagnostics: []string{"capability_evidence_missing"}}}
+	return &usageCollector{ctx: ctx, capture: *capture, parents: make(map[string]string), coverage: agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "exec-jsonl", Diagnostics: []string{"capability_evidence_missing"}}}
 }
 func (c *usageCollector) diagnostic(code string) {
 	if !slices.Contains(c.coverage.Diagnostics, code) {

@@ -117,7 +117,7 @@ func (d *Daemon) executeRetirement(ctx context.Context, sweepID string, ownerID 
 	if sweepID == "" || o.CloneGate == nil || o.LockDir == "" {
 		return evaluation, fmt.Errorf("retirement executor is not configured")
 	}
-	if !owner.Canonical || owner.Active || owner.Pending || !d.inflight.enter(ownerID) {
+	if !owner.Canonical || owner.Active || owner.Pending || !d.enterDoctorGuarded(ctx, ownerID) {
 		return d.retirementKept(ctx, sweepID, evaluation, "active_or_uncertain_owner"), nil
 	}
 	defer d.inflight.leave(ownerID)
