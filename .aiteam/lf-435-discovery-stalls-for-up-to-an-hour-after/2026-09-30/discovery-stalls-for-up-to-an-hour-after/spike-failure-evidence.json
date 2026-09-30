@@ -1,0 +1,183 @@
+{
+  "observed_at": "2026-09-30",
+  "repository_revision": "2c10f40baae2b466dffab342b2b047f6952b9131",
+  "source": "Read-only inspection of local daemon SQLite state and issue 435 run metadata",
+  "instances": [
+    {
+      "id": 165,
+      "status": "succeeded",
+      "current_node": "complete",
+      "started_at": "2026-09-30T19:06:00.903Z",
+      "finished_at": "2026-09-30T19:55:46.170Z"
+    },
+    {
+      "id": 170,
+      "status": "failed",
+      "current_node": "probe_agent",
+      "started_at": "2026-09-30T20:16:59.054Z",
+      "finished_at": "2026-09-30T20:17:01.005Z"
+    },
+    {
+      "id": 172,
+      "status": "running",
+      "current_node": "investigate",
+      "started_at": "2026-09-30T20:27:14.851Z",
+      "finished_at": null
+    }
+  ],
+  "spike_records": [
+    {
+      "instance_id": 165,
+      "node": "fix_check",
+      "kind": "check",
+      "payload": {
+        "outcome": "failed",
+        "reason": "a full check reported failure",
+        "source_attempt_id": 1636,
+        "baseline": "16e1140e07b0b85f075edaac19c62e8711f18abd",
+        "max_files": 3,
+        "files": [
+          "internal/daemon/discovery_budget.go",
+          "internal/daemon/discovery_budget_internal_test.go"
+        ],
+        "phases": [
+          "focused",
+          "full"
+        ],
+        "recipe_digest": "017a9802480bc236524d5638d40039002e2b3aef542efe9a1dabff1cb168ff7b",
+        "commands": [
+          {
+            "phase": "focused",
+            "argv": [
+              "go",
+              "vet",
+              "./..."
+            ],
+            "outcome": "passed",
+            "exit": 0
+          },
+          {
+            "phase": "focused",
+            "argv": [
+              "golangci-lint",
+              "run"
+            ],
+            "outcome": "passed",
+            "exit": 0,
+            "output": "0 issues.\n"
+          },
+          {
+            "phase": "full",
+            "argv": [
+              "go",
+              "test",
+              "-race",
+              "-timeout=0",
+              "./..."
+            ],
+            "outcome": "failed",
+            "exit": 1,
+            "reason": "project check reported test failure",
+            "output": "ory/internal/cli\t233.187s\nok  \tgithub.com/cloudvane/litefactory/internal/codex\t73.348s\nok  \tgithub.com/cloudvane/litefactory/internal/config\t3.516s\nok  \tgithub.com/cloudvane/litefactory/internal/confirm\t2.673s\nok  \tgithub.com/cloudvane/litefactory/internal/daemon\t521.290s\nok  \tgithub.com/cloudvane/litefactory/internal/doctor\t21.976s\nok  \tgithub.com/cloudvane/litefactory/internal/git\t63.833s\nok  \tgithub.com/cloudvane/litefactory/internal/github\t3.806s\nok  \tgithub.com/cloudvane/litefactory/internal/gittest\t3.339s\nok  \tgithub.com/cloudvane/litefactory/internal/graphexec\t3.329s\nok  \tgithub.com/cloudvane/litefactory/internal/harness\t75.680s\nok  \tgithub.com/cloudvane/litefactory/internal/identity\t23.539s\nok  \tgithub.com/cloudvane/litefactory/internal/launchd\t4.302s\nok  \tgithub.com/cloudvane/litefactory/internal/logging\t2.815s\nok  \tgithub.com/cloudvane/litefactory/internal/mcpadapter\t3.252s\nok  \tgithub.com/cloudvane/litefactory/internal/meter\t2.810s\nok  \tgithub.com/cloudvane/litefactory/internal/naming\t2.780s\nok  \tgithub.com/cloudvane/litefactory/internal/planbrief\t2.899s\nok  \tgithub.com/cloudvane/litefactory/internal/providerprocess\t2.515s\nok  \tgithub.com/cloudvane/litefactory/internal/redact\t2.594s\nok  \tgithub.com/cloudvane/litefactory/internal/render\t2.527s\nok  \tgithub.com/cloudvane/litefactory/internal/report\t11.339s\nok  \tgithub.com/cloudvane/litefactory/internal/repos\t4.637s\n?   \tgithub.com/cloudvane/litefactory/internal/resultservice\t[no test files]\nok  \tgithub.com/cloudvane/litefactory/internal/schedule\t3.963s\nok  \tgithub.com/cloudvane/litefactory/internal/secrets\t2.192s\nok  \tgithub.com/cloudvane/litefactory/internal/store\t385.533s\nok  \tgithub.com/cloudvane/litefactory/internal/submission\t3.056s\nok  \tgithub.com/cloudvane/litefactory/internal/team\t3.322s\nok  \tgithub.com/cloudvane/litefactory/internal/teampublish\t5.582s\nok  \tgithub.com/cloudvane/litefactory/internal/teamremote\t2.927s\nok  \tgithub.com/cloudvane/litefactory/internal/teamsource\t19.787s\nok  \tgithub.com/cloudvane/litefactory/internal/turn\t2813.259s\nFAIL\n",
+            "output_truncated": true
+          }
+        ]
+      }
+    },
+    {
+      "instance_id": 165,
+      "node": "size_gate",
+      "kind": "baseline",
+      "payload": {
+        "commit": "16e1140e07b0b85f075edaac19c62e8711f18abd",
+        "source_attempt_id": 1633
+      }
+    }
+  ],
+  "runs": [
+    {
+      "run_ordinal": 1,
+      "task_ref": "github:marioatcloudvane/litefactory#435",
+      "session_id": 256,
+      "segment_ordinal": 1,
+      "agent": "claude",
+      "session_ref": "398c1fbd-e294-54d1-bfdf-2d6db548fab6",
+      "claude_session_id": "398c1fbd-e294-54d1-bfdf-2d6db548fab6",
+      "resumed": false,
+      "mode": "spike",
+      "model": "claude-sonnet-5-5",
+      "tool_profile": "spike",
+      "worktree_path": "/Users/mariomh/.lf-worktrees/litefactory/task-435",
+      "branch": "lf/435-discovery-stalls-for-up-to-an-hour-after",
+      "sha_before": "16e1140e07b0b85f075edaac19c62e8711f18abd",
+      "sha_after": "",
+      "outcome": "succeeded",
+      "exit_code": 0,
+      "started_at": "2026-09-30T19:06:04.338502Z",
+      "finished_at": "2026-09-30T19:06:46.830555Z",
+      "duration_ms": 42491,
+      "cost_usd": 0.1937104,
+      "result_text": "The issue's cause holds up in the code, but it is not proven on the live log. Discovery drops any rate-limit response whose reset time is earlier than the one already stored. The freshness clock is then never refreshed, so it lapses after 2 minutes and discovery stops. The open risk is that GitHub really does report different reset times inside one window. The issue infers this from the stall pattern and from a different token, and nobody has captured the bot token's headers. One small code change with one test would fix it.",
+      "files_touched": [],
+      "result_comment_id": null,
+      "error": null,
+      "log_path": "/Users/mariomh/.litefactory/logs/runs/github/marioatcloudvane/litefactory/435/0001.jsonl"
+    },
+    {
+      "run_ordinal": 2,
+      "task_ref": "github:marioatcloudvane/litefactory#435",
+      "session_id": 256,
+      "segment_ordinal": 2,
+      "agent": "claude",
+      "session_ref": "f568d1a0-bcc1-5ca1-b632-79fe5e304cda",
+      "claude_session_id": "f568d1a0-bcc1-5ca1-b632-79fe5e304cda",
+      "resumed": false,
+      "mode": "spike",
+      "model": "claude-sonnet-5-5",
+      "tool_profile": "spike",
+      "worktree_path": "/Users/mariomh/.lf-worktrees/litefactory/task-435",
+      "branch": "lf/435-discovery-stalls-for-up-to-an-hour-after",
+      "sha_before": "16e1140e07b0b85f075edaac19c62e8711f18abd",
+      "sha_after": "",
+      "outcome": "succeeded",
+      "exit_code": 0,
+      "started_at": "2026-09-30T19:06:49.654924Z",
+      "finished_at": "2026-09-30T19:07:28.495785Z",
+      "duration_ms": 38840,
+      "cost_usd": 0.1987508,
+      "result_text": "Fixed the discovery budget so a valid rate-limit reading with an earlier reset time, still in the future, now counts as the same window. It refreshes freshness and resyncs the remaining count, so discovery should no longer stall until the next rollover. Readings from an already-expired window are still ignored. I added one regression test covering both cases. Nothing was run; the factory checks will do that. Logging deferred ticks was left out as a separate follow-up.",
+      "files_touched": [],
+      "result_comment_id": null,
+      "error": null,
+      "log_path": "/Users/mariomh/.litefactory/logs/runs/github/marioatcloudvane/litefactory/435/0002.jsonl"
+    },
+    {
+      "run_ordinal": 3,
+      "task_ref": "github:marioatcloudvane/litefactory#435",
+      "session_id": 256,
+      "segment_ordinal": 3,
+      "agent": "claude",
+      "session_ref": "a775702f-83f3-555b-8968-804497606390",
+      "claude_session_id": "a775702f-83f3-555b-8968-804497606390",
+      "resumed": false,
+      "mode": "spike",
+      "model": "",
+      "tool_profile": "spike",
+      "worktree_path": "/Users/mariomh/.lf-worktrees/litefactory/task-435",
+      "branch": "lf/435-discovery-stalls-for-up-to-an-hour-after",
+      "sha_before": "2c10f40baae2b466dffab342b2b047f6952b9131",
+      "sha_after": "",
+      "outcome": "abandoned",
+      "exit_code": -1,
+      "started_at": "",
+      "finished_at": "",
+      "duration_ms": 0,
+      "cost_usd": null,
+      "result_text": "",
+      "files_touched": [],
+      "result_comment_id": null,
+      "error": "execute graph activity \"lf_agent\": prepare research invocation: invalid or incomplete application result: {\"valid\":false,\"complete\":true,\"diagnostics\":[{\"path\":\"$.result.payload.spike.fix_report\",\"code\":\"forbidden\",\"expected\":\"no fix_report without write access\",\"actual\":\"present fix_report\",\"message\":\"Only a step with write access reports a change.\"}],\"unchecked_paths\":[]}",
+      "log_path": "/Users/mariomh/.litefactory/logs/runs/github/marioatcloudvane/litefactory/435/0003.jsonl"
+    }
+  ]
+}
