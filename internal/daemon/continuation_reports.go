@@ -52,14 +52,14 @@ func (d *Daemon) replayInterruptionReports(ctx context.Context, repos []store.Re
 }
 
 func (d *Daemon) replayInterruptionReport(ctx context.Context, run store.Run, session store.Session) (err error) {
-	allowed, gateErr := d.recoveryAllowed(ctx, store.ReportRecovery{Key: recoveryKey(session.ID, run.TriggerCommentID), SessionID: session.ID, TriggerID: run.TriggerCommentID}, recoveryTime(ctx))
+	allowed, gateErr := d.guardedRecoveryAllowed(ctx, store.ReportRecovery{Key: recoveryKey(session.ID, run.TriggerCommentID), SessionID: session.ID, TriggerID: run.TriggerCommentID}, recoveryTime(ctx))
 	if gateErr != nil {
 		return gateErr
 	}
 	if !allowed {
 		return &recoveryPending{}
 	}
-	if !d.inflight.enter(session.ID) {
+	if !d.enterDoctorGuarded(ctx, session.ID) {
 		return nil
 	}
 	defer d.inflight.leave(session.ID)

@@ -97,7 +97,11 @@ func validateBug(r Result, ctx Context, d *Diagnostics) {
 		add(d, "$.result.payload.bug.approval", "forbidden", "approval absent", "present", "A proposal cannot authorize itself.")
 	}
 	if p.Analysis != nil {
-		if err := p.Analysis.Validate(p.Response == "done"); err != nil {
+		// Notices are policy-class observations the authoritative store write
+		// records as facts (internal/store/bug_analyses.go); this consistency
+		// pass only judges whether the submission decodes, so only a hard
+		// fault is surfaced here.
+		if _, err := p.Analysis.Validate(p.Response == "done"); err != nil {
 			add(d, "$.result.payload.bug.analysis", "content", "valid analysis snapshot", "invalid", err.Error())
 		}
 	}

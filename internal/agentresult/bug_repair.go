@@ -44,7 +44,11 @@ func validateBugRepair(r Result, ctx Context, d *Diagnostics) {
 		add(d, "$.result.payload.bug.repair", "scope", "factory criteria", "invalid", "Factory criterion context is unavailable.")
 		return
 	}
-	if err := e.Validate(criteria, p.Response == "done"); err != nil {
+	// Notices are policy-class observations the authoritative store write
+	// records as facts (internal/store/bug_repairs.go); this consistency pass
+	// only judges whether the submission decodes, so only a hard fault is
+	// surfaced here.
+	if _, err := e.Validate(criteria, p.Response == "done"); err != nil {
 		add(d, "$.result.payload.bug.repair", "content", "complete bounded evidence", "invalid", err.Error())
 	}
 }

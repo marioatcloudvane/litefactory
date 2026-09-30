@@ -1,0 +1,235 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Story-003 retains the scoped repair design and now connects it explicitly to story-002's durable GitHub inbox and proposal presentation records. The agent still creates backups and performs only approved row/file changes through factory-enforced tools; the engine verifies those changes and coordinates one restart. No owner decision blocks the architecture.\n\nThe scoped additions settle delayed approval binding, Stop during apply, recovery of interrupted writes, startup hold ordering and the typed apply result. Existing architecture tables, scope, dependencies, backup retention and cleanup ownership under #413 remain intact. No tasks or criteria are added. Source review confirms the relevant seams and collisions; no live repair, restart, provider observation or test is claimed. Owner review and later acceptance shaping remain separate from this submission.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "eee4824bb8ba7b3b497238d78984546e9788f871bdc34688f757edb3d3f8b48e",
+          "changed_sections": [
+            "architecture"
+          ],
+          "draft": {
+            "key": "story-003",
+            "name": "Agent applies approved repairs and restarts once",
+            "user_story": {
+              "actor": "factory owner",
+              "want": "have a flagship agent carry out the repair I explicitly approve for one issue through GitHub or CLI, with backups, verification and one factory restart",
+              "benefit": "recover a stuck issue without making database and file changes by hand, retain a way to restore affected data, and receive a clear account of the result",
+              "notes": [
+                "Settled clarification: the agent performs the approved database and file changes; factory enforcement limits its writes to the approved issue and proposal.",
+                "Retained assumption: /doctor apply or its CLI equivalent approves the current saved proposal. Other conversation replies do not authorize changes.",
+                "Retained assumption: successful-repair file-copy cleanup under #413 does not block this story; copies can remain until cleanup is available.",
+                "Retained model assumption: every agent turn resolves the selected provider's flagship tier. If unavailable, report the failure and preserve the conversation without downgrade.",
+                "Rollback intent is to preserve usable backups and the proposal's restoration information. This draft does not assume automatic rollback after failure.",
+                "Evidence limitation: the known repair examples come from saved incident reports, not fresh inspection of live logs or the live database."
+              ]
+            },
+            "problem": "A diagnosis alone leaves the owner to repair scattered database records and files manually. Those changes can overlap with ongoing work or leave the issue partly repaired. The owner needs the agent to perform a specific agreed fix, preserve the originals, check the result and explain what happened after the factory recovers.",
+            "in_scope": [
+              "Apply the current saved repair proposal only after explicit factory-owner approval through /doctor apply or the equivalent CLI command for the selected issue.",
+              "Use the shared doctor conversation and entry points from the prerequisite stories, including closed issues and the CLI fallback when the daemon is down.",
+              "Have the flagship agent perform the approved changes to the issue's database rows, worktree files and session files. The factory validates and enforces the approved scope; a prompt instruction alone is insufficient.",
+              "Stop conflicting activity for the selected issue before changing its state so normal workflow work cannot overlap with the repair.",
+              "Before changes, have the repair agent create restorable copies of affected files and back up affected database rows. Keep backups and rollback information available after successful, failed or interrupted repairs.",
+              "Record intended and performed changes and preserve repair progress and outcomes with the saved doctor history.",
+              "Cover issue-scoped data and file repairs such as stranded runs, posted reports missing their local record, stale polling flags, blocked command-processing positions or graph progress, and worktree or session-file problems left by failed runs.",
+              "Stop and report for owner review when new findings require changes beyond the approved proposal. Retain the backups and record what has already changed.",
+              "Verify the repair by checking affected rows and files after changes. Report failures, partial results and unresolved findings honestly rather than claiming the issue is fixed.",
+              "After a completed, verified repair, end the active conversation, force one factory restart and report the outcome after recovery through the applicable GitHub or CLI entry point. Retain the outcome so the restart does not lose the report; analysis alone never triggers a restart.",
+              "Carry forward the shared doctor limits on issue scope, secrets and evidence handling. Use the selected provider's flagship model for every agent invocation during repair, with no downgrade when unavailable."
+            ],
+            "not_in_scope": [
+              "Deleting successful-repair file copies; this belongs to cleanup task #413.",
+              "Unapproved changes or unrestricted agent access to database rows and files.",
+              "Reading or repairing other issues or repositories, or scanning the whole factory.",
+              "Runtime changes to litefactory source code, migrations, configuration or workflow rules; report a required code fix for normal development.",
+              "Deleting history or changing remote issue state, labels or branches as a repair. Doctor conversation and outcome reports remain included.",
+              "Adding a workflow mode or starting workflow stages from doctor.",
+              "Replacing the diagnosis, proposal, saved conversation or GitHub priority-command capabilities owned by the prerequisite stories.",
+              "Restarting the factory for diagnosis alone or silently using a weaker model."
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Fit and retained design",
+                  "decision": "Extend the independent doctor service, conversation, immutable proposal, issue-scoped evidence, flagship invocation and shared result/usage binding from story-001. Use story-002's authenticated priority intake and report path. Add Apply without making doctor a workflow mode.",
+                  "rationale": "Repair needs the same durable identity and authority across CLI and GitHub. These prerequisite designs are retained references, not a claim of implementation. Story-002 now supplies explicit inbox, presentation and publication contracts; reuse them rather than adding a second repair queue."
+                },
+                {
+                  "area": "Agent performs the repair",
+                  "decision": "Give the flagship repair agent scoped backup, read, write and verify operations through factory-owned tools. The agent invokes those operations and supplies approved replacement content; the engine enforces targets, values or patches, preconditions and order on every call. Keep native shell, filesystem, arbitrary SQL, delegation and ambient tools disabled.",
+                  "rationale": "This honors the owner's clarification that the agent carries out the repair while preventing writes outside the exact approved proposal. A broad workspace-write sandbox cannot enforce row or file-level approval."
+                },
+                {
+                  "area": "Exact approval",
+                  "decision": "At intake, atomically bind /doctor apply or doctor apply <repository> <issue> to the current reviewable proposal revision/digest, conversation generation, source command and authenticated local or GitHub principal. Require a proposal actually presented through an entry point. Any subsequent proposal change invalidates unused approval.",
+                  "rationale": "A delayed command must not approve a newer plan. Duplicate delivery retrieves the original repair operation and never authorizes another repair. Ordinary replies, agent results and transport receipts grant no repair authority."
+                },
+                {
+                  "area": "Reuse and collisions",
+                  "decision": "Reuse store transactions, result receipts, config.Paths, internal/git path/status facilities, provider cancellation and durable report delivery. Reuse the exact-approval and immutable-reservation pattern from Bug repair, but not its graph, source commits, attempt budget or permissive file scope.",
+                  "rationale": "internal/store/bug_repairs.go binds exact revisions. internal/turn/bug_repair_handoff.go deliberately treats its file list as guidance and expects source saving; that contract conflicts with doctor's strict data-only repair limits."
+                },
+                {
+                  "area": "Exclusion",
+                  "decision": "Add a durable issue repair hold and generation checked by every normal writer that can touch that issue, plus a direct daemon control operation that blocks admission, cancels the target's processes and waits for its writers to finish. Keep this control outside workflow queues. Refuse mutation if exclusion cannot be demonstrated.",
+                  "rationale": "internal/daemon/inflight.go spans dispatch through reporting and watermark updates, while sessions.lock_owner covers less. Existing Daemon.Quiesce is global and does not supply per-issue cancellation. Clearing a stale lock alone cannot make a repair safe."
+                },
+                {
+                  "area": "Backups and rollback",
+                  "decision": "The agent creates all declared file copies and row backups through scoped tools before the first substantive repair write. Retain originals, manifests and rollback instructions after success, failure and interruption. No automatic rollback and no backup deletion in this story.",
+                  "rationale": "The owner explicitly assigned successful-repair file-copy deletion to #413. Database and filesystem changes cannot share a single transaction; retained originals and an honest partial-state journal are required."
+                },
+                {
+                  "area": "Restart semantics",
+                  "decision": "Treat restart as one durable recovery operation per verified repair. Close the active conversation and record restart/report intent before handing off to a factory-owned restart coordinator. Require a newly started daemon to acknowledge the restart identity. A failed or uncertain restart remains pending and must not trigger blind repeat restarts.",
+                  "rationale": "internal/launchd/plist.go sets KeepAlive=false; killing the daemon does not ensure recovery. Exactly-once external process effects cannot be inferred from a command's lost response."
+                },
+                {
+                  "area": "Guidance and limits",
+                  "decision": "Apply plan-go-guidance to the service, database, daemon and process boundaries, and plan-agent-setup-guidance to the apply role and tool/result contracts. Retain the prerequisite provider and local-owner assumptions. No frontend design applies.",
+                  "rationale": "The story changes code and agent permissions. This review uses source and retained incident reports; it makes no live repair, restart, provider-isolation or test claim. No owner-only architectural choice remains open."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Repair operation and approval",
+                  "definition": "Doctor-owned operation linked to conversation, immutable proposal revision, source approval and invocation. States distinguish reserved, quiescing, backed-up, applying, verifying, needs-review, verified, restart-pending and recovered, with explicit failures and timestamps.",
+                  "constraints": "Unique source approval and proposal execution identity; one active apply per issue. Replayed requests preserve the operation. State transitions use expected revision and generation. A completed or partially applied proposal never silently becomes a fresh repair. Retain story-002 inbox identity and confirmed presentation references with the approval; queued dispatch cannot select a different proposal."
+                },
+                {
+                  "entity": "Issue repair hold",
+                  "definition": "Durable target identity, repair operation, fencing generation, daemon instance and quiescence acknowledgment. It bars normal work and is distinct from existing workflow session locks and doctor conversation serialization.",
+                  "constraints": "Install before cancellation; acknowledge only after the target's process groups, report writers, cleanup and recovery callbacks have stopped. Survives repair-process death. Startup and all normal write paths honor it before orphan reconciliation or dispatch can alter repair targets."
+                },
+                {
+                  "entity": "Backup manifest",
+                  "definition": "Per-operation manifest records target handles, source identity, original file existence/bytes/mode/digest, affected row values and schema version, copy location, durable-completion marker and restoration dependencies.",
+                  "constraints": "Paths come from config.Paths and are outside worktrees/session cleanup roots. Private directories/files; exact originals are retained locally, never sent unredacted to the agent. No whole-database copy containing unrelated issues. Missing-file originals are represented explicitly; copies cannot overwrite each other or be cleaned while referenced."
+                },
+                {
+                  "entity": "Step journal",
+                  "definition": "Each approved step has a stable ID, operation type, target, expected before state, permitted after state, required backups, write intent, observed after state and verification status. Reuse durable request receipts for agent tool calls.",
+                  "constraints": "Row update and its journal outcome commit together. File intent precedes durable atomic replacement; after a crash, compare the actual file to before/after digests to settle or mark uncertain. A third state requires review. Never infer success from the agent's text or execute an uncertain step twice."
+                },
+                {
+                  "entity": "Restart and recovery receipt",
+                  "definition": "One restart record per verified repair, with operation token, old daemon instance or confirmed-down observation, dispatch state, new daemon acknowledgment and recovery outcome. Retain redacted report content and delivery identity separately.",
+                  "constraints": "Only engine verification can create restart intent. Acknowledgment binds the new daemon instance and repair token. Uncertain dispatch permits observation, not a second kill. Report retry does not rerun repair or restart."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Doctor apply service",
+                  "responsibility": "Reserve exact approval, establish exclusion, revalidate the proposal, invoke the flagship agent with the apply tool ceiling, reconcile its operations, verify changes and persist the restart handoff.",
+                  "access": "Extend internal/doctor from story-001 through context-first, consumer-owned interfaces. CLI and GitHub call the same service. Reuse per-invocation flagship resolution and durable results; no turn.Execute or normal graph launch."
+                },
+                {
+                  "component": "Scoped repair tool broker",
+                  "responsibility": "Expose backup-file, backup-rows, write-file, change-rows and verify-step operations bound to the repair ID and approved target handles. Enforce complete backups before writes, bounded inputs, fresh preconditions, operation order and active fencing generation.",
+                  "access": "No agent-selected raw database connection, SQL, absolute path, process ID, executable or restart command. Factory code resolves handles. Tools return durable factual receipts; they cannot extend the proposal or approve a newly discovered fix."
+                },
+                {
+                  "component": "Store repair accessors",
+                  "responsibility": "Own repair/hold/journal persistence and a closed catalog of issue-scoped corrective row operations. Validate relationships and legal state transitions and record before/after data atomically with each database change.",
+                  "access": "All SQL remains internal/store, using new embedded migrations and the existing one-connection pool. Do not hold transactions across provider, filesystem, forge or process I/O. Do not call the global ReconcileOrphans as an issue repair."
+                },
+                {
+                  "component": "File repair adapter",
+                  "responsibility": "Resolve approved relative targets against recorded worktree/session roots, create durable copies, validate replacement content and atomically replace approved regular files. Keep restoration metadata and inspect changes after interrupted writes.",
+                  "access": "Reuse rooted-path and regular-file checks and internal/git for git inspection. Refuse symlink traversal, hard-link aliasing, nonregular files, changing roots and undeclared targets. No git reset, clean, commit, push, shared git metadata or branch changes."
+                },
+                {
+                  "component": "Daemon exclusion/control adapter",
+                  "responsibility": "Add per-issue cancellation and drain accounting to the existing inflight/worker lifecycle. Make dispatch, report/recovery, schedule/continuation, parent-driven target updates and startup reconciliation respect repair holds. Expose a protected local control endpoint outside the task queue.",
+                  "access": "The CLI uses the endpoint while the daemon lives. When demonstrably down, acquire the existing singleton lock while establishing exclusion and repairing, so a daemon cannot start concurrently. Never steal a live lock or kill a PID without verified process identity."
+                },
+                {
+                  "component": "Restart coordinator and reporting adapter",
+                  "responsibility": "Own a durable handoff that survives the repairing process. Reuse launchd service identity/status through an explicit restart operation; extend shared report delivery with a doctor namespace and completion behavior independent of normal watermarks.",
+                  "access": "Do not use Manager.Install for restart because it rewrites the plist. A known foreground daemon uses a trusted same-binary daemon-run handoff after singleton release; a down installation starts the existing daemon entry point. Resolve credentials in the new process. The agent receives neither service credentials nor lifecycle tools."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Prepare and quiesce",
+                  "contract": "Validate provider capability, restart route, exact proposal and available backup space before mutation. Reserve approval and install the hold. Cancel only verified target processes, drain all target writers, then refresh evidence. Planned process-stop effects and normal cancellation bookkeeping are recorded separately from repair edits; backup the declared state needed to explain and restore them. If refreshed repair preconditions differ, stop for review.",
+                  "rationale": "The snapshot shown at proposal time may have changed. Cancellation is required orchestration, but it cannot silently justify a different state repair or discard process outcomes."
+                },
+                {
+                  "element": "Issue-scoped row operations",
+                  "contract": "Support explicit corrective operations for stranded-run termination/lock settlement, evidence-backed report acknowledgment, polling flags, exact command-consumption corrections and graph dispatch/wait recovery. Each operation defines related rows and invariants, including immutable history and foreign keys. Include all affected rows in the approved manifest; never permit generic table edits, forged approval/test success, skipped unapproved commands or changes to identities, credentials, schema or workflow rules.",
+                  "rationale": "A single flag can affect report, run and command state together. Existing CompleteReportDelivery may advance a source watermark, so its full effect must be modeled, not called as an innocuous row setter."
+                },
+                {
+                  "element": "Shared aggregates",
+                  "contract": "Where target state is stored in a parent/shared blob, use a typed projection and compare-and-swap that changes only the selected issue's fields and preserves sibling bytes/meaning. If isolation cannot be established, refuse that repair and describe the limitation. Do not read sibling histories to make the repair possible.",
+                  "rationale": "Physical row ownership is not always the same as issue ownership. The one-issue boundary from diagnosis remains binding during apply."
+                },
+                {
+                  "element": "Files and restorable copies",
+                  "contract": "Before any approved writes, the agent requests and verifies all file copies and row backups. File tools preserve original bytes, modes and existence, sync durable copies/manifest, and recheck expected originals immediately before atomic replacement. Refuse insufficient space or incomplete copies before writing. Preserve unrelated dirty/index content and exclude factory source, migrations, configuration, workflow/authority artifacts and the repair journal itself.",
+                  "rationale": "Retained copies must actually restore the original state. In particular, a litefactory development worktree does not make factory source code an allowed runtime repair target."
+                },
+                {
+                  "element": "Verification and partial failure",
+                  "contract": "After each step and at completion, the engine rereads affected rows/files, checks declared postconditions and verifies all tool effects are within the approved manifest. The agent explains those observations. Any unapproved new finding, drift, ambiguous file write, failed verification or process uncertainty revokes further writes, preserves the journal/backups and leaves needs-review. Keep the target held after partial mutation until a reviewed continuation or restoration resolves it; release a pre-write hold only after recording that no repair mutation occurred.",
+                  "rationale": "No transaction covers files and database together. Automatic rollback is not assumed, and a partially repaired issue must not resume workflow work as though repair succeeded."
+                },
+                {
+                  "element": "Restart once and recovery",
+                  "contract": "Once all steps are independently verified, atomically retain verified status, ended conversation, restart token and report intent. A separate factory coordinator claims one restart dispatch. For a running service, initiate its normal shutdown and startup; for a confirmed-down service, treat one startup as the recovery cycle. Startup reads the repair hold before general orphan recovery, acknowledges the token, rechecks repaired state and releases the hold only when consistent. If the external restart response is lost, recover by token/instance observations; absent proof remains uncertain without another restart.",
+                  "rationale": "The restart affects the factory process as explicitly requested; it grants no doctor access to other issues. Normal daemon shutdown/recovery handles unrelated work. Foreground/down handling is a recorded architectural assumption, not a new workflow mode."
+                },
+                {
+                  "element": "Outcome delivery",
+                  "contract": "After recovery, render verified changes, backup references, restart observation and unresolved findings. GitHub uses story-002's authenticated destination and retained report marker; doctor delivery completion must not advance the normal workflow watermark. CLI waits within a bounded context for recovery or returns the operation ID with a truthful pending status; a read-only doctor status <repository> <issue> retrieves the same durable outcome after disconnection. Lost publication acknowledgment triggers receipt lookup, never repair/restart replay.",
+                  "rationale": "internal/store/report_deliveries.go and internal/turn/report_delivery.go already separate possibly-sent, confirmed and completed delivery, but their default completion can consume normal source comments. Doctor needs its own completion semantics."
+                },
+                {
+                  "element": "Later cleanup and evidence",
+                  "contract": "Expose backup manifest state and protected active/failed/uncertain references to cleanup #413; this story only marks successful copies eligible under that future policy and never removes them. Retain story-001's field-guide and provider-isolation evidence prerequisites. Authentic restart/launchd and process-quiescence observations must be versioned and distinguished from simulated recovery evidence.",
+                  "rationale": "Cleanup is not a delivery dependency. Source review supports this design but does not establish live host behavior or claim a repaired incident."
+                },
+                {
+                  "element": "Binding delayed GitHub approval",
+                  "contract": "Replace story-002's unavailable apply response with deterministic factory approval intake. In one transaction retain the inbox source identity, authenticated actor, active generation, exact current proposal and its completed presentation. For GitHub require presentation to precede the source command using verifiable comment ordering or trustworthy cross-entry-point timing; refuse ambiguity, an intervening proposal revision or incomplete multipart presentation. For CLI bind the displayed current revision at the local command. Queue only the resulting immutable repair reservation, never a bare apply instruction to be rebound later. At dispatch recheck that the reservation is still current; duplicates retrieve the original operation.",
+                  "rationale": "Story-002 can retain commands across delays and supplies confirmed presentation provenance. Binding whatever is current only when the worker becomes free could authorize a proposal the owner had not seen. This makes the retained exact-approval decision concrete without changing its intent."
+                },
+                {
+                  "element": "Stop, serialization and interrupted apply",
+                  "contract": "Reuse the shared per-issue doctor writer and story-002's reserved worker for apply; keep Stop on the short control path. Serialize each tool mutation with fencing checks so Stop revokes every subsequent write and waits for any already-admitted write to settle. Before verified restart handoff, Stop ends agent authority, retains backups/journal and leaves a partial or uncertain repair held for review; a proven no-write repair may release its hold. After verified handoff, Stop cannot undo that committed recovery operation or trigger another restart; return its durable status. Never apply story-002's automatic diagnosis retry to a repair with possible writes. Reconcile receipts and observed state first; any substantive continuation or restoration needs a newly reviewed proposal and explicit approval.",
+                  "rationale": "Conversation stop must not erase an unresolved repair or let stale tools mutate data. Diagnosis retry is safe under a read-only contract; retrying a writing agent is not equivalent. A retained hold belongs to the repair operation, even after the conversation ends."
+                },
+                {
+                  "element": "Startup and writer coverage",
+                  "contract": "Load and enforce repair holds before every startup recovery path, including Bug reconciliation, orphan reconciliation, graph recovery and report recovery. Normal dispatch and worker continuations must check holds, and in-flight writers must join the target drain. Parent-owned writers use target-aware guards or briefly coordinated exclusion without granting doctor access to sibling state. Doctor receipts, status and recovery reporting remain usable under the hold. The replacement daemon acknowledges restart only after its singleton ownership and held-target checks are established.",
+                  "rationale": "internal/daemon/daemon.go:Start currently calls Bug reconciliation before ReconcileOrphans, then graph reconciliation. internal/daemon/worker.go continues graph steps before releasing inflight ownership. Checking only session admission or only ReconcileOrphans leaves real competing writers."
+                },
+                {
+                  "element": "Apply result contract",
+                  "contract": "Extend the shared typed doctor result with repair-operation identity, completed step references, observations and unresolved findings. The agent uses communication preflight, submit and receipt; factory binding supplies authority. Durable tool receipts and fresh engine verification determine actual changes, even if the agent exits without its final result. Missing or invalid final output is recorded as an interrupted/failed attempt; it cannot erase journaled writes, declare verification passed or create a fresh apply. Preserve receipt identity on reply loss.",
+                  "rationale": "Story-001's shared result transport remains the single result route. Agent prose, a result receipt and the factual repair journal serve different purposes; none alone proves the repair or restart succeeded."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [
+                "story-001",
+                "story-002"
+              ],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "agent-setup"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -73,7 +73,10 @@ func (d *Daemon) runWorker(ctx context.Context, t *task, body func()) {
 		}()
 		body()
 		// Still holding the session: owed graph stages follow without a tick.
-		d.continueGraphSteps(ctx, t)
+		held, err := d.doctorHeldSession(ctx, t.session.ID)
+		if err == nil && !held {
+			d.continueGraphSteps(ctx, t)
+		}
 	}()
 	if ctx.Err() != nil {
 		t.recordWorkerStatus(workerCancelled)
