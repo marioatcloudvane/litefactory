@@ -53,7 +53,8 @@ func TestPlanGraphSaveAppendsAStoryIndexToAHeadinglessPlanBrief(t *testing.T) {
 
 	feature, err := f.db.GetManagedFeature(t.Context(), f.ref().String())
 	mustProgress(t, err)
-	if !feature.Ready || !graphPlanState(t, f).PlanReady(planbrief.ContentScope{Roles: []string{"go-implementation-engineer"}}) {
+	saved := graphPlanState(t, f)
+	if !feature.Ready || !saved.PlanReady(planbrief.ContentScope{Roles: []string{"go-implementation-engineer"}}) {
 		t.Fatalf("Plan not ready after saving over a headingless plan_brief.md: %+v", feature)
 	}
 
