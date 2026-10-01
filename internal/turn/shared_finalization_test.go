@@ -240,6 +240,42 @@ func TestSharedFinalizationCompletionRevalidation(t *testing.T) {
 	}
 }
 
+// TestSharedFinalizationZeroExitRejectionKeepsDiagnostic is #431 (BC-6): when
+// finalize turns a zero-exit success into a failure because the final result
+// was rejected, the rejection message also lands in Diagnostic, which is what
+// the run report shows.
+func TestSharedFinalizationZeroExitRejectionKeepsDiagnostic(t *testing.T) {
+	_, _, o := agentResultFixture(t, "implement")
+	service, err := BindAgentResultService(t.Context(), o)
+	mustProgress(t, err)
+	original := &agent.RunResult{Outcome: agent.OutcomeSucceeded, ExitCode: 0, ResultText: ""}
+	got, err := (&preparedMCP{service: service}).finalize(t.Context(), &preparation{}, nil, original, nil)
+	mustProgress(t, err)
+	if got.Outcome != agent.OutcomeFailed || got.ExitCode != 0 {
+		t.Fatalf("rejected zero-exit result not reported as failed: %+v", got)
+	}
+	if !strings.HasPrefix(got.Reason, "Shared final result rejected: ") {
+		t.Fatalf("rejection reason lost: %+v", got)
+	}
+	if !strings.Contains(got.Diagnostic, "Shared final result rejected") || !strings.Contains(got.Diagnostic, got.Reason) {
+		t.Fatalf("rejection message missing from Diagnostic: %q", got.Diagnostic)
+	}
+	if original.Diagnostic != "" || original.Outcome != agent.OutcomeSucceeded {
+		t.Fatal("finalization mutated the original run result")
+	}
+}
+
+// TestImplementFinalWorktreeRuleWording is #431 (BC-7): the rule added to the
+// Implement prompt by bindFinalRoute forbids non-session changes after the
+// final result and keeps .aiteam/ session files writable.
+func TestImplementFinalWorktreeRuleWording(t *testing.T) {
+	for _, want := range []string{"After you submit the final result", "no non-session file may change", naming.AITeamDirName + "/"} {
+		if !strings.Contains(implementFinalWorktreeRule, want) {
+			t.Errorf("Implement worktree rule lacks %q: %s", want, implementFinalWorktreeRule)
+		}
+	}
+}
+
 func TestSharedFinalizationCancelledContextAndRunnerError(t *testing.T) {
 	for _, scenario := range []string{"cancelled", "deadline", "runner_error", "nil_result", "nil_error_result"} {
 		t.Run(scenario, func(t *testing.T) {

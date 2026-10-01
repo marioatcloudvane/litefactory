@@ -210,6 +210,175 @@ func TestResultAggregateWorktree_CompletionAndRecovery(t *testing.T) {
 		})
 	}
 }
+// writeAggregateFixtureFile writes a worktree file, creating its directories,
+// and removes it again when the test ends.
+func writeAggregateFixtureFile(t *testing.T, w *git.Worktree, rel string, content []byte) {
+	t.Helper()
+	path := filepath.Join(w.Path(), filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// removeAggregateFixturePath removes a worktree path written by a sub-test.
+func removeAggregateFixturePath(t *testing.T, w *git.Worktree, rel string) {
+	t.Helper()
+	if err := os.RemoveAll(filepath.Join(w.Path(), filepath.FromSlash(rel))); err != nil {
+		t.Error(err)
+	}
+}
+
+// requireAggregateStatusPath proves git reports the path, so an exemption is
+// never vacuously satisfied by an ignored or unseen file.
+func requireAggregateStatusPath(t *testing.T, w *git.Worktree, rel string) {
+	t.Helper()
+	changes, err := w.Status(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range changes {
+		if c.Path == rel {
+			return
+		}
+	}
+	t.Fatalf("git status does not report %s: %+v", rel, changes)
+}
+
+// worktreeDiagnostic returns the code=worktree diagnostic on $.snapshot_id.
+func worktreeDiagnostic(d ar.Diagnostics) (ar.Diagnostic, bool) {
+	for _, diag := range d.Diagnostics {
+		if diag.Path == "$.snapshot_id" && diag.Code == "worktree" {
+			return diag, true
+		}
+	}
+	return ar.Diagnostic{}, false
+}
+
+// TestResultAggregateWorktree_SessionFilesExempt is #431. Session bookkeeping
+// under the top-level .aiteam/ directory that changes after aggregate capture
+// does not invalidate the aggregate (BC-1); every other path keeps the full
+// coverage and byte-identity checks and names the path that differed (BC-2,
+// BC-3); and only the top-level .aiteam/ directory is exempt (BC-4).
+func TestResultAggregateWorktree_SessionFilesExempt(t *testing.T) {
+	v := executedAggregateFixture(t, 2)
+	db := v.fixture.db
+	if err := RetainAgentResultAggregate(t.Context(), db, v.binding, v.worktree, "aggregate-1", v.selected, v.capture); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := agent.AggregateReference("aggregate-1", []string{"aggregate-check-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator := ResultAggregateValidator(t.Context(), db, v.binding, v.worktree, v.selected)
+	if d := validator(ref); !d.Valid {
+		t.Fatalf("baseline aggregate rejected: %+v", d)
+	}
+
+	t.Run("BC-1 session file added after capture", func(t *testing.T) {
+		const manifest = ".aiteam/lf-aggregate-fixture/2026-10-01/fixture/MANIFEST.md"
+		writeAggregateFixtureFile(t, v.worktree, manifest, []byte("# Manifest\n\nrequests: ee21b769, 382be94c\n"))
+		defer removeAggregateFixturePath(t, v.worktree, ".aiteam")
+		requireAggregateStatusPath(t, v.worktree, manifest)
+		d := validator(ref)
+		if diag, found := worktreeDiagnostic(d); found || !d.Valid {
+			t.Fatalf("session file absent from the snapshot invalidated the aggregate: %+v %+v", diag, d)
+		}
+	})
+
+	t.Run("BC-1 session file snapshotted with older bytes", func(t *testing.T) {
+		const notes = ".aiteam/lf-aggregate-fixture/2026-10-01/fixture/NOTES.md"
+		older := []byte("notes before the final result\n")
+		writeAggregateFixtureFile(t, v.worktree, notes, older)
+		defer removeAggregateFixturePath(t, v.worktree, ".aiteam")
+		files, err := v.capture.SnapshotFiles()
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(slices.Clone(files), agent.StorySnapshotFile{Path: notes, Content: older, SHA256: agent.StoryDigest(older)})
+		slices.SortFunc(files, func(a, b agent.StorySnapshotFile) int { return strings.Compare(a.Path, b.Path) })
+		digest := agent.SnapshotDigest(files)
+		capture, err := agent.NewAggregateCapture(files, []agent.AggregateCheckClaim{{ID: "aggregate-check-session", ExecutionID: "aggregate-execution-session", Scope: "aggregate", Name: "go test -count=1 ./...", Executed: true, Passed: true, Evidence: v.capture.Checks[0].Evidence, ImplementationDigest: digest}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := RetainAgentResultAggregate(t.Context(), db, v.binding, v.worktree, "aggregate-session", v.selected, capture); err != nil {
+			t.Fatal(err)
+		}
+		sessionRef, err := agent.AggregateReference("aggregate-session", []string{"aggregate-check-session"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d := validator(sessionRef); !d.Valid {
+			t.Fatalf("session aggregate rejected before any change: %+v", d)
+		}
+		writeAggregateFixtureFile(t, v.worktree, notes, []byte("notes edited after the final result\n"))
+		d := validator(sessionRef)
+		if diag, found := worktreeDiagnostic(d); found || !d.Valid {
+			t.Fatalf("session file with older snapshot bytes invalidated the aggregate: %+v %+v", diag, d)
+		}
+	})
+
+	t.Run("BC-2 BC-3 changed non-session file", func(t *testing.T) {
+		path := filepath.Join(v.worktree.Path(), "calc.go")
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(bytes.Clone(before), []byte("// changed after capture\n")...), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.WriteFile(path, before, 0o600); err != nil {
+				t.Error(err)
+			}
+		}()
+		d := validator(ref)
+		diag, found := worktreeDiagnostic(d)
+		if d.Valid || !found {
+			t.Fatalf("changed non-session file accepted: %+v", d)
+		}
+		if !strings.Contains(diag.Message, "calc.go") || !strings.Contains(diag.Actual, "calc.go") {
+			t.Fatalf("worktree rejection does not name the file that differed: %+v", diag)
+		}
+	})
+
+	t.Run("BC-2 BC-3 uncaptured non-session file", func(t *testing.T) {
+		writeAggregateFixtureFile(t, v.worktree, "late.go", []byte("package sample\n"))
+		defer removeAggregateFixturePath(t, v.worktree, "late.go")
+		d := validator(ref)
+		diag, found := worktreeDiagnostic(d)
+		if d.Valid || !found {
+			t.Fatalf("uncaptured non-session file accepted: %+v", d)
+		}
+		if !strings.Contains(diag.Message, "late.go") || !strings.Contains(diag.Actual, "late.go") {
+			t.Fatalf("worktree rejection does not name the uncaptured file: %+v", diag)
+		}
+	})
+
+	for _, rel := range []string{"src/.aiteam/x", ".aiteamx/y"} {
+		t.Run("BC-4 "+rel, func(t *testing.T) {
+			writeAggregateFixtureFile(t, v.worktree, rel, []byte("not a session file\n"))
+			defer removeAggregateFixturePath(t, v.worktree, strings.SplitN(rel, "/", 2)[0])
+			requireAggregateStatusPath(t, v.worktree, rel)
+			d := validator(ref)
+			diag, found := worktreeDiagnostic(d)
+			if d.Valid || !found {
+				t.Fatalf("%s was treated as a session file: %+v", rel, d)
+			}
+			if !strings.Contains(diag.Actual, rel) {
+				t.Fatalf("worktree rejection does not name %s: %+v", rel, diag)
+			}
+		})
+	}
+
+	if d := validator(ref); !d.Valid {
+		t.Fatalf("fixture not restored after sub-tests: %+v", d)
+	}
+}
+
 func TestResultAggregateWorktree_RejectionsAndValidateReadOnly(t *testing.T) {
 	v := executedAggregateFixture(t, 2)
 	db := v.fixture.db
