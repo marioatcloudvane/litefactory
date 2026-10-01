@@ -100,6 +100,9 @@ type Settings struct {
 	// fallback to the embedded default (US-2 AC-3).
 	TeamConfig                 string `yaml:"team_config"`
 	WorktreeRetainDays         int    `yaml:"worktree_retain_days"`
+	DeployBackupKeep           int    `yaml:"deploy_backup_keep"`
+	LogRetainDays              int    `yaml:"log_retain_days"`
+	ArchiveRetainDays          int    `yaml:"archive_retain_days"`
 	LogLevel                   string `yaml:"log_level"`
 	AttachmentMaxImageBytes    int64  `yaml:"attachment_max_image_bytes"`
 	AttachmentMaxDocumentBytes int64  `yaml:"attachment_max_document_bytes"`
@@ -448,6 +451,9 @@ func Defaults() Config {
 			WorktreeRoot:               "",
 			TeamConfig:                 "",
 			WorktreeRetainDays:         DefaultWorktreeRetainDays,
+			DeployBackupKeep:           DefaultDeployBackupKeep,
+			LogRetainDays:              DefaultLogRetainDays,
+			ArchiveRetainDays:          DefaultArchiveRetainDays,
 			LogLevel:                   DefaultLogLevel,
 			AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,
 			AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
@@ -544,6 +550,9 @@ const (
 	DefaultMaxConcurrentRuns    = 3
 	DefaultFeaturePrefix        = "lf"
 	DefaultWorktreeRetainDays   = 14
+	DefaultDeployBackupKeep     = 5
+	DefaultLogRetainDays        = 30
+	DefaultArchiveRetainDays    = 30
 	DefaultLogLevel             = "info"
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"

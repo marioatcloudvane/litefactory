@@ -184,6 +184,14 @@ type Options struct {
 	// Retirement shares turn coordination; zero options disable automatic retirement.
 	Retirement RetirementExecutionOptions
 
+	// Archive configures the daily archive of closed tasks' data. An empty
+	// directory, or disabled Retirement coordination, disables it.
+	Archive ArchiveOptions
+
+	// Housekeeping configures the daily backup pruning and global log trimming.
+	// Unset fields leave the matching steps unregistered.
+	Housekeeping HousekeepingOptions
+
 	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
 	// False disables automatic recovery without affecting manual schedules.
 	AutoResumeOnSessionLimit bool
@@ -353,6 +361,8 @@ type Daemon struct {
 	publications publicationRecovery
 	mcpClose     func() error
 	retirement   RetirementExecutionOptions
+	archive      ArchiveOptions
+	housekeeping *Housekeeping
 
 	db        *store.DB
 	forge     Forge
@@ -460,6 +470,8 @@ func New(opts Options) (*Daemon, error) {
 		conflictProposalTTL:      opts.ConflictProposalTTL,
 		instanceID:               opts.InstanceID,
 		retirement:               opts.Retirement,
+		archive:                  opts.Archive,
+		housekeeping:             newHousekeeping(opts.Housekeeping, opts.Logger),
 		autoResumeOnSessionLimit: opts.AutoResumeOnSessionLimit,
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may

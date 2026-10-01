@@ -63,6 +63,8 @@ type Setup struct {
 	Environ []string
 	// Now is the clock, passed through to the daemon. Nil means time.Now.
 	Now func() time.Time
+	// LogSink rotates daemon.log for housekeeping. Nil skips daemon.log rotation.
+	LogSink LogRotator
 }
 
 // Startup is what the daemon resolved at boot.
@@ -410,10 +412,20 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	daemon, err := New(Options{
-		Doctor:                   &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
-		Bug:                      bugRuntime,
-		BugTests:                 bugRuntime.Child,
-		Retirement:               RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
+		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
+		Bug:        bugRuntime,
+		BugTests:   bugRuntime.Child,
+		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
+		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
+			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,
+		})}},
+		Housekeeping: HousekeepingOptions{
+			DBPath:           s.Paths.DBPath(),
+			DeployBackupKeep: s.Config.Settings.DeployBackupKeep,
+			LogsDir:          s.Paths.LogsDir(),
+			LogRetainDays:    s.Config.Settings.LogRetainDays,
+			LogSink:          s.LogSink,
+		},
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		DB:                       s.DB,
 		Forge:                    client,

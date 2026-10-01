@@ -38,6 +38,9 @@ settings:
   worktree_root: %q # empty means the per-repository sibling default
   team_config: %q # deprecated; central teams use teams.index_url above
   worktree_retain_days: %d # daily cleanup of safe closed-task worktrees; days since last completed run
+  deploy_backup_keep: %d # newest pre-deploy database backups kept by daily cleanup; valid range: %d..%d
+  log_retain_days: %d # days rotated global logs are kept before daily deletion; valid range: %d..%d
+  archive_retain_days: %d # days archive files and the run logs they cover are kept before daily deletion; valid range: %d..%d
   log_level: %q # debug, info, warn or error
   # Attachment ingestion is additionally gated per workflow mode below.
   attachment_max_image_bytes: %d # valid range: %d..%d
@@ -124,7 +127,11 @@ tool_profiles:
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,
 		d.Settings.TeamConfig,
-		d.Settings.WorktreeRetainDays, d.Settings.LogLevel,
+		d.Settings.WorktreeRetainDays,
+		d.Settings.DeployBackupKeep, MinDeployBackupKeep, MaxDeployBackupKeep,
+		d.Settings.LogRetainDays, MinLogRetainDays, MaxLogRetainDays,
+		d.Settings.ArchiveRetainDays, MinArchiveRetainDays, MaxArchiveRetainDays,
+		d.Settings.LogLevel,
 		d.Settings.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes,
