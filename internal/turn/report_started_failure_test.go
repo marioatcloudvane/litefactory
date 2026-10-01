@@ -44,8 +44,8 @@ func TestReportOfARunThatFailedBeforeAnAgentNamesTheRecordedError(t *testing.T) 
 		LogPath:          func(int) string { return filepath.Join(f.paths.Home(), "logs", "seeded.jsonl") },
 	})
 	mustProgress(t, err)
-	_, err = f.db.StartRun(t.Context(), run.ID)
-	mustProgress(t, err)
+	// AllocateRun already yields a started (running) row here, as the
+	// existing seedFinishedRun relies on; finish it the way finalize does.
 	_, err = f.db.FinishRun(t.Context(), run.ID, store.RunOutcome{Status: store.RunFailed, Error: cause})
 	mustProgress(t, err)
 
