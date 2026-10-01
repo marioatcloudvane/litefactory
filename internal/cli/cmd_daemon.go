@@ -217,6 +217,7 @@ func runDaemonRunWithRecovery(ctx context.Context, env *Env, repairID, recoveryT
 		Token:      token,
 		Logger:     env.Logger,
 		UserAgent:  initUserAgent(env),
+		LogSink:    env.LogSink,
 	})
 	if err != nil {
 		return daemonRunError(err)

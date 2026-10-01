@@ -34,6 +34,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+
+	"github.com/cloudvane/litefactory/internal/daemon"
 )
 
 // Handler runs a command. args holds the positional arguments, validated
@@ -66,6 +68,8 @@ type Env struct {
 	Logger *slog.Logger
 	// Version is the build version reported by --version.
 	Version string
+	// LogSink rotates daemon.log during daemon housekeeping. Nil skips that rotation.
+	LogSink daemon.LogRotator
 	// Keychain reads a macOS keychain generic password, and is the test seam
 	// for it. Nil — the production value — uses /usr/bin/security, exactly as
 	// [secrets.Resolver] documents.
