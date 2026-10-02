@@ -881,6 +881,51 @@ func TestWorktreeRemoveRefusesUncommittedChangesUnlessForced(t *testing.T) {
 	}
 }
 
+// TestWorktreeAddDetachedChecksOutACommitWithoutARef covers the temporary
+// target worktree a Bug check reruns failing tests on: an exact commit with a
+// detached HEAD, no branch created, and nothing left after a forced removal.
+func TestWorktreeAddDetachedChecksOutACommitWithoutARef(t *testing.T) {
+	t.Parallel()
+
+	repo := gittest.New(t)
+	clone := openFixture(t, repo)
+	commit := repo.Head()
+	branches := repo.Git("branch", "--list")
+	dir := filepath.Join(t.TempDir(), "target")
+
+	for name, opts := range map[string]git.WorktreeAddOptions{
+		"short id":   {Branch: commit[:12], Detach: true},
+		"branch":     {Branch: repo.Branch(), Detach: true},
+		"new branch": {Branch: commit, CreateFrom: "origin/" + repo.Branch(), Detach: true},
+	} {
+		if _, err := clone.WorktreeAdd(t.Context(), dir, opts); !errors.Is(err, git.ErrInvalidArgument) {
+			t.Errorf("%s: error = %v, want ErrInvalidArgument", name, err)
+		}
+	}
+	w, err := clone.WorktreeAdd(t.Context(), dir, git.WorktreeAddOptions{Branch: commit, Detach: true})
+	if err != nil {
+		t.Fatalf("detached WorktreeAdd: %v", err)
+	}
+	if head := repo.GitIn(w.Path(), "rev-parse", "HEAD"); head != commit {
+		t.Errorf("HEAD = %s, want %s", head, commit)
+	}
+	if symbolic := repo.GitIn(w.Path(), "rev-parse", "--abbrev-ref", "HEAD"); symbolic != "HEAD" {
+		t.Errorf("HEAD is on %q, want detached", symbolic)
+	}
+	if got := repo.Git("branch", "--list"); got != branches {
+		t.Errorf("branches changed:\n%s\nwant:\n%s", got, branches)
+	}
+	if err := os.WriteFile(filepath.Join(w.Path(), "build-output"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := clone.WorktreeRemove(t.Context(), w.Path(), git.WorktreeRemoveOptions{Force: true}); err != nil {
+		t.Fatalf("forced WorktreeRemove: %v", err)
+	}
+	if list, err := clone.WorktreeList(t.Context()); err != nil || len(list) != 1 {
+		t.Errorf("WorktreeList after removal = %+v, %v; want only the clone", list, err)
+	}
+}
+
 // TestFullCycleLeavesTheRegisteredCloneUntouched is AC-3.10, and the headline
 // assertion of this package.
 //

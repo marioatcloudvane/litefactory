@@ -192,6 +192,12 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"BugRuntime.fetchTarget":              "bug_runtime.go",
 		"BugRuntime.worktree":                 "bug_runtime.go",
 		"BugRuntime.recoverRepairPublication": "bug_runtime_save.go",
+		// A repair attempt merges fetched main into the idle task worktree,
+		// and a Bug check adds and later removes the detached target
+		// worktree its failing tests rerun on; each is one acquisition.
+		"BugRuntime.syncBugTarget":   "bug_runtime_target.go",
+		"BugRuntime.addBugTarget":    "bug_runtime_target.go",
+		"BugRuntime.removeBugTarget": "bug_runtime_target.go",
 	}
 
 	// gated names each call that must not happen outside a critical section,

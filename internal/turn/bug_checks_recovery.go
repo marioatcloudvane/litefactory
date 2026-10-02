@@ -34,21 +34,21 @@ func (h *BugChecksActivity) Reconcile(ctx context.Context, db *store.DB, session
 		last := phase.Commands[len(phase.Commands)-1]
 		// A claimed launch with no retained kernel identity cannot be certified as
 		// undispatched. Keep it unresolved rather than launching or releasing it.
-		if last.Observation.ProcessIdentity == "" {
+		if last.LaunchIdentity() == "" {
 			return phase, false, nil
 		}
 		observer := h.ObserveStopped
 		if observer == nil {
 			observer = bugchecks.ProcessStopped
 		}
-		stopped, observeErr := observer(ctx, last.Observation.ProcessIdentity)
+		stopped, observeErr := observer(ctx, last.LaunchIdentity())
 		if observeErr != nil {
 			return phase, false, observeErr
 		}
 		if !stopped {
 			return phase, false, nil
 		}
-		if err = db.ReconcileBugCheckStopped(ctx, session, operation, last.Ordinal, last.Observation.ProcessIdentity, time.Now().UTC()); err != nil {
+		if err = db.ReconcileBugCheckStopped(ctx, session, operation, last.Ordinal, last.LaunchIdentity(), time.Now().UTC()); err != nil {
 			return phase, false, err
 		}
 		phase, err = db.GetBugCheckPhase(ctx, session, operation)
@@ -65,9 +65,8 @@ func (h *BugChecksActivity) Reconcile(ctx context.Context, db *store.DB, session
 			if command.State != "completed" {
 				return phase, false, nil
 			}
-			if command.Observation.Outcome != "passed" {
-				outcome = command.Observation.Outcome
-				reason = command.Observation.Reason
+			if verdict, why := bugCommandVerdict(command); verdict != "passed" {
+				outcome, reason = verdict, why
 				break
 			}
 		}
