@@ -134,9 +134,13 @@ func runDaemonStatus(ctx context.Context, env *Env, runner launchd.Runner) error
 	if err != nil {
 		return err
 	}
-	lastTick, err := lastTickAt(ctx, paths)
+	lastCompleted, err := lastTickTime(ctx, paths)
 	if err != nil {
 		return err
+	}
+	lastTick := daemonNeverTicked
+	if !lastCompleted.IsZero() {
+		lastTick = lastCompleted.UTC().Format(time.RFC3339)
 	}
 
 	tw := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
@@ -157,6 +161,9 @@ func runDaemonStatus(ctx context.Context, env *Env, runner launchd.Runner) error
 	now := time.Now
 	if env.Now != nil {
 		now = env.Now
+	}
+	if err := printDaemonHeartbeat(env.Stdout, health, lastCompleted, status.Running, now()); err != nil {
+		return err
 	}
 	return printDaemonHealth(env.Stdout, health, status.Running, now())
 }
@@ -191,33 +198,30 @@ func daemonPresence(present bool) string {
 	return "absent"
 }
 
-// lastTickAt reads the poll cursor's last tick, or [daemonNeverTicked].
+// lastTickTime reads the poll cursor's last completed tick; zero when none ever
+// completed.
 //
-// UTC, because every other timestamp litefactory prints is UTC. The database
-// is opened read-only-ish and closed immediately: `daemon status` must not
-// hold a connection while the daemon it is reporting on is writing.
-func lastTickAt(ctx context.Context, paths config.Paths) (_ string, err error) {
+// The database is opened and closed at once: `daemon status` must not hold a
+// connection while the daemon it is reporting on is writing.
+func lastTickTime(ctx context.Context, paths config.Paths) (_ time.Time, err error) {
 	if _, statErr := os.Stat(paths.DBPath()); statErr != nil {
 		if errors.Is(statErr, fs.ErrNotExist) {
-			return "", Preconditionf("no litefactory database at %s: run `litefactory init` first", paths.DBPath())
+			return time.Time{}, Preconditionf("no litefactory database at %s: run `litefactory init` first", paths.DBPath())
 		}
-		return "", fmt.Errorf("read %s: %w", paths.DBPath(), statErr)
+		return time.Time{}, fmt.Errorf("read %s: %w", paths.DBPath(), statErr)
 	}
 
 	db, err := store.Open(ctx, paths.DBPath())
 	if err != nil {
-		return "", err
+		return time.Time{}, err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
 
 	cursor, err := db.GetPollCursor(ctx)
 	if err != nil {
-		return "", err
+		return time.Time{}, err
 	}
-	if cursor.LastTickAt.IsZero() {
-		return daemonNeverTicked, nil
-	}
-	return cursor.LastTickAt.UTC().Format(time.RFC3339), nil
+	return cursor.LastTickAt, nil
 }
 
 // daemonCredential describes where the launchd agent will get the bot token.

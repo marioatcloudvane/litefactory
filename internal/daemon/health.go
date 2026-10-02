@@ -50,14 +50,21 @@ func webhookMode(listening, delivered, hookRegistered bool) string {
 //
 // The first publish after construction writes unconditionally, which resets the
 // previous run's rows: a delivery counts "since start". After that a write
-// happens only when a value changed, or when the previous write failed.
+// happens at once when a fact other than the last heartbeat's start changed (or
+// the previous write failed), and otherwise at most once per
+// [healthRefreshInterval], which keeps the last heartbeat current.
 type healthPublisher struct {
 	mu        sync.Mutex
 	startedAt time.Time
 	started   bool
 	signature string
 	written   bool
+	writtenAt time.Time
 }
+
+// healthRefreshInterval is the longest a snapshot whose facts have not changed
+// goes without being rewritten, and the shortest between two such rewrites.
+const healthRefreshInterval = time.Minute
 
 // publishHealth collects the schedule, secret cache, recorded hooks and
 // listener state and, when anything changed since the last successful write,
@@ -77,8 +84,13 @@ func (d *Daemon) publishHealth(ctx context.Context, now time.Time) {
 		p.started, p.startedAt = true, now
 	}
 	listener.DaemonStartedAt = p.startedAt
+	listener.LastHeartbeatStartedAt = now
+	pause := d.pause.snapshot()
+	listener.DiscoveryPaused, listener.PauseReason = pause.Paused, pause.Reason
+	listener.PausedSince, listener.ExpectedResumeAt = pause.Since, pause.ResumeAt
+	listener.RunsInFlight = d.inflight.size()
 	sig := healthSignature(listener, rows)
-	if p.written && sig == p.signature {
+	if p.written && sig == p.signature && now.Sub(p.writtenAt) < healthRefreshInterval {
 		return
 	}
 	listener.WrittenAt = now
@@ -89,7 +101,7 @@ func (d *Daemon) publishHealth(ctx context.Context, now time.Time) {
 		d.log.WarnContext(ctx, "health snapshot not published; it is retried on the next heartbeat", slog.Any("error", err))
 		return
 	}
-	p.written, p.signature = true, sig
+	p.written, p.signature, p.writtenAt = true, sig, now
 }
 
 func (d *Daemon) collectHealth(ctx context.Context) (store.ListenerStatus, []store.RepoDiscoveryStatus, error) {
@@ -149,7 +161,8 @@ func healthSignature(l store.ListenerStatus, rows []store.RepoDiscoveryStatus) s
 		}
 		return t.UTC().Format(time.RFC3339Nano)
 	}
-	fmt.Fprintf(&b, "%q %t %s", l.ListenAddress, l.Listening, at(l.DaemonStartedAt))
+	fmt.Fprintf(&b, "%q %t %s %t %q %s %s %d", l.ListenAddress, l.Listening, at(l.DaemonStartedAt),
+		l.DiscoveryPaused, l.PauseReason, at(l.PausedSince), at(l.ExpectedResumeAt), l.RunsInFlight)
 	for _, r := range rows {
 		fmt.Fprintf(&b, "|%d %s %s %s %t %t %s", r.RepoID, at(r.LastDeliveryAt), at(r.LastPollFinishedAt),
 			at(r.NextPollDueAt), r.PollOwed, r.SecretPresent, r.WebhookMode)

@@ -421,6 +421,9 @@ type Daemon struct {
 	interval     time.Duration
 	schedule     *discoverySchedule
 	health       healthPublisher
+	pause        pauseState
+	digest       digest
+	fates        commentFates
 	webhook      *webhookRuntime
 	grace        time.Duration
 	log          *slog.Logger
@@ -889,7 +892,7 @@ func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time, immediate boo
 	defer d.pool.wait()
 	defer d.doctor.pool.wait()
 
-	if immediate && !d.beat(ctx) {
+	if immediate && !d.beat(ctx, wakeTimer) {
 		return
 	}
 	for {
@@ -897,14 +900,14 @@ func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time, immediate boo
 		case <-ctx.Done():
 			return
 		case <-d.wakeSignal():
-			if !d.beat(ctx) {
+			if !d.beat(ctx, wakeWebhook) {
 				return
 			}
 		case _, ok := <-ticks:
 			if !ok {
 				return
 			}
-			if !d.beat(ctx) {
+			if !d.beat(ctx, wakeTimer) {
 				return
 			}
 		}
@@ -921,13 +924,13 @@ func (d *Daemon) wakeSignal() <-chan struct{} {
 }
 
 // beat runs one heartbeat tick and reports whether the loop should go on.
-func (d *Daemon) beat(ctx context.Context) bool {
+func (d *Daemon) beat(ctx context.Context, source string) bool {
 	if ctx.Err() != nil {
 		// The signal arrived while this tick was queued. Starting a turn
 		// now would only produce a run to abandon.
 		return false
 	}
-	if _, err := d.Tick(ctx); err != nil {
+	if _, err := d.Tick(withWakeSource(ctx, source)); err != nil {
 		if isRecoveryPending(err) {
 			return true
 		}

@@ -128,14 +128,19 @@ type TickResult struct {
 // window again; every watermark already advanced stays advanced, because a
 // watermark only moves after the comment it covers has genuinely been dealt
 // with.
-func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
+func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
+	hb := &heartbeat{source: wakeSourceFrom(ctx), counts: &discoveryCounts{}}
 	startedAt := d.now()
+	hb.startedAt = startedAt
+	// Last, whatever path the tick leaves by: the heartbeat line and the health
+	// snapshot are reporting only and never change the tick's result.
+	defer func() {
+		d.finishHeartbeat(ctx, hb, result, err)
+		d.publishHealth(ctx, startedAt)
+	}()
 	d.discovery.tick(startedAt)
-	// Last, whatever path the tick leaves by: the health snapshot is display
-	// only and a failed write never changes the tick's result.
-	defer d.publishHealth(ctx, startedAt)
 	ctx = d.discoveryContext(ctx)
-	counts := &discoveryCounts{}
+	counts := hb.counts
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "tick", counts)
 	ctx = context.WithValue(ctx, recoveryTickKey{}, startedAt)
@@ -210,7 +215,7 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return TickResult{StartedAt: startedAt, Cursor: cursor}, err
 	}
 
-	result := TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor, Dispatched: stoppedDispatched}
+	result = TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor, Dispatched: stoppedDispatched}
 
 	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
 		return result, d.observe(ctx, startedAt, err)
@@ -233,6 +238,12 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	}
 	queues, err := d.discover(ctx, repos, startedAt, &result)
 	discoveryDeferred := errors.Is(err, ErrDiscoveryDeferred)
+	hb.deferred = discoveryDeferred
+	for _, q := range queues {
+		if q.listing && q.finished {
+			hb.polled++
+		}
+	}
 	if err != nil && !discoveryDeferred {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(ctx, startedAt, err)
@@ -898,6 +909,10 @@ type task struct {
 	continuation       *store.Continuation
 	continuationLocked bool
 	bugDispatchLocked  bool
+
+	// commentUnderWay is the owner comment [Daemon.handleComment] is dealing
+	// with, so that [Daemon.leave] can say why it was deferred. Zero otherwise.
+	commentUnderWay int64
 
 	refining  bool
 	repo      store.Repo
@@ -1750,6 +1765,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
 	}
 
+	t.commentUnderWay = c.ID
+	defer func() { t.commentUnderWay = 0 }()
+
 	// A graph Plan story issue belongs to its parent, whose worker reads the
 	// issue's comments as Plan input. Acting here as well would answer the
 	// same reply twice, or start a second run beside the Plan revision.
@@ -1758,6 +1776,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 			return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
 		}
 		log.InfoContext(ctx, "comment on a graph Plan story issue; its parent Plan handles it", slog.String("parent", parent))
+		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, its parent Plan "+parent+" handles comments on a Plan story issue")
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
 		return d.leave(ctx, t, log, "could not consume a graph Plan story comment", err)
 	}
@@ -1805,6 +1824,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		// tag has given no instruction to carry out (AC-A1.9). Consuming it is
 		// what stops the next tick reading it again.
 		log.DebugContext(ctx, "comment asks for nothing; recorded and ignored")
+		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, it asks for nothing")
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
 		return d.leave(ctx, t, log, "could not consume an empty comment", err)
 	}
@@ -1827,6 +1847,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	}
 
 	if !command.Spawns() {
+		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, it is not a command that starts a run")
 		return d.reply(ctx, t, c, command, log)
 	}
 	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
@@ -2142,6 +2163,7 @@ func (d *Daemon) run(
 	}
 
 	if turnResult.Disposition == turn.DispositionLocked {
+		d.commentFate(ctx, t, trigger.CommentID, fateQueued, "queued behind the run already in progress on this issue")
 		t.recordWorkerStatus(workerDeferred)
 		t.continuationLocked = t.continuation != nil
 		t.bugDispatchLocked = workflow == agent.WorkflowBug
@@ -2166,6 +2188,9 @@ func (d *Daemon) run(
 		return nil
 	}
 
+	if turnResult.Run.ID != 0 {
+		d.commentFate(ctx, t, trigger.CommentID, fateDispatched, fmt.Sprintf("dispatched as run %d", turnResult.Run.ID))
+	}
 	if workflow == agent.WorkflowBug {
 		// Bug owns durable notices, review publication and input consumption.
 		// Generic mode reporting would duplicate them and could consume a reply
@@ -2396,6 +2421,7 @@ func (d *Daemon) refuseAgent(
 // naming the hold, and the line below saying what this comment lost.
 func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what string, err error) error {
 	if isRecoveryPending(err) {
+		d.commentFate(ctx, t, t.commentUnderWay, fateDeferred, "deferred, "+what+"; it is retried on a later heartbeat")
 		t.recordWorkerStatus(workerDeferred)
 		return nil
 	}
@@ -2408,6 +2434,7 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 		// signal asked for.
 		return err
 	}
+	d.commentFate(ctx, t, t.commentUnderWay, fateDeferred, "deferred, "+what+"; it is retried on a later heartbeat")
 	d.rateLimited(ctx, log, t.tickAt, err)
 	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 		slog.Any("error", err))

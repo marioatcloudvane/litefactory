@@ -166,3 +166,137 @@ func TestDaemonStatusPrintsThePublishedHealth(t *testing.T) {
 		t.Errorf("a running daemon's snapshot is mislabelled:\n%s", stdout)
 	}
 }
+
+func heartbeatSnapshot(l store.ListenerStatus) store.HealthSnapshot {
+	return store.HealthSnapshot{Found: true, Listener: l}
+}
+
+// AC-008: the heartbeat block says what the daemon is doing, each fact with its age.
+func TestPrintDaemonHeartbeatRunningAndPaused(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	base := store.ListenerStatus{
+		WrittenAt: now.Add(-5 * time.Second), LastHeartbeatStartedAt: now.Add(-12 * time.Second), RunsInFlight: 2,
+	}
+
+	var out bytes.Buffer
+	if err := printDaemonHeartbeat(&out, heartbeatSnapshot(base), now.Add(-20*time.Second), true, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"last heartbeat", "2026-09-01T11:59:48Z (12s ago)",
+		"last completed heartbeat", "2026-09-01T11:59:40Z (20s ago)",
+		"discovery", "running", "runs in flight", "2 (as of 5s ago)",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("running output lacks %q:\n%s", want, &out)
+		}
+	}
+	if strings.Contains(out.String(), "daemon not running") {
+		t.Errorf("a running daemon is labelled down:\n%s", &out)
+	}
+
+	paused := base
+	paused.DiscoveryPaused, paused.PauseReason = true, "spent allowance until reset"
+	paused.PausedSince, paused.ExpectedResumeAt = now.Add(-10*time.Minute), now.Add(20*time.Minute)
+	out.Reset()
+	if err := printDaemonHeartbeat(&out, heartbeatSnapshot(paused), time.Time{}, true, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"paused since 2026-09-01T11:50:00Z (10m ago): spent allowance until reset, expected to resume 2026-09-01T12:20:00Z",
+		"none yet",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("paused output lacks %q:\n%s", want, &out)
+		}
+	}
+
+	paused.ExpectedResumeAt = time.Time{}
+	paused.PauseReason = "stale rate-limit data"
+	out.Reset()
+	if err := printDaemonHeartbeat(&out, heartbeatSnapshot(paused), time.Time{}, true, now); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "stale rate-limit data, expected to resume when fresh rate-limit data arrives") {
+		t.Errorf("stale pause output:\n%s", &out)
+	}
+}
+
+func TestPrintDaemonHeartbeatDaemonDownIsLabelled(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	snap := heartbeatSnapshot(store.ListenerStatus{WrittenAt: now.Add(-time.Hour), LastHeartbeatStartedAt: now.Add(-time.Hour)})
+	if err := printDaemonHeartbeat(&out, snap, time.Time{}, false, now); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "as of 2026-09-01T11:00:00Z, daemon not running") {
+		t.Errorf("down output:\n%s", &out)
+	}
+	out.Reset()
+	if err := printDaemonHeartbeat(&out, store.HealthSnapshot{}, time.Time{}, true, now); err != nil || out.Len() != 0 {
+		t.Errorf("no snapshot: err=%v out=%q", err, &out)
+	}
+}
+
+// AC-008 / AC-009 end to end: `daemon status` against a temporary database
+// holding a running, a paused and a daemon-down snapshot.
+func TestDaemonStatusPrintsHeartbeatSnapshots(t *testing.T) {
+	h := newDaemonHome(t, keychainConfig)
+	db := h.migrate()
+	repo, err := db.UpsertRepo(h.t.Context(), store.Repo{
+		Path: "/tmp/acme-api", Forge: store.ForgeGitHub, Owner: "acme", Name: "api",
+		RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf/", WorktreeRoot: "/tmp/acme-api-wt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	publish := func(l store.ListenerStatus) {
+		t.Helper()
+		l.DaemonStartedAt, l.WrittenAt = now.Add(-time.Hour), now
+		rows := []store.RepoDiscoveryStatus{{RepoID: repo.ID, WebhookMode: "polling only", WrittenAt: now,
+			LastPollFinishedAt: now.Add(-2 * time.Minute), NextPollDueAt: now.Add(3 * time.Minute)}}
+		if err := db.ReplaceHealthSnapshot(h.t.Context(), l, rows); err != nil {
+			t.Fatal(err)
+		}
+	}
+	running := func() {
+		h.fake.answer = func([]string) (string, error) {
+			return "gui/501/" + launchd.DefaultLabel + " = {\n\tstate = running\n\tpid = 4711\n}", nil
+		}
+	}
+
+	publish(store.ListenerStatus{LastHeartbeatStartedAt: now.Add(-10 * time.Second), RunsInFlight: 1})
+	running()
+	_, stdout, _ := h.run("daemon", "status")
+	for _, want := range []string{"last heartbeat", "last completed heartbeat", "discovery", "running", "runs in flight", "1 (as of ",
+		"last poll", "next poll"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("running status lacks %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "daemon not running") {
+		t.Errorf("running status labelled down:\n%s", stdout)
+	}
+
+	publish(store.ListenerStatus{LastHeartbeatStartedAt: now.Add(-10 * time.Second), DiscoveryPaused: true,
+		PauseReason: "rate-limit backoff", PausedSince: now.Add(-3 * time.Minute), ExpectedResumeAt: now.Add(time.Minute)})
+	_, stdout, _ = h.run("daemon", "status")
+	wantPaused := "paused since " + now.Add(-3*time.Minute).Format(time.RFC3339) + " (3m ago): rate-limit backoff, expected to resume " + now.Add(time.Minute).Format(time.RFC3339)
+	if !strings.Contains(stdout, wantPaused) {
+		t.Errorf("paused status:\n%s", stdout)
+	}
+
+	h.fake.answer = func(args []string) (string, error) {
+		return "", notLoadedError(args, 113, "Bad request.; Could not find service in domain for user gui: 501")
+	}
+	_, stdout, _ = h.run("daemon", "status")
+	if want := "as of " + now.Format(time.RFC3339) + ", daemon not running"; !strings.Contains(stdout, want) {
+		t.Errorf("down status lacks %q:\n%s", want, stdout)
+	}
+	if !strings.Contains(stdout, "last poll") {
+		t.Errorf("down status dropped the per-repo poll lines:\n%s", stdout)
+	}
+}
