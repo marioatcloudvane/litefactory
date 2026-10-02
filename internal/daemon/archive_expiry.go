@@ -89,7 +89,7 @@ func (e *archiveExpirer) run(ctx context.Context) (err error) {
 	e.arch = arch
 	defer func() {
 		if e.runs != nil {
-			e.runs.Close()
+			_ = e.runs.Close() // read-only lookups; a close error changes nothing about the sweep
 		}
 		e.record()
 	}()
@@ -147,11 +147,11 @@ func (e *archiveExpirer) candidates(ctx context.Context) ([]archiveCandidate, er
 		}
 		issue, name, err := archive.ParseName(parts[4])
 		if err != nil || parts[3] != strconv.Itoa(issue) {
-			return nil
+			return nil //nolint:nilerr // Deliberate: a file that is not a well-named archive is skipped, not a walk failure.
 		}
 		ref := naming.Ref{Forge: parts[0], Owner: parts[1], Repo: parts[2], Issue: issue}
 		if ref.Validate() != nil {
-			return nil
+			return nil //nolint:nilerr // Deliberate: a path that names no valid task is skipped, not a walk failure.
 		}
 		info, err := d.Info()
 		if err != nil {
