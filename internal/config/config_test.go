@@ -18,7 +18,9 @@ func parse(t *testing.T, body string) error {
 
 func TestCanonicalRootsAndLegacyDiagnostics(t *testing.T) {
 	tests := []struct{ name, body, want string }{
-		{"legacy setting", "poll_interval_seconds: 30\n", "settings.poll_interval_seconds"},
+		{"legacy setting", "poll_interval_seconds: 30\n", "settings.poll_interval_minutes"},
+		{"legacy nested setting", "settings:\n  poll_interval_seconds: 30\n", "settings.poll_interval_minutes"},
+		{"legacy not converted", "settings:\n  poll_interval_seconds: 30\n", "not converted"},
 		{"legacy provider", "github: {}\n", "providers.github"},
 		{"legacy agent", "claude: {}\n", "agents.claude"},
 		{"unknown root", "mystery: true\n", `unknown key "mystery"`},
@@ -56,8 +58,9 @@ func TestSettingsValidation(t *testing.T) {
 		value     int
 		ok        bool
 	}{
-		{"poll lower", "poll_interval_seconds", 10, true}, {"poll upper", "poll_interval_seconds", 60, true},
-		{"poll zero", "poll_interval_seconds", 0, false}, {"concurrency lower", "max_concurrent_runs", 1, true},
+		{"poll lower", "poll_interval_minutes", 1, true}, {"poll upper", "poll_interval_minutes", 180, true},
+		{"poll zero", "poll_interval_minutes", 0, false}, {"poll negative", "poll_interval_minutes", -5, false},
+		{"poll over", "poll_interval_minutes", 181, false}, {"concurrency lower", "max_concurrent_runs", 1, true},
 		{"concurrency upper", "max_concurrent_runs", 16, true}, {"concurrency zero", "max_concurrent_runs", 0, false},
 		{"retain positive", "worktree_retain_days", 14, true}, {"retain zero", "worktree_retain_days", 0, false},
 	}
@@ -373,8 +376,8 @@ func TestAutoSyncSettingsOverrideIsPerField(t *testing.T) {
 
 func defaultSettingValue(key string) int {
 	switch key {
-	case "poll_interval_seconds":
-		return DefaultPollIntervalSeconds
+	case "poll_interval_minutes":
+		return DefaultPollIntervalMinutes
 	case "max_concurrent_runs":
 		return DefaultMaxConcurrentRuns
 	default:
@@ -401,5 +404,104 @@ func TestTierValidationAndResolution(t *testing.T) {
 	err = parse(t, "agents:\n  claude:\n    model_tier: quick\n")
 	if !errors.As(err, &unknown) {
 		t.Fatalf("error %v does not wrap UnknownTierError", err)
+	}
+}
+
+func TestWebhookListen(t *testing.T) {
+	cases := []struct {
+		name, listen string
+		ok           bool
+	}{
+		{"default", "127.0.0.1:8787", true},
+		{"explicit", "127.0.0.1:9000", true},
+		{"hostname", "localhost:9000", true},
+		{"ipv6", "[::1]:9000", true},
+		{"off", "", true},
+		{"no port", "127.0.0.1", false},
+		{"bad port", "127.0.0.1:http", false},
+		{"port zero", "127.0.0.1:0", false},
+		{"port too big", "127.0.0.1:70000", false},
+		{"no host", ":8787", false},
+		{"garbage", "not an address", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.Replace(string(DefaultFileContents()), `listen: "127.0.0.1:8787"`, "listen: "+strconv.Quote(tc.listen), 1)
+			err := parse(t, body)
+			if !tc.ok {
+				if err == nil || !strings.Contains(err.Error(), "webhook.listen") {
+					t.Fatalf("err = %v, want one naming webhook.listen", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			cfg, _ := Decode(strings.NewReader(body))
+			if cfg.Webhook.Listen != tc.listen {
+				t.Errorf("Listen = %q, want %q", cfg.Webhook.Listen, tc.listen)
+			}
+		})
+	}
+}
+
+func TestWebhookListenDefaultsWhenTheKeyIsAbsent(t *testing.T) {
+	body := strings.Replace(string(DefaultFileContents()), "webhook:\n", "# webhook:\n", 1)
+	body = strings.Replace(body, `  listen: "127.0.0.1:8787"`, "", 1)
+	body = strings.Replace(body, `  public_url: ""`, "", 1)
+	cfg, err := Decode(strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Webhook.Listen != DefaultWebhookListen {
+		t.Errorf("Listen = %q, want the default %q", cfg.Webhook.Listen, DefaultWebhookListen)
+	}
+}
+
+func TestDefaultFileContentsDocumentsTheWebhookListener(t *testing.T) {
+	out := string(DefaultFileContents())
+	if !strings.Contains(out, "listen: \"127.0.0.1:8787\"") || !strings.Contains(out, "/litefactory/webhook") {
+		t.Errorf("the template does not document webhook.listen:\n%s", out)
+	}
+}
+
+func TestWebhookPublicURL(t *testing.T) {
+	cases := []struct {
+		name, url string
+		ok        bool
+	}{
+		{"empty", "", true},
+		{"https", "https://hooks.example.com/litefactory/webhook", true},
+		{"http", "http://192.168.1.5:8787/litefactory/webhook", true},
+		{"relative", "/litefactory/webhook", false},
+		{"no scheme", "hooks.example.com/x", false},
+		{"ftp", "ftp://hooks.example.com/x", false},
+		{"no host", "https:///x", false},
+		{"garbage", "ht!tp://%zz", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.Replace(string(DefaultFileContents()), `public_url: ""`, "public_url: "+strconv.Quote(tc.url), 1)
+			err := parse(t, body)
+			if !tc.ok {
+				if err == nil || !strings.Contains(err.Error(), "webhook.public_url") {
+					t.Fatalf("err = %v, want one naming webhook.public_url", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			cfg, _ := Decode(strings.NewReader(body))
+			if cfg.Webhook.PublicURL != tc.url {
+				t.Errorf("PublicURL = %q, want %q", cfg.Webhook.PublicURL, tc.url)
+			}
+		})
+	}
+}
+
+func TestDefaultFileContentsDocumentsThePublicURL(t *testing.T) {
+	if out := string(DefaultFileContents()); !strings.Contains(out, `public_url: ""`) {
+		t.Errorf("the template does not document webhook.public_url:\n%s", out)
 	}
 }

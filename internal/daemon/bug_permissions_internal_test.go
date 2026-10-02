@@ -55,18 +55,18 @@ func TestBugRuntimePermissionsExplicitProfilesAndImmutableCeiling(t *testing.T) 
 	}
 }
 
-// A Claude fixer edits within its role surface and the operator ceiling; it
-// never gets a shell, even when the ceiling allows one.
+// A Claude fixer works like an Implement engineer, shell included, within its
+// role surface and the operator ceiling; Bash rules count as Bash.
 func TestBugRuntimePermissionsClaudeFixer(t *testing.T) {
 	ceiling := []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash"}
 	fixer := func(tools ...string) map[string]config.ToolProfile {
-		return map[string]config.ToolProfile{"bug-fixer": {Claude: &config.ToolProfileClaude{Tools: tools}}}
+		return map[string]config.ToolProfile{"bug-fixer": {Claude: &config.ToolProfileClaude{Tools: tools, AllowedTools: []string{"Read", "Bash(go test:*)"}}}}
 	}
-	p, err := bugRolePermissions(fixer("Read", "Grep", "Edit", "Write"), ceiling)(agent.Kind(config.KindClaude), "bug-fixer")
-	if err != nil || len(p.Tools) != 4 {
-		t.Fatalf("Claude fixer edit surface refused: %+v %v", p, err)
+	p, err := bugRolePermissions(fixer("Read", "Grep", "Edit", "Write", "Bash"), ceiling)(agent.Kind(config.KindClaude), "bug-fixer")
+	if err != nil || len(p.Tools) != 5 {
+		t.Fatalf("Claude fixer shell surface refused: %+v %v", p, err)
 	}
-	for _, tools := range [][]string{{"Read", "Edit", "Bash"}, {"Read", "Edit", "MultiEdit"}} {
+	for _, tools := range [][]string{{"Read", "Edit", "Task"}, {"Read", "Edit", "MultiEdit"}, {"Read", "Edit", "NotebookEdit"}} {
 		if _, err := bugRolePermissions(fixer(tools...), ceiling)(agent.Kind(config.KindClaude), "bug-fixer"); err == nil {
 			t.Fatalf("Claude fixer tools %v outside the role surface or ceiling admitted", tools)
 		}

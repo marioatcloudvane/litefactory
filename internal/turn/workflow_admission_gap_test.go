@@ -33,7 +33,7 @@ func TestRegisteredWorkflowPolicies_EachRefusesTerminalOnlyCompletion(t *testing
 			var f *retainedFixture
 			response := "done"
 			switch workflow {
-			case agent.WorkflowResearch, agent.WorkflowPlan:
+			case agent.WorkflowResearch, agent.WorkflowPlan, agent.WorkflowSpike:
 				f = newRetainedFixture(t, string(policy.Mode))
 			case agent.WorkflowBug:
 				if policy.Mode != "" {
@@ -64,7 +64,7 @@ func TestRegisteredWorkflowPolicies_EachRefusesTerminalOnlyCompletion(t *testing
 		}
 		seen[workflow] = true
 	}
-	if !seen[agent.WorkflowResearch] || !seen[agent.WorkflowPlan] || !seen[agent.WorkflowBug] {
+	if !seen[agent.WorkflowResearch] || !seen[agent.WorkflowPlan] || !seen[agent.WorkflowBug] || !seen[agent.WorkflowSpike] {
 		t.Fatalf("the registry lost a shipped workflow: %v", seen)
 	}
 }

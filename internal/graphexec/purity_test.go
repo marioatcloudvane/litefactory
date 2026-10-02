@@ -59,6 +59,7 @@ var shippedDOT = map[string]bool{
 	"../../teams/source/bug/bug_tests.dot":            true,
 	"../../internal/teamsource/research/research.dot": true,
 	"../../internal/teamsource/plan/plan.dot":         true,
+	"../../internal/teamsource/spike/spike.dot":       true,
 	"../../teams/source/plan/plan.dot":                true,
 }
 

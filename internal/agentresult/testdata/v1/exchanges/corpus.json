@@ -55,7 +55,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "teams/source/skills/agent-finalization/SKILL.md",
-          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+          "sha256": "049f06962fb37a3bdad7de23bea7b9b3e543098c4f417146faf74dc0af049cf2"
         },
         {
           "direction": "output",
@@ -167,7 +167,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "teams/source/skills/agent-finalization/SKILL.md",
-          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+          "sha256": "049f06962fb37a3bdad7de23bea7b9b3e543098c4f417146faf74dc0af049cf2"
         },
         {
           "direction": "output",
@@ -315,7 +315,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "teams/source/skills/agent-finalization/SKILL.md",
-          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+          "sha256": "049f06962fb37a3bdad7de23bea7b9b3e543098c4f417146faf74dc0af049cf2"
         },
         {
           "direction": "output",
@@ -463,7 +463,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "teams/source/skills/agent-finalization/SKILL.md",
-          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+          "sha256": "049f06962fb37a3bdad7de23bea7b9b3e543098c4f417146faf74dc0af049cf2"
         },
         {
           "direction": "output",
@@ -587,7 +587,7 @@
           "direction": "input",
           "kind": "instructions",
           "path": "teams/source/skills/agent-finalization/SKILL.md",
-          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+          "sha256": "049f06962fb37a3bdad7de23bea7b9b3e543098c4f417146faf74dc0af049cf2"
         },
         {
           "direction": "output",

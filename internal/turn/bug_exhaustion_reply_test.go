@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -382,5 +383,34 @@ func TestBugRuntimeContinueExhausted_CancelBeforeGrantRefused(t *testing.T) {
 	}
 	if after.Disposition != "cancelled" {
 		t.Fatalf("grant partially applied despite refusal: %+v", after)
+	}
+}
+
+// A comment the Bug workflow refuses is answered and consumed, so the task's
+// queue moves on to the owner's next comment (the decision the refusal asked
+// for) instead of retrying the refused one forever.
+func TestBugRuntimeExecute_RefusedCommentIsConsumed(t *testing.T) {
+	t.Parallel()
+	env := newBugExhaustionReplyEnv(t)
+	req := env.req
+	req.Trigger = Trigger{CommentID: env.questionID + 1, AuthorID: 42, Body: "What is left to finish this?"}
+
+	_, err := env.runtime.Execute(t.Context(), req, Result{})
+	if !errors.Is(err, ErrBugCommentRefused) {
+		t.Fatalf("err = %v, want ErrBugCommentRefused", err)
+	}
+	wm, _, e := env.f.db.GetWatermark(t.Context(), env.f.session.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if wm.LastCommentID < req.Trigger.CommentID {
+		t.Fatalf("watermark = %d, want the refused comment %d consumed", wm.LastCommentID, req.Trigger.CommentID)
+	}
+	life, e := env.f.db.GetBugLifecycle(t.Context(), env.f.session.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if life.Disposition != "exhausted" {
+		t.Fatalf("disposition moved on a refused reply: %q", life.Disposition)
 	}
 }

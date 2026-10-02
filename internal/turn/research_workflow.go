@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -42,8 +43,12 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 	if err := RegisterAgent(&specs, &activities, AgentActivity{Prepare: w.invocation, Policy: policy}); err != nil {
 		return result, err
 	}
-	scope := func(_ context.Context, _ store.GraphNodeAttempt) (agentresult.Context, error) {
-		return agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(policy.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: questionPermission(req.mode(), req.Command)}, nil
+	scope := func(_ context.Context, attempt store.GraphNodeAttempt) (agentresult.Context, error) {
+		c := policy.baseContext(questionPermission(req.mode(), req.Command))
+		if node, found := definition.Profile.Node(attempt.Node); found && nodeAccessLevel(policy, node) == "write" {
+			c.WriteAccess = true
+		}
+		return c, nil
 	}
 	if policy.Handlers != nil {
 		for _, name := range []string{graphexec.ResearchLoopAction, graphexec.ResearchIfAction} {
@@ -72,12 +77,18 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		}
 	}
 	if policy.RegisterEffects != nil {
+		env := WorkflowEnv{Ref: result.Ref, Worktree: func() (*git.Worktree, error) {
+			if w.prep == nil || w.prep.worktree == nil {
+				return nil, errors.New("scoped activity requires admitted session")
+			}
+			return w.prep.worktree, nil
+		}}
 		if err := policy.RegisterEffects(&specs, &activities, definition.Profile, scope, func() (string, string, error) {
 			if w.prep == nil || w.artifactSession == "" {
 				return "", "", errors.New("scoped activity requires admitted session")
 			}
 			return w.prep.worktree.Path(), w.artifactSession, nil
-		}); err != nil {
+		}, env); err != nil {
 			return result, err
 		}
 	}
@@ -121,6 +132,13 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			nodeReq.researchDefinition, nodeReq.researchNode = definition, node.Name
 			nodeReq.researchInstance = instance.ID
 			nodeReq.workflowPolicy = &policy
+			if policy.ResultPerNode {
+				nodeReq.resultPass = node.Name
+			}
+			nodeReq.noQuestions = policy.Questions && !graphexec.ResponseReachesOwnerWait(definition.Profile, node.Name, policy.Control)
+			if nodeReq, err = applyNodeAccess(policy, node, nodeReq); err != nil {
+				return w.finish(ctx, w.failed(ctx, scope, GraphNodeResult{}, err, true))
+			}
 			w.prep, err = prepare(ctx, opts, nodeReq, result.Session, result.Ref, opts.Logger)
 			if err != nil {
 				return w.finish(ctx, err)
@@ -196,7 +214,7 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 			if !exists || sourceNode.Action != ResearchAgentAction {
 				continue
 			}
-			scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(w.policy.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
+			scope := w.policy.baseContext(true)
 			retained, err := w.policy.load(ctx, w.opts.DB, source.ID, scope)
 			if err != nil {
 				return ResearchInvocation{}, err
@@ -220,7 +238,20 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 	if err != nil {
 		return ResearchInvocation{}, route.abort(ctx, err)
 	}
-	return w.finishRoute(ctx, route, &req, "\nFactory supplied session artifact directory: "+sessionPath+"\n"+saved+predecessor, sessionPath)
+	handoff, err := w.handoffContext(ctx, a, route.scope)
+	if err != nil {
+		return ResearchInvocation{}, route.abort(ctx, err)
+	}
+	return w.finishRoute(ctx, route, &req, "\nFactory supplied session artifact directory: "+sessionPath+"\n"+saved+predecessor+handoff, sessionPath)
+}
+
+// handoffContext is the policy's saved context from earlier agent stages of this
+// instance, for a stage that builds on them.
+func (w *researchWorkflow) handoffContext(ctx context.Context, a ActivityRequest, scope agentresult.Context) (string, error) {
+	if w.policy.Handoff == nil {
+		return "", nil
+	}
+	return w.policy.Handoff(ctx, w.opts.DB, a.InstanceID, a.NodeAttemptID, w.definition.Profile, w.policy, scope)
 }
 
 func (w *researchWorkflow) predecessorContext(ctx context.Context, scope agentresult.Context) (string, error) {
@@ -490,7 +521,7 @@ func RecoverWorkflowPublications(ctx context.Context, opts Options, sessionID in
 	if opts.ResearchReporter == nil {
 		return errors.New("research report recovery requires its durable reporter")
 	}
-	scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(policy.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
+	scope := policy.baseContext(true)
 	for instance.ID != 0 {
 		after := ""
 		for {

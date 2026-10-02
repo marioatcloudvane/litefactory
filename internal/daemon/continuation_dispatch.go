@@ -25,7 +25,7 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		if err != nil {
 			return err
 		}
-		if graph && (c.Context.Mode == "research" || c.Context.Mode == "plan") {
+		if graph && (c.Context.Mode == "research" || c.Context.Mode == "plan" || c.Context.Mode == "spike") {
 			if err := d.db.CancelContinuation(ctx, c.ID, "Workflow graph requires explicit owner continuation", at); err != nil {
 				return err
 			}

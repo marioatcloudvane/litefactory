@@ -12,7 +12,7 @@ Executable application-v1 examples (synthetic offline identities):
 - [incomplete](examples/validate-incomplete.json)
 - [blocked](examples/validate-blocked.json)
 - [revision-checked update](examples/validate-update.json)
-- [disallowed question](examples/invalid-spike-question.json); questions reject in this mode too.
+- [disallowed question](examples/invalid-validate-question.json); questions reject in this mode too.
 
 The declared structured terminal contributions envelope remains supported. No shell,
 edits, new checks, capture or delegation are permitted. Already permitted live

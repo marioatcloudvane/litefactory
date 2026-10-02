@@ -55,11 +55,14 @@ type Snapshot struct {
 type Context struct {
 	Bug *BugBinding
 
-	Workflow            agent.Workflow
-	SchemaVersion       int
-	Mode                string
-	WorkflowVersion     int
-	QuestionsAllowed    bool
+	Workflow         agent.Workflow
+	SchemaVersion    int
+	Mode             string
+	WorkflowVersion  int
+	QuestionsAllowed bool
+	// WriteAccess is set only by a graph runtime for a node whose access level
+	// grants edits. A finished result from such a node must report its change.
+	WriteAccess         bool
 	PlanScope           planbrief.ContentScope
 	Stories             map[string]agent.ContributionStory
 	EngineeringComplete map[string]bool
@@ -173,6 +176,69 @@ type Spike struct {
 	Findings  []string `json:"findings,omitempty"`
 	Decisions []string `json:"decisions,omitempty"`
 	NotDone   []string `json:"not_done,omitempty"`
+	// ProposedFix is the investigator's claim about the one small change it
+	// would make. The graph measures it; it is a proposal, never an approval.
+	ProposedFix *SpikeProposedFix `json:"proposed_fix,omitempty"`
+	// FixReport is the fixer's claim about the one change it made. It is required
+	// on a finished result from a write-access node and forbidden elsewhere. The
+	// factory measures the real change separately; this is only what was claimed.
+	FixReport *SpikeFixReport `json:"fix_report,omitempty"`
+	// Status is recorded by the factory when it writes the Spike note, so the
+	// report can name it. An authored result never carries one.
+	Status string `json:"status,omitempty"`
+	// Check and Issue are factory-recorded measurements and filing state attached
+	// to a report from durable records. An authored result never carries either.
+	Check *SpikeCheckView `json:"check,omitempty"`
+	Issue *SpikeIssueView `json:"issue,omitempty"`
+}
+
+// SpikeFixReport describes the change a write-access step says it made: the one
+// defect, every file it touched including the regression test, the regression
+// test itself, the risky kinds of change it touched and a short summary.
+type SpikeFixReport struct {
+	Defect         string   `json:"defect"`
+	Files          []string `json:"files"`
+	RegressionTest string   `json:"regression_test"`
+	ChangeKinds    []string `json:"change_kinds,omitempty"`
+	Summary        string   `json:"summary"`
+}
+
+// SpikeCheckView is the factory's measured outcome of a fix, as retained in the
+// Spike check record. It is never taken from an agent.
+type SpikeCheckView struct {
+	Outcome   string   `json:"outcome"`
+	Files     []string `json:"files,omitempty"`
+	Forbidden []string `json:"forbidden,omitempty"`
+	Phases    []string `json:"phases,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
+}
+
+// SpikeIssueView is the factory's filing state for an oversized fix.
+type SpikeIssueView struct {
+	State  string `json:"state"`
+	Number int    `json:"number,omitempty"`
+	URL    string `json:"url,omitempty"`
+}
+
+// SpikeChangeKinds is the closed vocabulary describing what a proposed change
+// touches. The graph, not this package, decides which kinds are too large.
+var SpikeChangeKinds = []string{"code", "test", "package", "dependency", "schema", "api"}
+
+// SpikeStatuses is the closed vocabulary of note statuses a graph may record.
+var SpikeStatuses = []string{"asking", "answered", "hand_back", "blocked", "fix_proposed", "fixed", "fix_unverified", "fix_too_big"}
+
+// SpikeFixChangeKinds are the risky kinds of change a fixer may declare. A
+// fix that touches none of them declares none.
+var SpikeFixChangeKinds = []string{"package", "dependency", "schema", "api"}
+
+// SpikeProposedFix describes a proposed change precisely enough to be measured:
+// how many defects, which files (including the regression test), which kinds of
+// change and the regression test that would prove the fix.
+type SpikeProposedFix struct {
+	Defects        []string `json:"defects"`
+	Files          []string `json:"files"`
+	ChangeKinds    []string `json:"change_kinds"`
+	RegressionTest string   `json:"regression_test"`
 }
 
 // Plan draft fields are omitted until supplied; completion invokes the existing

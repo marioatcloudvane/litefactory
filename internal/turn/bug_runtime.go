@@ -248,7 +248,15 @@ func (r *BugRuntime) Execute(ctx context.Context, req Request, result Result) (R
 	if e != nil {
 		reporter := BugParentPolicy{Reporter: r.opts.ResearchReporter}
 		reportErr := reporter.PublishEvent(context.WithoutCancel(ctx), req.SessionID, 0, fmt.Sprintf("bug-admission:%d:%d", req.SessionID, req.Trigger.CommentID), "pre-dispatch", bugAdmissionComment(e))
-		return result, errors.Join(e, reportErr)
+		if reportErr != nil {
+			return result, errors.Join(e, reportErr)
+		}
+		// The owner has been told why; consume the comment so that later
+		// comments, such as the command the refusal asked for, are reached.
+		if _, ce := r.opts.ResearchReporter.Consume(context.WithoutCancel(ctx), req.SessionID, req.Trigger.CommentID); ce != nil {
+			return result, errors.Join(e, ce)
+		}
+		return result, fmt.Errorf("%w: %w", ErrBugCommentRefused, e)
 	}
 	if !store.IsGraphTrigger(req.Trigger.CommentID) {
 		if _, e = r.opts.ResearchReporter.Consume(ctx, req.SessionID, req.Trigger.CommentID); e != nil {

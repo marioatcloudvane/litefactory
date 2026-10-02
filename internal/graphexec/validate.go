@@ -132,9 +132,12 @@ func validateNode(node Node, mode agent.Workflow, registry Registry) []error {
 		for _, name := range slices.Sorted(maps.Keys(spec.Attributes)) {
 			attribute := spec.Attributes[name]
 			value, present := node.Attrs[name]
-			if !present && attribute.Required {
+			switch {
+			case !present && attribute.Required:
 				faults = append(faults, fmt.Errorf("node %q requires %s", node.Name, name))
-			} else if present && !slices.Contains(attribute.Values, value) {
+			case present && attribute.List:
+				faults = append(faults, validateListAttribute(node.Name, name, value, attribute.Values)...)
+			case present && !slices.Contains(attribute.Values, value):
 				faults = append(faults, fmt.Errorf("node %q %s %q is outside declared values", node.Name, name, value))
 			}
 		}
@@ -154,6 +157,23 @@ func validateNode(node Node, mode agent.Workflow, registry Registry) []error {
 		if exists && !slices.Contains(spec.Outcomes, outcome) {
 			faults = append(faults, fmt.Errorf("node %q outcome %q is outside action %q outcomes", node.Name, outcome, node.Action))
 		}
+	}
+	return faults
+}
+
+// validateListAttribute checks a comma-separated set against a closed vocabulary.
+func validateListAttribute(node, name, value string, allowed []string) []error {
+	var faults []error
+	seen := make(map[string]bool)
+	for element := range strings.SplitSeq(value, ",") {
+		element = strings.TrimSpace(element)
+		switch {
+		case !slices.Contains(allowed, element):
+			faults = append(faults, fmt.Errorf("node %q %s element %q is outside declared values", node, name, element))
+		case seen[element]:
+			faults = append(faults, fmt.Errorf("node %q %s repeats element %q", node, name, element))
+		}
+		seen[element] = true
 	}
 	return faults
 }

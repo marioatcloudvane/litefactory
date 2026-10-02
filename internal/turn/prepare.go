@@ -41,9 +41,12 @@ type preparation struct {
 	// graph run. It scopes the application result, so each instance authors
 	// its own rather than revising whatever the task already held.
 	researchInstance int64
-	repo             store.Repo
-	session          store.Session
-	ref              naming.Ref
+	// nodeWrite scopes the trusted result context to a write-access node.
+	nodeWrite  bool
+	resultPass string
+	repo       store.Repo
+	session    store.Session
+	ref        naming.Ref
 
 	author   git.Author
 	worktree *git.Worktree
@@ -350,6 +353,9 @@ func prepare(
 
 	// Derive current and previous question permission with the same mode policy.
 	mayAsk := questionPermission(req.mode(), req.Command)
+	if req.workflowPolicy != nil && req.workflowPolicy.Questions {
+		mayAsk = !forbidsQuestions(req.Command.Text) && !req.noQuestions
+	}
 
 	// Attachments are fetched here: after the worktree and the runs row
 	// exist — the landing directory is named for this run's ordinal — and
@@ -487,6 +493,8 @@ func prepare(
 
 	return &preparation{
 		researchInstance: req.researchInstance,
+		nodeWrite:        req.nodeWrite,
+		resultPass:       req.resultPass,
 		resumeOnly:       req.Continuation != nil,
 		repo:             repo,
 		session:          session,

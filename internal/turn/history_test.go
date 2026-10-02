@@ -157,7 +157,7 @@ func TestResumedRunCarriesNoHistory(t *testing.T) {
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunReported)
+	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunReported)
 	f.seedThread()
 
 	f.execute(f.request())
@@ -193,7 +193,7 @@ func TestFallbackColdRerunCarriesTheHistory(t *testing.T) {
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunReported)
+	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, "implement", store.RunReported)
 	f.seedThread()
 
 	if result := f.execute(f.request()); !result.Succeeded() {

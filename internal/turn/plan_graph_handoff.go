@@ -241,6 +241,8 @@ func (r *planGraphRuntime) finalize(ctx context.Context, s planbrief.PlanState, 
 	} else if !errors.Is(err, os.ErrExist) {
 		return out, err
 	}
+	// An existing file without a Story Index section gets one appended by
+	// openPlanIndex/replace rather than failing every retry the same way.
 	target, err := openPlanIndex(root, session)
 	if err != nil {
 		return out, err

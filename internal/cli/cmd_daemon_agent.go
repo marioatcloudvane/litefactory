@@ -146,7 +146,19 @@ func runDaemonStatus(ctx context.Context, env *Env, runner launchd.Runner) error
 	fmt.Fprintf(tw, "loaded\t%s\n", daemonYesNo(status.Loaded))
 	fmt.Fprintf(tw, "running\t%s\n", daemonRunning(status))
 	fmt.Fprintf(tw, "last tick\t%s\n", lastTick)
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	health, err := readHealthSnapshot(ctx, paths)
+	if err != nil {
+		return err
+	}
+	now := time.Now
+	if env.Now != nil {
+		now = env.Now
+	}
+	return printDaemonHealth(env.Stdout, health, status.Running, now())
 }
 
 // daemonRunning renders the running column, including launchd's own word for

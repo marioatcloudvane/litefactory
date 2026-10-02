@@ -1,0 +1,152 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+)
+
+// ListenerStatus is the daemon's published webhook listener state. It is
+// display-only: `daemon status` reads it and nothing in the daemon does.
+type ListenerStatus struct {
+	// ListenAddress is the bound host:port, empty when the listener is off.
+	ListenAddress string
+	// Listening reports that the listener is actually bound.
+	Listening bool
+	// DaemonStartedAt is when the publishing daemon started.
+	DaemonStartedAt time.Time
+	// WrittenAt is when the snapshot was last written.
+	WrittenAt time.Time
+}
+
+// RepoDiscoveryStatus is the published discovery health of one repository.
+// Zero times mean "none": no delivery since start, no finished listing, no
+// scheduled next listing.
+type RepoDiscoveryStatus struct {
+	RepoID int64
+	// Owner and Name are filled by [DB.ReadHealthSnapshot] only.
+	Owner string
+	Name  string
+
+	LastDeliveryAt     time.Time
+	LastPollFinishedAt time.Time
+	NextPollDueAt      time.Time
+	PollOwed           bool
+	SecretPresent      bool
+	WebhookMode        string
+	WrittenAt          time.Time
+}
+
+// HealthSnapshot is what [DB.ReadHealthSnapshot] returns.
+type HealthSnapshot struct {
+	// Found is false when no daemon has ever published a snapshot.
+	Found    bool
+	Listener ListenerStatus
+	Repos    []RepoDiscoveryStatus
+}
+
+// ReplaceHealthSnapshot replaces the whole snapshot in one transaction: the
+// listener row is upserted and every repository row not in repos is dropped, so
+// a removed repository leaves nothing behind.
+func (db *DB) ReplaceHealthSnapshot(ctx context.Context, listener ListenerStatus, repos []RepoDiscoveryStatus) error {
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO daemon_listener_status (id, listen_address, listening, daemon_started_at, written_at)
+VALUES (1, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET listen_address = excluded.listen_address, listening = excluded.listening,
+    daemon_started_at = excluded.daemon_started_at, written_at = excluded.written_at`,
+			listener.ListenAddress, boolInt(listener.Listening), FormatTime(listener.DaemonStartedAt), FormatTime(listener.WrittenAt)); err != nil {
+			return fmt.Errorf("write listener status: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM repo_discovery_status`); err != nil {
+			return fmt.Errorf("clear repository status: %w", err)
+		}
+		for _, r := range repos {
+			if _, err := tx.ExecContext(ctx, `
+INSERT INTO repo_discovery_status
+    (repo_id, last_delivery_at, last_poll_finished_at, next_poll_due_at, poll_owed, secret_present, webhook_mode, written_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				r.RepoID, nullTime(r.LastDeliveryAt), nullTime(r.LastPollFinishedAt), nullTime(r.NextPollDueAt),
+				boolInt(r.PollOwed), boolInt(r.SecretPresent), r.WebhookMode, FormatTime(r.WrittenAt)); err != nil {
+				return fmt.Errorf("write status of repository %d: %w", r.RepoID, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("store: replace health snapshot: %w", err)
+	}
+	return nil
+}
+
+// ReadHealthSnapshot reads the published snapshot, repositories ordered by
+// owner and name. A database nobody has published to yields Found == false.
+func (db *DB) ReadHealthSnapshot(ctx context.Context) (HealthSnapshot, error) {
+	var snap HealthSnapshot
+	var listening int
+	var started, written string
+	err := db.sql.QueryRowContext(ctx,
+		`SELECT listen_address, listening, daemon_started_at, written_at FROM daemon_listener_status WHERE id = 1`).
+		Scan(&snap.Listener.ListenAddress, &listening, &started, &written)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return HealthSnapshot{}, nil
+	case err != nil:
+		return HealthSnapshot{}, fmt.Errorf("store: read listener status: %w", err)
+	}
+	snap.Found = true
+	snap.Listener.Listening = listening != 0
+	if snap.Listener.DaemonStartedAt, err = ParseTime(started); err != nil {
+		return HealthSnapshot{}, fmt.Errorf("store: parse listener status: %w", err)
+	}
+	if snap.Listener.WrittenAt, err = ParseTime(written); err != nil {
+		return HealthSnapshot{}, fmt.Errorf("store: parse listener status: %w", err)
+	}
+
+	rows, err := db.sql.QueryContext(ctx, `
+SELECT s.repo_id, r.owner, r.name, s.last_delivery_at, s.last_poll_finished_at, s.next_poll_due_at,
+       s.poll_owed, s.secret_present, s.webhook_mode, s.written_at
+FROM repo_discovery_status s JOIN repos r ON r.id = s.repo_id
+ORDER BY r.owner, r.name, s.repo_id`)
+	if err != nil {
+		return HealthSnapshot{}, fmt.Errorf("store: read repository status: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			r                    RepoDiscoveryStatus
+			delivery, poll, next sql.NullString
+			owed, secret         int
+			written              string
+		)
+		if err := rows.Scan(&r.RepoID, &r.Owner, &r.Name, &delivery, &poll, &next, &owed, &secret, &r.WebhookMode, &written); err != nil {
+			return HealthSnapshot{}, fmt.Errorf("store: scan repository status: %w", err)
+		}
+		r.PollOwed, r.SecretPresent = owed != 0, secret != 0
+		for _, f := range []struct {
+			dst *time.Time
+			src sql.NullString
+		}{{&r.LastDeliveryAt, delivery}, {&r.LastPollFinishedAt, poll}, {&r.NextPollDueAt, next}} {
+			if *f.dst, err = scanTime(f.src); err != nil {
+				return HealthSnapshot{}, fmt.Errorf("store: parse status of repository %d: %w", r.RepoID, err)
+			}
+		}
+		if r.WrittenAt, err = ParseTime(written); err != nil {
+			return HealthSnapshot{}, fmt.Errorf("store: parse status of repository %d: %w", r.RepoID, err)
+		}
+		snap.Repos = append(snap.Repos, r)
+	}
+	if err := rows.Err(); err != nil {
+		return HealthSnapshot{}, fmt.Errorf("store: read repository status: %w", err)
+	}
+	return snap, nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

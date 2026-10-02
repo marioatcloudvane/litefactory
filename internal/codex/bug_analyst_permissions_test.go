@@ -17,10 +17,15 @@ func TestBugAnalyst_ReadOnlyArgv(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{"--ignore-user-config", "--ignore-rules", "features.shell_tool=false", "features.multi_agent=false"} {
+			for _, want := range []string{"--ignore-user-config", "--ignore-rules"} {
 				if !slices.Contains(args, want) {
 					t.Errorf("missing analyst isolation argument %q: %v", want, args)
 				}
+			}
+			// The shell is Codex's only file reader; the read-only sandbox,
+			// not a disabled shell, keeps the analyst from writing.
+			if slices.Contains(args, "features.shell_tool=false") {
+				t.Errorf("analyst shell disabled: %v", args)
 			}
 			index := slices.Index(args, "--sandbox")
 			if index < 0 || index+1 >= len(args) || args[index+1] != "read-only" {

@@ -24,6 +24,12 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 		"ExecuteNodeAction": "ExecuteWorkflow",
 		"ExecuteWorkflow":   "ExecuteResearchWorkflow",
 	}
+	// Research and Spike each enter the shared driver from one exact function
+	// of their own file, with that mode's own factory policy and no other.
+	sharedEntries := map[string]struct{ file, policy string }{
+		"ExecuteResearchWorkflow": {"research_workflow.go", "ResearchWorkflowPolicy"},
+		"ExecuteSpikeWorkflow":    {"spike_admission.go", "SpikeWorkflowPolicy"},
+	}
 	for _, root := range []string{"../", "../../cmd"} {
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -62,7 +68,10 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 						bugParentEntry = ok && name.Name == "BugRuntime"
 					}
 				}
-				if !bugParentEntry && !bugChildEntry && ((!planEntry && filepath.Clean(path) != filepath.Join("..", "turn", "research_workflow.go")) || fn.Recv != nil) {
+				shared, sharedEntry := sharedEntries[fn.Name.Name]
+				sharedEntry = sharedEntry && filepath.Clean(path) == filepath.Join("..", "turn", shared.file)
+				researchFile := filepath.Clean(path) == filepath.Join("..", "turn", "research_workflow.go")
+				if !bugParentEntry && !bugChildEntry && ((!planEntry && !sharedEntry && !researchFile) || fn.Recv != nil) {
 					continue
 				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -74,7 +83,11 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 						return true
 					}
 					id, ok := call.Fun.(*ast.Ident)
-					if !ok || (owners[id.Name] != fn.Name.Name && (!planEntry || id.Name != "ExecuteWorkflow") && ((!bugChildEntry && !bugParentEntry) || id.Name != "ExecuteNodeAction")) {
+					if !ok {
+						return true
+					}
+					sharedDispatch := (sharedEntry || planEntry) && id.Name == "ExecuteWorkflow"
+					if owners[id.Name] != fn.Name.Name && !sharedDispatch && ((!bugChildEntry && !bugParentEntry) || id.Name != "ExecuteNodeAction") {
 						return true
 					}
 					allowed[id] = true
@@ -92,8 +105,8 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 							return true
 						}
 						policyName, ok := policy.Fun.(*ast.Ident)
-						if !ok || policyName.Name != "ResearchWorkflowPolicy" || len(policy.Args) != 0 {
-							t.Errorf("%s: production workflow must use ResearchWorkflowPolicy()", positions.Position(policy.Pos()))
+						if !ok || policyName.Name != shared.policy || len(policy.Args) != 0 {
+							t.Errorf("%s: production workflow must use %s()", positions.Position(policy.Pos()), shared.policy)
 						}
 					}
 					return true
@@ -116,7 +129,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 		}
 	}
 	for name, owner := range owners {
-		want := 2
+		want := 3
 		if name == "ExecuteNodeAction" {
 			want = 3
 		}

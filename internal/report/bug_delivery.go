@@ -10,16 +10,13 @@ import (
 // immutable domain records. Rendering performs no remote read or authorization.
 // Lead is what the owner scans first; Phases are one check-table row each.
 // Facts is every recorded fact already laid out one per line, in stage order
-// ("[stage] text"); nil or empty renders as "None". SelfCheck is the one-line
-// fixer self-check evidence for the repair attempt behind this delivery
-// (AC-009), computed from factory-recorded source=fixer bug_checks rows.
+// ("[stage] text"); nil or empty renders as "None".
 type BugDeliveryReview struct {
 	Task, Digest, Head, Target, Recipe string
 	PR                                 int
 	Lead, Analysis, Repair             string
 	Phases                             [3]string
 	Facts                              []string
-	SelfCheck                          string
 	ApprovalCommand                    string
 	Clarifications                     []string
 }
@@ -51,7 +48,7 @@ func RenderBugDeliveryReview(r BugDeliveryReview) (string, error) {
 			return "", errors.New("invalid Bug delivery review digest")
 		}
 	}
-	if strings.TrimSpace(r.Task) == "" || strings.TrimSpace(r.Lead) == "" || strings.TrimSpace(r.Analysis) == "" || strings.TrimSpace(r.Repair) == "" || strings.TrimSpace(r.SelfCheck) == "" {
+	if strings.TrimSpace(r.Task) == "" || strings.TrimSpace(r.Lead) == "" || strings.TrimSpace(r.Analysis) == "" || strings.TrimSpace(r.Repair) == "" {
 		return "", errors.New("incomplete Bug delivery review evidence")
 	}
 	command := fmt.Sprintf("/approve-bug delivery %s %d %s main %s", r.Digest, r.PR, r.Head, r.Target)
@@ -66,7 +63,6 @@ func RenderBugDeliveryReview(r BugDeliveryReview) (string, error) {
 		}
 		fmt.Fprintf(&b, "%s\n", strings.TrimSpace(r.Phases[n]))
 	}
-	fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(r.SelfCheck))
 	fmt.Fprintf(&b, "\n%s", RenderBugFactsSection(r.Facts))
 	fmt.Fprintf(&b, "\n<details><summary>Approved analysis</summary>\n\n%s\n</details>\n", strings.TrimSpace(r.Analysis))
 	for _, c := range r.Clarifications {

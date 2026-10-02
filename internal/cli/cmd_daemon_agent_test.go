@@ -425,7 +425,7 @@ func TestDaemonStartRefusesATokenEnvThatIsNotSet(t *testing.T) {
 // status` from being a mystery: with no bot token the daemon exits at startup,
 // and the only place that can be explained is here.
 func TestDaemonStartWarnsWithNoCredential(t *testing.T) {
-	h := newDaemonHome(t, "settings:\n  poll_interval_seconds: 30\n"+canonicalClaudeConfig)
+	h := newDaemonHome(t, "settings:\n  poll_interval_minutes: 30\n"+canonicalClaudeConfig)
 
 	code, stdout, stderr := h.run("daemon", "start")
 	if code != ExitOK {

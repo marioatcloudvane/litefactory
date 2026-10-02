@@ -6,6 +6,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -35,7 +36,7 @@ type WorkflowPolicy struct {
 	AuthorizeOutput func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.ResearchNode) error
 	BeforeContinue  func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.Result, agentresult.Context, int64) error
 	Specs           []graphexec.ActionSpec
-	RegisterEffects func(*graphexec.Registry, *ActivityRegistry, *graphexec.Profile, func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), func() (string, string, error)) error
+	RegisterEffects func(*graphexec.Registry, *ActivityRegistry, *graphexec.Profile, func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), func() (string, string, error), WorkflowEnv) error
 	BeforePublish   func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.Result, agentresult.Context) error
 	Failure         func(Request, error) agentresult.Result
 	Mode            agent.Mode
@@ -47,6 +48,44 @@ type WorkflowPolicy struct {
 	Contract        func(store.GraphNodeAttempt, string, agentresult.Result, agentresult.Context) error
 	Render          func(agentresult.Result, string, naming.Ref, string) string
 	NextStep        func(*graphexec.Profile, string, string) string
+
+	// Questions marks a mode whose graph runtime carries owner questions. Only
+	// this factory-owned policy can grant it; it is still subject to an owner's
+	// direct instruction not to ask.
+	Questions bool
+
+	// DefaultAccess is the tool access an agent node receives when its DOT
+	// declares none: "read" narrows to read-only tools, empty leaves the run's
+	// permission profile exactly as the daemon resolved it.
+	DefaultAccess string
+
+	// ResultPerNode gives every agent node of a graph instance an application
+	// result of its own. Without it a graph instance authors one result that each
+	// agent stage revises, which is what a single-role mode wants.
+	ResultPerNode bool
+
+	// Handoff supplies the saved context a later agent stage of the same graph
+	// instance receives from the earlier stages' retained results. It reads
+	// durable records only and returns untrusted data, never factory authority.
+	// Nil supplies nothing.
+	Handoff func(ctx context.Context, db *store.DB, instanceID, beforeAttempt int64, profile *graphexec.Profile, policy WorkflowPolicy, scope agentresult.Context) (string, error)
+
+	// Annotate lets a mode add factory-recorded facts to the retained candidate a
+	// comment is about to report, from durable records only. It runs for every
+	// kind except failure; an error refuses the publication.
+	Annotate func(ctx context.Context, db *store.DB, source store.GraphNodeAttempt, kind string, candidate agentresult.Result) (agentresult.Result, error)
+}
+
+// WorkflowEnv is the trusted run context a mode's scoped activities are built
+// with: the task they belong to and the worktree the run holds.
+type WorkflowEnv struct {
+	Ref      naming.Ref
+	Worktree func() (*git.Worktree, error)
+}
+
+// baseContext is the trusted result scope every graph node of this policy shares.
+func (p WorkflowPolicy) baseContext(questions bool) agentresult.Context {
+	return agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(p.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: questions || p.Questions}
 }
 
 // ResearchWorkflowPolicy supplies Research contracts and scoped effects to shared mechanics.

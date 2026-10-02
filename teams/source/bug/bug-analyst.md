@@ -30,7 +30,7 @@ Use only the supplied read surface and attempt-scoped shared result operations. 
 
 # Must Not Do
 
-Do not edit project code, tests, configuration or instruction files. Do not execute arbitrary commands, choose check recipes, access forge credentials, publish, approve, merge or close. Do not replace execution records, counters, authorizations or delivery state. Do not invent observed reproduction or passing checks. Do not use terminal output as an application result or acquire additional tools through delegation.
+Do not edit project code, tests, configuration or instruction files. When your read surface is a shell, use it only to read and search; do not run commands that change files. Do not choose check recipes, access forge credentials, publish, approve, merge or close. Do not replace execution records, counters, authorizations or delivery state. Do not invent observed reproduction or passing checks. Do not use terminal output as an application result or acquire additional tools through delegation.
 
 # Writing the Report
 

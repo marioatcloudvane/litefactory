@@ -10,9 +10,9 @@
         "total": 37557
       },
       "scoped": {
-        "input": 8131,
+        "input": 7959,
         "output": 1231,
-        "total": 9362
+        "total": 9190
       }
     },
     {
@@ -23,9 +23,9 @@
         "total": 39593
       },
       "scoped": {
-        "input": 8367,
+        "input": 8195,
         "output": 340,
-        "total": 8707
+        "total": 8535
       }
     },
     {
@@ -36,9 +36,9 @@
         "total": 42953
       },
       "scoped": {
-        "input": 8773,
+        "input": 8601,
         "output": 603,
-        "total": 9376
+        "total": 9204
       }
     },
     {
@@ -49,9 +49,9 @@
         "total": 39637
       },
       "scoped": {
-        "input": 8482,
+        "input": 8310,
         "output": 549,
-        "total": 9031
+        "total": 8859
       }
     },
     {
@@ -62,9 +62,9 @@
         "total": 39619
       },
       "scoped": {
-        "input": 8571,
+        "input": 8399,
         "output": 689,
-        "total": 9260
+        "total": 9088
       }
     }
   ],
@@ -75,9 +75,9 @@
       "total": 199359
     },
     "scoped": {
-      "input": 42324,
+      "input": 41464,
       "output": 3412,
-      "total": 45736
+      "total": 44876
     }
   }
 }

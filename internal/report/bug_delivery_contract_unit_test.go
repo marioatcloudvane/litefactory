@@ -15,7 +15,6 @@ func bugReviewFixture() report.BugDeliveryReview {
 		Analysis:        "Expected: one result. Actual: duplicate result. Cause: retry. Remedy: deduplicate. Exclusions: routing. AC-001: exactly one result.",
 		Repair:          "AC-001 covered by dedupe.go and dedupe_test.go",
 		Phases:          [3]string{"regression evidence #11 passed", "focused evidence #12 passed", "full evidence #13 passed"},
-		SelfCheck:       "The fixer ran its own checks 2 times; last result: regression passed, focused passed.",
 		ApprovalCommand: "/approve-bug delivery " + digest + " 42 " + head + " main " + target,
 	}
 }
@@ -30,7 +29,7 @@ func TestRenderBugDeliveryReview_PreservesRequiredEvidence(t *testing.T) {
 	}
 	for _, want := range []string{r.Task, r.Digest, r.Head, r.Target, r.Recipe, r.Analysis, r.Repair,
 		r.Phases[0], r.Phases[1], r.Phases[2], r.ApprovalCommand, "/bug-review " + r.Digest,
-		r.SelfCheck, "## What the factory noticed", "- " + r.Facts[0], "- " + r.Facts[1]} {
+		"## What the factory noticed", "- " + r.Facts[0], "- " + r.Facts[1]} {
 		if !strings.Contains(got, want) {
 			t.Errorf("required review evidence/control %q missing from %q", want, got)
 		}
@@ -91,7 +90,6 @@ func TestRenderBugDeliveryReview_RefusesIncompleteEvidence(t *testing.T) {
 		{"lead", func(r *report.BugDeliveryReview) { r.Lead = "" }},
 		{"analysis", func(r *report.BugDeliveryReview) { r.Analysis = " \n" }},
 		{"repair", func(r *report.BugDeliveryReview) { r.Repair = "" }},
-		{"self-check", func(r *report.BugDeliveryReview) { r.SelfCheck = "  \n" }},
 		{"regression", func(r *report.BugDeliveryReview) { r.Phases[0] = "" }},
 		{"focused", func(r *report.BugDeliveryReview) { r.Phases[1] = "" }},
 		{"full", func(r *report.BugDeliveryReview) { r.Phases[2] = "" }},
