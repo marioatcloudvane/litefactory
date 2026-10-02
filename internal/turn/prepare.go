@@ -434,6 +434,7 @@ func prepare(
 	// pointer only on the cold path — see [harness.PromptInput.SessionArtifactDir]).
 	promptInput.SessionArtifactDir, promptInput.SessionArtifactBrief =
 		existingSessionArtifacts(worktree.Path(), branch, ref.Issue, run.StartedAt, req.mode(), logger)
+	promptInput.SessionArtifactTechnical = existingSessionTechnical(worktree.Path(), promptInput.SessionArtifactDir, req.mode())
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)

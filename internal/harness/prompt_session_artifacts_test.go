@@ -79,3 +79,30 @@ func TestBuildPromptSessionArtifactsOmittedOnResume(t *testing.T) {
 		t.Errorf("resumed prompt carried the existing-session-artifacts section:\n%s", got)
 	}
 }
+
+func TestPlanResearchDocumentPointers(t *testing.T) {
+	for _, brief := range []string{"RESEARCH_BRIEF.md", "plan_brief.md"} {
+		in := testPromptInput()
+		in.SessionArtifactDir = ".aiteam/session"
+		in.SessionArtifactBrief = brief
+		got := buildPrompt(t, in)
+		want := "Read `.aiteam/session/" + brief + "` first for the context already saved there before doing anything else.\n"
+		if !strings.Contains(got, want) || strings.Contains(got, "RESEARCH_TECHNICAL.md") || strings.Contains(got, "Research documents") {
+			t.Fatalf("legacy pointer changed: %s", got)
+		}
+	}
+	in := testPromptInput()
+	in.SessionArtifactDir = ".aiteam/session"
+	in.SessionArtifactBrief = "RESEARCH_BRIEF.md"
+	in.SessionArtifactTechnical = "RESEARCH_TECHNICAL.md"
+	got := buildPrompt(t, in)
+	for _, want := range []string{".aiteam/session/RESEARCH_BRIEF.md", ".aiteam/session/RESEARCH_TECHNICAL.md", "Research documents"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+	in.Resume = true
+	if strings.Contains(buildPrompt(t, in), "## Existing session artifacts") {
+		t.Fatal("pointer repeated on resume")
+	}
+}

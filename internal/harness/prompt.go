@@ -393,6 +393,9 @@ type PromptInput struct {
 	// is itself "", the admitted mode has no brief of its own, or the file the
 	// mode wants is not present.
 	SessionArtifactBrief string
+
+	// SessionArtifactTechnical is the verified optional Plan research evidence file.
+	SessionArtifactTechnical string
 }
 
 // BuildPrompt assembles the prompt sent to claude on stdin.
@@ -597,6 +600,9 @@ func writeExistingSessionArtifacts(b *strings.Builder, in PromptInput) {
 		fmt.Fprintf(b, "Read `%s/%s` first for the context already saved there before doing anything else.\n", dir, brief)
 	} else {
 		b.WriteString("Read what is saved there before starting, if anything looks relevant.\n")
+	}
+	if technical := strings.TrimSpace(in.SessionArtifactTechnical); technical != "" {
+		fmt.Fprintf(b, "Read `%s/%s` for technical findings and evidence. Follow the research brief's Research documents list when available for additional evidence and reference data.\n", dir, technical)
 	}
 }
 
