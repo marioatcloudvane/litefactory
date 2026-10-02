@@ -40,7 +40,7 @@ func (w Webhook) validate() []error {
 	}
 	host, port, err := net.SplitHostPort(w.Listen)
 	if err != nil {
-		return append(errs, fmt.Errorf("webhook.listen: %q is not a host:port address: %v", w.Listen, err))
+		return append(errs, fmt.Errorf("webhook.listen: %q is not a host:port address: %w", w.Listen, err))
 	}
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {

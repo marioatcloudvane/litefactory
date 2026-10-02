@@ -25,6 +25,7 @@ type Contents struct {
 // "<name>.partial" file is checked against the name it will be published as.
 func Read(path string, fn func(Row) error) (Contents, error) {
 	var c Contents
+	//nolint:gosec // G304: the path is built by the factory under its archive root, never from user input.
 	f, err := os.Open(path)
 	if err != nil {
 		return c, fmt.Errorf("archive: open: %w", err)

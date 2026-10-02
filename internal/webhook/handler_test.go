@@ -440,11 +440,11 @@ func TestNewHandlerValidatesOptions(t *testing.T) {
 // shuts down gracefully.
 func TestServerServesAndShutsDown(t *testing.T) {
 	r := newRig(t)
-	ln, err := webhook.Listen("127.0.0.1:0")
+	ln, err := webhook.Listen(t.Context(), "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := webhook.Listen(ln.Addr().String()); err == nil || !strings.Contains(err.Error(), ln.Addr().String()) {
+	if _, err := webhook.Listen(t.Context(), ln.Addr().String()); err == nil || !strings.Contains(err.Error(), ln.Addr().String()) {
 		t.Errorf("binding a taken port: %v, want an error naming the address", err)
 	}
 	srv := webhook.NewServer(ln, r.h)

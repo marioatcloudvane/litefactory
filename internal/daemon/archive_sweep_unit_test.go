@@ -80,10 +80,10 @@ func (x *archiveFixture) daemon(opts ArchiveOptions) *Daemon {
 
 func (x *archiveFixture) run(t *testing.T, d *Daemon, now time.Time) error {
 	t.Helper()
-	return x.runCtx(t, t.Context(), d, now)
+	return x.runCtx(t.Context(), t, d, now)
 }
 
-func (x *archiveFixture) runCtx(t *testing.T, ctx context.Context, d *Daemon, now time.Time) error {
+func (x *archiveFixture) runCtx(ctx context.Context, t *testing.T, d *Daemon, now time.Time) error {
 	t.Helper()
 	sweepSeed(d, now)
 	return d.RunArchiveBatch(ctx, now)
@@ -111,7 +111,7 @@ func (x *archiveFixture) files(t *testing.T) (final, partial []string) {
 	t.Helper()
 	_ = filepath.WalkDir(x.dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
-			return nil
+			return nil //nolint:nilerr // Deliberate: the fixture lists what it can read; a vanished entry is not a test failure.
 		}
 		if strings.HasSuffix(p, archive.PartialSuffix) {
 			partial = append(partial, p)
@@ -290,7 +290,7 @@ func TestRunArchiveBatch_ShutdownLeavesOwnerForNextRun(t *testing.T) {
 		return github.Issue{}, context.Canceled
 	})})
 
-	err := x.runCtx(t, ctx, d, x.now)
+	err := x.runCtx(ctx, t, d, x.now)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}

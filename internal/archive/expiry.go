@@ -21,6 +21,7 @@ const (
 // ReadHeader decodes only the first record of the archive at path, without
 // reading the rest of the file or verifying the trailer.
 func ReadHeader(path string) (Header, error) {
+	//nolint:gosec // G304: the path is built by the factory under its archive root, never from user input.
 	f, err := os.Open(path)
 	if err != nil {
 		return Header{}, fmt.Errorf("archive: open: %w", err)
