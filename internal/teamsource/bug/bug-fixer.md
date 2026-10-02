@@ -32,7 +32,7 @@ Work in the supplied worktree with your read, edit and shell tools, and return t
 
 # Testing Your Work
 
-Build and test your change before you hand it back. Run the repository's own checks: the commands in `.litefactory/bug-checks.yaml` when it exists, otherwise the project's usual build, vet and test commands for the packages you touched, and the regression tests you wrote. Fix what fails, including failures in your own new tests, within this one attempt. If a failure is unrelated to the repair and you cannot fix it within the approved remedy, say so in the summary with the command and the failing output.
+Build and test your change before you hand it back, scoped to what you changed: build the project, vet and test the packages you touched, and run the regression tests you wrote. Fix what fails, including failures in your own new tests, within this one attempt. Do not run the whole suite, a race-detector run of the whole suite or the full recipe in `.litefactory/bug-checks.yaml`: the factory runs those itself right after you, and running them here only spends your attempt's time. If a failure is unrelated to the repair and you cannot fix it within the approved remedy, say so in the summary with the command and the failing output.
 
 Your passing run is evidence, not the final gate: the factory runs its own check afterwards, and the delivery review shows that result. Report what you ran and how it ended; never claim a check you did not run.
 
