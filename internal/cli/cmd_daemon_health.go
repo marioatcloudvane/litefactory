@@ -21,7 +21,7 @@ import (
 const daemonNoDelivery = "none since start"
 
 // readHealthSnapshot reads the snapshot the daemon published, opening and
-// closing the database at once like [lastTickAt]: `daemon status` must not hold
+// closing the database at once like [lastTickTime]: `daemon status` must not hold
 // a connection while the daemon is writing. The snapshot is display-only.
 func readHealthSnapshot(ctx context.Context, paths config.Paths) (_ store.HealthSnapshot, err error) {
 	if _, statErr := os.Stat(paths.DBPath()); statErr != nil {
@@ -75,6 +75,56 @@ func printDaemonHealth(w io.Writer, snap store.HealthSnapshot, running bool, now
 		fmt.Fprintf(tw, "  secret\t%s\n", daemonSecret(r, l.Listening))
 	}
 	return tw.Flush()
+}
+
+// printDaemonHeartbeat writes what the daemon was doing, each fact with its age:
+// the last heartbeat, the last one that completed, whether discovery is running
+// or paused and why, and how many runs were in flight. A daemon that is not
+// running is shown under "as of <time>, daemon not running": these are the
+// last things it recorded, not things it is doing now.
+func printDaemonHeartbeat(w io.Writer, snap store.HealthSnapshot, lastCompleted time.Time, running bool, now time.Time) error {
+	if !snap.Found {
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	l := snap.Listener
+	if !running {
+		fmt.Fprintf(tw, "heartbeat\tas of %s, daemon not running\n", l.WrittenAt.UTC().Format(time.RFC3339))
+	}
+	fmt.Fprintf(tw, "last heartbeat\t%s\n", daemonTimeAge(l.LastHeartbeatStartedAt, "none since start", now))
+	fmt.Fprintf(tw, "last completed heartbeat\t%s\n", daemonTimeAge(lastCompleted, "none yet", now))
+	if l.DiscoveryPaused {
+		resume := "when fresh rate-limit data arrives"
+		if !l.ExpectedResumeAt.IsZero() {
+			resume = l.ExpectedResumeAt.UTC().Format(time.RFC3339)
+		}
+		fmt.Fprintf(tw, "discovery\tpaused since %s: %s, expected to resume %s\n",
+			daemonTimeAge(l.PausedSince, "an unknown time", now), l.PauseReason, resume)
+	} else {
+		fmt.Fprintf(tw, "discovery\trunning\n")
+	}
+	fmt.Fprintf(tw, "runs in flight\t%d (as of %s)\n", l.RunsInFlight, daemonAge(now.Sub(l.WrittenAt)))
+	return tw.Flush()
+}
+
+// daemonTimeAge renders a time as RFC3339 with its age: "2026-01-02T03:04:05Z (12s ago)".
+func daemonTimeAge(t time.Time, none string, now time.Time) string {
+	if t.IsZero() {
+		return none
+	}
+	return fmt.Sprintf("%s (%s)", t.UTC().Format(time.RFC3339), daemonAge(now.Sub(t)))
+}
+
+// daemonAge renders how long ago something was, to the second below a minute
+// and to the minute above it.
+func daemonAge(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	}
+	return daemonRelative(-d)
 }
 
 func daemonTimeOr(t time.Time, none string) string {
