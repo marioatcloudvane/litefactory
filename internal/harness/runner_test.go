@@ -522,13 +522,16 @@ func TestRunWritesAnOversizedEventLineIntact(t *testing.T) {
 
 // AC-3.16: written as it arrives, not buffered — a crash keeps what already
 // happened. The fake blocks after the init event until the test has seen it on
-// disk.
+// disk. There is no wall-clock deadline: the test waits on the run itself, and
+// reports buffering only if the run returns before init was ever observed. The
+// fake waits on the gate without a cap, so it cannot finish before the test has
+// looked; the runner's own timeout and the 60 s context bound a buffered runner.
 func TestRunStreamsEventsAsTheyArrive(t *testing.T) {
 	root := t.TempDir()
 	gate := filepath.Join(root, "gate")
 
 	script := emit(t, initLine) +
-		"i=0\nwhile [ ! -f " + gate + " ] && [ $i -lt 200 ]; do /bin/sleep 0.05; i=$((i+1)); done\n" +
+		"while [ ! -f " + gate + " ]; do /bin/sleep 0.05; done\n" +
 		emit(t, resultLine) + "exit 0\n"
 	f := newFixture(t, script)
 
@@ -550,13 +553,19 @@ func TestRunStreamsEventsAsTheyArrive(t *testing.T) {
 		done <- result
 	}()
 
-	if !waitFor(5*time.Second, func() bool {
+	// Poll the run log and, in the same loop, check whether the run has
+	// already returned. Only a run that ends before init reaches the disk
+	// proves buffering; machine speed alone can never decide the outcome.
+	for observed := false; !observed; {
+		select {
+		case <-done:
+			t.Fatal("the init event was not on disk while the run was still in flight; the stream is buffered")
+		default:
+		}
 		data, err := os.ReadFile(logPath)
-		return err == nil && strings.Contains(string(data), `"subtype":"init"`)
-	}) {
-		cancel()
-		<-done
-		t.Fatal("the init event was not on disk while the run was still in flight; the stream is buffered")
+		if observed = err == nil && strings.Contains(string(data), `"subtype":"init"`); !observed {
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
 	if err := os.WriteFile(gate, nil, 0o600); err != nil {
 		t.Fatal(err)
