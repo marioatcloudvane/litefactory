@@ -29,9 +29,22 @@ teams:
   # Optional sources: {corporate: {index_url: "https://teams.example/index.json"}}
   # default_source: corporate # takes precedence over index_url
 
+webhook:
+  # Local address the GitHub webhook listener binds, as host:port. Deliveries
+  # arrive at /litefactory/webhook and only wake a scoped discovery pass. Empty
+  # turns the listener off. Secrets live in the Keychain, never here.
+  listen: %q
+  # Public address GitHub delivers webhooks to (an https URL that reaches the
+  # listener, for example through a tunnel). With it set, "repo add" and
+  # "repo webhook" register the webhook; empty skips registration. An http URL
+  # sends payloads unencrypted.
+  public_url: %q
+
 settings:
   # Daemon scheduling, repository defaults, worktree placement and logging.
-  poll_interval_seconds: %d # valid range: %d..%d
+  # Fallback poll for discovery, in minutes. GitHub webhooks are recommended;
+  # use a short poll only for setups without them.
+  poll_interval_minutes: %d # valid range: %d..%d
   max_concurrent_runs: %d # valid range: %d..%d
   default_base_branch: %q # empty means discover it from the remote
   feature_prefix: %q
@@ -123,7 +136,9 @@ tool_profiles:
   permissions:
 `,
 		d.Teams.IndexURL,
-		d.Settings.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds,
+		d.Webhook.Listen,
+		d.Webhook.PublicURL,
+		d.Settings.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,
 		d.Settings.TeamConfig,

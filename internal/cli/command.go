@@ -34,6 +34,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/daemon"
 )
@@ -83,6 +84,13 @@ type Env struct {
 	// whether it is unlocked, and on a locked machine macOS may block on an
 	// allow-access dialog no test can answer.
 	Keychain func(ctx context.Context, service, account string) (string, error)
+	// KeychainWrite adds or updates a macOS keychain generic password and is the
+	// test seam for webhook secret storage. Nil uses /usr/bin/security, which
+	// receives the value on stdin, never in its arguments.
+	KeychainWrite func(ctx context.Context, service, account, value string) error
+	// Now is the clock `daemon status` measures "in 42m" against. Nil means
+	// time.Now.
+	Now func() time.Time
 }
 
 // ArgSpec declares a command's positional arguments.
