@@ -289,7 +289,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	var webhookOpts *WebhookOptions
 	handedOver := false
 	if addr := s.Config.Webhook.Listen; addr != "" {
-		ln, listenErr := webhook.Listen(addr)
+		ln, listenErr := webhook.Listen(ctx, addr)
 		if listenErr != nil {
 			return nil, Startup{}, errors.Join(
 				fmt.Errorf("the webhook listener could not bind %s (webhook.listen in config.yaml; set it to another address or to \"\" to turn webhooks off): %w", addr, listenErr),

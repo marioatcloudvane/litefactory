@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -31,6 +34,10 @@ type BugChecksInput struct {
 	// Observe validates target repository/branch/tip and environment/permission
 	// revisions through factory-owned observations. It must not trust graph attrs.
 	Observe func(context.Context, store.BugCheckBinding) error
+	// Base checks the target commit out in a temporary detached worktree for
+	// rerun attribution and returns its cleanup. Nil leaves every failure
+	// still failing on the repair unattributed.
+	Base func(context.Context, string) (*git.Worktree, func(context.Context) error, error)
 }
 
 // BugChecksOutput reports a phase outcome with retained evidence references.
@@ -50,7 +57,12 @@ type BugChecksActivity struct {
 	Resolve        func(context.Context, ActivityRequest) (BugChecksInput, error)
 	mu             sync.Mutex
 	active         map[string]context.CancelFunc
+	// run replaces Isolation.Run in tests; production leaves it nil.
+	run bugCheckRunner
 }
+
+// bugCheckRunner has the signature of bugchecks.Isolation.Run.
+type bugCheckRunner func(context.Context, string, config.BugCheckCommand, func(bugchecks.CommandResult) error) bugchecks.CommandResult
 
 // RegisterBugChecks registers the concrete trusted recipe phase handler.
 func RegisterBugChecks(specs *graphexec.Registry, activities *ActivityRegistry, h *BugChecksActivity) error {
@@ -225,17 +237,25 @@ func (h *BugChecksActivity) RunPhase(ctx context.Context, db *store.DB, in BugCh
 	if err = observe(); err != nil {
 		return finish("blocked", err.Error(), false)
 	}
+	run := h.run
+	if run == nil {
+		run = in.Isolation.Run
+	}
+	var known []string
 	for ordinal, command := range phase.Commands {
 		if ordinal < len(retained.Commands) {
 			old := retained.Commands[ordinal]
 			if old.Ordinal != ordinal {
 				return ActivityResult{}, errors.New("bug check command ordinal mismatch")
 			}
-			if old.State != "completed" {
+			if old.State != "completed" || old.RerunActive() {
 				return checkActivityResult(b, "blocked", "command launch or cleanup remains uncertain; reconciliation required")
 			}
-			if old.Observation.Outcome != "passed" {
-				return finish(old.Observation.Outcome, old.Observation.Reason, false)
+			if outcome, reason := bugCommandVerdict(old); outcome != "passed" {
+				return finish(outcome, reason, false)
+			}
+			if old.Attribution != nil {
+				known = append(known, bugKnownFailures(*old.Attribution))
 			}
 			continue
 		}
@@ -256,7 +276,7 @@ func (h *BugChecksActivity) RunPhase(ctx context.Context, db *store.DB, in BugCh
 		if !launched {
 			return checkActivityResult(b, "blocked", "command claim refused or already retained")
 		}
-		observation := in.Isolation.Run(runCtx, in.Worktree.Path(), command, func(o bugchecks.CommandResult) error {
+		observation := run(runCtx, in.Worktree.Path(), command, func(o bugchecks.CommandResult) error {
 			return db.ObserveBugCheckCommand(runCtx, b.SessionID, b.Operation, ordinal, false, checkObservation(o))
 		})
 		cleanupCtx := context.WithoutCancel(ctx)
@@ -268,7 +288,18 @@ func (h *BugChecksActivity) RunPhase(ctx context.Context, db *store.DB, in BugCh
 		if e = db.ObserveBugCheckCommand(cleanupCtx, b.SessionID, b.Operation, ordinal, true, checkObservation(observation)); e != nil {
 			return ActivityResult{}, e
 		}
-		if observation.Outcome != "passed" {
+		// Only an ordinary test failure of a completed, uncancelled command is
+		// attributed; a blocked, cancelled or timed-out command never reruns.
+		if observation.Outcome == "failed" && command.Rerun != nil && runCtx.Err() == nil {
+			outcome, reason, e := h.attribute(ctx, runCtx, db, in, run, ordinal, command, observation, observe)
+			if e != nil {
+				return ActivityResult{}, e
+			}
+			if outcome != "passed" {
+				return finish(outcome, reason, false)
+			}
+			known = append(known, reason)
+		} else if observation.Outcome != "passed" {
 			return finish(observation.Outcome, observation.Reason, false)
 		}
 		if e = observe(); e != nil {
@@ -278,7 +309,226 @@ func (h *BugChecksActivity) RunPhase(ctx context.Context, db *store.DB, in BugCh
 	if err = observe(); err != nil {
 		return finish("blocked", err.Error(), false)
 	}
+	if len(known) > 0 {
+		return finish("passed", BugKnownFailuresPrefix+strings.Join(known, "; "), true)
+	}
 	return finish("passed", "", true)
+}
+
+// BugKnownFailuresPrefix opens the reason of a phase that passed only because
+// every failing test was flaky or also failed on the target commit.
+const BugKnownFailuresPrefix = "passed with known failures: "
+
+// bugCommandVerdict reads a retained command as the phase counts it.
+func bugCommandVerdict(c store.BugCheckCommandRecord) (string, string) {
+	if c.Passed() {
+		return "passed", ""
+	}
+	if c.Attribution != nil && c.Attribution.Outcome == "failed" {
+		return "failed", c.Attribution.Reason
+	}
+	return c.Observation.Outcome, c.Observation.Reason
+}
+
+// bugKnownFailures names a passing attribution's flaky and pre-existing tests.
+func bugKnownFailures(a store.BugCheckAttribution) string {
+	var parts []string
+	if len(a.Flaky) > 0 {
+		parts = append(parts, "flaky "+bugTestList(a.Flaky))
+	}
+	if len(a.PreExisting) > 0 {
+		parts = append(parts, "pre-existing "+bugTestList(a.PreExisting))
+	}
+	return strings.Join(parts, "; ")
+}
+func bugTestList(tests []store.BugCheckTest) string {
+	out := make([]string, len(tests))
+	for i, t := range tests {
+		out[i] = t.Name + " (" + t.Package + ")"
+	}
+	return strings.Join(out, ", ")
+}
+func bugTests(failed map[string][]string) []store.BugCheckTest {
+	var out []store.BugCheckTest
+	for _, pkg := range slices.Sorted(maps.Keys(failed)) {
+		for _, name := range failed[pkg] {
+			out = append(out, store.BugCheckTest{Package: pkg, Name: name})
+		}
+	}
+	return out
+}
+
+// bugFailedWithout lists the tests of all that are not in some.
+func bugFailedWithout(all, some map[string][]string) map[string][]string {
+	out := map[string][]string{}
+	for pkg, tests := range all {
+		for _, name := range tests {
+			if !slices.Contains(some[pkg], name) {
+				out[pkg] = append(out[pkg], name)
+			}
+		}
+	}
+	return out
+}
+
+// attribute reruns a failed command's named failing tests once on the repair
+// and, for those still failing, once on the target commit. Tests passing on
+// rerun are flaky and tests also failing on the target are pre-existing; only
+// tests that fail on the repair and pass on the target are the repair's. The
+// command passes only when no repair failure remains. Output that cannot be
+// attributed leaves the failure exactly as observed. The returned reason is
+// the known failures of a passing command or the phase reason otherwise.
+func (h *BugChecksActivity) attribute(ctx, runCtx context.Context, db *store.DB, in BugChecksInput, run bugCheckRunner, ordinal int, command config.BugCheckCommand, failed bugchecks.CommandResult, observe func() error) (string, string, error) {
+	b := in.Binding
+	settle := func(a store.BugCheckAttribution) (string, string, error) {
+		if err := db.AttributeBugCheckCommand(context.WithoutCancel(ctx), b.SessionID, b.Operation, ordinal, a); err != nil {
+			return "", "", err
+		}
+		if a.Outcome == "passed" {
+			return "passed", bugKnownFailures(a), nil
+		}
+		return a.Outcome, a.Reason, nil
+	}
+	unattributed := func(cause string) (string, string, error) {
+		return settle(store.BugCheckAttribution{Outcome: "failed", Reason: failed.Reason + " (not attributed to named tests: " + cause + ")"})
+	}
+	// ended maps a rerun that ended attribution early to the phase outcome.
+	ended := func(v rerunVerdict) (string, string, error) {
+		if v.outcome == "unattributed" {
+			return unattributed(v.reason)
+		}
+		return v.outcome, v.reason, nil
+	}
+	report, err := bugchecks.ParseGoTestFailures(failed.Output, failed.CaptureComplete)
+	if err != nil {
+		return unattributed(err.Error())
+	}
+	still, verdict, err := h.rerunTests(ctx, runCtx, db, in, run, ordinal, command, "repair", in.Worktree.Path(), report.Failed, observe)
+	if err != nil {
+		return "", "", err
+	}
+	if verdict.outcome != "" {
+		return ended(verdict)
+	}
+	flaky := bugTests(bugFailedWithout(report.Failed, still))
+	if len(still) == 0 {
+		return settle(store.BugCheckAttribution{Outcome: "passed", Reason: "every failing test passed on rerun", Flaky: flaky})
+	}
+	if in.Base == nil {
+		return unattributed("no target worktree to rerun on")
+	}
+	base, cleanup, err := in.Base(runCtx, b.TargetCommit)
+	if err != nil {
+		if runCtx.Err() != nil {
+			if err = db.CancelBugCheckPhase(context.WithoutCancel(ctx), b.SessionID, b.Operation); err != nil {
+				return "", "", err
+			}
+			return "cancelled", "check cancellation requested", nil
+		}
+		return unattributed("target worktree unavailable: " + err.Error())
+	}
+	// The temporary target worktree holds no evidence; its removal is best
+	// effort and runs after cancellation too.
+	defer func() { _ = cleanup(context.WithoutCancel(ctx)) }()
+	onTarget, verdict, err := h.rerunTests(ctx, runCtx, db, in, run, ordinal, command, "target", base.Path(), still, observe)
+	if err != nil {
+		return "", "", err
+	}
+	if verdict.outcome != "" {
+		return ended(verdict)
+	}
+	pre := bugTests(onTarget)
+	repair := bugTests(bugFailedWithout(still, onTarget))
+	if len(repair) > 0 {
+		reason := failed.Reason + "; failing with the repair but passing on " + b.TargetBranch + ": " + bugTestList(repair)
+		if known := bugKnownFailures(store.BugCheckAttribution{Flaky: flaky, PreExisting: pre}); known != "" {
+			reason += "; also " + known
+		}
+		return settle(store.BugCheckAttribution{Outcome: "failed", Reason: reason, Flaky: flaky, PreExisting: pre, Repair: repair})
+	}
+	return settle(store.BugCheckAttribution{Outcome: "passed", Reason: "every remaining failing test also fails on " + b.TargetBranch, Flaky: flaky, PreExisting: pre})
+}
+
+// rerunVerdict says why a rerun ended attribution early: "blocked" and
+// "cancelled" end the phase so, "unattributed" keeps the command's failure.
+type rerunVerdict struct{ outcome, reason string }
+
+// rerunTests runs the named tests once in root under the same isolation and
+// cwd, retaining the rerun under the failed command, and returns the tests
+// still failing. Every named package must be reported and no unnamed test may
+// fail, or the rerun is unattributed. Source and target observations bracket
+// the rerun exactly as they bracket a command.
+func (h *BugChecksActivity) rerunTests(ctx, runCtx context.Context, db *store.DB, in BugChecksInput, run bugCheckRunner, ordinal int, command config.BugCheckCommand, target, root string, tests map[string][]string, observe func() error) (map[string][]string, rerunVerdict, error) {
+	b := in.Binding
+	if err := observe(); err != nil {
+		return nil, rerunVerdict{"blocked", err.Error()}, nil //nolint:nilerr // A failed observation or rerun is a verdict, not a check failure.
+	}
+	latest, err := db.GetBugCheckPhase(runCtx, b.SessionID, b.Operation)
+	if err != nil {
+		return nil, rerunVerdict{}, err
+	}
+	if latest.Cancelled {
+		return nil, rerunVerdict{"cancelled", "check cancellation requested"}, nil
+	}
+	argv, err := bugchecks.ExpandGoTestRerun(command.Rerun.Argv, tests)
+	if err != nil {
+		return nil, rerunVerdict{"unattributed", err.Error()}, nil //nolint:nilerr // A failed observation or rerun is a verdict, not a check failure.
+	}
+	claimed, err := db.ClaimBugCheckRerun(runCtx, b.SessionID, b.Operation, ordinal, target, bugTests(tests))
+	if err != nil {
+		return nil, rerunVerdict{}, err
+	}
+	if !claimed {
+		return nil, rerunVerdict{"blocked", "rerun claim refused or already retained"}, nil
+	}
+	rerun := command
+	rerun.Argv, rerun.TimeoutSeconds, rerun.Rerun = argv, command.Rerun.TimeoutSeconds, nil
+	result := run(runCtx, root, rerun, func(o bugchecks.CommandResult) error {
+		return db.ObserveBugCheckRerun(runCtx, b.SessionID, b.Operation, ordinal, false, checkObservation(o))
+	})
+	cleanupCtx := context.WithoutCancel(ctx)
+	if runCtx.Err() != nil {
+		if err = db.CancelBugCheckPhase(cleanupCtx, b.SessionID, b.Operation); err != nil {
+			return nil, rerunVerdict{}, err
+		}
+	}
+	if err = db.ObserveBugCheckRerun(cleanupCtx, b.SessionID, b.Operation, ordinal, true, checkObservation(result)); err != nil {
+		return nil, rerunVerdict{}, err
+	}
+	switch result.Outcome {
+	case "cancelled":
+		return nil, rerunVerdict{"cancelled", "check cancellation requested"}, nil
+	case "passed", "failed":
+	default:
+		return nil, rerunVerdict{"unattributed", target + " rerun " + result.Outcome + ": " + result.Reason}, nil
+	}
+	report, err := bugchecks.ParseGoTestReport(result.Output, result.CaptureComplete)
+	if err != nil {
+		return nil, rerunVerdict{"unattributed", target + " rerun: " + err.Error()}, nil //nolint:nilerr // A failed observation or rerun is a verdict, not a check failure.
+	}
+	if result.Outcome == "failed" && len(report.Failed) == 0 {
+		return nil, rerunVerdict{"unattributed", target + " rerun failed without a failing package"}, nil
+	}
+	for pkg, names := range tests {
+		failing, reported := report.Failed[pkg]
+		if !reported && !slices.Contains(report.Passed, pkg) {
+			return nil, rerunVerdict{"unattributed", target + " rerun did not report " + pkg}, nil
+		}
+		for _, name := range failing {
+			if !slices.Contains(names, name) {
+				return nil, rerunVerdict{"unattributed", target + " rerun failed an unnamed test"}, nil
+			}
+		}
+	}
+	for pkg := range report.Failed {
+		if _, named := tests[pkg]; !named {
+			return nil, rerunVerdict{"unattributed", target + " rerun failed an unnamed package"}, nil
+		}
+	}
+	if err = observe(); err != nil {
+		return nil, rerunVerdict{"blocked", err.Error()}, nil //nolint:nilerr // A failed observation or rerun is a verdict, not a check failure.
+	}
+	return report.Failed, rerunVerdict{}, nil
 }
 func checkObservation(o bugchecks.CommandResult) store.BugCheckObservation {
 	return store.BugCheckObservation{ExecutableDigest: o.ExecutableDigest, Executable: o.Executable, CWD: o.CWD, Environment: o.Environment, Started: o.Started, Ended: o.Ended, Exit: o.Exit, Outcome: o.Outcome, Reason: o.Reason, Output: o.Output, CaptureComplete: o.CaptureComplete, CleanupConfirmed: o.CleanupConfirmed, ProcessID: o.ProcessID, ProcessIdentity: o.ProcessIdentity}

@@ -210,7 +210,7 @@ func bugFailedChecks(ctx context.Context, db *store.DB, session int64, repair st
 		}
 		for _, c := range record.Commands {
 			o := c.Observation
-			if o.Outcome == "passed" {
+			if c.Passed() {
 				continue
 			}
 			text := o.Output

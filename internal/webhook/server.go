@@ -27,8 +27,9 @@ type Server struct {
 
 // Listen binds addr. Binding is separate from serving so that a bind failure
 // can fail daemon start-up before any work begins.
-func Listen(addr string) (net.Listener, error) {
-	ln, err := net.Listen("tcp", addr)
+func Listen(ctx context.Context, addr string) (net.Listener, error) {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}

@@ -22,16 +22,16 @@ type deliveryEntry struct {
 
 // deliveries remembers recent delivery ids, evicting the oldest first.
 type deliveries struct {
-	max int
-	ttl time.Duration
+	limit int
+	ttl   time.Duration
 
 	mu    sync.Mutex
 	order *list.List
 	ids   map[string]*list.Element
 }
 
-func newDeliveries(max int, ttl time.Duration) *deliveries {
-	return &deliveries{max: max, ttl: ttl, order: list.New(), ids: make(map[string]*list.Element)}
+func newDeliveries(limit int, ttl time.Duration) *deliveries {
+	return &deliveries{limit: limit, ttl: ttl, order: list.New(), ids: make(map[string]*list.Element)}
 }
 
 // seen reports whether id was recorded and has not expired.
@@ -51,21 +51,15 @@ func (d *deliveries) record(id string, now time.Time) {
 	if _, ok := d.ids[id]; ok {
 		return
 	}
-	for d.order.Len() >= d.max {
+	for d.order.Len() >= d.limit {
 		d.evict(d.order.Front())
 	}
 	d.ids[id] = d.order.PushBack(deliveryEntry{id: id, at: now})
 }
 
-func (d *deliveries) len() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.order.Len()
-}
-
 func (d *deliveries) expire(now time.Time) {
 	for e := d.order.Front(); e != nil; e = d.order.Front() {
-		if now.Sub(e.Value.(deliveryEntry).at) < d.ttl {
+		if entry, ok := e.Value.(deliveryEntry); ok && now.Sub(entry.at) < d.ttl {
 			return
 		}
 		d.evict(e)
@@ -73,6 +67,8 @@ func (d *deliveries) expire(now time.Time) {
 }
 
 func (d *deliveries) evict(e *list.Element) {
-	delete(d.ids, e.Value.(deliveryEntry).id)
+	if entry, ok := e.Value.(deliveryEntry); ok {
+		delete(d.ids, entry.id)
+	}
 	d.order.Remove(e)
 }

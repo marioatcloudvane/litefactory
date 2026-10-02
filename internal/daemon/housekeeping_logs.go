@@ -189,7 +189,7 @@ func deleteOldRotatedLogs(ctx context.Context, log *slog.Logger, logsDir string,
 	}
 	entries := make([]LogFile, len(files))
 	for i, f := range files {
-		entries[i] = LogFile{Name: f.Name, ModTime: f.ModTime}
+		entries[i] = LogFile(f)
 	}
 	for _, name := range SelectRotatedLogsToDelete(entries, now, days) {
 		if ctx.Err() != nil {
