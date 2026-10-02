@@ -12,13 +12,13 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
-// TestPlanGraphSaveAppendsAStoryIndexToAHeadinglessPlanBrief is #429 end to
+// TestPlanSaveAppendsAStoryIndexToAHeadinglessPlanBrief is #429 end to
 // end. A Plan role agent overwrote the session's plan_brief.md with its prose
 // result comment, which has no "## Story Index" heading. Every
 // `/approve-plan-set` save then failed with "plan brief Story Index missing"
 // and the Plan never became ready. The save step now appends the Story Index,
 // keeps the agent's text, commits the file and marks the Plan ready.
-func TestPlanGraphSaveAppendsAStoryIndexToAHeadinglessPlanBrief(t *testing.T) {
+func TestPlanSaveAppendsAStoryIndexToAHeadinglessPlanBrief(t *testing.T) {
 	f, _, base, _ := graphPlanFixture(t, "agent")
 	executeGraphPlan(t, f, base)
 	for i := range 3 {
