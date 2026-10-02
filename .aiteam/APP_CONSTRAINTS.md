@@ -112,7 +112,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
   (AC-0.10). A second YAML document MUST also be refused. `friendlyYAMLError`
   rewrites yaml.v3's Go-type phrasing into `unknown key "…"`.
 - **CFG-2** — Defaults MUST be applied by decoding on top of `Defaults()`, so
-  an explicit zero (`poll_interval_seconds: 0`) stays distinguishable from an
+  an explicit zero (`poll_interval_minutes: 0`) stays distinguishable from an
   absent key and is rejected, not silently replaced.
 - **CFG-3 [enforced]** — The shipped template MUST match `Defaults()`. New keys MUST be represented in both defaults and `internal/config/template.go`; optional `tool_ceiling` and `tool_profiles` remain commented examples absent from a fresh configuration.
 
@@ -125,7 +125,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **CFG-5** — `Config.Validate()` MUST aggregate all independent validation faults using `errors.Join`; new validation MUST preserve this behavior.
 
 - **CFG-6** — An out-of-range value MUST error, MUST NOT be clamped
-  (`poll_interval_seconds` 10–60, `claude.timeout_seconds` 60–86400,
+  (`settings.poll_interval_minutes` 1–180, `claude.timeout_seconds` 60–86400,
   `worktree_retain_days` 1–3650, `max_concurrent_runs` 1–16).
 - **CFG-7** — `exec.LookPath` MUST NOT be used: launchd hands a LaunchAgent
   `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, with no Homebrew. `config.ResolveExecutable`

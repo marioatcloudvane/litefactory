@@ -1,0 +1,168 @@
+package cli
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cloudvane/litefactory/internal/launchd"
+	"github.com/cloudvane/litefactory/internal/store"
+)
+
+func TestDaemonRelative(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[time.Duration]string{
+		42 * time.Minute:                "in 42m",
+		42*time.Minute + 20*time.Second: "in 42m",
+		time.Hour:                       "in 1h",
+		65 * time.Minute:                "in 1h5m",
+		10 * time.Second:                "now",
+		-5 * time.Minute:                "5m ago",
+	} {
+		if got := daemonRelative(in); got != want {
+			t.Errorf("daemonRelative(%s) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func healthFixture() (store.HealthSnapshot, time.Time) {
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	return store.HealthSnapshot{
+		Found: true,
+		Listener: store.ListenerStatus{
+			ListenAddress: "127.0.0.1:8787", Listening: true,
+			DaemonStartedAt: now.Add(-time.Hour), WrittenAt: now.Add(-time.Minute),
+		},
+		Repos: []store.RepoDiscoveryStatus{
+			{Owner: "acme", Name: "api", WebhookMode: "webhook", SecretPresent: true,
+				LastDeliveryAt: now.Add(-3 * time.Minute), LastPollFinishedAt: now.Add(-18 * time.Minute), NextPollDueAt: now.Add(42 * time.Minute)},
+			{Owner: "acme", Name: "web", WebhookMode: "polling only"},
+		},
+	}, now
+}
+
+func TestPrintDaemonHealthRunning(t *testing.T) {
+	t.Parallel()
+	snap, now := healthFixture()
+	var out bytes.Buffer
+	if err := printDaemonHealth(&out, snap, true, now); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"127.0.0.1:8787/litefactory/webhook (bound)",
+		"2026-09-01T11:59:00Z",
+		"acme/api", "webhook",
+		"2026-09-01T11:57:00Z",
+		"2026-09-01T11:42:00Z",
+		"2026-09-01T12:42:00Z (in 42m)",
+		"ok",
+		"acme/web", "polling only",
+		daemonNoDelivery,
+		"MISSING",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "daemon not running") {
+		t.Errorf("a running daemon's snapshot was labelled stale:\n%s", got)
+	}
+}
+
+func TestPrintDaemonHealthStoppedDaemonSaysAsOf(t *testing.T) {
+	t.Parallel()
+	snap, now := healthFixture()
+	var out bytes.Buffer
+	if err := printDaemonHealth(&out, snap, false, now); err != nil {
+		t.Fatal(err)
+	}
+	if want := "as of 2026-09-01T11:59:00Z, daemon not running"; !strings.Contains(out.String(), want) {
+		t.Errorf("output lacks %q:\n%s", want, out.String())
+	}
+}
+
+func TestPrintDaemonHealthListenerOffAndNoSnapshot(t *testing.T) {
+	t.Parallel()
+	snap, now := healthFixture()
+	snap.Listener = store.ListenerStatus{WrittenAt: now}
+	snap.Repos = snap.Repos[1:]
+	var out bytes.Buffer
+	if err := printDaemonHealth(&out, snap, true, now); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "webhook listener  off") {
+		t.Errorf("listener off not printed:\n%s", got)
+	}
+	if strings.Contains(got, "MISSING") {
+		t.Errorf("a secret is reported MISSING with the listener off:\n%s", got)
+	}
+
+	out.Reset()
+	if err := printDaemonHealth(&out, store.HealthSnapshot{}, true, now); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "no health snapshot") {
+		t.Errorf("missing snapshot not reported:\n%s", out.String())
+	}
+}
+
+func TestDaemonNextPollOwed(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	if got := daemonNextPoll(store.RepoDiscoveryStatus{PollOwed: true}, now); !strings.Contains(got, "owed") {
+		t.Errorf("owed listing with no schedule = %q", got)
+	}
+	got := daemonNextPoll(store.RepoDiscoveryStatus{PollOwed: true, NextPollDueAt: now.Add(-10 * time.Minute)}, now)
+	if !strings.Contains(got, "10m ago") || !strings.Contains(got, "owed") {
+		t.Errorf("late owed listing = %q", got)
+	}
+}
+
+// AC-009: `daemon status` reads what the daemon published, from a real database,
+// and labels it when the daemon is not running.
+func TestDaemonStatusPrintsThePublishedHealth(t *testing.T) {
+	h := newDaemonHome(t, keychainConfig)
+	db := h.migrate()
+	repo, err := db.UpsertRepo(h.t.Context(), store.Repo{
+		Path: "/tmp/acme-api", Forge: store.ForgeGitHub, Owner: "acme", Name: "api",
+		RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf/", WorktreeRoot: "/tmp/acme-api-wt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2099, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := db.ReplaceHealthSnapshot(h.t.Context(),
+		store.ListenerStatus{ListenAddress: "127.0.0.1:8787", Listening: true, DaemonStartedAt: at, WrittenAt: at},
+		[]store.RepoDiscoveryStatus{{RepoID: repo.ID, WebhookMode: "webhook, no delivery yet", SecretPresent: true,
+			LastPollFinishedAt: at, NextPollDueAt: at.Add(time.Hour), WrittenAt: at}}); err != nil {
+		t.Fatal(err)
+	}
+
+	h.fake.answer = func(args []string) (string, error) {
+		return "", notLoadedError(args, 113, "Bad request.; Could not find service in domain for user gui: 501")
+	}
+	code, stdout, stderr := h.run("daemon", "status")
+	if code != ExitOK {
+		t.Fatalf("daemon status: exit %d\nstderr:\n%s", code, stderr)
+	}
+	for _, want := range []string{
+		"127.0.0.1:8787/litefactory/webhook (bound)",
+		"as of 2099-01-02T03:04:05Z, daemon not running",
+		"acme/api", "webhook, no delivery yet", daemonNoDelivery, "2099-01-02T04:04:05Z (in ",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("output lacks %q:\n%s", want, stdout)
+		}
+	}
+
+	h.fake.answer = func([]string) (string, error) {
+		return "gui/501/" + launchd.DefaultLabel + " = {\n\tstate = running\n\tpid = 4711\n}", nil
+	}
+	_, stdout, _ = h.run("daemon", "status")
+	if strings.Contains(stdout, "daemon not running") || !strings.Contains(stdout, "snapshot written") {
+		t.Errorf("a running daemon's snapshot is mislabelled:\n%s", stdout)
+	}
+}

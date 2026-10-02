@@ -332,7 +332,13 @@ func writeDaemonRunReport(out io.Writer, startup daemon.Startup) {
 	fmt.Fprintf(tw, "  home\t%s\n", startup.Home)
 	fmt.Fprintf(tw, "  lock\t%s\n", startup.LockPath)
 	fmt.Fprintf(tw, "  instance\t%s\n", startup.InstanceID)
-	fmt.Fprintf(tw, "  interval\t%s\n", startup.Interval)
+	fmt.Fprintf(tw, "  heartbeat interval\t%s\n", startup.Interval)
+	fmt.Fprintf(tw, "  discovery poll interval\t%s\n", startup.DiscoveryInterval)
+	if startup.WebhookAddr != "" {
+		fmt.Fprintf(tw, "  webhook\t%s%s\n", startup.WebhookAddr, "/litefactory/webhook")
+	} else {
+		fmt.Fprintf(tw, "  webhook\toff (webhook.listen is empty)\n")
+	}
 	fmt.Fprintf(tw, "  concurrency\t%d run(s) at a time, across all repos\n", startup.MaxConcurrentRuns)
 	fmt.Fprintf(tw, "  default agent\t%s (first entry under agents)\n", startup.DefaultAgent)
 	fmt.Fprintf(tw, "  api\t%s\n", startup.APIBase)
