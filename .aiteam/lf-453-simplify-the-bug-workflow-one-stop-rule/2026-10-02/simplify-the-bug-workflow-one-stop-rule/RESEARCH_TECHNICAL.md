@@ -4,7 +4,7 @@ _Technical detail behind [the brief](RESEARCH_BRIEF.md). Findings carry the sour
 
 ## f1
 
-All repository observations in this pass refer to revision f30f2d7948a58e92febe6dd782b8c59e113e658d. This was read-only source research; no product edits, test executions, live-run reproductions, merges or issue publications were performed. The supplied reports about #429, #431 and #443 are owner-reported incidents, not independently reproduced incidents.
+Earlier findings f2–f11 were recorded at f30f2d7948a58e92febe6dd782b8c59e113e658d; the shaping follow-up on merge reuse, synchronization and source counts reads f6c814ec4f8df34ec2e7c3c262f43ef5383f04ef. Both passes were read-only: no product edits, test executions, live-run reproductions, merges or issue publications were performed. Reports about #429, #431 and #443 remain owner-reported incidents.
 
 Evidence:
 
@@ -107,3 +107,47 @@ Evidence:
 - `internal/turn/bug_merge.go:24`
 - `internal/turn/bug_merge.go:140`
 - `internal/turn/bug_close.go:129`
+
+## f12
+
+The existing feature delivery service creates or reuses a factory PR, requires authenticated exact PR/head/main approval, performs a head-guarded merge, independently confirms integration and then confirms closure. Its entry and readiness gates depend on a separated managed feature, generation and story readiness; reuse for Bug requires separating reusable delivery behavior from feature-specific admission rather than calling the whole flow unchanged.
+
+Evidence:
+
+- `internal/turn/feature_delivery.go:36`
+- `internal/turn/feature_delivery.go:95`
+- `internal/turn/feature_delivery.go:634`
+- `internal/turn/feature_delivery.go:660`
+
+## f13
+
+Ordinary preparation fetches, reconciles remote task commits and then synchronizes the configured base. Auto-sync defaults to true with a 100-commit default behind cap; Validate skips code synchronization, policy can disable it, dirty base sync is deferred, and conflicts can block. Synchronization merges without rebasing or force pushing. This is a run-preparation behavior, not a mutation promised for every incoming comment.
+
+Evidence:
+
+- `internal/turn/prepare.go:622`
+- `internal/turn/prepare.go:644`
+- `internal/turn/prepare.go:898`
+- `internal/turn/prepare.go:926`
+- `internal/turn/prepare.go:958`
+- `internal/config/config.go:470`
+- `internal/git/merge.go:300`
+
+## f14
+
+Bug explicitly sets its agent-run synchronization override to false before calling common preparation. A separate repair-attempt path synchronizes main before reading the source revision, but skips dirty or non-idle worktrees. Therefore ordinary comment-triggered Bug analyst runs do not guarantee integration of current main, despite the factory default.
+
+Evidence:
+
+- `internal/turn/bug_runtime.go:317`
+- `internal/turn/bug_runtime_domains.go:123`
+- `internal/turn/bug_runtime_target.go:42`
+
+## f15
+
+At f6c814ec4f8df34ec2e7c3c262f43ef5383f04ef the same filename/package source measurement still totals 15,524 non-test Bug Go lines, including 7,711 under internal/store and 5,628 under internal/turn; all non-test Go under internal totals 140,147 lines. Counts include comments and blank lines. A proposed 7,762-line net reduction would equal 50% of the measured Bug footprint and approximately 5.5% of that whole internal source denominator; actual deletability has not been demonstrated.
+
+Evidence:
+
+- `internal/store/bug_tasks.go:1`
+- `internal/turn/bug_runtime.go:1`
