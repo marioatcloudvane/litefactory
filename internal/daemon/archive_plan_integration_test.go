@@ -191,7 +191,7 @@ func TestArchivePlanIntegrationRoundTripDeletesAndProtects(t *testing.T) {
 		}
 	}
 	v := x.lastVisit(t, x.parent.TaskRef)
-	rows := v["rows"].(map[string]any)
+	rows := archiveITAs[map[string]any](t, v["rows"])
 	for _, tb := range planITTables {
 		if rows[tb] != float64(seeded[tb]) {
 			t.Fatalf("visit rows %s=%v, want %d", tb, rows[tb], seeded[tb])

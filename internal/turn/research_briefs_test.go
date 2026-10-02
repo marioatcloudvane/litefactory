@@ -33,7 +33,7 @@ func briefResult() agentresult.Result {
 // with a file and line number attached, and an engineer checking a claim should
 // not have to scroll past owner questions to reach the evidence.
 func TestResearchBriefsSplitByReader(t *testing.T) {
-	brief := renderResearchBrief(briefResult())
+	brief := renderResearchBrief(".aiteam/session", briefResult())
 	technical := renderResearchTechnical(briefResult())
 	for _, want := range []string{"## Request", "**D-1**", "**A-1**", "## Open questions", "### Q-1", "Product Owner Questions", "*(recommended)*", "## Recommendation"} {
 		if !strings.Contains(brief, want) {

@@ -2,6 +2,9 @@ package config_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -127,6 +130,65 @@ func TestBugRecipeContractBounds(t *testing.T) {
 			_, err := config.ParseBugCheckRecipe([]byte(tc.body))
 			if (err == nil) != tc.ok {
 				t.Fatalf("valid=%v, want %v; error=%v", err == nil, tc.ok, err)
+			}
+		})
+	}
+}
+
+func TestBugRecipeContractRerun(t *testing.T) {
+	t.Parallel()
+	rerun := func(block string) string {
+		return bugRecipe("{argv: [go, test, ./...], timeout_seconds: 3600, rerun: " + block + "}")
+	}
+	plain, err := config.ParseBugCheckRecipe([]byte(bugRecipe("{argv: [go, test, ./...]}")))
+	if err != nil || plain.Phases.Regression.Commands[0].Rerun != nil {
+		t.Fatalf("recipe without rerun gained one: %+v %v", plain, err)
+	}
+	r, err := config.ParseBugCheckRecipe([]byte(rerun("{failures: go-test, argv: [go, test, -run, '{tests}', '{packages}']}")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := r.Phases.Regression.Commands[0].Rerun
+	if got == nil || got.Failures != "go-test" || got.TimeoutSeconds != 3600 || strings.Join(got.Argv, " ") != "go test -run {tests} {packages}" {
+		t.Fatalf("rerun = %+v, want inherited 3600s timeout", got)
+	}
+	r, err = config.ParseBugCheckRecipe([]byte(rerun("{failures: go-test, argv: [go, test, -run, '{tests}', '{packages}'], timeout_seconds: 60}")))
+	if err != nil || r.Phases.Regression.Commands[0].Rerun.TimeoutSeconds != 60 {
+		t.Fatalf("explicit rerun timeout lost: %+v %v", r, err)
+	}
+	own, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(config.BugRecipePath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err = config.ParseBugCheckRecipe(own)
+	if err != nil || r.Phases.Regression.Commands[1].Rerun == nil || r.Phases.Full.Commands[0].Rerun == nil || !slices.Contains(r.Phases.Full.Commands[0].Rerun.Argv, "-race") {
+		t.Fatalf("repository recipe lacks its test reruns: %+v %v", r, err)
+	}
+	if config.BugRecipeDigest([]byte(rerun("{failures: go-test, argv: [go, '{tests}', '{packages}']}"))) == config.BugRecipeDigest([]byte(bugRecipe("{argv: [go, test, ./...], timeout_seconds: 3600}"))) {
+		t.Fatal("rerun block did not change the recipe digest")
+	}
+	for name, block := range map[string]string{
+		"unknown parser":      "{failures: junit, argv: [go, '{tests}', '{packages}']}",
+		"missing parser":      "{argv: [go, '{tests}', '{packages}']}",
+		"missing argv":        "{failures: go-test}",
+		"empty argv":          "{failures: go-test, argv: []}",
+		"no tests":            "{failures: go-test, argv: [go, '{packages}']}",
+		"no packages":         "{failures: go-test, argv: [go, '{tests}']}",
+		"twice tests":         "{failures: go-test, argv: [go, '{tests}', '{tests}', '{packages}']}",
+		"embedded tests":      "{failures: go-test, argv: [go, '-run={tests}', '{packages}']}",
+		"placeholder program": "{failures: go-test, argv: ['{tests}', go, '{packages}']}",
+		"zero timeout":        "{failures: go-test, argv: [go, '{tests}', '{packages}'], timeout_seconds: 0}",
+		"excess timeout":      "{failures: go-test, argv: [go, '{tests}', '{packages}'], timeout_seconds: 86401}",
+		"quoted timeout":      "{failures: go-test, argv: [go, '{tests}', '{packages}'], timeout_seconds: '60'}",
+		"unknown field":       "{failures: go-test, argv: [go, '{tests}', '{packages}'], cwd: sub}",
+		"NUL argv":            "{failures: go-test, argv: [go, \"\\0\", '{tests}', '{packages}']}",
+		"oversized argv":      "{failures: go-test, argv: [go, '{tests}', '{packages}', '" + strings.Repeat("a", 65536) + "']}",
+		"scalar":              "go-test",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := config.ParseBugCheckRecipe([]byte(rerun(block))); err == nil {
+				t.Fatal("invalid rerun accepted")
 			}
 		})
 	}

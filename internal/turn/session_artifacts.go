@@ -93,3 +93,11 @@ func sessionFileExists(worktreeDir, dir, name string) bool {
 	info, err := root.Lstat(path)
 	return err == nil && info.Mode().IsRegular()
 }
+
+// existingSessionTechnical supplements the existing brief pointer only for Plan.
+func existingSessionTechnical(worktreeDir, dir, mode string) string {
+	if mode == string(agent.ModePlan) && dir != "" && sessionFileExists(worktreeDir, dir, naming.ResearchTechnicalName) {
+		return naming.ResearchTechnicalName
+	}
+	return ""
+}

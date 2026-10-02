@@ -38,7 +38,6 @@ type webhookCLI struct {
 	patches  int
 	hookURL  string
 	hookSeen bool
-	argv     []string
 }
 
 func newWebhookCLI(t *testing.T, publicURL string) *webhookCLI {
@@ -120,7 +119,7 @@ func (w *webhookCLI) serve(rw http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.Unmarshal(raw, &in)
 		w.hookURL, w.hookSeen = in.Config.URL, true
-		rw.WriteHeader(201)
+		rw.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(rw).Encode(hook())
 	case r.Method == http.MethodPatch:
 		w.patches++

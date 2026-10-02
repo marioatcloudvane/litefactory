@@ -372,6 +372,7 @@ func (h *BugPRActivity) prepareReview(ctx context.Context, db *store.DB, in BugP
 	}
 	r = store.BugDeliveryReview{SessionID: in.SessionID, Digest: digest, Evidence: e, PR: p, Presentation: in.Presentation, DeliveryKey: "bug-delivery:" + digest, BotID: h.BotID}
 	view := report.BugDeliveryReview{Task: fmt.Sprintf("github:%s#%d", e.Identity.Repository, e.Identity.IssueNumber), Digest: digest, Head: p.Head, Target: e.Child.Request.Binding.TargetCommit, Recipe: e.Child.Request.Binding.RecipeDigest, PR: p.Number, Analysis: renderBugAnalysis(e.Analysis.Revision, e.Analysis.Digest, e.Analysis.Analysis), Repair: renderBugRepair(e.Coverage), Facts: bugFactLines(facts), ApprovalCommand: r.ApprovalCommand()}
+	var known []string
 	for n, phase := range []string{"regression", "focused", "full"} {
 		b := e.Child.PhaseBinding(phase)
 		record, readErr := db.GetBugCheckPhase(ctx, in.SessionID, b.Operation)
@@ -379,8 +380,11 @@ func (h *BugPRActivity) prepareReview(ctx context.Context, db *store.DB, in BugP
 			return BugPROutput{}, readErr
 		}
 		view.Phases[n] = bugCheckRow(phase, record)
+		if bugKnownFailurePhase(record) {
+			known = append(known, phase)
+		}
 	}
-	view.Lead = bugDeliveryLead(p.Number, e)
+	view.Lead = bugDeliveryLead(p.Number, e, known...)
 	for _, c := range in.Presentation {
 		references := strings.Join(c.References, ", ")
 		if references == "" {
@@ -417,9 +421,15 @@ func (h *BugPRActivity) prepareReview(ctx context.Context, db *store.DB, in BugP
 
 // bugDeliveryLead is what the owner scans first: the PR is ready, what it
 // fixes, that every check phase passed and whether every criterion is covered.
-func bugDeliveryLead(pr int, e store.BugDeliveryEvidence) string {
+// known names the phases that passed only with known failures the repair did
+// not cause, so the owner reads them in the check table before approving.
+func bugDeliveryLead(pr int, e store.BugDeliveryEvidence, known ...string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "**The fix is ready for your review in PR #%d, and all project checks passed.**\n\n", pr)
+	if len(known) == 0 {
+		fmt.Fprintf(&b, "**The fix is ready for your review in PR #%d, and all project checks passed.**\n\n", pr)
+	} else {
+		fmt.Fprintf(&b, "**The fix is ready for your review in PR #%d; the project checks passed, with known failures the repair did not cause.**\n\n", pr)
+	}
 	fmt.Fprintf(&b, "- **Bug:** %s\n", firstSentence(e.Analysis.Analysis.Actual))
 	fmt.Fprintf(&b, "- **Fix:** %s\n", firstSentence(e.Coverage.Summary))
 	var gaps []string
@@ -437,7 +447,11 @@ func bugDeliveryLead(pr int, e store.BugDeliveryEvidence) string {
 	if extra := bugFilesBeyondAnalysis(e); len(extra) > 0 {
 		fmt.Fprintf(&b, "- **Also changed:** %s, beyond the files the analysis expected; check these in the PR.\n", strings.Join(extra, ", "))
 	}
-	b.WriteString("- **Checks:** regression, focused and full all passed on the tested head.\n")
+	if len(known) == 0 {
+		b.WriteString("- **Checks:** regression, focused and full all passed on the tested head.\n")
+	} else {
+		fmt.Fprintf(&b, "- **Checks:** regression, focused and full passed on the tested head; %s passed with known failures: flaky tests or tests that also fail on main. They are listed under Checks below.\n", strings.Join(known, " and "))
+	}
 	b.WriteString("\n**Next:** review the PR; to merge it, reply with the approval line at the end of this comment. Otherwise reply with `/bug-review` and what should change.\n")
 	return b.String()
 }
@@ -487,6 +501,12 @@ func renderBugRepair(e bugrepair.Evidence) string {
 	return b.String()
 }
 
+// bugKnownFailurePhase reports a phase that passed only with flaky or
+// pre-existing failing tests, which the review must show.
+func bugKnownFailurePhase(record store.BugCheckPhaseRecord) bool {
+	return record.Outcome == "passed" && strings.HasPrefix(record.Reason, BugKnownFailuresPrefix)
+}
+
 // bugCheckRow is one row of the delivery review's check table.
 func bugCheckRow(phase string, record store.BugCheckPhaseRecord) string {
 	var spent time.Duration
@@ -496,7 +516,10 @@ func bugCheckRow(phase string, record store.BugCheckPhaseRecord) string {
 		}
 	}
 	result := record.Outcome
-	if reason := strings.TrimSpace(record.Reason); reason != "" {
+	if reason := strings.TrimSpace(record.Reason); bugKnownFailurePhase(record) {
+		// The reason already says "passed with known failures: ...".
+		result = bugCell(reason)
+	} else if reason != "" {
 		result += ": " + bugCell(reason)
 	}
 	return fmt.Sprintf("| %s | %s | %d | %s |", phase, result, len(record.Commands), spent.Round(time.Second))

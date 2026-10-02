@@ -153,6 +153,12 @@ func TestPrelaunchScheduledAndAutomaticReservationsSurviveRestart(t *testing.T) 
 			if _, err := db.StartRun(t.Context(), pre.ID); err != nil {
 				t.Fatal(err)
 			}
+			if automatic {
+				bound, err := db.GetContinuation(t.Context(), action.ID)
+				if err != nil || bound.Status != "running" || bound.AllocatedRunID != pre.ID {
+					t.Fatalf("automatic binding: %+v %v", bound, err)
+				}
+			}
 			runs, err := db.ListRuns(t.Context(), session.ID)
 			if err != nil || len(runs) != 2 {
 				t.Fatalf("duplicate allocation: %+v %v", runs, err)
@@ -210,5 +216,159 @@ func TestReadinessRefusesPendingRefinementWithReadyFlag(t *testing.T) {
 	}
 	if err := db.ApproveManagedStories(t.Context(), session.TaskRef, 1, revisions); !errors.Is(err, ErrPlanNotReady) {
 		t.Fatalf("pending atomic refusal=%v", err)
+	}
+}
+
+func graphLaunchFixture(t *testing.T) (*DB, GraphDispatch, AllocateRunParams) {
+	t.Helper()
+	db, instance := graphDispatchFixture(t)
+	at := graphTestTime()
+	d, err := db.ParkGraphInstance(t.Context(), instance.ID, instance.CurrentNode, at, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, ok, err := db.ReserveGraphDispatch(t.Context(), d.ID, at)
+	if err != nil || !ok {
+		t.Fatalf("reserve: %v %v", ok, err)
+	}
+	segment, err := db.GetOrCreateSegment(t.Context(), instance.SessionID, FirstSegmentOrdinal, "graph-launch", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db, d, AllocateRunParams{SessionID: instance.SessionID, SegmentID: segment.ID, Mode: "implement", Agent: AgentClaude, TriggerCommentID: d.TriggerID(), Prelaunch: true, LogPath: func(int) string { return "/logs/graph.jsonl" }}
+}
+
+func readLaunchDispatch(t *testing.T, db *DB, id int64) GraphDispatch {
+	t.Helper()
+	d, err := scanGraphDispatch(db.sql.QueryRowContext(t.Context(), `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE id=?`, id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+func TestGraphLaunchBindingAndDurableRequeueRefusal(t *testing.T) {
+	for _, prelaunch := range []bool{true, false} {
+		t.Run(map[bool]string{true: "prelaunch", false: "direct"}[prelaunch], func(t *testing.T) {
+			db, d, params := graphLaunchFixture(t)
+			params.Prelaunch = prelaunch
+			run, err := db.AllocateRun(t.Context(), params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if prelaunch {
+				if got := readLaunchDispatch(t, db, d.ID); got != d {
+					t.Fatalf("preparation changed dispatch: %+v", got)
+				}
+				run, err = db.StartRun(t.Context(), run.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := readLaunchDispatch(t, db, d.ID)
+			persisted, err := db.GetRun(t.Context(), run.ID)
+			if err != nil || persisted.Status != RunRunning || got.Status != "running" || got.AllocatedRunID != run.ID {
+				t.Fatalf("binding: run=%+v dispatch=%+v err=%v", persisted, got, err)
+			}
+			if _, err := db.StartRun(t.Context(), run.ID); err == nil {
+				t.Fatal("repeated start succeeded")
+			}
+			for _, reopen := range []bool{false, true} {
+				if reopen {
+					path := db.path
+					if err := db.Close(); err != nil {
+						t.Fatal(err)
+					}
+					reopened, err := Open(t.Context(), path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					*db = *reopened
+				}
+				if ok, err := db.RequeueGraphDispatch(t.Context(), d.ID, d.DueAt, "restart"); err != nil || ok {
+					t.Fatalf("requeue running: %v %v", ok, err)
+				}
+				if after := readLaunchDispatch(t, db, d.ID); after != got {
+					t.Fatalf("binding changed: %+v", after)
+				}
+			}
+			if err := db.FinishGraphDispatch(t.Context(), d.ID, d.DueAt); err != nil {
+				t.Fatal(err)
+			}
+			if after := readLaunchDispatch(t, db, d.ID); after.Status != "finished" || after.AllocatedRunID != run.ID {
+				t.Fatalf("finish lost binding: %+v", after)
+			}
+		})
+	}
+}
+
+func TestGraphStartBindingFailureRollsBack(t *testing.T) {
+	for _, state := range []string{"missing", "pending", "running", "finished", "cancelled", "bound", "foreign-session"} {
+		t.Run(state, func(t *testing.T) {
+			db, d, params := graphLaunchFixture(t)
+			switch state {
+			case "missing":
+				params.TriggerCommentID = (GraphDispatch{ID: d.ID + 100}).TriggerID()
+			case "foreign-session":
+				session := testSession(t, db, 999)
+				segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "foreign", AgentClaude)
+				if err != nil {
+					t.Fatal(err)
+				}
+				params.SessionID, params.SegmentID = session.ID, segment.ID
+			case "bound":
+				other := testRun(t, db, d.SessionID, 987)
+				if _, err := db.sql.ExecContext(t.Context(), `UPDATE graph_dispatches SET allocated_run_id=? WHERE id=?`, other.ID, d.ID); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				if _, err := db.sql.ExecContext(t.Context(), `UPDATE graph_dispatches SET status=? WHERE id=?`, state, d.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := readLaunchDispatch(t, db, d.ID)
+			run, err := db.AllocateRun(t.Context(), params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.StartRun(t.Context(), run.ID); err == nil {
+				t.Fatal("invalid binding started execution")
+			}
+			persisted, err := db.GetRun(t.Context(), run.ID)
+			if err != nil || persisted.Status != RunPrelaunch {
+				t.Fatalf("failed binding changed run: %+v %v", persisted, err)
+			}
+			if after := readLaunchDispatch(t, db, d.ID); after != before {
+				t.Fatalf("failed binding changed dispatch: before=%+v after=%+v", before, after)
+			}
+		})
+	}
+}
+
+func TestGraphPrelaunchRetryExhaustionNeverStarts(t *testing.T) {
+	db, d, params := graphLaunchFixture(t)
+	run, err := db.AllocateRun(t.Context(), params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= MaxGraphDispatchAttempts; attempt++ {
+		ok, err := db.RequeueGraphDispatch(t.Context(), d.ID, d.DueAt, "preparation failed")
+		if err != nil || ok != (attempt < MaxGraphDispatchAttempts) {
+			t.Fatalf("attempt %d: %v %v", attempt, ok, err)
+		}
+		if attempt < MaxGraphDispatchAttempts {
+			if _, ok, err := db.ReserveGraphDispatch(t.Context(), d.ID, d.DueAt); err != nil || !ok {
+				t.Fatalf("reserve: %v %v", ok, err)
+			}
+		}
+	}
+	if got := readLaunchDispatch(t, db, d.ID); got.Status != "cancelled" || got.AllocatedRunID != 0 || got.Attempts != MaxGraphDispatchAttempts {
+		t.Fatalf("exhausted: %+v", got)
+	}
+	if _, err := db.StartRun(t.Context(), run.ID); err == nil {
+		t.Fatal("exhausted dispatch launched")
+	}
+	if got, err := db.GetRun(t.Context(), run.ID); err != nil || got.Status != RunPrelaunch {
+		t.Fatalf("run: %+v %v", got, err)
 	}
 }

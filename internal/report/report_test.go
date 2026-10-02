@@ -649,6 +649,38 @@ func TestEveryOutcomeRendersDistinguishably(t *testing.T) {
 	containsAll(t, "the failed report", bodies[harness.OutcomeFailed], "exited with status 1")
 }
 
+// TestZeroExitFinalResultRejectionNamesTheRejection is #431 (BC-5): a run whose
+// agent exited 0 but whose shared final result the factory rejected after exit
+// leads with the rejection and quotes its diagnostic, never "exited with
+// status 0", which reads as if nothing went wrong with the agent.
+func TestZeroExitFinalResultRejectionNamesTheRejection(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	const diagnostic = "Shared final result rejected: invalid or incomplete application result: " +
+		"aggregate snapshot must cover every final changed worktree path; not captured: internal/late.go. " +
+		"Correct the output on the next authorized attempt; retained checkpoints remain available."
+	run := failureRun()
+	run.Result.ExitCode = 0
+	run.Result.Reason = diagnostic
+	run.Result.Diagnostic = diagnostic
+
+	body := render(t, rep, run).String()
+	if strings.Contains(body, "exited with status 0") {
+		t.Errorf("a factory rejection after a clean exit is reported as the exit status:\n%s", body)
+	}
+	containsAll(t, "the rejected-result report", body,
+		"rejected its final result",
+		"Diagnostic: ",
+		"Shared final result rejected",
+		"not captured: internal/late.go")
+
+	// Any other failure keeps quoting the exit status it had.
+	plain := failureRun()
+	plain.Result.Diagnostic = "provider diagnostic"
+	containsAll(t, "an ordinary failed report", render(t, rep, plain).String(), "exited with status 1")
+}
+
 // TestAFailureAroundTheRunIsItsOwnReport covers the two shapes that are not
 // about how `claude` ended: a turn that never reached it, and a run that did
 // its work but could not be pushed.

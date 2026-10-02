@@ -952,7 +952,28 @@ func (c *BugCheckCommand) UnmarshalYAML(n *yaml.Node) error {
 	if err := n.Decode(&value); err != nil {
 		return err
 	}
+	if value.Rerun != nil && value.Rerun.inheritTimeout {
+		value.Rerun.TimeoutSeconds, value.Rerun.inheritTimeout = value.TimeoutSeconds, false
+	}
 	*c = BugCheckCommand(value)
+	return nil
+}
+
+// UnmarshalYAML marks an absent rerun timeout for its command to supply; an
+// explicit value, zero included, is kept for validation to judge.
+func (r *BugCheckRerun) UnmarshalYAML(n *yaml.Node) error {
+	var value struct {
+		Failures       string   `yaml:"failures"`
+		Argv           []string `yaml:"argv"`
+		TimeoutSeconds *int     `yaml:"timeout_seconds"`
+	}
+	if err := n.Decode(&value); err != nil {
+		return err
+	}
+	*r = BugCheckRerun{Failures: value.Failures, Argv: value.Argv, inheritTimeout: value.TimeoutSeconds == nil}
+	if value.TimeoutSeconds != nil {
+		r.TimeoutSeconds = *value.TimeoutSeconds
+	}
 	return nil
 }
 
@@ -990,7 +1011,8 @@ func validateBugYAML(n *yaml.Node, kind string) error {
 		"recipe":  {"version": "int", "phases": "phases"},
 		"phases":  {"regression": "phase", "focused": "phase", "full": "phase"},
 		"phase":   {"commands": "commands"},
-		"command": {"argv": "strings", "cwd": "string", "env": "strings", "timeout_seconds": "int"},
+		"command": {"argv": "strings", "cwd": "string", "env": "strings", "timeout_seconds": "int", "rerun": "rerun"},
+		"rerun":   {"failures": "string", "argv": "strings", "timeout_seconds": "int"},
 	}
 	if allowed, ok := fields[kind]; ok {
 		if n.Kind != yaml.MappingNode {

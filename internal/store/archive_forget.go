@@ -131,6 +131,7 @@ func (db *DB) ForgetArchivedFamily(ctx context.Context, f ArchiveFamily, now tim
 					args = append(args, id)
 				}
 			}
+			//nolint:gosec // G202: table and selector come from the constant forgetSteps list; values are bound parameters.
 			res, err := tx.ExecContext(ctx, `DELETE FROM `+s.table+` WHERE `+fmt.Sprintf(s.by, list), args...)
 			if err != nil {
 				return fmt.Errorf("forget %s: %w", s.table, err)

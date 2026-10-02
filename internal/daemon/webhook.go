@@ -61,8 +61,8 @@ type hintSet struct {
 	overflow bool
 }
 
-func newHintSet(max int) *hintSet {
-	return &hintSet{max: max, attempts: make(map[hintKey]int)}
+func newHintSet(limit int) *hintSet {
+	return &hintSet{max: limit, attempts: make(map[hintKey]int)}
 }
 
 // add records a hint. A hint already pending collapses into the existing one;
@@ -286,7 +286,7 @@ func (d *Daemon) webhookServe(ctx context.Context, wg *sync.WaitGroup) error {
 	go func() {
 		defer wg.Done()
 		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), d.grace)
+		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), d.grace)
 		defer cancel()
 		if err := server.Shutdown(shutdown); err != nil {
 			d.log.Warn("webhook listener did not drain within the grace period; closed", slog.Any("error", err))

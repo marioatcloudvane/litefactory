@@ -384,9 +384,9 @@ func TestArchiveIntegrationRoundTripDeletesAndKeepsSkeleton(t *testing.T) {
 	var blobs [][]byte
 	for _, r := range got {
 		c := archiveITColumn(t, r, "author_user_id")
-		types[archiveITColumn(t, r, "author_handle").Value.(string)] = c.Type
+		types[archiveITAs[string](t, archiveITColumn(t, r, "author_handle").Value)] = c.Type
 		if b := archiveITColumn(t, r, "body"); b.Type == archive.TypeBlob {
-			blobs = append(blobs, b.Value.([]byte))
+			blobs = append(blobs, archiveITAs[[]byte](t, b.Value))
 		}
 	}
 	if types["alice"] != archive.TypeInteger || types["bob"] != archive.TypeReal || types["carol"] != archive.TypeNull || types["erin"] != archive.TypeReal {
@@ -403,13 +403,13 @@ func TestArchiveIntegrationRoundTripDeletesAndKeepsSkeleton(t *testing.T) {
 
 	// Outcome, row counts and sizes are logged.
 	v := x.lastVisit(t, x.parent.TaskRef)
-	if v["outcome"] != ArchiveOutcomeArchived || v["rows"].(map[string]any)["comments"] != float64(familyBefore) {
+	if v["outcome"] != ArchiveOutcomeArchived || archiveITAs[map[string]any](t, v["rows"])["comments"] != float64(familyBefore) {
 		t.Fatalf("visit %v", v)
 	}
 	if o := x.lastVisit(t, x.other.TaskRef); o["outcome"] != ArchiveOutcomeKept || o["reason"] != "issue_not_confirmed_closed" {
 		t.Fatalf("open task visit %v", o)
 	}
-	if v["bytes_uncompressed"].(float64) <= 0 || v["bytes_compressed"].(float64) <= 0 {
+	if archiveITAs[float64](t, v["bytes_uncompressed"]) <= 0 || archiveITAs[float64](t, v["bytes_compressed"]) <= 0 {
 		t.Fatalf("sizes %v", v)
 	}
 	if x.issues.reads == 0 {
@@ -831,7 +831,7 @@ func TestArchiveIntegrationCompactionReportsSizesAndShrinks(t *testing.T) {
 	if len(done) != 1 {
 		t.Fatalf("compaction logs %v", done)
 	}
-	b, a := done[0]["db_bytes_before"].(float64), done[0]["db_bytes_after"].(float64)
+	b, a := archiveITAs[float64](t, done[0]["db_bytes_before"]), archiveITAs[float64](t, done[0]["db_bytes_after"])
 	if b <= 0 || a <= 0 || a >= b {
 		t.Fatalf("compaction did not shrink: before=%v after=%v", b, a)
 	}
@@ -897,4 +897,15 @@ func TestArchiveIntegrationCompactionFailureDoesNotUndoArchive(t *testing.T) {
 	if sum := x.logLines(t, "archive sweep complete"); len(sum) != 1 || sum[0]["compacted"] != false {
 		t.Fatalf("summary %v", sum)
 	}
+}
+
+// archiveITAs asserts a decoded value's type, failing the test instead of
+// panicking when an archive or log record has an unexpected shape.
+func archiveITAs[T any](t *testing.T, v any) T {
+	t.Helper()
+	out, ok := v.(T)
+	if !ok {
+		t.Fatalf("value %v is %T, want %T", v, v, out)
+	}
+	return out
 }

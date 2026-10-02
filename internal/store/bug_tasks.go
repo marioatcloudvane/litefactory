@@ -140,6 +140,16 @@ func claimBugWorkTx(ctx context.Context, tx *sql.Tx, session int64, owner, kind 
 	return oldOwner.String == owner && oldKind.String == kind, err
 }
 
+// BugWorkIdle reports that no work owns the task worktree: no guard is held
+// no repair is reserved or dispatched and no check process awaits cleanup. It
+// claims nothing; a caller that changes the worktree relies on the parent
+// graph running one step at a time.
+func (d *DB) BugWorkIdle(ctx context.Context, session int64) (bool, error) {
+	var busy int
+	err := d.sql.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM bug_tasks WHERE session_id=? AND guard_owner IS NOT NULL)+(SELECT count(*) FROM bug_repairs WHERE session_id=? AND state IN ('reserved','dispatched'))+(SELECT count(*) FROM bug_checks WHERE session_id=? AND cleanup=0)`, session, session, session).Scan(&busy)
+	return busy == 0, err
+}
+
 // ReleaseBugWork requires exact ownership; callers must first confirm cleanup.
 func (d *DB) ReleaseBugWork(ctx context.Context, session int64, owner string) error {
 	result, err := d.sql.ExecContext(ctx, `UPDATE bug_tasks SET guard_owner=NULL,guard_kind=NULL WHERE session_id=? AND guard_owner=?`, session, owner)

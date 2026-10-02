@@ -117,6 +117,16 @@ func (r *BugRuntime) parentPolicy(w *researchWorkflow) BugParentPolicy {
 		if e != nil {
 			return BugAttemptInput{}, e
 		}
+		request := fmt.Sprintf("repair:%d:%d", session, a.NodeAttemptID)
+		// Main is merged before HEAD is read, so the repair's source commit,
+		// and every check bound to it, already includes current main.
+		blocked, e := r.syncBugTarget(ctx, session, tree)
+		if e != nil {
+			return BugAttemptInput{}, e
+		}
+		if blocked != "" {
+			return BugAttemptInput{ExpectedRevision: state.Revision, Request: store.BugRepairRequest{SessionID: session, Request: request, GraphAttemptID: a.NodeAttemptID}, BlockedReason: blocked}, nil
+		}
 		commit, e := tree.RevParse(ctx, "HEAD", git.RevParseOptions{})
 		if e != nil {
 			return BugAttemptInput{}, e
@@ -168,7 +178,7 @@ func (r *BugRuntime) parentPolicy(w *researchWorkflow) BugParentPolicy {
 		} else if !errors.Is(pe, store.ErrNotFound) {
 			return BugAttemptInput{}, pe
 		}
-		return BugAttemptInput{ExpectedRevision: state.Revision, Request: store.BugRepairRequest{SessionID: session, Request: fmt.Sprintf("repair:%d:%d", session, a.NodeAttemptID), GraphAttemptID: a.NodeAttemptID, AnalysisRevision: analysis.Revision, AnalysisDigest: analysis.Digest, ApprovalReview: approval.Review, Cause: cause, Evidence: evidence, SourceCommit: commit, SourceTree: sha, GrantReference: grantReference}}, nil
+		return BugAttemptInput{ExpectedRevision: state.Revision, Request: store.BugRepairRequest{SessionID: session, Request: request, GraphAttemptID: a.NodeAttemptID, AnalysisRevision: analysis.Revision, AnalysisDigest: analysis.Digest, ApprovalReview: approval.Review, Cause: cause, Evidence: evidence, SourceCommit: commit, SourceTree: sha, GrantReference: grantReference}}, nil
 	}}
 	tests := &BugTestGraphActivity{Observe: r.observe, Resolve: func(ctx context.Context, a ActivityRequest) (store.BugTestRequest, error) {
 		return r.testRequest(ctx, session, a)

@@ -1050,8 +1050,7 @@ func bugTestEvidenceTx(ctx context.Context, tx *sql.Tx, c BugTestCall) (string, 
 		// Recheck the evidence rather than trusting the mutable phase summary alone.
 		complete := 0
 		for _, cmd := range record.Commands {
-			o := cmd.Observation
-			if cmd.State == "completed" && o.Outcome == "passed" && o.Exit != nil && *o.Exit == 0 && o.CaptureComplete && o.CleanupConfirmed {
+			if cmd.Passed() {
 				complete++
 			}
 		}

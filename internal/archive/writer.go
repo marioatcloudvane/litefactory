@@ -84,6 +84,7 @@ func Create(finalPath string, h Header) (*Writer, error) {
 		return nil, fmt.Errorf("%w: %s", ErrExists, finalPath)
 	}
 	temp := finalPath + PartialSuffix
+	//nolint:gosec // G304: the path is built by the factory under its archive root, never from user input.
 	f, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, FileMode)
 	if err != nil {
 		return nil, fmt.Errorf("archive: create temporary file: %w", err)
@@ -196,6 +197,7 @@ func (w *Writer) Publish() error {
 
 // SyncDir fsyncs a directory so a rename or removal is durable.
 func SyncDir(dir string) error {
+	//nolint:gosec // G304: the path is built by the factory under its archive root, never from user input.
 	d, err := os.Open(dir)
 	if err != nil {
 		return fmt.Errorf("archive: open directory: %w", err)
@@ -225,6 +227,7 @@ func CleanPartials(root string) (int, error) {
 		if d.IsDir() || filepath.Ext(path) != PartialSuffix {
 			return nil
 		}
+		//nolint:gosec // G122: the walk is over the factory-owned archive root; only its own .partial files are removed.
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}

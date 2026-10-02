@@ -52,6 +52,8 @@ type BugCheckCommandRecord struct {
 	Ordinal     int                 `json:"ordinal"`
 	State       string              `json:"state"`
 	Observation BugCheckObservation `json:"observation"`
+	// Attribution is present only once a failed command's tests were rerun.
+	Attribution *BugCheckAttribution `json:"attribution,omitempty"`
 }
 
 // BugCheckPhaseRecord retains the immutable phase binding and ordered command evidence.
@@ -219,7 +221,7 @@ func (d *DB) ClaimBugCheckCommand(ctx context.Context, session int64, operation 
 		}
 		if ordinal > 0 {
 			previous := list[ordinal-1]
-			if previous.State != "completed" || previous.Observation.Outcome != "passed" || !previous.Observation.CleanupConfirmed {
+			if !previous.Passed() {
 				return nil
 			}
 		}
@@ -347,8 +349,7 @@ func (d *DB) FinishBugCheckPhase(ctx context.Context, session int64, operation, 
 			}
 			found := 0
 			for _, c := range list {
-				o := c.Observation
-				if c.State != "completed" || o.Outcome != "passed" || o.Exit == nil || *o.Exit != 0 || !o.CaptureComplete || !o.CleanupConfirmed {
+				if !c.Passed() {
 					return errors.New("bug phase missing passing command")
 				}
 				found++
@@ -416,6 +417,10 @@ func (d *DB) ReconcileBugCheckStopped(ctx context.Context, session int64, operat
 			return errors.New("check recovery does not name active command")
 		}
 		old := list[ordinal].Observation
+		rerun := list[ordinal].activeRerun()
+		if rerun != nil {
+			old = rerun.Observation
+		}
 		if old.ProcessIdentity != identity || old.ProcessID <= 0 || old.Started.IsZero() || observed.Before(old.Started) {
 			return errors.New("check recovery process identity mismatch")
 		}
@@ -430,6 +435,9 @@ func (d *DB) ReconcileBugCheckStopped(ctx context.Context, session int64, operat
 			return errors.New("check recovery does not name active command")
 		}
 		state := list[ordinal].State
+		if rerun != nil {
+			state = rerun.State
+		}
 		if state != "started" && state != "completed" {
 			return errors.New("check recovery lacks retained launch observation")
 		}
@@ -455,7 +463,12 @@ func (d *DB) ReconcileBugCheckStopped(ctx context.Context, session int64, operat
 			old.Exit = nil
 			old.CaptureComplete = false
 			old.CleanupConfirmed = true
-			list[ordinal] = BugCheckCommandRecord{Ordinal: ordinal, State: "completed", Observation: old}
+			if rerun != nil {
+				// The failed command stays as observed; only its rerun ends.
+				rerun.State, rerun.Observation = "completed", old
+			} else {
+				list[ordinal] = BugCheckCommandRecord{Ordinal: ordinal, State: "completed", Observation: old}
+			}
 			raw, err := json.Marshal(list)
 			if err != nil {
 				return err
