@@ -81,11 +81,12 @@ func (h BugAttemptActivity) Execute(ctx context.Context, opts Options, req Activ
 	}
 	outcome, reason := "reserved", ""
 	var reservation store.BugRepair
-	if input.BlockedReason != "" {
+	switch {
+	case input.BlockedReason != "":
 		outcome, reason = "blocked", input.BlockedReason
-	} else if input.ReshapeReason != "" {
+	case input.ReshapeReason != "":
 		outcome, reason = "reshape", input.ReshapeReason
-	} else {
+	default:
 		reservation, err = opts.DB.ReserveBugRepair(ctx, input.Request, input.ExpectedRevision)
 		switch {
 		case errors.Is(err, store.ErrBugRepairExhausted):

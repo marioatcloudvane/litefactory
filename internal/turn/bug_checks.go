@@ -461,7 +461,7 @@ type rerunVerdict struct{ outcome, reason string }
 func (h *BugChecksActivity) rerunTests(ctx, runCtx context.Context, db *store.DB, in BugChecksInput, run bugCheckRunner, ordinal int, command config.BugCheckCommand, target, root string, tests map[string][]string, observe func() error) (map[string][]string, rerunVerdict, error) {
 	b := in.Binding
 	if err := observe(); err != nil {
-		return nil, rerunVerdict{"blocked", err.Error()}, nil
+		return nil, rerunVerdict{"blocked", err.Error()}, nil //nolint:nilerr // A failed observation or rerun is a verdict, not a check failure.
 	}
 	latest, err := db.GetBugCheckPhase(runCtx, b.SessionID, b.Operation)
 	if err != nil {
@@ -472,7 +472,7 @@ func (h *BugChecksActivity) rerunTests(ctx, runCtx context.Context, db *store.DB
 	}
 	argv, err := bugchecks.ExpandGoTestRerun(command.Rerun.Argv, tests)
 	if err != nil {
-		return nil, rerunVerdict{"unattributed", err.Error()}, nil
+		return nil, rerunVerdict{"unattributed", err.Error()}, nil //nolint:nilerr // A failed observation or rerun is a verdict, not a check failure.
 	}
 	claimed, err := db.ClaimBugCheckRerun(runCtx, b.SessionID, b.Operation, ordinal, target, bugTests(tests))
 	if err != nil {
@@ -504,7 +504,7 @@ func (h *BugChecksActivity) rerunTests(ctx, runCtx context.Context, db *store.DB
 	}
 	report, err := bugchecks.ParseGoTestReport(result.Output, result.CaptureComplete)
 	if err != nil {
-		return nil, rerunVerdict{"unattributed", target + " rerun: " + err.Error()}, nil
+		return nil, rerunVerdict{"unattributed", target + " rerun: " + err.Error()}, nil //nolint:nilerr // A failed observation or rerun is a verdict, not a check failure.
 	}
 	if result.Outcome == "failed" && len(report.Failed) == 0 {
 		return nil, rerunVerdict{"unattributed", target + " rerun failed without a failing package"}, nil
@@ -526,7 +526,7 @@ func (h *BugChecksActivity) rerunTests(ctx, runCtx context.Context, db *store.DB
 		}
 	}
 	if err = observe(); err != nil {
-		return nil, rerunVerdict{"blocked", err.Error()}, nil
+		return nil, rerunVerdict{"blocked", err.Error()}, nil //nolint:nilerr // A failed observation or rerun is a verdict, not a check failure.
 	}
 	return report.Failed, rerunVerdict{}, nil
 }

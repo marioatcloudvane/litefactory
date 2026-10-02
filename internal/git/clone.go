@@ -176,14 +176,15 @@ func (c *Clone) WorktreeAdd(ctx context.Context, dir string, opts WorktreeAddOpt
 	}
 
 	args := []string{"worktree", "add"}
-	if opts.Detach {
+	switch {
+	case opts.Detach:
 		if opts.CreateFrom != "" || !fullBugObject(opts.Branch) {
 			return nil, fmt.Errorf("detached worktree: %w: needs a full commit id and no new branch", ErrInvalidArgument)
 		}
 		args = append(args, "--detach", target, opts.Branch)
-	} else if opts.CreateFrom == "" {
+	case opts.CreateFrom == "":
 		args = append(args, target, opts.Branch)
-	} else {
+	default:
 		if err := checkName("start point", opts.CreateFrom); err != nil {
 			return nil, err
 		}
