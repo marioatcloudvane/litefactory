@@ -93,3 +93,14 @@ Evidence:
 - `internal/planbrief/plan_set.go:70` @ `d119859a7888e8661239da45d805fab98cf94c62`
 - `internal/planbrief/plan_workflow.go:97` @ `d119859a7888e8661239da45d805fab98cf94c62`
 - `internal/planbrief/plan_workflow.go:248` @ `d119859a7888e8661239da45d805fab98cf94c62`
+
+## F-10
+
+The quoted refusal is generated when an approval does not match the current story wait, and the no-approval-pending suffix is used when no current command exists; dependency invalidation clears affected waits and approvals, while the child routing loop reads and binds comments per mapped child issue, so the supplied report alone does not establish cross-story misrouting or the live invalidation cause.
+
+Evidence:
+
+- `internal/planbrief/plan_notice.go:77` @ `cdc04491a2bed31313749adc8999afa27c3b6fdb`
+- `internal/planbrief/plan_notice.go:102` @ `cdc04491a2bed31313749adc8999afa27c3b6fdb`
+- `internal/planbrief/plan_workflow.go:177` @ `cdc04491a2bed31313749adc8999afa27c3b6fdb`
+- `internal/daemon/plan_children.go:95` @ `cdc04491a2bed31313749adc8999afa27c3b6fdb`
