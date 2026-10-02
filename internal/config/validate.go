@@ -14,11 +14,11 @@ import (
 // never a silent clamp: a daemon that quietly ignored the interval it was
 // given would be discovered as "it feels slow", months later.
 const (
-	// MinPollIntervalSeconds and MaxPollIntervalSeconds bound the tick
-	// interval (D-C, AC-2.7). Below 10s the GitHub core budget is at risk;
-	// above 60s the daemon stops feeling responsive to a comment.
-	MinPollIntervalSeconds = 10
-	MaxPollIntervalSeconds = 60
+	// MinPollIntervalMinutes and MaxPollIntervalMinutes bound the fallback
+	// discovery poll interval. Webhooks are the fast path; the poll is the
+	// safety net, so it may be long but never longer than three hours.
+	MinPollIntervalMinutes = 1
+	MaxPollIntervalMinutes = 180
 	// MinMaxConcurrentRuns and MaxMaxConcurrentRuns bound how many runs may be
 	// in flight at once (D2, AC-PAR-6.1). The floor is 1 because the serial
 	// daemon litefactory was before this key existed has to stay expressible —
@@ -108,10 +108,11 @@ var (
 func (c *Config) Validate() error {
 	var errs []error
 	errs = append(errs, c.Teams.validate()...)
+	errs = append(errs, c.Webhook.validate()...)
 	s := &c.Settings
-	if s.PollIntervalSeconds < MinPollIntervalSeconds || s.PollIntervalSeconds > MaxPollIntervalSeconds {
-		errs = append(errs, fmt.Errorf("settings.poll_interval_seconds: %d is out of range; must be between %d and %d",
-			s.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds))
+	if s.PollIntervalMinutes < MinPollIntervalMinutes || s.PollIntervalMinutes > MaxPollIntervalMinutes {
+		errs = append(errs, fmt.Errorf("settings.poll_interval_minutes: %d is out of range; must be between %d and %d",
+			s.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes))
 	}
 	if s.MaxConcurrentRuns < MinMaxConcurrentRuns || s.MaxConcurrentRuns > MaxMaxConcurrentRuns {
 		errs = append(errs, fmt.Errorf("settings.max_concurrent_runs: %d is out of range; must be between %d and %d",
