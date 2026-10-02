@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/config"
 )
 
 func TestDoctorCommand_Arguments(t *testing.T) {
@@ -21,7 +24,6 @@ func TestDoctorCommand_Arguments(t *testing.T) {
 		{"status missing target/rejected", []string{"doctor", "status"}, "repository", false},
 		{"stop missing issue/rejected", []string{"doctor", "stop", "owner/repo"}, "issue", false},
 		{"status extra instructions/rejected", []string{"doctor", "status", "owner/repo", "406", "extra"}, "usage", false},
-		{"apply unavailable/no repair", []string{"doctor", "apply", "owner/repo", "406"}, "unavailable", false},
 		{"diagnosis help/explicit target", []string{"doctor", "--help"}, "<repository> <issue> <instructions>", true},
 		{"status help/explicit target", []string{"doctor", "status", "--help"}, "<repository> <issue>", true},
 	} {
@@ -33,5 +35,24 @@ func TestDoctorCommand_Arguments(t *testing.T) {
 				t.Fatalf("exit=%d stdout=%s stderr=%s; want success=%t and %q", code, out, errout, tt.success, tt.message)
 			}
 		})
+	}
+}
+
+// doctor apply takes exactly a repository and an issue and is dispatched to its
+// handler. LF_HOME is pointed at an empty directory so the handler fails on the
+// missing configuration instead of reading the operator's real ~/.litefactory,
+// which a sandboxed check cannot read and whose contents vary per machine.
+func TestDoctorApplyReachesItsHandler(t *testing.T) {
+	// No t.Parallel: t.Setenv forbids it.
+	t.Setenv(config.EnvHome, t.TempDir())
+
+	router, _, _ := newTestRouter(t)
+	err := router.dispatch(t.Context(), []string{"doctor", "apply", "owner/repo", "406"})
+	if err == nil {
+		t.Fatal("doctor apply succeeded against an empty LF_HOME, so it cannot have reached the handler")
+	}
+	var usageErr *UsageError
+	if errors.As(err, &usageErr) {
+		t.Fatalf("doctor apply returned the usage error %q instead of reaching its handler", err)
 	}
 }
