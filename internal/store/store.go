@@ -138,6 +138,9 @@ func Open(ctx context.Context, path string) (*DB, error) {
 	if err := db.verifyForeignKeys(ctx); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
+	if err := db.purgeStaleArchiveGrants(ctx); err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
 	return db, nil
 }
 

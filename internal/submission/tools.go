@@ -22,10 +22,6 @@ type ToolProfile struct {
 	workflow string
 	families []string
 	creation bool
-	// selfCheck installs the two bug-fixer self-check tools alongside the
-	// standalone Bug communication catalog. Only NewBugFixerToolProfile sets
-	// it; the bug-analyst profile never receives it.
-	selfCheck bool
 }
 
 // NewToolProfile assigns only explicitly supported modes a server-local tool profile.
@@ -38,8 +34,7 @@ func NewToolProfile(mode string) (ToolProfile, error) {
 
 // NewWorkflowToolProfile preserves mode-only admission while providing the
 // standalone Bug communication-only catalog. Actual authority remains bound by
-// the service and its attempt guard, never by selecting a catalog. It never
-// installs the two bug-fixer self-check tools; NewBugFixerToolProfile does.
+// the service and its attempt guard, never by selecting a catalog.
 func NewWorkflowToolProfile(workflow, mode string) (ToolProfile, error) {
 	if workflow == "bug" && mode == "" {
 		return ToolProfile{workflow: "bug"}, nil
@@ -48,13 +43,6 @@ func NewWorkflowToolProfile(workflow, mode string) (ToolProfile, error) {
 		return ToolProfile{}, errors.New("submission: conflicting workflow catalog")
 	}
 	return NewToolProfile(mode)
-}
-
-// NewBugFixerToolProfile is the standalone Bug catalog plus the two optional
-// self-check tools, installed only for the bug-fixer profile; the bug-analyst
-// profile keeps the plain NewWorkflowToolProfile("bug", "") catalog.
-func NewBugFixerToolProfile() ToolProfile {
-	return ToolProfile{workflow: "bug", selfCheck: true}
 }
 
 // Allows checks the same registered catalog used for discovery, denying unknown names.
@@ -121,12 +109,6 @@ func (p ToolProfile) List() []ToolSpec {
 				tools[i].InputSchema = json.RawMessage(implementResultSchema)
 			}
 		}
-	}
-	if p.selfCheck {
-		tools = append(tools,
-			ToolSpec{Name: "bug_self_check_start", Description: "Ask the factory to run this repair attempt's regression then focused project checks itself, in your own sandboxed worktree, using the exact same trusted recipe the final check uses. Optional; a self-check pass is not a final pass. Takes no arguments: you cannot choose commands or a phase.", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`), Effect: "input"},
-			ToolSpec{Name: "bug_self_check_status", Description: "Poll a self-check run started with bug_self_check_start. Waits briefly for a change before answering. Once done, reports each phase's outcome and the redacted tail of any failing command's output.", InputSchema: json.RawMessage(`{"type":"object","properties":{"run_id":{"type":"string"}},"required":["run_id"],"additionalProperties":false}`), Effect: "read"},
-		)
 	}
 	for _, name := range p.families {
 		spec, ok := familyTool(name)

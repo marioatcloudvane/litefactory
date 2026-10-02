@@ -27,7 +27,7 @@ Arrows point at what a package imports (litefactory packages only).
 
 ```
 config, naming, store, git, secrets, identity, launchd, logging, render,
-gittest, planbrief, attach, schedule → leaves
+gittest, planbrief, attach, schedule, webhook → leaves
 
 agent         → naming
 meter         → agent              pure normalization, reconciliation, capability diagnostics and exact pricing
@@ -40,9 +40,9 @@ harness       →  agent, config, meter, naming
 report        →  agent, git, naming, redact
 repos         →  git, naming, store
 turn          →  agent, attach, codex, config, git, github, harness, meter, naming, planbrief, redact, report, store
-daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn
+daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn, webhook
 teamsource    →  render, repos, store, team   resolves + renders a team's roster (3-tier index precedence)
-cli           →  agent, config, daemon, git, github, identity, launchd, meter, naming, report, repos, secrets, store, team, teamsource
+cli           →  agent, config, daemon, git, github, identity, launchd, meter, naming, report, repos, secrets, store, team, teamsource, webhook, webhookreg
 cmd/litefactory → cli, config, logging
 ```
 
@@ -135,6 +135,9 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | dispatch, diagnose and join polling workers | `daemon/tick.go`, `daemon/worker.go` | `Tick` admission sources and worker/forge counter aliases; `runWorker` lifetime diagnostics and executor-request count; `Quiesce` joins cleanup and diagnostics |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
+| receive GitHub webhook deliveries | `internal/webhook`; `daemon/webhook.go` | Stdlib-only handler (fixed check order, identical 401s, no payload leaves it) gets a read-only `Lookup` and a `Wake` sink; the daemon owns the keychain secret cache, the bounded hint set and the wake channel. Hints are drained in `Tick` through the budgeted issue read, source `webhook` |
+| register or repair a repo's GitHub webhook | `internal/webhookreg`; `cli/cmd_repo_webhook.go` | `Registrar.Ensure` reports every problem in a `Result`, never an error; secret written to the keychain (`secrets.Writer`, stdin only) before any GitHub call; hook id in `store.repo_webhooks`; `repo add` and `repo webhook <owner/name> \| --all` call it |
+| show webhook/poll health in `daemon status` | `daemon/health.go`, `store/daemon_health.go`, `cli/cmd_daemon_health.go`; migration `0092` | Display-only snapshot (`daemon_listener_status`, `repo_discovery_status`) written from `Tick` (deferred, only on change or after a failed write), replaced whole in one transaction; the CLI reads it open-read-close and nothing in the daemon reads it back. Mode words `webhook` / `webhook, no delivery yet` / `polling only` are `daemon.ModeWebhook*`; `Daemon.warnUnannounced` logs polled changes no hint announced (per-repo set in `discoverySchedule.Announce/Announced`) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
 
 ## Structured story contracts

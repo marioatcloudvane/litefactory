@@ -76,6 +76,9 @@ type TickResult struct {
 	// counts what the forge listings returned, so a session reached only
 	// through the local backlog is not one of them.
 	Issues int
+	// Hinted is how many issues a webhook named that this tick read fresh and
+	// handed to admission as a candidate source.
+	Hinted int
 	// Dispatched is how many turns this tick handed to a worker.
 	//
 	// It is the old Runs counter under the name it always deserved: Runs was
@@ -128,6 +131,9 @@ type TickResult struct {
 func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	startedAt := d.now()
 	d.discovery.tick(startedAt)
+	// Last, whatever path the tick leaves by: the health snapshot is display
+	// only and a failed write never changes the tick's result.
+	defer d.publishHealth(ctx, startedAt)
 	ctx = d.discoveryContext(ctx)
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
@@ -156,10 +162,13 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		}
 	}
 
+	d.refreshWebhookSecrets(ctx, startedAt)
+
 	if retryAt, held := d.backoff.hold(startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
 			slog.Time("retry_at", retryAt.UTC()),
 			slog.String("remaining", retryAt.Sub(startedAt).String()))
+		d.owePendingListings(ctx, startedAt)
 		return TickResult{StartedAt: startedAt, Skipped: true, RetryAt: retryAt}, nil
 	}
 
@@ -211,7 +220,18 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return result, d.observe(ctx, startedAt, err)
 	}
 
-	queues, err := d.discover(ctx, repos, listingWindow(cursor), &result)
+	// The heartbeat runs every local source each time; only the forge listing is
+	// scheduled. A tick that does not list still dispatches and reconciles.
+	if d.webhook != nil && d.webhook.hints.takeOverflow() {
+		// Hints were dropped; only a full listing can recover what they named.
+		d.schedule.ForceDue()
+	}
+	for _, id := range d.schedule.Known() {
+		if !slices.ContainsFunc(repos, func(r store.Repo) bool { return r.ID == id }) {
+			d.schedule.Forget(id)
+		}
+	}
+	queues, err := d.discover(ctx, repos, startedAt, &result)
 	discoveryDeferred := errors.Is(err, ErrDiscoveryDeferred)
 	if err != nil && !discoveryDeferred {
 		result.Duration = d.now().Sub(startedAt)
@@ -262,6 +282,18 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		}
 	}
 
+	// The archive pass follows retirement and is bounded the same way: one owner
+	// per tick, after normal admission, held back by the same discovery backoff.
+	if archiveErr := d.RunArchiveBatch(ctx, startedAt); archiveErr != nil {
+		d.log.ErrorContext(ctx, "archive batch incomplete", slog.Bool("completed", false))
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+	}
+
+	// Local housekeeping runs last and never fails a tick.
+	d.RunHousekeeping(ctx, startedAt)
+
 	// The cursor is a pure watermark now: it advances to this tick's start time
 	// on every tick that completed, whatever any worker went on to do (T-PAR-13).
 	// Holding it back to the oldest issue that did not finish was the only way
@@ -270,11 +302,24 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	// other. sessions.needs_poll is that local record, and [Daemon.discover]
 	// unions it with the listings, so re-discovery no longer needs the cursor's
 	// help. See [store.DB.ListBacklogSessions].
+	// Each repository's window moves on its own, only when that repository's
+	// listing finished: a deferred neighbour does not hold it back and a
+	// webhook or heartbeat never moves it.
 	if discoveryDeferred {
-		result.Duration = d.now().Sub(startedAt)
+		finishedAt := d.now()
+		result.Duration = finishedAt.Sub(startedAt)
+		if err := d.finishListings(ctx, queues, startedAt, finishedAt); err != nil {
+			return result, err
+		}
 		return result, nil
 	}
-	persisted := store.PollCursor{TasksUpdatedSince: startedAt, LastTickAt: d.now()}
+	// The global row keeps only the completion time `daemon status` reports;
+	// its tasks_updated_since column is no longer read.
+	persisted := store.PollCursor{TasksUpdatedSince: cursor.TasksUpdatedSince, LastTickAt: d.now()}
+	if err := d.finishListings(ctx, queues, startedAt, persisted.LastTickAt); err != nil {
+		result.Duration = d.now().Sub(startedAt)
+		return result, err
+	}
 	if err := d.db.SetPollCursor(ctx, persisted); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, err
@@ -318,17 +363,55 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 // is not.
 const ListingOverlap = 5 * time.Minute
 
-// listingWindow is the `since` a tick asks the forge for.
+// repoWindow is the `since` one repository's listing asks the forge for: its
+// own cursor less [ListingOverlap]. A repository with no cursor row has never
+// had a listing finish, so its history starts at its registration; the overlap
+// is withheld there because nothing before registration is wanted.
 //
-// The overlap is withheld from the very first tick ever, whose whole purpose is
-// to plant the cursor at now so that registering a busy repository does not
-// replay its history (AC-2.9). A zero LastTickAt is what says no tick has
-// completed before.
-func listingWindow(cursor store.PollCursor) time.Time {
-	if cursor.LastTickAt.IsZero() {
-		return cursor.TasksUpdatedSince
+// previous is when the previous listing of the repository started (its cursor);
+// zero when there is none.
+func (d *Daemon) repoWindow(ctx context.Context, repo store.Repo) (since, previous time.Time, err error) {
+	at, ok, err := d.db.GetRepoPollCursor(ctx, repo.ID)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
 	}
-	return cursor.TasksUpdatedSince.Add(-ListingOverlap)
+	if !ok {
+		return repo.CreatedAt, time.Time{}, nil
+	}
+	return at.Add(-ListingOverlap), at, nil
+}
+
+// owePendingListings marks every due repository as owed a listing. A tick that
+// is skipped (rate-limit backoff) never reaches discover, and without the flag
+// a webhook arriving meanwhile would restart the countdown of a listing that was
+// already late.
+func (d *Daemon) owePendingListings(ctx context.Context, now time.Time) {
+	repos, err := d.db.ListRepos(ctx)
+	if err != nil {
+		d.log.WarnContext(ctx, "could not list repositories to mark their listings owed", slog.Any("error", err))
+		return
+	}
+	for _, repo := range repos {
+		if d.schedule.Due(repo.ID, now) {
+			d.schedule.ListingFailed(repo.ID)
+		}
+	}
+}
+
+// finishListings records every repository whose listing completed this tick:
+// the cursor first, then the schedule, so a failed write leaves the repository
+// owed and listing from where it was.
+func (d *Daemon) finishListings(ctx context.Context, queues []*repoQueue, startedAt, finishedAt time.Time) error {
+	for _, q := range queues {
+		if !q.finished {
+			continue
+		}
+		if err := d.db.SetRepoPollCursor(ctx, q.repo.ID, startedAt); err != nil {
+			return err
+		}
+		d.schedule.ListingFinished(q.repo.ID, finishedAt)
+	}
+	return nil
 }
 
 // discover walks every registered repository and every session the store says
@@ -355,7 +438,7 @@ func listingWindow(cursor store.PollCursor) time.Time {
 func (d *Daemon) discover(
 	ctx context.Context,
 	repos []store.Repo,
-	since time.Time,
+	now time.Time,
 	result *TickResult,
 ) ([]*repoQueue, error) {
 	// cleared makes the resume happen at most once per tick, on the first
@@ -368,6 +451,17 @@ func (d *Daemon) discover(
 	queues := make([]*repoQueue, 0, len(repos))
 	byRepo := make(map[int64]*repoQueue, len(repos))
 	seen := make(map[int64]*candidate)
+
+	// Which repositories list this tick is decided before any of them is marked
+	// owed. An attempt is owed until it finishes, so a tick that fails midway
+	// leaves the repository due whatever webhooks arrive meanwhile.
+	due := make(map[int64]bool, len(repos))
+	for _, repo := range repos {
+		if repo.Forge == store.ForgeGitHub && d.schedule.Due(repo.ID, now) {
+			due[repo.ID] = true
+			d.schedule.ListingFailed(repo.ID)
+		}
+	}
 
 	for _, repo := range repos {
 		if err := ctx.Err(); err != nil {
@@ -393,12 +487,21 @@ func (d *Daemon) discover(
 		queues = append(queues, q)
 		byRepo[repo.ID] = q
 
+		if !due[repo.ID] {
+			continue
+		}
+		q.listing = true
+		since, previous, err := d.repoWindow(ctx, repo)
+		if err != nil {
+			return nil, err
+		}
+		repoDeferred := false
 		if err := d.discoveryProbe(ctx, forgeRepo); err != nil {
 			return nil, err
 		}
 		issues, err := discoveryCall(ctx, d, discoveryKey(forgeRepo, "issues", 0), discoveryListBound, func(ctx context.Context) ([]github.Issue, error) { return d.forge.ListIssues(ctx, forgeRepo, since) })
 		if errors.Is(err, ErrDiscoveryDeferred) {
-			deferred = true
+			deferred, repoDeferred = true, true
 		} else if err != nil {
 			return nil, fmt.Errorf("list the issues of %s touched since %s: %w",
 				forgeRepo, since.UTC().Format(time.RFC3339), err)
@@ -415,12 +518,15 @@ func (d *Daemon) discover(
 		}
 		commented, err := d.commentedIssues(ctx, repoLog, q, since, issues)
 		if errors.Is(err, ErrDiscoveryDeferred) {
-			deferred = true
+			deferred, repoDeferred = true, true
 		} else if err != nil {
 			return nil, err
 		}
 		issues = append(issues, commented...)
 		result.Issues += len(issues)
+		if !repoDeferred {
+			d.warnUnannounced(ctx, q, issues, previous)
+		}
 
 		for _, issue := range issues {
 			c, err := d.sight(ctx, q, issue)
@@ -438,8 +544,12 @@ func (d *Daemon) discover(
 			seen[c.session.ID] = c
 			q.candidates = append(q.candidates, c)
 		}
+		q.finished = !repoDeferred
 	}
 
+	if err := d.webhookHints(ctx, byRepo, seen, result); err != nil {
+		return nil, err
+	}
 	if err := d.graphPlanParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -621,6 +731,12 @@ type repoQueue struct {
 	candidates []*candidate
 	next       int
 	taken      int
+
+	// listing says this tick attempted the repository's forge listing and
+	// finished says it completed without being deferred; only then do the
+	// repository's cursor and schedule move.
+	listing  bool
+	finished bool
 }
 
 // candidate builds a candidate belonging to this repository, with no issue read
@@ -1652,7 +1768,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "successful creation intake recovery pending", err)
 	}
 	command := turn.ParseCommand(c.Body)
-	if d.bug != nil && (command.Name == "/approve-bug" || command.Name == "/bug-review" || command.Name == "/retry-bug-tests") {
+	if d.bug != nil && isBugControlCommand(command.Name) {
 		admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return d.leave(ctx, t, log, "could not read Bug control admission", err)
@@ -2009,6 +2125,10 @@ func (d *Daemon) run(
 			log.InfoContext(ctx, "Bug owner comment predates the open review or question; refusing it with a reply",
 				slog.Any("error", err))
 			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+		}
+		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugCommentRefused) {
+			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
+			return nil
 		}
 		left := d.leave(ctx, t, log, "the turn could not be conducted", err)
 		if trigger.PlanReply != nil && left == nil {

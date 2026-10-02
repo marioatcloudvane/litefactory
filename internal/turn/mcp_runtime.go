@@ -75,9 +75,6 @@ type preparedMCP struct {
 	resultBroker     *submission.Broker
 	creationProposal json.RawMessage
 	activity         *ActivityService
-	// selfCheck is set only for a bug-fixer attempt with a usable operator
-	// sandbox profile; nil means this launch installs no self-check tools.
-	selfCheck *BugSelfCheckService
 }
 
 func (p *preparedMCP) close(ctx context.Context) error {
@@ -86,10 +83,6 @@ func (p *preparedMCP) close(ctx context.Context) error {
 
 func (p *preparedMCP) closeTransports(ctx context.Context) error {
 	activityErr := p.endActivity(ctx, p.runtime.Now())
-	// Any self-check still running when this launch ends is stopped here so it
-	// is never left owned by nothing (CONC): the repair-completion step's own
-	// StopBugSelfChecks call is a durable safety net, not the only stop.
-	selfCheckErr := p.selfCheck.Stop(ctx)
 	var brokerErr, resultBrokerErr error
 	if p.resultBroker != nil {
 		resultBrokerErr = p.resultBroker.Close()
@@ -97,7 +90,7 @@ func (p *preparedMCP) closeTransports(ctx context.Context) error {
 	if p.broker != nil {
 		brokerErr = p.broker.Close()
 	}
-	return errors.Join(activityErr, selfCheckErr, brokerErr, resultBrokerErr)
+	return errors.Join(activityErr, brokerErr, resultBrokerErr)
 }
 
 // runMCPBound binds shared completion on every supported actual invocation.
@@ -286,15 +279,6 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		if req.Mode != "" || override == nil || runtime.DisableMCP {
 			return nil, nil, errors.New("bug analyst requires scoped native result service")
 		}
-		// A bug-fixer attempt gets self-check tools only when a dispatched
-		// repair and a usable operator sandbox profile can both be resolved; any
-		// failure here simply omits the tools rather than blocking the launch
-		// (AC-008). The bug-analyst profile never receives them.
-		if req.Permissions.Profile == "bug-fixer" {
-			if selfCheck, sErr := newBugSelfCheckService(ctx, runtime, prep); sErr == nil {
-				p.selfCheck = selfCheck
-			}
-		}
 		spec, err := prepareBugResultBroker(ctx, p, attempt)
 		if err != nil {
 			return nil, nil, err
@@ -480,12 +464,7 @@ func prepareBugResultBroker(ctx context.Context, p *preparedMCP, attempt string)
 	if err != nil {
 		return nil, err
 	}
-	var dispatcher *ToolDispatcher
-	if p.selfCheck != nil {
-		dispatcher, err = NewBugFixerToolDispatcher(p.guard, p.service, p.selfCheck)
-	} else {
-		dispatcher, err = NewToolDispatcher(p.guard, p.service)
-	}
+	dispatcher, err := NewToolDispatcher(p.guard, p.service)
 	if err != nil {
 		return nil, err
 	}

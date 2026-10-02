@@ -23,6 +23,7 @@ const (
 	daemonLockFileName = "daemon.lock"
 	settingsFileName   = "claude-settings.json"
 	claudeHomeDirName  = "claude-home"
+	archiveDirName     = "archive"
 )
 
 // Paths resolves every location litefactory owns from a single root,
@@ -63,6 +64,9 @@ func Locate() (Paths, error) {
 
 // Home is the root directory, $LF_HOME.
 func (p Paths) Home() string { return p.home }
+
+// ArchiveDir is the root of the per-task archive of closed work, <home>/archive.
+func (p Paths) ArchiveDir() string { return filepath.Join(p.home, archiveDirName) }
 
 // TeamsDir holds the central source catalog, never CLI-generated artifacts.
 func (p Paths) TeamsDir() string { return filepath.Join(p.home, "teams") }

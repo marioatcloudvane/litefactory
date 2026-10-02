@@ -48,6 +48,8 @@ import (
 type Config struct {
 	Settings Settings `yaml:"settings"`
 	Teams    Teams    `yaml:"teams"`
+	// Webhook is the optional local listener for GitHub webhook deliveries.
+	Webhook Webhook `yaml:"webhook"`
 
 	Providers Providers `yaml:"providers"`
 	// Tiers is the litefactory-owned tier→model table (US-6). See [Tiers].
@@ -86,7 +88,9 @@ type Providers struct {
 // Keeping these values in config, rather than introducing a settings service,
 // preserves the existing immutable configuration flow to runtime consumers.
 type Settings struct {
-	PollIntervalSeconds int    `yaml:"poll_interval_seconds"`
+	// PollIntervalMinutes is the fallback discovery poll interval: how often
+	// the forge is listed when no webhook has asked for it sooner.
+	PollIntervalMinutes int    `yaml:"poll_interval_minutes"`
 	MaxConcurrentRuns   int    `yaml:"max_concurrent_runs"`
 	DefaultBaseBranch   string `yaml:"default_base_branch"`
 	FeaturePrefix       string `yaml:"feature_prefix"`
@@ -100,6 +104,9 @@ type Settings struct {
 	// fallback to the embedded default (US-2 AC-3).
 	TeamConfig                 string `yaml:"team_config"`
 	WorktreeRetainDays         int    `yaml:"worktree_retain_days"`
+	DeployBackupKeep           int    `yaml:"deploy_backup_keep"`
+	LogRetainDays              int    `yaml:"log_retain_days"`
+	ArchiveRetainDays          int    `yaml:"archive_retain_days"`
 	LogLevel                   string `yaml:"log_level"`
 	AttachmentMaxImageBytes    int64  `yaml:"attachment_max_image_bytes"`
 	AttachmentMaxDocumentBytes int64  `yaml:"attachment_max_document_bytes"`
@@ -439,15 +446,19 @@ type ToolProfileCodex struct {
 // semantic and an absent agents mapping must not silently configure runners.
 func Defaults() Config {
 	return Config{
-		Teams: Teams{IndexURL: DefaultTeamsIndexURL},
+		Teams:   Teams{IndexURL: DefaultTeamsIndexURL},
+		Webhook: Webhook{Listen: DefaultWebhookListen},
 		Settings: Settings{
-			PollIntervalSeconds:        DefaultPollIntervalSeconds,
+			PollIntervalMinutes:        DefaultPollIntervalMinutes,
 			MaxConcurrentRuns:          DefaultMaxConcurrentRuns,
 			DefaultBaseBranch:          "",
 			FeaturePrefix:              DefaultFeaturePrefix,
 			WorktreeRoot:               "",
 			TeamConfig:                 "",
 			WorktreeRetainDays:         DefaultWorktreeRetainDays,
+			DeployBackupKeep:           DefaultDeployBackupKeep,
+			LogRetainDays:              DefaultLogRetainDays,
+			ArchiveRetainDays:          DefaultArchiveRetainDays,
 			LogLevel:                   DefaultLogLevel,
 			AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,
 			AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
@@ -540,10 +551,13 @@ func DefaultToolProfiles() ToolProfiles {
 // Defaults for the keys that have one. They are exported so that tests and
 // `init` output can name the same numbers the code uses.
 const (
-	DefaultPollIntervalSeconds  = 30
+	DefaultPollIntervalMinutes  = 60
 	DefaultMaxConcurrentRuns    = 3
 	DefaultFeaturePrefix        = "lf"
 	DefaultWorktreeRetainDays   = 14
+	DefaultDeployBackupKeep     = 5
+	DefaultLogRetainDays        = 30
+	DefaultArchiveRetainDays    = 30
 	DefaultLogLevel             = "info"
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"
@@ -746,14 +760,22 @@ func literalAgentModelError(data []byte) error {
 	return errors.Join(errs...)
 }
 
+const legacyPollIntervalSecondsKey = "poll_interval_seconds"
+
+// legacyPollIntervalError refuses the removed seconds key. The value is never
+// converted: a seconds figure would silently become a very different interval.
+func legacyPollIntervalError(path string) error {
+	return fmt.Errorf("%s: no longer supported; set settings.poll_interval_minutes (%d..%d minutes) instead; the old value was not converted",
+		path, MinPollIntervalMinutes, MaxPollIntervalMinutes)
+}
+
 var legacySettingsPaths = map[string]string{
-	"poll_interval_seconds": "settings.poll_interval_seconds",
-	"max_concurrent_runs":   "settings.max_concurrent_runs",
-	"default_base_branch":   "settings.default_base_branch",
-	"feature_prefix":        "settings.feature_prefix",
-	"worktree_root":         "settings.worktree_root",
-	"worktree_retain_days":  "settings.worktree_retain_days",
-	"log_level":             "settings.log_level",
+	"max_concurrent_runs":  "settings.max_concurrent_runs",
+	"default_base_branch":  "settings.default_base_branch",
+	"feature_prefix":       "settings.feature_prefix",
+	"worktree_root":        "settings.worktree_root",
+	"worktree_retain_days": "settings.worktree_retain_days",
+	"log_level":            "settings.log_level",
 }
 
 // legacySettingsError makes the deliberate breaking schema migration useful
@@ -772,6 +794,17 @@ func legacySettingsError(data []byte) error {
 		key := root.Content[i].Value
 		if replacement, ok := legacySettingsPaths[key]; ok {
 			errs = append(errs, fmt.Errorf("%s: legacy root key is no longer supported; move it to %s", key, replacement))
+		}
+		if key == legacyPollIntervalSecondsKey {
+			errs = append(errs, legacyPollIntervalError(key))
+		}
+		if key == "settings" && root.Content[i+1].Kind == yaml.MappingNode {
+			body := root.Content[i+1]
+			for j := 0; j+1 < len(body.Content); j += 2 {
+				if body.Content[j].Value == legacyPollIntervalSecondsKey {
+					errs = append(errs, legacyPollIntervalError("settings."+legacyPollIntervalSecondsKey))
+				}
+			}
 		}
 	}
 	return errors.Join(errs...)

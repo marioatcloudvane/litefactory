@@ -3,7 +3,6 @@ package turn
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -32,24 +31,4 @@ func bugFactLines(facts []store.BugFact) []string {
 		lines = append(lines, fmt.Sprintf("[%s] %s", f.Stage, f.Text))
 	}
 	return lines
-}
-
-// bugSelfCheckLine renders the delivery review's one-line self-check evidence
-// for the repair attempt behind this delivery (AC-009). It is computed only
-// from factory-recorded source=fixer bug_checks rows (store.BugSelfChecks),
-// never the fixer's own report, so it stays honest.
-func bugSelfCheckLine(runs []store.BugSelfCheckSummary) string {
-	if len(runs) == 0 {
-		return "The fixer did not run its own checks."
-	}
-	last := runs[len(runs)-1]
-	parts := make([]string, 0, len(last.Phases))
-	for _, phase := range last.Phases {
-		parts = append(parts, fmt.Sprintf("%s %s", phase.Phase, phase.Outcome))
-	}
-	plural := "s"
-	if len(runs) == 1 {
-		plural = ""
-	}
-	return fmt.Sprintf("The fixer ran its own checks %d time%s; last result: %s.", len(runs), plural, strings.Join(parts, ", "))
 }

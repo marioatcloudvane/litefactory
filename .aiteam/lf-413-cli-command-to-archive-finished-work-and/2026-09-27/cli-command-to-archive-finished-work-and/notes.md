@@ -1,0 +1,3 @@
+# Notes
+Assumptions are those listed by the engineers: extra skeleton/archived/global table classification in internal/store/archive_registry.go; doctor-referencing families stay archive-pending; forget step defers when run dir or git cannot be checked; archive_retain_days template line is live with a trailing comment; mtime fallback for bad backup stamps uses local time; migrations 0088 and 0089 used. internal/store imports internal/archive (APP_CONTEXT not updated).
+Operator notes: three new optional settings (archive_retain_days, deploy_backup_keep, log_retain_days); archive deletes rows irreversibly after a verified file. Forget waits until archive files expire and run logs are gone.
