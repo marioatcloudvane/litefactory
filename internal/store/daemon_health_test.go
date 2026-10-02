@@ -106,3 +106,47 @@ func TestHealthSnapshotRowsFollowRepoDeletion(t *testing.T) {
 		t.Fatalf("repos = %+v err=%v", snap.Repos, err)
 	}
 }
+
+// AC-009: the heartbeat, pause and in-flight facts live on the one listener
+// row and round-trip through the single replacing transaction.
+func TestHealthSnapshotCarriesHeartbeatAndPauseFacts(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	at := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	paused := ListenerStatus{
+		DaemonStartedAt: at, WrittenAt: at.Add(time.Minute),
+		LastHeartbeatStartedAt: at.Add(50 * time.Second),
+		DiscoveryPaused:        true, PauseReason: "spent allowance until reset",
+		PausedSince: at.Add(10 * time.Second), ExpectedResumeAt: at.Add(time.Hour), RunsInFlight: 2,
+	}
+	if err := db.ReplaceHealthSnapshot(ctx, paused, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.ReadHealthSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := got.Listener
+	if !l.DiscoveryPaused || l.PauseReason != paused.PauseReason || !l.PausedSince.Equal(paused.PausedSince) ||
+		!l.ExpectedResumeAt.Equal(paused.ExpectedResumeAt) || !l.LastHeartbeatStartedAt.Equal(paused.LastHeartbeatStartedAt) || l.RunsInFlight != 2 {
+		t.Fatalf("paused snapshot=%+v", l)
+	}
+
+	running := ListenerStatus{DaemonStartedAt: at, WrittenAt: at.Add(2 * time.Minute), LastHeartbeatStartedAt: at.Add(time.Minute + 50*time.Second)}
+	if err := db.ReplaceHealthSnapshot(ctx, running, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = db.ReadHealthSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l = got.Listener
+	if l.DiscoveryPaused || l.PauseReason != "" || !l.PausedSince.IsZero() || !l.ExpectedResumeAt.IsZero() || l.RunsInFlight != 0 {
+		t.Fatalf("a running snapshot kept pause facts: %+v", l)
+	}
+	var rows int
+	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM daemon_listener_status`).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("listener rows=%d err=%v", rows, err)
+	}
+}

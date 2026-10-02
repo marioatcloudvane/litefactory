@@ -34,7 +34,7 @@ func TestDiscoveryBudgetPendingRefinementDeliveryBypassesReserve(t *testing.T) {
 	if f.watermark() != 0 {
 		t.Fatal("child delivery advanced parent watermark")
 	}
-	if !regexp.MustCompile(`local_deferrals=[1-9][0-9]*`).MatchString(f.logs.String()) {
+	if !regexp.MustCompile(`requests_held_back_locally=[1-9][0-9]*`).MatchString(f.logs.String()) {
 		t.Fatalf("fixture did not reach local denial\n%s", f.logs)
 	}
 }

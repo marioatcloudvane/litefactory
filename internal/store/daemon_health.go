@@ -19,6 +19,21 @@ type ListenerStatus struct {
 	DaemonStartedAt time.Time
 	// WrittenAt is when the snapshot was last written.
 	WrittenAt time.Time
+
+	// LastHeartbeatStartedAt is when the publishing daemon last began a
+	// heartbeat; zero before its first.
+	LastHeartbeatStartedAt time.Time
+	// DiscoveryPaused reports that the daemon is not reading comments.
+	DiscoveryPaused bool
+	// PauseReason says why, in the words the daemon logged; empty while running.
+	PauseReason string
+	// PausedSince is when the pause began; zero while running.
+	PausedSince time.Time
+	// ExpectedResumeAt is when discovery is expected to resume; zero while
+	// running, and while paused means "when fresh rate-limit data arrives".
+	ExpectedResumeAt time.Time
+	// RunsInFlight is how many turns the daemon had running when it last wrote.
+	RunsInFlight int
 }
 
 // RepoDiscoveryStatus is the published discovery health of one repository.
@@ -53,11 +68,17 @@ type HealthSnapshot struct {
 func (db *DB) ReplaceHealthSnapshot(ctx context.Context, listener ListenerStatus, repos []RepoDiscoveryStatus) error {
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
-INSERT INTO daemon_listener_status (id, listen_address, listening, daemon_started_at, written_at)
-VALUES (1, ?, ?, ?, ?)
+INSERT INTO daemon_listener_status (id, listen_address, listening, daemon_started_at, written_at,
+    last_heartbeat_started_at, discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight)
+VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET listen_address = excluded.listen_address, listening = excluded.listening,
-    daemon_started_at = excluded.daemon_started_at, written_at = excluded.written_at`,
-			listener.ListenAddress, boolInt(listener.Listening), FormatTime(listener.DaemonStartedAt), FormatTime(listener.WrittenAt)); err != nil {
+    daemon_started_at = excluded.daemon_started_at, written_at = excluded.written_at,
+    last_heartbeat_started_at = excluded.last_heartbeat_started_at, discovery_paused = excluded.discovery_paused,
+    pause_reason = excluded.pause_reason, paused_since = excluded.paused_since,
+    expected_resume_at = excluded.expected_resume_at, runs_in_flight = excluded.runs_in_flight`,
+			listener.ListenAddress, boolInt(listener.Listening), FormatTime(listener.DaemonStartedAt), FormatTime(listener.WrittenAt),
+			nullTime(listener.LastHeartbeatStartedAt), boolInt(listener.DiscoveryPaused), listener.PauseReason,
+			nullTime(listener.PausedSince), nullTime(listener.ExpectedResumeAt), listener.RunsInFlight); err != nil {
 			return fmt.Errorf("write listener status: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM repo_discovery_status`); err != nil {
@@ -85,11 +106,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 // owner and name. A database nobody has published to yields Found == false.
 func (db *DB) ReadHealthSnapshot(ctx context.Context) (HealthSnapshot, error) {
 	var snap HealthSnapshot
-	var listening int
+	var listening, paused int
 	var started, written string
+	var beat, pausedSince, resumeAt sql.NullString
 	err := db.sql.QueryRowContext(ctx,
-		`SELECT listen_address, listening, daemon_started_at, written_at FROM daemon_listener_status WHERE id = 1`).
-		Scan(&snap.Listener.ListenAddress, &listening, &started, &written)
+		`SELECT listen_address, listening, daemon_started_at, written_at, last_heartbeat_started_at,
+       discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight
+FROM daemon_listener_status WHERE id = 1`).
+		Scan(&snap.Listener.ListenAddress, &listening, &started, &written, &beat,
+			&paused, &snap.Listener.PauseReason, &pausedSince, &resumeAt, &snap.Listener.RunsInFlight)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return HealthSnapshot{}, nil
@@ -103,6 +128,15 @@ func (db *DB) ReadHealthSnapshot(ctx context.Context) (HealthSnapshot, error) {
 	}
 	if snap.Listener.WrittenAt, err = ParseTime(written); err != nil {
 		return HealthSnapshot{}, fmt.Errorf("store: parse listener status: %w", err)
+	}
+	snap.Listener.DiscoveryPaused = paused != 0
+	for _, f := range []struct {
+		dst *time.Time
+		src sql.NullString
+	}{{&snap.Listener.LastHeartbeatStartedAt, beat}, {&snap.Listener.PausedSince, pausedSince}, {&snap.Listener.ExpectedResumeAt, resumeAt}} {
+		if *f.dst, err = scanTime(f.src); err != nil {
+			return HealthSnapshot{}, fmt.Errorf("store: parse listener status: %w", err)
+		}
 	}
 
 	rows, err := db.sql.QueryContext(ctx, `
