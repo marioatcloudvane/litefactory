@@ -152,6 +152,10 @@ stale recovery permanently. Schedule controls alone do not supersede unrelated
 work. After resolving a report-only failure, the owner can issue a new instruction
 or manually schedule work on the issue.
 
+## Webhooks and polling
+
+litefactory can react to issues and comments within seconds when GitHub sends it a webhook; polling (`settings.poll_interval_minutes`) stays on as a safety net. Set `webhook.public_url` and run `litefactory repo webhook --all` to register the hooks. See [docs/features/github-webhooks.md](docs/features/github-webhooks.md) for setup, security and troubleshooting.
+
 ## Reading polling diagnostics
 
 The INFO tick summary counts workers and forge discovery, using these explicit

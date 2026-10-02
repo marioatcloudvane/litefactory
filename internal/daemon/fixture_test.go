@@ -182,6 +182,8 @@ type forgeServer struct {
 
 	// Recorded traffic.
 	sinceValues []string
+	// sinceByRepo is the `since` of every issue listing, per "owner/name".
+	sinceByRepo map[string][]string
 	// issueReads counts single-issue GETs per number. Listings are bounded by
 	// the repository count; this is the cost that scales with whatever the
 	// daemon re-reads, which is where a standing per-tick leak shows up.
@@ -199,9 +201,12 @@ type forgeServer struct {
 	// reports whether it handled the response itself.
 	onListIssues   func(w http.ResponseWriter, call int) bool
 	onListComments func(w http.ResponseWriter, call int) bool
-	onPostComment  func(w http.ResponseWriter, call int) bool
-	onRemoveLabel  func(w http.ResponseWriter, r *http.Request) bool
-	onAddLabels    func(w http.ResponseWriter, r *http.Request) bool
+	// onGetIssue is called for single-issue GETs with the 1-based call number
+	// of that issue's reads.
+	onGetIssue    func(w http.ResponseWriter, number, call int) bool
+	onPostComment func(w http.ResponseWriter, call int) bool
+	onRemoveLabel func(w http.ResponseWriter, r *http.Request) bool
+	onAddLabels   func(w http.ResponseWriter, r *http.Request) bool
 
 	// order records the sequence of externally visible actions, so that "the
 	// reaction happened before the run" is an assertion rather than a hope.
@@ -378,6 +383,11 @@ func (f *forgeServer) handleListIssues(w http.ResponseWriter, r *http.Request) {
 	f.listIssues++
 	call := f.listIssues
 	f.sinceValues = append(f.sinceValues, r.URL.Query().Get("since"))
+	if f.sinceByRepo == nil {
+		f.sinceByRepo = make(map[string][]string)
+	}
+	repoKey := r.PathValue("owner") + "/" + r.PathValue("repo")
+	f.sinceByRepo[repoKey] = append(f.sinceByRepo[repoKey], r.URL.Query().Get("since"))
 	hook := f.onListIssues
 	issues := slices.Clone(f.state(r.PathValue("owner"), r.PathValue("repo")).issues)
 	f.mu.Unlock()
@@ -448,6 +458,9 @@ func (f *forgeServer) handleGetIssue(w http.ResponseWriter, r *http.Request) {
 		f.issueReads = make(map[int]int)
 	}
 	f.issueReads[number]++
+	if f.onGetIssue != nil && f.onGetIssue(w, number, f.issueReads[number]) {
+		return
+	}
 	for _, issue := range f.state(r.PathValue("owner"), r.PathValue("repo")).issues {
 		if issue.Number == number {
 			writeJSON(w, http.StatusOK, issue)
@@ -708,6 +721,14 @@ func (f *forgeServer) since() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.sinceValues)
+}
+
+// listingsOf is how many issue listings one repository received, and their
+// `since` values in order.
+func (f *forgeServer) listingsOf(owner, name string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.sinceByRepo[owner+"/"+name])
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -1103,6 +1124,9 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.Interval != 0 {
 		opts.Interval = overrides.Interval
 	}
+	if overrides.DiscoveryInterval != 0 {
+		opts.DiscoveryInterval = overrides.DiscoveryInterval
+	}
 	// Zero means "not overridden" here for the same reason it means "use the
 	// default" in Options.validate, so the base opts keeps the default.
 	if overrides.MaxConcurrentRuns != 0 {
@@ -1110,6 +1134,9 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	}
 	if overrides.Ticks != nil {
 		opts.Ticks = overrides.Ticks
+	}
+	if overrides.Webhook != nil {
+		opts.Webhook = overrides.Webhook
 	}
 	if overrides.ShutdownGrace != 0 {
 		opts.ShutdownGrace = overrides.ShutdownGrace
@@ -1405,6 +1432,17 @@ func (f *fixture) cursor() store.PollCursor {
 		f.t.Fatalf("read the poll cursor: %v", err)
 	}
 	return cursor
+}
+
+// repoCursor is how far repo's own forge listing has finished.
+func (f *fixture) repoCursor(repo store.Repo) (time.Time, bool) {
+	f.t.Helper()
+
+	at, ok, err := f.db.GetRepoPollCursor(f.t.Context(), repo.ID)
+	if err != nil {
+		f.t.Fatalf("read the repo poll cursor: %v", err)
+	}
+	return at, ok
 }
 
 func (f *fixture) runs() []store.Run {

@@ -96,3 +96,59 @@ func firstLine(s string) string {
 	}
 	return ""
 }
+
+// addGenericPassword adds or updates a generic-password item.
+//
+// `security add-generic-password -w <value>` would put the value in argv, where
+// every user on the machine can read it with ps. Interactive mode (`security
+// -i`) reads its commands from stdin instead, so the value travels over a pipe
+// and the process arguments are the constant "-i".
+//
+// Interactive mode reports a failed command on stderr and may still exit 0, so
+// any stderr output is a failure too. The caller's context bounds the call for
+// the same reason it bounds a read.
+func addGenericPassword(ctx context.Context, service, account, value string) error {
+	line, err := interactiveAddCommand(service, account, value)
+	if err != nil {
+		return err
+	}
+	// Constant absolute path, constant "-i" argument, no shell.
+	//nolint:gosec // G204: fixed binary and fixed arguments; the value goes over stdin.
+	cmd := exec.CommandContext(ctx, securityBinary, "-i")
+	cmd.Stdin = strings.NewReader(line + "\n")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return classifySecurityError(ctx, err, stderr.String())
+	}
+	if detail := firstLine(stderr.String()); detail != "" {
+		return fmt.Errorf("%s: %s", securityBinary, detail)
+	}
+	return nil
+}
+
+// interactiveAddCommand builds the stdin command for [addGenericPassword]. Each
+// argument is double-quoted with backslash escapes, and anything that could
+// end the line early is refused rather than escaped.
+func interactiveAddCommand(service, account, value string) (string, error) {
+	for name, v := range map[string]string{"service": service, "account": account, "value": value} {
+		if v == "" {
+			return "", fmt.Errorf("keychain write: %s is empty", name)
+		}
+		for _, r := range v {
+			if r < 0x20 || r == 0x7f {
+				return "", fmt.Errorf("keychain write: %s contains a control character", name)
+			}
+		}
+	}
+	return "add-generic-password -U -s " + quoteInteractive(service) +
+		" -a " + quoteInteractive(account) + " -w " + quoteInteractive(value), nil
+}
+
+func quoteInteractive(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
+}

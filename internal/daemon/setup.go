@@ -29,6 +29,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
+	"github.com/cloudvane/litefactory/internal/webhook"
 )
 
 // Setup is what building a real daemon needs from the machine.
@@ -63,6 +64,9 @@ type Setup struct {
 	Environ []string
 	// Now is the clock, passed through to the daemon. Nil means time.Now.
 	Now func() time.Time
+	// WebhookSecrets resolves per-repository webhook secrets. The zero value
+	// uses the real keychain; tests substitute the lookup.
+	WebhookSecrets secrets.Resolver
 	// LogSink rotates daemon.log for housekeeping. Nil skips daemon.log rotation.
 	LogSink LogRotator
 }
@@ -79,8 +83,14 @@ type Startup struct {
 	// InstanceID is this process's identity, and what task locks are held
 	// under.
 	InstanceID string
-	// Interval is the tick interval in force.
+	// Interval is the heartbeat interval in force: the fixed internal tick
+	// that runs all local work.
 	Interval time.Duration
+	// DiscoveryInterval is the fallback poll interval in force: how often the
+	// forge listing runs between heartbeats. It is reported on its own line.
+	DiscoveryInterval time.Duration
+	// WebhookAddr is the bound webhook listener address, empty when off.
+	WebhookAddr string
 	// MaxConcurrentRuns is how many runs may be in flight at once, daemon-wide
 	// (D2). It is printed for the same reason the interval is: the number that
 	// decides how hard this machine will be worked should be visible at boot,
@@ -141,13 +151,16 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
-	interval := time.Duration(s.Config.Settings.PollIntervalSeconds) * time.Second
-	if interval < MinInterval || interval > MaxInterval {
+	// The heartbeat is fixed internal behaviour, not configuration; the
+	// operator's interval is the discovery poll, checked again here.
+	interval := DefaultInterval
+	pollMinutes := s.Config.Settings.PollIntervalMinutes
+	if pollMinutes < config.MinPollIntervalMinutes || pollMinutes > config.MaxPollIntervalMinutes {
 		return nil, Startup{}, invalidOptions(
-			"poll_interval_seconds is %d, which is outside the supported range %d..%d",
-			s.Config.Settings.PollIntervalSeconds,
-			int(MinInterval.Seconds()), int(MaxInterval.Seconds()))
+			"settings.poll_interval_minutes is %d, which is outside the supported range %d..%d",
+			pollMinutes, config.MinPollIntervalMinutes, config.MaxPollIntervalMinutes)
 	}
+	discoveryInterval := time.Duration(pollMinutes) * time.Minute
 
 	// Re-clamped here even though config validation already refused anything
 	// out of range, for the same reason the interval above is: Open is reached
@@ -267,6 +280,27 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	if err != nil {
 		return nil, Startup{}, err
+	}
+
+	// The webhook listener is bound right after the lock: a port that is taken
+	// fails start-up here, before any work exists, and gives the lock back. A
+	// doctor repair host never reaches this: it is a helper process that does
+	// not call Open.
+	var webhookOpts *WebhookOptions
+	handedOver := false
+	if addr := s.Config.Webhook.Listen; addr != "" {
+		ln, listenErr := webhook.Listen(addr)
+		if listenErr != nil {
+			return nil, Startup{}, errors.Join(
+				fmt.Errorf("the webhook listener could not bind %s (webhook.listen in config.yaml; set it to another address or to \"\" to turn webhooks off): %w", addr, listenErr),
+				lock.Close())
+		}
+		defer func() {
+			if !handedOver {
+				_ = ln.Close()
+			}
+		}()
+		webhookOpts = &WebhookOptions{Listener: ln, Secrets: s.WebhookSecrets}
 	}
 
 	// Built once and reused for both NewExecutor and NewConfirmApplier
@@ -405,12 +439,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	turnOpts.Bug = bugRuntime
-	// A crash mid self-check leaves its run pending with no observed result;
-	// restart cancels every such run once, here, before any work is
-	// dispatched, and never reruns it (AC-011).
-	if err := turn.RecoverBugSelfChecks(ctx, s.DB); err != nil {
-		return nil, Startup{}, errors.Join(err, lock.Close())
-	}
 	daemon, err := New(Options{
 		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
 		Bug:        bugRuntime,
@@ -452,12 +480,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// a Coding Agent label is judged against exactly the implementations
 		// this run could actually be dispatched to — never a second, looser
 		// notion of "known agent" kept in step by hand.
-		Agents:       runners,
-		Classifiers:  classifiers,
-		DefaultAgent: defaultAgent,
-		ToolCeiling:  toolCeiling,
-		InstanceID:   instanceID,
-		Interval:     interval,
+		Agents:            runners,
+		Classifiers:       classifiers,
+		DefaultAgent:      defaultAgent,
+		ToolCeiling:       toolCeiling,
+		InstanceID:        instanceID,
+		Interval:          interval,
+		DiscoveryInterval: discoveryInterval,
+		Webhook:           webhookOpts,
 		// Nothing spends the slots yet; carrying the value from here means the
 		// pool, when it lands, reads a number that has been clamped three times.
 		MaxConcurrentRuns: maxRuns,
@@ -468,6 +498,15 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
+	}
+	handedOver = true
+	if daemon.webhook != nil {
+		// Secrets are loaded once here; the heartbeat only retries the missing.
+		now := s.Now
+		if now == nil {
+			now = time.Now
+		}
+		daemon.webhook.refresh(ctx, registered, now())
 	}
 	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
 	daemon.doctorHostOptions = s.DoctorHost
@@ -492,6 +531,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		DefaultAgent:      defaultAgent,
 		InstanceID:        instanceID,
 		Interval:          interval,
+		DiscoveryInterval: discoveryInterval,
 		MaxConcurrentRuns: maxRuns,
 		Home:              s.Paths.Home(),
 		LockPath:          lock.Path(),
@@ -500,6 +540,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		GitVersion:        gitBinary.Version(),
 		Identities:        identities,
 		Repos:             len(registered),
+	}
+	if daemon.webhook != nil {
+		startup.WebhookAddr = daemon.webhook.ln.Addr().String()
 	}
 	if claude != nil {
 		startup.Claude = claude.Binary()

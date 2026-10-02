@@ -371,7 +371,7 @@ func (h *BugPRActivity) prepareReview(ctx context.Context, db *store.DB, in BugP
 		return BugPROutput{}, err
 	}
 	r = store.BugDeliveryReview{SessionID: in.SessionID, Digest: digest, Evidence: e, PR: p, Presentation: in.Presentation, DeliveryKey: "bug-delivery:" + digest, BotID: h.BotID}
-	view := report.BugDeliveryReview{Task: fmt.Sprintf("github:%s#%d", e.Identity.Repository, e.Identity.IssueNumber), Digest: digest, Head: p.Head, Target: e.Child.Request.Binding.TargetCommit, Recipe: e.Child.Request.Binding.RecipeDigest, PR: p.Number, Analysis: renderBugAnalysis(e.Analysis.Revision, e.Analysis.Digest, e.Analysis.Analysis), Repair: renderBugRepair(e.Coverage), Facts: bugFactLines(facts), SelfCheck: bugSelfCheckLine(selfCheckSummary), ApprovalCommand: r.ApprovalCommand()}
+	view := report.BugDeliveryReview{Task: fmt.Sprintf("github:%s#%d", e.Identity.Repository, e.Identity.IssueNumber), Digest: digest, Head: p.Head, Target: e.Child.Request.Binding.TargetCommit, Recipe: e.Child.Request.Binding.RecipeDigest, PR: p.Number, Analysis: renderBugAnalysis(e.Analysis.Revision, e.Analysis.Digest, e.Analysis.Analysis), Repair: renderBugRepair(e.Coverage), Facts: bugFactLines(facts), ApprovalCommand: r.ApprovalCommand()}
 	for n, phase := range []string{"regression", "focused", "full"} {
 		b := e.Child.PhaseBinding(phase)
 		record, readErr := db.GetBugCheckPhase(ctx, in.SessionID, b.Operation)

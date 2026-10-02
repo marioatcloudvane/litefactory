@@ -256,8 +256,8 @@ func TestInitCreatesTheHomeConfigAndDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load the config init wrote: %v", err)
 	}
-	if cfg.Settings.PollIntervalSeconds != config.DefaultPollIntervalSeconds {
-		t.Errorf("poll_interval_seconds = %d, want %d", cfg.Settings.PollIntervalSeconds, config.DefaultPollIntervalSeconds)
+	if cfg.Settings.PollIntervalMinutes != config.DefaultPollIntervalMinutes {
+		t.Errorf("poll_interval_minutes = %d, want %d", cfg.Settings.PollIntervalMinutes, config.DefaultPollIntervalMinutes)
 	}
 	if cfg.Providers.GitHub.TokenEnv != "" || cfg.Providers.GitHub.TokenKeychain.Service != "litefactory" || cfg.Providers.GitHub.TokenKeychain.Account != "github-bot" {
 		t.Error("the default config.yaml does not carry the documented keychain reference")

@@ -45,12 +45,11 @@ func (s *AgentResultService) MCPPermissionDigest() string {
 // ToolDispatcher owns server-only authorization and calls each shared method
 // once. Neither discovery nor recording a result changes host permissions.
 type ToolDispatcher struct {
-	guard     *AttemptGuard
-	service   MCPResultService
-	profile   submission.ToolProfile
-	receipts  *ReceiptService
-	families  map[string]FamilyRegistration
-	selfCheck *BugSelfCheckService
+	guard    *AttemptGuard
+	service  MCPResultService
+	profile  submission.ToolProfile
+	receipts *ReceiptService
+	families map[string]FamilyRegistration
 }
 
 // NewToolDispatcher requires a matching live binding and complete service permission digest.
@@ -63,16 +62,6 @@ func NewToolDispatcher(guard *AttemptGuard, service MCPResultService) (*ToolDisp
 		return nil, err
 	}
 	return &ToolDispatcher{guard: guard, service: service, profile: profile}, nil
-}
-
-// NewBugFixerToolDispatcher is NewToolDispatcher plus the two bug-fixer
-// self-check tools. It requires the same matching live binding; the
-// bug-analyst profile continues to use NewToolDispatcher, unchanged.
-func NewBugFixerToolDispatcher(guard *AttemptGuard, service MCPResultService, selfCheck *BugSelfCheckService) (*ToolDispatcher, error) {
-	if guard == nil || service == nil || selfCheck == nil || guard.Binding() != service.Binding() || service.MCPPermissionDigest() == "" || guard.Lease().PermissionDigest != service.MCPPermissionDigest() {
-		return nil, errors.New("MCP dispatcher requires matching immutable authority and service scope")
-	}
-	return &ToolDispatcher{guard: guard, service: service, profile: submission.NewBugFixerToolProfile(), selfCheck: selfCheck}, nil
 }
 
 // Handler is installed only on an AllowTools broker. Original helper paths keep
@@ -142,16 +131,6 @@ func (d *ToolDispatcher) Handler(ctx context.Context, q submission.Request) (jso
 			return nil, err
 		}
 		return json.Marshal(result)
-	case "bug_self_check_start":
-		if d.selfCheck == nil {
-			return nil, errors.New("MCP tool not permitted")
-		}
-		return d.selfCheck.HandleStart(live, q.RequestID, call.Arguments)
-	case "bug_self_check_status":
-		if d.selfCheck == nil {
-			return nil, errors.New("MCP tool not permitted")
-		}
-		return d.selfCheck.HandleStatus(live, q.RequestID, call.Arguments)
 	}
 	return nil, fmt.Errorf("MCP tool has no registered handler")
 }

@@ -123,3 +123,40 @@ func scanPollCursor(s scanner) (PollCursor, error) {
 	}
 	return cursor, nil
 }
+
+// GetRepoPollCursor returns how far repoID's forge listing has finished. A repo
+// that has no row yet (registered after the migration, never listed) yields the
+// zero time and false.
+func (db *DB) GetRepoPollCursor(ctx context.Context, repoID int64) (time.Time, bool, error) {
+	var raw sql.NullString
+	err := db.sql.QueryRowContext(ctx,
+		`SELECT listed_up_to FROM repo_poll_cursors WHERE repo_id = ?`, repoID).Scan(&raw)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return time.Time{}, false, nil
+	case err != nil:
+		return time.Time{}, false, fmt.Errorf("store: read repo poll cursor %d: %w", repoID, err)
+	}
+	t, err := scanTime(raw)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("store: parse repo poll cursor %d: %w", repoID, err)
+	}
+	return t, true, nil
+}
+
+// SetRepoPollCursor records that repoID's listing finished up to at. It only
+// moves forward: an older value leaves the row as it is, so a late or repeated
+// write cannot rewind a repo into replaying history.
+func (db *DB) SetRepoPollCursor(ctx context.Context, repoID int64, at time.Time) error {
+	if at.IsZero() {
+		return fmt.Errorf("store: write repo poll cursor %d: zero time", repoID)
+	}
+	const stmt = `
+INSERT INTO repo_poll_cursors (repo_id, listed_up_to) VALUES (?, ?)
+ON CONFLICT (repo_id) DO UPDATE SET listed_up_to = excluded.listed_up_to
+WHERE excluded.listed_up_to > repo_poll_cursors.listed_up_to`
+	if _, err := db.sql.ExecContext(ctx, stmt, repoID, FormatTime(at)); err != nil {
+		return fmt.Errorf("store: write repo poll cursor %d: %w", repoID, err)
+	}
+	return nil
+}

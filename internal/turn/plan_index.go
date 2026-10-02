@@ -21,6 +21,10 @@ type planIndex struct {
 	info       os.FileInfo
 	original   []byte
 	start, end int
+	// lead separates an appended Story Index from the existing text. It is
+	// empty whenever the file already had a Story Index section, so that
+	// replacement stays byte-identical to before.
+	lead string
 }
 
 func openPlanIndex(root *os.Root, path string) (*planIndex, error) {
@@ -54,7 +58,19 @@ func readPlanIndex(dir *os.Root, path string) (*planIndex, error) {
 	p := &planIndex{dir: dir, path: path, info: before, original: original}
 	p.start = strings.Index(string(original), "## Story Index")
 	if p.start < 0 {
-		return nil, fmt.Errorf("plan brief Story Index missing")
+		// The factory owns this section. A plan_brief.md rewritten without it
+		// (for example by an agent) gets a fresh section appended at the end,
+		// instead of failing every save the same way. The rest of the file and
+		// every identity and concurrent-change check stay exactly as they are.
+		p.start, p.end = len(original), len(original)
+		switch {
+		case len(original) == 0 || bytes.HasSuffix(original, []byte("\n\n")):
+		case bytes.HasSuffix(original, []byte("\n")):
+			p.lead = "\n"
+		default:
+			p.lead = "\n\n"
+		}
+		return p, nil
 	}
 	p.end = len(original)
 	if next := strings.Index(string(original[p.start+len("## Story Index"):]), "\n## "); next >= 0 {
@@ -106,7 +122,7 @@ func (p *planIndex) replace(root *os.Root, index []byte) (err error) {
 			err = errors.Join(err, removeErr)
 		}
 	}()
-	updated := string(p.original[:p.start]) + string(index) + "\n" + string(p.original[p.end:])
+	updated := string(p.original[:p.start]) + p.lead + string(index) + "\n" + string(p.original[p.end:])
 	_, writeErr := f.WriteString(updated)
 	if err := errors.Join(writeErr, f.Close()); err != nil {
 		return err

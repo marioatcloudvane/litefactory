@@ -424,7 +424,7 @@ func (r *Runner) validateRequest(req agent.Request) error {
 			return invalidRequest("%s requires explicit tools", role)
 		}
 		for _, tool := range append(append([]string{}, ts.Tools...), ts.AllowedTools...) {
-			if !slices.Contains(allowed, tool) {
+			if !slices.Contains(allowed, config.ClaudeToolName(tool)) {
 				return invalidRequest("%s cannot grant tool %q", role, tool)
 			}
 		}

@@ -208,7 +208,7 @@ func TestWriteDefaultNeverOverwrites(t *testing.T) {
 		t.Fatalf("EnsureHome: %v", err)
 	}
 
-	const edited = "poll_interval_seconds: 45\n"
+	const edited = "poll_interval_minutes: 45\n"
 	if err := os.WriteFile(paths.ConfigPath(), []byte(edited), 0o600); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
@@ -253,8 +253,8 @@ func TestLoadReadsTheWrittenFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Settings.PollIntervalSeconds != DefaultPollIntervalSeconds {
-		t.Errorf("PollIntervalSeconds = %d, want %d", cfg.Settings.PollIntervalSeconds, DefaultPollIntervalSeconds)
+	if cfg.Settings.PollIntervalMinutes != DefaultPollIntervalMinutes {
+		t.Errorf("PollIntervalMinutes = %d, want %d", cfg.Settings.PollIntervalMinutes, DefaultPollIntervalMinutes)
 	}
 	// An empty settings_path is filled in from $LF_HOME, so the harness never
 	// has to decide what "empty" means.
@@ -289,7 +289,7 @@ func TestLoadNamesTheFile(t *testing.T) {
 	if err := paths.EnsureHome(); err != nil {
 		t.Fatalf("EnsureHome: %v", err)
 	}
-	if err := os.WriteFile(paths.ConfigPath(), []byte("poll_interval_seconds: 5\n"), 0o600); err != nil {
+	if err := os.WriteFile(paths.ConfigPath(), []byte("poll_interval_minutes: 0\n"), 0o600); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
 
