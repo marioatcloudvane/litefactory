@@ -22,6 +22,9 @@ func (db *DB) StartRun(ctx context.Context, runID int64) (Run, error) {
 			}
 			_, err = tx.ExecContext(ctx, `UPDATE automatic_continuations SET status='running',allocated_run_id=? WHERE id=? AND status='reserved'`, run.ID, run.TriggerCommentID-automaticTriggerBase)
 		}
+		if err == nil && IsGraphTrigger(run.TriggerCommentID) {
+			err = bindGraphDispatch(ctx, tx, run)
+		}
 		return err
 	})
 	if err != nil {

@@ -4,8 +4,10 @@ phases:
     commands:
       - argv: [go, build, ./...]
         timeout_seconds: 900
-      - argv: [go, test, ./...]
-        timeout_seconds: 2400
+      # -timeout=0: internal/turn alone runs 15-20 minutes, past go test's
+      # default 10-minute per-package limit, which failed every check.
+      - argv: [go, test, -timeout=0, ./...]
+        timeout_seconds: 3600
   focused:
     commands:
       - argv: [go, vet, ./...]
