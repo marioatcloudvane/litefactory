@@ -47,6 +47,10 @@ func (d *Daemon) refreshRecoveries(ctx context.Context, at time.Time) {
 		rows, err := d.db.ListReportRecoveries(ctx)
 		if err == nil {
 			for _, row := range rows {
+				held, e := d.db.DoctorRepairHeldSession(ctx, row.SessionID)
+				if e != nil || held {
+					continue
+				}
 				if _, exists := d.recoveries.items[row.Key]; exists {
 					continue
 				}
@@ -79,6 +83,10 @@ func (d *Daemon) refreshRecoveries(ctx context.Context, at time.Time) {
 	sort.Strings(keys)
 	for _, key := range keys {
 		row := d.recoveries.items[key]
+		held, e := d.doctorHeldSession(ctx, row.SessionID)
+		if e != nil || held {
+			continue
+		}
 		if strings.HasPrefix(key, "stopped:") && row.State == "resolved" && d.recoveries.dirty[strings.TrimPrefix(key, "stopped:")] {
 			continue
 		}
@@ -224,6 +232,32 @@ func (d *Daemon) recoverySucceeded(ctx context.Context, key string) {
 	d.log.InfoContext(ctx, "report recovery resolved", slog.String("task", row.Task), slog.String("delivery", row.DeliveryKey), slog.String("recovery", key), slog.Int64("run_id", row.RunID))
 }
 
+// guardedRecoveryAllowed consults durable holds only after the source is due.
+// A failed hold read must never turn each ineligible tick into a new attempt.
+func (d *Daemon) guardedRecoveryAllowed(ctx context.Context, source store.ReportRecovery, at time.Time) (bool, error) {
+	allowed, err := d.recoveryAllowed(ctx, source, at)
+	if err != nil || !allowed {
+		return allowed, err
+	}
+	held, err := d.doctorHeldSession(ctx, source.SessionID)
+	return !held && err == nil, err
+}
+
+// guardedReportAttempt keeps persistence/exclusion checks at the production
+// effect boundary. reportAttempt owns cadence and outage debt independently.
+func (d *Daemon) guardedReportAttempt(ctx context.Context, source store.ReportRecovery, attempt func() (turn.Posted, error)) (turn.Posted, error) {
+	return d.reportAttempt(ctx, source, func() (turn.Posted, error) {
+		held, err := d.doctorHeldSession(ctx, source.SessionID)
+		if err != nil {
+			return turn.Posted{Skipped: true}, err
+		}
+		if held {
+			return turn.Posted{Skipped: true}, &recoveryPending{}
+		}
+		return attempt()
+	})
+}
+
 func (d *Daemon) reportAttempt(ctx context.Context, source store.ReportRecovery, attempt func() (turn.Posted, error)) (turn.Posted, error) {
 	at := recoveryTime(ctx)
 	allowed, err := d.recoveryAllowed(ctx, source, at)
@@ -235,6 +269,9 @@ func (d *Daemon) reportAttempt(ctx context.Context, source store.ReportRecovery,
 		return turn.Posted{Skipped: true}, &recoveryPending{}
 	}
 	posted, err := attempt()
+	if isRecoveryPending(err) {
+		return posted, err
+	}
 	if err != nil {
 		d.recoveryFailure(ctx, source, at, err)
 
@@ -246,15 +283,15 @@ func (d *Daemon) reportAttempt(ctx context.Context, source store.ReportRecovery,
 
 func (d *Daemon) reportTurn(ctx context.Context, result turn.Result) (turn.Posted, error) {
 	source := store.ReportRecovery{Key: recoveryKey(result.SessionID, result.TriggerCommentID), SessionID: result.SessionID, TriggerID: result.TriggerCommentID, RunID: result.Run.ID, Task: result.Ref.String()}
-	return d.reportAttempt(ctx, source, func() (turn.Posted, error) { return d.reporter.ReportTurn(ctx, result) })
+	return d.guardedReportAttempt(ctx, source, func() (turn.Posted, error) { return d.reporter.ReportTurn(ctx, result) })
 }
 func (d *Daemon) reportRun(ctx context.Context, rep turn.RunReport) (turn.Posted, error) {
 	source := store.ReportRecovery{Key: recoveryKey(rep.SessionID, rep.CommentID), SessionID: rep.SessionID, TriggerID: rep.CommentID, RunID: rep.RunID, Task: rep.Run.Ref.String()}
-	return d.reportAttempt(ctx, source, func() (turn.Posted, error) { return d.reporter.ReportRun(ctx, rep) })
+	return d.guardedReportAttempt(ctx, source, func() (turn.Posted, error) { return d.reporter.ReportRun(ctx, rep) })
 }
 func (d *Daemon) reportReply(ctx context.Context, req turn.ReplyRequest) (turn.Posted, error) {
 	source := store.ReportRecovery{Key: recoveryKey(req.SessionID, req.CommentID), SessionID: req.SessionID, TriggerID: req.CommentID, Task: req.Ref.String()}
-	return d.reportAttempt(ctx, source, func() (turn.Posted, error) { return d.reporter.ReportReply(ctx, req) })
+	return d.guardedReportAttempt(ctx, source, func() (turn.Posted, error) { return d.reporter.ReportReply(ctx, req) })
 }
 
 // A blocked source retains this task's ordering but needs no worker until due.
@@ -270,6 +307,14 @@ func (d *Daemon) sessionRecoveryHeld(sessionID int64, at time.Time) bool {
 }
 
 func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bool, error) {
+	// Bug domain journals own publication, including recovery of native runs.
+	admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
+	if err == nil && admission.Workflow == "bug" {
+		return false, nil
+	}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return true, err
+	}
 	reporter, ok := d.reporter.(interface {
 		ReportPending(context.Context, int64, int64) (turn.Posted, bool, error)
 	})
@@ -277,7 +322,7 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 		return false, nil
 	}
 	source := store.ReportRecovery{Key: recoveryKey(t.session.ID, triggerID), SessionID: t.session.ID, TriggerID: triggerID, Task: t.ref.String()}
-	allowed, err := d.recoveryAllowed(ctx, source, t.tickAt)
+	allowed, err := d.guardedRecoveryAllowed(ctx, source, t.tickAt)
 	if err != nil {
 		d.recoveryFailure(ctx, source, t.tickAt, err)
 		return true, &recoveryPending{err}

@@ -24,6 +24,7 @@ type MeterTokens struct {
 
 // MeterAttempt identifies one execution, including an unsuccessful launch.
 type MeterAttempt struct {
+	DoctorAttemptID                 string
 	ProviderReportedZeroCostRefusal bool
 	Outcome                         string
 	ID                              string
@@ -137,7 +138,7 @@ func (db *DB) startMeterAttempt(ctx context.Context, runID int64, codingAgent st
 		var graphAttempt *int64
 		if link != nil {
 			var matches bool
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts n JOIN runs r ON r.id=n.run_id JOIN graph_instances i ON i.id=n.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE n.id=? AND n.instance_id=? AND n.node=? AND n.run_id=? AND n.status='running' AND r.status='running' AND r.mode=d.mode AND r.agent=?)`, link.AttemptID, link.InstanceID, link.Node, runID, codingAgent).Scan(&matches); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts n JOIN runs r ON r.id=n.run_id JOIN graph_instances i ON i.id=n.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE n.id=? AND n.instance_id=? AND n.node=? AND n.run_id=? AND n.status='running' AND r.status='running' AND ((r.workflow='' AND r.mode=d.mode AND COALESCE(NULLIF(d.workflow,''),d.mode)=r.mode) OR (r.workflow='bug' AND r.mode='' AND d.workflow='bug' AND d.mode=?)) AND r.agent=?)`, link.AttemptID, link.InstanceID, link.Node, runID, standaloneGraphStorageKey, codingAgent).Scan(&matches); err != nil {
 				return err
 			}
 			if !matches {
@@ -396,6 +397,6 @@ func readMeterLedger(ctx context.Context, tx *sql.Tx, o MeterObservation) (Meter
 // GetMeterAttempt reads an attempt outcome without reconstructing run logs.
 func (db *DB) GetMeterAttempt(ctx context.Context, id string) (MeterAttempt, error) {
 	var a MeterAttempt
-	err := db.sql.QueryRowContext(ctx, `SELECT id,run_id,ordinal,coding_agent,price_revision_id,outcome,provider_reported_zero_cost_refusal FROM meter_attempts WHERE id=?`, id).Scan(&a.ID, &a.RunID, &a.Ordinal, &a.CodingAgent, &a.PriceRevisionID, &a.Outcome, &a.ProviderReportedZeroCostRefusal)
+	err := db.sql.QueryRowContext(ctx, `SELECT id,COALESCE(run_id,0),ordinal,coding_agent,price_revision_id,outcome,provider_reported_zero_cost_refusal,COALESCE(doctor_attempt_id,'') FROM meter_attempts WHERE id=?`, id).Scan(&a.ID, &a.RunID, &a.Ordinal, &a.CodingAgent, &a.PriceRevisionID, &a.Outcome, &a.ProviderReportedZeroCostRefusal, &a.DoctorAttemptID)
 	return a, err
 }

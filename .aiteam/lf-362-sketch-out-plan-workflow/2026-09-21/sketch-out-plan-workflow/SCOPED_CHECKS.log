@@ -1,0 +1,18 @@
+Final activity scoped checks
+ok  	github.com/cloudvane/litefactory/internal/planbrief	0.638s
+ok  	github.com/cloudvane/litefactory/internal/report	0.390s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	0.769s
+ok  	github.com/cloudvane/litefactory/internal/turn	2.763s
+ok  	github.com/cloudvane/litefactory/internal/store	1.210s
+ok  	github.com/cloudvane/litefactory/internal/github	1.098s
+
+Final wiring scoped checks
+ok  	github.com/cloudvane/litefactory/internal/planbrief	0.339s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	0.480s
+ok  	github.com/cloudvane/litefactory/internal/store	3.579s
+ok  	github.com/cloudvane/litefactory/internal/turn	51.480s
+ok  	github.com/cloudvane/litefactory/internal/daemon	2.071s
+
+Explicit legacy compatibility regression checks
+ok  	github.com/cloudvane/litefactory/internal/turn	124.543s
+ok  	github.com/cloudvane/litefactory/internal/store	3.620s

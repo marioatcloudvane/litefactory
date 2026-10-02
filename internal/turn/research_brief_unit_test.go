@@ -14,7 +14,7 @@ func TestResearchDocumentRenderingReplaysCandidate(t *testing.T) {
 		render func(agentresult.Result) string
 		want   string
 	}{
-		{"owner brief", renderResearchBrief, "Graph execution stays opt-in."},
+		{"owner brief", func(r agentresult.Result) string { return renderResearchBrief(".aiteam/session", r) }, "Graph execution stays opt-in."},
 		{"technical brief", renderResearchTechnical, "Mode is pinned at admission."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

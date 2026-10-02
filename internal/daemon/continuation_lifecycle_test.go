@@ -113,7 +113,7 @@ func TestRecoveryLifecycleBothRealCLIRunners(t *testing.T) {
 			f.plantCursor()
 			f.issue("Recover provider lifecycle")
 			f.settle()
-			f.forge.addComment(testIssue, 42, owner(), "/spike complete the original work")
+			f.forge.addComment(testIssue, 42, owner(), "/implement complete the original work")
 			// Lose the first report; the subsequent daemon instance must discover it
 			// without repeating the source execution.
 			f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {

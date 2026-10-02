@@ -1,0 +1,32 @@
+{
+  "result": {
+    "outcome": "incomplete",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "implement": {
+        "stories": [
+          {
+            "story": "US-001",
+            "outcome": "blocked",
+            "reason": "Required proof is unavailable."
+          }
+        ]
+      }
+    },
+    "reason": "Further evidence or work is required.",
+    "questions": [
+      {
+        "id": "Q-1",
+        "audience": "business",
+        "text": "Which boundary should be inspected?",
+        "options": [
+          {
+            "id": "O-1",
+            "text": "Creation"
+          }
+        ],
+        "recommended_option": "O-1"
+      }
+    ]
+  }
+}

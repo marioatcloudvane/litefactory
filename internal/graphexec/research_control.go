@@ -23,8 +23,24 @@ func ResearchControlSpec(action string) ActionSpec {
 type ControlPolicy struct {
 	Generation          string
 	Mode                agent.Mode
+	Workflow            agent.Workflow
 	Responses, Defaults []string
 	Ask, Approved       string
+	// MeasureActions are mode-declared steps that do one measurable thing and
+	// return an outcome. They may sit on an answer path: each outcome edge is
+	// followed as that path's continuation, and a failed edge must reach the
+	// shared failure publication unless the action is also listed in
+	// FindingActions. An outcome edge may also hand off to a different agent, never to the agent
+	// whose result the step measures; that agent's own answer paths are then
+	// validated from that agent with the same rules. A response that asks may
+	// only end at a final report after crossing such a step, because the step
+	// records the outcome that replaces the owner wait. They never pick a next
+	// step themselves.
+	MeasureActions []string
+	// FindingActions are measure actions whose failed outcome is a finding to
+	// report rather than a fault: their failed edge continues the path like any
+	// other outcome. Each must also be listed in MeasureActions.
+	FindingActions []string
 }
 
 // ResearchControlPolicy supplies Research response vocabulary and its document gate.
@@ -41,7 +57,7 @@ func ControlSpec(action string, policy ControlPolicy) ActionSpec {
 	if action == ResearchLoopAction {
 		attrs["lf_default"] = AttributeSpec{Values: policy.Defaults}
 	}
-	return ActionSpec{Name: action, Mode: policy.Mode, Outcomes: []string{"true", "false"}, Attributes: attrs}
+	return ActionSpec{Name: action, Mode: policy.Mode, Workflow: policy.Workflow, Outcomes: []string{"true", "false"}, Attributes: attrs}
 }
 
 // ResearchResponses are the three things a Research agent can say about its own
@@ -128,6 +144,11 @@ func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 			source, ok := p.Node(node.Attrs["lf_source"])
 			if !ok || source.Action != "lf_agent" {
 				faults = append(faults, fmt.Errorf("generation %q requires named agent source", node.Name))
+			}
+		}
+		if slices.Contains(policy.MeasureActions, node.Action) {
+			if source, exists := p.Node(node.Attrs["lf_source"]); !exists || source.Action != "lf_agent" {
+				faults = append(faults, fmt.Errorf("measure step %q: lf_source %q does not name an agent node", node.Name, node.Attrs["lf_source"]))
 			}
 		}
 		switch node.Action {
@@ -280,7 +301,7 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 			if node.Action != "lf_comment" {
 				return fmt.Errorf("report requires lf_comment at %q", name)
 			}
-			if response == policy.Ask {
+			if response == policy.Ask && !visiting["measured:"+source] {
 				return fmt.Errorf("response path requires question comment at %q", name)
 			}
 			if after.Terminal {
@@ -314,6 +335,43 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 		}
 		return validateResearchResponsePath(p, next, response, source, visiting, policy)
 	default:
+		if slices.Contains(policy.MeasureActions, node.Action) {
+			if declared := node.Attrs["lf_source"]; declared != source {
+				return fmt.Errorf("measure step %q source differs from current agent", name)
+			}
+			measured := "measured:" + source
+			was := visiting[measured]
+			visiting[measured] = true
+			defer func() { visiting[measured] = was }()
+			for _, outcome := range node.Outcomes {
+				next, exists := Decide(p, name, outcome)
+				if !exists {
+					return fmt.Errorf("measure step %q lacks a deterministic %q edge", name, outcome)
+				}
+				target, found := p.Node(next)
+				if !found {
+					return fmt.Errorf("measure step %q leads to missing node %q", name, next)
+				}
+				switch {
+				case target.Action == "lf_agent":
+					if next == source {
+						return fmt.Errorf("measure step %q outcome %q returns to its own source agent %q", name, outcome, source)
+					}
+					if response == policy.Ask {
+						return fmt.Errorf("measure step %q outcome %q hands an unanswered question to agent %q", name, outcome, next)
+					}
+				case outcome == "failed" && !slices.Contains(policy.FindingActions, node.Action):
+					if err := validateResearchFailurePath(p, next); err != nil {
+						return fmt.Errorf("measure step %q failure path: %w", name, err)
+					}
+				default:
+					if err := validateResearchResponsePath(p, next, response, source, visiting, policy); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}
 		return fmt.Errorf("response path uses unsupported activity %q", node.Action)
 	}
 }
@@ -357,4 +415,49 @@ func ResearchResponseReaches(p *Profile, name, response string) (string, error) 
 		}
 	}
 	return "", nil
+}
+
+// ResponseReachesOwnerWait reports whether an agent's ask response can come to
+// rest at an owner question. An agent whose ask never does has no owner to wait
+// for, so it must not be offered the chance to ask. It follows the same edges
+// the response validation follows, and stops at any other agent's boundary.
+func ResponseReachesOwnerWait(p *Profile, agentName string, policy ControlPolicy) bool {
+	if p == nil {
+		return false
+	}
+	next, ok := Decide(p, agentName, "success")
+	return ok && reachesOwnerWait(p, next, policy, map[string]bool{})
+}
+
+func reachesOwnerWait(p *Profile, name string, policy ControlPolicy, seen map[string]bool) bool {
+	node, ok := p.Node(name)
+	if !ok || node.Terminal || seen[name] {
+		return false
+	}
+	seen[name] = true
+	switch {
+	case node.Action == "lf_ask":
+		return true
+	case node.Action == ResearchLoopAction || node.Action == ResearchIfAction:
+		c, err := DecodeCondition(node.Action, node.Attrs, policy)
+		if err != nil {
+			return false
+		}
+		outcome, err := c.Evaluate(policy.Ask, true)
+		if err != nil {
+			return false
+		}
+		next, exists := Decide(p, name, outcome)
+		return exists && reachesOwnerWait(p, next, policy, seen)
+	case node.Action == "lf_comment":
+		next, exists := Decide(p, name, "published")
+		return exists && reachesOwnerWait(p, next, policy, seen)
+	case slices.Contains(policy.MeasureActions, node.Action):
+		for _, outcome := range node.Outcomes {
+			if next, exists := Decide(p, name, outcome); exists && reachesOwnerWait(p, next, policy, seen) {
+				return true
+			}
+		}
+	}
+	return false
 }

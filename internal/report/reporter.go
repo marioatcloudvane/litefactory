@@ -25,6 +25,12 @@ type Options struct {
 
 	// Logger records what was cut from a body and why. Nil discards.
 	Logger *slog.Logger
+
+	// HostRoots are absolute directories on the factory host (the home, bundle
+	// and worktree roots) whose paths are never published. The caller supplies
+	// them; this package does not read the filesystem. Paths inside a
+	// .litefactory or .lf-worktrees directory are stripped whatever the roots.
+	HostRoots []string
 }
 
 // Reporter renders outbound comment bodies.
@@ -32,9 +38,10 @@ type Options struct {
 // It is immutable after construction and safe for concurrent use; every render
 // works on per-call state.
 type Reporter struct {
-	redactor *redact.Redactor
-	limit    int
-	log      *slog.Logger
+	redactor  *redact.Redactor
+	limit     int
+	log       *slog.Logger
+	hostRoots []string
 
 	// budget is the size the body is assembled to, below limit by
 	// [redact.Margin]. Redaction runs after assembly and can grow a body — a
@@ -64,10 +71,11 @@ func New(opts Options) (*Reporter, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &Reporter{
-		redactor: opts.Redactor,
-		limit:    opts.Limit,
-		log:      log,
-		budget:   redact.Budget(opts.Limit),
+		redactor:  opts.Redactor,
+		limit:     opts.Limit,
+		log:       log,
+		hostRoots: cleanHostRoots(opts.HostRoots),
+		budget:    redact.Budget(opts.Limit),
 	}, nil
 }
 
@@ -118,6 +126,17 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 	if err := reply.Ref.Validate(); err != nil {
 		return redact.Body{}, fmt.Errorf("report: %w: %w", ErrInvalidArgument, err)
 	}
+	if reply.Kind == ReplyCreationAccepted && !reply.CreationAcceptance.valid() {
+		return redact.Body{}, fmt.Errorf("report: invalid creation acceptance")
+	}
+	if reply.Kind == ReplyCreationRejected {
+		if reply.CreationRejection == nil {
+			return redact.Body{}, fmt.Errorf("report: missing creation rejection")
+		}
+		if _, ok := reply.CreationRejection.guidance(); !ok {
+			return redact.Body{}, fmt.Errorf("report: invalid creation rejection")
+		}
+	}
 	if reply.Kind == ReplyCreationProposal {
 		if reply.Creation == nil || len(reply.Creation.Envelope) > 48000 || !json.Valid([]byte(reply.Creation.Envelope)) || (reply.Creation.Relationship != "linked" && reply.Creation.Relationship != "attach") {
 			return redact.Body{}, fmt.Errorf("report: invalid creation proposal")
@@ -147,7 +166,7 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 	if reply.Kind == ReplySuggestsResolution && reply.ConflictProposal.Format == 1 {
 		return r.renderConflictPreview(ctx, reply)
 	}
-	if reply.Kind == ReplyCreationProposal {
+	if reply.Kind == ReplyCreationProposal || reply.Kind == ReplyCreationAccepted {
 		text := reply.body()
 		body, err := r.apply(ctx, text)
 		if err != nil {

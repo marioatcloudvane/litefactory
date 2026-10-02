@@ -7,6 +7,7 @@ import (
 	"path"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
@@ -50,11 +51,9 @@ func planWorkflowDelivery(opts Options, req Request, definition *teamsource.Work
 	if sandbox == "" {
 		sandbox = "read-only"
 	}
-	// An omitted shipped tool list inherits the factory's ceiling. An explicit
-	// list remains narrowed by NativeResearch's intersection.
-	if node.Role.Frontmatter.Tools == nil {
-		node.Role.Frontmatter.Tools = slices.Clone(req.Tools)
-	}
+	// An omitted shipped tool list inherits the session's tools, which the
+	// --tools ceiling bounds and which include the attempt's MCP tools. An
+	// explicit list remains narrowed by NativeWorkflow's intersection.
 	files, err := teamsource.NativeWorkflow(string(req.Agent), node, model, req.Tools, sandbox)
 	if err != nil {
 		return nil, err
@@ -75,7 +74,7 @@ func planWorkflowDelivery(opts Options, req Request, definition *teamsource.Work
 	sort.Strings(p.skills)
 	// Project guidance is discovered through the host's normal channel. Copying
 	// it into this appended system file would elevate legacy dispatch directives.
-	p.files["bootstrap.md"] = []byte("The factory selected " + string(policy.Mode) + " and supplied the main role directly. Execute that role; do not dispatch a replacement orchestrator. Ordinary project guidance remains applicable within the supplied role, graph admission and permission ceiling. Only an explicit graph comment activity publishes results. Follow the factory's result and receipt instructions on every continuation and after compaction.\n\nEffective node task:\n" + node.Task + "\n" + policy.Guidance)
+	p.files["bootstrap.md"] = []byte("The factory selected " + string(policy.Mode) + " and supplied the main role directly. Execute that role; do not dispatch a replacement orchestrator. Ordinary project guidance remains applicable within the supplied role, graph admission and permission ceiling. Only an explicit graph comment activity publishes results. Follow the factory's result and receipt instructions on every continuation and after compaction.\n\nEffective node task:\n" + node.Task + "\n" + policy.Guidance + skillNamesBinding(node.Skills))
 	if req.Agent == store.AgentCodex {
 		// Only fixed shipped role/task text belongs here. Owner requests, replies,
 		// prior findings and helper credentials stay on the invocation's stdin.
@@ -107,6 +106,21 @@ func planWorkflowDelivery(opts Options, req Request, definition *teamsource.Work
 	}
 	p.identity = team.HashBytes(encoded)
 	return p, nil
+}
+
+// skillNamesBinding names a node's skills by name only. Text an agent writes is
+// published on the forge, where a path on the factory host resolves nowhere and
+// exposes the host's layout, so the binding carries no path to refer to.
+func skillNamesBinding(skills []string) string {
+	if len(skills) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		names = append(names, path.Base(skill))
+	}
+	sort.Strings(names)
+	return "\n\nSkills for this node: " + strings.Join(names, ", ") + ". In anything you write for the owner, refer to a skill by its name, never by a file path or link on this machine; local paths are not published.\n"
 }
 
 // PrepareWorkflowDelivery selects the captured role and provider segment under the admitted policy.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/resultservice"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -80,6 +81,23 @@ func OpenAgentResultReader(ctx context.Context, db *store.DB, b store.ResultBind
 }
 
 func resultAttemptContext(a store.ResultAttempt, c agentresult.Context) (store.ResultAttempt, error) {
+	if c.Workflow != "" {
+		if _, err := agent.ResolveWorkflow(c.Workflow, agent.Mode(c.Mode)); err != nil {
+			return a, fmt.Errorf("application workflow binding: %w", err)
+		}
+		if c.Workflow == agent.WorkflowBug && (c.Bug == nil || (c.Bug.Role != "bug-analyst" && c.Bug.Role != "bug-fixer") || c.Bug.Invocation == "" || a.Workflow != "bug") {
+			return a, fmt.Errorf("bug shared-service result requires exact role workflow and invocation binding")
+		}
+	}
+	if c.Workflow == agent.WorkflowBug && c.Bug != nil && c.Bug.Role == "bug-fixer" {
+		b := c.Bug
+		if b.Reservation == "" || b.Invocation != b.Reservation || b.ApprovedRevision <= 0 || b.ApprovedRevision != b.BaseRevision || b.ApprovedDigest == "" || b.ApprovalReview == "" || b.SourceCommit == "" || b.SourceTree == "" || b.CriteriaJSON == "" {
+			return a, fmt.Errorf("bug fixer shared-service context lacks exact approved repair binding")
+		}
+	}
+	if a.Workflow != "" && a.Workflow != string(c.Workflow) {
+		return a, fmt.Errorf("application workflow differs from trusted run")
+	}
 	if a.Mode != c.Mode || a.SchemaVersion != c.SchemaVersion || a.WorkflowVersion != c.WorkflowVersion {
 		return a, fmt.Errorf("application context conflicts with trusted run binding")
 	}
@@ -105,7 +123,7 @@ func (s *AgentResultService) Read(ctx context.Context, revision int64, selection
 	if err != nil {
 		return agentresult.Projection{}, agentresult.Diagnostics{}, err
 	}
-	p, d := agentresult.Project(snapshot, selections, s.readTargets, agentresult.Context{Mode: s.binding.Mode, SchemaVersion: s.binding.SchemaVersion})
+	p, d := agentresult.Project(snapshot, selections, s.readTargets, agentresult.Context{Workflow: agent.Workflow(s.binding.Workflow), Mode: s.binding.Mode, SchemaVersion: s.binding.SchemaVersion})
 	return p, d, nil
 }
 func decodeRetainedResult(r store.ResultRevision) (agentresult.Snapshot, agentresult.RetiredIDs, error) {
@@ -177,7 +195,7 @@ func (s *AgentResultService) prepare(ctx context.Context, data []byte) (candidat
 	defer func() {
 		restricted, _ := ctx.Value(mcpCommunicationKey{}).(bool)
 		plan := candidate.Snapshot.Result.Payload.Plan
-		if restricted && diagnostics.Valid && plan != nil && (candidate.Snapshot.Result.Outcome == "completed" || len(plan.Stories) > 0) {
+		if restricted && diagnostics.Valid && creationCapablePlan(plan, candidate.Snapshot.Result.Outcome) {
 			diagnostics.Valid = false
 			diagnostics.Diagnostics.Diagnostics = append(diagnostics.Diagnostics.Diagnostics, agentresult.Diagnostic{Path: "$.result.payload.plan", Code: "mcp_creation_refused", Expected: "discussion without publishable stories", Actual: "creation-capable Plan", Message: "MCP cannot submit a publishable Plan; use the owner-controlled Plan workflow. No proposal was accepted."})
 			candidate = agentresult.PreparedUpdate{}
@@ -216,8 +234,20 @@ func (s *AgentResultService) prepare(ctx context.Context, data []byte) (candidat
 	}
 	return candidate, v, nil
 }
+
+// creationCapablePlan reports whether a Plan payload could publish stories on its
+// own. A graph Plan's story request or story set is not one: it is a proposal the
+// factory-bound owner path alone promotes, and only a graph-bound run can carry it,
+// because validation refuses those branches under the legacy Plan contract.
+func creationCapablePlan(plan *agentresult.Plan, outcome string) bool {
+	if plan == nil || plan.StoryRequest != nil || plan.StorySet != nil {
+		return false
+	}
+	return outcome == "completed" || len(plan.Stories) > 0
+}
+
 func (s *AgentResultService) metadata(revision int64) agentresult.Metadata {
-	return agentresult.Metadata{SchemaVersion: s.binding.SchemaVersion, Task: s.binding.Task, RunID: s.binding.RunID, AttemptID: s.binding.Attempt, Mode: s.binding.Mode, ResultID: fmt.Sprintf("result-%d", s.binding.ResultID), ResultRevision: revision, ScopeRef: s.binding.ContextHash, WorkflowVersion: s.binding.WorkflowVersion, SubmissionContractVersion: s.binding.SubmissionVersion}
+	return agentresult.Metadata{Workflow: agent.Workflow(s.binding.Workflow), SchemaVersion: s.binding.SchemaVersion, Task: s.binding.Task, RunID: s.binding.RunID, AttemptID: s.binding.Attempt, Mode: s.binding.Mode, ResultID: fmt.Sprintf("result-%d", s.binding.ResultID), ResultRevision: revision, ScopeRef: s.binding.ContextHash, WorkflowVersion: s.binding.WorkflowVersion, SubmissionContractVersion: s.binding.SubmissionVersion}
 }
 
 // Preflight performs the same fresh scope/evidence reads as Submit without
@@ -237,54 +267,59 @@ func (s *AgentResultService) Submit(ctx context.Context, requestID string, data 
 	if len(data) > agentresult.MaxBytes {
 		return AgentResultSubmission{}, fmt.Errorf("application result input exceeds contribution ceiling")
 	}
-	old, err := s.db.ReplayResultRequest(ctx, s.binding, requestID, data)
-	if err == nil {
-		restricted, _ := ctx.Value(mcpCommunicationKey{}).(bool)
-		response, responseErr := s.response(ctx, old)
+
+	// Aggregate capture retains its separate protocol; normal application results
+	// share replay-before-validation mechanics with the doctor service.
+	if aggregateInput(data) {
+		if old, e := s.db.ReplayResultRequest(ctx, s.binding, requestID, data); e == nil {
+			return s.response(ctx, old)
+		} else if !errors.Is(e, store.ErrNotFound) {
+			return AgentResultSubmission{}, e
+		}
+		return s.submitAggregateInput(ctx, requestID, data)
+	}
+	var d agentresult.UpdateDiagnostics
+	receipt, replayed, err := resultservice.Submit(ctx, s.db, s.binding, requestID, data, func(ctx context.Context) (*store.ResultRecord, error) {
+		candidate, diagnostics, e := s.prepare(ctx, data)
+		d = diagnostics
+		if e != nil {
+			return nil, e
+		}
+		for _, fault := range d.Diagnostics.Diagnostics {
+			if fault.Code == "stale_revision" {
+				return nil, nil
+			}
+		}
+		encoded, e := json.Marshal(d)
+		if e != nil {
+			return nil, fmt.Errorf("encode result diagnostics: %w", e)
+		}
+		q := store.ResultRecord{Diagnostics: encoded, ExpectedRevision: d.CurrentRevision, Accepted: d.Valid}
+		if d.Valid {
+			candidate.Snapshot.Meta.RequestID = requestID
+			q.Snapshot, e = json.Marshal(candidate.Snapshot)
+			if e != nil {
+				return nil, fmt.Errorf("encode result snapshot: %w", e)
+			}
+			q.Retired, e = json.Marshal(candidate.Retired)
+			if e != nil {
+				return nil, fmt.Errorf("encode result retirement: %w", e)
+			}
+		}
+		return &q, nil
+	})
+	if replayed {
+		response, responseErr := s.response(ctx, *receipt)
 		if responseErr != nil {
 			return response, responseErr
 		}
-		if restricted && response.Snapshot != nil {
-			plan := response.Snapshot.Result.Payload.Plan
-			if plan != nil && (response.Snapshot.Result.Outcome == "completed" || len(plan.Stories) > 0) {
-				return AgentResultSubmission{}, fmt.Errorf("MCP cannot replay a publishable Plan; use receipt lookup")
-			}
+		restricted, _ := ctx.Value(mcpCommunicationKey{}).(bool)
+		if restricted && response.Snapshot != nil && creationCapablePlan(response.Snapshot.Result.Payload.Plan, response.Snapshot.Result.Outcome) {
+			return AgentResultSubmission{}, fmt.Errorf("MCP cannot replay a publishable Plan; use receipt lookup")
 		}
 		return response, nil
 	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return AgentResultSubmission{}, err
-	}
-	if aggregateInput(data) {
-		return s.submitAggregateInput(ctx, requestID, data)
-	}
-	candidate, d, err := s.prepare(ctx, data)
-	if err != nil {
-		return AgentResultSubmission{}, err
-	}
-	// A stale update gets actionable concurrency diagnostics and no durable write.
-	for _, fault := range d.Diagnostics.Diagnostics {
-		if fault.Code == "stale_revision" {
-			return AgentResultSubmission{Validation: d}, nil
-		}
-	}
-	diagnostics, err := json.Marshal(d)
-	if err != nil {
-		return AgentResultSubmission{}, fmt.Errorf("encode result diagnostics: %w", err)
-	}
-	q := store.ResultRecord{Binding: s.binding, RequestID: requestID, Payload: slices.Clone(data), Diagnostics: diagnostics, ExpectedRevision: d.CurrentRevision, Accepted: d.Valid}
-	if d.Valid {
-		candidate.Snapshot.Meta.RequestID = requestID
-		q.Snapshot, err = json.Marshal(candidate.Snapshot)
-		if err != nil {
-			return AgentResultSubmission{}, fmt.Errorf("encode result snapshot: %w", err)
-		}
-		q.Retired, err = json.Marshal(candidate.Retired)
-		if err != nil {
-			return AgentResultSubmission{}, fmt.Errorf("encode result retirement: %w", err)
-		}
-	}
-	receipt, err := s.db.RecordResult(ctx, q)
+
 	var conflict *store.ResultRevisionConflict
 	if errors.As(err, &conflict) {
 		baseline, readErr := s.Baseline(ctx)
@@ -300,7 +335,10 @@ func (s *AgentResultService) Submit(ctx context.Context, requestID string, data 
 	if err != nil {
 		return AgentResultSubmission{}, err
 	}
-	return s.response(ctx, receipt)
+	if receipt == nil {
+		return AgentResultSubmission{Validation: d}, nil
+	}
+	return s.response(ctx, *receipt)
 }
 func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt) (AgentResultSubmission, error) {
 	response := AgentResultSubmission{Receipt: &r}
@@ -327,7 +365,7 @@ func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt
 		if s.completeReadGrant() {
 			response.Snapshot = &snapshot
 		} else {
-			projection, d := agentresult.Project(snapshot, resultBaselineTargets(s.readTargets), s.readTargets, agentresult.Context{Mode: s.binding.Mode, SchemaVersion: s.binding.SchemaVersion})
+			projection, d := agentresult.Project(snapshot, resultBaselineTargets(s.readTargets), s.readTargets, agentresult.Context{Workflow: agent.Workflow(s.binding.Workflow), Mode: s.binding.Mode, SchemaVersion: s.binding.SchemaVersion})
 			if !d.Valid || !d.Complete {
 				return response, resultDiagnosticError(d)
 			}
@@ -335,6 +373,32 @@ func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt
 		}
 	}
 	return response, nil
+}
+
+// errNoRetainedResult means this attempt has no accepted shared result. A terminal
+// envelope, however well formed, is not one.
+var errNoRetainedResult = errors.New("no accepted shared result was retained for this attempt")
+
+// retainedCurrent reads the latest accepted revision and requires it to be this
+// attempt's own. It is the only source of application data for a graph node: an
+// earlier attempt's revision is a baseline to update, never this attempt's input,
+// and nothing the runner printed can stand in for it.
+func (s *AgentResultService) retainedCurrent(ctx context.Context) (agentresult.Snapshot, int64, error) {
+	retained, err := s.db.GetResultRevision(ctx, s.binding, 0)
+	if errors.Is(err, store.ErrNotFound) {
+		return agentresult.Snapshot{}, 0, errNoRetainedResult
+	}
+	if err != nil {
+		return agentresult.Snapshot{}, 0, fmt.Errorf("read retained result: %w", err)
+	}
+	snapshot, _, err := decodeRetainedResult(retained)
+	if err != nil {
+		return snapshot, 0, err
+	}
+	if snapshot.Meta.AttemptID != s.binding.Attempt || snapshot.Meta.RunID != s.binding.RunID {
+		return agentresult.Snapshot{}, 0, errNoRetainedResult
+	}
+	return snapshot, retained.Revision, nil
 }
 
 // Receipt observes authorized historical correlation without granting writing.

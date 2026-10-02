@@ -460,6 +460,10 @@ func inWorktreeAt(path string) string {
 	return " at " + codeSpan(path)
 }
 
+// finalResultRejectedMarker is how turn finalization begins the diagnostic it
+// records when it rejects a run's shared final result after the agent exits.
+const finalResultRejectedMarker = "Shared final result rejected"
+
 // describeRunOutcome renders the heading word and the callout for how the run
 // itself ended.
 //
@@ -494,6 +498,13 @@ func describeRunOutcome(run Run) outcomeView {
 		lead := fmt.Sprintf("Run %d failed: `%s` exited with status %d.", n, tool, res.ExitCode)
 		if res.ExitCode == agent.SignalExitCode {
 			lead = fmt.Sprintf("Run %d failed without an exit status of its own.", n)
+		}
+		// A clean exit whose final result the factory then rejected is not a
+		// process failure; leading with "exited with status 0" hides the real
+		// cause, which the diagnostic below names (#431).
+		if res.ExitCode == 0 && strings.Contains(res.Diagnostic, finalResultRejectedMarker) {
+			lead = fmt.Sprintf("Run %d failed: `%s` exited cleanly, but litefactory rejected its final result after exit. "+
+				"Nothing was committed; the diagnostic below names the cause.", n, tool)
 		}
 		// Guidance is a neutral adapter value, not arbitrary Reason content.
 		// Quote it literally and cap it before it enters the fixed report budget.

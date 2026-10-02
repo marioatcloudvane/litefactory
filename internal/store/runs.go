@@ -95,6 +95,8 @@ const (
 // ordinal safe: a run that crashes still owns its number, so NNNN.jsonl files
 // never collide (S-1).
 type Run struct {
+	Workflow string
+
 	SemanticOutcome string
 	RecoveryReason  string
 	// ID is the surrogate key.
@@ -212,6 +214,8 @@ func (r Run) Succeeded() bool {
 
 // AllocateRunParams describes the run to allocate.
 type AllocateRunParams struct {
+	Workflow string
+
 	// Prelaunch makes allocation retryable until StartRun claims execution.
 	Prelaunch bool
 
@@ -263,7 +267,9 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 		return Run{}, errors.New("store: allocate run: session id is required")
 	case params.SegmentID == 0:
 		return Run{}, errors.New("store: allocate run: segment id is required")
-	case params.Mode == "":
+	case params.Workflow != "" && (params.Workflow != "bug" || params.Mode != ""):
+		return Run{}, errors.New("store: allocate run: invalid workflow binding")
+	case params.Mode == "" && params.Workflow != "bug":
 		return Run{}, errors.New("store: allocate run: mode is required")
 	case params.Agent == "":
 		return Run{}, errors.New("store: allocate run: agent is required")
@@ -288,6 +294,15 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 	}
 	var run Run
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if params.Workflow == "bug" {
+			a, err := readTaskWorkflowAdmission(ctx, tx, params.SessionID)
+			if err != nil {
+				return err
+			}
+			if a.Workflow != "bug" || a.Family != "standalone" {
+				return errors.New("store: Bug run requires admitted Bug task")
+			}
+		}
 		if IsAutomaticTrigger(params.TriggerCommentID) {
 			if err := validateAutomaticAllocation(ctx, tx, params); err != nil {
 				return err
@@ -309,31 +324,21 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 		run, err = scanRun(tx.QueryRowContext(ctx, `
 INSERT INTO runs (
     session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
-    started_at, log_path
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    started_at, log_path, workflow
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING `+runColumns,
 			params.SessionID, params.SegmentID, ordinal, params.Mode, params.Agent,
-			params.TriggerCommentID, string(status), FormatTime(startedAt), logPath))
+			params.TriggerCommentID, string(status), FormatTime(startedAt), logPath, params.Workflow))
 		if isUniqueViolation(err) {
 			return ErrDuplicateRun
 		}
 		if err == nil && !params.Prelaunch && IsAutomaticTrigger(params.TriggerCommentID) {
 			_, err = tx.ExecContext(ctx, `UPDATE automatic_continuations SET status = 'running', allocated_run_id = ? WHERE id = ?`, run.ID, params.TriggerCommentID-automaticTriggerBase)
 		}
-		// Binding the dispatch to its run here, inside the same transaction that
-		// allocated it, is what makes the open-dispatch index a real guarantee:
-		// a run and the dispatch that authorized it are created together or not
-		// at all.
+		// Direct allocation binds immediately; prelaunch allocation leaves preparation
+		// retryable and binds atomically with execution in StartRun instead.
 		if err == nil && !params.Prelaunch && IsGraphTrigger(params.TriggerCommentID) {
-			id := params.TriggerCommentID - graphTriggerBase
-			var res sql.Result
-			res, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='running', allocated_run_id=? WHERE id=? AND status='reserved' AND allocated_run_id IS NULL`, run.ID, id)
-			if err == nil {
-				var n int64
-				if n, err = res.RowsAffected(); err == nil && n != 1 {
-					err = graphInvariant("graph run must be allocated to its own reserved dispatch")
-				}
-			}
+			err = bindGraphDispatch(ctx, tx, run)
 		}
 		return err
 	})
@@ -679,7 +684,7 @@ func (db *DB) ReconcileOrphans(ctx context.Context, instanceID string) (Reconcil
 	var result Reconciliation
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		orphans, err := collectRuns(ctx, tx,
-			`SELECT `+runColumns+` FROM runs WHERE status = ? ORDER BY id`, string(RunRunning))
+			`SELECT `+runColumns+` FROM runs WHERE status = ? AND session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) ORDER BY id`, string(RunRunning))
 		if err != nil {
 			return fmt.Errorf("find abandoned runs: %w", err)
 		}
@@ -723,7 +728,7 @@ RETURNING `+runColumns,
 		// This is intentionally in the same transaction as orphan reconciliation
 		// so a restart cannot observe a reconciled run and stale reservation.
 		rows, err := tx.QueryContext(ctx,
-			`SELECT `+scheduleColumns+` FROM schedules WHERE status = ? ORDER BY id`, string(ScheduleRunning))
+			`SELECT `+scheduleColumns+` FROM schedules WHERE status = ? AND session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) ORDER BY id`, string(ScheduleRunning))
 		if err != nil {
 			return fmt.Errorf("find abandoned schedule reservations: %w", err)
 		}
@@ -773,7 +778,7 @@ RETURNING `+runColumns,
 			_, err = tx.ExecContext(ctx, `
 UPDATE sessions
 SET lock_owner = NULL, lock_acquired_at = NULL, updated_at = ?
-WHERE lock_owner IS NOT NULL AND lock_owner <> ?`,
+WHERE lock_owner IS NOT NULL AND lock_owner <> ? AND id NOT IN (SELECT session_id FROM doctor_held_session_owners)`,
 				FormatTime(now), instanceID)
 			if err != nil {
 				return fmt.Errorf("release stale locks: %w", err)
@@ -795,7 +800,7 @@ func collectReclaimedLocks(ctx context.Context, tx *sql.Tx, instanceID string) (
 	rows, err := tx.QueryContext(ctx, `
 SELECT id, task_ref, lock_owner, lock_acquired_at
 FROM sessions
-WHERE lock_owner IS NOT NULL AND lock_owner <> ?
+WHERE lock_owner IS NOT NULL AND lock_owner <> ? AND id NOT IN (SELECT session_id FROM doctor_held_session_owners)
 ORDER BY id`, instanceID)
 	if err != nil {
 		return nil, err
@@ -863,7 +868,7 @@ const runColumns = `
     exit_code, error, started_at, finished_at, duration_ms, cost_usd,
     log_path, commit_sha, result_comment_id, sync_outcome, sync_behind,
     sync_ahead, sync_commit_sha, semantic_outcome, recovery_reason, sync_observations,
-    published, publication`
+    published, publication, workflow`
 
 func scanRun(s scanner) (Run, error) {
 	var (
@@ -885,7 +890,7 @@ func scanRun(s scanner) (Run, error) {
 		&run.TriggerCommentID, &status, &exitCode, &reason, &startedAt, &finishedAt,
 		&durationMS, &costUSD, &run.LogPath, &commitSHA, &resultCommentID, &syncOutcome,
 		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA, &run.SemanticOutcome, &run.RecoveryReason, &syncObservations,
-		&run.Published, &run.Publication)
+		&run.Published, &run.Publication, &run.Workflow)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Run{}, ErrNotFound

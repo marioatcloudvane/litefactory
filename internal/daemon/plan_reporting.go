@@ -1,0 +1,53 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+
+	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/turn"
+)
+
+type planProgressReporter interface {
+	ReportPlanNotices(context.Context, naming.Ref, int64) (int, error)
+	ReportPlanReply(context.Context, naming.Ref, int64, string, int, int64, string) (turn.Posted, error)
+}
+
+func (d *Daemon) reportPlanProgress(ctx context.Context, t *task) error {
+	route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if route != "graph" {
+		return nil
+	}
+	reporter, ok := d.reporter.(planProgressReporter)
+	if !ok {
+		return nil
+	}
+	pending, err := reporter.ReportPlanNotices(ctx, t.ref, t.session.ID)
+	if pending > 0 && t.log != nil {
+		t.log.InfoContext(ctx, "Plan notices retain uncertain receipts", slog.Int("pending", pending))
+	}
+	return err
+}
+
+func (d *Daemon) explainPlanReply(ctx context.Context, t *task, draft store.PlanStoryDraft, commentID int64, reason string) (bool, error) {
+	reporter, ok := d.reporter.(planProgressReporter)
+	if !ok {
+		return false, errors.New("plan reply explanations require durable reporting")
+	}
+	_, err := reporter.ReportPlanReply(ctx, t.ref, t.session.ID, draft.Key, draft.IssueNumber, commentID, reason)
+	if errors.Is(err, turn.ErrReportReceiptUncertain) {
+		if t.log != nil {
+			t.log.InfoContext(ctx, "Plan child reply awaits confirmed explanation", slog.Int("child", draft.IssueNumber), slog.Int64("comment", commentID))
+		}
+		return false, nil
+	}
+	return err == nil, err
+}

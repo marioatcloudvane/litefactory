@@ -23,11 +23,22 @@ import (
 )
 
 // A factory-owned test policy uses Plan's existing result contract with its
-// own envelope vocabulary. No production Plan graph or role handler is added.
+// own response vocabulary. No production Plan graph or role handler is added.
+// Its Respond hook maps the retained result to that vocabulary (#410): the
+// response never comes from what the agent printed.
 func workflowReusePolicy() WorkflowPolicy {
 	return WorkflowPolicy{
 		Mode:    agent.ModePlan,
 		Control: graphexec.ControlPolicy{Mode: agent.ModePlan, Responses: []string{"question", "ready"}, Defaults: []string{"question", "ready"}, Ask: "question", Approved: "accepted"},
+		Respond: func(r agentresult.Result) (string, error) {
+			if r.Outcome != "incomplete" {
+				return "", fmt.Errorf("private Plan stage result is %q, not incomplete", r.Outcome)
+			}
+			if len(r.Questions) > 0 {
+				return "question", nil
+			}
+			return "ready", nil
+		},
 		Decode: func(raw []byte, scope agentresult.Context) (agentresult.ResearchNode, agentresult.Diagnostics) {
 			var node agentresult.ResearchNode
 			d := agentresult.Decode(raw, &node)
@@ -137,7 +148,12 @@ func TestWorkflowReuseSecondModeFileRoleWaitRestart(t *testing.T) {
 		}
 		raw, e := json.Marshal(agentresult.ResearchNode{Version: 1, Response: response, Result: agentresult.Result{Outcome: outcome, Comment: comment, Reason: reason, Questions: questions, Payload: agentresult.Payload{Plan: &agentresult.Plan{Summary: "Inspect fixture"}}}})
 		mustProgress(t, e)
-		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: string(raw), FinishedAt: time.Now()}, nil
+		if calls == 1 {
+			submitLiveResult(t, req, string(raw))
+		}
+		// Nothing routable is printed: question and ready come from the retained
+		// result through the policy's Respond hook alone (#410).
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "Probe stage submitted; " + response + " was meant.", FinishedAt: time.Now()}, nil
 	})
 	f, forge, _ := assembledResearchFixture(t, runner)
 	req := f.request()
@@ -145,7 +161,7 @@ func TestWorkflowReuseSecondModeFileRoleWaitRestart(t *testing.T) {
 	req.Trigger.Body = "/plan inspect fixture"
 	req.Command = ParseCommand(req.Trigger.Body)
 	req.Tools = []string{"Read"}
-	_, err = f.db.AdmitWorkflowPath(t.Context(), f.session.ID, "graph")
+	_, err = f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "graph")
 	mustProgress(t, err)
 	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "test", Mode: "plan", ProfileVersion: 1, Path: "workflow.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	mustProgress(t, err)

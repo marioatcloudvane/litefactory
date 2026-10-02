@@ -47,6 +47,7 @@ func (e *GraphDefinitionPathError) Unwrap() error { return ErrGraphDefinitionPat
 type GraphDefinition struct {
 	ID                               int64
 	Team, Mode                       string
+	Workflow                         string
 	ProfileVersion                   int
 	Path, Digest, TeamSnapshotDigest string
 	CreatedAt                        time.Time

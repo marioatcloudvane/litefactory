@@ -509,7 +509,7 @@ func TestAgentSwitchRefusalFiresRegardlessOfModeChange(t *testing.T) {
 	f.opts.AutoResumeOnSessionLimit = true
 
 	first := f.request()
-	first.Mode = agent.ModeSpike
+	first.Mode = agent.ModeImplement
 	f.execute(first)
 
 	second := f.request()
@@ -647,6 +647,10 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 			return succeeded(req, f.paths.Home()), nil
 		})
 		f = newFixture(t, runner)
+		// Compare legacy single-run cold machinery, independent of graph dispatch.
+		if secondMode == agent.ModePlan {
+			admitLegacyPlanFixture(t, f)
+		}
 		f.opts.Runners = RunnerSet{
 			agent.Kind(store.AgentClaude): runner,
 			agent.Kind(store.AgentCodex):  runner,
@@ -721,7 +725,7 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 	}
 	// The first turn's own trigger becomes history too, once a second turn is
 	// underway, exactly the same way for both.
-	const firstTurnBody = "/spike add a health endpoint that reports the build sha"
+	const firstTurnBody = "/implement add a health endpoint that reports the build sha"
 	if !strings.Contains(reset.req.Prompt, firstTurnBody) || !strings.Contains(switched.req.Prompt, firstTurnBody) {
 		t.Errorf("the first turn's own comment did not carry forward as history:\nreset:\n%s\nswitched:\n%s",
 			reset.req.Prompt, switched.req.Prompt)

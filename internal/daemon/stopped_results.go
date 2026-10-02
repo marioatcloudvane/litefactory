@@ -39,6 +39,14 @@ func (d *Daemon) retainStoppedResult(t *task, repair func(context.Context) (turn
 
 // releaseWorker transfers ownership to repair debt only after its worker body
 // has finished. A concurrent tick cannot run the repair against live cleanup.
+// owes reports whether a session carries a stopped result not yet persisted.
+// Nothing else may run on that session until its repair succeeds.
+func (s *stoppedResults) owes(sessionID int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.items[sessionID] != nil
+}
+
 func (s *stoppedResults) releaseWorker(sessionID int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,7 +75,7 @@ func (d *Daemon) retryStoppedResults(ctx context.Context, tickAt time.Time) (dis
 			continue
 		}
 		source := stoppedRecovery(debt)
-		allowed, err := d.recoveryAllowed(ctx, source, tickAt)
+		allowed, err := d.guardedRecoveryAllowed(ctx, source, tickAt)
 		if err != nil {
 			d.recoveryFailure(ctx, source, tickAt, err)
 			continue
@@ -84,7 +92,7 @@ func (d *Daemon) retryStoppedResults(ctx context.Context, tickAt time.Time) (dis
 		workerCtx := context.WithValue(ctx, recoveryTickKey{}, tickAt)
 		// Existing pool and Quiesce bound this worker exactly like execution.
 		t.workerLog.DebugContext(ctx, "stopped-result repair worker dispatched")
-		go d.runWorker(workerCtx, &t, func() { d.repairStoppedResult(workerCtx, &t, debt) })
+		go d.runDoctorGuardedWorker(workerCtx, &t, func(workerCtx context.Context) { d.repairStoppedResult(workerCtx, &t, debt) })
 		dispatched++
 	}
 	return dispatched

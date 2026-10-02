@@ -1,0 +1,32 @@
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/gate_off
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/nonowner_copied
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/bot_type
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/bot_identity
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/claimed_author
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/quoted
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/wrong_repo
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/wrong_source
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/wrong_mode
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/absent_proposal
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/wrong_relationship
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/edited
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/stale
+=== RUN   TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/before_retained
+--- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata (4.71s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/gate_off (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/nonowner_copied (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/bot_type (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/bot_identity (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/claimed_author (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/quoted (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/wrong_repo (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/wrong_source (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/wrong_mode (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/absent_proposal (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/wrong_relationship (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/edited (0.01s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/stale (0.00s)
+    --- PASS: TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata/before_retained (0.00s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	7.389s

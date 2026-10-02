@@ -1,0 +1,51 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Engineering complete for all three approved stories: recoverable draft story activity, neutral three-stage Plan package, and production workflow wiring with retained legacy compatibility. Final make check, build and formatting checks passed. Acceptance was not performed; factory save and remote effects remain separate.",
+    "payload": {
+      "implement": {
+        "stories": [
+          {
+            "story": "plan-story-activity",
+            "outcome": "engineering_complete",
+            "engineering": {
+              "snapshot_id": "run-0007-activity-final-3",
+              "check_ids": [
+                "activity-final-scoped-3"
+              ]
+            }
+          },
+          {
+            "story": "plan-agents-dot",
+            "outcome": "engineering_complete",
+            "engineering": {
+              "snapshot_id": "run-0007-package-final-1",
+              "check_ids": [
+                "package-contract-race"
+              ]
+            }
+          },
+          {
+            "story": "plan-wiring-retirement",
+            "outcome": "engineering_complete",
+            "engineering": {
+              "snapshot_id": "run-0007-wiring-final-1",
+              "check_ids": [
+                "wiring-final-scoped-1",
+                "wiring-legacy-race-1"
+              ]
+            }
+          }
+        ],
+        "aggregate_checks": {
+          "snapshot_id": "run-0007-aggregate-final-1",
+          "check_ids": [
+            "aggregate-make-check-final",
+            "aggregate-build-final",
+            "aggregate-format-final"
+          ]
+        }
+      }
+    }
+  }
+}

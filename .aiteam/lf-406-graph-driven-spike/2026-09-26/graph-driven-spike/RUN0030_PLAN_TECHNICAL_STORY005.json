@@ -1,0 +1,165 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Story-005 fits as removal of the legacy route around the graph delivered by stories 001–004. It reuses sticky admission, graph role permissions, shared results and existing closure/reconciliation. The architecture preserves historical routes, refuses late legacy resumes and requires a fresh drain inventory before removal. Intent and dependency are unchanged; only architecture, guidance and recorded decisions/assumptions change. No tasks or criteria are authored. No implementation, checks, real-run readiness or completed drain is claimed. Technical owner review and the acceptance stage remain; receipt acknowledgment is not publication or approval.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "327e1fef4f2c1f1c818d89a65e685d4e8d74fc6af7bb6fd41e0f7fc72381b439",
+          "changed_sections": [
+            "architecture",
+            "guidance",
+            "conversation"
+          ],
+          "draft": {
+            "key": "story-005",
+            "name": "Retire the legacy single-agent Spike",
+            "user_story": {
+              "actor": "A project maintainer after graph Spike has become the default and the old fallback is no longer needed",
+              "want": "the old single-agent Spike and its temporary controls removed after all work using it has finished or been explicitly closed",
+              "benefit": "I maintain one Spike implementation without obsolete instructions or controls that could cause confusion or accidental use",
+              "notes": [
+                "This is the final Spike story, after the default switch-over in story-004 and real completed graph Spike runs.",
+                "The /spike command, Spike mode identity, SPIKE.md notes and archived notes remain available."
+              ]
+            },
+            "problem": "After graph Spike becomes the default, the old single-agent route remains as a temporary fallback. Once that fallback is no longer needed, keeping two implementations leaves obsolete rules, instructions and controls to maintain. Removing the old route must not abandon work that still depends on it.",
+            "in_scope": [
+              "Remove the old single-agent execution route and the entry rules used only to start it.",
+              "Remove the old Spike mode instructions, legacy finalization guidance and legacy-only rule rejecting questions.",
+              "Remove the tool permissions Spike borrowed from Implement; retain graph Spike's own role permissions.",
+              "Remove the temporary repository setting for selecting legacy or graph Spike and obsolete guidance about that choice.",
+              "Finish or explicitly close all work admitted to the old route, including waiting work, before deleting that route; preserve its recorded history.",
+              "Carry out retirement only after graph Spike is the default, has completed real runs and the temporary fallback is no longer needed."
+            ],
+            "not_in_scope": [
+              "Removing /spike, the Spike mode identity, SPIKE.md or archived notes.",
+              "Changing graph Spike's investigation, questions, fix limits, fixes, permissions or reporting.",
+              "Moving unfinished legacy work silently onto the graph or discarding it.",
+              "Changing the Research, Plan or Bug flows.",
+              "Making graph Spike the default; that belongs to story-004."
+            ],
+            "dependencies": {
+              "story_keys": [
+                "story-004"
+              ],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "decisions": [
+              "Keep default adoption and legacy removal as separate stories, with removal last.",
+              "Retire the legacy implementation only; retain the command, mode identity and note history.",
+              "Keep the DOT file as the sole definition of graph Spike's flow and retain the existing shared result protocol.",
+              "Retain historical legacy admission as evidence and refuse its execution after removal; never rewrite it to graph.",
+              "Remove the Spike setting reader entirely. Leftover spike.yaml files have no runtime effect; document their removal."
+            ],
+            "assumptions": [
+              "Real completed graph Spike runs are required before retirement; no fixed number of runs or observation period has been settled. This draft does not establish that the requirement has been met.",
+              "Finish or close means legacy work reaches a recorded completion or an explicit closure through existing controls before deletion; this draft authorizes neither automatic closure nor migration.",
+              "Removing legacy-only guidance includes correcting references to the removed setting and instructions so users are not directed to unavailable behavior.",
+              "The inspected worktree has no Spike graph policy or setting reader yet. Stories 001–004 must deliver them before retirement; their retained contracts define reuse, not current implementation evidence.",
+              "No live legacy inventory or qualifying graph-run evidence was supplied or collected. Retirement remains a delivery prerequisite, not a fact established by this architecture.",
+              "Deployment uses existing operator controls to stop new legacy admissions and quiesce dispatch for the final inventory and binary replacement. This review does not stop or restart the daemon.",
+              "A reopened historical legacy task is refused with instructions to start a fresh graph task through existing controls; this story adds no session-reset or automatic migration capability."
+            ],
+            "guidance": [
+              "go",
+              "agent-setup"
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Fit and reuse",
+                  "decision": "Keep the Spike graph policy, admission boundary, embedded DOT, roles and result skill delivered by stories 001–004. Delete only legacy execution and its fallback branches. Preserve /spike parsing, mode/workflow identities, SPIKE.md and shared preflight/submit/receipt.",
+                  "rationale": "The current registry in internal/turn/workflow_registry.go lacks Spike; dependencies must supply it. Existing command, schema and reporting references also serve graph Spike and history."
+                },
+                {
+                  "area": "Retirement prerequisite",
+                  "decision": "Retire only after story-004 delivery, retained evidence of real completed graph runs and an operator record that rollback is no longer needed. Reuse its adoption record with issue/session, revision, provider context, outcome, note and report links; do not add a run counter or time threshold.",
+                  "rationale": "Default adoption and removal are separate settled decisions. Simulated checks and input receipts cannot demonstrate operational readiness."
+                },
+                {
+                  "area": "Drain and deployment boundary",
+                  "decision": "Before removal, inventory legacy Spike across registered repositories using retained routes plus historical run/mode provenance. Include running, waiting, failed, queued, scheduled and recoverable work and pending publications. Finish or explicitly close each through existing controls. Stop new legacy admission operationally, then quiesce dispatch and repeat the inventory immediately before replacement; any unresolved entry defers removal.",
+                  "rationale": "internal/store/sessions.go has idle/running/failed, no completed session state. Idle is not proof of completion, and a one-time inventory races new admission. Drain is release coordination, not Spike flow in Go."
+                },
+                {
+                  "area": "History and late resume",
+                  "decision": "Keep route, run, result, graph, receipt and publication records unchanged. After retirement, a retained legacy route or unresolved historical Spike provenance returns an explicit retired-route error before agent dispatch. Reopening, recovery or changing labels never converts it to graph. Resolve cross-mode provenance through the dependency's admission rules.",
+                  "rationale": "AdmitWorkflowPath in internal/store/research_admission.go preserves the first route. Migration 0052 covers Research history only, and its shared table is session-keyed; deleting or rewriting it would damage other modes and history."
+                },
+                {
+                  "area": "Setting removal",
+                  "decision": "Remove the dependency's .litefactory/spike.yaml reader, default selector and explicit legacy/graph branches. New eligible Spike work is graph-only; existing graph work resumes through its retained admission. An old setting file is inert and grants no fallback. Remove owned examples and document removal; do not edit external repository configuration automatically.",
+                  "rationale": "Keeping a retired setting parser would leave another compatibility route. Historical route checks remain necessary even after the configuration choice disappears."
+                },
+                {
+                  "area": "Permissions and questions",
+                  "decision": "Remove the Spike-to-Implement alias in internal/daemon/tools.go and its config/template.go guidance. Use the dependency's graph role grants and mode ceiling for both providers; missing bindings fail closed. Remove only legacy question prohibition and finalization selection, retaining trusted node question permission, one investigator round and no fixer questions.",
+                  "rationale": "Deleting the alias alone could leave no usable Spike profile or accidentally broaden access. internal/agentresult/validate.go and internal/turn/ask.go contain shared permission rules; removing them wholesale would change other modes."
+                },
+                {
+                  "area": "Guidance closure",
+                  "decision": "Delete .claude/modes/spike.md and legacy Spike finalization resources. Update docs/workflow/spike.md and root Spike routing to graph-only wording, removing the 'do it here' fallback. Repair current source catalogs, embedded resources and parity expectations. Replace Implement/Validate links to invalid-spike-question.json with examples specific to their retained restrictions.",
+                  "rationale": "AGENTS.md and CLAUDE.md currently direct local execution. The finalization skill lists Spike resources, and Implement/Validate reference its negative example. Deletion without link repair would leave broken or conflicting instructions."
+                },
+                {
+                  "area": "Failure and scope boundary",
+                  "decision": "Unknown route provenance, store failure, missing graph policy/driver, invalid graph or permission bindings stop explicitly; preserve cancellation and normal failure reporting. Keep pending effects under original identities. Leave graph topology, limits, checks, issue filing and other modes unchanged; add no Spike scheduler, topology validator or new result protocol.",
+                  "rationale": "Fallback after removal could repeat effects or bypass permissions. The owner requires DOT-owned flow, and story-005 changes availability rather than graph behavior."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Retained route and workflow provenance",
+                  "definition": "Existing session admission links to route, run history and graph definitions; shared store records continue to identify legacy or graph work.",
+                  "constraints": "Retain legacy values and historical readers. No table deletion, route rewrite or schema migration is required by this design. A missing route is not graph evidence for historical work."
+                },
+                {
+                  "entity": "Retirement evidence record",
+                  "definition": "A release artifact links delivered dependencies and real graph outcomes to each legacy task's completion or explicit closure and the final quiesced inventory.",
+                  "constraints": "Record pending continuations, schedules and effects separately. No runtime retirement entity, counter or automatic closure is introduced; missing or uncertain evidence blocks removal."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Turn admission and graph runtime",
+                  "responsibility": "Make Spike graph-only for eligible new work, preserve pinned graph resume, and reject retired or ambiguous legacy provenance before dispatch. Reuse the dependency's policy and shared result handlers.",
+                  "access": "Existing authenticated launch and task-lock boundaries remain. Go checks admission eligibility; DOT still chooses every workflow step."
+                },
+                {
+                  "component": "Store and daemon lifecycle",
+                  "responsibility": "Expose the retirement inventory through context-first store access, composing existing records or a bounded read accessor if needed. Reuse daemon closure, continuation and publication reconciliation; do not infer completion from polling state alone.",
+                  "access": "All SQL stays in internal/store. internal/daemon/tick.go closure clears backlog, while backlog_closure_test.go demonstrates that report debt survives closure. No direct database edits or automatic task closure."
+                },
+                {
+                  "component": "Permission and instruction delivery",
+                  "responsibility": "Use graph role permissions and canonical embedded instructions; remove legacy tool alias, routing and finalization resource selection. Keep shared consumers and resource references valid.",
+                  "access": "Stay within existing provider ceilings. Update shipped sources through normal delivery; preserve immutable captured bundles and archives."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Post-retirement admission contract",
+                  "contract": "Fresh eligible Spike work -> retained graph admission -> shared graph driver. Existing graph -> existing graph resume. Historical legacy or ambiguous provenance -> explicit refusal with recovery guidance. Old spike.yaml contents never affect selection. No fallback to the single-agent runner.",
+                  "rationale": "One admission boundary removes the obsolete choice without silently migrating historical sessions."
+                },
+                {
+                  "element": "Drain completion contract",
+                  "contract": "Every legacy task needs evidence that its outstanding work finished or was explicitly closed; no in-flight run, runnable recovery/schedule, unanswered waiting work or unresolved publication may remain at cutover. Closure alone does not cancel report debt. Recheck under quiesced dispatch; failures or incomplete inventory postpone deployment.",
+                  "rationale": "Existing lifecycle records distinguish execution, owner intent and remote effects. Preserving those distinctions avoids abandoned work and duplicate publication."
+                },
+                {
+                  "element": "Resource and evidence boundary",
+                  "contract": "Current Spike instructions resolve to the single graph guide, roles and result skill. Preserve archived SPIKE.md, captured historical instructions and receipts. Verify offline behavior separately from authentic real-run evidence during delivery; no checks or host observations are claimed here.",
+                  "rationale": "Retirement removes active obsolete authority while retaining the evidence needed to understand earlier runs."
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

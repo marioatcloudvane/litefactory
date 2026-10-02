@@ -245,7 +245,7 @@ func TestSecondRunResumesInsteadOfReusingTheSessionID(t *testing.T) {
 	// The rows a first run left behind: the conversation, and a run on it that
 	// has stopped. That is the entire evidence the decision has.
 	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
-		seededComment, store.ModeSpike, store.RunReported)
+		seededComment, "implement", store.RunReported)
 
 	runner, tmpDir := realRunner(t, f, fakeClaudeArgvDumpScript)
 	f.opts.Runners = runnerSet(runner)

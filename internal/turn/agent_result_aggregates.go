@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -53,38 +55,77 @@ func prepareAgentResultAggregate(ctx context.Context, db *store.DB, b store.Resu
 	return a, nil
 }
 
+// isResultSessionPath reports whether a repository-relative path lies under the
+// top-level aiteam session directory. Only that exact root is exempt: nested
+// ".aiteam" directories and look-alike names such as ".aiteamx" are not.
+func isResultSessionPath(p string) bool {
+	p = filepath.ToSlash(p)
+	return p == naming.AITeamDirName || strings.HasPrefix(p, naming.AITeamDirName+"/")
+}
+
+// verifyResultAggregateWorktree compares the final worktree with a snapshot.
+// Session bookkeeping under the top-level .aiteam/ directory is left out of the
+// comparison (#431): it cannot change what was checked, and agents keep it up
+// to date after submitting. Every other path keeps full coverage, byte
+// identity, symlink, unmerged and status-stability checks.
 func verifyResultAggregateWorktree(ctx context.Context, w *git.Worktree, files []agent.StorySnapshotFile) error {
 	if w == nil || w.Path() == "" {
 		return fmt.Errorf("aggregate comparison requires an authorized git worktree")
 	}
-	changes, err := w.Status(ctx)
+	status, err := w.Status(ctx)
 	if err != nil {
 		return err
 	}
+	changes := resultNonSessionChanges(status)
 	paths := map[string]bool{}
+	compared := make([]agent.StorySnapshotFile, 0, len(files))
 	for _, f := range files {
 		paths[f.Path] = true
+		if !isResultSessionPath(f.Path) {
+			compared = append(compared, f)
+		}
 	}
 	for _, change := range changes {
-		if change.Kind == git.ChangeUnmerged || !paths[change.Path] || (change.Kind == git.ChangeRenamed && !paths[change.From]) {
-			return fmt.Errorf("aggregate snapshot must cover every final changed worktree path")
+		if change.Kind == git.ChangeUnmerged {
+			return fmt.Errorf("aggregate snapshot cannot cover unmerged worktree path: %s", change.Path)
+		}
+		if !isResultSessionPath(change.Path) && !paths[change.Path] {
+			return fmt.Errorf("aggregate snapshot must cover every final changed worktree path; not captured: %s", change.Path)
+		}
+		if change.Kind == git.ChangeRenamed && !isResultSessionPath(change.From) && !paths[change.From] {
+			return fmt.Errorf("aggregate snapshot must cover every final changed worktree path; rename source not captured: %s", change.From)
 		}
 	}
 	root, err := os.OpenRoot(w.Path())
 	if err != nil {
 		return err
 	}
-	if err := errors.Join(verifyStorySnapshot(root, agent.StoryEvidence{Files: files}), root.Close()); err != nil {
+	if err := errors.Join(verifyStorySnapshot(root, agent.StoryEvidence{Files: compared}), root.Close()); err != nil {
 		return err
 	}
 	after, err := w.Status(ctx)
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(changes, after) {
+	if !reflect.DeepEqual(changes, resultNonSessionChanges(after)) {
 		return fmt.Errorf("worktree changed during aggregate comparison")
 	}
 	return nil
+}
+
+// resultNonSessionChanges drops status entries that touch only the session
+// directory. A rename or an unmerged entry involving any non-session path is
+// kept so it is still checked.
+func resultNonSessionChanges(changes []git.FileChange) []git.FileChange {
+	kept := make([]git.FileChange, 0, len(changes))
+	for _, change := range changes {
+		session := isResultSessionPath(change.Path) && (change.From == "" || isResultSessionPath(change.From))
+		if session && change.Kind != git.ChangeUnmerged {
+			continue
+		}
+		kept = append(kept, change)
+	}
+	return kept
 }
 func aggregateDiagnostics() ar.Diagnostics {
 	return ar.Diagnostics{Valid: true, Complete: true, Diagnostics: []ar.Diagnostic{}, UncheckedPaths: []string{}}
@@ -141,7 +182,10 @@ func ResultAggregateValidator(ctx context.Context, db *store.DB, b store.ResultB
 			}
 		}
 		if err := verifyResultAggregateWorktree(ctx, worktree, files); err != nil {
-			aggregateFault(&d, "$.snapshot_id", "worktree", "Capture and check all final changed files with rooted, stable, symlink-free bytes.")
+			// Keep the underlying cause, which names the path that differed, so the
+			// rejection is actionable rather than generic (#431).
+			d.Valid = false
+			d.Diagnostics = append(d.Diagnostics, ar.Diagnostic{Path: "$.snapshot_id", Code: "worktree", Expected: "every final changed non-session file captured with identical rooted, stable, symlink-free bytes", Actual: err.Error(), Message: "Capture and check all final changed files with rooted, stable, symlink-free bytes: " + err.Error()})
 		}
 		return d
 	}

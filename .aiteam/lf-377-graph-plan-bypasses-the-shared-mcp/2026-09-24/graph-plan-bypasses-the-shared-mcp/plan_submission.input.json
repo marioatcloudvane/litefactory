@@ -1,0 +1,527 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "The plan splits the work into three ordered stories. Story 1 moves graph Plan onto the shared checked result route and makes every Plan failure visible on the issue. Story 2 raises the Plan agents and their contract to the Research standard and writes and tests the standard for every workflow. Story 3 adds the story-set step that splits a large scope, the owner review of that set, and the loop that creates one sub-issue per story. Graph Plan stays behind the legacy route until all three are merged and one owner-run tryout on a multi-deliverable parent succeeds; lifting the hold-back is the final, separate owner step.",
+    "recommendation": {
+      "text": "/implement Build story-001 first, then story-002, then story-003. Keep the legacy-route hold-back in place; lifting it is a separate final step after the owner-run tryout."
+    },
+    "payload": {
+      "plan": {
+        "summary": "Rebuild graph Plan to the same standard as Research: results go through the shared preflight, submit and receipt route, every failed step shows on the issue, the Plan agents and contract reach Research depth with written and tested rules, and a new set stage splits a large scope into a reviewed story set followed by one sub-issue per story.",
+        "stories": [
+          {
+            "key": "story-001",
+            "intent": "create",
+            "title": "Route every graph Plan result through the shared result service and make Plan failures visible",
+            "user_story": {
+              "actor": "Owner running Plan on a parent issue",
+              "want": "every graph Plan step to deliver its result through the shared checked route while the agent is still running, and every failed, conflicting or stopped Plan step to show up as a comment on the issue",
+              "benefit": "a wrong result is refused with a named reason and fixed in the same attempt, and my comment is never silently used up with nothing to show for it",
+              "notes": [
+                "Plain-language opening: today graph Plan agents hand back results in a private format that is only read after the agent has finished. A wrong result is found too late and cannot be corrected in the same attempt, a request such as a create that carries a section list is refused with a message that does not say why, and when a step fails nothing appears on the issue while the owner's comment is spent. This story moves Plan onto the checked route Research already uses and makes every failure visible with its cause and how to retry.",
+                "Graph Plan stays behind the legacy route for new sessions after this story; nothing here lifts that hold-back.",
+                "The Plan node-result contract document is only changed here as far as needed to stop describing the private format and to keep existing phrase tests coherent; the worked-example rewrite is story-002.",
+                "Assumption a3 (owner-settled Q2 = a): the owner's comment is marked handled together with the failure comment and the owner replies to retry.",
+                "Assumption a4: the #367 create case is refused at preflight with a diagnostic that names the rule.",
+                "The story-set part of the payload is accepted and shape-validated here so the payload is defined once; nothing acts on a set until story-003."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-001",
+                "text": "Graph Plan node invocations are built the same way Research invocations are: the attempt receives the shared result service, the shared-route guidance and the final-route binding. The Plan workflow policy no longer carries a private node protocol, and the agent activity requires matching result authority for every Plan node."
+              },
+              {
+                "id": "AC-002",
+                "text": "Policy admission refuses any registered workflow policy that has no shared-result decoder, including a policy that sets a private node protocol without one. A test walks the complete list of registered workflow policies (Research and Plan today) and fails when any policy skips the shared route, so a later workflow cannot register without it."
+              },
+              {
+                "id": "AC-003",
+                "text": "Plan's private result format and its parser are removed. Later nodes and the retirement path read the retained accepted shared result instead of re-parsing a private Plan output. Old retained private Plan outputs are never parsed as results; they are only offered as untrusted prompt context, and no migration of them is performed."
+              },
+              {
+                "id": "AC-004",
+                "text": "The shared Plan payload gains two mutually exclusive parts: a story request (operation create, update or retire, for exactly one story) and a story set. A payload carrying both parts, or either part together with the old planning fields (summary, context, stories), is rejected with a diagnostic naming the conflict. Questions use the shared question form. A Plan role response is ask or done; an approved response is refused with a diagnostic."
+              },
+              {
+                "id": "AC-005",
+                "text": "The story set part is shape-validated at preflight: 1 to 12 entries; each entry has a temporary id, a short name and a one-line intent of at most 280 characters; names are unique; dependencies refer to temporary ids that exist in the same set; self-reference and cycles are rejected; list order is preserved. A set of more than 12 stories is refused with advice to split the parent issue. A set of exactly one story is valid."
+              },
+              {
+                "id": "AC-006",
+                "text": "The factory fills stage, candidate, request identity, upstream references and shared-decision revision. A Plan result that supplies any of them is refused with a diagnostic naming the field, and the values the factory bound are the ones recorded on the accepted result."
+              },
+              {
+                "id": "AC-007",
+                "text": "The Plan-only checks run inside the shared preflight and again unchanged at submit: story binding, stage binding, candidate binding, exact upstream references, shared-decision revision match, and the section rules. Each failure returns an indexed diagnostic naming the rule and a correction, and a result that passed preflight is accepted by submit with identical bytes."
+              },
+              {
+                "id": "AC-008",
+                "text": "A create request is refused with three separately named messages instead of the single 'create requires an initial story candidate' message: one when a section list is present, one when an expected revision is present, and one when the stage is not the story stage. Each message names the offending field and tells the agent what to remove or change. A section list on an update remains valid, and 'conversation' remains a valid section name."
+              },
+              {
+                "id": "AC-009",
+                "text": "The terminal message of a Plan node has the same shape as in Research (version, response ask or done, result) and must match the last accepted shared result. A terminal message that differs from, or has no, accepted result does not count as a nominal success and is reported with its cause."
+              },
+              {
+                "id": "AC-010",
+                "text": "Any Plan step that fails, conflicts, is uncertain or is stopped, including an agent failure and a conflict, uncertain or failed outcome of the story effect, publishes a failure comment on the issue that states the cause and how to retry. The shipped failure comment node is reached by every Plan failure path, and Plan defines the failure comment content builder that Research already has."
+              },
+              {
+                "id": "AC-011",
+                "text": "The owner's triggering comment is marked handled only together with the failure comment. If the failure comment is not published, the owner's comment stays unhandled. The owner retries by replying on the issue."
+              },
+              {
+                "id": "AC-012",
+                "text": "Sessions already admitted to graph Plan keep their route and their saved Plan state still loads. New sessions are still admitted to the legacy Plan route after this story; the hold-back is unchanged."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Extend the shared Plan payload and its edit targets with the story request part and the story set part (mutually exclusive, no old planning fields alongside), reject approved, and implement the story-set shape validation and the split of the create rule into three named messages.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-004", "AC-005", "AC-008"],
+                "depends_on": []
+              },
+              {
+                "id": "T-002",
+                "description": "Move the Plan-only checks (story, stage, candidate, upstream, shared-decision revision, section rules) into the shared preflight and submit validation, and have the factory fill stage, candidate, request identity, upstream references and shared-decision revision, refusing agent-supplied values.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-006", "AC-007"],
+                "depends_on": ["T-001"]
+              },
+              {
+                "id": "T-003",
+                "description": "Build Plan invocations with the shared result service, guidance and final-route binding as Research does; remove the private node protocol from the Plan policy; remove the private Plan parser and its readers so later nodes and the retirement path use the retained shared result; treat old private outputs as untrusted context only; keep the terminal message matching the last accepted result; adjust the node-result document and its phrase tests only as far as the removed private format requires.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-001", "AC-003", "AC-009", "AC-012"],
+                "depends_on": ["T-002"]
+              },
+              {
+                "id": "T-004",
+                "description": "Make policy admission refuse a policy without a shared-result decoder, and add the guard test that walks every registered workflow policy and fails when one skips the shared route.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-002"],
+                "depends_on": ["T-003"]
+              },
+              {
+                "id": "T-005",
+                "description": "Add the Plan failure comment content builder and route every Plan failure path (agent failure, story effect conflict, uncertain or failed outcome, stopped run) to the shipped failure comment node with cause and how to retry; make the daemon mark the owner's triggering comment handled only together with that failure comment.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-010", "AC-011"],
+                "depends_on": ["T-003"]
+              },
+              {
+                "id": "T-006",
+                "description": "Unit-test the payload exclusivity, approved refusal, set shape rules (1 to 12, names, 280 characters, dependency ids, self-reference, cycles, more than 12), the three named create refusals, factory-bound field refusal, the Plan-only preflight checks and their identical result at submit, and the terminal message match rule.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": ["AC-004", "AC-005", "AC-006", "AC-007", "AC-008", "AC-009"],
+                "depends_on": ["T-002"]
+              },
+              {
+                "id": "T-007",
+                "description": "Unit-test the structural policy guard (a policy with a private node protocol and no decoder is refused; the walk over registered policies fails for a skipping policy), the retained-result readers, old-output-as-untrusted-context handling, and unchanged admission of new sessions to the legacy route and of existing graph sessions.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": ["AC-001", "AC-002", "AC-003", "AC-012"],
+                "depends_on": ["T-004"]
+              },
+              {
+                "id": "T-008",
+                "description": "Integration-test a graph Plan run with a fake agent over the real shared result service: a wrong result is refused with a named reason and corrected in the same attempt, and the accepted result is the one later nodes read.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": ["AC-001", "AC-003", "AC-007", "AC-009"],
+                "depends_on": ["T-004"]
+              },
+              {
+                "id": "T-009",
+                "description": "Integration-test the daemon path: a failing, conflicting and stopped Plan step each publish a failure comment with cause and retry advice, the owner's comment is marked handled only together with that comment, and a run whose failure comment is not published leaves the owner's comment unhandled.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": ["AC-010", "AC-011"],
+                "depends_on": ["T-005"]
+              }
+            ],
+            "architecture": {
+              "summary": "Plan joins Research on the single shared result route. The agent result package gains a Plan story-request/story-set payload; the Plan graph policy stops using a private node protocol and decodes the accepted shared result; Plan-only binding checks move into the shared preflight; the factory binds identity fields; Plan gets a failure comment builder wired to the existing failure node; the daemon spends the owner's trigger comment only with that comment.",
+              "components": [
+                {
+                  "name": "agentresult Plan payload",
+                  "responsibility": "Defines the story request and story set parts, their exclusivity, edit targets and shape validation, and the shared question form."
+                },
+                {
+                  "name": "Plan workflow policy and graph activities",
+                  "responsibility": "Builds Plan invocations with the shared service, guidance and final route; decodes the accepted shared result; runs Plan-only checks inside preflight; removes the private node protocol and parser."
+                },
+                {
+                  "name": "Workflow policy admission",
+                  "responsibility": "Refuses a policy without a shared-result decoder; the registry walk test guards all workflows."
+                },
+                {
+                  "name": "Plan failure comment path and daemon trigger handling",
+                  "responsibility": "Publishes cause and retry advice for every failed, conflicting, uncertain or stopped Plan step, and marks the owner's comment handled only together with it."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Shared Plan result payload",
+                  "input": "Agent-authored plan part: exactly one of storyrequest (operation, draft, changed sections, replacements) or storyset, plus shared questions; factory-bound fields are never supplied.",
+                  "output": "Accepted shared result retained by the factory with stage, candidate, request identity, upstream references and shared-decision revision filled in; indexed diagnostics with rule name and correction when refused."
+                }
+              ],
+              "constraints": [
+                "Roles return ask or done only; only the factory-bound owner path promotes anything.",
+                "Preflight records no proof and allocates no event; submit uses identical validation.",
+                "Saved Plan state must remain loadable; no migration of old private outputs.",
+                "Do not change shared result delivery, receipts or the Research roles and graph.",
+                "Existing tests that assert fixed phrases of the private contract are updated only where the private format is removed."
+              ],
+              "decisions": [
+                {
+                  "decision": "Extend the existing shared Plan payload instead of creating a second Plan result type.",
+                  "reason": "Owner settled Q4 = a; keeps one result schema and one validator."
+                },
+                {
+                  "decision": "Guard the shared route structurally through the policy registration point.",
+                  "reason": "The policy struct is the single registration point today (assumption a1), so a walk over registered policies catches any later workflow."
+                },
+                {
+                  "decision": "Failure comment reuses Research's mechanism and marks the trigger handled with it.",
+                  "reason": "Owner settled Q2 = a; prevents the silent failure where the owner's comment is spent with nothing visible."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "story-002",
+            "intent": "create",
+            "title": "Raise the Plan agents and result contract to the Research standard and write and test the standard for every workflow",
+            "user_story": {
+              "actor": "Owner and maintainer of the agent team",
+              "want": "the three Plan agents and their result contract to be as complete as the Research agents and contract, and the standard to be written down and enforced by tests for every workflow",
+              "benefit": "Plan agents stop guessing at the result format, and no workflow, including ones added later, can ship with thin instructions unnoticed"
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-013",
+                "text": "Each of the three Plan roles (story, technical, acceptance) contains all nine Research sections in this order: Role, Voice, Goal, How You Are Invoked, When You Are Done, Must Do, Must Not Do, Writing the Report, Output. Every section has real content at Research depth, not a stub. The technical role keeps its Skills section as a tenth section."
+              },
+              {
+                "id": "AC-014",
+                "text": "Each Plan role tells the agent to deliver its result through preflight, submit and receipt, to correct every preflight diagnostic in the same attempt, to answer only ask or done and never approved, and never to supply the factory-bound fields (stage, candidate, request identity, upstream references, shared-decision revision)."
+              },
+              {
+                "id": "AC-015",
+                "text": "Both copies of the Plan role and skill files (the source tree copy and the embedded copy) are changed together and stay byte-identical, and the existing package consistency test passes."
+              },
+              {
+                "id": "AC-016",
+                "text": "The Plan node-result contract contains a worked JSON example for each response (ask, done), each stage (story, technical, acceptance) and each operation (create, update, retire); lists the valid section names (intent, architecture, criteria, tasks, dependencies, design, guidance, conversation) with the story-stage and technical-stage restrictions; shows a create example that has no section list, no expected revision and the story stage; and has a section on delivering the result that names preflight, submit and receipt."
+              },
+              {
+                "id": "AC-017",
+                "text": "A test extracts every worked JSON example from the contract, fills the factory-bound fields the way the factory does, and runs it through the real shared validator and preflight. Every example passes, and a deliberately broken example makes the test fail."
+              },
+              {
+                "id": "AC-018",
+                "text": "The Plan skills are corrected only where they contradict the new contract (private format, approved response, section rules); they are not rewritten to Research depth. Existing tests that assert fixed phrases of the old contract are updated to the new wording and pass."
+              },
+              {
+                "id": "AC-019",
+                "text": "A test walks every shipped graph definition, collects the roles named by its agent entries, and fails when any of those roles lacks any of the nine sections. Research and Plan roles pass. A workflow added later is covered automatically because the walk starts from the shipped graph definitions."
+              },
+              {
+                "id": "AC-020",
+                "text": "A test fails when a workflow's result contract has no worked example or does not mention the shared result route (preflight, submit, receipt). Research and Plan contracts pass."
+              },
+              {
+                "id": "AC-021",
+                "text": "The architecture constraints document states the rule that all mode and graph-node results use the shared result route and that terminal text is never parsed as a result, and the context document lists the shared result route as a reusable capability with its owner. The rule is stated as applying to Research, Plan and the planned Bug workflow, and to the graph Implement, Validate and Spike workflows from the start."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-010",
+                "description": "Rewrite the story, technical and acceptance Plan role files with all nine Research sections at Research depth (technical keeps Skills as a tenth), covering shared-route delivery, the ask or done responses, the factory-bound fields and same-attempt correction, in both the source tree copy and the embedded copy.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-013", "AC-014", "AC-015"],
+                "depends_on": []
+              },
+              {
+                "id": "T-011",
+                "description": "Rewrite the Plan node-result contract with a worked JSON example per response, stage and operation, the valid section names and restrictions, a create example without section list or expected revision in the story stage, and a Delivering the result section naming preflight, submit and receipt; correct the Plan skills only where they contradict it; update phrase-asserting tests; keep both copies identical.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-015", "AC-016", "AC-018"],
+                "depends_on": []
+              },
+              {
+                "id": "T-012",
+                "description": "Add the written rule to the architecture constraints document and the shared result route capability with its owner to the context document, including the list of workflows the standard applies to.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-021"],
+                "depends_on": []
+              },
+              {
+                "id": "T-013",
+                "description": "Unit-test the nine-section guard: it walks shipped graph definitions, collects roles from agent entries, fails on a missing section, allows the extra Skills section, and passes for the shipped Research and Plan roles.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": ["AC-013", "AC-019"],
+                "depends_on": ["T-010"]
+              },
+              {
+                "id": "T-014",
+                "description": "Unit-test the contract guards: fail for a contract without a worked example or without the route mention, and run every worked example through the real validator with factory-bound fields filled, including a negative case with a broken example.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": ["AC-016", "AC-017", "AC-020"],
+                "depends_on": ["T-011"]
+              },
+              {
+                "id": "T-015",
+                "description": "Unit-test that the two Plan file copies remain byte-identical, that the role instructions mention preflight, submit, receipt, ask or done and same-attempt correction, and that the constraints and context documents carry the rule and capability.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": ["AC-014", "AC-015", "AC-021"],
+                "depends_on": ["T-010", "T-012"]
+              }
+            ],
+            "architecture": {
+              "summary": "Instruction content and guards only: Plan role and contract files (two identical copies) are raised to Research depth, two repository documents record the rule, and tests walk the shipped graph definitions and contracts so the standard is enforced for every workflow.",
+              "components": [
+                {
+                  "name": "Plan role files",
+                  "responsibility": "Story, technical and acceptance roles with nine sections (technical plus Skills), in the source and embedded trees."
+                },
+                {
+                  "name": "Plan node-result contract",
+                  "responsibility": "Worked examples per response, stage and operation, section names and the shared delivery route."
+                },
+                {
+                  "name": "Standard guards",
+                  "responsibility": "Tests that walk shipped graph definitions for the nine sections, check every contract for an example and a route mention, and run examples through the real validator."
+                },
+                {
+                  "name": "Architecture documents",
+                  "responsibility": "Constraints document carries the rule; context document lists the reusable capability and its owner."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Workflow role discovery",
+                  "input": "A shipped graph definition and its agent entries.",
+                  "output": "The set of workflow roles that must each contain the nine sections."
+                }
+              ],
+              "constraints": [
+                "Depends on story-001 so that examples validate against the final shared Plan payload.",
+                "A workflow role means a role named by a shipped graph definition's agent entries, not a role found by naming convention.",
+                "Nine sections are exactly the Research headings; the technical role's Skills section is an allowed tenth.",
+                "Both file copies change in the same story and stay identical.",
+                "Skills are corrected only where they contradict the contract; not rewritten.",
+                "Research roles and the Research graph are not changed."
+              ],
+              "decisions": [
+                {
+                  "decision": "Discover workflow roles from shipped graph definitions.",
+                  "reason": "A new workflow cannot dodge the guard by choosing a different role location (assumption a2 and decision d7)."
+                },
+                {
+                  "decision": "Contract examples are executed through the real validator with factory-bound fields filled.",
+                  "reason": "A prose example that the validator rejects is worse than none, and this is how the create rule was misunderstood in #367."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": ["story-001"],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "story-003",
+            "intent": "create",
+            "title": "Split a large scope into a reviewed story set and create one sub-issue per story",
+            "user_story": {
+              "actor": "Owner handing Plan a parent issue with several deliverables",
+              "want": "Plan to propose how the scope splits into stories, let me review and approve that set on the parent issue, and then create one sub-issue per approved story",
+              "benefit": "a multi-deliverable scope is no longer reduced to one story, and I decide how the work is divided before any sub-issue exists"
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-022",
+                "text": "The graph definition file gains a new first stage that proposes the story set. Its topology, including the stage, its review wait and the creation cycle described below, is declared in the graph definition file, not in Go code. The Go graph checker no longer pins a fixed 28-node set and every edge; it validates the structure declared by the graph definition."
+              },
+              {
+                "id": "AC-023",
+                "text": "A new set role and skill exist for the set stage. The role has all nine sections, reads the parent issue thread and the saved research scope, and proposes 1 to 12 stories, each with a temporary id, a short name, a one-line intent of at most 280 characters and dependencies by temporary id, in list order with unique names and no cycles or self-reference. One deliverable yields a set of one. More than 12 is refused with advice to split the parent."
+              },
+              {
+                "id": "AC-024",
+                "text": "One new Plan effect records the set with a revision in saved Plan state and publishes it on the parent issue, showing that revision. Saved Plan state written before this change still loads. Set-stage failures are visible on the issue through the failure comment path from story-001."
+              },
+              {
+                "id": "AC-025",
+                "text": "The set is promoted only by the authenticated owner and only bound to the revision shown on the parent issue. A changed set gets a new revision and needs a new review. An approval for an older revision is refused with an explanation. No agent role can promote a set."
+              },
+              {
+                "id": "AC-026",
+                "text": "On promotion the factory reserves story keys in list order (the first is story-001) and maps each temporary id to its key, translating dependencies by temporary id into dependencies by key. Reserved keys exist without an issue until the story's first draft is created."
+              },
+              {
+                "id": "AC-027",
+                "text": "After promotion, a graph cycle over the existing story stage creates each sub-issue with a first draft, with one agent run per story. The story is chosen afresh on every pass by the condition 'promoted and no draft yet', not by the choice made at admission. The loop bound is raised to fit 12 stories, the cycle ends when every promoted story has a draft, and all 12 stories of a maximum set are created."
+              },
+              {
+                "id": "AC-028",
+                "text": "When a story asks a question mid-loop the loop waits, and after the owner replies it resumes with that story. When a story fails, the sub-issues already created are kept, the failure is visible on the issue, and a restart resumes at the failed story without creating duplicates of the earlier ones."
+              },
+              {
+                "id": "AC-029",
+                "text": "A session that already has stories skips the set stage and adds stories through the existing new-story path. Sessions already on graph Plan keep their route. Old retained private Plan outputs remain untrusted context only."
+              },
+              {
+                "id": "AC-030",
+                "text": "The Plan node-result contract gains worked JSON examples for the set response and the set stage that pass through the real validator; the set role is covered by the nine-section and contract guards from story-002 without any change to those guards."
+              },
+              {
+                "id": "AC-031",
+                "text": "New sessions are still admitted to the legacy Plan route after this story. The repository documents the final step: one owner-run tryout of graph Plan on a multi-deliverable parent that yields a reviewed set and one sub-issue per story, followed by lifting the hold-back as its own separate change. Lifting the hold-back is not part of this story."
+              },
+              {
+                "id": "AC-032",
+                "text": "An integration test with fake agents runs graph Plan on a parent with three deliverables: the set is published with a revision, a stale-revision approval is refused, the owner promotion of the current revision reserves story-001 to story-003 in list order, and three sub-issues with first drafts are created in three agent runs."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-016",
+                "description": "Add the set stage, the promotion wait and the story creation cycle to the graph definition file, raise the loop bound to fit 12 stories, make the story pick a fresh choice on every pass with the 'promoted and no draft yet' condition, and change the Go graph checker to validate the declared structure instead of pinning a fixed node set and edges.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-022", "AC-027"],
+                "depends_on": []
+              },
+              {
+                "id": "T-017",
+                "description": "Add the set role and skill (nine sections, reads the parent thread and saved research scope, applies the 1 to 12 story rules and advice to split above 12), in both the source and embedded copies, with worked set examples added to the node-result contract.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-023", "AC-030"],
+                "depends_on": []
+              },
+              {
+                "id": "T-018",
+                "description": "Add the one new Plan effect that records the set with a revision in saved Plan state (backward compatible) and publishes it on the parent issue, and route set-stage failures to the failure comment path.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-024"],
+                "depends_on": ["T-016"]
+              },
+              {
+                "id": "T-019",
+                "description": "Implement owner promotion bound to the displayed revision (new revision on change, stale approval refused, no agent promotion) and, on promotion, reserve story keys in list order with temporary-id to key dependency translation.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-025", "AC-026"],
+                "depends_on": ["T-018"]
+              },
+              {
+                "id": "T-020",
+                "description": "Implement the per-pass story pick and creation cycle behaviour: wait on a question and resume after the reply, keep earlier sub-issues on failure and resume at the failed story on restart without duplicates, skip the set stage when the session already has stories, and keep existing graph sessions on their route.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-027", "AC-028", "AC-029"],
+                "depends_on": ["T-019"]
+              },
+              {
+                "id": "T-021",
+                "description": "Document the final owner-run tryout and hold-back lift step, and keep the legacy-route admission for new sessions unchanged.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": ["AC-031"],
+                "depends_on": ["T-020"]
+              },
+              {
+                "id": "T-022",
+                "description": "Unit-test the graph checker against the declared structure, the fresh per-pass story pick and its condition, the loop bound with 12 stories, set state loading from state written before this change, promotion binding and stale refusal, key reservation order and dependency translation, and the contract set examples through the real validator.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": ["AC-022", "AC-024", "AC-025", "AC-026", "AC-027", "AC-030"],
+                "depends_on": ["T-020"]
+              },
+              {
+                "id": "T-023",
+                "description": "Unit-test the set role guards (nine sections and contract example coverage through the existing walks), the set skip for sessions with existing stories, unchanged legacy admission for new sessions and unchanged route for existing graph sessions.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": ["AC-023", "AC-029", "AC-030", "AC-031"],
+                "depends_on": ["T-017", "T-021"]
+              },
+              {
+                "id": "T-024",
+                "description": "Integration-test graph Plan with fake agents on a three-deliverable parent: set published with revision, stale approval refused, owner promotion of the current revision, keys reserved in list order, three sub-issues created with first drafts in three runs, a mid-loop question that waits and resumes, and a mid-loop failure that keeps earlier sub-issues and resumes at the failed one.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": ["AC-024", "AC-025", "AC-026", "AC-027", "AC-028", "AC-032"],
+                "depends_on": ["T-020"]
+              }
+            ],
+            "architecture": {
+              "summary": "The graph definition file gains a set stage followed by a promotion wait and a story-creation cycle over the existing story stage. One new Plan effect records and publishes the set with a revision in saved Plan state; owner promotion bound to that revision reserves story keys in list order; each pass freshly picks the next story that is promoted and has no draft. Graph topology lives in the graph file, and the Go checker validates declared structure rather than a pinned node set.",
+              "components": [
+                {
+                  "name": "Plan graph definition file",
+                  "responsibility": "Declares the set stage, the promotion wait, the creation cycle over the story stage and the raised loop bound."
+                },
+                {
+                  "name": "Set role and skill",
+                  "responsibility": "Propose 1 to 12 stories from the parent thread and saved research scope."
+                },
+                {
+                  "name": "Set effect and saved Plan state",
+                  "responsibility": "Store the set with a revision, publish it on the parent issue, and hold promotion state; older state stays loadable."
+                },
+                {
+                  "name": "Promotion and key reservation",
+                  "responsibility": "Owner-only, revision-bound promotion; reserves keys in list order and translates dependencies."
+                },
+                {
+                  "name": "Story pick per pass",
+                  "responsibility": "Selects the next promoted story without a draft each time the story stage runs."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Story set part of the shared Plan payload",
+                  "input": "Temporary id, short name, one-line intent (at most 280 characters) and dependencies by temporary id, 1 to 12 entries in list order.",
+                  "output": "Recorded set with a revision, published on the parent issue; on owner promotion, reserved story keys mapped from temporary ids."
+                }
+              ],
+              "constraints": [
+                "Depends on story-001 (payload, route, failures) and story-002 (role standard and contract guards).",
+                "Topology belongs in the graph definition file, not in Go; the Go checker validates declared structure.",
+                "A story is eligible for creation only when promoted and without a draft; general stage eligibility would also pick later stages of approved stories.",
+                "Waiting stories do not block others; a story asking a question makes the loop wait and resume after the reply.",
+                "Legacy Plan, Research, graph Implement, Validate and Spike, the Bug workflow, story, technical and acceptance approval rules and re-splitting of a promoted set are out of scope.",
+                "The legacy-route hold-back stays in place; lifting it is a separate final owner action."
+              ],
+              "decisions": [
+                {
+                  "decision": "Decomposition is a dedicated first stage with its own role and skill.",
+                  "reason": "Keeps the story agent to a single job (one story), decision d4."
+                },
+                {
+                  "decision": "Creation is a graph cycle over the existing story stage, one agent run per story.",
+                  "reason": "Owner settled Q3 = a; reuses the existing story stage instead of a new loop activity or bulk create (decision d9)."
+                },
+                {
+                  "decision": "Promotion reserves keys in list order, seeding from story-001 the same way the owner's new-story command does.",
+                  "reason": "Uses the existing key reservation the factory already performs without an issue."
+                },
+                {
+                  "decision": "Evidence inventory for the hold-back lift: the tryout is owner-run on a real multi-deliverable parent, on merged main after all three stories, and is not covered by any criterion here.",
+                  "reason": "Authentic tryout evidence is only available to the owner; it stays an unsatisfied obligation until supplied and is never replaced by the integration test with fake agents (AC-032 proves behaviour offline only)."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": ["story-001", "story-002"],
+              "issue_refs": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

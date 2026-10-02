@@ -18,6 +18,9 @@ const (
 	// directory, and the artefact a run report links to.
 	ResearchBriefName = "RESEARCH_BRIEF.md"
 
+	// ResearchTechnicalName holds the evidence behind the research brief.
+	ResearchTechnicalName = "RESEARCH_TECHNICAL.md"
+
 	// ManifestName is the session-lifecycle file every mode writes into a
 	// session directory first, before either brief exists: a spike or a
 	// greenfield run has one when it has nothing else. It is tried before

@@ -20,8 +20,10 @@ func TestResearchDeliveryIdentityAndNativeClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(p.files["plugin/agents/research.md"]), "tools: Read") {
-		t.Fatal("omitted role tools did not inherit the factory ceiling")
+	// Omitted role tools inherit the session's tools: the --tools ceiling still
+	// bounds them, and a written list would hide the attempt's MCP tools.
+	if header := strings.SplitN(string(p.files["plugin/agents/research.md"]), "---\n\n", 2)[0]; strings.Contains(header, "tools:") {
+		t.Fatalf("omitted role tools rendered an allowlist instead of inheriting:\n%s", header)
 	}
 	if p.mainRole != "research" || p.mainModel != "worker" || len(p.roles) != 1 {
 		t.Fatalf("main role not selected: %+v", p)
@@ -29,7 +31,7 @@ func TestResearchDeliveryIdentityAndNativeClosure(t *testing.T) {
 	if _, ok := p.files["plugin/skills/evidence/SKILL.md"]; !ok {
 		t.Fatal("missing selected native skill")
 	}
-	if !strings.Contains(string(p.files["bootstrap.md"]), "version=1") {
+	if !strings.Contains(string(p.files["bootstrap.md"]), "Do not print a JSON result") {
 		t.Fatal("missing persistent node result context")
 	}
 	for _, name := range []string{"first", "second"} {

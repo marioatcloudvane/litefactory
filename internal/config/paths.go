@@ -23,6 +23,7 @@ const (
 	daemonLockFileName = "daemon.lock"
 	settingsFileName   = "claude-settings.json"
 	claudeHomeDirName  = "claude-home"
+	archiveDirName     = "archive"
 )
 
 // Paths resolves every location litefactory owns from a single root,
@@ -63,6 +64,9 @@ func Locate() (Paths, error) {
 
 // Home is the root directory, $LF_HOME.
 func (p Paths) Home() string { return p.home }
+
+// ArchiveDir is the root of the per-task archive of closed work, <home>/archive.
+func (p Paths) ArchiveDir() string { return filepath.Join(p.home, archiveDirName) }
 
 // TeamsDir holds the central source catalog, never CLI-generated artifacts.
 func (p Paths) TeamsDir() string { return filepath.Join(p.home, "teams") }
@@ -142,3 +146,15 @@ func (p Paths) EnsureHome() error {
 
 // StoryProgressLocksDir holds factory-owned cross-process story delivery locks.
 func (p Paths) StoryProgressLocksDir() string { return filepath.Join(p.home, "story-progress-locks") }
+
+// DoctorLocksDir separates doctor serialization from workflow admission locks.
+func (p Paths) DoctorLocksDir() string { return filepath.Join(p.home, "doctor", "locks") }
+
+// DoctorScratchDir contains private invocation context, never issue files.
+func (p Paths) DoctorScratchDir() string { return filepath.Join(p.home, "doctor", "scratch") }
+
+// DoctorBackupsDir retains repair copies outside all worktree and session cleanup roots.
+func (p Paths) DoctorBackupsDir() string { return filepath.Join(p.home, "doctor", "backups") }
+
+// DoctorRepairLocksDir serializes repair effects and stop across local processes.
+func (p Paths) DoctorRepairLocksDir() string { return filepath.Join(p.home, "doctor", "repair-locks") }

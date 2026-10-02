@@ -79,18 +79,25 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		// from — and because this package is the only one holding the
 		// installation token, so it is the only place an attachment fetch
 		// can safely happen (US-3).
-		"FetchAsset",          // GET <allow-listed attachment URL>
-		"GetParentIssue",      // GET …/issues/{n}/parent
-		"SetStoryState",       // PATCH verified managed story state and reason
-		"UpdateIssue",         // PATCH …/issues/{n}, full title and body
-		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
-		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
-		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments
-		"ListCommentsPage",    // GET one bounded /repos/{o}/{r}/issues/{n}/comments page for observation
+		"FetchAsset",                 // GET <allow-listed attachment URL>
+		"GetParentIssue",             // GET …/issues/{n}/parent
+		"RetirePlanStory",            // PATCH verified direct child closed with not_planned reason
+		"SetStoryState",              // PATCH verified managed story state and reason
+		"UpdateIssue",                // PATCH …/issues/{n}, full title and body
+		"GetIssue",                   // GET  /repos/{o}/{r}/issues/{n}
+		"ListCommentedIssues",        // GET  /repos/{o}/{r}/issues/comments?since=
+		"ListCommentsAfter",          // GET  /repos/{o}/{r}/issues/{n}/comments
+		"ListRepositoryCommentsPage", // bounded doctor routing metadata; no issue history expansion
+		"ListCommentsPage",           // GET one bounded /repos/{o}/{r}/issues/{n}/comments page for observation
 		"GetDeliveryHead",
+		"GetDeliveryCommit", // GET exact commit and ordered parents for Bug integration
 		"ListDeliveryPRs",
 		"GetDeliveryPR",
 		"CreateDeliveryPR",
+		"CreateHook", // POST /repos/{o}/{r}/hooks
+		"EditHook",   // PATCH /repos/{o}/{r}/hooks/{id}
+		"GetHook",    // GET /repos/{o}/{r}/hooks/{id}
+		"ListHooks",  // GET /repos/{o}/{r}/hooks
 		"MergeDeliveryPR",
 		"CloseDeliveredParent",
 		"ListFollowupIssues", // GET /repos/{o}/{r}/issues?state=all for reconciliation
@@ -189,6 +196,10 @@ func TestNoForgeAbstraction(t *testing.T) {
 // guard's shape is unchanged; only what it points at moved.
 const credentialSite = "gogithub.WithAuthToken("
 
+// hookSecretSite is the second, deliberate reveal: a webhook secret is read
+// only to hand it to GitHub when a hook is created or edited.
+const hookSecretSite = "// hook-secret-site"
+
 // TestRevealIsCalledExactlyOnce keeps the credential boundary greppable and
 // small. secrets.Token.Reveal is the deliberate act of handling the raw value,
 // and in this package there is exactly one legitimate reason to do it: handing
@@ -219,7 +230,7 @@ func TestRevealIsCalledExactlyOnce(t *testing.T) {
 		for i, line := range strings.Split(string(contents), "\n") {
 			if strings.Contains(line, ".Reveal()") {
 				sites = append(sites, name+":"+strings.TrimSpace(line))
-				if !strings.Contains(line, credentialSite) {
+				if !strings.Contains(line, credentialSite) && !strings.Contains(line, hookSecretSite) {
 					t.Errorf("%s:%d reveals the token somewhere other than %s: %s",
 						name, i+1, credentialSite, strings.TrimSpace(line))
 				}
@@ -227,8 +238,8 @@ func TestRevealIsCalledExactlyOnce(t *testing.T) {
 		}
 	}
 
-	if len(sites) != 1 {
-		t.Errorf("found %d calls to Reveal, want exactly 1:\n%s",
+	if len(sites) != 2 {
+		t.Errorf("found %d calls to Reveal, want exactly 2 (the SDK credential and the webhook secret):\n%s",
 			len(sites), strings.Join(sites, "\n"))
 	}
 }

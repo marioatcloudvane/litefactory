@@ -3,18 +3,23 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
+	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -24,6 +29,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
+	"github.com/cloudvane/litefactory/internal/webhook"
 )
 
 // Setup is what building a real daemon needs from the machine.
@@ -33,6 +39,8 @@ import (
 // token is read exactly once, by the command, and held for the process
 // lifetime. Nothing below re-resolves it, and there is no path here that could.
 type Setup struct {
+	// DoctorHost installs factory-owned local lifecycle control; nil keeps it unavailable.
+	DoctorHost *DoctorHostOptions
 	// Paths is the resolved $LF_HOME layout. Required.
 	Paths config.Paths
 	// Config is the validated config.yaml. Required.
@@ -56,6 +64,11 @@ type Setup struct {
 	Environ []string
 	// Now is the clock, passed through to the daemon. Nil means time.Now.
 	Now func() time.Time
+	// WebhookSecrets resolves per-repository webhook secrets. The zero value
+	// uses the real keychain; tests substitute the lookup.
+	WebhookSecrets secrets.Resolver
+	// LogSink rotates daemon.log for housekeeping. Nil skips daemon.log rotation.
+	LogSink LogRotator
 }
 
 // Startup is what the daemon resolved at boot.
@@ -70,8 +83,14 @@ type Startup struct {
 	// InstanceID is this process's identity, and what task locks are held
 	// under.
 	InstanceID string
-	// Interval is the tick interval in force.
+	// Interval is the heartbeat interval in force: the fixed internal tick
+	// that runs all local work.
 	Interval time.Duration
+	// DiscoveryInterval is the fallback poll interval in force: how often the
+	// forge listing runs between heartbeats. It is reported on its own line.
+	DiscoveryInterval time.Duration
+	// WebhookAddr is the bound webhook listener address, empty when off.
+	WebhookAddr string
 	// MaxConcurrentRuns is how many runs may be in flight at once, daemon-wide
 	// (D2). It is printed for the same reason the interval is: the number that
 	// decides how hard this machine will be worked should be visible at boot,
@@ -132,13 +151,16 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
-	interval := time.Duration(s.Config.Settings.PollIntervalSeconds) * time.Second
-	if interval < MinInterval || interval > MaxInterval {
+	// The heartbeat is fixed internal behaviour, not configuration; the
+	// operator's interval is the discovery poll, checked again here.
+	interval := DefaultInterval
+	pollMinutes := s.Config.Settings.PollIntervalMinutes
+	if pollMinutes < config.MinPollIntervalMinutes || pollMinutes > config.MaxPollIntervalMinutes {
 		return nil, Startup{}, invalidOptions(
-			"poll_interval_seconds is %d, which is outside the supported range %d..%d",
-			s.Config.Settings.PollIntervalSeconds,
-			int(MinInterval.Seconds()), int(MaxInterval.Seconds()))
+			"settings.poll_interval_minutes is %d, which is outside the supported range %d..%d",
+			pollMinutes, config.MinPollIntervalMinutes, config.MaxPollIntervalMinutes)
 	}
+	discoveryInterval := time.Duration(pollMinutes) * time.Minute
 
 	// Re-clamped here even though config validation already refused anything
 	// out of range, for the same reason the interval above is: Open is reached
@@ -205,10 +227,17 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
+	// Published comments never carry paths on this host: the home directory holds
+	// the factory state, instruction bundles and worktrees.
+	var hostRoots []string
+	if home, homeErr := os.UserHomeDir(); homeErr == nil {
+		hostRoots = append(hostRoots, home)
+	}
 	renderer, err := report.New(report.Options{
-		Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}),
-		Limit:    github.CommentSizeLimit,
-		Logger:   s.Logger,
+		Redactor:  redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}),
+		Limit:     github.CommentSizeLimit,
+		Logger:    s.Logger,
+		HostRoots: hostRoots,
 	})
 	if err != nil {
 		return nil, Startup{}, err
@@ -243,9 +272,35 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
-	lock, err := AcquireLock(s.Paths.LockPath())
+	var lock *Lock
+	if s.DoctorHost != nil && s.DoctorHost.Recovery != nil {
+		lock, err = WaitDoctorRecoveryLock(ctx, s.DB, s.Paths, *s.DoctorHost.Recovery)
+	} else {
+		lock, err = AcquireLock(s.Paths.LockPath())
+	}
 	if err != nil {
 		return nil, Startup{}, err
+	}
+
+	// The webhook listener is bound right after the lock: a port that is taken
+	// fails start-up here, before any work exists, and gives the lock back. A
+	// doctor repair host never reaches this: it is a helper process that does
+	// not call Open.
+	var webhookOpts *WebhookOptions
+	handedOver := false
+	if addr := s.Config.Webhook.Listen; addr != "" {
+		ln, listenErr := webhook.Listen(ctx, addr)
+		if listenErr != nil {
+			return nil, Startup{}, errors.Join(
+				fmt.Errorf("the webhook listener could not bind %s (webhook.listen in config.yaml; set it to another address or to \"\" to turn webhooks off): %w", addr, listenErr),
+				lock.Close())
+		}
+		defer func() {
+			if !handedOver {
+				_ = ln.Close()
+			}
+		}()
+		webhookOpts = &WebhookOptions{Listener: ln, Secrets: s.WebhookSecrets}
 	}
 
 	// Built once and reused for both NewExecutor and NewConfirmApplier
@@ -341,8 +396,64 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Logger:                    s.Logger,
 	}
 
+	var isolation bugchecks.Isolation
+	if profile := s.Config.BugChecks; profile != nil {
+		allowed := make(map[string]bool, len(profile.Environment))
+		for _, name := range profile.Environment {
+			allowed[name] = true
+		}
+		values := make(map[string]string, len(allowed))
+		for _, entry := range environ {
+			name, value, found := strings.Cut(entry, "=")
+			if found && allowed[name] {
+				values[name] = value
+			}
+		}
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return nil, Startup{}, errors.Join(fmt.Errorf("resolve operator home for Bug checks: %w", homeErr), lock.Close())
+		}
+		// Daemon state and credentials are never readable by a check, whatever
+		// the operator lists.
+		deny := append([]string{filepath.Clean(s.Paths.Home())}, profile.DenyRead...)
+		isolation = bugchecks.Isolation{Binary: profile.Binary, WritableRoots: append([]string(nil), profile.WritableRoots...), DenyRead: deny, PATH: profile.PATH, Home: home, Environment: values, Network: profile.Network}
+		// Hash the actual operator profile, including declared values, without
+		// retaining or exposing those values in check evidence.
+		encoded, encodeErr := json.Marshal(isolation)
+		if encodeErr != nil {
+			return nil, Startup{}, errors.Join(encodeErr, lock.Close())
+		}
+		digest := sha256.Sum256(encoded)
+		isolation.Revision = hex.EncodeToString(digest[:])
+	}
+	// The bug-fixer's self-check tools run under the same operator sandbox
+	// profile as the factory's own final check; a zero value here (no profile
+	// configured) simply makes self-checking unavailable, never blocking the
+	// fixer.
+	mcpRuntime.BugChecksIsolation = isolation
+	bugRuntime, err := turn.NewBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
+		Forge: client, OwnerID: identities.OwnerUserID,
+		Permissions: bugRolePermissions(toolProfiles, toolCeiling), Isolation: isolation,
+	})
+	if err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
+	turnOpts.Bug = bugRuntime
 	daemon, err := New(Options{
-		Retirement:               RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
+		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
+		Bug:        bugRuntime,
+		BugTests:   bugRuntime.Child,
+		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
+		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
+			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,
+		})}},
+		Housekeeping: HousekeepingOptions{
+			DBPath:           s.Paths.DBPath(),
+			DeployBackupKeep: s.Config.Settings.DeployBackupKeep,
+			LogsDir:          s.Paths.LogsDir(),
+			LogRetainDays:    s.Config.Settings.LogRetainDays,
+			LogSink:          s.LogSink,
+		},
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		DB:                       s.DB,
 		Forge:                    client,
@@ -369,12 +480,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// a Coding Agent label is judged against exactly the implementations
 		// this run could actually be dispatched to — never a second, looser
 		// notion of "known agent" kept in step by hand.
-		Agents:       runners,
-		Classifiers:  classifiers,
-		DefaultAgent: defaultAgent,
-		ToolCeiling:  toolCeiling,
-		InstanceID:   instanceID,
-		Interval:     interval,
+		Agents:            runners,
+		Classifiers:       classifiers,
+		DefaultAgent:      defaultAgent,
+		ToolCeiling:       toolCeiling,
+		InstanceID:        instanceID,
+		Interval:          interval,
+		DiscoveryInterval: discoveryInterval,
+		Webhook:           webhookOpts,
 		// Nothing spends the slots yet; carrying the value from here means the
 		// pool, when it lands, reads a number that has been clamped three times.
 		MaxConcurrentRuns: maxRuns,
@@ -386,12 +499,39 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
+	handedOver = true
+	if daemon.webhook != nil {
+		// Secrets are loaded once here; the heartbeat only retries the missing.
+		now := s.Now
+		if now == nil {
+			now = time.Now
+		}
+		daemon.webhook.refresh(ctx, registered, now())
+	}
 	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
+	daemon.doctorHostOptions = s.DoctorHost
+	diagnosisProviders := make(map[string]agent.DoctorRunner)
+	repairProviders := make(map[string]agent.DoctorRepairRunner)
+	for kind, runner := range runners {
+		if native, ok := runner.(agent.DoctorRunner); ok {
+			diagnosisProviders[string(kind)] = native
+		}
+		if native, ok := runner.(agent.DoctorRepairRunner); ok {
+			repairProviders[string(kind)] = native
+		}
+	}
+	daemon.doctor.service.Runner = &doctor.Adapters{Providers: diagnosisProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
+	daemon.doctor.service.RepairRunner = &doctor.RepairAdapters{Providers: repairProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
+	if s.DoctorHost != nil {
+		daemon.doctor.service.RepairEnvironment = &DoctorRepairEnvironment{DB: s.DB, Paths: s.Paths, Live: daemon, Replacement: s.DoctorHost.Replacement}
+		daemon.doctor.service.RestartRoute = &DoctorHostRestart{DB: s.DB, Paths: s.Paths, Live: &DoctorLocalControl{Paths: s.Paths}, Replacement: s.DoctorHost.Replacement}
+	}
 
 	startup := Startup{
 		DefaultAgent:      defaultAgent,
 		InstanceID:        instanceID,
 		Interval:          interval,
+		DiscoveryInterval: discoveryInterval,
 		MaxConcurrentRuns: maxRuns,
 		Home:              s.Paths.Home(),
 		LockPath:          lock.Path(),
@@ -400,6 +540,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		GitVersion:        gitBinary.Version(),
 		Identities:        identities,
 		Repos:             len(registered),
+	}
+	if daemon.webhook != nil {
+		startup.WebhookAddr = daemon.webhook.ln.Addr().String()
 	}
 	if claude != nil {
 		startup.Claude = claude.Binary()

@@ -12,6 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/codex"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -40,9 +41,12 @@ type preparation struct {
 	// graph run. It scopes the application result, so each instance authors
 	// its own rather than revising whatever the task already held.
 	researchInstance int64
-	repo             store.Repo
-	session          store.Session
-	ref              naming.Ref
+	// nodeWrite scopes the trusted result context to a write-access node.
+	nodeWrite  bool
+	resultPass string
+	repo       store.Repo
+	session    store.Session
+	ref        naming.Ref
 
 	author   git.Author
 	worktree *git.Worktree
@@ -349,6 +353,9 @@ func prepare(
 
 	// Derive current and previous question permission with the same mode policy.
 	mayAsk := questionPermission(req.mode(), req.Command)
+	if req.workflowPolicy != nil && req.workflowPolicy.Questions {
+		mayAsk = !forbidsQuestions(req.Command.Text) && !req.noQuestions
+	}
 
 	// Attachments are fetched here: after the worktree and the runs row
 	// exist — the landing directory is named for this run's ordinal — and
@@ -376,6 +383,7 @@ func prepare(
 		FeatureSlug:       session.FeatureSlug,
 		Branch:            branch,
 		Mode:              req.mode(),
+		Workflow:          req.Workflow,
 		RunOrdinal:        run.Ordinal,
 		Instruction:       req.Command.Text,
 		IssueTitle:        req.Issue.Title,
@@ -402,12 +410,15 @@ func prepare(
 	if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
 		return nil, err
 	}
-	if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
-		return nil, err
+	if req.researchDefinition == nil {
+		if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
+			return nil, err
+		}
+		if err := preparePlanAttempt(worktree.Path(), session.Branch, run, &promptInput, logger); err != nil {
+			return nil, err
+		}
 	}
-	if err := preparePlanAttempt(worktree.Path(), session.Branch, run, &promptInput, logger); err != nil {
-		return nil, err
-	}
+
 	if err := prepareRefinementContext(ctx, opts, req, &promptInput); err != nil {
 		return nil, err
 	}
@@ -423,6 +434,7 @@ func prepare(
 	// pointer only on the cold path — see [harness.PromptInput.SessionArtifactDir]).
 	promptInput.SessionArtifactDir, promptInput.SessionArtifactBrief =
 		existingSessionArtifacts(worktree.Path(), branch, ref.Issue, run.StartedAt, req.mode(), logger)
+	promptInput.SessionArtifactTechnical = existingSessionTechnical(worktree.Path(), promptInput.SessionArtifactDir, req.mode())
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)
@@ -482,6 +494,8 @@ func prepare(
 
 	return &preparation{
 		researchInstance: req.researchInstance,
+		nodeWrite:        req.nodeWrite,
+		resultPass:       req.resultPass,
 		resumeOnly:       req.Continuation != nil,
 		repo:             repo,
 		session:          session,
@@ -522,6 +536,7 @@ func prepare(
 				Resume: segment.ResumeToken,
 			},
 			Mode:         req.mode(),
+			Workflow:     req.Workflow,
 			Path:         path,
 			WorktreePath: worktree.Path(),
 			Prompt:       prompt,
@@ -1181,6 +1196,9 @@ func commentHistory(
 	var previousTriggerBody string
 	history := make([]harness.HistoryEntry, 0, len(comments))
 	for _, comment := range comments {
+		if _, ok := doctor.ParseCommand(comment.Body); ok {
+			continue
+		}
 		// Matched before the trigger is skipped, not after. The two ids are
 		// different on every path that reaches here — a comment that has already
 		// produced a run cannot produce a second one — but a match that depended
@@ -1587,6 +1605,7 @@ func allocateRun(
 		SessionID: session.ID,
 		SegmentID: segment.ID,
 		Mode:      req.mode(),
+		Workflow:  req.storedWorkflow(),
 		// The segment's own value, never req.Agent recomputed: by the time
 		// this is called, segment.Agent is already guaranteed to equal
 		// resolvedKind — prepareDeliverySegment reconciles an ordinary turn's

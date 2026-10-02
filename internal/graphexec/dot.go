@@ -70,6 +70,7 @@ func ParseProfile(data []byte) (*Profile, error) {
 	}
 	p.Team = p.Attrs["team"]
 	p.Mode = agent.Mode(p.Attrs["mode"])
+	p.Workflow = agent.Workflow(p.Attrs["workflow"])
 	p.Start = p.Attrs["start"]
 	if value, exists := p.Attrs["profile_version"]; exists {
 		p.ProfileVersion, err = strconv.Atoi(value)

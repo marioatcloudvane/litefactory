@@ -13,7 +13,7 @@ Read supporting contracts only when relevant and not already supplied in full.
 | Plan | `plan-orchestrator` |
 | Implement | `implement-orchestrator` |
 | Validate | `go-code-reviewer`, read-only contract |
-| Spike | nobody — read `docs/workflow/spike.md` and do it here |
+| Spike | nobody here — the factory runs the graph in `docs/workflow/spike.md`; never execute it in this session |
 
 Outside Validate, scaffold `$session` per `docs/workflow/session.md` first, then
 pass the request, `$session` and any factory-supplied frozen stories inline.

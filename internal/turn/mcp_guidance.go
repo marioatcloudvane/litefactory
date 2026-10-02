@@ -66,7 +66,7 @@ func mcpGuidance(ctx context.Context, spec *agent.MCPLaunchSpec, service *AgentR
 		b.WriteString("activity_get({}) reads current advisory activity, which may be unavailable after restart.\n")
 	}
 	if has("issues_create_prepare") {
-		b.WriteString("\nCreation proposal: call issues_create_prepare only when the owner's request asks for issues or stories to be created. Send 1 to 5 drafts, {\"drafts\":[{\"title\":T,\"body\":B}]}; relationship defaults to linked and attach makes each draft a sub-issue of this source issue. The factory fills repository, source and version, so do not send them. A proposal over about 48000 bytes in total is refused whole, never truncated: shorten it or split the work. It only drafts: the factory retains the proposal and presents it to the owner after this run, and nothing is published. It grants no approval and no publication, and you cannot approve, publish or create issues with it; never write or quote an approval command. Advice, not a rule: prefer splitting large work into several focused drafts; this never blocks a proposal. Report the returned hash, relationship and draft count, and that the owner decides.\n")
+		b.WriteString("\nCreation proposal: call issues_create_prepare only when the owner's request asks for issues or stories to be created. Send 1 to 5 drafts, {\"drafts\":[{\"title\":T,\"body\":B}]}; relationship defaults to linked and attach makes each draft a sub-issue of this source issue. The factory fills repository, source and version, so do not send them. A proposal over about 48000 bytes in total is refused whole, never truncated: shorten it or split the work. It only drafts: the factory retains the proposal and presents it to the owner after this run, and nothing is published by you. When the owner approves it, the factory publishes the issues itself, in any mode; no further run or comment is needed. It grants no approval and no publication, and you cannot approve, publish or create issues with it; never write or quote an approval command. Advice, not a rule: prefer splitting large work into several focused drafts; this never blocks a proposal. Report the returned hash, relationship and draft count, and that the owner decides.\n")
 	}
 	if has("issues_create_batch", "feedback_preflight", "receipts_get") {
 		b.WriteString("\nCreation: only an exact reviewed batch with its separate live factory grant may use feedback_preflight({\"kind\":\"creation\",\"input\":B}) → issues_create_batch(B) → receipts_get. Tool visibility alone is not creation approval.\n")
@@ -154,12 +154,34 @@ func mcpApplicationExample(ctx context.Context, service *AgentResultService) (co
 	}
 	r := agentresult.Result{Outcome: "incomplete", Comment: "Replace with the actual result summary.", Reason: "Describe what remains."}
 	switch service.binding.Mode {
+	case "":
+		if service.binding.Workflow != "bug" {
+			return nil, nil, errors.New("MCP guidance has unsupported workflow")
+		}
+		scope, e := service.trustedContext(ctx)
+		if e != nil {
+			return nil, nil, e
+		}
+		if scope.Bug == nil {
+			return nil, nil, errors.New("bug guidance has no bound role")
+		}
+		r.Outcome = "blocked"
+		r.Payload.Bug = &agentresult.Bug{Response: "blocked", Invocation: scope.Bug.Invocation, BaseRevision: scope.Bug.BaseRevision, Evidence: []string{"Replace with retained obstacle evidence."}}
 	case "research":
 		r.Payload.Research = &agentresult.Research{Request: "Describe the actual research request."}
 	case "spike":
 		r.Payload.Spike = &agentresult.Spike{Request: "Describe the bounded exploration."}
 	case "plan":
-		r.Payload.Plan = &agentresult.Plan{Summary: "Describe current planning discussion."}
+		// An unreadable context falls back to the legacy example: the example is
+		// illustrative, and authority is judged where the result is submitted.
+		if c, contextErr := service.trustedContext(ctx); contextErr == nil && c.PlanGraph != nil {
+			// A graph Plan asks with questions and no story branch. The done shape
+			// (storyrequest or storyset) is in the node-result contract.
+			r.Payload.Plan = &agentresult.Plan{}
+			r.Questions = []agentresult.Question{{ID: "q-1", Audience: "business", Text: "Replace with the question that blocks the story."}}
+		} else {
+			r.Payload.Plan = &agentresult.Plan{Summary: "Describe current planning discussion."}
+		}
 	case "implement":
 		r.Payload.Implement = &agentresult.Implement{}
 	case "validate":

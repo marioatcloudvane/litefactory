@@ -16,6 +16,7 @@ const automaticTriggerBase int64 = 1 << 61
 // ContinuationContext snapshots identity and the original instruction, never
 // credentials or current permissions. Admission resolves permissions afresh.
 type ContinuationContext struct {
+	Workflow                                             string `json:",omitempty"`
 	Task, Worktree, Agent, Mode, Request, ResumeIdentity string
 	SessionRef                                           string
 	SegmentOrdinal                                       int
@@ -98,7 +99,7 @@ func (db *DB) FinishInterruptedRun(ctx context.Context, runID int64, outcome Run
 			return e
 		}
 		var graph bool
-		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.run_id=? AND d.mode='research')`, runID).Scan(&graph); e != nil {
+		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.run_id=? AND d.mode IN ('research','spike'))`, runID).Scan(&graph); e != nil {
 			return e
 		}
 		if intent == nil || graph {

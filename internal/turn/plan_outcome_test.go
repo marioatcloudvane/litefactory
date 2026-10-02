@@ -42,6 +42,7 @@ func writeCompletedProposal(t *testing.T, req agent.Request) {
 func setupOutcomeForge(t *testing.T, f *fixture) *lifecycleForge {
 	t.Helper()
 	// These runner fixtures author the legacy version-1 file handoff.
+	admitLegacyPlanFixture(t, f)
 	mustProgress(t, f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}))
 	mustProgress(t, f.db.BindFeatureContract(t.Context(), store.FeatureContract{Parent: f.session.TaskRef, Generation: 1, ContentVersion: 1, SubmissionVersion: 1}))
 	forge := &lifecycleForge{progressForge: progressForge{children: map[int]github.Issue{}, comments: map[int][]github.Comment{}}}
@@ -454,5 +455,16 @@ func TestPlanArtifactRejectsChangedPinnedSnapshot(t *testing.T) {
 				t.Fatal("unstable descriptor accepted")
 			}
 		})
+	}
+}
+
+// admitLegacyPlanFixture pins fixtures that deliberately exercise the retained
+// pre-graph file transport. New Plan graph fixtures do not call this helper.
+func admitLegacyPlanFixture(t *testing.T, f *fixture) {
+	t.Helper()
+	route, err := f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "legacy")
+	mustProgress(t, err)
+	if route != "legacy" {
+		t.Fatalf("legacy fixture already admitted %q", route)
 	}
 }

@@ -367,7 +367,7 @@ func validateToolProfiles(c *Claude, profiles map[string]ToolProfile) []error {
 	for _, name := range sortedProfileNames(profiles) {
 		profile := profiles[name]
 		if !profileKeyRE.MatchString(name) {
-			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, or validate", name))
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, validate, or a bug or spike role", name))
 		}
 
 		if profile.Claude == nil && profile.Codex == nil {
@@ -413,8 +413,10 @@ func validatePermissionProfiles(c *Config) []error {
 		}
 	}
 	for _, name := range sortedProfileNames(profiles) {
-		if !slices.Contains(canonicalPermissionProfiles, name) {
-			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, or validate", name))
+		if name == "bug-analyst" || name == "bug-fixer" || name == SpikeInvestigatorProfile || name == SpikeFixerProfile {
+			errs = append(errs, validateBugRoleProfile(c, name, profiles[name])...)
+		} else if !slices.Contains(canonicalPermissionProfiles, name) {
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, validate, or a bug or spike role", name))
 		}
 	}
 	if c.Agents.Claude != nil {
@@ -427,6 +429,76 @@ func validatePermissionProfiles(c *Config) []error {
 		}
 		if profile.Codex != nil && profile.Codex.Sandbox != "read-only" {
 			errs = append(errs, errors.New("tool_profiles.permissions[\"validate\"].codex.sandbox: validate must use read-only"))
+		}
+	}
+	return errs
+}
+
+// BugRoleClaudeTools is the complete Claude tool surface a Bug or Spike role
+// may be granted. The analyst and investigator only read. The Bug fixer works
+// like an Implement engineer: it edits, runs the build and tests itself and may
+// delegate or look things up; the factory's own check stays the final gate.
+// The Spike fixer edits but has no shell, delegation or network tools.
+func BugRoleClaudeTools(role string) []string {
+	switch role {
+	case "bug-analyst", SpikeInvestigatorProfile:
+		return []string{"Read", "Glob", "Grep"}
+	case "bug-fixer":
+		return []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write", "Bash", "Task", "SendMessage", "WebFetch", "WebSearch"}
+	case SpikeFixerProfile:
+		return []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write"}
+	default:
+		return nil
+	}
+}
+
+// ClaudeToolName is the tool a permission rule names: "Bash(go test:*)" is
+// a rule for Bash.
+func ClaudeToolName(rule string) string {
+	name, _, _ := strings.Cut(rule, "(")
+	return name
+}
+
+// Spike graph roles are bound by these two independent operator grants; no
+// other mode's profile ever supplies them. The fixer profile is the mode
+// ceiling every Spike node is narrowed from, and the investigator profile may
+// never exceed it. Configurations without both roles still load, and Spike work
+// is then refused before any agent is dispatched.
+const (
+	SpikeInvestigatorProfile = "spike-investigator"
+	SpikeFixerProfile        = "spike-fixer"
+)
+
+// Bug and Spike roles are optional independent operator grants, never mode
+// aliases. Older configurations remain valid; absent roles block only that
+// workflow's dispatch.
+func validateBugRoleProfile(c *Config, name string, profile ToolProfile) []error {
+	var errs []error
+	if profile.Attachments {
+		errs = append(errs, fmt.Errorf("%s cannot grant attachment ingestion", name))
+	}
+	if profile.Claude == nil && profile.Codex == nil {
+		errs = append(errs, fmt.Errorf("%s requires an explicit configured agent", name))
+	}
+	if profile.Claude != nil {
+		if c.Agents.Claude == nil {
+			errs = append(errs, fmt.Errorf("%s has no supported configured Claude capability surface", name))
+		}
+		allowed := BugRoleClaudeTools(name)
+		for _, tool := range append(slices.Clone(profile.Claude.Tools), profile.Claude.AllowedTools...) {
+			if !slices.Contains(allowed, ClaudeToolName(tool)) {
+				errs = append(errs, fmt.Errorf("%s permits only %s", name, strings.Join(allowed, ", ")))
+				break
+			}
+		}
+	}
+	if profile.Codex != nil {
+		want := "read-only"
+		if name == "bug-fixer" || name == SpikeFixerProfile {
+			want = "workspace-write"
+		}
+		if c.Agents.Codex == nil || profile.Codex.Sandbox != want {
+			errs = append(errs, fmt.Errorf("%s requires configured Codex with sandbox %s", name, want))
 		}
 	}
 	return errs

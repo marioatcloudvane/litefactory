@@ -31,6 +31,7 @@ type ResearchBriefActivity struct {
 }
 
 type researchGeneration struct {
+	DocumentFormat   string                 `json:"document_format,omitempty"`
 	Action           string                 `json:"research_generation"`
 	AttemptID        int64                  `json:"attempt_id"`
 	SourceAttemptID  int64                  `json:"source_attempt_id"`
@@ -46,7 +47,7 @@ func ResearchBriefSpec() graphexec.ActionSpec {
 	return graphexec.ActionSpec{Name: ResearchBriefAction, Mode: agent.ModeResearch, Outcomes: []string{"success", "failed"}}
 }
 
-func registerResearchBrief(specs *graphexec.Registry, activities *ActivityRegistry, profile *graphexec.Profile, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), destinations func() (string, string, error)) error {
+func registerResearchBrief(specs *graphexec.Registry, activities *ActivityRegistry, profile *graphexec.Profile, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), destinations func() (string, string, error), _ WorkflowEnv) error {
 	if err := specs.Register(ResearchBriefSpec()); err != nil {
 		return err
 	}
@@ -122,7 +123,7 @@ func (h ResearchBriefActivity) Execute(ctx context.Context, opts Options, req Ac
 	if err != nil {
 		return fail(err)
 	}
-	raw, err := json.Marshal(researchGeneration{Action: ResearchBriefAction, AttemptID: attempt.ID, SourceAttemptID: source.ID, SourceRunID: source.RunID, DefinitionDigest: pin.Digest, CandidateDigest: digest, Session: session, Artifacts: generated})
+	raw, err := json.Marshal(researchGeneration{DocumentFormat: researchDocumentFormat, Action: ResearchBriefAction, AttemptID: attempt.ID, SourceAttemptID: source.ID, SourceRunID: source.RunID, DefinitionDigest: pin.Digest, CandidateDigest: digest, Session: session, Artifacts: generated})
 	if err != nil {
 		return fail(err)
 	}
@@ -233,7 +234,16 @@ func requireResearchBriefContinuation(ctx context.Context, db *store.DB, source 
 		return err
 	}
 	defer root.Close()
-	for _, document := range []struct{ name, body string }{{ResearchBriefName, renderResearchBrief(candidate)}, {ResearchTechnicalName, renderResearchTechnical(candidate)}} {
+	var brief string
+	switch generation.DocumentFormat {
+	case "":
+		brief = renderLegacyResearchBrief(candidate)
+	case researchDocumentFormat:
+		brief = renderResearchBrief(generation.Session, candidate)
+	default:
+		return fmt.Errorf("unknown research document format %q", generation.DocumentFormat)
+	}
+	for _, document := range []struct{ name, body string }{{ResearchBriefName, brief}, {ResearchTechnicalName, renderResearchTechnical(candidate)}} {
 		file, err := root.OpenFile(path.Join(generation.Session, document.name), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 		if err != nil {
 			return err

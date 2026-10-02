@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/render"
 )
@@ -54,7 +55,7 @@ func NativeWorkflow(kind string, node WorkflowNode, model string, allowedTools [
 			tools = append(tools, tool)
 		}
 	}
-	role, err := render.Native(kind, render.NativeRole{Source: node.Role, Model: model, Tools: tools, Skills: names}, sandbox)
+	role, err := render.Native(kind, render.NativeRole{Source: node.Role, Model: model, Tools: tools, Skills: names, InheritTools: node.Role.Frontmatter.Tools == nil}, sandbox)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +72,7 @@ func NativeWorkflow(kind string, node WorkflowNode, model string, allowedTools [
 			result = append(result, render.RenderedFile{Path: "plugin/skills/" + path.Base(skill) + "/" + strings.TrimPrefix(name, prefix), Bytes: slices.Clone(raw)})
 		}
 	}
-	result = append(result, render.RenderedFile{Path: "plugin/.claude-plugin/plugin.json", Bytes: []byte("{\"name\":\"litefactory-workflow\",\"version\":\"1.0.0\"}\n")})
+	result = append(result, render.RenderedFile{Path: "plugin/.claude-plugin/plugin.json", Bytes: []byte("{\"name\":\"" + agent.DeliveryPlugin + "\",\"version\":\"1.0.0\"}\n")})
 	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
 	return result, nil
 }

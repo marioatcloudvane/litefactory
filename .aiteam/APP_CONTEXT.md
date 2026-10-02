@@ -27,7 +27,7 @@ Arrows point at what a package imports (litefactory packages only).
 
 ```
 config, naming, store, git, secrets, identity, launchd, logging, render,
-gittest, planbrief, attach, schedule → leaves
+gittest, planbrief, attach, schedule, webhook → leaves
 
 agent         → naming
 meter         → agent              pure normalization, reconciliation, capability diagnostics and exact pricing
@@ -40,9 +40,9 @@ harness       →  agent, config, meter, naming
 report        →  agent, git, naming, redact
 repos         →  git, naming, store
 turn          →  agent, attach, codex, config, git, github, harness, meter, naming, planbrief, redact, report, store
-daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn
+daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn, webhook
 teamsource    →  render, repos, store, team   resolves + renders a team's roster (3-tier index precedence)
-cli           →  agent, config, daemon, git, github, identity, launchd, meter, naming, report, repos, secrets, store, team, teamsource
+cli           →  agent, config, daemon, git, github, identity, launchd, meter, naming, report, repos, secrets, store, team, teamsource, webhook, webhookreg
 cmd/litefactory → cli, config, logging
 ```
 
@@ -126,13 +126,18 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | approve a linked follow-up | `turn/followups.go`, `store/followups.go`, `github/followups.go` | Concrete proposal, separate creation/attachment controls and uncertain-response reconciliation |
 | deliver accepted work to main | `turn/feature_delivery.go`, `store/delivery.go`, `github/delivery.go` | All-child readiness, retained full reports, explicit PR/head approval, confirmed integration then parent closure; `docs/workflow/delivery.md` |
 | continue or complete a managed Plan | `turn/plan_attempt.go`, `turn/plan_context.go`, `turn/plan_handoff.go`, `planbrief/outcome.go` | Strict per-attempt discussion/completed outcome; identity-bound `PLAN_CONTEXT.json` supports dates/resume/fallback; completed proposal v1 publishes and saves a link-only index before readiness; exact fields in `docs/plan-outcome.md` |
+| return, validate and retain an agent's mode or graph-node result | The shared result route: `communication_preflight`/`communication_submit`/`communication_receipt` over `turn.AgentResultService` (`turn/agent_results.go`, `turn/mcp_*.go`); `agentresult` validators (`agentresult/plan_graph.go` for graph Plan) | Never parse terminal text for application data or effect inputs. `WorkflowPolicy.Admit` and the closed `RegisteredWorkflowPolicies` (`turn/workflow_policy.go`, `workflow_registry.go`) admit a mode; `AgentActivity.acceptRetained` (`turn/research_agent.go`) is the runtime boundary that reads the retained accepted result and uses the terminal envelope only to confirm completion/consistency. Enforced today for Research and graph Plan; Bug and graph Implement/Validate/Spike register a policy from introduction (CONC-24). Legacy Plan v1, submission-v1 scopes and unmanaged Implement/Validate keep their compatibility routes; graph Plan is still held back for new sessions |
 | derive asynchronous question permission | `turn/ask.go:questionPermission`, shared `harness.BuildPrompt` and `agent.Request` | Research and Plan default on, legacy infer stays tagged, recognized direct no-question instructions win; current/previous policies and framed saved context reach both runners |
 | retain and switch the selected mode | `daemon/mode.go`, `store/modes.go` | Canonical labels persist through runs/recovery; explicit owner commands replace a valid selection through durable confirmed transitions; journal retirement preserves labels and uses independent child consumption |
 | locate agent workflow instructions | `.claude/agents/`, `.claude/modes/`, `.codex/skills/` | Claude sources and Codex skill copies agree on persistent Plan discussion; harness-specific workflow references remain distinct |
+| measure and check a Spike fix, or file its too-big follow-up | `turn/spike_check.go`, `turn/spike_issue.go`, `store/spike_records.go`, `git.Worktree.ChangedSince` | Union of committed diff and worktree status against the gate-saved HEAD; recipe phases the DOT names run through `bugchecks.Isolation.Run` from the pinned `.litefactory/bug-checks.yaml`; issue filing keeps a durable intent and a hidden marker and never recreates blindly |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | dispatch, diagnose and join polling workers | `daemon/tick.go`, `daemon/worker.go` | `Tick` admission sources and worker/forge counter aliases; `runWorker` lifetime diagnostics and executor-request count; `Quiesce` joins cleanup and diagnostics |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
+| receive GitHub webhook deliveries | `internal/webhook`; `daemon/webhook.go` | Stdlib-only handler (fixed check order, identical 401s, no payload leaves it) gets a read-only `Lookup` and a `Wake` sink; the daemon owns the keychain secret cache, the bounded hint set and the wake channel. Hints are drained in `Tick` through the budgeted issue read, source `webhook` |
+| register or repair a repo's GitHub webhook | `internal/webhookreg`; `cli/cmd_repo_webhook.go` | `Registrar.Ensure` reports every problem in a `Result`, never an error; secret written to the keychain (`secrets.Writer`, stdin only) before any GitHub call; hook id in `store.repo_webhooks`; `repo add` and `repo webhook <owner/name> \| --all` call it |
+| show webhook/poll health in `daemon status` | `daemon/health.go`, `store/daemon_health.go`, `cli/cmd_daemon_health.go`; migration `0092` | Display-only snapshot (`daemon_listener_status`, `repo_discovery_status`) written from `Tick` (deferred, only on change or after a failed write), replaced whole in one transaction; the CLI reads it open-read-close and nothing in the daemon reads it back. Mode words `webhook` / `webhook, no delivery yet` / `polling only` are `daemon.ModeWebhook*`; `Daemon.warnUnannounced` logs polled changes no hint announced (per-repo set in `discoverySchedule.Announce/Announced`) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
 
 ## Structured story contracts

@@ -3,6 +3,7 @@ package turn
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -173,6 +174,19 @@ func TestResearchAgentRealStorePrivateRetention(t *testing.T) {
 				}
 				if variant == "invalid" {
 					raw = `{"version":1,"response":"done"}`
+				} else {
+					// The agent submits its result through the shared route first; the
+					// terminal envelope only confirms it.
+					var node struct {
+						Result json.RawMessage `json:"result"`
+					}
+					if err := json.Unmarshal([]byte(raw), &node); err != nil {
+						t.Fatal(err)
+					}
+					submitted, err := service.Submit(ctx, "live-"+variant, append(append([]byte(`{"result":`), node.Result...), '}'))
+					if err != nil || !submitted.Validation.Valid {
+						t.Fatalf("live result: %+v %v", submitted, err)
+					}
 				}
 				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: raw}, nil
 			})

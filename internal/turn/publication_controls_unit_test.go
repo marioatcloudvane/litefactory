@@ -29,18 +29,12 @@ func TestMCPRuntime_PrepareCreationProposalRejectsUntrustedControls(t *testing.T
 		{"quoted control/refused", func(_ *MCPRuntime, c *OwnerGrantControl) { c.Body = "> " + c.Body }},
 		{"approval is not preparation/refused", func(_ *MCPRuntime, c *OwnerGrantControl) { c.Body = "/mcp-create abc linked" }},
 	}
-	for _, mode := range []string{"plan", "implement", "validate", "spike"} {
-		cases = append(cases, struct {
-			name   string
-			change func(*MCPRuntime, *OwnerGrantControl)
-		}{mode + "/refused", func(_ *MCPRuntime, c *OwnerGrantControl) { c.Mode = mode }})
-	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			// No store, forge, filesystem or receipt owner is installed. Rejected
-			// owner controls must never reach any persistence/publication boundary.
-			runtime := &MCPRuntime{BotID: 99, CreationAuthorizer: &CreationAuthorizer{enabled: true, ownerID: 42, botID: 99}}
+			// Observation establishes no prior success; new writes and forge effects
+			// remain unavailable for rejected controls.
+			runtime := &MCPRuntime{BotID: 99, CreationAuthorizer: &CreationAuthorizer{store: &store.CreationStore{}, sourceOutcomes: absentCreationOutcomes{}, enabled: true, ownerID: 42, botID: 99}}
 			control := valid
 			tt.change(runtime, &control)
 			got, err := runtime.PrepareCreationProposal(t.Context(), control)
@@ -65,7 +59,7 @@ func TestMCPRuntime_PrepareCreationProposalRejectsUnsupportedInput(t *testing.T)
 	for _, tt := range cases {
 		t.Run(tt.name+"/refused without persistence", func(t *testing.T) {
 			t.Parallel()
-			runtime := &MCPRuntime{BotID: 99, CreationAuthorizer: &CreationAuthorizer{enabled: true, ownerID: 42, botID: 99}}
+			runtime := &MCPRuntime{BotID: 99, CreationAuthorizer: &CreationAuthorizer{store: &store.CreationStore{}, sourceOutcomes: absentCreationOutcomes{}, enabled: true, ownerID: 42, botID: 99}}
 			control := OwnerGrantControl{Repository: "owner/repo", SourceTask: "github:owner/repo#264", Mode: "research", Body: "/mcp-create prepare " + tt.body, ActorID: 42, CommentID: 11, CreatedAt: time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)}
 			got, err := runtime.PrepareCreationProposal(t.Context(), control)
 			if err == nil || got.Hash != "" || len(got.Envelope.Artifacts) != 0 {

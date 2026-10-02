@@ -127,7 +127,7 @@ func TestCreate_Questions(t *testing.T) {
 					c.QuestionsAllowed = permission
 					r.Questions = []ar.Question{{ID: "Q-1", Audience: "business", Text: "Which option?", Options: []ar.Option{{ID: "O-1", Text: "Proceed"}}, RecommendedOption: "O-1"}}
 					d := ar.ValidateResult(r, c)
-					want := permission && (mode == "research" || mode == "plan") && outcome != "completed"
+					want := permission && (mode == "research" || mode == "plan" || mode == "spike") && outcome != "completed"
 					if d.Valid != want {
 						t.Fatalf("valid=%t want=%t: %+v", d.Valid, want, d)
 					}
@@ -419,8 +419,8 @@ func TestCreate_VersionedFixtures(t *testing.T) {
 			mode := strings.Split(name, "-")[0]
 			if strings.HasPrefix(name, "invalid-") {
 				mode = "research"
-				if name == "invalid-spike-question.json" {
-					mode = "spike"
+				if name == "invalid-implement-question.json" || name == "invalid-validate-question.json" {
+					mode = strings.Split(strings.TrimPrefix(name, "invalid-"), "-")[0]
 				}
 			}
 			_, ctx := createFixture(mode, "incomplete")
@@ -462,8 +462,8 @@ func TestCreate_VersionedFixtures(t *testing.T) {
 			}
 		})
 	}
-	if validCount != 16 {
-		t.Fatalf("valid fixture count=%d want=16 (15 mode/outcome plus questioning)", validCount)
+	if validCount != 13 {
+		t.Fatalf("valid fixture count=%d want=13 (12 mode/outcome plus questioning)", validCount)
 	}
 }
 func TestCreate_CompletedPlanOptionalNotes(t *testing.T) {

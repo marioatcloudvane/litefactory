@@ -112,8 +112,8 @@ func DecodeUpdate(data []byte) (UpdateInput, Diagnostics) {
 				add(&d, path, "operation", "valid operation members", "invalid shape", err.Error())
 			}
 			known := false
-			for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
-				if allowed(op.Target, EditTargets(mode), mode) {
+			for _, mode := range []string{"research", "plan", "implement", "validate", "spike", "bug"} {
+				if allowed(op.Target, maximumTargets(mode), mode) {
 					known = true
 					break
 				}
@@ -132,6 +132,8 @@ func DecodeUpdate(data []byte) (UpdateInput, Diagnostics) {
 func EditTargets(mode string) []Target {
 	fields := []string{"outcome", "comment", "reason", "recommendation", "questions", "artifacts"}
 	switch mode {
+	case "bug":
+		fields = append(fields, "payload.bug")
 	case "research":
 		fields = append(fields, "payload.research.request", "payload.research.findings", "payload.research.decisions", "payload.research.assumptions")
 	case "plan":
@@ -152,7 +154,7 @@ func EditTargets(mode string) []Target {
 	return out
 }
 func allowed(t Target, grants []Target, mode string) bool {
-	if !slices.ContainsFunc(EditTargets(mode), func(g Target) bool { return g.Field == t.Field }) || (t.Story != "" && !ValidID(t.Story)) || (t.ID != "" && !ValidID(t.ID)) {
+	if !slices.ContainsFunc(maximumTargets(mode), func(g Target) bool { return g.Field == t.Field }) || (t.Story != "" && !ValidID(t.Story)) || (t.ID != "" && !ValidID(t.ID)) {
 		return false
 	}
 	nested := strings.HasPrefix(t.Field, "payload.plan.stories.")
@@ -245,12 +247,12 @@ func ApplyUpdate(s Snapshot, retired RetiredIDs, input UpdateInput, ctx Context,
 		d.Diagnostics = checked
 		return PreparedUpdate{}, d
 	}
-	if s.Meta.Mode != ctx.Mode || s.Meta.SchemaVersion != SchemaVersion || s.Meta.ResultRevision < 1 {
+	if s.Meta.Mode != ctx.Mode || !resultWorkflowMatches(s.Meta, ctx) || s.Meta.SchemaVersion != SchemaVersion || s.Meta.ResultRevision < 1 {
 		return fail("scope", "Use a snapshot bound to the trusted mode and schema.")
 	}
 	if input.ExpectedRevision != s.Meta.ResultRevision {
 		for i, op := range input.Operations {
-			if allowed(op.Target, authorized, ctx.Mode) {
+			if allowed(op.Target, authorized, resultTargetScope(ctx)) {
 				d.Operations = append(d.Operations, UpdateFault{OperationIndex: i, Target: op.Target})
 			}
 		}
@@ -263,12 +265,15 @@ func ApplyUpdate(s Snapshot, retired RetiredIDs, input UpdateInput, ctx Context,
 	if err != nil {
 		return fail("encoding", "Supply a serializable baseline.")
 	}
+	// The factory's binding is not the agent's to edit, so the edit is judged
+	// without it and the binding current at this revision is recorded afterwards.
+	unbindPlanGraph(&r)
 	history := RetiredIDs{}
 	for k, v := range retired {
 		history[k] = slices.Clone(v)
 	}
 	for i, op := range input.Operations {
-		if !allowed(op.Target, authorized, ctx.Mode) {
+		if !allowed(op.Target, authorized, resultTargetScope(ctx)) {
 			d.Operations = append(d.Operations, UpdateFault{OperationIndex: i})
 			return fail("authorization", "Use only factory-authorized editable selectors.")
 		}
@@ -287,6 +292,7 @@ func ApplyUpdate(s Snapshot, retired RetiredIDs, input UpdateInput, ctx Context,
 	if !d.Valid {
 		return PreparedUpdate{}, d
 	}
+	bindPlanGraph(&r, ctx)
 	s.Result = r
 	s.Meta.ResultRevision++
 	return PreparedUpdate{Snapshot: s, Retired: history}, d
@@ -501,4 +507,11 @@ func identityInventory(r Result) map[string][]string {
 	}
 	walk(reflect.ValueOf(r), "result")
 	return out
+}
+
+func resultTargetScope(ctx Context) string {
+	if ctx.Workflow != "" {
+		return string(ctx.Workflow)
+	}
+	return ctx.Mode
 }

@@ -81,6 +81,7 @@ func TestPlanFailureRetainsTransportForRetry(t *testing.T) {
 				return result, nil
 			})
 			f = newFixture(t, runner)
+			admitLegacyPlanFixture(t, f)
 			mustProgress(t, f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}))
 			mustProgress(t, f.db.BindFeatureContract(t.Context(), store.FeatureContract{Parent: f.session.TaskRef, Generation: 1, ContentVersion: 1, SubmissionVersion: 1}))
 			f.opts.AutoSyncBase = true
@@ -108,7 +109,7 @@ func TestPlanFailureRetainsTransportForRetry(t *testing.T) {
 			}
 			advanceSyncBase(t, f.repo, 1)
 			phase = 1
-			req.Mode = agent.ModeSpike
+			req.Mode = agent.ModeResearch
 			req.Command = ParseCommand("finish retained work")
 			req.Trigger.Body = "finish retained work"
 			req.Trigger.CommentID++

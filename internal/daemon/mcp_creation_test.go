@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
@@ -48,7 +49,7 @@ func TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata(t *testing.T) {
 	}
 	good := github.Comment{ID: 1, Body: "/mcp-create " + hash + " linked", Author: github.User{ID: 10, Login: "owner"}, CreatedAt: now}
 	repo := github.Repo{Owner: "owner", Name: "api"}
-	for _, name := range []string{"gate off", "nonowner copied", "bot type", "bot identity", "claimed author", "quoted", "wrong repo", "wrong source", "wrong mode", "absent proposal", "wrong relationship", "edited", "stale", "before retained"} {
+	for _, name := range []string{"gate off", "nonowner copied", "bot type", "bot identity", "claimed author", "quoted", "wrong repo", "wrong source", "absent proposal", "wrong relationship", "edited", "stale", "before retained"} {
 		t.Run(name, func(t *testing.T) {
 			c := good
 			selected := a
@@ -74,8 +75,6 @@ func TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata(t *testing.T) {
 				target.Owner = "foreign"
 			case "wrong source":
 				issue = 279
-			case "wrong mode":
-				mode = "validate"
 			case "absent proposal":
 				c.Body = "/mcp-create " + strings.Repeat("f", 64) + " linked"
 			case "wrong relationship":
@@ -101,7 +100,10 @@ func TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata(t *testing.T) {
 		t.Fatalf("replay minted new intent %d/%d %v", id, again, err)
 	}
 	now = now.Add(30 * time.Minute)
-	if _, err = AdmitMCPOwnerCommand(t.Context(), a, repo, 278, "research", good); err == nil {
-		t.Fatal("exact deadline replay extended approval")
+	if again, err = AdmitMCPOwnerCommand(t.Context(), a, repo, 278, "research", good); err != nil || again != id {
+		t.Fatalf("expired admission recovery changed original intent %d/%d %v", id, again, err)
+	}
+	if _, _, err = cs.EligibleCreationIntent(t.Context(), envelope.SourceTask); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("exact deadline recovery renewed authority: %v", err)
 	}
 }

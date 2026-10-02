@@ -181,6 +181,7 @@ type DeferredSyncContext struct {
 // into the prompt; the ones documented as untrusted are neutralised and capped
 // first.
 type PromptInput struct {
+	Workflow agent.Workflow
 	// SubmissionVersion is the persisted factory content transport contract.
 	SubmissionVersion int
 	// DeferredSync discloses preserved edits on cold, resumed and fallback runs.
@@ -392,6 +393,9 @@ type PromptInput struct {
 	// is itself "", the admitted mode has no brief of its own, or the file the
 	// mode wants is not present.
 	SessionArtifactBrief string
+
+	// SessionArtifactTechnical is the verified optional Plan research evidence file.
+	SessionArtifactTechnical string
 }
 
 // BuildPrompt assembles the prompt sent to claude on stdin.
@@ -406,7 +410,12 @@ func BuildPrompt(in PromptInput) (string, error) {
 	if err := naming.ValidateSlug(in.FeatureSlug); err != nil {
 		return "", fmt.Errorf("%w: feature slug: %w", ErrInvalidPrompt, err)
 	}
-	if strings.TrimSpace(in.Mode) == "" {
+	if in.Workflow != "" {
+		if _, err := agent.ResolveWorkflow(in.Workflow, agent.Mode(in.Mode)); err != nil {
+			return "", fmt.Errorf("%w: prompt workflow: %w", ErrInvalidPrompt, err)
+		}
+	}
+	if strings.TrimSpace(in.Mode) == "" && in.Workflow != agent.WorkflowBug {
 		return "", fmt.Errorf("%w: mode is empty", ErrInvalidPrompt)
 	}
 	if in.RunOrdinal < 1 {
@@ -592,6 +601,9 @@ func writeExistingSessionArtifacts(b *strings.Builder, in PromptInput) {
 	} else {
 		b.WriteString("Read what is saved there before starting, if anything looks relevant.\n")
 	}
+	if technical := strings.TrimSpace(in.SessionArtifactTechnical); technical != "" {
+		fmt.Fprintf(b, "Read `%s/%s` for technical findings and evidence. Follow the research brief's Research documents list when available for additional evidence and reference data.\n", dir, technical)
+	}
 }
 
 // writeContextIntro writes the sentence that introduces the notes on the cold
@@ -647,7 +659,11 @@ func writeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	// internal/harness/prompt_body_test.go pin the Go string as written
 	// today, but those tests protect only this side of the contract — they
 	// do not, and cannot, protect the CLAUDE.md prose that reads it (AC-11).
-	fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
+	if in.Workflow == agent.WorkflowBug {
+		fmt.Fprintln(b, "- Workflow: bug")
+	} else {
+		fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
+	}
 	fmt.Fprintf(b, "- Feature slug: %s\n", in.FeatureSlug)
 	if in.Branch != "" {
 		fmt.Fprintf(b, "- Branch: %s\n", in.Branch)
@@ -786,7 +802,11 @@ func writeResumeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	// re-classifying. See writeHeader's comment for the mechanism and what a
 	// format drift breaks; no test here protects the CLAUDE.md side either
 	// (AC-11) — only the Go string is pinned.
-	fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
+	if in.Workflow == agent.WorkflowBug {
+		fmt.Fprintln(b, "- Workflow: bug")
+	} else {
+		fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
+	}
 	fmt.Fprintf(b, "- Feature slug: %s\n", in.FeatureSlug)
 
 	// AC-5.1/AC-5.2: stated right after the run's own identifying lines and

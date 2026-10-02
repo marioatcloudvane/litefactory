@@ -69,7 +69,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 	if d.sessionRecoveryHeld(session.ID, tickAt) {
 		return true
 	}
-	if !d.inflight.enter(session.ID) {
+	if !d.enterDoctorGuarded(ctx, session.ID) {
 		log.DebugContext(ctx, "scheduled work waits for this task's in-flight turn")
 		return true
 	}
@@ -112,7 +112,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 	t := &task{scheduled: &reserved, repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, issue: issue, session: session, ref: ref, log: log, tickAt: tickAt}
 	t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"due_schedule"}), slog.Time("tick_at", tickAt))
 	t.workerLog.DebugContext(ctx, "worker dispatched")
-	go d.runWorker(ctx, t, func() { d.runScheduled(ctx, t, reserved) })
+	go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.runScheduled(ctx, t, reserved) })
 	result.Dispatched++
 	return true
 }

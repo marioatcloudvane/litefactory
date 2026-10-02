@@ -2,13 +2,18 @@ package turn
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -254,6 +259,227 @@ func TestOwnerExceptionAllDoesNotDispatchOrClaimIntegration(t *testing.T) {
 					t.Fatalf("fabricated operational fact %q: %s", claim, comment.Body)
 				}
 			}
+		}
+	}
+}
+
+// flakyParentForge fails the next failPosts parent-issue comments, as a forge
+// outage would, and otherwise delegates to the wrapped forge.
+type flakyParentForge struct {
+	*exceptionTestForge
+	failPosts int
+}
+
+func (f *flakyParentForge) PostComment(ctx context.Context, r github.Repo, n int, b redact.Body) (github.Comment, error) {
+	if n == testIssue && f.failPosts > 0 {
+		f.failPosts--
+		return github.Comment{}, errors.New("forge unavailable")
+	}
+	return f.exceptionTestForge.PostComment(ctx, r, n, b)
+}
+
+// noFeatureExceptionFixture is a parent with no managed feature at all.
+func noFeatureExceptionFixture(t *testing.T) (*fixture, *progressForge, *flakyParentForge, *report.Reporter) {
+	t.Helper()
+	f := newFixture(t, nil)
+	base := &progressForge{children: map[int]github.Issue{}, comments: map[int][]github.Comment{}}
+	forge := &flakyParentForge{exceptionTestForge: &exceptionTestForge{&acceptanceTestForge{progressForge: base, db: f.db}}}
+	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{}), Limit: github.CommentSizeLimit})
+	mustProgress(t, err)
+	p, err := NewStoryProgress(f.db, forge, renderer, 9, filepath.Join(t.TempDir(), "no-feature-locks"))
+	mustProgress(t, err)
+	f.opts.StoryProgress = p
+	return f, base, forge, renderer
+}
+
+func exceptionReplies(comments []github.Comment, marker string) int {
+	n := 0
+	for _, c := range comments {
+		if c.Author.ID == 9 && exactProgressMarker(c.Body, marker) {
+			n++
+		}
+	}
+	return n
+}
+
+// #404 case 1: an exception on a parent without a managed feature is refused
+// with one reply instead of a raw ErrNotFound that wedges the queue.
+func TestOwnerExceptionWithoutManagedFeatureRepliesOnce(t *testing.T) {
+	f, base, forge, renderer := noFeatureExceptionFixture(t)
+	c := ownerExceptionControl(f.session.TaskRef, "/waive 1 all -- accepted")
+	if err := f.opts.StoryProgress.ApplyOwnerException(t.Context(), c); err != nil {
+		t.Fatalf("missing managed feature stayed pending: %v", err)
+	}
+	marker := report.OwnerExceptionNotice{Parent: c.Parent, CommentID: c.CommentID}.Marker()
+	if len(base.comments[testIssue]) != 1 || exceptionReplies(base.comments[testIssue], marker) != 1 {
+		t.Fatalf("want exactly one refusal reply: %+v", base.comments[testIssue])
+	}
+	if !strings.Contains(base.comments[testIssue][0].Body, "no approved separated workflow") {
+		t.Fatalf("refusal lacks its reason: %s", base.comments[testIssue][0].Body)
+	}
+	if _, err := f.db.GetOwnerException(t.Context(), c.Parent, c.CommentID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("refused exception persisted authority: %v", err)
+	}
+	decisions, err := f.db.ListPendingAcceptance(t.Context())
+	mustProgress(t, err)
+	if _, err := f.db.LatestAcceptance(t.Context(), c.Parent, 1, "US-1"); !errors.Is(err, store.ErrNotFound) || len(decisions) != 0 {
+		t.Fatalf("refused exception recorded acceptance: %v %+v", err, decisions)
+	}
+	restarted, err := NewStoryProgress(f.db, forge, renderer, 9, filepath.Join(t.TempDir(), "restarted"))
+	mustProgress(t, err)
+	mustProgress(t, restarted.ApplyOwnerException(t.Context(), c))
+	if len(base.comments[testIssue]) != 1 {
+		t.Fatalf("replay duplicated the refusal: %+v", base.comments[testIssue])
+	}
+}
+
+// If the case 1 refusal cannot be posted, the comment stays pending, and the
+// retry posts exactly one reply.
+func TestOwnerExceptionWithoutManagedFeatureStaysPendingUntilReplyPosts(t *testing.T) {
+	f, base, forge, _ := noFeatureExceptionFixture(t)
+	forge.failPosts = 1
+	c := ownerExceptionControl(f.session.TaskRef, "/waive 1 all -- accepted")
+	if err := f.opts.StoryProgress.ApplyOwnerException(t.Context(), c); err == nil {
+		t.Fatal("unposted refusal was treated as handled")
+	}
+	if len(base.comments[testIssue]) != 0 {
+		t.Fatalf("failed post left a reply: %+v", base.comments[testIssue])
+	}
+	mustProgress(t, f.opts.StoryProgress.ApplyOwnerException(t.Context(), c))
+	if len(base.comments[testIssue]) != 1 {
+		t.Fatalf("retry did not post exactly one reply: %+v", base.comments[testIssue])
+	}
+}
+
+// Temporary store failures are still returned so the comment stays pending,
+// and nothing is posted.
+func TestOwnerExceptionTemporaryStoreFailuresStayPending(t *testing.T) {
+	for _, table := range []string{"managed_features", "owner_exceptions"} {
+		t.Run(table, func(t *testing.T) {
+			f, base, _, _ := noFeatureExceptionFixture(t)
+			probe, err := sql.Open("sqlite", store.DSN(f.db.Path()))
+			mustProgress(t, err)
+			defer func() { mustProgress(t, probe.Close()) }()
+			_, err = probe.ExecContext(t.Context(), fmt.Sprintf("ALTER TABLE %s RENAME TO %s_unavailable", table, table))
+			mustProgress(t, err)
+			c := ownerExceptionControl(f.session.TaskRef, "/waive 1 all -- accepted")
+			err = f.opts.StoryProgress.ApplyOwnerException(t.Context(), c)
+			if err == nil || errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("store failure was not kept temporary: %v", err)
+			}
+			if len(base.comments[testIssue]) != 0 {
+				t.Fatalf("temporary failure posted a reply: %+v", base.comments[testIssue])
+			}
+		})
+	}
+}
+
+func acceptanceSnapshot(t *testing.T, f *fixture, parent string) []string {
+	t.Helper()
+	var out []string
+	for _, key := range []string{"US-1", "US-2"} {
+		d, err := f.db.LatestAcceptance(t.Context(), parent, 1, key)
+		out = append(out, fmt.Sprintf("%+v|%v", d, err))
+	}
+	return out
+}
+
+func editedExceptionFixture(t *testing.T) (*fixture, *progressForge, *flakyParentForge, store.ValidationAssessment) {
+	t.Helper()
+	f, base, a := ownerExceptionFixture(t, "unverified")
+	retainAcceptanceFixture(t, f, a)
+	forge := &flakyParentForge{exceptionTestForge: base}
+	p, err := NewStoryProgress(f.db, forge, f.opts.StoryProgress.renderer, 9, filepath.Join(t.TempDir(), "edited-locks"))
+	mustProgress(t, err)
+	f.opts.StoryProgress = p
+	return f, base.progressForge, forge, a
+}
+
+// #404 case 2: an edited source comment of a retained exception gets one
+// edit-refusal reply and the retained exception stays unchanged.
+func TestOwnerExceptionEditedCommentRefusedOnce(t *testing.T) {
+	f, base, _, a := editedExceptionFixture(t)
+	c := ownerExceptionControl(a.Parent, "/waive 1 story:US-1 -- requirement retired")
+	mustProgress(t, f.opts.StoryProgress.ApplyOwnerException(t.Context(), c))
+	before, err := f.db.GetOwnerException(t.Context(), a.Parent, c.CommentID)
+	mustProgress(t, err)
+	decisions := acceptanceSnapshot(t, f, a.Parent)
+	posted := len(base.comments[testIssue])
+	edited := c
+	edited.Body = "/waive 1 all -- everything instead"
+	if err := f.opts.StoryProgress.ApplyOwnerException(t.Context(), edited); err != nil {
+		t.Fatalf("edited comment stayed pending: %v", err)
+	}
+	marker := report.OwnerExceptionNotice{Parent: c.Parent, CommentID: c.CommentID, EditRefused: true}.Marker()
+	if len(base.comments[testIssue]) != posted+1 || exceptionReplies(base.comments[testIssue], marker) != 1 {
+		t.Fatalf("want exactly one edit-refusal reply: %+v", base.comments[testIssue])
+	}
+	after, err := f.db.GetOwnerException(t.Context(), a.Parent, c.CommentID)
+	mustProgress(t, err)
+	if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(decisions, acceptanceSnapshot(t, f, a.Parent)) {
+		t.Fatalf("edit changed retained authority: before=%+v after=%+v", before, after)
+	}
+	if base.children[201].State != "open" {
+		t.Fatal("edited body widened the retained exception")
+	}
+	mustProgress(t, f.opts.StoryProgress.ApplyOwnerException(t.Context(), edited))
+	if len(base.comments[testIssue]) != posted+1 {
+		t.Fatalf("second edited replay posted again: %+v", base.comments[testIssue])
+	}
+}
+
+// If the edit refusal cannot be posted, the comment stays pending.
+func TestOwnerExceptionEditedCommentStaysPendingUntilReplyPosts(t *testing.T) {
+	f, base, forge, a := editedExceptionFixture(t)
+	c := ownerExceptionControl(a.Parent, "/waive 1 story:US-1 -- requirement retired")
+	mustProgress(t, f.opts.StoryProgress.ApplyOwnerException(t.Context(), c))
+	posted := len(base.comments[testIssue])
+	edited := c
+	edited.Body = "/waive 1 all -- everything instead"
+	forge.failPosts = 1
+	if err := f.opts.StoryProgress.ApplyOwnerException(t.Context(), edited); err == nil {
+		t.Fatal("unposted edit refusal was treated as handled")
+	}
+	if len(base.comments[testIssue]) != posted {
+		t.Fatalf("failed post left a reply: %+v", base.comments[testIssue])
+	}
+	mustProgress(t, f.opts.StoryProgress.ApplyOwnerException(t.Context(), edited))
+	marker := report.OwnerExceptionNotice{Parent: c.Parent, CommentID: c.CommentID, EditRefused: true}.Marker()
+	if len(base.comments[testIssue]) != posted+1 || exceptionReplies(base.comments[testIssue], marker) != 1 {
+		t.Fatalf("retry did not post exactly one edit refusal: %+v", base.comments[testIssue])
+	}
+}
+
+// An unconfirmed acknowledgement of the retained exception is completed from
+// the retained record before an edited replay is treated as handled.
+func TestOwnerExceptionEditedCommentCompletesRetainedAcknowledgement(t *testing.T) {
+	f, base, forge, a := editedExceptionFixture(t)
+	c := ownerExceptionControl(a.Parent, "/waive 1 story:US-1 -- requirement retired")
+	forge.failPosts = 1
+	if err := f.opts.StoryProgress.ApplyOwnerException(t.Context(), c); err == nil {
+		t.Fatal("unposted acknowledgement was treated as handled")
+	}
+	retained, err := f.db.GetOwnerException(t.Context(), a.Parent, c.CommentID)
+	mustProgress(t, err)
+	if retained.ReportCommentID != 0 {
+		t.Fatalf("fixture acknowledgement unexpectedly confirmed: %+v", retained)
+	}
+	edited := c
+	edited.Body = "/waive 1 all -- everything instead"
+	mustProgress(t, f.opts.StoryProgress.ApplyOwnerException(t.Context(), edited))
+	after, err := f.db.GetOwnerException(t.Context(), a.Parent, c.CommentID)
+	mustProgress(t, err)
+	if after.ReportCommentID < 1 || after.RequestJSON != retained.RequestJSON || after.ExpansionJSON != retained.ExpansionJSON {
+		t.Fatalf("retained acknowledgement not completed unchanged: %+v", after)
+	}
+	accepted := report.OwnerExceptionNotice{Parent: c.Parent, CommentID: c.CommentID}.Marker()
+	refused := report.OwnerExceptionNotice{Parent: c.Parent, CommentID: c.CommentID, EditRefused: true}.Marker()
+	if exceptionReplies(base.comments[testIssue], accepted) != 1 || exceptionReplies(base.comments[testIssue], refused) != 1 {
+		t.Fatalf("want one acknowledgement and one edit refusal: %+v", base.comments[testIssue])
+	}
+	for _, comment := range base.comments[testIssue] {
+		if exactProgressMarker(comment.Body, accepted) && (!strings.Contains(comment.Body, "requirement retired") || strings.Contains(comment.Body, "everything instead")) {
+			t.Fatalf("acknowledgement not built from the retained record: %s", comment.Body)
 		}
 	}
 }

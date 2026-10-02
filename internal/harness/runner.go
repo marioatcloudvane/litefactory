@@ -413,6 +413,23 @@ func (r *Runner) Timeout() time.Duration { return r.timeout }
 // Tools does not already allow, so a rule outside the ceiling there cannot
 // widen this run past it.
 func (r *Runner) validateRequest(req agent.Request) error {
+	if req.Workflow == agent.WorkflowBug {
+		role := req.Permissions.Profile
+		allowed := config.BugRoleClaudeTools(role)
+		if allowed == nil {
+			return invalidRequest("unknown Bug role %q", role)
+		}
+		ts := toolSurface(req)
+		if len(ts.Tools) == 0 {
+			return invalidRequest("%s requires explicit tools", role)
+		}
+		for _, tool := range append(append([]string{}, ts.Tools...), ts.AllowedTools...) {
+			if !slices.Contains(allowed, config.ClaudeToolName(tool)) {
+				return invalidRequest("%s cannot grant tool %q", role, tool)
+			}
+		}
+	}
+
 	if req.MCPLaunch != nil {
 		if err := req.MCPLaunch.Validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
@@ -647,7 +664,7 @@ func (r *Runner) args(req agent.Request) []string {
 		args = append(args, "--setting-sources", "", "--plugin-dir", filepath.Join(req.Delivery.Root, "plugin"), "--append-system-prompt-file", filepath.Join(req.Delivery.Root, "bootstrap.md"))
 	}
 	if req.Delivery != nil && req.Delivery.MainRole != "" {
-		args = append(args, "--agent", "litefactory-research:"+req.Delivery.MainRole)
+		args = append(args, "--agent", agent.DeliveryPlugin+":"+req.Delivery.MainRole)
 	}
 	if req.Usage != nil {
 		args = append(args, "--forward-subagent-text")

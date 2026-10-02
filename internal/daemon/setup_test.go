@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
@@ -32,6 +33,9 @@ func (f *fixture) setup(claudeDir string) daemon.Setup {
 	cfg.Providers.GitHub.APIBase = f.forge.server.URL
 	cfg.Agents.Claude.SettingsPath = f.paths.SettingsPath()
 	cfg.Agents.Codex = nil
+	// The default listener address is a fixed port; tests that want a listener
+	// ask for an ephemeral one.
+	cfg.Webhook.Listen = ""
 
 	return daemon.Setup{
 		Paths:   f.paths,
@@ -98,6 +102,9 @@ func TestOpenResolvesEverythingAndTakesTheLock(t *testing.T) {
 	if startup.Interval != daemon.DefaultInterval {
 		t.Errorf("interval is %s, want %s", startup.Interval, daemon.DefaultInterval)
 	}
+	if startup.DiscoveryInterval != time.Hour {
+		t.Errorf("discovery interval is %s, want the 60 minute default", startup.DiscoveryInterval)
+	}
 
 	// AC-2.6, through the door a real second daemon comes in by.
 	second, _, err := daemon.Open(t.Context(), f.setup(dir))
@@ -147,19 +154,19 @@ func TestOpenRefusesAnOutOfRangeInterval(t *testing.T) {
 	f := newFixture(t)
 	dir := fakeClaude(t)
 
-	for _, seconds := range []int{1, 9, 61, 300} {
+	for _, minutes := range []int{-1, 0, 181, 1000} {
 		setup := f.setup(dir)
-		setup.Config.Settings.PollIntervalSeconds = seconds
+		setup.Config.Settings.PollIntervalMinutes = minutes
 
 		loop, _, err := daemon.Open(t.Context(), setup)
 		if err == nil {
-			t.Errorf("poll_interval_seconds %d started; closing it: %v", seconds, loop.Close())
+			t.Errorf("poll_interval_minutes %d started; closing it: %v", minutes, loop.Close())
 			continue
 		}
 		if !errors.Is(err, daemon.ErrInvalidOptions) {
-			t.Errorf("poll_interval_seconds %d failed with %v, want an invalid-options error", seconds, err)
+			t.Errorf("poll_interval_minutes %d failed with %v, want an invalid-options error", minutes, err)
 		}
-		if !strings.Contains(err.Error(), "poll_interval_seconds") {
+		if !strings.Contains(err.Error(), "poll_interval_minutes") || !strings.Contains(err.Error(), "1..180") {
 			t.Errorf("the error does not name the key:\n%v", err)
 		}
 	}

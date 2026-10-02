@@ -1,0 +1,14 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.077s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	1.547s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	2.317s
+ok  	github.com/cloudvane/litefactory/internal/attach	2.370s
+ok  	github.com/cloudvane/litefactory/internal/cli	281.495s
+ok  	github.com/cloudvane/litefactory/internal/codex	66.497s
+ok  	github.com/cloudvane/litefactory/internal/config	2.437s
+ok  	github.com/cloudvane/litefactory/internal/confirm	2.502s

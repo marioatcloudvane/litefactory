@@ -5,12 +5,18 @@ import (
 	"errors"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.Trigger) error {
+	return d.claimGraphReply(ctx, t, trigger, "research")
+}
+
+// claimGraphReply claims an owner reply for the admitted mode's parked question.
+func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) error {
 	// Replaying an already allocated input performs report recovery only. It
 	// cannot be reinterpreted as an answer to the question that input produced.
 	run, found, err := d.db.GetRunByTrigger(ctx, t.session.ID, trigger.CommentID)
@@ -20,7 +26,7 @@ func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.T
 	if found && run.Status != store.RunPrelaunch {
 		return nil
 	}
-	instance, err := d.db.LatestResearchInstance(ctx, t.session.ID)
+	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, mode)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}
@@ -48,7 +54,7 @@ func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.T
 	if wait.State != "waiting" {
 		return nil
 	}
-	_, err = AdmitResearchOwnerReply(ctx, d.db, instance.ID, d.filter.Identities().OwnerUserID, t.session.TaskRef, t.ref.String(), "research", github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
+	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, d.filter.Identities().OwnerUserID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
 	return err
 }
 
@@ -57,6 +63,9 @@ func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.T
 // question identity comes from durable wait/publication records, not reply text.
 // A claimed reply survives process exit before allocation, with no held worker.
 func AdmitGraphOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID int64, taskRef, sourceRef, mode string, comment github.Comment, at time.Time) (store.GraphOwnerWait, error) {
+	if _, ok := doctor.ParseCommand(comment.Body); ok {
+		return store.GraphOwnerWait{}, store.ErrGraphOwnerWait
+	}
 	if db == nil {
 		return store.GraphOwnerWait{}, errors.New("graph admission requires store")
 	}

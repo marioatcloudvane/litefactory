@@ -16,6 +16,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -37,6 +38,11 @@ type MCPRuntime struct {
 	CreationAuthorizer *CreationAuthorizer
 	Redactor           *redact.Redactor
 	BotID              int64
+	// BugChecksIsolation is the operator's Bug checks sandbox profile, the same
+	// one the factory's own final check runs under. A bug-fixer attempt's
+	// self-check tools use it; a zero value (no operator profile configured)
+	// simply makes self-checking unavailable, never blocking the fixer.
+	BugChecksIsolation bugchecks.Isolation
 	// DisableMCP disables native registration while retaining the shared final route.
 	DisableMCP     bool
 	activityMu     sync.Mutex
@@ -131,7 +137,26 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	return p.finalize(ctx, prep, session, result, err)
 }
 
-func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
+func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (*preparedMCP, *agent.MCPLaunchSpec, error) {
+	return prepareMCPWith(ctx, prep, req, session, nil)
+}
+
+// resultOverride replaces the generic trusted resolver and grants of one launch
+// for a mode whose trusted context carries more than the generic one does. The
+// resolver is still called afresh for every validation, so identical bytes get
+// the same outcome for unchanged state and a change refuses them.
+type resultOverride struct {
+	Resolve func(context.Context) (agentresult.Context, error)
+	Targets []agentresult.Target
+	// Pass, when set, gives this attempt an application result of its own inside
+	// the graph instance. A graph instance normally authors one result; a mode
+	// whose instance runs several agent attempts, such as the Plan creation
+	// cycle's one attempt per story, needs each attempt's result identity to
+	// start at revision zero instead of revising the previous attempt's.
+	Pass string
+}
+
+func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession, override *resultOverride) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
 	runtime := prep.mcpRuntime
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -148,7 +173,12 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		workContext = prep.ref.String()
 	}
 	workContext = researchWorkContext(workContext, prep.researchInstance)
-	contextValue := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
+	if override != nil && override.Pass != "" {
+		workContext += "#" + override.Pass
+	} else if prep.resultPass != "" {
+		workContext += "#" + prep.resultPass
+	}
+	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && req.Mode == "spike", RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if prep.typedPlan != nil {
 		contextValue.PlanScope = prep.typedPlan.scope
 	}
@@ -175,7 +205,7 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		}
 	}
 	var service *AgentResultService
-	o := AgentResultServiceOptions{DB: runtime.Authority.db, Attempt: store.ResultAttempt{Task: prep.ref.String(), Mode: req.Mode, WorkContext: workContext, Attempt: attempt, RunID: prep.run.ID, SchemaVersion: agentresult.SchemaVersion, WorkflowVersion: workflow, SubmissionVersion: 2}, Resolve: func(check context.Context) (agentresult.Context, error) {
+	o := AgentResultServiceOptions{DB: runtime.Authority.db, Attempt: store.ResultAttempt{Workflow: string(req.Workflow), Task: prep.ref.String(), Mode: req.Mode, WorkContext: workContext, Attempt: attempt, RunID: prep.run.ID, SchemaVersion: agentresult.SchemaVersion, WorkflowVersion: workflow, SubmissionVersion: 2}, Resolve: func(check context.Context) (agentresult.Context, error) {
 		if err := check.Err(); err != nil {
 			return agentresult.Context{}, err
 		}
@@ -194,6 +224,15 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		}
 		return cloneResultContext(contextValue), nil
 	}, ReadTargets: agentresult.EditTargets(req.Mode), EditTargets: agentresult.EditTargets(req.Mode)}
+	if req.Workflow != agent.WorkflowBug {
+		o.Attempt.Workflow = ""
+	}
+	if override != nil {
+		if override.Resolve == nil {
+			return nil, nil, errors.New("result override requires a trusted resolver")
+		}
+		o.Resolve, o.ReadTargets, o.EditTargets = override.Resolve, slices.Clone(override.Targets), slices.Clone(override.Targets)
+	}
 	if req.Mode == "implement" {
 		o.PrepareAggregate = func(check context.Context, b store.ResultBinding, ref agent.EngineeringContribution, capture agent.AggregateCapture) (store.ResultAggregate, error) {
 			selected := make([]store.ResultStoryRevision, 0, len(contextValue.Stories))
@@ -236,6 +275,16 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 			err = errors.Join(err, p.close(context.WithoutCancel(ctx)))
 		}
 	}()
+	if req.Workflow == agent.WorkflowBug {
+		if req.Mode != "" || override == nil || runtime.DisableMCP {
+			return nil, nil, errors.New("bug analyst requires scoped native result service")
+		}
+		spec, err := prepareBugResultBroker(ctx, p, attempt)
+		if err != nil {
+			return nil, nil, err
+		}
+		return p, spec, nil
+	}
 	projections := map[string]FamilyProjection{"result": ResultReceiptProjection(o.DB, service.Binding()), "tool:issues_comment": CommentReceiptProjection(o.DB)}
 	if runtime.CreationAuthorizer != nil {
 		projections["tool:issues_create_batch"] = CreationPublicationProjection(o.DB, runtime.CreationAuthorizer.store)
@@ -322,10 +371,11 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		}
 	}
 	// Drafting a proposal needs no grant and publishes nothing, so unlike the
-	// grant above it is offered on every Research invocation, including a graph
-	// Research node, and never looks up an owner intent. Installing it must not
-	// touch AllowCreation. It reads no session: a graph node has none.
-	if req.Mode == "research" && nativeSupported && nativeRunner.SupportsMCP() && !runtime.DisableMCP && runtime.CreationAuthorizer != nil && runtime.CreationAuthorizer.enabled && runtime.Creation != nil {
+	// grant above it is offered on every invocation in every mode, including
+	// graph nodes, and never looks up an owner intent: the factory publishes an
+	// approved proposal itself. Installing it must not touch AllowCreation. It
+	// reads no session: a graph node has none.
+	if nativeSupported && nativeRunner.SupportsMCP() && !runtime.DisableMCP && runtime.CreationAuthorizer != nil && runtime.CreationAuthorizer.enabled && runtime.Creation != nil {
 		proposals, err := NewCreationProposalService(o.DB, receipts, runtime.CreationAuthorizer, runtime.Redactor)
 		if err != nil {
 			return nil, nil, err
@@ -398,4 +448,33 @@ func researchWorkContext(base string, instance int64) string {
 		return base
 	}
 	return fmt.Sprintf("%s#graph-%d", base, instance)
+}
+
+// prepareBugResultBroker exposes only attempt-scoped communication operations.
+// It never constructs issue, publication, checkpoint, or activity families.
+func prepareBugResultBroker(ctx context.Context, p *preparedMCP, attempt string) (*agent.MCPLaunchSpec, error) {
+	runtime := p.runtime
+	now := runtime.Now()
+	expires := now.Add(24 * time.Hour)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
+	var err error
+	p.guard, err = runtime.Authority.Bind(ctx, p.service.Binding(), p.service.MCPPermissionDigest(), expires)
+	if err != nil {
+		return nil, err
+	}
+	dispatcher, err := NewToolDispatcher(p.guard, p.service)
+	if err != nil {
+		return nil, err
+	}
+	dir := runtime.Paths.SubmissionDir()
+	if err = os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	p.broker, err = submission.Start(ctx, submission.Options{Directory: dir, AllowTools: true, AttemptReference: attempt, MaxWorkers: 4, RequestTimeout: 30 * time.Second, Handler: dispatcher.Handler})
+	if err != nil {
+		return nil, err
+	}
+	return BuildMCPLaunchSpec(ctx, true, runtime.Executable, p.broker, p.guard)
 }

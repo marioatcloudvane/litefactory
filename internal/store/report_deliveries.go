@@ -22,7 +22,7 @@ type ReportDelivery struct {
 	Completed, Legacy                            bool
 }
 
-const reportDeliveryColumns = `delivery_key,identity_version,session_id,trigger_id,COALESCE(run_id,0),task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,COALESCE(comment_id,0),completed,legacy`
+const reportDeliveryColumns = `delivery_key,identity_version,COALESCE(session_id,0),trigger_id,COALESCE(run_id,0),task,destination,trigger_namespace,purpose,bot_user_id,body,marker,possibly_sent,COALESCE(comment_id,0),completed,legacy`
 
 func scanReportDelivery(row scanner) (ReportDelivery, error) {
 	var d ReportDelivery
@@ -168,12 +168,19 @@ func (db *DB) CompleteReportDelivery(ctx context.Context, key string) (ReportDel
 		if d.CommentID <= 0 {
 			return errors.New("report delivery has no confirmed receipt")
 		}
+		if d.TriggerNamespace == "doctor" {
+			return errors.New("doctor delivery requires doctor completion")
+		}
 		graph, err := graphReportDeliveryTx(ctx, tx, d)
 		if err != nil {
 			return err
 		}
 		// Graph publication does not settle the graph or its subprocess.
-		if !graph {
+		if d.TriggerNamespace == "plan-observation" || d.TriggerNamespace == "plan-reply" || d.TriggerNamespace == PlanNoticeNamespace {
+			if err = completePlanNoticeTx(ctx, tx, d); err != nil {
+				return err
+			}
+		} else if !graph {
 			if d.RunID != 0 {
 				if _, err := completeRunReportTx(ctx, tx, d.RunID, d.CommentID); err != nil {
 					return err
@@ -207,7 +214,7 @@ func consumeReportSource(ctx context.Context, tx *sql.Tx, sessionID, triggerID i
 // FindPendingReportDelivery permits source recovery before an executor can
 // reinterpret the trigger against changed readiness or task state.
 func (db *DB) FindPendingReportDelivery(ctx context.Context, sessionID, triggerID int64) (ReportDelivery, bool, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE session_id=? AND trigger_id=? AND completed=0 ORDER BY delivery_key LIMIT 2`, sessionID, triggerID)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE session_id=? AND trigger_id=? AND completed=0 AND trigger_namespace NOT IN ('plan-observation','plan-reply','plan-notice') ORDER BY delivery_key LIMIT 2`, sessionID, triggerID)
 	if err != nil {
 		return ReportDelivery{}, false, err
 	}
@@ -233,7 +240,7 @@ func (db *DB) FindPendingReportDelivery(ctx context.Context, sessionID, triggerI
 
 // ListPendingReportDeliveries is durable recovery debt independent of watermarks.
 func (db *DB) ListPendingReportDeliveries(ctx context.Context) ([]ReportDelivery, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE completed=0 ORDER BY session_id,trigger_id,delivery_key`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE completed=0 AND doctor_command_id IS NULL ORDER BY session_id,trigger_id,delivery_key`)
 	if err != nil {
 		return nil, err
 	}

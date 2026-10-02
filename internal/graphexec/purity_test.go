@@ -32,7 +32,7 @@ func TestGraphPackagePurity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if path == "github.com/cloudvane/litefactory/internal/agent" || path == "github.com/cloudvane/litefactory/internal/config" {
+			if path == "github.com/cloudvane/litefactory/internal/agent" || path == "github.com/cloudvane/litefactory/internal/config" || path == "github.com/cloudvane/litefactory/internal/planbrief" {
 				continue
 			}
 			if name == "dot.go" && strings.HasPrefix(path, "gonum.org/v1/gonum/") {
@@ -46,13 +46,21 @@ func TestGraphPackagePurity(t *testing.T) {
 	}
 }
 
-// shippedDOT is the approved set: one editable workflow per mode. A DOT file
-// outside it is either a stray copy or a mode that shipped without the rest of
-// its package. plan.dot is retained reference material for a Plan graph that is
-// not wired up: nothing loads it, and its lf_plan_* actions are not registered.
+// shippedDOT is the closed approved set of captured workflow resources and
+// their declared editable sources. Plan ships both its neutral source and its
+// embedded runtime copy; Research retains its existing captured resource.
+// Bug ships one bounded parent and its sole sequential test child, with exact
+// source and embedded copies. No general nested graph namespace is admitted.
+// Any other DOT file is an unexpected workflow or a stray copy.
 var shippedDOT = map[string]bool{
+	"../../internal/teamsource/bug/bug.dot":           true,
+	"../../internal/teamsource/bug/bug_tests.dot":     true,
+	"../../teams/source/bug/bug.dot":                  true,
+	"../../teams/source/bug/bug_tests.dot":            true,
 	"../../internal/teamsource/research/research.dot": true,
 	"../../internal/teamsource/plan/plan.dot":         true,
+	"../../internal/teamsource/spike/spike.dot":       true,
+	"../../teams/source/plan/plan.dot":                true,
 }
 
 func TestGraphShippedDOTScope(t *testing.T) {

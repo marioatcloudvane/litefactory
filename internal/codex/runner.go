@@ -261,7 +261,10 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		return nil, fmt.Errorf("%w: codex permissions require a sandbox", agent.ErrInvalidRequest)
 	}
 	sandbox := p.Mode
-	if req.Mode == "validate" && sandbox != "read-only" {
+	if req.Workflow == agent.WorkflowBug && req.Permissions.Profile == "bug-fixer" && sandbox != "workspace-write" {
+		return nil, fmt.Errorf("%w: Bug fixer requires contained workspace-write sandbox", agent.ErrInvalidRequest)
+	}
+	if (req.Mode == "validate" || (req.Workflow == agent.WorkflowBug && req.Permissions.Profile != "bug-fixer")) && sandbox != "read-only" {
 		return nil, fmt.Errorf("%w: Validate requires read-only sandbox", agent.ErrInvalidRequest)
 	}
 	if sandbox != "read-only" && sandbox != "workspace-write" {
@@ -426,7 +429,9 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	args = append(args, "--ignore-rules", "--sandbox", sandbox)
 	if req.Mode == "validate" {
 		// Validate consumes retained source/check bytes from stdin. Disabling shell
-		// execution prevents even read-only tests from being commissioned.
+		// execution prevents even read-only tests from being commissioned. Bug
+		// keeps the shell: it is Codex's only way to read files, the analyst's
+		// read-only sandbox still forbids writes, and the fixer tests its work.
 		args = append(args, "-c", "features.shell_tool=false", "-c", "features.multi_agent=false")
 	}
 	// Additive-only: a launch with no MCP registration produces no overrides

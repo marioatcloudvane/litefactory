@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -194,7 +195,8 @@ func (rep RunReport) validate() error {
 
 // ReplyRequest is a run-less answer to a comment litefactory will not act on.
 type ReplyRequest struct {
-	Creation *report.CreationReply
+	Creation           *report.CreationReply
+	CreationAcceptance *report.CreationAcceptance
 	// Ref is the task the comment is on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -295,6 +297,9 @@ func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInva
 // A refusal names its own kind; everything else is the command's, through the
 // mapping at [replyKind].
 func (req ReplyRequest) kind() (report.ReplyKind, bool) {
+	if req.CreationAcceptance != nil {
+		return report.ReplyCreationAccepted, true
+	}
 	if req.Creation != nil {
 		return report.ReplyCreationProposal, true
 	}
@@ -319,12 +324,14 @@ func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 
 func (req ReplyRequest) validate() error {
 	switch {
+	case req.CreationAcceptance != nil && (req.Creation != nil || req.refusing() || req.ScheduleKind != report.ReplyInvalid || req.ConfirmKind != report.ReplyInvalid):
+		return invalidRequest("creation acceptance cannot be combined with another reply")
 	case req.SessionID <= 0:
 		return invalidRequest("a session id is required to reply to a comment")
 	// A refusal needs one as much as any other reply does. The issue-body path
 	// has no comment to answer and does not come here at all: it refuses the run
 	// and logs it, and the next comment on the issue is refused on the thread.
-	case req.CommentID <= 0:
+	case req.CommentID < 0 || (req.CommentID == 0 && req.Refusal != report.ReplyBugUnavailable):
 		return invalidRequest("a comment id is required to reply to a comment")
 	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
 		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode() && !req.Refusal.RefusesSync():
@@ -345,7 +352,7 @@ func (req ReplyRequest) validate() error {
 	// response. A refusal is triggered by a command that would have spawned
 	// a run, and a command that spawns a run draws no reply — so asking this
 	// question of a refusal refuses the refusal.
-	case req.Creation == nil && !req.refusing() && req.ScheduleKind == report.ReplyInvalid && req.ConfirmKind == report.ReplyInvalid &&
+	case req.Creation == nil && req.CreationAcceptance == nil && !req.refusing() && req.ScheduleKind == report.ReplyInvalid && req.ConfirmKind == report.ReplyInvalid &&
 		!req.Command.NeedsReply():
 		return invalidRequest("%s draws no reply", req.Command.Kind)
 	}
@@ -600,15 +607,20 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	if err := req.validate(); err != nil {
 		return Posted{}, err
 	}
-	destination, refinement, err := r.refinementDestination(ctx, req.SessionID, req.CommentID, req.Ref)
-	if err != nil {
-		return Posted{}, err
-	}
+	destination := req.Ref
 	var sourceStory int
 	var sourceComment int64
-	if refinement != nil {
-		sourceStory = refinement.ChildNumber
-		sourceComment = refinement.CommentID
+	// Creation consent always belongs to its original source issue.
+	if req.CreationAcceptance == nil {
+		target, refinement, err := r.refinementDestination(ctx, req.SessionID, req.CommentID, req.Ref)
+		if err != nil {
+			return Posted{}, err
+		}
+		destination = target
+		if refinement != nil {
+			sourceStory = refinement.ChildNumber
+			sourceComment = refinement.CommentID
+		}
 	}
 	kind, ok := req.kind()
 	if !ok {
@@ -625,12 +637,19 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	if err != nil {
 		return Posted{}, err
 	}
-	if consumed {
+	if consumed && req.CommentID != 0 {
 		log.InfoContext(ctx, "comment has already been consumed; posting no reply")
 		return Posted{Skipped: true}, nil
 	}
 
-	intent := r.deliveryIntent(req.Ref, destination, req.SessionID, req.CommentID, 0, fmt.Sprintf("reply:%s:schedule:%d:proposal:%d:confirmation:%d", kind, req.Schedule.ID, req.Schedule.ProposalID, req.Confirm.ProposalID))
+	purpose := fmt.Sprintf("reply:%s:schedule:%d:proposal:%d:confirmation:%d", kind, req.Schedule.ID, req.Schedule.ProposalID, req.Confirm.ProposalID)
+	if kind == report.ReplyCreationProposal {
+		purpose = "creation-preparation"
+	}
+	if kind == report.ReplyCreationAccepted {
+		purpose = "creation-acceptance"
+	}
+	intent := r.deliveryIntent(req.Ref, destination, req.SessionID, req.CommentID, 0, purpose)
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
 		return r.renderer.RenderReply(ctx, report.Reply{
 			Ref:                      req.Ref,
@@ -652,6 +671,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 			ConflictSuggestionReason: req.ConflictSuggestionReason,
 			Schedule:                 req.Schedule,
 			Creation:                 req.Creation,
+			CreationAcceptance:       req.CreationAcceptance,
 			Confirm:                  req.Confirm,
 		})
 	})
@@ -921,9 +941,20 @@ func storyDone(s store.ManagedStory) bool {
 // its own is a git error with no account of what litefactory was trying to do.
 // Everywhere else the error is passed through as it stands, so a *git.PushError
 // still reaches the report as itself.
+//
+// A run row that was started and then failed before any coding agent exited
+// (no harness result, no exit code) carries its cause only in the recorded
+// Error — the graph Plan save step is one. Its report, usually posted when the
+// unconsumed comment is replayed on a later tick, names that recorded error
+// instead of claiming the outcome is unknown.
 func turnFailure(result Result) error {
 	if result.Disposition == DispositionPrepareFailed && result.Reason != "" {
 		return errors.New(result.Reason)
+	}
+	if result.Err == nil && result.Harness == nil && result.Run.Status == store.RunFailed && result.Run.ExitCode == nil {
+		if cause := strings.TrimSpace(result.Run.Error); cause != "" {
+			return errors.New(cause)
+		}
 	}
 	return result.Err
 }

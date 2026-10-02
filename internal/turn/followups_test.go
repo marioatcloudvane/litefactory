@@ -362,6 +362,45 @@ func TestFollowupRefusedControlsRemainRecoverableForValidApproval(t *testing.T) 
 	}
 }
 
+// Issue #370 (C5): a submission-v2 marker row for the same parent, with no
+// follow-up materialization record (production runs 430/564), must not block
+// delivery of an approved follow-up on the next tick.
+func TestFollowupDeliveryContinuesPastSubmissionMarker(t *testing.T) {
+	f, forge, a := followupFixture(t)
+	mustProgress(t, f.opts.StoryProgress.deliverFollowups(t.Context(), a.Parent))
+	q := firstFollowup(t, f)
+	if !q.Proposed || q.Reported {
+		t.Fatalf("fixture proposal not awaiting approval: %+v", q)
+	}
+	// Approval is retained; its creation and report remain pending until the tick.
+	mustProgress(t, f.db.ApproveFollowup(t.Context(), q.Key, 123, 9, false))
+	// Keep the v1 fixture assessment out of the acceptance projection so this
+	// tick exercises follow-up delivery only.
+	mustProgress(t, f.db.MaterializeValidationAssessment(t.Context(), a.RunID))
+	seg, err := f.db.GetOrCreateSegment(t.Context(), f.session.ID, 1, "session", store.AgentClaude)
+	mustProgress(t, err)
+	run, err := f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: seg.ID, Mode: "validate", Agent: store.AgentClaude, TriggerCommentID: 4300, LogPath: func(int) string { return "marker.log" }})
+	mustProgress(t, err)
+	mustProgress(t, f.db.RetainValidationAssessment(t.Context(), store.ValidationAssessment{RunID: run.ID, Parent: a.Parent, Generation: a.Generation, ContextJSON: store.SubmissionAssessmentMarker, ResultJSON: store.SubmissionAssessmentMarker}))
+	mustProgress(t, f.db.MaterializeValidationAssessment(t.Context(), run.ID))
+	if err := f.opts.StoryProgress.Poll(t.Context()); err != nil {
+		if strings.Contains(err.Error(), "invalid validation scope or output size") {
+			t.Fatalf("marker reached the v1 validation parser: %v", err)
+		}
+		t.Fatal(err)
+	}
+	got, err := f.db.GetFollowup(t.Context(), q.Key)
+	mustProgress(t, err)
+	if !got.Reported || got.IssueID < 1 || forge.creates != 1 {
+		t.Fatalf("approved follow-up not delivered past marker: %+v creates=%d", got, forge.creates)
+	}
+	pending, err := f.db.ListFollowupAssessments(t.Context())
+	mustProgress(t, err)
+	if len(pending) != 0 {
+		t.Fatalf("follow-up assessments remain pending: %+v", pending)
+	}
+}
+
 func TestFollowupLostProposalNoticeRecoversWithoutCreating(t *testing.T) {
 	f, forge, a := followupFixture(t)
 	forge.lose = "report"

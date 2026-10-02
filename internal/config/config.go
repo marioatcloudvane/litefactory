@@ -48,6 +48,8 @@ import (
 type Config struct {
 	Settings Settings `yaml:"settings"`
 	Teams    Teams    `yaml:"teams"`
+	// Webhook is the optional local listener for GitHub webhook deliveries.
+	Webhook Webhook `yaml:"webhook"`
 
 	Providers Providers `yaml:"providers"`
 	// Tiers is the litefactory-owned tier→model table (US-6). See [Tiers].
@@ -56,7 +58,10 @@ type Config struct {
 	// Claude above. See [Agents].
 	Agents       Agents       `yaml:"agents"`
 	ToolProfiles ToolProfiles `yaml:"tool_profiles"`
-	agentOrder   []Kind
+	// BugChecks is an optional operator-owned check isolation ceiling. A
+	// missing stanza leaves Bug checks blocked, without affecting other work.
+	BugChecks  *BugCheckIsolation `yaml:"bug_checks"`
+	agentOrder []Kind
 }
 
 // AgentOrder returns configured coding agents in YAML declaration order. The
@@ -83,7 +88,9 @@ type Providers struct {
 // Keeping these values in config, rather than introducing a settings service,
 // preserves the existing immutable configuration flow to runtime consumers.
 type Settings struct {
-	PollIntervalSeconds int    `yaml:"poll_interval_seconds"`
+	// PollIntervalMinutes is the fallback discovery poll interval: how often
+	// the forge is listed when no webhook has asked for it sooner.
+	PollIntervalMinutes int    `yaml:"poll_interval_minutes"`
 	MaxConcurrentRuns   int    `yaml:"max_concurrent_runs"`
 	DefaultBaseBranch   string `yaml:"default_base_branch"`
 	FeaturePrefix       string `yaml:"feature_prefix"`
@@ -97,6 +104,9 @@ type Settings struct {
 	// fallback to the embedded default (US-2 AC-3).
 	TeamConfig                 string `yaml:"team_config"`
 	WorktreeRetainDays         int    `yaml:"worktree_retain_days"`
+	DeployBackupKeep           int    `yaml:"deploy_backup_keep"`
+	LogRetainDays              int    `yaml:"log_retain_days"`
+	ArchiveRetainDays          int    `yaml:"archive_retain_days"`
 	LogLevel                   string `yaml:"log_level"`
 	AttachmentMaxImageBytes    int64  `yaml:"attachment_max_image_bytes"`
 	AttachmentMaxDocumentBytes int64  `yaml:"attachment_max_document_bytes"`
@@ -436,15 +446,19 @@ type ToolProfileCodex struct {
 // semantic and an absent agents mapping must not silently configure runners.
 func Defaults() Config {
 	return Config{
-		Teams: Teams{IndexURL: DefaultTeamsIndexURL},
+		Teams:   Teams{IndexURL: DefaultTeamsIndexURL},
+		Webhook: Webhook{Listen: DefaultWebhookListen},
 		Settings: Settings{
-			PollIntervalSeconds:        DefaultPollIntervalSeconds,
+			PollIntervalMinutes:        DefaultPollIntervalMinutes,
 			MaxConcurrentRuns:          DefaultMaxConcurrentRuns,
 			DefaultBaseBranch:          "",
 			FeaturePrefix:              DefaultFeaturePrefix,
 			WorktreeRoot:               "",
 			TeamConfig:                 "",
 			WorktreeRetainDays:         DefaultWorktreeRetainDays,
+			DeployBackupKeep:           DefaultDeployBackupKeep,
+			LogRetainDays:              DefaultLogRetainDays,
+			ArchiveRetainDays:          DefaultArchiveRetainDays,
 			LogLevel:                   DefaultLogLevel,
 			AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,
 			AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
@@ -520,21 +534,30 @@ func DefaultToolProfiles() ToolProfiles {
 			Attachments: attachments,
 		}
 	}
+	// The default operator ceiling does not list MultiEdit, so the default
+	// fixer grant is the role surface inside that ceiling.
+	fixerTools := slices.DeleteFunc(BugRoleClaudeTools(SpikeFixerProfile), func(tool string) bool { return !slices.Contains(implementTools, tool) })
 	return ToolProfiles{Permissions: map[string]ToolProfile{
 		"research":  profile(researchTools, researchAllowed, "workspace-write", true),
 		"plan":      profile(artifactTools, artifactAllowed, "workspace-write", true),
 		"implement": profile(implementTools, implementAllowed, "workspace-write", false),
 		"validate":  profile(readTools, readAllowed, "read-only", false),
+		// Spike graph roles are explicit grants, never an alias of implement.
+		SpikeInvestigatorProfile: profile(BugRoleClaudeTools(SpikeInvestigatorProfile), BugRoleClaudeTools(SpikeInvestigatorProfile), "read-only", false),
+		SpikeFixerProfile:        profile(fixerTools, fixerTools, "workspace-write", false),
 	}}
 }
 
 // Defaults for the keys that have one. They are exported so that tests and
 // `init` output can name the same numbers the code uses.
 const (
-	DefaultPollIntervalSeconds  = 30
+	DefaultPollIntervalMinutes  = 60
 	DefaultMaxConcurrentRuns    = 3
 	DefaultFeaturePrefix        = "lf"
 	DefaultWorktreeRetainDays   = 14
+	DefaultDeployBackupKeep     = 5
+	DefaultLogRetainDays        = 30
+	DefaultArchiveRetainDays    = 30
 	DefaultLogLevel             = "info"
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"
@@ -737,14 +760,22 @@ func literalAgentModelError(data []byte) error {
 	return errors.Join(errs...)
 }
 
+const legacyPollIntervalSecondsKey = "poll_interval_seconds"
+
+// legacyPollIntervalError refuses the removed seconds key. The value is never
+// converted: a seconds figure would silently become a very different interval.
+func legacyPollIntervalError(path string) error {
+	return fmt.Errorf("%s: no longer supported; set settings.poll_interval_minutes (%d..%d minutes) instead; the old value was not converted",
+		path, MinPollIntervalMinutes, MaxPollIntervalMinutes)
+}
+
 var legacySettingsPaths = map[string]string{
-	"poll_interval_seconds": "settings.poll_interval_seconds",
-	"max_concurrent_runs":   "settings.max_concurrent_runs",
-	"default_base_branch":   "settings.default_base_branch",
-	"feature_prefix":        "settings.feature_prefix",
-	"worktree_root":         "settings.worktree_root",
-	"worktree_retain_days":  "settings.worktree_retain_days",
-	"log_level":             "settings.log_level",
+	"max_concurrent_runs":  "settings.max_concurrent_runs",
+	"default_base_branch":  "settings.default_base_branch",
+	"feature_prefix":       "settings.feature_prefix",
+	"worktree_root":        "settings.worktree_root",
+	"worktree_retain_days": "settings.worktree_retain_days",
+	"log_level":            "settings.log_level",
 }
 
 // legacySettingsError makes the deliberate breaking schema migration useful
@@ -763,6 +794,17 @@ func legacySettingsError(data []byte) error {
 		key := root.Content[i].Value
 		if replacement, ok := legacySettingsPaths[key]; ok {
 			errs = append(errs, fmt.Errorf("%s: legacy root key is no longer supported; move it to %s", key, replacement))
+		}
+		if key == legacyPollIntervalSecondsKey {
+			errs = append(errs, legacyPollIntervalError(key))
+		}
+		if key == "settings" && root.Content[i+1].Kind == yaml.MappingNode {
+			body := root.Content[i+1]
+			for j := 0; j+1 < len(body.Content); j += 2 {
+				if body.Content[j].Value == legacyPollIntervalSecondsKey {
+					errs = append(errs, legacyPollIntervalError("settings."+legacyPollIntervalSecondsKey))
+				}
+			}
 		}
 	}
 	return errors.Join(errs...)
@@ -882,23 +924,134 @@ func strictMCPAutoStart(data []byte) error {
 	return nil
 }
 
-// decodeResearchExecution keeps repository YAML decoding in the package's sole
+// decodeExecution keeps repository YAML decoding in the package's sole
 // third-party decoding boundary.
-func decodeResearchExecution(raw []byte) (string, error) {
+func decodeExecution(raw []byte, label string) (string, error) {
 	var cfg struct {
 		Execution string `yaml:"execution"`
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(raw))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&cfg); err != nil {
-		return "", fmt.Errorf("research configuration: %w", err)
+		return "", fmt.Errorf("%s configuration: %w", label, err)
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return "", errors.New("research configuration requires exactly one document")
+		return "", fmt.Errorf("%s configuration requires exactly one document", label)
 	}
 	if cfg.Execution != "legacy" && cfg.Execution != "graph" {
-		return "", errors.New("research execution must be legacy or graph")
+		return "", fmt.Errorf("%s execution must be legacy or graph", label)
 	}
 	return cfg.Execution, nil
+}
+
+// UnmarshalYAML applies command defaults after strict recipe-node validation.
+func (c *BugCheckCommand) UnmarshalYAML(n *yaml.Node) error {
+	type plain BugCheckCommand
+	value := plain{CWD: ".", TimeoutSeconds: 1800}
+	if err := n.Decode(&value); err != nil {
+		return err
+	}
+	if value.Rerun != nil && value.Rerun.inheritTimeout {
+		value.Rerun.TimeoutSeconds, value.Rerun.inheritTimeout = value.TimeoutSeconds, false
+	}
+	*c = BugCheckCommand(value)
+	return nil
+}
+
+// UnmarshalYAML marks an absent rerun timeout for its command to supply; an
+// explicit value, zero included, is kept for validation to judge.
+func (r *BugCheckRerun) UnmarshalYAML(n *yaml.Node) error {
+	var value struct {
+		Failures       string   `yaml:"failures"`
+		Argv           []string `yaml:"argv"`
+		TimeoutSeconds *int     `yaml:"timeout_seconds"`
+	}
+	if err := n.Decode(&value); err != nil {
+		return err
+	}
+	*r = BugCheckRerun{Failures: value.Failures, Argv: value.Argv, inheritTimeout: value.TimeoutSeconds == nil}
+	if value.TimeoutSeconds != nil {
+		r.TimeoutSeconds = *value.TimeoutSeconds
+	}
+	return nil
+}
+
+// decodeBugCheckRecipe owns YAML syntax and defaults at the package decode boundary.
+func decodeBugCheckRecipe(data []byte) (BugCheckRecipe, error) {
+	var r BugCheckRecipe
+	var document yaml.Node
+	d := yaml.NewDecoder(bytes.NewReader(data))
+	if err := d.Decode(&document); err != nil {
+		return r, fmt.Errorf("bug recipe: %w", err)
+	}
+	var extra yaml.Node
+	if err := d.Decode(&extra); !errors.Is(err, io.EOF) {
+		return r, errors.New("bug recipe requires one YAML document")
+	}
+	if len(document.Content) != 1 {
+		return r, errors.New("empty Bug recipe")
+	}
+	if err := validateBugYAML(document.Content[0], "recipe"); err != nil {
+		return r, err
+	}
+	if err := document.Decode(&r); err != nil {
+		return r, fmt.Errorf("bug recipe: %w", err)
+	}
+	return r, nil
+}
+
+// Explicit node validation also covers custom command decoding, where yaml's
+// KnownFields option otherwise does not apply, and refuses scalar coercion.
+func validateBugYAML(n *yaml.Node, kind string) error {
+	if n.Kind == yaml.AliasNode || n.Anchor != "" {
+		return errors.New("bug recipe forbids aliases and anchors")
+	}
+	fields := map[string]map[string]string{
+		"recipe":  {"version": "int", "phases": "phases"},
+		"phases":  {"regression": "phase", "focused": "phase", "full": "phase"},
+		"phase":   {"commands": "commands"},
+		"command": {"argv": "strings", "cwd": "string", "env": "strings", "timeout_seconds": "int", "rerun": "rerun"},
+		"rerun":   {"failures": "string", "argv": "strings", "timeout_seconds": "int"},
+	}
+	if allowed, ok := fields[kind]; ok {
+		if n.Kind != yaml.MappingNode {
+			return fmt.Errorf("bug %s must be mapping", kind)
+		}
+		seen := map[string]bool{}
+		var faults []error
+		for i := 0; i < len(n.Content); i += 2 {
+			k, v := n.Content[i], n.Content[i+1]
+			child, ok := allowed[k.Value]
+			if k.Tag != "!!str" || !ok || seen[k.Value] {
+				faults = append(faults, fmt.Errorf("unknown or duplicate Bug %s key %q", kind, k.Value))
+				continue
+			}
+			seen[k.Value] = true
+			faults = append(faults, validateBugYAML(v, child))
+		}
+		return errors.Join(faults...)
+	}
+	if kind == "commands" || kind == "strings" {
+		if n.Kind != yaml.SequenceNode {
+			return errors.New("bug recipe expects sequence")
+		}
+		child := "string"
+		if kind == "commands" {
+			child = "command"
+		}
+		var faults []error
+		for _, v := range n.Content {
+			faults = append(faults, validateBugYAML(v, child))
+		}
+		return errors.Join(faults...)
+	}
+	tag := "!!str"
+	if kind == "int" {
+		tag = "!!int"
+	}
+	if n.Kind != yaml.ScalarNode || n.Tag != tag {
+		return fmt.Errorf("bug recipe expects %s", kind)
+	}
+	return nil
 }

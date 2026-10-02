@@ -29,15 +29,31 @@ teams:
   # Optional sources: {corporate: {index_url: "https://teams.example/index.json"}}
   # default_source: corporate # takes precedence over index_url
 
+webhook:
+  # Local address the GitHub webhook listener binds, as host:port. Deliveries
+  # arrive at /litefactory/webhook and only wake a scoped discovery pass. Empty
+  # turns the listener off. Secrets live in the Keychain, never here.
+  listen: %q
+  # Public address GitHub delivers webhooks to (an https URL that reaches the
+  # listener, for example through a tunnel). With it set, "repo add" and
+  # "repo webhook" register the webhook; empty skips registration. An http URL
+  # sends payloads unencrypted.
+  public_url: %q
+
 settings:
   # Daemon scheduling, repository defaults, worktree placement and logging.
-  poll_interval_seconds: %d # valid range: %d..%d
+  # Fallback poll for discovery, in minutes. GitHub webhooks are recommended;
+  # use a short poll only for setups without them.
+  poll_interval_minutes: %d # valid range: %d..%d
   max_concurrent_runs: %d # valid range: %d..%d
   default_base_branch: %q # empty means discover it from the remote
   feature_prefix: %q
   worktree_root: %q # empty means the per-repository sibling default
   team_config: %q # deprecated; central teams use teams.index_url above
   worktree_retain_days: %d # daily cleanup of safe closed-task worktrees; days since last completed run
+  deploy_backup_keep: %d # newest pre-deploy database backups kept by daily cleanup; valid range: %d..%d
+  log_retain_days: %d # days rotated global logs are kept before daily deletion; valid range: %d..%d
+  archive_retain_days: %d # days archive files and the run logs they cover are kept before daily deletion; valid range: %d..%d
   log_level: %q # debug, info, warn or error
   # Attachment ingestion is additionally gated per workflow mode below.
   attachment_max_image_bytes: %d # valid range: %d..%d
@@ -114,16 +130,23 @@ tiers:
 %s
 # Permissions are selected automatically from the resolved workflow mode.
 # research, plan and implement may write their required artifacts/source;
-# validate is read-only. Spike intentionally uses implement permissions.
+# validate is read-only. Spike graph roles have their own grants below; an
+# absent spike-investigator or spike-fixer blocks Spike, and no mode supplies it.
 tool_profiles:
   permissions:
 `,
 		d.Teams.IndexURL,
-		d.Settings.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds,
+		d.Webhook.Listen,
+		d.Webhook.PublicURL,
+		d.Settings.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,
 		d.Settings.TeamConfig,
-		d.Settings.WorktreeRetainDays, d.Settings.LogLevel,
+		d.Settings.WorktreeRetainDays,
+		d.Settings.DeployBackupKeep, MinDeployBackupKeep, MaxDeployBackupKeep,
+		d.Settings.LogRetainDays, MinLogRetainDays, MaxLogRetainDays,
+		d.Settings.ArchiveRetainDays, MinArchiveRetainDays, MaxArchiveRetainDays,
+		d.Settings.LogLevel,
 		d.Settings.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes,
@@ -145,6 +168,30 @@ tool_profiles:
 	for _, name := range canonicalPermissionProfiles {
 		renderToolProfile(&b, name, profiles.Permissions[name])
 	}
+	for _, name := range []string{SpikeInvestigatorProfile, SpikeFixerProfile} {
+		renderToolProfile(&b, name, profiles.Permissions[name])
+	}
+	b.WriteString(`
+# Optional independent Bug role grants go under tool_profiles.permissions:
+#   bug-analyst:
+#     codex: {sandbox: read-only}
+#   bug-fixer:
+#     codex: {sandbox: workspace-write}
+#     # claude: {tools: [Read, Glob, Grep, Edit, Write, Bash, Task], allowed_tools: [...]}
+#     # The fixer builds and tests its own work; the factory's check is the final gate.
+# An absent role blocks that Bug agent. Existing modes never supply its grant.
+# Optional check sandbox ceiling (macOS or Linux); no unisolated fallback exists.
+# Checks run under the Codex sandbox: everything readable except deny_read and
+# $LF_HOME, writes only to the worktree, a private temp dir and writable_roots,
+# no network.
+# bug_checks:
+#   binary: /absolute/path/to/codex
+#   path: /usr/local/bin:/usr/bin:/bin # must also reach node when codex is the npm launcher
+#   writable_roots: [] # e.g. compiler caches, as for agents.codex.writable_roots
+#   deny_read: [] # e.g. ~/.ssh, ~/.config/gh
+#   environment: [] # names of operator environment values, never inline secrets
+#   network: false # true opens the network, loopback included (tests with local servers)
+`)
 	return []byte(b.String())
 }
 

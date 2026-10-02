@@ -43,6 +43,16 @@ func (db *DB) Migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if migrateFromTemplate {
+		if restored, err := db.migrateEmptyFromTemplate(ctx, migrations); restored || err != nil {
+			return err
+		}
+	}
+	return db.migrateAll(ctx, migrations)
+}
+
+// migrateAll applies each migration in migrations that db has not recorded.
+func (db *DB) migrateAll(ctx context.Context, migrations []migration) error {
 	if err := db.ensureMigrationTable(ctx); err != nil {
 		return err
 	}

@@ -522,11 +522,12 @@ func commitAndPush(
 		// Untrusted: claude wrote it. internal/git strips any forged
 		// Litefactory- line out of it before the real trailers are appended
 		// (AC-3.21).
-		Summary: runResult.ResultText,
-		Task:    prep.ref.String(),
-		Mode:    prep.run.Mode,
-		Run:     prep.run.Ordinal,
-		Author:  prep.author,
+		Summary:  runResult.ResultText,
+		Task:     prep.ref.String(),
+		Mode:     prep.run.Mode,
+		Workflow: prep.run.Workflow,
+		Run:      prep.run.Ordinal,
+		Author:   prep.author,
 	})
 	if err != nil {
 		result.Err = err

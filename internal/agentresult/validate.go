@@ -93,7 +93,8 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 			add(&d, p+".recommended_option", "reference", "existing option ID", "unresolved", "Reference a supplied option.")
 		}
 	}
-	if len(r.Questions) > 0 && (!ctx.QuestionsAllowed || (ctx.Mode != "research" && ctx.Mode != "plan") || r.Outcome == "completed") {
+	questionMode := ctx.Mode == "research" || ctx.Mode == "plan" || ctx.Mode == "spike" || ctx.Workflow == agent.WorkflowBug
+	if len(r.Questions) > 0 && (!ctx.QuestionsAllowed || !questionMode || r.Outcome == "completed") {
 		add(&d, "$.result.questions", "authorization", "permitted questions on unfinished Research or Plan", "disallowed questions", "Follow trusted question permission and report an unfinished outcome.")
 	}
 	arts := map[string]bool{}
@@ -111,17 +112,20 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 	modes := []struct {
 		name    string
 		present bool
-	}{{"research", r.Payload.Research != nil}, {"plan", r.Payload.Plan != nil}, {"implement", r.Payload.Implement != nil}, {"validate", r.Payload.Validate != nil}, {"spike", r.Payload.Spike != nil}}
+	}{{"research", r.Payload.Research != nil}, {"plan", r.Payload.Plan != nil}, {"implement", r.Payload.Implement != nil}, {"validate", r.Payload.Validate != nil}, {"spike", r.Payload.Spike != nil}, {"bug", r.Payload.Bug != nil}}
 	count := 0
 	matching := false
 	for _, m := range modes {
 		if m.present {
 			count++
-			matching = matching || m.name == ctx.Mode
+			matching = matching || m.name == ctx.Mode || (m.name == "bug" && ctx.Workflow == agent.WorkflowBug && ctx.Mode == "")
 		}
 	}
 	if count != 1 || !matching {
 		add(&d, "$.result.payload", "mode", "exactly one payload matching trusted mode", "mismatched payload", "Use only the factory-selected mode payload.")
+	}
+	if r.Payload.Bug != nil {
+		validateBug(r, ctx, &d)
 	}
 	if p := r.Payload.Research; p != nil {
 		required(&d, "$.result.payload.research.request", p.Request)
@@ -152,9 +156,19 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 				required(&d, fmt.Sprintf("$.result.payload.spike.%s[%d]", name, i), v)
 			}
 		}
+		if p.Status != "" {
+			add(&d, "$.result.payload.spike.status", "forbidden", "absent status", "present status", "Omit status: the factory records it when it writes the note.")
+		}
+		if p.Check != nil || p.Issue != nil {
+			add(&d, "$.result.payload.spike.check", "forbidden", "absent factory records", "present factory records", "Omit check and issue: the factory records them.")
+		}
+		if f := p.ProposedFix; f != nil {
+			validateSpikeFix(f, &d)
+		}
+		validateSpikeFixReport(p.FixReport, r.Outcome, ctx, &d)
 	}
 	if p := r.Payload.Plan; p != nil {
-		validatePlan(p, r.Outcome, ctx, &d)
+		validatePlanMode(p, r.Outcome, len(r.Questions), ctx, &d)
 	}
 	if p := r.Payload.Implement; p != nil {
 		validateImplement(p, r.Outcome, ctx, &d)
@@ -331,5 +345,81 @@ func checkGraph(graph map[string][]string, p string, d *Diagnostics) {
 	slices.Sort(keys)
 	for _, key := range keys {
 		visit(key)
+	}
+}
+
+// validateSpikeFix checks the proposal's shape only. Whether it is small enough
+// is a measurement the graph declares, never a rule fixed here.
+func validateSpikeFix(f *SpikeProposedFix, d *Diagnostics) {
+	const base = "$.result.payload.spike.proposed_fix"
+	for name, items := range map[string][]string{"defects": f.Defects, "files": f.Files, "change_kinds": f.ChangeKinds} {
+		seen := map[string]bool{}
+		for i, v := range items {
+			p := fmt.Sprintf("%s.%s[%d]", base, name, i)
+			required(d, p, v)
+			if seen[v] {
+				add(d, p, "duplicate", "unique entry", "duplicate entry", "List each entry once.")
+			}
+			seen[v] = true
+			switch name {
+			case "files":
+				if !ValidPath(v) {
+					add(d, p, "path", "rooted relative path syntax", "unsafe path", "Use a clean relative path within the repository.")
+				}
+			case "change_kinds":
+				if !slices.Contains(SpikeChangeKinds, v) {
+					add(d, p, "enum", strings.Join(SpikeChangeKinds, ", "), "unsupported change kind", "Name only the documented kinds of change.")
+				}
+			}
+		}
+	}
+}
+
+// validateSpikeFixReport requires the claim exactly where a change could have
+// been made: a finished result from a node the runtime granted write access. A
+// node that could not edit has nothing to claim, so a claim there is refused.
+func validateSpikeFixReport(f *SpikeFixReport, outcome string, ctx Context, d *Diagnostics) {
+	const base = "$.result.payload.spike.fix_report"
+	if f == nil {
+		if ctx.WriteAccess && outcome == "completed" {
+			add(d, base, "required", "fix_report on a finished write-access result", "absent", "Report the one defect, the files you changed, the regression test and a summary; put anything you could not finish under not_done.")
+		}
+		return
+	}
+	if !ctx.WriteAccess {
+		add(d, base, "forbidden", "no fix_report without write access", "present fix_report", "Only a step with write access reports a change.")
+		return
+	}
+	required(d, base+".defect", f.Defect)
+	required(d, base+".summary", f.Summary)
+	required(d, base+".regression_test", f.RegressionTest)
+	if len(f.Files) == 0 {
+		add(d, base+".files", "required", "at least one changed file", "empty list", "List every file you changed, including the regression test file.")
+	}
+	seen := map[string]bool{}
+	for i, v := range f.Files {
+		p := fmt.Sprintf("%s.files[%d]", base, i)
+		required(d, p, v)
+		if !ValidPath(v) {
+			add(d, p, "path", "rooted relative path syntax", "unsafe path", "Use a clean relative path within the repository.")
+		}
+		if seen[v] {
+			add(d, p, "duplicate", "unique entry", "duplicate entry", "List each file once.")
+		}
+		seen[v] = true
+	}
+	if strings.TrimSpace(f.RegressionTest) != "" && !seen[f.RegressionTest] {
+		add(d, base+".regression_test", "reference", "a regression test file among files", "not among files", "Name the test file you added or changed, and list it under files.")
+	}
+	kinds := map[string]bool{}
+	for i, v := range f.ChangeKinds {
+		p := fmt.Sprintf("%s.change_kinds[%d]", base, i)
+		if !slices.Contains(SpikeFixChangeKinds, v) {
+			add(d, p, "enum", strings.Join(SpikeFixChangeKinds, ", "), "unsupported change kind", "Name only the documented risky kinds of change, or none.")
+		}
+		if kinds[v] {
+			add(d, p, "duplicate", "unique entry", "duplicate entry", "List each kind once.")
+		}
+		kinds[v] = true
 	}
 }

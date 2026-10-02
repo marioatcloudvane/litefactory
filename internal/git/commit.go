@@ -95,6 +95,8 @@ type CommitOptions struct {
 	// Mode is the instruction that triggered the run, for the
 	// Litefactory-Mode trailer. Required.
 	Mode string
+	// Workflow names a standalone Bug run; it is mutually exclusive with Mode.
+	Workflow string
 	// Run is the per-task run ordinal for the Litefactory-Run trailer. Must be
 	// positive.
 	Run int
@@ -229,7 +231,11 @@ func (o CommitOptions) validate() error {
 	if err := checkTrailerValue(TrailerTask, o.Task); err != nil {
 		return err
 	}
-	if err := checkTrailerValue(TrailerMode, o.Mode); err != nil {
+	if o.Workflow != "" {
+		if o.Workflow != "bug" || o.Mode != "" {
+			return fmt.Errorf("standalone commit workflow: %w", ErrInvalidArgument)
+		}
+	} else if err := checkTrailerValue(TrailerMode, o.Mode); err != nil {
 		return err
 	}
 	if o.Run < 1 {
@@ -271,7 +277,11 @@ func commitMessage(opts CommitOptions) string {
 	b.WriteString(sanitizeSummary(opts.Summary))
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "%s: %s\n", TrailerTask, opts.Task)
-	fmt.Fprintf(&b, "%s: %s\n", TrailerMode, opts.Mode)
+	if opts.Workflow == "bug" {
+		fmt.Fprintf(&b, "Litefactory-Workflow: bug\n")
+	} else {
+		fmt.Fprintf(&b, "%s: %s\n", TrailerMode, opts.Mode)
+	}
 	fmt.Fprintf(&b, "%s: %d\n", TrailerRun, opts.Run)
 	return b.String()
 }

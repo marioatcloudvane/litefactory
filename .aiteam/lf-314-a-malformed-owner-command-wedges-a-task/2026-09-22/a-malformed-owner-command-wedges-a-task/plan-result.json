@@ -1,0 +1,302 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Planning is complete for two stories: explain and recover rejected creation approval/preparation commands, then recover successful intake without duplicate effects or renewed authority. Scope is settled; no product questions remain. Implementation, executed evidence, factory publication and readiness remain pending.",
+    "payload": {
+      "plan": {
+        "summary": "Creation-command queue recovery within the owner-approved boundary: classify confirmed rejection separately from transient/unknown/uncertain failure; retain original outcomes and deliver safe recoverable guidance before consuming rejected input; recover successful proposal/approval intake before fresh eligibility checks. Preserve existing identity, grammar and authority restrictions. No global retry change, auto-skip, alerts, operator recovery command or deployment.",
+        "stories": [
+          {
+            "key": "creation-rejection-queue-progress",
+            "intent": "create",
+            "title": "Explain rejected creation commands and release the queue after confirmed delivery",
+            "user_story": {
+              "actor": "task owner",
+              "want": "a clear correction when a creation approval or preparation command is rejected, with my next valid instruction processed once that explanation is delivered",
+              "benefit": "I can recover without deleting comments or editing the database, even when reporting fails or the factory restarts",
+              "notes": [
+                "Trace: feature-spec.md Goal, US-1, Data Model, Business Rules, Edge Cases and AC-001–AC-006/AC-009/AC-010. Rejection must remain distinct from unavailable infrastructure and uncertain effects.",
+                "Evidence AC-001: proof method: Daemon queue regression: malformed approval then valid work; real migrated temporary SQLite, httptest forge, fake executor; assert one reply, watermark order, zero rejected effects and later execution. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan.",
+                "Evidence AC-002: proof method: Daemon queue regression: malformed preparation then valid work; real migrated temporary SQLite, httptest forge, fake executor; assert reply, watermark, effect absence and later execution. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan.",
+                "Evidence AC-003: proof method: Table-driven unit coverage of every named category and command-specific renderer; safe output assertions include payload/secret/proposal leakage and non-executable syntax guidance. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan.",
+                "Evidence AC-004: proof method: Classifier unit tests plus durable storage/transport fault injection; include authority sentinel wrapping storage failure, missing runtime wiring, uncertain write and delayed queue recovery. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan.",
+                "Evidence AC-005: proof method: Store/daemon durable recovery tests across close/reopen, source edits, changed policy and outcome-to-report creation gap; assert stable source, category, bytes, delivery key and lifecycle. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan.",
+                "Evidence AC-006: proof method: Real-store report recovery with httptest remote and deterministic failure seams; simulate lost response and restart, verify exact delivery checks, legacy reply isolation and consumption-only retry. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan.",
+                "Evidence AC-009: proof method: Identity/grammar/binding/limit/freshness regression matrix plus source-edit and changed-mode rejection recovery; assert filtered comments never enter new reporting/execution. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan.",
+                "Evidence AC-010: proof method: Backlog tests with preexisting queued source and consumed watermark; unrelated-command regression coverage. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-001",
+                "text": "An eligible malformed approval comment followed by a valid instruction yields one safe actionable rejection reply, no owner intent, approval grant, publication, task execution or mode-change effect, consumption only after confirmed reporting, and eventual execution of the later instruction."
+              },
+              {
+                "id": "AC-002",
+                "text": "An eligible malformed preparation comment followed by a valid instruction yields one safe actionable rejection reply, no proposal admission/publication/work effect from the rejected input, consumption only after confirmed reporting, and eventual execution of the later instruction."
+              },
+              {
+                "id": "AC-003",
+                "text": "Cover confirmed malformed syntax/payload, unsupported payload version, invalid fields/limits, missing/wrong/ambiguous/malformed Research selection, explicitly disabled loaded creation capability, confirmed absent/expired/superseded/mismatched/ineligible proposal and invalid owner controls reaching trusted creation handling. Guidance names the command and safe reason; syntax guidance describes existing grammar without generating an executable approval; mode guidance asks for one Research selection; capability guidance identifies operator configuration; proposal guidance asks for a current eligible proposal and fresh comment. No raw payload, secret or hidden proposal content is exposed."
+              },
+              {
+                "id": "AC-004",
+                "text": "Storage/infrastructure failures, rate limits, forge outages, shutdown, unknown internal failures, unexplained missing components, and uncertain persistence/remote effects are not input rejection and do not consume the source. Later comments remain ordered and resume after resolution. A broad authority error wrapping failed storage observation remains retryable; only verified policy refusal can be rejected."
+              },
+              {
+                "id": "AC-005",
+                "text": "Before dispatch, durably retain one immutable rejection outcome bound to trusted repository/task/session/comment identity, command kind, reason, exact bounded safe reply and stable delivery association. Retain remote confirmation and delivery/consumption lifecycle in existing report state. Recover before fresh parsing or eligibility checks; edits removing the command prefix, mode/configuration/proposal changes, restart, or a gap between outcome retention and delivery creation cannot alter or strand that outcome. Failure to retain it leaves the source pending without sending an unretained reply."
+              },
+              {
+                "id": "AC-006",
+                "text": "A proven failure before dispatch, successful posting with lost response, restart before/after delivery and failed consumption recover to one confirmed diagnostic and consumption without duplicate replies or premature queue advancement. Uncertain absence stays pending. Confirmation requires matching bot, destination, exact retained content and delivery identity; counterfeit markers/conflicting content do not authorize consumption. An unrelated legacy task-only report does not prevent creation-specific rejection delivery; global report reconciliation is not weakened."
+              },
+              {
+                "id": "AC-009",
+                "text": "Preserve numeric owner filtering, bot exclusion, exact lowercase 64-hex approval hash and relationship grammar, preparation decoder/version/limits, source/relationship binding, freshness and edit restrictions. Filtered identities retain existing record-and-consume behavior without new diagnostic/execution. A retained rejected command cannot execute after mode/configuration/proposal changes; corrections require a new comment."
+              },
+              {
+                "id": "AC-010",
+                "text": "Existing queued unconsumed creation comments receive corrected rejection/recovery handling when encountered, without manual watermark repair. Previously consumed comments are never replayed, and unrelated command-family behavior remains unchanged."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Implement end-to-end deterministic rejection classification, immutable source-bound retention, safe diagnostics and queue/report recovery, including existing backlog. Deliver the US-1 behavior and the referenced Data Model, Business Rules and Edge Cases without changing other command families.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-009",
+                  "AC-010"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-002",
+                "description": "Write and run fake-dependency category, renderer and policy-preservation tests from Business Rules and the evidence inventory; cover wrapped operational errors and ensure public diagnostics cannot expose raw payloads or hidden proposal data.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-003",
+                  "AC-004",
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-001"
+                ]
+              },
+              {
+                "id": "T-003",
+                "description": "Write and run ordinary real-store/httptest daemon queue and durable report recovery regressions from Edge Cases and the evidence inventory. Exercise crash gaps, lost response, source edits, stale legacy replies, faulted consumption and preexisting queued comments; retain criterion-mapped output.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-009",
+                  "AC-010"
+                ],
+                "depends_on": [
+                  "T-001"
+                ]
+              }
+            ],
+            "architecture": {
+              "summary": "Add immutable creation rejection intake within existing owners and route it through the existing recoverable reporting/consumption protocol. Resolve trusted retained outcomes before mutable command parsing and controls.",
+              "components": [
+                {
+                  "name": "internal/daemon",
+                  "responsibility": "Keep identity filtering and report recovery early; route creation rejection/retry outcomes and discover retained debt through backlog processing."
+                },
+                {
+                  "name": "internal/turn",
+                  "responsibility": "Classify confirmed refusals at their origin, preserve operational errors, retain safe outcome and use existing report orchestration."
+                },
+                {
+                  "name": "internal/store",
+                  "responsibility": "Own source-bound immutable outcome persistence and report association; use additive migration only where existing semantics cannot represent it."
+                },
+                {
+                  "name": "internal/report and internal/redact",
+                  "responsibility": "Render bounded category-specific public guidance without raw error/payload interpolation and apply existing outbound redaction."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Trusted creation intake result",
+                  "input": "Trusted owner/source metadata and fresh command only when no retained outcome exists",
+                  "output": "Confirmed rejection with safe category, existing successful result, or retryable operational error"
+                },
+                {
+                  "name": "Source outcome lookup/retention",
+                  "input": "Context and trusted repository/task/session/comment identity",
+                  "output": "Immutable recorded rejection/report association or classified observation error"
+                },
+                {
+                  "name": "Existing durable reporter",
+                  "input": "Retained safe bytes, dedicated creation-rejection purpose and original source identity",
+                  "output": "Pending/possibly-sent or confirmed remote evidence followed by source consumption"
+                }
+              ],
+              "constraints": [
+                "All SQL and transactions stay in internal/store; use a numbered embedded migration if needed, context-first accessors and the existing single-connection SQLite pool.",
+                "No transaction spans forge I/O; daemon owns retry timing, turn owns one-turn orchestration. No new package, dependency, timer or goroutine is required.",
+                "Reuse durable report bytes, stable identity, possibly-sent state and exact remote confirmation; never downgrade uncertain effects to rejection.",
+                "Tests use ordinary _test.go files, real temporary SQLite/httptest for durable I/O, hand-written fakes for unit dependencies, deterministic synchronization and no integration build tag/name.",
+                "Implement runs make check on the final snapshot and retains executed evidence. Offline checks do not prove deployment, historical incident reproduction or authentic host/nested-agent behavior."
+              ],
+              "decisions": [
+                {
+                  "decision": "Use a narrow creation-specific outcome, not global error-message classification.",
+                  "reason": "Authority sentinels can conceal failed storage observations; only verified refusal may release ordering."
+                },
+                {
+                  "decision": "Retain outcome and exact safe reply before dispatch, with recovery across the outcome/report gap.",
+                  "reason": "Mutable mode, payload and configuration cannot erase or replace the decision after restart."
+                },
+                {
+                  "decision": "Reuse existing report confirmation and narrow creation-specific legacy-report handling.",
+                  "reason": "An unrelated old task reply must not strand new rejection reporting, while uncertain remote effects remain conservatively pending."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "creation-successful-intake-recovery",
+            "intent": "create",
+            "title": "Recover successful creation intake without duplicating or renewing authority",
+            "user_story": {
+              "actor": "task owner",
+              "want": "a successfully prepared proposal or admitted approval to retain its original result when reporting or queue consumption fails",
+              "benefit": "retries and restarts do not reject an already accepted instruction, duplicate its effects or renew approval authority",
+              "notes": [
+                "Trace: feature-spec.md US-2, Data Model successful preparation/approval, Business Rules, Edge Cases and AC-007/AC-008. Build on the source-outcome recovery and report integration delivered by creation-rejection-queue-progress.",
+                "Evidence AC-007: proof method: Real-store preparation/approval regression with report failure, reopen and changed eligibility; assert original proposal ID/content, newer current-proposal stability, stable presentation, success reply count and no launch. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan.",
+                "Evidence AC-008: proof method: Real-store approval recovery after consumption fault, expiry/supersession/mode change/source edit; include pre-change intent without journal and storage observation fault; assert original intent ID/expiry and no new grant. Source availability: existing daemon/turn/store/report creation and durable delivery fixtures described in ARCH_REVIEW.md. Version bounds: final implementation snapshot; baseline bef0007a8fc77aefb93e57d93b79d9c2411d79a8 is planning evidence only. Missing prerequisite: implement and execute these checks, retain results for read-only Validate; no executed proof is claimed by this Plan."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-007",
+                "text": "Valid preparation durably associates its trusted source with the original admitted proposal before reporting, and recovers that same proposal/presentation after report failure, restart or source/mode/configuration changes without duplicate proposals, false rejection, regenerated content, refreshed proposal state or replacing a newer current proposal. Reporting confirmation precedes consumption. Valid approval retains original intent and consumes without a new success reply or launching work. An uncertain admission is reconciled before any new admission or final rejection."
+              },
+              {
+                "id": "AC-008",
+                "text": "Successful approval followed by failed consumption recovers original admission by trusted source identity before fresh parsing, mode/configuration or proposal eligibility checks, including after expiry, supersession or edited source text. Existing pre-change owner intents are recoverable without requiring a new journal row. Recovery causes no duplicate intent, false rejection, extended expiry, renewed authority or bypass of later grant-binding checks. Existing numeric identity filtering still precedes recovery; failure to observe the original outcome remains pending."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Implement source-associated successful preparation and original owner-intent recovery from US-2/Data Model/Edge Cases. Atomically associate intake with its existing durable mutation; recover original and pre-change admissions before fresh eligibility checks without refreshing authority or current proposal state.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-008"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-002",
+                "description": "Write and run fake-dependency success/recovery routing tests for US-2: retained success precedes parsing and controls, observation failures remain retryable, approval adds no reply or execution, and recovery never requests new authority.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-008"
+                ],
+                "depends_on": [
+                  "T-001"
+                ]
+              },
+              {
+                "id": "T-003",
+                "description": "Write and run real migrated temporary-store and httptest reporting/consumption recovery cases from AC-007/AC-008 evidence inventory, including existing legacy intents. Assert exact original IDs/content/expiry/current-proposal state and no duplicate effects; retain criterion-mapped output.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-008"
+                ],
+                "depends_on": [
+                  "T-001"
+                ]
+              }
+            ],
+            "architecture": {
+              "summary": "Extend the source-bound recovery path to durable successful creation admissions while keeping existing proposal and intent records authoritative.",
+              "components": [
+                {
+                  "name": "internal/store/mcp_creation.go and source-associated persistence",
+                  "responsibility": "Atomically associate successful source intake with immutable proposal/intent references and discover legacy owner intents before fresh eligibility checks."
+                },
+                {
+                  "name": "internal/turn/mcp_creation.go and publication_recovery.go",
+                  "responsibility": "Recover original proposal/presentation or admitted intent without rerunning proposal retention or renewing authority."
+                },
+                {
+                  "name": "internal/daemon creation intake/recovery",
+                  "responsibility": "Resolve source-associated success before parsing/mode/configuration checks; preserve filtered identities and retry consumption without duplicate work."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Successful source outcome lookup",
+                  "input": "Context and trusted source identity",
+                  "output": "Original proposal/presentation or owner intent reference; unknown observation failure remains error"
+                },
+                {
+                  "name": "Atomic successful intake retention",
+                  "input": "Validated source and canonical proposal or approval intent",
+                  "output": "Original authoritative admission and source association committed together"
+                },
+                {
+                  "name": "Recovered completion",
+                  "input": "Original presentation/report or owner intent reference",
+                  "output": "Confirmed presentation then consumption, or approval consumption only; no renewed grant"
+                }
+              ],
+              "constraints": [
+                "All SQL and transactions stay in internal/store; use a numbered embedded migration if needed, context-first accessors and the existing single-connection SQLite pool.",
+                "No transaction spans forge I/O; daemon owns retry timing, turn owns one-turn orchestration. No new package, dependency, timer or goroutine is required.",
+                "Reuse durable report bytes, stable identity, possibly-sent state and exact remote confirmation; never downgrade uncertain effects to rejection.",
+                "Tests use ordinary _test.go files, real temporary SQLite/httptest for durable I/O, hand-written fakes for unit dependencies, deterministic synchronization and no integration build tag/name.",
+                "Implement runs make check on the final snapshot and retains executed evidence. Offline checks do not prove deployment, historical incident reproduction or authentic host/nested-agent behavior."
+              ],
+              "decisions": [
+                {
+                  "decision": "Keep successful recovery separate from new admission.",
+                  "reason": "Acknowledging an original intent after expiry is safe only if it neither extends expiry nor bypasses later grant-binding checks."
+                },
+                {
+                  "decision": "Do not reuse run IDs as source comment IDs or re-retain an old proposal during recovery.",
+                  "reason": "Source associations have distinct ownership and restoring an older proposal must not overwrite newer current proposal state."
+                },
+                {
+                  "decision": "Find existing pre-change owner intents without requiring the new journal.",
+                  "reason": "An already admitted approval with failed consumption must remain recoverable across rollout."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [
+                "creation-rejection-queue-progress"
+              ],
+              "issue_refs": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

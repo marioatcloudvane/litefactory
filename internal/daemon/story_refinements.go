@@ -58,6 +58,9 @@ func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue
 // cannot be overtaken by a promotion read in the same tick. All execution still
 // goes through Execute's parent session lock and the existing inflight slot.
 func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
+	if held, e := d.doctorHeldSession(ctx, t.session.ID); e != nil || held {
+		return false, e
+	}
 	f, err := d.db.GetManagedFeature(ctx, t.ref.String())
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -146,7 +149,7 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	}
 	if f.State != "planning" || f.Generation != r.Generation || completed {
 		refusal = report.ReplyStoryLocked
-	} else if command.Kind != turn.KindFreeText && (!commanded || commandMode != agent.ModePlan) {
+	} else if command.Kind == turn.KindPlanControl || (command.Kind != turn.KindFreeText && (!commanded || commandMode != agent.ModePlan)) {
 		refusal = report.ReplyStoryPlanOnly
 	}
 	if refusal != report.ReplyInvalid {
@@ -238,7 +241,11 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 		if c.ID <= after {
 			continue
 		}
-		if ids.OwnerUserID > 0 && c.Author.ID == ids.OwnerUserID && c.Author.ID != ids.BotUserID && !c.Author.IsBot && !turn.HasMarker(c.Body) {
+		routed, err := d.admitDoctor(ctx, t.repo, child, c)
+		if err != nil {
+			return err
+		}
+		if !routed && ids.OwnerUserID > 0 && c.Author.ID == ids.OwnerUserID && c.Author.ID != ids.BotUserID && !c.Author.IsBot && !turn.HasMarker(c.Body) {
 			if err := d.db.AdmitStoryRefinement(ctx, store.StoryRefinement{SessionID: t.session.ID, CommentID: c.ID, ChildNumber: s.IssueNumber, ChildID: s.IssueID, Generation: s.Generation, ActorID: c.Author.ID, ActorHandle: c.Author.Login, Body: c.Body}); err != nil {
 				return err
 			}

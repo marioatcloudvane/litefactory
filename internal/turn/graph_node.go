@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -21,8 +22,10 @@ type GraphNodeRequest struct {
 	Profile           *graphexec.Profile
 	Activities        ActivityRegistry
 	InstanceID, RunID int64
-	ResumeRef         string
-	At, NextDueAt     time.Time
+	// ResumeAttemptID is factory-owned recovery of a Bug bookkeeping effect.
+	ResumeAttemptID int64
+	ResumeRef       string
+	At, NextDueAt   time.Time
 }
 
 // GraphNodeResult describes the recorded step. AttemptID is zero for terminals
@@ -61,6 +64,21 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	if err != nil {
 		return out, fmt.Errorf("execute graph node definition: %w", err)
 	}
+	workflow, bindingErr := agent.ResolveWorkflow(req.Profile.Workflow, req.Profile.Mode)
+	storedWorkflow, storedErr := agent.ResolveWorkflow(agent.Workflow(definition.Workflow), agent.Mode(definition.Mode))
+	if bindingErr != nil || storedErr != nil || workflow != storedWorkflow {
+		return out, errors.New("execute graph node: profile does not match pinned definition workflow")
+	}
+	admission, admissionErr := opts.DB.GetTaskWorkflowAdmission(ctx, instance.SessionID)
+	if admissionErr != nil && !errors.Is(admissionErr, store.ErrNotFound) {
+		return out, admissionErr
+	}
+	if admissionErr == nil && ((admission.Family == "standalone" && workflow != agent.WorkflowBug) || (admission.Family == "mode" && workflow == agent.WorkflowBug)) {
+		return out, errors.New("execute graph node: workflow differs from task admission")
+	}
+	if workflow == agent.WorkflowBug && admissionErr != nil {
+		return out, errors.New("execute graph node: missing Bug admission")
+	}
 	if definition.Digest != req.Profile.Digest || definition.Team != req.Profile.Team || definition.Mode != string(req.Profile.Mode) || definition.ProfileVersion != req.Profile.ProfileVersion {
 		return out, errors.New("execute graph node: profile does not match pinned definition")
 	}
@@ -75,7 +93,29 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		out.Status = store.GraphSucceeded
 		return out, nil
 	}
-	attempt, err := opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: node.Name, RunID: req.RunID, Limit: node.Limit, StartedAt: req.At})
+	var attempt store.GraphNodeAttempt
+	childWait, childErr := opts.DB.BugTestParentCall(ctx, instance.ID)
+	if childErr != nil && !errors.Is(childErr, store.ErrNotFound) {
+		return out, childErr
+	}
+	switch {
+	case req.ResumeAttemptID != 0:
+		if workflow != agent.WorkflowBug || node.Action == ResearchAgentAction || req.RunID != 0 {
+			return out, errors.New("only Bug factory effects may resume an attempt")
+		}
+		attempt, err = opts.DB.GetGraphNodeAttempt(ctx, req.ResumeAttemptID)
+		if err == nil && (attempt.InstanceID != instance.ID || attempt.Node != node.Name || attempt.RunID != 0 || (attempt.Status != store.GraphRunning && attempt.Status != store.GraphPending)) {
+			return out, errors.New("bug effect recovery attempt mismatch")
+		}
+	case childErr == nil && node.Action == BugTestGraphAction:
+		if childWait.Outcome == "pending" {
+			out.Status = "waiting_child"
+			return out, nil
+		}
+		attempt, err = opts.DB.GetGraphNodeAttempt(ctx, childWait.Request.ParentAttempt)
+	default:
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: node.Name, RunID: req.RunID, Limit: node.Limit, StartedAt: req.At})
+	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
 		if err := opts.DB.SetGraphInstanceStatus(ctx, instance.ID, store.GraphFailed, time.Time{}, req.At); err != nil {
@@ -102,7 +142,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		handlerOpts.Tiers.ModelByTier[kind] = maps.Clone(tiers)
 	}
 	activity, dispatchErr := handler.Execute(ctx, handlerOpts, ActivityRequest{
-		Team: req.Profile.Team, Mode: req.Profile.Mode, Node: node.Name, Attrs: node.Attrs,
+		Team: req.Profile.Team, Mode: req.Profile.Mode, Workflow: workflow, Node: node.Name, Attrs: node.Attrs,
 		InstanceID: instance.ID, NodeAttemptID: attempt.ID, RunID: req.RunID, ResumeRef: req.ResumeRef,
 	})
 	activity.Output = slices.Clone(activity.Output)
@@ -113,6 +153,17 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		}
 		finished, finishErr := finishGraphAction(ctx, opts, req, out, false)
 		return finished, errors.Join(fmt.Errorf("execute graph activity %q: %w", node.Action, dispatchErr), finishErr)
+	}
+	if activity.Suspended {
+		call, waitErr := opts.DB.BugTestParentCall(ctx, instance.ID)
+		parentWait := node.Action == BugTestGraphAction && waitErr == nil && call.Request.ParentAttempt == attempt.ID && call.Outcome == "pending"
+		childCall, childLookup := opts.DB.BugTestChildCall(ctx, instance.ID)
+		childWait := node.Action == BugChecksAction && childLookup == nil && childCall.Outcome == "pending"
+		if workflow != agent.WorkflowBug || (!parentWait && !childWait) {
+			return out, errors.New("graph suspension lacks matching durable Bug child wait")
+		}
+		out.Status = "waiting_child"
+		return out, nil
 	}
 	next, decided := graphexec.Decide(req.Profile, node.Name, activity.Outcome)
 	if !decided {

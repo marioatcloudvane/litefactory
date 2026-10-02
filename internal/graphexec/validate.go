@@ -20,8 +20,12 @@ func Validate(p *Profile, registry Registry) error {
 	if strings.TrimSpace(p.Team) == "" {
 		faults = append(faults, errors.New("graph team is empty"))
 	}
-	if !p.Mode.Valid() {
-		faults = append(faults, fmt.Errorf("graph mode %q is invalid", p.Mode))
+	workflow, bindingErr := agent.ResolveWorkflow(p.Workflow, p.Mode)
+	if bindingErr != nil {
+		faults = append(faults, bindingErr)
+	}
+	if workflow == agent.WorkflowBug && registry.Policy == nil {
+		faults = append(faults, errors.New("bug graph has no registered matching policy"))
 	}
 	if p.ProfileVersion < 1 {
 		faults = append(faults, fmt.Errorf("profile_version %d must be positive", p.ProfileVersion))
@@ -40,7 +44,7 @@ func Validate(p *Profile, registry Registry) error {
 		if node.Terminal {
 			terminals = append(terminals, node.Name)
 		}
-		faults = append(faults, validateNode(node, p.Mode, registry)...)
+		faults = append(faults, validateNode(node, workflow, registry)...)
 	}
 	if _, exists := nodes[p.Start]; !exists || p.Start == "" {
 		faults = append(faults, fmt.Errorf("start node %q is undeclared", p.Start))
@@ -104,7 +108,7 @@ func Validate(p *Profile, registry Registry) error {
 	return errors.Join(faults...)
 }
 
-func validateNode(node Node, mode agent.Mode, registry Registry) []error {
+func validateNode(node Node, mode agent.Workflow, registry Registry) []error {
 	var faults []error
 	if node.Limit < 0 || (node.Attrs["lf_limit"] != "" && node.Limit == 0) {
 		faults = append(faults, fmt.Errorf("node %q lf_limit must be positive when supplied", node.Name))
@@ -121,21 +125,24 @@ func validateNode(node Node, mode agent.Mode, registry Registry) []error {
 	spec, exists := registry.Resolve(node.Action)
 	if !exists {
 		faults = append(faults, fmt.Errorf("node %q has unknown action %q", node.Name, node.Action))
-	} else if spec.Mode != mode {
+	} else if owner, err := agent.ResolveWorkflow(spec.Workflow, spec.Mode); err != nil || owner != mode {
 		faults = append(faults, fmt.Errorf("node %q action %q mode %q does not match graph mode %q", node.Name, node.Action, spec.Mode, mode))
 	}
 	if exists {
 		for _, name := range slices.Sorted(maps.Keys(spec.Attributes)) {
 			attribute := spec.Attributes[name]
 			value, present := node.Attrs[name]
-			if !present && attribute.Required {
+			switch {
+			case !present && attribute.Required:
 				faults = append(faults, fmt.Errorf("node %q requires %s", node.Name, name))
-			} else if present && !slices.Contains(attribute.Values, value) {
+			case present && attribute.List:
+				faults = append(faults, validateListAttribute(node.Name, name, value, attribute.Values)...)
+			case present && !slices.Contains(attribute.Values, value):
 				faults = append(faults, fmt.Errorf("node %q %s %q is outside declared values", node.Name, name, value))
 			}
 		}
 	}
-	if !validActionName(node.Action, mode) {
+	if !validWorkflowActionName(node.Action, mode) {
 		faults = append(faults, fmt.Errorf("node %q action %q must use lf_%s_<capability>", node.Name, node.Action, mode))
 	}
 	if len(node.Outcomes) == 0 {
@@ -150,6 +157,23 @@ func validateNode(node Node, mode agent.Mode, registry Registry) []error {
 		if exists && !slices.Contains(spec.Outcomes, outcome) {
 			faults = append(faults, fmt.Errorf("node %q outcome %q is outside action %q outcomes", node.Name, outcome, node.Action))
 		}
+	}
+	return faults
+}
+
+// validateListAttribute checks a comma-separated set against a closed vocabulary.
+func validateListAttribute(node, name, value string, allowed []string) []error {
+	var faults []error
+	seen := make(map[string]bool)
+	for element := range strings.SplitSeq(value, ",") {
+		element = strings.TrimSpace(element)
+		switch {
+		case !slices.Contains(allowed, element):
+			faults = append(faults, fmt.Errorf("node %q %s element %q is outside declared values", node, name, element))
+		case seen[element]:
+			faults = append(faults, fmt.Errorf("node %q %s repeats element %q", node, name, element))
+		}
+		seen[element] = true
 	}
 	return faults
 }

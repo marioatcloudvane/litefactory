@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -55,7 +56,22 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		// A closed issue withdraws the authority the instance was admitted
 		// under. Cancelling the dispatch leaves the instance and its findings
 		// exactly as they are; only the owed run goes away.
-		if issue.State != github.StateOpen {
+		bugParent, err := d.isBugParentDispatch(ctx, dispatch)
+		if err != nil {
+			return err
+		}
+		if issue.State != github.StateOpen && !bugParent {
+			if call, lookupErr := d.db.BugTestDispatchCall(ctx, dispatch.ID); lookupErr == nil {
+				if d.bugTests != nil {
+					if cancelErr := d.bugTests.Cancel(ctx, call.ID, at.UTC()); cancelErr != nil {
+						return cancelErr
+					}
+				} else if cancelErr := d.db.CancelBugTestCall(ctx, call.ID); cancelErr != nil {
+					return cancelErr
+				}
+			} else if !errors.Is(lookupErr, store.ErrNotFound) {
+				return lookupErr
+			}
 			if err := d.db.CancelGraphDispatch(ctx, dispatch.ID, "issue closed before the next graph stage could run", at.UTC()); err != nil {
 				return err
 			}
@@ -65,7 +81,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		if _, held := d.backoff.hold(at); held {
 			continue
 		}
-		if !d.inflight.enter(session.ID) {
+		if !d.enterDoctorGuarded(ctx, session.ID) {
 			log.DebugContext(ctx, "graph step waits for this task's in-flight turn")
 			continue
 		}
@@ -85,10 +101,84 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		}
 		t.workerLog = log.With(slog.Any("dispatch_sources", []string{"graph_step"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")
-		go d.runWorker(ctx, t, func() { d.runGraphStep(ctx, t, reserved) })
+		go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })
 		result.Dispatched++
 	}
 	return nil
+}
+
+// graphChainLimit bounds how many owed stages one worker runs back to back.
+// The Plan creation cycle owes one per story; the bound only stops a runaway.
+const graphChainLimit = 32
+
+// continueGraphSteps runs the stages a session's graph instance owes right
+// after the worker's own work, on the same slot. A stage parks the instance and
+// leaves a dispatch that is due at once; waiting for the next tick for each one
+// adds a minute per story to a Plan creation cycle. It also means a session the
+// tick keeps busy, such as a graph Plan parent observed every tick for child
+// replies, can never starve its own owed stage.
+func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
+	if d.db == nil || d.forge == nil {
+		return
+	}
+	for range graphChainLimit {
+		// A stopped result still owed its repair holds the session; nothing
+		// else runs on it until that succeeds.
+		if ctx.Err() != nil || d.stoppedDebt.owes(t.session.ID) {
+			return
+		}
+		if _, held := d.backoff.hold(t.tickAt); held {
+			return
+		}
+		dispatch, ok, err := d.db.NextFreshGraphDispatch(ctx, t.session.ID)
+		if err != nil || !ok {
+			if err != nil {
+				t.recordWorkerError(err)
+				t.log.ErrorContext(ctx, "read the owed graph stage", slog.Any("error", err))
+			}
+			return
+		}
+		session, err := d.db.GetSession(ctx, dispatch.SessionID)
+		if err != nil {
+			t.recordWorkerError(err)
+			t.log.ErrorContext(ctx, "read the session of the owed graph stage", slog.Any("error", err))
+			return
+		}
+		log := t.log.With(slog.Int64("graph_dispatch_id", dispatch.ID), slog.String("graph_node", dispatch.Node))
+		issue, err := d.forge.GetIssue(ctx, t.forgeRepo, session.IssueNumber)
+		if err != nil {
+			d.rateLimited(ctx, log, t.tickAt, err)
+			log.ErrorContext(ctx, "graph step issue observation failed; leaving it to the tick", slog.Any("error", err))
+			return
+		}
+		bugParent, lookupErr := d.isBugParentDispatch(ctx, dispatch)
+		if lookupErr != nil {
+			t.recordWorkerError(lookupErr)
+			return
+		}
+		if issue.State != github.StateOpen && !bugParent {
+			if err := d.db.CancelGraphDispatch(ctx, dispatch.ID, "issue closed before the next graph stage could run", t.tickAt.UTC()); err != nil {
+				t.recordWorkerError(err)
+			}
+			return
+		}
+		// A parked stage is due from the instant it parked, which is later than
+		// the tick this worker belongs to; reserving at that instant claims it.
+		at := t.tickAt.UTC()
+		if dispatch.DueAt.After(at) {
+			at = dispatch.DueAt
+		}
+		reserved, ok, err := d.db.ReserveGraphDispatch(ctx, dispatch.ID, at)
+		if err != nil || !ok {
+			if err != nil {
+				t.recordWorkerError(err)
+			}
+			return
+		}
+		log.InfoContext(ctx, "running the owed graph stage in the same worker")
+		step := &task{repo: t.repo, forgeRepo: t.forgeRepo, session: session, ref: t.ref, issue: issue, log: log, tickAt: t.tickAt, worker: t.worker, workerLog: t.workerLog}
+		d.runGraphStep(ctx, step, reserved)
+	}
 }
 
 // runGraphStep executes one owed stage. The dispatch's private trigger is what
@@ -96,10 +186,39 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 // recovery and manual schedules do; without one it could not exist beside the
 // comment-triggered run that parked it.
 func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.GraphDispatch) {
+	if d.runBugTestDispatch(ctx, t, dispatch) {
+		return
+	}
 	trigger, command := graphStepRequest(dispatch, d.filter.Identities().OwnerHandle)
 	err := d.run(ctx, t, trigger, command, t.log)
 	if err != nil {
 		t.recordWorkerError(err)
+	}
+	admission, admissionErr := d.db.GetTaskWorkflowAdmission(ctx, dispatch.SessionID)
+	if admissionErr != nil && !errors.Is(admissionErr, store.ErrNotFound) {
+		t.recordWorkerError(admissionErr)
+		return
+	}
+	if admissionErr == nil && admission.Workflow == "bug" && d.bug != nil {
+		// A step refused before the Bug runtime took it (locked task, or an
+		// admission error) still holds its reservation; requeue it so the
+		// owed step is retried instead of staying reserved for good. The
+		// store only requeues an unallocated reservation, so a step the
+		// runtime already closed is untouched.
+		if t.bugDispatchLocked || err != nil {
+			cause := "Bug parent waits for task ownership"
+			if !t.bugDispatchLocked {
+				cause = err.Error()
+			}
+			_, retryErr := d.db.RequeueGraphDispatch(ctx, dispatch.ID, t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts)), cause)
+			if retryErr != nil {
+				t.recordWorkerError(retryErr)
+			}
+		}
+		// The Bug runtime closes the exact dispatch as part of its persisted
+		// transition/suspension. Factory-only nodes deliberately have no agent
+		// run, so the mode driver must not interpret that absence as nonexecution.
+		return
 	}
 	run, exists, lookupErr := d.db.GetRunByTrigger(ctx, dispatch.SessionID, dispatch.TriggerID())
 	if lookupErr != nil {
@@ -139,6 +258,24 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		t.log.ErrorContext(ctx, "close graph step", slog.Any("error", finishErr))
 	}
 	t.log.InfoContext(ctx, "graph step finished", slog.String("status", string(run.Status)), slog.Int("run_ordinal", run.Ordinal))
+}
+
+// A closed Bug issue still owes integration/closure observations and reports.
+// Only the domain runtime decides whether those obligations are fulfilled;
+// closing remotely never supplies missing approvals or authorizes repair.
+func (d *Daemon) isBugParentDispatch(ctx context.Context, dispatch store.GraphDispatch) (bool, error) {
+	a, err := d.db.GetTaskWorkflowAdmission(ctx, dispatch.SessionID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil || a.Workflow != "bug" {
+		return false, err
+	}
+	_, err = d.db.BugTestDispatchCall(ctx, dispatch.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return true, nil
+	}
+	return false, err
 }
 
 // graphStepRequest builds the trigger and command one owed stage runs under.

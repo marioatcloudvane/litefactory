@@ -8,11 +8,20 @@ import (
 	"fmt"
 )
 
-const graphDefinitionColumns = `id,team,mode,profile_version,path,digest,team_snapshot_digest,created_at`
+const graphDefinitionColumns = `id,team,mode,workflow,profile_version,path,digest,team_snapshot_digest,created_at`
 
 // CreateGraphDefinition returns the existing immutable pin for team/mode/digest,
 // or inserts it transactionally. A changed path cannot rewrite an existing pin.
 func (db *DB) CreateGraphDefinition(ctx context.Context, in GraphDefinition) (out GraphDefinition, err error) {
+	if in.Workflow != "" && in.Workflow != "bug" && in.Workflow != in.Mode {
+		return out, graphInvariant("conflicting graph workflow binding")
+	}
+	if in.Workflow == "bug" && in.Mode != "" {
+		return out, graphInvariant("Bug definition cannot have a mode")
+	}
+	if in.Workflow == "bug" {
+		in.Mode = standaloneGraphStorageKey
+	}
 	if !validGraphPath(in.Path) {
 		return out, &GraphDefinitionPathError{Path: in.Path}
 	}
@@ -24,7 +33,7 @@ func (db *DB) CreateGraphDefinition(ctx context.Context, in GraphDefinition) (ou
 		in.CreatedAt = nowUTC()
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		_, e := tx.ExecContext(ctx, `INSERT INTO graph_definitions(team,mode,profile_version,path,digest,team_snapshot_digest,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(team,mode,digest) DO NOTHING`, in.Team, in.Mode, in.ProfileVersion, in.Path, in.Digest, nullString(in.TeamSnapshotDigest), FormatTime(in.CreatedAt))
+		_, e := tx.ExecContext(ctx, `INSERT INTO graph_definitions(team,mode,workflow,profile_version,path,digest,team_snapshot_digest,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(team,mode,digest) DO NOTHING`, in.Team, in.Mode, in.Workflow, in.ProfileVersion, in.Path, in.Digest, nullString(in.TeamSnapshotDigest), FormatTime(in.CreatedAt))
 		if e != nil {
 			return e
 		}
@@ -50,14 +59,26 @@ func scanGraphDefinition(row scanner) (GraphDefinition, error) {
 	var d GraphDefinition
 	var snapshot sql.NullString
 	var created string
-	if err := row.Scan(&d.ID, &d.Team, &d.Mode, &d.ProfileVersion, &d.Path, &d.Digest, &snapshot, &created); err != nil {
+	if err := row.Scan(&d.ID, &d.Team, &d.Mode, &d.Workflow, &d.ProfileVersion, &d.Path, &d.Digest, &snapshot, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return d, ErrNotFound
 		}
 		return d, err
+	}
+	if d.Mode == standaloneGraphStorageKey {
+		if d.Workflow != "bug" {
+			return d, graphInvariant("invalid standalone graph ownership")
+		}
+		d.Mode = ""
+	} else if d.Workflow != "" && d.Workflow != d.Mode {
+		return d, graphInvariant("conflicting graph workflow ownership")
 	}
 	d.TeamSnapshotDigest = snapshot.String
 	var err error
 	d.CreatedAt, err = ParseTime(created)
 	return d, err
 }
+
+// The historical SQL mode column requires a nonempty value. This reserved storage
+// key is never exposed as a Mode; standalone ownership lives in workflow.
+const standaloneGraphStorageKey = "workflow:bug"

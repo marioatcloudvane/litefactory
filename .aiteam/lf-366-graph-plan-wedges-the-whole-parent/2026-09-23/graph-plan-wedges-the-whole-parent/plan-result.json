@@ -1,0 +1,168 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "[Parent Plan #366](https://github.com/marioatcloudvane/litefactory/issues/366)\n\nThe proposal has three stories: adopt GitHub child-state changes, recover interrupted operations without blocking independent stories, and explain remaining holds with full-path regression coverage. No owner questions remain. Historical operations without sufficient authority or ordering evidence remain held locally. No code changed or tests ran. Story publication and readiness remain pending factory processing. After successful publication and save, use `/implement this plan`.",
+    "payload": {
+      "plan": {
+        "summary": "Keep graph Plan moving when one child is closed or an operation is uncertain. Adopt verified GitHub lifecycle state, isolate story-specific failures, reconcile retained requests safely across restart, preserve current-scope approval and readiness checks, and report material changes through existing parent comments. Three ordered stories cover lifecycle adoption, durable recovery, and reporting with whole-path verification. Kill switches, legacy route removal, parent closure semantics, general synchronization, new UI/commands, deployment and manual database repair remain out of scope. The owner has settled GitHub as the lifecycle source of truth; no remaining product questions. Tests and runtime observations have not been executed in Plan.",
+        "stories": [
+          {
+            "key": "adopt-child-lifecycle",
+            "intent": "create",
+            "title": "Adopt GitHub child lifecycle without blocking independent Plan stories",
+            "user_story": {
+              "actor": "Plan owner",
+              "want": "closing or reopening a child on GitHub to update the plan's active work while other independent stories remain usable",
+              "benefit": "ordinary issue changes do not stop the whole plan or require duplicate commands",
+              "notes": [
+                "GitHub determines observed child lifecycle; closing an issue does not manufacture approval, engineering evidence or acceptance.",
+                "This story establishes retained lifecycle and membership policy for subsequent recovery and reporting work."
+              ]
+            },
+            "acceptance_criteria": [
+              {"id": "AC-003", "text": "Discovery adopts a verified bound child's closed state with completed, not-planned or unspecified reason, preserves history and actual reason, and removes it from active shaping without forced reopening, a duplicate closure command or fabricated approval/evidence."},
+              {"id": "AC-004", "text": "Reopening the same bound child reevaluates its current revision, parent, dependencies and approvals before eligibility, without automatically reviving stale approval or reopening already frozen managed scope. Closed bindings remain observable so subsequent reopening is detected."},
+              {"id": "AC-005", "text": "Reparented children receive no mutation through the original parent and are not automatically moved or admitted elsewhere. Missing, unverifiable or identity-mismatched children become explained story-local holds without inferred closure or rebinding, while independent siblings continue."},
+              {"id": "AC-011", "text": "Selection, active-set hashing, publication and final readiness use the same lifecycle membership policy to exclude externally closed children from active shaping. Dependency edges remain visible, affected dependencies and assembled-plan approval require reevaluation, and unchanged independent story approvals survive."},
+              {"id": "AC-012", "text": "A Plan with a nonempty reviewed remaining active set and valid dependencies may become ready after a resolved external closure. Empty active sets, unresolved material effects or holds including those on inactive stories, invalid dependencies, or stale assembled-plan review cannot become ready."}
+            ],
+            "tasks": [
+              {"id": "T-001", "description": "Add retained observed lifecycle and story-hold state using existing Plan/store owners and an additive migration as needed; centralize membership, dependency invalidation and readiness across all consumers, preserving independent approvals.", "owner_role": "go-implementation-engineer", "criterion_ids": ["AC-003", "AC-004", "AC-005", "AC-011", "AC-012"], "depends_on": []},
+              {"id": "T-002", "description": "Replace story-local discovery hard stops with verified persisted lifecycle or hold outcomes; continue siblings, revisit closed bindings, and prohibit writes through invalid identity or old parent relationships.", "owner_role": "go-implementation-engineer", "criterion_ids": ["AC-003", "AC-004", "AC-005"], "depends_on": ["T-001"]},
+              {"id": "T-003", "description": "Add pure policy tests for closure reasons, reopen reevaluation, dependency blocking, active membership, independent approval preservation and readiness refusal/success cases.", "owner_role": "go-unit-test-engineer", "criterion_ids": ["AC-003", "AC-004", "AC-005", "AC-011", "AC-012"], "depends_on": ["T-001"]},
+              {"id": "T-004", "description": "Extend ordinary daemon boundary tests using migrated SQLite and controlled HTTP to prove manual closure, unavailable identity, reopen/reparent handling and healthy sibling progress; assert no unauthorized remote lifecycle writes.", "owner_role": "go-integration-test-engineer", "criterion_ids": ["AC-003", "AC-004", "AC-005", "AC-011", "AC-012"], "depends_on": ["T-002", "T-003"]}
+            ],
+            "architecture": {
+              "summary": "Keep observed remote lifecycle separate from Retired, Plan stage and approval. Persist observations/holds and route all active-set consumers through shared pure Plan policy; discovery records story outcomes instead of failing the parent on local discrepancies.",
+              "components": [
+                {"name": "internal/planbrief/plan_workflow.go", "responsibility": "Pure lifecycle membership, dependency availability, approval invalidation and readiness rules."},
+                {"name": "internal/store/plan_story.go, internal/store/plan_workflow.go, internal/store/migrations", "responsibility": "Retained binding, observation, hold and expected-revision persistence with store-owned SQL."},
+                {"name": "internal/daemon/plan_children.go and existing turn child-edit boundary", "responsibility": "Observe verified children, adopt changes, preserve reobservation and continue healthy work."}
+              ],
+              "interfaces": [
+                {"name": "Lifecycle observation boundary", "input": "Stored numeric binding, current issue identity/state/reason/parent and available revision evidence or classified read failure", "output": "Persisted adopted lifecycle or story hold with reason and next action"},
+                {"name": "Shared active membership policy", "input": "Lifecycle, Plan state, dependencies and unresolved debt", "output": "Eligible active set, assembly invalidation and readiness findings"}
+              ],
+              "constraints": [
+                "No automatic reopening, rebinding or moving issues. Preserve unspecified reasons as unspecified.",
+                "Retired remains exact owner-confirmed retirement semantics; external closure is separate.",
+                "Use context-first store accessors, embedded additive migrations, one SQLite connection and existing expected-revision guards.",
+                "Evidence inventory AC-003/AC-004/AC-005: pure tests plus current daemon fixtures with real SQLite and controlled HTTP; available repository sources inspected by architect; proves offline lifecycle and isolation behavior only; missing prerequisite is implementation and executed checks.",
+                "Evidence inventory AC-011/AC-012: policy and publication/readiness boundary tests on the implemented revision, including resolved-closure readiness and inactive unresolved debt; fixtures available; no live GitHub or deployment assertion; implementation and execution remain pending."
+              ],
+              "decisions": [
+                {"decision": "GitHub closure removes active shaping for every actual closure reason", "reason": "Owner selected GitHub as lifecycle authority without granting engineering or approval authority."},
+                {"decision": "Reobserve inactive bindings and preserve frozen scope", "reason": "Later reopen must be discoverable without silently unfreezing managed requirements."}
+              ]
+            },
+            "dependencies": {"story_keys": [], "issue_refs": []}
+          },
+          {
+            "key": "recover-story-effects",
+            "intent": "create",
+            "title": "Recover interrupted story effects independently and preserve retirement authority",
+            "user_story": {
+              "actor": "Plan owner",
+              "want": "interrupted operations to reconcile after restart while healthy stories keep advancing",
+              "benefit": "one uncertain result does not wedge the parent, duplicate changes or undo later GitHub actions",
+              "notes": [
+                "A lost response differs from an open issue. Recovery preserves the original request and distinguishes unknown effects from verified lifecycle changes.",
+                "Historical requests without sufficient original authority or ordering evidence stay held locally; closure alone is not approval."
+              ]
+            },
+            "acceptance_criteria": [
+              {"id": "AC-001", "text": "Given unresolved create, attach, update or retire work on story A and eligible independent B, eligible daemon passes retain A's operation and hold and advance B without a parent-wide story-error failure; a story dependent on A's unresolved state remains unavailable."},
+              {"id": "AC-002", "text": "Held operations are reconsidered without a new owner comment or shaping selection after restart, including unbound creations, inactive stories and already-applied effects missing workflow completion. Bounded fair recovery permits healthy shaping work rather than repeatedly selecting only stuck work."},
+              {"id": "AC-006", "text": "A child already closed as not planned with exact retained retirement authority reaches reconciliation despite the ordinary open-child discovery check, completing local retirement and workflow state without another close mutation."},
+              {"id": "AC-007", "text": "An open-child retirement retry requires matching original authenticated owner confirmation, proposal/wait, candidate, revision, identity, provenance, parent and exact replacements still valid in the same parent. Persist authority before mutation. Missing or stale authority blocks mutation locally. A verified later reopen or reparent prohibits replay; ambiguous lifecycle ordering produces a story hold rather than another close."},
+              {"id": "AC-008", "text": "Restart recovery converges after remote closure but before local effect/draft completion, and after effect/draft completion but before workflow retirement. Repeated recovery or duplicate owner replies do not repeat successful mutations or lose history."},
+              {"id": "AC-009", "text": "Uncertain create, attach and update effects inspect current remote facts using their original request identity and known binding before retry. Absent or ambiguous creation matches do not trigger blind recreation. A verified later change can supersede obsolete intent without concealing an unknown remote outcome or rewriting the actual lifecycle reason."},
+              {"id": "AC-010", "text": "New successful local completion persists a consistent lifecycle, draft/effect outcome and workflow transition atomically under expected-revision protection after remote readback. Concurrent stale completion cannot overwrite newer state, and historical partial completion remains discoverable and repairable."},
+              {"id": "AC-015", "text": "Story-specific failures remain isolated while shared storage, parent identity/authority and repository-wide API failure or rate-limit paths preserve existing failure/backoff behavior without false success or readiness."}
+            ],
+            "tasks": [
+              {"id": "T-001", "description": "Persist original authenticated retirement confirmation and exact immutable request before remote mutation; add guarded store transaction for coherent lifecycle, draft/effect and workflow completion and enumerate historical completion debt.", "owner_role": "go-implementation-engineer", "criterion_ids": ["AC-006", "AC-007", "AC-008", "AC-010"], "depends_on": []},
+              {"id": "T-002", "description": "Introduce bounded fair per-parent reconciliation admitted by daemon independently of new comments or shaping; inspect remote facts before retry, preserve original correlation, isolate local outcomes and continue healthy selection while retaining shared failure handling.", "owner_role": "go-implementation-engineer", "criterion_ids": ["AC-001", "AC-002", "AC-006", "AC-007", "AC-008", "AC-009", "AC-015"], "depends_on": ["T-001"]},
+              {"id": "T-003", "description": "Test pure authority, ordering, hold/supersession and fairness decisions, including later reopen, invalid replacements, insufficient historical authority, transitive dependent availability and global failure classification.", "owner_role": "go-unit-test-engineer", "criterion_ids": ["AC-001", "AC-002", "AC-007", "AC-009", "AC-015"], "depends_on": ["T-002"]},
+              {"id": "T-004", "description": "Inject remote-response and local-persistence gaps through real SQLite/HTTP fixtures, reopen the database and replay retained requests through discovery/recovery. Assert exact mutation counts, revision rejection, both retirement gaps, no-comment recovery, unbound creation and healthy sibling progression.", "owner_role": "go-integration-test-engineer", "criterion_ids": ["AC-001", "AC-002", "AC-006", "AC-007", "AC-008", "AC-009", "AC-010", "AC-015"], "depends_on": ["T-002", "T-003"]}
+            ],
+            "architecture": {
+              "summary": "Add a narrow turn reconciliation coordinator called on eligible daemon passes. Enumerate pending and partially completed effects independently of active shaping, return retained per-story outcomes, and atomically finish local state under the original request and authority.",
+              "components": [
+                {"name": "internal/turn/plan_graph.go and internal/turn/plan_story_activity.go", "responsibility": "Durable confirmation, readback-before-replay, per-story reconciliation and safe local completion."},
+                {"name": "internal/store/plan_story.go and internal/store/plan_workflow.go", "responsibility": "Exact request/authority retention, completion-debt enumeration and revision-guarded atomic completion."},
+                {"name": "internal/daemon Plan admission and discovery", "responsibility": "Eligible recovery passes, bounded fair scheduling, capacity and shared backoff."}
+              ],
+              "interfaces": [
+                {"name": "Per-parent reconciliation coordinator", "input": "Parent ownership, retained request debt, current observations and daemon-admitted budget", "output": "Persisted per-story reconciled/held/superseded outcomes or shared failure; healthy work remains selectable"},
+                {"name": "Guarded local completion", "input": "Exact candidate/request/authority, readback evidence and expected revisions", "output": "Atomic lifecycle, draft/effect and workflow completion or stale-state conflict"}
+              ],
+              "constraints": [
+                "Do not hold SQL transactions across HTTP, nest DB calls under the single connection, or recursively acquire the parent lock.",
+                "No turn clock, sleep, retry loop, new worker pool or new timeline service. Daemon owns scheduling and backoff.",
+                "Issue UpdatedAt alone does not prove absence of reopening; use retained verified transitions and hold ambiguous histories.",
+                "Evidence inventory AC-001/AC-002/AC-015: actual daemon admission/recovery fixtures with migrated SQLite, controlled HTTP, restart and healthy sibling assertions; repository fixtures available; offline programmed behavior only on the implemented revision; execution pending.",
+                "Evidence inventory AC-006/AC-007/AC-008/AC-009/AC-010: activity/store/daemon fault-injection tests, database reopen, exact mutation counts and expected-revision checks; existing retirement fixtures available but whole-path gaps require new cases; no live deployment assertion; implementation and executed tests remain prerequisites."
+              ],
+              "decisions": [
+                {"decision": "Use a deterministic rotating cursor or equivalent durable fairness mechanism for bounded recovery", "reason": "A permanently uncertain first request must not starve other debt or healthy shaping across restart."},
+                {"decision": "Retain unknown remote outcomes even when later state supersedes old intent", "reason": "Current GitHub lifecycle cannot erase historical operation uncertainty or manufacture successful settlement."},
+                {"decision": "Repair applied-effect/workflow gaps explicitly", "reason": "Enumerating only pending candidates would strand the existing second retirement persistence gap."}
+              ]
+            },
+            "dependencies": {"story_keys": ["adopt-child-lifecycle"], "issue_refs": []}
+          },
+          {
+            "key": "report-and-verify-plan-progress",
+            "intent": "create",
+            "title": "Explain story holds and verify complete Plan progress across restart",
+            "user_story": {
+              "actor": "Plan owner",
+              "want": "clear notices about adopted changes and remaining holds while parent discussion and healthy replies remain usable",
+              "benefit": "I know what requires action without repeated polling comments or stale approvals",
+              "notes": [
+                "Use existing parent comments and input handling; no new command or dashboard.",
+                "Verify both reported wedges through the complete discovery-to-recovery path, rather than only isolated activity tests."
+              ]
+            },
+            "acceptance_criteria": [
+              {"id": "AC-013", "text": "Existing parent reporting identifies adopted lifecycle changes and remaining held story/request, cause and next action once per material change. Restart and uncertain delivery recover the same notice rather than generating one per poll; retained lifecycle changes and report debt survive delivery failure."},
+              {"id": "AC-014", "text": "Parent discussion and healthy child replies remain serviceable during another story's hold. Replies bound to closed or changed story state cannot promote stale candidates and receive an explanation before being marked handled, with replay-safe input cursors and confirmed delivery before consumption."},
+              {"id": "AC-016", "text": "Automated regressions exercise actual daemon discovery-to-recovery for manual closure and interrupted retirement alongside a healthy sibling; restart, both retirement persistence gaps, duplicate replay, create/attach/update uncertainty, reopen, reparenting, identity/authority rejection, dependencies and current readiness/publication; and uncertain notice delivery, stale/healthy child replies, parent discussion and shared failure/backoff compatibility. Repository make check passes, including formatting, vet, pinned lint and race tests, with actual executed results retained."}
+            ],
+            "tasks": [
+              {"id": "T-001", "description": "Extend existing durable report ownership with semantic material-change identities and recoverable delivery debt for lifecycle observations and holds, without fabricating graph-run identities; preserve redaction and bounded explanations.", "owner_role": "go-implementation-engineer", "criterion_ids": ["AC-013"], "depends_on": []},
+              {"id": "T-002", "description": "Connect parent and child reply handling to current lifecycle and holds; explain stale replies, retain delivery debt and move input cursors only after safe confirmed handling while independent discussion continues.", "owner_role": "go-implementation-engineer", "criterion_ids": ["AC-014"], "depends_on": ["T-001"]},
+              {"id": "T-003", "description": "Test material-change detection, stable notice identity, multiple retained causes and sanitized rendering without duplicate notices for unchanged polls.", "owner_role": "go-unit-test-engineer", "criterion_ids": ["AC-013"], "depends_on": ["T-001"]},
+              {"id": "T-004", "description": "Complete daemon-path regression matrix using real SQLite, controlled HTTP and deterministic synchronization; verify report response-loss replay, stale/healthy replies and readiness with both wedges. Run make check and retain actual outcomes, coordinating necessary fixes with the implementation engineer.", "owner_role": "go-integration-test-engineer", "criterion_ids": ["AC-013", "AC-014", "AC-016"], "depends_on": ["T-002", "T-003"]}
+            ],
+            "architecture": {
+              "summary": "Reuse existing turn/report delivery and store intent ownership for stable material-change notices; gate reply consumption on confirmed explanation delivery and verify all coupled behavior through normal daemon fixtures.",
+              "components": [
+                {"name": "Existing turn reporting/recovery and internal/report", "responsibility": "Recoverable notice delivery and pure bounded redacted rendering."},
+                {"name": "Store delivery intent and daemon child input routing", "responsibility": "Stable observation correlation, delivery debt and replay-safe cursors."},
+                {"name": "Existing daemon/turn boundary test files", "responsibility": "Full-path verification with real storage and HTTP boundaries."}
+              ],
+              "interfaces": [
+                {"name": "Material-change notice", "input": "Persisted story lifecycle/hold change, original request when present, cause and next action", "output": "Stable delivery identity with confirmed or recoverable uncertain state"},
+                {"name": "Reply disposition", "input": "Authenticated queued input plus current lifecycle, content revision and delivery state", "output": "Healthy handling or explained stale result with safely advanced or retained cursor"}
+              ],
+              "constraints": [
+                "Report package must not import turn; preserve existing redaction and input-cursor ownership.",
+                "Use ordinary existing test packages and names: no integration build tags or TestFoo_Integration naming, no live daemon, no make build or writes into dist.",
+                "Evidence inventory AC-013: unit material-change tests and durable report response-loss/restart tests on real SQLite/controlled HTTP; existing delivery machinery available; proves offline deduplication behavior only; implementation and executed checks pending.",
+                "Evidence inventory AC-014: daemon input/delivery tests with closed/stale and healthy replies and parent input; current fixtures available; implemented revision only, no live owner interaction claim; execution pending.",
+                "Evidence inventory AC-016: combined discovery/recovery and compatibility regressions plus actual make check output on final implementation; repository fixtures and pinned check target available; no production or nested-agent observation required or claimed; all checks remain unexecuted during Plan."
+              ],
+              "decisions": [
+                {"decision": "Key notices by retained material change, not polling attempt", "reason": "Unchanged holds and lost delivery responses must not spam the parent across retries."},
+                {"decision": "Keep lifecycle persistence and delivery debt distinct", "reason": "A report failure must neither discard adopted GitHub state nor falsely acknowledge affected input."}
+              ]
+            },
+            "dependencies": {"story_keys": ["adopt-child-lifecycle", "recover-story-effects"], "issue_refs": []}
+          }
+        ]
+      }
+    }
+  }
+}

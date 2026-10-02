@@ -11,7 +11,7 @@ import (
 
 func TestFinalization_ExecutableExampleParity(t *testing.T) {
 	root := "../../teams/source/skills/agent-finalization/references/examples"
-	for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
+	for _, mode := range []string{"research", "plan", "implement", "validate"} {
 		for _, outcome := range []string{"completed", "incomplete", "blocked"} {
 			t.Run(mode+"/"+outcome, func(t *testing.T) {
 				name := mode + "-" + outcome + ".json"
@@ -58,7 +58,8 @@ func TestFinalization_ExecutableExampleParity(t *testing.T) {
 		name, mode       string
 		permission, want bool
 	}{
-		{"research-question.json", "research", true, true}, {"research-question.json", "research", false, false}, {"invalid-spike-question.json", "spike", true, false},
+		{"research-question.json", "research", true, true}, {"research-question.json", "research", false, false}, {"invalid-implement-question.json", "implement", true, false},
+		{"invalid-validate-question.json", "validate", true, false},
 	} {
 		source, err := os.ReadFile(filepath.Join(root, tt.name))
 		if err != nil {
@@ -95,7 +96,7 @@ func TestFinalization_QuestionExampleAcrossModesAndExits(t *testing.T) {
 				result, ctx := createFixture(mode, outcome)
 				ctx.QuestionsAllowed = permitted
 				result.Questions = example.Questions
-				want := permitted && (mode == "research" || mode == "plan") && outcome != "completed"
+				want := permitted && (mode == "research" || mode == "plan" || mode == "spike") && outcome != "completed"
 				if got := ar.ValidateResult(result, ctx); got.Valid != want {
 					t.Fatalf("source question shape: mode=%s outcome=%s permission=%t diagnostics=%+v", mode, outcome, permitted, got)
 				}

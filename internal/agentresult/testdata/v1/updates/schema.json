@@ -65,6 +65,8 @@
                   "payload.plan.stories.tasks",
                   "payload.plan.stories.architecture",
                   "payload.plan.stories.dependencies",
+                  "payload.plan.storyrequest",
+                  "payload.plan.storyset",
                   "payload.implement.stories",
                   "payload.implement.aggregate_checks",
                   "payload.validate.stories",

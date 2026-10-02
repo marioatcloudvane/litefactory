@@ -123,6 +123,13 @@ func readScopeForApproval(ctx context.Context, o Options, ref naming.Ref, f stor
 	for _, child := range children {
 		attached[child.Number] = child.ID
 	}
+	contract, contractErr := o.DB.GetGenerationContract(ctx, ref.String(), f.Generation)
+	if contractErr != nil && !errors.Is(contractErr, store.ErrNotFound) {
+		return nil, contractErr
+	}
+	// A typed generation is checked through its stored projection above; its
+	// issue bodies use the typed layout, not the legacy prose sections.
+	typed := contractErr == nil && contract.ContentVersion == 2
 	var out []store.ApprovedStoryRevision
 	var faults []error
 	total := 0
@@ -169,18 +176,16 @@ func readScopeForApproval(ctx context.Context, o Options, ref naming.Ref, f stor
 			faults = append(faults, fmt.Errorf("story %s: %w", s.Key, err))
 			continue
 		}
-		if err := planbrief.ValidateStoryBody(issue.Body); err != nil {
-			faults = append(faults, fmt.Errorf("story %s: %w", s.Key, err))
-			continue
+		if !typed {
+			if err := planbrief.ValidateStoryBody(issue.Body); err != nil {
+				faults = append(faults, fmt.Errorf("story %s: %w", s.Key, err))
+				continue
+			}
 		}
 		total += len(issue.Title) + len(issue.Body)
 		out = append(out, store.ApprovedStoryRevision{ManagedStory: s, ParentID: parent.ID, Title: issue.Title, Body: issue.Body, Hash: planbrief.StoryHash(issue.Title, issue.Body), FetchedAt: time.Now().UTC()})
 	}
-	contract, contractErr := o.DB.GetGenerationContract(ctx, ref.String(), f.Generation)
-	if contractErr != nil && !errors.Is(contractErr, store.ErrNotFound) {
-		faults = append(faults, contractErr)
-	}
-	if contractErr == nil && contract.ContentVersion == 2 {
+	if typed {
 		// Confirm the exact observed bytes again at the approval boundary. The
 		// forge offers no atomic compare-and-swap across this read and storage.
 		for _, revision := range out {

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -148,11 +149,13 @@ func TestInFlightIssueInOneRepoDoesNotHoldBackDiscoveryOfAnother(t *testing.T) {
 		t.Fatalf("second tick dispatched %d turns, want 1: repo B's comment must be dispatched "+
 			"while repo A's session is in flight\nlogs:\n%s", second.Dispatched, f.logs)
 	}
-	if !second.Cursor.TasksUpdatedSince.Equal(second.StartedAt) {
-		close(release)
-		_ = f.daemon.Quiesce(f.t.Context())
-		t.Fatalf("cursor advanced to %s, want %s: repo A's stuck session must not rewind or hold "+
-			"back the cursor for repo B (RD-2)", second.Cursor.TasksUpdatedSince, second.StartedAt)
+	for _, repo := range []store.Repo{f.repo, other} {
+		if at, ok := f.repoCursor(repo); !ok || !at.Equal(second.StartedAt) {
+			close(release)
+			_ = f.daemon.Quiesce(f.t.Context())
+			t.Fatalf("cursor of %s/%s is %s (row %v), want %s: repo A's stuck session must not rewind "+
+				"or hold back the cursor for repo B (RD-2)", repo.Owner, repo.Name, at, ok, second.StartedAt)
+		}
 	}
 
 	close(release)

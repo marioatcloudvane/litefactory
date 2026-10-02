@@ -19,6 +19,8 @@ type ResultStoryRevision struct {
 // ResultAttempt is supplied by the factory; mutable Plan draft contents are not
 // part of its identity. It requires a real run but no managed generation.
 type ResultAttempt struct {
+	Workflow string
+
 	Task, Mode, WorkContext, Attempt                  string
 	RunID                                             int64
 	SchemaVersion, WorkflowVersion, SubmissionVersion int
@@ -28,6 +30,9 @@ type ResultAttempt struct {
 // ResultBinding grants one attributed reader and, while active, a writer. Values
 // are rechecked against the store; constructing one does not grant authority.
 type ResultBinding struct {
+	DoctorAttemptID string
+	Workflow        string
+
 	ResultID, RunID                                   int64
 	Task, Mode, WorkContext, ContextHash, Attempt     string
 	SchemaVersion, WorkflowVersion, SubmissionVersion int
@@ -70,7 +75,7 @@ func ResultContextHash(a ResultAttempt) (string, error) {
 // Replaying a revoked attempt never resurrects it, even after a fresh run.
 func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBinding, error) {
 	var b ResultBinding
-	if a.RunID < 1 || strings.TrimSpace(a.Task) == "" || strings.TrimSpace(a.WorkContext) == "" || a.Attempt == "" || len(a.Attempt) > 256 || len(a.WorkContext) > 8192 || a.SchemaVersion != 1 || (a.WorkflowVersion != 1 && a.WorkflowVersion != 2) || a.SubmissionVersion != 2 || !submissionState(a.Mode, "research", "plan", "implement", "validate", "spike") {
+	if a.RunID < 1 || strings.TrimSpace(a.Task) == "" || strings.TrimSpace(a.WorkContext) == "" || a.Attempt == "" || len(a.Attempt) > 256 || len(a.WorkContext) > 8192 || a.SchemaVersion != 1 || (a.WorkflowVersion != 1 && a.WorkflowVersion != 2) || a.SubmissionVersion != 2 || !validResultWorkflow(a.Workflow, a.Mode) {
 		return b, fmt.Errorf("store: invalid result attempt")
 	}
 	hash, err := ResultContextHash(a)
@@ -79,7 +84,7 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		var n int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runs r JOIN sessions s ON s.id=r.session_id WHERE r.id=? AND r.mode=? AND r.status='running' AND s.task_ref=?`, a.RunID, a.Mode, a.Task).Scan(&n); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runs r JOIN sessions s ON s.id=r.session_id WHERE r.id=? AND r.mode=? AND r.workflow=? AND r.status='running' AND s.task_ref=?`, a.RunID, a.Mode, a.Workflow, a.Task).Scan(&n); err != nil {
 			return err
 		}
 		if n != 1 {
@@ -87,7 +92,7 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 		}
 		old, err := readResultBinding(ctx, tx, a.RunID, a.Attempt, false)
 		if err == nil {
-			if old.Task != a.Task || old.Mode != a.Mode || old.ContextHash != hash {
+			if old.Task != a.Task || old.Mode != a.Mode || old.Workflow != a.Workflow || old.ContextHash != hash {
 				return ErrResultAuthority
 			}
 			if err := checkResultAccess(ctx, tx, old, true); err != nil {
@@ -99,14 +104,14 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 		if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO application_results(task,mode,work_context,context_hash,schema_version,workflow_version,submission_version) VALUES(?,?,?,?,?,?,?) ON CONFLICT(task,mode,context_hash) DO NOTHING`, a.Task, a.Mode, a.WorkContext, hash, a.SchemaVersion, a.WorkflowVersion, a.SubmissionVersion); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO application_results(task,mode,work_context,context_hash,schema_version,workflow_version,submission_version,workflow) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(task,mode,context_hash) DO NOTHING`, a.Task, a.Mode, a.WorkContext, hash, a.SchemaVersion, a.WorkflowVersion, a.SubmissionVersion, a.Workflow); err != nil {
 			return err
 		}
 		var id int64
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM application_results WHERE task=? AND mode=? AND context_hash=?`, a.Task, a.Mode, hash).Scan(&id); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM application_results WHERE task=? AND mode=? AND context_hash=? AND workflow=?`, a.Task, a.Mode, hash, a.Workflow).Scan(&id); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE result_id IN (SELECT id FROM application_results WHERE task=?)`, a.Task); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE result_id IN (SELECT id FROM application_results WHERE task=? AND workflow<>'doctor')`, a.Task); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_attempts(run_id,attempt,result_id,active) VALUES(?,?,?,1)`, a.RunID, a.Attempt, id); err != nil {
@@ -119,11 +124,11 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 }
 func readResultBinding(ctx context.Context, tx *sql.Tx, runID int64, attempt string, active bool) (ResultBinding, error) {
 	var b ResultBinding
-	query := `SELECT r.id,a.run_id,r.task,r.mode,r.work_context,r.context_hash,a.attempt,r.schema_version,r.workflow_version,r.submission_version FROM application_results r JOIN application_result_attempts a ON a.result_id=r.id WHERE a.run_id=? AND a.attempt=?`
+	query := `SELECT r.id,COALESCE(a.run_id,0),r.task,r.mode,r.work_context,r.context_hash,a.attempt,r.schema_version,r.workflow_version,r.submission_version,r.workflow,COALESCE(a.doctor_attempt_id,'') FROM application_results r JOIN application_result_attempts a ON a.result_id=r.id WHERE COALESCE(a.run_id,0)=? AND a.attempt=?`
 	if active {
 		query += ` AND a.active=1`
 	}
-	err := tx.QueryRowContext(ctx, query, runID, attempt).Scan(&b.ResultID, &b.RunID, &b.Task, &b.Mode, &b.WorkContext, &b.ContextHash, &b.Attempt, &b.SchemaVersion, &b.WorkflowVersion, &b.SubmissionVersion)
+	err := tx.QueryRowContext(ctx, query, runID, attempt).Scan(&b.ResultID, &b.RunID, &b.Task, &b.Mode, &b.WorkContext, &b.ContextHash, &b.Attempt, &b.SchemaVersion, &b.WorkflowVersion, &b.SubmissionVersion, &b.Workflow, &b.DoctorAttemptID)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -149,9 +154,12 @@ func checkResultAccess(ctx context.Context, tx *sql.Tx, b ResultBinding, write b
 	if old != b {
 		return ErrResultAuthority
 	}
+	if write && b.DoctorAttemptID != "" {
+		return checkDoctorResultWriter(ctx, tx, b)
+	}
 	if write {
 		var n int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runs r JOIN sessions s ON s.id=r.session_id WHERE r.id=? AND r.mode=? AND r.status='running' AND s.task_ref=?`, b.RunID, b.Mode, b.Task).Scan(&n); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM runs r JOIN sessions s ON s.id=r.session_id WHERE r.id=? AND r.mode=? AND r.workflow=? AND r.status='running' AND s.task_ref=?`, b.RunID, b.Mode, b.Workflow, b.Task).Scan(&n); err != nil {
 			return err
 		}
 		if n != 1 {
@@ -172,7 +180,7 @@ func (db *DB) EndResultAttempt(ctx context.Context, b ResultBinding) error {
 		if err := checkResultAccess(ctx, tx, b, false); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE run_id=? AND attempt=?`, b.RunID, b.Attempt)
+		_, err := tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE COALESCE(run_id,0)=? AND attempt=?`, b.RunID, b.Attempt)
 		return err
 	})
 }
@@ -206,4 +214,11 @@ func (db *DB) ResultHistoricalScopes(ctx context.Context, b ResultBinding) ([]Fa
 		return rows.Err()
 	})
 	return scopes, err
+}
+
+func validResultWorkflow(workflow, mode string) bool {
+	if workflow == "bug" {
+		return mode == ""
+	}
+	return workflow == "" && submissionState(mode, "research", "plan", "implement", "validate", "spike")
 }

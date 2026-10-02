@@ -16,9 +16,9 @@ import (
 // creation proposal's presentation comment. The full purpose is this prefix
 // plus the proposal hash, so one proposal on one trigger has one delivery.
 //
-// Only this prefix is exempt from the legacy runless-ambiguity probe (see
-// dispatchDelivery); it names deliveries that exist solely after the delivery
-// journal and always carry their delivery marker.
+// This prefix, like source-bound creation intake outcomes, is exempt from the
+// legacy runless-ambiguity probe (see dispatchDelivery): these deliveries exist
+// solely after the delivery journal and always carry their delivery marker.
 const creationPresentationPurpose = "creation-proposal:"
 
 // CreationPresenter is the optional capability the daemon reaches through an
@@ -93,7 +93,10 @@ func (r *Reporter) ReportCreationPresentation(ctx context.Context, runID int64) 
 	if proposal.SourceTask != row.SourceTask || proposal.Hash != row.ProposalHash {
 		return Posted{}, invalidRequest("retained proposal %s does not match its presentation row", row.ProposalHash)
 	}
-	reply := report.Reply{Ref: ref, Kind: report.ReplyCreationProposal, Creation: &report.CreationReply{Envelope: string(proposal.Envelope), Hash: proposal.Hash, Relationship: proposal.Relationship}}
+	// The factory publishes an approved proposal itself, whatever the run's
+	// mode or workflow path; the proposal row exists only when creation is on.
+	publication := report.CreationPublicationFactory
+	reply := report.Reply{Ref: ref, Kind: report.ReplyCreationProposal, Creation: &report.CreationReply{Envelope: string(proposal.Envelope), Hash: proposal.Hash, Relationship: proposal.Relationship, Publication: publication}}
 
 	intent := r.deliveryIntent(ref, ref, row.SessionID, run.TriggerCommentID, 0, creationPresentationPurpose+proposal.Hash)
 	if err := creation.BindCreationPresentationDelivery(ctx, runID, intent.Key); err != nil {

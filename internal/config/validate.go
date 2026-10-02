@@ -14,11 +14,11 @@ import (
 // never a silent clamp: a daemon that quietly ignored the interval it was
 // given would be discovered as "it feels slow", months later.
 const (
-	// MinPollIntervalSeconds and MaxPollIntervalSeconds bound the tick
-	// interval (D-C, AC-2.7). Below 10s the GitHub core budget is at risk;
-	// above 60s the daemon stops feeling responsive to a comment.
-	MinPollIntervalSeconds = 10
-	MaxPollIntervalSeconds = 60
+	// MinPollIntervalMinutes and MaxPollIntervalMinutes bound the fallback
+	// discovery poll interval. Webhooks are the fast path; the poll is the
+	// safety net, so it may be long but never longer than three hours.
+	MinPollIntervalMinutes = 1
+	MaxPollIntervalMinutes = 180
 	// MinMaxConcurrentRuns and MaxMaxConcurrentRuns bound how many runs may be
 	// in flight at once (D2, AC-PAR-6.1). The floor is 1 because the serial
 	// daemon litefactory was before this key existed has to stay expressible —
@@ -39,6 +39,18 @@ const (
 	// value is already trustworthy when the sweep lands.
 	MinWorktreeRetainDays = 1
 	MaxWorktreeRetainDays = 3650
+	// MinDeployBackupKeep and MaxDeployBackupKeep bound how many newest
+	// pre-deploy database backups the daily housekeeping keeps.
+	MinDeployBackupKeep = 1
+	MaxDeployBackupKeep = 100
+	// MinLogRetainDays and MaxLogRetainDays bound how long rotated global log
+	// files are kept before the daily housekeeping deletes them.
+	MinLogRetainDays = 1
+	MaxLogRetainDays = 3650
+	// MinArchiveRetainDays and MaxArchiveRetainDays bound how long archive files
+	// and the run logs they cover are kept before the daily sweep expires them.
+	MinArchiveRetainDays = 1
+	MaxArchiveRetainDays = 3650
 	// MinAttachmentBytes and MaxAttachmentBytes bound each of the three
 	// attachment size ceilings (US-5): image, document and total. The floor
 	// rules out a zero or negative ceiling that would make ingestion refuse
@@ -96,10 +108,11 @@ var (
 func (c *Config) Validate() error {
 	var errs []error
 	errs = append(errs, c.Teams.validate()...)
+	errs = append(errs, c.Webhook.validate()...)
 	s := &c.Settings
-	if s.PollIntervalSeconds < MinPollIntervalSeconds || s.PollIntervalSeconds > MaxPollIntervalSeconds {
-		errs = append(errs, fmt.Errorf("settings.poll_interval_seconds: %d is out of range; must be between %d and %d",
-			s.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds))
+	if s.PollIntervalMinutes < MinPollIntervalMinutes || s.PollIntervalMinutes > MaxPollIntervalMinutes {
+		errs = append(errs, fmt.Errorf("settings.poll_interval_minutes: %d is out of range; must be between %d and %d",
+			s.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes))
 	}
 	if s.MaxConcurrentRuns < MinMaxConcurrentRuns || s.MaxConcurrentRuns > MaxMaxConcurrentRuns {
 		errs = append(errs, fmt.Errorf("settings.max_concurrent_runs: %d is out of range; must be between %d and %d",
@@ -108,6 +121,18 @@ func (c *Config) Validate() error {
 	if s.WorktreeRetainDays < MinWorktreeRetainDays || s.WorktreeRetainDays > MaxWorktreeRetainDays {
 		errs = append(errs, fmt.Errorf("settings.worktree_retain_days: %d is out of range; must be between %d and %d",
 			s.WorktreeRetainDays, MinWorktreeRetainDays, MaxWorktreeRetainDays))
+	}
+	if s.DeployBackupKeep < MinDeployBackupKeep || s.DeployBackupKeep > MaxDeployBackupKeep {
+		errs = append(errs, fmt.Errorf("settings.deploy_backup_keep: %d is out of range; must be between %d and %d",
+			s.DeployBackupKeep, MinDeployBackupKeep, MaxDeployBackupKeep))
+	}
+	if s.LogRetainDays < MinLogRetainDays || s.LogRetainDays > MaxLogRetainDays {
+		errs = append(errs, fmt.Errorf("settings.log_retain_days: %d is out of range; must be between %d and %d",
+			s.LogRetainDays, MinLogRetainDays, MaxLogRetainDays))
+	}
+	if s.ArchiveRetainDays < MinArchiveRetainDays || s.ArchiveRetainDays > MaxArchiveRetainDays {
+		errs = append(errs, fmt.Errorf("settings.archive_retain_days: %d is out of range; must be between %d and %d",
+			s.ArchiveRetainDays, MinArchiveRetainDays, MaxArchiveRetainDays))
 	}
 	if s.AttachmentMaxImageBytes < MinAttachmentBytes || s.AttachmentMaxImageBytes > MaxAttachmentBytes {
 		errs = append(errs, fmt.Errorf("settings.attachment_max_image_bytes: %d is out of range; must be between %d and %d",
@@ -160,6 +185,7 @@ func (c *Config) Validate() error {
 	errs = append(errs, validateTiers(c)...)
 	errs = append(errs, validateAgents(&c.Agents)...)
 	errs = append(errs, validatePermissionProfiles(c)...)
+	errs = append(errs, validateBugIsolation(c.BugChecks)...)
 	errs = append(errs, scanSecrets(c)...)
 
 	return errors.Join(errs...)

@@ -10,10 +10,12 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
+	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
@@ -84,7 +86,14 @@ type Options struct {
 	// ResearchDriver is the application-owned DOT execution path. An explicit
 	// graph selection fails closed when the driver is unavailable.
 	ResearchDriver   ResearchLaunchDriver
+	Bug              *BugRuntime
 	ResearchReporter *Reporter
+	// spikeCapture replaces the shipped Spike capture. It exists so a test can
+	// run a different graph file through the unchanged Go; production leaves it nil.
+	spikeCapture func(context.Context, WorkflowPolicy) (*teamsource.WorkflowDefinition, error)
+	// spikeRunCommand replaces the sandboxed recipe runner. It exists so a test can
+	// supply command results without a sandbox; production leaves it nil.
+	spikeRunCommand func(ctx context.Context, worktree string, command config.BugCheckCommand) bugchecks.CommandResult
 	// MCP is the optional startup-owned automatic tool runtime.
 	MCP *MCPRuntime
 	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
@@ -309,6 +318,9 @@ type Issue struct {
 
 // Trigger is what started this turn: a comment, or the issue body itself.
 type Trigger struct {
+	// PlanReply is correlated by authenticated child discovery, never role output.
+	PlanReply *planbrief.PlanOwnerReply
+
 	// AuthorID is the authenticated forge identity, used for graph reply claims.
 	AuthorID int64
 	// CommentID is the forge's id for the comment. It is unique per session on
@@ -336,6 +348,7 @@ type Trigger struct {
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
 	workflowPolicy     *WorkflowPolicy
+	bugAdmitted        bool
 	researchDefinition *teamsource.ResearchDefinition
 	researchNode       string
 	// researchInstance scopes this run's application result to one graph
@@ -343,12 +356,20 @@ type Request struct {
 	// without this every run on a task shares one result and every run after
 	// the first has to revise it rather than author one.
 	researchInstance int64
+	// nodeWrite marks a graph agent node the runtime granted write access, and
+	// noQuestions one whose graph offers no owner wait for its questions. Both
+	// are derived by the factory from the graph, never from a comment or agent.
+	nodeWrite, noQuestions bool
+	// resultPass gives this node's application result an identity of its own
+	// within the graph instance, when its policy asks for one per node.
+	resultPass string
 
 	// Continuation is factory-owned saved context, never supplied by a comment.
 	Continuation *store.Continuation
 
 	// Mode is the concrete workflow mode selected before this turn starts.
-	Mode agent.Mode
+	Mode     agent.Mode
+	Workflow agent.Workflow
 	// SessionID is the task, from store.GetOrCreateSession.
 	SessionID int64
 	// Issue describes the issue.
@@ -437,6 +458,10 @@ func (r Request) validate() error {
 		return invalidRequest("%s has no instruction text", r.Command.Kind)
 	case r.Agent == "":
 		return invalidRequest("no coding agent was selected")
+	case r.Workflow != "" && !validRequestWorkflow(r.Workflow, r.Mode):
+		return invalidRequest("workflow %q conflicts with mode %q", r.Workflow, r.Mode)
+	case r.Workflow == agent.WorkflowBug && !r.bugAdmitted:
+		return invalidRequest("Bug execution requires a registered policy, package and factory role permissions")
 	case r.Mode != "" && !r.Mode.Valid():
 		return invalidRequest("mode %q is not research, plan, implement, validate or spike", r.Mode)
 	default:
@@ -449,7 +474,17 @@ func (r Request) validate() error {
 // the same thing and none of them has to be kept in step by hand. Free text
 // named no command. The fallback is retained for old direct callers and tests;
 // production daemon requests always carry [Request.Mode].
+func (r Request) storedWorkflow() string {
+	if r.Workflow == agent.WorkflowBug {
+		return "bug"
+	}
+	return ""
+}
+
 func (r Request) mode() string {
+	if r.Workflow == agent.WorkflowBug {
+		return ""
+	}
 	if r.Mode.Valid() {
 		return string(r.Mode)
 	}
@@ -488,6 +523,9 @@ func (r Request) mode() string {
 func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr error) {
 	if err := opts.validate(); err != nil {
 		return Result{}, err
+	}
+	if req.Workflow == agent.WorkflowBug && opts.Bug != nil {
+		req.bugAdmitted = true
 	}
 	if err := req.validate(); err != nil {
 		return Result{}, err
@@ -529,7 +567,7 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	if _, pending, err := opts.DB.FindPendingReportDelivery(ctx, session.ID, req.Trigger.CommentID); err != nil {
 		return result, err
 	} else if pending {
-		graph, graphErr := opts.DB.HasResearchGraphSession(ctx, session.ID)
+		graph, graphErr := opts.DB.HasWorkflowGraphSession(ctx, session.ID, req.mode())
 		if graphErr != nil {
 			return result, graphErr
 		}
@@ -602,10 +640,20 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		}
 	}()
 
+	if req.Workflow == agent.WorkflowBug {
+		return opts.Bug.Execute(ctx, req, result)
+	}
+
 	// AC-3.4: a comment that already produced a run never produces a second
 	// one. The unique index on (session, trigger comment) would refuse the
 	// insert anyway; looking first is what turns that into a clean no-op.
+	if err := recoverPlanPublications(ctx, opts, session.ID); err != nil {
+		return result, err
+	}
 	if err := recoverResearchPublications(ctx, opts, session.ID); err != nil {
+		return result, err
+	}
+	if err := RecoverWorkflowPublications(ctx, opts, session.ID, SpikeWorkflowPolicy()); err != nil {
 		return result, err
 	}
 	existing, replay, err := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)
@@ -613,15 +661,29 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		return result, fmt.Errorf("look for an existing run of comment %d: %w", req.Trigger.CommentID, err)
 	}
 	if replay && existing.Status != store.RunPrelaunch {
-		graph, graphErr := opts.DB.HasResearchGraphRun(ctx, existing.ID)
+		graph, graphErr := opts.DB.HasWorkflowGraphRun(ctx, existing.ID, existing.Mode)
 		if graphErr != nil {
 			return result, graphErr
 		}
 		result.ResearchGraph = graph
+		// A failed graph Plan run may be replayed before its failure comment was
+		// published. The owner's comment is handled only together with that
+		// comment, so it is completed here or the replay fails and stays unhandled.
+		if graph && existing.Mode == string(agent.ModePlan) && !existing.Succeeded() {
+			if reportErr := ensurePlanFailureReported(ctx, opts, req, existing); reportErr != nil {
+				return result, fmt.Errorf("publish the failure comment of failed Plan run %d: %w", existing.ID, reportErr)
+			}
+		}
 		return replayed(result, existing, logger), nil
 	}
 
+	if graphResult, handled, graphErr := admitPlanExecution(ctx, opts, req, result); handled {
+		return graphResult, graphErr
+	}
 	if graphResult, handled, graphErr := admitResearchExecution(ctx, opts, req, result); handled {
+		return graphResult, graphErr
+	}
+	if graphResult, handled, graphErr := admitSpikeExecution(ctx, opts, req, result); handled {
 		return graphResult, graphErr
 	}
 
@@ -858,4 +920,9 @@ func repairWithLock(repair func(context.Context) (Result, error), release func(c
 		}
 		return result, nil
 	}
+}
+
+func validRequestWorkflow(w agent.Workflow, m agent.Mode) bool {
+	_, err := agent.ResolveWorkflow(w, m)
+	return err == nil
 }

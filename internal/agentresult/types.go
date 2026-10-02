@@ -29,6 +29,8 @@ type CreateInput struct {
 
 // Metadata contains factory-owned attribution, never credentials.
 type Metadata struct {
+	Workflow agent.Workflow `json:"workflow,omitempty"`
+
 	SchemaVersion             int    `json:"schema_version"`
 	Task                      string `json:"task"`
 	RunID                     int64  `json:"run_id"`
@@ -51,15 +53,26 @@ type Snapshot struct {
 // Context is factory input, never decoded from authored JSON. AggregateValidator
 // resolves retained aggregate facts; absence cannot establish aggregate proof.
 type Context struct {
-	SchemaVersion       int
-	Mode                string
-	WorkflowVersion     int
-	QuestionsAllowed    bool
+	Bug *BugBinding
+
+	Workflow         agent.Workflow
+	SchemaVersion    int
+	Mode             string
+	WorkflowVersion  int
+	QuestionsAllowed bool
+	// WriteAccess is set only by a graph runtime for a node whose access level
+	// grants edits. A finished result from such a node must report its change.
+	WriteAccess         bool
 	PlanScope           planbrief.ContentScope
 	Stories             map[string]agent.ContributionStory
 	EngineeringComplete map[string]bool
 	RequireAggregate    bool
 	AggregateValidator  func(agent.EngineeringContribution) Diagnostics
+	// PlanGraph is non-nil only for a graph Plan node. It carries the values the
+	// factory binds to the request and marks the run as graph Plan, which is what
+	// selects the story request and story set branches over the legacy planning
+	// fields. Absent, the mode-plan contract is the legacy one, unchanged.
+	PlanGraph *PlanGraphBinding
 }
 
 // Result contains common content and exactly one mode payload.
@@ -119,6 +132,8 @@ type Artifact struct {
 
 // Payload selects one of the five factory-bound work modes.
 type Payload struct {
+	Bug *Bug `json:"bug,omitempty"`
+
 	Research  *Research  `json:"research,omitempty"`
 	Plan      *Plan      `json:"plan,omitempty"`
 	Implement *Implement `json:"implement,omitempty"`
@@ -161,14 +176,84 @@ type Spike struct {
 	Findings  []string `json:"findings,omitempty"`
 	Decisions []string `json:"decisions,omitempty"`
 	NotDone   []string `json:"not_done,omitempty"`
+	// ProposedFix is the investigator's claim about the one small change it
+	// would make. The graph measures it; it is a proposal, never an approval.
+	ProposedFix *SpikeProposedFix `json:"proposed_fix,omitempty"`
+	// FixReport is the fixer's claim about the one change it made. It is required
+	// on a finished result from a write-access node and forbidden elsewhere. The
+	// factory measures the real change separately; this is only what was claimed.
+	FixReport *SpikeFixReport `json:"fix_report,omitempty"`
+	// Status is recorded by the factory when it writes the Spike note, so the
+	// report can name it. An authored result never carries one.
+	Status string `json:"status,omitempty"`
+	// Check and Issue are factory-recorded measurements and filing state attached
+	// to a report from durable records. An authored result never carries either.
+	Check *SpikeCheckView `json:"check,omitempty"`
+	Issue *SpikeIssueView `json:"issue,omitempty"`
+}
+
+// SpikeFixReport describes the change a write-access step says it made: the one
+// defect, every file it touched including the regression test, the regression
+// test itself, the risky kinds of change it touched and a short summary.
+type SpikeFixReport struct {
+	Defect         string   `json:"defect"`
+	Files          []string `json:"files"`
+	RegressionTest string   `json:"regression_test"`
+	ChangeKinds    []string `json:"change_kinds,omitempty"`
+	Summary        string   `json:"summary"`
+}
+
+// SpikeCheckView is the factory's measured outcome of a fix, as retained in the
+// Spike check record. It is never taken from an agent.
+type SpikeCheckView struct {
+	Outcome   string   `json:"outcome"`
+	Files     []string `json:"files,omitempty"`
+	Forbidden []string `json:"forbidden,omitempty"`
+	Phases    []string `json:"phases,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
+}
+
+// SpikeIssueView is the factory's filing state for an oversized fix.
+type SpikeIssueView struct {
+	State  string `json:"state"`
+	Number int    `json:"number,omitempty"`
+	URL    string `json:"url,omitempty"`
+}
+
+// SpikeChangeKinds is the closed vocabulary describing what a proposed change
+// touches. The graph, not this package, decides which kinds are too large.
+var SpikeChangeKinds = []string{"code", "test", "package", "dependency", "schema", "api"}
+
+// SpikeStatuses is the closed vocabulary of note statuses a graph may record.
+var SpikeStatuses = []string{"asking", "answered", "hand_back", "blocked", "fix_proposed", "fixed", "fix_unverified", "fix_too_big"}
+
+// SpikeFixChangeKinds are the risky kinds of change a fixer may declare. A
+// fix that touches none of them declares none.
+var SpikeFixChangeKinds = []string{"package", "dependency", "schema", "api"}
+
+// SpikeProposedFix describes a proposed change precisely enough to be measured:
+// how many defects, which files (including the regression test), which kinds of
+// change and the regression test that would prove the fix.
+type SpikeProposedFix struct {
+	Defects        []string `json:"defects"`
+	Files          []string `json:"files"`
+	ChangeKinds    []string `json:"change_kinds"`
+	RegressionTest string   `json:"regression_test"`
 }
 
 // Plan draft fields are omitted until supplied; completion invokes the existing
 // complete typed validator, including roles, criteria and graph obligations.
+//
+// A graph Plan node uses neither: its done result carries exactly one of
+// StoryRequest and StorySet, and its ask carries neither. Which contract applies
+// is decided by the trusted Context (PlanGraph), never by the payload, so a
+// legacy Plan can never be turned into a graph Plan by what it sends.
 type Plan struct {
-	Summary string                    `json:"summary,omitempty"`
-	Context *agent.PlanningDiscussion `json:"context,omitempty"`
-	Stories []PlanStory               `json:"stories,omitempty"`
+	Summary      string                    `json:"summary,omitempty"`
+	Context      *agent.PlanningDiscussion `json:"context,omitempty"`
+	Stories      []PlanStory               `json:"stories,omitempty"`
+	StoryRequest *PlanStoryRequest         `json:"storyrequest,omitempty"`
+	StorySet     *PlanStorySet             `json:"storyset,omitempty"`
 }
 
 // PlanStory retains stable identity while draft detail is enriched.

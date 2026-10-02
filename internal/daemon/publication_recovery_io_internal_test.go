@@ -40,9 +40,13 @@ type publicationIO struct {
 	mu                          sync.Mutex
 	posts                       int
 	bodies                      []string
+	postPaths                   []string
 	pages                       []string
 	lost                        bool
-	server                      *httptest.Server
+	// createOK makes the fake forge answer an issue POST with a well-formed
+	// bot-authored issue instead of a truncated reply.
+	createOK bool
+	server   *httptest.Server
 }
 
 func publicationMust(t *testing.T, err error) {
@@ -77,6 +81,10 @@ func newPublicationIO(t *testing.T) *publicationIO {
 				}
 				f.creationTitle, f.creationBody = a.Title, a.Body
 				w.WriteHeader(http.StatusCreated)
+				if f.createOK {
+					_ = json.NewEncoder(w).Encode(map[string]any{"id": 9000 + f.creationPosts, "number": 900 + f.creationPosts, "title": a.Title, "body": a.Body, "state": "open", "user": map[string]any{"id": 20, "type": "Bot"}})
+					return
+				}
 				_, _ = io.WriteString(w, `{"id":`)
 				return
 			}
@@ -95,13 +103,20 @@ func newPublicationIO(t *testing.T) *publicationIO {
 			_, _ = io.WriteString(w, `[]`)
 			return
 		}
-		if r.URL.Path != "/repos/owner/api/issues/278/comments" && r.URL.Path != "/repos/owner/api/issues/278" {
+		// Issue 200 is a Plan story sub-issue of parent 278: a stale reply there is
+		// answered on that sub-issue.
+		issue := "278"
+		if strings.HasPrefix(r.URL.Path, "/repos/owner/api/issues/200/") {
+			issue = "200"
+		}
+		if r.URL.Path != "/repos/owner/api/issues/278/comments" && r.URL.Path != "/repos/owner/api/issues/278" && r.URL.Path != "/repos/owner/api/issues/200/comments" {
 			t.Errorf("foreign path %s", r.URL.Path)
 			http.NotFound(w, r)
 			return
 		}
 		if r.Method == http.MethodPost {
 			f.posts++
+			f.postPaths = append(f.postPaths, r.URL.Path)
 			var p struct {
 				Body string `json:"body"`
 			}
@@ -124,15 +139,16 @@ func newPublicationIO(t *testing.T) *publicationIO {
 				t.Error("unbounded page")
 			}
 			if page == "1" {
-				w.Header().Set("Link", fmt.Sprintf(`<%s/repos/owner/api/issues/278/comments?page=2&per_page=100>; rel="next"`, f.server.URL))
+				w.Header().Set("Link", fmt.Sprintf(`<%s/repos/owner/api/issues/%s/comments?page=2&per_page=100>; rel="next"`, f.server.URL, issue))
 				_, _ = io.WriteString(w, `[]`)
 				return
 			}
-			body := ""
-			if len(f.bodies) > 0 {
-				body = f.bodies[len(f.bodies)-1]
+			comments := []any{}
+			for i, body := range f.bodies {
+				id := 991 + i
+				comments = append(comments, map[string]any{"id": id, "body": body, "html_url": fmt.Sprintf("https://github.com/owner/api/issues/%s#issuecomment-%d", issue, id), "user": map[string]any{"id": 20, "type": "Bot"}})
 			}
-			_ = json.NewEncoder(w).Encode([]any{map[string]any{"id": 991, "body": body, "user": map[string]any{"id": 20, "type": "Bot"}}})
+			_ = json.NewEncoder(w).Encode(comments)
 			return
 		}
 		_, _ = io.WriteString(w, `{"id":2780,"number":278,"state":"open"}`)
@@ -272,16 +288,21 @@ func TestPublicationDaemonIO_TrustedPreparationApproval(t *testing.T) {
 	good.ID++
 	good.Author.ID = 10
 	publicationMust(t, f.d.handleComment(t.Context(), task, good))
-	id, p, err := f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef)
+	source := store.CreationSource{Repository: "owner/api", SourceTask: f.session.TaskRef, CommentID: good.ID, OwnerID: 10}
+	admitted, err := f.db.GetCreationAcknowledgment(t.Context(), source)
 	publicationMust(t, err)
-	if id == 0 || p.Hash != prepared.Hash || p.Relationship != "linked" {
-		t.Fatalf("approval not bound %+v", p)
+	if admitted.IntentID == 0 || admitted.Hash != prepared.Hash || admitted.Relationship != "linked" || f.creationPosts != 1 {
+		t.Fatalf("approval not published %+v creations=%d", admitted, f.creationPosts)
+	}
+	// The factory published it, so no agent run may bind it a second time.
+	if _, _, err = f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("published approval still grantable: %v", err)
 	}
 	publicationMust(t, f.d.handleComment(t.Context(), task, good))
-	again, _, err := f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef)
+	again, err := f.db.GetCreationAcknowledgment(t.Context(), source)
 	publicationMust(t, err)
-	if again != id {
-		t.Fatal("approval retry minted new intent")
+	if again.IntentID != admitted.IntentID || f.creationPosts != 1 {
+		t.Fatalf("approval retry minted new intent or republished: creations=%d", f.creationPosts)
 	}
 }
 

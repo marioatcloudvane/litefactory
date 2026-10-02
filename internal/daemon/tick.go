@@ -76,6 +76,9 @@ type TickResult struct {
 	// counts what the forge listings returned, so a session reached only
 	// through the local backlog is not one of them.
 	Issues int
+	// Hinted is how many issues a webhook named that this tick read fresh and
+	// handed to admission as a candidate source.
+	Hinted int
 	// Dispatched is how many turns this tick handed to a worker.
 	//
 	// It is the old Runs counter under the name it always deserved: Runs was
@@ -128,11 +131,15 @@ type TickResult struct {
 func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	startedAt := d.now()
 	d.discovery.tick(startedAt)
+	// Last, whatever path the tick leaves by: the health snapshot is display
+	// only and a failed write never changes the tick's result.
+	defer d.publishHealth(ctx, startedAt)
 	ctx = d.discoveryContext(ctx)
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "tick", counts)
 	ctx = context.WithValue(ctx, recoveryTickKey{}, startedAt)
+	d.doctorTick(ctx, startedAt)
 	d.refreshRecoveries(ctx, startedAt)
 	// Stopped execution debt is independent of discovery/storage availability.
 	stoppedDispatched := d.retryStoppedResults(ctx, startedAt)
@@ -155,10 +162,13 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		}
 	}
 
+	d.refreshWebhookSecrets(ctx, startedAt)
+
 	if retryAt, held := d.backoff.hold(startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
 			slog.Time("retry_at", retryAt.UTC()),
 			slog.String("remaining", retryAt.Sub(startedAt).String()))
+		d.owePendingListings(ctx, startedAt)
 		return TickResult{StartedAt: startedAt, Skipped: true, RetryAt: retryAt}, nil
 	}
 
@@ -210,7 +220,18 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return result, d.observe(ctx, startedAt, err)
 	}
 
-	queues, err := d.discover(ctx, repos, listingWindow(cursor), &result)
+	// The heartbeat runs every local source each time; only the forge listing is
+	// scheduled. A tick that does not list still dispatches and reconciles.
+	if d.webhook != nil && d.webhook.hints.takeOverflow() {
+		// Hints were dropped; only a full listing can recover what they named.
+		d.schedule.ForceDue()
+	}
+	for _, id := range d.schedule.Known() {
+		if !slices.ContainsFunc(repos, func(r store.Repo) bool { return r.ID == id }) {
+			d.schedule.Forget(id)
+		}
+	}
+	queues, err := d.discover(ctx, repos, startedAt, &result)
 	discoveryDeferred := errors.Is(err, ErrDiscoveryDeferred)
 	if err != nil && !discoveryDeferred {
 		result.Duration = d.now().Sub(startedAt)
@@ -261,6 +282,18 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		}
 	}
 
+	// The archive pass follows retirement and is bounded the same way: one owner
+	// per tick, after normal admission, held back by the same discovery backoff.
+	if archiveErr := d.RunArchiveBatch(ctx, startedAt); archiveErr != nil {
+		d.log.ErrorContext(ctx, "archive batch incomplete", slog.Bool("completed", false))
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+	}
+
+	// Local housekeeping runs last and never fails a tick.
+	d.RunHousekeeping(ctx, startedAt)
+
 	// The cursor is a pure watermark now: it advances to this tick's start time
 	// on every tick that completed, whatever any worker went on to do (T-PAR-13).
 	// Holding it back to the oldest issue that did not finish was the only way
@@ -269,11 +302,24 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	// other. sessions.needs_poll is that local record, and [Daemon.discover]
 	// unions it with the listings, so re-discovery no longer needs the cursor's
 	// help. See [store.DB.ListBacklogSessions].
+	// Each repository's window moves on its own, only when that repository's
+	// listing finished: a deferred neighbour does not hold it back and a
+	// webhook or heartbeat never moves it.
 	if discoveryDeferred {
-		result.Duration = d.now().Sub(startedAt)
+		finishedAt := d.now()
+		result.Duration = finishedAt.Sub(startedAt)
+		if err := d.finishListings(ctx, queues, startedAt, finishedAt); err != nil {
+			return result, err
+		}
 		return result, nil
 	}
-	persisted := store.PollCursor{TasksUpdatedSince: startedAt, LastTickAt: d.now()}
+	// The global row keeps only the completion time `daemon status` reports;
+	// its tasks_updated_since column is no longer read.
+	persisted := store.PollCursor{TasksUpdatedSince: cursor.TasksUpdatedSince, LastTickAt: d.now()}
+	if err := d.finishListings(ctx, queues, startedAt, persisted.LastTickAt); err != nil {
+		result.Duration = d.now().Sub(startedAt)
+		return result, err
+	}
 	if err := d.db.SetPollCursor(ctx, persisted); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, err
@@ -317,17 +363,55 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 // is not.
 const ListingOverlap = 5 * time.Minute
 
-// listingWindow is the `since` a tick asks the forge for.
+// repoWindow is the `since` one repository's listing asks the forge for: its
+// own cursor less [ListingOverlap]. A repository with no cursor row has never
+// had a listing finish, so its history starts at its registration; the overlap
+// is withheld there because nothing before registration is wanted.
 //
-// The overlap is withheld from the very first tick ever, whose whole purpose is
-// to plant the cursor at now so that registering a busy repository does not
-// replay its history (AC-2.9). A zero LastTickAt is what says no tick has
-// completed before.
-func listingWindow(cursor store.PollCursor) time.Time {
-	if cursor.LastTickAt.IsZero() {
-		return cursor.TasksUpdatedSince
+// previous is when the previous listing of the repository started (its cursor);
+// zero when there is none.
+func (d *Daemon) repoWindow(ctx context.Context, repo store.Repo) (since, previous time.Time, err error) {
+	at, ok, err := d.db.GetRepoPollCursor(ctx, repo.ID)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
 	}
-	return cursor.TasksUpdatedSince.Add(-ListingOverlap)
+	if !ok {
+		return repo.CreatedAt, time.Time{}, nil
+	}
+	return at.Add(-ListingOverlap), at, nil
+}
+
+// owePendingListings marks every due repository as owed a listing. A tick that
+// is skipped (rate-limit backoff) never reaches discover, and without the flag
+// a webhook arriving meanwhile would restart the countdown of a listing that was
+// already late.
+func (d *Daemon) owePendingListings(ctx context.Context, now time.Time) {
+	repos, err := d.db.ListRepos(ctx)
+	if err != nil {
+		d.log.WarnContext(ctx, "could not list repositories to mark their listings owed", slog.Any("error", err))
+		return
+	}
+	for _, repo := range repos {
+		if d.schedule.Due(repo.ID, now) {
+			d.schedule.ListingFailed(repo.ID)
+		}
+	}
+}
+
+// finishListings records every repository whose listing completed this tick:
+// the cursor first, then the schedule, so a failed write leaves the repository
+// owed and listing from where it was.
+func (d *Daemon) finishListings(ctx context.Context, queues []*repoQueue, startedAt, finishedAt time.Time) error {
+	for _, q := range queues {
+		if !q.finished {
+			continue
+		}
+		if err := d.db.SetRepoPollCursor(ctx, q.repo.ID, startedAt); err != nil {
+			return err
+		}
+		d.schedule.ListingFinished(q.repo.ID, finishedAt)
+	}
+	return nil
 }
 
 // discover walks every registered repository and every session the store says
@@ -354,7 +438,7 @@ func listingWindow(cursor store.PollCursor) time.Time {
 func (d *Daemon) discover(
 	ctx context.Context,
 	repos []store.Repo,
-	since time.Time,
+	now time.Time,
 	result *TickResult,
 ) ([]*repoQueue, error) {
 	// cleared makes the resume happen at most once per tick, on the first
@@ -367,6 +451,17 @@ func (d *Daemon) discover(
 	queues := make([]*repoQueue, 0, len(repos))
 	byRepo := make(map[int64]*repoQueue, len(repos))
 	seen := make(map[int64]*candidate)
+
+	// Which repositories list this tick is decided before any of them is marked
+	// owed. An attempt is owed until it finishes, so a tick that fails midway
+	// leaves the repository due whatever webhooks arrive meanwhile.
+	due := make(map[int64]bool, len(repos))
+	for _, repo := range repos {
+		if repo.Forge == store.ForgeGitHub && d.schedule.Due(repo.ID, now) {
+			due[repo.ID] = true
+			d.schedule.ListingFailed(repo.ID)
+		}
+	}
 
 	for _, repo := range repos {
 		if err := ctx.Err(); err != nil {
@@ -392,12 +487,21 @@ func (d *Daemon) discover(
 		queues = append(queues, q)
 		byRepo[repo.ID] = q
 
+		if !due[repo.ID] {
+			continue
+		}
+		q.listing = true
+		since, previous, err := d.repoWindow(ctx, repo)
+		if err != nil {
+			return nil, err
+		}
+		repoDeferred := false
 		if err := d.discoveryProbe(ctx, forgeRepo); err != nil {
 			return nil, err
 		}
 		issues, err := discoveryCall(ctx, d, discoveryKey(forgeRepo, "issues", 0), discoveryListBound, func(ctx context.Context) ([]github.Issue, error) { return d.forge.ListIssues(ctx, forgeRepo, since) })
 		if errors.Is(err, ErrDiscoveryDeferred) {
-			deferred = true
+			deferred, repoDeferred = true, true
 		} else if err != nil {
 			return nil, fmt.Errorf("list the issues of %s touched since %s: %w",
 				forgeRepo, since.UTC().Format(time.RFC3339), err)
@@ -414,12 +518,15 @@ func (d *Daemon) discover(
 		}
 		commented, err := d.commentedIssues(ctx, repoLog, q, since, issues)
 		if errors.Is(err, ErrDiscoveryDeferred) {
-			deferred = true
+			deferred, repoDeferred = true, true
 		} else if err != nil {
 			return nil, err
 		}
 		issues = append(issues, commented...)
 		result.Issues += len(issues)
+		if !repoDeferred {
+			d.warnUnannounced(ctx, q, issues, previous)
+		}
 
 		for _, issue := range issues {
 			c, err := d.sight(ctx, q, issue)
@@ -437,8 +544,15 @@ func (d *Daemon) discover(
 			seen[c.session.ID] = c
 			q.candidates = append(q.candidates, c)
 		}
+		q.finished = !repoDeferred
 	}
 
+	if err := d.webhookHints(ctx, byRepo, seen, result); err != nil {
+		return nil, err
+	}
+	if err := d.graphPlanParents(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
 	if err := d.managedParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -617,6 +731,12 @@ type repoQueue struct {
 	candidates []*candidate
 	next       int
 	taken      int
+
+	// listing says this tick attempted the repository's forge listing and
+	// finished says it completed without being deferred; only then do the
+	// repository's cursor and schedule move.
+	listing  bool
+	finished bool
 }
 
 // candidate builds a candidate belonging to this repository, with no issue read
@@ -777,6 +897,7 @@ type task struct {
 	scheduled          *store.Schedule
 	continuation       *store.Continuation
 	continuationLocked bool
+	bugDispatchLocked  bool
 
 	refining  bool
 	repo      store.Repo
@@ -960,7 +1081,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	if d.sessionRecoveryHeld(c.session.ID, tickAt) {
 		return offerSkipped
 	}
-	if !d.inflight.enter(c.session.ID) {
+	if !d.enterDoctorGuarded(ctx, c.session.ID) {
 		// AC-PAR-5.3: a session this daemon is already running a turn for is
 		// skipped, and skipping it posts nothing and moves no watermark. Its
 		// backlog flag is standing — the tick that dispatched it set it, and
@@ -1062,7 +1183,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 
 	// The dispatch point uses the daemon's long-lived context. runWorker owns
 	// the shared pool and in-flight lifetime through terminal diagnostics.
-	go d.runWorker(ctx, t, func() { d.work(ctx, t) })
+	go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
 
 	result.Dispatched++
 	return offerDispatched
@@ -1122,6 +1243,9 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		if err := d.db.CancelResearchGraphs(ctx, c.session.ID, "issue closed", tickAt); err != nil {
 			return nil, fmt.Errorf("clear graph execution before retiring closed %s#%d backlog: %w", c.forgeRepo, c.session.IssueNumber, err)
 		}
+		if err := d.db.CancelWorkflowGraphs(ctx, c.session.ID, "spike", "issue closed", tickAt); err != nil {
+			return nil, fmt.Errorf("clear spike graph execution before retiring closed %s#%d backlog: %w", c.forgeRepo, c.session.IssueNumber, err)
+		}
 		if err := d.db.ClearSessionNeedsPoll(ctx, c.session.ID); err != nil {
 			return nil, fmt.Errorf("retire polling backlog for closed %s#%d: %w",
 				c.forgeRepo, c.session.IssueNumber, err)
@@ -1171,6 +1295,22 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
+	if err := d.recoverPlanStories(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not reconcile Plan stories", err)
+		return
+	}
+	handledPlan, err := d.refinePlanChildren(ctx, t)
+	if err != nil {
+		d.stopped(ctx, t, "could not route Plan child discussion", err)
+		return
+	}
+	if err = d.reportPlanProgress(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not report Plan progress", err)
+		return
+	}
+	if handledPlan {
+		return
+	}
 	if deferred, err := d.refineStories(ctx, t); err != nil {
 		d.stopped(ctx, t, "could not refine managed stories", err)
 		return
@@ -1405,12 +1545,13 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		log.DebugContext(ctx, "the issue body has nothing to act on; nothing runs")
 		return nil
 	}
-	if !command.Spawns() {
+	if !command.Spawns() || command.Kind == turn.KindPlanControl {
 		// /plan, /frobnicate, a bare /spike: nothing runs, and — unlike the
 		// same command in a comment — nothing is posted either (AC-2.16c). A
 		// reply would be litefactory answering a question nobody asked it, on
 		// an issue whose author may not even have meant the first line as a
-		// command.
+		// command. A Plan control answers a proposal the factory posted, so an
+		// issue body cannot carry one.
 		log.DebugContext(ctx, "the issue body names a command that spawns nothing; "+
 			"nothing runs and nothing is posted",
 			slog.String("command", command.Name),
@@ -1578,6 +1719,18 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 // on a later tick — including a rate limit, which arms the backoff where it was
 // met and then leaves by that same door. See [Daemon.leave].
 func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) error {
+	if held, e := d.doctorHeldSession(ctx, t.session.ID); e != nil {
+		return e
+	} else if held {
+		return errors.New("issue held for doctor repair")
+	}
+	if routed, err := d.admitDoctor(ctx, t.repo, t.issue, c); routed {
+		if err != nil {
+			return err
+		}
+		_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
+		return err
+	}
 	log := t.log.With(
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),
@@ -1597,10 +1750,39 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
 	}
 
+	// A graph Plan story issue belongs to its parent, whose worker reads the
+	// issue's comments as Plan input. Acting here as well would answer the
+	// same reply twice, or start a second run beside the Plan revision.
+	if parent, owned, err := d.db.GraphPlanStoryParent(ctx, t.issue.ID); err != nil || owned {
+		if err != nil {
+			return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
+		}
+		log.InfoContext(ctx, "comment on a graph Plan story issue; its parent Plan handles it", slog.String("parent", parent))
+		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
+		return d.leave(ctx, t, log, "could not consume a graph Plan story comment", err)
+	}
 	if pending, err := d.resumeReport(ctx, t, c.ID); pending || err != nil {
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
+	if recovered, err := d.resumeCreationSuccess(ctx, t, c); recovered || err != nil {
+		return d.leave(ctx, t, log, "successful creation intake recovery pending", err)
+	}
 	command := turn.ParseCommand(c.Body)
+	if d.bug != nil && isBugControlCommand(command.Name) {
+		admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return d.leave(ctx, t, log, "could not read Bug control admission", err)
+		}
+		if err == nil && admission.Workflow == string(agent.WorkflowBug) {
+			// The runtime authenticates and parses the exact original body against
+			// its published wait. This only routes an existing task's control.
+			trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+			return d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
+		}
+	}
+	if command.Name == "/approve-bug" {
+		return d.handleBugAnalysisApproval(ctx, t, c, command, log)
+	}
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)
 	}
@@ -1640,8 +1822,35 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.handleConfirm(ctx, t, c, command, log)
 	}
 
+	if command.Kind == turn.KindPlanControl {
+		return d.handlePlanControl(ctx, t, c, command, log)
+	}
+
 	if !command.Spawns() {
 		return d.reply(ctx, t, c, command, log)
+	}
+	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	return d.run(ctx, t, trigger, command, log)
+}
+
+// handlePlanControl delivers a graph Plan control on the parent issue, such as
+// `/approve-plan set <revision>`, to a Plan turn. The graph Plan runtime applies
+// or refuses it from the exact comment body. A session not admitted to graph
+// Plan has no such controls, so the comment is answered as an unknown command,
+// as it was before graph Plan existed.
+func (d *Daemon) handlePlanControl(
+	ctx context.Context,
+	t *task,
+	c github.Comment,
+	command turn.Command,
+	log *slog.Logger,
+) error {
+	route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return d.leave(ctx, t, log, "could not read the Plan route for "+command.Name, err)
+	}
+	if route != "graph" {
+		return d.reply(ctx, t, c, turn.Command{Kind: turn.KindUnknown, Name: command.Name, Tagged: command.Tagged}, log)
 	}
 	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
 	return d.run(ctx, t, trigger, command, log)
@@ -1789,13 +1998,16 @@ func (d *Daemon) run(
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
 
-	mode, err := d.admitMode(ctx, t, trigger, command)
+	workflow, mode, err := d.admitWorkflow(ctx, t, trigger, command)
 	if err != nil {
 		var refusal *modeRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind)
 		}
 		return d.leave(ctx, t, log, "mode selection was refused", err)
+	}
+	if workflow == agent.WorkflowBug && d.bug == nil {
+		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable)
 	}
 	// Resolve the agent-selection label before checking for an obsolete
 	// permission label and before anything is locked, fetched, or written.
@@ -1821,7 +2033,12 @@ func (d *Daemon) run(
 	// Select permissions only after both the concrete mode and effective agent
 	// are known. A missing entry is an invariant violation, never a reason to
 	// fall back to a potentially broader agent-global surface.
-	tools, ok := d.resolveTools(mode, agent.Kind(selectedAgent))
+	tools, ok := d.resolveWorkflowTools(workflow, mode, agent.Kind(selectedAgent))
+	if workflow == agent.WorkflowBug && d.bug != nil {
+		// This carries identity only. The runtime resolves the particular
+		// analyst/fixer grant when dispatching that role, including resumes.
+		tools, ok = toolDecision{Profile: "bug"}, true
+	}
 	if !ok {
 		return d.leave(ctx, t, log, "could not select permissions for the resolved mode and agent",
 			fmt.Errorf("no permission profile for mode %q and agent %q", mode, selectedAgent))
@@ -1847,8 +2064,16 @@ func (d *Daemon) run(
 
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
-	if mode == agent.ModeResearch && t.continuation == nil {
-		if err := d.claimResearchReply(ctx, t, trigger); err != nil {
+	if (mode == agent.ModeResearch || mode == agent.ModeSpike) && t.continuation == nil {
+		if err := d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
+			// A comment written before the open question was published can
+			// never answer it. Refuse it once, visibly; the reply path consumes
+			// it only after confirmed delivery, so later comments proceed.
+			if errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
+				log.InfoContext(ctx, "Research owner comment predates the open question; refusing it with a reply",
+					slog.Any("error", err))
+				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+			}
 			return d.leave(ctx, t, log, "Research owner reply admission failed", err)
 		}
 	}
@@ -1858,6 +2083,7 @@ func (d *Daemon) run(
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
 		Continuation: t.continuation,
 		Mode:         mode,
+		Workflow:     workflow,
 		SessionID:    t.session.ID,
 		Issue: turn.Issue{
 			Number: t.issue.Number,
@@ -1893,12 +2119,32 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
-		return d.leave(ctx, t, log, "the turn could not be conducted", err)
+		// A Bug owner comment written before the open review or question can
+		// never answer it; refuse it once and consume it, as for Research.
+		if workflow == agent.WorkflowBug && errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
+			log.InfoContext(ctx, "Bug owner comment predates the open review or question; refusing it with a reply",
+				slog.Any("error", err))
+			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+		}
+		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugCommentRefused) {
+			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
+			return nil
+		}
+		left := d.leave(ctx, t, log, "the turn could not be conducted", err)
+		if trigger.PlanReply != nil && left == nil {
+			// A child reply's cursor advances whenever run returns nil, and leave
+			// swallows the error. The reply is handled only together with the
+			// failure comment, so it must stay pending until a replay of the
+			// failed run has published one.
+			return &recoveryPending{err}
+		}
+		return left
 	}
 
 	if turnResult.Disposition == turn.DispositionLocked {
 		t.recordWorkerStatus(workerDeferred)
 		t.continuationLocked = t.continuation != nil
+		t.bugDispatchLocked = workflow == agent.WorkflowBug
 		// RD-4: a lock lost to a second process is promoted from a drop to a
 		// marker-set. The dispatch above has already set the flag and the drain's
 		// deferral keeps it, but this is the one disposition whose entire meaning
@@ -1914,14 +2160,47 @@ func (d *Daemon) run(
 		// lock has become defence in depth. A second daemon against the same
 		// $LF_HOME is the only thing left that can produce this. See [inflight].
 		log.InfoContext(ctx, "task is locked by another daemon process; leaving the comment for a later tick")
+		if trigger.PlanReply != nil {
+			return &recoveryPending{errors.New("plan child reply waits for the current session lock owner")}
+		}
 		return nil
 	}
 
+	if workflow == agent.WorkflowBug {
+		// Bug owns durable notices, review publication and input consumption.
+		// Generic mode reporting would duplicate them and could consume a reply
+		// before its publication or domain operation has been confirmed.
+		return nil
+	}
 	return d.completeTurn(ctx, t, trigger, mode, turnResult, log)
 }
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
+	if trigger.PlanReply != nil {
+		// A child comment belongs to its own discovery cursor. The Plan policy
+		// journals consumed reply IDs before effects; refinePlanChildren advances
+		// that child's cursor after this return. Parent input consumption would
+		// skip unrelated parent comments whose globally allocated IDs are lower.
+		reply := trigger.PlanReply
+		if mode != agent.ModePlan || reply.ID != trigger.CommentID || reply.ActorID != trigger.AuthorID || reply.OwnerID != d.filter.Identities().OwnerUserID {
+			return errors.New("plan child completion correlation mismatch")
+		}
+		route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
+		if err != nil {
+			return err
+		}
+		if route != "graph" {
+			return errors.New("plan child completion lacks graph admission")
+		}
+		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
+			return &recoveryPending{err}
+		}
+		return nil
+	}
 	if turnResult.ResearchGraph {
+		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
+			return d.leave(ctx, t, log, "the failed Plan run has no published failure comment", err)
+		}
 		// Explicit graph comment activities own publication. Consuming an input
 		// here acknowledges handling only; it never rewrites the run outcome.
 		if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {
@@ -1963,6 +2242,25 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 	// inherits the hook.
 	return d.leave(ctx, t, log, "the creation proposal could not be presented",
 		d.presentCreationProposal(ctx, t, turnResult.Run.ID, turnResult.Run.TriggerCommentID))
+}
+
+// requirePlanFailureReported keeps the owner's triggering comment unhandled after
+// a failed graph Plan run until that run's failure comment is published. The
+// comment and its handling are one act: a failed run whose failure never reached
+// the issue would otherwise spend the owner's input and leave nothing visible.
+// A successful run, and any run of another mode, owes nothing here.
+func (d *Daemon) requirePlanFailureReported(ctx context.Context, result turn.Result) error {
+	if !result.ResearchGraph || result.Run.ID == 0 || result.Run.Mode != string(agent.ModePlan) || result.Run.Succeeded() {
+		return nil
+	}
+	reported, err := d.db.GraphFailureReported(ctx, result.Run.ID, turn.PlanFailureNode)
+	if err != nil {
+		return fmt.Errorf("read the failure comment of failed Plan run %d: %w", result.Run.ID, err)
+	}
+	if !reported {
+		return fmt.Errorf("failed Plan run %d has no published failure comment; the owner's comment stays unhandled", result.Run.ID)
+	}
+	return nil
 }
 
 // refuseTools answers any obsolete lf:tools= label. The label's value is not

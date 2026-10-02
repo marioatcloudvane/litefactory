@@ -15,12 +15,17 @@ import (
 type AttributeSpec struct {
 	Required bool
 	Values   []string
+	// List makes the attribute a comma-separated set: every element must be one
+	// of Values, and none may repeat or be empty. The vocabulary stays closed;
+	// only the shape of a value changes.
+	List bool
 }
 
 // ActionSpec defines membership and outcomes, never executable attribute text.
 type ActionSpec struct {
 	Name       string
 	Mode       agent.Mode
+	Workflow   agent.Workflow
 	Outcomes   []string
 	Attributes map[string]AttributeSpec
 }
@@ -34,7 +39,7 @@ type Registry struct {
 
 var capabilityPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-func validActionName(name string, mode agent.Mode) bool {
+func validWorkflowActionName(name string, mode agent.Workflow) bool {
 	if slices.Contains([]string{"lf_research_agent", "lf_research_if", "lf_research_loop", "lf_research_comment"}, name) {
 		return false
 	}
@@ -50,7 +55,11 @@ func (r *Registry) Register(spec ActionSpec) error {
 	if r == nil {
 		return errors.New("register graph action: nil registry")
 	}
-	if !validActionName(spec.Name, spec.Mode) {
+	workflow, err := agent.ResolveWorkflow(spec.Workflow, spec.Mode)
+	if err != nil {
+		return fmt.Errorf("register graph action %q: %w", spec.Name, err)
+	}
+	if !validWorkflowActionName(spec.Name, workflow) {
 		return fmt.Errorf("register graph action %q: name must be a generic mechanism or admitted lf_<mode>_<capability> for valid mode %q", spec.Name, spec.Mode)
 	}
 	if len(spec.Outcomes) == 0 {
@@ -89,4 +98,15 @@ func cloneActionSpec(spec ActionSpec) ActionSpec {
 		spec.Attributes[name] = attribute
 	}
 	return spec
+}
+
+// AccessAttribute names the agent node attribute that declares its tool access.
+const AccessAttribute = "lf_access"
+
+// AccessValues are the closed access levels an agent node may declare.
+var AccessValues = []string{"read", "write"}
+
+// AgentAttributes declares the optional attributes of the shared agent action.
+func AgentAttributes() map[string]AttributeSpec {
+	return map[string]AttributeSpec{AccessAttribute: {Values: slices.Clone(AccessValues)}}
 }
