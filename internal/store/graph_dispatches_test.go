@@ -94,6 +94,15 @@ func TestGraphDispatchLifecycle(t *testing.T) {
 	if err := db.FinishGraphDispatch(ctx, parked.ID, retry); err != nil {
 		t.Fatalf("finish: %v", err)
 	}
+	// Factory-only stages finish without allocating an agent run.
+	finished := readLaunchDispatch(t, db, parked.ID)
+	if finished.Status != "finished" || finished.AllocatedRunID != 0 {
+		t.Fatalf("factory-only completion: %+v", finished)
+	}
+	runs, err := db.ListRuns(ctx, instance.SessionID)
+	if err != nil || len(runs) != 0 {
+		t.Fatalf("factory-only stage allocated a run: %+v %v", runs, err)
+	}
 	if due, err := db.ListDueGraphDispatches(ctx, retry, 10); err != nil || len(due) != 0 {
 		t.Fatalf("a finished dispatch is still due: %+v err=%v", due, err)
 	}
