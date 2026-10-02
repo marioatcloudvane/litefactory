@@ -405,12 +405,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	turnOpts.Bug = bugRuntime
-	// A crash mid self-check leaves its run pending with no observed result;
-	// restart cancels every such run once, here, before any work is
-	// dispatched, and never reruns it (AC-011).
-	if err := turn.RecoverBugSelfChecks(ctx, s.DB); err != nil {
-		return nil, Startup{}, errors.Join(err, lock.Close())
-	}
 	daemon, err := New(Options{
 		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
 		Bug:        bugRuntime,

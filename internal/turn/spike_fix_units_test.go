@@ -14,10 +14,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
-func TestWriteAccessMapsToTheBugFixerToolsUnderTheModeCeiling(t *testing.T) {
+func TestWriteAccessMapsToTheSpikeFixerToolsUnderTheModeCeiling(t *testing.T) {
 	policy := SpikeWorkflowPolicy()
 	write := graphexec.Node{Name: "n", Attrs: map[string]string{graphexec.AccessAttribute: "write"}}
-	fixerTools := config.BugRoleClaudeTools("bug-fixer")
+	fixerTools := config.BugRoleClaudeTools(config.SpikeFixerProfile)
 	claude := func(tools, allowed []string) Request {
 		return Request{Agent: agent.Kind(store.AgentClaude), Tools: tools, AllowedTools: allowed}
 	}
