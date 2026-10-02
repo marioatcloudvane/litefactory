@@ -288,3 +288,24 @@ func scanGraphDispatch(row scanner) (GraphDispatch, error) {
 	v.AllocatedRunID = allocated.Int64
 	return v, nil
 }
+
+// bindGraphDispatch claims the dispatch in the transaction that starts execution.
+// A stale or foreign reservation must roll back the run's launch as well.
+func bindGraphDispatch(ctx context.Context, tx *sql.Tx, run Run) error {
+	id, ok := GraphTriggerDispatch(run.TriggerCommentID)
+	if !ok {
+		return graphInvariant("graph run requires a graph trigger")
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='running', allocated_run_id=? WHERE id=? AND session_id=? AND status='reserved' AND allocated_run_id IS NULL`, run.ID, id, run.SessionID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return graphInvariant("graph run must be allocated to its own reserved dispatch")
+	}
+	return nil
+}
