@@ -34,6 +34,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
+
+	"github.com/cloudvane/litefactory/internal/daemon"
 )
 
 // Handler runs a command. args holds the positional arguments, validated
@@ -66,6 +69,8 @@ type Env struct {
 	Logger *slog.Logger
 	// Version is the build version reported by --version.
 	Version string
+	// LogSink rotates daemon.log during daemon housekeeping. Nil skips that rotation.
+	LogSink daemon.LogRotator
 	// Keychain reads a macOS keychain generic password, and is the test seam
 	// for it. Nil — the production value — uses /usr/bin/security, exactly as
 	// [secrets.Resolver] documents.
@@ -79,6 +84,13 @@ type Env struct {
 	// whether it is unlocked, and on a locked machine macOS may block on an
 	// allow-access dialog no test can answer.
 	Keychain func(ctx context.Context, service, account string) (string, error)
+	// KeychainWrite adds or updates a macOS keychain generic password and is the
+	// test seam for webhook secret storage. Nil uses /usr/bin/security, which
+	// receives the value on stdin, never in its arguments.
+	KeychainWrite func(ctx context.Context, service, account, value string) error
+	// Now is the clock `daemon status` measures "in 42m" against. Nil means
+	// time.Now.
+	Now func() time.Time
 }
 
 // ArgSpec declares a command's positional arguments.

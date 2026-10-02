@@ -9,7 +9,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 )
 
-// The two conditions [Execute] reports through its error return.
+// The conditions [Execute] reports through its error return.
 //
 // Everything else that can go wrong during a turn — a fetch that failed, a
 // worktree path someone else is using, a claude that exited non-zero — is not
@@ -23,6 +23,11 @@ var (
 	// ErrInvalidRequest reports a request that is not a turn: no session, no
 	// triggering comment, or a command that does not spawn a run.
 	ErrInvalidRequest = errors.New("invalid turn request")
+
+	// ErrBugCommentRefused reports an owner comment the Bug workflow could
+	// not apply. The refusal was already posted and the comment consumed, so
+	// the caller logs it and moves on to the task's next comment.
+	ErrBugCommentRefused = errors.New("bug comment refused and consumed")
 )
 
 func invalidOptions(format string, args ...any) error {

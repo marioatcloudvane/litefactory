@@ -427,9 +427,11 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 		args = append(args, "--ignore-user-config")
 	}
 	args = append(args, "--ignore-rules", "--sandbox", sandbox)
-	if req.Mode == "validate" || req.Workflow == agent.WorkflowBug {
+	if req.Mode == "validate" {
 		// Validate consumes retained source/check bytes from stdin. Disabling shell
-		// execution prevents even read-only tests from being commissioned.
+		// execution prevents even read-only tests from being commissioned. Bug
+		// keeps the shell: it is Codex's only way to read files, the analyst's
+		// read-only sandbox still forbids writes, and the fixer tests its work.
 		args = append(args, "-c", "features.shell_tool=false", "-c", "features.multi_agent=false")
 	}
 	// Additive-only: a launch with no MCP registration produces no overrides

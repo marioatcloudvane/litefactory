@@ -39,7 +39,8 @@ func bugRolePermissions(profiles map[string]config.ToolProfile, ceiling []string
 			}
 			allowed := config.BugRoleClaudeTools(role)
 			for _, tool := range append(slices.Clone(profile.Claude.Tools), profile.Claude.AllowedTools...) {
-				if !slices.Contains(allowed, tool) || !slices.Contains(ceiling, tool) {
+				name := config.ClaudeToolName(tool)
+				if !slices.Contains(allowed, name) || !slices.Contains(ceiling, name) {
 					return out, fmt.Errorf("%s tool %q is outside the role surface or the operator ceiling", role, tool)
 				}
 			}

@@ -12,21 +12,28 @@ bug-fixer:
 ```
 
 Either agent can take either role. For Claude, list the tools explicitly, within
-its configured tool ceiling:
+its configured tool ceiling (`agents.claude.tools`):
 
 ```yaml
 bug-analyst:
   claude: {tools: [Read, Glob, Grep], allowed_tools: [Read, Glob, Grep]}
 bug-fixer:
-  claude: {tools: [Read, Glob, Grep, Edit, Write], allowed_tools: [Read, Glob, Grep, Edit, Write]}
+  claude:
+    tools: [Read, Glob, Grep, Edit, Write, Bash, Task]
+    allowed_tools: [Read, Glob, Grep, Edit, Write, "Bash(go build:*)", "Bash(go test:*)", "Bash(go vet:*)", "Bash(gofmt:*)"]
 ```
 
-The analyst only reads. The Claude fixer may also use `Edit`, `MultiEdit` and
-`Write`; it never receives a shell, delegation or web tools, and its edits are
-confined by Claude Code's workspace scope, not an operating-system sandbox as
-for Codex. Missing role profiles block the corresponding agent; existing mode
-profiles never supply substitute permissions. Fixer shell and delegation remain
-disabled by the adapter, independently of these grants; the factory runs checks.
+The analyst only reads. Codex reads through its shell, inside a read-only
+sandbox; Claude reads with its file tools and gets no shell, because Claude has
+no operating-system sandbox to keep a shell read-only.
+
+The fixer works like an Implement engineer. Besides editing it may grant
+`MultiEdit`, `Bash`, `Task`, `SendMessage`, `WebFetch` and `WebSearch`, with
+`Bash` narrowed by `allowed_tools` rules such as `Bash(go test:*)`. Codex runs
+the fixer in its `workspace-write` sandbox with the shell on. The fixer builds and
+tests its own change before handing it back; the factory's check afterwards
+stays the final gate. Missing role profiles block the corresponding agent;
+existing mode profiles never supply substitute permissions.
 
 Check execution has a separate optional operator ceiling at the configuration
 root. Checks run under the Codex sandbox on macOS or Linux:

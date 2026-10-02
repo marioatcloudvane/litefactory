@@ -94,6 +94,9 @@ func run(args []string) int {
 		Logger:  logger,
 		Version: version,
 	}
+	if sink != nil {
+		env.LogSink = sink
+	}
 	logger.Debug("dispatch", slog.Any("args", args))
 	return cli.NewRouter(programName, env, cli.Commands()).Run(ctx, args)
 }

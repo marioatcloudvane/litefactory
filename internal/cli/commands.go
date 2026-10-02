@@ -14,6 +14,7 @@ func Commands() []*Command {
 		newMCPServeCommand(),
 		newRepoAddCommand(),
 		newRepoListCommand(),
+		newRepoWebhookCommand(),
 		newDaemonRunCommand(),
 		newDaemonStartCommand(),
 		newDaemonStopCommand(),

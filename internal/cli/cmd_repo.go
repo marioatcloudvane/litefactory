@@ -180,7 +180,8 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 	}
 	existed := err == nil
 
-	if _, err := rt.db.UpsertRepo(ctx, registration.StoreRepo(time.Now().UTC())); err != nil {
+	stored, err := rt.db.UpsertRepo(ctx, registration.StoreRepo(time.Now().UTC()))
+	if err != nil {
 		return err
 	}
 
@@ -194,6 +195,11 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 			registration.Path)
 	}
 	writeRegistration(env.Stdout, registration, existed)
+
+	// A webhook problem never undoes or fails the registration above: the repo
+	// keeps working on polling.
+	reg, setupFailure := newWebhookRegistrar(ctx, env, rt)
+	writeRepoAddWebhook(env.Stdout, env.Stderr, stored, ensureWebhook(ctx, reg, setupFailure, rt, stored))
 	return nil
 }
 

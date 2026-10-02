@@ -8,6 +8,22 @@ import (
 	"time"
 )
 
+// retirementFamilySQL, retirementActivitySQL and retirementPendingSQL are the
+// owner-observation statements shared with the archive settled recheck, which
+// must run them inside its own transaction on the single connection.
+const (
+	retirementFamilySQL   = `WITH family AS (SELECT id, task_ref, lock_owner, state FROM sessions WHERE id=? OR (repo_id=? AND issue_number IN (SELECT issue_number FROM managed_stories WHERE parent_task=?))) `
+	retirementActivitySQL = `SELECT COUNT(*),MAX(finished_at),EXISTS(SELECT 1 FROM runs WHERE session_id IN (SELECT id FROM family) AND (finished_at IS NULL OR status IN ('running','prelaunch'))) OR EXISTS(SELECT 1 FROM family WHERE (COALESCE(lock_owner,'')<>'' AND id<>?) OR state='running') FROM runs WHERE session_id IN (SELECT id FROM family)`
+	retirementPendingSQL  = `SELECT
+ EXISTS(SELECT 1 FROM automatic_continuations WHERE session_id IN (SELECT id FROM family) AND status IN ('pending','reserved','running'))
+ OR EXISTS(SELECT 1 FROM runs WHERE session_id IN (SELECT id FROM family) AND status IN ('succeeded','failed'))
+ OR EXISTS(SELECT 1 FROM conflict_proposals WHERE session_id IN (SELECT id FROM family) AND status='pending')
+ OR EXISTS(SELECT 1 FROM report_deliveries WHERE session_id IN (SELECT id FROM family) AND completed=0)
+ OR EXISTS(SELECT 1 FROM delivery_proposals WHERE parent_task IN (SELECT task_ref FROM family) AND superseded=0 AND closed=0)
+ OR EXISTS(SELECT 1 FROM story_publications WHERE parent_task IN (SELECT task_ref FROM family) AND delivered=0)
+ OR EXISTS(SELECT 1 FROM story_revision_operations WHERE parent_task IN (SELECT task_ref FROM family) AND delivered=0)`
+)
+
 // RetirementOwner is a registered canonical resource owner, independent of forge
 // polling. Child stories share the parent's checkout and are never owners here.
 type RetirementOwner struct {
@@ -90,10 +106,10 @@ func (db *DB) GetRetirementOwner(ctx context.Context, id int64) (RetirementOwner
 	// Include any historical child session that shares this owner's checkout.
 	// Normal managed execution uses the parent, but old child rows cannot hide
 	// active work or a more recent finish time.
-	family := `WITH family AS (SELECT id, task_ref, lock_owner, state FROM sessions WHERE id=? OR (repo_id=? AND issue_number IN (SELECT issue_number FROM managed_stories WHERE parent_task=?))) `
+	family := retirementFamilySQL
 	args := []any{id, owner.Session.RepoID, owner.Session.TaskRef}
 	var finished sql.NullString
-	err = db.sql.QueryRowContext(ctx, family+`SELECT COUNT(*),MAX(finished_at),EXISTS(SELECT 1 FROM runs WHERE session_id IN (SELECT id FROM family) AND (finished_at IS NULL OR status IN ('running','prelaunch'))) OR EXISTS(SELECT 1 FROM family WHERE (COALESCE(lock_owner,'')<>'' AND id<>?) OR state='running') FROM runs WHERE session_id IN (SELECT id FROM family)`, append(args, id)...).Scan(&owner.RunCount, &finished, &owner.BusyWithoutOwnerLock)
+	err = db.sql.QueryRowContext(ctx, family+retirementActivitySQL, append(args, id)...).Scan(&owner.RunCount, &finished, &owner.BusyWithoutOwnerLock)
 	if err != nil {
 		return owner, err
 	}
@@ -104,13 +120,6 @@ func (db *DB) GetRetirementOwner(ctx context.Context, id int64) (RetirementOwner
 			return owner, err
 		}
 	}
-	err = db.sql.QueryRowContext(ctx, family+`SELECT
- EXISTS(SELECT 1 FROM automatic_continuations WHERE session_id IN (SELECT id FROM family) AND status IN ('pending','reserved','running'))
- OR EXISTS(SELECT 1 FROM runs WHERE session_id IN (SELECT id FROM family) AND status IN ('succeeded','failed'))
- OR EXISTS(SELECT 1 FROM conflict_proposals WHERE session_id IN (SELECT id FROM family) AND status='pending')
- OR EXISTS(SELECT 1 FROM report_deliveries WHERE session_id IN (SELECT id FROM family) AND completed=0)
- OR EXISTS(SELECT 1 FROM delivery_proposals WHERE parent_task IN (SELECT task_ref FROM family) AND superseded=0 AND closed=0)
- OR EXISTS(SELECT 1 FROM story_publications WHERE parent_task IN (SELECT task_ref FROM family) AND delivered=0)
- OR EXISTS(SELECT 1 FROM story_revision_operations WHERE parent_task IN (SELECT task_ref FROM family) AND delivered=0)`, args...).Scan(&owner.Pending)
+	err = db.sql.QueryRowContext(ctx, family+retirementPendingSQL, args...).Scan(&owner.Pending)
 	return owner, err
 }

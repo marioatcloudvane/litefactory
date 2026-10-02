@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"sync"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -20,17 +21,27 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-// The tick interval and its clamp (D-C, AC-2.7). A value outside the clamp is a
-// startup error and never a silent correction: a daemon that quietly polls
-// every 30 seconds when the operator wrote 5 is a daemon whose configuration
-// file is a lie.
+// The heartbeat interval and its clamp (D-C, AC-2.7). The heartbeat is the
+// fixed internal tick that runs all local work; it is not operator
+// configuration. A value outside the clamp is a startup error and never a
+// silent correction.
 const (
-	// DefaultInterval is the tick interval when none is configured.
-	DefaultInterval = time.Duration(config.DefaultPollIntervalSeconds) * time.Second
-	// MinInterval is the fastest tick allowed.
+	// DefaultInterval is the heartbeat interval when none is configured.
+	DefaultInterval = 30 * time.Second
+	// MinInterval is the fastest heartbeat allowed.
 	MinInterval = 10 * time.Second
-	// MaxInterval is the slowest tick allowed.
+	// MaxInterval is the slowest heartbeat allowed.
 	MaxInterval = 60 * time.Second
+)
+
+// The discovery poll interval and its clamp: how often the per-repository
+// forge listing runs between heartbeats. The numbers are taken from
+// internal/config; both places check them independently.
+const (
+	// MinDiscoveryInterval is the shortest discovery interval allowed.
+	MinDiscoveryInterval = time.Duration(config.MinPollIntervalMinutes) * time.Minute
+	// MaxDiscoveryInterval is the longest discovery interval allowed.
+	MaxDiscoveryInterval = time.Duration(config.MaxPollIntervalMinutes) * time.Minute
 )
 
 // The run-concurrency ceiling and its clamp (D2, AC-PAR-6.1). Same rule as the
@@ -184,6 +195,14 @@ type Options struct {
 	// Retirement shares turn coordination; zero options disable automatic retirement.
 	Retirement RetirementExecutionOptions
 
+	// Archive configures the daily archive of closed tasks' data. An empty
+	// directory, or disabled Retirement coordination, disables it.
+	Archive ArchiveOptions
+
+	// Housekeeping configures the daily backup pruning and global log trimming.
+	// Unset fields leave the matching steps unregistered.
+	Housekeeping HousekeepingOptions
+
 	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
 	// False disables automatic recovery without affecting manual schedules.
 	AutoResumeOnSessionLimit bool
@@ -262,9 +281,21 @@ type Options struct {
 	// recognised (AC-3.2).
 	InstanceID string
 
-	// Interval is the tick interval. Zero means [DefaultInterval]; anything
+	// Interval is the heartbeat interval. Zero means [DefaultInterval]; anything
 	// outside [MinInterval]..[MaxInterval] is a startup error (AC-2.7).
 	Interval time.Duration
+
+	// DiscoveryInterval is how often the forge listing runs between
+	// heartbeats. Anything outside [MinDiscoveryInterval]..[MaxDiscoveryInterval]
+	// is a startup error. Zero means no gating: every heartbeat lists, which is
+	// the test seam; [Open] always passes the configured
+	// settings.poll_interval_minutes, so production never runs with zero.
+	DiscoveryInterval time.Duration
+
+	// Webhook, when set, serves GitHub webhook deliveries on an already-bound
+	// listener and lets them wake a scoped pass. Nil leaves the daemon on its
+	// heartbeat and poll alone.
+	Webhook *WebhookOptions
 
 	// MaxConcurrentRuns is how many runs may be in flight at the same instant,
 	// daemon-wide across every repository (D2). Zero means
@@ -319,11 +350,19 @@ func (o Options) validate() error {
 		return invalidOptions("a logger is required")
 	}
 	if o.Interval != 0 && (o.Interval < MinInterval || o.Interval > MaxInterval) {
-		// AC-2.7: out of range refuses to start. internal/config checks the same
-		// bound on poll_interval_seconds; this one catches every other way an
-		// interval can reach the loop.
-		return invalidOptions("tick interval %s is outside the supported range %s..%s",
+		// AC-2.7: out of range refuses to start. This bound is the heartbeat's
+		// only; the operator-facing poll interval is DiscoveryInterval.
+		return invalidOptions("heartbeat interval %s is outside the supported range %s..%s",
 			o.Interval, MinInterval, MaxInterval)
+	}
+	if o.DiscoveryInterval != 0 && (o.DiscoveryInterval < MinDiscoveryInterval || o.DiscoveryInterval > MaxDiscoveryInterval) {
+		// internal/config checks the same bound on settings.poll_interval_minutes;
+		// this one catches every other way an interval can reach the loop.
+		return invalidOptions("poll_interval_minutes %s is outside the supported range %d..%d minutes",
+			o.DiscoveryInterval, config.MinPollIntervalMinutes, config.MaxPollIntervalMinutes)
+	}
+	if o.Webhook != nil && o.Webhook.Listener == nil {
+		return invalidOptions("a webhook listener is required when webhooks are enabled")
 	}
 	if o.MaxConcurrentRuns != 0 && (o.MaxConcurrentRuns < MinConcurrentRuns || o.MaxConcurrentRuns > MaxConcurrentRuns) {
 		// AC-PAR-6.1: out of range refuses to start. internal/config checks the
@@ -353,6 +392,8 @@ type Daemon struct {
 	publications publicationRecovery
 	mcpClose     func() error
 	retirement   RetirementExecutionOptions
+	archive      ArchiveOptions
+	housekeeping *Housekeeping
 
 	db        *store.DB
 	forge     Forge
@@ -378,6 +419,9 @@ type Daemon struct {
 	classifiers  map[agent.Kind]agent.Classifier
 	defaultAgent agent.Kind
 	interval     time.Duration
+	schedule     *discoverySchedule
+	health       healthPublisher
+	webhook      *webhookRuntime
 	grace        time.Duration
 	log          *slog.Logger
 	lock         *Lock
@@ -445,7 +489,7 @@ func New(opts Options) (*Daemon, error) {
 		return nil, invalidOptions("default agent %q has no mode classifier", defaultAgent)
 	}
 
-	return &Daemon{
+	d := &Daemon{
 		db:                       opts.DB,
 		bugTests:                 opts.BugTests,
 		bug:                      opts.Bug,
@@ -460,6 +504,8 @@ func New(opts Options) (*Daemon, error) {
 		conflictProposalTTL:      opts.ConflictProposalTTL,
 		instanceID:               opts.InstanceID,
 		retirement:               opts.Retirement,
+		archive:                  opts.Archive,
+		housekeeping:             newHousekeeping(opts.Housekeeping, opts.Logger),
 		autoResumeOnSessionLimit: opts.AutoResumeOnSessionLimit,
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may
@@ -473,6 +519,7 @@ func New(opts Options) (*Daemon, error) {
 		classifiers:  maps.Clone(opts.Classifiers),
 		defaultAgent: defaultAgent,
 		interval:     interval,
+		schedule:     newDiscoverySchedule(opts.DiscoveryInterval),
 		grace:        grace,
 		log:          opts.Logger,
 		lock:         opts.Lock,
@@ -481,15 +528,30 @@ func New(opts Options) (*Daemon, error) {
 		pool:         newPool(maxRuns),
 
 		repoSessionCursor: make(map[int64]int64),
-	}, nil
+	}
+	if opts.Webhook != nil {
+		d.webhook = newWebhookRuntime(*opts.Webhook, opts.Logger)
+		d.webhook.schedule = d.schedule
+	}
+	return d, nil
 }
 
 // InstanceID returns this daemon's instance id, which is what a task lock is
 // held under.
 func (d *Daemon) InstanceID() string { return d.instanceID }
 
-// Interval returns the tick interval in force.
+// Interval returns the heartbeat interval in force.
 func (d *Daemon) Interval() time.Duration { return d.interval }
+
+// DiscoveryInterval returns the fallback discovery poll interval in force.
+func (d *Daemon) DiscoveryInterval() time.Duration { return d.schedule.interval }
+
+// DiscoverySchedule is a read-only snapshot of one repository's poll schedule:
+// its last finished listing, last accepted webhook, next due time and whether a
+// listing is owed. ok is false for a repository the schedule has not seen yet.
+func (d *Daemon) DiscoverySchedule(repoID int64) (RepoSchedule, bool) {
+	return d.schedule.Snapshot(repoID)
+}
 
 // Close releases the singleton lock, if this daemon was given one. It does not
 // close the database: whoever opened it owns it.
@@ -505,7 +567,10 @@ func (d *Daemon) Close() error {
 	if d.doctorHost != nil {
 		hostErr = d.doctorHost.Close()
 	}
-	return errors.Join(authorityErr, hostErr, d.lock.Close())
+	// The listener goes before the lock: a replacement daemon that wins the
+	// lock must find the port free.
+	webhookErr := d.closeWebhook()
+	return errors.Join(authorityErr, hostErr, webhookErr, d.lock.Close())
 }
 
 // Reconciled is what the startup reconciliation repaired (D-B, AC-2.21).
@@ -751,16 +816,35 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	ticks, stop := d.tickSource()
 	defer stop()
+	// A production ticker waits a full interval before its first tick; the
+	// first heartbeat, and with it the first listing, belongs at start. An
+	// injected source is driven by its owner and gets no extra tick.
+	immediate := d.ticks == nil
 
 	d.log.InfoContext(ctx, "daemon started",
 		slog.String("instance_id", d.instanceID),
-		slog.String("interval", d.interval.String()),
+		slog.String("heartbeat_interval", d.interval.String()),
+		slog.String("discovery_interval", d.schedule.interval.String()),
 		slog.String("lock", d.lock.Path()))
+
+	// The listener is served for as long as Run is, and shut down gracefully
+	// within the same grace period as the loop.
+	var serving sync.WaitGroup
+	webCtx, stopWebhook := context.WithCancel(ctx)
+	defer func() {
+		stopWebhook()
+		serving.Wait()
+	}()
+	if d.webhook != nil {
+		if err := d.webhookServe(webCtx, &serving); err != nil {
+			return err
+		}
+	}
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		d.loop(ctx, ticks)
+		d.loop(ctx, ticks, immediate)
 	}()
 
 	select {
@@ -801,35 +885,59 @@ func (d *Daemon) Run(ctx context.Context) error {
 // That is what makes done mean "the loop returned *and* every worker finished"
 // instead of only the first half, and it is why Run's grace timer covers the
 // whole shutdown — N runs included — without a line of Run changing.
-func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time) {
+func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time, immediate bool) {
 	defer d.pool.wait()
 	defer d.doctor.pool.wait()
 
+	if immediate && !d.beat(ctx) {
+		return
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-d.wakeSignal():
+			if !d.beat(ctx) {
+				return
+			}
 		case _, ok := <-ticks:
 			if !ok {
 				return
 			}
-			if ctx.Err() != nil {
-				// The signal arrived while this tick was queued. Starting a turn
-				// now would only produce a run to abandon.
+			if !d.beat(ctx) {
 				return
-			}
-			if _, err := d.Tick(ctx); err != nil {
-				if isRecoveryPending(err) {
-					continue
-				}
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return
-				}
-				d.log.ErrorContext(ctx, "tick failed; the poll cursor is unchanged and the next tick redoes it",
-					slog.Any("error", err))
 			}
 		}
 	}
+}
+
+// wakeSignal is the channel a webhook delivery signals on. Without a webhook
+// listener it is nil, which blocks forever in a select.
+func (d *Daemon) wakeSignal() <-chan struct{} {
+	if d.webhook == nil {
+		return nil
+	}
+	return d.webhook.wake
+}
+
+// beat runs one heartbeat tick and reports whether the loop should go on.
+func (d *Daemon) beat(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		// The signal arrived while this tick was queued. Starting a turn
+		// now would only produce a run to abandon.
+		return false
+	}
+	if _, err := d.Tick(ctx); err != nil {
+		if isRecoveryPending(err) {
+			return true
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false
+		}
+		d.log.ErrorContext(ctx, "tick failed; the poll cursor is unchanged and the next tick redoes it",
+			slog.Any("error", err))
+	}
+	return true
 }
 
 // tickSource returns the channel ticks arrive on and the function that retires

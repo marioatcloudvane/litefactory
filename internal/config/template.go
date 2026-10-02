@@ -29,15 +29,31 @@ teams:
   # Optional sources: {corporate: {index_url: "https://teams.example/index.json"}}
   # default_source: corporate # takes precedence over index_url
 
+webhook:
+  # Local address the GitHub webhook listener binds, as host:port. Deliveries
+  # arrive at /litefactory/webhook and only wake a scoped discovery pass. Empty
+  # turns the listener off. Secrets live in the Keychain, never here.
+  listen: %q
+  # Public address GitHub delivers webhooks to (an https URL that reaches the
+  # listener, for example through a tunnel). With it set, "repo add" and
+  # "repo webhook" register the webhook; empty skips registration. An http URL
+  # sends payloads unencrypted.
+  public_url: %q
+
 settings:
   # Daemon scheduling, repository defaults, worktree placement and logging.
-  poll_interval_seconds: %d # valid range: %d..%d
+  # Fallback poll for discovery, in minutes. GitHub webhooks are recommended;
+  # use a short poll only for setups without them.
+  poll_interval_minutes: %d # valid range: %d..%d
   max_concurrent_runs: %d # valid range: %d..%d
   default_base_branch: %q # empty means discover it from the remote
   feature_prefix: %q
   worktree_root: %q # empty means the per-repository sibling default
   team_config: %q # deprecated; central teams use teams.index_url above
   worktree_retain_days: %d # daily cleanup of safe closed-task worktrees; days since last completed run
+  deploy_backup_keep: %d # newest pre-deploy database backups kept by daily cleanup; valid range: %d..%d
+  log_retain_days: %d # days rotated global logs are kept before daily deletion; valid range: %d..%d
+  archive_retain_days: %d # days archive files and the run logs they cover are kept before daily deletion; valid range: %d..%d
   log_level: %q # debug, info, warn or error
   # Attachment ingestion is additionally gated per workflow mode below.
   attachment_max_image_bytes: %d # valid range: %d..%d
@@ -120,11 +136,17 @@ tool_profiles:
   permissions:
 `,
 		d.Teams.IndexURL,
-		d.Settings.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds,
+		d.Webhook.Listen,
+		d.Webhook.PublicURL,
+		d.Settings.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,
 		d.Settings.TeamConfig,
-		d.Settings.WorktreeRetainDays, d.Settings.LogLevel,
+		d.Settings.WorktreeRetainDays,
+		d.Settings.DeployBackupKeep, MinDeployBackupKeep, MaxDeployBackupKeep,
+		d.Settings.LogRetainDays, MinLogRetainDays, MaxLogRetainDays,
+		d.Settings.ArchiveRetainDays, MinArchiveRetainDays, MaxArchiveRetainDays,
+		d.Settings.LogLevel,
 		d.Settings.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes,
@@ -155,6 +177,8 @@ tool_profiles:
 #     codex: {sandbox: read-only}
 #   bug-fixer:
 #     codex: {sandbox: workspace-write}
+#     # claude: {tools: [Read, Glob, Grep, Edit, Write, Bash, Task], allowed_tools: [...]}
+#     # The fixer builds and tests its own work; the factory's check is the final gate.
 # An absent role blocks that Bug agent. Existing modes never supply its grant.
 # Optional check sandbox ceiling (macOS or Linux); no unisolated fallback exists.
 # Checks run under the Codex sandbox: everything readable except deny_read and
