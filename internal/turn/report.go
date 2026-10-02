@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -940,9 +941,20 @@ func storyDone(s store.ManagedStory) bool {
 // its own is a git error with no account of what litefactory was trying to do.
 // Everywhere else the error is passed through as it stands, so a *git.PushError
 // still reaches the report as itself.
+//
+// A run row that was started and then failed before any coding agent exited
+// (no harness result, no exit code) carries its cause only in the recorded
+// Error — the graph Plan save step is one. Its report, usually posted when the
+// unconsumed comment is replayed on a later tick, names that recorded error
+// instead of claiming the outcome is unknown.
 func turnFailure(result Result) error {
 	if result.Disposition == DispositionPrepareFailed && result.Reason != "" {
 		return errors.New(result.Reason)
+	}
+	if result.Err == nil && result.Harness == nil && result.Run.Status == store.RunFailed && result.Run.ExitCode == nil {
+		if cause := strings.TrimSpace(result.Run.Error); cause != "" {
+			return errors.New(cause)
+		}
 	}
 	return result.Err
 }
