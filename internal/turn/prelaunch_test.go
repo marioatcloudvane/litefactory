@@ -226,3 +226,48 @@ func TestRegistrationFailureRetainsPrelaunchAllocation(t *testing.T) {
 		t.Fatalf("recovery allocated/relaunched: %+v calls=%d", result.Run, runner.callCount())
 	}
 }
+
+func TestGraphPreparationRetryReusesRunBeforeStart(t *testing.T) {
+	f := newFixture(t, newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
+		t.Fatal("preparation launched agent")
+		return nil, nil
+	}))
+	graph := f.graphRequest(graphTestDOT, nil)
+	d, err := f.db.ParkGraphInstance(t.Context(), graph.InstanceID, "work", graph.At, graph.At)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := f.db.ReserveGraphDispatch(t.Context(), d.ID, graph.At); err != nil || !ok {
+		t.Fatalf("reserve: %v %v", ok, err)
+	}
+	req := f.request()
+	req.Trigger.CommentID = d.TriggerID()
+	first, err := prepare(t.Context(), f.opts, req, f.session, f.ref(), f.opts.Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.run.Status != store.RunPrelaunch {
+		t.Fatalf("preparation started run: %+v", first.run)
+	}
+	if ok, err := f.db.RequeueGraphDispatch(t.Context(), d.ID, graph.NextDueAt, "retry preparation"); err != nil || !ok {
+		t.Fatalf("requeue: %v %v", ok, err)
+	}
+	reserved, ok, err := f.db.ReserveGraphDispatch(t.Context(), d.ID, graph.NextDueAt)
+	if err != nil || !ok || reserved.Attempts != 2 || reserved.AllocatedRunID != 0 {
+		t.Fatalf("retry reservation: %+v %v %v", reserved, ok, err)
+	}
+	second, err := prepare(t.Context(), f.opts, req, f.reloadSession(), f.ref(), f.opts.Logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.run.ID != first.run.ID || second.run.Ordinal != first.run.Ordinal || len(f.runs()) != 1 {
+		t.Fatalf("retry changed run identity: first=%+v second=%+v", first.run, second.run)
+	}
+	started, err := f.db.StartRun(t.Context(), second.run.ID)
+	if err != nil || started.Status != store.RunRunning {
+		t.Fatalf("start: %+v %v", started, err)
+	}
+	if ok, err := f.db.RequeueGraphDispatch(t.Context(), d.ID, graph.NextDueAt, "already started"); err != nil || ok {
+		t.Fatalf("started dispatch requeued: %v %v", ok, err)
+	}
+}
