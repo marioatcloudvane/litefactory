@@ -1,0 +1,312 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Story-002 proposes nine observable criteria and six linked tasks. Completion will show that the owner can discuss an evidenced diagnosis and explicitly approve its exact current version before any repair handoff. Changed canonical scope requires fresh approval; ordinary guidance never grants it. Settled intent, architecture, guidance and the story-001 dependency remain unchanged. No new owner decision is needed.\n\nCriteria cover read-only flagship analysis, complete evidence, retained answers, authenticated exact approval, atomic handoff, reshape, DOT topology, finite budgets and restart recovery. Each has a future proof method. Tasks use only authorized engineering roles: T-001 supplies diagnosis/context, T-002 supplies approval, T-003 composes the conversation, T-004 and T-005 verify it, and T-006 gathers the complete evidence. All implementation tasks require the prerequisite story-001 contract; local task dependencies are explicit. No implementation, product tests or passing acceptance evidence are claimed.\n\nParent link-only index for factory assembly:\n\n- [story-001](https://github.com/marioatcloudvane/litefactory/issues/457)\n- [story-002](https://github.com/marioatcloudvane/litefactory/issues/458)\n- [story-003](https://github.com/marioatcloudvane/litefactory/issues/459)\n- [story-004](https://github.com/marioatcloudvane/litefactory/issues/460)\n- [story-005](https://github.com/marioatcloudvane/litefactory/issues/461)\n\nThe exact active chain remains story-001 → story-002 → story-003 → story-004 → story-005. All five are active with applied prior effects in the supplied state; no retirement is assumed. The removed transition proposal s5 remains excluded; temporary s6 is the current story-005. Story-specific drafts and reviews belong on their sub-issues.\n\nShared decisions remain explicit approval before repair, one analyst workflow loop, fixer-owned repair/validation iterations inside finite execution, shared submitted results and durable graph history, and automatic shared factory delivery after evidenced success without another owner review. Eligible runs use shared synchronization; changed tested inputs require revalidation. The owner reposts old issues separately: no legacy execution migration or restart is in scope. Cleanup preserves history and retains the proposed net reduction target of 7,762 non-test Go lines, charging replacement shared code. Existing identity checks, permissions and repository protections remain.\n\nCurrent assembled-review status: story-001's acceptance proposal awaits owner review. Story-002 has settled intent and technical design and now this acceptance proposal. Story-003 still has its existing unanswered technical checkpoint question and no settled technical draft in the supplied state. Stories 004 and 005 still await technical review; stories 003–005 lack acceptance content. The aggregate must remain held until those gaps, required owner reviews and any pending effects are resolved. The factory binds assembled review to the exact current stories, dependencies and shared decisions; no fourth stage or approval is created here. The story-003 question is retained, not re-asked. After the complete Plan receives its required owner approval, use /implement <instruction>.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "580f5a3b2ed860647669e0c8ffe52187195544a50a35bd109c6e88d09adb64b4",
+          "draft": {
+            "key": "story-002",
+            "name": "Diagnose the bug and obtain repair approval",
+            "user_story": {
+              "actor": "An authorized owner of a reported bug",
+              "want": "to discuss the bug and proposed remedy with an analyst and explicitly approve the current diagnosis and remedy before repair begins",
+              "benefit": "I understand what will change and how the fix will be verified, and retain control over the repair scope",
+              "notes": [
+                "Assumption: flagship means the repository's configured flagship model tier, not a newly selected or hard-coded model.",
+                "Ordinary guidance continues the discussion; it does not grant repair approval. Existing authorized-owner identity checks apply.",
+                "The owner's later decision to repost old bugs supersedes automatic migration or restart of existing Bug executions.",
+                "No material intent questions remain."
+              ]
+            },
+            "problem": "The Bug workflow spreads diagnosis, review and repair across many steps. Owners need one clear discussion that explains the bug, the proposed remedy and what will demonstrate a fix, with an explicit decision before repair starts. Guidance or approval of an earlier remedy must not authorize a different repair.",
+            "in_scope": [
+              "Use a flagship analyst with read-only access to investigate the bug and discuss missing information or proposed changes with the owner.",
+              "Record expected behavior, actual behavior, reproduction steps or concrete supporting evidence, the cause, the proposed remedy and an observable condition that will demonstrate the bug is fixed.",
+              "Continue the analyst conversation until the diagnosis and remedy are clear enough for an informed owner decision, retaining settled answers and identifying remaining uncertainty.",
+              "Present the current diagnosis, remedy and verification condition for explicit approval by the authorized owner. Tie approval to that version and hand it to the fixer only after that approval.",
+              "Return a materially changed diagnosis or remedy to the analyst conversation for fresh approval before further repair under the changed scope.",
+              "Keep the analyst conversation as the only workflow loop. Retain the agreed simple graph constraint: only loop, agent and finalization activity types, routes declared in DOT and short role instructions.",
+              "Use the prerequisite story's validated submissions and common stop-and-resume behavior, including finite budgets. An ordinary owner reply may resume discussion but cannot substitute for explicit repair approval."
+            ],
+            "not_in_scope": [
+              "Performing repairs, the fixer's internal repair-and-validation iterations, branch synchronization or final validation.",
+              "Automatic delivery, merge and closure, or a second owner review before merge.",
+              "Redesigning the common stop-and-resume mechanism or adding a factory repair loop or separate factory test gate.",
+              "Migrating, restarting or reposting old Bug executions, removing legacy stores or measuring code reduction.",
+              "Expanding analyst permissions, changing unrelated workflow policy or prescribing a new model vendor."
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Reuse",
+                  "decision": "Reuse the configured flagship analyst, provider read-only boundary, pure BugAnalysis contract, shared result service and story-001's durable waits. Reuse the existing exact-review approval checks while storing new-flow authority in graph records.",
+                  "rationale": "teams/source/bug/bug-analyst.md already declares flagship. internal/buganalysis/analysis.go supplies diagnosis validation and digesting; internal/store/bug_analyses.go already checks numeric owner, revision, publication and reply identity."
+                },
+                {
+                  "area": "Conversation and graph",
+                  "decision": "Extend lf_loop with an explicitly selected owner-conversation contract for simplified Bug. Keep ordinary comparison loops unchanged. The DOT declares analyst iteration, approved handoff, reshape return and stopping behavior; Go implements activity contracts without choosing named next nodes.",
+                  "rationale": "internal/graphexec/research_control.go currently provides only true/false response comparison. Current bug.dot and internal/teamsource/bug_parent.go encode the older many-activity shape, so both graph admission and runtime binding must change together."
+                },
+                {
+                  "area": "Approval authority",
+                  "decision": "Keep the existing explicit /approve-bug analysis <revision> command. Only the factory may create approval after confirming the current published review and numeric owner. Analyst done means ready for review, never approved. Mechanical approval invokes no analyst.",
+                  "rationale": "ApproveBugAnalysis already makes this distinction. Keeping the familiar command avoids inventing another approval interface; ordinary replies remain guidance under story-001."
+                },
+                {
+                  "area": "Immutable scope",
+                  "decision": "Approval covers the canonical diagnosis, remedy and verification conditions of one immutable candidate. Any changed canonical candidate requires fresh publication and approval. Presentation-only rendering leaves that candidate unchanged. A materially changed remedy returns through the DOT reshape route before further repair.",
+                  "rationale": "BugAnalysis.Digest already covers the complete structured proposal. Conservatively treating changed canonical content as a new candidate avoids an unreliable automatic judgment that a changed remedy is harmless."
+                },
+                {
+                  "area": "Boundaries and retained decisions",
+                  "decision": "Keep story-001's result-only routing, one-stop rule, finite budgets and duplicate/restart handling. This story ends at an approved handoff. Repair and synchronization belong to story-003; finalization belongs to story-004; removal belongs to story-005. Old pinned executions are not migrated.",
+                  "rationale": "These are settled story boundaries. The new composition must not run unimplemented downstream capabilities or silently load its topology for old Bug instances."
+                },
+                {
+                  "area": "Assumptions and limitations",
+                  "decision": "Retain existing configured model resolution and finite analyst limits. Explicit approval of an already reviewable candidate spends no substantive analysis pass, including at the limit. No frontend design applies; this is source-based architecture, with no test or live execution claim.",
+                  "rationale": "The current analyst contract already separates mechanical approval from investigation. There is no remaining owner choice that changes this architecture."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Diagnosis candidate",
+                  "definition": "Retain immutable versioned BugAnalysis content in graph attempt outputs or references to accepted result revisions: expected/actual behavior, reproduction status and evidence, cause, bounded remedy, exclusions, measurable verification conditions, decisions, assumptions, stable questions and authenticated answer references.",
+                  "constraints": "Reuse the existing pure type and digest. Partial candidates may ask; review-ready candidates need complete evidence and no unresolved material question. Adjust its current unconditional reproduction-steps requirement to allow concrete alternative evidence with an explicit not-observed status; never invent reproduction. Preserve optional path guidance without turning it into a permission grant."
+                },
+                {
+                  "entity": "Conversation state",
+                  "definition": "Graph records identify the current candidate, analyst source attempt, superseded candidates and open questions. Story-001's wait links the conversation origin, publication and claimed reply.",
+                  "constraints": "Use one authoritative current candidate per instance and revision-checked updates. Persist each accepted snapshot before presenting it. Cold and resumed invocations receive the same retained content and complete relevant owner answers; no separate Bug conversation ledger."
+                },
+                {
+                  "entity": "Review and approval",
+                  "definition": "Bind the review to candidate revision/digest and confirmed report identity. A factory-authored approval record retains that binding, numeric owner, reply ID and timestamp in shared graph storage.",
+                  "constraints": "Record approval and consume the matching wait atomically under current revision checks. Require no active conflicting analyst attempt, the current complete review and confirmed publication. Duplicate replay returns the same decision; stale, foreign or mixed change-and-approval input grants no authority. Historical approvals remain auditable but cannot authorize a superseding candidate."
+                },
+                {
+                  "entity": "Approved handoff",
+                  "definition": "Pass an immutable candidate reference, its canonical digest, approval/review reference and verification conditions to the fixer.",
+                  "constraints": "Recheck that approval still matches the current candidate immediately before repair dispatch. A reshape invalidates eligibility for further repair under that candidate while retaining the old approval as history. No new legacy tables or destructive migration is required; any shared-schema extension uses a forward migration."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Analyst adapter and result validation",
+                  "responsibility": "Prepare the read-only analyst, validate ask/done/blocked results, retain partial or complete diagnosis, and carry prior answers and reshape reasons into every invocation.",
+                  "access": "Reuse internal/turn/bug_analyst.go, AgentActivity, internal/agentresult and internal/buganalysis. Replace dependence on legacy pass/revision ledgers with shared attempts. Preserve cleanup on preparation failure, context cancellation and the existing attempt-scoped result capability."
+                },
+                {
+                  "component": "Conversation loop activity",
+                  "responsibility": "Consume the current analyst result, publish its question or complete review through shared reporting, and park. On owner guidance request another analyst iteration; on an exact factory-approved review expose the approved outcome without an analyst invocation.",
+                  "access": "Extend shared lf_loop specification and dispatch with an opt-in conversation contract. Reuse story-001's wait/publication machinery. Loop returns outcomes; internal/graphexec chooses only DOT-declared edges. Do not introduce lf_if, record, ask or review activity nodes into this simplified graph."
+                },
+                {
+                  "component": "Approval store boundary",
+                  "responsibility": "Authenticate and atomically bind explicit approval to the current review, consume the reply and expose durable handoff authority. Preserve the existing approval checks rather than calling the old lifecycle-dependent accessor unchanged.",
+                  "access": "internal/store owns SQL and transactions. Port the guards from ApproveBugAnalysis onto graph-backed candidate/review data. Keep the one-connection pool, context-first access and transactions clear of forge or agent I/O; daemon retains time and scheduling."
+                },
+                {
+                  "component": "Role packaging and publication",
+                  "responsibility": "Keep the analyst role short: investigate, preserve answers, explain evidence, propose remedy and submit. Put field rules in the focused result skill. Factory renders the current review and exact approval command.",
+                  "access": "teams/source/bug/bug-analyst.md and bug-analysis-result resources, existing role/model resolution and report rendering. Remove terminal-envelope instructions consistently with story-001. Validate packaged resource closure and retain tool ceilings; source text and owner replies remain untrusted data."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Declared topology",
+                  "contract": "Start at the conversation loop. It requests the analyst on first entry or after admitted guidance; analyst ask/done returns to that loop. Ask publishes questions; done publishes a review; both wait. Exact approval releases the loop's approved edge to the fixer. Fixer reshape returns to the conversation, while fixer succeeded leads to finalization. Stopping outcomes use story-001 at their origin. Only the analyst conversation iterates; the fixer's repair iterations remain inside its invocation.",
+                  "rationale": "This defines the intended collaboration using only loop, agent and finalization activity types. Terminals do not execute activities. Fixer and finalization implementation remain downstream work, not additional scope here."
+                },
+                {
+                  "element": "Admission and limits",
+                  "contract": "Update Bug package capture, action registration and topology validation together. Require positive bounds and declared outcomes, reject repair paths bypassing current approval, and reject automatic fixer retry cycles. Count substantive analyst invocations separately from mechanical conversation publication/approval. Exhaustion uses story-001; an owner grant releases one invocation without resetting history.",
+                  "rationale": "The current exact-topology validator and comparison-loop semantics will reject this composition. A consumed analysis budget must not prevent approval of its final complete candidate."
+                },
+                {
+                  "element": "Review interaction",
+                  "contract": "A normal reply to a question or review resumes the conversation with guidance. Only the exact current approval command grants repair authority. An invalid or stale approval command is explained and consumed through existing refusal handling without advancing; the current review stays available. A message combining approval and requested changes is guidance requiring a revised candidate, never approval.",
+                  "rationale": "The owner can continue naturally while the repair boundary stays explicit. No model decides whether free text constitutes authorization."
+                },
+                {
+                  "element": "Reshape and context",
+                  "contract": "A fixer reporting a materially different diagnosis or remedy supplies the current approved candidate reference and reasons. Retain those reasons, suspend repair eligibility and follow the DOT return to the analyst. The analyst resolves all retained reasons and presents a new complete review. Synchronization alone does not invalidate approval unless canonical diagnosis/remedy content changes.",
+                  "rationale": "This preserves the agreed change-of-remedy gate without adding a factory repair-and-test loop or forcing renewed approval for unrelated branch freshness."
+                },
+                {
+                  "element": "Failure and restart",
+                  "contract": "Accepted input alone does not establish successful analyst execution or review publication. Invalid/missing results, failed runs and exhausted bounds use story-001. Persist review intent before publication; observe uncertain publication before retrying. Recover confirmed approval and its consumed reply without launching another analyst or creating another approval. Pending storage/publication work cannot authorize the fixer.",
+                  "rationale": "This reuses the common recovery design and preserves independent result, execution, publication and owner-authority facts."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [
+                "story-001"
+              ],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "agent-setup"
+            ],
+            "criteria": [
+              {
+                "id": "AC-001",
+                "text": "The analyst uses the configured flagship tier with existing read-only permissions. Its delivered role instructions cover investigation, retained answers, evidence, remedy and shared result submission; field rules remain in the focused result skill.",
+                "proof_method": "Future model-resolution and provider-policy tests will inspect the resolved tier and read-only configuration, including attempted mutation refusal. Package validation and a review of the shipped role/skill resources will confirm resource closure, short role responsibilities, shared submission instructions and no agent approval or publication authority."
+              },
+              {
+                "id": "AC-002",
+                "text": "A review-ready diagnosis contains expected and actual behavior, reproduction steps or concrete alternative evidence with explicit reproduction status, cause, bounded remedy, exclusions and measurable verification conditions. Missing evidence or an unresolved material question permits discussion but not a complete review.",
+                "proof_method": "Future BugAnalysis and result-validation tests will accept complete reproduced and explicitly not-observed cases with concrete alternative evidence, reject incomplete done candidates, and allow partial ask candidates. Rendered-review fixtures will show the complete diagnosis without inventing reproduction or presenting path guidance as permission."
+              },
+              {
+                "id": "AC-003",
+                "text": "Initial entry starts analysis; analyst questions and completed diagnoses return to the conversation and wait for the owner. Ordinary guidance resumes analysis with the current candidate, relevant authenticated answers, settled decisions and remaining questions retained across restarts.",
+                "proof_method": "Future conversation tests will run first entry, ask, owner answer, revised ask and done, then recreate the process from persistent state and compare analyst inputs and visible questions. They will show no automatic pass while waiting, no lost answer or superseded history, and no repair authority from ordinary guidance."
+              },
+              {
+                "id": "AC-004",
+                "text": "Only the authenticated owner's exact /approve-bug analysis <revision> command for the current complete, confirmed published review creates repair approval. Analyst done, free-text assent, unauthorized or foreign input, stale/invalid commands and mixed approval-with-changes messages cannot approve repair.",
+                "proof_method": "Future approval tests will vary numeric author, issue, candidate revision, publication state, completeness and conflicting active analyst attempt. They will inspect approval records and dispatch counts. Invalid/stale commands will be explained and consumed while the current review stays available; mixed messages will retain requested changes as guidance for a revised candidate."
+              },
+              {
+                "id": "AC-005",
+                "text": "Approval and consumption of its matching reply are atomic and bind the candidate digest, published review, numeric owner, reply and timestamp. Before repair dispatch, the current approval is checked again; the handoff contains the immutable candidate, digest, approval/review references and verification conditions.",
+                "proof_method": "Future store and admission tests will inject rollback and concurrent candidate-change/approval races, replay the same command and compare the retained approval and handoff. They will show one decision per reply, no partial approval, no dispatch from stale authority, and the exact reviewed verification conditions in the handoff."
+              },
+              {
+                "id": "AC-006",
+                "text": "Changed canonical diagnosis, remedy or verification content requires a new review and approval; presentation-only changes retain the same candidate. Fixer reshape retains its approved reference and reasons, suspends further repair and returns to analyst discussion. Synchronization alone does not revoke unchanged diagnosis authority.",
+                "proof_method": "Future digest and graph tests will change each canonical field and compare candidate eligibility, then change rendering alone. A fixture fixer reshape will follow the DOT return, preserve reasons in the next analyst input and require fresh approval before handoff. An unchanged candidate with changed source freshness will retain diagnosis approval without claiming validation freshness, which belongs to story-003."
+              },
+              {
+                "id": "AC-007",
+                "text": "The simplified Bug graph uses only loop, agent and finalization activities, with routes declared in DOT and the analyst conversation as its only workflow loop. Admission rejects unbounded conversation, approval bypass, automatic fixer retry and unavailable downstream activities; unrelated comparison loops and pinned legacy admission retain their behavior.",
+                "proof_method": "Future package/graph tests will validate the production DOT and renamed-node fixtures, exercise declared ask/done/approved/reshape/succeeded routes, and reject each forbidden topology or missing capability. A source review will confirm no Go-selected named next nodes. Existing comparison-loop and legacy-binding regression tests will verify preserved behavior; downstream repair/delivery outcomes may be controlled fixtures for this story."
+              },
+              {
+                "id": "AC-008",
+                "text": "Substantive analyst invocations keep finite limits and use story-001's owner continuation on exhaustion. Publishing or explicitly approving an already complete review consumes no analyst pass and launches no analyst, including when the analysis limit is reached.",
+                "proof_method": "Future boundary tests will complete the last permitted analysis pass, publish its review and approve it while comparing invocation counts and counters. A guidance reply requesting further analysis at the limit will exercise story-001's one-invocation allowance without resetting history. Invalid approval will neither spend a pass nor authorize repair."
+              },
+              {
+                "id": "AC-009",
+                "text": "Conversation history, reviews and approvals survive restart in shared graph records. Failed execution, missing/invalid results, publication uncertainty or storage failure never authorize repair; recovery observes uncertain publication and reuses confirmed approval without duplicate approval or analyst invocation.",
+                "proof_method": "Future cross-component tests will interrupt after candidate persistence, publication intent, uncertain/confirmed post and committed approval, then reopen the store. Controlled agent/forge observations and record/call counts will show retained history, story-001 parking, recoverable publication debt and one approved handoff. Fresh/upgraded shared-schema fixtures will preserve history if an extension is needed. Final implementation evidence will include make check, the full race-enabled suite and a clean gofmt check; none is claimed executed now."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Deliver graph-backed immutable diagnosis snapshots, completeness/digest validation and retained conversation inputs, including honest alternative reproduction evidence; update the analyst adapter and focused role/result resources.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-006",
+                  "AC-009"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-002",
+                "description": "Deliver the factory approval store boundary and exact-command handling: confirmed review binding, authenticated identity, atomic reply consumption, refusals, duplicate protection and immutable handoff with a final authority recheck.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-001"
+                ]
+              },
+              {
+                "id": "T-003",
+                "description": "Deliver the opt-in owner-conversation loop, Bug DOT composition, package admission and registration; connect review publication, guidance, reshape and finite analysis accounting to story-001's shared waits, keeping mechanical approval independent of analyst invocation.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-003",
+                  "AC-004",
+                  "AC-006",
+                  "AC-007",
+                  "AC-008",
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-001",
+                  "T-002"
+                ]
+              },
+              {
+                "id": "T-004",
+                "description": "Deliver focused diagnosis, model/permission, approval, digest, topology and budget tests, covering forbidden authority and preserving unrelated comparison loops and legacy admission.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-008"
+                ],
+                "depends_on": [
+                  "T-003"
+                ]
+              },
+              {
+                "id": "T-005",
+                "description": "Deliver persistent cross-component conversation and recovery coverage for retained answers, publication uncertainty, approval races/replay, reshape and restart. Use ordinary Go tests with controlled agent/forge boundaries under existing repository conventions, without integration build tags or a new test class.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-008",
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-003"
+                ]
+              },
+              {
+                "id": "T-006",
+                "description": "Complete source and packaged-resource review, run required repository checks, and retain revision-bound commands, outcomes and evidence linked to every criterion. Report unresolved failures rather than claiming owner acceptance.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-008",
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-004",
+                  "T-005"
+                ]
+              }
+            ]
+          },
+          "changed_sections": [
+            "criteria",
+            "tasks"
+          ]
+        }
+      }
+    }
+  }
+}
