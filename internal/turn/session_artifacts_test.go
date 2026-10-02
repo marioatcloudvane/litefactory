@@ -78,6 +78,12 @@ func TestExistingSessionArtifactsPlanPrefersResearchBrief(t *testing.T) {
 	if dir != want || brief != naming.ResearchBriefName {
 		t.Errorf("(dir, brief) = (%q, %q), want (%q, %q)", dir, brief, want, naming.ResearchBriefName)
 	}
+
+	mustProgress(t, os.WriteFile(filepath.Join(root, want, naming.ResearchTechnicalName), []byte("evidence"), 0600))
+	dir, brief = existingSessionArtifacts(root, testSessionBranch, testSessionIssue, day, string(agent.ModePlan), nil)
+	if dir != want || brief != naming.ResearchBriefName || existingSessionTechnical(root, dir, string(agent.ModePlan)) != naming.ResearchTechnicalName {
+		t.Fatal("technical pointer changed research brief preference")
+	}
 }
 
 // TestExistingSessionArtifactsPlanFallsBackToPlanBrief covers Plan once
@@ -111,5 +117,40 @@ func TestExistingSessionArtifactsSpikeNamesDirectoryOnly(t *testing.T) {
 	}
 	if brief != "" {
 		t.Errorf("brief = %q, want \"\" for spike", brief)
+	}
+}
+
+func TestExistingSessionTechnicalRootedPlanOnly(t *testing.T) {
+	for _, kind := range []string{"regular", "missing", "directory", "symlink", "ancestor"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			dir := "session"
+			mustProgress(t, os.MkdirAll(filepath.Join(root, dir), 0700))
+			name := filepath.Join(root, dir, naming.ResearchTechnicalName)
+			switch kind {
+			case "regular", "ancestor":
+				mustProgress(t, os.WriteFile(name, []byte("evidence"), 0600))
+				if kind == "ancestor" {
+					mustProgress(t, os.Symlink(filepath.Join(root, dir), filepath.Join(root, "linked")))
+					dir = "linked"
+				}
+			case "directory":
+				mustProgress(t, os.Mkdir(name, 0700))
+			case "symlink":
+				target := filepath.Join(t.TempDir(), "target")
+				mustProgress(t, os.WriteFile(target, []byte("evidence"), 0600))
+				mustProgress(t, os.Symlink(target, name))
+			}
+			for _, mode := range []string{"plan", "research", "implement", "validate", "spike", "infer"} {
+				got := existingSessionTechnical(root, dir, mode)
+				want := ""
+				if mode == "plan" && kind == "regular" {
+					want = naming.ResearchTechnicalName
+				}
+				if got != want {
+					t.Errorf("%s: got %q want %q", mode, got, want)
+				}
+			}
+		})
 	}
 }

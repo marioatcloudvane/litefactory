@@ -3,12 +3,14 @@ package turn
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"strings"
 	"syscall"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/naming"
 )
 
 // ResearchBriefName and ResearchTechnicalName are the two documents the factory
@@ -16,7 +18,7 @@ import (
 // owner and the next stage need, the technical file is the proof behind it.
 const (
 	ResearchBriefName     = "RESEARCH_BRIEF.md"
-	ResearchTechnicalName = "RESEARCH_TECHNICAL.md"
+	ResearchTechnicalName = naming.ResearchTechnicalName
 )
 
 // WriteResearchBriefs renders both documents from the retained result and
@@ -86,7 +88,7 @@ func WriteResearchBriefs(worktree, session string, result agentresult.Result) er
 		return errors.New("research briefs directory changed while opening")
 	}
 
-	documents := []struct{ name, body string }{{ResearchBriefName, renderResearchBrief(result)}, {ResearchTechnicalName, renderResearchTechnical(result)}}
+	documents := []struct{ name, body string }{{ResearchBriefName, renderResearchBrief(session, result)}, {ResearchTechnicalName, renderResearchTechnical(result)}}
 	// Check both destinations before the first truncation. A later I/O failure
 	// may leave partial files, but the caller cannot retain generation success.
 	for _, document := range documents {
@@ -115,11 +117,11 @@ func WriteResearchBriefs(worktree, session string, result agentresult.Result) er
 	return nil
 }
 
-// renderResearchBrief is the owner's document: what was asked, what was settled,
+// renderLegacyResearchBrief is the owner's document: what was asked, what was settled,
 // what is being assumed and what is still open. Evidence deliberately stays out
 // of it — a decision the owner has to make does not read better with a file and
 // line number attached.
-func renderResearchBrief(result agentresult.Result) string {
+func renderLegacyResearchBrief(result agentresult.Result) string {
 	r := result.Payload.Research
 	var b strings.Builder
 	b.WriteString("# Research brief\n\n## Request\n\n")
@@ -158,6 +160,70 @@ func renderResearchBrief(result agentresult.Result) string {
 		b.WriteString(strings.TrimSpace(result.Recommendation.Text))
 	}
 	return strings.TrimSpace(b.String()) + "\n"
+}
+
+// researchDocumentFormat binds exact verification to the renderer used at generation.
+const researchDocumentFormat = "indexed-v1"
+
+func renderResearchBrief(session string, result agentresult.Result) string {
+	var b strings.Builder
+	b.WriteString(renderLegacyResearchBrief(result))
+	b.WriteString("\n## Research documents\n\n")
+	technicalDescription := ""
+	if agentresult.ValidPath(session) {
+		for _, artifact := range result.Artifacts {
+			if artifact.Path == session+"/"+ResearchTechnicalName {
+				technicalDescription = artifact.Description
+				break
+			}
+		}
+	}
+	writeResearchDocumentLink(&b, ResearchTechnicalName, researchArtifactLabels["technical"], technicalDescription)
+	seen := map[string]bool{ResearchBriefName: true, ResearchTechnicalName: true}
+	for _, artifact := range result.Artifacts {
+		if !agentresult.ValidPath(session) || !agentresult.ValidPath(artifact.Path) || !strings.HasPrefix(artifact.Path, session+"/") {
+			continue
+		}
+		relative := strings.TrimPrefix(artifact.Path, session+"/")
+		if seen[relative] {
+			continue
+		}
+		seen[relative] = true
+		label, ok := researchArtifactLabels[artifact.Kind]
+		if !ok {
+			label = artifact.Kind
+		}
+		writeResearchDocumentLink(&b, relative, label, artifact.Description)
+	}
+	return b.String()
+}
+
+func writeResearchDocumentLink(b *strings.Builder, relative, label, description string) {
+	// Escape each component, including parentheses which PathEscape leaves literal.
+	parts := strings.Split(relative, "/")
+	for i, part := range parts {
+		parts[i] = strings.NewReplacer("(", "%28", ")", "%29").Replace(url.PathEscape(part))
+	}
+	fmt.Fprintf(b, "- %s: [%s](%s)", researchDocumentText(label), researchDocumentText(relative), strings.Join(parts, "/"))
+	if description != "" {
+		fmt.Fprintf(b, " — %s", researchDocumentText(description))
+	}
+	b.WriteString("\n")
+}
+
+func researchDocumentText(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r < ' ' || r == 127:
+			fmt.Fprintf(&b, "&#%d;", r)
+		case strings.ContainsRune("\\`*_{}[]<>()#+-.!|&", r):
+			fmt.Fprintf(&b, "&#%d;", r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // renderResearchTechnical is the engineer's document: every finding with the
