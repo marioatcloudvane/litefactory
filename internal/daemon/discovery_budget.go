@@ -200,10 +200,10 @@ func (r *discoveryReservation) finish() {
 }
 
 type discoveryEndpointCounts struct {
-	OK        int `json:"status_200"`
-	Unchanged int `json:"status_304"`
-	Other     int `json:"other_error"`
-	Pages     int `json:"pages"`
+	OK        int `json:"ok_responses"`
+	Unchanged int `json:"not_modified_responses"`
+	Other     int `json:"error_responses"`
+	Pages     int `json:"pages_fetched"`
 }
 type discoveryCounts struct {
 	mu        sync.Mutex
@@ -231,14 +231,85 @@ func (s *discoveryCounts) observe(o github.RequestObservation) {
 	s.endpoints[o.Endpoint] = c
 }
 func (d *Daemon) discoveryContext(ctx context.Context) context.Context {
+	ctx = github.WithRequestObserver(ctx, d.digest.observe)
 	return github.WithRequestObserver(ctx, d.discovery.observe)
 }
-func (d *Daemon) discoverySummary(ctx context.Context, scope string, s *discoveryCounts) {
+
+// total is how many requests the counts have seen, whatever their outcome.
+func (s *discoveryCounts) total() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d.discovery.mu.Lock()
-	defer d.discovery.mu.Unlock()
-	d.log.InfoContext(ctx, "discovery request summary", slog.String("scope", scope), slog.Any("endpoints", s.endpoints), slog.Int("local_deferrals", d.discovery.deferrals), slog.Int("quota_remaining", d.discovery.remaining), slog.Int("quota_reserve", d.discovery.floorLocked()), slog.Int("background_spent", d.discovery.spent), slog.Int("outstanding_reserved", d.discovery.reserved), slog.Float64("traffic_available", d.discovery.tokens), slog.Bool("quota_fresh", d.discovery.freshLocked()))
+	n := 0
+	for _, c := range s.endpoints {
+		n += c.OK + c.Unchanged + c.Other
+	}
+	return n
+}
+
+// discoverySummary logs the per-endpoint request accounting at DEBUG. It is for
+// diagnosing the request budget, not for an operator reading what the daemon
+// did: the heartbeat line and the digest say that.
+func (d *Daemon) discoverySummary(ctx context.Context, scope string, s *discoveryCounts) {
+	if !d.log.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v := d.discovery.view()
+	d.log.DebugContext(ctx, "request accounting for this "+scope,
+		slog.String("scope", scope),
+		slog.Any("endpoints", s.endpoints),
+		slog.Int("requests_held_back_locally", v.HeldBack),
+		slog.Int("quota_remaining_requests", v.Remaining),
+		slog.Int("quota_reserve_requests", v.Reserve),
+		slog.Int("background_spent_requests", v.Spent),
+		slog.Int("requests_in_progress", v.InProgress),
+		slog.Float64("burst_allowance_requests", v.Burst),
+		slog.Bool("quota_data_fresh", v.Fresh))
+}
+
+// discoveryView is a read-only copy of what the budget knows, taken under its
+// lock. Nothing decided from it feeds back into admission.
+type discoveryView struct {
+	Fresh      bool
+	Limit      int
+	Remaining  int
+	Reserve    int
+	Share      int
+	Spent      int
+	InProgress int
+	HeldBack   int
+	Burst      float64
+	Reset      time.Time
+	now        time.Time
+}
+
+func (b *discoveryBudget) view() discoveryView {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return discoveryView{
+		Fresh: b.freshLocked(), Limit: b.limit, Remaining: b.remaining, Reserve: b.floorLocked(),
+		Share: b.discoveryShareLocked(), Spent: b.spent, InProgress: b.reserved, HeldBack: b.deferrals,
+		Burst: b.tokens, Reset: b.reset, now: b.now,
+	}
+}
+
+// Why discovery is deferred, in the words the log uses.
+const (
+	pauseReasonStale   = "stale rate-limit data"
+	pauseReasonSpent   = "spent allowance until reset"
+	pauseReasonBackoff = "rate-limit backoff"
+)
+
+// deferral says why background discovery is being held back and when that is
+// expected to end; a zero time means "when fresh rate-limit data arrives".
+// A spent allowance is reported before staleness because a probe is refused
+// until the reset in that state too.
+func (v discoveryView) deferral() (reason string, resumeAt time.Time) {
+	if v.Limit > 0 && v.now.Before(v.Reset) && (v.Remaining <= v.Reserve || v.Spent >= v.Share) {
+		return pauseReasonSpent, v.Reset
+	}
+	return pauseReasonStale, time.Time{}
 }
 
 func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, call func(context.Context) (T, error)) (T, error) {
