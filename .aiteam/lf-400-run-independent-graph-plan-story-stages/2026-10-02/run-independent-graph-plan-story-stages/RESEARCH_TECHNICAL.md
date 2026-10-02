@@ -83,3 +83,13 @@ Evidence:
 - `.aiteam/APP_CONSTRAINTS.md:179` @ `2c35ff1d655f5f553abd1860b022f7a831b4765c`
 - `.aiteam/APP_CONSTRAINTS.md:222` @ `2c35ff1d655f5f553abd1860b022f7a831b4765c`
 - `internal/store/plan_workflow.go:13` @ `2c35ff1d655f5f553abd1860b022f7a831b4765c`
+
+## F-9
+
+At the current worktree revision, initial story-set drafting checks whether dependency drafts exist, not whether their story text has owner approval; ordinary eligibility separately checks a story's own preceding-stage approvals, and review revisions bind dependency content rather than testing dependency approvals, making a new upstream approval gate a behavior change.
+
+Evidence:
+
+- `internal/planbrief/plan_set.go:70` @ `d119859a7888e8661239da45d805fab98cf94c62`
+- `internal/planbrief/plan_workflow.go:97` @ `d119859a7888e8661239da45d805fab98cf94c62`
+- `internal/planbrief/plan_workflow.go:248` @ `d119859a7888e8661239da45d805fab98cf94c62`
