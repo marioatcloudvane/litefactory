@@ -121,3 +121,29 @@ Evidence:
 
 - `internal/codex/usage.go:39`
 - `internal/codex/usage.go:82`
+
+## f15
+
+Implement is not a graph workflow: the registered workflow policies cover Research, Plan, Bug and Spike only, and Implement runs as one agent process whose orchestrator performs scheduling, dispatch and the repair loop by prompt text. Source inspection only.
+
+Evidence:
+
+- `internal/turn/workflow_registry.go:14`
+
+## f16
+
+Story and aggregate check evidence is agent-reported: capture checks are marked executed by construction and the retained provenance states the check was not independently observed. The factory verifies snapshot bytes against the worktree but not that any command ran. There is no test manager component; test engineers are roster roles dispatched by the orchestrator. Source inspection only.
+
+Evidence:
+
+- `internal/agent/contribution_capture.go:63`
+- `internal/turn/submission_records.go:37`
+
+## f17
+
+Identified token and time costs, unmeasured: complete base64 file snapshots resubmitted per story and again at aggregate, the full story bundle and helper instructions resent on every launch, a serial story pipeline inside the orchestrator, repeated test runs at specialist, orchestrator and aggregate level, and report files nothing reads. Source inspection only; no usage data was read.
+
+Evidence:
+
+- `internal/harness/stories.go:10`
+- `internal/turn/agent_result_aggregates.go:23`

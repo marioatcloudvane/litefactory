@@ -56,6 +56,8 @@ Reassess graph Implement using current Bug experience, maximize agent engineerin
 - **a36** — Harness compatibility requires reliable individual command identity, order, directory, source and exit evidence; absent evidence blocks the new check path instead of trusting summaries.
 - **a37** — Compare equivalent frozen workloads using elapsed time, invocation count, available token/cache usage and repeated checks, and report missing usage explicitly.
 - **a38** — General delegation is not part of default story execution; specialist help is exceptional and remains within pinned authority and budget.
+- **a39** — Treat the owner's phrase test manager as the existing test-engineer roles and test-evidence guidance, since no component of that name exists.
+- **a40** — Factory-captured snapshots (q6) are recommended; until answered, snapshot transport stays as shipped.
 
 
 ## Open questions
@@ -64,8 +66,15 @@ Reassess graph Implement using current Bug experience, maximize agent engineerin
 
 _Asked of: Product Owner Questions_
 
-- **optional_concurrency** — Recommended: include direct concurrent workers with separate workspaces, serialized integration and rechecks; keep the default at one worker and allow a higher configured limit, accepting the added scheduling and recovery scope.  *(recommended)*
-- **direct_serial** — Keep this release serial and deliver direct worker dispatch, smaller inputs and agent-run verified checks first; defer parallel scheduling, isolation and integration to later work.
+- **optional_concurrency** — Recommended: include concurrent workers in separate workspaces with serialized integration and rechecks; default one worker, higher limit by configuration.  *(recommended)*
+- **direct_serial** — Keep this release serial; deliver direct dispatch, factory-verified checks and smaller inputs first, and defer parallelism.
+
+### q6 — Should the factory capture story and aggregate snapshots instead of the agent?
+
+_Asked of: Technical Questions_
+
+- **factory_capture** — Recommended: the factory reads changed files from the worktree and binds them to the story; the agent only names the story. Cuts tokens and removes hand-built encoding errors.  *(recommended)*
+- **agent_capture** — Keep agent-built snapshots and only trim the rest; smaller change, but the largest token cost remains.
 
 ## Research documents
 
