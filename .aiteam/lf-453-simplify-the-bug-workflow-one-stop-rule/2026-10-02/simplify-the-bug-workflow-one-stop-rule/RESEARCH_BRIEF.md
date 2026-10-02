@@ -33,6 +33,8 @@ Simplify Bug to one flagship analyst conversation loop with explicit owner appro
 - **d25** — Owner-set decision: repair requires explicit authenticated owner approval of the current diagnosis and remedy, and a changed remedy returns to the analyst for renewed approval.
 - **d26** — Owner-set decision: the fixer reports succeeded only after completing final validation, and the factory consumes that accepted result without executing its own validation gate.
 - **d27** — Shaping decision: succeeded requires passing applicable checks and satisfaction of the approved verification criterion, while skipped required checks, unresolved failures or missing evidence cannot count as success.
+- **d28** — Owner-set cutover decision: preserve each unfinished bug's issue, discussion, branch, changes and PR, reconcile prior merge or closure effects, and restart diagnosis with fresh approval before further repair.
+- **d29** — Shaping decision: retire old execution instances after preserving their history and reconciling remote effects, with confirmed merged fixes proceeding only to remaining closure and no parallel legacy Bug runtime retained after cutover.
 
 
 ## Assumptions
@@ -46,18 +48,8 @@ Simplify Bug to one flagship analyst conversation loop with explicit owner appro
 - **a7** — Existing authorized-owner identity rules, repository merge protections and explicit task cancellation remain applicable; the rewrite removes Bug-specific grant and stop commands rather than granting arbitrary commenters control.
 - **a8** — The fixer uses the repository's applicable build, regression and check commands as its validation criteria; no separate factory check recipe execution or new budget system is introduced.
 - **a9** — Interpret the owner's current-main request as shared default freshness for eligible work resumptions, not forced branch mutation for every received, duplicate, unauthorized or refused comment; existing Validate immutability and explicit sync overrides remain outside this Bug policy rewrite.
-- **a10** — The latest owner reply settles q1 as explicit approval before repair with no second review and q2 as agent-owned validation followed by succeeded; q3 requests an explanation and remains unresolved.
+- **a10** — Owner replies settled q1 as approval before repair without a second review, q2 as agent-owned validation followed by succeeded, and q3 option a as restarting unfinished bugs with preserved work after reconciling prior delivery; the consolidated scope is now ready for review.
 - **a11** — Interpret merge, push and close as the delivery outcome, using the existing factory's safe save/push and remote merge ordering rather than requiring a new local merge-to-main strategy.
-
-
-## Open questions
-
-### q3 — When this change is installed, may unfinished bugs restart with the analyst while keeping all existing work?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Recommended: preserve each issue, discussion, branch, changes and PR, restart diagnosis in the simplified Bug flow, and ask for approval before further repair; first reconcile any prior merge or closure so delivered fixes are not repaired again.  *(recommended)*
-- **b** — Let existing bugs finish under the old flow and use the simplified flow only for new bugs; this avoids restarting diagnosis but requires retaining the old runtime and delays code removal.
 
 ## Research documents
 
