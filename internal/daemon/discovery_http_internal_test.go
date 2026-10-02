@@ -70,7 +70,7 @@ func newDiscoveryHTTPFixture(t *testing.T) *discoveryHTTPFixture {
 	if err = db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	logger := slog.New(slog.NewJSONHandler(&f.logs, nil))
+	logger := slog.New(slog.NewJSONHandler(&f.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	filter, err := turn.NewFilter(db, turn.Identities{OwnerUserID: 42, BotUserID: 99}, logger)
 	if err != nil {
 		t.Fatal(err)
@@ -230,8 +230,13 @@ func TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent(t *testing.T) {
 	if err != nil || len(pending) != 2 {
 		t.Fatalf("pending=%v err=%v", pending, err)
 	}
-	if !strings.Contains(f.logs.String(), "status_304") {
-		t.Fatalf("missing structured request summary: %s", &f.logs)
+	if !strings.Contains(f.logs.String(), "not_modified_responses") {
+		t.Fatalf("missing structured request accounting: %s", &f.logs)
+	}
+	for _, old := range []string{"local_deferrals", "traffic_available", "outstanding_reserved", "discovery request summary"} {
+		if strings.Contains(f.logs.String(), old) {
+			t.Fatalf("request accounting still uses the old name %q: %s", old, &f.logs)
+		}
 	}
 }
 
