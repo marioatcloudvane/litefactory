@@ -1768,7 +1768,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "successful creation intake recovery pending", err)
 	}
 	command := turn.ParseCommand(c.Body)
-	if d.bug != nil && (command.Name == "/approve-bug" || command.Name == "/bug-review" || command.Name == "/retry-bug-tests") {
+	if d.bug != nil && isBugControlCommand(command.Name) {
 		admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return d.leave(ctx, t, log, "could not read Bug control admission", err)
