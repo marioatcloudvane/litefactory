@@ -210,6 +210,7 @@ func TestResultAggregateWorktree_CompletionAndRecovery(t *testing.T) {
 		})
 	}
 }
+
 // writeAggregateFixtureFile writes a worktree file, creating its directories,
 // and removes it again when the test ends.
 func writeAggregateFixtureFile(t *testing.T, w *git.Worktree, rel string, content []byte) {
