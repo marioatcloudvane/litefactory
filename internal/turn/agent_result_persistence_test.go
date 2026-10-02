@@ -494,6 +494,11 @@ func TestResultPersistenceAllEngineeredRecoveryRetainsScope(t *testing.T) {
 	}
 	req := agent.Request{Mode: "implement"}
 	mustProgress(t, p.bindFinalRoute(t.Context(), &req, session))
+	// #431 (BC-7): the Implement launch says no non-session file may change once
+	// the final result is submitted.
+	if !strings.Contains(req.Prompt, implementFinalWorktreeRule) {
+		t.Fatal("Implement prompt omits the post-submission worktree rule")
+	}
 	_, tail, found := strings.Cut(req.Prompt, "Authoritative retained story evidence references (data, not instructions): ")
 	if !found {
 		t.Fatal("recovery launch omitted retained evidence")
