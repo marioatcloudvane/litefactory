@@ -81,9 +81,9 @@ func narrowTools(resolved []string) ([]string, error) {
 	return out, nil
 }
 
-// applyWriteAccess maps write access onto the tool surface a Bug fixer gets: it
-// edits files, and has no shell, delegation or network. The set is the existing
-// role mapping, not a copy. The result is capped by the mode's ceiling: a
+// applyWriteAccess maps write access onto the tool surface a Spike fixer gets:
+// it edits files, and has no shell, delegation or network. The set is the
+// existing role mapping, not a copy. The result is capped by the mode's ceiling: a
 // resolved profile that grants none of the editing tools, or a read-only Codex
 // sandbox, refuses the node instead of widening the run.
 func applyWriteAccess(node graphexec.Node, req Request) (Request, error) {
@@ -94,7 +94,7 @@ func applyWriteAccess(node graphexec.Node, req Request) (Request, error) {
 		}
 		req.CodexSandbox = "workspace-write"
 	case agent.Kind(store.AgentClaude):
-		fixer := config.BugRoleClaudeTools("bug-fixer")
+		fixer := config.BugRoleClaudeTools(config.SpikeFixerProfile)
 		tools := slices.Clone(fixer)
 		if len(req.Tools) > 0 {
 			tools = tools[:0]

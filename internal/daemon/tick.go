@@ -2126,6 +2126,10 @@ func (d *Daemon) run(
 				slog.Any("error", err))
 			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
 		}
+		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugCommentRefused) {
+			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
+			return nil
+		}
 		left := d.leave(ctx, t, log, "the turn could not be conducted", err)
 		if trigger.PlanReply != nil && left == nil {
 			// A child reply's cursor advances whenever run returns nil, and leave
