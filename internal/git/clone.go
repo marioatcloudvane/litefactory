@@ -145,6 +145,11 @@ type WorktreeAddOptions struct {
 	// allowlist needs no "git branch": the new ref is made without the
 	// registered clone's own working tree or HEAD moving.
 	CreateFrom string
+	// Detach checks Branch out with a detached HEAD instead; Branch must then
+	// be a full commit object id, and no ref is created or moved. It is for
+	// short-lived worktrees that only read a fixed commit, such as the target
+	// tree a Bug check reruns failing tests on.
+	Detach bool
 }
 
 // WorktreeAdd creates a linked worktree at dir and returns the only kind of
@@ -171,7 +176,12 @@ func (c *Clone) WorktreeAdd(ctx context.Context, dir string, opts WorktreeAddOpt
 	}
 
 	args := []string{"worktree", "add"}
-	if opts.CreateFrom == "" {
+	if opts.Detach {
+		if opts.CreateFrom != "" || !fullBugObject(opts.Branch) {
+			return nil, fmt.Errorf("detached worktree: %w: needs a full commit id and no new branch", ErrInvalidArgument)
+		}
+		args = append(args, "--detach", target, opts.Branch)
+	} else if opts.CreateFrom == "" {
 		args = append(args, target, opts.Branch)
 	} else {
 		if err := checkName("start point", opts.CreateFrom); err != nil {

@@ -71,7 +71,7 @@ func NewBugRuntime(ctx context.Context, opts Options, cfg BugRuntimeConfig) (*Bu
 			return BugChecksInput{}, e
 		}
 		binding := c.PhaseBinding(phase)
-		return BugChecksInput{Binding: binding, Worktree: w, Isolation: r.cfg.Isolation, Observe: r.observe}, nil
+		return BugChecksInput{Binding: binding, Worktree: w, Isolation: r.cfg.Isolation, Observe: r.observe, Base: r.bugBaseWorktree(c.Request.SessionID)}, nil
 	}})
 	return r, err
 }

@@ -23,6 +23,9 @@ type BugAttemptInput struct {
 	Request          store.BugRepairRequest
 	ExpectedRevision int64
 	ReshapeReason    string
+	// BlockedReason ends the attempt blocked before any reservation, as when
+	// main cannot be merged into the repair branch without conflicts.
+	BlockedReason string
 }
 
 // BugAttemptActivity reserves one shared lifetime repair slot before the fixer.
@@ -78,7 +81,9 @@ func (h BugAttemptActivity) Execute(ctx context.Context, opts Options, req Activ
 	}
 	outcome, reason := "reserved", ""
 	var reservation store.BugRepair
-	if input.ReshapeReason != "" {
+	if input.BlockedReason != "" {
+		outcome, reason = "blocked", input.BlockedReason
+	} else if input.ReshapeReason != "" {
 		outcome, reason = "reshape", input.ReshapeReason
 	} else {
 		reservation, err = opts.DB.ReserveBugRepair(ctx, input.Request, input.ExpectedRevision)
