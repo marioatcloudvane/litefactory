@@ -34,11 +34,7 @@ func bugRuntimeOwnerReply(t *testing.T, questions, change, sharedPin bool) {
 		if e := req.ValidateBugAnalyst(); e != nil {
 			t.Fatal(e)
 		}
-		for _, name := range req.MCPLaunch.PermittedTools() {
-			if !strings.HasPrefix(name, "communication_") {
-				t.Fatalf("extra analyst capability %s", name)
-			}
-		}
+		assertBugInspectionCatalog(t, req)
 		raw, _ := json.Marshal(map[string]any{"version": 1, "response": "done", "result": map[string]any{"outcome": "completed", "comment": "Review the recorded analysis.", "payload": map[string]any{"bug": map[string]any{"response": "done", "analysis": map[string]any{"expected": "one result", "actual": "duplicate results", "reproduction": map[string]any{"steps": []string{"search once"}, "environment": "fixture", "observation": "owner_reported"}, "cause": "duplicate append", "evidence": []string{"fixture report"}, "remedy": "remove duplicate append", "exclusions": []string{"ranking"}, "criteria": []map[string]any{{"id": "C1", "requirement": "one result", "measurement": "assert result length equals one"}}}, "invocation": fmt.Sprintf("analysis:%d:%d", session, req.Graph.AttemptID), "base_revision": 0, "evidence": []string{"controlled owner report"}}}}})
 		if questions {
 			var value map[string]any

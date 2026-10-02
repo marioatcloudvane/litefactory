@@ -28,6 +28,7 @@ type AgentResultServiceOptions struct {
 // method dispatches runners, executes checks, changes readiness or publishes.
 // Aggregate capture retains only explicitly reported immutable evidence.
 type AgentResultService struct {
+	inspection               *inspectionReader
 	db                       *store.DB
 	binding                  store.ResultBinding
 	attempt                  store.ResultAttempt
@@ -421,3 +422,5 @@ func (s *AgentResultService) Observe(ctx context.Context, sourceRunID int64, req
 	}
 	return s.db.ObserveResult(ctx, s.binding, sourceRunID, requestID, dimension, state)
 }
+
+func (s *AgentResultService) inspectionSource() *inspectionReader { return s.inspection }

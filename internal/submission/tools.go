@@ -25,7 +25,8 @@ type ToolProfile struct {
 	// selfCheck installs the two bug-fixer self-check tools alongside the
 	// standalone Bug communication catalog. Only NewBugFixerToolProfile sets
 	// it; the bug-analyst profile never receives it.
-	selfCheck bool
+	selfCheck  bool
+	inspection bool
 }
 
 // NewToolProfile assigns only explicitly supported modes a server-local tool profile.
@@ -55,6 +56,13 @@ func NewWorkflowToolProfile(workflow, mode string) (ToolProfile, error) {
 // profile keeps the plain NewWorkflowToolProfile("bug", "") catalog.
 func NewBugFixerToolProfile() ToolProfile {
 	return ToolProfile{workflow: "bug", selfCheck: true}
+}
+
+// WithInspection adds only bounded broker reads. The caller must bind the
+// admitted source inventory into its attempt permission digest.
+func (p ToolProfile) WithInspection() ToolProfile {
+	p.inspection = true
+	return p
 }
 
 // Allows checks the same registered catalog used for discovery, denying unknown names.
@@ -120,6 +128,11 @@ func (p ToolProfile) List() []ToolSpec {
 			if tools[i].Name == "communication_preflight" || tools[i].Name == "communication_submit" {
 				tools[i].InputSchema = json.RawMessage(implementResultSchema)
 			}
+		}
+	}
+	if p.inspection {
+		for _, operation := range []string{"list", "read", "search"} {
+			tools = append(tools, ToolSpec{Name: "inspection_" + operation, Description: "Inspect only attempt-admitted source. List with empty reference discovers authorized snapshots. Read returns base64 bytes, full-file SHA256 and byte pagination; search is literal and returns matching paths. No execution or writes.", InputSchema: json.RawMessage(`{"type":"object","properties":{"reference":{"type":"string"},"path":{"type":"string"},"query":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["reference"],"additionalProperties":false}`), Effect: "read"})
 		}
 	}
 	if p.selfCheck {

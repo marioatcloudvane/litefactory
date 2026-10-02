@@ -180,13 +180,19 @@ func ParseValidationOutput(data []byte, scope *ValidationContext) (ValidationOut
 			f := &r.Criteria[j]
 			switch s.EvidenceStatus {
 			case "unverified":
+				// Missing initial proof does not erase a concrete reviewed defect.
+				if f.Status == "unmet" {
+					continue
+				}
 				f.Status = "unverified"
+				f.Classification = "gap"
 				prefix := "Initial engineering evidence unverified: " + s.EvidenceReason + ". Review: "
 				if !strings.HasPrefix(f.Evidence, prefix) {
 					f.Evidence = prefix + f.Evidence
 				}
 			case "failed":
 				f.Status = "unmet"
+				f.Classification = "blocking"
 				prefix := "Initial engineering checks failed: " + s.EvidenceReason + ". Review: "
 				if !strings.HasPrefix(f.Evidence, prefix) {
 					f.Evidence = prefix + f.Evidence
@@ -204,7 +210,7 @@ func validationFindings(findings []ValidationFinding, names []string, criteria b
 	for _, n := range names {
 		expected[n] = true
 	}
-	for _, f := range findings {
+	for i, f := range findings {
 		if !expected[f.Name] {
 			return fmt.Errorf("duplicate or unknown finding %q", f.Name)
 		}
@@ -212,11 +218,24 @@ func validationFindings(findings []ValidationFinding, names []string, criteria b
 		if f.Status != "satisfied" && f.Status != "unmet" && f.Status != "unverified" {
 			return fmt.Errorf("unsupported validation status")
 		}
-		if (f.Classification != "blocking" && f.Classification != "advisory") || (criteria && f.Classification != "blocking") || strings.TrimSpace(f.Evidence) == "" {
+		if !validFindingClassification(f.Status, f.Classification, criteria) || strings.TrimSpace(f.Evidence) == "" {
 			return fmt.Errorf("missing proof or invalid finding classification")
+		}
+		if f.Status == "unverified" {
+			findings[i].Classification = "gap"
 		}
 	}
 	return nil
+}
+
+// validFindingClassification accepts historical classifications at ingestion;
+// unverified findings are normalized to gaps before retention. This describes
+// evidence, never satisfaction or an owner waiver.
+func validFindingClassification(status, classification string, criteria bool) bool {
+	if status == "unverified" {
+		return classification == "gap" || classification == "blocking" || classification == "advisory"
+	}
+	return (classification == "blocking" || classification == "advisory") && (!criteria || classification == "blocking")
 }
 
 // ImplementSuggestion requires a concrete blocking defect, never missing evidence.

@@ -135,7 +135,14 @@ func NewFamilyToolDispatcher(guard *AttemptGuard, o FamilyDispatcherOptions) (*T
 	if guard == nil || guard.Binding() != o.Service.Binding() || guard.Lease().PermissionDigest != digest {
 		return nil, errors.New("family dispatcher requires matching immutable lease")
 	}
-	return &ToolDispatcher{guard: guard, service: o.Service, profile: profile, receipts: o.Receipts, families: handlers}, nil
+	d := &ToolDispatcher{guard: guard, service: o.Service, profile: profile, receipts: o.Receipts, families: handlers}
+	if source, ok := o.Service.(interface{ inspectionSource() *inspectionReader }); ok {
+		d.inspection = source.inspectionSource()
+		if d.inspection != nil {
+			d.profile = d.profile.WithInspection()
+		}
+	}
+	return d, nil
 }
 
 // dispatchFamily admits bounded metadata before profile and argument validation.

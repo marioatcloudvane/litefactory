@@ -25,11 +25,13 @@ func (req Request) ValidateBugAnalyst() error {
 		}
 	}
 	// The two self-check tools are optional and, when present, permitted only
-	// for the bug-fixer profile; the analyst's surface stays exactly the three
-	// shared result operations above.
+	// for the bug-fixer profile. Analysts may additionally receive bounded
+	// source inspection from their attempt-bound broker.
 	allowed := []string{"communication_preflight", "communication_submit", "communication_receipt"}
 	if req.Permissions.Profile == "bug-fixer" {
 		allowed = append(allowed, "bug_self_check_start", "bug_self_check_status")
+	} else {
+		allowed = append(allowed, "inspection_list", "inspection_read", "inspection_search")
 	}
 	for _, tool := range tools {
 		if !slices.Contains(allowed, tool) {

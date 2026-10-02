@@ -218,6 +218,15 @@ func ParseContribution(data []byte, scope ContributionScope) (Contribution, Cont
 	if !d.Valid {
 		return Contribution{}, d
 	}
+	if c.Assessment != nil {
+		for _, group := range [][]ContributionFinding{c.Assessment.Criteria, c.Assessment.Reviews} {
+			for i := range group {
+				if group[i].Status == "unverified" {
+					group[i].Classification = "gap"
+				}
+			}
+		}
+	}
 	return c, d
 }
 
@@ -345,8 +354,8 @@ func validateContributionFindings(findings []ContributionFinding, names []string
 		if f.Status != "satisfied" && f.Status != "unmet" && f.Status != "unverified" {
 			d.add(p+".status", "enum", "satisfied, unmet or unverified", "unsupported string", "Report a factual assessment; agents cannot waive obligations.")
 		}
-		if (f.Classification != "blocking" && f.Classification != "advisory") || (criteria && f.Classification != "blocking") {
-			d.add(p+".classification", "enum", "blocking criterion; blocking or advisory review", "unsupported string", "Criteria are blocking; classify review findings explicitly.")
+		if !validFindingClassification(f.Status, f.Classification, criteria) {
+			d.add(p+".classification", "enum", "gap for unverified evidence; blocking criterion or advisory review otherwise", "unsupported string", "Separate missing evidence from concrete defects; gaps cannot claim satisfaction.")
 		}
 		if len(f.Evidence) < 1 || len(f.Evidence) > MaxExplanations {
 			d.add(p+".evidence", "count", "1–16 explanation objects", "invalid count", "Supply attributable explanations as a list.")

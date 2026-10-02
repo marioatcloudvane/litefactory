@@ -33,11 +33,7 @@ func TestBugRuntimeJourneyFirstAnalystAndRetainedStop(t *testing.T) {
 		if e := req.ValidateBugAnalyst(); e != nil {
 			t.Fatal(e)
 		}
-		for _, name := range req.MCPLaunch.PermittedTools() {
-			if !strings.HasPrefix(name, "communication_") {
-				t.Fatalf("extra analyst capability %s", name)
-			}
-		}
+		assertBugInspectionCatalog(t, req)
 		raw, _ := json.Marshal(map[string]any{"version": 1, "response": "blocked", "result": map[string]any{"outcome": "blocked", "reason": "Controlled fixture lacks reproduction evidence", "comment": "Investigation retained; no repair is authorized.", "payload": map[string]any{"bug": map[string]any{"response": "blocked", "invocation": fmt.Sprintf("analysis:%d:%d", session, req.Graph.AttemptID), "base_revision": 0, "evidence": []string{"controlled owner report"}}}}})
 		submitLiveResult(t, req, string(raw))
 		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: string(raw), FinishedAt: time.Now()}, nil

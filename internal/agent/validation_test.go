@@ -207,3 +207,52 @@ func TestValidationAcceptsAWrappedObjectButNotASecondOne(t *testing.T) {
 		})
 	}
 }
+
+func TestValidationGapsPreserveFacts(t *testing.T) {
+	t.Parallel()
+	for _, classification := range []string{"blocking", "advisory", "gap"} {
+		t.Run(classification, func(t *testing.T) {
+			v, o := validationFixture()
+			o.Stories[0].Criteria[0].Status = "unverified"
+			o.Stories[0].Criteria[0].Classification = classification
+			o.Stories[0].Reviews[0].Status = "unverified"
+			data, err := json.Marshal(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := ParseValidationOutput(data, v)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Stories[0].Criteria[0].Classification != "gap" || got.Stories[0].Reviews[0].Classification != "gap" || got.ImplementSuggestion() != "" {
+				t.Fatalf("missing evidence treated as a defect: %+v", got)
+			}
+		})
+	}
+	v, o := validationFixture()
+	v.Stories[0].EvidenceStatus = "unverified"
+	o.Stories[0].Criteria[0].Status = "unmet"
+	o.Stories[0].Criteria[0].Evidence = "required cancellation is absent in retained source"
+	data, err := json.Marshal(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ParseValidationOutput(data, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Stories[0].Criteria[0].Status != "unmet" || got.ImplementSuggestion() == "" {
+		t.Fatal("missing tests erased concrete defect")
+	}
+	for _, status := range []string{"satisfied", "unmet"} {
+		o.Stories[0].Criteria[0].Status = status
+		o.Stories[0].Criteria[0].Classification = "gap"
+		data, err := json.Marshal(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ParseValidationOutput(data, v); err == nil {
+			t.Fatalf("%s disguised as gap", status)
+		}
+	}
+}

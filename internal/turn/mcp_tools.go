@@ -34,7 +34,8 @@ func (s *AgentResultService) MCPPermissionDigest() string {
 		Binding          store.ResultBinding
 		Read, Edit       []agentresult.Target
 		AggregateCapture bool
-	}{"communication-v1-no-creation", s.binding, s.readTargets, s.editTargets, s.prepareAggregate != nil})
+		Inspection       string
+	}{"communication-v1-no-creation", s.binding, s.readTargets, s.editTargets, s.prepareAggregate != nil, s.inspection.material()})
 	if err != nil {
 		return ""
 	}
@@ -45,12 +46,13 @@ func (s *AgentResultService) MCPPermissionDigest() string {
 // ToolDispatcher owns server-only authorization and calls each shared method
 // once. Neither discovery nor recording a result changes host permissions.
 type ToolDispatcher struct {
-	guard     *AttemptGuard
-	service   MCPResultService
-	profile   submission.ToolProfile
-	receipts  *ReceiptService
-	families  map[string]FamilyRegistration
-	selfCheck *BugSelfCheckService
+	guard      *AttemptGuard
+	service    MCPResultService
+	profile    submission.ToolProfile
+	receipts   *ReceiptService
+	families   map[string]FamilyRegistration
+	selfCheck  *BugSelfCheckService
+	inspection *inspectionReader
 }
 
 // NewToolDispatcher requires a matching live binding and complete service permission digest.
@@ -62,7 +64,14 @@ func NewToolDispatcher(guard *AttemptGuard, service MCPResultService) (*ToolDisp
 	if err != nil {
 		return nil, err
 	}
-	return &ToolDispatcher{guard: guard, service: service, profile: profile}, nil
+	d := &ToolDispatcher{guard: guard, service: service, profile: profile}
+	if source, ok := service.(interface{ inspectionSource() *inspectionReader }); ok {
+		d.inspection = source.inspectionSource()
+		if d.inspection != nil {
+			d.profile = d.profile.WithInspection()
+		}
+	}
+	return d, nil
 }
 
 // NewBugFixerToolDispatcher is NewToolDispatcher plus the two bug-fixer
@@ -97,6 +106,12 @@ func (d *ToolDispatcher) Handler(ctx context.Context, q submission.Request) (jso
 		return nil, errors.New("MCP dispatcher refuses non-tool operation")
 	}
 	call, err := submission.DecodeToolCall(q.Payload)
+	if err == nil && (call.Name == "inspection_read" || call.Name == "inspection_list" || call.Name == "inspection_search") {
+		if !d.profile.Allows(call.Name) {
+			return nil, errors.New("MCP tool not permitted")
+		}
+		return d.inspection.handle(live, call.Name, call.Arguments)
+	}
 	if d.receipts != nil {
 		if err != nil {
 			call = malformedFamilyCall(q.Payload)

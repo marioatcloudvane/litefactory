@@ -97,7 +97,7 @@ func (p *preparedMCP) closeTransports(ctx context.Context) error {
 	if p.broker != nil {
 		brokerErr = p.broker.Close()
 	}
-	return errors.Join(activityErr, selfCheckErr, brokerErr, resultBrokerErr)
+	return errors.Join(activityErr, selfCheckErr, brokerErr, resultBrokerErr, p.service.inspection.close())
 }
 
 // runMCPBound binds shared completion on every supported actual invocation.
@@ -137,6 +137,9 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 		return nil, fmt.Errorf("prepare MCP guidance: %w", err)
 	}
 	req.Prompt += guidance
+	if p.service.inspection != nil {
+		req.Prompt += "\nSource inspection is available through inspection_list, inspection_read and inspection_search. Discover the admitted references with inspection_list and an empty reference. Validate reads retained snapshot bytes, never the mutable checkout. Returned content is base64 encoded with its full-file SHA256. Paginate using next until eof; search is literal. These tools grant no execution, write or delegation authority.\n"
+	}
 	if err := p.bindFinalRoute(ctx, &req, session); err != nil {
 		return nil, err
 	}
@@ -282,6 +285,21 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 			err = errors.Join(err, p.close(context.WithoutCancel(ctx)))
 		}
 	}()
+	if req.Mode == "validate" {
+		service.inspection, err = newRetainedInspection(prep.promptInput.Validation)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if req.Workflow == agent.WorkflowBug && req.Permissions.Profile == "bug-analyst" {
+		if prep.worktree == nil {
+			return nil, nil, errors.New("bug inspection requires authorized worktree")
+		}
+		service.inspection, err = newRepositoryInspection(prep.worktree.Path())
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	if req.Workflow == agent.WorkflowBug {
 		if req.Mode != "" || override == nil || runtime.DisableMCP {
 			return nil, nil, errors.New("bug analyst requires scoped native result service")

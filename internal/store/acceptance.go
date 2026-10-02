@@ -35,7 +35,8 @@ func (f AcceptanceFindings) Accepted() bool {
 		}
 	}
 	for _, c := range f.Reviews {
-		if c.Classification == "blocking" && c.Status != "satisfied" && c.WaiverReason == "" {
+		// A gap is not a defect, but it is not satisfied review evidence either.
+		if (c.Classification == "blocking" || c.Classification == "gap") && c.Status != "satisfied" && c.WaiverReason == "" {
 			return false
 		}
 	}

@@ -424,3 +424,19 @@ func TestContributionCompletedPlanUsesSuppliedValidator(t *testing.T) {
 		t.Fatalf("lost incomplete Plan diagnostic: %+v", result)
 	}
 }
+
+func TestContributionMissingEvidenceIsGap(t *testing.T) {
+	t.Parallel()
+	for _, classification := range []string{"gap", "blocking", "advisory"} {
+		t.Run(classification, func(t *testing.T) {
+			scope, c := contributionFixture("validate")
+			c.Assessment.Criteria[0].Status = "unverified"
+			c.Assessment.Criteria[0].Classification = classification
+			c.Assessment.Criteria[0].Evidence = []agent.EvidenceExplanation{{CheckIDs: []string{}, Summary: "Required execution output is missing"}}
+			got, d := agent.ParseContribution(contributionJSON(t, c), scope)
+			if !d.Valid || got.Assessment.Criteria[0].Classification != "gap" || got.Assessment.Criteria[0].Status != "unverified" {
+				t.Fatalf("gap lost: %+v %+v", got, d)
+			}
+		})
+	}
+}

@@ -428,7 +428,7 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	}
 	args = append(args, "--ignore-rules", "--sandbox", sandbox)
 	if req.Mode == "validate" || req.Workflow == agent.WorkflowBug {
-		// Validate consumes retained source/check bytes from stdin. Disabling shell
+		// Source inspection uses the attempt-bound broker. Disabling shell
 		// execution prevents even read-only tests from being commissioned.
 		args = append(args, "-c", "features.shell_tool=false", "-c", "features.multi_agent=false")
 	}

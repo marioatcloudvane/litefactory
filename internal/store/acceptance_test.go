@@ -8,6 +8,9 @@ func TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived(t *testing.T)
 		criterion                            bool
 		want                                 bool
 	}{
+		{"criterion gap", "unverified", "gap", "", true, false},
+		{"review gap", "unverified", "gap", "", false, false},
+		{"owner-waived gap", "unverified", "gap", "Owner accepts missing evidence", false, true},
 		{"satisfied", "satisfied", "blocking", "", true, true},
 		{"unmet criterion", "unmet", "blocking", "", true, false},
 		{"unverified criterion", "unverified", "blocking", "", true, false},
