@@ -14,6 +14,7 @@ Reassess graph Implement using current Bug experience, maximize agent engineerin
 - **d6** — Owner correction to q2: acceptance testing and acceptance assessment belong to Validate, while Implement retains scoped engineering checks.
 - **d7** — Owner answer to q3: the repair-cycle limit is activity configuration with a default of two.
 - **d8** — Owner answer to q4: after story exhaustion, continue independent ready stories and block the failed story's dependents.
+- **d9** — Sorting rule: the factory owns whether and when (order, counts, limits, proof, records); agents own how and why (design, code, tests, recipes, diagnosis, blocked reports). Missing or unclear proof fails closed, and an agent's blocked report is never overridden by a rule.
 
 
 ## Assumptions
@@ -58,6 +59,7 @@ Reassess graph Implement using current Bug experience, maximize agent engineerin
 - **a38** — General delegation is not part of default story execution; specialist help is exceptional and remains within pinned authority and budget.
 - **a39** — Treat the owner's phrase test manager as the existing test-engineer roles and test-evidence guidance, since no component of that name exists.
 - **a40** — Factory-captured snapshots (q6) are recommended; until answered, snapshot transport stays as shipped.
+- **a41** — Reduce the proposed factory activities to four: next story, verify checks, record result including repair counting and failure handling, and final handoff; admission validation folds into the existing start step.
 
 
 ## Open questions
@@ -68,6 +70,13 @@ _Asked of: Product Owner Questions_
 
 - **optional_concurrency** — Recommended: include concurrent workers in separate workspaces with serialized integration and rechecks; default one worker, higher limit by configuration.  *(recommended)*
 - **direct_serial** — Keep this release serial; deliver direct dispatch, factory-verified checks and smaller inputs first, and defer parallelism.
+
+### q7 — Should we roll out in phases, with bookkeeping first and verified checks second?
+
+_Asked of: Product Owner Questions_
+
+- **phased** — Recommended: Phase A moves bookkeeping to the factory with honestly labelled agent-reported checks; Phase B adds transcript-verified checks once harness proof is confirmed. Lower risk, earlier savings.  *(recommended)*
+- **all_at_once** — Deliver verified checks together with the bookkeeping move; one release, but it waits on the unconfirmed Claude exit-code question.
 
 ### q6 — Should the factory capture story and aggregate snapshots instead of the agent?
 
