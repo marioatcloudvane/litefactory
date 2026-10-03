@@ -478,3 +478,24 @@ func TestGraphDirectAppendAccessors(t *testing.T) {
 		t.Fatalf("unknown output kind=%v", err)
 	}
 }
+
+// Factory records such as a repository source manifest share the agent's
+// attempt and grow with the repository; they must not count against the
+// bounds on what the agent submitted (#465 delivery).
+func TestGraphResultOutputsExcludeFactoryRecords(t *testing.T) {
+	db := newTestDB(t)
+	a := graphTestAttempt(t, db, graphTestInstance(t, db), 2)
+	manifest := `{"record":"source_preparation","entries":"` + strings.Repeat("x", 700<<10) + `"}`
+	for _, p := range []string{manifest, manifest, `{"result_id":1,"result_revision":1}`} {
+		if _, err := db.RecordGraphOutput(t.Context(), GraphOutput{NodeAttemptID: a.ID, Kind: GraphOutputJSON, Payload: []byte(p), CreatedAt: graphTestTime()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ListGraphOutputsBounded(t.Context(), a.ID, 1<<20, 16); !errors.Is(err, ErrGraphInvariant) {
+		t.Fatalf("all outputs within bound: %v", err)
+	}
+	got, err := db.ListGraphResultOutputsBounded(t.Context(), a.ID, 1<<20, 16)
+	if err != nil || len(got) != 1 || string(got[0].Payload) != `{"result_id":1,"result_revision":1}` {
+		t.Fatalf("result outputs=%+v err=%v", got, err)
+	}
+}

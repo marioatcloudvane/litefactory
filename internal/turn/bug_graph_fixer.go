@@ -250,7 +250,7 @@ func CurrentGraphBugRepairEligibility(ctx context.Context, db *store.DB, instanc
 	if !reflect.DeepEqual(current, eligibility.Handoff) {
 		return eligibility, store.ErrBugRepairUnauthorized
 	}
-	outputs, e := db.ListGraphOutputsBounded(ctx, attempt.ID, 1<<20, 128)
+	outputs, e := db.ListGraphResultOutputsBounded(ctx, attempt.ID, 1<<20, 128)
 	if e != nil {
 		return eligibility, e
 	}

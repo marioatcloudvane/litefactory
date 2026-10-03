@@ -2,7 +2,9 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -37,10 +39,16 @@ func (c *Client) GetDeliveryHead(ctx context.Context, repo Repo, branch string) 
 	if branch == "" || strings.ContainsAny(branch, "\r\n\x00") {
 		return "", fmt.Errorf("invalid delivery branch")
 	}
-	b, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.Branch, *gogithub.Response, error) {
+	b, resp, err := do(ctx, c, func(ctx context.Context) (*gogithub.Branch, *gogithub.Response, error) {
 		return c.api.Repositories.GetBranch(ctx, repo.Owner, repo.Name, branch, 0)
 	})
 	if err != nil {
+		// GetBranch reports a missing branch as a plain "unexpected status
+		// code" error, so the 404 must be typed here for callers to see it.
+		var api *APIError
+		if !errors.As(err, &api) && resp != nil && resp.Response != nil && resp.StatusCode == http.StatusNotFound {
+			return "", &APIError{Method: requestMethod(resp.Response), URL: requestURL(resp.Response), StatusCode: http.StatusNotFound, Message: err.Error(), RequestID: resp.Header.Get("X-GitHub-Request-Id"), Err: ErrNotFound}
+		}
 		return "", err
 	}
 	if b == nil || b.GetName() != branch || !validDeliverySHA(b.GetCommit().GetSHA()) {

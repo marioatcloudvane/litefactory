@@ -85,18 +85,32 @@ func scanGraphOutput(row scanner) (GraphOutput, error) {
 // this for saved output crossing into agent input rather than the unbounded
 // foundation inspection accessor.
 func (db *DB) ListGraphOutputsBounded(ctx context.Context, attemptID int64, maxBytes, maxEntries int) (out []GraphOutput, err error) {
+	return db.listGraphOutputsBounded(ctx, attemptID, maxBytes, maxEntries, "")
+}
+
+// graphResultOutputs excludes factory records ({"record": ...}) such as source
+// manifests, which grow with the repository and share the agent's attempt.
+const graphResultOutputs = ` AND NOT (kind='json' AND json_valid(CAST(payload AS TEXT)) AND json_extract(CAST(payload AS TEXT),'$.record') IS NOT NULL)`
+
+// ListGraphResultOutputsBounded is ListGraphOutputsBounded without factory
+// records, so the bounds apply to what the agent submitted only.
+func (db *DB) ListGraphResultOutputsBounded(ctx context.Context, attemptID int64, maxBytes, maxEntries int) (out []GraphOutput, err error) {
+	return db.listGraphOutputsBounded(ctx, attemptID, maxBytes, maxEntries, graphResultOutputs)
+}
+
+func (db *DB) listGraphOutputsBounded(ctx context.Context, attemptID int64, maxBytes, maxEntries int, filter string) (out []GraphOutput, err error) {
 	if attemptID < 1 || maxBytes < 1 || maxBytes > 1<<20 || maxEntries < 1 || maxEntries > 1024 {
 		return nil, graphInvariant("invalid saved-output read limits")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		var size, count int64
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(length(payload)),0),COUNT(*) FROM graph_outputs WHERE node_attempt_id=?`, attemptID).Scan(&size, &count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(length(payload)),0),COUNT(*) FROM graph_outputs WHERE node_attempt_id=?`+filter, attemptID).Scan(&size, &count); err != nil {
 			return err
 		}
 		if size > int64(maxBytes) || count > int64(maxEntries) {
 			return graphInvariant("saved graph outputs exceed input bounds")
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT `+graphOutputColumns+` FROM graph_outputs WHERE node_attempt_id=? ORDER BY id`, attemptID)
+		rows, err := tx.QueryContext(ctx, `SELECT `+graphOutputColumns+` FROM graph_outputs WHERE node_attempt_id=?`+filter+` ORDER BY id`, attemptID)
 		if err != nil {
 			return err
 		}
