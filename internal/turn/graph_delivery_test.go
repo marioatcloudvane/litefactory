@@ -58,7 +58,7 @@ func (f *graphDeliveryForge) MergeDeliveryPR(_ context.Context, _ github.Repo, _
 	f.merges++
 	if f.refuseMerge {
 		f.refuseMerge = false
-		return &github.APIError{StatusCode: 403}
+		return &github.APIError{StatusCode: 405, Message: "Required status check is expected"}
 	}
 	if head != f.pr.Head {
 		return errors.New("expected head guard failed")
@@ -81,10 +81,11 @@ func (f *graphDeliveryForge) GetDeliveryCommit(context.Context, github.Repo, str
 }
 func (f *graphDeliveryForge) CloseDeliveredParent(context.Context, github.Repo, int, int64) error {
 	f.closes++
-	f.issue.State = "closed"
 	if f.loseClose {
+		f.loseClose = false
 		return errors.New("lost closure acknowledgment")
 	}
+	f.issue.State = "closed"
 	return nil
 }
 
@@ -130,7 +131,7 @@ func graphFinalizationFixture(t *testing.T) (*fixture, GraphBugFinalization, Act
 	forge := &graphDeliveryForge{binding: binding, main: inputs.TargetMain, remote: strings.Repeat("0", 40), issue: github.Issue{ID: 123, Number: f.session.IssueNumber, State: "open"}}
 	handler := GraphBugFinalization{Forge: forge, Redactor: redact.New(redact.Options{Environ: []string{}}), Resolve: func(context.Context, Options, ActivityRequest, GraphBugRepairEligibility) (GraphDeliveryBinding, error) {
 		return binding, nil
-	}, Observe: func(context.Context, Options, ActivityRequest) (GraphBugRepairInputs, error) { return inputs, nil }, LogRoot: func(ActivityRequest) string { return root }, Save: func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error) {
+	}, Save: func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error) {
 		return inputs.Source.Head, nil
 	}, PublishSaved: func(context.Context, Options, ActivityRequest, string) error {
 		forge.remote = inputs.Source.Head
@@ -139,58 +140,47 @@ func graphFinalizationFixture(t *testing.T) (*fixture, GraphBugFinalization, Act
 	return f, handler, req, forge, &inputs
 }
 
-func TestGraphDeliveryObservedEffectsAndMergeAcknowledgmentRecovery(t *testing.T) {
-	for _, variant := range []string{"complete", "lost merge reply", "lost PR reply", "lost close reply", "main race", "stale", "definitive merge refusal"} {
+// Delivery reconciles against GitHub: a lost reply is resolved by looking, a
+// refused step parks and the owner's reply re-runs it from the top, and main
+// moving on is never a reason to stop.
+func TestGraphDeliveryReconcilesAndRetries(t *testing.T) {
+	for _, variant := range []string{"complete", "lost merge reply", "lost PR reply", "lost close reply", "main moved", "merge refused", "already merged"} {
 		t.Run(variant, func(t *testing.T) {
 			f, h, req, forge, inputs := graphFinalizationFixture(t)
-			original := h.Observe
-			h.Observe = func(ctx context.Context, o Options, a ActivityRequest) (GraphBugRepairInputs, error) {
-				if variant == "stale" {
-					v, e := original(ctx, o, a)
-					v.Source.Digest = strings.Repeat("9", 64)
-					return v, e
-				}
-				return original(ctx, o, a)
-			}
 			forge.loseMerge = variant == "lost merge reply"
 			forge.losePR = variant == "lost PR reply"
 			forge.loseClose = variant == "lost close reply"
-			forge.raceMain = variant == "main race"
-			forge.refuseMerge = variant == "definitive merge refusal"
+			forge.refuseMerge = variant == "merge refused"
+			if variant == "main moved" {
+				forge.main = strings.Repeat("e", 40)
+			}
+			if variant == "already merged" {
+				forge.remote = inputs.Source.Head
+				forge.pr = github.DeliveryPR{ID: 80, Number: 4, Head: inputs.Source.Head, Branch: "lf/repair", Target: "main", State: "closed", Merged: true, MergeSHA: strings.Repeat("f", 40)}
+			}
 			out, e := h.Execute(t.Context(), f.opts, req)
 			mustProgress(t, e)
-			if variant == "stale" {
-				if out.Outcome != "stale" || forge.creates+forge.merges+forge.closes != 0 {
-					t.Fatalf("stale=%+v", out)
+			retried := variant == "merge refused" || variant == "lost close reply"
+			if retried {
+				if out.Outcome != "blocked" || !strings.Contains(out.Diagnostic, "PR #4") {
+					t.Fatalf("first attempt=%+v", out)
 				}
-				return
-			}
-			if variant == "lost merge reply" || variant == "lost PR reply" || variant == "lost close reply" || variant == "definitive merge refusal" {
-				if variant == "lost merge reply" && (out.Outcome != "blocked" || forge.merges != 1 || forge.closes != 0) {
-					t.Fatalf("lost=%+v", out)
-				}
-				mustProgress(t, f.db.Close())
-				db, e := store.Open(t.Context(), f.paths.DBPath())
-				mustProgress(t, e)
-				f.db = db
-				f.opts.DB = db
 				out, e = h.Execute(t.Context(), f.opts, req)
 				mustProgress(t, e)
 			}
-			if variant == "main race" {
-				if out.Outcome != "blocked" || forge.closes != 0 {
-					t.Fatalf("race=%+v", out)
-				}
-				return
+			if out.Outcome != "completed" || forge.issue.State != "closed" || !forge.pr.Merged {
+				t.Fatalf("outcome=%+v pr=%+v", out, forge.pr)
 			}
-			expectedMerges := 1
-			if variant == "definitive merge refusal" {
-				expectedMerges = 2
+			wantCreates, wantMerges := 1, 1
+			if variant == "merge refused" {
+				wantMerges = 2
 			}
-			if out.Outcome != "completed" || forge.creates != 1 || forge.merges != expectedMerges || forge.closes != 1 {
-				t.Fatalf("progress=%+v counts=%d,%d,%d", out, forge.creates, forge.merges, forge.closes)
+			if variant == "already merged" {
+				wantCreates, wantMerges = 0, 0
 			}
-			_ = inputs
+			if forge.creates != wantCreates || forge.merges != wantMerges {
+				t.Fatalf("creates=%d merges=%d", forge.creates, forge.merges)
+			}
 		})
 	}
 }

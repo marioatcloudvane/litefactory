@@ -37,6 +37,10 @@ func parkGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, ou
 	if reason == "" {
 		reason = fmt.Sprintf("Step %q stopped with %s; no usable explanation was submitted.", out.Node, cause)
 	}
+	// A long explanation must never stop the stop itself from parking.
+	if len(reason) > 16<<10 {
+		reason = strings.ToValidUTF8(reason[:16<<10], "") + "\n\n[explanation shortened]"
+	}
 	question := GraphStopQuestion{Version: 1, InstanceID: out.InstanceID, SourceAttemptID: out.AttemptID, Origin: out.Node, Cause: cause, Reason: reason}
 	raw, err := json.Marshal(question)
 	if err != nil {

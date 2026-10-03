@@ -234,7 +234,7 @@ func (h GraphBugConversation) Execute(ctx context.Context, opts Options, req Act
 			return ActivityResult{}, readErr
 		}
 		if readErr == nil && reshaped.Status == store.GraphSucceeded && reshaped.Outcome == "reshape" && reshaped.ID > candidate.SourceAttemptID {
-			values, readErr := opts.DB.ListGraphOutputsBounded(ctx, reshaped.ID, 1<<20, 16)
+			values, readErr := opts.DB.ListGraphResultOutputsBounded(ctx, reshaped.ID, 1<<20, 16)
 			if readErr != nil {
 				return ActivityResult{}, readErr
 			}
@@ -317,7 +317,7 @@ func (h GraphBugConversation) Execute(ctx context.Context, opts Options, req Act
 		// A DOT reshape return starts another substantive discussion, never repair.
 		return graphConversationOutcome("analyse", candidate, nil)
 	}
-	values, e := opts.DB.ListGraphOutputsBounded(ctx, source.ID, 1<<20, 16)
+	values, e := opts.DB.ListGraphResultOutputsBounded(ctx, source.ID, 1<<20, 16)
 	if e != nil {
 		return ActivityResult{}, e
 	}

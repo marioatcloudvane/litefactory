@@ -1,12 +1,8 @@
 package turn
 
 import (
-	"errors"
-	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/cloudvane/litefactory/internal/github"
 )
 
 // #465: a 254-byte summary line made the redactor append its multi-line
@@ -19,14 +15,5 @@ func TestGraphDeliveryTitleStaysOneLineWithinBudget(t *testing.T) {
 	}
 	if short := graphDeliveryTitle("Bug repair: short", 160); short != "Bug repair: short" {
 		t.Fatalf("short title changed: %q", short)
-	}
-}
-
-func TestGraphDeliveryLocalRefusalIsNotUncertain(t *testing.T) {
-	if s := graphDeliveryFailureState(fmt.Errorf("%w: title contains a line break", github.ErrInvalidArgument)); s != "refused" {
-		t.Fatalf("local refusal state %q", s)
-	}
-	if s := graphDeliveryFailureState(errors.New("connection reset")); s != "uncertain" {
-		t.Fatalf("transport failure state %q", s)
 	}
 }

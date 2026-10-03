@@ -173,6 +173,7 @@ func PrepareGraphBugSource(ctx context.Context, opts Options, request Request, a
 			return out, errors.Join(e, sourceErr)
 		}
 		out.Source = source
+		out.Source.Entries = nil // the digest identifies the source; the manifest only grows records
 		if retainErr := retain(out); retainErr != nil {
 			return out, errors.Join(e, retainErr)
 		}
@@ -190,6 +191,7 @@ func PrepareGraphBugSource(ctx context.Context, opts Options, request Request, a
 	if e != nil {
 		return out, e
 	}
+	out.Source.Entries = nil
 	if e = retain(out); e != nil {
 		return out, e
 	}

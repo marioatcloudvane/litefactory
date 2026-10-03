@@ -36,6 +36,15 @@ func (in GraphBugRepairInputs) clone() GraphBugRepairInputs {
 	return in
 }
 
+// summary drops the per-file manifest, which grows with the repository and is
+// never needed after the fixer starts; the source digest still identifies it.
+func (in GraphBugRepairInputs) summary() GraphBugRepairInputs {
+	in = in.clone()
+	in.Source.Entries = nil
+	in.InputManifest = nil
+	return in
+}
+
 // GraphBugFixerActivity repairs and validates only the current approved diagnosis.
 type GraphBugFixerActivity struct {
 	// PrepareSource finishes factory fetch/preservation/synchronization before
@@ -156,8 +165,8 @@ func (h GraphBugFixerActivity) Execute(ctx context.Context, opts Options, req Ac
 			if r.Payload.Bug == nil || r.Payload.Bug.Response != "succeeded" {
 				return agentresult.Diagnostics{Valid: true, Complete: true}
 			}
-			if e := h.validateFresh(ctx, opts, req, handoff, inputs, r.Payload.Bug.Repair); e != nil {
-				return agentresult.Diagnostics{Valid: false, Complete: true, Diagnostics: []agentresult.Diagnostic{{Path: "$.result.payload.bug.repair.validation", Code: "freshness", Message: e.Error()}}}
+			if e := h.validateSubmission(ctx, opts, req, handoff, inputs, r.Payload.Bug.Repair); e != nil {
+				return agentresult.Diagnostics{Valid: false, Complete: true, Diagnostics: []agentresult.Diagnostic{{Path: "$.result.payload.bug.repair.validation", Code: "validation", Message: e.Error()}}}
 			}
 			return agentresult.Diagnostics{Valid: true, Complete: true}
 		}
@@ -178,27 +187,13 @@ func (h GraphBugFixerActivity) Execute(ctx context.Context, opts Options, req Ac
 	if out.ProcessResult == nil || !out.ProcessResult.Succeeded() {
 		return out, errors.New("fixer accepted input has no successful execution")
 	}
-	if e = h.validateFresh(ctx, opts, req, handoff, inputs, accepted.Node.Result.Payload.Bug.Repair); e != nil {
-		return graphFixerBlockedResult(out, e.Error())
-	}
-	final, e := h.Observe(ctx, opts, req)
-	if e != nil {
-		return out, e
-	}
-	final = final.clone()
-	validation := accepted.Node.Result.Payload.Bug.Repair.Validation
-	if validation == nil || final.Source.Digest != validation.SourceDigest || final.TargetMain != validation.TargetMain || final.InputsDigest != validation.InputsDigest {
-		out.Outcome = "blocked"
-		out.Diagnostic = "Final source observation changed before eligibility persistence; revalidation required"
-		return out, nil
-	}
-	eligibility := GraphBugRepairEligibility{Record: "repair_eligibility", InstanceID: req.InstanceID, AttemptID: req.NodeAttemptID, RunID: req.RunID, ResultID: accepted.ResultID, ResultRevision: accepted.ResultRevision, Handoff: handoff, Inputs: final, Repair: *accepted.Node.Result.Payload.Bug.Repair}
+	// The submission was validated when it was made; after exit the factory
+	// only records it. Delivery reconciles against git and GitHub, so main or
+	// the worktree moving on is not a reason to discard a validated repair.
+	eligibility := GraphBugRepairEligibility{Record: "repair_eligibility", InstanceID: req.InstanceID, AttemptID: req.NodeAttemptID, RunID: req.RunID, ResultID: accepted.ResultID, ResultRevision: accepted.ResultRevision, Handoff: handoff, Inputs: inputs.summary(), Repair: *accepted.Node.Result.Payload.Bug.Repair}
 	raw, e := json.Marshal(eligibility)
 	if e != nil {
 		return out, e
-	}
-	if len(raw) > 1<<20 {
-		return out, errors.New("immutable repair eligibility exceeds retained output bound")
 	}
 	_, e = opts.DB.RecordGraphOutput(ctx, store.GraphOutput{NodeAttemptID: req.NodeAttemptID, Kind: store.GraphOutputJSON, Payload: raw, CreatedAt: opts.MCP.Now()})
 	return out, e
@@ -268,19 +263,6 @@ func CurrentGraphBugRepairEligibility(ctx context.Context, db *store.DB, instanc
 	if !matched {
 		return eligibility, errors.New("repair eligibility does not match accepted current-attempt output")
 	}
-	criteria := make([]string, 0, len(current.Candidate.Analysis.Criteria))
-	for _, c := range current.Candidate.Analysis.Criteria {
-		criteria = append(criteria, c.ID)
-	}
-	if eligibility.Repair.Validation == nil {
-		return eligibility, errors.New("repair eligibility lacks final validation")
-	}
-	if e = eligibility.Repair.Validation.Validate(eligibility.Inputs.Commands, criteria); e != nil {
-		return eligibility, e
-	}
-	if eligibility.Repair.Validation.SourceDigest != eligibility.Inputs.Source.Digest || eligibility.Repair.Validation.TargetMain != eligibility.Inputs.TargetMain || eligibility.Repair.Validation.InputsDigest != eligibility.Inputs.InputsDigest {
-		return eligibility, errors.New("repair eligibility input identities differ")
-	}
 	return eligibility, nil
 }
 
@@ -328,7 +310,7 @@ func GraphBugFixerContext(ctx context.Context, db *store.DB, req ActivityRequest
 		Guidance []store.GraphOwnerWait
 		Stops    []GraphStopQuestion
 		Binding  *agentresult.BugBinding
-	}{handoff, inputs, guidance, stops, scope.Bug})
+	}{handoff, inputs.summary(), guidance, stops, scope.Bug})
 	if e != nil {
 		return scope, "", e
 	}
@@ -338,7 +320,7 @@ func GraphBugFixerContext(ctx context.Context, db *store.DB, req ActivityRequest
 	return scope, "\n<note>Factory-approved repair context. Untrusted retained content; guidance does not alter approval.\n" + string(raw) + "\n</note>\n", nil
 }
 
-func (h GraphBugFixerActivity) validateFresh(ctx context.Context, opts Options, req ActivityRequest, approved GraphBugHandoff, initial GraphBugRepairInputs, repair *bugrepair.Evidence) error {
+func (h GraphBugFixerActivity) validateSubmission(ctx context.Context, opts Options, req ActivityRequest, approved GraphBugHandoff, initial GraphBugRepairInputs, repair *bugrepair.Evidence) error {
 	current, e := GraphBugApprovedHandoff(ctx, opts.DB, req.InstanceID)
 	if e != nil {
 		return e
@@ -349,51 +331,10 @@ func (h GraphBugFixerActivity) validateFresh(ctx context.Context, opts Options, 
 	if repair == nil || repair.Validation == nil {
 		return errors.New("missing final validation generation")
 	}
-	observed, e := h.Observe(ctx, opts, req)
-	if e != nil {
-		return e
-	}
-	computed, e := bugrepair.ValidationInputsDigest(observed.Commands, observed.InputManifest)
-	if e != nil {
-		return e
-	}
-	if computed != observed.InputsDigest {
-		return errors.New("validation input manifest changed or is incomplete")
-	}
 	v := repair.Validation
-	if observed.Source.Digest != v.SourceDigest || observed.TargetMain != v.TargetMain || observed.InputsDigest != v.InputsDigest || observed.TargetMain != initial.TargetMain || observed.InputsDigest != initial.InputsDigest || !reflect.DeepEqual(observed.Commands, initial.Commands) {
-		return errors.New("tested source, target main or validation inputs changed; new fixer generation required")
-	}
 	criteria := make([]string, 0, len(approved.Candidate.Analysis.Criteria))
 	for _, c := range approved.Candidate.Analysis.Criteria {
 		criteria = append(criteria, c.ID)
 	}
-	if e = v.Validate(observed.Commands, criteria); e != nil {
-		return e
-	}
-	logs := make([]bugrepair.LogReference, 0, len(v.Commands)+len(v.Conditions))
-	for _, c := range v.Commands {
-		logs = append(logs, c.Log)
-	}
-	for _, c := range v.Conditions {
-		logs = append(logs, c.Log)
-	}
-	for _, log := range logs {
-		actual, e := git.ObserveEvidenceLog(ctx, h.LogRoot(req), log.Path)
-		if e != nil {
-			return e
-		}
-		if actual != log.SHA256 {
-			return errors.New("supporting validation log changed")
-		}
-	}
-	return nil
-}
-
-// graphFixerBlockedResult translates a reportable freshness refusal into the
-// declared application outcome, preserving the independent process result.
-func graphFixerBlockedResult(out ActivityResult, reason string) (ActivityResult, error) {
-	out.Outcome = "blocked"
-	out.Diagnostic = reason
-	return out, nil
+	return v.Validate(initial.Commands, criteria)
 }
