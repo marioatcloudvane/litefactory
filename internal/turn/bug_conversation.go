@@ -238,15 +238,9 @@ func (h GraphBugConversation) Execute(ctx context.Context, opts Options, req Act
 			if readErr != nil {
 				return ActivityResult{}, readErr
 			}
-			var retained bugRetainedNode
-			count := 0
-			for _, v := range values {
-				if v.Kind == store.GraphOutputJSON {
-					count++
-					if readErr = json.Unmarshal(v.Payload, &retained); readErr != nil {
-						return ActivityResult{}, readErr
-					}
-				}
+			retained, count, readErr := retainedBugNodeOutput(values)
+			if readErr != nil {
+				return ActivityResult{}, readErr
 			}
 			if count != 1 || retained.Node.Result.Payload.Bug == nil || retained.Node.Result.Payload.Bug.Response != "reshape" {
 				return ActivityResult{}, errors.New("reshape needs current retained fixer result")
@@ -327,15 +321,9 @@ func (h GraphBugConversation) Execute(ctx context.Context, opts Options, req Act
 	if e != nil {
 		return ActivityResult{}, e
 	}
-	var retained bugRetainedNode
-	count := 0
-	for _, v := range values {
-		if v.Kind == store.GraphOutputJSON {
-			count++
-			if e = json.Unmarshal(v.Payload, &retained); e != nil {
-				return ActivityResult{}, e
-			}
-		}
+	retained, count, e := retainedBugNodeOutput(values)
+	if e != nil {
+		return ActivityResult{}, e
 	}
 	if count != 1 || retained.ResultID < 1 || retained.ResultRevision < 1 {
 		return ActivityResult{}, errors.New("analyst result is absent or ambiguous")
@@ -365,6 +353,33 @@ func (h GraphBugConversation) Execute(ctx context.Context, opts Options, req Act
 	_, e = h.Reporter.RecoverGraphStopQuestion(ctx, stop.Key)
 	return ActivityResult{Suspended: true, Diagnostic: reason}, e
 }
+
+// retainedBugNodeOutput returns the agent result an attempt retained. Source
+// preparation and checkpoint records share the attempt and are skipped.
+func retainedBugNodeOutput(values []store.GraphOutput) (bugRetainedNode, int, error) {
+	var retained bugRetainedNode
+	count := 0
+	for _, v := range values {
+		if v.Kind != store.GraphOutputJSON {
+			continue
+		}
+		var record struct {
+			Record string `json:"record"`
+		}
+		if e := json.Unmarshal(v.Payload, &record); e != nil {
+			return retained, 0, e
+		}
+		if record.Record != "" {
+			continue
+		}
+		count++
+		if e := json.Unmarshal(v.Payload, &retained); e != nil {
+			return retained, 0, e
+		}
+	}
+	return retained, count, nil
+}
+
 func graphConversationOutcome(outcome string, candidate store.GraphDiagnosis, approval *store.GraphDiagnosisApproval) (ActivityResult, error) {
 	raw, e := json.Marshal(struct {
 		Response  string
