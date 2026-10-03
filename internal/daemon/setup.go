@@ -426,12 +426,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		digest := sha256.Sum256(encoded)
 		isolation.Revision = hex.EncodeToString(digest[:])
 	}
-	// The bug-fixer's self-check tools run under the same operator sandbox
-	// profile as the factory's own final check; a zero value here (no profile
-	// configured) simply makes self-checking unavailable, never blocking the
-	// fixer.
+	// Spike checks retain the configured operator sandbox.
 	mcpRuntime.BugChecksIsolation = isolation
-	bugRuntime, err := turn.NewBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
+	bugRuntime, err := turn.NewGraphBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
 		Forge: client, OwnerID: identities.OwnerUserID,
 		Permissions: bugRolePermissions(toolProfiles, toolCeiling), Isolation: isolation,
 	})
@@ -442,7 +439,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	daemon, err := New(Options{
 		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
 		Bug:        bugRuntime,
-		BugTests:   bugRuntime.Child,
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
 			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,

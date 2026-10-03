@@ -30,7 +30,7 @@ type WorkflowPolicy struct {
 	// response. Nil uses the shared mapping: an incomplete result with questions
 	// is ask, a completed result without questions is done, and any other shape
 	// is refused. It reads only the retained result, never what the agent printed.
-	// Bug routes by its own payload.bug.response and does not use it.
+	// Bug maps its validated payload.bug.response through its Respond hook.
 	Respond func(agentresult.Result) (string, error)
 
 	AuthorizeOutput func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.ResearchNode) error
@@ -97,12 +97,8 @@ func ResearchWorkflowPolicy() WorkflowPolicy {
 	}}
 }
 
-// routesRetained reports whether the policy's node response is derived from the
-// retained result (Research, Plan and every non-Bug policy). Bug finalization is
-// unchanged and keeps its own response and terminal confirmation.
-func (p WorkflowPolicy) routesRetained() bool {
-	return p.Workflow != agent.WorkflowBug
-}
+// routesRetained reports that all admitted graph policies route accepted data.
+func (p WorkflowPolicy) routesRetained() bool { return true }
 
 // respond derives the routing response from the retained accepted result.
 func (p WorkflowPolicy) respond(r agentresult.Result) (string, error) {

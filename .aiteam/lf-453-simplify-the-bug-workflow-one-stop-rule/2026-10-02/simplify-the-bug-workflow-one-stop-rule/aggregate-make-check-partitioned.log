@@ -1,0 +1,454 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	1.697s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	2.058s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	2.235s
+ok  	github.com/cloudvane/litefactory/internal/archive	1.928s
+ok  	github.com/cloudvane/litefactory/internal/attach	1.499s
+ok  	github.com/cloudvane/litefactory/internal/buganalysis	1.586s
+ok  	github.com/cloudvane/litefactory/internal/bugchecks	1.503s
+ok  	github.com/cloudvane/litefactory/internal/bugrepair	1.521s
+ok  	github.com/cloudvane/litefactory/internal/cli	201.016s
+ok  	github.com/cloudvane/litefactory/internal/codex	45.516s
+ok  	github.com/cloudvane/litefactory/internal/config	4.169s
+ok  	github.com/cloudvane/litefactory/internal/confirm	1.563s
+ok  	github.com/cloudvane/litefactory/internal/doctor	20.583s
+ok  	github.com/cloudvane/litefactory/internal/git	75.731s
+ok  	github.com/cloudvane/litefactory/internal/github	2.018s
+ok  	github.com/cloudvane/litefactory/internal/gittest	3.185s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	1.644s
+ok  	github.com/cloudvane/litefactory/internal/harness	17.990s
+ok  	github.com/cloudvane/litefactory/internal/identity	6.736s
+ok  	github.com/cloudvane/litefactory/internal/launchd	2.139s
+ok  	github.com/cloudvane/litefactory/internal/logging	1.450s
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	2.320s
+ok  	github.com/cloudvane/litefactory/internal/meter	1.443s
+ok  	github.com/cloudvane/litefactory/internal/naming	1.388s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	1.623s
+ok  	github.com/cloudvane/litefactory/internal/providerprocess	1.495s
+ok  	github.com/cloudvane/litefactory/internal/redact	1.757s
+ok  	github.com/cloudvane/litefactory/internal/render	1.435s
+ok  	github.com/cloudvane/litefactory/internal/report	10.944s
+ok  	github.com/cloudvane/litefactory/internal/repos	6.689s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/schedule	1.500s
+ok  	github.com/cloudvane/litefactory/internal/secrets	1.453s
+ok  	github.com/cloudvane/litefactory/internal/submission	1.955s
+ok  	github.com/cloudvane/litefactory/internal/team	2.315s
+ok  	github.com/cloudvane/litefactory/internal/teampublish	2.505s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	1.475s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	16.229s
+ok  	github.com/cloudvane/litefactory/internal/webhook	2.595s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	8.010s
+FULL INVENTORY github.com/cloudvane/litefactory/internal/daemon 480
+FULL INVENTORY github.com/cloudvane/litefactory/internal/store 296
+FULL INVENTORY github.com/cloudvane/litefactory/internal/turn 838
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 1 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	206.113s
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 2 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	46.161s
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 3 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	11.381s
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 4 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	12.548s
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 5 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	50.900s
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 6 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	84.048s
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 7 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	46.021s
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 8 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	90.057s
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 9 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	100.606s
+FULL GROUP github.com/cloudvane/litefactory/internal/daemon 10 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/daemon	69.249s
+FULL GROUP github.com/cloudvane/litefactory/internal/store 1 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/store	114.990s
+FULL GROUP github.com/cloudvane/litefactory/internal/store 2 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/store	67.751s
+FULL GROUP github.com/cloudvane/litefactory/internal/store 3 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/store	155.518s
+FULL GROUP github.com/cloudvane/litefactory/internal/store 4 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/store	279.123s
+FULL GROUP github.com/cloudvane/litefactory/internal/store 5 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/store	92.948s
+FULL GROUP github.com/cloudvane/litefactory/internal/store 6 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/store	113.590s
+FULL GROUP github.com/cloudvane/litefactory/internal/store 7 count 8 exit 0
+ok  	github.com/cloudvane/litefactory/internal/store	120.145s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 1 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	313.983s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 2 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	243.582s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 3 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	109.554s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 4 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	163.645s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 5 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	139.265s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 6 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	198.702s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 7 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	184.298s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 8 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	273.452s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 9 count 48 exit 1
+panic: test timed out after 8m0s
+	running tests:
+		TestPlanNotices_AssembledReviewShowsTheStoryTable (7s)
+
+goroutine 114692 [running]:
+testing.(*M).startAlarm.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2959 +0x490
+created by time.goFunc
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/time/sleep.go:182 +0x44
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0xc0000ea908, {0x103fa8446, 0x31}, 0x104e47240)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2266 +0x7dc
+testing.runTests.func1(0xc0000ea908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2742 +0x78
+testing.tRunner(0xc0000ea908, 0xc00062fa28)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0x168
+testing.runTests({0x103f75dbd, 0x20}, {0x103fa030d, 0x2e}, 0xc000010150, {0x104ed3ed0, 0x346, 0x346}, {0x0?, 0xc00065b128?, ...})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2740 +0x7a4
+testing.(*M).Run(0xc000635040)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2600 +0xb3c
+main.main()
+	_testmain.go:1722 +0x104
+
+goroutine 114454 [IO wait]:
+internal/poll.runtime_pollWait(0x134225e00, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0xc00066dca0, 0x72, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0xb8
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc00066dc80, {0xc000818000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x350
+net.(*netFD).Read(0xc00066dc80, {0xc000818000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/fd_posix.go:68 +0x48
+net.(*conn).Read(0xc000102330, {0xc000818000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/net.go:196 +0x88
+net/http.(*persistConn).Read(0xc0007efb80, {0xc000818000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2300 +0x1cc
+bufio.(*Reader).fill(0xc000035740)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:113 +0x210
+bufio.(*Reader).Peek(0xc000035740, 0x1)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:152 +0xac
+net/http.(*persistConn).readLoop(0xc0007efb80)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2483 +0x224
+created by net/http.(*Transport).dialConn in goroutine 114528
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2123 +0x28bc
+
+goroutine 114529 [IO wait]:
+internal/poll.runtime_pollWait(0x134225c00, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0xc00066dd20, 0x72, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0xb8
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc00066dd00, {0xc00088f000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x350
+net.(*netFD).Read(0xc00066dd00, {0xc00088f000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/fd_posix.go:68 +0x48
+net.(*conn).Read(0xc0009825f0, {0xc00088f000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/net.go:196 +0x88
+net/http.(*connReader).Read(0xc000a83680, {0xc00088f000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:856 +0x204
+bufio.(*Reader).fill(0xc0004dc960)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:113 +0x210
+bufio.(*Reader).Peek(0xc0004dc960, 0x4)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:152 +0xac
+net/http.(*conn).serve(0xc0005a5440, {0x104e44620, 0xc000a72330})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:2173 +0xc34
+created by net/http.(*Server).Serve in goroutine 113680
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:3581 +0x658
+
+goroutine 113682 [IO wait]:
+internal/poll.runtime_pollWait(0x134225a00, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0xc000636320, 0x72, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0xb8
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Accept(0xc000636300)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:618 +0x360
+net.(*netFD).accept(0xc000636300)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/fd_unix.go:149 +0x38
+net.(*TCPListener).accept(0xc000625b00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/tcpsock_posix.go:159 +0x40
+net.(*TCPListener).Accept(0xc000625b00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/tcpsock.go:387 +0x68
+net/http.(*Server).Serve(0xc000bfc140, {0x104e440d8, 0xc000625b00})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:3551 +0x470
+net/http/httptest.(*Server).goServe.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/httptest/server.go:586 +0x98
+created by net/http/httptest.(*Server).goServe in goroutine 113644
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/httptest/server.go:584 +0xdc
+
+goroutine 114911 [IO wait]:
+internal/poll.runtime_pollWait(0x134225000, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0xc0004dd760, 0x72, 0x1)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0xb8
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc0004dd740, {0xc0006b2600, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x350
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file_posix.go:30
+os.(*File).Read(0xc000602400, {0xc0006b2600, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:144 +0xb0
+bytes.(*Buffer).ReadFrom(0xc000320040, {0x104e3e498, 0xc000602400})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bytes/buffer.go:229 +0xf0
+io.copyBuffer({0x104e3f758, 0xc000320040}, {0x104e3e498, 0xc000602400}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:415 +0x1c0
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:388
+os.genericWriteTo(0xc000602400, {0x104e3f758, 0xc000320040})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:295 +0x50
+os.(*File).WriteTo(0xc000602400, {0x104e3f758, 0xc000320040})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:273 +0x90
+io.copyBuffer({0x104e3f758, 0xc000320040}, {0x104e3e558, 0xc000602400}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:411 +0xac
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:613 +0x5c
+os/exec.(*Cmd).Start.func2(0xc00047b840)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:768 +0x3c
+created by os/exec.(*Cmd).Start in goroutine 113644
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:767 +0xb20
+
+goroutine 74268 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0xc0003e6b48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x344
+github.com/cloudvane/litefactory/internal/turn.TestPlanFailure_CandidateIsValidAndBounded(0xc0003e6b48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/plan_graph_failure_test.go:172 +0x34
+testing.tRunner(0xc0003e6b48, 0x104e470f0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0x168
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x7c0
+
+goroutine 113703 [IO wait]:
+internal/poll.runtime_pollWait(0x134225600, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0xc0002241a0, 0x72, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0xb8
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc000224180, {0xc00015e000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x350
+net.(*netFD).Read(0xc000224180, {0xc00015e000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/fd_posix.go:68 +0x48
+net.(*conn).Read(0xc000c081d0, {0xc00015e000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/net.go:196 +0x88
+net/http.(*persistConn).Read(0xc0007ee3c0, {0xc00015e000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2300 +0x1cc
+bufio.(*Reader).fill(0xc0001aa780)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:113 +0x210
+bufio.(*Reader).Peek(0xc0001aa780, 0x1)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:152 +0xac
+net/http.(*persistConn).readLoop(0xc0007ee3c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2483 +0x224
+created by net/http.(*Transport).dialConn in goroutine 113657
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2123 +0x28bc
+
+goroutine 112814 [select]:
+database/sql.(*DB).connectionOpener(0xc00017ec30, {0x104e44658, 0xc0007a0000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1266 +0xbc
+created by database/sql.OpenDB in goroutine 113644
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:846 +0x250
+
+goroutine 114913 [select]:
+os/exec.(*Cmd).watchCtx(0xc000019a00, 0xc0009c25b0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:808 +0xac
+created by os/exec.(*Cmd).Start in goroutine 113644
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:794 +0xaec
+
+goroutine 113704 [select]:
+net/http.(*persistConn).writeLoop(0xc0007ee3c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2810 +0x118
+created by net/http.(*Transport).dialConn in goroutine 113657
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2124 +0x2924
+
+goroutine 113680 [IO wait]:
+internal/poll.runtime_pollWait(0x1346baa00, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0xc0006362a0, 0x72, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0xb8
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Accept(0xc000636280)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:618 +0x360
+net.(*netFD).accept(0xc000636280)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/fd_unix.go:149 +0x38
+net.(*TCPListener).accept(0xc0006259c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/tcpsock_posix.go:159 +0x40
+net.(*TCPListener).Accept(0xc0006259c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/tcpsock.go:387 +0x68
+net/http.(*Server).Serve(0xc000bfc000, {0x104e440d8, 0xc0006259c0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:3551 +0x470
+net/http/httptest.(*Server).goServe.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/httptest/server.go:586 +0x98
+created by net/http/httptest.(*Server).goServe in goroutine 113644
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/httptest/server.go:584 +0xdc
+
+goroutine 114912 [IO wait]:
+internal/poll.runtime_pollWait(0x134225800, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0xc0004dd820, 0x72, 0x1)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0xb8
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc0004dd800, {0xc000925600, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x350
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file_posix.go:30
+os.(*File).Read(0xc000602418, {0xc000925600, 0x200, 0x200})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:144 +0xb0
+bytes.(*Buffer).ReadFrom(0xc000320100, {0x104e3e498, 0xc000602418})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bytes/buffer.go:229 +0xf0
+io.copyBuffer({0x104e3f758, 0xc000320100}, {0x104e3e498, 0xc000602418}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:415 +0x1c0
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:388
+os.genericWriteTo(0xc000602418, {0x104e3f758, 0xc000320100})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:295 +0x50
+os.(*File).WriteTo(0xc000602418, {0x104e3f758, 0xc000320100})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:273 +0x90
+io.copyBuffer({0x104e3f758, 0xc000320100}, {0x104e3e558, 0xc000602418}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:411 +0xac
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:613 +0x5c
+os/exec.(*Cmd).Start.func2(0xc00047b8a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:768 +0x3c
+created by os/exec.(*Cmd).Start in goroutine 113644
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:767 +0xb20
+
+goroutine 74269 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0xc0003e6d88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x344
+github.com/cloudvane/litefactory/internal/turn.TestPlanFailure_ShippedGraphRoutesEveryFailureToTheOneCommentNode(0xc0003e6d88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/plan_graph_failure_test.go:199 +0x34
+testing.tRunner(0xc0003e6d88, 0x104e470f8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0x168
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x7c0
+
+goroutine 113658 [IO wait]:
+internal/poll.runtime_pollWait(0x134225400, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0xc000224220, 0x72, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0xb8
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc000224200, {0xc0007d1000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x350
+net.(*netFD).Read(0xc000224200, {0xc0007d1000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/fd_posix.go:68 +0x48
+net.(*conn).Read(0xc000516ba8, {0xc0007d1000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/net.go:196 +0x88
+net/http.(*connReader).Read(0xc00063cb40, {0xc0007d1000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:856 +0x204
+bufio.(*Reader).fill(0xc0008a0ea0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:113 +0x210
+bufio.(*Reader).Peek(0xc0008a0ea0, 0x4)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:152 +0xac
+net/http.(*conn).serve(0xc0007ea510, {0x104e44620, 0xc000346ff0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:2173 +0xc34
+created by net/http.(*Server).Serve in goroutine 113682
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:3581 +0x658
+
+goroutine 114455 [select]:
+net/http.(*persistConn).writeLoop(0xc0007efb80)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2810 +0x118
+created by net/http.(*Transport).dialConn in goroutine 114528
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2124 +0x2924
+
+goroutine 113644 [syscall]:
+syscall.syscalln(0x102ba6e20, {0xc000dcb138, 0x6, 0x6})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/sys_darwin.go:27 +0x20
+syscall.syscall6(0x102ba6e20, 0x1405d, 0xc000dcb208, 0x0, 0xc000890990, 0x0, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/syscall/syscall_darwin.go:407 +0xb4
+syscall.wait4(0x1405d, 0xc000dcb208, 0x0, 0xc000890990)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/syscall/zsyscall_darwin_arm64.go:44 +0x60
+syscall.Wait4(0x1405d, 0xc000dcb260, 0x0, 0xc000890990)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/syscall/syscall_bsd.go:144 +0x48
+os.(*Process).pidWait.func1(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec_unix.go:64
+os.ignoringEINTR2[...](...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file_posix.go:273
+os.(*Process).pidWait(0xc0003208c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec_unix.go:63 +0xe8
+os.(*Process).wait(0xc0003208c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec_unix.go:28 +0x44
+os.(*Process).Wait(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec.go:347
+os/exec.(*Cmd).Wait(0xc000019a00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:944 +0x74
+os/exec.(*Cmd).Run(0xc000019a00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:643 +0x58
+github.com/cloudvane/litefactory/internal/git.runner.runRawLimit({{0xc000e0aa10, 0xc}, {0xc00003e6c0, 0x8a}, 0x1}, {0x104e44658, 0xc0006c8be0}, 0x37e11d600, 0x0, {0xc000320000, ...})
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/git/exec.go:245 +0x35c
+github.com/cloudvane/litefactory/internal/git.runner.runRaw(...)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/git/exec.go:221
+github.com/cloudvane/litefactory/internal/git.runner.run({{0xc000e0aa10, 0xc}, {0xc00003e6c0, 0x8a}, 0x1}, {0x104e44658, 0xc0006c8be0}, 0x37e11d600, {0xc000320000, 0x4, ...})
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/git/exec.go:215 +0x78
+github.com/cloudvane/litefactory/internal/git.revParse({0x104e44658, 0xc0006c8be0}, {{0xc000e0aa10, 0xc}, {0xc00003e6c0, 0x8a}, 0x1}, {0xc000ce5af5, 0xb}, {0xf8?})
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/git/clone.go:396 +0x244
+github.com/cloudvane/litefactory/internal/git.(*Worktree).RevParse(0xc0008a0000, {0x104e44658, 0xc0006c8be0}, {0xc000ce5af5, 0xb}, {0x8c?})
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/git/worktree.go:113 +0x16c
+github.com/cloudvane/litefactory/internal/turn.prepareClone({_, _}, {0x104e47f98, 0x0, 0xc0007a03c0, 0x0, 0x0, 0xc000912240, 0x0, 0x0, ...}, ...)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/prepare.go:669 +0x1e1c
+github.com/cloudvane/litefactory/internal/turn.prepare({_, _}, {0x104e47f98, 0x0, 0xc0007a03c0, 0x0, 0x0, 0xc000912240, 0x0, 0x0, ...}, ...)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/prepare.go:162 +0xf68
+github.com/cloudvane/litefactory/internal/turn.ExecuteWorkflow({_, _}, {0x104e47f98, 0x0, 0xc0007a03c0, 0x0, 0x0, 0xc000912240, 0x0, 0x0, ...}, ...)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/research_workflow.go:142 +0x15d8
+github.com/cloudvane/litefactory/internal/turn.admitPlanExecution({_, _}, {0x104e47f98, 0x0, 0xc0007a03c0, 0x0, 0x0, 0xc000912240, 0x0, 0x0, ...}, ...)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/plan_graph.go:142 +0x13ec
+github.com/cloudvane/litefactory/internal/turn.Execute({_, _}, {0x104e47f98, 0x0, 0xc0007a03c0, 0x0, 0x0, 0xc000912240, 0x0, 0x0, ...}, ...)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/execute.go:683 +0x1d4c
+github.com/cloudvane/litefactory/internal/turn.executeGraphPlan(_, _, {0x0, 0x0, 0x0, 0x0, {0x0, 0x0}, 0x0, 0x0, ...})
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/plan_graph_boundary_test.go:312 +0x1a0
+github.com/cloudvane/litefactory/internal/turn.completeSingleStory(_)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/plan_graph_notices_test.go:71 +0x21c
+github.com/cloudvane/litefactory/internal/turn.TestPlanNotices_AssembledReviewShowsTheStoryTable(0xc0009b2d88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-453/internal/turn/plan_graph_notices_test.go:83 +0x5c
+testing.tRunner(0xc0009b2d88, 0x104e47240)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0x168
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x7c0
+FAIL	github.com/cloudvane/litefactory/internal/turn	481.939s
+FAIL
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 10 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	232.481s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 11 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	277.503s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 12 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	131.377s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 13 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	170.538s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 14 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	477.738s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 15 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	388.799s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 16 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	167.655s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 17 count 48 exit 0
+ok  	github.com/cloudvane/litefactory/internal/turn	210.635s
+FULL GROUP github.com/cloudvane/litefactory/internal/turn 18 count 22 exit 1
+--- FAIL: TestGraphActivitiesHaveNoClockOrRetryLoop (0.04s)
+    graph_structure_test.go:179: graph_delivery.go:474:3: unbounded/retry loop in graph dispatch
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	5.969s
+FAIL
+make: *** [test] Error 1

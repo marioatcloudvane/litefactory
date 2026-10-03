@@ -49,14 +49,12 @@ func TestGraphPackagePurity(t *testing.T) {
 // shippedDOT is the closed approved set of captured workflow resources and
 // their declared editable sources. Plan ships both its neutral source and its
 // embedded runtime copy; Research retains its existing captured resource.
-// Bug ships one bounded parent and its sole sequential test child, with exact
+// Bug ships one bounded simplified parent, with exact
 // source and embedded copies. No general nested graph namespace is admitted.
 // Any other DOT file is an unexpected workflow or a stray copy.
 var shippedDOT = map[string]bool{
 	"../../internal/teamsource/bug/bug.dot":           true,
-	"../../internal/teamsource/bug/bug_tests.dot":     true,
 	"../../teams/source/bug/bug.dot":                  true,
-	"../../teams/source/bug/bug_tests.dot":            true,
 	"../../internal/teamsource/research/research.dot": true,
 	"../../internal/teamsource/plan/plan.dot":         true,
 	"../../internal/teamsource/spike/spike.dot":       true,

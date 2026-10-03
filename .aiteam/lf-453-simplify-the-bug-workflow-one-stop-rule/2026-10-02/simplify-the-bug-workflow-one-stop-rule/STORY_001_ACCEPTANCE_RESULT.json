@@ -1,0 +1,344 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Story-001 proposes ten observable criteria and seven linked tasks. Completion will show that every supported Bug stop preserves its reason, asks the owner and resumes its origin once per authenticated reply; terminal text never controls the result. Its settled intent and architecture are retained unchanged. No new owner question is needed for this story.\n\nEach criterion carries a future proof method. Implementation tasks T-001 and T-002 can proceed independently, followed by T-003 and T-004. T-005 verifies the contracts; T-006 verifies recovery across components; T-007 gathers the complete evidence. Only factory-authorized engineering roles are assigned. No product checks were executed and no criterion is claimed met.\n\nCurrent parent index for factory assembly:\n- [story-001](https://github.com/marioatcloudvane/litefactory/issues/457)\n- [story-002](https://github.com/marioatcloudvane/litefactory/issues/458)\n- [story-003](https://github.com/marioatcloudvane/litefactory/issues/459)\n- [story-004](https://github.com/marioatcloudvane/litefactory/issues/460)\n- [story-005](https://github.com/marioatcloudvane/litefactory/issues/461)\n\nThe exact active dependency chain is story-001 → story-002 → story-003 → story-004 → story-005. All five remain active; no confirmed retirement is assumed. The removed temporary transition proposal s5 is excluded; temporary s6 is now story-005. Story-specific content remains on those sub-issues.\n\nThe shared decisions remain: explicit approval before repair; the analyst owns the only workflow loop; the fixer repeats repair and validation inside its finite invocation; accepted evidenced success hands off to automatic shared factory delivery without a second owner review. Shared communication and graph records govern results and history. Eligible runs use shared synchronization; changed tested inputs need revalidation. The owner will repost old bugs separately; this plan neither migrates nor restarts them. Cleanup preserves audit and migration history, and the proposed 7,762-line net reduction counts replacement shared code. Existing permissions, owner identity checks and repository protections remain.\n\nThis is the current third-stage review contribution, not a complete approvable aggregate. Story-001 has settled intent and technical design and now proposed acceptance content. Stories 002, 004 and 005 retain their pending technical reviews; story-003 retains its unanswered technical checkpoint question and has no settled technical draft in the supplied state. Their acceptance criteria and tasks are not yet supplied. The factory must hold complete-plan approval until those gaps and any pending effects are resolved and bind the assembled review to the exact current active stories, dependency edges and shared decisions. No fourth stage is proposed. The current story has no unresolved criterion or ownership decision; the existing story-003 question is not re-asked here. After the complete Plan receives its required owner approval, the next action is /implement <instruction>.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "38aabf25815972f92dc9f1c980ea9520693ccef0dfadeae3928f21ea6246b88d",
+          "draft": {
+            "key": "story-001",
+            "name": "Resume every Bug stop through an owner reply",
+            "user_story": {
+              "actor": "An authorized owner of a reported bug",
+              "want": "every stopped Bug run to explain why it stopped and let me resume the same work by replying with guidance",
+              "benefit": "I can keep the repair moving without learning special retry commands, losing context or accidentally approving a repair",
+              "notes": [
+                "Assumption: existing owner identity checks and explicit task cancellation continue to apply; an ordinary guidance reply is not repair approval.",
+                "The owner will repost old bugs later. Resumption in this story applies to the simplified Bug flow, not migration or restart of legacy executions.",
+                "No material intent questions remain."
+              ]
+            },
+            "problem": "Bug work can stop without an answerable question or lose the reason it stopped. Different stop states require different commands, and even an accepted agent result can be rejected because of the final chat message. Owners cannot reliably tell what happened or continue the work.",
+            "in_scope": [
+              "Use only validated JSON submissions through shared communication to determine agent outcomes. Final chat text has no authority over success, failure or the next step.",
+              "Turn blocked work, failed runs, missing or invalid results and exhausted budgets into an owner question at the step that stopped, preserving the available reason and explaining what prevented continuation.",
+              "Allow any reply from the authorized owner to resume that parked step with the reply as guidance, without a special retry or budget-grant command. A reply alone does not approve an unapproved repair.",
+              "Keep finite analyst and agent execution budgets. After exhaustion, an owner reply permits one further invocation; another stop follows the same question rule.",
+              "Consume each owner reply once and preserve waiting work across factory restarts, so duplicate delivery cannot repeat a resumption or lose guidance.",
+              "Retain the work history needed to explain and resume each attempt: originating step, inputs, submitted result, reason, relevant revisions, evidence references and timestamps, plus question publication status and the identity of the consumed reply."
+            ],
+            "not_in_scope": [
+              "Defining the analyst conversation, diagnosis requirements or repair approval process beyond preserving the distinction between guidance and approval.",
+              "Repairing code, synchronizing branches, running validation, delivering fixes or recovering partial merges and closures.",
+              "Migrating, restarting or reposting old Bug executions.",
+              "Removing legacy stores and runtime code, changing database history or measuring code reduction.",
+              "Changing unrelated workflows, expanding permissions, replacing owner identity checks or introducing a new budget system."
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Reuse and fit",
+                  "decision": "Extend shared graph attempts, outputs, owner waits and report delivery for the simplified Bug flow. Keep AgentResultService as the sole application-result boundary. Add no Bug stop, retry or exhaustion ledger.",
+                  "rationale": "internal/store/graph_attempts.go, graph_outputs.go, graph_owner_waits.go and graph_comments.go already supply durable identities and transactions. Current Bug continuation in internal/turn/bug_runtime_replies.go instead depends on lifecycle-specific retries and grants."
+                },
+                {
+                  "area": "Result authority",
+                  "decision": "Route Bug through WorkflowPolicy.Respond and AgentActivity.acceptRetained using only the current validated accepted submission. Remove Bug's terminal-confirmation branch. Preserve process failure and interruption separately; a receipt alone never makes a failed execution successful.",
+                  "rationale": "internal/turn/workflow_policy.go excludes Bug from routesRetained; research_agent.go consequently decodes terminal text despite a retained result. Other policies already provide the reusable route."
+                },
+                {
+                  "area": "Graph ownership",
+                  "decision": "Declare response routes and stop/resume behavior in DOT. Extend shared agent outcomes and graph validation so declared stopping outcomes park at the originating node. Go enforces that contract without selecting named Bug nodes or adding an automatic fixer loop.",
+                  "rationale": "The existing lf_agent exposes success/failed, while Bug branches through record_repair and fixer_reshape. Story-002 owns the simple graph composition; this story supplies retained-response routing and shared parking, including runtime failures and exhaustion."
+                },
+                {
+                  "area": "Single stop rule",
+                  "decision": "Blocked results, failed executions, invalid or absent results and exhausted bounds all open the same durable owner wait. Keep the instance resumable, clear automatic dispatch eligibility and preserve failed attempt status.",
+                  "rationale": "ExecuteNodeAction currently terminalizes exhausted instances. RetainGraphComment permits a question only from a successful source. Both require deliberate extension rather than reuse unchanged."
+                },
+                {
+                  "area": "Authority and budgets",
+                  "decision": "A current authenticated owner reply permits one resumption of the parked node. After exhaustion it permits exactly one further invocation with existing execution limits intact. Preserve counters; another stop requires another reply. Guidance never creates repair approval.",
+                  "rationale": "Existing numeric owner authentication and atomic reply allocation fit. Resetting counters, accepting agent-authored grants or treating guidance as approval would change the intent."
+                },
+                {
+                  "area": "Scope and dependencies",
+                  "decision": "Apply this contract to the simplified Bug graph only. Preserve other workflow policies and refuse implicit upgrades of pinned legacy instances. Story-002 owns approval and graph composition, stories 003 and 004 consume this stop contract, and story-005 owns legacy removal.",
+                  "rationale": "The owner chose to repost old bugs. bug_runtime.go pins the definition digest; automatically resuming old work under a new graph would violate that binding and the settled scope."
+                },
+                {
+                  "area": "Permissions and resource discipline",
+                  "decision": "Keep agent tool ceilings and factory-owned publication. Frame reply bodies and prior reasons as untrusted data and redact outbound questions. Preserve context cancellation and typed errors, with retry scheduling and time owned by the daemon.",
+                  "rationale": "This follows existing identity, prompt, reporter and context-first store boundaries. No new permission, background worker or retry loop is required."
+                },
+                {
+                  "area": "Assumptions and evidence limits",
+                  "decision": "Retain existing budget values, comment limits and explicit cancellation/mode-command precedence. Ordinary guidance needs no retry syntax. No frontend design applies. This review used source inspection, not runtime reproduction or executed tests.",
+                  "rationale": "These assumptions preserve the story. Incident behavior remains owner-reported, and no live task inventory or deployed fix is claimed."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Graph instances, attempts and outputs",
+                  "definition": "The pinned instance owns its current node. Attempts retain run identity, ordinal, status and timestamps. Bounded typed outputs or immutable references retain input and reply context, accepted result identity and revision, diagnostics, relevant source revisions and evidence references.",
+                  "constraints": "Reuse graph_instances, graph_node_attempts and graph_outputs. Commit completion and stop intent atomically. Keep process status separate from application response; never overwrite failure or reuse a prior attempt's submission as a new result."
+                },
+                {
+                  "entity": "Owner wait and stop origin",
+                  "definition": "Extend graph_owner_waits and graph_comment_intents with explicit origin node and durable stop identity. A source attempt is retained when one exists; allow no source attempt for exhaustion that prevents dispatch. Retain the cause, explanation and pinned graph binding with the stop.",
+                  "constraints": "Do not invent a subprocess or successful attempt for pre-dispatch exhaustion. Validate the origin against the pinned instance. Keep one waiting or claimed wait per instance. Use a forward shared-schema migration, preserving historical rows and obsolete Bug tables."
+                },
+                {
+                  "entity": "Question publication",
+                  "definition": "Reuse graph_comment_intents and report_deliveries for immutable question bytes, delivery key, publication state and confirmed comment identity. The wait references this same delivery.",
+                  "constraints": "Retain intent before network I/O. Recover with the same key and bytes; observe uncertain posts before repeating them. Failed publication retains debt and cannot release work. Extend source validation for failed and pre-dispatch stops without marking them successful."
+                },
+                {
+                  "entity": "Reply and continuation",
+                  "definition": "Reuse waiting, claimed and allocated states with reply comment ID, numeric author, body, claim time and continuation attempt. Any extra invocation after exhaustion is authorized by this exact claim and origin.",
+                  "constraints": "Authenticate the source issue and published current question. Claim consumption, continuation allocation and allowance consumption are one transaction. Duplicate, stale or foreign replies allocate nothing. Runless activities use the same contract only through factory-bound admission."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Result service and Bug policy",
+                  "responsibility": "Validate and retain structured submissions, derive their declared response and preserve refusal diagnostics. Retained accepted data supplies application history; terminal prose and receipts do not.",
+                  "access": "Reuse internal/turn/agent_results.go, research_agent.go and workflow_policy.go with internal/agentresult and internal/submission. Preserve attempt binding, strict schemas and existing size limits."
+                },
+                {
+                  "component": "Graph execution and stop adapter",
+                  "responsibility": "Translate declared stopping responses, dispatch failures and bound refusal into a durable wait at one shared boundary. Return waiting without advancing or selecting another activity. Later agent and finalization activities use this contract.",
+                  "access": "internal/turn/graph_node.go and internal/graphexec registry/validators. DOT declares routing and parking. Go enforces it with an opt-in contract for simplified Bug, not named-node retry maps."
+                },
+                {
+                  "component": "Store and daemon",
+                  "responsibility": "Store owns atomic parking, claim and allocation. Daemon owns authenticated admission, scheduling, recovery and cancellation. Carry the claimed reply as retained guidance into the origin continuation.",
+                  "access": "Extend internal/store/graph_owner_waits.go and graph_attempts.go. Existing reply claim compares mode, but Bug uses workflow=bug with empty mode: bind resolved workflow identity. Generalize the current RunID>0 allocation requirement only for admitted factory activities. Keep SQL in store, one connection, and transactions clear of external I/O."
+                },
+                {
+                  "component": "Reporter and role guidance",
+                  "responsibility": "Render the cause and reply-to-continue question from retained stop data and publish through the existing journal. Bug roles submit structured reasons through preflight/submit/receipt; they never publish questions, grant attempts or choose resume targets.",
+                  "access": "Reuse internal/turn/research_comments.go reporting primitives and internal/report. Update affected Bug role/skill result instructions and packaged resource closure. Diagnosis and repair-specific contracts remain with later stories."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Parking sequence",
+                  "contract": "Validate retained data and observe execution outcome. Atomically persist the cause, evidence references, question intent, wait and attempt completion while retaining the origin node. On pre-dispatch exhaustion persist a stop without allocating an agent run. Publish the retained question, then await an owner reply.",
+                  "rationale": "A crash between persistence and publication leaves recoverable publication work. Failed states cannot silently complete or dispatch more work."
+                },
+                {
+                  "element": "Preserved explanation",
+                  "contract": "Prefer the structured result reason, using its comment as explanatory fallback. Retain execution errors, validation diagnostics and budget details as distinct causes. If there is no result, state that fact and name the failing boundary. Never decode terminal text for missing application data.",
+                  "rationale": "This addresses the reported reason/comment mismatch while separating agent claims from factory observations."
+                },
+                {
+                  "element": "Reply and approval guard",
+                  "contract": "Require confirmed publication, authenticate a newer reply against the active wait, claim it once, recheck cancellation and admission, then allocate the origin continuation and consume the claim atomically. A reply at an unapproved handoff cannot authorize fixer execution; the existing approval guard must still pass.",
+                  "rationale": "ClaimGraphOwnerReply and graphReplyAllocationTx provide the core sequence but need workflow-aware binding and explicit origin support. Story-002 remains responsible for approval semantics."
+                },
+                {
+                  "element": "Restart and uncertain dispatch",
+                  "contract": "Recover unposted question intents and unallocated claims. Reconcile allocated orphan attempts using existing run recovery before deciding their outcome; never dispatch twice because acknowledgment is missing. If completion cannot be established, park with the interruption reason and retained claim history. Publication recovery does not rerun the agent.",
+                  "rationale": "One-time reply consumption guarantees durable allocation, not exactly-once external execution. Failed and uncertain execution must remain distinguishable."
+                },
+                {
+                  "element": "DOT and finite continuation",
+                  "contract": "Expose validated retained responses directly for response-driven Bug agents. DOT declares stop dispositions for blocked, failed, missing/invalid-result and exhausted outcomes, with resumption at the same origin. A parked stop takes no forward edge. One claimed reply releases one dispatch; successful responses follow DOT edges. Shared validation rejects ambiguous routes, unbounded loops and unauthorized progression.",
+                  "rationale": "This supports story-002's loop/agent/finalization graph without additional report nodes, a Go topology table or an automatic repair loop. Keep existing Research and Plan checks unchanged unless narrowly generalized without changing their policy."
+                },
+                {
+                  "element": "Failure boundaries",
+                  "contract": "If persistence fails, return the cause and keep admission blocked; do not claim a question was saved. If publication fails, preserve question debt for daemon recovery. Cancellation prevents continuation. A missing or invalid result cannot become success through recovery or an owner guidance reply.",
+                  "rationale": "Storage and forge outages must remain visible and recoverable without erasing their cause or releasing work."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "agent-setup"
+            ],
+            "criteria": [
+              {
+                "id": "AC-001",
+                "text": "Only the current attempt's validated, accepted shared submission determines its application response. Terminal text never changes routing; process failure or interruption still prevents success.",
+                "proof_method": "Future result-policy tests will pair the same accepted submission with empty text, prose, malformed JSON, receipt-shaped JSON and a conflicting envelope and compare responses. Cases with no accepted result, a prior-attempt result, refused input and a failed/interrupted process will show no successful progression. A source-path review will confirm Bug no longer decodes terminal application results."
+              },
+              {
+                "id": "AC-002",
+                "text": "Blocked results, failed executions, dispatch failures, missing or invalid results and exhausted bounds park the simplified Bug flow at its originating node with an answerable owner question and no automatic forward dispatch. The question preserves the available explanation.",
+                "proof_method": "A future stop matrix will inspect the retained origin, attempt status, wait, question and dispatch count for every listed cause. It will cover structured reason, comment fallback, factory diagnostics and no-result explanations. Pre-dispatch exhaustion will show no fabricated run or successful attempt."
+              },
+              {
+                "id": "AC-003",
+                "text": "A new ordinary reply from the authenticated owner to the current published wait resumes its origin once with the reply retained as guidance. Duplicate, stale, foreign-issue and unauthorized replies allocate no continuation; cancellation and mode-command precedence remain effective.",
+                "proof_method": "Future store/daemon tests will submit ordinary guidance with Bug's empty mode and resolved workflow identity, replay it concurrently and after reopening the store, and compare continuation counts and guidance. Negative cases will vary author, issue, publication, reply age, cancellation and explicit mode commands; admitted runless activity cases will also be covered."
+              },
+              {
+                "id": "AC-004",
+                "text": "Resuming stopped work never creates repair approval or bypasses the current approval guard. A guidance reply cannot turn an invalid or missing result into success.",
+                "proof_method": "Future admission tests will resume an unapproved handoff and inspect that no fixer dispatch or approval record is created. They will also resume invalid/missing-result waits and require a new valid result before progression. Full diagnosis approval behavior remains story-002's responsibility."
+              },
+              {
+                "id": "AC-005",
+                "text": "Existing finite execution limits and accumulated counters remain in force. After exhaustion, one authenticated claimed reply permits exactly one further invocation, and another stop requires another reply without special Bug retry or grant syntax.",
+                "proof_method": "Future bound tests will exhaust analyst and agent allowances, assert zero autonomous dispatches, then replay one owner reply and observe one allocation with unchanged prior counters. A second exhaustion and a second distinct reply will demonstrate the same rule; agent-authored grants will grant nothing."
+              },
+              {
+                "id": "AC-006",
+                "text": "Question publication is durable and factory-owned. A failed or uncertain post retains its cause and publication debt without releasing work; recovery uses the same immutable question and delivery key and observes uncertain publication before repeating it.",
+                "proof_method": "Future reporter tests with a controlled forge will fail before send, lose the post acknowledgment and restart after confirmed publication. Recorded bytes, keys, observations and call counts will demonstrate recovery without duplicate confirmed questions or agent reruns. Redaction fixtures will verify outbound questions do not expose secrets."
+              },
+              {
+                "id": "AC-007",
+                "text": "Restart preserves waiting work, consumed replies and known allocation facts. Recovery completes unallocated claims and reconciles allocated orphan attempts before any further dispatch; unresolved execution parks with its interruption reason.",
+                "proof_method": "Future crash-boundary tests will reopen persistent storage after parking, publication, reply claim, allocation and uncertain dispatch. They will compare origin, claim and attempt identities and provider call counts, demonstrating no second dispatch merely because acknowledgment is absent and no claim that durable allocation guarantees exactly-once external execution."
+              },
+              {
+                "id": "AC-008",
+                "text": "Shared graph records retain the inputs, result identity/revision, separate execution status, reasons, source revisions, evidence references, timestamps, question publication and consumed-reply identity needed to explain each stop and continuation. Failed persistence leaves admission blocked without claiming a saved question.",
+                "proof_method": "Future store tests will read records after stop/resume and store reopening and compare fixture history field by field. Fault injection at parking and claim/allocation boundaries will demonstrate atomic writes or rollback. Fresh and upgraded database fixtures will verify the forward shared migration preserves existing history and adds no Bug-specific stop ledger."
+              },
+              {
+                "id": "AC-009",
+                "text": "DOT declares response routing and parking for the opted-in simplified Bug flow. A parked outcome takes no forward edge; accepted non-stopping outcomes use declared edges. Ambiguous routes, unbounded loops and unauthorized progression are refused.",
+                "proof_method": "Future graph contract tests will use small DOT fixtures with varied node names, declared outcomes and invalid routes to observe admission and transitions. A source review will check for named Bug routing/retry maps or an automatic fixer retry loop. Story-002 retains ownership of the complete production graph composition."
+              },
+              {
+                "id": "AC-010",
+                "text": "The change preserves unrelated workflow behavior, pinned legacy admission, existing tool ceilings and factory publication authority. Bug role instructions consistently require shared preflight, submission and receipt and do not assign agents approval, grant or resume-target authority.",
+                "proof_method": "Future regression tests will exercise existing Research/Plan routing and unsupported legacy Bug admission, with no implicit upgrade or provider dispatch. Package validation and role/tool-policy fixtures will inspect the delivered instructions and permissions. Implementation validation will record make check, the full race-enabled suite and a clean gofmt check; these are future obligations, not present evidence."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Deliver retained-result routing for Bug and update its shared result instructions, keeping execution failure separate and removing terminal decoding.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-010"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-002",
+                "description": "Extend shared graph persistence with atomic stop origins, question intent, history and workflow-aware reply/allocation claims, including pre-dispatch and admitted runless stops; provide a history-preserving forward migration.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-005",
+                  "AC-008"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-003",
+                "description": "Deliver the shared opt-in DOT response/parking contract and runtime adapter, preserving approval checks, finite counters and one claimed continuation per reply.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-009",
+                  "AC-010"
+                ],
+                "depends_on": [
+                  "T-001",
+                  "T-002"
+                ]
+              },
+              {
+                "id": "T-004",
+                "description": "Wire factory question publication, authenticated continuation admission and daemon restart recovery; retain publication debt and reconcile uncertain dispatch before retry.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-008",
+                  "AC-010"
+                ],
+                "depends_on": [
+                  "T-003"
+                ]
+              },
+              {
+                "id": "T-005",
+                "description": "Deliver focused result, graph, store, approval-boundary and budget regression tests, including negative inputs, rollback, history retention and unchanged workflow policy.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-008",
+                  "AC-009",
+                  "AC-010"
+                ],
+                "depends_on": [
+                  "T-003"
+                ]
+              },
+              {
+                "id": "T-006",
+                "description": "Deliver cross-component recovery tests using persistent temporary stores and controlled provider/forge boundaries for lost acknowledgments, publication failures, duplicate replies and restart at each durable boundary. Use ordinary Go tests under existing conventions; introduce no integration build tag or new test class.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-008",
+                  "AC-010"
+                ],
+                "depends_on": [
+                  "T-004"
+                ]
+              },
+              {
+                "id": "T-007",
+                "description": "Complete source and package review against every criterion, run required repository checks and retain revision-bound commands, outcomes and criterion-to-evidence references, reporting any remaining failure without claiming acceptance.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-008",
+                  "AC-009",
+                  "AC-010"
+                ],
+                "depends_on": [
+                  "T-005",
+                  "T-006"
+                ]
+              }
+            ]
+          },
+          "changed_sections": [
+            "criteria",
+            "tasks"
+          ]
+        }
+      }
+    }
+  }
+}

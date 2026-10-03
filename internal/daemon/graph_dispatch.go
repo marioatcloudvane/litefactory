@@ -29,6 +29,13 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		return err
 	}
 	for _, dispatch := range pending {
+		if d.bug != nil {
+			if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
+				d.log.ErrorContext(ctx, "graph dispatch refused; retained work unchanged", slog.Int64("dispatch_id", dispatch.ID), slog.Any("error", err))
+				continue
+			}
+		}
+
 		session, err := d.db.GetSession(ctx, dispatch.SessionID)
 		if err != nil {
 			return err
@@ -61,17 +68,6 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			return err
 		}
 		if issue.State != github.StateOpen && !bugParent {
-			if call, lookupErr := d.db.BugTestDispatchCall(ctx, dispatch.ID); lookupErr == nil {
-				if d.bugTests != nil {
-					if cancelErr := d.bugTests.Cancel(ctx, call.ID, at.UTC()); cancelErr != nil {
-						return cancelErr
-					}
-				} else if cancelErr := d.db.CancelBugTestCall(ctx, call.ID); cancelErr != nil {
-					return cancelErr
-				}
-			} else if !errors.Is(lookupErr, store.ErrNotFound) {
-				return lookupErr
-			}
 			if err := d.db.CancelGraphDispatch(ctx, dispatch.ID, "issue closed before the next graph stage could run", at.UTC()); err != nil {
 				return err
 			}
@@ -186,9 +182,13 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 // recovery and manual schedules do; without one it could not exist beside the
 // comment-triggered run that parked it.
 func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.GraphDispatch) {
-	if d.runBugTestDispatch(ctx, t, dispatch) {
-		return
+	if d.bug != nil {
+		if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
+			t.recordWorkerError(err)
+			return
+		}
 	}
+
 	trigger, command := graphStepRequest(dispatch, d.filter.Identities().OwnerHandle)
 	err := d.run(ctx, t, trigger, command, t.log)
 	if err != nil {
@@ -271,11 +271,7 @@ func (d *Daemon) isBugParentDispatch(ctx context.Context, dispatch store.GraphDi
 	if err != nil || a.Workflow != "bug" {
 		return false, err
 	}
-	_, err = d.db.BugTestDispatchCall(ctx, dispatch.ID)
-	if errors.Is(err, store.ErrNotFound) {
-		return true, nil
-	}
-	return false, err
+	return true, nil
 }
 
 // graphStepRequest builds the trigger and command one owed stage runs under.

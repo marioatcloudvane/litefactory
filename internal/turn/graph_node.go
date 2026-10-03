@@ -23,9 +23,10 @@ type GraphNodeRequest struct {
 	Activities        ActivityRegistry
 	InstanceID, RunID int64
 	// ResumeAttemptID is factory-owned recovery of a Bug bookkeeping effect.
-	ResumeAttemptID int64
-	ResumeRef       string
-	At, NextDueAt   time.Time
+	ResumeAttemptID      int64
+	OwnerAllowanceSource int64
+	ResumeRef            string
+	At, NextDueAt        time.Time
 }
 
 // GraphNodeResult describes the recorded step. AttemptID is zero for terminals
@@ -94,10 +95,6 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		return out, nil
 	}
 	var attempt store.GraphNodeAttempt
-	childWait, childErr := opts.DB.BugTestParentCall(ctx, instance.ID)
-	if childErr != nil && !errors.Is(childErr, store.ErrNotFound) {
-		return out, childErr
-	}
 	switch {
 	case req.ResumeAttemptID != 0:
 		if workflow != agent.WorkflowBug || node.Action == ResearchAgentAction || req.RunID != 0 {
@@ -107,17 +104,14 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		if err == nil && (attempt.InstanceID != instance.ID || attempt.Node != node.Name || attempt.RunID != 0 || (attempt.Status != store.GraphRunning && attempt.Status != store.GraphPending)) {
 			return out, errors.New("bug effect recovery attempt mismatch")
 		}
-	case childErr == nil && node.Action == BugTestGraphAction:
-		if childWait.Outcome == "pending" {
-			out.Status = "waiting_child"
-			return out, nil
-		}
-		attempt, err = opts.DB.GetGraphNodeAttempt(ctx, childWait.Request.ParentAttempt)
 	default:
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: node.Name, RunID: req.RunID, Limit: node.Limit, StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
+		if graphexec.ParksOutcome(node, "exhausted") {
+			return parkGraphAction(ctx, opts, req, out, "exhausted", false)
+		}
 		if err := opts.DB.SetGraphInstanceStatus(ctx, instance.ID, store.GraphFailed, time.Time{}, req.At); err != nil {
 			return out, fmt.Errorf("record exhausted graph limit: %w", err)
 		}
@@ -147,23 +141,30 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	})
 	activity.Output = slices.Clone(activity.Output)
 	out.Activity = activity
+	// Owner-conversation activities atomically complete and park themselves,
+	// because their retained review and wait belong to the same boundary.
+	if activity.Suspended && workflow == agent.WorkflowBug && node.Action == graphexec.ResearchLoopAction && node.Attrs["lf_contract"] == "owner_conversation" {
+		wait, waitErr := opts.DB.GetGraphOwnerWait(ctx, instance.ID)
+		if waitErr != nil || wait.State != "waiting" || wait.SourceAttemptID != attempt.ID || wait.OriginNode != node.Name {
+			return out, errors.Join(errors.New("conversation suspension lacks durable origin wait"), waitErr)
+		}
+		out.Status, out.NextNode = "waiting_owner", node.Name
+		return out, dispatchErr
+	}
 	if dispatchErr != nil {
 		if out.Activity.Diagnostic == "" {
 			out.Activity.Diagnostic = dispatchErr.Error()
+		} else if graphexec.ParksOwner(node) {
+			out.Activity.Diagnostic += "\nFactory dispatch diagnostic: " + dispatchErr.Error()
 		}
 		finished, finishErr := finishGraphAction(ctx, opts, req, out, false)
 		return finished, errors.Join(fmt.Errorf("execute graph activity %q: %w", node.Action, dispatchErr), finishErr)
 	}
 	if activity.Suspended {
-		call, waitErr := opts.DB.BugTestParentCall(ctx, instance.ID)
-		parentWait := node.Action == BugTestGraphAction && waitErr == nil && call.Request.ParentAttempt == attempt.ID && call.Outcome == "pending"
-		childCall, childLookup := opts.DB.BugTestChildCall(ctx, instance.ID)
-		childWait := node.Action == BugChecksAction && childLookup == nil && childCall.Outcome == "pending"
-		if workflow != agent.WorkflowBug || (!parentWait && !childWait) {
-			return out, errors.New("graph suspension lacks matching durable Bug child wait")
-		}
-		out.Status = "waiting_child"
-		return out, nil
+		return out, errors.New("graph suspension lacks a supported durable owner wait")
+	}
+	if graphexec.ParksOutcome(node, activity.Outcome) {
+		return parkGraphAction(ctx, opts, req, out, activity.Outcome, true)
 	}
 	next, decided := graphexec.Decide(req.Profile, node.Name, activity.Outcome)
 	if !decided {
@@ -183,6 +184,15 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 }
 
 func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, out GraphNodeResult, succeeded bool) (GraphNodeResult, error) {
+	if !succeeded {
+		if node, ok := req.Profile.Node(out.Node); ok && graphexec.ParksOwner(node) {
+			cause := "failed"
+			if out.Activity.Outcome == "invalid" {
+				cause = "invalid"
+			}
+			return parkGraphAction(ctx, opts, req, out, cause, false)
+		}
+	}
 	completion := store.GraphCompletion{Status: store.GraphFailed, FinishedAt: req.At, InstanceStatus: store.GraphRunning, NextDueAt: req.NextDueAt}
 	// Research never retries a failed activity without new owner authority.
 	// Terminalizing only graph execution leaves the original run, authored

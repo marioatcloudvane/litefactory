@@ -1,0 +1,175 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Story-005 retains the cleanup design: remove obsolete Bug execution and active stores after the replacement works, keep historical tables read-only, preserve migration history and shared consumers, and refuse unsupported old graph execution without migrating or restarting it.\n\nThis architecture update removes the obsolete unresolved-checkpoint note. Stories 003–004 now define local checkpoint recovery, exact tested-input evidence and shared delivery reconciliation. Cleanup must retain those capabilities and their graph records, including uncertain effects and links across validation generations. Their replacement code counts against the proposed 7,762-line net reduction target; no reduction has been demonstrated.\n\nSource inspection confirms that Spike still uses bugchecks isolation, shared graph code still calls the old test-child stores, and migration 0079 destroys prior tables. Retain the pre-0079 preservation refusal and the forward archive migration: a later migration cannot recover already deleted records. No live inventory or database upgrade was performed.\n\nOnly architecture changes. Intent, guidance, dependency on story-004 and the remaining applicable decisions stay intact. No material question remains. Tasks and criteria belong to the acceptance stage. This submission claims no implementation, executed tests, acceptance or publication. The complete Plan still needs its remaining factory-bound reviews before /implement <instruction>.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "01b2b0ceb2d8b05f160d739c90c168ccbc234faaf89baa63034bc6c93c3132d7",
+          "changed_sections": [
+            "architecture"
+          ],
+          "draft": {
+            "key": "story-005",
+            "name": "Remove the legacy Bug machinery",
+            "user_story": {
+              "actor": "A Litefactory maintainer",
+              "want": "to remove the obsolete Bug runtime and duplicate stores once the simplified flow is in place, while preserving historical records",
+              "benefit": "there is one Bug flow to maintain, fewer places for workflow defects to arise, and a measurable reduction in maintenance work",
+              "notes": [
+                "Retained proposed target: remove at least 7,762 net non-test Go lines against the saved 15,524-line Bug baseline. This is a planning target, not a demonstrated reduction; technical feasibility remains to be assessed.",
+                "Assumption: fewer stores means fewer active Bug-specific stores, not deletion or renumbering of historical migrations.",
+                "The owner's decision to repost old bugs later supersedes the earlier plan to migrate or restart them. This story does not assume that no old executions exist.",
+                "No material intent questions remain."
+              ]
+            },
+            "problem": "Bug has accumulated separate execution paths and records for repairs, checks, reviews, delivery and exceptional stops. The reported failures arose in that workflow machinery rather than in the bugs being repaired. Keeping the obsolete machinery alongside the simplified flow would preserve its maintenance burden and competing sources of progress information.",
+            "in_scope": [
+              "Remove obsolete Bug execution paths once the replacement flow through automatic delivery is in place, leaving one supported Bug runtime.",
+              "Remove the separate test child and factory check orchestration, remaining self-check readers and dependencies, and self-check inputs used to identify or describe a repair.",
+              "Remove Bug-specific exhaustion commands and state-specific retry machinery made obsolete by the common stop-and-resume rule.",
+              "Retire duplicate active Bug lifecycle stores for repair, checks, delivery review, merge, closure and exceptional stops where the simplified flow already retains the required information. Preserve historical evidence and audit records.",
+              "Provide a forward database upgrade that supports existing installations and fresh databases while preserving applied migration history.",
+              "Measure the net reduction against the saved Bug source baseline, retaining the proposed target of at least 7,762 non-test Go lines removed from 15,524. Count replacement shared code against the saving; renaming or moving code does not count as removal.",
+              "Preserve existing issues, discussions, branches, edits, PRs and history during cleanup without migrating, restarting or reposting old Bug executions."
+            ],
+            "not_in_scope": [
+              "Migrating, restarting, reconciling delivery for or otherwise managing old Bug executions; the owner will repost issues separately.",
+              "Keeping a parallel legacy Bug runtime after removal.",
+              "Deleting audit records, applied migration history, issues, branches, unfinished work or PRs to simplify the upgrade.",
+              "Redesigning the replacement diagnosis, approval, repair, validation, stop-and-resume or delivery behavior supplied by the preceding stories.",
+              "A general platform rewrite, changes to unrelated workflow policy, permission expansion or rebuilding the separate branch's completed permission changes."
+            ],
+            "dependencies": {
+              "story_keys": [
+                "story-004"
+              ],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "agent-setup"
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Removal boundary",
+                  "decision": "Retain the replacement graph, agent contracts, shared attempts/waits and shared delivery from stories 001–004. Remove the obsolete Bug coordinators and their registration, scheduling and persistence dependencies only after those replacement capabilities exist.",
+                  "rationale": "The old behavior spans internal/turn, internal/store, daemon wiring and packaged DOT. Deleting bug_tests.dot alone leaves executable paths and ledger coupling."
+                },
+                {
+                  "area": "Historical storage",
+                  "decision": "Keep the six consolidated legacy tables under their existing names as read-only history. Retire runtime accessors and active writes rather than copying them into a second archive or deleting rows. Preserve all historical migration files and applied-version records.",
+                  "rationale": "Migration 0079 defines bug_tasks, bug_analyses, bug_repairs, bug_checks, bug_delivery and bug_events; 0080 rebuilds repair grants. Existing foreign keys and evidence references remain intact if these tables stay in place. Fewer active stores does not mean fewer historical SQL files."
+                },
+                {
+                  "area": "Shared dependencies",
+                  "decision": "Preserve the portions of bugchecks and check configuration still used by Spike, shared git/forge primitives, and the pure analysis/result types required by the replacement. Remove only functions with no remaining consumer; moving shared code does not count as removal.",
+                  "rationale": "internal/turn/spike_check.go calls bugchecks.Isolation.Run, with isolation wired in daemon/setup.go and turn/mcp_runtime.go. The package name is not an ownership boundary."
+                },
+                {
+                  "area": "Old execution safety",
+                  "decision": "Keep pinned graph admission fail-closed when an obsolete definition has no supported handler. Old rows, worktrees and remote objects remain untouched; do not resume, cancel, migrate, reclassify or reconcile those executions as part of cleanup.",
+                  "rationale": "The owner will repost old issues. Removing a runtime must not reinterpret old pending work as new-flow authority or turn cleanup into the rejected cutover story. Unsupported old dispatches must be refused before any provider or remote mutation."
+                },
+                {
+                  "area": "Reduction target",
+                  "decision": "Retain the proposed 7,762-line net reduction target against the exact saved 15,524-line baseline. Count all replacement non-test Go added across this feature against the saving, including shared code outside Bug-named files.",
+                  "rationale": "The retained source recount identifies 57 files and 15,524 lines: 7,711 in store and 5,628 in turn provide the main removal candidates. Deletability and net reduction are not yet demonstrated; the target is not permission to remove required shared behavior or history."
+                },
+                {
+                  "area": "Resolved dependency and limits",
+                  "decision": "Cleanup depends on the complete replacement through story-004. Preserve story-003's owner-authorized local recovery checkpoints, canonical tested-input identities and graph-backed validation evidence, together with story-004's shared delivery journal and owner-released stale recovery. The checkpoint question is resolved; no new checkpoint or delivery subsystem belongs in cleanup. No frontend design or permission change applies.",
+                  "rationale": "The owner answered Yes to local recovery checkpoints, and stories 003–004 now define their boundaries. These are replacement capabilities, not obsolete machinery. This review uses source inspection and the retained baseline recount, not product tests, live inventory or an executed database upgrade."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Legacy consolidated Bug tables",
+                  "definition": "Retain all existing columns, rows, primary keys, foreign keys and embedded evidence in bug_tasks, bug_analyses, bug_repairs, bug_checks, bug_delivery and bug_events.",
+                  "constraints": "A new forward SQL migration makes obsolete tables read-only after new-flow writers have moved away, using explicit INSERT/UPDATE/DELETE refusal triggers. No row is marked completed, cancelled or migrated. Audit retention also forbids cascading deletion through an ancestor; account for that in existing cleanup paths."
+                },
+                {
+                  "entity": "Shared graph and result records",
+                  "definition": "Graph definitions, instances, attempts, outputs, owner waits, report journals and accepted result revisions remain the new flow's active source of truth and preserve old references. Retain replacement checkpoint/synchronization facts, validation generations and delivery bindings/effect observations, including links across changed validation generations.",
+                  "constraints": "Remove Bug child hooks without deleting their recorded outputs or pinned packages. Read-only legacy records never become current approval, dispatch or delivery authority. Reuse shared graph history for ordinary inspection; retain raw historical payloads even where their runtime decoder is removed. Cleanup must not clear an uncertain effect, consumed reply or checkpoint identity to make a new-flow instance appear complete."
+                },
+                {
+                  "entity": "Migration history and compatibility",
+                  "definition": "Retain schema_migrations and the embedded ordered migration chain. Add a new migration for archive enforcement; fresh databases pass through the existing chain and finish with empty read-only legacy tables.",
+                  "constraints": "Current databases with 0079 already applied retain every surviving row. A later migration cannot restore records 0079 previously deleted. Before applying a still-pending 0079 to a populated older database, the upgrade must refuse before that destructive step and require a separately reviewed preservation upgrade; do not silently run through it or imply universal historical recovery."
+                },
+                {
+                  "entity": "Measurement inventory",
+                  "definition": "Retain an immutable baseline file list and per-file logical line counts, then map actual deletions, retained shared code, moved code and replacement additions across stories 001–005.",
+                  "constraints": "Use the saved baseline commit f6c814ec4f8df34ec2e7c3c262f43ef5383f04ef and research selection rule: internal Go files whose basename starts with bug or whose path contains buganalysis/bugchecks, excluding _test.go. Count blank/comment lines consistently. Report SQL-file count and active-store count separately from Go reduction."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Runtime and daemon composition",
+                  "responsibility": "Remove the old test-child executor, factory check phases, exhaustion grants, state-specific retry dispatch and old PR/review/merge/close coordinators after replacement wiring is complete.",
+                  "access": "internal/turn/bug_runtime*.go, bug_checks*.go and old lifecycle activities; internal/daemon/bug_test_dispatch.go, graph_dispatch.go, setup.go and daemon.go. Preserve the replacement admission guard and shared scheduler; do not retain an executable legacy fallback."
+                },
+                {
+                  "component": "Shared graph storage",
+                  "responsibility": "Remove dependency on Bug child records during general graph completion and dispatch. Keep graph semantics owned by the shared runtime and DOT.",
+                  "access": "internal/store/graph_attempts.go currently calls bugTestConsumeTx; internal/turn/graph_node.go queries BugTestParentCall/BugTestChildCall. Remove those hooks when the child is removed, without weakening unrelated waits or attempt atomicity."
+                },
+                {
+                  "component": "Database retirement",
+                  "responsibility": "Delete obsolete live accessors, grant machinery, check ledgers and self-check summaries once their callers are gone. Apply archive protection through the existing migration runner and keep history readable without maintaining a second runtime.",
+                  "access": "internal/store owns all SQL and migration guards; no new migration library. Keep the single-connection pool, explicit Migrate call and per-file transaction model. Pre-0079 preservation refusal belongs before destructive migration execution, not in the later archive migration."
+                },
+                {
+                  "component": "Workflow and command packaging",
+                  "responsibility": "Remove bug_tests.dot and obsolete action contracts/registrations, special exhaustion and test-retry commands, stale self-check references, and role text that promises factory tests or delivery review. Retain /approve-bug analysis and normal explicit cancellation policy.",
+                  "access": "teams/source/bug, internal/teamsource validators, agentresult policy registration and internal/daemon/bug_commands.go. Update supported package resource closure through existing packaging; never edit historical pinned packages to pretend they match the new graph."
+                },
+                {
+                  "component": "Shared checking, source observation and delivery",
+                  "responsibility": "Retain Spike's runner/isolation/configuration, story-003's shared local-save and canonical source-observation seams, and the shared delivery primitives adopted by story-004. Remove unused Bug-specific wrappers and self-check digest inputs from the active flow.",
+                  "access": "internal/bugchecks, internal/config, internal/git, internal/github and shared turn services. Historical digests remain stored as originally recorded and are not recomputed without their retired inputs. Retain accepted-result summaries and source/effect binding checks in replacement delivery; removing old check ledgers does not remove agent-owned validation evidence."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Activation ordering",
+                  "contract": "The replacement's active data path must no longer write the legacy tables before the archive migration is enabled. Register only the replacement runtime in the resulting binary. A missing prerequisite capability prevents admission instead of restoring an old handler. This includes local checkpoint recovery, tested-input observation and finalization reconciliation from stories 003–004.",
+                  "rationale": "This yields one supported runtime while allowing immutable historical tables to remain. Cleanup must not ship a graph whose downstream activities or recovery capabilities are absent."
+                },
+                {
+                  "element": "Forward upgrade",
+                  "contract": "Use the normal exclusive startup upgrade window, not a migration concurrent with a running writer. Apply the new archive migration transactionally after compatibility checks. Preserve old row values and references, and leave a failed migration unapplied. A populated database awaiting destructive 0079 is refused with an explicit preservation diagnostic.",
+                  "rationale": "migrate.go applies every unseen file in order, so a late archive migration alone cannot protect a pre-0079 database. The refusal is a compatibility safeguard, not permission to discard or automatically migrate old Bug executions."
+                },
+                {
+                  "element": "Retirement inventory",
+                  "contract": "Trace callers before deleting each old store/API. Remove self-check calls in repair handoff and PR digest/rendering, obsolete test-child consumers and check recovery wiring, then remove unreachable implementations and their obsolete contract fixtures. Retain regression coverage for shared behavior that survives.",
+                  "rationale": "Current bug_repair_handoff.go and bug_pr.go still read self-check data. Package-level deletion would break Spike and could conceal regressions in generic graph handling."
+                },
+                {
+                  "element": "Measurement accounting",
+                  "contract": "Compute net removal from actual baseline code eliminated minus all new or expanded replacement non-test Go attributable to this feature. Charge reused code moved out of measured names as retained, not deleted, and avoid credit for unrelated deletions. Include checkpoint, source-observation, validation-evidence and shared delivery additions in that charge. Present the resulting inventory with both endpoint revisions and the exact counting rule.",
+                  "rationale": "A reduced Bug filename count alone can be produced by renaming. The target measures maintenance reduction across the whole replacement, not cosmetic relocation."
+                },
+                {
+                  "element": "Target feasibility and failure",
+                  "contract": "Treat 7,762 as the retained proposed target until implementation provides the full accounting. If the safe replacement cannot meet it, report the measured shortfall for a scoped plan revision; never delete shared consumers, tests of retained invariants or historical data to manufacture the number.",
+                  "rationale": "Source inspection identifies substantial removable machinery but cannot prove the final size before the replacement exists. This preserves the intended reduction and its honest limits."
+                },
+                {
+                  "element": "Old-data and remote boundaries",
+                  "contract": "Archive enforcement and code removal perform no forge mutation, branch cleanup, PR reconciliation, worktree reset or issue reposting. Unsupported old graph definitions produce an actionable refusal and retain their evidence. Reposting and any old remote-effect resolution remain separate owner work.",
+                  "rationale": "This honors the owner's removal of the transition story without assuming old executions are absent or treating history as disposable."
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

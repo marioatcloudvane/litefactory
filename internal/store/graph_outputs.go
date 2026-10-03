@@ -4,8 +4,23 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 )
+
+// LatestGraphRecord reads an immutable typed record from shared graph history.
+// It supplies no dispatch, approval or delivery authority; callers recheck its
+// exact source attempt and current factory binding before using it.
+func (db *DB) LatestGraphRecord(ctx context.Context, instanceID int64, record string) (out json.RawMessage, err error) {
+	if instanceID < 1 || record == "" || len(record) > 256 {
+		return nil, graphInvariant("invalid graph record binding")
+	}
+	err = db.withTx(ctx, func(tx *sql.Tx) error { return graphRecordTx(ctx, tx, instanceID, record, &out) })
+	if err != nil {
+		return nil, fmt.Errorf("store: latest graph record: %w", err)
+	}
+	return out, nil
+}
 
 const graphOutputColumns = `id,node_attempt_id,kind,payload,owner_comment_id,created_at`
 

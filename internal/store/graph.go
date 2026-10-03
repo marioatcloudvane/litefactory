@@ -90,11 +90,14 @@ type GraphTransition struct {
 // GraphAttemptStart reserves the next attempt. Limit zero is unbounded; a
 // positive limit caps total dispatches of this node across the entire instance.
 type GraphAttemptStart struct {
-	InstanceID int64
-	Node       string
-	RunID      int64
-	Limit      int
-	StartedAt  time.Time
+	// OwnerAllowanceSource binds a successfully allocated mechanical owner
+	// continuation to one immediately declared substantive invocation.
+	OwnerAllowanceSource int64
+	InstanceID           int64
+	Node                 string
+	RunID                int64
+	Limit                int
+	StartedAt            time.Time
 }
 
 // GraphCompletion commits attempt, outputs, transition and instance progress

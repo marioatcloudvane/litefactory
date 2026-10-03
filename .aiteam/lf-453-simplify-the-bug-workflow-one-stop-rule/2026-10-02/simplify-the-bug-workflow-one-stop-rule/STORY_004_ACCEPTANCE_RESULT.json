@@ -1,0 +1,354 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Story-004 proposes 11 observable criteria and seven linked tasks. Completion will show that the factory delivered the exact validated repair, independently confirmed integration and closure, and recovered interrupted effects without duplicate delivery or a second Bug review. Stale or uncertain work remains parked with its reason. No material question remains.\n\nOnly criteria and tasks change. Settled intent, architecture, guidance and the dependency on story-003 remain intact. Proof methods describe future tests and observations; no implementation, executed checks, owner acceptance or remote publication is claimed.\n\nThe active Plan is exactly story-001 → story-002 → story-003 → story-004 → story-005. Parent link-only index: [story-001](https://github.com/marioatcloudvane/litefactory/issues/457), [story-002](https://github.com/marioatcloudvane/litefactory/issues/458), [story-003](https://github.com/marioatcloudvane/litefactory/issues/459), [story-004](https://github.com/marioatcloudvane/litefactory/issues/460), [story-005](https://github.com/marioatcloudvane/litefactory/issues/461). Story content and detailed review remain on the respective sub-issues. No active story is retired; the rejected transition proposal remains outside the set.\n\nShared decisions remain unchanged: explicit diagnosis approval; analyst-only workflow iteration; fixer-internal repair and validation; shared submissions and one stop rule; finite budgets; policy-aware synchronization and local preservation checkpoints; exact tested-input evidence; owner-released stale recovery; automatic factory delivery under repository protections; retained audit history; no migration or restart of old Bug executions. The owner will repost old issues. Cleanup retains the proposed 7,762-line net reduction target with replacement shared code charged against it.\n\nAssembled review status: stories 001–002 retain their recorded acceptance approvals. Story-003 has a pending acceptance review; this submission proposes story-004 acceptance. Story-005 still has its technical review pending and acceptance work remaining. The complete Plan is therefore not yet eligible for assembled acceptance or implementation readiness. The factory binds review to the exact current active set, dependencies and shared decisions; criteria and assembled review stay within the third stage. Once the remaining reviews and readiness requirements are complete, use /implement <instruction>.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "4022807848994c2441523c5e9269ab050bbaefe432eeea7a238d9c832359ff43",
+          "changed_sections": [
+            "criteria",
+            "tasks"
+          ],
+          "draft": {
+            "key": "story-004",
+            "name": "Deliver successful fixes automatically",
+            "user_story": {
+              "actor": "An authorized owner of a reported bug",
+              "want": "the factory to deliver the successfully validated repair and close the bug automatically",
+              "benefit": "the approved fix reaches main without another review round, and an interruption does not lose progress or falsely mark the bug complete",
+              "notes": [
+                "Assumption: delivery follows the existing shared factory policy for saving, pushing and merging, under repository permissions and protections.",
+                "Repair approval and the fixer's accepted success provide the agreed handoff; Bug adds no second owner review before merge.",
+                "Recovery applies to the simplified Bug flow. The owner will repost old bugs later; legacy execution migration and restart are outside scope.",
+                "No material intent questions remain."
+              ]
+            },
+            "problem": "A successful repair is not yet a delivered fix. Separate Bug delivery steps and another review round add work for the owner, while interrupted remote operations can leave it unclear whether the change was pushed, merged or the issue closed. Owners need the factory to finish delivery and confirm the result without repeating work that already succeeded.",
+            "in_scope": [
+              "Begin automatic factory delivery from the fixer's accepted succeeded result for the approved repair, using its evidence of the exact tested code.",
+              "Have the factory save and push the tested change, create or reuse the repair PR, merge the fix, confirm integration into main and then close the bug issue. Completion requires confirmed integration and confirmed closure.",
+              "Reuse shared factory delivery capabilities without requiring Bug work to enter the feature or story lifecycle. Retain repository protections and existing publication permissions.",
+              "Deliver only the code covered by current validation evidence. When tested inputs change, require the prerequisite story's fixer revalidation before continuing delivery; do not introduce a separate factory validation run.",
+              "Retain delivery identities and status for the change, PR, merge and issue closure so interrupted work can continue from known progress across restarts.",
+              "Check remote state before repeating an operation whose outcome is uncertain. Reuse confirmed effects, avoid duplicate delivery and, once the fix is confirmed merged, perform only any remaining closure work.",
+              "Apply the common owner-question stop rule when delivery cannot continue, preserving the reason and known progress. An authorized reply resumes remaining delivery work without another repair approval or merge review."
+            ],
+            "not_in_scope": [
+              "Diagnosing or repairing the bug, running the fixer's validation, or adding a factory test gate or repair loop.",
+              "A second Bug owner approval before merge or bypassing repository protections.",
+              "A new Bug-specific delivery subsystem, a general delivery platform rewrite or changes to unrelated feature and story policy.",
+              "Giving agents permission to push, merge or close issues themselves, or expanding existing permissions.",
+              "Migrating, restarting or reposting old Bug executions, removing legacy stores or runtime code, changing migration history or measuring code reduction."
+            ],
+            "dependencies": {
+              "story_keys": [
+                "story-003"
+              ],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "agent-setup"
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Reuse and separation",
+                  "decision": "Factor the reusable save, PR, guarded merge and closure operations from existing delivery coordination. Bind them to one factory finalization activity for Bug; keep feature-specific admission in the existing feature adapter.",
+                  "rationale": "internal/turn/feature_delivery.go and internal/store/delivery.go require a managed feature generation, readiness and PR approval. Calling that flow unchanged would import excluded lifecycle requirements. internal/github/delivery.go already provides reusable remote primitives."
+                },
+                {
+                  "area": "Delivery authority",
+                  "decision": "Admit finalization only from the current approved diagnosis and its accepted succeeded fixer result, successful execution and complete current validation evidence. Create a factory-owned delivery authorization bound to those references and the tested content. Do not fabricate a PR approval or request another owner review.",
+                  "rationale": "The owner explicitly selected automatic delivery. Keep feature merge approval unchanged and document the narrow Bug policy difference from APP_CONSTRAINTS.md CONC-11 in the repository's amendment record when implemented."
+                },
+                {
+                  "area": "Freshness",
+                  "decision": "Compare actual saved and remote content with story-003's canonical tested source and relevant validation-input identities before publication and merge. Changed inputs require fixer revalidation; finalization neither runs tests nor performs an unvalidated repair or synchronization.",
+                  "rationale": "harvest.go currently commits and pushes in one helper. The reusable seam must allow checking the saved tree before push. A new commit identity alone preserves evidence only if it changes no declared validation input, as defined by story-003."
+                },
+                {
+                  "area": "Graph ownership",
+                  "decision": "Expose one finalization activity with completed, stale, owner-released revalidation and stopping outcomes. DOT owns every cross-activity transition and owner-resume behavior. Stale first parks; revalidation is available only after the claimed owner continuation and reconciliation. The activity's ordered remote operations remain a recoverable delivery transaction.",
+                  "rationale": "This retains story-002's loop/agent/finalization shape, story-001's common wait and story-003's resolved stale recovery contract. Do not copy the old pr/merge/close node graph, create a Go next-node map or add an automatic repair/test loop."
+                },
+                {
+                  "area": "Permissions and compatibility",
+                  "decision": "Only the factory saves, pushes, creates PRs, merges and closes through existing git and forge gateways. Preserve repository protections, numeric identities, task ownership and explicit cancellation. Keep unrelated feature delivery semantics unchanged.",
+                  "rationale": "Existing agents have no forge credentials or delivery authority. Reuse does not authorize bypassing a required remote check or review, force-pushing, or mutating the registered clone checkout."
+                },
+                {
+                  "area": "Resolved dependency and scope",
+                  "decision": "Consume story-003's immutable delivery-eligibility binding: accepted result and successful execution, approved diagnosis, canonical tested content and validation inputs, target-main revision and passing evidence. Its owner-authorized local checkpoint is preservation only and never delivery authority; delivery starts after final succeeded.",
+                  "rationale": "The owner's Yes on issue 459 settled the checkpoint question. Story-003 now supplies the evidence and owner-released revalidation interface, replacing this story's earlier open assumption. No frontend design or legacy execution migration applies."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Delivery binding",
+                  "definition": "An immutable graph-backed binding links task/repository and numeric issue identity, pinned graph, fixer attempt and accepted result revision, approved diagnosis/review, tested content and relevant validation-input identities, validation evidence, saved commit/tree, task branch and target-main revision.",
+                  "constraints": "Factory resolves identities from retained state and actual source observations. Agent fields cannot choose another issue, branch or authority. A changed validation generation gets a new binding linked to its predecessor; prior effects and remote object identities remain immutable history, not permission to duplicate a PR or merge."
+                },
+                {
+                  "entity": "Effect journal",
+                  "definition": "Retain save, push, PR creation/reuse, merge and closure operation identities with pending intent, dispatched, observed/refused/uncertain and confirmed facts in shared graph attempt records or their shared effect projection.",
+                  "constraints": "Use one authoritative record, not parallel Bug repair/check/delivery ledgers. Operation keys survive new resume attempts and bind exact effect inputs. Record intent before I/O and observations afterward. Compare-and-set claims prevent concurrent dispatch; do not hold a database transaction over I/O."
+                },
+                {
+                  "entity": "Remote identities and completion proof",
+                  "definition": "Retain remote branch head, PR numeric ID/number, repository/branch/base and bot provenance, merge SHA and parent/integration observations, plus issue identity and confirmed closed state.",
+                  "constraints": "A successful HTTP response is not confirmation. A closed issue alone is not delivery proof. Completed requires confirmed integration of the authorized tested head into intended main and confirmed closure. Preserve contradictory observations rather than replacing them with success."
+                },
+                {
+                  "entity": "Wait and resume",
+                  "definition": "Reuse story-001's durable origin wait, publication identity and consumed reply. Link the wait to the same delivery binding and outstanding effect, retaining any stale validation reason for story-003.",
+                  "constraints": "Owner guidance resumes finalization reconciliation once, not blind redispatch. Confirmed valid integration bypasses all repair, save, push and PR work; only remaining closure/report work may continue. A merged but unverified effect stays parked without another merge or automatic repair. Keep historical migration files; any shared persistence extension is a forward migration."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Shared delivery operations",
+                  "responsibility": "Provide PR discovery/creation, guarded merge and observed closure with workflow-neutral inputs and a narrow factory authorization contract. Feature and Bug adapters supply their different admission checks.",
+                  "access": "Extract focused reusable operations from internal/turn/feature_delivery.go; retain existing internal/github/delivery.go methods and redacted mutation types. Do not pass a fake feature generation or approval comment into store.DeliveryProposal."
+                },
+                {
+                  "component": "Factory finalization activity",
+                  "responsibility": "Resolve and recheck the Bug binding, coordinate ordered effects, persist progress and return a declared outcome. Reuse the conservative observation rules in bug_merge.go and bug_close.go while removing their dependency on test-child and delivery-review records for the new flow.",
+                  "access": "internal/turn activity registry and internal/graphexec contracts, using graph persistence in internal/store. Dependencies are supplied by the factory, never role text. Consume only the accepted shared result; terminal text has no role."
+                },
+                {
+                  "component": "Save and source observation",
+                  "responsibility": "Reuse the local save and push mechanics through a seam that validates tested content before save, verifies the resulting tree before push and observes remote head afterward. Recover a completed local commit without committing it twice. Take commit and PR summaries from the accepted structured result, never terminal text.",
+                  "access": "internal/turn/harvest.go and internal/git, using story-003's shared local-save and canonical observation seams. Keep task ownership and CloneGate around local git critical sections, including observation and mutation. Existing ObserveBugRepair requires an already saved clean commit and cannot alone identify uncommitted tested input. harvest.go currently reads runResult.ResultText for the commit summary; Bug must replace that input with retained structured evidence."
+                },
+                {
+                  "component": "Store, reporting and scheduler",
+                  "responsibility": "Store atomically retains binding, claims and observations; reporter publishes progress/questions through the existing journal; daemon schedules bounded reconciliation and owner continuations.",
+                  "access": "SQL remains in internal/store with its single connection and context-first calls. No sleeps or retry loops below daemon, no lock spanning an agent call, and no transaction spanning git or forge I/O. Use existing task coordination to exclude concurrent finalization."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Successful handoff and save",
+                  "contract": "Check current approval, accepted succeeded result, successful fixer execution and validation completeness. Observe tested inputs under task coordination. Save only the evidenced change, verify the saved tree equals the tested content and retain its commit identity. If save introduces changed content or unrelated unvalidated edits, stop before push. An earlier recovery checkpoint is not a successful handoff and must not activate the save/push path.",
+                  "rationale": "This separates local save from publication and prevents success on one tree from authorizing another. Commit metadata changes can be recorded without pretending tests ran again only when no declared validation input changes."
+                },
+                {
+                  "element": "Push and PR",
+                  "contract": "Push through existing non-force policy and confirm the remote branch matches the retained saved commit. Find or create one factory-owned PR for the bound repository, branch and main. Correlate numeric identity, bot provenance and durable marker; ambiguous matches or a closed unmerged PR park. Recover uncertain creation by observation before any new create.",
+                  "rationale": "ListDeliveryPRs includes closed and merged PRs, providing a reuse/recovery seam. Existing PR content rendering must describe Bug evidence and omit feature approval instructions and automatic issue-closing keywords."
+                },
+                {
+                  "element": "Merge and confirmation",
+                  "contract": "Immediately before merge, recheck current evidence, PR/head/base identity, remote branch head and target-main revision. Dispatch the existing expected-head guarded merge only after durable claim. Independently observe PR merge facts and merge commit ancestry tying the tested head to intended main before allowing closure.",
+                  "rationale": "MergeDeliveryPR guards the PR head, not the main revision. Preserve bug_merge.go's separate precheck and integration observations. Remote branch protection remains authoritative."
+                },
+                {
+                  "element": "Concurrent main changes",
+                  "contract": "Treat an observed pre-merge target change as stale and require story-003 revalidation. The current API cannot atomically lock main with the merge request; inspect actual merge parents/content after dispatch. If a race produces integration outside the retained validation binding, record the merge fact, park and withhold closure rather than claiming verified delivery or attempting to merge again.",
+                  "rationale": "A local lock cannot serialize external writers. This states the practical limit of the existing shared API without inventing an atomic base guard, bypassing protections or silently trusting stale evidence."
+                },
+                {
+                  "element": "Closure",
+                  "contract": "After confirmed authorized integration, observe the bound issue. Close it only if still open and its numeric identity matches, then independently confirm closure. If already closed after confirmed integration, record that observation without another mutation. Once completed, external reopening does not trigger automatic reclosure.",
+                  "rationale": "Reuse CloseDeliveredParent and the stronger recovery discipline in bug_close.go. Issue closure must not stand in for integration proof or run ahead of it."
+                },
+                {
+                  "element": "Partial effects and uncertainty",
+                  "contract": "On every resume first load the existing delivery journal and observe uncertain effects. A timeout, lost reply or open PR does not prove nonexecution. Reuse confirmed effects; repeat a mutation only when authoritative observations establish it did not occur and its binding still permits it. If outcome stays uncertain, park through story-001. Preserve a successful local commit after push failure.",
+                  "rationale": "This prevents duplicate PRs, repeated merges and premature closure across restart. A user reply grants continuation but cannot erase uncertainty or make stale evidence current."
+                },
+                {
+                  "element": "Stale evidence boundary",
+                  "contract": "Record stale evidence and park at finalization with its reason. An authorized reply resumes that origin once. Reconcile effects first; only when no merge has occurred or remains uncertain and revalidation is still required may finalization return the DOT-declared revalidation outcome. DOT then admits the fixer with current approval, stale reasons and a new validation generation under story-003. Finalization never dispatches the fixer directly. After the new succeeded result, reconcile the prior journal, reuse the existing PR and confirmed compatible effects, and bind any new effects to the new evidence. Confirmed valid integration resumes only remaining closure.",
+                  "rationale": "Story-003 now defines this owner-released recovery path. No automatic finalization-to-fixer test loop or factory check is introduced. Revalidation does not erase old effects or authorize a second merge; uncertain or merged-but-unverified effects remain parked for reconciliation."
+                }
+              ]
+            },
+            "criteria": [
+              {
+                "id": "AC-001",
+                "text": "Automatic delivery starts only from the current approved diagnosis, accepted succeeded fixer result, successful execution and complete current validation binding. It requires no second Bug review or feature/story lifecycle admission. Receipts, terminal text, legacy authored evidence and preservation checkpoints grant no delivery authority.",
+                "proof_method": "Future admission tests will vary each prerequisite and inspect delivery calls and retained authorization. A complete Bug handoff without feature generation or PR approval will enter finalization; missing, stale, foreign-task and failed-execution cases will not. Regression tests will retain feature delivery's existing approval requirements. Review will verify the narrow CONC-11 amendment."
+              },
+              {
+                "id": "AC-002",
+                "text": "The factory saves only the evidenced content, checks the saved tree and relevant validation inputs before push, and retains the exact commit identity. Changed or unrelated unvalidated content stops publication. Commit and PR summaries come from the accepted structured result.",
+                "proof_method": "Future temporary-repository tests will compare tested manifests with pre-save and post-save observations, including new files, deletions, modes, added edits and metadata-only commits. They will show no push on mismatched inputs and evidence reuse only when declared inputs remain unchanged. Conflicting or absent terminal text will not alter summaries or delivery decisions; restart after local save will reuse the commit."
+              },
+              {
+                "id": "AC-003",
+                "text": "Push uses existing non-force policy and is confirmed by observing the remote head. The factory creates or reuses one PR bound to the repository, task branch, main, numeric identity, bot provenance and durable marker. Ambiguous matches and closed unmerged PRs park; PR content describes Bug evidence without feature approval instructions or automatic issue-closing keywords.",
+                "proof_method": "Future git/forge tests will cover confirmed push, rejected push, mismatched remote head, existing/open/merged/closed PRs, foreign provenance and ambiguous matches. Rendered-content fixtures will inspect evidence and prohibited instructions/keywords. Lost creation acknowledgments will be recovered by observation with the existing PR identity and no duplicate create."
+              },
+              {
+                "id": "AC-004",
+                "text": "Immediately before merge, finalization rechecks current evidence, PR/head/base identity, remote branch head and target-main revision. Merge uses the expected-head guard under existing repository protections. Closure requires independent observations proving integration of the authorized tested head into intended main; an HTTP success alone is insufficient.",
+                "proof_method": "Future controlled-forge tests will change each precondition, simulate required remote checks/reviews and protected-branch refusals, and inspect merge requests and call order. Positive and contradictory PR/commit-ancestry fixtures will show when integration is confirmed and when closure is withheld. No force-push or protection bypass will appear in recorded calls."
+              },
+              {
+                "id": "AC-005",
+                "text": "A target-main change observed before merge makes evidence stale. A concurrent change during merge that integrates outside the validation binding retains the merge fact, parks and withholds closure. It does not trigger another merge or automatic repair.",
+                "proof_method": "Future race tests will move main before precheck and between precheck and merge response, then supply actual merge parents/content. They will inspect stale versus merged-but-unverified records, preserved contradictory observations and zero closure/repeated-merge/fixer calls. The evidence report will state that the current remote API cannot atomically lock main with the merge request."
+              },
+              {
+                "id": "AC-006",
+                "text": "The factory closes only the bound numeric issue after confirmed authorized integration, then independently confirms its closed state. An already closed issue requires no repeated close. Completed requires both integration and closure; external reopening after completion does not cause automatic reclosure.",
+                "proof_method": "Future closure tests will cover open, already closed, wrong-identity, unconfirmed integration, close refusal, lost acknowledgment and contradictory observations. Restart after confirmed integration will perform only outstanding closure/report work, with no repair, save, push, PR or merge mutation. A post-completion reopen fixture will show no automatic close."
+              },
+              {
+                "id": "AC-007",
+                "text": "One shared effect journal retains immutable delivery bindings and save/push/PR/merge/closure intents, claims and observations across restart. Intent precedes mutation, operation identities survive continuation, and competing workers cannot dispatch the same claim concurrently. Storage failure cannot manufacture progress or release an unrecorded effect.",
+                "proof_method": "Future persistent-store tests will fault before and after intent/claim/observation writes and reopen storage at each boundary. They will compare task, issue, graph, result, approval, source, validation generation and remote identities plus operation keys and states. Concurrent-claim tests will show one authorized dispatch. Any shared-schema extension will preserve history on fresh/upgraded fixtures without a parallel Bug delivery ledger."
+              },
+              {
+                "id": "AC-008",
+                "text": "Every resume observes uncertain effects before repeating mutations and reuses confirmed effects. A timeout, lost response or open PR alone is not proof of nonexecution. Repetition requires authoritative evidence that the operation did not occur and that its binding still permits it; continuing uncertainty parks with its reason and known progress.",
+                "proof_method": "Future cross-component fault tests will lose acknowledgments for save, push, PR creation, merge and closure, restart, and compare observation order, operation keys and mutation counts. Positive nonexecution fixtures will permit a valid retry; ambiguous and contradictory fixtures will stay parked. Push failure will preserve the completed local commit. Confirmed integration will reduce remaining work to closure/reporting."
+              },
+              {
+                "id": "AC-009",
+                "text": "Stale evidence parks at finalization. One authenticated owner reply resumes that origin and reconciles effects first. Revalidation is available only when no merge has occurred, no merge outcome remains uncertain, and new validation is still needed. DOT admits the fixer with current approval and stale reasons; subsequent delivery reuses the existing PR and compatible effects while linking the new binding to its predecessor.",
+                "proof_method": "Future graph/recovery tests will cover stale parking, no reply, duplicate/unauthorized replies, unresolved merge effects, confirmed integration and eligible revalidation. They will inspect origin, consumed reply, DOT transition, generation links and unchanged historical effects. A controlled new succeeded result will return to finalization using the existing PR. No automatic fixer dispatch or second merge will be inferred from a new generation."
+              },
+              {
+                "id": "AC-010",
+                "text": "One factory finalization activity exposes its outcomes through DOT, uses shared delivery operations and story-001 stops, and performs no build/test recipe, repair or synchronization. Existing task ownership, cancellation, agent permissions and unrelated feature behavior remain effective; unsupported legacy executions are not migrated or restarted.",
+                "proof_method": "Future package and renamed-node DOT tests will inspect completed/stale/revalidation/stopping routes and reject automatic repair cycles. Controlled delivery tests will inspect cancellation and unauthorized identities with no further mutation. Source/tool-policy review will verify shared git/forge gateways, factory-only effects, no Go next-node map, no new Bug delivery subsystem, no agent credential expansion and no registered-clone mutation. Feature and pinned-legacy regression cases will show unchanged admission."
+              },
+              {
+                "id": "AC-011",
+                "text": "Owners can see retained delivery progress and the reason for a parked finalization through factory reporting. Completion reports distinguish confirmed integration and closure from accepted input, pending effects and uncertainty; publication failures retain report debt without changing those facts.",
+                "proof_method": "Future report fixtures and persistent recovery tests will compare visible reasons and effect identities for refusal, stale evidence, uncertain merge and confirmed completion, including redaction and lost post acknowledgment. Implementation review will map each criterion to revision-bound evidence and record make check, the full race-enabled make test suite and clean gofmt output. These are future obligations, not executed evidence."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Deliver workflow-neutral shared delivery operations and the Bug admission/binding adapter, retaining feature approval policy and documenting the settled CONC-11 exception.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-010"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-002",
+                "description": "Deliver shared durable delivery bindings and effect claims/observations, including generation links and restart-safe identities; provide a forward shared migration only if required.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-008",
+                  "AC-009"
+                ],
+                "depends_on": [
+                  "T-001"
+                ]
+              },
+              {
+                "id": "T-003",
+                "description": "Deliver evidence-bound save/push, PR creation/reuse, guarded merge, integration observation and confirmed closure through existing gateways, using accepted structured summaries.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-008"
+                ],
+                "depends_on": [
+                  "T-001",
+                  "T-002"
+                ]
+              },
+              {
+                "id": "T-004",
+                "description": "Wire the single finalization activity, DOT outcomes, stale owner continuation, uncertain-effect reconciliation and factory reporting to stories 001–003; preserve cancellation and scope boundaries.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-005",
+                  "AC-006",
+                  "AC-008",
+                  "AC-009",
+                  "AC-010",
+                  "AC-011"
+                ],
+                "depends_on": [
+                  "T-003"
+                ]
+              },
+              {
+                "id": "T-005",
+                "description": "Deliver focused admission, content-binding, PR matching/rendering, merge/closure, journal, topology and feature-policy regression tests, including denied and contradictory cases.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-009",
+                  "AC-010",
+                  "AC-011"
+                ],
+                "depends_on": [
+                  "T-004"
+                ]
+              },
+              {
+                "id": "T-006",
+                "description": "Deliver persistent cross-component delivery tests with temporary repositories and controlled forge/agent boundaries for lost acknowledgments at every effect, competing claims, main races, stale generations and owner/restart recovery. Use ordinary Go tests under existing conventions, without an integration build tag or a new test class.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-008",
+                  "AC-009",
+                  "AC-010",
+                  "AC-011"
+                ],
+                "depends_on": [
+                  "T-004"
+                ]
+              },
+              {
+                "id": "T-007",
+                "description": "Review source and packaged resources against every criterion, run required repository checks and retain revision-bound commands, outcomes and criterion-to-evidence links, reporting remaining failures without claiming owner acceptance.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-008",
+                  "AC-009",
+                  "AC-010",
+                  "AC-011"
+                ],
+                "depends_on": [
+                  "T-005",
+                  "T-006"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
