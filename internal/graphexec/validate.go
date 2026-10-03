@@ -82,8 +82,16 @@ func Validate(p *Profile, registry Registry) error {
 	canTerminate := walk(terminals, reverse)
 	for _, node := range p.Nodes {
 		for _, outcome := range node.Outcomes {
-			if count := counts[node.Name][outcome]; count != 1 {
-				faults = append(faults, fmt.Errorf("node %q outcome %q has %d edges; want exactly one", node.Name, outcome, count))
+			expected := 1
+			if ParksOutcome(node, outcome) {
+				expected = 0
+			}
+			if count := counts[node.Name][outcome]; count != expected {
+				if expected == 1 {
+					faults = append(faults, fmt.Errorf("node %q outcome %q has %d edges; want exactly one", node.Name, outcome, count))
+				} else {
+					faults = append(faults, fmt.Errorf("node %q parked outcome %q has %d edges; want none", node.Name, outcome, count))
+				}
 			}
 		}
 		if !reachable[node.Name] {
@@ -110,6 +118,9 @@ func Validate(p *Profile, registry Registry) error {
 
 func validateNode(node Node, mode agent.Workflow, registry Registry) []error {
 	var faults []error
+	if err := validateOwnerStop(node, mode); err != nil {
+		faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
+	}
 	if node.Limit < 0 || (node.Attrs["lf_limit"] != "" && node.Limit == 0) {
 		faults = append(faults, fmt.Errorf("node %q lf_limit must be positive when supplied", node.Name))
 	}

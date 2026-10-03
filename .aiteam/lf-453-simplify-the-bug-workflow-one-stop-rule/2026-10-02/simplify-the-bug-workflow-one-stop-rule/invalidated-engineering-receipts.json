@@ -1,0 +1,52 @@
+[
+  {
+    "story": "story-001",
+    "request_id": "803ba892e034384bf1ccf00a6a399804",
+    "states": {
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    }
+  },
+  {
+    "story": "story-002",
+    "request_id": "66dd582924023656014c28be8d2b7c43",
+    "states": {
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    }
+  },
+  {
+    "story": "story-003",
+    "request_id": "601b32545feea57facacd29d15c944f6",
+    "states": {
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    }
+  },
+  {
+    "story": "story-004",
+    "request_id": "b5502d13465d42ba988e2bfae280dd53",
+    "states": {
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    }
+  },
+  {
+    "story": "story-005",
+    "request_id": "8ff2cd250200f3c5751e70be62aac239",
+    "states": {
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    }
+  }
+]

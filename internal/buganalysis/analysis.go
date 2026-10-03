@@ -133,8 +133,8 @@ func (a BugAnalysis) Validate(review bool) ([]Notice, error) {
 		required("environment", a.Reproduction.Environment)
 		required("cause", a.Cause)
 		required("remedy", a.Remedy)
-		if len(a.Reproduction.Steps) == 0 || len(a.Evidence) == 0 || len(a.Exclusions) == 0 || len(a.Criteria) == 0 {
-			faults = append(faults, errors.New("bug analysis: review needs reproduction steps, cause evidence, exclusions and measurable criteria"))
+		if (len(a.Reproduction.Steps) == 0 && a.Reproduction.Observation != "not_observed") || len(a.Evidence) == 0 || len(a.Exclusions) == 0 || len(a.Criteria) == 0 {
+			faults = append(faults, errors.New("bug analysis: review needs reproduction steps or explicitly not-observed alternative evidence, exclusions and measurable criteria"))
 		}
 	}
 	switch a.Reproduction.Observation {
@@ -166,6 +166,9 @@ func (a BugAnalysis) Validate(review bool) ([]Notice, error) {
 			faults = append(faults, fmt.Errorf("bug analysis: invalid or duplicate question %q", q.ID))
 		}
 		seen[q.ID] = true
+		if review && q.Material {
+			faults = append(faults, fmt.Errorf("bug analysis: material question %q remains unresolved", q.ID))
+		}
 		required("question", q.Text)
 	}
 	encoded, err := json.Marshal(a)

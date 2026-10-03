@@ -17,8 +17,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/graphexec"
-	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
@@ -47,9 +45,6 @@ func bugResultBoundaryFixture(t *testing.T) (*store.DB, store.Session, AgentResu
 		t.Fatal(err)
 	}
 	if _, err = db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: session.ID, Version: 1, Family: "standalone", Workflow: "bug"}); err != nil {
-		t.Fatal(err)
-	}
-	if err = db.EnsureBugRecord(t.Context(), store.BugIdentity{SessionID: session.ID, Repository: "example/bugs", IssueID: 10391, IssueNumber: 391, OwnerID: 42}); err != nil {
 		t.Fatal(err)
 	}
 	seg, err := db.GetOrCreateSegment(t.Context(), session.ID, 1, "bug-results", store.AgentClaude)
@@ -175,137 +170,8 @@ func TestBugResultBoundaryServiceRejectsMismatchedAuthority(t *testing.T) {
 	}
 }
 
-func TestBugResultBoundaryReceiptAndTerminalCannotApplyWithoutSuccessfulInvocation(t *testing.T) {
-	db, session, options, _ := bugResultBoundaryFixture(t)
-	service, err := BindAgentResultService(t.Context(), options)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now()
-	definition, err := db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Workflow: "bug", ProfileVersion: 1, Path: "bug/bug.dot", Digest: strings.Repeat("a", 64), CreatedAt: now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	instance, err := db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "analyst", StartedAt: now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	attempt, err := db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "analyst", RunID: options.Attempt.RunID, StartedAt: now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	pass := store.BugAnalysisPass{SessionID: session.ID, Invocation: "analysis-1", InputDigest: strings.Repeat("b", 64), GraphAttemptID: attempt.ID}
-	if _, err = db.ReserveBugAnalysisPass(t.Context(), pass, 1); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.ClaimBugAnalysisDispatch(t.Context(), session.ID, pass.Invocation, pass.InputDigest, options.Attempt.RunID); err != nil {
-		t.Fatal(err)
-	}
-	data := bugResultBoundaryBlocked()
-	terminal := []byte(`{"version":1,"response":"blocked","result":` + strings.TrimSuffix(strings.TrimPrefix(string(data), `{"result":`), `}`) + `}`)
-	// Exercise the real retained-result boundary with the production Bug decoder;
-	// this does not claim the complete Bug workflow registry is ready.
-	activity := AgentActivity{Policy: WorkflowPolicy{Workflow: agent.WorkflowBug, Decode: ar.DecodeBugNode}}
-	if _, _, err := activity.acceptRetained(t.Context(), service, string(terminal)); !errors.Is(err, errNoRetainedResult) {
-		t.Fatalf("terminal-only retained boundary: %v", err)
-	}
-	application := store.BugAnalysisApplication{SessionID: session.ID, ExpectedRevision: 2, Invocation: pass.Invocation, Operation: "record-1", InputDigest: strings.Repeat("c", 64), ResultID: service.Binding().ResultID, ResultRevision: 1}
-	if _, err := db.ApplyBugAnalysis(t.Context(), application); err == nil {
-		t.Fatal("terminal-only output applied analysis")
-	}
-	submitted, err := service.Submit(t.Context(), "request-1", data)
-	if err != nil || !submitted.Validation.Valid {
-		t.Fatalf("submit: %+v %v", submitted, err)
-	}
-	if _, err := service.Receipt(t.Context(), options.Attempt.RunID, "request-1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ApplyBugAnalysis(t.Context(), application); err == nil {
-		t.Fatal("receipt without process success applied analysis")
-	}
-	if _, _, err := activity.acceptRetained(t.Context(), service, ""); err == nil {
-		t.Fatal("receipt-only result lacked terminal consistency check")
-	}
-	if _, revision, err := activity.acceptRetained(t.Context(), service, string(terminal)); err != nil || revision != 1 {
-		t.Fatalf("matching retained confirmation: %d %v", revision, err)
-	}
-	// A Bug result routes by its own response, so a prose or truncated terminal
-	// text does not discard it (#384); a contradicting envelope still fails.
-	for _, text := range []string{"The analysis is submitted; the cause is the placeholder row.", string(terminal[:len(terminal)-1])} {
-		node, revision, err := activity.acceptRetained(t.Context(), service, text)
-		if err != nil || revision != 1 || node.Response != "blocked" || node.Result.Payload.Bug == nil {
-			t.Fatalf("retained Bug result discarded for terminal %q: %+v %d %v", text[:20], node.Response, revision, err)
-		}
-	}
-	contradicting := strings.Replace(string(terminal), `"response":"blocked"`, `"response":"done"`, 1)
-	if _, _, err := activity.acceptRetained(t.Context(), service, contradicting); err == nil {
-		t.Fatal("a contradicting envelope was accepted")
-	}
-
-	exit := int64(0)
-	if _, err := db.FinishRun(t.Context(), options.Attempt.RunID, store.RunOutcome{Status: store.RunSucceeded, ExitCode: &exit}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.FinishBugAnalysisPass(t.Context(), session.ID, pass.Invocation, "succeeded", ""); err != nil {
-		t.Fatal(err)
-	}
-	application.ExpectedRevision = 3
-	if _, err := db.ApplyBugAnalysis(t.Context(), application); err == nil {
-		t.Fatal("process success without graph result consistency applied analysis")
-	}
-	if err := db.CompleteGraphNodeAttempt(t.Context(), attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: time.Now(), Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "analyst", ToNode: "record", OnOutcome: "success", At: time.Now()}, Outputs: []store.GraphOutput{{Kind: "json", Payload: []byte(fmt.Sprintf(`{"result_id":%d,"result_revision":1}`, service.Binding().ResultID))}}}); err != nil {
-		t.Fatal(err)
-	}
-	revision, err := db.ApplyBugAnalysis(t.Context(), application)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if revision.ReviewReady || revision.Response != "blocked" || revision.Reason != "Reproduction requires owner evidence" || !reflect.DeepEqual(revision.Evidence, []string{"owner report unavailable"}) {
-		t.Fatalf("blocked-without-analysis lost evidence: %+v", revision)
-	}
-	state, _, approval, err := db.CurrentBugAnalysis(t.Context(), session.ID)
-	if err != nil || approval != nil || state.AnalysisUsed != 1 {
-		t.Fatalf("blocked receipt authorized repair: %+v %+v %v", state, approval, err)
-	}
-	// Exercise the concrete record/control handlers against the same durable
-	// blocked result. A successful process/graph is not authority to approve.
-	profile := &graphexec.Profile{Workflow: agent.WorkflowBug, Digest: definition.Digest, Nodes: []graphexec.Node{
-		{Name: "record", Action: BugRecordAction},
-		{Name: "gate", Action: graphexec.ResearchIfAction, Attrs: map[string]string{"lf_field": "response", "lf_condition": "approved", "lf_source": "record"}},
-	}}
-	recordAttempt, err := db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "record", StartedAt: time.Now()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := BugRecordActivity{Profile: profile, Resolve: func(context.Context, ActivityRequest) (BugRecordInput, error) {
-		return BugRecordInput{Identity: store.BugIdentity{SessionID: session.ID, Repository: "example/bugs", IssueID: 10391, IssueNumber: 391, OwnerID: 42}, Application: &application}, nil
-	}}
-	recorded, err := record.Execute(t.Context(), Options{DB: db}, ActivityRequest{Workflow: agent.WorkflowBug, InstanceID: instance.ID, NodeAttemptID: recordAttempt.ID, Node: "record"})
-	if err != nil || recorded.Outcome != "blocked" {
-		t.Fatalf("record outcome: %+v %v", recorded, err)
-	}
-	if err := db.CompleteGraphNodeAttempt(t.Context(), recordAttempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "blocked", FinishedAt: time.Now(), Outputs: []store.GraphOutput{{Kind: recorded.Kind, Payload: recorded.Output}}, Transition: &store.GraphTransition{InstanceID: instance.ID, FromNode: "record", ToNode: "gate", OnOutcome: "blocked", At: time.Now()}}); err != nil {
-		t.Fatal(err)
-	}
-	gateAttempt, err := db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "gate", StartedAt: time.Now()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	control := bugAnalysisControl{profile: profile, policy: graphexec.ControlPolicy{Workflow: agent.WorkflowBug, Responses: []string{"ask", "done", "approved", "blocked", "exhausted"}, Ask: "ask", Approved: "approved"}}
-	gateRequest := ActivityRequest{Workflow: agent.WorkflowBug, InstanceID: instance.ID, NodeAttemptID: gateAttempt.ID, Node: "gate"}
-	decision, err := control.Execute(t.Context(), Options{DB: db}, gateRequest)
-	if err != nil || decision.Outcome != "false" {
-		t.Fatalf("blocked record authorized repair: %+v %v", decision, err)
-	}
-	profile.Nodes[1].Attrs["lf_source"] = "analyst"
-	if _, err := control.Execute(t.Context(), Options{DB: db}, gateRequest); err == nil {
-		t.Fatal("control accepted non-record source")
-	}
-
-}
-
 func TestBugResultBoundaryLocalBrokerCommunicationOnly(t *testing.T) {
-	db, session, options, _ := bugResultBoundaryFixture(t)
+	db, _, options, _ := bugResultBoundaryFixture(t)
 	service, err := BindAgentResultService(t.Context(), options)
 	if err != nil {
 		t.Fatal(err)
@@ -401,10 +267,6 @@ func TestBugResultBoundaryLocalBrokerCommunicationOnly(t *testing.T) {
 	if recovered.Receipt.Latest.Input != "accepted" || recovered.Receipt.Latest.Engineering != "pending" || recovered.Receipt.Latest.Acceptance != "pending" || recovered.Receipt.Latest.Publication != "pending" {
 		t.Fatalf("socket acknowledgment granted completion: %+v", recovered.Receipt.Latest)
 	}
-	state, _, approval, err := db.CurrentBugAnalysis(t.Context(), session.ID)
-	if err != nil || state.AnalysisUsed != 0 || state.CurrentAnalysis != 0 || approval != nil {
-		t.Fatalf("socket tool performed domain effects: %+v %+v %v", state, approval, err)
-	}
 	if err := prepared.guard.Revoke(t.Context(), "cancelled"); err != nil {
 		t.Fatal(err)
 	}
@@ -414,172 +276,5 @@ func TestBugResultBoundaryLocalBrokerCommunicationOnly(t *testing.T) {
 	}
 	if denied.Error == "" {
 		t.Fatal("revoked socket retained result authority")
-	}
-}
-
-func TestBugResultBoundaryAnalystReservationAndRecovery(t *testing.T) {
-	for _, variant := range []string{"success", "resume refusal", "failed", "cancelled", "uncertain", "missing cold context"} {
-		t.Run(variant, func(t *testing.T) {
-			db, session, options, _ := bugResultBoundaryFixture(t)
-			now := time.Now()
-			definition, err := db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Workflow: "bug", ProfileVersion: 1, Path: "bug/bug.dot", Digest: strings.Repeat("a", 64), CreatedAt: now})
-			if err != nil {
-				t.Fatal(err)
-			}
-			instance, err := db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "analyst", StartedAt: now})
-			if err != nil {
-				t.Fatal(err)
-			}
-			attempt, err := db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "analyst", RunID: options.Attempt.RunID, StartedAt: now})
-			if err != nil {
-				t.Fatal(err)
-			}
-			run, err := db.GetRun(t.Context(), options.Attempt.RunID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			segment, err := db.GetSegment(t.Context(), run.SegmentID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			authority, err := NewAttemptAuthority(t.Context(), db)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = authority.Close(context.WithoutCancel(t.Context())) })
-			worktree := t.TempDir()
-			if err := os.MkdirAll(filepath.Join(worktree, ".aiteam/session"), 0700); err != nil {
-				t.Fatal(err)
-			}
-			ref, err := naming.ParseRef(session.TaskRef)
-			if err != nil {
-				t.Fatal(err)
-			}
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			var service *AgentResultService
-			var retainedContext string
-			var calls []agent.Request
-			runner := newStubRunner(func(ctx context.Context, request agent.Request) (*agent.RunResult, error) {
-				calls = append(calls, request)
-				pass, err := db.GetBugAnalysisPass(ctx, session.ID, "analysis-1")
-				if err != nil || pass.Ordinal != 1 || pass.State != "dispatched" || pass.RunID != run.ID {
-					t.Fatalf("runner launched before durable reservation/claim: %+v %v", pass, err)
-				}
-				if request.Workflow != agent.WorkflowBug || request.Mode != "" || request.Permissions.Profile != "bug-analyst" || !strings.Contains(request.Prompt, retainedContext) {
-					t.Fatalf("incorrect Bug context: %+v", request)
-				}
-				switch variant {
-				case "resume refusal":
-					if len(calls) == 1 {
-						return nil, agent.ErrSessionNotResumable
-					}
-				case "failed":
-					return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "controlled process failure"}, nil
-				case "cancelled":
-					cancel()
-					return nil, context.Canceled
-				case "uncertain":
-					return nil, errors.New("controlled process state unknown")
-				}
-				data := bugResultBoundaryBlocked()
-				if d, err := service.Preflight(ctx, data); err != nil || !d.Valid {
-					t.Fatalf("runner preflight: %+v %v", d, err)
-				}
-				response, err := service.Submit(ctx, "runner-result", data)
-				if err != nil || !response.Validation.Valid {
-					t.Fatalf("runner submit: %+v %v", response, err)
-				}
-				if _, err := service.Receipt(ctx, run.ID, "runner-result"); err != nil {
-					t.Fatal(err)
-				}
-				terminal := `{"version":1,"response":"blocked","result":` + strings.TrimSuffix(strings.TrimPrefix(string(data), `{"result":`), `}`) + `}`
-				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: terminal}, nil
-			})
-			prepareCalls := 0
-			handler := BugAnalystActivity{Resolve: func(context.Context, ActivityRequest) (BugAnalystInput, error) {
-				return BugAnalystInput{SessionID: session.ID, ExpectedRevision: 1, Invocation: "analysis-1", InputDigest: strings.Repeat("b", 64)}, nil
-			}, Prepare: func(ctx context.Context, _ Options, _ ActivityRequest, scope ar.Context, retained string) (ResearchInvocation, error) {
-				prepareCalls++
-				retainedContext = retained
-				state, _, _, err := db.CurrentBugAnalysis(ctx, session.ID)
-				if err != nil || state.AnalysisUsed != 1 {
-					t.Fatalf("prepare before reservation: %+v %v", state, err)
-				}
-				options.Resolve = func(context.Context) (ar.Context, error) { return scope, nil }
-				service, err = BindAgentResultService(ctx, options)
-				if err != nil {
-					return ResearchInvocation{}, err
-				}
-				prepared := &preparedMCP{runtime: &MCPRuntime{Authority: authority, Paths: config.NewPaths(launchFixtureDirectory(t)), Executable: "/factory/litefactory", Now: time.Now}, service: service}
-				spec, err := prepareBugResultBroker(ctx, prepared, options.Attempt.Attempt)
-				if err != nil {
-					return ResearchInvocation{}, err
-				}
-				t.Cleanup(func() { _ = prepared.close(context.WithoutCancel(t.Context())) })
-				request := agent.Request{Workflow: agent.WorkflowBug, Invocation: agent.InvocationResearchNode, MCPLaunch: spec, Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, WorktreePath: worktree, Prompt: "Investigate retained context\n" + retained, Permissions: agent.Permissions{Profile: "bug-analyst"}}
-				cold := request
-				cold.Prompt = "Cold retained context\n" + retained
-				if variant == "resume refusal" {
-					request.Path = agent.PathResume
-				}
-				if variant == "missing cold context" {
-					cold.Prompt = "retained context omitted"
-				}
-				return ResearchInvocation{Request: request, ColdRequest: &cold, Kind: agent.Kind(store.AgentClaude), SessionPath: ".aiteam/session", Results: service}, nil
-			}}
-			activity := ActivityRequest{Workflow: agent.WorkflowBug, InstanceID: instance.ID, NodeAttemptID: attempt.ID, RunID: run.ID, Node: "analyst"}
-			out, executeErr := handler.Execute(ctx, Options{DB: db, Runners: runnerSet(runner)}, activity)
-			success := variant == "success" || variant == "resume refusal"
-			if (executeErr == nil) != success {
-				t.Fatalf("activity outcome: %+v %v; run=%+v definition=%+v attempt=%+v", out, executeErr, run, definition, attempt)
-			}
-			wantCalls := 1
-			if variant == "resume refusal" {
-				wantCalls = 2
-			}
-			if variant == "missing cold context" {
-				wantCalls = 0
-			}
-			if len(calls) != wantCalls || prepareCalls != 1 {
-				t.Fatalf("calls=%d preparations=%d", len(calls), prepareCalls)
-			}
-			pass, err := db.GetBugAnalysisPass(t.Context(), session.ID, "analysis-1")
-			if err != nil {
-				t.Fatal(err)
-			}
-			wantState := "failed"
-			if success {
-				wantState = "dispatched"
-			}
-			if variant == "cancelled" {
-				wantState = "cancelled"
-			}
-			if pass.State != wantState || pass.Ordinal != 1 {
-				t.Fatalf("pass state %+v want %s", pass, wantState)
-			}
-			if success {
-				if err := ReconcileBugAnalystSuccess(t.Context(), db, session.ID, pass.Invocation); err == nil {
-					t.Fatal("receipt alone reconciled unfinished run")
-				}
-				exit := int64(0)
-				if _, err := db.FinishRun(t.Context(), run.ID, store.RunOutcome{Status: store.RunSucceeded, ExitCode: &exit}); err != nil {
-					t.Fatal(err)
-				}
-				if err := ReconcileBugAnalystSuccess(t.Context(), db, session.ID, pass.Invocation); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if _, err := handler.Execute(t.Context(), Options{DB: db, Runners: runnerSet(runner)}, activity); err == nil {
-				t.Fatal("replay blindly relaunched terminal/dispatched work")
-			}
-			if len(calls) != wantCalls || prepareCalls != 1 {
-				t.Fatal("replay invoked preparation or runner")
-			}
-			state, _, approval, err := db.CurrentBugAnalysis(t.Context(), session.ID)
-			if err != nil || state.AnalysisUsed != 1 || approval != nil {
-				t.Fatalf("outcome refunded pass or granted approval: %+v %+v %v", state, approval, err)
-			}
-		})
 	}
 }

@@ -13,6 +13,9 @@ import (
 // when the store has authenticated the exact current review; no payload can
 // populate it. Invocation and base revision also protect cold fallback.
 type BugBinding struct {
+	GraphInstanceID                                            int64
+	ValidationCommandsJSON, ValidationInputsDigest, TargetMain string
+
 	Role, Invocation                                    string
 	BaseRevision                                        int64
 	ApprovedRevision                                    int64
@@ -82,6 +85,9 @@ func validateBug(r Result, ctx Context, d *Diagnostics) {
 			add(d, "$.result.payload.bug.response", "consistency", "complete reviewable analysis without questions", "mismatch", "Done presents analysis for owner review; it grants no repair.")
 		}
 	case "approved":
+		if ctx.Bug.GraphInstanceID != 0 {
+			add(d, "$.result.payload.bug.response", "authorization", "factory conversation approval only", "agent approval", "The conversation handles approval without an analyst invocation.")
+		}
 		a := p.Approval
 		if r.Outcome != "completed" || len(r.Questions) != 0 || p.Analysis != nil || a == nil || ctx.Bug.ApprovedRevision <= 0 || a.Revision != ctx.Bug.ApprovedRevision || a.Digest != ctx.Bug.ApprovedDigest || a.Review != ctx.Bug.ApprovalReview {
 			add(d, "$.result.payload.bug.approval", "authorization", "exact existing factory approval without content changes", "missing or mismatched approval", "Report only the already authenticated current approval.")

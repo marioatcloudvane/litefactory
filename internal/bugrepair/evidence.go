@@ -18,12 +18,13 @@ type Coverage struct {
 
 // Evidence binds authored files to the exact reservation and approved analysis.
 type Evidence struct {
-	Reservation    string     `json:"reservation"`
-	AnalysisDigest string     `json:"analysis_digest"`
-	SourceCommit   string     `json:"source_commit"`
-	SourceTree     string     `json:"source_tree"`
-	Summary        string     `json:"summary"`
-	Coverage       []Coverage `json:"coverage"`
+	Validation     *Validation `json:"validation,omitempty"`
+	Reservation    string      `json:"reservation"`
+	AnalysisDigest string      `json:"analysis_digest"`
+	SourceCommit   string      `json:"source_commit"`
+	SourceTree     string      `json:"source_tree"`
+	Summary        string      `json:"summary"`
+	Coverage       []Coverage  `json:"coverage"`
 }
 
 // Notice is a policy-class observation Validate makes instead of refusing: the

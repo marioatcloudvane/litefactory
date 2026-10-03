@@ -347,10 +347,13 @@ type Trigger struct {
 
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
-	workflowPolicy     *WorkflowPolicy
-	bugAdmitted        bool
-	researchDefinition *teamsource.ResearchDefinition
-	researchNode       string
+	workflowPolicy *WorkflowPolicy
+	bugAdmitted    bool
+	// graphBugPreparation defers synchronization until the exact agent allocation
+	// can retain preservation intent. Only the simplified factory sets it.
+	graphBugPreparation bool
+	researchDefinition  *teamsource.ResearchDefinition
+	researchNode        string
 	// researchInstance scopes this run's application result to one graph
 	// instance. A result is identified by task, mode and work context, so
 	// without this every run on a task shares one result and every run after

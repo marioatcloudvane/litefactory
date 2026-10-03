@@ -31,7 +31,6 @@ func TestRegisteredWorkflowPolicies_EachRefusesTerminalOnlyCompletion(t *testing
 				t.Fatalf("registered policy refused: %v", err)
 			}
 			var f *retainedFixture
-			response := "done"
 			switch workflow {
 			case agent.WorkflowResearch, agent.WorkflowPlan, agent.WorkflowSpike:
 				f = newRetainedFixture(t, string(policy.Mode))
@@ -46,16 +45,15 @@ func TestRegisteredWorkflowPolicies_EachRefusesTerminalOnlyCompletion(t *testing
 				}
 				result := strings.TrimSuffix(strings.TrimPrefix(string(bugResultBoundaryBlocked()), `{"result":`), "}")
 				f = &retainedFixture{db: db, session: session, opts: options, service: service, policy: policy, result: result}
-				response = "blocked"
 			default:
 				t.Fatalf("registered workflow %q has no result fixture in this guard; add one", workflow)
 			}
-			_, _, err := AgentActivity{Policy: policy}.acceptRetained(t.Context(), f.service, envelope(response, f.result))
+			_, _, err := AgentActivity{Policy: policy}.acceptRetained(t.Context(), f.service)
 			if !errors.Is(err, errNoRetainedResult) {
 				t.Fatalf("terminal-only output completed the %s attempt: %v", workflow, err)
 			}
 			f.submit(t, f.result)
-			if _, _, err = (AgentActivity{Policy: policy}).acceptRetained(t.Context(), f.service, envelope(response, f.result)); err != nil {
+			if _, _, err = (AgentActivity{Policy: policy}).acceptRetained(t.Context(), f.service); err != nil {
 				t.Fatalf("the confirmed retained result was refused: %v", err)
 			}
 		})

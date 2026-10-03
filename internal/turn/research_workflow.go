@@ -394,7 +394,7 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 		return out, errors.Join(cause, err)
 	}
 	out.Run = run
-	if cause == nil && w.process != nil && w.process.Succeeded() && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
+	if !w.req.graphBugPreparation && cause == nil && w.process != nil && w.process.Succeeded() && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
 		out = save(bookkeeping, w.opts, w.prep, out, w.process, w.opts.Logger)
 		if w.req.Workflow == agent.WorkflowBug {
 			commit := out.SHAAfter

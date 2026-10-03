@@ -121,6 +121,11 @@ func (db *DB) appliedVersions(ctx context.Context) (map[int]bool, error) {
 
 func (db *DB) applyMigration(ctx context.Context, m migration) error {
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if m.version == 79 {
+			if err := preservePreArchiveBugHistory(ctx, tx, m.sql); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, m.sql); err != nil {
 			return fmt.Errorf("execute: %w", err)
 		}
@@ -188,4 +193,33 @@ func parseMigrationName(filename string) (int, string, error) {
 		return 0, "", fmt.Errorf("store: migration %q does not start with a positive NNNN version", filename)
 	}
 	return version, name, nil
+}
+
+// preservePreArchiveBugHistory refuses the historical destructive consolidation
+// when any table it would drop still contains evidence. The historical SQL is
+// unchanged; empty installations retain the normal migration chain.
+func preservePreArchiveBugHistory(ctx context.Context, tx *sql.Tx, body string) error {
+	for _, line := range strings.Split(body, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 || fields[0] != "DROP" || fields[1] != "TABLE" {
+			continue
+		}
+		table := strings.TrimSuffix(fields[2], ";")
+		if !strings.HasPrefix(table, "bug_") {
+			return errors.New("store: unexpected destructive Bug migration table")
+		}
+		for _, r := range table {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
+				return errors.New("store: invalid historical Bug table name")
+			}
+		}
+		var populated int
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+table+" LIMIT 1)").Scan(&populated); err != nil {
+			return fmt.Errorf("inspect pre-0079 Bug history %s: %w", table, err)
+		}
+		if populated != 0 {
+			return fmt.Errorf("preservation refusal: populated %s would be destroyed by migration 0079; a separately reviewed preservation upgrade is required", table)
+		}
+	}
+	return nil
 }
