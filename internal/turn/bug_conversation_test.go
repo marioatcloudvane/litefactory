@@ -64,6 +64,9 @@ func completeConversationAnalyst(t *testing.T, f *fixture, inst store.GraphInsta
 	mustProgress(t, e)
 	retained, e := RetainBugNode(binding, 1, agentresult.ResearchNode{Version: 1, Response: response, Result: result})
 	mustProgress(t, e)
+	// Production source preparation retains its record on the same attempt.
+	_, e = f.db.RecordGraphOutput(ctx, store.GraphOutput{NodeAttemptID: attempt.ID, Kind: store.GraphOutputJSON, Payload: []byte(`{"record":"source_preparation","sync_outcome":"up_to_date"}`), CreatedAt: at})
+	mustProgress(t, e)
 	_, e = f.db.FinishRun(ctx, run.ID, store.RunOutcome{Status: store.RunSucceeded})
 	mustProgress(t, e)
 	e = f.db.CompleteGraphNodeAttempt(ctx, attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: response, FinishedAt: at, InstanceStatus: store.GraphRunning, NextDueAt: at, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: retained}}, Transition: &store.GraphTransition{InstanceID: inst.ID, FromNode: "analyst", ToNode: "conversation", OnOutcome: response, At: at}})
