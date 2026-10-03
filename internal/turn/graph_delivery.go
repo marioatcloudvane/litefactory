@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/bugrepair"
@@ -505,7 +506,9 @@ func (h GraphBugFinalization) presentation(ctx context.Context, b GraphDeliveryB
 	// Neutralize automatic closure phrases in untrusted summaries. Explicit issue
 	// closure follows independent integration proof, never a PR keyword.
 	summary = regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b`).ReplaceAllString(summary, "address")
-	title, e := h.Redactor.Apply(ctx, "Bug repair: "+strings.Split(summary, "\n")[0], 256)
+	// Shorten before redaction: an over-budget title would get the redactor's
+	// multi-line truncation notice, which GitHub titles cannot carry.
+	title, e := h.Redactor.Apply(ctx, graphDeliveryTitle("Bug repair: "+strings.Split(summary, "\n")[0], 160), 256)
 	if e != nil {
 		return redact.Body{}, redact.Body{}, e
 	}
@@ -526,7 +529,27 @@ func graphDeliveryNotFound(err error) bool {
 // Only an authenticated gateway response that rejects the mutation request
 // establishes nonexecution. Transport errors, 5xx, and observation mismatches
 // remain uncertain even when the remote object currently looks unchanged.
+// graphDeliveryTitle cuts a one-line title at a word boundary within max bytes.
+func graphDeliveryTitle(s string, max int) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\r", " "))
+	if len(s) <= max {
+		return s
+	}
+	cut := max - len("…")
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	if i := strings.LastIndexByte(s[:cut], ' '); i > max/2 {
+		cut = i
+	}
+	return strings.TrimRight(s[:cut], " ,.;:") + "…"
+}
+
 func graphDeliveryFailureState(err error) string {
+	// A request refused locally was never sent, so nonexecution is certain.
+	if errors.Is(err, github.ErrInvalidArgument) {
+		return "refused"
+	}
 	var api *github.APIError
 	if errors.As(err, &api) && (api.StatusCode == http.StatusForbidden || api.StatusCode == http.StatusUnprocessableEntity) {
 		return "refused"
