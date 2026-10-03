@@ -62,6 +62,9 @@ func TestFixerResult_RefusesAuthorityAndBindingChanges(t *testing.T) {
 			r.Payload.Bug.Approval = &ar.BugApprovalReference{Revision: 2, Digest: "analysis-digest", Review: "review-1"}
 		}},
 		{"missing evidence", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Repair = nil }},
+		{"legacy validation authority", func(r *ar.Result, _ *ar.Context) {
+			r.Payload.Bug.Repair.Validation = &bugrepair.Validation{Generation: "not-admitted"}
+		}},
 		{"missing criterion context", func(_ *ar.Result, c *ar.Context) { c.Bug.CriteriaJSON = "[]" }},
 		{"done with gap", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Repair.Coverage[0].Gap = "No regression" }},
 		{"done with incomplete outcome", func(r *ar.Result, _ *ar.Context) { r.Outcome = "incomplete"; r.Reason = "not done" }},

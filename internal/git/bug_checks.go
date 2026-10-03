@@ -61,29 +61,3 @@ func fullBugObject(value string) bool {
 	}
 	return true
 }
-
-// ObserveBugCheckSource refuses tracked changes and nonignored untracked files.
-func (w *Worktree) ObserveBugCheckSource(ctx context.Context, commit, tree string) error {
-	if !fullBugObject(commit) || !fullBugObject(tree) {
-		return errors.New("invalid Bug source identities")
-	}
-	head, err := w.runner.run(ctx, readTimeout, "rev-parse", "--verify", "HEAD^{commit}")
-	if err != nil {
-		return err
-	}
-	actualTree, err := w.runner.run(ctx, readTimeout, "rev-parse", "--verify", "HEAD^{tree}")
-	if err != nil {
-		return err
-	}
-	if head != commit || actualTree != tree {
-		return errors.New("bug source commit/tree changed")
-	}
-	status, err := w.runner.runRaw(ctx, readTimeout, statusArgs...)
-	if err != nil {
-		return err
-	}
-	if status != "" {
-		return errors.New("bug source has tracked or nonignored changes")
-	}
-	return nil
-}

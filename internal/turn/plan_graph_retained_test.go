@@ -63,23 +63,17 @@ func (f *retainedFixture) submit(t *testing.T, result string) {
 	}
 }
 
-func envelope(response, result string) string {
-	return `{"version":1,"response":"` + response + `","result":` + result + `}`
-}
-
-// AC-033: matching terminal output is judged against, and yields, the retained
-// accepted result. What it returns is the retained content, which for Plan carries
-// the factory-bound values the terminal envelope could never supply.
-func TestAcceptRetained_MatchingTerminalYieldsRetainedContent(t *testing.T) {
+// Accepted revisions retain factory-bound content independently of execution text.
+func TestAcceptRetained_YieldsRetainedContent(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"research", "plan"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			f := newRetainedFixture(t, mode)
 			f.submit(t, f.result)
-			node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, envelope("done", f.result))
+			node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service)
 			if err != nil {
-				t.Fatalf("matching terminal output refused: %v", err)
+				t.Fatalf("accepted result refused: %v", err)
 			}
 			if revision != 1 || node.Response != "done" || node.Version != 1 {
 				t.Fatalf("unexpected node: revision=%d %+v", revision, node)
@@ -99,82 +93,40 @@ func TestAcceptRetained_MatchingTerminalYieldsRetainedContent(t *testing.T) {
 	}
 }
 
-// AC-033, AC-003: terminal output can never supply the result. With no accepted
-// submission the attempt is refused with its own cause and yields no node,
-// whatever the terminal text claims.
-func TestAcceptRetained_TerminalOutputCannotSupplyTheResult(t *testing.T) {
+// A missing accepted submission yields no application response.
+func TestAcceptRetained_MissingSubmission(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"research", "plan"} {
-		base := retainedResearchResult
-		if mode == "plan" {
-			base = retainedPlanResult
-		}
-		other := strings.Replace(base, `"comment":"`, `"comment":"Not the retained result. `, 1)
-		for name, terminal := range map[string]string{
-			"terminal only":                   envelope("done", base),
-			"terminal only, different result": envelope("done", other),
-			"nothing at all":                  ``,
-		} {
-			t.Run(mode+"/"+name, func(t *testing.T) {
-				t.Parallel()
-				f := newRetainedFixture(t, mode)
-				node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, terminal)
-				if err == nil || !strings.Contains(err.Error(), "submit it through the shared result route") || !errors.Is(err, errNoRetainedResult) {
-					t.Fatalf("terminal output stood in for a missing result: %v", err)
-				}
-				if revision != 0 || node.Result.Comment != "" || node.Response != "" {
-					t.Fatalf("a refused attempt yielded content: revision=%d %+v", revision, node)
-				}
-			})
-		}
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			f := newRetainedFixture(t, mode)
+			node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service)
+			if !errors.Is(err, errNoRetainedResult) || revision != 0 || node.Response != "" {
+				t.Fatalf("missing submission yielded a result: revision=%d node=%+v error=%v", revision, node, err)
+			}
+		})
 	}
 }
 
-// C1 (#410): once a valid result was submitted, the step succeeds on it whatever
-// the terminal text is. A copy missing its closing brace (#351 run 627), valid
-// JSON that is not an envelope (#384), a differing or inconsistent envelope, an
-// approval claim, prose and empty output all yield the retained result, with the
-// response derived from it.
-func TestAcceptRetained_SubmittedResultStandsWhateverIsPrinted(t *testing.T) {
+// Application responses and content come from the current accepted revision.
+func TestAcceptRetained_SubmittedResultIsAuthoritative(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"research", "plan"} {
-		base := retainedResearchResult
-		if mode == "plan" {
-			base = retainedPlanResult
-		}
-		other := strings.Replace(base, `"comment":"`, `"comment":"Not the retained result. `, 1)
-		confirming := envelope("done", base)
-		for name, terminal := range map[string]string{
-			"missing closing brace":              confirming[:len(confirming)-1],
-			"valid json, not an envelope":        `{"outcome":"completed","unknown":true}`,
-			"envelope with a different result":   envelope("done", other),
-			"ask claimed for a completed result": envelope("ask", base),
-			"unsupported response":               envelope("review_ready", base),
-			"approval claimed":                   envelope("approved", base),
-			"prose":                              "The result is submitted and its receipt read.",
-			"empty":                              ``,
-			"matching envelope":                  confirming,
-		} {
-			t.Run(mode+"/"+name, func(t *testing.T) {
-				t.Parallel()
-				f := newRetainedFixture(t, mode)
-				f.submit(t, f.result)
-				node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, terminal)
-				if err != nil {
-					t.Fatalf("a submitted result failed on its printed copy: %v", err)
-				}
-				retained, _, err := f.service.retainedCurrent(t.Context())
-				mustProgress(t, err)
-				if revision != 1 || node.Version != 1 || node.Response != "done" || !ar.SameResult(retained.Result, node.Result) || node.Result.Comment != retainedCommentOf(f.result) {
-					t.Fatalf("node is not the retained result: revision=%d %+v", revision, node)
-				}
-			})
-		}
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			f := newRetainedFixture(t, mode)
+			f.submit(t, f.result)
+			node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service)
+			mustProgress(t, err)
+			retained, _, err := f.service.retainedCurrent(t.Context())
+			mustProgress(t, err)
+			if revision != 1 || node.Response != "done" || !ar.SameResult(retained.Result, node.Result) {
+				t.Fatalf("result differs from accepted revision: %d %+v", revision, node)
+			}
+		})
 	}
 }
 
-// AC-033: the guard is the runtime's, not the decoder's. A policy whose decoder
-// accepts anything still cannot complete from terminal output alone, and the
 // decoder is never consulted on terminal text: the node is the retained result.
 func TestAcceptRetained_NominalDecoderIsNotTheGuard(t *testing.T) {
 	t.Parallel()
@@ -194,12 +146,11 @@ func TestAcceptRetained_NominalDecoderIsNotTheGuard(t *testing.T) {
 			if err := nominal.Admit(); err != nil {
 				t.Fatalf("a nominal decoder must satisfy admission: %v", err)
 			}
-			if _, _, err := h.acceptRetained(t.Context(), f.service, envelope("done", f.result)); !errors.Is(err, errNoRetainedResult) {
+			if _, _, err := h.acceptRetained(t.Context(), f.service); !errors.Is(err, errNoRetainedResult) {
 				t.Fatalf("terminal-only output completed under a nominal decoder: %v", err)
 			}
 			f.submit(t, f.result)
-			other := strings.Replace(f.result, `"comment":"`, `"comment":"Changed. `, 1)
-			node, _, err := h.acceptRetained(t.Context(), f.service, envelope("done", other))
+			node, _, err := h.acceptRetained(t.Context(), f.service)
 			if err != nil || node.Result.Comment != retainedCommentOf(f.result) {
 				t.Fatalf("differing output replaced or failed the retained content: %+v %v", node.Result, err)
 			}
@@ -250,7 +201,7 @@ func TestRetainedRoute_DerivesAskAndDoneAndRefusesOtherShapes(t *testing.T) {
 				payload = `{"plan":{}}`
 			}
 			f.submit(t, `{"outcome":"incomplete","reason":"Need input.","comment":"Asking.","questions":[{"id":"q1","audience":"business","text":"Which?"}],"payload":`+payload+`}`)
-			node, _, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, "")
+			node, _, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service)
 			if err != nil || node.Response != "ask" {
 				t.Fatalf("incomplete result with questions did not route to ask: %+v %v", node, err)
 			}
@@ -262,7 +213,7 @@ func TestRetainedRoute_DerivesAskAndDoneAndRefusesOtherShapes(t *testing.T) {
 		t.Parallel()
 		f := newRetainedFixture(t, "research")
 		f.submit(t, `{"outcome":"blocked","reason":"No access.","comment":"Stuck.","payload":{"research":{"request":"Inspect boundaries"}}}`)
-		node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, envelope("done", retainedResearchResult))
+		node, revision, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service)
 		if err == nil || !strings.Contains(err.Error(), "retained application result result-") || !strings.Contains(err.Error(), "revision 1") || !strings.Contains(err.Error(), `"blocked"`) {
 			t.Fatalf("a result that is neither ask nor done was routed: %+v %v", node, err)
 		}
@@ -272,16 +223,31 @@ func TestRetainedRoute_DerivesAskAndDoneAndRefusesOtherShapes(t *testing.T) {
 	})
 }
 
-// Bug keeps its own finalization (#410 exclusion): the Respond derivation is not
-// applied to it, so its terminal confirmation rules are unchanged.
-func TestWorkflowPolicy_RoutesRetainedExcludesBug(t *testing.T) {
+// Retained response authority is shared by Bug and the existing workflows.
+func TestWorkflowPolicy_RoutesRetainedIncludesBug(t *testing.T) {
 	t.Parallel()
-	if BugWorkflowPolicy().routesRetained() {
-		t.Fatal("Bug finalization must not derive its response from the shared mapping")
-	}
-	for _, p := range []WorkflowPolicy{ResearchWorkflowPolicy(), PlanWorkflowPolicy(), workflowReusePolicy()} {
+	for _, p := range []WorkflowPolicy{BugWorkflowPolicy(), ResearchWorkflowPolicy(), PlanWorkflowPolicy(), workflowReusePolicy()} {
 		if !p.routesRetained() {
-			t.Fatalf("%s policy does not derive its response from the retained result", p.Mode)
+			t.Fatalf("%s policy does not derive its response from the retained result", p.Workflow)
+		}
+	}
+}
+
+func TestBugWorkflowPolicy_Respond(t *testing.T) {
+	t.Parallel()
+	for _, response := range []string{"ask", "done", "approved", "blocked"} {
+		t.Run(response, func(t *testing.T) {
+			t.Parallel()
+			result := ar.Result{Payload: ar.Payload{Bug: &ar.Bug{Response: response}}}
+			got, err := BugWorkflowPolicy().Respond(result)
+			if err != nil || got != response {
+				t.Fatalf("response=%q error=%v, want %q", got, err, response)
+			}
+		})
+	}
+	for _, result := range []ar.Result{{}, {Payload: ar.Payload{Bug: &ar.Bug{}}}} {
+		if got, err := BugWorkflowPolicy().Respond(result); err == nil || got != "" {
+			t.Fatalf("missing Bug response routed: %q %v", got, err)
 		}
 	}
 }
@@ -306,7 +272,7 @@ func TestAcceptRetained_EarlierAttemptResultIsNotThisAttemptsResult(t *testing.T
 			next.Attempt = agentResultRun(t, f.db, f.session, mode, "attempt-2", 2)
 			fresh, err := BindAgentResultService(t.Context(), next)
 			mustProgress(t, err)
-			_, _, err = AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), fresh, envelope("done", f.result))
+			_, _, err = AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), fresh)
 			if !errors.Is(err, errNoRetainedResult) {
 				t.Fatalf("an earlier attempt's result completed this attempt: %v", err)
 			}
@@ -324,7 +290,7 @@ func TestAcceptRetained_ChangedAuthorityRefusesTheRetainedResult(t *testing.T) {
 		f := newRetainedFixture(t, "plan")
 		f.submit(t, f.result)
 		f.binding.SharedRevision = "moved-on"
-		_, _, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, envelope("done", f.result))
+		_, _, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service)
 		if err == nil || !strings.Contains(err.Error(), "retained application result is not complete") || !strings.Contains(err.Error(), "shared_revision") {
 			t.Fatalf("stale retained result completed: %v", err)
 		}
@@ -334,7 +300,7 @@ func TestAcceptRetained_ChangedAuthorityRefusesTheRetainedResult(t *testing.T) {
 		f := newRetainedFixture(t, "plan")
 		f.submit(t, f.result)
 		f.binding.ExistingRevision = strings.Repeat("d", 64)
-		_, _, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service, envelope("done", f.result))
+		_, _, err := AgentActivity{Policy: f.policy}.acceptRetained(t.Context(), f.service)
 		if err == nil || !strings.Contains(err.Error(), "retained application result is not complete") {
 			t.Fatalf("result completed although the story now has a draft: %v", err)
 		}
@@ -348,7 +314,7 @@ func TestAcceptRetained_ChangedAuthorityRefusesTheRetainedResult(t *testing.T) {
 			next.Attempt = agentResultRun(t, f.db, f.session, mode, "attempt-2", 2)
 			_, err := BindAgentResultService(t.Context(), next)
 			mustProgress(t, err)
-			if _, _, err = (AgentActivity{Policy: f.policy}).acceptRetained(t.Context(), f.service, envelope("done", f.result)); !errors.Is(err, store.ErrResultAuthority) {
+			if _, _, err = (AgentActivity{Policy: f.policy}).acceptRetained(t.Context(), f.service); !errors.Is(err, store.ErrResultAuthority) {
 				t.Fatalf("a revoked attempt completed: %v", err)
 			}
 		})

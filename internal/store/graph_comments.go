@@ -32,7 +32,7 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 			return errors.New("store: graph comment source mismatch")
 		}
 		var old GraphCommentIntent
-		err := tx.QueryRowContext(ctx, `SELECT delivery_key,instance_id,source_attempt_id,node,kind,candidate FROM graph_comment_intents WHERE delivery_key=?`, in.Key).Scan(&old.Key, &old.InstanceID, &old.SourceAttemptID, &old.Node, &old.Kind, &old.Candidate)
+		err := tx.QueryRowContext(ctx, `SELECT delivery_key,instance_id,COALESCE(source_attempt_id,0),node,kind,candidate FROM graph_comment_intents WHERE delivery_key=?`, in.Key).Scan(&old.Key, &old.InstanceID, &old.SourceAttemptID, &old.Node, &old.Kind, &old.Candidate)
 		if err == nil {
 			if old.InstanceID != in.InstanceID || old.SourceAttemptID != in.SourceAttemptID || old.Node != in.Node || old.Kind != in.Kind || !bytes.Equal(old.Candidate, in.Candidate) {
 				return errors.New("store: graph comment correction requires a new identity")
@@ -61,7 +61,7 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 // GetGraphComment reads the retained candidate for one durable publication identity.
 func (db *DB) GetGraphComment(ctx context.Context, key string) (GraphCommentIntent, error) {
 	var out GraphCommentIntent
-	err := db.sql.QueryRowContext(ctx, `SELECT delivery_key,instance_id,source_attempt_id,node,kind,candidate FROM graph_comment_intents WHERE delivery_key=?`, key).Scan(&out.Key, &out.InstanceID, &out.SourceAttemptID, &out.Node, &out.Kind, &out.Candidate)
+	err := db.sql.QueryRowContext(ctx, `SELECT delivery_key,instance_id,COALESCE(source_attempt_id,0),node,kind,candidate FROM graph_comment_intents WHERE delivery_key=?`, key).Scan(&out.Key, &out.InstanceID, &out.SourceAttemptID, &out.Node, &out.Kind, &out.Candidate)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, ErrNotFound
 	}
@@ -76,8 +76,8 @@ func (db *DB) GetGraphComment(ctx context.Context, key string) (GraphCommentInte
 func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (bool, error) {
 	var session int64
 	var run sql.NullInt64
-	var workflow, status, kind string
-	err := tx.QueryRowContext(ctx, `SELECT i.session_id,a.run_id,COALESCE(g.workflow,''),a.status,c.kind FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id JOIN graph_definitions g ON g.id=i.definition_id JOIN graph_node_attempts a ON a.id=c.source_attempt_id AND a.instance_id=i.id WHERE c.delivery_key=?`, d.Key).Scan(&session, &run, &workflow, &status, &kind)
+	var workflow, status, kind, stopOrigin string
+	err := tx.QueryRowContext(ctx, `SELECT i.session_id,a.run_id,COALESCE(g.workflow,''),COALESCE(a.status,''),c.kind,COALESCE(c.stop_origin,'') FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id JOIN graph_definitions g ON g.id=i.definition_id LEFT JOIN graph_node_attempts a ON a.id=c.source_attempt_id AND a.instance_id=i.id WHERE c.delivery_key=?`, d.Key).Scan(&session, &run, &workflow, &status, &kind, &stopOrigin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -87,6 +87,12 @@ func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (b
 	// Bug factory activities have no subprocess run. Their actual succeeded
 	// or failed source attempt remains the publication authority; never invent
 	// a run or extend this exception to existing agent-backed workflows.
+	if stopOrigin != "" {
+		if workflow != "bug" || kind != "question" || session != d.SessionID || run.Int64 != d.RunID {
+			return false, errors.New("store: parked graph report binding mismatch")
+		}
+		return true, nil
+	}
 	if !run.Valid && (workflow != "bug" || d.RunID != 0 || (kind == "failure" && status != GraphFailed) || (kind != "failure" && status != GraphSucceeded)) {
 		return false, errors.New("store: runless graph report requires a terminal Bug factory source")
 	}
@@ -103,7 +109,7 @@ func (db *DB) ListGraphComments(ctx context.Context, instanceID int64, afterKey 
 	if instanceID <= 0 || limit < 1 || limit > 100 {
 		return nil, errors.New("store: invalid graph comment page")
 	}
-	rows, err := db.sql.QueryContext(ctx, `SELECT delivery_key,instance_id,source_attempt_id,node,kind FROM graph_comment_intents WHERE instance_id=? AND delivery_key>? ORDER BY delivery_key LIMIT ?`, instanceID, afterKey, limit)
+	rows, err := db.sql.QueryContext(ctx, `SELECT delivery_key,instance_id,COALESCE(source_attempt_id,0),node,kind FROM graph_comment_intents WHERE instance_id=? AND delivery_key>? ORDER BY delivery_key LIMIT ?`, instanceID, afterKey, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: list graph comments: %w", err)
 	}

@@ -108,5 +108,8 @@ var AccessValues = []string{"read", "write"}
 
 // AgentAttributes declares the optional attributes of the shared agent action.
 func AgentAttributes() map[string]AttributeSpec {
-	return map[string]AttributeSpec{AccessAttribute: {Values: slices.Clone(AccessValues)}}
+	attrs := OwnerStopAttributes()
+	attrs[AccessAttribute] = AttributeSpec{Values: slices.Clone(AccessValues)}
+	attrs["lf_response"] = AttributeSpec{Values: []string{"result"}}
+	return attrs
 }

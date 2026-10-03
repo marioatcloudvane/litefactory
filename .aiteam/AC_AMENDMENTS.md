@@ -1575,3 +1575,14 @@ The prior blanket [enforced] annotation on SEC-21/CONC-10/CONC-11 is removed unt
 those new runtime checks land. Shared-source verification does not assert live
 agent or forge behavior. Security identity, credential isolation, immutable scope,
 factual evidence and actual merge confirmation remain nonwaivable boundaries.
+
+## Amendment: #453 simplified Bug local recovery checkpoints
+
+- Authorized: frozen story-003 (#459), revision `37976faa2c76939e7ee08711a2123b55569e71480b0cc5c9f860acad8eaa6545`; owner checkpoint answer on comment 5960827951.
+- CONC-8 / CONC-16: only factory-admitted simplified Bug agent preparation MAY save retained dirty work in a local **unvalidated recovery checkpoint** when required synchronization would otherwise defer. Effective up-to-date, disabled and distance-cap policy decisions MUST precede preservation. Intent MUST retain original HEAD, canonical content and immutable operation identity before mutation; recovery MUST reconcile parent, content and operation identity before repetition. Unsupported partially staged work MUST refuse before mutation. The checkpoint MUST NOT push, establish validation success or authorize delivery. Conflicts and uncertain preservation MUST stop dispatch through the common owner-question rule.
+- Unrelated workflows retain success-only saving and ordinary deferred dirty recovery. Agents retain no checkpoint, commit or publication authority. Historical Bug executions are not upgraded or resumed by this exception.
+
+## Amendment: #453 simplified Bug automatic delivery
+
+- Authorized: frozen story-004 (#460), revision `e71737b29d0d434cb847513987ad95b9d487c025ae43147eac44fc9130ce1b30`.
+- CONC-11: the simplified Bug workflow MAY deliver automatically without a second PR approval only from its current explicitly approved immutable diagnosis, current accepted succeeded fixer submission, successful settled execution and complete fresh validation binding. Factory-owned saving, nonforce push, guarded merge and independently confirmed integration MUST precede independently confirmed numeric issue closure. Checkpoints, receipts and terminal text MUST NOT confer delivery authority. Uncertain effects MUST be observed before repetition; changed tested inputs MUST park and require owner-released revalidation through DOT. Existing feature/story approval policy and repository protections remain unchanged.

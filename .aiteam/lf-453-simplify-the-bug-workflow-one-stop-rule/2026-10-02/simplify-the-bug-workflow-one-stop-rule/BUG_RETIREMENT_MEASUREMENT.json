@@ -1,0 +1,1038 @@
+{
+  "baseline_commit": "f6c814ec4f8df34ec2e7c3c262f43ef5383f04ef",
+  "baseline_file_count": 57,
+  "baseline_lines": 15524,
+  "endpoint_non_test_go_digest": "44d0a29b2cf96607918e54b41b281b6bb403d1ec02b972f6c19c172c372276d9",
+  "credited_removal": 13610,
+  "charged_replacement_additions": 5170,
+  "net_removal": 8440,
+  "target": 7762,
+  "shortfall": 0,
+  "historical_sql_files_0066_0080": 15,
+  "current_sql_files": 96,
+  "active_legacy_bug_tables": 0,
+  "retained_readonly_legacy_tables": [
+    "bug_tasks",
+    "bug_analyses",
+    "bug_repairs",
+    "bug_checks",
+    "bug_delivery",
+    "bug_events"
+  ],
+  "baseline_inventory": [
+    {
+      "path": "internal/agent/bug_permissions.go",
+      "lines": 34
+    },
+    {
+      "path": "internal/agentresult/bug.go",
+      "lines": 150
+    },
+    {
+      "path": "internal/agentresult/bug_repair.go",
+      "lines": 54
+    },
+    {
+      "path": "internal/buganalysis/analysis.go",
+      "lines": 188
+    },
+    {
+      "path": "internal/bugchecks/executor.go",
+      "lines": 467
+    },
+    {
+      "path": "internal/bugchecks/gotest.go",
+      "lines": 188
+    },
+    {
+      "path": "internal/bugchecks/identity_darwin.go",
+      "lines": 34
+    },
+    {
+      "path": "internal/bugchecks/identity_linux.go",
+      "lines": 39
+    },
+    {
+      "path": "internal/bugchecks/recovery.go",
+      "lines": 86
+    },
+    {
+      "path": "internal/config/bug_checks.go",
+      "lines": 177
+    },
+    {
+      "path": "internal/config/bug_isolation.go",
+      "lines": 75
+    },
+    {
+      "path": "internal/daemon/bug_analysis.go",
+      "lines": 72
+    },
+    {
+      "path": "internal/daemon/bug_commands.go",
+      "lines": 13
+    },
+    {
+      "path": "internal/daemon/bug_permissions.go",
+      "lines": 54
+    },
+    {
+      "path": "internal/daemon/bug_test_dispatch.go",
+      "lines": 56
+    },
+    {
+      "path": "internal/git/bug_checks.go",
+      "lines": 89
+    },
+    {
+      "path": "internal/git/bug_repair.go",
+      "lines": 111
+    },
+    {
+      "path": "internal/report/bug_delivery.go",
+      "lines": 80
+    },
+    {
+      "path": "internal/store/bug_analyses.go",
+      "lines": 1199
+    },
+    {
+      "path": "internal/store/bug_check_reruns.go",
+      "lines": 243
+    },
+    {
+      "path": "internal/store/bug_checks.go",
+      "lines": 593
+    },
+    {
+      "path": "internal/store/bug_delivery.go",
+      "lines": 1886
+    },
+    {
+      "path": "internal/store/bug_events.go",
+      "lines": 97
+    },
+    {
+      "path": "internal/store/bug_exhaustion.go",
+      "lines": 534
+    },
+    {
+      "path": "internal/store/bug_facts.go",
+      "lines": 206
+    },
+    {
+      "path": "internal/store/bug_repairs.go",
+      "lines": 1456
+    },
+    {
+      "path": "internal/store/bug_self_checks.go",
+      "lines": 438
+    },
+    {
+      "path": "internal/store/bug_tasks.go",
+      "lines": 1059
+    },
+    {
+      "path": "internal/teamsource/bug.go",
+      "lines": 30
+    },
+    {
+      "path": "internal/teamsource/bug_fixer.go",
+      "lines": 17
+    },
+    {
+      "path": "internal/teamsource/bug_parent.go",
+      "lines": 68
+    },
+    {
+      "path": "internal/teamsource/bug_tests.go",
+      "lines": 103
+    },
+    {
+      "path": "internal/turn/bug_analysis_policy.go",
+      "lines": 419
+    },
+    {
+      "path": "internal/turn/bug_analyst.go",
+      "lines": 132
+    },
+    {
+      "path": "internal/turn/bug_attempt.go",
+      "lines": 115
+    },
+    {
+      "path": "internal/turn/bug_checks.go",
+      "lines": 547
+    },
+    {
+      "path": "internal/turn/bug_checks_recovery.go",
+      "lines": 91
+    },
+    {
+      "path": "internal/turn/bug_close.go",
+      "lines": 204
+    },
+    {
+      "path": "internal/turn/bug_delivery_presentation.go",
+      "lines": 80
+    },
+    {
+      "path": "internal/turn/bug_facts.go",
+      "lines": 34
+    },
+    {
+      "path": "internal/turn/bug_fixer.go",
+      "lines": 224
+    },
+    {
+      "path": "internal/turn/bug_merge.go",
+      "lines": 299
+    },
+    {
+      "path": "internal/turn/bug_messages.go",
+      "lines": 212
+    },
+    {
+      "path": "internal/turn/bug_native.go",
+      "lines": 55
+    },
+    {
+      "path": "internal/turn/bug_parent_policy.go",
+      "lines": 190
+    },
+    {
+      "path": "internal/turn/bug_parent_reports.go",
+      "lines": 174
+    },
+    {
+      "path": "internal/turn/bug_pr.go",
+      "lines": 526
+    },
+    {
+      "path": "internal/turn/bug_record.go",
+      "lines": 287
+    },
+    {
+      "path": "internal/turn/bug_repair_handoff.go",
+      "lines": 80
+    },
+    {
+      "path": "internal/turn/bug_repair_observer.go",
+      "lines": 120
+    },
+    {
+      "path": "internal/turn/bug_runtime.go",
+      "lines": 431
+    },
+    {
+      "path": "internal/turn/bug_runtime_domains.go",
+      "lines": 389
+    },
+    {
+      "path": "internal/turn/bug_runtime_replies.go",
+      "lines": 233
+    },
+    {
+      "path": "internal/turn/bug_runtime_reports.go",
+      "lines": 160
+    },
+    {
+      "path": "internal/turn/bug_runtime_save.go",
+      "lines": 75
+    },
+    {
+      "path": "internal/turn/bug_runtime_target.go",
+      "lines": 141
+    },
+    {
+      "path": "internal/turn/bug_test_graph.go",
+      "lines": 410
+    }
+  ],
+  "change_inventory": [
+    {
+      "path": ".aiteam/lf-264-adopt-the-shared-communication-contract/2026-09-15/adopt-the-shared-communication-contract/legacy_inventory.go",
+      "baseline_lines": 256,
+      "current_lines": 0,
+      "deleted_lines": 256,
+      "credited_deletions": 0,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/agentresult/bug.go",
+      "baseline_lines": 150,
+      "current_lines": 156,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 6
+    },
+    {
+      "path": "internal/agentresult/bug_repair.go",
+      "baseline_lines": 54,
+      "current_lines": 126,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 72
+    },
+    {
+      "path": "internal/buganalysis/analysis.go",
+      "baseline_lines": 188,
+      "current_lines": 191,
+      "deleted_lines": 2,
+      "credited_deletions": 2,
+      "charged_additions": 5
+    },
+    {
+      "path": "internal/bugchecks/executor.go",
+      "baseline_lines": 467,
+      "current_lines": 503,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 36
+    },
+    {
+      "path": "internal/bugrepair/evidence.go",
+      "baseline_lines": 85,
+      "current_lines": 86,
+      "deleted_lines": 6,
+      "credited_deletions": 0,
+      "charged_additions": 7
+    },
+    {
+      "path": "internal/bugrepair/inputs.go",
+      "baseline_lines": 0,
+      "current_lines": 50,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 50
+    },
+    {
+      "path": "internal/bugrepair/validation.go",
+      "baseline_lines": 0,
+      "current_lines": 123,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 123
+    },
+    {
+      "path": "internal/cli/cmd_daemon_agent.go",
+      "baseline_lines": 386,
+      "current_lines": 390,
+      "deleted_lines": 14,
+      "credited_deletions": 0,
+      "charged_additions": 18
+    },
+    {
+      "path": "internal/cli/cmd_daemon_health.go",
+      "baseline_lines": 134,
+      "current_lines": 184,
+      "deleted_lines": 1,
+      "credited_deletions": 0,
+      "charged_additions": 51
+    },
+    {
+      "path": "internal/daemon/bug_analysis.go",
+      "baseline_lines": 72,
+      "current_lines": 0,
+      "deleted_lines": 72,
+      "credited_deletions": 72,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/daemon/bug_commands.go",
+      "baseline_lines": 13,
+      "current_lines": 13,
+      "deleted_lines": 1,
+      "credited_deletions": 1,
+      "charged_additions": 1
+    },
+    {
+      "path": "internal/daemon/bug_test_dispatch.go",
+      "baseline_lines": 56,
+      "current_lines": 0,
+      "deleted_lines": 56,
+      "credited_deletions": 56,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/daemon/daemon.go",
+      "baseline_lines": 952,
+      "current_lines": 944,
+      "deleted_lines": 19,
+      "credited_deletions": 0,
+      "charged_additions": 11
+    },
+    {
+      "path": "internal/daemon/discovery_budget.go",
+      "baseline_lines": 308,
+      "current_lines": 379,
+      "deleted_lines": 8,
+      "credited_deletions": 0,
+      "charged_additions": 79
+    },
+    {
+      "path": "internal/daemon/graph_dispatch.go",
+      "baseline_lines": 294,
+      "current_lines": 290,
+      "deleted_lines": 18,
+      "credited_deletions": 0,
+      "charged_additions": 14
+    },
+    {
+      "path": "internal/daemon/health.go",
+      "baseline_lines": 206,
+      "current_lines": 219,
+      "deleted_lines": 4,
+      "credited_deletions": 0,
+      "charged_additions": 17
+    },
+    {
+      "path": "internal/daemon/heartbeat.go",
+      "baseline_lines": 0,
+      "current_lines": 369,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 369
+    },
+    {
+      "path": "internal/daemon/research_owner_resume.go",
+      "baseline_lines": 89,
+      "current_lines": 112,
+      "deleted_lines": 2,
+      "credited_deletions": 0,
+      "charged_additions": 25
+    },
+    {
+      "path": "internal/daemon/setup.go",
+      "baseline_lines": 621,
+      "current_lines": 617,
+      "deleted_lines": 6,
+      "credited_deletions": 0,
+      "charged_additions": 2
+    },
+    {
+      "path": "internal/daemon/tick.go",
+      "baseline_lines": 2467,
+      "current_lines": 2497,
+      "deleted_lines": 10,
+      "credited_deletions": 0,
+      "charged_additions": 40
+    },
+    {
+      "path": "internal/git/bug_checks.go",
+      "baseline_lines": 89,
+      "current_lines": 63,
+      "deleted_lines": 26,
+      "credited_deletions": 26,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/git/bug_repair.go",
+      "baseline_lines": 111,
+      "current_lines": 0,
+      "deleted_lines": 111,
+      "credited_deletions": 111,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/git/source_checkpoint.go",
+      "baseline_lines": 0,
+      "current_lines": 137,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 137
+    },
+    {
+      "path": "internal/git/source_identity.go",
+      "baseline_lines": 0,
+      "current_lines": 304,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 304
+    },
+    {
+      "path": "internal/graphexec/owner_conversation.go",
+      "baseline_lines": 0,
+      "current_lines": 125,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 125
+    },
+    {
+      "path": "internal/graphexec/owner_stops.go",
+      "baseline_lines": 0,
+      "current_lines": 64,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 64
+    },
+    {
+      "path": "internal/graphexec/registry.go",
+      "baseline_lines": 112,
+      "current_lines": 115,
+      "deleted_lines": 1,
+      "credited_deletions": 0,
+      "charged_additions": 4
+    },
+    {
+      "path": "internal/graphexec/validate.go",
+      "baseline_lines": 195,
+      "current_lines": 206,
+      "deleted_lines": 2,
+      "credited_deletions": 0,
+      "charged_additions": 13
+    },
+    {
+      "path": "internal/report/bug_delivery.go",
+      "baseline_lines": 80,
+      "current_lines": 0,
+      "deleted_lines": 80,
+      "credited_deletions": 80,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/archive.go",
+      "baseline_lines": 454,
+      "current_lines": 454,
+      "deleted_lines": 1,
+      "credited_deletions": 0,
+      "charged_additions": 1
+    },
+    {
+      "path": "internal/store/archive_registry.go",
+      "baseline_lines": 356,
+      "current_lines": 357,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 1
+    },
+    {
+      "path": "internal/store/bug_analyses.go",
+      "baseline_lines": 1199,
+      "current_lines": 0,
+      "deleted_lines": 1199,
+      "credited_deletions": 1199,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/bug_check_reruns.go",
+      "baseline_lines": 243,
+      "current_lines": 0,
+      "deleted_lines": 243,
+      "credited_deletions": 243,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/bug_checks.go",
+      "baseline_lines": 593,
+      "current_lines": 0,
+      "deleted_lines": 593,
+      "credited_deletions": 593,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/bug_delivery.go",
+      "baseline_lines": 1886,
+      "current_lines": 0,
+      "deleted_lines": 1886,
+      "credited_deletions": 1886,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/bug_events.go",
+      "baseline_lines": 97,
+      "current_lines": 0,
+      "deleted_lines": 97,
+      "credited_deletions": 97,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/bug_exhaustion.go",
+      "baseline_lines": 534,
+      "current_lines": 0,
+      "deleted_lines": 534,
+      "credited_deletions": 534,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/bug_facts.go",
+      "baseline_lines": 206,
+      "current_lines": 0,
+      "deleted_lines": 206,
+      "credited_deletions": 206,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/bug_repairs.go",
+      "baseline_lines": 1456,
+      "current_lines": 0,
+      "deleted_lines": 1456,
+      "credited_deletions": 1456,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/bug_self_checks.go",
+      "baseline_lines": 438,
+      "current_lines": 0,
+      "deleted_lines": 438,
+      "credited_deletions": 438,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/bug_tasks.go",
+      "baseline_lines": 1059,
+      "current_lines": 0,
+      "deleted_lines": 1059,
+      "credited_deletions": 1059,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/store/daemon_health.go",
+      "baseline_lines": 152,
+      "current_lines": 186,
+      "deleted_lines": 7,
+      "credited_deletions": 0,
+      "charged_additions": 41
+    },
+    {
+      "path": "internal/store/graph.go",
+      "baseline_lines": 128,
+      "current_lines": 131,
+      "deleted_lines": 5,
+      "credited_deletions": 0,
+      "charged_additions": 8
+    },
+    {
+      "path": "internal/store/graph_attempts.go",
+      "baseline_lines": 210,
+      "current_lines": 227,
+      "deleted_lines": 4,
+      "credited_deletions": 0,
+      "charged_additions": 21
+    },
+    {
+      "path": "internal/store/graph_bug_authority.go",
+      "baseline_lines": 0,
+      "current_lines": 17,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 17
+    },
+    {
+      "path": "internal/store/graph_comments.go",
+      "baseline_lines": 136,
+      "current_lines": 142,
+      "deleted_lines": 5,
+      "credited_deletions": 0,
+      "charged_additions": 11
+    },
+    {
+      "path": "internal/store/graph_diagnoses.go",
+      "baseline_lines": 0,
+      "current_lines": 495,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 495
+    },
+    {
+      "path": "internal/store/graph_effects.go",
+      "baseline_lines": 0,
+      "current_lines": 191,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 191
+    },
+    {
+      "path": "internal/store/graph_outputs.go",
+      "baseline_lines": 103,
+      "current_lines": 118,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 15
+    },
+    {
+      "path": "internal/store/graph_owner_waits.go",
+      "baseline_lines": 140,
+      "current_lines": 152,
+      "deleted_lines": 13,
+      "credited_deletions": 0,
+      "charged_additions": 25
+    },
+    {
+      "path": "internal/store/graph_recovery.go",
+      "baseline_lines": 131,
+      "current_lines": 131,
+      "deleted_lines": 1,
+      "credited_deletions": 0,
+      "charged_additions": 1
+    },
+    {
+      "path": "internal/store/graph_stops.go",
+      "baseline_lines": 0,
+      "current_lines": 132,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 132
+    },
+    {
+      "path": "internal/store/migrate.go",
+      "baseline_lines": 191,
+      "current_lines": 225,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 34
+    },
+    {
+      "path": "internal/store/runs.go",
+      "baseline_lines": 927,
+      "current_lines": 927,
+      "deleted_lines": 4,
+      "credited_deletions": 0,
+      "charged_additions": 4
+    },
+    {
+      "path": "internal/teamsource/bug_parent.go",
+      "baseline_lines": 68,
+      "current_lines": 47,
+      "deleted_lines": 25,
+      "credited_deletions": 25,
+      "charged_additions": 4
+    },
+    {
+      "path": "internal/teamsource/bug_tests.go",
+      "baseline_lines": 103,
+      "current_lines": 0,
+      "deleted_lines": 103,
+      "credited_deletions": 103,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_analysis_policy.go",
+      "baseline_lines": 419,
+      "current_lines": 172,
+      "deleted_lines": 269,
+      "credited_deletions": 269,
+      "charged_additions": 22
+    },
+    {
+      "path": "internal/turn/bug_analyst.go",
+      "baseline_lines": 132,
+      "current_lines": 0,
+      "deleted_lines": 132,
+      "credited_deletions": 132,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_attempt.go",
+      "baseline_lines": 115,
+      "current_lines": 0,
+      "deleted_lines": 115,
+      "credited_deletions": 115,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_checks.go",
+      "baseline_lines": 547,
+      "current_lines": 0,
+      "deleted_lines": 547,
+      "credited_deletions": 547,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_checks_recovery.go",
+      "baseline_lines": 91,
+      "current_lines": 0,
+      "deleted_lines": 91,
+      "credited_deletions": 91,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_close.go",
+      "baseline_lines": 204,
+      "current_lines": 0,
+      "deleted_lines": 204,
+      "credited_deletions": 204,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_conversation.go",
+      "baseline_lines": 0,
+      "current_lines": 430,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 430
+    },
+    {
+      "path": "internal/turn/bug_delivery_presentation.go",
+      "baseline_lines": 80,
+      "current_lines": 0,
+      "deleted_lines": 80,
+      "credited_deletions": 80,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_facts.go",
+      "baseline_lines": 34,
+      "current_lines": 0,
+      "deleted_lines": 34,
+      "credited_deletions": 34,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_fixer.go",
+      "baseline_lines": 224,
+      "current_lines": 0,
+      "deleted_lines": 224,
+      "credited_deletions": 224,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_graph_fixer.go",
+      "baseline_lines": 0,
+      "current_lines": 399,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 399
+    },
+    {
+      "path": "internal/turn/bug_graph_prepare.go",
+      "baseline_lines": 0,
+      "current_lines": 200,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 200
+    },
+    {
+      "path": "internal/turn/bug_graph_runtime.go",
+      "baseline_lines": 0,
+      "current_lines": 557,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 557
+    },
+    {
+      "path": "internal/turn/bug_merge.go",
+      "baseline_lines": 299,
+      "current_lines": 0,
+      "deleted_lines": 299,
+      "credited_deletions": 299,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_messages.go",
+      "baseline_lines": 212,
+      "current_lines": 0,
+      "deleted_lines": 212,
+      "credited_deletions": 212,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_native.go",
+      "baseline_lines": 55,
+      "current_lines": 0,
+      "deleted_lines": 55,
+      "credited_deletions": 55,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_parent_policy.go",
+      "baseline_lines": 190,
+      "current_lines": 0,
+      "deleted_lines": 190,
+      "credited_deletions": 190,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_parent_reports.go",
+      "baseline_lines": 174,
+      "current_lines": 0,
+      "deleted_lines": 174,
+      "credited_deletions": 174,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_pr.go",
+      "baseline_lines": 526,
+      "current_lines": 0,
+      "deleted_lines": 526,
+      "credited_deletions": 526,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_record.go",
+      "baseline_lines": 287,
+      "current_lines": 0,
+      "deleted_lines": 287,
+      "credited_deletions": 287,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_repair_handoff.go",
+      "baseline_lines": 80,
+      "current_lines": 0,
+      "deleted_lines": 80,
+      "credited_deletions": 80,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_repair_observer.go",
+      "baseline_lines": 120,
+      "current_lines": 0,
+      "deleted_lines": 120,
+      "credited_deletions": 120,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_runtime.go",
+      "baseline_lines": 431,
+      "current_lines": 114,
+      "deleted_lines": 376,
+      "credited_deletions": 376,
+      "charged_additions": 59
+    },
+    {
+      "path": "internal/turn/bug_runtime_domains.go",
+      "baseline_lines": 389,
+      "current_lines": 0,
+      "deleted_lines": 389,
+      "credited_deletions": 389,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_runtime_replies.go",
+      "baseline_lines": 233,
+      "current_lines": 0,
+      "deleted_lines": 233,
+      "credited_deletions": 233,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_runtime_reports.go",
+      "baseline_lines": 160,
+      "current_lines": 0,
+      "deleted_lines": 160,
+      "credited_deletions": 160,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_runtime_save.go",
+      "baseline_lines": 75,
+      "current_lines": 0,
+      "deleted_lines": 75,
+      "credited_deletions": 75,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_runtime_target.go",
+      "baseline_lines": 141,
+      "current_lines": 0,
+      "deleted_lines": 141,
+      "credited_deletions": 141,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/bug_test_graph.go",
+      "baseline_lines": 410,
+      "current_lines": 0,
+      "deleted_lines": 410,
+      "credited_deletions": 410,
+      "charged_additions": 0
+    },
+    {
+      "path": "internal/turn/execute.go",
+      "baseline_lines": 928,
+      "current_lines": 931,
+      "deleted_lines": 4,
+      "credited_deletions": 0,
+      "charged_additions": 7
+    },
+    {
+      "path": "internal/turn/graph_delivery.go",
+      "baseline_lines": 0,
+      "current_lines": 532,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 532
+    },
+    {
+      "path": "internal/turn/graph_delivery_reports.go",
+      "baseline_lines": 0,
+      "current_lines": 48,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 48
+    },
+    {
+      "path": "internal/turn/graph_node.go",
+      "baseline_lines": 213,
+      "current_lines": 223,
+      "deleted_lines": 23,
+      "credited_deletions": 0,
+      "charged_additions": 33
+    },
+    {
+      "path": "internal/turn/graph_stops.go",
+      "baseline_lines": 0,
+      "current_lines": 176,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 176
+    },
+    {
+      "path": "internal/turn/mcp_runtime.go",
+      "baseline_lines": 480,
+      "current_lines": 477,
+      "deleted_lines": 4,
+      "credited_deletions": 0,
+      "charged_additions": 1
+    },
+    {
+      "path": "internal/turn/prepare.go",
+      "baseline_lines": 1637,
+      "current_lines": 1647,
+      "deleted_lines": 17,
+      "credited_deletions": 0,
+      "charged_additions": 27
+    },
+    {
+      "path": "internal/turn/research_agent.go",
+      "baseline_lines": 350,
+      "current_lines": 373,
+      "deleted_lines": 52,
+      "credited_deletions": 0,
+      "charged_additions": 75
+    },
+    {
+      "path": "internal/turn/research_comments.go",
+      "baseline_lines": 469,
+      "current_lines": 473,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 4
+    },
+    {
+      "path": "internal/turn/research_owner_resume.go",
+      "baseline_lines": 118,
+      "current_lines": 140,
+      "deleted_lines": 0,
+      "credited_deletions": 0,
+      "charged_additions": 22
+    },
+    {
+      "path": "internal/turn/research_workflow.go",
+      "baseline_lines": 556,
+      "current_lines": 556,
+      "deleted_lines": 1,
+      "credited_deletions": 0,
+      "charged_additions": 1
+    },
+    {
+      "path": "internal/turn/workflow_policy.go",
+      "baseline_lines": 154,
+      "current_lines": 150,
+      "deleted_lines": 7,
+      "credited_deletions": 0,
+      "charged_additions": 3
+    }
+  ]
+}

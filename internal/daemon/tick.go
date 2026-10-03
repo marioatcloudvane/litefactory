@@ -1799,9 +1799,6 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 			return d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
 		}
 	}
-	if command.Name == "/approve-bug" {
-		return d.handleBugAnalysisApproval(ctx, t, c, command, log)
-	}
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)
 	}
@@ -2015,6 +2012,12 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
+	if d.bug != nil {
+		if err := d.bug.CheckExistingAdmission(ctx, t.session.ID); err != nil {
+			return d.leave(ctx, t, log, "unsupported pinned Bug work preserved", err)
+		}
+	}
+
 	if pending, err := d.resumeReport(ctx, t, trigger.CommentID); pending || err != nil {
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
@@ -2085,7 +2088,7 @@ func (d *Daemon) run(
 
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
-	if (mode == agent.ModeResearch || mode == agent.ModeSpike) && t.continuation == nil {
+	if (mode == agent.ModeResearch || mode == agent.ModeSpike || workflow == agent.WorkflowBug) && t.continuation == nil {
 		if err := d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
 			// A comment written before the open question was published can
 			// never answer it. Refuse it once, visibly; the reply path consumes

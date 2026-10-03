@@ -1,0 +1,3 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+make: *** [lint] Interrupt: 2

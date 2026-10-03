@@ -127,6 +127,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("bug_repairs", bySession),
 	archived("bug_tasks", bySession),
 	// Graph.
+	archived("graph_effects", `instance_id IN `+subInst),
 	archived("graph_outputs", `node_attempt_id IN `+subNodeAt),
 	archived("graph_owner_waits", `instance_id IN `+subInst),
 	archived("graph_comment_intents", `instance_id IN `+subInst),

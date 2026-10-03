@@ -10,7 +10,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/gittest"
 )
 
-func TestBugChecksPinnedRecipeAndSourceObservations(t *testing.T) {
+func TestBugChecksPinnedRecipeIgnoresDirtyBranchCommands(t *testing.T) {
 	repo := gittest.New(t)
 	const recipe = "version: 1\n# trusted target bytes\n"
 	repo.WriteFile(".litefactory/bug-checks.yaml", recipe)
@@ -31,19 +31,6 @@ func TestBugChecksPinnedRecipeAndSourceObservations(t *testing.T) {
 	}
 	// EnsureWorktree follows the remote base; explicitly bring the fixture to the pinned target.
 	repo.GitIn(dir, "checkout", "--detach", target)
-	tree := repo.GitIn(dir, "rev-parse", "HEAD^{tree}")
-	if err = result.Worktree.ObserveBugCheckSource(t.Context(), target, tree); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.MkdirAll(filepath.Join(dir, "generated"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(dir, "generated", "cache"), []byte("ignored"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err = result.Worktree.ObserveBugCheckSource(t.Context(), target, tree); err != nil {
-		t.Fatalf("ignored generated output refused: %v", err)
-	}
 	if err = os.WriteFile(filepath.Join(dir, ".litefactory", "bug-checks.yaml"), []byte("branch-selected command"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -53,27 +40,6 @@ func TestBugChecksPinnedRecipeAndSourceObservations(t *testing.T) {
 	}
 	if string(got) != recipe {
 		t.Fatalf("recipe selected from branch: %q", got)
-	}
-	if err = result.Worktree.ObserveBugCheckSource(t.Context(), target, tree); err == nil {
-		t.Fatal("tracked source dirt accepted")
-	}
-	if err = os.WriteFile(filepath.Join(dir, ".litefactory", "bug-checks.yaml"), []byte(recipe), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(dir, "new-test.go"), []byte("unexpected input"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err = result.Worktree.ObserveBugCheckSource(t.Context(), target, tree); err == nil {
-		t.Fatal("nonignored untracked input accepted")
-	}
-	if err = os.Remove(filepath.Join(dir, "new-test.go")); err != nil {
-		t.Fatal(err)
-	}
-	if err = result.Worktree.ObserveBugCheckSource(t.Context(), strings.Repeat("a", 40), tree); err == nil {
-		t.Fatal("wrong source commit accepted")
-	}
-	if err = result.Worktree.ObserveBugCheckSource(t.Context(), target, strings.Repeat("b", 40)); err == nil {
-		t.Fatal("wrong source tree accepted")
 	}
 	for _, identity := range []string{"HEAD", target[:8], target + "^{commit}", strings.Repeat("f", 40)} {
 		if _, err = result.Worktree.ReadBugCheckRecipe(t.Context(), identity); err == nil {
