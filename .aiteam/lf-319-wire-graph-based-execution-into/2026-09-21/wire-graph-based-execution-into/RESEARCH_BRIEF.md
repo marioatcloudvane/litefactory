@@ -10,11 +10,13 @@ Reassess graph Implement using current Bug experience, maximize agent engineerin
 - **d2** — The owner's current direction requires DOT-controlled workflow execution and replaces agent orchestration with factory scheduling.
 - **d3** — Users continue to select modes, and neither graph completion nor Validate failure automatically starts another mode.
 - **d4** — Implementation consumes approved frozen stories and preserves existing permission, result, publication and save boundaries.
-- **d5** — The owner previously selected serial first; the current request reopens optional concurrency, so serial remains the settled default pending q5.
+- **d5** — Owner answer to the concurrency question: parallel execution is essential and is in this release, as wide as can be done safely, with a configurable cap.
 - **d6** — Owner correction to q2: acceptance testing and acceptance assessment belong to Validate, while Implement retains scoped engineering checks.
 - **d7** — Owner answer to q3: the repair-cycle limit is activity configuration with a default of two.
 - **d8** — Owner answer to q4: after story exhaustion, continue independent ready stories and block the failed story's dependents.
 - **d9** — Sorting rule: the factory owns whether and when (order, counts, limits, proof, records); agents own how and why (design, code, tests, recipes, diagnosis, blocked reports). Missing or unclear proof fails closed, and an agent's blocked report is never overridden by a rule.
+- **d10** — Implement is strictly implementation: code, its own unit tests, build, format, vet and a build after each merge. Acceptance checks and tests, real-boundary integration tests, the full suite, code and architecture review and plan-conformance move to Validate.
+- **d11** — Parallel safety rule: independence is the dependency list only; no overlap prediction. Isolation uses a separate git working copy per running story, merging is serial in plan order, and a story's dependents start only after it is merged.
 
 
 ## Assumptions
@@ -22,7 +24,7 @@ Reassess graph Implement using current Bug experience, maximize agent engineerin
 - **a1** — A prerequisite releases dependents after implementation and required scoped engineering checks pass with retained evidence, without waiting for acceptance or full-suite verification.
 - **a2** — Proposed surface: the editable DOT workflow controls direct story workers and explicit runner/verifier stages over frozen dependency records, without general nested-DOT syntax.
 - **a3** — Current Plan graph and activity registration are observed, but compatibility still requires an explicit supported frozen-plan version.
-- **a4** — Previous owner decisions remain effective; optional first-release parallelism is reopened by the current request and awaits q5.
+- **a4** — Previous owner decisions remain effective; parallelism is now settled as in scope, with serial dispatch used only while Pass 1 is proven.
 - **a5** — After owner-selected Implement, ready stories go directly to workers that implement, author engineering tests and diagnose failures, with agent-run checks and factory-verified evidence.
 - **a6** — Retain frozen plan/story revisions and edges, role/workflow hashes, workspace/base-source identities, leases, attempts, budgets, recipe digests, transcript evidence, integrated source and final states.
 - **a7** — Proposed readiness validation: reject empty or incompatible plans, duplicate identities, missing or self dependencies, cycles and broken parent relationships before dispatch; order ready stories by their frozen plan order with stable story identity as a tie-breaker.
@@ -51,8 +53,8 @@ Reassess graph Implement using current Bug experience, maximize agent engineerin
 - **a30** — Graph visit limits remain separate from per-story repair limits, and admission must reject a frozen plan whose required bounded visits exceed the pinned workflow's capacity rather than silently shortening execution.
 - **a31** — A successful engineering handoff requires every story engineering-complete, while an exhausted or blocked remainder produces a partial handoff with no implicit acceptance, issue closure or automatic Validate launch.
 - **a32** — Owner-selected Validate executes full-suite and acceptance checks using agents against the handoff source, retains read-only acceptance assessment and returns attributed or explicitly unattributed repair findings.
-- **a33** — Recommend optional concurrency with default one worker, separate workspaces, stable serialized integration and post-integration scoped verification before dependency release; q5 decides inclusion.
-- **a34** — Known shared files or exclusive resources serialize work, missing independence information defaults to serial, and disjoint paths alone do not prove independence.
+- **a33** — Parallel workers use separate workspaces, serialized merging in plan order, a build of the merged code after each merge and a story-test recheck when the merge was not a straight fast-forward, before dependency release.
+- **a34** — The factory does not predict file overlap or shared resources; clashes surface as merge conflicts or failed checks and go through repair, and a plan can force order with a dependency.
 - **a35** — Context is story-local with original evidence accessible on demand, compact handoffs and safe same-story repair continuation, without promising measured savings.
 - **a36** — Harness compatibility requires reliable individual command identity, order, directory, source and exit evidence; absent evidence blocks the new check path instead of trusting summaries.
 - **a37** — Compare equivalent frozen workloads using elapsed time, invocation count, available token/cache usage and repeated checks, and report missing usage explicitly.
@@ -60,23 +62,28 @@ Reassess graph Implement using current Bug experience, maximize agent engineerin
 - **a39** — Treat the owner's phrase test manager as the existing test-engineer roles and test-evidence guidance, since no component of that name exists.
 - **a40** — Factory-captured snapshots (q6) are recommended; until answered, snapshot transport stays as shipped.
 - **a41** — Reduce the proposed factory activities to four: next story, verify checks, record result including repair counting and failure handling, and final handoff; admission validation folds into the existing start step.
+- **a42** — The owner's three passes are read as bookkeeping, parallel workers, then transcript-verified checks; this reading is flagged to the owner for correction.
+- **a43** — Each story runs as a child workflow reusing the pattern Bug already uses for its test child, so the workflow engine needs no fan-out feature; the parent selects the ready set up to the cap, runs the children together and merges in order.
+- **a44** — The shipped Implement path stays available until the new path is proven, as a failure limiter, and the aggregate run is not dropped from Implement until the versioned Validate entry exists.
+- **a45** — A malformed agent outcome counts as a failed attempt, but one same-run format correction does not consume a repair; a recommended default parallel cap of four is unmeasured and adjustable.
 
 
 ## Open questions
 
-### q5 — Should this release include optional isolated parallel story workers?
+### q7 — Do you approve the three passes: bookkeeping, then parallel workers, then verified checks?
 
 _Asked of: Product Owner Questions_
 
-- **optional_concurrency** — Recommended: include concurrent workers in separate workspaces with serialized integration and rechecks; default one worker, higher limit by configuration.  *(recommended)*
-- **direct_serial** — Keep this release serial; deliver direct dispatch, factory-verified checks and smaller inputs first, and defer parallelism.
+- **phased** — Recommended: Pass 1 factory bookkeeping with one worker at a time; Pass 2 isolated parallel workers with ordered merging; Pass 3 transcript-verified checks once harness proof is confirmed. Parallel speed arrives before the unconfirmed proof work.  *(recommended)*
+- **all_at_once** — Deliver bookkeeping, parallel and verified checks as one release; fewer handovers, but the largest and riskiest single change.
 
-### q7 — Should we roll out in phases, with bookkeeping first and verified checks second?
+### q8 — What should the default parallel worker cap be?
 
 _Asked of: Product Owner Questions_
 
-- **phased** — Recommended: Phase A moves bookkeeping to the factory with honestly labelled agent-reported checks; Phase B adds transcript-verified checks once harness proof is confirmed. Lower risk, earlier savings.  *(recommended)*
-- **all_at_once** — Deliver verified checks together with the bookkeeping move; one release, but it waits on the unconfirmed Claude exit-code question.
+- **four** — Recommended: four at once, adjustable. Real speedup on typical plans without overloading the machine or hitting session limits quickly.  *(recommended)*
+- **two** — Two at once, adjustable. Safer for the first runs and easier to diagnose, but slower.
+- **ready_set** — Every ready story at once with no default cap. Fastest on paper, but unbounded load and token bursts.
 
 ### q6 — Should the factory capture story and aggregate snapshots instead of the agent?
 
