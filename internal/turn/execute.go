@@ -643,6 +643,10 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		}
 	}()
 
+	if err := opts.DB.ValidateGraphDispatchTarget(ctx, session.ID, req.Trigger.CommentID); err != nil {
+		return result, err
+	}
+
 	if req.Workflow == agent.WorkflowBug {
 		return opts.Bug.Execute(ctx, req, result)
 	}

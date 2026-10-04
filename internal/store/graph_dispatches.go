@@ -70,11 +70,44 @@ func (db *DB) ParkGraphInstance(ctx context.Context, instanceID int64, node stri
 // a crash between the two cannot lose the continuation. spent is zero for a run
 // that no dispatch allocated.
 func (db *DB) ParkGraphInstanceAfter(ctx context.Context, instanceID int64, node string, dueAt, now time.Time, spent int64) (GraphDispatch, error) {
+	return db.parkGraphInstance(ctx, instanceID, node, dueAt, now, spent, 0)
+}
+
+// ParkGraphInstanceForReply consumes an authenticated reply atomically with
+// parking. The caller holds task ownership and freshly observes an open issue.
+// Replayed replies cannot revive a later stop, even after a process interruption.
+func (db *DB) ParkGraphInstanceForReply(ctx context.Context, instanceID int64, node string, at time.Time, replyID int64) (GraphDispatch, error) {
+	if replyID <= 0 || IsGraphTrigger(replyID) || IsAutomaticTrigger(replyID) || IsScheduleTrigger(replyID) {
+		return GraphDispatch{}, graphInvariant("recovery requires an owner comment")
+	}
+	return db.parkGraphInstance(ctx, instanceID, node, at, at, 0, replyID)
+}
+
+func (db *DB) parkGraphInstance(ctx context.Context, instanceID int64, node string, dueAt, now time.Time, spent, replyID int64) (GraphDispatch, error) {
 	var out GraphDispatch
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		instance, err := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, instanceID))
 		if err != nil {
 			return err
+		}
+		if replyID > 0 {
+			var consumed bool
+			if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM watermarks WHERE session_id=? AND last_comment_id>=?)`, instance.SessionID, replyID).Scan(&consumed); err != nil || consumed {
+				return err
+			}
+			var eligible bool
+			if err = tx.QueryRowContext(ctx, `SELECT
+EXISTS(SELECT 1 FROM research_launch_definitions WHERE instance_id=?)
+AND NOT EXISTS(SELECT 1 FROM graph_instances WHERE session_id=? AND id>?)
+AND NOT EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running')
+AND NOT EXISTS(SELECT 1 FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running'))
+AND NOT EXISTS(SELECT 1 FROM graph_owner_waits WHERE instance_id=? AND state IN ('waiting','claimed'))
+AND EXISTS(SELECT 1 FROM graph_dispatches WHERE id=(SELECT MAX(id) FROM graph_dispatches WHERE instance_id=?) AND status='cancelled' AND allocated_run_id IS NULL AND node=?)`, instanceID, instance.SessionID, instanceID, instance.SessionID, instanceID, instanceID, instanceID, node).Scan(&eligible); err != nil {
+				return err
+			}
+			if !eligible || !instance.NextDueAt.IsZero() {
+				return graphInvariant("reply recovery no longer targets stopped work")
+			}
 		}
 		if instance.Status != GraphRunning {
 			return ErrGraphInstanceTerminal
@@ -102,6 +135,9 @@ func (db *DB) ParkGraphInstanceAfter(ctx context.Context, instanceID int64, node
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=? WHERE id=?`, FormatTime(dueAt), instanceID)
+		if err == nil && replyID > 0 {
+			_, err = advanceWatermark(ctx, tx, instance.SessionID, replyID)
+		}
 		return err
 	})
 	return out, err
@@ -176,7 +212,15 @@ func (db *DB) ReserveGraphDispatch(ctx context.Context, id int64, at time.Time) 
 // attempt could start it. Past the cap it is cancelled with its own reason, and
 // the instance keeps its node and findings either way.
 func (db *DB) RequeueGraphDispatch(ctx context.Context, id int64, retryAt time.Time, cause string) (bool, error) {
+	requeued, _, err := db.RequeueGraphDispatchWithStop(ctx, id, retryAt, cause)
+	return requeued, err
+}
+
+// RequeueGraphDispatchWithStop returns the cancellation only when this call
+// actually exhausts an unallocated reservation. A no-op is not a stop notice.
+func (db *DB) RequeueGraphDispatchWithStop(ctx context.Context, id int64, retryAt time.Time, cause string) (bool, *GraphDispatch, error) {
 	var requeued bool
+	var stopped *GraphDispatch
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		d, err := scanGraphDispatch(tx.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE id=?`, id))
 		if err != nil {
@@ -194,6 +238,8 @@ func (db *DB) RequeueGraphDispatch(ctx context.Context, id int64, retryAt time.T
 				return err
 			}
 			_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=NULL WHERE id=?`, d.InstanceID)
+			d.Status, d.CancellationReason, d.FinishedAt = "cancelled", reason, retryAt
+			stopped = &d
 			return err
 		}
 		requeued = true
@@ -203,7 +249,7 @@ func (db *DB) RequeueGraphDispatch(ctx context.Context, id int64, retryAt time.T
 		_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=? WHERE id=?`, FormatTime(retryAt), d.InstanceID)
 		return err
 	})
-	return requeued, err
+	return requeued, stopped, err
 }
 
 // GraphDispatchRetryDelay spaces a failed start out instead of hammering the
@@ -308,4 +354,35 @@ func bindGraphDispatch(ctx context.Context, tx *sql.Tx, run Run) error {
 		return graphInvariant("graph run must be allocated to its own reserved dispatch")
 	}
 	return nil
+}
+
+// LatestGraphDispatch reads the latest intent without interpreting its reason.
+func (db *DB) LatestGraphDispatch(ctx context.Context, instanceID int64) (GraphDispatch, error) {
+	return scanGraphDispatch(db.sql.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE instance_id=? ORDER BY id DESC LIMIT 1`, instanceID))
+}
+
+// ValidateGraphDispatchTarget fences dispatch execution under the caller's task
+// lock. A stale dispatch must never execute a newer instance selected by a mode.
+func (db *DB) ValidateGraphDispatchTarget(ctx context.Context, sessionID, triggerID int64) error {
+	id, ok := GraphTriggerDispatch(triggerID)
+	if !ok {
+		return nil
+	}
+	var valid bool
+	err := db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_dispatches d JOIN graph_instances i ON i.id=d.instance_id WHERE d.id=? AND d.session_id=? AND d.status='reserved' AND d.allocated_run_id IS NULL AND i.status='running' AND i.current_node=d.node AND NOT EXISTS(SELECT 1 FROM graph_instances newer WHERE newer.session_id=i.session_id AND newer.id>i.id))`, id, sessionID).Scan(&valid)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return graphInvariant("dispatch no longer targets the current saved node")
+	}
+	return nil
+}
+
+// GraphDispatchFollowsCancellation identifies a fresh replacement using the
+// retained prior intent, without adding recovery state or rewriting history.
+func (db *DB) GraphDispatchFollowsCancellation(ctx context.Context, dispatch GraphDispatch) (bool, error) {
+	var recovered bool
+	err := db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_dispatches WHERE id=(SELECT MAX(id) FROM graph_dispatches WHERE instance_id=? AND id<?) AND status='cancelled' AND allocated_run_id IS NULL AND node=?)`, dispatch.InstanceID, dispatch.ID, dispatch.Node).Scan(&recovered)
+	return recovered, err
 }

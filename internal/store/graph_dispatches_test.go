@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -177,5 +178,155 @@ func TestGraphDispatchRetryDelayGrows(t *testing.T) {
 	}
 	if GraphDispatchRetryDelay(0) <= 0 {
 		t.Error("a retry delay must be positive")
+	}
+}
+
+func TestGraphDispatchStopOutcomeIsOnlyActualExhaustion(t *testing.T) {
+	t.Parallel()
+	db, instance := graphDispatchFixture(t)
+	ctx, at := t.Context(), graphTestTime()
+	dispatch, err := db.ParkGraphInstance(ctx, instance.ID, instance.CurrentNode, at, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= MaxGraphDispatchAttempts; attempt++ {
+		if _, ok, err := db.ReserveGraphDispatch(ctx, dispatch.ID, at); err != nil || !ok {
+			t.Fatalf("reserve: %v %v", ok, err)
+		}
+		requeued, stopped, err := db.RequeueGraphDispatchWithStop(ctx, dispatch.ID, at, "startup refused")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if attempt < MaxGraphDispatchAttempts {
+			if !requeued || stopped != nil {
+				t.Fatalf("premature stop: %v %+v", requeued, stopped)
+			}
+		} else if requeued || stopped == nil || stopped.Status != "cancelled" || stopped.Attempts != attempt || stopped.CancellationReason == "" {
+			t.Fatalf("missing stop: %v %+v", requeued, stopped)
+		}
+	}
+	if requeued, stopped, err := db.RequeueGraphDispatchWithStop(ctx, dispatch.ID, at, "replay"); err != nil || requeued || stopped != nil {
+		t.Fatalf("no-op announced another stop: %v %+v %v", requeued, stopped, err)
+	}
+	other, err := db.ParkGraphInstance(ctx, instance.ID, instance.CurrentNode, at, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CancelGraphDispatch(ctx, other.ID, "issue closed", at); err != nil {
+		t.Fatal(err)
+	}
+	if _, stopped, err := db.RequeueGraphDispatchWithStop(ctx, other.ID, at, "replay"); err != nil || stopped != nil {
+		t.Fatalf("closure announced: %+v %v", stopped, err)
+	}
+}
+
+func TestGraphReplyRecoveryAtomicallyConsumesInput(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx, at := t.Context(), graphTestTime()
+	session := testSession(t, db, 466)
+	pin := graphTestDefinition(t, db)
+	if _, err := db.AdmitWorkflowPath(ctx, session.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
+	admitted, err := db.AdmitWorkflowLaunch(ctx, WorkflowLaunch{Mode: "implement", SessionID: session.ID, TriggerID: 1, DefinitionID: pin.ID, Start: "work", ContentDigest: pin.Digest, TopologyDigest: pin.Digest, Files: []byte(`{"graph.dot":"eA=="}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := admitted.Instance
+	old, err := db.ParkGraphInstance(ctx, instance.ID, instance.CurrentNode, at, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CancelGraphDispatch(ctx, old.ID, "stopped", at); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := db.ParkGraphInstanceForReply(ctx, instance.ID, instance.CurrentNode, at, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ID == old.ID || fresh.Attempts != 0 || fresh.InstanceID != instance.ID || fresh.Node != instance.CurrentNode {
+		t.Fatalf("wrong recovery: %+v", fresh)
+	}
+	wm, exists, err := db.GetWatermark(ctx, session.ID)
+	if err != nil || !exists || wm.LastCommentID != 10 {
+		t.Fatalf("not consumed: %+v %v", wm, err)
+	}
+	if err = db.CancelGraphDispatch(ctx, fresh.ID, "later stop", at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ParkGraphInstanceForReply(ctx, instance.ID, instance.CurrentNode, at, 10); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := db.LatestGraphDispatch(ctx, instance.ID)
+	if err != nil || latest.ID != fresh.ID || latest.Status != "cancelled" {
+		t.Fatalf("replay revived a later stop: %+v %v", latest, err)
+	}
+	got, err := db.GetGraphInstance(ctx, instance.ID)
+	if err != nil || got.DefinitionID != instance.DefinitionID || got.CurrentNode != instance.CurrentNode || got.Status != GraphRunning || !got.NextDueAt.IsZero() {
+		t.Fatalf("changed retained work: %+v %v", got, err)
+	}
+	if _, err = db.ParkGraphInstanceForReply(ctx, instance.ID, "wrong node", at, 11); err == nil {
+		t.Fatal("wrong node admitted")
+	}
+	wm, _, err = db.GetWatermark(ctx, session.ID)
+	if err != nil || wm.LastCommentID != 10 {
+		t.Fatalf("failed park consumed input: %+v %v", wm, err)
+	}
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, Limit: 1, StartedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ParkGraphInstanceForReply(ctx, instance.ID, instance.CurrentNode, at, 11); err == nil {
+		t.Fatal("active attempt recovered")
+	}
+	findings := []byte(`{"record":"retained_findings","value":"keep this"}`)
+	if err = db.CompleteGraphNodeAttempt(ctx, attempt.ID, GraphCompletion{Status: GraphSucceeded, Outcome: "success", FinishedAt: at, Outputs: []GraphOutput{{Kind: "json", Payload: findings}}}); err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, e := db.ParkGraphInstanceForReply(ctx, instance.ID, instance.CurrentNode, at, 12)
+			results <- e
+		}()
+	}
+	for range 2 {
+		select {
+		case e := <-results:
+			if e != nil {
+				t.Fatal(e)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("waiting for concurrent reply recovery")
+		}
+	}
+	due, err := db.ListDueGraphDispatches(ctx, at, 10)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("duplicate recovery: %+v %v", due, err)
+	}
+	retained, err := db.LatestGraphRecord(ctx, instance.ID, "retained_findings")
+	if err != nil || string(retained) != string(findings) {
+		t.Fatalf("lost findings: %s %v", retained, err)
+	}
+	if _, err = db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: instance.CurrentNode, Limit: 1, StartedAt: at}); !errors.Is(err, ErrGraphAttemptLimit) {
+		t.Fatalf("recovery granted node budget: %v", err)
+	}
+	reserved, ok, err := db.ReserveGraphDispatch(ctx, due[0].ID, at)
+	if err != nil || !ok {
+		t.Fatalf("reserve recovered work: %v %v", ok, err)
+	}
+	if err = db.ValidateGraphDispatchTarget(ctx, session.ID, reserved.TriggerID()); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := db.AdmitWorkflowLaunch(ctx, WorkflowLaunch{Mode: "implement", SessionID: session.ID, TriggerID: reserved.TriggerID(), DefinitionID: pin.ID, Start: "work", ContentDigest: pin.Digest, TopologyDigest: pin.Digest, Files: []byte(`{"graph.dot":"eA=="}`)})
+	if err != nil || resumed.Instance.ID != instance.ID || resumed.LaunchID != admitted.LaunchID {
+		t.Fatalf("dispatch readmitted work: %+v %v", resumed, err)
+	}
+	if _, err = db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: pin.ID, CurrentNode: "work", StartedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.ValidateGraphDispatchTarget(ctx, session.ID, reserved.TriggerID()); err == nil {
+		t.Fatal("old dispatch accepted newer instance")
 	}
 }

@@ -2086,6 +2086,10 @@ func (d *Daemon) run(
 		syncOverride = &value
 	}
 
+	if handled, err := d.recoverGraphReply(ctx, t, trigger, command, string(mode)); handled || err != nil {
+		return d.leave(ctx, t, log, "stopped graph reply recovery deferred", err)
+	}
+
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
 	if (mode == agent.ModeResearch || mode == agent.ModeSpike || workflow == agent.WorkflowBug) && t.continuation == nil {
@@ -2446,6 +2450,11 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	d.rateLimited(ctx, log, t.tickAt, err)
 	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 		slog.Any("error", err))
+	if store.IsGraphTrigger(t.commentUnderWay) {
+		// Dispatch failure needs its actual cause for bounded retry and the
+		// durable stop notice; it has no owner-comment drain to retain it.
+		return err
+	}
 	return nil
 }
 
