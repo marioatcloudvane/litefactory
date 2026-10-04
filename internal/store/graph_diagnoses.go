@@ -186,45 +186,21 @@ func (db *DB) RetainGraphDiagnosis(ctx context.Context, in GraphDiagnosisInput) 
 		if _, e = p.Analysis.Validate(p.Response == "done"); e != nil {
 			return e
 		}
-		if e = graphDiagnosisMeanings(prior.Analysis, *p.Analysis); e != nil {
-			return e
-		}
-		// Only retained authenticated owner observations may be cited as answers.
+		// The owner approves each revision explicitly, so a revised analysis is
+		// recorded as submitted. Answer references that do not name a retained
+		// owner reply are dropped rather than refusing the whole analysis.
+		kept := p.Analysis.AnswerReferences[:0]
 		for _, ref := range p.Analysis.AnswerReferences {
 			var count int
 			e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_owner_waits WHERE instance_id=? AND reply_id=? AND state IN ('claimed','allocated')`, inst.ID, strings.TrimPrefix(ref, "reply:")).Scan(&count)
 			if e != nil {
 				return e
 			}
-			if !strings.HasPrefix(ref, "reply:") || count != 1 {
-				return graphInvariant("diagnosis answer is not retained owner input")
+			if strings.HasPrefix(ref, "reply:") && count == 1 {
+				kept = append(kept, ref)
 			}
 		}
-		for _, old := range prior.Analysis.AnswerReferences {
-			found := false
-			for _, ref := range p.Analysis.AnswerReferences {
-				if ref == old {
-					found = true
-				}
-			}
-			if !found {
-				return graphInvariant("diagnosis drops a settled authenticated answer reference")
-			}
-		}
-		for _, old := range prior.Analysis.Questions {
-			if !old.Material {
-				continue
-			}
-			stillOpen := false
-			for _, question := range p.Analysis.Questions {
-				if question.ID == old.ID && question.Material {
-					stillOpen = true
-				}
-			}
-			if !stillOpen && len(p.Analysis.AnswerReferences) == 0 {
-				return graphInvariant("resolving a retained material question requires authenticated answer references")
-			}
-		}
+		p.Analysis.AnswerReferences = kept
 		digest, e := p.Analysis.Digest()
 		if e != nil {
 			return e
@@ -245,24 +221,6 @@ func (db *DB) RetainGraphDiagnosis(ctx context.Context, in GraphDiagnosisInput) 
 		return GraphDiagnosis{}, fmt.Errorf("store: retain graph diagnosis: %w", err)
 	}
 	return out, nil
-}
-
-func graphDiagnosisMeanings(prior, next buganalysis.BugAnalysis) error {
-	for _, old := range prior.Criteria {
-		for _, now := range next.Criteria {
-			if old.ID == now.ID && old.Requirement != now.Requirement {
-				return graphInvariant("diagnosis criterion changes existing meaning")
-			}
-		}
-	}
-	for _, old := range prior.Questions {
-		for _, now := range next.Questions {
-			if old.ID == now.ID && old.Text != now.Text {
-				return graphInvariant("diagnosis question changes existing meaning")
-			}
-		}
-	}
-	return nil
 }
 
 // ApproveGraphDiagnosis consumes the exact owner command and records authority

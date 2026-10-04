@@ -207,6 +207,10 @@ const (
 	// question, so it is refused once, visibly, and consumed rather than
 	// retried forever. It is appended last so no existing kind is renumbered.
 	ReplyGraphReplyBetweenQuestions
+	// ReplyBugCommentNotApplied answers an owner comment the Bug workflow
+	// could not apply at its current step. It is posted and the comment is
+	// consumed, so a refused comment never stalls the issue's queue.
+	ReplyBugCommentNotApplied
 )
 
 // String renders the kind for logs and test failures.
@@ -286,6 +290,8 @@ func (k ReplyKind) String() string {
 		return "applies_resolution"
 	case ReplyGraphReplyBetweenQuestions:
 		return "graph_reply_between_questions"
+	case ReplyBugCommentNotApplied:
+		return "bug_comment_not_applied"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -308,7 +314,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
-	case ReplyGraphReplyBetweenQuestions:
+	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -348,7 +354,7 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions:
+	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied:
 		return true
 	default:
 		return false
@@ -845,6 +851,10 @@ func (r Reply) body() string {
 		b.WriteString(graphReplyBetweenQuestionsSentence)
 		b.WriteString(sectionGap)
 		b.WriteString("If it still applies, please post it again as a reply to the open question or review.")
+	case ReplyBugCommentNotApplied:
+		b.WriteString("This comment could not be applied to the bug work at its current step, so it was set aside and nothing was run for it.")
+		b.WriteString(sectionGap)
+		b.WriteString("Reply to the latest question or review instead. To approve a review, put `/approve-bug analysis <revision>` on the first line, using the revision that review names.")
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")
 		b.WriteString(sectionGap)

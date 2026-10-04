@@ -2150,6 +2150,11 @@ func (d *Daemon) run(
 				slog.Any("error", err))
 			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
 		}
+		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugReplyNotApplied) {
+			log.InfoContext(ctx, "Bug owner comment could not be applied at the current step; refusing it with a reply",
+				slog.Any("error", err))
+			return d.refuseMode(ctx, t, trigger, report.ReplyBugCommentNotApplied)
+		}
 		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugCommentRefused) {
 			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
 			return nil
