@@ -37,6 +37,16 @@ func NewGraphBugRuntime(ctx context.Context, opts Options, cfg BugRuntimeConfig)
 	return &BugRuntime{opts: opts, cfg: cfg, definition: definition}, nil
 }
 
+// bugReplyNotApplied marks a refusal of an owner comment so the daemon answers
+// and consumes it; a refused comment must never stall the issue's queue.
+// Shutdown and the existing between-questions refusal keep their own paths.
+func bugReplyNotApplied(e error) error {
+	if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) || errors.Is(e, store.ErrGraphReplyPredatesQuestion) {
+		return e
+	}
+	return fmt.Errorf("%w: %w", ErrBugReplyNotApplied, e)
+}
+
 func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.WorkflowAdmission, error) {
 	instance, e := r.opts.DB.LatestStandaloneBugInstance(ctx, req.SessionID)
 	if e == nil {
@@ -45,12 +55,16 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 			return store.WorkflowAdmission{}, e
 		}
 		if pin.Digest != r.definition.Profile.Digest || pin.ProfileVersion != 2 {
-			return store.WorkflowAdmission{}, errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused")
+			e := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused")
+			if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
+				e = bugReplyNotApplied(e)
+			}
+			return store.WorkflowAdmission{}, e
 		}
 		if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 			wait, e := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
 			if e != nil {
-				return store.WorkflowAdmission{}, e
+				return store.WorkflowAdmission{}, bugReplyNotApplied(e)
 			}
 			delivery, e := r.opts.DB.GetReportDelivery(ctx, wait.DeliveryKey)
 			if e != nil {
@@ -65,7 +79,7 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 			}
 			_, e = AdmitGraphBugOwnerReply(ctx, r.opts.DB, store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: r.cfg.OwnerID, AuthorID: req.Trigger.AuthorID, CommentID: req.Trigger.CommentID, QuestionCommentID: delivery.CommentID, TaskRef: session.TaskRef, SourceRef: session.TaskRef, Workflow: "bug", DeliveryKey: wait.DeliveryKey, Body: req.Trigger.Body, At: r.opts.MCP.Now()})
 			if e != nil {
-				return store.WorkflowAdmission{}, e
+				return store.WorkflowAdmission{}, bugReplyNotApplied(e)
 			}
 		}
 		return store.WorkflowAdmission{Instance: instance}, nil

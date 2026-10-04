@@ -400,19 +400,19 @@ func AdmitGraphBugOwnerReply(ctx context.Context, db *store.DB, reply store.Grap
 	if _, explicit := ParseCommand(body).Mode(); explicit {
 		return store.GraphOwnerWait{}, errors.New("explicit mode commands must be handled before Bug continuation")
 	}
-	if strings.HasPrefix(body, "/approve-bug") && !strings.ContainsAny(body, "\r\n") {
-		fields := strings.Fields(body)
-		if len(fields) > 3 && fields[0] == "/approve-bug" && fields[1] == "analysis" {
-			return db.ClaimGraphOwnerReply(ctx, reply)
-		}
+	// The approval command is read from the first line; anything after it is
+	// a note to the owner's own review and does not turn approval into guidance.
+	first := strings.TrimSpace(strings.SplitN(body, "\n", 2)[0])
+	if strings.HasPrefix(first, "/approve-bug") {
+		fields := strings.Fields(strings.TrimRight(first, ".!"))
 		if len(fields) != 3 || fields[0] != "/approve-bug" || fields[1] != "analysis" {
-			return store.GraphOwnerWait{}, errors.New("approval requires exact /approve-bug analysis <current revision>")
+			return store.GraphOwnerWait{}, errors.New("approval requires /approve-bug analysis <revision> on its first line")
 		}
 		revision, e := strconv.ParseInt(fields[2], 10, 64)
-		if e != nil || revision < 1 || body != "/approve-bug analysis "+strconv.FormatInt(revision, 10) {
+		if e != nil || revision < 1 {
 			return store.GraphOwnerWait{}, errors.New("approval revision is invalid")
 		}
-		reply.Body = body
+		reply.Body = "/approve-bug analysis " + strconv.FormatInt(revision, 10)
 		if _, e = db.ApproveGraphDiagnosis(ctx, reply, revision); e != nil {
 			return store.GraphOwnerWait{}, e
 		}

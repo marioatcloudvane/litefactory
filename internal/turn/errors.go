@@ -28,6 +28,11 @@ var (
 	// not apply. The refusal was already posted and the comment consumed, so
 	// the caller logs it and moves on to the task's next comment.
 	ErrBugCommentRefused = errors.New("bug comment refused and consumed")
+
+	// ErrBugReplyNotApplied reports an owner comment the Bug workflow could
+	// not apply at its current step. The daemon answers it with a reply and
+	// consumes it instead of stalling the task's comment queue.
+	ErrBugReplyNotApplied = errors.New("bug comment could not be applied at the current step")
 )
 
 func invalidOptions(format string, args ...any) error {
