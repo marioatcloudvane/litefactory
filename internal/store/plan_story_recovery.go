@@ -122,8 +122,9 @@ func (db *DB) CompletePlanStoryEffect(ctx context.Context, d PlanStoryDraft, exp
 
 // ListGraphPlanSessions keeps observation/recovery alive even without new parent
 // comments. Existing daemon capacity, cursor and backoff still own admission.
+// A parent observed closed is left out until sight records its reopening.
 func (db *DB) ListGraphPlanSessions(ctx context.Context) ([]Session, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+prefixedSessionColumns+` FROM sessions JOIN plan_execution_paths p ON p.session_id=sessions.id WHERE p.path='graph' AND EXISTS(SELECT 1 FROM plan_story_drafts d WHERE d.parent=sessions.task_ref) ORDER BY sessions.id`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+prefixedSessionColumns+` FROM sessions JOIN plan_execution_paths p ON p.session_id=sessions.id WHERE p.path='graph' AND EXISTS(SELECT 1 FROM plan_story_drafts d WHERE d.parent=sessions.task_ref) AND sessions.task_ref NOT IN (SELECT parent_task FROM managed_parent_closures) ORDER BY sessions.id`)
 	if err != nil {
 		return nil, err
 	}

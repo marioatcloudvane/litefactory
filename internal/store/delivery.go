@@ -112,8 +112,10 @@ func (db *DB) ListDeliveries(ctx context.Context, parent string) ([]DeliveryProp
 }
 
 // ListDeliveryParents discovers ready features and unfinished remote delivery effects.
+// A ready feature whose parent was observed closed is left out; its unfinished
+// delivery effects are still returned by the second branch.
 func (db *DB) ListDeliveryParents(ctx context.Context) ([]string, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT parent_task FROM managed_features WHERE workflow_version=2 AND engineering_succeeded=1 AND NOT EXISTS(SELECT 1 FROM delivery_proposals d WHERE d.parent_task=managed_features.parent_task AND d.closed=1 AND d.reported=1) UNION SELECT parent_task FROM delivery_proposals WHERE superseded=0 AND reported=0`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT parent_task FROM managed_features WHERE workflow_version=2 AND engineering_succeeded=1 AND NOT EXISTS(SELECT 1 FROM delivery_proposals d WHERE d.parent_task=managed_features.parent_task AND d.closed=1 AND d.reported=1) AND parent_task NOT IN (SELECT parent_task FROM managed_parent_closures) UNION SELECT parent_task FROM delivery_proposals WHERE superseded=0 AND reported=0`)
 	if err != nil {
 		return nil, err
 	}

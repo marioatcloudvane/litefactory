@@ -657,6 +657,9 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
+	if err := d.markPlanChild(ctx, q, issue.Number); err != nil {
+		return nil, err
+	}
 	if issue.State != github.StateOpen {
 		q.log.DebugContext(ctx, "skipping an issue that is not open; closing an issue is how "+
 			"litefactory is told to stop working on it",
@@ -691,6 +694,27 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 	c.issue = issue
 	c.resolved = true
 	return c, nil
+}
+
+// markPlanChild records that a graph Plan draft child was named by a listing or
+// a hint, so its parent's next worker sweeps it. [Daemon.refinePlanChildren]
+// reads only children owed a sweep. Not a graph Plan draft child is a no-op.
+func (d *Daemon) markPlanChild(ctx context.Context, q *repoQueue, number int) error {
+	parent, err := d.db.GraphPlanParentForChild(ctx, q.repo.ID, number)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	session, err := d.db.GetSessionByTaskRef(ctx, parent)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return d.db.MarkStoryDiscoveryPending(ctx, session.ID, number)
 }
 
 // candidate is one session discovery found eligible, before the dispatcher has
@@ -914,7 +938,11 @@ type task struct {
 	// with, so that [Daemon.leave] can say why it was deferred. Zero otherwise.
 	commentUnderWay int64
 
-	refining  bool
+	refining bool
+	// hinted is set when a webhook named this task's issue. Its comment
+	// listing then takes the operational lane, so an owner's comment does not
+	// wait behind background discovery.
+	hinted    bool
 	repo      store.Repo
 	forgeRepo github.Repo
 	issue     github.Issue
@@ -1289,8 +1317,21 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		ref:       c.ref,
 		log:       c.log,
 		tickAt:    tickAt,
+		hinted:    slices.Contains(c.sources, "webhook"),
 		workerLog: c.log.With(slog.Any("dispatch_sources", slices.Clone(c.sources)), slog.Time("tick_at", tickAt)),
 	}, nil
+}
+
+// taskComments lists a task's comments after a watermark. A webhook-hinted task
+// reads through the operational lane ([doctorCall]); every other task reads
+// through background discovery.
+func (d *Daemon) taskComments(ctx context.Context, t *task, after int64) ([]github.Comment, error) {
+	if t.hinted {
+		return doctorCall(ctx, d, func(ctx context.Context) ([]github.Comment, error) {
+			return d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, after)
+		})
+	}
+	return d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, after)
 }
 
 // work is everything one dispatched turn does, and it is the whole of what runs
@@ -1444,7 +1485,7 @@ func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
 // `.aiteam/AC_AMENDMENTS.md` for why the old blanket ban on issue bodies
 // (AC-2.16) was reversed. Existing comments are still never replayed.
 func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
-	comments, err := d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, 0)
+	comments, err := d.taskComments(ctx, t, 0)
 	if err != nil {
 		return fmt.Errorf("list the existing comments of task %s: %w", t.ref, err)
 	}
@@ -1608,7 +1649,7 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 	if err := d.retireModeSelections(ctx, t.session.ID); err != nil {
 		return false, fmt.Errorf("retire completed mode selections: %w", err)
 	}
-	comments, err := d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, watermark)
+	comments, err := d.taskComments(ctx, t, watermark)
 	if err != nil {
 		return false, fmt.Errorf("list the comments of task %s above %d: %w", t.ref, watermark, err)
 	}

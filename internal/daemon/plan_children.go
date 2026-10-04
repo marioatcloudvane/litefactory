@@ -40,6 +40,24 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		if draft.IssueNumber < 1 {
 			continue
 		}
+		// Only a child a listing or hint named since its last sweep, or one
+		// never swept, is read; the rest have nothing new to say.
+		owed, err := d.db.StoryDiscoveryOwed(ctx, t.session.ID, draft.IssueNumber)
+		if err != nil {
+			return false, err
+		}
+		if !owed {
+			continue
+		}
+		// Record the debt before the sweep advances any cursor, so an early
+		// return keeps it owed even when it had never been swept before.
+		if err = d.db.MarkStoryDiscoveryPending(ctx, t.session.ID, draft.IssueNumber); err != nil {
+			return false, err
+		}
+		start, err := d.db.StoryDiscoveryCursor(ctx, t.session.ID, draft.IssueNumber)
+		if err != nil {
+			return false, err
+		}
 		child, available, err := d.observePlanChild(ctx, t, draft, relation)
 		if err != nil {
 			return false, err
@@ -81,9 +99,15 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		}
 
 		if child.ID != draft.IssueID || child.Number != draft.IssueNumber {
+			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
+				return false, err
+			}
 			continue
 		}
 		if !available && state.PlanReplyHold(draft.Key) == "" {
+			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
+				return false, err
+			}
 			continue
 		}
 		var wait *planbrief.PlanWait
@@ -101,6 +125,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		if err != nil {
 			return false, err
 		}
+		complete := true
 		for _, comment := range comments {
 			if comment.ID <= after || slices.Contains(state.ConsumedReplies, comment.ID) {
 				continue
@@ -135,6 +160,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 					return false, err
 				}
 				if !confirmed {
+					complete = false
 					break
 				}
 				after = comment.ID
@@ -181,6 +207,22 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			}
 			return true, nil
 		}
+		if complete {
+			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
+				return false, err
+			}
+		}
 	}
 	return false, nil
+}
+
+// sweptPlanChild retires a child's sweep debt after a complete sweep. The
+// cursor row it leaves behind (never rewound) is what stops a child with no
+// comments from being owed a sweep on every tick. Every early return leaves
+// the debt standing so the next worker sweeps the child again.
+func (d *Daemon) sweptPlanChild(ctx context.Context, t *task, child int, cursor int64) error {
+	if err := d.db.AdvanceStoryDiscovery(ctx, t.session.ID, child, cursor); err != nil {
+		return err
+	}
+	return d.db.ClearStoryDiscoveryPending(ctx, t.session.ID, child)
 }
