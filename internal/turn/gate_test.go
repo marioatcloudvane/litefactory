@@ -210,10 +210,9 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// after ensureWorktree, and takes no acquisition of its own — but
 		// only for an ordinary turn. It does not run at all when a confirmed
 		// proposal is being applied (CR-B-003): see WriteResolvedFiles below.
-		"syncBase":         {"prepareClone", "PrepareGraphBugSource"},
-		"syncTask":         {"prepareClone", "PrepareGraphBugSource"},
-		"CheckpointSource": {"PrepareGraphBugSource"},
-		"Commit":           {"commitAndPush", "BugRuntime.saveGraphDelivery"},
+		"syncBase": {"prepareClone", "PrepareGraphBugSource"},
+		"syncTask": {"prepareClone", "PrepareGraphBugSource"},
+		"Commit":   {"commitAndPush", "BugRuntime.saveGraphDelivery", "PrepareGraphBugSource"},
 		// WriteResolvedFiles, StageResolvedFiles and CompleteMerge are US-12's
 		// three new git.Worktree mutators. They run as prepareClone's fourth
 		// step, in place of syncBase (which this turn shape never calls),

@@ -16,14 +16,14 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func TestGraphBugConcreteHostPreservesDirtyWorkBeforeContinuationSync(t *testing.T) {
+func TestGraphBugConcreteHostAnalystContinuationLeavesWorktreeAlone(t *testing.T) {
 	calls := 0
 	runner := lifecycleMCPHost(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
 		calls++
 		if req.Graph == nil || req.Delivery == nil || req.Delivery.MainRole != "bug-analyst" {
 			t.Fatalf("concrete graph binding missing: %+v", req)
 		}
-		if !strings.Contains(req.Prompt, "Retained Bug conversation") || !strings.Contains(req.Prompt, "effective synchronization policy") {
+		if !strings.Contains(req.Prompt, "Retained Bug conversation") || !strings.Contains(req.Prompt, "Factory source preparation") || !strings.Contains(req.Prompt, "The worktree is at commit") {
 			t.Fatal("retained source/conversation missing")
 		}
 		if e := req.ValidateBugAnalyst(); e != nil {
@@ -83,15 +83,13 @@ func TestGraphBugConcreteHostPreservesDirtyWorkBeforeContinuationSync(t *testing
 	if string(saved) != "retained unfinished work\n" {
 		t.Fatal("dirty work lost")
 	}
-	if _, e = os.Stat(filepath.Join(session.WorktreePath, "main-change.txt")); e != nil {
-		t.Fatal("synchronization missed current main", e)
+	// The analyst reads the worktree as it is: it neither commits nor merges
+	// main, and no source record is stored.
+	if _, e = os.Stat(filepath.Join(session.WorktreePath, "main-change.txt")); e == nil {
+		t.Fatal("the read-only analyst synchronized with main")
 	}
-	raw, e := f.db.LatestGraphRecord(t.Context(), instance.ID, "source_checkpoint")
-	mustProgress(t, e)
-	var checkpoint graphSourceCheckpoint
-	mustProgress(t, json.Unmarshal(raw, &checkpoint))
-	if checkpoint.State != "confirmed" || checkpoint.SavedHead == "" {
-		t.Fatalf("checkpoint=%+v", checkpoint)
+	if _, e = f.db.LatestGraphRecord(t.Context(), instance.ID, "source_checkpoint"); e == nil {
+		t.Fatal("a source checkpoint was stored")
 	}
 }
 

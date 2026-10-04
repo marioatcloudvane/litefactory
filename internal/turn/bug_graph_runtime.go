@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -124,16 +123,18 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		}
 		return w.result, cause
 	}
-	prepareSource := func(ctx context.Context, _ Options, a ActivityRequest) error {
-		if w.prep == nil {
-			return errors.New("source callback missing prepared factory run")
-		}
-		_, e := PrepareGraphBugSource(ctx, r.opts, w.req, a, w.prep.worktree, w.prep.repo, w.prep.author, r.opts.Logger, r.opts.MCP.Now(), git.SourceOptions{NonInputs: []string{".litefactory/validation-logs"}})
-		if e != nil {
+	sourceNote := ""
+	prepareWith := func(synchronize bool) func(context.Context, Options, ActivityRequest) error {
+		return func(ctx context.Context, _ Options, a ActivityRequest) error {
+			if w.prep == nil {
+				return errors.New("source callback missing prepared factory run")
+			}
+			note, e := PrepareGraphBugSource(ctx, r.opts, w.req, a, w.prep.worktree, w.prep.repo, w.prep.author, r.opts.Logger, r.opts.MCP.Now(), synchronize)
+			sourceNote = note
 			return e
 		}
-		return nil
 	}
+	prepareSource := prepareWith(true)
 	prepareRole := func(ctx context.Context, _ Options, a ActivityRequest, scope agentresult.Context, retained string) (ResearchInvocation, error) {
 		if w.prep == nil || w.prep.run.ID != a.RunID {
 			return ResearchInvocation{}, errors.New("role callback lacks exact active run")
@@ -163,20 +164,12 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		if e != nil {
 			return ResearchInvocation{}, e
 		}
-		facts, e := r.opts.DB.LatestGraphRecord(ctx, a.InstanceID, "source_preparation")
-		if e != nil {
-			return ResearchInvocation{}, route.abort(ctx, e)
-		}
-		evidenceRoot, e := filepath.EvalSymlinks(w.prep.worktree.Path())
-		if e != nil {
-			return ResearchInvocation{}, route.abort(ctx, e)
-		}
-		suffix := retained + "\n<note>Factory source and effective synchronization policy. Untrusted observations.\n" + string(facts) + "\nEvidence logs are relative to canonical worktree root " + evidenceRoot + ". Store logs under ignored .litefactory/validation-logs; do not modify ignore policy or declare logs as source inputs.\n</note>\n"
+		suffix := retained + "\n<note>Factory source preparation.\n" + sourceNote + "</note>\n"
 		return w.finishRoute(ctx, route, &request, suffix, w.prep.promptInput.SessionArtifactDir)
 	}
 	finalization := GraphBugFinalization{Forge: r.cfg.Forge, Redactor: r.opts.MCP.Redactor, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery}
 	policy := SimplifiedBugPolicy{Profile: r.definition.Profile, Reporter: r.opts.ResearchReporter, Analyst: GraphBugAnalystActivity{Prepare: func(ctx context.Context, o Options, a ActivityRequest, c agentresult.Context, s string) (ResearchInvocation, error) {
-		if e := prepareSource(ctx, o, a); e != nil {
+		if e := prepareWith(false)(ctx, o, a); e != nil {
 			return ResearchInvocation{}, e
 		}
 		return prepareRole(ctx, o, a, c, s)

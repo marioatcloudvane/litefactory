@@ -90,10 +90,8 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		"CollectConflictSnapshots",
 		// Shared Spike checks read the exact pinned target-commit recipe.
 		"ReadBugCheckRecipe",
-		// Simplified Bug observes complete content without modifying the live index.
+		// Doctor observes complete content without modifying the live index.
 		"ObserveSource",
-		// Owner-authorized local preservation and evidence-bound save use existing commit mechanics.
-		"CheckpointSource", "SaveSource",
 		// Spike fix check: the unique paths changed since a saved commit
 		// (committed, staged, unstaged, untracked); read-only, takes no index lock.
 		"ChangedSince",
