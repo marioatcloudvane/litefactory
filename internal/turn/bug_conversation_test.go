@@ -40,23 +40,28 @@ func conversationFixture(t *testing.T) (*fixture, *fakeForge, *graphexec.Profile
 
 func completeConversationAnalyst(t *testing.T, f *fixture, inst store.GraphInstance, response string) store.GraphNodeAttempt {
 	t.Helper()
+	return completeConversationAnalystRevision(t, f, inst, response, 0, "No panic")
+}
+
+func completeConversationAnalystRevision(t *testing.T, f *fixture, inst store.GraphInstance, response string, base int64, requirement string) store.GraphNodeAttempt {
+	t.Helper()
 	ctx := t.Context()
 	at := f.opts.MCP.Now()
 	segment, e := f.db.GetOrCreateSegment(ctx, f.session.ID, 1, "conversation-analyst", store.AgentClaude)
 	mustProgress(t, e)
-	run, e := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: 12, StartedAt: at, LogPath: func(int) string { return "analyst.log" }})
+	run, e := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: 12 + base, StartedAt: at, LogPath: func(int) string { return "analyst.log" }})
 	mustProgress(t, e)
 	attempt, e := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: inst.ID, Node: "analyst", RunID: run.ID, Limit: 8, StartedAt: at})
 	mustProgress(t, e)
-	analysis := buganalysis.BugAnalysis{Expected: "Safe empty input", Actual: "Panic on empty input", Reproduction: buganalysis.BugReproduction{Environment: "Go fixture", Observation: "not_observed"}, Cause: "Unchecked index", Evidence: []string{"search.go:12 indexes empty bytes"}, Remedy: "Guard input length", Exclusions: []string{"Nonempty behavior"}, Criteria: []buganalysis.BugCriterion{{ID: "C1", Requirement: "No panic", Measurement: "Call empty input"}}}
-	result := agentresult.Result{Outcome: "completed", Comment: "Complete candidate", Payload: agentresult.Payload{Bug: &agentresult.Bug{Response: response, Invocation: fmt.Sprintf("analysis:%d:%d", inst.ID, attempt.ID), Analysis: &analysis}}}
+	analysis := buganalysis.BugAnalysis{Expected: "Safe empty input", Actual: "Panic on empty input", Reproduction: buganalysis.BugReproduction{Environment: "Go fixture", Observation: "not_observed"}, Cause: "Unchecked index", Evidence: []string{"search.go:12 indexes empty bytes"}, Remedy: "Guard input length", Exclusions: []string{"Nonempty behavior"}, Criteria: []buganalysis.BugCriterion{{ID: "C1", Requirement: requirement, Measurement: "Call empty input"}}}
+	result := agentresult.Result{Outcome: "completed", Comment: "Complete candidate", Payload: agentresult.Payload{Bug: &agentresult.Bug{Response: response, Invocation: fmt.Sprintf("analysis:%d:%d", inst.ID, attempt.ID), BaseRevision: base, Analysis: &analysis}}}
 	if response == "ask" {
 		result.Outcome = "incomplete"
 		result.Reason = "Need expected output"
 		result.Questions = []agentresult.Question{{ID: "Q1", Audience: "technical", Text: "Which output should empty input produce?"}}
 		analysis.Questions = []buganalysis.BugQuestion{{ID: "Q1", Text: result.Questions[0].Text, Material: true}}
 	}
-	binding, e := f.db.BindResultAttempt(ctx, store.ResultAttempt{Workflow: "bug", Task: f.session.TaskRef, RunID: run.ID, WorkContext: "conversation-test", Attempt: "analyst-1", SchemaVersion: 1, WorkflowVersion: 2, SubmissionVersion: 2})
+	binding, e := f.db.BindResultAttempt(ctx, store.ResultAttempt{Workflow: "bug", Task: f.session.TaskRef, RunID: run.ID, WorkContext: fmt.Sprintf("conversation-test-%d", attempt.ID), Attempt: fmt.Sprintf("analyst-%d", attempt.ID), SchemaVersion: 1, WorkflowVersion: 2, SubmissionVersion: 2})
 	mustProgress(t, e)
 	snapshot, e := json.Marshal(agentresult.Snapshot{Result: result})
 	mustProgress(t, e)
@@ -159,6 +164,45 @@ func TestGraphBugConversationQuestionGuidanceAndRetainedContext(t *testing.T) {
 	}
 	if _, e = AdmitGraphBugOwnerReply(t.Context(), f.db, reply); e == nil {
 		t.Fatal("duplicate guidance admitted")
+	}
+}
+
+// #466: the owner asked for a different remedy and the revised analysis
+// reworded criterion C1; the store refused it after the analyst had exited.
+// A revision is approved explicitly, so it may change any criterion.
+func TestGraphBugConversationRevisionMayRewordCriteria(t *testing.T) {
+	f, forge, p, inst := conversationFixture(t)
+	activities := ActivityRegistry{}
+	mustProgress(t, activities.Register(graphexec.ResearchLoopAction, GraphBugConversation{Profile: p, Reporter: f.opts.ResearchReporter}))
+	step := func(at time.Time) GraphNodeResult {
+		out, e := ExecuteNodeAction(t.Context(), f.opts, GraphNodeRequest{Profile: p, Activities: activities, InstanceID: inst.ID, At: at})
+		mustProgress(t, e)
+		return out
+	}
+	step(f.opts.MCP.Now())
+	completeConversationAnalystRevision(t, f, inst, "done", 0, "No panic")
+	if parked := step(f.opts.MCP.Now()); parked.Status != "waiting_owner" {
+		t.Fatalf("first review did not park: %+v", parked)
+	}
+	wait, e := f.db.GetGraphOwnerWait(t.Context(), inst.ID)
+	mustProgress(t, e)
+	delivery, e := f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+	mustProgress(t, e)
+	reply := store.GraphOwnerReply{InstanceID: inst.ID, OwnerID: 7, AuthorID: 7, CommentID: delivery.CommentID + 1, QuestionCommentID: delivery.CommentID, TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug", DeliveryKey: wait.DeliveryKey, Body: "Too heavy; return an empty result instead.", At: f.opts.MCP.Now().Add(time.Minute)}
+	_, e = AdmitGraphBugOwnerReply(t.Context(), f.db, reply)
+	mustProgress(t, e)
+	f.opts.MCP.Now = func() time.Time { return reply.At }
+	if continued := step(reply.At); continued.NextNode != "analyst" {
+		t.Fatalf("guidance did not return to analyst: %+v", continued)
+	}
+	completeConversationAnalystRevision(t, f, inst, "done", 1, "Return an empty result")
+	if parked := step(reply.At); parked.Status != "waiting_owner" {
+		t.Fatalf("revised review did not park: %+v", parked)
+	}
+	candidate, _, e := f.db.CurrentGraphDiagnosis(t.Context(), inst.ID)
+	mustProgress(t, e)
+	if candidate.Revision != 2 || candidate.Analysis.Criteria[0].Requirement != "Return an empty result" || forge.attemptCount() != 2 {
+		t.Fatalf("revision=%d criteria=%+v posts=%d", candidate.Revision, candidate.Analysis.Criteria, forge.attemptCount())
 	}
 }
 
