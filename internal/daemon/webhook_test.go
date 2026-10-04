@@ -459,3 +459,43 @@ func TestOpenBindsTheListenerLoadsSecretsOnceAndCloseFreesThePort(t *testing.T) 
 		t.Errorf("a listener is reported with webhook.listen empty: %q", startup.WebhookAddr)
 	}
 }
+
+// An owner comment delivered by webhook starts its run while background
+// discovery is exhausted: the hinted issue read and its comment listing take
+// the operational lane. A backlog task in the same tick still waits.
+func TestWebhookHintedCommentRunsWhileDiscoveryIsExhausted(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.plantCursor()
+	w.issue("Add a /health endpoint")
+	w.forge.addIssue(fakeIssue{Number: testIssue + 1, Title: "Backlog", Body: "Nothing to do yet.", User: stranger()})
+	w.daemon.WakeForTest(w.repo.ID, testIssue)
+	w.daemon.WakeForTest(w.repo.ID, testIssue+1)
+	w.settle() // first sight of both, with quota to spare
+	if got := len(w.turns.calls()); got != 0 {
+		t.Fatalf("first sight ran %d turns, want 0", got)
+	}
+
+	// Real quota stays above zero but under the floor, so every background
+	// discovery read is held back.
+	w.forge.mu.Lock()
+	w.forge.quotaRemaining = 2000
+	w.forge.mu.Unlock()
+	backlog := w.sessionOf(testIssue + 1)
+	if err := w.db.SetSessionNeedsPoll(t.Context(), backlog.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.forge.addComment(testIssue+1, 702, owner(), "Please add a readiness endpoint too.")
+	w.forge.addComment(testIssue, 701, owner(), "Please add a health endpoint.")
+	// Past the freshness window, so the tick's probe observes the low quota
+	// before the hinted read.
+	w.clock.advance(3 * time.Minute)
+	w.daemon.WakeForTest(w.repo.ID, testIssue)
+	w.settle()
+
+	if got := w.turns.triggersFor(w.sessionOf(testIssue).ID); len(got) != 1 || got[0] != 701 {
+		t.Fatalf("hinted comment triggers = %v, want [701]\n%s", got, w.logs)
+	}
+	if got := w.turns.triggersFor(backlog.ID); len(got) != 0 {
+		t.Fatalf("backlog task ran %v under an exhausted budget", got)
+	}
+}

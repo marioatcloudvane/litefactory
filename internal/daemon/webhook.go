@@ -320,9 +320,9 @@ func (d *Daemon) refreshWebhookSecrets(ctx context.Context, now time.Time) {
 }
 
 // webhookHints turns pending hints into candidates beside the other discovery
-// sources. Each hinted issue is read fresh through the budgeted discovery read;
-// the webhook payload was never state. A read that fails or is deferred leaves
-// its hint pending for the next heartbeat.
+// sources. Each hinted issue is read fresh through the operational lane
+// ([doctorCall]); the webhook payload was never state. A read that fails or is
+// deferred leaves its hint pending for the next heartbeat.
 func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate, result *TickResult) error {
 	if d.webhook == nil {
 		return nil
@@ -355,7 +355,12 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 			d.webhook.hints.resolve(hint)
 			continue
 		}
-		issue, err := d.discoveryIssue(ctx, q.forgeRepo, hint.number)
+		// An owner's comment must not wait behind background discovery, so the
+		// hinted read takes the operational lane: a token and real quota left,
+		// not the discovery share, floor or head-of-line queue.
+		issue, err := doctorCall(ctx, d, func(ctx context.Context) (github.Issue, error) {
+			return d.forge.GetIssue(ctx, q.forgeRepo, hint.number)
+		})
 		switch {
 		case errors.Is(err, ErrDiscoveryDeferred):
 			continue
