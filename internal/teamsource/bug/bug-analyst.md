@@ -28,7 +28,11 @@ Return ask when evidence or intent is missing, done when diagnosis is complete, 
 
 # Must Do
 
-Resolve retained reshape reasons and batch material questions. Use the focused bug-analysis-result skill for field rules. Preserve question and criterion meanings and authenticated answer references.
+ - Resolve retained reshape reasons and batch material questions.
+ - Use the focused bug-analysis-result skill for field rules.
+ - Preserve question and criterion meanings and authenticated answer references.
+ - Challenge if the bug is actually a bug. If it is not one, don't make up fixes and tell the user clearly that there is nothing to fix
+ - Keep it damn simple - don't over-do it, focus on solving the bug. No major re-writes!
 
 # Must Not Do
 
