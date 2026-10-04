@@ -15,8 +15,11 @@ var ErrStoryProgressBusy = errors.New("store: story progress parent is busy")
 
 // LockStoryProgress serializes ingestion and remote delivery for a parent across
 // DB handles and processes. This subordinate lock never acquires the session
-// worker lock or holds a SQL transaction. Its dedicated file is never unlinked;
-// closing the descriptor (including process exit) releases ownership.
+// worker lock or holds a SQL transaction. Its dedicated file is never unlinked.
+// The returned release function unlocks explicitly before closing: flock
+// belongs to the open file description, which a forked child may still share
+// between fork and exec, so closing only this descriptor could leave the lock
+// held. Process exit also releases ownership.
 func (db *DB) LockStoryProgress(ctx context.Context, parent, lockDir string) (func() error, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -52,5 +55,7 @@ func (db *DB) LockStoryProgress(ctx context.Context, parent, lockDir string) (fu
 		}
 		return nil, errors.Join(err, f.Close())
 	}
-	return f.Close, nil
+	return func() error {
+		return errors.Join(syscall.Flock(int(f.Fd()), syscall.LOCK_UN), f.Close())
+	}, nil
 }
