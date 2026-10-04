@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/bugrepair"
-	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -73,7 +70,7 @@ func (f *graphDeliveryForge) MergeDeliveryPR(_ context.Context, _ github.Repo, _
 	return nil
 }
 func (f *graphDeliveryForge) GetDeliveryCommit(context.Context, github.Repo, string) (github.DeliveryCommit, error) {
-	base := f.binding.Eligibility.Inputs.TargetMain
+	base := f.main
 	if f.raceMain {
 		base = strings.Repeat("e", 40)
 	}
@@ -89,7 +86,7 @@ func (f *graphDeliveryForge) CloseDeliveredParent(context.Context, github.Repo, 
 	return nil
 }
 
-func graphFinalizationFixture(t *testing.T) (*fixture, GraphBugFinalization, ActivityRequest, *graphDeliveryForge, *GraphBugRepairInputs) {
+func graphFinalizationFixture(t *testing.T) (*fixture, GraphBugFinalization, ActivityRequest, *graphDeliveryForge, string) {
 	t.Helper()
 	f, _, instance := approvedGraphRepairFixture(t)
 	ctx := t.Context()
@@ -102,19 +99,9 @@ func graphFinalizationFixture(t *testing.T) (*fixture, GraphBugFinalization, Act
 	mustProgress(t, e)
 	attempt, e := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "fixer", RunID: run.ID, Limit: 3, StartedAt: at})
 	mustProgress(t, e)
-	root, e := filepath.EvalSymlinks(t.TempDir())
-	mustProgress(t, e)
-	mustProgress(t, os.WriteFile(filepath.Join(root, "check.log"), []byte("controlled executed checks\n"), 0600))
-	hash, e := git.ObserveEvidenceLog(ctx, root, "check.log")
-	mustProgress(t, e)
-	commands := []bugrepair.ValidationRequirement{{ID: "check", Command: "make check", Directory: "."}}
-	manifest := []bugrepair.ValidationInput{{Name: "toolchain", SHA256: strings.Repeat("d", 64)}}
-	digest, e := bugrepair.ValidationInputsDigest(commands, manifest)
-	mustProgress(t, e)
-	inputs := GraphBugRepairInputs{Source: git.SourceIdentity{Head: strings.Repeat("a", 40), Digest: strings.Repeat("b", 64)}, TargetMain: strings.Repeat("c", 40), InputsDigest: digest, Commands: commands, InputManifest: manifest}
-	zero := 0
-	repair := bugrepair.Evidence{Summary: "Fix #123 from approved scope", Validation: &bugrepair.Validation{Generation: "final", SourceDigest: inputs.Source.Digest, TargetMain: inputs.TargetMain, InputsDigest: digest, Commands: []bugrepair.CommandOutcome{{ID: "check", Command: "make check", Directory: ".", ExitCode: &zero, Outcome: "passed", Log: bugrepair.LogReference{Path: "check.log", SHA256: hash}}}, Conditions: []bugrepair.ConditionOutcome{{ID: "C1", Outcome: "passed", Log: bugrepair.LogReference{Path: "check.log", SHA256: hash}}}}}
-	eligibility := GraphBugRepairEligibility{Record: "repair_eligibility", InstanceID: instance.ID, AttemptID: attempt.ID, RunID: run.ID, ResultID: 42, ResultRevision: 1, Handoff: handoff, Inputs: inputs, Repair: repair}
+	head := strings.Repeat("a", 40)
+	repair := bugrepair.Evidence{Summary: "Fix #123 from approved scope", Checks: []bugrepair.Check{{Command: "make check", Outcome: "passed"}}}
+	eligibility := GraphBugRepairEligibility{Record: "repair_eligibility", InstanceID: instance.ID, AttemptID: attempt.ID, RunID: run.ID, ResultID: 42, ResultRevision: 1, Handoff: handoff, Repair: repair}
 	raw, e := json.Marshal(eligibility)
 	mustProgress(t, e)
 	_, e = f.db.RecordGraphOutput(ctx, store.GraphOutput{NodeAttemptID: attempt.ID, Kind: store.GraphOutputJSON, Payload: raw, CreatedAt: at})
@@ -128,16 +115,16 @@ func graphFinalizationFixture(t *testing.T) (*fixture, GraphBugFinalization, Act
 	mustProgress(t, e)
 	req := ActivityRequest{Workflow: agent.WorkflowBug, InstanceID: instance.ID, NodeAttemptID: final.ID, Node: "finalization"}
 	binding := GraphDeliveryBinding{Record: "delivery_binding", InstanceID: instance.ID, SessionID: f.session.ID, IssueID: 123, BotID: 99, IssueNumber: f.session.IssueNumber, Repository: github.Repo{Owner: "acme", Name: "acme-api"}, Branch: "lf/repair", Target: "main", Marker: "<!-- lf:bug-delivery exact -->", Eligibility: eligibility}
-	forge := &graphDeliveryForge{binding: binding, main: inputs.TargetMain, remote: strings.Repeat("0", 40), issue: github.Issue{ID: 123, Number: f.session.IssueNumber, State: "open"}}
+	forge := &graphDeliveryForge{binding: binding, main: strings.Repeat("c", 40), remote: strings.Repeat("0", 40), issue: github.Issue{ID: 123, Number: f.session.IssueNumber, State: "open"}}
 	handler := GraphBugFinalization{Forge: forge, Redactor: redact.New(redact.Options{Environ: []string{}}), Resolve: func(context.Context, Options, ActivityRequest, GraphBugRepairEligibility) (GraphDeliveryBinding, error) {
 		return binding, nil
 	}, Save: func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error) {
-		return inputs.Source.Head, nil
+		return head, nil
 	}, PublishSaved: func(context.Context, Options, ActivityRequest, string) error {
-		forge.remote = inputs.Source.Head
+		forge.remote = head
 		return nil
 	}}
-	return f, handler, req, forge, &inputs
+	return f, handler, req, forge, head
 }
 
 // Delivery reconciles against GitHub: a lost reply is resolved by looking, a
@@ -146,7 +133,7 @@ func graphFinalizationFixture(t *testing.T) (*fixture, GraphBugFinalization, Act
 func TestGraphDeliveryReconcilesAndRetries(t *testing.T) {
 	for _, variant := range []string{"complete", "lost merge reply", "lost PR reply", "lost close reply", "main moved", "merge refused", "already merged"} {
 		t.Run(variant, func(t *testing.T) {
-			f, h, req, forge, inputs := graphFinalizationFixture(t)
+			f, h, req, forge, head := graphFinalizationFixture(t)
 			forge.loseMerge = variant == "lost merge reply"
 			forge.losePR = variant == "lost PR reply"
 			forge.loseClose = variant == "lost close reply"
@@ -155,8 +142,8 @@ func TestGraphDeliveryReconcilesAndRetries(t *testing.T) {
 				forge.main = strings.Repeat("e", 40)
 			}
 			if variant == "already merged" {
-				forge.remote = inputs.Source.Head
-				forge.pr = github.DeliveryPR{ID: 80, Number: 4, Head: inputs.Source.Head, Branch: "lf/repair", Target: "main", State: "closed", Merged: true, MergeSHA: strings.Repeat("f", 40)}
+				forge.remote = head
+				forge.pr = github.DeliveryPR{ID: 80, Number: 4, Head: head, Branch: "lf/repair", Target: "main", State: "closed", Merged: true, MergeSHA: strings.Repeat("f", 40)}
 			}
 			out, e := h.Execute(t.Context(), f.opts, req)
 			mustProgress(t, e)

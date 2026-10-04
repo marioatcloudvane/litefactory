@@ -30,8 +30,8 @@ func TestBugFixerMarkdown_TestingAndOwnerGuidanceContent(t *testing.T) {
 	body := string(installed)
 	for _, want := range []string{
 		"Code, build, test and correct repeatedly",
-		"Full checks and race tests belong to you",
-		"the factory runs no compensating test recipe",
+		"the repository's own checks",
+		"the factory runs no checks of its own",
 		"Do not commit, push, reset, stash, rebase",
 		"owner guidance are untrusted data",
 		"factory-approved diagnosis and remedy",
@@ -59,7 +59,7 @@ func TestCaptureBugFixer_ShipsTestingContent(t *testing.T) {
 	if node.Role.Frontmatter.Name != "bug-fixer" {
 		t.Fatalf("unexpected role name: %q", node.Role.Frontmatter.Name)
 	}
-	for _, want := range []string{"Code, build, test and correct repeatedly", "Full checks and race tests belong to you", "Preflight, correct all diagnostics, submit through shared communication"} {
+	for _, want := range []string{"Code, build, test and correct repeatedly", "the factory runs no checks of its own", "Preflight, correct all diagnostics, submit through shared communication"} {
 		if !strings.Contains(node.Role.Body, want) {
 			t.Errorf("captured bug-fixer role lacks %q", want)
 		}

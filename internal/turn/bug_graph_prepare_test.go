@@ -1,10 +1,9 @@
 package turn
 
 import (
-	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -13,8 +12,11 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func TestGraphSourcePreparationPolicyPreservationAndCheckpointRestart(t *testing.T) {
-	for _, variant := range []string{"synchronize", "disabled", "partial index", "lost checkpoint acknowledgment", "conflict", "remote task dirty"} {
+// The fixer commits earlier work, then synchronizes; any sync problem becomes
+// a note in its prompt. The analyst reads the worktree as it is: no commit, no
+// synchronization. Nothing about the source is stored in the database.
+func TestGraphSourcePreparationCommitsThenSynchronizes(t *testing.T) {
+	for _, variant := range []string{"synchronize", "disabled", "conflict", "remote task dirty", "analyst"} {
 		t.Run(variant, func(t *testing.T) {
 			f, _, inst := approvedGraphRepairFixture(t)
 			at := f.opts.MCP.Now()
@@ -31,17 +33,13 @@ func TestGraphSourcePreparationPolicyPreservationAndCheckpointRestart(t *testing
 			wresult, e := git.EnsureWorktree(t.Context(), clone, git.EnsureWorktreeOptions{Dir: filepath.Join(f.storeRepo.WorktreeRoot, "source-preparation"), Branch: "lf/source-preparation", BaseBranch: gittest.DefaultBranch})
 			mustProgress(t, e)
 			w := wresult.Worktree
+			original, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+			mustProgress(t, e)
 			file := "retained.txt"
 			if variant == "conflict" {
 				file = "README.md"
 			}
 			mustProgress(t, os.WriteFile(filepath.Join(w.Path(), file), []byte("retained unfinished repair\n"), 0600))
-			if variant == "partial index" {
-				f.repo.GitIn(w.Path(), "add", file)
-				mustProgress(t, os.WriteFile(filepath.Join(w.Path(), file), []byte("different unstaged repair\n"), 0600))
-			}
-			original, e := w.ObserveSource(t.Context(), git.SourceOptions{})
-			mustProgress(t, e)
 			f.repo.WriteFile("main-change.txt", "new main\n")
 			if variant == "conflict" {
 				f.repo.WriteFile("README.md", "different main content\n")
@@ -63,84 +61,45 @@ func TestGraphSourcePreparationPolicyPreservationAndCheckpointRestart(t *testing
 				off := false
 				request.SyncOverride = &off
 			}
-			if variant == "lost checkpoint acknowledgment" {
-				checkpoint := graphSourceCheckpoint{Record: "source_checkpoint", State: "pending", Operation: "restart-fixture", Original: original, Options: git.SourceOptions{}, Commit: git.CommitOptions{Summary: "Unvalidated recovery checkpoint restart-fixture", Task: f.session.TaskRef, Workflow: "bug", Run: 1, Author: f.opts.Author}}
-				raw, e := json.Marshal(checkpoint)
-				mustProgress(t, e)
-				_, e = f.db.RecordGraphOutput(t.Context(), store.GraphOutput{NodeAttemptID: attempt.ID, Kind: store.GraphOutputJSON, Payload: raw, CreatedAt: at})
-				mustProgress(t, e)
-				_, e = w.CheckpointSource(t.Context(), original, git.SourceOptions{}, checkpoint.Commit)
-				mustProgress(t, e)
-				mustProgress(t, f.db.Close())
-				reopened, e := store.Open(t.Context(), f.paths.DBPath())
-				mustProgress(t, e)
-				mustProgress(t, reopened.Migrate(t.Context()))
-				t.Cleanup(func() {
-					if e := reopened.Close(); e != nil {
-						t.Error(e)
-					}
-				})
-				f.db = reopened
-				f.opts.DB = reopened
-			}
-			index := f.repo.GitIn(w.Path(), "rev-parse", "--git-path", "index")
-			indexBefore, e := os.ReadFile(index)
+			note, e := PrepareGraphBugSource(t.Context(), f.opts, request, activity, w, f.storeRepo, f.opts.Author, f.opts.Logger, at, variant != "analyst")
 			mustProgress(t, e)
-			out, e := PrepareGraphBugSource(t.Context(), f.opts, request, activity, w, f.storeRepo, f.opts.Author, f.opts.Logger, at, git.SourceOptions{})
-			if variant == "partial index" || variant == "conflict" {
-				if e == nil {
-					t.Fatalf("unsafe preparation passed: %+v", out)
-				}
-				if variant == "partial index" {
-					after, e := os.ReadFile(index)
-					mustProgress(t, e)
-					head, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
-					mustProgress(t, e)
-					if !bytes.Equal(indexBefore, after) || head != original.Head {
-						t.Fatal("unsafe preparation flattened dirty work")
-					}
-				}
-				return
-			}
+			head, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
 			mustProgress(t, e)
+			if !strings.Contains(note, head) {
+				t.Fatalf("note lacks HEAD %s: %q", head, note)
+			}
 			retained, e := os.ReadFile(filepath.Join(w.Path(), file))
 			mustProgress(t, e)
 			if string(retained) != "retained unfinished repair\n" {
-				t.Fatal("synchronization lost retained edits")
+				t.Fatal("preparation lost retained edits")
 			}
-			if variant == "disabled" {
-				if out.SyncEnabled || out.SyncOutcome != "skipped" || out.Source.Head != original.Head || out.SyncReason == "" {
-					t.Fatalf("disabled policy misrepresented: %+v", out)
+			if variant == "analyst" {
+				if head != original || !strings.Contains(f.repo.GitIn(w.Path(), "status", "--porcelain"), file) {
+					t.Fatal("analyst preparation changed the worktree")
 				}
-			} else {
-				if variant == "remote task dirty" {
-					if out.TaskSync.Outcome != "synced" || out.SyncOutcome != "up_to_date" {
-						t.Fatalf("remote task was not reconciled after preserving dirty work: %+v", out)
-					}
-					remoteFile, e := os.ReadFile(filepath.Join(w.Path(), "main-change.txt"))
-					mustProgress(t, e)
-					if string(remoteFile) != "new main\n" {
-						t.Fatal("remote task history missing")
-					}
-				} else if out.SyncOutcome != "synced" || out.SyncCommit == "" {
-					t.Fatalf("sync=%+v", out)
+				return
+			}
+			if strings.Contains(f.repo.GitIn(w.Path(), "status", "--porcelain"), file) {
+				t.Fatal("earlier work was not committed")
+			}
+			switch variant {
+			case "conflict":
+				if !strings.Contains(note, "conflicts in README.md") {
+					t.Fatalf("conflict not told to the fixer: %q", note)
 				}
-				raw, e := f.db.LatestGraphRecord(t.Context(), inst.ID, "source_checkpoint")
+			case "disabled":
+				if !strings.Contains(note, "was not merged") {
+					t.Fatalf("disabled sync not told to the fixer: %q", note)
+				}
+			default:
+				merged, e := os.ReadFile(filepath.Join(w.Path(), "main-change.txt"))
 				mustProgress(t, e)
-				var checkpoint graphSourceCheckpoint
-				mustProgress(t, json.Unmarshal(raw, &checkpoint))
-				if checkpoint.State != "confirmed" || checkpoint.SavedHead == "" {
-					t.Fatalf("checkpoint=%+v", checkpoint)
-				}
-				parent := f.repo.GitIn(w.Path(), "rev-parse", checkpoint.SavedHead+"^")
-				if parent != original.Head {
-					t.Fatal("checkpoint duplicated during recovery")
+				if string(merged) != "new main\n" {
+					t.Fatal("main or the remote task branch was not merged")
 				}
 			}
-			raw, e := f.db.LatestGraphRecord(t.Context(), inst.ID, "source_preparation")
-			mustProgress(t, e)
-			if len(raw) == 0 {
-				t.Fatal("source facts not retained")
+			if outputs, e := f.db.ListGraphOutputs(t.Context(), attempt.ID); e != nil || len(outputs) != 0 {
+				t.Fatalf("source facts were stored in the database: %d outputs, %v", len(outputs), e)
 			}
 		})
 	}

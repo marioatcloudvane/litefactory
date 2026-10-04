@@ -89,11 +89,8 @@ func resultAttemptContext(a store.ResultAttempt, c agentresult.Context) (store.R
 			return a, fmt.Errorf("bug shared-service result requires exact role workflow and invocation binding")
 		}
 	}
-	if c.Workflow == agent.WorkflowBug && c.Bug != nil && c.Bug.Role == "bug-fixer" {
-		b := c.Bug
-		if b.Reservation == "" || b.Invocation != b.Reservation || b.ApprovedRevision <= 0 || b.ApprovedRevision != b.BaseRevision || b.ApprovedDigest == "" || b.ApprovalReview == "" || b.SourceCommit == "" || b.SourceTree == "" || b.CriteriaJSON == "" {
-			return a, fmt.Errorf("bug fixer shared-service context lacks exact approved repair binding")
-		}
+	if c.Workflow == agent.WorkflowBug && c.Bug != nil && c.Bug.Role == "bug-fixer" && c.Bug.ApprovedRevision <= 0 {
+		return a, fmt.Errorf("bug fixer shared-service context lacks an approved revision")
 	}
 	if a.Workflow != "" && a.Workflow != string(c.Workflow) {
 		return a, fmt.Errorf("application workflow differs from trusted run")

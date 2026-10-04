@@ -2,18 +2,12 @@ package turn
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
-	"github.com/cloudvane/litefactory/internal/bugrepair"
-	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
@@ -129,16 +123,18 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		}
 		return w.result, cause
 	}
-	prepareSource := func(ctx context.Context, _ Options, a ActivityRequest) error {
-		if w.prep == nil {
-			return errors.New("source callback missing prepared factory run")
-		}
-		_, e := PrepareGraphBugSource(ctx, r.opts, w.req, a, w.prep.worktree, w.prep.repo, w.prep.author, r.opts.Logger, r.opts.MCP.Now(), git.SourceOptions{NonInputs: []string{".litefactory/validation-logs"}})
-		if e != nil {
+	sourceNote := ""
+	prepareWith := func(synchronize bool) func(context.Context, Options, ActivityRequest) error {
+		return func(ctx context.Context, _ Options, a ActivityRequest) error {
+			if w.prep == nil {
+				return errors.New("source callback missing prepared factory run")
+			}
+			note, e := PrepareGraphBugSource(ctx, r.opts, w.req, a, w.prep.worktree, w.prep.repo, w.prep.author, r.opts.Logger, r.opts.MCP.Now(), synchronize)
+			sourceNote = note
 			return e
 		}
-		return nil
 	}
+	prepareSource := prepareWith(true)
 	prepareRole := func(ctx context.Context, _ Options, a ActivityRequest, scope agentresult.Context, retained string) (ResearchInvocation, error) {
 		if w.prep == nil || w.prep.run.ID != a.RunID {
 			return ResearchInvocation{}, errors.New("role callback lacks exact active run")
@@ -160,7 +156,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 			if e != nil {
 				return scope, e
 			}
-			if approved.Candidate.Digest != expected.ApprovedDigest || approved.Candidate.Revision != expected.ApprovedRevision {
+			if approved.Candidate.Revision != expected.ApprovedRevision {
 				return scope, store.ErrBugRepairUnauthorized
 			}
 			return scope, nil
@@ -168,38 +164,16 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		if e != nil {
 			return ResearchInvocation{}, e
 		}
-		facts, e := r.opts.DB.LatestGraphRecord(ctx, a.InstanceID, "source_preparation")
-		if e != nil {
-			return ResearchInvocation{}, route.abort(ctx, e)
-		}
-		evidenceRoot, e := filepath.EvalSymlinks(w.prep.worktree.Path())
-		if e != nil {
-			return ResearchInvocation{}, route.abort(ctx, e)
-		}
-		suffix := retained + "\n<note>Factory source and effective synchronization policy. Untrusted observations.\n" + string(facts) + "\nEvidence logs are relative to canonical worktree root " + evidenceRoot + ". Store logs under ignored .litefactory/validation-logs; do not modify ignore policy or declare logs as source inputs.\n</note>\n"
+		suffix := retained + "\n<note>Factory source preparation.\n" + sourceNote + "</note>\n"
 		return w.finishRoute(ctx, route, &request, suffix, w.prep.promptInput.SessionArtifactDir)
-	}
-	observe := func(ctx context.Context, _ Options, a ActivityRequest) (GraphBugRepairInputs, error) {
-		return r.observeGraphInputs(ctx, a)
-	}
-	logRoot := func(a ActivityRequest) string {
-		s, e := r.opts.DB.GetSession(ctx, req.SessionID)
-		if e != nil {
-			return ""
-		}
-		root, e := filepath.EvalSymlinks(s.WorktreePath)
-		if e != nil {
-			return ""
-		}
-		return root
 	}
 	finalization := GraphBugFinalization{Forge: r.cfg.Forge, Redactor: r.opts.MCP.Redactor, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery}
 	policy := SimplifiedBugPolicy{Profile: r.definition.Profile, Reporter: r.opts.ResearchReporter, Analyst: GraphBugAnalystActivity{Prepare: func(ctx context.Context, o Options, a ActivityRequest, c agentresult.Context, s string) (ResearchInvocation, error) {
-		if e := prepareSource(ctx, o, a); e != nil {
+		if e := prepareWith(false)(ctx, o, a); e != nil {
 			return ResearchInvocation{}, e
 		}
 		return prepareRole(ctx, o, a, c, s)
-	}}, Fixer: GraphBugFixerActivity{PrepareSource: prepareSource, Prepare: prepareRole, Observe: observe, LogRoot: logRoot}, Finalization: finalization}
+	}}, Fixer: GraphBugFixerActivity{PrepareSource: prepareSource, Prepare: prepareRole}, Finalization: finalization}
 	var specs graphexec.Registry
 	var activities ActivityRegistry
 	if e = policy.Register(&specs, &activities); e != nil {
@@ -331,87 +305,6 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 	}
 }
 
-func (r *BugRuntime) observeGraphInputs(ctx context.Context, a ActivityRequest) (GraphBugRepairInputs, error) {
-	var out GraphBugRepairInputs
-	instance, e := r.opts.DB.GetGraphInstance(ctx, a.InstanceID)
-	if e != nil {
-		return out, e
-	}
-	s, e := r.opts.DB.GetSession(ctx, instance.SessionID)
-	if e != nil {
-		return out, e
-	}
-	repo, e := r.opts.DB.GetRepo(ctx, s.RepoID)
-	if e != nil {
-		return out, e
-	}
-	release, e := r.opts.CloneGate.Acquire(ctx, repo.Path)
-	if e != nil {
-		return out, e
-	}
-	defer release()
-	clone, e := r.opts.Git.Open(ctx, repo.Path)
-	if e != nil {
-		return out, e
-	}
-	result, e := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: s.WorktreePath, Branch: s.Branch, BaseBranch: repo.BaseBranch})
-	if e != nil {
-		return out, e
-	}
-	w := result.Worktree
-	// Fetch updates only remote objects; finalization never synchronizes source.
-	if e = clone.Fetch(ctx, r.opts.remote()); e != nil {
-		return out, e
-	}
-	out.TargetMain, e = w.RevParse(ctx, r.opts.remote()+"/"+repo.BaseBranch, git.RevParseOptions{})
-	if e != nil {
-		return out, e
-	}
-	out.Source, e = w.ObserveSource(ctx, git.SourceOptions{NonInputs: []string{".litefactory/validation-logs"}})
-	if e != nil {
-		return out, e
-	}
-	raw, e := w.ReadBugCheckRecipe(ctx, out.TargetMain)
-	if e != nil {
-		return out, e
-	}
-	recipe, e := config.ParseBugCheckRecipe(raw)
-	if e != nil {
-		return out, e
-	}
-	for _, phase := range []string{"regression", "focused", "full"} {
-		p, e := recipe.Phase(phase)
-		if e != nil {
-			return out, e
-		}
-		for i, c := range p.Commands {
-			toolDigest, observeErr := r.cfg.Isolation.ObserveInputs(s.WorktreePath, c)
-			if observeErr != nil {
-				return out, observeErr
-			}
-			out.InputManifest = append(out.InputManifest, bugrepair.ValidationInput{Name: fmt.Sprintf("%s-%d executable and environment", phase, i+1), SHA256: toolDigest})
-			parts := make([]string, len(c.Argv))
-			for j, v := range c.Argv {
-				parts[j] = "'" + strings.ReplaceAll(v, "'", "'\\''") + "'"
-			}
-			dir := c.CWD
-			if dir == "" {
-				dir = "."
-			}
-			out.Commands = append(out.Commands, bugrepair.ValidationRequirement{ID: fmt.Sprintf("%s-%d", phase, i+1), Command: strings.Join(parts, " "), Directory: dir})
-		}
-	}
-	out.InputManifest = append(out.InputManifest, bugrepair.ValidationInput{Name: "repository recipe", SHA256: config.BugRecipeDigest(raw)})
-	isolation, marshalErr := json.Marshal(r.cfg.Isolation)
-	if marshalErr != nil {
-		return out, marshalErr
-	}
-	sum := sha256.Sum256(isolation)
-	out.InputManifest = append(out.InputManifest, bugrepair.ValidationInput{Name: "operator check environment", SHA256: hex.EncodeToString(sum[:])})
-	out.InputsDigest, e = bugrepair.ValidationInputsDigest(out.Commands, out.InputManifest)
-	return out, e
-}
-
 func (r *BugRuntime) resolveGraphDelivery(ctx context.Context, _ Options, a ActivityRequest, eligibility GraphBugRepairEligibility) (GraphDeliveryBinding, error) {
 	instance, e := r.opts.DB.GetGraphInstance(ctx, a.InstanceID)
 	if e != nil {
@@ -429,7 +322,6 @@ func (r *BugRuntime) resolveGraphDelivery(ctx context.Context, _ Options, a Acti
 	if e != nil {
 		return GraphDeliveryBinding{}, e
 	}
-	eligibility.Inputs = eligibility.Inputs.summary()
 	return GraphDeliveryBinding{Record: "delivery_binding", InstanceID: a.InstanceID, SessionID: s.ID, IssueID: identity.IssueID, IssueNumber: s.IssueNumber, BotID: r.opts.MCP.BotID, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, Branch: s.Branch, Target: repo.BaseBranch, Marker: fmt.Sprintf("<!-- lf:bug-delivery instance=%d issue=%d -->", a.InstanceID, identity.IssueID), Eligibility: eligibility}, nil
 }
 func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a ActivityRequest, b GraphDeliveryBinding) (string, error) {
@@ -499,52 +391,54 @@ func (r *BugRuntime) reconcileGraphBug(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	// One instance that cannot be reconciled must not hold up the others.
+	var all error
 	for _, instance := range instances {
-		if instance.Status == store.GraphSucceeded {
-			if _, e = r.opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID); e != nil {
+		all = errors.Join(all, r.reconcileGraphBugInstance(ctx, instance))
+	}
+	return all
+}
+
+func (r *BugRuntime) reconcileGraphBugInstance(ctx context.Context, instance store.GraphInstance) error {
+	if instance.Status == store.GraphSucceeded {
+		_, e := r.opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID)
+		return e
+	}
+	attempts, e := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+	if e != nil {
+		return e
+	}
+	for _, a := range attempts {
+		if a.Status != store.GraphRunning && a.Status != store.GraphPending {
+			continue
+		}
+		request := GraphNodeRequest{Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}
+		if a.RunID > 0 {
+			if _, e = RecoverGraphStoppedExecution(ctx, r.opts, request, a.ID); e != nil {
 				return e
 			}
 			continue
 		}
-		attempts, e := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+		// Factory steps are safe to repeat; the owner's reply runs this one again.
+		_, e = parkGraphAction(ctx, r.opts, request, GraphNodeResult{InstanceID: instance.ID, AttemptID: a.ID, Node: a.Node, NextNode: a.Node, Activity: ActivityResult{Diagnostic: "The factory restarted while this step was running. Reply to run it again; it is safe to repeat."}}, "failed", false)
 		if e != nil {
 			return e
-		}
-		for _, a := range attempts {
-			if a.Status != store.GraphRunning && a.Status != store.GraphPending {
-				continue
-			}
-			request := GraphNodeRequest{Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}
-			if a.RunID > 0 {
-				if _, e = RecoverGraphStoppedExecution(ctx, r.opts, request, a.ID); e != nil {
-					return e
-				}
-			} else {
-				// Effect claims survive. Park the unresolved origin rather than replaying
-				// a remote mutation solely because the worker disappeared.
-				_, e = parkGraphAction(ctx, r.opts, request, GraphNodeResult{InstanceID: instance.ID, AttemptID: a.ID, Node: a.Node, NextNode: a.Node, Activity: ActivityResult{Diagnostic: "Factory activity interrupted; retained effects must be observed before continuation."}}, "failed", false)
-				if e != nil {
-					return e
-				}
-			}
-		}
-		wait, e := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
-		if errors.Is(e, store.ErrNotFound) {
-			continue
-		}
-		if e != nil {
-			return e
-		}
-		if wait.State == "claimed" {
-			if _, e = r.opts.DB.ParkGraphInstance(ctx, instance.ID, instance.CurrentNode, r.opts.MCP.Now(), r.opts.MCP.Now()); e != nil {
-				return e
-			}
-		}
-		if wait.State == "waiting" {
-			if _, e = r.opts.ResearchReporter.RecoverGraphStopQuestion(ctx, wait.DeliveryKey); e != nil {
-				return e
-			}
 		}
 	}
-	return nil
+	wait, e := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
+	if errors.Is(e, store.ErrNotFound) {
+		return nil
+	}
+	if e != nil {
+		return e
+	}
+	if wait.State == "claimed" {
+		if _, e = r.opts.DB.ParkGraphInstance(ctx, instance.ID, instance.CurrentNode, r.opts.MCP.Now(), r.opts.MCP.Now()); e != nil {
+			return e
+		}
+	}
+	if wait.State == "waiting" {
+		_, e = r.opts.ResearchReporter.RecoverGraphStopQuestion(ctx, wait.DeliveryKey)
+	}
+	return e
 }

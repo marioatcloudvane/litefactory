@@ -162,7 +162,7 @@ func TestGraphStopPersistentOrphanRecoveryParksWithoutDispatch(t *testing.T) {
 	}
 }
 
-func TestGraphStopPersistentAcceptedInputCannotOverrideProcessFailure(t *testing.T) {
+func TestGraphStopPersistentAcceptedBugInputRoutesUnlessInterrupted(t *testing.T) {
 	for _, interrupted := range []bool{false, true} {
 		name := "failed"
 		if interrupted {
@@ -226,16 +226,24 @@ func TestGraphStopPersistentAcceptedInputCannotOverrideProcessFailure(t *testing
 			// No reporter: execution must still save its immutable stop and leave
 			// publication owed, including when the provider cancels the caller context.
 			out, err := ExecuteNodeAction(ctx, Options{DB: db, Runners: runnerSet(runner)}, GraphNodeRequest{Profile: profile, Activities: registry, InstanceID: instance.ID, RunID: run.ID, At: at})
-			if err == nil || out.Status != "waiting_owner" || out.NextNode != "analyst" || calls != 1 {
-				t.Fatalf("accepted input overrode execution: %+v calls=%d err=%v", out, calls, err)
+			if out.Status != "waiting_owner" || out.NextNode != "analyst" || calls != 1 {
+				t.Fatalf("stop did not park: %+v calls=%d err=%v", out, calls, err)
 			}
-			attempt, err := db.GetGraphNodeAttempt(t.Context(), out.AttemptID)
-			mustProgress(t, err)
-			if attempt.Status != store.GraphFailed || attempt.Outcome != "" {
-				t.Fatalf("failed execution gained routing outcome: %+v", attempt)
-			}
-			if !strings.Contains(string(out.Activity.Output), "Reproduction requires owner evidence") || !strings.Contains(out.Activity.Diagnostic, "Factory execution failure") {
-				t.Fatalf("accepted history/execution cause lost: %+v", out.Activity)
+			attempt, err2 := db.GetGraphNodeAttempt(t.Context(), out.AttemptID)
+			mustProgress(t, err2)
+			if !interrupted {
+				// The accepted submission is the agent's answer; the failed exit
+				// afterwards does not discard it.
+				if attempt.Status != store.GraphSucceeded || attempt.Outcome != "blocked" {
+					t.Fatalf("accepted Bug submission was discarded: %+v err=%v", attempt, err)
+				}
+			} else {
+				if err == nil || attempt.Status != store.GraphFailed || attempt.Outcome != "" {
+					t.Fatalf("interrupted execution gained routing outcome: %+v err=%v", attempt, err)
+				}
+				if !strings.Contains(string(out.Activity.Output), "Reproduction requires owner evidence") || !strings.Contains(out.Activity.Diagnostic, "Factory execution failure") {
+					t.Fatalf("accepted history/execution cause lost: %+v", out.Activity)
+				}
 			}
 			wait, err := db.GetGraphOwnerWait(t.Context(), instance.ID)
 			mustProgress(t, err)

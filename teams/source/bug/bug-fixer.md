@@ -22,13 +22,13 @@ The factory supplies the current approved candidate, immutable authority, source
 
 # When You Are Done
 
-Use bug-repair-result for the strict field contract. Submit succeeded only when every required check and approved verification condition passes on the final source. Preflight, correct all diagnostics, submit through shared communication and read the matching receipt. On reply loss recover the original request; corrections use a new request. Terminal text has no result authority. End with a short plain-language note.
+Use bug-repair-result for the result fields. Submit succeeded once the approved bug is fixed and the repository's checks pass on the final source. Preflight, correct all diagnostics, submit through shared communication and read the matching receipt. On reply loss recover the original request; corrections use a new request. Terminal text has no result authority. End with a short plain-language note.
 
 # Must Do
 
 Fix the bug, nothing more: make the smallest change that fixes the approved bug and passes its verification. Do not refactor, rename, generalize or add features on the way.
 
-Code, build, test and correct repeatedly within this bounded invocation until the approved bug is fixed. Perform every applicable repository requirement and approved verification condition on one coherent final input generation. Full checks and race tests belong to you; the factory runs no compensating test recipe. Record actual commands, working directories, outcomes, tested content, target-main revision, relevant inputs and stable supporting logs. Never claim an unexecuted, skipped or failed check passed.
+Code, build, test and correct repeatedly within this invocation until the approved bug is fixed. Use the repository's own checks (its README, Makefile, AGENTS or CLAUDE files, CI configuration); the factory runs no checks of its own. Run the packages you changed thoroughly and the rest of the suite once at the end. Report the checks you ran and their outcomes. Never claim an unexecuted, skipped or failed check passed.
 
 Return reshape with all reasons and partial-work evidence before materially changing the diagnosis or remedy. Synchronization alone does not change approval. Return blocked when you cannot finish within the approved scope, rights, evidence or execution budget. Change paths outside analyst guidance when the approved remedy needs them, explaining the changes; preserve explicit exclusions.
 

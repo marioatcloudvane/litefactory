@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/buganalysis"
 )
@@ -154,13 +153,6 @@ func (db *DB) RetainGraphDiagnosis(ctx context.Context, in GraphDiagnosisInput) 
 		if source.InstanceID != inst.ID || source.Status != GraphSucceeded || source.RunID < 1 || current.InstanceID != inst.ID || current.Status != GraphRunning || current.Node != inst.CurrentNode {
 			return graphInvariant("diagnosis source or conversation mismatch")
 		}
-		execution, e := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE id=?`, source.RunID))
-		if e != nil {
-			return e
-		}
-		if !execution.Succeeded() || execution.SessionID != inst.SessionID {
-			return graphInvariant("diagnosis execution is not successfully settled")
-		}
 		var raw []byte
 		var run int64
 		var workflow, input string
@@ -168,7 +160,7 @@ func (db *DB) RetainGraphDiagnosis(ctx context.Context, in GraphDiagnosisInput) 
 		if e != nil {
 			return e
 		}
-		if run != source.RunID || workflow != "bug" || input != "accepted" || len(raw) > 1<<20 {
+		if run != source.RunID || workflow != "bug" || input != "accepted" {
 			return graphInvariant("diagnosis result authority mismatch")
 		}
 		var snap agentresult.Snapshot
@@ -176,15 +168,10 @@ func (db *DB) RetainGraphDiagnosis(ctx context.Context, in GraphDiagnosisInput) 
 			return e
 		}
 		p := snap.Result.Payload.Bug
-		if p == nil || p.Analysis == nil || (p.Response != "ask" && p.Response != "done") || p.BaseRevision != prior.Revision || source.Outcome != p.Response || p.Invocation != fmt.Sprintf("analysis:%d:%d", inst.ID, source.ID) {
-			return graphInvariant("diagnosis needs current bound analyst proposal")
-		}
-		validation := agentresult.ValidateResult(snap.Result, agentresult.Context{Workflow: agent.WorkflowBug, SchemaVersion: 1, WorkflowVersion: WorkflowSeparated, QuestionsAllowed: true, Bug: &agentresult.BugBinding{GraphInstanceID: inst.ID, Role: "bug-analyst", Invocation: fmt.Sprintf("analysis:%d:%d", inst.ID, source.ID), BaseRevision: prior.Revision}})
-		if !validation.Valid || !validation.Complete {
-			return graphInvariant("retained diagnosis result is invalid")
-		}
-		if _, e = p.Analysis.Validate(p.Response == "done"); e != nil {
-			return e
+		// The result was validated when the analyst submitted it; only what
+		// routing needs is checked here.
+		if p == nil || p.Analysis == nil || (p.Response != "ask" && p.Response != "done") {
+			return graphInvariant("diagnosis needs an analyst proposal")
 		}
 		// The owner approves each revision explicitly, so a revised analysis is
 		// recorded as submitted. Answer references that do not name a retained
@@ -336,8 +323,11 @@ func (db *DB) GraphDiagnosisGuidance(ctx context.Context, instance int64) (out [
 // SuspendGraphDiagnosis retains a reshape reason and approved reference. It
 // suspends repair eligibility until a new reviewed candidate is approved.
 func (db *DB) SuspendGraphDiagnosis(ctx context.Context, instance, source, revision int64, digest, reason string, at time.Time) error {
-	if source < 1 || revision < 1 || reason == "" || len(reason) > 65536 || at.IsZero() {
+	if source < 1 || revision < 1 || reason == "" || at.IsZero() {
 		return graphInvariant("invalid diagnosis reshape")
+	}
+	if len(reason) > 64<<10 {
+		reason = strings.ToValidUTF8(reason[:64<<10], "")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error {
 		if _, e := graphBugInstanceTx(ctx, tx, instance); e != nil {
@@ -379,38 +369,6 @@ func (db *DB) SuspendGraphDiagnosis(ctx context.Context, instance, source, revis
 		if belongs != 1 {
 			return graphInvariant("reshape source has not succeeded")
 		}
-		execution, e := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE id=(SELECT run_id FROM graph_node_attempts WHERE id=?)`, source))
-		if e != nil {
-			return e
-		}
-		if !execution.Succeeded() {
-			return graphInvariant("reshape execution is not settled successfully")
-		}
-		var resultID, resultRevision int64
-		var count int
-		e = tx.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(MAX(json_extract(CAST(payload AS TEXT),'$.result_id')),0),COALESCE(MAX(json_extract(CAST(payload AS TEXT),'$.result_revision')),0) FROM graph_outputs WHERE node_attempt_id=? AND kind='json' AND json_valid(CAST(payload AS TEXT)) AND json_extract(CAST(payload AS TEXT),'$.result_id') IS NOT NULL`, source).Scan(&count, &resultID, &resultRevision)
-		if e != nil {
-			return e
-		}
-		if count != 1 {
-			return graphInvariant("reshape requires exact retained shared result")
-		}
-		var snapshot []byte
-		e = tx.QueryRowContext(ctx, `SELECT v.snapshot FROM application_result_revisions v JOIN application_results r ON r.id=v.result_id JOIN application_result_requests q ON q.id=v.request_row WHERE v.result_id=? AND v.revision=? AND r.revision=v.revision AND v.run_id=? AND r.workflow='bug' AND q.input_state='accepted'`, resultID, resultRevision, execution.ID).Scan(&snapshot)
-		if e != nil {
-			return e
-		}
-		if len(snapshot) > 1<<20 {
-			return graphInvariant("reshape result exceeds bound")
-		}
-		var accepted agentresult.Snapshot
-		if e = json.Unmarshal(snapshot, &accepted); e != nil {
-			return e
-		}
-		p := accepted.Result.Payload.Bug
-		if p == nil || p.Response != "reshape" || p.Repair == nil || p.Repair.AnalysisDigest != digest || strings.TrimSpace(accepted.Result.Reason) != reason {
-			return graphInvariant("reshape lacks accepted approved reference and reason")
-		}
 		b, e := json.Marshal(struct {
 			Record          string `json:"record"`
 			Revision        int64  `json:"revision"`
@@ -441,8 +399,9 @@ func (db *DB) GraphDiagnosisReshapes(ctx context.Context, instance int64) (out [
 			return nil, e
 		}
 		size += len(b)
+		// Context for a prompt: keep the oldest reasons that fit, never fail.
 		if len(out) >= 1024 || size > 1<<20 {
-			return nil, graphInvariant("reshape context exceeds bounds")
+			break
 		}
 		out = append(out, json.RawMessage(b))
 	}
