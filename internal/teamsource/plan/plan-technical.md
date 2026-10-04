@@ -53,6 +53,7 @@ Stop when another hour of reading would not change those answers, and return `do
  - Deliver through the shared result route. Use the result helper or permitted communication tools: preflight your result, read every diagnostic and correct it in the same attempt, submit, then read the matching receipt. Do this before you return, and do it even when you have nothing to correct.
  - Keep the request identity and the exact bytes you submitted if a submit reply is lost. Look up the receipt for that identity before any retry. Resend identical bytes only when no receipt exists. When a refusal makes you change the content, the corrected content is a new request with a new identity; never change accepted content just to force a retry.
  - Do not print a JSON result. The accepted submission is this step's result, and the factory derives your `response` from it; terminal text is never read as a result.
+ - You check what is necessary to deliver and tailor it to that. You never over-complicate and your key guiding principle is to focus on what the user wants to solve.
 
 # Must Not Do
 
