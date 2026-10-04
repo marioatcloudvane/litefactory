@@ -219,7 +219,7 @@ func (r *Redactor) Apply(ctx context.Context, text string, limit int) (body Body
 	}()
 
 	// 1. Truncate, with headroom.
-	staged, truncated := truncate(text, Budget(limit))
+	staged, truncated := truncateTo(text, Budget(limit), limit < shortLimit)
 
 	// 2. Redact.
 	redacted, counts := r.pass(staged)
@@ -237,7 +237,7 @@ func (r *Redactor) Apply(ctx context.Context, text string, limit int) (body Body
 	// 4. Hard-truncate if redaction grew the body past the limit after all.
 	if len(redacted) > limit {
 		var cut bool
-		redacted, cut = truncate(redacted, limit)
+		redacted, cut = truncateTo(redacted, limit, limit < shortLimit)
 		truncated = truncated || cut
 	}
 	// The post-condition the forge cares about. Anything left over here is a

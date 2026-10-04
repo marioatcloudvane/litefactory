@@ -24,6 +24,13 @@ const Margin = 2048
 // further than report expected.
 const truncationNotice = "\n\n_[litefactory: body truncated to fit the comment size limit]_"
 
+// shortLimit is the caller limit below which text is a title (titles use 240
+// or 256) rather than a body; it is cut with shortNotice to stay on one line.
+const (
+	shortLimit  = 512
+	shortNotice = "…"
+)
+
 // cutbackWindow is how far back [safeCut] will look for a line break, and
 // failing that for any whitespace, when choosing a cut point.
 //
@@ -55,19 +62,31 @@ func Budget(limit int) int {
 	return limit - margin
 }
 
-// truncate cuts s to at most limit bytes, appending [truncationNotice] when it
+// truncateTo cuts s to at most limit bytes, appending [truncationNotice] when it
 // removes anything. It reports whether it cut.
 //
 // The cut is at a safe boundary in two senses. It never splits a UTF-8 rune —
 // GitHub rejects a body that is not valid UTF-8, and an invalid byte at the end
 // of a truncated log tail is a 422 that looks like a mystery. And it prefers
 // the last line break within [newlineWindow], so the body ends on a whole line.
-func truncate(s string, limit int) (string, bool) {
+//
+// With oneLine it ends on a single ellipsis instead, because GitHub rejects
+// titles with line breaks.
+func truncateTo(s string, limit int, oneLine bool) (string, bool) {
 	if limit <= 0 {
 		return "", s != ""
 	}
 	if len(s) <= limit {
 		return s, false
+	}
+
+	// A title-sized limit cannot carry the multi-line notice: GitHub rejects
+	// a title with a line break. End it on one line instead.
+	if oneLine {
+		if limit <= len(shortNotice) {
+			return s[:safeCut(s, limit)], true
+		}
+		return strings.TrimRight(s[:safeCut(s, limit-len(shortNotice))], " \t\r\n") + shortNotice, true
 	}
 
 	// Reserve room for the notice. If the limit is too small to hold even
