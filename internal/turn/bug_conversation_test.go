@@ -249,3 +249,67 @@ func TestGraphBugConversationRecoversCandidateBeforeParking(t *testing.T) {
 		t.Fatalf("restart added allocations: %+v", attempts)
 	}
 }
+
+// An analysis longer than one GitHub comment is still published, shortened,
+// instead of failing to park the review.
+func TestGraphBugConversationHugeReviewStillParks(t *testing.T) {
+	f, forge, p, inst := conversationFixture(t)
+	activities := ActivityRegistry{}
+	mustProgress(t, activities.Register(graphexec.ResearchLoopAction, GraphBugConversation{Profile: p, Reporter: f.opts.ResearchReporter}))
+	_, e := ExecuteNodeAction(t.Context(), f.opts, GraphNodeRequest{Profile: p, Activities: activities, InstanceID: inst.ID, At: f.opts.MCP.Now()})
+	mustProgress(t, e)
+	completeConversationAnalystRevision(t, f, inst, "done", 0, strings.Repeat("Return no matches for empty input. ", 3000))
+	parked, e := ExecuteNodeAction(t.Context(), f.opts, GraphNodeRequest{Profile: p, Activities: activities, InstanceID: inst.ID, At: f.opts.MCP.Now()})
+	mustProgress(t, e)
+	if parked.Status != "waiting_owner" || forge.attemptCount() != 1 {
+		t.Fatalf("huge review did not park: %+v", parked)
+	}
+	if n := len(parked.Activity.Diagnostic); n > reviewReasonLimit+512 || !strings.Contains(parked.Activity.Diagnostic, "shortened") {
+		t.Fatalf("review reason not shortened: %d bytes", n)
+	}
+}
+
+// When a conversation step fails after a newer analyst result exists, the
+// owner's reply publishes that newer result, never the stale earlier review.
+func TestGraphBugConversationNewestAnalystResultWins(t *testing.T) {
+	f, forge, p, inst := conversationFixture(t)
+	activities := ActivityRegistry{}
+	mustProgress(t, activities.Register(graphexec.ResearchLoopAction, GraphBugConversation{Profile: p, Reporter: f.opts.ResearchReporter}))
+	step := func(at time.Time) GraphNodeResult {
+		out, e := ExecuteNodeAction(t.Context(), f.opts, GraphNodeRequest{Profile: p, Activities: activities, InstanceID: inst.ID, At: at})
+		mustProgress(t, e)
+		return out
+	}
+	reply := func(body string, at time.Time) {
+		wait, e := f.db.GetGraphOwnerWait(t.Context(), inst.ID)
+		mustProgress(t, e)
+		delivery, e := f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+		mustProgress(t, e)
+		_, e = AdmitGraphBugOwnerReply(t.Context(), f.db, store.GraphOwnerReply{InstanceID: inst.ID, OwnerID: 7, AuthorID: 7, CommentID: delivery.CommentID + 1, QuestionCommentID: delivery.CommentID, TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug", DeliveryKey: wait.DeliveryKey, Body: body, At: at})
+		mustProgress(t, e)
+	}
+	step(f.opts.MCP.Now())
+	completeConversationAnalystRevision(t, f, inst, "done", 0, "No panic")
+	step(f.opts.MCP.Now())
+	later := f.opts.MCP.Now().Add(time.Minute)
+	reply("Simpler, please.", later)
+	f.opts.MCP.Now = func() time.Time { return later }
+	step(later)
+	completeConversationAnalystRevision(t, f, inst, "done", 1, "Return an empty result")
+	// The next conversation step is interrupted and parked as failed.
+	attempt, e := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: inst.ID, Node: "conversation", Limit: 64, StartedAt: later})
+	mustProgress(t, e)
+	_, e = parkGraphAction(t.Context(), f.opts, GraphNodeRequest{Profile: p, InstanceID: inst.ID, At: later}, GraphNodeResult{InstanceID: inst.ID, AttemptID: attempt.ID, Node: "conversation", NextNode: "conversation", Activity: ActivityResult{Diagnostic: "interrupted"}}, "failed", false)
+	mustProgress(t, e)
+	retry := later.Add(time.Minute)
+	reply("Retry.", retry)
+	f.opts.MCP.Now = func() time.Time { return retry }
+	if parked := step(retry); parked.Status != "waiting_owner" {
+		t.Fatalf("retry did not publish: %+v", parked)
+	}
+	candidate, _, e := f.db.CurrentGraphDiagnosis(t.Context(), inst.ID)
+	mustProgress(t, e)
+	if candidate.Revision != 2 || candidate.Analysis.Criteria[0].Requirement != "Return an empty result" {
+		t.Fatalf("stale review won: revision=%d %+v posts=%d", candidate.Revision, candidate.Analysis.Criteria, forge.attemptCount())
+	}
+}
