@@ -164,7 +164,17 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			reply := &planbrief.PlanOwnerReply{ID: comment.ID, OwnerID: ids.OwnerUserID, ActorID: comment.Author.ID, IssueID: child.ID, Key: draft.Key, Stage: wait.Stage, Candidate: wait.Candidate, WaitID: wait.ID, Body: comment.Body}
 			trigger := turn.Trigger{CommentID: comment.ID, Body: comment.Body, Author: comment.Author.Login, AuthorID: comment.Author.ID, PlanReply: reply}
 			if err = d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: comment.Body}, t.log); err != nil {
-				return true, err
+				var refusal *turn.PlanReplyRefusal
+				if !errors.As(err, &refusal) {
+					return true, err
+				}
+				// The review rules refuse this reply for good. The explanation is
+				// keyed by the comment, so a retry resumes it; confirmed delivery
+				// consumes the reply.
+				if _, err = d.explainPlanReply(ctx, t, draft, comment.ID, refusal.Reason); err != nil {
+					return true, err
+				}
+				return true, nil
 			}
 			if err = d.db.AdvanceStoryDiscovery(ctx, t.session.ID, draft.IssueNumber, comment.ID); err != nil {
 				return true, err

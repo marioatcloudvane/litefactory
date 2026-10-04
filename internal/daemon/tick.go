@@ -2102,6 +2102,14 @@ func (d *Daemon) run(
 					slog.Any("error", err))
 				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
 			}
+			// A plain Research comment refused because the wait already holds
+			// another reply is answered and consumed. Explicit commands keep retry.
+			if errors.Is(err, store.ErrGraphOwnerWait) && mode == agent.ModeResearch &&
+				workflow != agent.WorkflowBug && command.Kind == turn.KindFreeText {
+				log.InfoContext(ctx, "Research owner comment refused while the wait holds another reply; refusing it with a reply",
+					slog.Any("error", err))
+				return d.refuseMode(ctx, t, trigger, report.ReplyGraphOwnerWaitRefused)
+			}
 			return d.leave(ctx, t, log, "Research owner reply admission failed", err)
 		}
 	}

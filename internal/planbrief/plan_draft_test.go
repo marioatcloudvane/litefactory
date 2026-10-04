@@ -93,11 +93,41 @@ func TestMergePlanDraft_ScopedReuse(t *testing.T) {
 	for _, tt := range []struct {
 		name, key string
 		sections  []string
-	}{{"identity", "foreign", nil}, {"unknown section", prior.Key, []string{"arbitrary"}}, {"duplicate section", prior.Key, []string{"design", "design"}}} {
+	}{{"identity", "foreign", nil}, {"duplicate section", prior.Key, []string{"design", "design"}}} {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := planbrief.MergePlanDraft(prior, planbrief.PlanDraft{Key: tt.key}, tt.sections); err == nil {
 				t.Fatal("unsafe merge accepted")
 			}
 		})
+	}
+}
+
+func TestMergePlanDraft_IgnoresUnknownSection(t *testing.T) {
+	prior := draftFixture("technical")
+	next := planbrief.PlanDraft{Key: prior.Key, Questions: []string{"Which actor?"}}
+	got, err := planbrief.MergePlanDraft(prior, next, []string{"arbitrary", "conversation"})
+	if err != nil {
+		t.Fatalf("unknown section refused: %v", err)
+	}
+	want := prior
+	want.Questions = next.Questions
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestMergePlanDraft_AllValidSectionsReplace(t *testing.T) {
+	prior := draftFixture("story")
+	next := draftFixture("acceptance")
+	next.Name = "Renamed story"
+	next.Design = []string{"https://example.com/design"}
+	next.Questions = []string{"Which actor?"}
+	sections := []string{"intent", "architecture", "criteria", "tasks", "dependencies", "design", "guidance", "conversation"}
+	got, err := planbrief.MergePlanDraft(prior, next, sections)
+	if err != nil {
+		t.Fatalf("valid sections refused: %v", err)
+	}
+	if !reflect.DeepEqual(got, next) {
+		t.Fatalf("got %#v want %#v", got, next)
 	}
 }

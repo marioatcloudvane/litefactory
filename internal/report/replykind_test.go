@@ -45,6 +45,8 @@ var everyReplyKind = []report.ReplyKind{
 	report.ReplyConfirmFailed,
 	report.ReplyAppliesResolution,
 	report.ReplyGraphReplyBetweenQuestions,
+	report.ReplyBugCommentNotApplied,
+	report.ReplyGraphOwnerWaitRefused,
 }
 
 // TestReplyGraphReplyBetweenQuestionsIsAModeRefusalOnly pins the one refusal

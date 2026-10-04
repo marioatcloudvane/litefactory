@@ -17,7 +17,8 @@ import (
 // this descriptor does not admit an otherwise unavailable parent workflow.
 func BugWorkflowPolicy() WorkflowPolicy {
 	return WorkflowPolicy{
-		Workflow: agent.WorkflowBug,
+		Workflow:                  agent.WorkflowBug,
+		AcceptAfterProcessFailure: true,
 		Respond: func(r agentresult.Result) (string, error) {
 			if r.Payload.Bug == nil || r.Payload.Bug.Response == "" {
 				return "", errors.New("bug result has no validated response")

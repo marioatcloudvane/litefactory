@@ -82,3 +82,16 @@ func TestPlanSectionFaults_ArePerStage(t *testing.T) {
 		})
 	}
 }
+
+func TestPlanSectionFaults_UnknownSectionListsValidNames(t *testing.T) {
+	t.Parallel()
+	faults := graphexec.PlanSectionFaults("technical", []string{"bogus", "design"})
+	if len(faults) != 1 || faults[0].Field != "changed_sections" || !strings.Contains(faults[0].Message, `"bogus"`) {
+		t.Fatalf("faults = %+v, want one fault naming bogus", faults)
+	}
+	for _, name := range []string{"intent", "architecture", "criteria", "tasks", "dependencies", "design", "guidance", "conversation"} {
+		if !strings.Contains(faults[0].Message, name) {
+			t.Errorf("message %q does not list %q", faults[0].Message, name)
+		}
+	}
+}

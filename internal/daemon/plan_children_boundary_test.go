@@ -3,6 +3,8 @@ package daemon_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -28,18 +30,13 @@ func TestPlanChildrenBoundary_LockedReplyRetriedAfterRestart(t *testing.T) {
 	planChildrenRoutingCase(t, "/approve-plan story story candidate", true)
 }
 
-func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
+// planChildFixture seeds a parent Plan with one child story waiting for review
+// and returns it before any owner comment exists.
+func planChildFixture(t *testing.T, fn func(context.Context, *fixture, turn.Request) (turn.Result, error)) (*fixture, store.Session) {
 	t.Helper()
 	f := newFixture(t)
-	attempts := 0
 	f.turns.fn = func(ctx context.Context, req turn.Request) (turn.Result, error) {
-		attempts++
-		if locked && attempts == 1 {
-			return turn.Result{Disposition: turn.DispositionLocked}, nil
-		}
-		out, err := f.ranSuccessfully(ctx, req)
-		out.ResearchGraph = true
-		return out, err
+		return fn(ctx, f, req)
 	}
 	f.daemon = f.newDaemon(daemon.Options{Forge: refinementForge{Client: f.client, parent: testIssue}})
 	f.plantCursor()
@@ -88,6 +85,21 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 		t.Fatal(err)
 	}
 	f.forge.addIssue(fakeIssue{ID: 2000, Number: 200, Title: title, Body: body, State: "open", User: stranger()})
+	return f, session
+}
+
+func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
+	t.Helper()
+	attempts := 0
+	f, session := planChildFixture(t, func(ctx context.Context, f *fixture, req turn.Request) (turn.Result, error) {
+		attempts++
+		if locked && attempts == 1 {
+			return turn.Result{Disposition: turn.DispositionLocked}, nil
+		}
+		out, err := f.ranSuccessfully(ctx, req)
+		out.ResearchGraph = true
+		return out, err
+	})
 	renamed := owner()
 	renamed.Login = "renamed-owner"
 	f.forge.addComment(200, 50, stranger(), "/approve-plan story story candidate")
@@ -156,5 +168,59 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 	f.settle()
 	if len(f.turns.calls()) != expectedCalls {
 		t.Fatal("restart redispatched consumed child cursor")
+	}
+}
+
+// A child reply the review rules refuse is answered once on the sub-issue and
+// consumed, a restart posts nothing more, and a later reply still reaches the
+// Plan turn instead of stalling behind the refused one.
+func TestPlanChildrenBoundary_RefusedReplyIsAnsweredOnceAndQueueProgresses(t *testing.T) {
+	const refusedText = "could not be applied to the current review"
+	f, session := planChildFixture(t, func(ctx context.Context, f *fixture, req turn.Request) (turn.Result, error) {
+		if req.Trigger.CommentID == 60 {
+			return turn.Result{}, &turn.PlanReplyRefusal{Reason: "This reply " + refusedText + " of this story.", Err: errors.New("stale")}
+		}
+		out, err := f.ranSuccessfully(ctx, req)
+		out.ResearchGraph = true
+		return out, err
+	})
+	refusals := func() int {
+		posted, _, _ := f.forge.snapshot()
+		n := 0
+		for _, body := range posted {
+			if strings.Contains(body, refusedText) {
+				n++
+			}
+		}
+		return n
+	}
+	f.forge.addComment(200, 60, owner(), "/approve-plan story story candidate")
+	f.settle()
+	if n := refusals(); n != 1 {
+		t.Fatalf("refusal replies = %d, want 1\nlogs:\n%s", n, f.logs)
+	}
+	if cursor, err := f.db.StoryDiscoveryCursor(t.Context(), session.ID, 200); err != nil || cursor != 60 {
+		t.Fatalf("refused reply not consumed: cursor=%d err=%v", cursor, err)
+	}
+
+	// A restart retries nothing and posts nothing more.
+	f.daemon = f.newDaemon(daemon.Options{Forge: refinementForge{Client: f.client, parent: testIssue}})
+	f.settle()
+	f.settle()
+	if n := refusals(); n != 1 {
+		t.Fatalf("refusal replies after restart = %d, want 1", n)
+	}
+	if got := len(f.turns.calls()); got != 1 {
+		t.Fatalf("turn calls after restart = %d, want 1", got)
+	}
+
+	f.forge.addComment(200, 70, owner(), "Please narrow the scope")
+	f.settle()
+	calls := f.turns.calls()
+	if len(calls) != 2 || calls[1].Trigger.PlanReply == nil || calls[1].Trigger.PlanReply.ID != 70 {
+		t.Fatalf("the reply after the refusal did not progress: %+v\nlogs:\n%s", calls, f.logs)
+	}
+	if n := refusals(); n != 1 {
+		t.Fatalf("refusal replies after progress = %d, want 1", n)
 	}
 }
