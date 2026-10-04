@@ -800,3 +800,15 @@ func utf8ValidString(s string) bool {
 	}
 	return true
 }
+
+// A title-sized limit is cut on one line; GitHub rejects titles with breaks.
+func TestApplyShortLimitStaysOnOneLine(t *testing.T) {
+	r := redact.New(redact.Options{Environ: []string{}})
+	got, err := r.Apply(t.Context(), strings.Repeat("word ", 80), 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(got.String(), "\r\n") || got.Len() > 256 || !got.Truncated() || !strings.HasSuffix(got.String(), "…") {
+		t.Fatalf("short apply %q (%d bytes, truncated=%t)", got.String(), got.Len(), got.Truncated())
+	}
+}

@@ -24,6 +24,13 @@ const Margin = 2048
 // further than report expected.
 const truncationNotice = "\n\n_[litefactory: body truncated to fit the comment size limit]_"
 
+// shortLimit is the size below which text is a title or label rather than a
+// body; such text is cut with shortNotice so it stays on one line.
+const (
+	shortLimit  = 1024
+	shortNotice = "…"
+)
+
 // cutbackWindow is how far back [safeCut] will look for a line break, and
 // failing that for any whitespace, when choosing a cut point.
 //
@@ -68,6 +75,15 @@ func truncate(s string, limit int) (string, bool) {
 	}
 	if len(s) <= limit {
 		return s, false
+	}
+
+	// A title-sized limit cannot carry the multi-line notice: GitHub rejects
+	// a title with a line break. End it on one line instead.
+	if limit < shortLimit {
+		if limit <= len(shortNotice) {
+			return s[:safeCut(s, limit)], true
+		}
+		return strings.TrimRight(s[:safeCut(s, limit-len(shortNotice))], " \t\r\n") + shortNotice, true
 	}
 
 	// Reserve room for the notice. If the limit is too small to hold even
