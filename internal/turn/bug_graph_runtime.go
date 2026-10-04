@@ -391,52 +391,54 @@ func (r *BugRuntime) reconcileGraphBug(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	// One instance that cannot be reconciled must not hold up the others.
+	var all error
 	for _, instance := range instances {
-		if instance.Status == store.GraphSucceeded {
-			if _, e = r.opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID); e != nil {
+		all = errors.Join(all, r.reconcileGraphBugInstance(ctx, instance))
+	}
+	return all
+}
+
+func (r *BugRuntime) reconcileGraphBugInstance(ctx context.Context, instance store.GraphInstance) error {
+	if instance.Status == store.GraphSucceeded {
+		_, e := r.opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID)
+		return e
+	}
+	attempts, e := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+	if e != nil {
+		return e
+	}
+	for _, a := range attempts {
+		if a.Status != store.GraphRunning && a.Status != store.GraphPending {
+			continue
+		}
+		request := GraphNodeRequest{Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}
+		if a.RunID > 0 {
+			if _, e = RecoverGraphStoppedExecution(ctx, r.opts, request, a.ID); e != nil {
 				return e
 			}
 			continue
 		}
-		attempts, e := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+		// Factory steps are safe to repeat; the owner's reply runs this one again.
+		_, e = parkGraphAction(ctx, r.opts, request, GraphNodeResult{InstanceID: instance.ID, AttemptID: a.ID, Node: a.Node, NextNode: a.Node, Activity: ActivityResult{Diagnostic: "The factory restarted while this step was running. Reply to run it again; it is safe to repeat."}}, "failed", false)
 		if e != nil {
 			return e
-		}
-		for _, a := range attempts {
-			if a.Status != store.GraphRunning && a.Status != store.GraphPending {
-				continue
-			}
-			request := GraphNodeRequest{Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}
-			if a.RunID > 0 {
-				if _, e = RecoverGraphStoppedExecution(ctx, r.opts, request, a.ID); e != nil {
-					return e
-				}
-			} else {
-				// Effect claims survive. Park the unresolved origin rather than replaying
-				// a remote mutation solely because the worker disappeared.
-				_, e = parkGraphAction(ctx, r.opts, request, GraphNodeResult{InstanceID: instance.ID, AttemptID: a.ID, Node: a.Node, NextNode: a.Node, Activity: ActivityResult{Diagnostic: "Factory activity interrupted; retained effects must be observed before continuation."}}, "failed", false)
-				if e != nil {
-					return e
-				}
-			}
-		}
-		wait, e := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
-		if errors.Is(e, store.ErrNotFound) {
-			continue
-		}
-		if e != nil {
-			return e
-		}
-		if wait.State == "claimed" {
-			if _, e = r.opts.DB.ParkGraphInstance(ctx, instance.ID, instance.CurrentNode, r.opts.MCP.Now(), r.opts.MCP.Now()); e != nil {
-				return e
-			}
-		}
-		if wait.State == "waiting" {
-			if _, e = r.opts.ResearchReporter.RecoverGraphStopQuestion(ctx, wait.DeliveryKey); e != nil {
-				return e
-			}
 		}
 	}
-	return nil
+	wait, e := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
+	if errors.Is(e, store.ErrNotFound) {
+		return nil
+	}
+	if e != nil {
+		return e
+	}
+	if wait.State == "claimed" {
+		if _, e = r.opts.DB.ParkGraphInstance(ctx, instance.ID, instance.CurrentNode, r.opts.MCP.Now(), r.opts.MCP.Now()); e != nil {
+			return e
+		}
+	}
+	if wait.State == "waiting" {
+		_, e = r.opts.ResearchReporter.RecoverGraphStopQuestion(ctx, wait.DeliveryKey)
+	}
+	return e
 }

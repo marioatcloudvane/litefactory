@@ -175,7 +175,19 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 		return out, errors.Join(errors.New("research invocation produced no process result"), runErr, closeErr)
 	}
 	out.ProcessResult = result.Clone()
-	if runErr != nil || !result.Succeeded() || ctx.Err() != nil {
+	failed := runErr != nil || !result.Succeeded() || ctx.Err() != nil
+	var node agentresult.ResearchNode
+	var revision int64
+	accepted := false
+	// A Bug agent's accepted submission is its answer. How the process exited
+	// afterwards (a non-zero exit, a timeout after submitting, a transport
+	// close) does not discard it; only a factory shutdown interrupts it.
+	if failed && h.Policy.Workflow == agent.WorkflowBug && ctx.Err() == nil {
+		if n, r, e := h.acceptRetained(ctx, invocation.Results); e == nil {
+			node, revision, accepted, failed = n, r, true, false
+		}
+	}
+	if failed {
 		out.Diagnostic = result.Reason
 		failureErr := errors.Join(fmt.Errorf("research process outcome: %s", result.Outcome.String()), runErr, closeErr, ctx.Err())
 		if h.Policy.Workflow == agent.WorkflowBug {
@@ -188,14 +200,16 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 		}
 		return out, failureErr
 	}
-	if closeErr != nil {
+	if closeErr != nil && !accepted {
 		return out, closeErr
 	}
-	node, revision, err := h.acceptRetained(ctx, invocation.Results)
-	if err != nil {
-		out.Outcome = "invalid"
-		out.Diagnostic = err.Error()
-		return out, err
+	if !accepted {
+		node, revision, err = h.acceptRetained(ctx, invocation.Results)
+		if err != nil {
+			out.Outcome = "invalid"
+			out.Diagnostic = err.Error()
+			return out, err
+		}
 	}
 	if h.Policy.AuthorizeOutput != nil {
 		attempt, err := opts.DB.GetGraphNodeAttempt(ctx, a.NodeAttemptID)

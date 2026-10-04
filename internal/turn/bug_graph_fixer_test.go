@@ -41,7 +41,7 @@ func approvedGraphRepairFixture(t *testing.T) (*fixture, *graphexec.Profile, sto
 
 // The fixer succeeds with a summary and the checks it ran: no digests, no
 // factory check recipe, no echoed bindings.
-func TestGraphFixerAcceptedSuccessRequiresSuccessfulProcess(t *testing.T) {
+func TestGraphFixerAcceptedSubmissionIsTheAnswer(t *testing.T) {
 	for _, variant := range []string{"success", "empty terminal", "prose terminal", "malformed terminal", "conflicting terminal", "failed process"} {
 		t.Run(variant, func(t *testing.T) {
 			f, _, inst := approvedGraphRepairFixture(t)
@@ -120,18 +120,14 @@ func TestGraphFixerAcceptedSuccessRequiresSuccessfulProcess(t *testing.T) {
 				cold.Prompt = "Cold approved context\n" + r
 				return ResearchInvocation{Request: request, ColdRequest: &cold, Kind: agent.Kind(store.AgentClaude), Results: service}, nil
 			}}
+			// A process that fails after its submission was accepted still
+			// delivers that submission: the accepted result is the answer.
 			out, e := handler.Execute(t.Context(), f.opts, req)
-			if variant == "failed process" {
-				if e == nil {
-					t.Fatal("failed execution lost its cause")
-				}
-			} else {
-				mustProgress(t, e)
-			}
+			mustProgress(t, e)
 			if calls != 1 || sourcePreparations != 1 {
 				t.Fatalf("agent calls=%d", calls)
 			}
-			if variant != "failed process" {
+			{
 				if out.Outcome != "succeeded" {
 					t.Fatalf("out=%+v", out)
 				}
@@ -143,13 +139,6 @@ func TestGraphFixerAcceptedSuccessRequiresSuccessfulProcess(t *testing.T) {
 				mustProgress(t, e)
 				if eligible.Repair.Summary != "Guard empty input" || len(eligible.Repair.Checks) != 1 || eligible.ResultID < 1 {
 					t.Fatalf("eligibility=%+v", eligible)
-				}
-			} else {
-				if out.Outcome == "succeeded" {
-					t.Fatal("failed execution advanced")
-				}
-				if _, e = CurrentGraphBugRepairEligibility(t.Context(), f.db, inst.ID); e == nil {
-					t.Fatal("failed execution created delivery authority")
 				}
 			}
 		})
