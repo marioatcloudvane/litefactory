@@ -26,6 +26,8 @@ Use bug-repair-result for the strict field contract. Submit succeeded only when 
 
 # Must Do
 
+Fix the bug, nothing more: make the smallest change that fixes the approved bug and passes its verification. Do not refactor, rename, generalize or add features on the way.
+
 Code, build, test and correct repeatedly within this bounded invocation until the approved bug is fixed. Perform every applicable repository requirement and approved verification condition on one coherent final input generation. Full checks and race tests belong to you; the factory runs no compensating test recipe. Record actual commands, working directories, outcomes, tested content, target-main revision, relevant inputs and stable supporting logs. Never claim an unexecuted, skipped or failed check passed.
 
 Return reshape with all reasons and partial-work evidence before materially changing the diagnosis or remedy. Synchronization alone does not change approval. Return blocked when you cannot finish within the approved scope, rights, evidence or execution budget. Change paths outside analyst guidance when the approved remedy needs them, explaining the changes; preserve explicit exclusions.
