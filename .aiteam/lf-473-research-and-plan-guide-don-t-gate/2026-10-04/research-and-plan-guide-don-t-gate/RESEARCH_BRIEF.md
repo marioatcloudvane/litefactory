@@ -47,6 +47,17 @@ Complete the full #473 shaping scope selected by q1 full, including explicit his
 - **a5** — Preserve each stage's existing content fields and approval semantics when generating typed schemas; only the shared transport and run isolation change.
 - **a6** — Preserve captured topology/resources and support for active definitions rather than automatically migrate topology, based on the owner's priority of preserving working stages.
 
+
+## Open questions
+
+### q2 — Do we split #473 into a net-deleting Phase 1 and a gated Phase 2 for GitHub routing?
+
+_Asked of: Product Owner Questions_
+
+- **phased** — Recommended: Phase 1 now (typed submit, submit-time validation, visible consumed refusals, stop and resume). Decide GitHub routing after measuring the code count.  *(recommended)*
+- **full** — Keep everything in one change as in q1, accepting added machinery and migration risk.
+- **phase1only** — Do Phase 1 only and drop GitHub-only routing from this issue entirely.
+
 ## Research documents
 
 - Technical findings: [RESEARCH&#95;TECHNICAL&#46;md](RESEARCH_TECHNICAL.md)
