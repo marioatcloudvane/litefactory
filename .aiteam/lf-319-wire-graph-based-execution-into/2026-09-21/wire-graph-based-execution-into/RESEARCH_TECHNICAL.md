@@ -147,3 +147,21 @@ Evidence:
 
 - `internal/harness/stories.go:10`
 - `internal/turn/agent_result_aggregates.go:23`
+
+## f18
+
+Audit claims partly confirmed in this checkout: a successful run fails when any story of the feature generation lacks engineering completion (checked at the end-of-run harvest step), and a failed run skips the commit and leaves work uncommitted in the worktree. The exact error text for incomplete or blocked results being turned into failed runs was not found at the audited commit and is taken from the owner's audit. The 72 percent failure rate and run counts are the owner's audit figures, not re-measured. Source inspection only.
+
+Evidence:
+
+- `internal/turn/harvest.go:77`
+- `internal/turn/harvest.go:457`
+
+## f19
+
+The workflow engine already supports a numeric per-node visit limit and requires a positive one on every node on a cycle, so a per-story repair limit can reuse it without a new counter; whether the limit can be configured per workflow as the owner wants is not yet confirmed. Source inspection only.
+
+Evidence:
+
+- `internal/graphexec/validate.go:110`
+- `internal/graphexec/validate.go:124`
