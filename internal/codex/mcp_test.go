@@ -435,10 +435,13 @@ func TestArgs_ValidateModeRestrictionsUnaffectedByMCP(t *testing.T) {
 	}
 
 	joined := strings.Join(got, " ")
-	for _, want := range []string{"--sandbox read-only", "features.shell_tool=false", "features.multi_agent=false"} {
+	for _, want := range []string{"--sandbox read-only", "features.multi_agent=false"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("%s missing %s (MCP enablement must not widen Validate)", joined, want)
 		}
+	}
+	if strings.Contains(joined, "features.shell_tool=false") {
+		t.Fatalf("%s disables the shell, Codex Validate's only file reader", joined)
 	}
 	if strings.Contains(joined, "workspace-write") {
 		t.Fatalf("%s widened Validate's read-only sandbox", joined)
