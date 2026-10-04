@@ -107,7 +107,7 @@ func TestDB_GetArchiveOwner(t *testing.T) {
 				s.ID, "sweep", "worktree", "/x", "a", "b", "remove", "2026-01-01T00:00:00Z"); err != nil {
 				t.Fatal(err)
 			}
-		}, true, "retirement_intent_unknown", 0},
+		}, true, "retirement_intent_unknown", 1}, // rows are counted even when pending: a closed issue is still archived
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
