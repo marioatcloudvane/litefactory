@@ -41,8 +41,8 @@ func approvedGraphRepairFixture(t *testing.T) (*fixture, *graphexec.Profile, sto
 	return f, p, inst
 }
 
-func TestGraphFixerAcceptedSuccessRequiresFreshInputsAndSuccessfulProcess(t *testing.T) {
-	for _, variant := range []string{"success", "empty terminal", "prose terminal", "malformed terminal", "conflicting terminal", "failed process", "stale source"} {
+func TestGraphFixerAcceptedSuccessRequiresSuccessfulProcess(t *testing.T) {
+	for _, variant := range []string{"success", "empty terminal", "prose terminal", "malformed terminal", "conflicting terminal", "failed process", "source changed after submit"} {
 		t.Run(variant, func(t *testing.T) {
 			f, _, inst := approvedGraphRepairFixture(t)
 			at := f.opts.MCP.Now()
@@ -99,7 +99,8 @@ func TestGraphFixerAcceptedSuccessRequiresFreshInputsAndSuccessfulProcess(t *tes
 				if variant == "failed process" {
 					return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "controlled crash after accepted input"}, nil
 				}
-				if variant == "stale source" {
+				if variant == "source changed after submit" {
+					// Later edits or a moved main no longer discard a validated repair.
 					source = strings.Repeat("f", 64)
 				}
 				terminal := `{"request_id":"receipt-only"}`
@@ -149,7 +150,7 @@ func TestGraphFixerAcceptedSuccessRequiresFreshInputsAndSuccessfulProcess(t *tes
 			if calls != 1 || sourcePreparations != 1 {
 				t.Fatalf("agent calls=%d", calls)
 			}
-			if variant != "failed process" && variant != "stale source" {
+			if variant != "failed process" {
 				if out.Outcome != "succeeded" {
 					t.Fatalf("out=%+v", out)
 				}
@@ -159,15 +160,15 @@ func TestGraphFixerAcceptedSuccessRequiresFreshInputsAndSuccessfulProcess(t *tes
 				mustProgress(t, e)
 				eligible, e := CurrentGraphBugRepairEligibility(t.Context(), f.db, inst.ID)
 				mustProgress(t, e)
-				if eligible.Repair.Validation.SourceDigest != source || eligible.ResultID < 1 {
+				if (variant != "source changed after submit" && eligible.Repair.Validation.SourceDigest != source) || eligible.ResultID < 1 {
 					t.Fatalf("eligibility=%+v", eligible)
 				}
 			} else {
 				if out.Outcome == "succeeded" {
-					t.Fatal("failed/stale execution advanced")
+					t.Fatal("failed execution advanced")
 				}
 				if _, e = CurrentGraphBugRepairEligibility(t.Context(), f.db, inst.ID); e == nil {
-					t.Fatal("failed/stale input created delivery authority")
+					t.Fatal("failed execution created delivery authority")
 				}
 			}
 		})

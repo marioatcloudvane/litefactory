@@ -179,7 +179,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		}
 		return root
 	}
-	finalization := GraphBugFinalization{Forge: r.cfg.Forge, Redactor: r.opts.MCP.Redactor, Observe: observe, LogRoot: logRoot, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery}
+	finalization := GraphBugFinalization{Forge: r.cfg.Forge, Redactor: r.opts.MCP.Redactor, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery}
 	policy := SimplifiedBugPolicy{Profile: r.definition.Profile, Reporter: r.opts.ResearchReporter, Analyst: GraphBugAnalystActivity{Prepare: func(ctx context.Context, o Options, a ActivityRequest, c agentresult.Context, s string) (ResearchInvocation, error) {
 		if e := prepareSource(ctx, o, a); e != nil {
 			return ResearchInvocation{}, e
@@ -415,22 +415,8 @@ func (r *BugRuntime) resolveGraphDelivery(ctx context.Context, _ Options, a Acti
 	if e != nil {
 		return GraphDeliveryBinding{}, e
 	}
-	predecessor := ""
-	previous, readErr := r.opts.DB.LatestGraphRecord(ctx, a.InstanceID, "delivery_binding")
-	if readErr == nil {
-		var prior GraphDeliveryBinding
-		if e = json.Unmarshal(previous, &prior); e != nil {
-			return GraphDeliveryBinding{}, e
-		}
-		if prior.Eligibility.AttemptID != eligibility.AttemptID {
-			predecessor = fmt.Sprintf("graph:%d:repair:%d", a.InstanceID, prior.Eligibility.AttemptID)
-		} else {
-			predecessor = prior.Predecessor
-		}
-	} else if !errors.Is(readErr, store.ErrNotFound) {
-		return GraphDeliveryBinding{}, readErr
-	}
-	return GraphDeliveryBinding{Predecessor: predecessor, Record: "delivery_binding", InstanceID: a.InstanceID, SessionID: s.ID, IssueID: identity.IssueID, IssueNumber: s.IssueNumber, BotID: r.opts.MCP.BotID, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, Branch: s.Branch, Target: repo.BaseBranch, Marker: fmt.Sprintf("<!-- lf:bug-delivery instance=%d issue=%d -->", a.InstanceID, identity.IssueID), Eligibility: eligibility}, nil
+	eligibility.Inputs = eligibility.Inputs.summary()
+	return GraphDeliveryBinding{Record: "delivery_binding", InstanceID: a.InstanceID, SessionID: s.ID, IssueID: identity.IssueID, IssueNumber: s.IssueNumber, BotID: r.opts.MCP.BotID, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, Branch: s.Branch, Target: repo.BaseBranch, Marker: fmt.Sprintf("<!-- lf:bug-delivery instance=%d issue=%d -->", a.InstanceID, identity.IssueID), Eligibility: eligibility}, nil
 }
 func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a ActivityRequest, b GraphDeliveryBinding) (string, error) {
 	s, e := r.opts.DB.GetSession(ctx, b.SessionID)
@@ -462,7 +448,7 @@ func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a Activit
 	if e != nil {
 		return "", e
 	}
-	commit, e := result.Worktree.SaveSource(ctx, b.Eligibility.Inputs.Source, git.SourceOptions{IgnoredInputs: b.Eligibility.Inputs.Source.IgnoredInputs, NonInputs: b.Eligibility.Inputs.Source.NonInputs}, git.CommitOptions{Summary: b.Eligibility.Repair.Summary, Task: s.TaskRef, Workflow: "bug", Run: run.Ordinal, Author: author})
+	commit, e := result.Worktree.Commit(ctx, git.CommitOptions{Summary: b.Eligibility.Repair.Summary, Task: s.TaskRef, Workflow: "bug", Run: run.Ordinal, Author: author})
 	return commit.Head, e
 }
 func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a ActivityRequest, head string) error {
@@ -490,13 +476,6 @@ func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a Activit
 	result, e := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: s.WorktreePath, Branch: s.Branch, BaseBranch: repo.BaseBranch})
 	if e != nil {
 		return e
-	}
-	actual, e := result.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
-	if e != nil {
-		return e
-	}
-	if actual != head {
-		return errors.New("saved head changed before push")
 	}
 	return result.Worktree.Push(ctx, r.opts.remote())
 }

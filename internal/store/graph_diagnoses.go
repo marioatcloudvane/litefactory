@@ -57,9 +57,6 @@ func graphRecordTx(ctx context.Context, tx *sql.Tx, instance int64, record strin
 	if err != nil {
 		return err
 	}
-	if len(raw) > 1<<20 {
-		return graphInvariant("graph diagnosis record exceeds input bound")
-	}
 	return json.Unmarshal(raw, out)
 }
 

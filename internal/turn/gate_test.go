@@ -214,8 +214,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"syncBase":         {"prepareClone", "PrepareGraphBugSource"},
 		"syncTask":         {"prepareClone", "PrepareGraphBugSource"},
 		"CheckpointSource": {"PrepareGraphBugSource"},
-		"SaveSource":       {"BugRuntime.saveGraphDelivery"},
-		"Commit":           {"commitAndPush"},
+		"Commit":           {"commitAndPush", "BugRuntime.saveGraphDelivery"},
 		// WriteResolvedFiles, StageResolvedFiles and CompleteMerge are US-12's
 		// three new git.Worktree mutators. They run as prepareClone's fourth
 		// step, in place of syncBase (which this turn shape never calls),

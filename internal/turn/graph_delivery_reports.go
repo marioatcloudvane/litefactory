@@ -30,8 +30,8 @@ func (r *Reporter) ReportGraphDeliveryCompletion(ctx context.Context, instanceID
 	if e = json.Unmarshal(raw, &progress); e != nil {
 		return Posted{}, e
 	}
-	if progress.Outcome != "completed" || !progress.Integration || !progress.Closed || progress.Binding.InstanceID != instanceID || progress.PR.ID < 1 || !progress.PR.Merged {
-		return Posted{}, errors.New("delivery completion lacks independent integration and closure observations")
+	if progress.Outcome != "completed" || !progress.Integration || !progress.Closed || progress.PR.Number < 1 || !progress.PR.Merged {
+		return Posted{}, errors.New("delivery completion lacks a merged PR and a closed issue")
 	}
 	session, e := r.db.GetSession(ctx, instance.SessionID)
 	if e != nil {
@@ -43,6 +43,6 @@ func (r *Reporter) ReportGraphDeliveryCompletion(ctx context.Context, instanceID
 	}
 	intent := r.deliveryIntent(ref, ref, session.ID, 0, 0, fmt.Sprintf("bug-delivery-completed:%d", instanceID))
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
-		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("Bug repair delivered. Confirmed integration of tested commit `%s` through PR #%d (numeric ID %d), merge `%s`, into `%s`. Independently confirmed closure of issue #%d (numeric ID %d).\n\nValidation generation: `%s`.", progress.Commit, progress.PR.Number, progress.PR.ID, progress.PR.MergeSHA, progress.Binding.Target, progress.Binding.IssueNumber, progress.Binding.IssueID, progress.Binding.Eligibility.Repair.Validation.Generation), "")
+		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("Bug repair delivered: commit `%s` merged into `%s` through PR #%d (merge `%s`), and issue #%d is closed.", progress.Commit, progress.Binding.Target, progress.PR.Number, progress.PR.MergeSHA, progress.Binding.IssueNumber), "")
 	})
 }
