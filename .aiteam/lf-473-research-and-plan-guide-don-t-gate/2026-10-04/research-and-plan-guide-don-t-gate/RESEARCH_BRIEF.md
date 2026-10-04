@@ -36,6 +36,9 @@ Complete the full #473 shaping scope selected by q1 full, including explicit his
 - **d28** — Budget exhaustion requires existing owner budget control rather than repeated replies silently granting more spending.
 - **d29** — Shutdown can pause continuation but cannot revoke a durably accepted answer.
 - **d30** — Shared physical records remain where legacy or unrelated workflows need them, while migrated Research and Plan reply routing no longer depends on those conversation tables.
+- **d31** — Owner chose phased delivery (q2) and requires that nothing that works today breaks: only low-risk, proven-benefit changes are built now.
+- **d32** — Phase 1 is limited to three small changes: refused replies consumed with a visible reply, accepted result survives a non-zero exit, one size limit enforced at submit.
+- **d33** — Typed per-step submit, extending stop-and-resume to Research and Plan, and all GitHub-based routing are deferred, each only on a later owner decision.
 
 
 ## Assumptions
@@ -46,17 +49,7 @@ Complete the full #473 shaping scope selected by q1 full, including explicit his
 - **a4** — Use the existing stricter 1 MiB retained-result ceiling as the single submit limit because the owner requests one limit but does not request larger results.
 - **a5** — Preserve each stage's existing content fields and approval semantics when generating typed schemas; only the shared transport and run isolation change.
 - **a6** — Preserve captured topology/resources and support for active definitions rather than automatically migrate topology, based on the owner's priority of preserving working stages.
-
-
-## Open questions
-
-### q2 — Do we split #473 into a net-deleting Phase 1 and a gated Phase 2 for GitHub routing?
-
-_Asked of: Product Owner Questions_
-
-- **phased** — Recommended: Phase 1 now (typed submit, submit-time validation, visible consumed refusals, stop and resume). Decide GitHub routing after measuring the code count.  *(recommended)*
-- **full** — Keep everything in one change as in q1, accepting added machinery and migration risk.
-- **phase1only** — Do Phase 1 only and drop GitHub-only routing from this issue entirely.
+- **a7** — The owner's low-hanging-fruit instruction overrides the earlier Phase 1 list; typed submit and stop-and-resume are moved out because they touch shared schemas and graph admission, so their regression risk is higher. Based on findings f7, f10, f17.
 
 ## Research documents
 
