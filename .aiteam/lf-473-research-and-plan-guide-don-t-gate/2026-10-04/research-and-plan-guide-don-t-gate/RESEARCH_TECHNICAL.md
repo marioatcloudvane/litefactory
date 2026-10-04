@@ -121,3 +121,29 @@ Advisory simplification order: normalize permanent refusals into visible consume
 Evidence:
 
 - `internal/turn/research_agent.go:184` @ `04f38894eb74e6e82955f9dbca6565439da0e4c9`
+
+## f16
+
+Focused reinspection confirms comment intents retain exact authored candidate bytes and original publication identity, so removing the records without equivalent recovery can lose unconfirmed publication input.
+
+Evidence:
+
+- `internal/store/graph_comments.go:11` @ `01c7717883c30b160a9e926bc2285d08846b1b8a`
+
+## f17
+
+Focused reinspection confirms artifacts are checked after agent execution and owner-stop admission is Bug-only; applying the proposed simplification affects artifact timing and factory-stop admission, not only error-message wording.
+
+Evidence:
+
+- `internal/turn/research_agent.go:234` @ `01c7717883c30b160a9e926bc2285d08846b1b8a`
+- `internal/graphexec/owner_stops.go:48` @ `01c7717883c30b160a9e926bc2285d08846b1b8a`
+
+## f18
+
+Adversarial analysis identifies potential regressions in queue/delivery coupling, replacement replay, artifact mutation, uncertain effects, GitHub history completeness and definition compatibility; these are inferred failure scenarios, not observed or reproduced incidents.
+
+Evidence:
+
+- `internal/store/graph_comments.go:21` @ `01c7717883c30b160a9e926bc2285d08846b1b8a`
+- `internal/turn/research_agent.go:240` @ `01c7717883c30b160a9e926bc2285d08846b1b8a`
