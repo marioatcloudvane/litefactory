@@ -194,10 +194,9 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// worktree its failing tests rerun on; each is one acquisition.
 		// Simplified Bug preserves dirty work locally and synchronizes after
 		// normal fetched preparation, releasing this section before invocation.
-		"PrepareGraphBugSource":         "bug_graph_prepare.go",
-		"BugRuntime.observeGraphInputs": "bug_graph_runtime.go",
-		"BugRuntime.saveGraphDelivery":  "bug_graph_runtime.go",
-		"BugRuntime.pushGraphDelivery":  "bug_graph_runtime.go",
+		"PrepareGraphBugSource":        "bug_graph_prepare.go",
+		"BugRuntime.saveGraphDelivery": "bug_graph_runtime.go",
+		"BugRuntime.pushGraphDelivery": "bug_graph_runtime.go",
 	}
 
 	// gated names each call that must not happen outside a critical section,

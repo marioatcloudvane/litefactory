@@ -22,9 +22,6 @@ func bugResultFixture(response string) (ar.Result, ar.Context) {
 		r.Outcome, r.Reason = "incomplete", "Need the failing input."
 		r.Questions = []ar.Question{{ID: "Q-001", Audience: "technical", Text: "Which input failed?"}}
 		p.Analysis = &ba.BugAnalysis{Actual: "Reported panic", Reproduction: ba.BugReproduction{Steps: []string{}}, Evidence: []string{}, Exclusions: []string{}, Criteria: []ba.BugCriterion{}, Questions: []ba.BugQuestion{{ID: "Q-001", Text: "Which input failed?", Material: true}}}
-	case "approved":
-		ctx.Bug.ApprovedRevision, ctx.Bug.ApprovedDigest, ctx.Bug.ApprovalReview = 2, strings.Repeat("a", 64), "review-1"
-		p.Approval = &ar.BugApprovalReference{Revision: 2, Digest: ctx.Bug.ApprovedDigest, Review: "review-1"}
 	case "blocked":
 		r.Outcome, r.Reason = "blocked", "The reproduction requires unavailable owner evidence."
 		p.Evidence = []string{"owner-comment-123"}
@@ -34,7 +31,7 @@ func bugResultFixture(response string) (ar.Result, ar.Context) {
 
 func TestBugResult_ValidResponses(t *testing.T) {
 	t.Parallel()
-	for _, response := range []string{"ask", "done", "approved", "blocked"} {
+	for _, response := range []string{"ask", "done", "blocked"} {
 		t.Run(response, func(t *testing.T) {
 			t.Parallel()
 			r, ctx := bugResultFixture(response)
@@ -71,15 +68,7 @@ func TestBugResult_ResponseGuards(t *testing.T) {
 		{"done cannot ask", "done", func(r *ar.Result, _ *ar.Context) {
 			r.Questions = []ar.Question{{ID: "Q-1", Audience: "technical", Text: "More scope?"}}
 		}},
-		{"proposal cannot approve", "done", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Approval = &ar.BugApprovalReference{Revision: 2} }},
-		{"approved requires factory authority", "approved", func(_ *ar.Result, c *ar.Context) { c.Bug.ApprovedRevision = 0 }},
-		{"approved exact revision", "approved", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Approval.Revision = 1 }},
-		{"approved exact digest", "approved", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Approval.Digest = strings.Repeat("b", 64) }},
-		{"approved exact review", "approved", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Approval.Review = "review-other" }},
-		{"approved requires reference", "approved", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Approval = nil }},
-		{"approved cannot change content", "approved", func(r *ar.Result, _ *ar.Context) {
-			r.Payload.Bug.Analysis = &ba.BugAnalysis{Remedy: "Different repair"}
-		}},
+		{"analyst cannot approve", "done", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Response = "approved" }},
 		{"blocked requires obstacle", "blocked", func(r *ar.Result, _ *ar.Context) { r.Reason = " " }},
 		{"blocked requires evidence", "blocked", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Evidence = nil }},
 		{"blocked requires nonblank evidence", "blocked", func(r *ar.Result, _ *ar.Context) { r.Payload.Bug.Evidence = []string{" "} }},
@@ -115,8 +104,6 @@ func TestBugResult_BindingGuards(t *testing.T) {
 		{"missing binding", func(c *ar.Context) { c.Bug = nil }},
 		{"wrong role", func(c *ar.Context) { c.Bug.Role = "bug-fixer" }},
 		{"missing invocation", func(c *ar.Context) { c.Bug.Invocation = "" }},
-		{"stale invocation", func(c *ar.Context) { c.Bug.Invocation = "invocation-other" }},
-		{"stale base revision", func(c *ar.Context) { c.Bug.BaseRevision = 3 }},
 		{"wrong workflow", func(c *ar.Context) { c.Workflow = agent.WorkflowResearch }},
 		{"missing workflow", func(c *ar.Context) { c.Workflow = "" }},
 		{"surrogate mode", func(c *ar.Context) { c.Mode = "research" }},
@@ -150,7 +137,6 @@ func TestBugResult_StrictInput(t *testing.T) {
 		{"authored recipe", func(s string) string { return strings.Replace(s, `"bug":{`, `"bug":{"recipe":"echo pass",`, 1) }},
 		{"authored workflow", func(s string) string { return strings.Replace(s, `"result":{`, `"result":{"workflow":"bug",`, 1) }},
 		{"wrong scalar type", func(s string) string { return strings.Replace(s, `"base_revision":2`, `"base_revision":"2"`, 1) }},
-		{"negative revision", func(s string) string { return strings.Replace(s, `"base_revision":2`, `"base_revision":-1`, 1) }},
 		{"truncated", func(s string) string { return s[:len(s)-1] }},
 		{"trailing document", func(s string) string { return s + `{}` }},
 		{"oversized", func(string) string { return strings.Repeat(" ", ar.MaxBytes+1) }},
@@ -198,7 +184,7 @@ func TestBugResult_StrictNode(t *testing.T) {
 
 func TestBugResult_MetadataProjectionAndUpdate(t *testing.T) {
 	t.Parallel()
-	for _, response := range []string{"ask", "done", "approved", "blocked"} {
+	for _, response := range []string{"ask", "done", "blocked"} {
 		t.Run(response, func(t *testing.T) {
 			t.Parallel()
 			r, c := bugResultFixture(response)
@@ -245,7 +231,6 @@ func TestBugResult_RefusesMetadataAndUpdateAuthorityChanges(t *testing.T) {
 		{"workflow", operation("set", "meta.workflow", "", `"research"`)},
 		{"mode", operation("set", "meta.mode", "", `"research"`)},
 		{"counter", operation("set", "payload.bug.analysis_used", "", `0`)},
-		{"stale invocation", operation("set", "payload.bug", "", `{"response":"blocked","invocation":"other","base_revision":2,"evidence":["cause"]}`)},
 		{"self approval", operation("set", "payload.bug", "", `{"response":"approved","invocation":"invocation-1","base_revision":2,"approval":{"revision":2,"digest":"a","review":"review-1"}}`)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

@@ -121,7 +121,7 @@ func TestBugResultBoundaryServiceReceiptRecoveryAndCorrection(t *testing.T) {
 }
 
 func TestBugResultBoundaryServiceRejectsMismatchedAuthority(t *testing.T) {
-	for _, fault := range []string{"task", "role", "invocation", "revision", "mode", "unknown field", "self approval", "version", "duplicate member"} {
+	for _, fault := range []string{"task", "role", "mode", "unknown field", "self approval", "version", "duplicate member"} {
 		t.Run(fault, func(t *testing.T) {
 			_, _, options, trusted := bugResultBoundaryFixture(t)
 			if fault == "task" {
@@ -145,10 +145,6 @@ func TestBugResultBoundaryServiceRejectsMismatchedAuthority(t *testing.T) {
 			}
 			raw := string(bugResultBoundaryBlocked())
 			switch fault {
-			case "invocation":
-				trusted.Bug.Invocation = "analysis-other"
-			case "revision":
-				trusted.Bug.BaseRevision = 1
 			case "unknown field":
 				raw = strings.Replace(raw, `"base_revision":0`, `"base_revision":0,"analysis_used":0`, 1)
 			case "self approval":

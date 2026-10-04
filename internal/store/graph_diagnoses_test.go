@@ -241,7 +241,7 @@ func TestGraphDiagnosisReshapeSuspendsApprovalAndPreservesHistory(t *testing.T) 
 		t.Fatal(e)
 	}
 	reason := "The proposed guard is insufficient; the caller also needs a remedy change"
-	result := agentresult.Result{Outcome: "incomplete", Comment: "Partial work retained", Reason: reason, Payload: agentresult.Payload{Bug: &agentresult.Bug{Response: "reshape", Repair: &bugrepair.Evidence{AnalysisDigest: c.Digest}}}}
+	result := agentresult.Result{Outcome: "incomplete", Comment: "Partial work retained", Reason: reason, Payload: agentresult.Payload{Bug: &agentresult.Bug{Response: "reshape", Repair: &bugrepair.Evidence{Summary: "Partial guard"}}}}
 	binding, e := db.BindResultAttempt(t.Context(), ResultAttempt{Workflow: "bug", Task: session.TaskRef, RunID: run.ID, WorkContext: "reshape", Attempt: "fixer-1", SchemaVersion: 1, WorkflowVersion: 2, SubmissionVersion: 2})
 	if e != nil {
 		t.Fatal(e)

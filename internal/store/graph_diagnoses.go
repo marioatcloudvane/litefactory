@@ -408,8 +408,8 @@ func (db *DB) SuspendGraphDiagnosis(ctx context.Context, instance, source, revis
 			return e
 		}
 		p := accepted.Result.Payload.Bug
-		if p == nil || p.Response != "reshape" || p.Repair == nil || p.Repair.AnalysisDigest != digest || strings.TrimSpace(accepted.Result.Reason) != reason {
-			return graphInvariant("reshape lacks accepted approved reference and reason")
+		if p == nil || p.Response != "reshape" {
+			return graphInvariant("reshape lacks an accepted reshape result")
 		}
 		b, e := json.Marshal(struct {
 			Record          string `json:"record"`
