@@ -46,3 +46,23 @@ func (r *Reporter) ReportGraphDeliveryCompletion(ctx context.Context, instanceID
 		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("Bug repair delivered: commit `%s` merged into `%s` through PR #%d (merge `%s`), and issue #%d is closed.", progress.Commit, progress.Binding.Target, progress.PR.Number, progress.PR.MergeSHA, progress.Binding.IssueNumber), "")
 	})
 }
+
+// ReportGraphDispatchStop records a stable, runless dispatch notice through the
+// ordinary delivery journal, including redaction and uncertain-post recovery.
+func (r *Reporter) ReportGraphDispatchStop(ctx context.Context, dispatch store.GraphDispatch) (Posted, error) {
+	if dispatch.Status != "cancelled" || dispatch.AllocatedRunID != 0 || dispatch.CancellationReason == "" {
+		return Posted{}, errors.New("dispatch stop notice requires cancelled unallocated work")
+	}
+	session, err := r.db.GetSession(ctx, dispatch.SessionID)
+	if err != nil {
+		return Posted{}, err
+	}
+	ref, err := naming.ParseRef(session.TaskRef)
+	if err != nil {
+		return Posted{}, err
+	}
+	intent := r.deliveryIntent(ref, ref, session.ID, dispatch.TriggerID(), 0, "graph-dispatch-stopped")
+	return r.deliver(ctx, intent, func() (redact.Body, error) {
+		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("Work stopped at %s: %s. Reply on this open issue to resume.", dispatch.Node, dispatch.CancellationReason), "")
+	})
+}

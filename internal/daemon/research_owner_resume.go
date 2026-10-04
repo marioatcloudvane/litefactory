@@ -110,3 +110,64 @@ func AdmitBugOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID i
 	}
 	return AdmitGraphOwnerReply(ctx, db, instanceID, ownerID, taskRef, sourceRef, "", comment, at)
 }
+
+// recoverGraphReply is a fallback for a cancelled scheduling intent, after
+// command and admission checks. Published waits retain their normal handlers.
+func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command, mode string) (handled bool, err error) {
+	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.filter.Identities().OwnerUserID || store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) {
+		return false, nil
+	}
+	if consumed, e := d.consumed(ctx, t.session.ID, trigger.CommentID); e != nil || consumed {
+		return consumed, e
+	}
+	admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if admission.Workflow != graphReplyWorkflow(mode) {
+		return false, nil
+	}
+	acquired, err := d.db.AcquireSessionLock(ctx, t.session.ID, d.instanceID)
+	if err != nil || !acquired {
+		return true, err
+	}
+	defer func() {
+		err = errors.Join(err, d.db.ReleaseSessionLock(context.WithoutCancel(ctx), t.session.ID, d.instanceID))
+	}()
+	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, mode)
+	if admission.Workflow == "bug" {
+		instance, err = d.db.LatestStandaloneBugInstance(ctx, t.session.ID)
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil || instance.Status != store.GraphRunning {
+		return false, err
+	}
+	wait, err := d.db.GetGraphOwnerWait(ctx, instance.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	if err == nil && (wait.State == "waiting" || wait.State == "claimed") {
+		return false, nil
+	}
+	dispatch, err := d.db.LatestGraphDispatch(ctx, instance.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if dispatch.Node != instance.CurrentNode || dispatch.Status != "cancelled" || dispatch.AllocatedRunID != 0 || !instance.NextDueAt.IsZero() {
+		return false, nil
+	}
+	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.session.IssueNumber)
+	if err != nil || issue.State != github.StateOpen {
+		return true, err
+	}
+	_, err = d.db.ParkGraphInstanceForReply(ctx, instance.ID, instance.CurrentNode, t.tickAt.UTC(), trigger.CommentID)
+	return true, err
+}

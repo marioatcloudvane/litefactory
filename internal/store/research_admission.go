@@ -105,6 +105,24 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 		if path != "graph" {
 			return graphInvariant("workflow launch requires admitted graph path")
 		}
+		if dispatchID, ok := GraphTriggerDispatch(in.TriggerID); ok {
+			dispatch, e := scanGraphDispatch(tx.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE id=? AND session_id=?`, dispatchID, in.SessionID))
+			if e != nil {
+				return e
+			}
+			out.Instance, e = scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, dispatch.InstanceID))
+			if e != nil {
+				return e
+			}
+			var topology string
+			if e = tx.QueryRowContext(ctx, `SELECT id,topology_digest FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1`, dispatch.InstanceID).Scan(&out.LaunchID, &topology); e != nil {
+				return e
+			}
+			if out.Instance.Status != GraphRunning || out.Instance.CurrentNode != dispatch.Node || out.Instance.DefinitionID != in.DefinitionID || topology != in.TopologyDigest || (dispatch.Status != "reserved" && dispatch.Status != "running") {
+				return graphInvariant("graph dispatch cannot change its saved execution target")
+			}
+			return nil
+		}
 		var replayInstance int64
 		var replayDigest string
 		e := tx.QueryRowContext(ctx, `SELECT id,instance_id,content_digest FROM research_launch_definitions WHERE session_id=? AND trigger_id=?`, in.SessionID, in.TriggerID).Scan(&out.LaunchID, &replayInstance, &replayDigest)
