@@ -2,10 +2,13 @@ package github_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/github"
 )
 
 func TestDeliveryMergeUsesExpectedHeadAndRequiresSuccessfulResponse(t *testing.T) {
@@ -91,6 +94,17 @@ func TestDeliveryHeadRequiresExactBranchAndValidSHA(t *testing.T) {
 				t.Fatalf("head=%q error=%v", got, err)
 			}
 		})
+	}
+}
+
+// A branch that was never pushed must read as a typed 404 so delivery pushes
+// it; GetBranch itself reports the status only as plain text.
+func TestDeliveryHeadMissingBranchIsTypedNotFound(t *testing.T) {
+	f := newFixture(t, respondJSON(404, `{"message":"Branch not found"}`))
+	_, err := f.Client.GetDeliveryHead(t.Context(), testRepo, "lf/task")
+	var api *github.APIError
+	if !errors.As(err, &api) || api.StatusCode != http.StatusNotFound || !errors.Is(err, github.ErrNotFound) {
+		t.Fatalf("missing branch error=%v (%T)", err, err)
 	}
 }
 func TestDeliveryPRCreationUsesTaskBranchAndMainWithoutClosingParent(t *testing.T) {

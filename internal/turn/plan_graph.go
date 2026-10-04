@@ -111,6 +111,9 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	}
 	r.definition = definition
 	if r.stage == "" {
+		if store.IsGraphTrigger(req.Trigger.CommentID) {
+			return result, true, errors.New("saved Plan dispatch no longer matches eligible work")
+		}
 		out, err := r.settled(ctx)
 		return out, true, err
 	}
@@ -169,6 +172,9 @@ func (r *planGraphRuntime) releaseMismatchedParking(ctx context.Context, profile
 	node, ok := profile.Node(instance.CurrentNode)
 	if !ok || node.Action != ResearchAgentAction || instance.CurrentNode == r.stage+"_agent" {
 		return nil
+	}
+	if store.IsGraphTrigger(r.req.Trigger.CommentID) {
+		return errors.New("saved Plan dispatch cannot replace its execution target")
 	}
 	reason := fmt.Sprintf("plan instance parked at %s no longer matches the factory pick %q; a fresh pass starts at the stage decision", instance.CurrentNode, r.stage)
 	if err = r.opts.DB.CancelWorkflowGraphs(context.WithoutCancel(ctx), r.req.SessionID, "plan", reason, r.opts.MCP.Now()); err != nil {

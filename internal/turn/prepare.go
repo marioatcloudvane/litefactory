@@ -316,24 +316,27 @@ func prepare(
 	// the SetSessionState call further down relies on: every error return
 	// from this point on must leave sessions.state untouched, and that is
 	// only true if this write cannot itself be skipped by a later failure.
-	if _, err = opts.DB.RecordRunSync(ctx, run.ID, store.RunSyncOutcome{
-		Outcome:   store.SyncOutcome(sync.Outcome),
-		Behind:    sync.Behind,
-		Ahead:     sync.Ahead,
-		CommitSHA: sync.SyncCommitSHA,
-	}); err != nil {
-		return nil, fmt.Errorf("record the base-sync outcome for run %d of task %s: %w", run.Ordinal, ref, err)
+	if !req.graphBugPreparation {
+		if _, err = opts.DB.RecordRunSync(ctx, run.ID, store.RunSyncOutcome{
+			Outcome:   store.SyncOutcome(sync.Outcome),
+			Behind:    sync.Behind,
+			Ahead:     sync.Ahead,
+			CommitSHA: sync.SyncCommitSHA,
+		}); err != nil {
+			return nil, fmt.Errorf("record the base-sync outcome for run %d of task %s: %w", run.Ordinal, ref, err)
+		}
+		observations := []store.SyncObservation{}
+		if sync.Task != nil {
+			observations = append(observations, observation(*sync.Task))
+		}
+		baseObservation := observation(sync)
+		baseObservation.Ref = opts.remote() + "/" + repo.BaseBranch
+		observations = append(observations, baseObservation)
+		if _, err = opts.DB.RecordRunSyncObservations(ctx, run.ID, observations); err != nil {
+			return nil, fmt.Errorf("record synchronization observations for run %d: %w", run.ID, err)
+		}
 	}
-	observations := []store.SyncObservation{}
-	if sync.Task != nil {
-		observations = append(observations, observation(*sync.Task))
-	}
-	baseObservation := observation(sync)
-	baseObservation.Ref = opts.remote() + "/" + repo.BaseBranch
-	observations = append(observations, baseObservation)
-	if _, err = opts.DB.RecordRunSyncObservations(ctx, run.ID, observations); err != nil {
-		return nil, fmt.Errorf("record synchronization observations for run %d: %w", run.ID, err)
-	}
+
 	metaPath, err := harness.MetaPath(opts.Paths.Home(), ref, run.Ordinal)
 	if err != nil {
 		return nil, fmt.Errorf("derive the metadata path of run %d: %w", run.Ordinal, err)
@@ -634,6 +637,13 @@ func prepareClone(
 	worktree, err := ensureWorktree(ctx, opts, clone, session, repo, branch, logger)
 	if err != nil {
 		return session, "", nil, syncResult{}, nil, err
+	}
+
+	if req.graphBugPreparation {
+		if req.Workflow != agent.WorkflowBug || req.Mode != "" || req.researchDefinition == nil || req.researchDefinition.Profile.ProfileVersion != 2 || confirmed != nil {
+			return session, branch, worktree, syncResult{}, nil, errors.New("invalid deferred graph Bug preparation")
+		}
+		return session, branch, worktree, syncResult{}, nil, nil
 	}
 
 	if confirmed == nil {

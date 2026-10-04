@@ -72,7 +72,11 @@ func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, hand
 	if _, exists := activities.Resolve(ResearchAgentAction); exists {
 		return errors.New("research agent activity already registered")
 	}
-	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: handler.Policy.Mode, Workflow: handler.Policy.Workflow, Outcomes: []string{"success", "failed"}, Attributes: graphexec.AgentAttributes()}); err != nil {
+	outcomes := []string{"success", "failed"}
+	if handler.Policy.Workflow == agent.WorkflowBug {
+		outcomes = graphexec.OwnerStopAgentOutcomes()
+	}
+	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: handler.Policy.Mode, Workflow: handler.Policy.Workflow, Outcomes: outcomes, Attributes: graphexec.AgentAttributes()}); err != nil {
 		return err
 	}
 	return activities.Register(ResearchAgentAction, handler)
@@ -171,21 +175,41 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 		return out, errors.Join(errors.New("research invocation produced no process result"), runErr, closeErr)
 	}
 	out.ProcessResult = result.Clone()
-	if runErr != nil || !result.Succeeded() || ctx.Err() != nil {
-		out.Diagnostic = result.Reason
-		return out, errors.Join(fmt.Errorf("research process outcome: %s", result.Outcome.String()), runErr, closeErr, ctx.Err())
+	failed := runErr != nil || !result.Succeeded() || ctx.Err() != nil
+	var node agentresult.ResearchNode
+	var revision int64
+	accepted := false
+	// A Bug agent's accepted submission is its answer. How the process exited
+	// afterwards (a non-zero exit, a timeout after submitting, a transport
+	// close) does not discard it; only a factory shutdown interrupts it.
+	if failed && h.Policy.Workflow == agent.WorkflowBug && ctx.Err() == nil {
+		if n, r, e := h.acceptRetained(ctx, invocation.Results); e == nil {
+			node, revision, accepted, failed = n, r, true, false
+		}
 	}
-	if closeErr != nil {
+	if failed {
+		out.Diagnostic = result.Reason
+		failureErr := errors.Join(fmt.Errorf("research process outcome: %s", result.Outcome.String()), runErr, closeErr, ctx.Err())
+		if h.Policy.Workflow == agent.WorkflowBug {
+			retained, retainErr := h.retainFailedSubmission(context.WithoutCancel(ctx), invocation.Results)
+			out.Kind, out.Output = retained.Kind, retained.Output
+			if retained.Diagnostic != "" {
+				out.Diagnostic = retained.Diagnostic + "\nFactory execution failure: " + failureErr.Error()
+			}
+			failureErr = errors.Join(failureErr, retainErr)
+		}
+		return out, failureErr
+	}
+	if closeErr != nil && !accepted {
 		return out, closeErr
 	}
-	// Printed text is read only by Bug's unchanged confirmation; for every other
-	// policy it is never read, so its size cannot fail the step (#410).
-	if !h.Policy.routesRetained() && len(result.ResultText) > agentresult.MaxResearchNodeBytes {
-		return out, errors.New("research node output exceeds 1 MiB")
-	}
-	node, revision, err := h.acceptRetained(ctx, invocation.Results, result.ResultText)
-	if err != nil {
-		return out, err
+	if !accepted {
+		node, revision, err = h.acceptRetained(ctx, invocation.Results)
+		if err != nil {
+			out.Outcome = "invalid"
+			out.Diagnostic = err.Error()
+			return out, err
+		}
 	}
 	if h.Policy.AuthorizeOutput != nil {
 		attempt, err := opts.DB.GetGraphNodeAttempt(ctx, a.NodeAttemptID)
@@ -234,27 +258,62 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 	narrated.ResultText = researchCommitNarrative(node.Result)
 	out.ProcessResult = narrated
 	out.Outcome, out.Kind, out.Output = "success", store.GraphOutputJSON, encoded
+	if a.Attrs["lf_response"] == "result" {
+		out.Outcome = node.Response
+		if node.Response == "blocked" || node.Response == "failed" {
+			out.Diagnostic = strings.TrimSpace(node.Result.Reason)
+			if out.Diagnostic == "" {
+				out.Diagnostic = strings.TrimSpace(node.Result.Comment)
+			}
+		}
+	}
 	return out, nil
 }
 
-// acceptRetained is the runtime result boundary of every graph node. The
-// retained accepted shared result is the only source of the node's application
-// data and of every effect input derived from it. Terminal text can never supply,
-// reconstruct or replace one, so terminal-only output fails here before anything
-// is retained or any effect can follow.
-//
-// Research, Plan and every policy other than Bug take the routing response from
-// the retained result too, through the policy's Respond hook or the shared
-// ask/done mapping: the terminal text is not read at all, so a broken, partial,
-// differing or missing printed copy cannot fail a step whose result was
-// accepted (#410).
-//
-// Bug keeps its own finalization unchanged. Its result carries its response, and
-// the policy's decoder still judges a terminal envelope when one is printed:
-// prose or broken JSON leaves the retained result standing on its own (#384),
-// while an envelope that parses but does not confirm it, or empty output, is
-// refused.
-func (h AgentActivity) acceptRetained(ctx context.Context, service *AgentResultService, terminal string) (agentresult.ResearchNode, int64, error) {
+// retainFailedSubmission preserves current accepted input for audit only. It
+// creates neither a successful activity outcome nor authority to follow an edge.
+func (h AgentActivity) retainFailedSubmission(ctx context.Context, service *AgentResultService) (ActivityResult, error) {
+	var out ActivityResult
+	snapshot, revision, err := service.retainedCurrent(ctx)
+	if errors.Is(err, errNoRetainedResult) {
+		out.Diagnostic = "No accepted application result was retained for the failed execution."
+		return out, nil
+	}
+	if err != nil {
+		return out, err
+	}
+	scope, err := service.trustedContext(ctx)
+	if err != nil {
+		return out, err
+	}
+	if d := agentresult.ValidateResult(snapshot.Result, scope); !d.Valid || !d.Complete {
+		return out, resultDiagnosticError(d)
+	}
+	response, err := h.Policy.respond(snapshot.Result)
+	if err != nil {
+		return out, err
+	}
+	node := agentresult.ResearchNode{Version: 1, Response: response, Result: snapshot.Result}
+	if h.Policy.Retain != nil {
+		out.Output, err = h.Policy.Retain(service.Binding(), revision, node)
+	} else {
+		out.Output, err = json.Marshal(node)
+	}
+	if err != nil {
+		return out, err
+	}
+	out.Kind = store.GraphOutputJSON
+	out.Diagnostic = strings.TrimSpace(snapshot.Result.Reason)
+	if out.Diagnostic == "" {
+		out.Diagnostic = strings.TrimSpace(snapshot.Result.Comment)
+	}
+	return out, nil
+}
+
+// acceptRetained reads only the current attempt's accepted shared submission.
+// Terminal text is deliberately ignored, including empty or conflicting JSON.
+// Process failure and interruption are checked separately before this boundary.
+func (h AgentActivity) acceptRetained(ctx context.Context, service *AgentResultService) (agentresult.ResearchNode, int64, error) {
 	snapshot, revision, err := service.retainedCurrent(ctx)
 	if err != nil {
 		return agentresult.ResearchNode{}, 0, fmt.Errorf("terminal output cannot supply the application result; submit it through the shared result route: %w", err)
@@ -266,33 +325,11 @@ func (h AgentActivity) acceptRetained(ctx context.Context, service *AgentResultS
 	if d := agentresult.ValidateResult(snapshot.Result, trusted); !d.Valid || !d.Complete {
 		return agentresult.ResearchNode{}, 0, fmt.Errorf("retained application result is not complete: %w", resultDiagnosticError(d))
 	}
-	if h.Policy.routesRetained() {
-		response, err := h.Policy.respond(snapshot.Result)
-		if err != nil {
-			return agentresult.ResearchNode{}, 0, fmt.Errorf("retained application result %s revision %d cannot be routed: %w", snapshot.Meta.ResultID, revision, err)
-		}
-		return agentresult.ResearchNode{Version: 1, Response: response, Result: snapshot.Result}, revision, nil
+	response, err := h.Policy.respond(snapshot.Result)
+	if err != nil {
+		return agentresult.ResearchNode{}, 0, fmt.Errorf("retained application result %s revision %d cannot be routed: %w", snapshot.Meta.ResultID, revision, err)
 	}
-	envelope, d := h.Policy.Decode([]byte(terminal), trusted)
-	if !d.Valid || !d.Complete {
-		if response, ok := retainedResponse(snapshot.Result); ok && strings.TrimSpace(terminal) != "" && !json.Valid([]byte(strings.TrimSpace(terminal))) {
-			return agentresult.ResearchNode{Version: 1, Response: response, Result: snapshot.Result}, revision, nil
-		}
-		return agentresult.ResearchNode{}, 0, fmt.Errorf("terminal envelope is not a valid confirmation of the retained result: %w", resultDiagnosticError(d))
-	}
-	if !agentresult.SameResult(snapshot.Result, envelope.Result) {
-		return agentresult.ResearchNode{}, 0, errors.New("terminal envelope result differs from the retained accepted result; return the result you submitted, or submit the correction first")
-	}
-	return agentresult.ResearchNode{Version: envelope.Version, Response: envelope.Response, Result: snapshot.Result}, revision, nil
-}
-
-// retainedResponse is the routing response a retained result carries itself.
-// Only Bug results do; other workflows derive theirs through WorkflowPolicy.respond.
-func retainedResponse(r agentresult.Result) (string, bool) {
-	if r.Payload.Bug != nil && r.Payload.Bug.Response != "" {
-		return r.Payload.Bug.Response, true
-	}
-	return "", false
+	return agentresult.ResearchNode{Version: 1, Response: response, Result: snapshot.Result}, revision, nil
 }
 
 // researchCommitNarrative is what a reader of the repository history sees for

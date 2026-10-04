@@ -1799,9 +1799,6 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 			return d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
 		}
 	}
-	if command.Name == "/approve-bug" {
-		return d.handleBugAnalysisApproval(ctx, t, c, command, log)
-	}
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)
 	}
@@ -2015,6 +2012,12 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
+	if d.bug != nil {
+		if err := d.bug.CheckExistingAdmission(ctx, t.session.ID); err != nil {
+			return d.leave(ctx, t, log, "unsupported pinned Bug work preserved", err)
+		}
+	}
+
 	if pending, err := d.resumeReport(ctx, t, trigger.CommentID); pending || err != nil {
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
@@ -2083,9 +2086,13 @@ func (d *Daemon) run(
 		syncOverride = &value
 	}
 
+	if handled, err := d.recoverGraphReply(ctx, t, trigger, command, string(mode)); handled || err != nil {
+		return d.leave(ctx, t, log, "stopped graph reply recovery deferred", err)
+	}
+
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
-	if (mode == agent.ModeResearch || mode == agent.ModeSpike) && t.continuation == nil {
+	if (mode == agent.ModeResearch || mode == agent.ModeSpike || workflow == agent.WorkflowBug) && t.continuation == nil {
 		if err := d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
 			// A comment written before the open question was published can
 			// never answer it. Refuse it once, visibly; the reply path consumes
@@ -2146,6 +2153,11 @@ func (d *Daemon) run(
 			log.InfoContext(ctx, "Bug owner comment predates the open review or question; refusing it with a reply",
 				slog.Any("error", err))
 			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+		}
+		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugReplyNotApplied) {
+			log.InfoContext(ctx, "Bug owner comment could not be applied at the current step; refusing it with a reply",
+				slog.Any("error", err))
+			return d.refuseMode(ctx, t, trigger, report.ReplyBugCommentNotApplied)
 		}
 		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugCommentRefused) {
 			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
@@ -2438,6 +2450,11 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	d.rateLimited(ctx, log, t.tickAt, err)
 	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 		slog.Any("error", err))
+	if store.IsGraphTrigger(t.commentUnderWay) {
+		// Dispatch failure needs its actual cause for bounded retry and the
+		// durable stop notice; it has no owner-comment drain to retain it.
+		return err
+	}
 	return nil
 }
 

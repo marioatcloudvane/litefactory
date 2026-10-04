@@ -29,6 +29,13 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		return err
 	}
 	for _, dispatch := range pending {
+		if d.bug != nil {
+			if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
+				d.log.ErrorContext(ctx, "graph dispatch refused; retained work unchanged", slog.Int64("dispatch_id", dispatch.ID), slog.Any("error", err))
+				continue
+			}
+		}
+
 		session, err := d.db.GetSession(ctx, dispatch.SessionID)
 		if err != nil {
 			return err
@@ -61,17 +68,6 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			return err
 		}
 		if issue.State != github.StateOpen && !bugParent {
-			if call, lookupErr := d.db.BugTestDispatchCall(ctx, dispatch.ID); lookupErr == nil {
-				if d.bugTests != nil {
-					if cancelErr := d.bugTests.Cancel(ctx, call.ID, at.UTC()); cancelErr != nil {
-						return cancelErr
-					}
-				} else if cancelErr := d.db.CancelBugTestCall(ctx, call.ID); cancelErr != nil {
-					return cancelErr
-				}
-			} else if !errors.Is(lookupErr, store.ErrNotFound) {
-				return lookupErr
-			}
 			if err := d.db.CancelGraphDispatch(ctx, dispatch.ID, "issue closed before the next graph stage could run", at.UTC()); err != nil {
 				return err
 			}
@@ -186,11 +182,18 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 // recovery and manual schedules do; without one it could not exist beside the
 // comment-triggered run that parked it.
 func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.GraphDispatch) {
-	if d.runBugTestDispatch(ctx, t, dispatch) {
-		return
+	if d.bug != nil {
+		if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
+			t.recordWorkerError(err)
+			return
+		}
 	}
+
 	trigger, command := graphStepRequest(dispatch, d.filter.Identities().OwnerHandle)
+	previousTrigger := t.commentUnderWay
+	t.commentUnderWay = trigger.CommentID
 	err := d.run(ctx, t, trigger, command, t.log)
+	t.commentUnderWay = previousTrigger
 	if err != nil {
 		t.recordWorkerError(err)
 	}
@@ -210,7 +213,7 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 			if !t.bugDispatchLocked {
 				cause = err.Error()
 			}
-			_, retryErr := d.db.RequeueGraphDispatch(ctx, dispatch.ID, t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts)), cause)
+			_, retryErr := d.requeueGraphStep(ctx, dispatch, t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts)), cause)
 			if retryErr != nil {
 				t.recordWorkerError(retryErr)
 			}
@@ -236,17 +239,13 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 			cause = err.Error()
 		}
 		retryAt := t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts))
-		requeued, requeueErr := d.db.RequeueGraphDispatch(ctx, dispatch.ID, retryAt, cause)
+		requeued, requeueErr := d.requeueGraphStep(ctx, dispatch, retryAt, cause)
 		if requeueErr != nil {
 			t.recordWorkerError(requeueErr)
 			t.log.ErrorContext(ctx, "requeue graph step", slog.Any("error", requeueErr))
 			return
 		}
 		if !requeued {
-			// Out of attempts. Saying so once is worth more than another tick
-			// of the same failure, and the instance keeps its node and findings.
-			t.log.ErrorContext(ctx, "graph step gave up after repeated failures to start",
-				slog.Int("attempts", dispatch.Attempts), slog.String("cause", cause))
 			return
 		}
 		t.log.WarnContext(ctx, "graph step could not start; retrying later",
@@ -261,8 +260,8 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 }
 
 // A closed Bug issue still owes integration/closure observations and reports.
-// Only the domain runtime decides whether those obligations are fulfilled;
-// closing remotely never supplies missing approvals or authorizes repair.
+// The domain runtime owns those obligations. A dispatch replacing a cancelled
+// intent still requires an open issue; recovery supplies no repair approval.
 func (d *Daemon) isBugParentDispatch(ctx context.Context, dispatch store.GraphDispatch) (bool, error) {
 	a, err := d.db.GetTaskWorkflowAdmission(ctx, dispatch.SessionID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -271,11 +270,8 @@ func (d *Daemon) isBugParentDispatch(ctx context.Context, dispatch store.GraphDi
 	if err != nil || a.Workflow != "bug" {
 		return false, err
 	}
-	_, err = d.db.BugTestDispatchCall(ctx, dispatch.ID)
-	if errors.Is(err, store.ErrNotFound) {
-		return true, nil
-	}
-	return false, err
+	recovered, err := d.db.GraphDispatchFollowsCancellation(ctx, dispatch)
+	return !recovered, err
 }
 
 // graphStepRequest builds the trigger and command one owed stage runs under.
@@ -291,4 +287,21 @@ func graphStepRequest(dispatch store.GraphDispatch, owner string) (turn.Trigger,
 	instruction := fmt.Sprintf("Continue the workflow at its %s stage.", dispatch.Node)
 	return turn.Trigger{CommentID: dispatch.TriggerID(), Body: instruction, Author: owner},
 		turn.Command{Kind: turn.KindFreeText, Text: instruction}
+}
+
+// The store distinguishes an actual stop from an ineligible requeue. Closure
+// cancellation never calls this path and therefore never announces recovery.
+func (d *Daemon) requeueGraphStep(ctx context.Context, dispatch store.GraphDispatch, retryAt time.Time, cause string) (bool, error) {
+	requeued, stopped, err := d.db.RequeueGraphDispatchWithStop(ctx, dispatch.ID, retryAt, cause)
+	if err != nil || stopped == nil {
+		return requeued, err
+	}
+	reporter, ok := d.reporter.(interface {
+		ReportGraphDispatchStop(context.Context, store.GraphDispatch) (turn.Posted, error)
+	})
+	if !ok {
+		return false, errors.New("graph dispatch stop requires durable reporting")
+	}
+	_, err = reporter.ReportGraphDispatchStop(ctx, *stopped)
+	return false, err
 }

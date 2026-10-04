@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -128,5 +130,65 @@ func TestReportDeliveryLegacyRunlessAmbiguity(t *testing.T) {
 				t.Fatalf("legacy ambiguous=%v err=%v want=%v", got, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestGraphDispatchStopNoticeUsesDurableDelivery(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, newStubRunner(nil))
+	forge := newFakeForge(t)
+	reporter := newReporter(t, f, forge, nil)
+	dispatch := store.GraphDispatch{ID: 466, SessionID: f.session.ID, Node: "shape", Status: "cancelled", CancellationReason: "startup refused"}
+	first, err := reporter.ReportGraphDispatchStop(t.Context(), dispatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := reporter.ReportGraphDispatchStop(t.Context(), dispatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.CommentID != second.CommentID || len(forge.all()) != 1 {
+		t.Fatalf("duplicate notice: %+v %+v", first, second)
+	}
+	body := forge.only(t).body
+	if !strings.Contains(body, "Work stopped at shape: startup refused") || !strings.Contains(body, "Reply on this open issue to resume") {
+		t.Fatalf("notice: %s", body)
+	}
+	if watermark(t, f) != 0 {
+		t.Fatal("private dispatch consumed an owner input")
+	}
+	dispatch.Status = "pending"
+	if _, err = reporter.ReportGraphDispatchStop(t.Context(), dispatch); err == nil {
+		t.Fatal("pending dispatch announced a stop")
+	}
+}
+
+type lostDispatchReceipt struct{ Poster }
+
+func (p lostDispatchReceipt) PostComment(ctx context.Context, repo github.Repo, issue int, body redact.Body) (github.Comment, error) {
+	if _, err := p.Poster.PostComment(ctx, repo, issue, body); err != nil {
+		return github.Comment{}, err
+	}
+	return github.Comment{}, errors.New("receipt lost after post")
+}
+
+func TestGraphDispatchStopNoticeRecoversLostReceipt(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, newStubRunner(nil))
+	forge := newFakeForge(t)
+	reporter := newReporter(t, f, forge, nil)
+	original := reporter.forge
+	reporter.forge = lostDispatchReceipt{original}
+	dispatch := store.GraphDispatch{ID: 467, SessionID: f.session.ID, Node: "shape", Status: "cancelled", CancellationReason: "startup refused"}
+	if _, err := reporter.ReportGraphDispatchStop(t.Context(), dispatch); err == nil {
+		t.Fatal("lost receipt claimed success")
+	}
+	reporter.forge = original
+	_, pending, err := reporter.ReportPending(t.Context(), f.session.ID, dispatch.TriggerID())
+	if err != nil || !pending {
+		t.Fatalf("recover: pending=%v err=%v", pending, err)
+	}
+	if len(forge.all()) != 1 || forge.attemptCount() != 1 {
+		t.Fatal("recovery duplicated the stop notice")
 	}
 }

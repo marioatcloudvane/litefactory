@@ -9,34 +9,25 @@ import (
 	"github.com/cloudvane/litefactory/internal/bugrepair"
 )
 
-// BugBinding is factory-owned invocation context. Approval is present only
-// when the store has authenticated the exact current review; no payload can
-// populate it. Invocation and base revision also protect cold fallback.
+// BugBinding is factory-owned invocation context. The factory knows which
+// invocation and revision a result belongs to; agents never echo them back.
 type BugBinding struct {
-	Role, Invocation                                    string
-	BaseRevision                                        int64
-	ApprovedRevision                                    int64
-	ApprovedDigest, ApprovalReview                      string
-	Reservation, SourceCommit, SourceTree, CriteriaJSON string
+	GraphInstanceID  int64
+	Role, Invocation string
+	BaseRevision     int64
+	ApprovedRevision int64
 }
 
-// Bug carries only analysis proposals or a reference to existing authorization.
-// No execution counters, permissions, recipes or delivery state are writable.
+// Bug carries an analysis proposal or a repair report. No execution counters,
+// permissions, recipes, approvals or delivery state are writable.
 type Bug struct {
-	Repair       *bugrepair.Evidence      `json:"repair,omitempty"`
-	Response     string                   `json:"response"`
-	Invocation   string                   `json:"invocation"`
-	BaseRevision int64                    `json:"base_revision"`
-	Analysis     *buganalysis.BugAnalysis `json:"analysis,omitempty"`
-	Approval     *BugApprovalReference    `json:"approval,omitempty"`
-	Evidence     []string                 `json:"evidence,omitempty"`
-}
-
-// BugApprovalReference reports an existing factory approval without granting one.
-type BugApprovalReference struct {
-	Revision int64  `json:"revision"`
-	Digest   string `json:"digest"`
-	Review   string `json:"review"`
+	Repair   *bugrepair.Evidence      `json:"repair,omitempty"`
+	Response string                   `json:"response"`
+	Analysis *buganalysis.BugAnalysis `json:"analysis,omitempty"`
+	Evidence []string                 `json:"evidence,omitempty"`
+	// Invocation and BaseRevision are accepted for older agents and ignored.
+	Invocation   string `json:"invocation,omitempty"`
+	BaseRevision int64  `json:"base_revision,omitempty"`
 }
 
 func validateBug(r Result, ctx Context, d *Diagnostics) {
@@ -51,9 +42,6 @@ func validateBug(r Result, ctx Context, d *Diagnostics) {
 	if ctx.Workflow != agent.WorkflowBug || ctx.Mode != "" || ctx.Bug == nil || ctx.Bug.Role != "bug-analyst" || ctx.Bug.Invocation == "" {
 		add(d, "$.result.payload.bug", "scope", "factory-bound Bug analyst invocation", "missing or different binding", "Use the current factory analyst binding.")
 		return
-	}
-	if p.Invocation != ctx.Bug.Invocation || p.BaseRevision != ctx.Bug.BaseRevision || p.BaseRevision < 0 {
-		add(d, "$.result.payload.bug", "stale", "matching invocation and analysis base revision", "mismatch", "Use the exact retained invocation and current analysis revision.")
 	}
 	if r.Recommendation != nil {
 		add(d, "$.result.recommendation", "forbidden", "no mode recommendation", "present", "Bug stays in its admitted workflow.")
@@ -81,20 +69,12 @@ func validateBug(r Result, ctx Context, d *Diagnostics) {
 		if r.Outcome != "completed" || len(r.Questions) != 0 || p.Analysis == nil {
 			add(d, "$.result.payload.bug.response", "consistency", "complete reviewable analysis without questions", "mismatch", "Done presents analysis for owner review; it grants no repair.")
 		}
-	case "approved":
-		a := p.Approval
-		if r.Outcome != "completed" || len(r.Questions) != 0 || p.Analysis != nil || a == nil || ctx.Bug.ApprovedRevision <= 0 || a.Revision != ctx.Bug.ApprovedRevision || a.Digest != ctx.Bug.ApprovedDigest || a.Review != ctx.Bug.ApprovalReview {
-			add(d, "$.result.payload.bug.approval", "authorization", "exact existing factory approval without content changes", "missing or mismatched approval", "Report only the already authenticated current approval.")
-		}
 	case "blocked":
 		if r.Outcome != "blocked" || len(p.Evidence) == 0 || len(r.Questions) != 0 {
 			add(d, "$.result.payload.bug.response", "consistency", "blocked outcome with obstacle and evidence", "mismatch", "Retain the obstacle and evidence; ask separately for owner questions.")
 		}
 	default:
-		add(d, "$.result.payload.bug.response", "enum", "ask, done, approved or blocked", "unsupported response", "Use the analyst response contract.")
-	}
-	if p.Response != "approved" && p.Approval != nil {
-		add(d, "$.result.payload.bug.approval", "forbidden", "approval absent", "present", "A proposal cannot authorize itself.")
+		add(d, "$.result.payload.bug.response", "enum", "ask, done or blocked", "unsupported response", "Use the analyst response contract.")
 	}
 	if p.Analysis != nil {
 		// Notices are policy-class observations the authoritative store write

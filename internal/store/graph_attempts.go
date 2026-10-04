@@ -45,12 +45,32 @@ func (db *DB) StartGraphNodeAttempt(ctx context.Context, in GraphAttemptStart) (
 		if running > 0 {
 			return ErrGraphAttemptRunning
 		}
+		if in.OwnerAllowanceSource > 0 {
+			allowed, e := graphMechanicalAllowanceTx(ctx, tx, in)
+			if e != nil {
+				return e
+			}
+			if !allowed {
+				return graphInvariant("mechanical owner allowance is unavailable or already consumed")
+			}
+		}
 		if in.Limit > 0 && maximum >= in.Limit {
-			return ErrGraphAttemptLimit
+			allowed, claimErr := graphClaimAllowsAttemptTx(ctx, tx, in)
+			if claimErr != nil {
+				return claimErr
+			}
+			if !allowed {
+				return ErrGraphAttemptLimit
+			}
 		}
 		out, e = scanGraphAttempt(tx.QueryRowContext(ctx, `INSERT INTO graph_node_attempts(instance_id,node,attempt,run_id,status,started_at) VALUES(?,?,?,?,?,?) RETURNING `+graphAttemptColumns, in.InstanceID, in.Node, maximum+1, nullID(in.RunID), GraphRunning, FormatTime(in.StartedAt)))
 		if e != nil {
 			return e
+		}
+		if in.OwnerAllowanceSource > 0 {
+			if _, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET allowance_attempt_id=? WHERE instance_id=? AND continuation_attempt_id=? AND allowance_attempt_id IS NULL`, out.ID, in.InstanceID, in.OwnerAllowanceSource); e != nil {
+				return e
+			}
 		}
 		return graphReplyAllocationTx(ctx, tx, in, out.ID)
 	})
@@ -125,9 +145,6 @@ func finishGraphAttemptTx(ctx context.Context, tx *sql.Tx, id int64, status, out
 // status and no transition, preserving current_node and prior history.
 func (db *DB) CompleteGraphNodeAttempt(ctx context.Context, id int64, in GraphCompletion) error {
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		if e := bugTestConsumeTx(ctx, tx, id, in); e != nil {
-			return e
-		}
 		old, e := finishGraphAttemptTx(ctx, tx, id, in.Status, in.Outcome, in.FinishedAt)
 		if e != nil {
 			return e

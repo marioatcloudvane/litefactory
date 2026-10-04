@@ -2,7 +2,9 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -37,10 +39,16 @@ func (c *Client) GetDeliveryHead(ctx context.Context, repo Repo, branch string) 
 	if branch == "" || strings.ContainsAny(branch, "\r\n\x00") {
 		return "", fmt.Errorf("invalid delivery branch")
 	}
-	b, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.Branch, *gogithub.Response, error) {
+	b, resp, err := do(ctx, c, func(ctx context.Context) (*gogithub.Branch, *gogithub.Response, error) {
 		return c.api.Repositories.GetBranch(ctx, repo.Owner, repo.Name, branch, 0)
 	})
 	if err != nil {
+		// GetBranch reports a missing branch as a plain "unexpected status
+		// code" error, so the 404 must be typed here for callers to see it.
+		var api *APIError
+		if !errors.As(err, &api) && resp != nil && resp.Response != nil && resp.StatusCode == http.StatusNotFound {
+			return "", &APIError{Method: requestMethod(resp.Response), URL: requestURL(resp.Response), StatusCode: http.StatusNotFound, Message: err.Error(), RequestID: resp.Header.Get("X-GitHub-Request-Id"), Err: ErrNotFound}
+		}
 		return "", err
 	}
 	if b == nil || b.GetName() != branch || !validDeliverySHA(b.GetCommit().GetSHA()) {
@@ -96,12 +104,12 @@ func (c *Client) GetDeliveryPR(ctx context.Context, repo Repo, number int) (Deli
 	return v, nil
 }
 
-// CreateDeliveryPR creates a complete redacted task-branch PR targeting main.
+// CreateDeliveryPR creates a redacted task-branch PR into the repository's base branch.
 func (c *Client) CreateDeliveryPR(ctx context.Context, repo Repo, branch, target string, title, body redact.Body) (DeliveryPR, error) {
 	if err := repo.Validate(); err != nil {
 		return DeliveryPR{}, err
 	}
-	if branch == "" || branch == target || target != "main" {
+	if branch == "" || target == "" || branch == target {
 		return DeliveryPR{}, fmt.Errorf("invalid delivery branches")
 	}
 	if err := checkIssueTitle(title); err != nil {
@@ -109,9 +117,6 @@ func (c *Client) CreateDeliveryPR(ctx context.Context, repo Repo, branch, target
 	}
 	if err := checkIssueBody(body); err != nil {
 		return DeliveryPR{}, err
-	}
-	if title.Truncated() || body.Truncated() {
-		return DeliveryPR{}, fmt.Errorf("delivery content cannot be truncated")
 	}
 	t, b := title.String(), body.String()
 	p, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.PullRequest, *gogithub.Response, error) {

@@ -4,8 +4,23 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 )
+
+// LatestGraphRecord reads an immutable typed record from shared graph history.
+// It supplies no dispatch, approval or delivery authority; callers recheck its
+// exact source attempt and current factory binding before using it.
+func (db *DB) LatestGraphRecord(ctx context.Context, instanceID int64, record string) (out json.RawMessage, err error) {
+	if instanceID < 1 || record == "" || len(record) > 256 {
+		return nil, graphInvariant("invalid graph record binding")
+	}
+	err = db.withTx(ctx, func(tx *sql.Tx) error { return graphRecordTx(ctx, tx, instanceID, record, &out) })
+	if err != nil {
+		return nil, fmt.Errorf("store: latest graph record: %w", err)
+	}
+	return out, nil
+}
 
 const graphOutputColumns = `id,node_attempt_id,kind,payload,owner_comment_id,created_at`
 
@@ -70,18 +85,43 @@ func scanGraphOutput(row scanner) (GraphOutput, error) {
 // this for saved output crossing into agent input rather than the unbounded
 // foundation inspection accessor.
 func (db *DB) ListGraphOutputsBounded(ctx context.Context, attemptID int64, maxBytes, maxEntries int) (out []GraphOutput, err error) {
+	return db.listGraphOutputsBounded(ctx, attemptID, maxBytes, maxEntries, false)
+}
+
+// graphResultOutputs excludes factory records ({"record": ...}) such as source
+// manifests, which grow with the repository and share the agent's attempt.
+const (
+	graphResultOutputs      = ` AND NOT (kind='json' AND json_valid(CAST(payload AS TEXT)) AND json_extract(CAST(payload AS TEXT),'$.record') IS NOT NULL)`
+	graphOutputsSize        = `SELECT COALESCE(SUM(length(payload)),0),COUNT(*) FROM graph_outputs WHERE node_attempt_id=?`
+	graphOutputsRows        = `SELECT ` + graphOutputColumns + ` FROM graph_outputs WHERE node_attempt_id=?`
+	graphResultOutputsSize  = graphOutputsSize + graphResultOutputs
+	graphResultOutputsRows  = graphOutputsRows + graphResultOutputs + ` ORDER BY id`
+	graphOutputsRowsOrdered = graphOutputsRows + ` ORDER BY id`
+)
+
+// ListGraphResultOutputsBounded is ListGraphOutputsBounded without factory
+// records, so the bounds apply to what the agent submitted only.
+func (db *DB) ListGraphResultOutputsBounded(ctx context.Context, attemptID int64, maxBytes, maxEntries int) (out []GraphOutput, err error) {
+	return db.listGraphOutputsBounded(ctx, attemptID, maxBytes, maxEntries, true)
+}
+
+func (db *DB) listGraphOutputsBounded(ctx context.Context, attemptID int64, maxBytes, maxEntries int, resultsOnly bool) (out []GraphOutput, err error) {
 	if attemptID < 1 || maxBytes < 1 || maxBytes > 1<<20 || maxEntries < 1 || maxEntries > 1024 {
 		return nil, graphInvariant("invalid saved-output read limits")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		var size, count int64
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(length(payload)),0),COUNT(*) FROM graph_outputs WHERE node_attempt_id=?`, attemptID).Scan(&size, &count); err != nil {
+		sizeQuery, rowsQuery := graphOutputsSize, graphOutputsRowsOrdered
+		if resultsOnly {
+			sizeQuery, rowsQuery = graphResultOutputsSize, graphResultOutputsRows
+		}
+		if err := tx.QueryRowContext(ctx, sizeQuery, attemptID).Scan(&size, &count); err != nil {
 			return err
 		}
 		if size > int64(maxBytes) || count > int64(maxEntries) {
 			return graphInvariant("saved graph outputs exceed input bounds")
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT `+graphOutputColumns+` FROM graph_outputs WHERE node_attempt_id=? ORDER BY id`, attemptID)
+		rows, err := tx.QueryContext(ctx, rowsQuery, attemptID)
 		if err != nil {
 			return err
 		}

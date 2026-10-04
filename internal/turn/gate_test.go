@@ -187,17 +187,16 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 	// sections is every function in this package that may take the clone gate,
 	// mapped to the file it must be declared in.
 	sections := map[string]string{
-		"prepareClone":                        "prepare.go",
-		"commitAndPush":                       "harvest.go",
-		"BugRuntime.fetchTarget":              "bug_runtime.go",
-		"BugRuntime.worktree":                 "bug_runtime.go",
-		"BugRuntime.recoverRepairPublication": "bug_runtime_save.go",
+		"prepareClone":  "prepare.go",
+		"commitAndPush": "harvest.go",
 		// A repair attempt merges fetched main into the idle task worktree,
 		// and a Bug check adds and later removes the detached target
 		// worktree its failing tests rerun on; each is one acquisition.
-		"BugRuntime.syncBugTarget":   "bug_runtime_target.go",
-		"BugRuntime.addBugTarget":    "bug_runtime_target.go",
-		"BugRuntime.removeBugTarget": "bug_runtime_target.go",
+		// Simplified Bug preserves dirty work locally and synchronizes after
+		// normal fetched preparation, releasing this section before invocation.
+		"PrepareGraphBugSource":        "bug_graph_prepare.go",
+		"BugRuntime.saveGraphDelivery": "bug_graph_runtime.go",
+		"BugRuntime.pushGraphDelivery": "bug_graph_runtime.go",
 	}
 
 	// gated names each call that must not happen outside a critical section,
@@ -211,8 +210,9 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// after ensureWorktree, and takes no acquisition of its own — but
 		// only for an ordinary turn. It does not run at all when a confirmed
 		// proposal is being applied (CR-B-003): see WriteResolvedFiles below.
-		"syncBase": {"prepareClone"},
-		"Commit":   {"commitAndPush"},
+		"syncBase": {"prepareClone", "PrepareGraphBugSource"},
+		"syncTask": {"prepareClone", "PrepareGraphBugSource"},
+		"Commit":   {"commitAndPush", "BugRuntime.saveGraphDelivery", "PrepareGraphBugSource"},
 		// WriteResolvedFiles, StageResolvedFiles and CompleteMerge are US-12's
 		// three new git.Worktree mutators. They run as prepareClone's fourth
 		// step, in place of syncBase (which this turn shape never calls),
@@ -225,7 +225,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"CompleteMerge":      {"prepareClone"},
 		// Confirmed proposal application also pushes inside prepareClone's
 		// existing acquisition.
-		"Push": {"commitAndPush", "prepareClone", "BugRuntime.recoverRepairPublication"},
+		"Push": {"commitAndPush", "prepareClone", "BugRuntime.pushGraphDelivery"},
 	}
 
 	funcs := packageFuncs(t)
@@ -253,15 +253,6 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 			t.Errorf("%s calls release() %d times outside a defer, want 0: "+
 				"a release that is not deferred is a release an early return skips", name, immediate)
 		}
-	}
-
-	// Bug target observation fetches remote objects in its own checked section;
-	// it never runs the ordinary preparation path that could sync approved source.
-	if got := countCalls(funcs["BugRuntime.fetchTarget"].decl, "Fetch"); got != 1 {
-		t.Errorf("BugRuntime.fetchTarget calls Fetch %d times, want exactly1", got)
-	}
-	if got := countCalls(funcs["BugRuntime.worktree"].decl, "EnsureWorktree"); got != 1 {
-		t.Errorf("BugRuntime.worktree calls EnsureWorktree %d times, want exactly 1", got)
 	}
 
 	for _, call := range slices.Sorted(maps.Keys(gated)) {

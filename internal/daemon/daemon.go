@@ -189,8 +189,6 @@ type Options struct {
 	// Bug is the complete factory-bound parent runtime. Nil retains admission
 	// but refuses execution without substituting a mode workflow.
 	Bug *turn.BugRuntime
-	// BugTests executes only recorded Bug child instances under check permissions.
-	BugTests *turn.BugTestChild
 
 	// Retirement shares turn coordination; zero options disable automatic retirement.
 	Retirement RetirementExecutionOptions
@@ -386,8 +384,7 @@ type Daemon struct {
 	doctorHost        *DoctorRepairHost
 	doctor            doctorLane
 
-	bugTests *turn.BugTestChild
-	bug      *turn.BugRuntime
+	bug *turn.BugRuntime
 
 	publications publicationRecovery
 	mcpClose     func() error
@@ -494,7 +491,6 @@ func New(opts Options) (*Daemon, error) {
 
 	d := &Daemon{
 		db:                       opts.DB,
-		bugTests:                 opts.BugTests,
 		bug:                      opts.Bug,
 		forge:                    opts.Forge,
 		filter:                   opts.Filter,
@@ -612,20 +608,13 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 	if err := d.recoverDoctor(ctx); err != nil {
 		return Reconciled{}, err
 	}
-	if d.bug != nil {
-		if err := d.bug.Reconcile(ctx); err != nil {
-			return Reconciled{}, err
-		}
-	}
 	reconciliation, err := d.db.ReconcileOrphans(ctx, d.instanceID)
 	if err != nil {
 		return Reconciled{}, fmt.Errorf("reconcile what a previous daemon left behind: %w", err)
 	}
 
-	// The legacy child-only adapter has no agent runs to recover. Reuse the
-	// store's startup observation; the complete runtime reconciles before orphans.
-	if d.bug == nil && d.bugTests != nil {
-		if err := d.bugTests.Reconcile(ctx, reconciliation.At); err != nil {
+	if d.bug != nil {
+		if err := d.bug.Reconcile(ctx); err != nil {
 			return Reconciled{}, err
 		}
 	}

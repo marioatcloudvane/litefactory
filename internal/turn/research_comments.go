@@ -246,6 +246,10 @@ func (r *Reporter) RecoverWorkflowComment(ctx context.Context, key string, scope
 	if err != nil {
 		return Posted{}, err
 	}
+	var stop GraphStopQuestion
+	if json.Unmarshal(intent.Candidate, &stop) == nil && stop.Version == 1 && stop.Origin != "" {
+		return r.RecoverGraphStopQuestion(ctx, key)
+	}
 	delivery, err := r.db.GetReportDelivery(ctx, key)
 	if err == nil {
 		return r.dispatchDelivery(ctx, delivery)

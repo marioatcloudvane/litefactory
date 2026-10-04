@@ -170,14 +170,7 @@ func TestGraphPlanLostReply_RecoversAcceptedCandidateBeforeRetry(t *testing.T) {
 	if revision != 1 || !ar.SameResult(snapshot.Result, recovered.Snapshot.Result) {
 		t.Fatalf("terminal acceptance did not read the recovered revision: %d", revision)
 	}
-	// The terminal answer carries the authored result, which never holds the
-	// factory-bound members, so it is the submitted bytes' result member.
-	var authored struct {
-		Result json.RawMessage `json:"result"`
-	}
-	mustProgress(t, json.Unmarshal(data, &authored))
-	terminal := `{"version":1,"response":"done","result":` + string(authored.Result) + `}`
-	node, accepted, err := AgentActivity{Policy: PlanWorkflowPolicy()}.acceptRetained(t.Context(), l.service, terminal)
+	node, accepted, err := AgentActivity{Policy: PlanWorkflowPolicy()}.acceptRetained(t.Context(), l.service)
 	mustProgress(t, err)
 	if accepted != 1 || node.Response != "done" {
 		t.Fatalf("recovered result was not accepted from the store: %d %+v", accepted, node)
@@ -282,7 +275,7 @@ func TestGraphPlanLostReply_UncertainRecoveryStaysUncertain(t *testing.T) {
 	if _, _, err := l.service.retainedCurrent(t.Context()); !errors.Is(err, errNoRetainedResult) {
 		t.Fatalf("terminal acceptance found a result that was never accepted: %v", err)
 	}
-	if _, _, err := (AgentActivity{Policy: PlanWorkflowPolicy()}).acceptRetained(t.Context(), l.service, `{"version":1,"response":"done","result":{}}`); err == nil {
+	if _, _, err := (AgentActivity{Policy: PlanWorkflowPolicy()}).acceptRetained(t.Context(), l.service); err == nil {
 		t.Fatal("a terminal envelope stood in for an unrecovered result")
 	}
 

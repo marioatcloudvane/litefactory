@@ -1,0 +1,188 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Story-003 fits the shared preparation, result and graph-record infrastructure. It reuses existing fixer rights and stories 001–002 for stops and exact repair approval. The owner’s Yes on issue 459 (comment 5960827951) settles the local recovery checkpoint question: the factory may save preserved edits locally before synchronization and final validation. No material question remains.\n\nThe fixer owns its repair-and-validation iterations within finite execution. Success binds passing required checks and the approved verification conditions to exact tested content, target-main revision and retained logs. The factory checks that binding but runs no separate test gate. Local checkpoints remain unvalidated and unpublished. This requires a narrow documented exception to current success-only save and dirty-preparation rules; unrelated workflows retain their behavior.\n\nThe architecture supplies story-004’s tested-content handoff and owner-released stale-evidence recovery. Its earlier checkpoint uncertainty is now resolved; its remaining delivery decisions are retained. Story-005 still owns removal, with no migration or restart of old bugs. Only architecture and applicable guidance change here; story intent and the story-002 dependency remain unchanged. No implementation, test execution, acceptance or remote publication is claimed.",
+    "payload": {
+      "plan": {
+        "storyrequest": {
+          "operation": "update",
+          "expected_revision": "9daee43a88baeb1a8800a808e5bc434c8fc61b28e27d589b358d61958311aa73",
+          "changed_sections": [
+            "architecture",
+            "guidance"
+          ],
+          "draft": {
+            "key": "story-003",
+            "name": "Repair and validate against current main",
+            "user_story": {
+              "actor": "An authorized owner of a reported bug",
+              "want": "the fixer to repair the approved bug and repeat its checks until the fix is verified against current main",
+              "benefit": "I receive evidence that the agreed problem is fixed in the code intended for delivery, without managing separate repair and test runs",
+              "notes": [
+                "Assumption: shared synchronization applies before eligible agent runs, including owner-reply continuations, under existing explicit policy overrides; receiving a comment alone does not trigger branch changes.",
+                "Assumption: required validation follows the repository's applicable build and test requirements together with the verification condition agreed during diagnosis.",
+                "The fixer retains its existing worktree rights. Its internal iterations remain subject to finite execution budgets and the common stop-and-resume rule.",
+                "The owner will repost old bugs later; this story does not migrate or restart legacy Bug executions.",
+                "No material intent questions remain."
+              ]
+            },
+            "problem": "The current Bug workflow separates authored repairs from factory-run validation, while ordinary Bug runs can miss the shared update from main. Owners need the fixer to take responsibility for finishing and verifying the approved repair. A successful check of older or different code cannot establish that the change now intended for delivery fixes the bug.",
+            "in_scope": [
+              "Use shared branch synchronization before eligible Bug agent runs, including analyst continuations and resumed fixer work, so they work against current main under the existing synchronization policy.",
+              "Preserve existing edits and history during synchronization. Conflicts stop with an owner question through the common stop rule. Finish recovery of unfinished edits and complete synchronization before final validation.",
+              "Start repair from the approved diagnosis, remedy and verification condition. Within its own run, the fixer codes, builds, tests and repeats repairs and validation until the approved bug is fixed or it cannot continue within its budget.",
+              "Have the fixer perform final validation and submit succeeded only when applicable required checks pass and the approved verification condition is met. Skipped required checks, unresolved failures and missing evidence cannot count as success.",
+              "Include evidence with the submitted result that identifies the approved diagnosis, exact tested code, target-main revision, validation commands and outcomes, and references to supporting logs.",
+              "Require fixer revalidation before delivery whenever synchronization or another change alters the tested inputs. Previous passing results do not carry over to changed inputs.",
+              "Return a materially changed diagnosis or remedy to the analyst for fresh owner approval before further repair under that changed scope. Synchronization alone does not require fresh approval when the diagnosis and remedy remain unchanged.",
+              "Use the existing validated result submission and common stop-and-resume behavior when the fixer is blocked, fails or exhausts its budget. End this story at the evidenced repair result handed to the separate delivery flow."
+            ],
+            "not_in_scope": [
+              "A factory-managed repair loop, separate factory validation run or factory test gate.",
+              "Publication, push, PR creation, merge, closure or recovery of partial delivery effects.",
+              "Redefining diagnosis approval or the common stop-and-resume mechanism.",
+              "Expanding agent permissions, rebuilding completed broad-rights changes or changing synchronization policy for unrelated workflows.",
+              "Migrating or restarting old Bug executions, removing obsolete stores or runtime code, changing migration history or measuring code reduction."
+            ],
+            "dependencies": {
+              "story_keys": [
+                "story-002"
+              ],
+              "issue_refs": []
+            },
+            "frontend": false,
+            "guidance": [
+              "go",
+              "agent-setup"
+            ],
+            "architecture": {
+              "general": [
+                {
+                  "area": "Reuse and fit",
+                  "decision": "Use shared preparation and synchronization, the existing bug-fixer permission profile, AgentActivity and the shared result service. Consume story-002's current approved handoff and story-001's durable stops. Replace the new flow's dependency on repair reservations and factory check-child results with graph attempt evidence.",
+                  "rationale": "bug_runtime.go forcibly sets SyncOverride=false; prepare.go already fetches, reconciles task history and synchronizes the base. bug_fixer.go currently binds legacy repair/check records, while bugrepair.Evidence describes authored coverage only."
+                },
+                {
+                  "area": "Owner-set checkpoint policy",
+                  "decision": "Allow a factory-owned local recovery checkpoint before final success when preserved edits prevent synchronization. Record this narrow simplified-Bug exception to CONC-8 and CONC-16 in the repository amendment record during implementation. Keep unrelated workflows unchanged.",
+                  "rationale": "The owner answered Yes to the checkpoint question on issue 459, comment 5960827951. Current save requires successful execution and combines commit with push; normal dirty preparation preserves HEAD/index and defers synchronization. The new local checkpoint must be an explicit exception, never disguised as success."
+                },
+                {
+                  "area": "Validation ownership",
+                  "decision": "The fixer performs coding, build, tests and repeated corrections within one bounded invocation. Only evidenced succeeded is eligible for delivery; authored coverage alone is insufficient. The factory checks identity and evidence completeness but does not execute a validation recipe.",
+                  "rationale": "The current role forbids full-suite validation because the test child owns it. That conflicts with the settled intent and must change together with the result schema, while existing execution limits remain."
+                },
+                {
+                  "area": "Authority and topology",
+                  "decision": "Keep approval, budgets, source saving and remote effects factory-owned. DOT declares succeeded, reshape and stopping outcomes and owner-authorized stale recovery. No Go-selected next node, automatic fixer retry cycle or new checkpoint activity node is added.",
+                  "rationale": "Stories 001 and 002 provide result-only routing and the loop/agent/finalization composition. A local preparation operation needs no extra workflow stage; passing a check cannot widen the approved remedy."
+                },
+                {
+                  "area": "Freshness boundary",
+                  "decision": "Bind validation to a concrete source-content identity, target-main revision and check-input identity. Recheck them before handoff and require a new fixer validation generation when they change. A commit metadata change alone may preserve evidence only when it changes no declared validation input.",
+                  "rationale": "ObserveBugRepair currently assumes an already committed clean source. Final fixer validation may cover uncommitted work, so HEAD alone cannot identify tested content. Story-004 must consume the same identity when saving and delivering."
+                },
+                {
+                  "area": "Retained scope and assumptions",
+                  "decision": "Retain configured synchronization overrides and distance limits, existing tool ceilings, source ownership and finite budgets. Keep legacy execution migration and removal outside this story. No frontend design applies. No implementation, live run or test success is claimed.",
+                  "rationale": "The owner will repost old bugs. Current main means the freshly observed configured base under existing policy, not a guarantee that the remote branch cannot move during a run. A disabled synchronization policy must be disclosed and cannot be reported as completed synchronization."
+                }
+              ],
+              "data_model": [
+                {
+                  "entity": "Repair invocation binding",
+                  "definition": "Graph attempt input references the current diagnosis candidate/digest, factory approval and review, verification conditions, source commit/content, observed main, effective sync policy and authenticated continuation guidance.",
+                  "constraints": "Factory resolves task, repository, branch and authority. Recheck the current approval before dispatch and success eligibility. Warm, cold and fallback prompts carry the same complete approved context; no agent field creates approval, resets a budget or selects another task."
+                },
+                {
+                  "entity": "Recovery checkpoint and synchronization facts",
+                  "definition": "Shared attempt outputs retain checkpoint operation identity, original HEAD and content identities, local checkpoint commit/tree, synchronization target/result and resulting source identity, with pending, observed, confirmed or failed facts.",
+                  "constraints": "Persist intent before git mutation and reconcile actual local objects after interruption before repeating it. Keep original failure and validation history. A checkpoint is local preservation, not passing validation or permission to push. Add no Bug checkpoint ledger; use a forward shared migration only if existing records cannot express these facts."
+                },
+                {
+                  "entity": "Validation generation",
+                  "definition": "An immutable attempt/result reference binds approved scope to the complete tested source manifest/tree, target-main SHA, required command set, tool/configuration inputs, executed commands with working directory and exit/outcome, criterion results and retained log references/digests.",
+                  "constraints": "Include tracked changes, deletions, file modes and new deliverable files; do not use only diff text or HEAD. Account explicitly for relevant ignored/external inputs. Required checks must have actual passing outcomes and every approved verification condition must be met. Missing, skipped, failed, duplicate or unknown obligations cannot make succeeded. Historical failed attempts remain visible after later passes."
+                },
+                {
+                  "entity": "Delivery eligibility",
+                  "definition": "A graph-backed reference links the current accepted succeeded result, successful execution, current approval, confirmed source observation and validation generation.",
+                  "constraints": "Receipt alone is insufficient. Stale or incomplete evidence removes eligibility without deleting history. Story-004 receives the exact binding and must compare the saved content with it. Keep execution status, submitted claims, source observations and remote delivery facts separate."
+                }
+              ],
+              "service_design": [
+                {
+                  "component": "Shared Bug preparation",
+                  "responsibility": "Remove the unconditional Bug synchronization override for the simplified flow. Resolve real policy, fetch/reconcile using shared preparation, checkpoint preserved dirty work when synchronization needs it, then synchronize and provide observed context to the eligible agent.",
+                  "access": "internal/turn/prepare.go and the simplified adapter replacing bug_runtime.go's forced no-sync branch; internal/git remains the sole git gateway. Retain task ownership and short CloneGate critical sections. Do not hold the gate across an agent invocation."
+                },
+                {
+                  "component": "Local recovery save seam",
+                  "responsibility": "Expose the local commit portion of existing save mechanics without publication. Preserve the worktree's edits and history, label the checkpoint as unvalidated, and record/reconcile its exact identity before synchronization.",
+                  "access": "Reuse internal/git/commit.go through a focused factory operation; do not call harvest.go's combined save/push flow. Observe before and after mutation, retain transport exclusions and never mutate the registered clone checkout. If partially staged versions or unsupported work cannot be preserved safely, refuse before mutation and park rather than flattening or discarding them."
+                },
+                {
+                  "component": "Fixer adapter and typed evidence",
+                  "responsibility": "Carry approved scope and prior work into the fixer; validate succeeded, reshape and blocked through the shared result service, with runtime failures handled by story-001. Extend the pure repair evidence contract with executed validation and stable input identities.",
+                  "access": "internal/turn/bug_fixer.go, internal/bugrepair/evidence.go and internal/agentresult/bug_repair.go. Keep strict bounded schemas, criterion identity and contained-path checks. Old done/authored evidence cannot be silently promoted to succeeded; bind the new semantics to the simplified graph contract."
+                },
+                {
+                  "component": "Source identity observation",
+                  "responsibility": "Define one canonical content identity for uncommitted validation and later saved delivery. Independently compare submitted identities with actual content during result checking and again after execution. Preserve staged/working state while observing.",
+                  "access": "Extend existing internal/git observation seams beyond ObserveBugRepair's clean-commit restriction. Use an isolated temporary index/tree or equivalent canonical bounded manifest, never stage the live index just to inspect it. Validate rooted log references and stable bytes through shared evidence utilities. Identity checks execute no build or test."
+                },
+                {
+                  "component": "Role and skill packaging",
+                  "responsibility": "Keep the fixer role short: preserve work, follow approved scope, repair and validate repeatedly, report honest evidence and submit through preflight/submit/receipt. Put detailed evidence and identity rules in bug-repair-result.",
+                  "access": "teams/source/bug/bug-fixer.md and its focused result skill. Remove the instruction to leave full checks to the factory and the terminal-envelope confirmation requirement. Keep factory-only commit/push/merge authority, permission profiles and packaged resource closure intact."
+                },
+                {
+                  "component": "Persistence and scheduling",
+                  "responsibility": "Retain repair evidence and recovery facts through graph records, and apply story-001 parking for conflicts, source uncertainty, failed validation or exhaustion.",
+                  "access": "internal/store owns context-first SQL and transactions with its single-connection pool. Do not hold transactions across git, filesystem, provider or forge I/O. Preserve typed errors and cancellation; daemon owns time, retry scheduling and owner continuation admission."
+                }
+              ],
+              "solution_design": [
+                {
+                  "element": "Prepare and recover",
+                  "contract": "Admit only eligible new-flow work. Authenticate any continuation and check current intent before mutation. Apply existing up-to-date, disabled and distance-cap decisions. When required synchronization is blocked by retained dirty edits, record and save a local unvalidated checkpoint under task/clone coordination, then use shared task/base reconciliation. Conflicts or unsafe checkpointing park through story-001. Never reset, stash, rebase or force-push to make preparation succeed.",
+                  "rationale": "This implements the owner's checkpoint answer before the agent starts, avoiding a factory repair loop or a new agent tool. Checkpointing preserves unfinished work; the fixer must still finish it and validate the resulting synchronized source."
+                },
+                {
+                  "element": "Checkpoint recovery",
+                  "contract": "Record pre-mutation identity and stable operation identity. After interruption inspect HEAD, checkpoint tree and parent binding before any retry; reuse a confirmed checkpoint. Retain partial failures honestly and block dispatch while source state is uncertain. No checkpoint, synchronization or failed run invokes delivery.",
+                  "rationale": "A local commit can succeed before its database acknowledgment. Reconciliation prevents duplicate commits and preserves the distinction between saved work and verified work."
+                },
+                {
+                  "element": "Repair and final validation",
+                  "contract": "The fixer inspects retained edits, repairs only the approved remedy and runs all applicable repository requirements plus the approved verification conditions. It repeats coding and checking inside the same finite invocation. For this repository those obligations include its required make check, full race-enabled suite and clean formatting checks; other repositories use their own retained requirements. Unrelated failures that cannot be resolved within scope remain failures and cause blocked or reshape.",
+                  "rationale": "No factory recipe follows to compensate for skipped checks. Existing rights already allow the fixer to run checks; this changes responsibility rather than adding permissions."
+                },
+                {
+                  "element": "Evidence and mutation discipline",
+                  "contract": "Before final validation, record the canonical source and relevant validation-input identities and observed target-main revision. Run the required checks, retain actual commands/results/logs and compare identities afterward. If a check or later edit changes relevant inputs, rerun affected final obligations on the new generation; success must describe one coherent final input set. The factory independently verifies final source identity and evidence completeness before exposing succeeded.",
+                  "rationale": "Source manifests include new files and modes while excluding only declared non-input logs/transport/generated artifacts. Unsupported or unidentifiable inputs block certification. Agent-run evidence remains agent-run evidence; factory comparison is not an independent test execution."
+                },
+                {
+                  "element": "Scope changes",
+                  "contract": "A materially changed diagnosis or remedy produces reshape with the approved reference, complete reasons and retained partial-work evidence. DOT returns it to story-002 before further repair under changed scope. Synchronization or source freshness alone does not create or revoke diagnosis approval; changed canonical diagnosis requires a new review.",
+                  "rationale": "This keeps repair authority and source freshness separate, preserving the settled exact approval boundary."
+                },
+                {
+                  "element": "Stale delivery and owner continuation",
+                  "contract": "If story-004 observes changed tested inputs before delivery, it records stale and parks at its origin. On an authorized owner reply, that finalization continuation first reconciles any effects, then returns the DOT-declared revalidation outcome when still needed. DOT admits the fixer with current approval, stale reasons and a new validation generation; after succeeded it returns to finalization. No automatic finalization-to-fixer edge is traversed without the claimed owner continuation. Confirmed valid integration continues only remaining closure.",
+                  "rationale": "This supplies the missing story-004 interface while preserving story-001's resume-at-origin rule. It is owner-released recovery from stale evidence, not an automatic repair/test loop. Admission validates this guarded route together with story-002's topology."
+                },
+                {
+                  "element": "Success handoff and failure",
+                  "contract": "Handoff requires the current accepted succeeded payload, successful process outcome, unchanged approval, complete passing evidence and matching observed content. Failed execution, missing/invalid input, exhausted budget, storage failure or changed inputs cannot advance. Preserve work and reasons, use story-001's one-reply continuation, and pass only the immutable eligible binding to story-004.",
+                  "rationale": "Terminal text cannot supply evidence, and a receipt cannot override a failed process. New-flow evidence and failures survive restart without reconstructing authority from legacy repair/check stores."
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

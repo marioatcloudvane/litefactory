@@ -522,13 +522,16 @@ func TestRunWritesAnOversizedEventLineIntact(t *testing.T) {
 
 // AC-3.16: written as it arrives, not buffered — a crash keeps what already
 // happened. The fake blocks after the init event until the test has seen it on
-// disk.
+// disk (a handshake through the gate file), so the outcome does not depend on
+// machine speed: with an unbuffered sink the fake cannot exit before the test
+// sees init, and with a buffered sink init cannot reach disk before the fake
+// exits. The runner timeout and the context deadline remain the outer bounds.
 func TestRunStreamsEventsAsTheyArrive(t *testing.T) {
 	root := t.TempDir()
 	gate := filepath.Join(root, "gate")
 
 	script := emit(t, initLine) +
-		"i=0\nwhile [ ! -f " + gate + " ] && [ $i -lt 200 ]; do /bin/sleep 0.05; i=$((i+1)); done\n" +
+		"while [ ! -f " + gate + " ]; do /bin/sleep 0.05; done\n" +
 		emit(t, resultLine) + "exit 0\n"
 	f := newFixture(t, script)
 
@@ -550,15 +553,25 @@ func TestRunStreamsEventsAsTheyArrive(t *testing.T) {
 		done <- result
 	}()
 
-	if !waitFor(5*time.Second, func() bool {
+	initOnDisk := func() bool {
 		data, err := os.ReadFile(logPath)
 		return err == nil && strings.Contains(string(data), `"subtype":"init"`)
-	}) {
-		cancel()
-		<-done
-		t.Fatal("the init event was not on disk while the run was still in flight; the stream is buffered")
+	}
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for !initOnDisk() {
+		select {
+		case finished := <-done:
+			if finished == nil {
+				t.FailNow()
+			}
+			t.Fatalf("the init event was not on disk while the run was still in flight; the stream is buffered (outcome %s)", finished.Outcome)
+		case <-tick.C:
+		}
 	}
 	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		cancel()
+		<-done
 		t.Fatal(err)
 	}
 

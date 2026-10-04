@@ -11,10 +11,8 @@ import (
 	"testing"
 )
 
-// Research and Plan enter the shared driver. The pinned Bug child and the
-// factory-selected Bug parent runtime dispatch their own retained node identities.
-// BugRuntime binds package pins, role permissions and domain recovery before
-// this call; only its exact production method is an additional approved entry.
+// Research and Plan enter the shared driver. The supported simplified Bug host
+// dispatches only its pinned graph identities through its exact executeGraph method.
 // Reject other wiring, including function-value references and nested callbacks.
 func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 	t.Parallel()
@@ -54,15 +52,8 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 					allowed[fn.Name] = true
 				}
 				planEntry := filepath.Clean(path) == filepath.Join("..", "turn", "plan_graph.go") && fn.Name.Name == "admitPlanExecution"
-				bugChildEntry := false
-				if filepath.Clean(path) == filepath.Join("..", "turn", "bug_test_graph.go") && fn.Name.Name == "Advance" && fn.Recv != nil && len(fn.Recv.List) == 1 {
-					if pointer, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
-						name, ok := pointer.X.(*ast.Ident)
-						bugChildEntry = ok && name.Name == "BugTestChild"
-					}
-				}
 				bugParentEntry := false
-				if filepath.Clean(path) == filepath.Join("..", "turn", "bug_runtime.go") && fn.Name.Name == "Execute" && fn.Recv != nil && len(fn.Recv.List) == 1 {
+				if filepath.Clean(path) == filepath.Join("..", "turn", "bug_graph_runtime.go") && fn.Name.Name == "executeGraph" && fn.Recv != nil && len(fn.Recv.List) == 1 {
 					if pointer, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
 						name, ok := pointer.X.(*ast.Ident)
 						bugParentEntry = ok && name.Name == "BugRuntime"
@@ -71,7 +62,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 				shared, sharedEntry := sharedEntries[fn.Name.Name]
 				sharedEntry = sharedEntry && filepath.Clean(path) == filepath.Join("..", "turn", shared.file)
 				researchFile := filepath.Clean(path) == filepath.Join("..", "turn", "research_workflow.go")
-				if !bugParentEntry && !bugChildEntry && ((!planEntry && !sharedEntry && !researchFile) || fn.Recv != nil) {
+				if !bugParentEntry && ((!planEntry && !sharedEntry && !researchFile) || fn.Recv != nil) {
 					continue
 				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -87,7 +78,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 						return true
 					}
 					sharedDispatch := (sharedEntry || planEntry) && id.Name == "ExecuteWorkflow"
-					if owners[id.Name] != fn.Name.Name && !sharedDispatch && ((!bugChildEntry && !bugParentEntry) || id.Name != "ExecuteNodeAction") {
+					if owners[id.Name] != fn.Name.Name && !sharedDispatch && (!bugParentEntry || id.Name != "ExecuteNodeAction") {
 						return true
 					}
 					allowed[id] = true
@@ -131,7 +122,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 	for name, owner := range owners {
 		want := 3
 		if name == "ExecuteNodeAction" {
-			want = 3
+			want = 2
 		}
 		if calls[name] != want {
 			t.Errorf("found %d direct %s calls from approved %s entries, want %d", calls[name], name, owner, want)

@@ -120,3 +120,22 @@ func scanGraphInstance(row scanner) (GraphInstance, error) {
 	v.FinishedAt, err = scanTime(finished)
 	return v, err
 }
+
+// ListPinnedGraphInstances restricts restart recovery to the supported exact
+// profile; old executions remain untouched even when they owe work.
+func (db *DB) ListPinnedGraphInstances(ctx context.Context, digest string) ([]GraphInstance, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE definition_id IN (SELECT id FROM graph_definitions WHERE workflow='bug' AND digest=?) AND status IN ('running','succeeded') ORDER BY id`, digest)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GraphInstance
+	for rows.Next() {
+		v, e := scanGraphInstance(rows)
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}

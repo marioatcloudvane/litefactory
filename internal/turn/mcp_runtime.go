@@ -38,10 +38,7 @@ type MCPRuntime struct {
 	CreationAuthorizer *CreationAuthorizer
 	Redactor           *redact.Redactor
 	BotID              int64
-	// BugChecksIsolation is the operator's Bug checks sandbox profile, the same
-	// one the factory's own final check runs under. A bug-fixer attempt's
-	// self-check tools use it; a zero value (no operator profile configured)
-	// simply makes self-checking unavailable, never blocking the fixer.
+	// BugChecksIsolation supplies the configured sandbox to shared Spike checks.
 	BugChecksIsolation bugchecks.Isolation
 	// DisableMCP disables native registration while retaining the shared final route.
 	DisableMCP     bool

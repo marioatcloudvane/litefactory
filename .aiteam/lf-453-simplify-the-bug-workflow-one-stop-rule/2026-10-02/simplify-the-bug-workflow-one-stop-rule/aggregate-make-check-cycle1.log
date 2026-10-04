@@ -1,0 +1,86 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.792s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	3.605s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	2.791s
+ok  	github.com/cloudvane/litefactory/internal/archive	2.960s
+ok  	github.com/cloudvane/litefactory/internal/attach	1.582s
+ok  	github.com/cloudvane/litefactory/internal/buganalysis	3.079s
+ok  	github.com/cloudvane/litefactory/internal/bugchecks	3.877s
+ok  	github.com/cloudvane/litefactory/internal/bugrepair	3.197s
+ok  	github.com/cloudvane/litefactory/internal/cli	255.391s
+ok  	github.com/cloudvane/litefactory/internal/codex	81.066s
+ok  	github.com/cloudvane/litefactory/internal/config	4.968s
+ok  	github.com/cloudvane/litefactory/internal/confirm	2.681s
+ok  	github.com/cloudvane/litefactory/internal/daemon	861.158s
+ok  	github.com/cloudvane/litefactory/internal/doctor	17.681s
+--- FAIL: TestWorktreeMethodSetIsTheAllowlist (0.00s)
+    surface_test.go:114: git.Worktree method set changed.
+         got: Branch, ChangedSince, CheckpointSource, ClonePath, CollectConflictSnapshots, Commit, CompleteMerge, ConflictBlob, Divergence, MergeBase, MergePreview, ObserveSource, Path, Push, ReadBugCheckRecipe, RemoteHead, RevParse, SaveSource, StageResolvedFiles, Status, WriteResolvedFiles
+        want: Branch, ChangedSince, ClonePath, CollectConflictSnapshots, Commit, CompleteMerge, ConflictBlob, Divergence, MergeBase, MergePreview, Path, Push, ReadBugCheckRecipe, RemoteHead, RevParse, StageResolvedFiles, Status, WriteResolvedFiles
+        
+        The method set of Worktree is the whole mutating surface litefactory has. If a new git command really belongs here, add it with a recorded reason and amend this list deliberately.
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/git	65.868s
+ok  	github.com/cloudvane/litefactory/internal/github	4.452s
+ok  	github.com/cloudvane/litefactory/internal/gittest	5.174s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	3.579s
+ok  	github.com/cloudvane/litefactory/internal/harness	85.073s
+ok  	github.com/cloudvane/litefactory/internal/identity	26.266s
+ok  	github.com/cloudvane/litefactory/internal/launchd	5.342s
+ok  	github.com/cloudvane/litefactory/internal/logging	2.675s
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	3.838s
+ok  	github.com/cloudvane/litefactory/internal/meter	3.158s
+ok  	github.com/cloudvane/litefactory/internal/naming	3.056s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	3.039s
+ok  	github.com/cloudvane/litefactory/internal/providerprocess	2.983s
+ok  	github.com/cloudvane/litefactory/internal/redact	2.792s
+ok  	github.com/cloudvane/litefactory/internal/render	2.668s
+ok  	github.com/cloudvane/litefactory/internal/report	11.122s
+ok  	github.com/cloudvane/litefactory/internal/repos	5.039s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/schedule	4.184s
+ok  	github.com/cloudvane/litefactory/internal/secrets	3.280s
+--- FAIL: TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase (0.77s)
+    archive_integration_test.go:54: problems [graph_effects is not classified retained graph_effects references archived graph_instances retained graph_effects references archived graph_node_attempts retained graph_effects references archived graph_node_attempts] <nil>
+2026/10/03 02:20:26 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen2109622617/001/litefactory.db
+--- FAIL: TestArchiveRegistryProblems_MigratedDatabaseIsClean (6.85s)
+    archive_unit_test.go:59: registry problems: [graph_effects is not classified retained graph_effects references archived graph_instances retained graph_effects references archived graph_node_attempts retained graph_effects references archived graph_node_attempts]
+2026/10/03 02:28:51 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants306735690/001/litefactory.db
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	551.269s
+ok  	github.com/cloudvane/litefactory/internal/submission	3.266s
+ok  	github.com/cloudvane/litefactory/internal/team	4.128s
+ok  	github.com/cloudvane/litefactory/internal/teampublish	4.779s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	3.188s
+--- FAIL: TestPlanSourceAndEmbeddedTreesAreByteIdentical (0.00s)
+    plan_role_guidance_test.go:107: plan-acceptance.md differs between source and embedded copies
+    plan_role_guidance_test.go:107: plan-set.md differs between source and embedded copies
+    plan_role_guidance_test.go:107: plan-technical.md differs between source and embedded copies
+--- FAIL: TestPlanPackageClosureAndDigest (0.05s)
+    plan_contract_test.go:113: source/embedded mismatch: plan-acceptance.md
+    plan_contract_test.go:113: source/embedded mismatch: plan-set.md
+    plan_contract_test.go:113: source/embedded mismatch: plan-technical.md
+--- FAIL: TestEveryShippedWorkflowResultContractDescribesTheSharedRoute (0.02s)
+    result_contract_examples_test.go:846: bug/skills/bug-repair-result/result.md has no worked example (json fence)
+    result_contract_examples_test.go:846: bug/skills/bug-repair-result/result.md does not mention the shared result route step "submit"
+    result_contract_examples_test.go:846: bug/skills/bug-repair-result/result.md does not mention the shared result route step "receipt"
+--- FAIL: TestPlanSetRoleAndSkillCopiesAgree (0.00s)
+    plan_set_role_test.go:94: plan-set.md differs between source and embedded copies
+--- FAIL: TestShippedWorkflowRolesHaveTheNineSections (0.05s)
+    --- FAIL: TestShippedWorkflowRolesHaveTheNineSections/bug (0.00s)
+        role_sections_test.go:221: bug/bug-fixer.md: missing section "Voice"
+        role_sections_test.go:221: bug/bug-fixer.md: missing section "Goal"
+        role_sections_test.go:221: bug/bug-fixer.md: missing section "How You Are Invoked"
+        role_sections_test.go:221: bug/bug-fixer.md: missing section "When You Are Done"
+        role_sections_test.go:221: bug/bug-fixer.md: missing section "Must Do"
+        role_sections_test.go:221: bug/bug-fixer.md: missing section "Must Not Do"
+        role_sections_test.go:221: bug/bug-fixer.md: missing section "Writing the Report"
+        role_sections_test.go:221: bug/bug-fixer.md: missing section "Output"
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamsource	22.229s
+make: *** [test] Error 1

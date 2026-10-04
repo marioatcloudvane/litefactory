@@ -347,10 +347,13 @@ type Trigger struct {
 
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
-	workflowPolicy     *WorkflowPolicy
-	bugAdmitted        bool
-	researchDefinition *teamsource.ResearchDefinition
-	researchNode       string
+	workflowPolicy *WorkflowPolicy
+	bugAdmitted    bool
+	// graphBugPreparation defers synchronization until the exact agent allocation
+	// can retain preservation intent. Only the simplified factory sets it.
+	graphBugPreparation bool
+	researchDefinition  *teamsource.ResearchDefinition
+	researchNode        string
 	// researchInstance scopes this run's application result to one graph
 	// instance. A result is identified by task, mode and work context, so
 	// without this every run on a task shares one result and every run after
@@ -639,6 +642,10 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 			logger.Error("release the task lock", slog.Any("error", releaseErr))
 		}
 	}()
+
+	if err := opts.DB.ValidateGraphDispatchTarget(ctx, session.ID, req.Trigger.CommentID); err != nil {
+		return result, err
+	}
 
 	if req.Workflow == agent.WorkflowBug {
 		return opts.Bug.Execute(ctx, req, result)

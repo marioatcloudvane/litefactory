@@ -56,3 +56,17 @@ func TestGraphReplyBetweenQuestionsRefusalSaysNotUsedAndResend(t *testing.T) {
 		"post it again as a reply to the open question or review",
 	)
 }
+
+// A Bug comment that cannot be applied is answered through the mode-refusal
+// path, which consumes it, and tells the owner how to approve.
+func TestRenderReplyBugCommentNotApplied(t *testing.T) {
+	rep := newReporter(t)
+	body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: report.ReplyBugCommentNotApplied})
+	if err != nil {
+		t.Fatalf("RenderReply: %v", err)
+	}
+	text := body.String()
+	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "/approve-bug analysis <revision>") || !report.ReplyBugCommentNotApplied.RefusesMode() {
+		t.Fatalf("reply:\n%s", text)
+	}
+}

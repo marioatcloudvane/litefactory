@@ -264,6 +264,42 @@ func (p Isolation) resolve(root string, c config.BugCheckCommand) (string, strin
 	return executable, cwd, env, nil
 }
 
+// ObserveInputs identifies configured command inputs without executing a check.
+// Unavailable or oversized executables prevent validation certification.
+func (p Isolation) ObserveInputs(worktree string, c config.BugCheckCommand) (string, error) {
+	root, err := filepath.EvalSymlinks(worktree)
+	if err != nil {
+		return "", err
+	}
+	executable, cwd, env, err := p.resolve(root, c)
+	if err != nil {
+		return "", err
+	}
+	// #nosec G304 -- resolve confines executables to the trusted operator PATH or worktree.
+	f, err := os.Open(executable)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	n, readErr := io.Copy(h, io.LimitReader(f, (128<<20)+1))
+	closeErr := f.Close()
+	if readErr != nil || closeErr != nil {
+		return "", errors.Join(readErr, closeErr)
+	}
+	if n > 128<<20 {
+		return "", errors.New("check executable exceeds 128 MiB identity bound")
+	}
+	relative, err := filepath.Rel(root, cwd)
+	if err != nil {
+		return "", err
+	}
+	for _, value := range append([]string{executable, relative}, env...) {
+		h.Write([]byte{0})
+		h.Write([]byte(value))
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 type capture struct {
 	mu sync.Mutex
 	bytes.Buffer

@@ -1,15 +1,19 @@
-# Bug repair result
+# Repair result
 
-Use communication_preflight, communication_submit and communication_receipt. The factory binds workflow bug with no mode, role bug-fixer, invocation, base_revision, reservation, approved analysis digest and original source commit/tree.
+`result.payload.bug` carries `response` and `repair`; it never carries analysis or approval.
 
-Set payload.bug.response to done, reshape or blocked. Send payload.bug.repair with reservation, analysis_digest, source_commit, source_tree, summary and coverage. Each coverage entry has criterion, changes and tests arrays of contained relative paths, plus optional gap. Done requires every approved criterion exactly once, changes and tests for each, and no gaps. Unknown or duplicate criteria and escaping paths are refused. Partial blocked/reshape work preserves references and gaps; no further edit is authorized by that result.
+- `succeeded`: `result.outcome` is `completed`, with no questions. The approved bug is fixed and the repository's own checks pass.
+- `reshape`: `result.outcome` is `incomplete`, with a `reason` explaining why the diagnosis or remedy must change.
+- `blocked`: `result.outcome` is `blocked`, with a `reason` naming the obstacle.
 
-Do not submit analysis, approval, budgets, recipes or delivery fields. Done is authored work, not executed passing checks. Shared result input alone cannot create the downstream testing handoff: successful invocation, graph consistency, factory scope observations and immutable source persistence remain required.
+`repair` holds a plain-language `summary` of what changed (or what partial work exists) and, optionally, `checks`: the commands you ran with their outcome, for example `{"command": "go test ./...", "outcome": "passed"}`. Use the repository's own checks: its README, Makefile, AGENTS or CLAUDE files, and CI configuration. Never claim a check passed that you did not run or that failed.
 
-Preflight and correct diagnostics before submission; read the receipt matching request_id. A lost reply reuses request identity and identical bytes after receipt lookup. Corrected content has a new identity. The terminal version-1 envelope confirms only the already retained response and result. Pending is not success.
+The change itself lives in git: the factory commits your worktree, pushes, merges and closes. You echo no digests, revisions or factory identifiers.
 
-A blocked repair example (replace all bindings with the factory-supplied values):
+## Shared submission
+
+Use communication preflight, correct every diagnostic, submit, then read the matching receipt. Recover the original request after a lost reply. The final chat message is a note and never an application result.
 
 ```json
-{"outcome":"blocked","comment":"The repair cannot proceed.","reason":"The approved source cannot be reproduced.","payload":{"bug":{"response":"blocked","invocation":"factory-bound-reservation","base_revision":1,"repair":{"reservation":"factory-bound-reservation","analysis_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source_commit":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","source_tree":"cccccccccccccccccccccccccccccccccccccccc","summary":"No product changes were made; the source is unavailable.","coverage":[{"criterion":"C1","changes":[],"tests":[],"gap":"Cannot inspect the approved source."}]}}}}
+{"result":{"outcome":"completed","comment":"Fixed: empty queries now return no matches.","payload":{"bug":{"response":"succeeded","repair":{"summary":"Guard empty input in search.go; added a regression test.","checks":[{"command":"go test ./...","outcome":"passed"}]}}}}}
 ```

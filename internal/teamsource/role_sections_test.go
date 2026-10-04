@@ -208,10 +208,6 @@ func TestShippedWorkflowRolesHaveTheNineSections(t *testing.T) {
 				t.Fatal(err)
 			}
 			roles := dotAgentRoles(string(dot))
-			if len(roles) == 0 && w.Name == "bug" && w.Dot == "bug_tests.dot" {
-				// The sole approved test child executes factory checks, never agents.
-				return
-			}
 			if len(roles) == 0 {
 				t.Fatalf("%s/%s names no agent role: the guard would pass vacuously", w.Name, w.Dot)
 			}
