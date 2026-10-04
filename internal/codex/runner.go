@@ -428,11 +428,12 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	}
 	args = append(args, "--ignore-rules", "--sandbox", sandbox)
 	if req.Mode == "validate" {
-		// Validate consumes retained source/check bytes from stdin. Disabling shell
-		// execution prevents even read-only tests from being commissioned. Bug
-		// keeps the shell: it is Codex's only way to read files, the analyst's
-		// read-only sandbox still forbids writes, and the fixer tests its work.
-		args = append(args, "-c", "features.shell_tool=false", "-c", "features.multi_agent=false")
+		// Validate keeps the shell, like the Bug analyst: the prompt withholds
+		// retained snapshot bodies and lists their paths, and the shell is
+		// Codex's only way to read them. The read-only sandbox enforced in Run
+		// prevents writes, and the Validate contract forbids running anything
+		// but file reads. Delegation stays disabled.
+		args = append(args, "-c", "features.multi_agent=false")
 	}
 	// Additive-only: a launch with no MCP registration produces no overrides
 	// here and this invocation is unchanged from before this encoding existed.

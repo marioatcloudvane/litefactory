@@ -90,3 +90,21 @@ func TestValidationPromptWithholdsSnapshotBodies(t *testing.T) {
 		t.Fatal("withholding mutated the caller's retained evidence")
 	}
 }
+
+// Codex Validate keeps a read-only shell to read the withheld bodies, so both
+// contract versions must confine any shell to file reads.
+func TestValidationPromptConfinesShellToFileReads(t *testing.T) {
+	context := &agent.ValidationContext{Version: 1, Parent: "github:acme/acme-api#471", Generation: 1}
+	for _, submission := range []int{0, 2} {
+		var b strings.Builder
+		if err := writeValidation(&b, PromptInput{Validation: context, SubmissionVersion: submission}); err != nil {
+			t.Fatal(err)
+		}
+		prompt := b.String()
+		for _, want := range []string{"If you have a shell, use it only to read files", "Do not run tests, builds, linters, scripts, package managers, git commands that change state, or any other command."} {
+			if !strings.Contains(prompt, want) {
+				t.Fatalf("submission %d lacks %q", submission, want)
+			}
+		}
+	}
+}
