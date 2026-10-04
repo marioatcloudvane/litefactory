@@ -251,6 +251,15 @@ func deferred(reason string, err error) (ArchiveVisit, error) {
 	return ArchiveVisit{Outcome: ArchiveOutcomeDeferred, Reason: reason}, err
 }
 
+// archiveActiveReason returns why the owner must be kept even when its issue
+// is closed: work is running, or another session owns its checkout.
+func archiveActiveReason(owner store.ArchiveOwner) string {
+	if !owner.Canonical || owner.Active {
+		return "active_or_uncertain_owner"
+	}
+	return ""
+}
+
 // archiveSettledReason returns why the owner must be kept, or "" when settled.
 func archiveSettledReason(owner store.ArchiveOwner) string {
 	switch {
@@ -271,10 +280,16 @@ func (d *Daemon) archiveOwner(ctx context.Context, ownerID int64, now time.Time,
 	if err != nil {
 		return ArchiveVisit{}, archiveStorageError(err)
 	}
-	if reason := archiveSettledReason(owner); reason != "" {
+	// Pending bookkeeping alone does not keep a closed issue: the closed check
+	// below decides. Active work always keeps it.
+	if reason := archiveActiveReason(owner); reason != "" {
 		return kept(reason)
 	}
+	pendingReason := archiveSettledReason(owner)
 	if owner.ArchivableRows == 0 {
+		if pendingReason != "" {
+			return kept(pendingReason)
+		}
 		if v, stop, err := d.forgetFilesVisit(ctx, owner); stop {
 			return v, err
 		}
@@ -316,10 +331,14 @@ func (d *Daemon) archiveOwner(ctx context.Context, ownerID int64, now time.Time,
 		return deferred("task_ownership_lost", errors.New("archive task ownership lost"))
 	}
 	owner.Active = owner.BusyWithoutOwnerLock
-	if reason := archiveSettledReason(owner); reason != "" {
+	if reason := archiveActiveReason(owner); reason != "" {
 		return kept(reason)
 	}
+	pendingReason = archiveSettledReason(owner)
 	if owner.ArchivableRows == 0 {
+		if pendingReason != "" {
+			return kept(pendingReason)
+		}
 		return d.forgetFamily(ctx, owner, now, issues)
 	}
 	issue, err := issues.GetIssue(github.WithoutConditionalCache(ctx), github.Repo{Owner: owner.Repo.Owner, Name: owner.Repo.Name}, owner.Session.IssueNumber)
@@ -327,8 +346,12 @@ func (d *Daemon) archiveOwner(ctx context.Context, ownerID int64, now time.Time,
 		return deferred("issue_lookup_failed", err)
 	}
 	if !RetirementIssueClosed(owner.Repo, owner.Session.IssueNumber, issue) {
+		if pendingReason != "" {
+			return kept(pendingReason)
+		}
 		return kept("issue_not_confirmed_closed")
 	}
+	owner.Family.IssueClosed = true
 	return d.archiveFamily(ctx, owner, now)
 }
 
