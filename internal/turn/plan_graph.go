@@ -23,7 +23,7 @@ import (
 // shared result route, judged by the Plan decoder and retained as a reference to the
 // accepted shared result; the policy carries no result format of its own.
 func PlanWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
+	return WorkflowPolicy{AcceptAfterProcessFailure: true, Mode: agent.ModePlan, Control: graphexec.PlanControlPolicy(), Specs: []graphexec.ActionSpec{graphexec.PlanStorySpec()}, Decode: agentresult.DecodePlanNode, Retain: retainPlanResult, Guidance: planNodeGuidance, Failure: planFailureCandidate, Render: renderPlanFailure}
 }
 
 // PlanSpecs validates the packaged Plan under Plan's own control and result policy.
@@ -261,7 +261,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 			return r.retire(ctx, s, rev, reply)
 		}
 		if _, err = s.ApplyOwnerReply(reply); err != nil {
-			return err
+			return &PlanReplyRefusal{Reason: planReplyRefusalReason, Err: err}
 		}
 		return r.persist(ctx, s, rev)
 	}

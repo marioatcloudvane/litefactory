@@ -20,6 +20,25 @@ type planSetRefusal struct{ reason string }
 
 func (e *planSetRefusal) Error() string { return e.reason }
 
+// planReplyRefusalReason is the owner-facing text for a child reply the review
+// rules refuse. It names no internal state, so it is safe to post.
+const planReplyRefusalReason = "This reply could not be applied to the current review of this story: " +
+	"it may be out of date, the story, a story it depends on or a shared decision may have changed, " +
+	"or open questions or an earlier approval may still be needed. Nothing was approved. " +
+	"Wait for the updated review and use the command it shows."
+
+// PlanReplyRefusal is a child reply the review rules decline. Retrying the same
+// reply can never succeed, so the daemon answers it on the sub-issue and
+// consumes it instead of retrying. Store and save failures are not refusals.
+type PlanReplyRefusal struct {
+	Reason string
+	Err    error
+}
+
+func (e *PlanReplyRefusal) Error() string { return e.Err.Error() }
+
+func (e *PlanReplyRefusal) Unwrap() error { return e.Err }
+
 var planSetRevisionText = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // planSetPromotionArgument reports whether body is an attempt at the promotion

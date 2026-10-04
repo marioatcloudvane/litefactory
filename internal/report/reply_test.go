@@ -70,3 +70,21 @@ func TestRenderReplyBugCommentNotApplied(t *testing.T) {
 		t.Fatalf("reply:\n%s", text)
 	}
 }
+
+// A Research comment refused because the wait already holds another reply is
+// answered neutrally through the mode-refusal path, which consumes it.
+func TestRenderReplyGraphOwnerWaitRefused(t *testing.T) {
+	rep := newReporter(t)
+	body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: report.ReplyGraphOwnerWaitRefused})
+	if err != nil {
+		t.Fatalf("RenderReply: %v", err)
+	}
+	text := body.String()
+	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "already handling another reply or question") || !strings.Contains(text, "nothing was run") {
+		t.Fatalf("reply:\n%s", text)
+	}
+	kind := report.ReplyGraphOwnerWaitRefused
+	if kind.String() != "graph_owner_wait_refused" || !kind.RefusesMode() {
+		t.Fatalf("kind = %q, RefusesMode = %v", kind.String(), kind.RefusesMode())
+	}
+}

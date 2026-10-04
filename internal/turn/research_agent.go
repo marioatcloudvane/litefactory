@@ -179,10 +179,11 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 	var node agentresult.ResearchNode
 	var revision int64
 	accepted := false
-	// A Bug agent's accepted submission is its answer. How the process exited
+	// An accepted submission is the agent's answer. How the process exited
 	// afterwards (a non-zero exit, a timeout after submitting, a transport
-	// close) does not discard it; only a factory shutdown interrupts it.
-	if failed && h.Policy.Workflow == agent.WorkflowBug && ctx.Err() == nil {
+	// close) does not discard it where the policy opts in; only a factory
+	// shutdown interrupts it.
+	if failed && h.Policy.AcceptAfterProcessFailure && ctx.Err() == nil {
 		if n, r, e := h.acceptRetained(ctx, invocation.Results); e == nil {
 			node, revision, accepted, failed = n, r, true, false
 		}

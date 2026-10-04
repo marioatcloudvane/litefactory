@@ -275,3 +275,52 @@ func TestResearchBetweenQuestions_HeldWhileAttemptRuns(t *testing.T) {
 		t.Fatalf("diagnostic replies = %d, want exactly 1", got)
 	}
 }
+
+// An ordinary comment that arrives while the wait already holds a claimed reply
+// is answered once and consumed, instead of retrying forever; the open claim is
+// untouched.
+func TestResearchOwnerWaitRefusalIsAnsweredOnceAndConsumed(t *testing.T) {
+	const ownerWaitText = "already handling another reply or question"
+	b := newBetweenQuestions(t)
+	f := b.f
+	b.shapeAsks(t)
+	f.forge.addComment(testIssue, betweenGenuineReply, owner(), "Yes, cover the readiness probe too")
+	for range 6 {
+		if _, ran := turnFor(f, betweenGenuineReply); ran {
+			break
+		}
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	if _, ran := turnFor(f, betweenGenuineReply); !ran {
+		t.Fatalf("genuine reply never reached a turn:\n%s", f.logs)
+	}
+	const second = int64(150)
+	f.forge.addComment(testIssue, second, owner(), "Also, one more thought")
+	if !settleUntilHandled(f, second, 6) {
+		t.Fatalf("comment refused by the owner wait was never consumed: watermark=%d\nlogs:\n%s", f.watermark(), f.logs)
+	}
+	count := func() int {
+		posted, _, _ := f.forge.snapshot()
+		n := 0
+		for _, body := range posted {
+			if strings.Contains(body, ownerWaitText) {
+				n++
+			}
+		}
+		return n
+	}
+	if got := count(); got != 1 {
+		t.Fatalf("refusal replies = %d, want 1\nlogs:\n%s", got, f.logs)
+	}
+	if _, ran := turnFor(f, second); ran {
+		t.Fatal("the refused comment was handed to an agent")
+	}
+	for range 3 {
+		f.clock.advance(time.Minute)
+		f.settle()
+	}
+	if got := count(); got != 1 {
+		t.Fatalf("refusal replies after repeated ticks = %d, want 1", got)
+	}
+}

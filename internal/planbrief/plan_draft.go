@@ -227,6 +227,7 @@ func (d PlanDraft) Revision() string {
 
 // MergePlanDraft preserves settled sections unless explicitly selected for
 // replacement. Empty replacement slices intentionally remove optional sections.
+// An unknown section name is ignored; the Plan result check reports it to the agent.
 func MergePlanDraft(prior, next PlanDraft, changed []string) (PlanDraft, error) {
 	if prior.Key != next.Key {
 		return PlanDraft{}, errors.New("story identity cannot change")
@@ -262,8 +263,6 @@ func MergePlanDraft(prior, next PlanDraft, changed []string) (PlanDraft, error) 
 			out.Decisions = next.Decisions
 			out.Assumptions = next.Assumptions
 			out.Questions = next.Questions
-		default:
-			return PlanDraft{}, fmt.Errorf("unknown changed section %q", section)
 		}
 	}
 	raw, err := json.Marshal(out)

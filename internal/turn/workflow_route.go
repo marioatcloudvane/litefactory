@@ -37,6 +37,9 @@ func (w *researchWorkflow) openResultRoute(ctx context.Context, req *agent.Reque
 	if err != nil {
 		return nil, err
 	}
+	if w.policy.ValidateCompletion != nil {
+		p.service.validateCompletion = w.policy.ValidateCompletion
+	}
 	route := &resultRoute{prepared: p}
 	if host, ok := prep.runner.(interface{ SupportsMCP() bool }); ok && host.SupportsMCP() && !w.opts.MCP.DisableMCP {
 		req.MCPLaunch = spec

@@ -151,13 +151,19 @@ func (r PlanStoryRequest) Faults() []PlanStoryFault {
 	return faults
 }
 
+var planSectionNames = []string{"intent", "architecture", "criteria", "tasks", "dependencies", "design", "guidance", "conversation"}
+
 // PlanSectionFaults applies the per-stage authority over changed sections: the
 // story role may touch only intent, dependencies and conversation, and the
 // technical role may not touch criteria or tasks. Section names themselves are
-// checked when the change is merged.
+// checked here too: an unknown name is refused with the valid names listed.
 func PlanSectionFaults(stage string, sections []string) []PlanStoryFault {
 	var faults []PlanStoryFault
 	for _, section := range sections {
+		if !slices.Contains(planSectionNames, section) {
+			faults = append(faults, PlanStoryFault{Field: "changed_sections", Message: fmt.Sprintf("unknown changed section %q: use only %s", section, strings.Join(planSectionNames, ", "))})
+			continue
+		}
 		if stage == "story" && section != "intent" && section != "dependencies" && section != "conversation" {
 			faults = append(faults, PlanStoryFault{Field: "changed_sections", Message: fmt.Sprintf("story role cannot author later-stage sections: remove %q from changed_sections (the story stage may change intent, dependencies and conversation)", section)})
 		}

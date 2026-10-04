@@ -1,0 +1,10 @@
+bucket,kind,files_before,phys_before,code_before,files_after,phys_after,code_after,code_delta
+plan,production,60,11159,9618,60,11193,9638,20
+plan,test,76,17514,15849,77,17662,15977,128
+research,production,20,4309,3667,20,4310,3667,0
+research,test,41,5580,5117,41,5629,5162,45
+shared_graph,production,34,4297,3603,34,4297,3603,0
+shared_graph,test,32,4861,4560,32,4861,4560,0
+shared_result,production,42,7259,6232,42,7290,6252,20
+shared_result,test,63,12513,11738,64,12577,11792,54
+TOTAL {'before': [368, 67492, 60384], 'after': [370, 67819, 60651]} code_delta 267

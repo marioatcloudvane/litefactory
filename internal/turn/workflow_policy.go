@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -49,6 +50,15 @@ type WorkflowPolicy struct {
 	Render          func(agentresult.Result, string, naming.Ref, string) string
 	NextStep        func(*graphexec.Profile, string, string) string
 
+	// AcceptAfterProcessFailure lets an agent step use a complete accepted result
+	// of its own attempt when the process failed afterwards (non-zero exit, timeout
+	// after submitting, transport close). A factory shutdown still interrupts it.
+	AcceptAfterProcessFailure bool
+
+	// ValidateCompletion is a mode's own extra check of a candidate result, run by
+	// the shared service at preflight and submit. Nil adds nothing.
+	ValidateCompletion func(context.Context, store.ResultBinding, agentresult.Result, agentresult.Context) agentresult.Diagnostics
+
 	// Questions marks a mode whose graph runtime carries owner questions. Only
 	// this factory-owned policy can grant it; it is still subject to an owner's
 	// direct instruction not to ask.
@@ -90,11 +100,29 @@ func (p WorkflowPolicy) baseContext(questions bool) agentresult.Context {
 
 // ResearchWorkflowPolicy supplies Research contracts and scoped effects to shared mechanics.
 func ResearchWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{AuthorizeOutput: authorizeResearchOutput, BeforeContinue: requireResearchBriefContinuation, Specs: []graphexec.ActionSpec{ResearchBriefSpec()}, RegisterEffects: registerResearchBrief, BeforePublish: requireResearchBrief, Failure: researchFailureCandidate, Mode: agent.ModeResearch, Control: graphexec.ResearchControlPolicy(), Decode: agentresult.DecodeResearchNode, Guidance: researchNodeGuidance(), Contract: validateResearchComment, Render: func(r agentresult.Result, next string, ref naming.Ref, branch string) string {
+	return WorkflowPolicy{AcceptAfterProcessFailure: true, ValidateCompletion: researchNodeSize, AuthorizeOutput: authorizeResearchOutput, BeforeContinue: requireResearchBriefContinuation, Specs: []graphexec.ActionSpec{ResearchBriefSpec()}, RegisterEffects: registerResearchBrief, BeforePublish: requireResearchBrief, Failure: researchFailureCandidate, Mode: agent.ModeResearch, Control: graphexec.ResearchControlPolicy(), Decode: agentresult.DecodeResearchNode, Guidance: researchNodeGuidance(), Contract: validateResearchComment, Render: func(r agentresult.Result, next string, ref naming.Ref, branch string) string {
 		return renderResearchComment(r, next, researchArtifactLinks(ref, branch, r.Artifacts))
 	}, NextStep: researchNextStep, Artifacts: func(root, session string, r agentresult.Result) error {
 		return ValidateResearchArtifactDeclarations(root, session, r.Artifacts)
 	}}
+}
+
+// researchNodeSize refuses a result whose kept encoding exceeds the 1 MiB node
+// limit, so the agent learns it at preflight and submit rather than after the
+// process ends. A done result is measured as approved, the longer kept response.
+func researchNodeSize(_ context.Context, _ store.ResultBinding, r agentresult.Result, _ agentresult.Context) agentresult.Diagnostics {
+	response, err := retainedRoute(r)
+	if err != nil {
+		return agentresult.Diagnostics{Valid: true, Complete: true}
+	}
+	if response == "done" {
+		response = "approved"
+	}
+	encoded, err := json.Marshal(agentresult.ResearchNode{Version: 1, Response: response, Result: r})
+	if err != nil || len(encoded) <= agentresult.MaxResearchNodeBytes {
+		return agentresult.Diagnostics{Valid: true, Complete: true}
+	}
+	return agentresult.Diagnostics{Complete: true, Diagnostics: []agentresult.Diagnostic{{Path: "$.result", Code: "limit", Expected: "kept result at most 1 MiB", Actual: fmt.Sprintf("%d bytes", len(encoded)), Message: "The result is larger than the 1 MiB Research keeps. Shorten it and refer to saved files for detail. Nothing was accepted."}}}
 }
 
 // routesRetained reports that all admitted graph policies route accepted data.
