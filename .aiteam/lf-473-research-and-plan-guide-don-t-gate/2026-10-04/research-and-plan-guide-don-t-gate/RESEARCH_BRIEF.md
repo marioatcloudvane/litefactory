@@ -2,14 +2,14 @@
 
 ## Request
 
-Challenge the previously proposed #473 scope for real simplification and new failure modes, preserve settled stage behavior, and present a concrete scope tradeoff for owner decision.
+Complete the full #473 shaping scope selected by q1 full, including explicit history, marker, approval-binding, uncertain-delivery, existing-session migration and definition-compatibility contracts; preserve successful stages and owner approval.
 
 ## Decisions
 
 - **d1** — The owner prioritizes simplification while preserving the working Research and Plan stage behavior.
-- **d2** — The owner requested an adversarial review, which is not acceptance of the previously displayed scope.
-- **d3** — GitHub-authoritative routing remains an issue goal, but deferring its rewrite from the first scope is proposed for owner decision.
-- **d4** — Moving durable recovery records into a run log is not itself simplification, so the recommended first scope retains existing conversation and publication records.
+- **d2** — The owner selected q1 full, settling scope breadth while the revised detailed contract remains subject to owner review.
+- **d3** — GitHub comments become the reply-routing authority for the full Research and Plan scope.
+- **d4** — Keep lock, budget and run-log execution/effect facts while removing duplicated conversation state from routing, without treating renamed storage as simplification.
 - **d5** — Reply disposition and refusal delivery must be durably separated so a failed refusal post cannot block later comment processing.
 - **d6** — Every step gets typed inherited fields with a response enum from its declared outcomes and no agent-facing revision or patch operations.
 - **d7** — Accepted submissions replace the complete current-run result, clear omitted optional fields and never inherit prior-run values.
@@ -18,34 +18,34 @@ Challenge the previously proposed #473 scope for real simplification and new fai
 - **d10** — Comment-only submissions lacking required response are rejected without attributing any historical outcome or reason.
 - **d11** — Retrying a parked factory effect reuses accepted input and never reruns an already successful agent.
 - **d12** — Owner replies reset the stopped step's retry allowance but do not reset or bypass the issue budget.
-- **d13** — Definition compatibility changes are proposed for deferral because a captured graph does not guarantee its handlers or resources remain available.
-- **d14** — The recommended first scope preserves existing graph conversation routing, pending external effects, legacy routes and activation defaults.
+- **d13** — Supported active definitions continue with captured topology/resources and compatible handlers, while genuinely unavailable execution support parks visibly without losing accepted work.
+- **d14** — Existing graph conversations migrate through publication reconciliation and marker binding while legacy routes, pending effects and activation defaults remain supported.
 - **d15** — Existing permissions and explicit owner approval requirements remain authoritative throughout routing and recovery.
-- **d16** — First-scope evidence must cover queue progress during failed refusal delivery, process-failure and restart survival, typed schemas, replacement replay and cheap-step recovery in both modes.
+- **d16** — Full-scope evidence covers history completeness, marker trust/mutation, candidate-bound approval, concurrency, migration and definition changes alongside queue, submit and recovery regressions.
 - **d17** — Code counts are repeated using the saved inventory method with no arbitrary deletion target.
-- **d18** — The recommended reduced scope does not yet meet the issue's GitHub-only routing requirement and cannot be treated as completion of the full issue.
+- **d18** — The owner rejected narrowing and selected the complete issue scope including GitHub-only routing and existing-session migration.
 - **d19** — Result request replay returns its original receipt without reapplying an older replacement over a newer accepted result.
 - **d20** — Reliability improvement and net code reduction remain unmeasured until implementation and relevant verification.
+- **d21** — Recognize versioned factory markers only with configured factory authorship and binding to an issued run-log effect.
+- **d22** — Fetch complete relevant history through a fixed comment-ID cutoff and park incomplete reads without consuming unseen guidance.
+- **d23** — Use current unconsumed guidance but require a new comment to revise already-consumed guidance.
+- **d24** — Deleted prompts or changed prompt marker/review content require a fresh prompt identity before any approval can advance the stage.
+- **d25** — Approval binds to the exact displayed candidate and conflicting guidance yields a revised review rather than automatic advancement.
+- **d26** — Migration reconciles confirmed and uncertain effects before switching routing, replacing unbindable prompts without rerunning successful agent work.
+- **d27** — Refusal delivery and uncertain external effects retain stable identities and pending authored content independently of queue intake.
+- **d28** — Budget exhaustion requires existing owner budget control rather than repeated replies silently granting more spending.
+- **d29** — Shutdown can pause continuation but cannot revoke a durably accepted answer.
+- **d30** — Shared physical records remain where legacy or unrelated workflows need them, while migrated Research and Plan reply routing no longer depends on those conversation tables.
 
 
 ## Assumptions
 
 - **a1** — Preserve the earlier disjoint scoped code inventory and its limits as the measurement baseline rather than an exhaustive mode attribution.
-- **a2** — Historical incidents remain owner reports; this pass performed focused source reinspection and adversarial reasoning, with no tests, live daemon observations or code changes.
-- **a3** — The proposed reduced scope keeps recovery and conversation records in their current owners; renaming them would not establish a reduction in state or failure paths.
+- **a2** — Historical incidents remain owner reports; this continuation settles scope from saved evidence and the owner's full-scope selection, without tests, live daemon observations or code changes.
+- **a3** — Treat execution facts and unpublished-effect content as run-log recovery data; physical shared delivery storage need not be removed if it stops serving as reply-routing authority.
 - **a4** — Use the existing stricter 1 MiB retained-result ceiling as the single submit limit because the owner requests one limit but does not request larger results.
 - **a5** — Preserve each stage's existing content fields and approval semantics when generating typed schemas; only the shared transport and run isolation change.
-- **a6** — The proposed reduced scope leaves definition compatibility unchanged, pending the owner's scope decision; graph portability is not assumed from capture alone.
-
-
-## Open questions
-
-### q1 — Should this change deliver the smaller reliability scope first or retain the full conversation-routing rewrite?
-
-_Asked of: Product Owner Questions_
-
-- **smaller** — Recommended: deliver visible nonblocking refusals, typed run-local submissions, submit-time validation and failed-step recovery first; retain current conversation routing and definition compatibility, and leave GitHub-only routing as separately reviewed remaining work.  *(recommended)*
-- **full** — Keep the complete #473 scope, including GitHub-based routing and existing-session migration; accept the broader regression risk and require explicit history, marker, approval-binding, uncertain-delivery and compatibility contracts before implementation.
+- **a6** — Preserve captured topology/resources and support for active definitions rather than automatically migrate topology, based on the owner's priority of preserving working stages.
 
 ## Research documents
 
