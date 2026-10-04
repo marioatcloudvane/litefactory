@@ -26,6 +26,10 @@ type ArchiveFamily struct {
 	SessionID int64
 	RepoID    int64
 	TaskRef   string
+	// IssueClosed is set once the forge confirmed the issue closed. Closing
+	// withdraws every pending wait, report and effect, so only active work then
+	// blocks the delete; the archive file still keeps every row.
+	IssueClosed bool
 }
 
 func archiveNamed(f ArchiveFamily) []any {
@@ -122,8 +126,9 @@ func (db *DB) GetArchiveOwner(ctx context.Context, id int64, now time.Time) (Arc
 	}
 	if reason != "" {
 		out.ArchivePending, out.ArchivePendingReason = true, reason
-		return out, nil
 	}
+	// Counted even when something is pending: a closed issue is archived
+	// despite pending bookkeeping, and zero rows would wrongly mean "nothing".
 	out.ArchivableRows, err = countArchivable(ctx, db.sql, out.Family)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -343,6 +348,9 @@ func recheckArchiveSettled(ctx context.Context, tx *sql.Tx, f ArchiveFamily, now
 	}
 	if busy {
 		return fmt.Errorf("%w: active work", ErrArchiveNotSettled)
+	}
+	if f.IssueClosed {
+		return nil
 	}
 	var pending bool
 	if err := tx.QueryRowContext(ctx, family+retirementPendingSQL, args...).Scan(&pending); err != nil {
