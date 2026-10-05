@@ -12,3 +12,5 @@ The generic `lf_agent` retains your validated candidate. The explicit Research-o
 candidate before `lf_comment` reports it or `lf_ask` opens a question/review wait.
 Do not generate the documents yourself. A generation or artifact-validation failure
 blocks successful reporting and handoff; private agent completion grants no approval.
+
+When another investigation pass is needed without an owner decision, submit an incomplete result with a nonblank reason, cumulative partial findings, `payload.research.continue=true` and no questions. The factory generates the partial brief and runs this same stage again without a comment, within its persisted allowance. Preserve applicable findings and evidence from prior passes. Real owner questions still use the question route.

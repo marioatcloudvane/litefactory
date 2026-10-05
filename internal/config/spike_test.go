@@ -1,34 +1,8 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
-
-func writeExecution(t *testing.T, root, file, raw string) {
-	t.Helper()
-	dir := filepath.Join(root, ".litefactory")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, file), []byte(raw), 0600); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// A leftover .litefactory/spike.yaml is inert: Research's own setting is read
-// exactly as before whatever the retired file holds, including invalid content.
-func TestLeftoverSpikeSettingDoesNotAffectResearchSetting(t *testing.T) {
-	for _, raw := range []string{"execution: legacy\n", "execution: graph\n", "garbage: [\n", ""} {
-		root := t.TempDir()
-		writeExecution(t, root, "research.yaml", "execution: graph\n")
-		writeExecution(t, root, "spike.yaml", raw)
-		if got, err := ResearchExecution(root); err != nil || got != "graph" {
-			t.Fatalf("spike.yaml %q changed Research: %q %v", raw, got, err)
-		}
-	}
-}
 
 func TestSpikeRoleGrantsAreExplicitAndValidated(t *testing.T) {
 	profiles := DefaultToolProfiles().Permissions

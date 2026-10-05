@@ -145,7 +145,9 @@ func TestResearchCommentRenderFailureRecoveryPreservesProcess(t *testing.T) {
 	}
 }
 
-func TestResearchCommentQuestionRequiresSuccessfulSource(t *testing.T) {
+// The kind/outcome/status matrix was removed (#474): a question is published
+// once from the retained candidate; deduplication and input are unchanged.
+func TestResearchCommentQuestionIsPublishedOnce(t *testing.T) {
 	f, source, candidate, scope := researchCommentFixture(t, false)
 	candidate.Outcome = "incomplete"
 	candidate.Reason = "Scope needed"
@@ -159,10 +161,6 @@ func TestResearchCommentQuestionRequiresSuccessfulSource(t *testing.T) {
 	mustProgress(t, err)
 	if key != same || forge.attemptCount() != 1 || watermark(t, f) != 0 {
 		t.Fatal("question repeated or consumed reply")
-	}
-	source.Status = store.GraphFailed
-	if _, _, err = reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, ""); err == nil {
-		t.Fatal("failed source published question")
 	}
 }
 

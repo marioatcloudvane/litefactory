@@ -54,7 +54,22 @@ func (db *DB) StartGraphNodeAttempt(ctx context.Context, in GraphAttemptStart) (
 				return graphInvariant("mechanical owner allowance is unavailable or already consumed")
 			}
 		}
-		if in.Limit > 0 && maximum >= in.Limit {
+		spent := maximum
+		for ancestor, node := range in.ResearchPriorNodes {
+			var eligible bool
+			if e = tx.QueryRowContext(ctx, `WITH RECURSIVE history(id) AS (SELECT predecessor_id FROM research_successors WHERE instance_id=? UNION ALL SELECT r.predecessor_id FROM research_successors r JOIN history h ON r.instance_id=h.id) SELECT EXISTS(SELECT 1 FROM history h JOIN graph_instances i ON i.id=h.id JOIN graph_definitions d ON d.id=i.definition_id WHERE h.id=? AND d.mode='research')`, in.InstanceID, ancestor).Scan(&eligible); e != nil {
+				return e
+			}
+			if !eligible {
+				return graphInvariant("Research budget source is not an ancestor")
+			}
+			var count int
+			if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_node_attempts WHERE instance_id=? AND node=?`, ancestor, node).Scan(&count); e != nil {
+				return e
+			}
+			spent += count
+		}
+		if in.Limit > 0 && spent >= in.Limit {
 			allowed, claimErr := graphClaimAllowsAttemptTx(ctx, tx, in)
 			if claimErr != nil {
 				return claimErr

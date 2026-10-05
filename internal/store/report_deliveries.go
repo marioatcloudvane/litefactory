@@ -114,6 +114,20 @@ func (db *DB) MarkReportDeliverySent(ctx context.Context, key string) (bool, err
 		if d.PossiblySent || d.Completed {
 			return nil
 		}
+		if d.TriggerNamespace == ResearchReminderNamespace {
+			waitKey, e := researchReminderKeyTx(ctx, tx, d.Key)
+			if e != nil {
+				return e
+			}
+			eligible, e := researchReminderEligibleTx(ctx, tx, waitKey)
+			if e != nil {
+				return e
+			}
+			if !eligible {
+				_, e = tx.ExecContext(ctx, `UPDATE research_wait_reminders SET suppressed=1 WHERE wait_delivery_key=?`, waitKey)
+				return e
+			}
+		}
 		res, err := tx.ExecContext(ctx, `UPDATE report_deliveries SET possibly_sent=1 WHERE delivery_key=? AND possibly_sent=0 AND completed=0`, key)
 		if err != nil {
 			return err
@@ -176,11 +190,16 @@ func (db *DB) CompleteReportDelivery(ctx context.Context, key string) (ReportDel
 			return err
 		}
 		// Graph publication does not settle the graph or its subprocess.
-		if d.TriggerNamespace == "plan-observation" || d.TriggerNamespace == "plan-reply" || d.TriggerNamespace == PlanNoticeNamespace {
+		switch {
+		case d.TriggerNamespace == "plan-observation" || d.TriggerNamespace == "plan-reply" || d.TriggerNamespace == PlanNoticeNamespace:
 			if err = completePlanNoticeTx(ctx, tx, d); err != nil {
 				return err
 			}
-		} else if !graph {
+		case d.TriggerNamespace == ResearchReminderNamespace:
+			if _, err := researchReminderKeyTx(ctx, tx, d.Key); err != nil {
+				return err
+			}
+		case !graph:
 			if d.RunID != 0 {
 				if _, err := completeRunReportTx(ctx, tx, d.RunID, d.CommentID); err != nil {
 					return err
@@ -214,7 +233,7 @@ func consumeReportSource(ctx context.Context, tx *sql.Tx, sessionID, triggerID i
 // FindPendingReportDelivery permits source recovery before an executor can
 // reinterpret the trigger against changed readiness or task state.
 func (db *DB) FindPendingReportDelivery(ctx context.Context, sessionID, triggerID int64) (ReportDelivery, bool, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE session_id=? AND trigger_id=? AND completed=0 AND trigger_namespace NOT IN ('plan-observation','plan-reply','plan-notice') ORDER BY delivery_key LIMIT 2`, sessionID, triggerID)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE session_id=? AND trigger_id=? AND completed=0 AND trigger_namespace NOT IN ('plan-observation','plan-reply','plan-notice','research-reminder') ORDER BY delivery_key LIMIT 2`, sessionID, triggerID)
 	if err != nil {
 		return ReportDelivery{}, false, err
 	}

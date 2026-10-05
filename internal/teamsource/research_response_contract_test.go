@@ -9,11 +9,8 @@ import (
 var researchDotNode = regexp.MustCompile(`(?m)^\s*(\w+)\s*\[([^\]]*)\]`)
 var researchDotAttr = regexp.MustCompile(`(\w+)="([^"]*)"`)
 
-// A control node tests the response its source agent returns, so an agent whose
-// instructions cannot emit that value leaves the edge behind it unreachable.
-// That is how the shaping stage came to publish review after review: the graph
-// advanced only on "approved" while the role's output contract named "ask" and
-// "done" alone, and the agent duly reported the owner's approval in prose.
+// Agent-owned graph responses must have matching provider instructions.
+// Approval is a factory-owned response derived from authenticated owner input.
 func TestResearchRolesCanEmitEveryConditionTheGraphTests(t *testing.T) {
 	t.Parallel()
 	read := func(name string) string {
@@ -34,7 +31,7 @@ func TestResearchRolesCanEmitEveryConditionTheGraphTests(t *testing.T) {
 	tested := 0
 	for name, attrs := range nodes {
 		condition, source := attrs["lf_condition"], attrs["lf_source"]
-		if condition == "" {
+		if condition == "" || condition == "approved" {
 			continue
 		}
 		role := nodes[source]["lf_agent_markdown"]
@@ -57,10 +54,13 @@ func TestResearchRolesCanEmitEveryConditionTheGraphTests(t *testing.T) {
 	// The worked results are what an agent copies from; a response with no
 	// section is one it has no guidance on reaching.
 	contract := read("skills/research-evidence/node-result.md")
-	for _, response := range []string{"ask", "done", "approved"} {
+	for _, response := range []string{"ask", "done", "continue"} {
 		if !strings.Contains(contract, "# response "+response) {
 			t.Errorf("node-result carries no guidance for %q", response)
 		}
+	}
+	if !strings.Contains(contract, "# Owner approval") || !strings.Contains(contract, "Do not submit an `approved` response") {
+		t.Error("node-result must reserve approval for the factory")
 	}
 }
 

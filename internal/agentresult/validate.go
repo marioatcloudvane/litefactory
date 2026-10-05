@@ -129,6 +129,9 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 	}
 	if p := r.Payload.Research; p != nil {
 		required(&d, "$.result.payload.research.request", p.Request)
+		if p.Continue && (ctx.Mode != "research" || r.Outcome != "incomplete" || strings.TrimSpace(r.Reason) == "" || len(r.Questions) != 0 || len(p.Findings) == 0) {
+			add(&d, "$.result.payload.research.continue", "consistency", "incomplete Research with reason, findings and no questions", "invalid continuation", "Retain partial findings and a reason; ask real questions instead of continuing.")
+		}
 		seen := map[string]bool{}
 		for i, f := range p.Findings {
 			fp := fmt.Sprintf("$.result.payload.research.findings[%d]", i)

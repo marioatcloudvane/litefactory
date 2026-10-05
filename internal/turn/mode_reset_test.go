@@ -513,9 +513,9 @@ func TestAgentSwitchRefusalFiresRegardlessOfModeChange(t *testing.T) {
 	f.execute(first)
 
 	second := f.request()
-	second.Mode = agent.ModeResearch
+	second.Mode = agent.ModeValidate
 	second.Trigger.CommentID = testComment + 1
-	second.Trigger.Body = "/research look again"
+	second.Trigger.Body = "/validate look again"
 	second.Command = ParseCommand(second.Trigger.Body)
 	f.execute(second)
 
@@ -658,7 +658,7 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 		f.seedThread()
 
 		first := f.request()
-		first.Mode = agent.ModeResearch
+		first.Mode = agent.ModeImplement
 		first.Agent = agent.Kind(store.AgentClaude)
 		f.execute(first)
 
@@ -681,7 +681,7 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 	// Cold via an agent switch, same mode: an unrelated, already-existing
 	// reason for a turn to go cold, used here only as the "equivalent cold
 	// turn" reference.
-	switched := run(t, agent.ModeResearch, agent.Kind(store.AgentCodex))
+	switched := run(t, agent.ModeImplement, agent.Kind(store.AgentCodex))
 
 	// Sanity: both are genuinely cold, for their own distinct reason, and
 	// neither is a resume.

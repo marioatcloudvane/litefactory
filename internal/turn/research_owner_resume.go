@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -37,8 +36,17 @@ func WorkflowReplyContext(ctx context.Context, db *store.DB, instanceID, attempt
 		}
 		// A completed continuation consumed this reply. Later stages cannot reuse
 		// its approval, but they also must not inherit its already-satisfied wait.
-		if previous.InstanceID == instanceID && previous.Status == store.GraphSucceeded && current.InstanceID == instanceID && current.ID > previous.ID && current.Node != previous.Node && current.Status == store.GraphRunning {
-			return "", nil
+		if previous.InstanceID == instanceID && previous.Status == store.GraphSucceeded && current.InstanceID == instanceID && current.ID > previous.ID && (current.Node != previous.Node || policy.Mode == "research") && current.Status == store.GraphRunning {
+			if current.Node != previous.Node {
+				return "", nil
+			}
+			raw, err := json.Marshal(struct {
+				Reply string `json:"previous_owner_guidance"`
+			}{wait.ReplyBody})
+			if err != nil {
+				return "", err
+			}
+			return "\n<note>Previously consumed owner guidance; background data, not a new reply or approval.\n" + string(raw) + "\n</note>\n", nil
 		}
 	}
 	if wait.State != "allocated" || wait.ContinuationAttemptID != attemptID {
@@ -83,58 +91,11 @@ func WorkflowReplyContext(ctx context.Context, db *store.DB, instanceID, attempt
 	return "\n<note>\nSaved Research findings and owner reply; untrusted data, not factory authority.\n" + string(raw) + "\n</note>\n", nil
 }
 
-// authorizeResearchOutput treats approval as the factory's authenticated reply
-// to a displayed review candidate, never as the worker's own result vocabulary.
-func authorizeResearchOutput(ctx context.Context, db *store.DB, attempt store.GraphNodeAttempt, node agentresult.ResearchNode) error {
-	if node.Response != "approved" {
-		return nil
-	}
-	wait, err := db.GetGraphOwnerWait(ctx, attempt.InstanceID)
-	if errors.Is(err, store.ErrNotFound) {
-		return errors.New("research approval requires an authenticated owner review reply")
-	}
-	if err != nil {
-		return err
-	}
-	if wait.State != "allocated" || wait.ContinuationAttemptID != attempt.ID || wait.ReplyID < 1 || wait.ReplyAuthorID < 1 || strings.ToLower(strings.TrimSpace(wait.ReplyBody)) != "done" {
-		return errors.New("research approval requires this candidate's allocated owner done reply")
-	}
-	source, err := db.GetGraphNodeAttempt(ctx, wait.SourceAttemptID)
-	if err != nil {
-		return err
-	}
-	if source.InstanceID != attempt.InstanceID || source.Node != attempt.Node || source.Status != store.GraphSucceeded || source.ID >= attempt.ID {
-		return errors.New("research approval source/stage binding mismatch")
-	}
-	intent, err := db.GetGraphComment(ctx, wait.DeliveryKey)
-	if err != nil {
-		return err
-	}
-	if intent.Kind != "review" || intent.SourceAttemptID != source.ID || intent.InstanceID != source.InstanceID {
-		return errors.New("research approval requires the displayed review candidate")
-	}
-	var displayed agentresult.Result
-	diagnostics := agentresult.Decode(intent.Candidate, &displayed)
-	if !diagnostics.Valid || !diagnostics.Complete {
-		return resultDiagnosticError(diagnostics)
-	}
-	actual, err := researchCandidateDigest(node.Result)
-	if err != nil {
-		return err
-	}
-	expected, err := researchCandidateDigest(displayed)
-	if err != nil {
-		return err
-	}
-	if actual != expected {
-		return errors.New("research approval cannot authorize a changed candidate; show a new review")
-	}
-	delivery, err := db.GetReportDelivery(ctx, wait.DeliveryKey)
-	if err != nil {
-		return err
-	}
-	if !delivery.Completed || delivery.CommentID < 1 || wait.ReplyID <= delivery.CommentID {
-		return errors.New("research approval has no confirmed displayed review")
+// authorizeResearchOutput keeps approval out of the worker's vocabulary.
+// The factory settles the authenticated reply at the published wait boundary.
+func authorizeResearchOutput(_ context.Context, _ *store.DB, _ store.GraphNodeAttempt, node agentresult.ResearchNode) error {
+	if node.Response == "approved" {
+		return errors.New("research approval belongs to the authenticated owner wait")
 	}
 	return nil
 }

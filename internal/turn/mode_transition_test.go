@@ -9,10 +9,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/harness"
 )
 
-// Admission chooses the effective mode. Verify that downstream execution uses
+// Single-run admission chooses the effective mode; graph Research is exercised in its workflow fixtures. Verify that downstream execution uses
 // that immutable value even when the fetched issue still has another label.
 func TestAdmittedModeReachesPromptAndReportedRun(t *testing.T) {
-	for _, mode := range []agent.Mode{agent.ModeResearch, agent.ModePlan, agent.ModeImplement, agent.ModeValidate} {
+	for _, mode := range []agent.Mode{agent.ModePlan, agent.ModeImplement, agent.ModeValidate} {
 		t.Run(string(mode), func(t *testing.T) {
 			var f *fixture
 			runner := recordingRunner(func(req harness.Request) (*harness.RunResult, error) { return succeeded(req, f.paths.Home()), nil })

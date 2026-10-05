@@ -228,24 +228,20 @@ func TestResearchWorkflowReportRecoveryDoesNotRetryAgent(t *testing.T) {
 	}
 }
 
-func TestResearchDefaultRemainsGated(t *testing.T) {
+func TestResearchDefaultUsesGraph(t *testing.T) {
 	f, _, req := assembledResearchFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
 		t.Fatal("admission invoked host")
 		return nil, nil
 	}))
 	mustProgress(t, os.Remove(filepath.Join(f.repo.Dir, ".litefactory", "research.yaml")))
-	f.opts.ResearchDriver = func(context.Context, Options, Request, Result, *teamsource.ResearchDefinition, store.ResearchAdmission) (Result, error) {
-		t.Fatal("default activated without authentic evidence")
-		return Result{}, nil
+	called := false
+	f.opts.ResearchDriver = func(_ context.Context, _ Options, _ Request, result Result, _ *teamsource.ResearchDefinition, _ store.ResearchAdmission) (Result, error) {
+		called = true
+		return result, nil
 	}
 	_, handled, err := admitResearchExecution(t.Context(), f.opts, req, Result{Session: f.session, SessionID: f.session.ID})
-	if err != nil || handled {
-		t.Fatalf("default gate bypassed: handled=%v err=%v", handled, err)
-	}
-	selected, err := f.db.AdmitResearchPath(t.Context(), f.session.ID, "graph")
-	mustProgress(t, err)
-	if selected != "legacy" {
-		t.Fatal("default legacy path was not preserved")
+	if err != nil || !handled || !called {
+		t.Fatalf("graph default: handled=%v called=%v err=%v", handled, called, err)
 	}
 }
 
@@ -328,8 +324,9 @@ func TestResearchAdmissionLeavesOtherModesUnhandled(t *testing.T) {
 	}
 }
 
-func TestResearchPreCutoverCaptureRefusesRecoveryEffects(t *testing.T) {
+func TestResearchChangedCaptureWithoutEffectsRecovers(t *testing.T) {
 	f := newFixture(t, nil)
+	f.opts.ResearchReporter = newReporter(t, f, newFakeForge(t), nil)
 	at := time.Date(2026, 9, 20, 1, 0, 0, 0, time.UTC)
 	definition, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
 	mustProgress(t, err)
@@ -341,9 +338,7 @@ func TestResearchPreCutoverCaptureRefusesRecoveryEffects(t *testing.T) {
 	mustProgress(t, err)
 	*f.db = *reopened
 	err = recoverResearchPublications(t.Context(), f.opts, f.session.ID)
-	if err == nil || !strings.Contains(err.Error(), "unsupported pre-cutover or changed Research capture") {
-		t.Fatalf("old capture recovery: %v", err)
-	}
+	mustProgress(t, err)
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
 	mustProgress(t, err)
 	deliveries, err := f.db.ListPendingReportDeliveries(t.Context())
@@ -372,7 +367,7 @@ func finishedOldResearchInstance(t *testing.T, f *fixture, status string, delive
 	mustProgress(t, err)
 	mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, FinishedAt: at.Add(time.Minute), InstanceStatus: status}))
 	key := "research-old-capture-final"
-	mustProgress(t, f.db.RetainGraphComment(t.Context(), store.GraphCommentIntent{Key: key, InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "investigate", Kind: "final", Candidate: []byte(researchDoneJSON)}))
+	mustProgress(t, f.db.RetainGraphComment(t.Context(), store.GraphCommentIntent{Key: key, InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "investigate", Kind: "final", Candidate: []byte(`{"outcome":"completed","comment":"Investigation finished.","payload":{"research":{"request":"Inspect boundaries"}}}`)}))
 	if delivered {
 		probe, err := sql.Open("sqlite", store.DSN(f.db.Path()))
 		mustProgress(t, err)
@@ -411,23 +406,23 @@ func TestResearchFinishedOldCaptureDoesNotBlockLaterModes(t *testing.T) {
 	}
 }
 
-// A terminal instance that still owes a graph comment delivery is outstanding
-// work and remains refused under a changed capture.
-func TestResearchFinishedOldCaptureWithUndeliveredCommentStaysRefused(t *testing.T) {
+// A graph change removes no source-integrity requirement: a pending comment
+// with no retained node output remains unsafe to publish.
+func TestResearchChangedCaptureStillRejectsIncompleteSource(t *testing.T) {
 	f := newFixture(t, nil)
 	forge := newFakeForge(t)
 	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
 	instance := finishedOldResearchInstance(t, f, store.GraphSucceeded, false)
 	err := recoverResearchPublications(t.Context(), f.opts, f.session.ID)
-	if err == nil || !strings.Contains(err.Error(), "unsupported pre-cutover or changed Research capture") {
-		t.Fatalf("outstanding old capture recovery: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "research attempt has no node output") {
+		t.Fatalf("incomplete source recovery: %v", err)
 	}
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
 	mustProgress(t, err)
 	deliveries, err := f.db.ListPendingReportDeliveries(t.Context())
 	mustProgress(t, err)
 	if len(attempts) != 1 || len(deliveries) != 0 || forge.attemptCount() != 0 {
-		t.Fatalf("refused capture created effects: attempts=%v deliveries=%v posts=%d", attempts, deliveries, forge.attemptCount())
+		t.Fatalf("incomplete source created effects: attempts=%v deliveries=%v posts=%d", attempts, deliveries, forge.attemptCount())
 	}
 }
 

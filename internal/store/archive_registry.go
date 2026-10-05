@@ -129,6 +129,7 @@ var archiveRegistry = []ArchiveTable{
 	// Graph.
 	archived("graph_effects", `instance_id IN `+subInst),
 	archived("graph_outputs", `node_attempt_id IN `+subNodeAt),
+	archived("research_wait_reminders", `wait_delivery_key IN (SELECT delivery_key FROM graph_owner_waits WHERE instance_id IN `+subInst+`)`),
 	archived("graph_owner_waits", `instance_id IN `+subInst),
 	archived("graph_comment_intents", `instance_id IN `+subInst),
 	archived("graph_transitions", `instance_id IN `+subInst),

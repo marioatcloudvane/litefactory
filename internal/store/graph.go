@@ -90,6 +90,8 @@ type GraphTransition struct {
 // GraphAttemptStart reserves the next attempt. Limit zero is unbounded; a
 // positive limit caps total dispatches of this node across the entire instance.
 type GraphAttemptStart struct {
+	// ResearchPriorNodes maps captured ancestor stages to this shipped stage.
+	ResearchPriorNodes map[int64]string
 	// OwnerAllowanceSource binds a successfully allocated mechanical owner
 	// continuation to one immediately declared substantive invocation.
 	OwnerAllowanceSource int64

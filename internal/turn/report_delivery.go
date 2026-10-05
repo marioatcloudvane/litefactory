@@ -140,6 +140,15 @@ func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDe
 			err = &DeliveryError{Key: delivery.Key, State: deliveryState(delivery), Cause: err}
 		}
 	}()
+	if delivery.TriggerNamespace == store.ResearchReminderNamespace && !delivery.PossiblySent {
+		reminder, readErr := r.db.ResearchReminderForDelivery(ctx, delivery.Key)
+		if readErr != nil {
+			return Posted{}, readErr
+		}
+		if reminder.Suppressed {
+			return Posted{Skipped: true}, nil
+		}
+	}
 	if delivery.Completed {
 		return r.completedDelivery(ctx, delivery, true)
 	}
@@ -173,7 +182,7 @@ func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDe
 	// recovery matches it by marker in the PossiblySent branch above. Every
 	// creation intake outcome likewise has a source-specific delivery identity.
 	// Other runless purposes still take the probe.
-	if delivery.RunID == 0 && !isCreationPresentation(delivery.Purpose) && delivery.Purpose != "creation-rejection" && delivery.Purpose != "creation-preparation" && delivery.Purpose != "creation-acceptance" && delivery.TriggerNamespace != "plan-observation" && delivery.TriggerNamespace != "plan-reply" && delivery.TriggerNamespace != store.PlanNoticeNamespace {
+	if delivery.RunID == 0 && !isCreationPresentation(delivery.Purpose) && delivery.Purpose != "creation-rejection" && delivery.Purpose != "creation-preparation" && delivery.Purpose != "creation-acceptance" && delivery.TriggerNamespace != "plan-observation" && delivery.TriggerNamespace != "plan-reply" && delivery.TriggerNamespace != store.PlanNoticeNamespace && delivery.TriggerNamespace != store.ResearchReminderNamespace {
 		ambiguous, err := r.legacyRunlessConflict(ctx, delivery, destination)
 		if err != nil {
 			return Posted{}, err
