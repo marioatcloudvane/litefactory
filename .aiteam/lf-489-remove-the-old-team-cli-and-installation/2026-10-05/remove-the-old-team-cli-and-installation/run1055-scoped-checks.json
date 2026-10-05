@@ -1,0 +1,37 @@
+[
+  {
+    "id": "story002-exchange-race-run1055",
+    "name": "go test ./internal/agentresult -run '^TestExchangeCosts_PinnedTotalsAndIdenticalResults$' -short -race -cover -timeout 8m",
+    "executed": true,
+    "passed": true,
+    "evidence": "ok  \tgithub.com/cloudvane/litefactory/internal/agentresult\t2.307s\tcoverage: 26.0% of statements\n"
+  },
+  {
+    "id": "story002-repos-run1055",
+    "name": "go test ./internal/repos -count=1 -timeout=8m",
+    "executed": true,
+    "passed": true,
+    "evidence": "ok  \tgithub.com/cloudvane/litefactory/internal/repos\t16.599s\n"
+  },
+  {
+    "id": "story002-build-run1055",
+    "name": "go build ./...",
+    "executed": true,
+    "passed": true,
+    "evidence": "Exit 0; no output."
+  },
+  {
+    "id": "story002-format-run1055",
+    "name": "gofmt -l .",
+    "executed": true,
+    "passed": true,
+    "evidence": "Exit 0; no output."
+  },
+  {
+    "id": "story002-vet-run1055",
+    "name": "go vet ./...",
+    "executed": true,
+    "passed": true,
+    "evidence": "Exit 0; no output. Executed by root against final non-session bytes."
+  }
+]

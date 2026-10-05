@@ -1,0 +1,8 @@
+ok  	github.com/cloudvane/litefactory/internal/config	1.509s
+ok  	github.com/cloudvane/litefactory/internal/cli	2.989s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	1.542s
+ok  	github.com/cloudvane/litefactory/internal/turn	134.196s
+ok  	github.com/cloudvane/litefactory/internal/harness	2.516s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	3.549s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	3.084s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	2.799s [no tests to run]

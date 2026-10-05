@@ -76,8 +76,7 @@ func sessionDirOn(worktreeDir, branch, slug string, day time.Time, marker string
 // day is not where the session was named: every date directory under
 // .aiteam/<branchDir>/, newest first, until one holds marker.
 //
-// It reads exactly one directory, never walks, and stops at the first match —
-// the same discipline internal/repos.DetectAiteam holds its own scan to.
+// It reads exactly one directory, never walks, and stops at the first match.
 func scanSessionDates(worktreeDir, branch, slug, marker string, log *slog.Logger) (string, bool) {
 	branchDir, err := naming.AITeamBranchDir(branch)
 	if err != nil {

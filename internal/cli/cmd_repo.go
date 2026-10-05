@@ -16,11 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
-
-// repoUnset is printed in place of a column a repository has no value for.
-const repoUnset = "-"
 
 // repoNeverFetched is what `repo list` prints for a repository that has never
 // been fetched (AC-1.9). The zero time is a real state — a repository is
@@ -35,11 +31,9 @@ type repoAddOptions struct {
 	base      string
 	worktrees string
 	prefix    string
-	team      string
 }
 
 func (o *repoAddOptions) bind(fs *flag.FlagSet) {
-	fs.StringVar(&o.team, "team", "", "installed external team to associate with this repository")
 	fs.StringVar(&o.base, "base", "",
 		"branch to cut task branches from; overrides default_base_branch and the remote's HEAD")
 	fs.StringVar(&o.worktrees, "worktrees", "",
@@ -52,13 +46,12 @@ func (o *repoAddOptions) bind(fs *flag.FlagSet) {
 func newRepoAddCommand() *Command {
 	cmd := &Command{
 		Name:  "repo add",
-		Usage: "repo add <path> [--team id] [--base branch] [--worktrees dir] [--prefix name]",
+		Usage: "repo add <path> [--base branch] [--worktrees dir] [--prefix name]",
 		Short: "Register a local clone with litefactory",
 		Long: "Register the git clone at <path>. The owner, name and default branch are\n" +
 			"read from the clone itself; nothing is fetched over the network. Running it\n" +
 			"again on the same path updates the registration instead of duplicating it.\n\n" +
-			"Use --team to select an installed central team. Existing repository markers\n" +
-			"remain diagnostic only. No files are written into the clone.",
+			"Agents are built in and need no setup. No files are written into the clone.",
 		Args: ArgSpec{Names: []string{"path"}, Min: 1},
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
@@ -78,8 +71,8 @@ func newRepoListCommand() *Command {
 		Usage: "repo list",
 		Short: "List the registered repositories",
 		Long: "Print every registered repository: its local path, its remote as\n" +
-			"forge:owner/name, the branch task branches are cut from, the detected aiteam\n" +
-			"team, where its worktrees are created, and when it was last fetched.",
+			"forge:owner/name, the branch task branches are cut from, where its worktrees\n" +
+			"are created, and when it was last fetched.",
 		New: func(*flag.FlagSet) Handler {
 			return func(ctx context.Context, env *Env, _ []string) error {
 				return runRepoList(ctx, env)
@@ -121,9 +114,6 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 		return previousErr
 	}
 	if previousErr == nil {
-		if opts.team == "" {
-			opts.team = previous.ExternalTeam
-		}
 		if opts.base == "" {
 			opts.base = previous.BaseBranch
 		}
@@ -134,16 +124,8 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 			opts.prefix = previous.FeaturePrefix
 		}
 	}
-	if opts.team != "" {
-		for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
-			if _, err := teamsource.Capture(ctx, rt.paths, opts.team, mode); err != nil {
-				return Preconditionf("external team %q is not ready: %v; install it with team add first", opts.team, err)
-			}
-		}
-	}
 
 	registration, err := repos.Resolve(ctx, binary, path, repos.Options{
-		ExternalTeam:  opts.team,
 		BaseBranch:    opts.base,
 		WorktreeRoot:  opts.worktrees,
 		FeaturePrefix: opts.prefix,
@@ -180,20 +162,11 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 	}
 	existed := err == nil
 
-	stored, err := rt.db.UpsertRepo(ctx, registration.StoreRepo(time.Now().UTC()))
+	stored, err := rt.db.UpsertRepo(ctx, registration.StoreRepo())
 	if err != nil {
 		return err
 	}
 
-	if registration.Aiteam.Team == "" && registration.ExternalTeam == "" {
-		// AC-1.5: an undetectable team is a warning, never a failure. The
-		// repository is registered either way, and nothing at M0 reads the
-		// team, so refusing here would block real work over a null column.
-		fmt.Fprintf(env.Stderr,
-			"warning: %s: aiteam is installed but no team is declared; storing none.\n"+
-				"  Declare one with an `<!-- aiteam:team=NAME -->` marker in CLAUDE.md or a .aiteam/team file.\n",
-			registration.Path)
-	}
 	writeRegistration(env.Stdout, registration, existed)
 
 	// A webhook problem never undoes or fails the registration above: the repo
@@ -220,8 +193,6 @@ func writeRegistration(out io.Writer, r *repos.Registration, existed bool) {
 	fmt.Fprintf(tw, "  base branch\t%s (%s)\n", r.BaseBranch, r.BaseBranchSource)
 	fmt.Fprintf(tw, "  branch prefix\t%s\n", r.FeaturePrefix)
 	fmt.Fprintf(tw, "  worktrees\t%s (%s)\n", r.WorktreeRoot, r.WorktreeRootSource)
-	fmt.Fprintf(tw, "  aiteam team\t%s\n", repoOrUnset(r.Aiteam.Team))
-	fmt.Fprintf(tw, "  external team\t%s\n", repoOrUnset(r.ExternalTeam))
 	// A failed write of already-reported output is not actionable.
 	_ = tw.Flush()
 }
@@ -244,11 +215,11 @@ func runRepoList(ctx context.Context, env *Env) (err error) {
 	}
 
 	tw := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(tw, "PATH\tREMOTE\tBASE\tTEAM\tEXTERNAL TEAM\tWORKTREES\tLAST FETCH\n")
+	fmt.Fprintf(tw, "PATH\tREMOTE\tBASE\tWORKTREES\tLAST FETCH\n")
 	for _, repo := range list {
-		fmt.Fprintf(tw, "%s\t%s:%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s:%s\t%s\t%s\t%s\n",
 			repo.Path, repo.Forge, repo.Slug(), repo.BaseBranch,
-			repoOrUnset(repo.AiteamTeam), repoOrUnset(repo.ExternalTeam), repo.WorktreeRoot, repoFetchTime(repo.LastFetchAt))
+			repo.WorktreeRoot, repoFetchTime(repo.LastFetchAt))
 	}
 	return tw.Flush()
 }
@@ -261,14 +232,6 @@ func repoFetchTime(t time.Time) string {
 		return repoNeverFetched
 	}
 	return t.UTC().Format(time.RFC3339)
-}
-
-// repoOrUnset renders an optional value, or [repoUnset] when it is empty.
-func repoOrUnset(value string) string {
-	if value == "" {
-		return repoUnset
-	}
-	return value
 }
 
 // repoRuntime is the configuration and database handle the repo commands
@@ -338,8 +301,7 @@ func repoRegistrationError(cmd *Command, err error) error {
 	case errors.Is(err, repos.ErrInvalidBaseBranch),
 		errors.Is(err, naming.ErrInvalidFeaturePrefix):
 		return &UsageError{Cmd: cmd, Err: err}
-	case errors.Is(err, repos.ErrAiteamMissing),
-		errors.Is(err, repos.ErrBaseBranchUnknown),
+	case errors.Is(err, repos.ErrBaseBranchUnknown),
 		errors.Is(err, repos.ErrWorktreeRootCollision),
 		errors.Is(err, fs.ErrNotExist),
 		errors.Is(err, git.ErrNotDirectory),

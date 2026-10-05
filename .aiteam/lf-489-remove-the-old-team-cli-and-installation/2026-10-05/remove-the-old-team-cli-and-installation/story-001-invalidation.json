@@ -1,0 +1,1 @@
+{"stage": "engineering", "story": "story-001", "outcome": "invalidated", "reason": "Story-002 changed shared repository CLI test and delivery files captured in the earlier unaccepted engineering snapshot. Story-001 targeted checks passed again on final bytes; replacing stale engineering snapshot without changing historical acceptance."}

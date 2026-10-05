@@ -16,7 +16,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/render"
-	"github.com/cloudvane/litefactory/internal/team"
 	"gopkg.in/yaml.v3"
 )
 
@@ -172,14 +171,14 @@ func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamN
 	keys := make([]string, 0, len(result.Files))
 	for name, content := range result.Files {
 		keys = append(keys, name)
-		result.Hashes[name] = team.HashBytes(content)
+		result.Hashes[name] = hashBytes(content)
 	}
 	sort.Strings(keys)
 	var manifest strings.Builder
 	for _, name := range keys {
 		manifest.WriteString(name + "\x00" + result.Hashes[name] + "\n")
 	}
-	result.Digest = team.HashBytes([]byte(manifest.String()))
+	result.Digest = hashBytes([]byte(manifest.String()))
 	return result, nil
 }
 

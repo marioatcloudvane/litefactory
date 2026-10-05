@@ -1,0 +1,49 @@
+{
+  "request_id": "0679a1c267581f93fe9c77e08a6891f3",
+  "result": {
+    "Validation": {
+      "valid": true,
+      "complete": true,
+      "diagnostics": [],
+      "unchecked_paths": [],
+      "expected_revision": 0,
+      "current_revision": 0
+    },
+    "Receipt": {
+      "ID": 476,
+      "ResultID": 295,
+      "RunID": 1055,
+      "AppliedRevision": 0,
+      "SubmissionReceiptID": 0,
+      "Attempt": "e07c0a259988ce5ddfd47ac33533ac4a",
+      "RequestID": "0679a1c267581f93fe9c77e08a6891f3",
+      "RequestHash": "9a55f4bc387d8ff4802a20855463f511f293716c1169d4496ec91f43a5597dc6",
+      "InputState": "accepted",
+      "Observations": [
+        {
+          "Sequence": 1,
+          "RunID": 1055,
+          "Attempt": "e07c0a259988ce5ddfd47ac33533ac4a",
+          "Dimension": "received",
+          "State": "received"
+        },
+        {
+          "Sequence": 2,
+          "RunID": 1055,
+          "Attempt": "e07c0a259988ce5ddfd47ac33533ac4a",
+          "Dimension": "input",
+          "State": "accepted"
+        }
+      ],
+      "Latest": {
+        "Received": "received",
+        "Input": "accepted",
+        "Engineering": "pending",
+        "Acceptance": "pending",
+        "Publication": "pending"
+      }
+    },
+    "Snapshot": null,
+    "Baseline": null
+  }
+}

@@ -107,7 +107,6 @@ var (
 // errors.Is(err, ErrLiteralSecret) — must exit 3 (AC-0.9).
 func (c *Config) Validate() error {
 	var errs []error
-	errs = append(errs, c.Teams.validate()...)
 	errs = append(errs, c.Webhook.validate()...)
 	s := &c.Settings
 	if s.PollIntervalMinutes < MinPollIntervalMinutes || s.PollIntervalMinutes > MaxPollIntervalMinutes {
@@ -173,9 +172,6 @@ func (c *Config) Validate() error {
 	}
 	if s.WorktreeRoot != "" && !filepath.IsAbs(s.WorktreeRoot) {
 		errs = append(errs, fmt.Errorf("settings.worktree_root: %q must be an absolute path; a relative one would depend on the daemon's working directory", s.WorktreeRoot))
-	}
-	if s.TeamConfig != "" && !filepath.IsAbs(s.TeamConfig) {
-		errs = append(errs, fmt.Errorf("settings.team_config: %q must be an absolute path; a relative one would depend on the daemon's working directory", s.TeamConfig))
 	}
 	if err := validateLogLevel(s.LogLevel); err != nil {
 		errs = append(errs, err)
@@ -389,7 +385,6 @@ func (c *Config) normalize() {
 	c.Settings.DefaultBaseBranch = strings.TrimSpace(c.Settings.DefaultBaseBranch)
 	c.Settings.FeaturePrefix = strings.TrimSpace(c.Settings.FeaturePrefix)
 	c.Settings.WorktreeRoot = strings.TrimSpace(c.Settings.WorktreeRoot)
-	c.Settings.TeamConfig = strings.TrimSpace(c.Settings.TeamConfig)
 	c.Settings.LogLevel = strings.ToLower(strings.TrimSpace(c.Settings.LogLevel))
 
 	c.Providers.GitHub.APIBase = strings.TrimRight(strings.TrimSpace(c.Providers.GitHub.APIBase), "/")

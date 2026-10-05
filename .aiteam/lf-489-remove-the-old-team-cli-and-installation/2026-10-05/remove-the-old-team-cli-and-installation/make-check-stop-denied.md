@@ -1,0 +1,1 @@
+Sandbox denied os.killpg for the task-owned aggregate process group 9848. No signal was delivered. Full race-suite execution remains unfinished; TestExchangeCosts_PinnedTotalsAndIdenticalResults failure is already recorded. No attempt to kill/restart the operator daemon was made.

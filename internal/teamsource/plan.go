@@ -10,8 +10,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/graphexec"
 )
 
-// planAssets is an explicit copy of teams/source/plan. Package consistency tests
-// compare the complete closure; runtime never traverses repository source paths.
+// planAssets holds the built-in Plan role, skill and graph definitions.
+// Runtime never traverses repository source paths.
 //
 //go:embed plan
 var planAssets embed.FS

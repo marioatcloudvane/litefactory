@@ -9,11 +9,11 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func TestExternalTeamProceedsWithCatalogFreeClassifier(t *testing.T) {
+func TestBuiltinAgentsProceedWithCatalogFreeClassifier(t *testing.T) {
 	t.Parallel()
 	c := &deliveryClassifier{}
 	d := &Daemon{defaultAgent: agent.Kind("codex"), classifiers: map[agent.Kind]agent.Classifier{agent.Kind("codex"): c}}
-	got, err := d.classifyMode(t.Context(), &task{repo: store.Repo{ExternalTeam: "not-installed"}}, "implement it")
+	got, err := d.classifyMode(t.Context(), &task{repo: store.Repo{}}, "implement it")
 	if err != nil || !got.Valid() {
 		t.Fatalf("classification must not require an installed catalog: mode=%q error=%v", got, err)
 	}

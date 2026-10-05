@@ -29,14 +29,6 @@ type Repo struct {
 	FeaturePrefix string
 	// WorktreeRoot is the absolute directory task worktrees are created under.
 	WorktreeRoot string
-	// AiteamTeam is the detected aiteam team; "" when it could not be
-	// determined, which is a warning rather than a failure (AC-1.5).
-	AiteamTeam string
-	// ExternalTeam explicitly selects an installed operator-wide team. Legacy
-	// detected markers never populate this association.
-	ExternalTeam string
-	// AiteamVerifiedAt is when aiteam's presence was last confirmed.
-	AiteamVerifiedAt time.Time
 	// LastFetchAt is when `git fetch --prune` last ran against this clone. The
 	// zero time means never, which `repo list` prints as "never" (AC-1.9). It
 	// is owned by [DB.TouchRepoFetch] and is never changed by an upsert.
@@ -53,7 +45,7 @@ func (r Repo) Slug() string { return r.Owner + "/" + r.Name }
 // UpsertRepo registers r, keyed on its path.
 //
 // Registering an already-registered path updates the mutable fields — base
-// branch, worktree root, feature prefix, aiteam team, remote — and creates no
+// branch, worktree root, feature prefix, remote — and creates no
 // second row (AC-1.8). LastFetchAt is deliberately not among them: a
 // re-registration must not make litefactory think it has fetched.
 //
@@ -67,8 +59,8 @@ func (db *DB) UpsertRepo(ctx context.Context, r Repo) (Repo, error) {
 	const stmt = `
 INSERT INTO repos (
     path, forge, owner, name, remote_url, base_branch, feature_prefix,
-    worktree_root, aiteam_team, aiteam_verified_at, created_at, updated_at, external_team
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    worktree_root, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (path) DO UPDATE SET
     forge              = excluded.forge,
     owner              = excluded.owner,
@@ -77,16 +69,12 @@ ON CONFLICT (path) DO UPDATE SET
     base_branch        = excluded.base_branch,
     feature_prefix     = excluded.feature_prefix,
     worktree_root      = excluded.worktree_root,
-    aiteam_team        = excluded.aiteam_team,
-    external_team      = excluded.external_team,
-    aiteam_verified_at = excluded.aiteam_verified_at,
     updated_at         = excluded.updated_at
 RETURNING ` + repoColumns
 
 	row := db.sql.QueryRowContext(ctx, stmt,
 		r.Path, r.Forge, r.Owner, r.Name, r.RemoteURL, r.BaseBranch, r.FeaturePrefix,
-		r.WorktreeRoot, nullString(r.AiteamTeam), nullTime(r.AiteamVerifiedAt),
-		FormatTime(now), FormatTime(now), nullString(r.ExternalTeam))
+		r.WorktreeRoot, FormatTime(now), FormatTime(now))
 
 	stored, err := scanRepo(row)
 	if err != nil {
@@ -170,36 +158,30 @@ func (db *DB) TouchRepoFetch(ctx context.Context, repoID int64, at time.Time) er
 // scanRepo expects.
 const repoColumns = `
     id, path, forge, owner, name, remote_url, base_branch, feature_prefix,
-    worktree_root, aiteam_team, aiteam_verified_at, last_fetch_at,
-    created_at, updated_at, external_team`
+    worktree_root, last_fetch_at,
+    created_at, updated_at`
 
 func scanRepo(s scanner) (Repo, error) {
 	var (
-		r                Repo
-		aiteamTeam       sql.NullString
-		aiteamVerifiedAt sql.NullString
-		lastFetchAt      sql.NullString
-		createdAt        sql.NullString
-		updatedAt        sql.NullString
-		externalTeam     sql.NullString
+		r           Repo
+		lastFetchAt sql.NullString
+		createdAt   sql.NullString
+		updatedAt   sql.NullString
 	)
 	err := s.Scan(&r.ID, &r.Path, &r.Forge, &r.Owner, &r.Name, &r.RemoteURL, &r.BaseBranch,
-		&r.FeaturePrefix, &r.WorktreeRoot, &aiteamTeam, &aiteamVerifiedAt, &lastFetchAt,
-		&createdAt, &updatedAt, &externalTeam)
+		&r.FeaturePrefix, &r.WorktreeRoot, &lastFetchAt,
+		&createdAt, &updatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Repo{}, ErrNotFound
 		}
 		return Repo{}, err
 	}
-	r.AiteamTeam = aiteamTeam.String
-	r.ExternalTeam = externalTeam.String
 
 	for _, field := range []struct {
 		src sql.NullString
 		dst *time.Time
 	}{
-		{aiteamVerifiedAt, &r.AiteamVerifiedAt},
 		{lastFetchAt, &r.LastFetchAt},
 		{createdAt, &r.CreatedAt},
 		{updatedAt, &r.UpdatedAt},

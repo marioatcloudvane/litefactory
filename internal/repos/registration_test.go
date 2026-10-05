@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -29,7 +28,7 @@ import (
 const testRemoteURL = "git@github.com:acme/does-not-exist.git"
 
 // newFixture builds a registrable clone: one commit, an origin pointing at
-// GitHub, a cached origin/HEAD, and an aiteam marker.
+// GitHub, a cached origin/HEAD, and a legacy marker that is ignored.
 func newFixture(t *testing.T) *gittest.Repo {
 	t.Helper()
 	repo := gittest.New(t)
@@ -83,9 +82,7 @@ func TestResolveReadsTheCloneItself(t *testing.T) {
 	if got.FeaturePrefix != naming.DefaultFeaturePrefix {
 		t.Errorf("FeaturePrefix = %q, want %q", got.FeaturePrefix, naming.DefaultFeaturePrefix)
 	}
-	if got.Aiteam.Team != "go-backend" {
-		t.Errorf("Aiteam.Team = %q, want %q", got.Aiteam.Team, "go-backend")
-	}
+
 }
 
 // TestResolveSubdirectoryFindsTheRepositoryRoot covers the other half of
@@ -315,12 +312,12 @@ func TestResolveFeaturePrefixOrder(t *testing.T) {
 	}
 }
 
-// TestResolveRejectionsNameTheFailedCheck covers AC-1.1, AC-1.2 and AC-1.4.
+// TestResolveRejectionsNameTheFailedCheck preserves unrelated registration checks.
 //
 // Each case asserts the *named* check rather than only a non-nil error,
 // because "invalid repository" is exactly the message AC-1.1 exists to
 // prevent: it leaves the user with no idea whether to run `git init`,
-// `git remote add` or `npx aiteam`.
+// or `git remote add`.
 func TestResolveRejectionsNameTheFailedCheck(t *testing.T) {
 	t.Parallel()
 
@@ -378,17 +375,6 @@ func TestResolveRejectionsNameTheFailedCheck(t *testing.T) {
 			wantErr:          git.ErrUnsupportedForge,
 			wantMessageNames: "only GitHub is supported",
 		},
-		{
-			name: "a repository with no aiteam installation",
-			setup: func(t *testing.T) string {
-				repo := gittest.New(t)
-				repo.SetOriginURL(testRemoteURL)
-				return repo.Dir
-			},
-			wantCheck:        repos.CheckAiteam,
-			wantErr:          repos.ErrAiteamMissing,
-			wantMessageNames: "npx aiteam",
-		},
 	}
 
 	for _, tt := range tests {
@@ -402,23 +388,14 @@ func TestResolveRejectionsNameTheFailedCheck(t *testing.T) {
 	}
 }
 
-// TestResolveRegistersWithoutATeam covers AC-1.5: a repository where aiteam is
-// installed but declares no team is still registered, with an empty team.
-func TestResolveRegistersWithoutATeam(t *testing.T) {
+// TestResolveRegistersWithoutInstallation verifies fresh clones need no markers.
+func TestResolveRegistersWithoutInstallation(t *testing.T) {
 	t.Parallel()
-
 	repo := gittest.New(t)
-	if err := os.MkdirAll(filepath.Join(repo.Dir, ".aiteam"), 0o700); err != nil {
-		t.Fatalf("create .aiteam: %v", err)
-	}
 	repo.SetOriginURL(testRemoteURL)
-
 	got := mustResolve(t, repo, repos.Options{}, repos.Defaults{})
-	if !got.Aiteam.Present {
-		t.Fatalf("Aiteam.Present = false, want true")
-	}
-	if got.Aiteam.Team != "" {
-		t.Errorf("Aiteam.Team = %q, want empty", got.Aiteam.Team)
+	if got.Path != repo.Dir {
+		t.Errorf("Path = %q, want %q", got.Path, repo.Dir)
 	}
 }
 
@@ -465,15 +442,15 @@ func TestResolveIsDeterministic(t *testing.T) {
 func TestStoreRepoLeavesLastFetchAlone(t *testing.T) {
 	t.Parallel()
 
-	repo := newFixture(t)
-	registration := mustResolve(t, repo, repos.Options{}, repos.Defaults{})
+	registration := &repos.Registration{
+		Path: "/clone", Ref: git.RepoRef{Forge: git.ForgeGitHub, Owner: "acme", Name: "api"},
+		RemoteURL: testRemoteURL, BaseBranch: gittest.DefaultBranch,
+		FeaturePrefix: "lf", WorktreeRoot: "/worktrees",
+	}
 
-	row := registration.StoreRepo(time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC))
+	row := registration.StoreRepo()
 	if !row.LastFetchAt.IsZero() {
 		t.Errorf("LastFetchAt = %v, want the zero time", row.LastFetchAt)
-	}
-	if row.AiteamVerifiedAt.IsZero() {
-		t.Errorf("AiteamVerifiedAt is zero, want the verification time")
 	}
 	if row.Path != registration.Path || row.Owner != "acme" || row.BaseBranch != gittest.DefaultBranch {
 		t.Errorf("StoreRepo did not carry the registration through: %+v", row)

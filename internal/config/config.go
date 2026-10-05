@@ -47,7 +47,6 @@ import (
 // absent key and is rejected instead of silently replaced.
 type Config struct {
 	Settings Settings `yaml:"settings"`
-	Teams    Teams    `yaml:"teams"`
 	// Webhook is the optional local listener for GitHub webhook deliveries.
 	Webhook Webhook `yaml:"webhook"`
 
@@ -90,19 +89,11 @@ type Providers struct {
 type Settings struct {
 	// PollIntervalMinutes is the fallback discovery poll interval: how often
 	// the forge is listed when no webhook has asked for it sooner.
-	PollIntervalMinutes int    `yaml:"poll_interval_minutes"`
-	MaxConcurrentRuns   int    `yaml:"max_concurrent_runs"`
-	DefaultBaseBranch   string `yaml:"default_base_branch"`
-	FeaturePrefix       string `yaml:"feature_prefix"`
-	WorktreeRoot        string `yaml:"worktree_root"`
-	// TeamConfig is the static-path override for the team index (US-2 tier
-	// 2): when set, litefactory reads its team index and markdown tree from
-	// this path instead of the embedded default, and the embedded default is
-	// not consulted at all. Empty means "use the embedded default, unless a
-	// registered-repo override applies". Must be absolute when set. A
-	// configured-but-missing path is a hard startup error, never a silent
-	// fallback to the embedded default (US-2 AC-3).
-	TeamConfig                 string `yaml:"team_config"`
+	PollIntervalMinutes        int    `yaml:"poll_interval_minutes"`
+	MaxConcurrentRuns          int    `yaml:"max_concurrent_runs"`
+	DefaultBaseBranch          string `yaml:"default_base_branch"`
+	FeaturePrefix              string `yaml:"feature_prefix"`
+	WorktreeRoot               string `yaml:"worktree_root"`
 	WorktreeRetainDays         int    `yaml:"worktree_retain_days"`
 	DeployBackupKeep           int    `yaml:"deploy_backup_keep"`
 	LogRetainDays              int    `yaml:"log_retain_days"`
@@ -446,15 +437,15 @@ type ToolProfileCodex struct {
 // semantic and an absent agents mapping must not silently configure runners.
 func Defaults() Config {
 	return Config{
-		Teams:   Teams{IndexURL: DefaultTeamsIndexURL},
+
 		Webhook: Webhook{Listen: DefaultWebhookListen},
 		Settings: Settings{
-			PollIntervalMinutes:        DefaultPollIntervalMinutes,
-			MaxConcurrentRuns:          DefaultMaxConcurrentRuns,
-			DefaultBaseBranch:          "",
-			FeaturePrefix:              DefaultFeaturePrefix,
-			WorktreeRoot:               "",
-			TeamConfig:                 "",
+			PollIntervalMinutes: DefaultPollIntervalMinutes,
+			MaxConcurrentRuns:   DefaultMaxConcurrentRuns,
+			DefaultBaseBranch:   "",
+			FeaturePrefix:       DefaultFeaturePrefix,
+			WorktreeRoot:        "",
+
 			WorktreeRetainDays:         DefaultWorktreeRetainDays,
 			DeployBackupKeep:           DefaultDeployBackupKeep,
 			LogRetainDays:              DefaultLogRetainDays,
@@ -655,6 +646,9 @@ func Decode(r io.Reader) (*Config, error) {
 	if err := strictMCPAutoStart(data); err != nil {
 		return nil, err
 	}
+	if err := removedTeamKeysError(data); err != nil {
+		return nil, err
+	}
 	if err := legacySettingsError(data); err != nil {
 		return nil, err
 	}
@@ -726,6 +720,36 @@ func defaultConfiguredAgents(data []byte, cfg *Config) []Kind {
 		}
 	}
 	return order
+}
+
+// removedTeamKeysError refuses retired settings without inspecting their values.
+func removedTeamKeysError(data []byte) error {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok || doc.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	root := doc.Content[0]
+	keys := map[string]bool{}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key, value := root.Content[i].Value, root.Content[i+1]
+		if key == "teams" {
+			keys["teams"] = true
+		}
+		if key == "settings" && value.Kind == yaml.MappingNode {
+			for j := 0; j+1 < len(value.Content); j += 2 {
+				if value.Content[j].Value == "team_config" {
+					keys["settings.team_config"] = true
+				}
+			}
+		}
+	}
+	var faults []error
+	for _, key := range []string{"teams", "settings.team_config"} {
+		if keys[key] {
+			faults = append(faults, fmt.Errorf("%s: delete this key because agents are built in", key))
+		}
+	}
+	return errors.Join(faults...)
 }
 
 // literalAgentModelError gives the removed per-agent model key an actionable
