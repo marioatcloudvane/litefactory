@@ -39,14 +39,12 @@ Evidence:
 
 ## f4
 
-Built-in Research embeds and captures shipped assets independently of catalogs. Production teamsource files still import team, render and teamremote; remote.go declares ReleaseProvenance consumed by delivery. Preserving all these production files prevents whole-package deletion of shared dependencies even where their APIs are installation-oriented.
+Built-in capture imports shared render and team definitions, while teamsource/remote.go also contains RemoteInstall and a ReleaseProvenance type used by delivery; the revised removal must distinguish live built-in dependencies from installation-only functions instead of preserving whole files by package membership.
 
 Evidence:
 
-- `internal/teamsource/research.go:23`
-- `internal/teamsource/research.go:46`
-- `internal/teamsource/remote.go:12`
-- `internal/teamsource/render.go:11`
+- `internal/teamsource/research.go:18`
+- `internal/teamsource/remote.go:63`
 - `internal/turn/delivery.go:95`
 
 ## f5
@@ -89,14 +87,13 @@ Evidence:
 
 ## f8
 
-Current schema calls the table repos, with aiteam_team, aiteam_verified_at and external_team. Upsert writes all three and scanning retains external selection. Existing storage can represent an explicit switch by writing an empty external selection; no schema change is required. APP_CONTEXT describes obsolete resolution tiers and six commands, so current source is authoritative for this inventory.
+Legacy repository installation storage is aiteam_team, aiteam_verified_at and external_team on repos; current repository accessors persist all three, and the revised owner request requires their removal rather than an explicit-switch representation.
 
 Evidence:
 
 - `internal/store/migrations/0001_init.sql:40`
 - `internal/store/migrations/0007_repo_external_team.sql:1`
 - `internal/store/repos.go:80`
-- `.aiteam/APP_CONTEXT.md:112`
 
 ## f9
 
@@ -110,3 +107,14 @@ Evidence:
 - `internal/teamsource/render_test.go:203`
 - `internal/team/write_test.go:661`
 - `internal/team/write_forbidden_flag_test.go:95`
+
+## f10
+
+The migration inventory contains no dedicated team installation table; graph_definitions has team and team_snapshot_digest fields that active built-in Research and Plan populate, so these pinning fields and graph relationships serve current workflow execution rather than legacy repository selection.
+
+Evidence:
+
+- `internal/store/migrations/0048_graph_execution_foundations.sql:2`
+- `internal/store/graph_definitions.go:36`
+- `internal/turn/research_admission.go:95`
+- `internal/turn/plan_graph.go:152`
