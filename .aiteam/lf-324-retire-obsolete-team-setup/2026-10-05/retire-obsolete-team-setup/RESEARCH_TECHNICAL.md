@@ -106,3 +106,14 @@ Evidence:
 - `internal/config/validate.go:110`
 - `.aiteam/APP_CONSTRAINTS.md:303`
 - `internal/turn/research_delivery.go:1`
+
+## f9
+
+Focused shaping reads confirm registration inherits ExternalTeam, checks every catalog mode, and rejects repositories without legacy aiteam presence unless an external selection exists; typed Plan and story-contract upgrade replace the default role scope from the selected implement roster.
+
+Evidence:
+
+- `internal/cli/cmd_repo.go:124`
+- `internal/repos/registration.go:164`
+- `internal/turn/typed_plan.go:60`
+- `internal/cli/cmd_story_contract.go:99`
