@@ -192,3 +192,16 @@ func TestPlanDraftEdit_InitialScaffoldAndEscaping(t *testing.T) {
 		t.Fatalf("initial scaffold did not roundtrip: %+v", got)
 	}
 }
+
+func TestPlanDraftEdit_ShortenedBodyIsPending(t *testing.T) {
+	d := draftFixture("story")
+	d.Problem = strings.Repeat("x", 40000)
+	r, err := report.RenderPlanDraftParts(362, 1000, d, "story", planbrief.ContentScope{})
+	if err != nil || len(r.Parts) == 0 {
+		t.Fatalf("fixture must shorten: %v", err)
+	}
+	_, err = planbrief.ReconcilePlanDraftEdit(d, 362, 1000, r.Title, r.Body, planbrief.ContentScope{})
+	if err == nil || !strings.Contains(err.Error(), "pending") || !strings.Contains(err.Error(), "reply with changes") {
+		t.Fatalf("shortened body read as an edit: %v", err)
+	}
+}

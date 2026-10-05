@@ -54,10 +54,12 @@ func (r *planGraphRuntime) resultContext(ctx context.Context, a ActivityRequest)
 	}
 	existing := ""
 	if r.stage != planSetStage {
-		draft, err := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), r.selected)
+		draft, err := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), r.selected)
 		switch {
-		case err == nil:
+		case err == nil && draft.Candidate != "":
+			// An issue created at promotion has no draft yet: its first draft is a create.
 			existing = draft.Revision
+		case err == nil:
 		case !errors.Is(err, store.ErrNotFound):
 			return agentresult.Context{}, err
 		}

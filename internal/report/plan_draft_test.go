@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -152,13 +153,52 @@ func TestRenderRetainedPlanDraft_BacktrackingPreservesSections(t *testing.T) {
 	}
 }
 
-func TestRenderPlanDraft_BudgetCountsHiddenMetadata(t *testing.T) {
+func TestRenderPlanDraftParts_LongDraftIsShortenedWithFullParts(t *testing.T) {
 	d := renderDraftFixture()
 	d.Problem = strings.Repeat("x", 40000)
 	if err := d.Validate("story", planbrief.ContentScope{}); err != nil {
-		t.Fatalf("fixture must pass the raw-draft check: %v", err)
+		t.Fatalf("long draft must validate: %v", err)
 	}
-	if _, _, err := report.RenderPlanDraft(362, 1, d, "story", planbrief.ContentScope{}); err == nil || !strings.Contains(err.Error(), "exceeds byte budget") {
-		t.Fatalf("draft repeated as metadata rendered past the budget: %v", err)
+	got, err := report.RenderPlanDraftParts(362, 1, d, "story", planbrief.ContentScope{})
+	if err != nil {
+		t.Fatalf("long draft refused: %v", err)
+	}
+	if len(got.Body) > planbrief.MaxStoryBodyBytes-512 || !strings.Contains(got.Body, planbrief.PlanShortenedMarker) || strings.Contains(got.Body, "lf:plan-content") {
+		t.Fatalf("body not shortened as required (len %d)", len(got.Body))
+	}
+	if len(got.Parts) == 0 {
+		t.Fatal("no full-draft parts")
+	}
+	for _, part := range got.Parts {
+		if len(part) > report.PlanPartLimit {
+			t.Fatalf("part of %d bytes exceeds the limit", len(part))
+		}
+	}
+	if joined := strings.Join(got.Parts, ""); !strings.Contains(joined, strings.Repeat("x", 40000)) || !strings.HasPrefix(joined, "# Userstory") {
+		t.Fatal("parts do not join to the full draft")
+	}
+	_, plain, err := report.RenderPlanDraft(362, 1, d, "story", planbrief.ContentScope{})
+	if err != nil || plain != got.Body {
+		t.Fatalf("plain renderer disagrees with the parts renderer: %v", err)
+	}
+}
+
+func TestRenderPlanDraftParts_FittingDraftIsUnchanged(t *testing.T) {
+	got, err := report.RenderPlanDraftParts(362, 1, renderDraftFixture(), "story", planbrief.ContentScope{})
+	if err != nil || len(got.Parts) != 0 || strings.Contains(got.Body, planbrief.PlanShortenedMarker) || !strings.Contains(got.Body, "lf:plan-content") {
+		t.Fatalf("fitting draft changed: parts=%d err=%v", len(got.Parts), err)
+	}
+}
+
+func TestSplitStoryParts_LongLineAndMultibyte(t *testing.T) {
+	text := strings.Repeat("\u00e9", 50) + "\nshort\n"
+	parts := report.SplitStoryParts(text, 10)
+	if strings.Join(parts, "") != text {
+		t.Fatal("parts lose text")
+	}
+	for _, p := range parts {
+		if len(p) > 10 || !utf8.ValidString(p) {
+			t.Fatalf("bad part %q", p)
+		}
 	}
 }

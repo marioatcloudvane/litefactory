@@ -25,6 +25,8 @@ type PlanStoryForge interface {
 	CreateIssue(context.Context, github.Repo, redact.Body, redact.Body) (github.Issue, error)
 	UpdateIssue(context.Context, github.Repo, int, redact.Body, redact.Body) (github.Issue, error)
 	AddSubIssue(context.Context, github.Repo, int, int64) error
+	ListCommentsAfter(context.Context, github.Repo, int, int64) ([]github.Comment, error)
+	PostComment(context.Context, github.Repo, int, redact.Body) (github.Comment, error)
 	RetirePlanStory(context.Context, github.Repo, int, int64, int, int64) error
 }
 
@@ -105,6 +107,9 @@ func PlanIssueRevision(title, body string) string {
 func planStoryMarker(a PlanStoryAuthority, key string) string {
 	return fmt.Sprintf("<!-- lf:plan-story parent=%d key=%s -->", a.ParentID, key)
 }
+func planPartMarker(a PlanStoryAuthority, key string, r graphexec.PlanStoryRequest, n, total int) string {
+	return fmt.Sprintf("<!-- lf:plan-part parent=%d key=%s digest=%x part=%d/%d -->", a.ParentID, key, sha256.Sum256([]byte(r.RequestID)), n, total)
+}
 func planRequestMarker(r graphexec.PlanStoryRequest) string {
 	return fmt.Sprintf("<!-- lf:plan-request digest=%x -->", sha256.Sum256([]byte(r.RequestID)))
 }
@@ -153,6 +158,11 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	receipt.IssueID = d.IssueID
 	receipt.IssueNumber = d.IssueNumber
 	receipt.Revision = d.Revision
+	// A story created at promotion has an issue with a short drafting body and no
+	// candidate yet. Its first draft is a create that updates that issue, whose
+	// content revision is the one recorded when it was created.
+	bound := r.Operation == "create" && d.IssueID > 0 && d.Candidate == ""
+	priorRevision := d.Revision
 	latest, effectErr := h.DB.LatestPlanStoryEffect(ctx, a.Parent, r.RequestID)
 	if effectErr != nil && !errors.Is(effectErr, store.ErrNotFound) {
 		return receipt, effectErr
@@ -237,8 +247,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			return receipt, err
 		}
 	}
-	state, stateRevision, err := h.prepareCompletion(ctx, a, r, candidate)
-	if err != nil {
+	if err = h.prepareCompletion(ctx, a, r, candidate); err != nil {
 		return receipt, err
 	}
 	record := func(phase, outcome, detail string) (PlanStoryReceipt, error) {
@@ -264,11 +273,12 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	if parent.ID != a.ParentID || parent.State != github.StateOpen {
 		return receipt, errors.New("authorized parent identity or state changed")
 	}
-	render := report.RenderPlanDraft
+	render := report.RenderPlanDraftParts
 	if r.Operation != "create" {
-		render = report.RenderRetainedPlanDraft
+		render = report.RenderRetainedPlanDraftParts
 	}
-	title, body, err := render(int64(a.ParentNumber), d.Ordinal, candidate, r.Stage, a.ContentScope)
+	rendered, err := render(int64(a.ParentNumber), d.Ordinal, candidate, r.Stage, a.ContentScope)
+	title, body := rendered.Title, rendered.Body
 	if err != nil {
 		// Rendering is deterministic and precedes every remote mutation, so the
 		// request can never publish: record it as failed rather than erroring,
@@ -286,6 +296,16 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	}
 	if safeTitle.Truncated() || safeBody.Truncated() {
 		return record("render", "failed", "complete draft cannot be truncated")
+	}
+	safeParts := make([]redact.Body, len(rendered.Parts))
+	for i, part := range rendered.Parts {
+		text := planPartMarker(a, d.Key, r, i+1, len(rendered.Parts)) + "\n**Full draft, part " + fmt.Sprintf("%d/%d", i+1, len(rendered.Parts)) + "**\n\n" + part
+		if safeParts[i], err = h.Redactor.Apply(ctx, text, github.CommentSizeLimit); err != nil {
+			return receipt, err
+		}
+		if safeParts[i].Truncated() {
+			return record("render", "failed", "complete draft part cannot be truncated")
+		}
 	}
 	// Retain the exact redacted bytes in the revision comparison.
 	title, body = safeTitle.String(), safeBody.String()
@@ -347,7 +367,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		if attachIntent {
 			return record("attach", "uncertain", "attachment outcome or later detachment is ambiguous; verify the original request before reattachment")
 		}
-		if child.State != github.StateOpen || child.Title != title || child.Body != body {
+		if child.State != github.StateOpen || (!bound && (child.Title != title || child.Body != body)) || (bound && PlanIssueRevision(child.Title, child.Body) != priorRevision) {
 			return record("attach", "conflict", "created issue was edited or closed")
 		}
 		if _, err = record("attach", "uncertain", "known creation retained before attachment"); err != nil {
@@ -402,8 +422,8 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			}
 			return record("observe", "conflict", "story was closed")
 		}
-		if r.Operation == "update" && (effectErr != nil || child.Title != title || child.Body != body) {
-			if PlanIssueRevision(child.Title, child.Body) != r.ExpectedRevision {
+		if (r.Operation == "update" || bound) && (effectErr != nil || child.Title != title || child.Body != body) {
+			if PlanIssueRevision(child.Title, child.Body) != priorRevision {
 				return record("update", "conflict", "owner edits conflict with expected content revision")
 			}
 			if _, err = record("update", "uncertain", "update intent retained; remote API has no atomic compare-and-swap"); err != nil {
@@ -429,6 +449,28 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	if verifiedParent.ID != a.ParentID || verifiedParent.Number != a.ParentNumber {
 		return record("verify", "uncertain", "parent changed during mutation")
 	}
+	if r.Operation != "retire" && len(safeParts) > 0 {
+		comments, listErr := h.Forge.ListCommentsAfter(ctx, a.Repo, d.IssueNumber, 0)
+		if listErr != nil {
+			return remoteFailure("parts", listErr)
+		}
+		for i, part := range safeParts {
+			marker := planPartMarker(a, d.Key, r, i+1, len(safeParts))
+			posted := false
+			for _, c := range comments {
+				if strings.HasPrefix(c.Body, marker+"\n") {
+					posted = true
+					break
+				}
+			}
+			if posted {
+				continue
+			}
+			if _, postErr := h.Forge.PostComment(ctx, a.Repo, d.IssueNumber, part); postErr != nil {
+				return remoteFailure("parts", postErr)
+			}
+		}
+	}
 	d.Candidate = r.Candidate
 	d.Stage = r.Stage
 	draftRaw, err := json.Marshal(candidate)
@@ -440,10 +482,19 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	receipt.Outcome = "applied"
 	receipt.Detail = "confirmed by readback; GitHub provides no atomic content compare-and-swap"
 	effect := store.PlanStoryEffect{Parent: a.Parent, RequestID: r.RequestID, Phase: r.Operation, Outcome: "applied", IssueID: d.IssueID, IssueNumber: d.IssueNumber, Detail: receipt.Detail, Revision: d.Revision}
-	if err = completePlanState(&state, a, r, d, child); err != nil {
-		return receipt, err
-	}
-	if err = h.DB.CompletePlanStoryEffect(ctx, d, r.ExpectedRevision, effect, state, stateRevision, false); err != nil {
+	// The state is read fresh and saved with its revision check together with the
+	// draft, and re-read when a sibling story saved in between, so no revision is
+	// held across the GitHub calls above.
+	err = h.DB.WithPlanWorkflowState(ctx, a.Parent, func(state *planbrief.PlanState, revision int64) error {
+		if state.SharedRevision == "" {
+			state.SharedRevision = "initial"
+		}
+		if e := completePlanState(state, a, r, d, child); e != nil {
+			return e
+		}
+		return h.DB.CompletePlanStoryEffect(ctx, d, priorRevision, effect, *state, revision, false)
+	})
+	if err != nil {
 		return receipt, err
 	}
 	return receipt, nil

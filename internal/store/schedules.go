@@ -107,6 +107,18 @@ RETURNING `+scheduleColumns, params.SessionID, params.SourceCommentID, params.Ow
 	return schedule, created, nil
 }
 
+// ScheduleAttempted reports whether the schedule a session recorded under a
+// source identity has already left the pending state: it started, finished or
+// failed, so the same work is not started again by the factory.
+func (db *DB) ScheduleAttempted(ctx context.Context, sessionID, sourceID int64) (bool, error) {
+	var attempted bool
+	err := db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM schedules WHERE session_id = ? AND source_comment_id = ? AND ordinal = 1 AND status <> ?)`, sessionID, sourceID, string(SchedulePending)).Scan(&attempted)
+	if err != nil {
+		return false, fmt.Errorf("store: check schedule attempt: %w", err)
+	}
+	return attempted, nil
+}
+
 // GetSchedule reads a schedule by its stable ID.
 func (db *DB) GetSchedule(ctx context.Context, id int64) (Schedule, error) {
 	s, err := scanSchedule(db.sql.QueryRowContext(ctx, `SELECT `+scheduleColumns+` FROM schedules WHERE id = ?`, id))

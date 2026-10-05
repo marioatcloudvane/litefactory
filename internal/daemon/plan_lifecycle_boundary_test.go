@@ -94,6 +94,17 @@ func newLifecycleBoundaryFixture(t *testing.T) *lifecycleBoundaryFixture {
 		child := fakeIssue{ID: id, Number: number, Title: title, Body: body, State: "open", User: stranger()}
 		x.children = append(x.children, child)
 		f.forge.addIssue(child)
+		// Each story issue is a task of its own, met before the owner comments on it.
+		story, err := f.db.GetOrCreateSession(t.Context(), f.repo, number)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err = f.db.BootstrapWatermark(t.Context(), story.ID, 0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.db.AdmitPlanWorkflowPath(t.Context(), story.ID, "graph"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	state.AssembledApproval = "prior-reviewed-set"
 	if _, err := f.db.SavePlanWorkflowState(t.Context(), x.session.TaskRef, 0, state); err != nil {
@@ -125,12 +136,14 @@ func (x *lifecycleBoundaryFixture) assertNoChildMutation() {
 func (x *lifecycleBoundaryFixture) assertHealthyReply(id int64) {
 	x.t.Helper()
 	x.forge.addComment(201, id, owner(), "continue healthy story")
+	// The story task is deferred while the parent's task is in its tick.
+	x.settle()
 	x.settle()
 	calls := x.turns.calls()
 	if !slices.ContainsFunc(calls, func(req turn.Request) bool {
-		return req.Issue.Number == testIssue && req.Trigger.PlanReply != nil && req.Trigger.PlanReply.Key == "healthy" && req.Trigger.CommentID == id
+		return req.Issue.Number == 201 && req.Trigger.PlanReply != nil && req.Trigger.PlanReply.Key == "healthy" && req.Trigger.CommentID == id
 	}) {
-		x.t.Fatalf("healthy reply did not reach parent executor: %+v logs=%s", calls, x.logs)
+		x.t.Fatalf("healthy reply did not reach its own story task: %+v logs=%s", calls, x.logs)
 	}
 	x.assertNoChildMutation()
 }
@@ -155,10 +168,6 @@ func TestPlanLifecycleBoundary_ClosedReasonsPreserveSiblingProgress(t *testing.T
 			binding, err := x.db.GetPlanStoryDraft(t.Context(), x.session.TaskRef, "affected")
 			if err != nil || binding.Retired || binding.IssueID != child.ID || binding.Revision != turn.PlanIssueRevision(child.Title, child.Body) {
 				t.Fatalf("closure destroyed binding: %+v %v", binding, err)
-			}
-			history, err := x.db.PlanWorkflowHistory(t.Context(), x.session.TaskRef, 1)
-			if err != nil || history.Stories[0].Lifecycle.State != "" || len(history.Stories[0].Approvals) == 0 {
-				t.Fatalf("history not preserved: %+v %v", history, err)
 			}
 			x.restart()
 			x.settle()
@@ -244,6 +253,8 @@ func TestPlanLifecycleBoundary_FrozenGenerationIsNotReopened(t *testing.T) {
 	if err := x.db.CompareManagedFeature(t.Context(), store.ManagedFeature{ParentTask: x.session.TaskRef, Generation: 1, State: "implementing"}, "planning"); err != nil {
 		t.Fatal(err)
 	}
+	// Before the freeze, the sibling story's own task was offered its next stage.
+	beforeFreeze := len(x.turns.calls())
 	x.restart()
 	child.State = "open"
 	child.Body = "changed content that must not replace frozen scope"
@@ -257,7 +268,7 @@ func TestPlanLifecycleBoundary_FrozenGenerationIsNotReopened(t *testing.T) {
 	if err != nil || binding.Revision != turn.PlanIssueRevision(x.children[0].Title, x.children[0].Body) {
 		t.Fatalf("frozen draft was revised: %+v %v", binding, err)
 	}
-	if !x.state().Stories[0].Lifecycle.Reopened || len(x.turns.calls()) != 0 {
+	if !x.state().Stories[0].Lifecycle.Reopened || len(x.turns.calls()) != beforeFreeze {
 		t.Fatalf("frozen reopen not retained observationally: %+v calls=%+v", x.state(), x.turns.calls())
 	}
 	x.assertNoChildMutation()

@@ -641,7 +641,7 @@ func TestSharedPlanFinalizationUsesPublicationOwner(t *testing.T) {
 			}
 			got, err := p.finalize(t.Context(), prep, s, &agent.RunResult{Outcome: outcome, Reason: "process cause", ResultText: string(raw)}, nil)
 			mustProgress(t, err)
-			if got.Succeeded() != (scenario == "terminal" || scenario == "duplicate_checkpoint") {
+			if got.Succeeded() != (scenario != "failed_process") {
 				t.Fatalf("wrong Plan finalization: %+v", got)
 			}
 			if scenario == "failed_process" {
@@ -655,6 +655,12 @@ func TestSharedPlanFinalizationUsesPublicationOwner(t *testing.T) {
 				mustProgress(t, json.Unmarshal(retained, &handoff))
 				if handoff.RunID != run.RunID || handoff.Attempt != s.binding.Attempt || handoff.Outcome != "completed" {
 					t.Fatalf("unbound internal handoff: %+v", handoff)
+				}
+			}
+			if scenario == "conflicting_checkpoint" {
+				// The shared result wins: the retained contribution is the submitted one.
+				if !strings.Contains(string(prep.typedPlan.contribution), "Different approved proposal") {
+					t.Fatalf("shared result did not replace the differing checkpoint: %s", prep.typedPlan.contribution)
 				}
 			}
 			after, err := f.db.GetManagedFeature(t.Context(), f.session.TaskRef)

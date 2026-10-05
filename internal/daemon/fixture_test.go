@@ -278,6 +278,7 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	mux.HandleFunc("GET "+repos+"/issues/comments", f.handleListRepoComments)
 	mux.HandleFunc("GET "+repos+"/issues/{number}/comments", f.handleListComments)
 	mux.HandleFunc("POST "+repos+"/issues/{number}/comments", f.handlePostComment)
+	mux.HandleFunc("PATCH "+repos+"/issues/comments/{id}", f.handleEditComment)
 	mux.HandleFunc("POST "+repos+"/issues/{number}/labels", f.handleAddLabels)
 	mux.HandleFunc("DELETE "+repos+"/issues/{number}/labels/{label}", f.handleRemoveLabel)
 	mux.HandleFunc("POST "+repos+"/issues/comments/{id}/reactions", f.handleReaction)
@@ -292,7 +293,7 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-RateLimit-Limit", "5000")
 		f.mu.Lock()
-		if r.Method == http.MethodPatch || ((r.Method == http.MethodPost || r.Method == http.MethodDelete) && strings.Contains(r.URL.Path, "/sub_issues")) {
+		if (r.Method == http.MethodPatch && !strings.Contains(r.URL.Path, "/issues/comments/")) || ((r.Method == http.MethodPost || r.Method == http.MethodDelete) && strings.Contains(r.URL.Path, "/sub_issues")) {
 			f.issueMutations++
 		}
 		remaining := f.quotaRemaining
@@ -523,6 +524,24 @@ func (f *forgeServer) handlePostComment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	f.mu.Unlock()
+}
+
+// handleEditComment accepts the in-place edit of a comment the factory owns, such
+// as the Plan progress summary, and answers with the edited comment.
+func (f *forgeServer) handleEditComment(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, `{"message":"bad comment"}`, http.StatusBadRequest)
+		return
+	}
+	var payload struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, `{"message":"bad body"}`, http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, fakeComment{ID: id, Body: payload.Body, User: bot(), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()})
 }
 
 // hookHandles calls an injected failure hook. It is a function so that the

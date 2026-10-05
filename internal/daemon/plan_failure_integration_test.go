@@ -417,8 +417,8 @@ func TestPlanFailureDaemon_FailedRunWithoutFailureCommentIsNeverHandled(t *testi
 	}
 }
 
-// A story child issue's owner reply reaches the parent's graph Plan. Its own
-// cursor advances only with the failure comment: a failed run whose failure
+// A story child issue's owner reply reaches the story's own Plan task. Its own
+// watermark advances only with the failure comment: a failed run whose failure
 // comment is not published leaves the reply pending, and the retry that has
 // published it is what handles it.
 func TestPlanFailureDaemon_ChildReplyIsHandledOnlyWithTheFailureComment(t *testing.T) {
@@ -445,13 +445,7 @@ func TestPlanFailureDaemon_ChildReplyIsHandledOnlyWithTheFailureComment(t *testi
 			seedPlanChild(t, f, session)
 			f.forge.addComment(200, 60, owner(), "/approve-plan story story candidate")
 
-			childCursor := func() int64 {
-				cursor, err := f.db.StoryDiscoveryCursor(t.Context(), session.ID, 200)
-				if err != nil {
-					t.Fatal(err)
-				}
-				return cursor
-			}
+			childCursor := func() int64 { return storyWatermark(f, 200) }
 			handledOnly := func() {
 				t.Helper()
 				if childCursor() >= 60 && len(failureCommentsOnForge(f)) == 0 {
@@ -540,4 +534,16 @@ func seedPlanChild(t *testing.T, f *fixture, session store.Session) {
 		t.Fatal(err)
 	}
 	f.forge.addIssue(fakeIssue{ID: 2000, Number: 200, Title: title, Body: body, State: "open", User: stranger()})
+	// The story issue is a task of its own, met before the owner comments on it,
+	// and the real turn admits its graph route on its first run.
+	story, err := f.db.GetOrCreateSession(t.Context(), f.repo, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = f.db.BootstrapWatermark(t.Context(), story.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.db.AdmitPlanWorkflowPath(t.Context(), story.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
 }

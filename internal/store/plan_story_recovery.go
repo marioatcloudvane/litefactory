@@ -102,12 +102,9 @@ func (db *DB) CompletePlanStoryEffect(ctx context.Context, d PlanStoryDraft, exp
 			return err
 		}
 		if n != 1 {
-			return errors.New("plan state changed during completion")
+			return ErrPlanStateConflict
 		}
 		if err = retainPlanNoticesTx(ctx, tx, d.Parent, state); err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO plan_workflow_history(parent,revision,state_json) VALUES(?,?,?)`, d.Parent, revision+1, string(raw)); err != nil {
 			return err
 		}
 		if !repair {
@@ -180,9 +177,6 @@ func (db *DB) SettlePlanStoryDebt(ctx context.Context, parent, request string, s
 			return errors.New("plan supersession revision changed")
 		}
 		if err = retainPlanNoticesTx(ctx, tx, parent, state); err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO plan_workflow_history(parent,revision,state_json) VALUES(?,?,?)`, parent, revision+1, string(raw)); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO plan_story_completions(parent,request_id) VALUES(?,?) ON CONFLICT DO NOTHING`, parent, request)

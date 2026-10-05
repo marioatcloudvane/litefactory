@@ -566,6 +566,9 @@ func (d *Daemon) discover(
 	if err := d.graphPlanParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
+	if err := d.graphPlanStories(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
 	if err := d.managedParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -1369,6 +1372,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	if handledPlan {
 		return
 	}
+
 	if deferred, err := d.refineStories(ctx, t); err != nil {
 		d.stopped(ctx, t, "could not refine managed stories", err)
 		return
@@ -1409,6 +1413,11 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		t.recordWorkerStatus(workerDeferred)
 	}
 	if !deferred {
+		// Comments come first: an owner's reply may change the work this task owes.
+		if err := d.startPlanWork(ctx, t); err != nil {
+			d.stopped(ctx, t, "could not run the Plan work of this task", err)
+			return
+		}
 		// The clean-drain clear site, deliberately a statement on the success path
 		// rather than a defer: a defer would fire on the error returns above too,
 		// which is exactly the stale-false the protocol forbids.
@@ -1811,8 +1820,15 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	t.commentUnderWay = c.ID
 	defer func() { t.commentUnderWay = 0 }()
 
-	// A graph Plan story issue belongs to its parent, whose worker reads the
-	// issue's comments as Plan input. Acting here as well would answer the
+	// A graph Plan story issue that is a task of its own has its owner comments
+	// answered here, where they were written.
+	if story, owned, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
+		return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
+	} else if owned {
+		return d.handlePlanStoryComment(ctx, t, c, story, log)
+	}
+	// Any other graph Plan story issue belongs to its parent, whose worker reads
+	// the issue's comments as Plan input. Acting here as well would answer the
 	// same reply twice, or start a second run beside the Plan revision.
 	if parent, owned, err := d.db.GraphPlanStoryParent(ctx, t.issue.ID); err != nil || owned {
 		if err != nil {
@@ -2061,6 +2077,16 @@ func (d *Daemon) run(
 		}
 	}
 
+	// A graph Plan story issue only ever runs Plan, whatever its labels say, and
+	// so does Plan work the factory started itself.
+	if t.scheduled != nil && t.scheduled.Payload == planWorkPayload {
+		t.refining = true
+	} else if _, owned, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
+		return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
+	} else if owned {
+		t.refining = true
+	}
+
 	if pending, err := d.resumeReport(ctx, t, trigger.CommentID); pending || err != nil {
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
@@ -2265,10 +2291,12 @@ func (d *Daemon) run(
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
 	if trigger.PlanReply != nil {
-		// A child comment belongs to its own discovery cursor. The Plan policy
-		// journals consumed reply IDs before effects; refinePlanChildren advances
-		// that child's cursor after this return. Parent input consumption would
-		// skip unrelated parent comments whose globally allocated IDs are lower.
+		// A child comment belongs to its own discovery cursor, except on a story
+		// that is a task of its own, whose watermark this reply advances. The Plan
+		// policy journals consumed reply IDs before effects; refinePlanChildren
+		// advances a parent-routed child's cursor after this return. Parent input
+		// consumption would skip unrelated parent comments whose globally
+		// allocated IDs are lower.
 		reply := trigger.PlanReply
 		if mode != agent.ModePlan || reply.ID != trigger.CommentID || reply.ActorID != trigger.AuthorID || reply.OwnerID != d.filter.Identities().OwnerUserID {
 			return errors.New("plan child completion correlation mismatch")
@@ -2282,6 +2310,15 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		}
 		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
 			return &recoveryPending{err}
+		}
+		// Handled, or answered with a published failure the owner can reply to:
+		// either way this reply is done and the story's next reply is a new one.
+		if _, task, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
+			return err
+		} else if task {
+			if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {
+				return d.leave(ctx, t, log, "could not consume a Plan story reply", err)
+			}
 		}
 		return nil
 	}

@@ -170,7 +170,7 @@ func TestPlanSet_QuestionRecordsNoSet(t *testing.T) {
 }
 
 func setRuntime(f *fixture, base Request, stage string) *planGraphRuntime {
-	return &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, stage: stage}
+	return &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, stage: stage}
 }
 
 func setRetained(entries ...ar.PlanStorySetEntry) planRetained {

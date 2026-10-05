@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -48,6 +50,12 @@ type planGraphRuntime struct {
 	// first draft, which is what keeps the story creation cycle going.
 	creating bool
 	parentID int64
+	// parentRef and parentNumber name the Plan parent, which owns the Plan state.
+	// story is the story key of a story task, and empty for the parent task itself:
+	// a story task runs one stage of its own story and nothing else.
+	parentRef    naming.Ref
+	parentNumber int
+	story        string
 }
 
 type planGraphHandler func(context.Context, Options, ActivityRequest) (ActivityResult, error)
@@ -67,7 +75,11 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if route == "legacy" {
 		return result, false, nil
 	}
-	if err = invalidateManagedPlanReadiness(ctx, o, result.Ref); err != nil {
+	r := &planGraphRuntime{opts: o, req: req, result: result, scope: planbrief.TaskOwnerScope(), parentRef: result.Ref, parentNumber: req.Issue.Number}
+	if err = r.bindStoryTask(ctx); err != nil {
+		return result, true, err
+	}
+	if err = invalidateManagedPlanReadiness(ctx, o, r.parentRef); err != nil {
 		return result, true, err
 	}
 	if o.MCP == nil || o.MCP.Redactor == nil || o.ResearchReporter == nil {
@@ -81,8 +93,8 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if err != nil {
 		return result, true, err
 	}
-	r := &planGraphRuntime{opts: o, req: req, result: result, ownerID: owner.UserID, scope: planbrief.TaskOwnerScope()}
-	parent, err := forge.GetIssue(ctx, github.Repo{Owner: result.Ref.Owner, Name: result.Ref.Repo}, req.Issue.Number)
+	r.ownerID = owner.UserID
+	parent, err := forge.GetIssue(ctx, github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}, r.parentNumber)
 	if err != nil {
 		return result, true, err
 	}
@@ -93,6 +105,9 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 			out, refuseErr := prelaunchRefused(ctx, o, result, refusal.reason)
 			return out, true, refuseErr
 		}
+		return result, true, err
+	}
+	if err = r.createStoryIssues(ctx); err != nil {
 		return result, true, err
 	}
 	if err = r.recoverStoryEffects(ctx); err != nil {
@@ -113,6 +128,12 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if r.stage == "" {
 		if store.IsGraphTrigger(req.Trigger.CommentID) {
 			return result, true, errors.New("saved Plan dispatch no longer matches eligible work")
+		}
+		if r.story != "" {
+			out := result
+			out.ResearchGraph = true
+			out.Reason = "this story waits for the owner or for an upstream story"
+			return out, true, nil
 		}
 		out, err := r.settled(ctx)
 		return out, true, err
@@ -143,7 +164,7 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	definition.Profile.Digest = actual.Digest
 	policy := r.policy()
 	out, err := ExecuteWorkflow(ctx, o, req, result, definition, admission, policy)
-	if err == nil && out.Err == nil {
+	if err == nil && out.Err == nil && r.story == "" {
 		// Where the run stopped, the owner hears why and what to do next.
 		_, noticeErr := r.storiesCreated(ctx)
 		r.logNotice(noticeErr, "plan-stories-created")
@@ -184,62 +205,95 @@ func (r *planGraphRuntime) releaseMismatchedParking(ctx context.Context, profile
 }
 
 func (r *planGraphRuntime) state(ctx context.Context) (planbrief.PlanState, int64, error) {
-	return r.opts.DB.GetPlanWorkflowState(ctx, r.result.Ref.String())
+	return r.opts.DB.GetPlanWorkflowState(ctx, r.parentRef.String())
 }
 func (r *planGraphRuntime) persist(ctx context.Context, s planbrief.PlanState, revision int64) error {
-	_, err := r.opts.DB.SavePlanWorkflowState(ctx, r.result.Ref.String(), revision, s)
+	_, err := r.opts.DB.SavePlanWorkflowState(ctx, r.parentRef.String(), revision, s)
 	return err
 }
 
-func (r *planGraphRuntime) selectStory(ctx context.Context) error {
-	s, rev, err := r.state(ctx)
+// bindStoryTask tells whether this task is a story issue of a graph Plan parent.
+// A story task works on the parent's Plan state through its own story only.
+func (r *planGraphRuntime) bindStoryTask(ctx context.Context) error {
+	session, err := r.opts.DB.GetSession(ctx, r.req.SessionID)
 	if err != nil {
 		return err
 	}
-	if s.SharedRevision == "" {
-		s.SharedRevision = "initial"
-		if err = r.persist(ctx, s, rev); err != nil {
-			return err
-		}
-	}
-	bindings, err := r.opts.DB.ListPlanStoryDrafts(ctx, r.result.Ref.String())
-	if err != nil {
+	story, ok, err := r.opts.DB.GraphPlanStoryAt(ctx, session.RepoID, session.IssueNumber)
+	if err != nil || !ok {
 		return err
 	}
-	changed := false
+	parent, err := naming.ParseRef(story.Parent)
+	if err != nil {
+		return fmt.Errorf("plan story parent %q: %w", story.Parent, err)
+	}
+	r.parentRef, r.parentNumber, r.story = parent, parent.Issue, story.Key
+	return nil
+}
+
+// issuedStories names the stories that have an issue, and so a task of their own.
+func (r *planGraphRuntime) issuedStories(ctx context.Context) (map[string]bool, []store.PlanStoryDraft, error) {
+	bindings, err := r.opts.DB.ListPlanStoryDrafts(ctx, r.parentRef.String())
+	if err != nil {
+		return nil, nil, err
+	}
+	issued := map[string]bool{}
 	for _, binding := range bindings {
-		if binding.Candidate == "" || binding.Retired {
-			continue
+		if binding.IssueID > 0 && !binding.Retired {
+			issued[binding.Key] = true
 		}
-		current := ""
-		for _, item := range s.Stories {
-			if item.Key == binding.Key {
-				current = item.Candidate
-				break
+	}
+	return issued, bindings, nil
+}
+
+// selectStory picks this run's one piece of work. The state it imports and the
+// pick it makes are read fresh; the write goes through the shared helper, which
+// re-reads on a revision conflict so no stale save can replace a sibling's change.
+func (r *planGraphRuntime) selectStory(ctx context.Context) error {
+	issued, bindings, err := r.issuedStories(ctx)
+	if err != nil {
+		return err
+	}
+	parent := r.parentRef.String()
+	err = r.opts.DB.UpdatePlanWorkflowState(ctx, parent, func(s *planbrief.PlanState) (bool, error) {
+		changed := false
+		if s.SharedRevision == "" {
+			s.SharedRevision = "initial"
+			changed = true
+		}
+		for _, binding := range bindings {
+			if binding.Candidate == "" || binding.Retired || (r.story != "" && binding.Key != r.story) {
+				continue
 			}
+			current := ""
+			for _, item := range s.Stories {
+				if item.Key == binding.Key {
+					current = item.Candidate
+					break
+				}
+			}
+			if current == binding.Candidate {
+				continue
+			}
+			var draft planbrief.PlanDraft
+			if err := json.Unmarshal([]byte(binding.DraftJSON), &draft); err != nil {
+				return false, err
+			}
+			if err := s.PutCandidate(draft, binding.Stage, binding.Candidate); err != nil {
+				return false, err
+			}
+			changed = true
 		}
-		if current == binding.Candidate {
-			continue
-		}
-		var draft planbrief.PlanDraft
-		if err = json.Unmarshal([]byte(binding.DraftJSON), &draft); err != nil {
-			return err
-		}
-		if err = s.PutCandidate(draft, binding.Stage, binding.Candidate); err != nil {
-			return err
-		}
-		changed = true
+		return changed, nil
+	})
+	if err != nil {
+		return err
 	}
-	if changed {
-		_, currentRev, err := r.state(ctx)
-		if err != nil {
-			return err
-		}
-		if err = r.persist(ctx, s, currentRev); err != nil {
-			return err
-		}
+	s, _, err := r.state(ctx)
+	if err != nil {
+		return err
 	}
-	pick, err := pickPlanStep(s)
+	pick, err := pickPlanStep(s, r.story, issued)
 	if err != nil {
 		return err
 	}
@@ -257,13 +311,17 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 		if reply.OwnerID != r.ownerID || reply.ActorID != r.req.Trigger.AuthorID || reply.ID != r.req.Trigger.CommentID {
 			return errors.New("plan child reply authority mismatch")
 		}
+		if r.story != "" && reply.Key != r.story {
+			return errors.New("plan reply names a story this task does not own")
+		}
 		if strings.HasPrefix(strings.TrimSpace(reply.Body), "/retire-plan ") {
 			return r.retire(ctx, s, rev, reply)
 		}
-		if _, err = s.ApplyOwnerReply(reply); err != nil {
-			return &PlanReplyRefusal{Reason: planReplyRefusalReason, Err: err}
-		}
-		return r.persist(ctx, s, rev)
+		return r.applyReply(ctx, reply)
+	}
+	if r.story != "" {
+		// The set, its promotion, new stories and the final approval are the parent's.
+		return nil
 	}
 	if argument, ok := planSetPromotionArgument(r.req.Trigger.Body); ok {
 		return r.promoteSet(ctx, s, rev, argument)
@@ -280,6 +338,9 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 		}
 		return r.persist(ctx, s, rev)
 	}
+	if key, ok := planStoryCommandKey(r.req.Trigger.Body); ok {
+		return r.applyParentStoryCommand(ctx, s, key)
+	}
 	// A parent reply never impersonates a child review. New requested stories get
 	// a factory-reserved semantic key only through an explicit owner request.
 	if strings.TrimSpace(r.req.Trigger.Body) == "/plan-new-story" && r.req.Trigger.AuthorID == r.ownerID && !slices.Contains(s.ConsumedReplies, r.req.Trigger.CommentID) {
@@ -290,6 +351,66 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 		return r.persist(ctx, s, rev)
 	}
 	return nil
+}
+
+// applyReply applies an authenticated owner reply to its one story. The state is
+// read fresh and saved with the revision check, so a sibling story saving at the
+// same moment keeps its change and this one is retried, never lost.
+func (r *planGraphRuntime) applyReply(ctx context.Context, reply planbrief.PlanOwnerReply) error {
+	return r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(s *planbrief.PlanState) (bool, error) {
+		if _, err := s.ApplyOwnerReply(reply); err != nil {
+			return false, &PlanReplyRefusal{Reason: planReplyRefusalReason, Err: err}
+		}
+		return true, nil
+	})
+}
+
+var planStoryCommandPattern = regexp.MustCompile(`^/approve-plan (story-[0-9]{3,}) (?:story|technical|acceptance) \S+$`)
+
+// planStoryCommandKey reports whether body is a story approval command written
+// on the parent, and names the story it is for.
+func planStoryCommandKey(body string) (string, bool) {
+	text := strings.TrimSpace(body)
+	m := planStoryCommandPattern.FindStringSubmatch(text)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
+// applyParentStoryCommand applies the approval an owner wrote on the parent to
+// the one story it names, under the same exact-match rules as on the story's own
+// issue. The answer is posted on the parent, where it was written.
+func (r *planGraphRuntime) applyParentStoryCommand(ctx context.Context, s planbrief.PlanState, key string) error {
+	trigger := r.req.Trigger
+	refuse := func(reason string) error {
+		return &planSetRefusal{reason: "Story " + key + " not approved: " + reason}
+	}
+	if trigger.AuthorID < 1 || trigger.AuthorID != r.ownerID {
+		return refuse("only the authenticated owner can approve a story.")
+	}
+	if slices.Contains(s.ConsumedReplies, trigger.CommentID) {
+		return nil
+	}
+	if reason := s.PlanReplyReason(key, trigger.Body); reason != "" {
+		return refuse(reason)
+	}
+	var wait *planbrief.PlanWait
+	for _, item := range s.Stories {
+		if item.Key == key {
+			wait = item.Wait
+		}
+	}
+	if wait == nil {
+		return refuse("nothing on this story is waiting for your approval right now.")
+	}
+	reply := planbrief.PlanOwnerReply{ID: trigger.CommentID, OwnerID: r.ownerID, ActorID: trigger.AuthorID, IssueID: wait.IssueID, Key: key, Stage: wait.Stage, Candidate: wait.Candidate, WaitID: wait.ID, Body: trigger.Body}
+	err := r.applyReply(ctx, reply)
+	var refusal *PlanReplyRefusal
+	if errors.As(err, &refusal) {
+		return refuse(refusal.Reason)
+	}
+	return err
 }
 
 func (r *planGraphRuntime) policy() WorkflowPolicy {
@@ -339,8 +460,10 @@ func (r *planGraphRuntime) prepare(ctx context.Context, w *researchWorkflow, a A
 	if r.stage != planSetStage {
 		binding = fmt.Sprintf("\nFactory-selected story: %s; stage: %s; the factory binds the stage, candidate, request identity, upstream references and shared-decision revision to your result. Never supply them, and set draft.key to the selected story.\n", r.selected, r.stage)
 		binding += planOwnerRolesBinding(r.scope)
-		if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), r.selected); e == nil && d.IssueID > 0 {
+		if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), r.selected); e == nil && d.IssueID > 0 && d.Candidate != "" {
 			binding += fmt.Sprintf("Existing issue %d, expected_revision %s; operation update unless proposing retirement.\n", d.IssueNumber, d.Revision)
+		} else if e == nil && d.IssueID > 0 {
+			binding += fmt.Sprintf("Issue %d already exists for this story with a short drafting body; the factory updates it with your first draft, so use operation create.\n", d.IssueNumber)
 		} else if e != nil && !errors.Is(e, store.ErrNotFound) {
 			return ResearchInvocation{}, e
 		}
@@ -430,7 +553,7 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 	if request.Operation == "retire" {
 		return ActivityResult{Outcome: "applied", Kind: store.GraphOutputJSON, Output: []byte(`{"retirement":"owner_confirmation_required"}`)}, nil
 	}
-	authority := PlanStoryAuthority{Parent: r.result.Ref.String(), Repo: github.Repo{Owner: r.result.Ref.Owner, Name: r.result.Ref.Repo}, ParentNumber: r.req.Issue.Number, ParentID: r.parentID, SelectedKey: r.selected, Candidate: request.Candidate, Stage: r.stage, ContentScope: r.scope, OwnerID: r.ownerID}
+	authority := PlanStoryAuthority{Parent: r.parentRef.String(), Repo: github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}, ParentNumber: r.parentNumber, ParentID: r.parentID, SelectedKey: r.selected, Candidate: request.Candidate, Stage: r.stage, ContentScope: r.scope, OwnerID: r.ownerID}
 	forge, err := r.storyForge()
 	if err != nil {
 		return ActivityResult{}, err
@@ -452,7 +575,7 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	if err != nil {
 		return ActivityResult{}, err
 	}
-	s, rev, err := r.state(ctx)
+	s, _, err := r.state(ctx)
 	if err != nil {
 		return ActivityResult{}, err
 	}
@@ -470,13 +593,17 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	key := fmt.Sprintf("plan-review:%d:%d:%s", a.InstanceID, source.ID, a.Node)
 	// A promoted story owns a reserved ordinal before it has an issue; only a story
 	// bound to an issue has somewhere to wait for the owner.
-	if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), r.selected); e == nil && d.IssueID > 0 {
+	if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), r.selected); e == nil && d.IssueID > 0 {
 		target.Issue = d.IssueNumber
 		waitKind := kind
 		if node.Request != nil && node.Request.Operation == "retire" {
 			waitKind = "retire"
 		}
-		if err = s.OpenPlanWait(r.selected, key, waitKind, d.IssueID); err != nil {
+		// Only this story's own entry changes, so the wait is saved through the
+		// shared helper: a sibling saving at the same moment keeps its change.
+		if err = r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(st *planbrief.PlanState) (bool, error) {
+			return true, st.OpenPlanWait(r.selected, key, waitKind, d.IssueID)
+		}); err != nil {
 			return ActivityResult{}, err
 		}
 		if waitKind == "review" {
@@ -487,9 +614,6 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 		}
 	} else if e != nil && !errors.Is(e, store.ErrNotFound) {
 		return ActivityResult{}, e
-	}
-	if err = r.persist(ctx, s, rev); err != nil {
-		return ActivityResult{}, err
 	}
 	reporter := r.opts.ResearchReporter
 	run, err := r.opts.DB.GetRun(ctx, source.RunID)
@@ -556,11 +680,11 @@ func (r *planGraphRuntime) retire(ctx context.Context, s planbrief.PlanState, _ 
 	if node.Request == nil || node.Request.Operation != "retire" || node.Request.Draft.Key != reply.Key {
 		return errors.New("retirement proposal no longer matches child reply")
 	}
-	binding, err := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), reply.Key)
+	binding, err := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), reply.Key)
 	if err != nil {
 		return err
 	}
-	a := PlanStoryAuthority{Parent: r.result.Ref.String(), Repo: github.Repo{Owner: r.result.Ref.Owner, Name: r.result.Ref.Repo}, ParentNumber: r.req.Issue.Number, ParentID: r.parentID, SelectedKey: reply.Key, Candidate: node.Request.Candidate, Stage: reply.Stage, ContentScope: r.scope, OwnerID: r.ownerID, ActorID: reply.ActorID, RetirementCandidate: reply.Candidate, RetirementRevision: binding.Revision, Confirmation: &reply}
+	a := PlanStoryAuthority{Parent: r.parentRef.String(), Repo: github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}, ParentNumber: r.parentNumber, ParentID: r.parentID, SelectedKey: reply.Key, Candidate: node.Request.Candidate, Stage: reply.Stage, ContentScope: r.scope, OwnerID: r.ownerID, ActorID: reply.ActorID, RetirementCandidate: reply.Candidate, RetirementRevision: binding.Revision, Confirmation: &reply}
 	forge, err := r.storyForge()
 	if err != nil {
 		return err
@@ -582,7 +706,11 @@ func (r *planGraphRuntime) recoverStoryEffects(ctx context.Context) error {
 		return err
 	}
 	h := PlanStoryActivity{DB: r.opts.DB, Forge: forge, Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
-	return h.Reconcile(ctx, PlanStoryAuthority{Parent: r.result.Ref.String(), Repo: github.Repo{Owner: r.result.Ref.Owner, Name: r.result.Ref.Repo}, ParentNumber: r.req.Issue.Number, ParentID: r.parentID, ContentScope: r.scope, OwnerID: r.ownerID}, 8)
+	authority := PlanStoryAuthority{Parent: r.parentRef.String(), Repo: github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}, ParentNumber: r.parentNumber, ParentID: r.parentID, ContentScope: r.scope, OwnerID: r.ownerID}
+	if r.story != "" {
+		return h.ReconcileStory(ctx, authority, 8, r.story)
+	}
+	return h.Reconcile(ctx, authority, 8)
 
 }
 

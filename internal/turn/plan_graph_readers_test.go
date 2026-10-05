@@ -32,7 +32,7 @@ func newReaderFixture(t *testing.T) *readerFixture {
 	mustProgress(t, err)
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
 	mustProgress(t, err)
-	r := &readerFixture{f: f, runtime: planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, selected: "story-001", stage: "story"}}
+	r := &readerFixture{f: f, runtime: planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, selected: "story-001", stage: "story"}}
 	for _, a := range attempts {
 		outputs, err := f.db.ListGraphOutputs(t.Context(), a.ID)
 		mustProgress(t, err)

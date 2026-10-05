@@ -84,7 +84,7 @@ func renderTypedPlanWithHistory(p planbrief.TypedPlan, scope planbrief.ContentSc
 	}
 	bodies := make([]string, len(p.Stories))
 	for i, s := range p.Stories {
-		body, err := report.RenderTypedStory(s, scope)
+		body, _, err := report.RenderTypedStoryParts(s, scope)
 		if err != nil {
 			return nil, err
 		}

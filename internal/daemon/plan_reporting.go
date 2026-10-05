@@ -15,6 +15,11 @@ type planProgressReporter interface {
 	ReportPlanReply(context.Context, naming.Ref, int64, string, int, int64, string) (turn.Posted, error)
 }
 
+// planSummaryReporter keeps a Plan parent's one progress summary comment current.
+type planSummaryReporter interface {
+	ReportPlanSummary(context.Context, naming.Ref, int64) error
+}
+
 func (d *Daemon) reportPlanProgress(ctx context.Context, t *task) error {
 	route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -34,7 +39,13 @@ func (d *Daemon) reportPlanProgress(ctx context.Context, t *task) error {
 	if pending > 0 && t.log != nil {
 		t.log.InfoContext(ctx, "Plan notices retain uncertain receipts", slog.Int("pending", pending))
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if summary, ok := d.reporter.(planSummaryReporter); ok {
+		return summary.ReportPlanSummary(ctx, t.ref, t.session.ID)
+	}
+	return nil
 }
 
 func (d *Daemon) explainPlanReply(ctx context.Context, t *task, draft store.PlanStoryDraft, commentID int64, reason string) (bool, error) {

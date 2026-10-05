@@ -33,7 +33,7 @@ func setState() planbrief.PlanState {
 
 func TestPlanPick_ScopeWithoutStoriesOrSetStartsAtTheSetStage(t *testing.T) {
 	t.Parallel()
-	got, err := pickPlanStep(planbrief.PlanState{SharedRevision: "initial"})
+	got, err := pickPlanStep(planbrief.PlanState{SharedRevision: "initial"}, "", nil)
 	if err != nil || got != (planPick{Stage: "set"}) {
 		t.Fatalf("pick %+v %v", got, err)
 	}
@@ -45,13 +45,13 @@ func TestPlanPick_UnpromotedSetIsProposedAgainAndPromotedSetNever(t *testing.T) 
 	t.Parallel()
 	s := planbrief.PlanState{SharedRevision: "initial", StorySet: setState().StorySet}
 	s.StorySet.Promoted = false
-	got, err := pickPlanStep(s)
+	got, err := pickPlanStep(s, "", nil)
 	if err != nil || got != (planPick{Stage: "set"}) {
 		t.Fatalf("an unpromoted set picked %+v %v", got, err)
 	}
 	s.StorySet.Promoted = true
 	s.StorySet.Keys = nil
-	if got, err = pickPlanStep(s); err == nil && got.Stage == "set" {
+	if got, err = pickPlanStep(s, "", nil); err == nil && got.Stage == "set" {
 		t.Fatalf("a promoted set was proposed again: %+v", got)
 	}
 }
@@ -61,7 +61,7 @@ func TestPlanPick_PromotedStoriesAreDraftedDependenciesFirst(t *testing.T) {
 	s := setState()
 	var order []string
 	for range 4 {
-		got, err := pickPlanStep(s)
+		got, err := pickPlanStep(s, "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -96,7 +96,7 @@ func TestPlanPick_DraftedStoriesFallBackToOrdinaryEligibility(t *testing.T) {
 	for i := range s.Stories {
 		s.Stories[i].Candidate = "plan-1-1"
 	}
-	got, err := pickPlanStep(s)
+	got, err := pickPlanStep(s, "", nil)
 	if err != nil || got.Create {
 		t.Fatalf("creation pick after every draft: %+v %v", got, err)
 	}
@@ -108,7 +108,7 @@ func TestPlanPick_UnorderableSetIsAnError(t *testing.T) {
 	s.StorySet.Entries = []planbrief.PlanStorySetEntry{pickEntry("a", "b"), pickEntry("b", "a"), pickEntry("c")}
 	s.StorySet.Keys = map[string]string{"a": "story-001", "b": "story-002", "c": "story-003"}
 	s.Stories[2].Candidate = "plan-1-3"
-	if _, err := pickPlanStep(s); !errors.Is(err, planbrief.ErrPlanStorySetUnorderable) {
+	if _, err := pickPlanStep(s, "", nil); !errors.Is(err, planbrief.ErrPlanStorySetUnorderable) {
 		t.Fatalf("cycle: %v", err)
 	}
 }
@@ -133,7 +133,7 @@ func TestPlanRuntime_CreationPassSelectsFreshlyEachTime(t *testing.T) {
 	mustProgress(t, err)
 	revision, err := f.db.SavePlanWorkflowState(t.Context(), f.ref().String(), current, state)
 	mustProgress(t, err)
-	r := planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}}
+	r := planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue}
 	pass := func() (string, string) {
 		t.Helper()
 		got, err := r.control(t.Context(), Options{}, ActivityRequest{Attrs: map[string]string{"lf_condition": graphexec.PlanCreateCondition}})

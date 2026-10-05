@@ -70,13 +70,7 @@ func ReconcilePlanChildEdit(ctx context.Context, db *store.DB, parent string, pa
 	if edit.PresentationOnly {
 		return nil
 	}
-	state, rev, err := db.GetPlanWorkflowState(ctx, parent)
-	if err != nil {
-		return err
-	}
-	if err = state.PutCandidate(edit.Draft, stage, candidate); err != nil {
-		return err
-	}
-	_, err = db.SavePlanWorkflowState(ctx, parent, rev, state)
-	return err
+	return db.UpdatePlanWorkflowState(ctx, parent, func(state *planbrief.PlanState) (bool, error) {
+		return true, state.PutCandidate(edit.Draft, stage, candidate)
+	})
 }

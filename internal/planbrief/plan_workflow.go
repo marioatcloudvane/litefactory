@@ -24,6 +24,9 @@ type PlanState struct {
 	// StorySet is the proposed or promoted story set. It is absent in a Plan saved
 	// before story sets existed, and in one whose scope needed no decomposition.
 	StorySet *PlanStorySetState `json:"story_set,omitempty"`
+	// SummaryDigest identifies the progress summary the parent last published, so
+	// an unchanged summary is not edited again. Only the parent writes it.
+	SummaryDigest string `json:"summary_digest,omitempty"`
 }
 
 // PlanStoryState retains one story's current stage, candidate and owner gates.
@@ -245,6 +248,50 @@ func (s *PlanState) SetSharedRevision(revision string) error {
 	return nil
 }
 
+// UpstreamApproved reports whether every story the story depends on has a
+// current approval for that same stage: story-002's technical stage waits until
+// story-001's technical stage is approved. A story without upstream stories is
+// always ready. It is the one rule that decides whether a stage may run, for
+// both a first draft and a later stage.
+func (s *PlanState) UpstreamApproved(key, stage string) bool {
+	item, err := s.story(key)
+	if err != nil {
+		return false
+	}
+	for _, dep := range item.Draft.Dependencies.StoryKeys {
+		upstream, err := s.story(dep)
+		if err != nil {
+			return false
+		}
+		ref, err := s.ReviewRevision(dep, stage)
+		if err != nil || upstream.Approvals[stage] != ref {
+			return false
+		}
+	}
+	return true
+}
+
+// StoryNextStep names the stage a story may run now, and whether it is the
+// story's first draft. ok is false while the story waits for the owner, for an
+// upstream approval, or has nothing to do; it is the same answer for the
+// daemon's offer and for the run's pick, so one rule decides who may run.
+func (s *PlanState) StoryNextStep(key string) (stage string, create, ok bool) {
+	item, err := s.story(key)
+	if err != nil || !item.Active() || item.Blocked() {
+		return "", false, false
+	}
+	if !s.StoryDrafted(key) {
+		if s.StorySet == nil || !s.StorySet.Promoted || !s.UpstreamApproved(key, "story") {
+			return "", false, false
+		}
+		return "story", true, true
+	}
+	if slices.Contains(s.EligiblePlanStories(), key) {
+		return item.Stage, false, true
+	}
+	return "", false, false
+}
+
 // EligiblePlanStories returns independent ready work in stable key order.
 // A waiting or held story does not stop an unrelated story from progressing.
 func (s *PlanState) EligiblePlanStories() []string {
@@ -261,6 +308,9 @@ func (s *PlanState) EligiblePlanStories() []string {
 			if err == nil && item.Approvals["acceptance"] == ref {
 				continue
 			}
+		}
+		if !s.UpstreamApproved(item.Key, item.Stage) {
+			continue
 		}
 		eligible := true
 		for _, up := range planStages[:max(0, slices.Index(planStages, item.Stage))] {
@@ -462,6 +512,20 @@ func (s *PlanState) ApproveAssembled(ownerID, actorID, replyID int64, body strin
 	s.AssembledWait = ""
 	s.ConsumedReplies = append(s.ConsumedReplies, replyID)
 	return nil
+}
+
+// AssemblyDue reports that every active story has all three approvals and the
+// assembled review for the plan as it stands now has not been posted or approved
+// yet, and names the revision that review would carry. The parent posts it.
+func (s *PlanState) AssemblyDue(scope ContentScope) (string, bool) {
+	if len(s.Stories) == 0 || s.ValidateComplete(scope) != nil {
+		return "", false
+	}
+	ref := s.PlanSetRevision()
+	if s.AssembledWait == ref || s.AssembledApproval == ref {
+		return "", false
+	}
+	return ref, true
 }
 
 // PlanReady separates owner approval, confirmed publication and successful save.

@@ -389,13 +389,13 @@ func TestSameResult_ComparesAuthoredContentOnly(t *testing.T) {
 	}
 }
 
-func TestGraphPlan_RenderedSizeCheckedAtPreflight(t *testing.T) {
+func TestGraphPlan_LongDraftIsNotRefusedAtPreflight(t *testing.T) {
 	if _, d := ar.Create(graphDone(storyRequest("")), graphContext()); hasDiagnostic(d, "$.result.payload.plan.storyrequest.draft", "draft_size") {
 		t.Fatalf("small draft flagged: %v", diagnosticCodes(d))
 	}
 	big := strings.Replace(graphDraft, `"problem":"No export exists."`, `"problem":"`+strings.Repeat("x", 40000)+`"`, 1)
 	_, d := ar.Create(graphDone(`{"storyrequest":{"operation":"create","draft":`+big+`}}`), graphContext())
-	if d.Valid || !hasDiagnostic(d, "$.result.payload.plan.storyrequest.draft", "draft_size") {
-		t.Fatalf("draft too large to render passed preflight: %v", diagnosticCodes(d))
+	if hasDiagnostic(d, "$.result.payload.plan.storyrequest.draft", "draft_size") {
+		t.Fatalf("long draft refused at preflight: %v", diagnosticCodes(d))
 	}
 }

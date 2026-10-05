@@ -12,7 +12,6 @@ import (
 	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // These tests run the story creation cycle end to end over the same assembled
@@ -60,7 +59,7 @@ func (c *creationAgent) behave(t *testing.T, fx **fixture) planAgentBehavior {
 			return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: string(envelope), FinishedAt: time.Now()}, nil
 		}
 		request := integrationCreateRequest(s.story)
-		if binding, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), s.story); err == nil && binding.IssueID > 0 {
+		if binding, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), s.story); err == nil && binding.IssueID > 0 && binding.Candidate != "" {
 			request.Operation, request.ExpectedRevision = "update", binding.Revision
 			mustProgress(t, json.Unmarshal([]byte(binding.DraftJSON), &request.Draft))
 		} else {
@@ -121,6 +120,12 @@ func runDueGraphStep(t *testing.T, f *fixture, base Request) (out Result, ran bo
 	if !ok {
 		t.Fatal("due dispatch could not be reserved")
 	}
+	if reserved.SessionID != base.SessionID {
+		session, sessionErr := f.db.GetSession(t.Context(), reserved.SessionID)
+		mustProgress(t, sessionErr)
+		base.SessionID = session.ID
+		base.Issue = Issue{Number: session.IssueNumber, Title: "Story", Author: base.Issue.Author}
+	}
 	instruction := fmt.Sprintf("Continue the workflow at its %s stage.", reserved.Node)
 	base.Trigger = Trigger{CommentID: reserved.TriggerID(), Body: instruction, Author: "owner"}
 	base.Command = Command{Kind: KindFreeText, Text: instruction}
@@ -135,6 +140,9 @@ func drainGraphSteps(t *testing.T, f *fixture, base Request) int {
 	steps := 0
 	for {
 		out, ran, err := runDueGraphStep(t, f, base)
+		if !ran {
+			out, ran, err = runOwedStory(t, f, base)
+		}
 		if !ran {
 			return steps
 		}
@@ -174,7 +182,8 @@ func requireCreated(t *testing.T, f *fixture, remote *graphPlanHTTP) {
 		}
 		numbers[d.IssueNumber] = true
 		item := state.Stories[i]
-		if item.Key != d.Key || item.Candidate != d.Candidate || item.Wait == nil || item.Wait.Kind != "review" || item.Wait.IssueID != d.IssueID {
+		waitingUpstream := item.Wait == nil && len(item.Approvals) > 0
+		if item.Key != d.Key || item.Candidate != d.Candidate || (!waitingUpstream && (item.Wait == nil || item.Wait.Kind != "review" || item.Wait.IssueID != d.IssueID)) {
 			t.Fatalf("story %s has no review wait on its own issue: %+v", d.Key, item)
 		}
 	}
@@ -190,19 +199,28 @@ func TestPlanCreation_ThreeStoriesInDependencyOrderOneAgentRunEach(t *testing.T)
 	if err != nil || out.Err != nil || !out.Succeeded() {
 		t.Fatalf("promotion run: %v %v logs=%s", err, out.Err, f.logs.String())
 	}
-	// One run advances one agent stage: the cycle is parked with the next story owed.
-	if !slices.Equal(c.order, []string{"story-002"}) {
-		t.Fatalf("first run drafted %v", c.order)
+	// Promotion creates every story issue and drafts nothing: each story drafts in
+	// the task of its own issue, a dependant only after its upstream story review.
+	if remote.creates != 3 || len(c.order) != 0 {
+		t.Fatalf("promotion: creates=%d drafted=%v", remote.creates, c.order)
 	}
-	requireOwedStages(t, f, 1)
-	if steps := drainGraphSteps(t, f, base); steps != 2 {
-		t.Fatalf("%d further runs, want 2", steps)
+	if _, ran, err := runOwedStory(t, f, base); !ran || err != nil || !slices.Equal(c.order, []string{"story-002"}) {
+		t.Fatalf("first story task: ran=%v err=%v drafted=%v", ran, err, c.order)
 	}
-	if want := []string{"story-002", "story-001", "story-003"}; !slices.Equal(c.order, want) {
-		t.Fatalf("drafting order %v, want %v", c.order, want)
+	if _, ran, _ := runOwedStory(t, f, base); ran {
+		t.Fatalf("a dependant was drafted before its upstream story review: %v", c.order)
+	}
+	draftAllStories(t, f, base)
+	var first []string
+	for i, stage := range c.stage {
+		if stage == "story" {
+			first = append(first, c.order[i])
+		}
+	}
+	if want := []string{"story-002", "story-001", "story-003"}; !slices.Equal(first, want) {
+		t.Fatalf("first drafts %v, want %v", first, want)
 	}
 	requireCreated(t, f, remote)
-	requireOwedStages(t, f, 0)
 
 	state := graphPlanState(t, f)
 	if got := state.Stories[0].Draft.Dependencies.StoryKeys; !slices.Equal(got, []string{"story-002"}) {
@@ -215,37 +233,13 @@ func TestPlanCreation_ThreeStoriesInDependencyOrderOneAgentRunEach(t *testing.T)
 	for _, story := range state.Stories {
 		found := false
 		for _, post := range forge.all() {
-			if strings.Contains(post.body, "/approve-plan "+story.Key+" story "+story.Candidate) {
+			if strings.Contains(post.body, "/approve-plan "+story.Key+" ") {
 				found = true
 			}
 		}
 		if !found {
 			t.Fatalf("no review request for %s", story.Key)
 		}
-	}
-	// One instance, three agent attempts, each with a retained result of its own.
-	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
-	mustProgress(t, err)
-	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
-	mustProgress(t, err)
-	contexts := map[string]bool{}
-	for _, attempt := range attempts {
-		if attempt.Node != "story_agent" {
-			continue
-		}
-		outputs, err := f.db.ListGraphOutputs(t.Context(), attempt.ID)
-		mustProgress(t, err)
-		for _, output := range outputs {
-			if ref, ok := decodePlanResultRef(output.Payload); ok {
-				if ref.Revision != 1 || contexts[ref.Binding.WorkContext] {
-					t.Fatalf("attempt %d shares or revises another attempt's result: %+v", attempt.ID, ref)
-				}
-				contexts[ref.Binding.WorkContext] = true
-			}
-		}
-	}
-	if len(contexts) != 3 || instance.Status != store.GraphSucceeded || instance.CurrentNode != "waiting" {
-		t.Fatalf("attempt results %d instance %s at %s", len(contexts), instance.Status, instance.CurrentNode)
 	}
 }
 
@@ -255,31 +249,19 @@ func TestPlanCreation_ReplaysAndRestartsCreateNothingTwice(t *testing.T) {
 	f, remote, base, _, promote := creationFixture(t, c)
 	first, err := Execute(t.Context(), f.opts, promote)
 	mustProgress(t, err)
-	due, err := f.db.ListDueGraphDispatches(t.Context(), time.Now().Add(time.Hour), 8)
-	mustProgress(t, err)
-	// The dispatch is reserved by a daemon that stops before it starts the run:
-	// the stage stays owed and a later tick runs it once.
-	if _, ok, err := f.db.ReserveGraphDispatch(t.Context(), due[0].ID, time.Now().Add(time.Hour)); err != nil || !ok {
-		t.Fatalf("reserve: %v %v", ok, err)
+	if replay, err := Execute(t.Context(), f.opts, promote); err != nil || replay.Run.ID != first.Run.ID || len(c.order) != 0 || remote.creates != 3 {
+		t.Fatalf("the promotion replayed as new work: run %d/%d agent runs %d creates %d err=%v", replay.Run.ID, first.Run.ID, len(c.order), remote.creates, err)
 	}
-	if requeued, err := f.db.RequeueGraphDispatch(t.Context(), due[0].ID, time.Now(), "daemon restarted"); err != nil || !requeued {
-		t.Fatalf("requeue: %v %v", requeued, err)
-	}
-	if replay, err := Execute(t.Context(), f.opts, promote); err != nil || replay.Run.ID != first.Run.ID || len(c.order) != 1 {
-		t.Fatalf("the promotion replayed as new work: run %d/%d agent runs %d err=%v", replay.Run.ID, first.Run.ID, len(c.order), err)
-	}
-	if steps := drainGraphSteps(t, f, base); steps != 2 {
-		t.Fatalf("%d further runs, want 2", steps)
-	}
+	draftAllStories(t, f, base)
 	requireCreated(t, f, remote)
 	before := graphPlanState(t, f)
+	ran := len(c.order)
 	if replay, err := Execute(t.Context(), f.opts, promote); err != nil || replay.Run.ID != first.Run.ID {
 		t.Fatalf("replay after completion: %v", err)
 	}
-	if !slices.Equal(c.order, []string{"story-002", "story-001", "story-003"}) || remote.creates != 3 || len(graphPlanState(t, f).ConsumedReplies) != len(before.ConsumedReplies) {
+	if len(c.order) != ran || remote.creates != 3 || len(graphPlanState(t, f).ConsumedReplies) != len(before.ConsumedReplies) {
 		t.Fatalf("replay repeated work: order=%v creates=%d", c.order, remote.creates)
 	}
-	requireOwedStages(t, f, 0)
 }
 
 // AC-044: a question while drafting pauses the cycle and, after the owner's
@@ -289,47 +271,46 @@ func TestPlanCreation_QuestionPausesTheCycleAndResumesTheSameStory(t *testing.T)
 	f, remote, base, forge, promote := creationFixture(t, c)
 	_, err := Execute(t.Context(), f.opts, promote)
 	mustProgress(t, err)
-	out, ran, err := runDueGraphStep(t, f, base)
+	if _, ran, err := runOwedStory(t, f, base); !ran || err != nil {
+		t.Fatalf("story-002 draft: ran=%v %v", ran, err)
+	}
+	executeGraphPlan(t, f, graphPlanApproveKey(t, f, base, "story-002", 950))
+	out, ran, err := runOwedStory(t, f, base)
 	if !ran || err != nil || out.Err != nil {
 		t.Fatalf("the asking stage: ran=%v %v %v", ran, err, out.Err)
 	}
-	if !slices.Equal(c.order, []string{"story-002", "story-001"}) || remote.creates != 1 {
+	if got := c.order[len(c.order)-1]; got != "story-001" || remote.creates != 3 {
 		t.Fatalf("order %v creates %d", c.order, remote.creates)
 	}
-	// Paused: the question is on the parent, no stage is owed and story-001 has no draft.
+	// Paused: the question is on the story's own issue and story-001 has no draft.
+	story, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001")
+	mustProgress(t, err)
 	asked := false
 	for _, post := range forge.all() {
-		if strings.Contains(post.body, "Which variant of story-001?") && strings.Contains(post.path, fmt.Sprintf("/issues/%d/comments", f.ref().Issue)) {
+		if strings.Contains(post.body, "Which variant of story-001?") && strings.Contains(post.path, fmt.Sprintf("/issues/%d/comments", story.IssueNumber)) {
 			asked = true
 		}
 	}
 	if !asked {
-		t.Fatal("the question did not reach the parent issue")
+		t.Fatal("the question did not reach the story issue")
 	}
-	requireOwedStages(t, f, 0)
 	if state := graphPlanState(t, f); state.StoryDrafted("story-001") || !state.StoryDrafted("story-002") {
 		t.Fatalf("draft presence after the question: %+v", state.Stories)
 	}
-	if steps := drainGraphSteps(t, f, base); steps != 0 {
-		t.Fatal("a paused cycle continued without the owner")
-	}
+	asks := len(c.order)
 
-	// The owner's reply resumes the same story, then the rest of the cycle.
-	answer := nextTrigger(base, 901, "Variant A, please.")
+	// The owner's reply on the story's issue resumes the same story.
+	answer := asStoryTask(t, f, nextTrigger(base, 901, "Variant A, please."), "story-001")
 	out, err = Execute(t.Context(), f.opts, answer)
 	if err != nil || out.Err != nil {
 		t.Fatalf("resumed run: %v %v logs=%s", err, out.Err, f.logs.String())
 	}
-	if want := []string{"story-002", "story-001", "story-001"}; !slices.Equal(c.order, want) {
-		t.Fatalf("after the reply the agent worked on %v, want the same story again %v", c.order, want)
+	if got := c.order[len(c.order)-1]; got != "story-001" || len(c.order) != asks+1 {
+		t.Fatalf("after the reply the agent worked on %v, want the same story again", c.order)
 	}
-	if steps := drainGraphSteps(t, f, base); steps != 1 {
-		t.Fatalf("%d further runs, want 1", steps)
+	if resumed := graphPlanState(t, f); !resumed.StoryDrafted("story-001") {
+		t.Fatal("the resumed story has no draft")
 	}
-	if want := []string{"story-002", "story-001", "story-001", "story-003"}; !slices.Equal(c.order, want) {
-		t.Fatalf("drafting order %v", c.order)
-	}
-	requireCreated(t, f, remote)
 }
 
 // AC-044: a failed draft preserves the sub-issues already created, tells the
@@ -340,15 +321,18 @@ func TestPlanCreation_FailureKeepsEarlierStoriesAndResumesAtTheFailedOne(t *test
 	f, remote, base, forge, promote := creationFixture(t, c)
 	_, err := Execute(t.Context(), f.opts, promote)
 	mustProgress(t, err)
-	out, ran, err := runDueGraphStep(t, f, base)
+	if _, ran, err := runOwedStory(t, f, base); !ran || err != nil {
+		t.Fatalf("story-002 draft: ran=%v %v", ran, err)
+	}
+	executeGraphPlan(t, f, graphPlanApproveKey(t, f, base, "story-002", 950))
+	out, ran, err := runOwedStory(t, f, base)
 	if !ran || err == nil || out.Run.Status != store.RunFailed {
 		t.Fatalf("the failing stage: ran=%v err=%v run=%+v", ran, err, out.Run)
 	}
 	requireFailureComment(t, forge, "process outcome")
-	requireOwedStages(t, f, 0)
 	state := graphPlanState(t, f)
-	if remote.creates != 1 || !state.StoryDrafted("story-002") || state.StoryDrafted("story-001") {
-		t.Fatalf("the earlier sub-issue was not preserved: creates=%d", remote.creates)
+	if remote.creates != 3 || !state.StoryDrafted("story-002") || state.StoryDrafted("story-001") {
+		t.Fatalf("the earlier story was not preserved: creates=%d", remote.creates)
 	}
 	drafts, err := f.db.ListPlanStoryDrafts(t.Context(), f.ref().String())
 	mustProgress(t, err)
@@ -356,17 +340,16 @@ func TestPlanCreation_FailureKeepsEarlierStoriesAndResumesAtTheFailedOne(t *test
 		t.Fatalf("keys reserved at promotion changed: %d", len(drafts))
 	}
 
-	retry := nextTrigger(base, 902, "Please retry.")
+	retry := asStoryTask(t, f, nextTrigger(base, 902, "Please retry."), "story-001")
 	if _, err = Execute(t.Context(), f.opts, retry); err != nil {
 		t.Fatalf("retry: %v logs=%s", err, f.logs.String())
 	}
-	if want := []string{"story-002", "story-001", "story-001"}; !slices.Equal(c.order, want) {
+	if got := c.order[len(c.order)-1]; got != "story-001" {
 		t.Fatalf("the retry worked on %v, want the failed story again", c.order)
 	}
-	if steps := drainGraphSteps(t, f, base); steps != 1 {
-		t.Fatalf("%d further runs, want 1", steps)
+	if retried := graphPlanState(t, f); !retried.StoryDrafted("story-001") || remote.creates != 3 {
+		t.Fatalf("the retry did not draft the failed story once: creates=%d", remote.creates)
 	}
-	requireCreated(t, f, remote)
 	if len(failureBodies(forge)) != 1 {
 		t.Fatalf("failure comments: %d", len(failureBodies(forge)))
 	}
@@ -387,7 +370,7 @@ func TestPlanCreation_LostCreateReplyIsSettledNotRepeated(t *testing.T) {
 	if _, err := Execute(t.Context(), f.opts, nextTrigger(base, 903, "retry")); err != nil {
 		t.Fatalf("retry: %v logs=%s", err, f.logs.String())
 	}
-	drainGraphSteps(t, f, base)
+	draftAllStories(t, f, base)
 	state := graphPlanState(t, f)
 	drafts, err := f.db.ListPlanStoryDrafts(t.Context(), f.ref().String())
 	mustProgress(t, err)
@@ -400,7 +383,13 @@ func TestPlanCreation_LostCreateReplyIsSettledNotRepeated(t *testing.T) {
 		}
 	}
 	// The story whose reply was lost was settled from the forge, not drafted again.
-	if count := strings.Count(strings.Join(c.order, " "), "story-002"); count != 1 {
+	firstDrafts := 0
+	for i, key := range c.order {
+		if key == "story-002" && c.stage[i] == "story" {
+			firstDrafts++
+		}
+	}
+	if count := firstDrafts; count != 1 {
 		t.Fatalf("story-002 drafted %d times: %v", count, c.order)
 	}
 }
@@ -413,17 +402,19 @@ func TestPlanCreation_StoryReviewsDoNotBlockEachOther(t *testing.T) {
 	f, remote, base, _, promote := creationFixture(t, c)
 	_, err := Execute(t.Context(), f.opts, promote)
 	mustProgress(t, err)
-	drainGraphSteps(t, f, base)
+	draftAllStories(t, f, base)
 	requireCreated(t, f, remote)
 	held := map[string]planbrief.PlanStoryState{}
 	for _, item := range graphPlanState(t, f).Stories {
-		if item.Key != "story-002" {
+		if item.Key == "story-003" {
 			held[item.Key] = item
 		}
 	}
 
+	// story-002 has its story review approved; the owner advances it through the
+	// other two stages while story-003, still at its story review, stays as it was.
 	id := int64(950)
-	for range 3 {
+	for range 2 {
 		id++
 		executeGraphPlan(t, f, graphPlanApproveKey(t, f, base, "story-002", id))
 	}
@@ -434,15 +425,15 @@ func TestPlanCreation_StoryReviewsDoNotBlockEachOther(t *testing.T) {
 			if item.Stage != "acceptance" || len(item.Approvals) != 3 {
 				t.Fatalf("story-002 did not advance independently: %+v", item)
 			}
-		default:
+		case "story-003":
 			before := held[item.Key]
 			if item.Stage != before.Stage || item.Candidate != before.Candidate || item.Wait == nil || *item.Wait != *before.Wait || len(item.Approvals) != 0 {
 				t.Fatalf("waiting story %s changed: %+v", item.Key, item)
 			}
 		}
 	}
-	if !slices.Equal(c.stage[3:], []string{"technical", "acceptance"}) || !slices.Equal(c.order[3:], []string{"story-002", "story-002"}) || remote.creates != 3 {
-		t.Fatalf("later agent runs %v %v creates %d", c.order[3:], c.stage[3:], remote.creates)
+	if remote.creates != 3 {
+		t.Fatalf("creates %d", remote.creates)
 	}
 }
 
@@ -474,10 +465,9 @@ func TestPlanCreation_FirstDraftMustKeepThePromotedDependencies(t *testing.T) {
 	}
 }
 
-// AC-043: the loop bound accommodates the largest set. Twelve stories chained so
-// that every dependency is listed after its dependant are drafted last to first,
-// in twelve agent runs of one instance, and the cycle ends after the twelfth.
-func TestPlanCreation_TwelveStoriesFitTheLoopBound(t *testing.T) {
+// AC-043: the largest set gets every story issue at promotion, in one run, and the
+// only story owed a first draft is the one that depends on nothing.
+func TestPlanCreation_TwelveStoriesGetTheirIssuesAtPromotion(t *testing.T) {
 	var entries []planbrief.PlanStorySetEntry
 	for i := 1; i <= 12; i++ {
 		e := planbrief.PlanStorySetEntry{ID: fmt.Sprintf("s%d", i), Name: fmt.Sprintf("Story %d", i), Intent: fmt.Sprintf("Deliver %d", i)}
@@ -490,26 +480,21 @@ func TestPlanCreation_TwelveStoriesFitTheLoopBound(t *testing.T) {
 	f, remote, base, _, promote := creationFixtureFor(t, c, entries)
 	_, err := Execute(t.Context(), f.opts, promote)
 	mustProgress(t, err)
-	if steps := drainGraphSteps(t, f, base); steps != 11 {
-		t.Fatalf("%d further runs, want 11", steps)
-	}
-	var want []string
-	for i := 12; i >= 1; i-- {
-		want = append(want, fmt.Sprintf("story-%03d", i))
-	}
-	if !slices.Equal(c.order, want) || remote.creates != 12 {
-		t.Fatalf("order %v creates %d", c.order, remote.creates)
-	}
-	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
+	drafts, err := f.db.ListPlanStoryDrafts(t.Context(), f.ref().String())
 	mustProgress(t, err)
-	if instance.Status != store.GraphSucceeded || instance.CurrentNode != "waiting" {
-		t.Fatalf("the cycle ended %s at %s", instance.Status, instance.CurrentNode)
+	if remote.creates != 12 || len(drafts) != 12 || len(c.order) != 0 {
+		t.Fatalf("creates %d rows %d drafted %v", remote.creates, len(drafts), c.order)
 	}
-	state := graphPlanState(t, f)
-	for _, item := range state.Stories {
-		if item.Wait == nil || item.Candidate == "" {
-			t.Fatalf("%s has no review wait", item.Key)
+	for _, d := range drafts {
+		if d.IssueID == 0 {
+			t.Fatalf("%s has no issue", d.Key)
 		}
+	}
+	if _, ran, err := runOwedStory(t, f, base); !ran || err != nil || !slices.Equal(c.order, []string{"story-012"}) {
+		t.Fatalf("first draft: ran=%v err=%v order=%v", ran, err, c.order)
+	}
+	if _, ran, _ := runOwedStory(t, f, base); ran {
+		t.Fatalf("a dependant was drafted before its upstream story review: %v", c.order)
 	}
 }
 
@@ -534,31 +519,4 @@ func TestPlanCreation_SessionWithStoriesSkipsTheSetStage(t *testing.T) {
 		t.Fatalf("set=%v stories=%d creates=%d order=%v", state.StorySet, len(state.Stories), remote.creates, c.order)
 	}
 	requireOwedStages(t, f, 0)
-}
-
-// A parked instance whose next agent stage is no longer what the factory picks is
-// released, so the stage it is parked on cannot refuse every later comment; one
-// parked where the pick still belongs is left to resume.
-func TestPlanCreation_ParkedInstanceThatNoLongerMatchesThePickIsReleased(t *testing.T) {
-	c := &creationAgent{}
-	f, _, base, _, promote := creationFixture(t, c)
-	_, err := Execute(t.Context(), f.opts, promote)
-	mustProgress(t, err)
-	specs, err := PlanSpecs()
-	mustProgress(t, err)
-	definition, err := teamsource.CapturePlan(t.Context(), specs)
-	mustProgress(t, err)
-
-	r := &planGraphRuntime{opts: f.opts, req: base, stage: "story"}
-	mustProgress(t, r.releaseMismatchedParking(t.Context(), definition.Profile))
-	if instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan"); err != nil || instance.Status != store.GraphRunning {
-		t.Fatalf("a matching parked instance was released: %+v %v", instance, err)
-	}
-	r.stage = "technical"
-	mustProgress(t, r.releaseMismatchedParking(t.Context(), definition.Profile))
-	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
-	mustProgress(t, err)
-	if instance.Status != store.GraphCancelled {
-		t.Fatalf("a mismatched parked instance stayed %s", instance.Status)
-	}
 }

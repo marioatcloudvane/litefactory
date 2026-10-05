@@ -138,6 +138,11 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 		// the reservation back so another poll can retry it. Any other no-run
 		// error is terminal: no agent has run, but silently retrying a malformed
 		// payload forever would make the durable queue permanently stuck.
+		if err == nil && d.planWorkSettled(ctx, t, scheduled) {
+			// Plan work whose state moved on before the run began has nothing to run.
+			d.finishScheduled(ctx, t, scheduled, store.ScheduleSucceeded, 0)
+			return
+		}
 		if err == nil {
 			t.recordWorkerStatus(workerDeferred)
 			if _, requeueErr := d.db.RequeueSchedule(ctx, scheduled.ID, t.tickAt.UTC()); requeueErr != nil {
