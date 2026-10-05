@@ -6,47 +6,34 @@ Shape graph-based Validate execution from retained findings, settling its goal, 
 
 ## Decisions
 
-- **d1** — This pass shapes Research without implementing, creating issues now or selecting another mode.
-- **d2** — Owner feedback permits configurable automatic Validate entry and a separate minor-repair role while preserving read-only review agents and independent delivery approval.
-- **d3** — Owner selects three parallel agents for acceptance, code review and architecture review against the final tested snapshot.
-- **d4** — Owner permits minor repairs in Validate and requires larger repairs to stop with explicit Implement handback.
-- **d5** — Owner removes the full-suite obligation from graph-based Implement and assigns it to Validate.
-- **d6** — The proposed retained contracts cover command recipes, snapshot identity, repair attempts, review findings, owner choices and independently recovered external effects.
-- **d7** — Failed or missing full-suite evidence blocks acceptance and delivery while permitting useful static findings.
-- **d8** — Owner selects final issue-creation or delivery choices, with exact-head authorization and closure limited to the displayed accepted cohort.
-- **d9** — Framework execution is language neutral and does not depend on failure parsers.
-- **d10** — Owner settles q2 as serial full-suite tests rather than exclusive slots or recurring windows.
-- **d11** — Proposed repair handback creates a linked repair execution rather than rewinding a completed graph.
-- **d12** — Proposed live reporting shows per-stage status, criterion progress, stable findings and owner options in one updated report.
+- **d1** — This pass completes the Research shaping proposal without implementing, creating issues or selecting another mode.
+- **d2** — Owner permits configurable automatic Validate entry and a separate minor-repair role while reviewers remain read-only.
+- **d3** — Owner selects parallel acceptance, code and architecture agents against the final tested snapshot.
+- **d4** — Owner selects bounded source repairs with two 15-minute rounds and no API, schema, dependency, architecture, criteria or assertion weakening.
+- **d5** — Owner assigns the full suite exclusively to Validate for the new graph-based path while Implement retains focused checks.
+- **d6** — Proposed retained contracts include snapshot identities, test attempts, repair diffs, agent assessments, manual verdicts and independently recovered external effects.
+- **d7** — Missing or failed suite, required review or manual evidence blocks delivery.
+- **d8** — Owner specifies that only confirmed merge and closure ends the workflow while issue creation leaves it open.
+- **d9** — Framework execution is language neutral and uses declared commands rather than framework-specific parsers.
+- **d10** — Owner selects serial full-suite tests per daemon with existing one-off scheduling.
+- **d11** — Proposed repair handback creates a linked execution with exact failure, reproduction, source locations and repair objectives.
+- **d12** — Proposed reporting updates one retained display with parallel stage progress, findings, manual waits and owner options.
+- **d13** — Owner selects local-only execution and defers remote test servers.
+- **d14** — Owner requires manual plan criteria to remain owner checks rather than agent approvals.
+- **d15** — Proposed rollout ships new Implement focused checks and Validate full-suite entry together while existing executions retain their starting rules.
 
 
 ## Assumptions
 
 - **a1** — Drift remains code, architecture and approved-plan compliance.
-- **a2** — Remote execution remains unresolved in q1 after explaining its distributed execution and evidence obligations.
-- **a3** — Serial full-suite tests apply per factory daemon and do not guarantee CPU or memory isolation.
-- **a4** — Prior source and historical evidence remain bounded to the inspected revisions and sampled runs; current graph-based Implement reentry is not established.
-- **a5** — Serialized field names and storage design remain for Plan while this scope fixes required information and observable behavior.
-- **a6** — Propose manual automatic-entry default, with opt-in configuration as standing owner authorization, because the owner requested a setting without specifying its default.
-- **a7** — Interpret approval agent as acceptance review rather than permission to merge because the owner separately specifies an end-of-workflow delivery choice.
-- **a8** — Interpret close all issues as the displayed accepted workflow cohort, excluding unrelated or unresolved issues.
-
-
-## Open questions
-
-### q1 — Should remote test-server execution be included in this release?
-
-_Asked of: Product Owner Questions_
-
-- **local** — Local first (recommended): keep the framework-neutral contract and defer authenticated remote runners, artifact transfer and distributed recovery to a separate scope.  *(recommended)*
-- **remote** — Include remote execution now: build and verify the runner, host/environment selection, credentials, snapshot transfer, logs, cancellation and recovery contract described above.
-
-### q3 — What changes count as minor repairs inside Validate?
-
-_Asked of: Product Owner Questions_
-
-- **bounded_source** — Small source or test corrections within approved behavior (recommended): at most two repair rounds, each with a 15-minute agent budget; no public API, schema, dependency, architecture or criteria changes, and no weakened assertions; rerun the full suite after each repair and hand back any uncertain or larger fix.  *(recommended)*
-- **mechanical** — Mechanical changes only: formatting, imports and obvious compilation or test-fixture mistakes, with the same two-round and time limits; send behavior fixes to Implement.
+- **a2** — Local-only execution is settled by q1; remote execution is out of scope.
+- **a3** — Serial tests do not guarantee subprocess CPU or memory isolation.
+- **a4** — Prior findings remain bounded to inspected revisions and historical samples; working completed-Implement graph restart is not established.
+- **a5** — Plan chooses storage and serialized field names while this scope settles retained information and behavior.
+- **a6** — Automatic entry defaults off because the owner requested configurability without choosing a default.
+- **a7** — The approval agent supplies acceptance assessment while owner manual verdicts and delivery authorization remain separate.
+- **a8** — Closure applies to the displayed accepted workflow cohort and excludes unrelated or unresolved issues.
+- **a9** — Manual verdicts require authenticated criterion-specific decisions and plan-required evidence tied to the reviewed snapshot.
 
 ## Research documents
 
