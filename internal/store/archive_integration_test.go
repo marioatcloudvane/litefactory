@@ -144,3 +144,35 @@ func TestArchiveIntegrationCompactOnEmptyWorkIsHarmless(t *testing.T) {
 		t.Fatalf("compact %+v %v", r, err)
 	}
 }
+
+// A closed issue whose bookkeeping is still pending (here a finished run that
+// was never reported) was kept by the sweep forever; #385, #406, #430 and #453
+// held about 235 MB this way. Once the forge confirms the issue closed, only
+// active work blocks the delete; the archive file keeps every row.
+func TestArchiveIntegrationClosedIssueIgnoresPendingBookkeeping(t *testing.T) {
+	db := newTestDB(t)
+	f := archiveITSeed(t, db)
+	segment, err := db.GetOrCreateSegment(t.Context(), f.SessionID, 1, "s", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := db.AllocateRun(t.Context(), AllocateRunParams{SessionID: f.SessionID, SegmentID: segment.ID, Mode: "research", Agent: AgentClaude, TriggerCommentID: 100, LogPath: func(int) string { return "/logs/1.jsonl" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.FinishRun(t.Context(), run.ID, RunOutcome{Status: RunSucceeded}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	want := archiveITTrailer(t, db, f)
+	if _, err := db.DeleteArchivedFamily(t.Context(), f, want, now); !errors.Is(err, ErrArchiveNotSettled) {
+		t.Fatalf("pending family deleted without a closed issue: %v", err)
+	}
+	f.IssueClosed = true
+	if _, err := db.DeleteArchivedFamily(t.Context(), f, want, now); err != nil {
+		t.Fatalf("closed issue with only pending bookkeeping not deleted: %v", err)
+	}
+	if archiveITCount(t, db) != 0 {
+		t.Fatal("archived comments still present")
+	}
+}

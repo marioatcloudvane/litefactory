@@ -175,6 +175,36 @@ func (db *DB) ManagedParentForChild(ctx context.Context, repoID int64, number in
 	return parent, err
 }
 
+// GraphPlanParentForChild returns the task ref of the graph-route Plan parent
+// whose story draft is bound to this child issue, or [ErrNotFound].
+func (db *DB) GraphPlanParentForChild(ctx context.Context, repoID int64, number int) (string, error) {
+	var parent string
+	err := db.sql.QueryRowContext(ctx, `
+SELECT d.parent FROM plan_story_drafts d
+JOIN sessions s ON s.task_ref=d.parent
+JOIN plan_execution_paths p ON p.session_id=s.id AND p.path='graph'
+WHERE s.repo_id=? AND d.issue_number=?
+ORDER BY s.id LIMIT 1`, repoID, number).Scan(&parent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return parent, err
+}
+
+// StoryDiscoveryOwed reports whether a child owes a sweep: it has never been
+// swept (no story_discovery row) or a listing marked it pending since.
+func (db *DB) StoryDiscoveryOwed(ctx context.Context, sessionID int64, child int) (bool, error) {
+	var owed bool
+	err := db.sql.QueryRowContext(ctx, `
+SELECT NOT EXISTS(SELECT 1 FROM story_discovery WHERE session_id=? AND child_number=?)
+    OR EXISTS(SELECT 1 FROM story_discovery_pending WHERE session_id=? AND child_number=?)`,
+		sessionID, child, sessionID, child).Scan(&owed)
+	if err != nil {
+		return false, fmt.Errorf("store: check discovery debt for child %d of session %d: %w", child, sessionID, err)
+	}
+	return owed, nil
+}
+
 // StoryDiscoveryCursor returns the last discovered child comment, or zero before discovery starts.
 func (db *DB) StoryDiscoveryCursor(ctx context.Context, sessionID int64, child int) (int64, error) {
 	var id int64

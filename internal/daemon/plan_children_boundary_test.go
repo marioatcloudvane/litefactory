@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -222,5 +226,168 @@ func TestPlanChildrenBoundary_RefusedReplyIsAnsweredOnceAndQueueProgresses(t *te
 	}
 	if n := refusals(); n != 1 {
 		t.Fatalf("refusal replies after progress = %d, want 1", n)
+	}
+}
+
+// countingPlanForge counts the per-issue reads a graph Plan parent's worker
+// makes, so a test can say which children a tick touched.
+type countingPlanForge struct {
+	refinementForge
+	mu       sync.Mutex
+	issues   map[int]int
+	parents  map[int]int
+	comments map[int]int
+}
+
+func newCountingPlanForge(f *fixture) *countingPlanForge {
+	return &countingPlanForge{refinementForge: refinementForge{Client: f.client, parent: testIssue}, issues: map[int]int{}, parents: map[int]int{}, comments: map[int]int{}}
+}
+
+func (c *countingPlanForge) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	c.mu.Lock()
+	c.issues[number]++
+	c.mu.Unlock()
+	return c.Client.GetIssue(ctx, repo, number)
+}
+
+func (c *countingPlanForge) GetParentIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	c.mu.Lock()
+	c.parents[number]++
+	c.mu.Unlock()
+	return c.Client.GetIssue(ctx, repo, c.parent)
+}
+
+func (c *countingPlanForge) ListCommentsAfter(ctx context.Context, repo github.Repo, number int, after int64) ([]github.Comment, error) {
+	c.mu.Lock()
+	c.comments[number]++
+	c.mu.Unlock()
+	return c.Client.ListCommentsAfter(ctx, repo, number, after)
+}
+
+// childReads is every child-scoped read so far: issue, parent link, comments.
+func (c *countingPlanForge) childReads(number int) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.issues[number] + c.parents[number] + c.comments[number]
+}
+
+func (c *countingPlanForge) parentReads() (issue, comments int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.issues[testIssue], c.comments[testIssue]
+}
+
+func countingPlanChildFixture(t *testing.T) (*fixture, store.Session, *countingPlanForge) {
+	t.Helper()
+	f, session := planChildFixture(t, func(ctx context.Context, f *fixture, req turn.Request) (turn.Result, error) {
+		out, err := f.ranSuccessfully(ctx, req)
+		out.ResearchGraph = true
+		return out, err
+	})
+	forge := newCountingPlanForge(f)
+	f.daemon = f.newDaemon(daemon.Options{Forge: forge})
+	return f, session, forge
+}
+
+// A never-swept child is swept once without any listing signal, and after
+// that an idle graph Plan parent reads none of its children.
+func TestPlanChildrenSweep_IdleParentReadsNoChildren(t *testing.T) {
+	f, session, forge := countingPlanChildFixture(t)
+	f.settle()
+	// The child is also its own task (first sight lists its comments), so only
+	// the parent sweep's issue and parent-link reads are counted exactly.
+	if forge.issues[200] != 1 || forge.parents[200] != 1 || forge.comments[200] < 1 {
+		t.Fatalf("first sweep reads issue=%d parent=%d comments=%d, want 1, 1, >=1\n%s", forge.issues[200], forge.parents[200], forge.comments[200], f.logs)
+	}
+	if owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200); err != nil || owed {
+		t.Fatalf("a completed first sweep left the child owed: %v %v", owed, err)
+	}
+	// The issue listing re-lists a just-created child for its overlap window,
+	// and each listing names it again. Past the window, nothing names it.
+	f.clock.advance(daemon.ListingOverlap + time.Minute)
+	f.settle()
+	swept := forge.childReads(200)
+	for tick := range 2 {
+		issue, comments := forge.parentReads()
+		f.settle()
+		if got := forge.childReads(200); got != swept {
+			t.Fatalf("idle tick %d read the child %d more times\n%s", tick+1, got-swept, f.logs)
+		}
+		gotIssue, gotComments := forge.parentReads()
+		if gotIssue-issue != 1 || gotComments-comments > 1 {
+			t.Fatalf("idle tick %d parent reads issue=%d comments=%d, want 1 and at most 1", tick+1, gotIssue-issue, gotComments-comments)
+		}
+	}
+}
+
+// A child named by the comment listing is swept on the next parent worker, its
+// owner reply is routed as before, and once a sweep completes the child is not
+// read again until it is named again.
+func TestPlanChildrenSweep_NamedChildIsSweptThenQuiet(t *testing.T) {
+	f, session, forge := countingPlanChildFixture(t)
+	f.settle()
+	f.settle()
+	quiet := forge.childReads(200)
+
+	f.forge.addComment(200, 60, owner(), "/approve-plan story story candidate")
+	f.settle()
+	calls := f.turns.calls()
+	if len(calls) != 1 || calls[0].Trigger.PlanReply == nil || calls[0].Trigger.PlanReply.ID != 60 {
+		t.Fatalf("named child's reply not routed: %+v\n%s", calls, f.logs)
+	}
+	if forge.comments[200] <= 1 || forge.childReads(200) <= quiet {
+		t.Fatalf("named child was not swept")
+	}
+	// The reply ended the worker early, so the debt stands. The comment listing
+	// keeps naming the child for its overlap window; past it, one more sweep
+	// finds nothing new and retires the debt.
+	f.clock.advance(daemon.ListingOverlap + time.Minute)
+	f.settle()
+	if owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200); err != nil || owed {
+		t.Fatalf("child still owed after a complete sweep: %v %v", owed, err)
+	}
+	settled := forge.childReads(200)
+	f.settle()
+	if got := forge.childReads(200); got != settled {
+		t.Fatalf("a child nobody named was read %d more times\n%s", got-settled, f.logs)
+	}
+	if got := len(f.turns.calls()); got != 1 {
+		t.Fatalf("turn calls = %d, want 1", got)
+	}
+}
+
+// A sweep whose explanation is not confirmed leaves the child owed, so the next
+// tick reads it again and no owner comment is lost.
+func TestPlanChildrenSweep_UnconfirmedExplanationKeepsTheDebt(t *testing.T) {
+	f, session, forge := countingPlanChildFixture(t)
+	f.settle()
+	f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
+		http.Error(w, `{"message":"lost reply response"}`, http.StatusInternalServerError)
+		return true
+	}
+	f.forge.addComment(200, 60, owner(), "/approve-plan story story old")
+	f.settle()
+	if owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200); err != nil || !owed {
+		t.Fatalf("an unconfirmed explanation retired the child's debt: %v %v\n%s", owed, err, f.logs)
+	}
+	// Past the listing overlap nothing names the child again, so only the
+	// retained debt can make the next tick read it.
+	before := forge.parents[200]
+	f.clock.advance(daemon.ListingOverlap + time.Minute)
+	f.settle()
+	if forge.parents[200] <= before {
+		t.Fatalf("the still-owed child was not read again\n%s", f.logs)
+	}
+	if !strings.Contains(f.logs.String(), "Plan child reply awaits confirmed explanation") {
+		t.Fatalf("the sweep never reached an unconfirmed explanation\n%s", f.logs)
+	}
+	if owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200); err != nil || !owed {
+		t.Fatalf("an unconfirmed explanation retired the child's debt: %v %v", owed, err)
+	}
+	before = forge.parents[200]
+	f.clock.advance(daemon.ListingOverlap + time.Minute)
+	f.settle()
+	if forge.parents[200] <= before {
+		t.Fatalf("the child was not read again after an unconfirmed explanation\n%s", f.logs)
 	}
 }
