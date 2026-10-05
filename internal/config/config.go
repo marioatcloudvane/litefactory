@@ -924,27 +924,6 @@ func strictMCPAutoStart(data []byte) error {
 	return nil
 }
 
-// decodeExecution keeps repository YAML decoding in the package's sole
-// third-party decoding boundary.
-func decodeExecution(raw []byte, label string) (string, error) {
-	var cfg struct {
-		Execution string `yaml:"execution"`
-	}
-	decoder := yaml.NewDecoder(bytes.NewReader(raw))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&cfg); err != nil {
-		return "", fmt.Errorf("%s configuration: %w", label, err)
-	}
-	var extra yaml.Node
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return "", fmt.Errorf("%s configuration requires exactly one document", label)
-	}
-	if cfg.Execution != "legacy" && cfg.Execution != "graph" {
-		return "", fmt.Errorf("%s execution must be legacy or graph", label)
-	}
-	return cfg.Execution, nil
-}
-
 // UnmarshalYAML applies command defaults after strict recipe-node validation.
 func (c *BugCheckCommand) UnmarshalYAML(n *yaml.Node) error {
 	type plain BugCheckCommand

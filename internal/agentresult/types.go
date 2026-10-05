@@ -143,6 +143,7 @@ type Payload struct {
 
 // Research records research claims and their source references.
 type Research struct {
+	Continue    bool        `json:"continue,omitempty"`
 	Request     string      `json:"request"`
 	Findings    []Finding   `json:"findings,omitempty"`
 	Decisions   []Statement `json:"decisions,omitempty"`

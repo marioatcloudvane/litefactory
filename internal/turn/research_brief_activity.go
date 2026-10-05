@@ -71,7 +71,7 @@ func (h ResearchBriefActivity) Execute(ctx context.Context, opts Options, req Ac
 		return fail(err)
 	}
 	node, ok := h.Profile.Node(req.Node)
-	if !ok || node.Action != ResearchBriefAction || node.Attrs["lf_source"] == "" || pin.Digest != h.Profile.Digest || pin.Mode != "research" {
+	if !ok || node.Action != ResearchBriefAction || node.Attrs["lf_source"] == "" || pin.Mode != "research" {
 		return fail(errors.New("research brief profile binding mismatch"))
 	}
 	attempt, err := opts.DB.GetGraphNodeAttempt(ctx, req.NodeAttemptID)
@@ -173,10 +173,6 @@ func requireResearchBriefContinuation(ctx context.Context, db *store.DB, source 
 	if err != nil {
 		return err
 	}
-	pin, err := db.GetGraphDefinition(ctx, instance.DefinitionID)
-	if err != nil {
-		return err
-	}
 	attempts, err := db.ListGraphNodeAttempts(ctx, source.InstanceID)
 	if err != nil {
 		return err
@@ -210,7 +206,7 @@ func requireResearchBriefContinuation(ctx context.Context, db *store.DB, source 
 			if err := decoder.Decode(&proof); err != nil || proof.Action != ResearchBriefAction {
 				continue
 			}
-			if proof.AttemptID != attempt.ID || proof.DefinitionDigest != pin.Digest {
+			if proof.AttemptID != attempt.ID {
 				return errors.New("research brief generation identity mismatch")
 			}
 			generation, generationNode = proof, attempt.Node

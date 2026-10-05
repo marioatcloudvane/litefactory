@@ -65,7 +65,7 @@ func ControlSpec(action string, policy ControlPolicy) ActionSpec {
 // that the owner said the work is good enough, so an agent may only return it
 // on a resumed pass that actually carries such a reply. That distinction is the
 // whole point — advancing a stage is the owner's decision, not the agent's.
-var ResearchResponses = []string{"ask", "done", "approved"}
+var ResearchResponses = []string{"ask", "done", "approved", "continue"}
 
 // ResearchResponse reports whether a value is one of the declared responses.
 func ResearchResponse(value string) bool { return slices.Contains(ResearchResponses, value) }
@@ -187,6 +187,17 @@ func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 					continue
 				}
 				for _, response := range policy.Responses {
+					if response == "continue" {
+						declared := false
+						for _, control := range p.Nodes {
+							if control.Attrs["lf_condition"] == "continue" {
+								declared = true
+							}
+						}
+						if !declared {
+							continue
+						}
+					}
 					if err := validateResearchResponsePath(p, next, response, node.Name, map[string]bool{}, policy); err != nil {
 						faults = append(faults, fmt.Errorf("research agent %q response %q: %w", node.Name, response, err))
 					}
@@ -261,8 +272,14 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 	}
 	switch node.Action {
 	case "lf_agent":
+		if policy.Mode == agent.ModeResearch && response == "continue" && name == source && visiting["generated:"+source] {
+			return nil
+		}
 		return fmt.Errorf("response path invokes agent %q without owner authorization", name)
 	case "lf_comment", "lf_ask":
+		if response == "continue" && policy.Mode == agent.ModeResearch {
+			return errors.New("research continuation must return silently to its own stage")
+		}
 		if policy.Generation != "" && !visiting["generated:"+source] {
 			return fmt.Errorf("publication %q requires matching successful %s generation", name, policy.Generation)
 		}
@@ -395,6 +412,9 @@ func ResearchResponseReaches(p *Profile, name, response string) (string, error) 
 			}
 			name = next
 		case "lf_comment", "lf_ask":
+			if response == "continue" {
+				return "", nil
+			}
 			return name, nil
 		case ResearchLoopAction, ResearchIfAction:
 			c, err := DecodeResearchCondition(node.Action, node.Attrs)

@@ -51,6 +51,7 @@
                   "recommendation",
                   "questions",
                   "artifacts",
+                  "payload.research.continue",
                   "payload.research.request",
                   "payload.research.findings",
                   "payload.research.decisions",

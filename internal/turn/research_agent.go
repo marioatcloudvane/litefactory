@@ -27,7 +27,7 @@ func researchNodeGuidance() string {
 	return researchNodeInstructions + researchNodeHardRules
 }
 
-const researchNodeHardRules = "\nResult shapes: to ask the owner, submit result.outcome incomplete with a nonblank result.reason and a nonempty result.questions, each naming audience business or technical; when the work is done, submit result.outcome completed with no result.questions. Any other shape fails the step. Approval is the owner's reply, never something you claim. Read the research-evidence skill's node-result resource for the worked result of each shape, the artifact path rules and the correction contract, before you submit.\n"
+const researchNodeHardRules = "\nResult shapes: to ask the owner, submit result.outcome incomplete with a nonblank result.reason and a nonempty result.questions, each naming audience business or technical; when the work is done, submit result.outcome completed with no result.questions. For more investigation without an owner decision, submit incomplete with a reason, cumulative findings and payload.research.continue=true, without questions. Any other shape fails the step. Approval is the owner's reply, never something you claim. Read the research-evidence skill's node-result resource for the worked result of each shape, the artifact path rules and the correction contract, before you submit.\n"
 
 // ResearchInvocation contains factory-prepared delivery and result authority.
 // Close joins the live helper transports before exit-time result validation.
@@ -184,14 +184,14 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 	// close) does not discard it where the policy opts in; only a factory
 	// shutdown interrupts it.
 	if failed && h.Policy.AcceptAfterProcessFailure && ctx.Err() == nil {
-		if n, r, e := h.acceptRetained(ctx, invocation.Results); e == nil {
+		if n, r, e := h.acceptRetained(ctx, invocation.Results); e == nil && n.Response != "continue" {
 			node, revision, accepted, failed = n, r, true, false
 		}
 	}
 	if failed {
 		out.Diagnostic = result.Reason
 		failureErr := errors.Join(fmt.Errorf("research process outcome: %s", result.Outcome.String()), runErr, closeErr, ctx.Err())
-		if h.Policy.Workflow == agent.WorkflowBug {
+		if h.Policy.Workflow == agent.WorkflowBug || h.Policy.Mode == agent.ModeResearch {
 			retained, retainErr := h.retainFailedSubmission(context.WithoutCancel(ctx), invocation.Results)
 			out.Kind, out.Output = retained.Kind, retained.Output
 			if retained.Diagnostic != "" {
@@ -216,17 +216,6 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 		attempt, err := opts.DB.GetGraphNodeAttempt(ctx, a.NodeAttemptID)
 		if err != nil {
 			return out, err
-		}
-		// Approval is the owner's, never the agent's: a completed Research result
-		// is approved only when this attempt holds the authenticated owner "done"
-		// reply to the displayed review of the same candidate. Otherwise it stays
-		// done and the graph shows a new review, rather than failing the step.
-		if h.Policy.routesRetained() && h.Policy.Mode == agent.ModeResearch && node.Response == "done" {
-			approved := node
-			approved.Response = "approved"
-			if h.Policy.AuthorizeOutput(ctx, opts.DB, attempt, approved) == nil {
-				node = approved
-			}
 		}
 		if err := h.Policy.AuthorizeOutput(ctx, opts.DB, attempt, node); err != nil {
 			return out, err

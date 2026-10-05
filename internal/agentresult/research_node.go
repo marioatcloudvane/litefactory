@@ -106,6 +106,10 @@ func decodeNodeFor(data []byte, ctx Context, vocabulary nodeVocabulary) (Researc
 		if node.Result.Outcome != "incomplete" || len(node.Result.Questions) == 0 {
 			add(&d, "$.response", "consistency", "ask with incomplete result and questions", "inconsistent result", "Supply permitted owner questions with an incomplete result.")
 		}
+	case "continue":
+		if closed || node.Result.Payload.Research == nil || !node.Result.Payload.Research.Continue {
+			add(&d, "$.response", "consistency", "Research continuation flag", "invalid continuation", "Use continue only for an explicit Research continuation.")
+		}
 	case "done":
 		if node.Result.Outcome != "completed" || len(node.Result.Questions) != 0 {
 			advice := "Complete Research only when no owner questions remain."

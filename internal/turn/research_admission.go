@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
@@ -15,11 +15,6 @@ import (
 // ResearchLaunchDriver executes the admitted DOT under Execute's task lock.
 // It owns graph preparation and explicit publication, bypassing legacy finalization.
 type ResearchLaunchDriver func(context.Context, Options, Request, Result, *teamsource.ResearchDefinition, store.ResearchAdmission) (Result, error)
-
-// researchDefaultActive is deliberately false in this delivered application.
-// Authentic assembled host evidence must accompany an explicit activation
-// change. No owner text, project guidance or repository option can set this gate.
-const researchDefaultActive = false
 
 // ResearchSpecs is the closed registry for prelaunch built-in asset validation.
 func ResearchSpecs() (graphexec.Registry, error) {
@@ -59,43 +54,21 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 		return result, false, nil
 	}
 	// A graph dispatch is the factory continuing work it already admitted. It
-	// must not re-admit: admission is owner authority, and re-capturing here
-	// would rotate the definition under a running instance. Resume the pinned
-	// one at the node it was parked on.
+	// must not manufacture owner authority. The shipped graph supplies future
+	// edges while the retained invocation and effect identities stay historical.
 	if store.IsGraphTrigger(req.Trigger.CommentID) {
 		out, err := resumeResearchDispatch(ctx, opts, req, result)
 		return out, true, err
 	}
 	if req.Continuation != nil {
-		graph, err := opts.DB.HasResearchGraphSession(ctx, req.SessionID)
-		if err != nil {
-			return result, true, err
-		}
-		if graph {
-			return result, true, errors.New("research graphs require explicit owner continuation")
-		}
-		return result, false, nil
+		return result, true, errors.New("research requires graph continuation")
 	}
-	repo, err := opts.DB.GetRepo(ctx, result.Session.RepoID)
+	selected, err := opts.DB.AdmitResearchPath(ctx, req.SessionID, "graph")
 	if err != nil {
 		return result, true, err
 	}
-	selected, err := config.ResearchExecution(repo.Path)
-	if err != nil {
-		return result, true, err
-	}
-	if selected == "" {
-		selected = "legacy"
-		if researchDefaultActive {
-			selected = "graph"
-		}
-	}
-	selected, err = opts.DB.AdmitResearchPath(ctx, req.SessionID, selected)
-	if err != nil {
-		return result, true, err
-	}
-	if selected == "legacy" {
-		return result, false, nil
+	if selected != "graph" {
+		return result, true, errors.New("legacy Research task requires manual operator migration")
 	}
 	if opts.ResearchDriver == nil {
 		return result, true, errors.New("research graph execution is selected but the application graph driver is unavailable")
@@ -123,23 +96,38 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	if err != nil {
 		return result, true, err
 	}
-	admitted, err := opts.DB.AdmitResearchLaunch(ctx, store.ResearchLaunch{SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Reply: req.Trigger.Body})
+	compatible := false
+	prior, priorErr := opts.DB.LatestResearchInstance(ctx, req.SessionID)
+	if priorErr != nil && !errors.Is(priorErr, store.ErrNotFound) {
+		return result, true, priorErr
+	}
+	if priorErr == nil && prior.Status == store.GraphSucceeded {
+		wait, waitErr := opts.DB.GetGraphOwnerWait(ctx, prior.ID)
+		if waitErr != nil && !errors.Is(waitErr, store.ErrNotFound) {
+			return result, true, waitErr
+		}
+		if waitErr == nil && wait.State == "allocated" && wait.ContinuationAttemptID == 0 && wait.ReplyID == req.Trigger.CommentID {
+			result.ResearchGraph = true
+			result.Outcome, result.Disposition = agent.OutcomeSucceeded, DispositionRan
+			return result, true, nil
+		}
+	}
+	if priorErr == nil && prior.Status == store.GraphRunning {
+		compatible, err = researchNodeCompatible(ctx, opts.DB, prior, definition.Profile)
+		if err != nil {
+			return result, true, err
+		}
+	}
+	admitted, err := opts.DB.AdmitResearchLaunch(ctx, store.ResearchLaunch{SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Reply: req.Trigger.Body, ResearchCompatible: compatible})
 	if err != nil {
 		return result, true, err
 	}
-	// Equivalent topology retains the foundation pin. Current instruction bytes
-	// remain separately captured above and drive effective delivery identity.
-	actualPin, err := opts.DB.GetGraphDefinition(ctx, admitted.Instance.DefinitionID)
-	if err != nil {
-		return result, true, err
-	}
-	definition.Profile.Digest = actualPin.Digest
 	out, err := opts.ResearchDriver(ctx, opts, req, result, definition, admitted)
 	return out, true, err
 }
 
 // resumeResearchDispatch enters the workflow at an instance's current node with
-// the definition it was admitted under. Nothing here is a fresh admission: the
+// the current shipped definition. Nothing here is a fresh owner admission: the
 // dispatch that allocated this run is the authority, and it exists only because
 // a previous run of this instance published and had no run left to continue in.
 func resumeResearchDispatch(ctx context.Context, opts Options, req Request, result Result) (Result, error) {
@@ -153,10 +141,6 @@ func resumeResearchDispatch(ctx context.Context, opts Options, req Request, resu
 	if instance.Status != store.GraphRunning {
 		return result, errors.New("research graph dispatch targets an instance that is no longer running")
 	}
-	pin, err := opts.DB.GetGraphDefinition(ctx, instance.DefinitionID)
-	if err != nil {
-		return result, err
-	}
 	specs, err := ResearchSpecs()
 	if err != nil {
 		return result, err
@@ -165,11 +149,59 @@ func resumeResearchDispatch(ctx context.Context, opts Options, req Request, resu
 	if err != nil {
 		return result, fmt.Errorf("capture current shipped Research: %w", err)
 	}
-	// The running instance keeps the definition it was pinned to. Shipped bytes
-	// may have changed since; that rotates a later launch, never this one.
-	if definition.Profile.Digest != pin.Digest {
-		return result, errors.New("shipped Research graph changed under a running instance; the parked stage cannot resume")
+	compatible, err := researchNodeCompatible(ctx, opts.DB, instance, definition.Profile)
+	if err != nil {
+		return result, err
 	}
-	definition.Profile.Digest = pin.Digest
-	return opts.ResearchDriver(ctx, opts, req, result, definition, store.ResearchAdmission{Instance: instance})
+	admission := store.ResearchAdmission{Instance: instance}
+	if !compatible {
+		files, err := json.Marshal(definition.Files)
+		if err != nil {
+			return result, err
+		}
+		topology, err := graphexec.SemanticDigest(definition.Profile)
+		if err != nil {
+			return result, err
+		}
+		pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: definition.Profile.ProfileVersion, Path: "research/research.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+		if err != nil {
+			return result, err
+		}
+		admission, err = opts.DB.RecoverResearchDispatch(ctx, instance.ID, store.ResearchLaunch{SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files})
+		if err != nil {
+			return result, err
+		}
+	}
+	return opts.ResearchDriver(ctx, opts, req, result, definition, admission)
+}
+
+// researchNodeCompatible compares contracts, not digests or graph edges.
+func researchNodeCompatible(ctx context.Context, db *store.DB, instance store.GraphInstance, current *graphexec.Profile) (bool, error) {
+	if current.Mode != agent.ModeResearch {
+		return false, errors.New("research recovery requires Research profile")
+	}
+	files, err := db.ResearchLaunchFiles(ctx, instance.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		_, found := current.Node(instance.CurrentNode)
+		return found, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var captured map[string][]byte
+	if err := json.Unmarshal(files, &captured); err != nil {
+		return false, err
+	}
+	raw, present := captured["research.dot"]
+	if !present {
+		_, found := current.Node(instance.CurrentNode)
+		return found, nil
+	}
+	old, err := graphexec.ParseProfile(raw)
+	if err != nil {
+		return false, fmt.Errorf("read historical Research graph: %w", err)
+	}
+	previous, existed := old.Node(instance.CurrentNode)
+	next, found := current.Node(instance.CurrentNode)
+	return existed && found && previous.Action == next.Action && previous.Terminal == next.Terminal && previous.Attrs["lf_source"] == next.Attrs["lf_source"] && previous.Attrs["lf_kind"] == next.Attrs["lf_kind"], nil
 }

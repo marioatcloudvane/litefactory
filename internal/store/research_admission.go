@@ -36,6 +36,8 @@ type WorkflowLaunch struct {
 	Files                                []byte
 	// Reply is authenticated owner input from turn admission, never node output.
 	Reply string
+	// ResearchCompatible retains the current node when its action/source still maps.
+	ResearchCompatible bool
 }
 
 // WorkflowAdmission identifies the pinned launch and any predecessor whose findings survive.
@@ -172,7 +174,7 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 				}
 			}
 		}
-		successor := prior.ID > 0 && (topology != in.TopologyDigest || prior.Status != GraphRunning)
+		successor := prior.ID > 0 && ((topology != in.TopologyDigest && (in.Mode != "research" || !in.ResearchCompatible)) || prior.Status != GraphRunning)
 		if successor {
 			var pending int
 			if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id LEFT JOIN report_deliveries d ON d.delivery_key=c.delivery_key WHERE i.session_id=? AND (d.delivery_key IS NULL OR d.completed=0 OR d.comment_id IS NULL)`, in.SessionID).Scan(&pending); e != nil {

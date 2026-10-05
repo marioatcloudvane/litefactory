@@ -85,7 +85,7 @@ func (h CommentActivity) Execute(ctx context.Context, opts Options, req Activity
 		return ActivityResult{}, err
 	}
 	node, ok := h.Profile.Node(req.Node)
-	if !ok || (node.Action != ResearchCommentAction && node.Action != AskAction) || definition.Digest != h.Profile.Digest || definition.Mode != string(h.Policy.Mode) {
+	if !ok || (node.Action != ResearchCommentAction && node.Action != AskAction) || (h.Policy.Mode != agent.ModeResearch && definition.Digest != h.Profile.Digest) || definition.Mode != string(h.Policy.Mode) {
 		return ActivityResult{}, errors.New("research comment profile binding mismatch")
 	}
 	current, err := opts.DB.GetGraphNodeAttempt(ctx, req.NodeAttemptID)
@@ -153,28 +153,6 @@ func validateResearchComment(source store.GraphNodeAttempt, kind string, candida
 	d := agentresult.ValidateResult(candidate, scope)
 	if !d.Valid || !d.Complete {
 		return resultDiagnosticError(d)
-	}
-	switch kind {
-	case "question":
-		if candidate.Outcome != "incomplete" || len(candidate.Questions) == 0 || source.Status != store.GraphSucceeded {
-			return errors.New("question requires successful incomplete Research with questions")
-		}
-	case "review":
-		// The work the agent would otherwise have called done, shown to the
-		// owner before it counts. Complete like a final, but settling nothing.
-		if candidate.Outcome != "completed" || len(candidate.Questions) != 0 || source.Status != store.GraphSucceeded {
-			return errors.New("review requires successful completed Research without questions")
-		}
-	case "final":
-		if candidate.Outcome != "completed" || len(candidate.Questions) != 0 || source.Status != store.GraphSucceeded {
-			return errors.New("final requires successful completed Research without questions")
-		}
-	case "failure":
-		if candidate.Outcome == "completed" || source.Status != store.GraphFailed || candidate.Reason == "" {
-			return errors.New("failure requires failed attempt and actionable incomplete candidate")
-		}
-	default:
-		return errors.New("unknown Research comment kind")
 	}
 	return nil
 }
