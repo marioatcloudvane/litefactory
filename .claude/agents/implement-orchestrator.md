@@ -85,11 +85,14 @@ full-package and whole-repository suites are yours alone; specialists verify the
 own story with targeted `-run` selections. Re-running a suite per story multiplies
 the slowest package by the number of stories in flight and yields no new signal.
 
-Keep every gate inside one `Bash` call's ceiling of roughly ten minutes: never
-pass `-timeout` above `8m`, never combine `-race` with the whole repository, and
-run `make check` separately from the suites. A killed gate returns exit code 143
-and no evidence, so raising the timeout after a kill only repeats the loss —
-narrow the scope instead.
+Keep every targeted gate inside one `Bash` call's ceiling of roughly ten minutes:
+never pass `-timeout` above `8m` in the foreground. The full repository check is the
+exception, because its race suites take longer than any single call: run it in the
+background and poll its log with short commands until it finishes, for example
+`make check > .litefactory/validation-logs/make-check.log 2>&1 &`. Never run the
+full suite in the foreground. A killed foreground gate returns exit code 143 and no
+evidence, so raising its timeout only repeats the loss — narrow the scope or move it
+to the background instead.
 
 Write `TEST_REPORT.md`, `notes.md` and `DRIFT_REPORT.md` in the current session
 and update `MANIFEST.md` with honest completed/partial status. Do not alter
