@@ -1,12 +1,8 @@
 # Research graphs
 
-Research graphs are opt-in while authentic Claude and Codex observations remain
-unavailable. Default activation remains disabled. In the registered clone,
-`.litefactory/research.yaml` accepts `execution: graph` or `execution: legacy`.
-Unknown fields, duplicate keys and malformed values fail admission. The first
-Research admission persists its execution path; changing the file does not
-migrate existing tasks. Existing legacy work remains supported. No team install,
-catalog management or selectable source is required.
+Research uses the shipped graph exclusively. Repository-local Research route
+configuration no longer selects execution. Existing legacy tasks require manual
+owner/operator migration before cutover; no legacy fallback is available.
 
 The application embeds `internal/teamsource/research/research.dot`, investigation
 and shaping Markdown roles, and their evidence skill. Both stages use the shared
@@ -35,22 +31,24 @@ generation and current document bytes. Old files or another candidate's success
 cannot authorize them. Failed-agent diagnostics can be reported without generation.
 `lf_comment` publishes reports; only `lf_ask` opens a durable owner wait. Investigation
 hands on to shaping after its report. Shaping shows the current candidate for
-owner review, then waits for authenticated candidate/stage-bound approval. A worker's
-`done` or `approved` response cannot manufacture approval. A correlated owner reply
-resumes its originating node once; waiting has no expiry and releases the worker.
+owner review, then waits for an authenticated owner reply. An explicit `done`
+settles the displayed retained review in the factory and follows its approval
+branch without an agent reproduction pass. Ordinary feedback resumes the source
+stage. The reply must be for the correct task and mode, newer than the confirmed
+publication, and consumed once. Waiting has no expiry and releases the worker.
 Graph completion does not select Plan.
-
-Old Research mechanism names have no aliases, compatibility decoder or migration.
-Unsupported pre-cutover captures fail before dispatch or effects and are not
-automatically deleted. Non-graph Research and activation defaults are unchanged.
 
 Each authorized launch captures current application-shipped bytes. Running
 invocations retain their captured instructions. Identical same-node instructions
 may resume; changed instructions rotate the provider session with saved findings.
 A refused resume allows one separate cold invocation with full role, skill,
 helper and saved context. Other failures never automatically retry an agent.
-Changed semantic topology creates a linked successor at the new graph start;
-formatting alone does not. Prior uncertain publications reconcile using their
+Each later dispatch uses the shipped graph. A parked node with the same action
+and source contract uses its current edges; an unmapped node creates a linked
+successor at the current start with retained findings and authenticated context.
+The existing stage attempt allowance spans that successor chain. An unanswered
+wait retains its original identity until answered; approval never transfers to a
+different review. Prior uncertain publications reconcile using their
 original identities before successor execution.
 
 Recovery preserves actual failures and authored findings. Report-only recovery
@@ -65,9 +63,13 @@ attempt, actual run and provider invocation. Refused resume and cold fallback
 have separate meter attempts. Missing counters remain unknown. There is no new
 pricing pipeline, automated benchmark or claimed savings.
 
-Default activation requires assembled recovery checks plus externally authorized
-observations on the exact shipped snapshot and CLI versions for both hosts:
-main role, native skills, project guidance, clear requests, question/reply,
-compaction, fallback and helper/correction/receipt behavior. Offline fixtures and
-historical CLI versions cannot supply those observations. Opt-in does not remove
-this activation gate or retire legacy support.
+Authentic Claude and Codex host evidence remains outstanding. An operator-authorized
+host session must record the shipped binary snapshot, provider CLI versions,
+question/reply/review/final comment identities, retained results and delivery
+receipts for both providers. Repository fixtures establish offline mechanics only.
+Do not launch paid nested agents, alter a running daemon, or claim those fixtures
+as host observations. Cutover requires manual migration of old Research tasks and
+removal of obsolete Research route configuration. The referenced
+`docs/decisions/nested-agent-evidence.md` is absent; use the explicit host-evidence
+boundary in APP_CONSTRAINTS until the operator supplies that decision or records
+its disposition.

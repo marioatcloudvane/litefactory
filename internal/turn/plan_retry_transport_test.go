@@ -64,6 +64,9 @@ func TestPlanFailureRetainsTransportForRetry(t *testing.T) {
 						result.Reason = "planning failed"
 					}
 				} else {
+					if req.PlanOutcomePath != "" {
+						writePlanOutcome(t, req, "completed")
+					}
 					if f.repo.GitIn(req.WorktreePath, "rev-parse", "HEAD") != head {
 						t.Error("retry preparation committed failed output")
 					}
@@ -109,7 +112,9 @@ func TestPlanFailureRetainsTransportForRetry(t *testing.T) {
 			}
 			advanceSyncBase(t, f.repo, 1)
 			phase = 1
-			req.Mode = agent.ModeResearch
+			f.opts.SubIssueCreator = nil
+			f.opts.SubIssueRenderer = nil
+			req.Mode = agent.ModePlan
 			req.Command = ParseCommand("finish retained work")
 			req.Trigger.Body = "finish retained work"
 			req.Trigger.CommentID++

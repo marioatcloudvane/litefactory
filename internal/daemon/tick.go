@@ -225,6 +225,8 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		return result, d.observe(ctx, startedAt, err)
 	}
 
+	d.researchReminders(ctx, startedAt)
+
 	// The heartbeat runs every local source each time; only the forge listing is
 	// scheduled. A tick that does not list still dispatches and reconciles.
 	if d.webhook != nil && d.webhook.hints.takeOverflow() {

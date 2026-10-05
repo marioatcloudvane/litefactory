@@ -111,7 +111,7 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 			req.Trigger.Body = reply.Body
 			req.Command = ParseCommand(reply.Body)
 			final, err := Execute(t.Context(), f.opts, req)
-			if response == "changed-approved" || response == "unapproved-reply" {
+			if response == "unapproved-reply" {
 				// Without the owner's done reply to this exact candidate the
 				// result is done, not approved: the step succeeds and the owner
 				// is shown a new review instead of the stage completing (#410).
@@ -129,24 +129,23 @@ func TestResearchShapingWorkerCannotCreateOwnerApproval(t *testing.T) {
 					t.Fatalf("done did not display a new review: %+v", review)
 				}
 				if got := latestShapeResponse(t, f, instance.ID); got != "done" {
-					t.Fatalf("unauthorised approval was retained as %q, want done", got)
+					t.Fatalf("unreview response was retained as %q, want done", got)
 				}
 				return
 			}
 			mustProgress(t, err)
 			instance, err = f.db.LatestResearchInstance(t.Context(), f.session.ID)
 			mustProgress(t, err)
-			if !final.Succeeded() || instance.Status != store.GraphSucceeded || calls != 3 || forge.attemptCount() != 3 {
+			if !final.Succeeded() || instance.Status != store.GraphSucceeded || calls != 2 || forge.attemptCount() != 3 {
 				t.Fatalf("authenticated approval failed: %+v %+v calls=%d posts=%d", final, instance, calls, forge.attemptCount())
 			}
-			// C3 (#410): approved is derived by the factory from the owner's
-			// allocated done reply to this attempt, not read from printed text.
-			if got := latestShapeResponse(t, f, instance.ID); got != "approved" {
-				t.Fatalf("authorised approval was retained as %q", got)
+			// Factory approval settles the retained review without another worker.
+			if got := latestShapeResponse(t, f, instance.ID); got != "done" {
+				t.Fatalf("review response was retained as %q", got)
 			}
 			replay, err := Execute(t.Context(), f.opts, req)
 			mustProgress(t, err)
-			if replay.Run.ID != final.Run.ID || calls != 3 || forge.attemptCount() != 3 {
+			if replay.Run.ID != final.Run.ID || calls != 2 || forge.attemptCount() != 3 {
 				t.Fatal("duplicate input repeated continuation")
 			}
 

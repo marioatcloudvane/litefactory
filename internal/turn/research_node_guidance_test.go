@@ -32,8 +32,8 @@ func TestShippedNodeResultResourceDecodes(t *testing.T) {
 		t.Fatalf("shipped Research package does not carry %s", path)
 	}
 	blocks := fencedJSON.FindAllSubmatch(raw, -1)
-	if len(blocks) != 2 {
-		t.Fatalf("want one worked result per derived response (ask, done), got %d", len(blocks))
+	if len(blocks) != 3 {
+		t.Fatalf("want one worked result per derived response (ask, done, continue), got %d", len(blocks))
 	}
 	scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "research", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
 	seen := map[string]bool{}
@@ -46,14 +46,14 @@ func TestShippedNodeResultResourceDecodes(t *testing.T) {
 			t.Errorf("shipped result is rejected by the shared validator: %+v", d.Diagnostics)
 			continue
 		}
-		response, err := retainedRoute(result)
+		response, err := researchRetainedRoute(result)
 		if err != nil {
 			t.Errorf("shipped result does not route: %v", err)
 			continue
 		}
 		seen[response] = true
 	}
-	for _, response := range []string{"ask", "done"} {
+	for _, response := range []string{"ask", "done", "continue"} {
 		if !seen[response] {
 			t.Errorf("shipped resource teaches no result that routes to %q", response)
 		}

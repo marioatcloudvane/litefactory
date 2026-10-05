@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -68,7 +69,7 @@ func (h ControlActivity) Execute(ctx context.Context, opts Options, req Activity
 	if err != nil {
 		return ActivityResult{}, err
 	}
-	if definition.Digest != h.Profile.Digest || definition.Mode != string(h.Policy.Mode) {
+	if (h.Policy.Mode != agent.ModeResearch && definition.Digest != h.Profile.Digest) || definition.Mode != string(h.Policy.Mode) {
 		return ActivityResult{}, errors.New("research control profile differs from pinned definition")
 	}
 	node, ok := h.Profile.Node(req.Node)

@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -80,7 +81,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	if workflow == agent.WorkflowBug && admissionErr != nil {
 		return out, errors.New("execute graph node: missing Bug admission")
 	}
-	if definition.Digest != req.Profile.Digest || definition.Team != req.Profile.Team || definition.Mode != string(req.Profile.Mode) || definition.ProfileVersion != req.Profile.ProfileVersion {
+	if (workflow != agent.WorkflowResearch && definition.Digest != req.Profile.Digest) || definition.Team != req.Profile.Team || definition.Mode != string(req.Profile.Mode) || (workflow != agent.WorkflowResearch && definition.ProfileVersion != req.Profile.ProfileVersion) {
 		return out, errors.New("execute graph node: profile does not match pinned definition")
 	}
 	node, ok := req.Profile.Node(instance.CurrentNode)
@@ -105,7 +106,14 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 			return out, errors.New("bug effect recovery attempt mismatch")
 		}
 	default:
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		var ancestors map[int64]string
+		if workflow == agent.WorkflowResearch {
+			ancestors, err = researchBudgetAncestors(ctx, opts.DB, instance.ID, node)
+			if err != nil {
+				return out, err
+			}
+		}
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{ResearchPriorNodes: ancestors, InstanceID: instance.ID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
@@ -220,4 +228,48 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 		return out, fmt.Errorf("complete graph activity: %w", err)
 	}
 	return out, nil
+}
+
+// researchAncestorLimit bounds the successor walk; real chains are a handful long.
+const researchAncestorLimit = 64
+
+// researchBudgetAncestors carries the existing per-stage allowance across graph
+// successors. Renamed agent nodes match their captured role; effects match names.
+func researchBudgetAncestors(ctx context.Context, db *store.DB, instance int64, node graphexec.Node) (map[int64]string, error) {
+	out := make(map[int64]string)
+	for range researchAncestorLimit { // bounded walk, not a retry loop
+		prior, _, err := db.WorkflowPredecessor(ctx, instance)
+		if err != nil || prior == 0 {
+			return out, err
+		}
+		if _, cycle := out[prior]; cycle {
+			return nil, errors.New("research successor cycle")
+		}
+		name := node.Name
+		raw, err := db.ResearchLaunchFiles(ctx, prior)
+		if err != nil {
+			return nil, err
+		}
+		var files map[string][]byte
+		if err := json.Unmarshal(raw, &files); err != nil {
+			return nil, err
+		}
+		if dot, found := files["research.dot"]; found {
+			profile, err := graphexec.ParseProfile(dot)
+			if err != nil {
+				return nil, err
+			}
+			if node.Action == ResearchAgentAction {
+				for _, old := range profile.Nodes {
+					if old.Action == node.Action && old.Attrs["lf_agent_markdown"] == node.Attrs["lf_agent_markdown"] {
+						name = old.Name
+						break
+					}
+				}
+			}
+		}
+		out[prior] = name
+		instance = prior
+	}
+	return nil, errors.New("research successor chain exceeds its bound")
 }

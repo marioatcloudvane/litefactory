@@ -113,49 +113,20 @@ A completed result and no questions.
 Any other shape, such as a completed result that still carries questions, fails
 the step.
 
-# response approved
+# Owner approval
 
-There is no separate result for approval, and you never claim it. It reports
-the owner's verdict, never your own. The factory records `approved` for a
-completed result only when it holds the owner's reply accepting the review of
-that same candidate. When a reply you were given accepted the work, submit the
-reviewed `done` result unchanged; if you change it, the factory shows the owner a
-new review instead. Only a role whose instructions define an approved response
-can reach it, and recording the approval in your comment does not report it.
+Approval is the authenticated owner's verdict about the published current review.
+The factory handles an explicit `done` reply using the retained displayed result
+and follows the graph's final publication branch without another agent invocation.
+Do not submit an `approved` response or reproduce a candidate to claim approval.
+Ordinary feedback resumes the originating stage and may produce another review.
 
-# Artifacts
+# response continue
 
-After `lf_agent` retains your result, the explicit `lf_research_brief` activity
-renders RESEARCH_BRIEF.md and RESEARCH_TECHNICAL.md from that exact candidate
-and writes them into the supplied session directory. Successful `lf_comment`,
-`lf_ask` and stage handoff require this generation to succeed; old files do not
-satisfy the gate. Only these two generated documents defer existence checks. You do not write them. Name
-them in artifacts if you want them referenced:
+An incomplete result with a reason, cumulative partial findings and no questions requests another bounded pass of the same stage. The factory publishes no progress comment.
 
-- `<session>/RESEARCH_BRIEF.md` with kind `brief`
-- `<session>/RESEARCH_TECHNICAL.md` with kind `technical`
+```json
+{"result":{"outcome":"incomplete","comment":"Retained boundary findings.","reason":"Trace the remaining callers.","payload":{"research":{"request":"Inspect boundaries","continue":true,"findings":[{"id":"f1","text":"The store owns SQL."}]}}}}
+```
 
-Kind `data` is for structured reference material a later stage consumes verbatim:
-a data model, a schema, an interface table. `technical` is evidence for a claim;
-`data` is material to build from. Those three kinds are the whole set.
-
-Any other artifact path is worktree-relative, not session-relative, sits strictly
-under the supplied session directory, and must already exist as a regular file
-when you submit, with no symlink anywhere in its path, no leading slash, no dot
-segment, no backslash and no colon.
-
-# Delivering the result
-
-Deliver through communication preflight, submit and receipt, or the equivalent
-methods of the factory-supplied result helper: preflight your result, correct
-every diagnostic it reports, submit, then read the matching receipt. Do this
-before you finish, and do it whether or not you have anything to correct — it is
-how a result is delivered, not only how one is amended.
-
-Do not print a JSON result afterwards. The accepted submission is the step's
-result; an attempt without one fails whatever you print. End with a short
-plain-language note.
-
-A receipt only acknowledges input. It neither publishes your report nor
-completes the graph, and acknowledgment is not acceptance. Missing authentic
-observations must remain explicitly unverified.
+Keep all still-applicable findings and evidence in each snapshot, including previously consumed owner guidance as background context. A failed process never requests another automatic pass.

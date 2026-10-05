@@ -3,7 +3,9 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -100,7 +102,7 @@ func (p WorkflowPolicy) baseContext(questions bool) agentresult.Context {
 
 // ResearchWorkflowPolicy supplies Research contracts and scoped effects to shared mechanics.
 func ResearchWorkflowPolicy() WorkflowPolicy {
-	return WorkflowPolicy{AcceptAfterProcessFailure: true, ValidateCompletion: researchNodeSize, AuthorizeOutput: authorizeResearchOutput, BeforeContinue: requireResearchBriefContinuation, Specs: []graphexec.ActionSpec{ResearchBriefSpec()}, RegisterEffects: registerResearchBrief, BeforePublish: requireResearchBrief, Failure: researchFailureCandidate, Mode: agent.ModeResearch, Control: graphexec.ResearchControlPolicy(), Decode: agentresult.DecodeResearchNode, Guidance: researchNodeGuidance(), Contract: validateResearchComment, Render: func(r agentresult.Result, next string, ref naming.Ref, branch string) string {
+	return WorkflowPolicy{Respond: researchRetainedRoute, AcceptAfterProcessFailure: true, ValidateCompletion: researchNodeSize, AuthorizeOutput: authorizeResearchOutput, BeforeContinue: requireResearchBriefContinuation, Specs: []graphexec.ActionSpec{ResearchBriefSpec()}, RegisterEffects: registerResearchBrief, BeforePublish: requireResearchBrief, Failure: researchFailureCandidate, Mode: agent.ModeResearch, Control: graphexec.ResearchControlPolicy(), Decode: agentresult.DecodeResearchNode, Guidance: researchNodeGuidance(), Contract: validateResearchComment, Render: func(r agentresult.Result, next string, ref naming.Ref, branch string) string {
 		return renderResearchComment(r, next, researchArtifactLinks(ref, branch, r.Artifacts))
 	}, NextStep: researchNextStep, Artifacts: func(root, session string, r agentresult.Result) error {
 		return ValidateResearchArtifactDeclarations(root, session, r.Artifacts)
@@ -111,7 +113,7 @@ func ResearchWorkflowPolicy() WorkflowPolicy {
 // limit, so the agent learns it at preflight and submit rather than after the
 // process ends. A done result is measured as approved, the longer kept response.
 func researchNodeSize(_ context.Context, _ store.ResultBinding, r agentresult.Result, _ agentresult.Context) agentresult.Diagnostics {
-	response, err := retainedRoute(r)
+	response, err := researchRetainedRoute(r)
 	if err != nil {
 		return agentresult.Diagnostics{Valid: true, Complete: true}
 	}
@@ -138,7 +140,7 @@ func (p WorkflowPolicy) respond(r agentresult.Result) (string, error) {
 
 // retainedRoute is the shared Research and Plan mapping from a retained result
 // to its response. Approval is never derived here: only an authorized owner
-// reply turns a Research done into approved, in AgentActivity.Execute.
+// reply settles the displayed Research review at the factory wait boundary.
 func retainedRoute(r agentresult.Result) (string, error) {
 	switch {
 	case r.Outcome == "incomplete" && len(r.Questions) > 0:
@@ -175,4 +177,14 @@ type WorkflowHandlers struct {
 	Comment    ActivityHandler
 	BeforeSave func(context.Context, *researchWorkflow) error
 	AfterSave  func(context.Context, *researchWorkflow, *Result) error
+}
+
+func researchRetainedRoute(r agentresult.Result) (string, error) {
+	if p := r.Payload.Research; p != nil && p.Continue {
+		if r.Outcome == "incomplete" && strings.TrimSpace(r.Reason) != "" && len(p.Findings) > 0 && len(r.Questions) == 0 {
+			return "continue", nil
+		}
+		return "", errors.New("invalid Research continuation")
+	}
+	return retainedRoute(r)
 }
