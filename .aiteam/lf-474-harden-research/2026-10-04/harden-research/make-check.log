@@ -1,0 +1,18 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.634s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	4.750s
+--- FAIL: TestUpdate_SchemaParity (0.00s)
+    update_test.go:343: schema edit matrix differs from Go
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/agentresult	3.922s
+ok  	github.com/cloudvane/litefactory/internal/archive	4.889s
+ok  	github.com/cloudvane/litefactory/internal/attach	1.871s
+ok  	github.com/cloudvane/litefactory/internal/buganalysis	4.638s
+ok  	github.com/cloudvane/litefactory/internal/bugchecks	3.380s
+ok  	github.com/cloudvane/litefactory/internal/bugrepair	3.075s
+make: *** [test] Error 1

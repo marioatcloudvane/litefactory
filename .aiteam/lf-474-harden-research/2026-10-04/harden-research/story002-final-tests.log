@@ -1,0 +1,3 @@
+ok  	github.com/cloudvane/litefactory/internal/turn	77.433s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	19.679s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	20.556s [no tests to run]

@@ -1,0 +1,46 @@
+[
+  {
+    "request_id": "a654ac728f8bc78f342a40da0c1c9cac",
+    "story": "story-001",
+    "states": {
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  {
+    "request_id": "e383df9239c9f18c72e86a649832b6df",
+    "story": "story-002",
+    "states": {
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  {
+    "request_id": "987f5cd391db342eaa4ccd2a2ad31a5d",
+    "story": "story-003",
+    "states": {
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  {
+    "request_id": "bb62ae1486958ad0fae2e35caedbec2e",
+    "story": "story-003",
+    "states": {
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  }
+]

@@ -1,0 +1,245 @@
+{
+  "implementation_digest": "2b6642148f82a5e4f073c6521d9e9962948853b4f576e306d49701b5ffdb8614",
+  "files": [
+    {
+      "path": "docs/workflow/research-graph.md",
+      "sha256": "268b42442dfc3eece7ad23e15eeb4dada24a994b349282a9ce35ee02725f3b76",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/research_continuation_test.go",
+      "sha256": "72fba58c1f6ced6493f28dc4547bfe6161facbf946d1bb911a2662cd2928887a",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/research_node.go",
+      "sha256": "2cd8e7403c4add852ff6d8b1a8e51ad5703c81d86d80c25d2984ec9470ff0d1c",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/updates/schema.json",
+      "sha256": "f645b3620e237f8009ae3cefff5efe0ebdc99d0e4c8494b88f3f5c730aa6999c",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/types.go",
+      "sha256": "9b4b31e84edbee82f9414fc4a4b183f80bba47935bc36fad6017a068bd730a81",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/update.go",
+      "sha256": "1e18622f582f78c9e3424c324d5cc22f8069e4d51a2dd0889a156cde9005e040",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/validate.go",
+      "sha256": "6b9253d28ed70a0ac1a5865db1cb241ddcf3bbb467376f482ce8742cc722f662",
+      "deleted": false
+    },
+    {
+      "path": "internal/config/config.go",
+      "sha256": "51ceb4e056cde84f7c534da81fb084d8e09915069f610c74c8cc7f9f46df25bb",
+      "deleted": false
+    },
+    {
+      "path": "internal/config/research.go",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "deleted": true
+    },
+    {
+      "path": "internal/config/research_test.go",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "deleted": true
+    },
+    {
+      "path": "internal/config/spike_test.go",
+      "sha256": "e2f4d0b1ba9351f67452b31c15b19bc7c25c66dc8fc1484b0067ba8f53a6f6b4",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/research_reminders.go",
+      "sha256": "6dfd73d0f9737e27ba04b19d43b7c5825104508ec5ca68e83377e3b9d66de5f2",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/research_reminders_internal_test.go",
+      "sha256": "458e098f80b00f1f56974f65ede70df27ba30fd97429c19b5260e64d4a5b5208",
+      "deleted": false
+    },
+    {
+      "path": "internal/daemon/tick.go",
+      "sha256": "972396adefe9df860848623d59c98be5a6e7d49c6a0d94e2451853b35dfd8077",
+      "deleted": false
+    },
+    {
+      "path": "internal/graphexec/research_control.go",
+      "sha256": "15a34653d1eac3e9133bb1280bcd911a921940b8d547e8bbbaa35891b9280c30",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/graph.go",
+      "sha256": "7c83cdc8d9c6810846ea14781490a021cb38e8a70bef22bd82ddd760892a495d",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/graph_attempts.go",
+      "sha256": "4f01c84ff52997190542efaa1c08104169d50dd63ec53c1f35988d453a669adf",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/graph_comments.go",
+      "sha256": "661cf41751ece0ab72199839430aa690a6198bad462c186d50203b29ee63406e",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/migrations/0097_research_wait_reminders.sql",
+      "sha256": "438c735fd32eca67b04c7d561de8368585e34abcf895ad3de9b93724c8d108d8",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/report_deliveries.go",
+      "sha256": "a86ce07796216e0764230fdc59d8ebc24e0214e10625080be9c4de11a863fdb2",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/research_admission.go",
+      "sha256": "fa2295dd02a3139337a5eeebe595005869e487893eea7d0982c8003f07a8eb0d",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/research_recovery.go",
+      "sha256": "a86561fb823c6550dc12619f805ef95b8d5a7ac58b14b8a40ea579f0a2fb4d1b",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/research_recovery_test.go",
+      "sha256": "e4a93e67ee2484375114754f496edb288a99772d6f55dd85f8b872e3604b3be6",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/research_reminders.go",
+      "sha256": "e71411a6352e5bf534848e1f2e452a4672d5b17a61b25ecfe19084a42f9720b5",
+      "deleted": false
+    },
+    {
+      "path": "internal/teamsource/research/research.dot",
+      "sha256": "e36f05ea0aceddd12b1b35853625943c2cff8fe7ebf679d00f4eae58dbb8a270",
+      "deleted": false
+    },
+    {
+      "path": "internal/teamsource/research/research.md",
+      "sha256": "e7ba7e0a397f7e589e7e8b53072d54faa84368330c4b3fe6671bdb7a363165cf",
+      "deleted": false
+    },
+    {
+      "path": "internal/teamsource/research/shaping.md",
+      "sha256": "fb93bee34d575995035968ff94239e4a131037fc89ee3eae1824a88695b0b625",
+      "deleted": false
+    },
+    {
+      "path": "internal/teamsource/research/skills/research-evidence/SKILL.md",
+      "sha256": "bf90961a8b1e01df99039071d1baaa7552f8f17175073df8afd0382b17650ff9",
+      "deleted": false
+    },
+    {
+      "path": "internal/teamsource/research/skills/research-evidence/node-result.md",
+      "sha256": "a6b148a4ad0c92e9e25350200fd90d3182d7de8c14e7398c0568fbda3b30bcac",
+      "deleted": false
+    },
+    {
+      "path": "internal/teamsource/research_response_contract_test.go",
+      "sha256": "27a77a8b9bd4a959f83fa5ffaa983fa9285cfd71c36c190ace37eb941ec19507",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/creation_guidance.go",
+      "sha256": "538d05c201d867b2e55bcb4d3b8bda061f4b38eda8330629cd98c5b1caa1378c",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/graph_node.go",
+      "sha256": "a52884bd83d6758d694e2654140d753e2b1c0477dc625d3434aa174fb65428a5",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/mode_reset_test.go",
+      "sha256": "ab5a31932bbb5b61185dc417ed9d6b551907d9bd149d46769f30786840267c30",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/mode_transition_test.go",
+      "sha256": "b89d4dd68ead605bea5b18e688f0f275da1d9bc5af78a4c1c99c398d701d1561",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/plan_retry_transport_test.go",
+      "sha256": "3a26336d3b8b725cf726f947ae94415c559e35706e8dc9f85d855254f549bc1b",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/report_delivery.go",
+      "sha256": "0b70c7d080def4b4d64342560b052e8a38b8c802fe7865153ae75683eb40ff51",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_admission.go",
+      "sha256": "393eb58bf1da90acbf0d221c3a0bcac0f42be08db660decbcd7fb378cc123015",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_agent.go",
+      "sha256": "3145872a5b2b1c20b3ba14319fcd62c65cbf2c62f9dedddcbef2cea99ed6d554",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_approval_workflow_test.go",
+      "sha256": "d525d5ff5b24313641f7507427c498570a9e8895f1e9699e46602f3a242c5a18",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_brief_activity.go",
+      "sha256": "261b5cffecc5eaec60bb96cee83d794a9fb38380c0238c09ee41a81dfdcb5dcd",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_comments.go",
+      "sha256": "6c17a06cd319f4c299e40431599f166c61c1b6a03df8fadf64e6562e2399e586",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_continuation_test.go",
+      "sha256": "52970ae89511e6e8f02b585a9e510bba1eed642ca0cfb506fb8dfc614d53f5bd",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_control.go",
+      "sha256": "b36fc682592d4d04a40917cc9b34aff4407e779b6a74d62dfc5d0ec0be1ed5a4",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_owner_resume.go",
+      "sha256": "488d96628b58de4f9ecf4cc58430e4f9a41b17dfd1b6439c05e71b2d00090b90",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_reminder.go",
+      "sha256": "f6ceb58751eb8e4d11c553961e9f84881b69c9699dac9f464a92b7f5ba49bd65",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_workflow.go",
+      "sha256": "c37cdfc070051e41b2576d27b177cc36e6a0df305f8f8f6f8479d2c0089febce",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/research_workflow_test.go",
+      "sha256": "8d8bcbedce62f327a47689393d92549621fe376d66d34714a3bca43d63d257bd",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/workflow_policy.go",
+      "sha256": "f01cd36c20d0e5fe6c33453c418888b0c7a2307568b5a846d79ba78a399be7e8",
+      "deleted": false
+    }
+  ]
+}
