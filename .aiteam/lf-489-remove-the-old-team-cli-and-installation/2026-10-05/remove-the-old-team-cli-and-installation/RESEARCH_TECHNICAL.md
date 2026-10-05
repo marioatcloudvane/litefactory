@@ -97,3 +97,16 @@ Evidence:
 - `internal/store/migrations/0007_repo_external_team.sql:1`
 - `internal/store/repos.go:80`
 - `.aiteam/APP_CONTEXT.md:112`
+
+## f9
+
+Focused shaping reads confirm repo add currently preserves prior options and upserts only after worktree collision validation; story-contract upgrade currently authenticates before capturing external roles, so refusal must precede that authentication. Existing team write tests cover membership and atomic unsafe-content refusal, but do not by themselves prove RenderTeam preserves contributor union before writing.
+
+Evidence:
+
+- `internal/cli/cmd_repo.go:119`
+- `internal/cli/cmd_repo.go:171`
+- `internal/cli/cmd_story_contract.go:77`
+- `internal/teamsource/render_test.go:203`
+- `internal/team/write_test.go:661`
+- `internal/team/write_forbidden_flag_test.go:95`
