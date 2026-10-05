@@ -1561,7 +1561,7 @@ func ensureWorktree(
 	ensured, err := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{
 		Dir:        dir,
 		Branch:     branch,
-		BaseBranch: repo.BaseBranch,
+		BaseBranch: storyBaseBranch(ctx, opts, clone, session, repo),
 		Remote:     opts.remote(),
 	})
 	if err != nil {
@@ -1579,6 +1579,26 @@ func ensureWorktree(
 		slog.String("branch_start", ensured.BranchStart),
 		slog.Bool("worktree_created", ensured.WorktreeCreated))
 	return ensured.Worktree, nil
+}
+
+// storyBaseBranch is the branch a task's own branch starts from. A Plan story
+// task starts from the latest pushed commit of its parent's branch, so it sees the
+// parent's research and session artifacts; nothing from its branch is merged back.
+// Every other task, and a story whose parent has pushed nothing, starts from the
+// repository's base branch.
+func storyBaseBranch(ctx context.Context, opts Options, clone *git.Clone, session store.Session, repo store.Repo) string {
+	story, ok, err := opts.DB.GraphPlanStoryAt(ctx, repo.ID, session.IssueNumber)
+	if err != nil || !ok {
+		return repo.BaseBranch
+	}
+	parent, err := opts.DB.GetSessionByTaskRef(ctx, story.Parent)
+	if err != nil || parent.Branch == "" {
+		return repo.BaseBranch
+	}
+	if _, err = clone.ShowRef(ctx, "refs/remotes/"+opts.remote()+"/"+parent.Branch); err != nil {
+		return repo.BaseBranch
+	}
+	return parent.Branch
 }
 
 // allocateRun inserts the runs row before the subprocess starts (S-1).

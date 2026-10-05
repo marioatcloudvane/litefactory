@@ -47,7 +47,7 @@ func promoteTrigger(base Request, id, author int64, body string) Request {
 // promoteRuntime is the runtime a promotion command reaches, over saved state
 // and the store, without running the graph.
 func promoteRuntime(f *fixture, base Request, id, author int64, body string) *planGraphRuntime {
-	return &planGraphRuntime{opts: f.opts, req: promoteTrigger(base, id, author, body), result: Result{Ref: f.ref()}, ownerID: 7}
+	return &planGraphRuntime{opts: f.opts, req: promoteTrigger(base, id, author, body), result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, ownerID: 7}
 }
 
 func reservedOrdinals(t *testing.T, f *fixture) map[string]int64 {
@@ -114,7 +114,7 @@ func TestPlanPromote_OwnerCommandReservesKeysOrdinalsAndDependenciesInDisplayedO
 		}
 	}
 	// The next work is the first story owed a draft, dependencies first.
-	pick, err := pickPlanStep(state)
+	pick, err := pickPlanStep(state, "", nil)
 	if err != nil || pick != (planPick{Key: "story-002", Stage: "story", Create: true}) {
 		t.Fatalf("pick %+v %v", pick, err)
 	}
@@ -307,9 +307,9 @@ func TestPlanPromote_StaleApprovalEndsTheTurnAsAnExplainedRefusal(t *testing.T) 
 	}
 }
 
-// The promotion run continues into the creation cycle: every sub-issue is created
-// in dependency order, none is renumbered, and each visibly carries its parent
-// prefixed ordinal from the reserved list position.
+// The promotion run creates every sub-issue at once, none is renumbered, and each
+// visibly carries its parent prefixed ordinal from the reserved list position; the
+// dependency story is the first one a story task drafts, into its own issue.
 func TestPlanPromote_RunCreatesEachSubIssueWithItsReservedPublicOrdinal(t *testing.T) {
 	var drafted []string
 	f, remote, base, _, _ := graphPlanAgentFixture(t, func(s planAgentStep) (*agent.RunResult, error) {
@@ -334,6 +334,12 @@ func TestPlanPromote_RunCreatesEachSubIssueWithItsReservedPublicOrdinal(t *testi
 	out, err := Execute(t.Context(), f.opts, promoteTrigger(base, 990, 7, promoteCommand(revision)))
 	if err != nil || out.Err != nil {
 		t.Fatalf("promotion run: err=%v out=%+v logs=%s", err, out, f.logs.String())
+	}
+	if remote.creates != 3 || len(drafted) != 0 {
+		t.Fatalf("promotion created %d issues and drafted %v, want 3 issues and no draft", remote.creates, drafted)
+	}
+	if _, ran, err := runOwedStory(t, f, promoteTrigger(base, 991, 7, "continue")); !ran || err != nil {
+		t.Fatalf("first story task: ran=%v err=%v", ran, err)
 	}
 	if len(drafted) == 0 || drafted[0] != "story-002" {
 		t.Fatalf("drafting order %v, want the dependency story-002 first", drafted)

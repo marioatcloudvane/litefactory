@@ -88,14 +88,40 @@ func planChildFixture(t *testing.T, fn func(context.Context, *fixture, turn.Requ
 	if _, err = f.db.SavePlanWorkflowState(t.Context(), session.TaskRef, 0, state); err != nil {
 		t.Fatal(err)
 	}
-	f.forge.addIssue(fakeIssue{ID: 2000, Number: 200, Title: title, Body: body, State: "open", User: stranger()})
+	f.forge.addIssue(fakeIssue{ID: 2000, Number: 200, Title: title, Body: body, State: "open", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+	// The story issue is a task of its own: the daemon meets it before the owner
+	// comments on it, so that its comments are read rather than skipped as history.
+	story, err := f.db.GetOrCreateSession(t.Context(), f.repo, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = f.db.BootstrapWatermark(t.Context(), story.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	// The real turn admits the graph route of the story task on its first run.
+	if _, err = f.db.AdmitPlanWorkflowPath(t.Context(), story.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
 	return f, session
 }
 
+// storyWatermark is the comment watermark of the story issue's own task.
+func storyWatermark(f *fixture, issue int) int64 {
+	f.t.Helper()
+	watermark, _, err := f.db.GetWatermark(f.t.Context(), f.sessionOf(issue).ID)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return watermark.LastCommentID
+}
+
+// planChildrenRoutingCase checks that a story issue is a task of its own: the
+// owner's comment on it reaches a Plan turn on that issue, correlated to its wait,
+// and what the review rules refuse is explained on the issue and consumed there.
 func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 	t.Helper()
 	attempts := 0
-	f, session := planChildFixture(t, func(ctx context.Context, f *fixture, req turn.Request) (turn.Result, error) {
+	f, parent := planChildFixture(t, func(ctx context.Context, f *fixture, req turn.Request) (turn.Result, error) {
 		attempts++
 		if locked && attempts == 1 {
 			return turn.Result{Disposition: turn.DispositionLocked}, nil
@@ -108,14 +134,14 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 	renamed.Login = "renamed-owner"
 	f.forge.addComment(200, 50, stranger(), "/approve-plan story story candidate")
 	f.forge.addComment(200, 60, renamed, ownerBody)
+	// The story task is deferred while the parent's task is in its tick, so it
+	// takes a second tick to be run.
 	f.settle()
+	f.settle()
+	story := f.sessionOf(200)
 	if locked {
-		cursor, cursorErr := f.db.StoryDiscoveryCursor(t.Context(), session.ID, 200)
-		if cursorErr != nil || cursor >= 60 {
-			t.Fatalf("locked reply consumed child cursor: %d %v", cursor, cursorErr)
-		}
-		if f.watermark() != 0 {
-			t.Fatalf("locked child advanced parent watermark: %d", f.watermark())
+		if storyWatermark(f, 200) >= 60 {
+			t.Fatalf("locked reply consumed the story watermark: %d", storyWatermark(f, 200))
 		}
 		f.daemon = f.newDaemon(daemon.Options{Forge: refinementForge{Client: f.client, parent: testIssue}})
 		f.settle()
@@ -125,17 +151,16 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 		if len(calls) != 0 {
 			t.Fatalf("stale reply invoked executor: %+v", calls)
 		}
-		explanation, err := f.db.PlanReplyExplanation(t.Context(), session.TaskRef, 60)
+		explanation, err := f.db.PlanReplyExplanation(t.Context(), story.TaskRef, 60)
 		if err != nil || explanation.Reason == "" {
-			t.Fatalf("missing stale explanation %+v %v", explanation, err)
+			t.Fatalf("missing stale explanation %+v %v logs=%s", explanation, err, f.logs)
 		}
 		delivery, err := f.db.GetReportDelivery(t.Context(), explanation.DeliveryKey)
 		if err != nil || !delivery.Completed {
 			t.Fatalf("unconfirmed explanation %+v %v", delivery, err)
 		}
-		cursor, err := f.db.StoryDiscoveryCursor(t.Context(), session.ID, 200)
-		if err != nil || cursor != 60 || f.watermark() != 0 {
-			t.Fatalf("unsafe cursor=%d err=%v parent=%d", cursor, err, f.watermark())
+		if storyWatermark(f, 200) != 60 || f.watermark() != 0 {
+			t.Fatalf("unsafe story watermark=%d parent=%d", storyWatermark(f, 200), f.watermark())
 		}
 		f.daemon = f.newDaemon(daemon.Options{Forge: refinementForge{Client: f.client, parent: testIssue}})
 		f.settle()
@@ -151,8 +176,8 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 			t.Fatalf("retry lost original child reply: %+v", calls)
 		}
 	}
-	if len(calls) != expectedCalls || calls[0].Mode != agent.ModePlan || calls[0].Issue.Number != testIssue || calls[0].Trigger.PlanReply == nil {
-		t.Fatalf("child not routed into parent Plan: %+v logs=%s", calls, f.logs)
+	if len(calls) != expectedCalls || calls[0].Mode != agent.ModePlan || calls[0].Issue.Number != 200 || calls[0].Trigger.PlanReply == nil {
+		t.Fatalf("reply not routed to the story's own Plan task: %+v logs=%s", calls, f.logs)
 	}
 	reply := calls[0].Trigger.PlanReply
 	if reply.ID != 60 || reply.ActorID != ownerID || reply.OwnerID != ownerID || reply.IssueID != 2000 || reply.WaitID != "wait" || reply.Candidate != "candidate" {
@@ -161,7 +186,7 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 	if reply.Body != ownerBody || reply.Key != "story" || reply.Stage != "story" {
 		t.Fatalf("free-text reply changed correlation: %+v", reply)
 	}
-	retained, _, err := f.db.GetPlanWorkflowState(t.Context(), session.TaskRef)
+	retained, _, err := f.db.GetPlanWorkflowState(t.Context(), parent.TaskRef)
 	if err != nil || len(retained.Stories) != 1 || retained.Stories[0].Stage != "story" || len(retained.Stories[0].Approvals) != 0 {
 		t.Fatalf("discovery granted approval: %+v %v", retained, err)
 	}
@@ -171,7 +196,7 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 	f.daemon = f.newDaemon(daemon.Options{Forge: refinementForge{Client: f.client, parent: testIssue}})
 	f.settle()
 	if len(f.turns.calls()) != expectedCalls {
-		t.Fatal("restart redispatched consumed child cursor")
+		t.Fatal("restart redispatched consumed story comment")
 	}
 }
 
@@ -180,7 +205,7 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 // Plan turn instead of stalling behind the refused one.
 func TestPlanChildrenBoundary_RefusedReplyIsAnsweredOnceAndQueueProgresses(t *testing.T) {
 	const refusedText = "could not be applied to the current review"
-	f, session := planChildFixture(t, func(ctx context.Context, f *fixture, req turn.Request) (turn.Result, error) {
+	f, _ := planChildFixture(t, func(ctx context.Context, f *fixture, req turn.Request) (turn.Result, error) {
 		if req.Trigger.CommentID == 60 {
 			return turn.Result{}, &turn.PlanReplyRefusal{Reason: "This reply " + refusedText + " of this story.", Err: errors.New("stale")}
 		}
@@ -199,12 +224,14 @@ func TestPlanChildrenBoundary_RefusedReplyIsAnsweredOnceAndQueueProgresses(t *te
 		return n
 	}
 	f.forge.addComment(200, 60, owner(), "/approve-plan story story candidate")
+	// The story task is deferred while the parent's task is in its tick.
+	f.settle()
 	f.settle()
 	if n := refusals(); n != 1 {
 		t.Fatalf("refusal replies = %d, want 1\nlogs:\n%s", n, f.logs)
 	}
-	if cursor, err := f.db.StoryDiscoveryCursor(t.Context(), session.ID, 200); err != nil || cursor != 60 {
-		t.Fatalf("refused reply not consumed: cursor=%d err=%v", cursor, err)
+	if got := storyWatermark(f, 200); got != 60 {
+		t.Fatalf("refused reply not consumed: watermark=%d", got)
 	}
 
 	// A restart retries nothing and posts nothing more.
@@ -219,6 +246,7 @@ func TestPlanChildrenBoundary_RefusedReplyIsAnsweredOnceAndQueueProgresses(t *te
 	}
 
 	f.forge.addComment(200, 70, owner(), "Please narrow the scope")
+	f.settle()
 	f.settle()
 	calls := f.turns.calls()
 	if len(calls) != 2 || calls[1].Trigger.PlanReply == nil || calls[1].Trigger.PlanReply.ID != 70 {
@@ -359,7 +387,7 @@ func TestPlanChildrenSweep_NamedChildIsSweptThenQuiet(t *testing.T) {
 // A sweep whose explanation is not confirmed leaves the child owed, so the next
 // tick reads it again and no owner comment is lost.
 func TestPlanChildrenSweep_UnconfirmedExplanationKeepsTheDebt(t *testing.T) {
-	f, session, forge := countingPlanChildFixture(t)
+	f, _, _ := countingPlanChildFixture(t)
 	f.settle()
 	f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
 		http.Error(w, `{"message":"lost reply response"}`, http.StatusInternalServerError)
@@ -367,27 +395,11 @@ func TestPlanChildrenSweep_UnconfirmedExplanationKeepsTheDebt(t *testing.T) {
 	}
 	f.forge.addComment(200, 60, owner(), "/approve-plan story story old")
 	f.settle()
-	if owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200); err != nil || !owed {
-		t.Fatalf("an unconfirmed explanation retired the child's debt: %v %v\n%s", owed, err, f.logs)
-	}
-	// Past the listing overlap nothing names the child again, so only the
-	// retained debt can make the next tick read it.
-	before := forge.parents[200]
-	f.clock.advance(daemon.ListingOverlap + time.Minute)
 	f.settle()
-	if forge.parents[200] <= before {
-		t.Fatalf("the still-owed child was not read again\n%s", f.logs)
+	if got := storyWatermark(f, 200); got >= 60 {
+		t.Fatalf("an unconfirmed explanation consumed the story's comment: watermark=%d\n%s", got, f.logs)
 	}
 	if !strings.Contains(f.logs.String(), "Plan child reply awaits confirmed explanation") {
-		t.Fatalf("the sweep never reached an unconfirmed explanation\n%s", f.logs)
-	}
-	if owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200); err != nil || !owed {
-		t.Fatalf("an unconfirmed explanation retired the child's debt: %v %v", owed, err)
-	}
-	before = forge.parents[200]
-	f.clock.advance(daemon.ListingOverlap + time.Minute)
-	f.settle()
-	if forge.parents[200] <= before {
-		t.Fatalf("the child was not read again after an unconfirmed explanation\n%s", f.logs)
+		t.Fatalf("the story task never reached an unconfirmed explanation\n%s", f.logs)
 	}
 }

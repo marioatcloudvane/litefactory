@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -326,10 +327,15 @@ func (p *preparedMCP) projectFinalWorkflow(ctx context.Context, prep *preparatio
 			canonical := bytes.Clone(prep.typedPlan.contribution)
 			prep.typedPlan.mu.Unlock()
 			if existingID != 0 {
-				if !bytes.Equal(canonical, data) {
-					return fmt.Errorf("shared Plan conflicts with retained Plan checkpoint")
+				if bytes.Equal(canonical, data) {
+					return nil
 				}
-				return nil
+				// The accepted shared result wins: the earlier checkpoint is dropped
+				// and the submission below replaces the contribution and transport.
+				slog.Warn("shared Plan result replaces differing retained Plan checkpoint", slog.String("attempt", session.binding.Attempt))
+				prep.typedPlan.mu.Lock()
+				prep.typedPlan.receiptID = 0
+				prep.typedPlan.mu.Unlock()
 			}
 		}
 		raw, err := session.checkpoint(ctx, submission.Request{Method: "submit", RequestID: "final-plan-" + session.binding.Attempt, Payload: data})

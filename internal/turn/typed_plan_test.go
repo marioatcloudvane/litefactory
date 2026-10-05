@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -185,9 +186,9 @@ func TestTypedPlanSubmissionBoundArtifactsAndPendingReadiness(t *testing.T) {
 			} else {
 				mustProgress(t, err)
 			}
-			mustProgress(t, prep.typedPlan.checkTransport(outcomeBytes, proposal))
-			if err := prep.typedPlan.checkTransport(append(outcomeBytes, ' '), proposal); err == nil {
-				t.Fatal("mutated transport trusted")
+			recOutcome, recProposal, _, ok := prep.typedPlan.recorded()
+			if !ok || !bytes.Equal(recOutcome, outcomeBytes) || !bytes.Equal(recProposal, proposal) {
+				t.Fatal("recorded bytes differ from the written transport")
 			}
 			after, err := f.db.GetManagedFeature(t.Context(), f.session.TaskRef)
 			mustProgress(t, err)

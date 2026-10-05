@@ -144,25 +144,21 @@ func TestPlanProgressSchedulerNoCommentRecoveryAfterRestart(t *testing.T) {
 
 func TestPlanProgressSchedulerStaleReplyUncertainThenHealthy(t *testing.T) {
 	x := newLifecycleBoundaryFixture(t)
-	child := x.children[0]
-	child.State = "closed"
-	child.StateReason = "completed"
-	x.forge.addIssue(child)
-	// Deliver the lifecycle notice before injecting loss into the stale reply's
-	// explanation, so the fault is bound to precisely one original input.
+	// Let the daemon meet the story tasks before injecting loss into the stale
+	// reply's explanation, so the fault is bound to precisely one original input.
 	x.settle()
 	x.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
 		http.Error(w, `{"message":"lost reply response"}`, http.StatusInternalServerError)
 		return true
 	}
-	x.forge.addComment(200, 60, owner(), "/approve-plan affected story candidate-affected")
+	x.forge.addComment(200, 60, owner(), "/approve-plan affected story old-candidate")
+	// The story's own task is deferred while the parent's task is in its tick.
 	x.settle()
-	cursor, err := x.db.StoryDiscoveryCursor(t.Context(), x.session.ID, 200)
-	progressMust(t, err)
-	if cursor >= 60 {
+	x.settle()
+	if cursor := storyWatermark(x.fixture, 200); cursor >= 60 {
 		t.Fatalf("unconfirmed explanation consumed child reply %d", cursor)
 	}
-	explanation, err := x.db.PlanReplyExplanation(t.Context(), x.session.TaskRef, 60)
+	explanation, err := x.db.PlanReplyExplanation(t.Context(), x.sessionOf(200).TaskRef, 60)
 	progressMust(t, err)
 	delivery, err := x.db.GetReportDelivery(t.Context(), explanation.DeliveryKey)
 	progressMust(t, err)
@@ -175,9 +171,7 @@ func TestPlanProgressSchedulerStaleReplyUncertainThenHealthy(t *testing.T) {
 	reopenPlanScheduler(t, x, false)
 	x.clock.advance(time.Minute)
 	x.assertHealthyReply(70)
-	cursor, err = x.db.StoryDiscoveryCursor(t.Context(), x.session.ID, 200)
-	progressMust(t, err)
-	if cursor >= 60 {
+	if cursor := storyWatermark(x.fixture, 200); cursor >= 60 {
 		t.Fatal("healthy reply consumed held child's cursor")
 	}
 	// The explanation is posted on the child sub-issue the owner replied on.
@@ -186,8 +180,8 @@ func TestPlanProgressSchedulerStaleReplyUncertainThenHealthy(t *testing.T) {
 	}
 	x.forge.addCommentAt(200, 900060, bot(), delivery.Body, x.clock.Now())
 	x.settle()
-	cursor, err = x.db.StoryDiscoveryCursor(t.Context(), x.session.ID, 200)
-	progressMust(t, err)
+	x.settle()
+	cursor := storyWatermark(x.fixture, 200)
 	// The confirmed explanation consumes the reply; the factory's own explanation
 	// on the same sub-issue is then skipped as bot input, so the cursor may pass it.
 	if cursor < 60 {

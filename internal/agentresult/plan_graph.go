@@ -286,15 +286,15 @@ func validatePlanStoryRequest(r *PlanStoryRequest, ctx Context, d *Diagnostics) 
 				add(d, base+".draft", "draft", "valid draft for the stage", "invalid draft", fault.Error()+".")
 			}
 		} else if r.Operation != "retire" {
-			// The published body repeats the draft as hidden metadata, so a draft
-			// within the raw budget can still render too large; catch it here,
-			// where the agent can shorten it, not after submission.
+			// Size never refuses a draft (a long one is shortened and attached as
+			// part comments); a draft that cannot render at all, such as a title
+			// over its limit, is caught here, where the agent can fix it.
 			render := report.RenderPlanDraft
 			if r.Operation != "create" {
 				render = report.RenderRetainedPlanDraft
 			}
 			if _, _, renderErr := render(1, 1, r.Draft, b.Stage, ctx.PlanScope); renderErr != nil {
-				add(d, base+".draft", "draft_size", "a draft whose rendered story fits the byte budget", "rendered story too large", renderErr.Error()+". Tighten task descriptions, criteria and architecture rows, or split the story.")
+				add(d, base+".draft", "draft_size", "a draft that renders to a story issue", "story cannot render", renderErr.Error()+".")
 			}
 		}
 	}

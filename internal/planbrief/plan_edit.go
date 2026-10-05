@@ -30,6 +30,9 @@ func ReconcilePlanDraftEdit(prior PlanDraft, parentNumber, ordinal int64, title,
 	if parentNumber < 1 || ordinal < 1 || len(body) > MaxStoryBodyBytes || len(title) > 256 {
 		return out, errors.New("pending: invalid Plan edit bounds or identity")
 	}
+	if strings.Contains(body, PlanShortenedMarker) {
+		return out, errors.New("pending: draft shortened; reply with changes")
+	}
 	prefix := fmt.Sprintf("%d-%03d: ", parentNumber, ordinal)
 	if !strings.HasPrefix(title, prefix) {
 		return out, errors.New("pending: Plan title changed its reserved identity prefix")
@@ -399,3 +402,7 @@ func planEditTable(lines, headers []string) ([][]string, error) {
 	}
 	return rows, nil
 }
+
+// PlanShortenedMarker is the hidden line a shortened story body carries; the full
+// draft then lives in numbered part comments on the same issue.
+const PlanShortenedMarker = "<!-- lf:plan-shortened -->"

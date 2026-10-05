@@ -150,12 +150,6 @@ func (d PlanDraft) Validate(stage string, scope ContentScope) error {
 	if stage == "acceptance" {
 		faults = append(faults, d.validateCompletion(scope)...)
 	}
-	raw, err := json.Marshal(d)
-	if err != nil {
-		faults = append(faults, err)
-	} else if len(raw) > MaxStoryBodyBytes {
-		faults = append(faults, errors.New("draft exceeds story byte budget"))
-	}
 	return errors.Join(faults...)
 }
 

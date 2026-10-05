@@ -141,6 +141,19 @@ func (db *DB) BindPlanStoryIssue(ctx context.Context, parent, key string, id int
 	return nil
 }
 
+// BindPlanStoryShell binds a story to the issue created for it at promotion and
+// records that issue's content revision, so the first draft updates it. A story
+// that already has a candidate keeps its revision.
+func (db *DB) BindPlanStoryShell(ctx context.Context, parent, key string, id int64, number int, revision string) error {
+	if err := db.BindPlanStoryIssue(ctx, parent, key, id, number); err != nil {
+		return err
+	}
+	if _, err := db.sql.ExecContext(ctx, `UPDATE plan_story_drafts SET revision=? WHERE parent=? AND story_key=? AND issue_id=? AND candidate=''`, revision, parent, key, id); err != nil {
+		return fmt.Errorf("record story issue revision: %w", err)
+	}
+	return nil
+}
+
 // ApplyPlanStoryDraft atomically records content and its confirmed effect. The
 // expected revision guards only local state; it is not a remote GitHub CAS.
 func (db *DB) ApplyPlanStoryDraft(ctx context.Context, d PlanStoryDraft, expected string, e PlanStoryEffect) error {

@@ -260,9 +260,6 @@ func buildTypedPlanProposal(ctx context.Context, renderer CompleteStoryRenderer,
 		if rendered.Title.String() != s.Title || rendered.Body.String() != expected {
 			return proposal, nil, fmt.Errorf("story %s: publication sanitation or redaction would alter required content; revise the contribution", s.Key)
 		}
-		if len(expected) > planbrief.MaxStoryBodyBytes {
-			return proposal, nil, fmt.Errorf("story %s: marker-inclusive body exceeds %d bytes", s.Key, planbrief.MaxStoryBodyBytes)
-		}
 		if s.Intent == "unchanged" {
 			base := bases[s.Key]
 			if base.Title != s.Title || !planbrief.TypedStoryBodyMatches(s, base.Body) {
@@ -367,11 +364,13 @@ func writeTypedPlanArtifact(root *os.Root, path string, data []byte) (err error)
 	return dir.Rename(temp, name)
 }
 
-func (s *TypedPlanSubmission) checkTransport(outcome, proposal []byte) error {
+// recorded returns the bytes the factory recorded at submit, or false when no
+// submission was recorded.
+func (s *TypedPlanSubmission) recorded() (outcome, proposal, working []byte, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.receiptID == 0 || !bytes.Equal(s.outcome, outcome) || !bytes.Equal(s.proposal, proposal) {
-		return fmt.Errorf("typed Plan transport differs from factory-recorded contribution")
+	if s.receiptID == 0 {
+		return nil, nil, nil, false
 	}
-	return nil
+	return bytes.Clone(s.outcome), bytes.Clone(s.proposal), bytes.Clone(s.working), true
 }

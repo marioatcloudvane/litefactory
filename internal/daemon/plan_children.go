@@ -12,6 +12,8 @@ import (
 
 // refinePlanChildren keeps draft child discussion on the parent execution slot.
 // Numeric owner identity and current parent relation are observed before routing.
+// A child that is a task of its own is only observed here: its owner edits,
+// closure and parent relation, never its comments.
 func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) {
 	route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -67,7 +69,9 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			return false, err
 		}
 
-		if available && turn.PlanIssueRevision(child.Title, child.Body) != draft.Revision {
+		// A story still drafting has only the short body the factory wrote, which
+		// is not a draft an owner edit could be read against.
+		if available && draft.Candidate != "" && turn.PlanIssueRevision(child.Title, child.Body) != draft.Revision {
 			scope := planbrief.TaskOwnerScope()
 			if err = turn.ReconcilePlanChildEdit(ctx, d.db, t.ref.String(), t.issue.Number, t.issue.ID, child, scope); err != nil {
 				if !errors.Is(err, turn.ErrPlanChildEdit) {
@@ -98,6 +102,16 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			}
 		}
 
+		// A story that is a task of its own answers its own comments and runs its
+		// own stages; the parent only observes its issue.
+		if _, task, taskErr := d.db.GraphPlanStoryAt(ctx, t.repo.ID, draft.IssueNumber); taskErr != nil {
+			return false, taskErr
+		} else if task {
+			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
+				return false, err
+			}
+			continue
+		}
 		if child.ID != draft.IssueID || child.Number != draft.IssueNumber {
 			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
 				return false, err

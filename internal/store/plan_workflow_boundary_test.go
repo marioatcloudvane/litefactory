@@ -121,12 +121,9 @@ func TestPlanWorkflowStore_CASHistoryAndRestart(t *testing.T) {
 	if err != nil || rev != 2 || !reflect.DeepEqual(got, changed) {
 		t.Fatal("restart lost current wait or consumed reply", got, rev, err)
 	}
-	old, err := db.PlanWorkflowHistory(ctx, session.TaskRef, 1)
-	if err != nil || !reflect.DeepEqual(old, state) {
-		t.Fatal("immutable prior state lost", old, err)
-	}
-	if _, err = db.sql.ExecContext(ctx, `UPDATE plan_workflow_history SET state_json='{}' WHERE parent=?`, session.TaskRef); err == nil {
-		t.Fatal("history mutable")
+	var rows int
+	if err = db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM plan_workflow_history WHERE parent=?`, session.TaskRef).Scan(&rows); err != nil || rows != 0 {
+		t.Fatal("state saves must not add journal rows", rows, err)
 	}
 	foreign, rev, err := db.GetPlanWorkflowState(ctx, "github:other/repo#362")
 	if err != nil || rev != 0 || foreign.SharedRevision != "" {
@@ -189,19 +186,19 @@ func TestPlanWorkflowStore_OwnerEditCASAndUncertainty(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			observation, err := db.GetPlanOwnerEditObservation(ctx, parent, d.Key, "owner-edit")
-			if err != nil || observation.Body != body || observation.Title != title || observation.BaseRevision != expected {
-				t.Fatal("observed bytes lost", observation, err)
+			after, getErr := db.GetPlanStoryDraft(ctx, parent, d.Key)
+			if getErr != nil || after.Revision != observed || after.Candidate != "owner-edit" {
+				t.Fatal("owner edit did not update the draft row", after, getErr)
+			}
+			var rows int
+			if err = db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM plan_story_owner_edits WHERE parent=?`, parent).Scan(&rows); err != nil || rows != 0 {
+				t.Fatal("owner edit must not add a body copy", rows, err)
 			}
 			if variant == "changed replay" {
 				draft.Name = "Changed replay"
-				if err = db.ReconcilePlanStoryDraft(ctx, parent, d.Key, expected, observed, "owner-edit", d.Stage, draft, title, body); err == nil {
-					t.Fatal("edit identity reused")
-				}
-				return
 			}
-			if err = db.ReconcilePlanStoryDraft(ctx, parent, d.Key, expected, observed, "owner-edit", d.Stage, draft, title, body); err != nil {
-				t.Fatal("same edit did not replay", err)
+			if err = db.ReconcilePlanStoryDraft(ctx, parent, d.Key, expected, observed, "owner-edit", d.Stage, draft, title, body); err == nil {
+				t.Fatal("replay against a moved base revision was accepted")
 			}
 		})
 	}

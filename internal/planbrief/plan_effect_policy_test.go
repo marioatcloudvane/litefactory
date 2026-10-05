@@ -34,7 +34,9 @@ func TestPlanWorkflow_EffectDebtBlocksTransitiveDependents(t *testing.T) {
 			}
 			s.Stories[0].Effect = "applied"
 			s.Stories[0].EffectHold = ""
-			if got = s.EligiblePlanStories(); !reflect.DeepEqual(got, []string{"a", "b", "c", "healthy"}) {
+			// b and c depend on a and b, which have not approved the story stage yet,
+			// so they wait; only the stories with no unapproved upstream are eligible.
+			if got = s.EligiblePlanStories(); !reflect.DeepEqual(got, []string{"a", "healthy"}) {
 				t.Fatalf("after effect settlement eligible = %v", got)
 			}
 		})

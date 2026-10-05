@@ -230,6 +230,10 @@ func requireIdentitiesKept(t *testing.T, before, after map[string]string) {
 			}
 			continue
 		}
+		// A story without a draft yet may gain its candidate; nothing else changes.
+		if strings.HasSuffix(was, "candidate=") && strings.HasPrefix(now, was) {
+			continue
+		}
 		if now != was {
 			t.Fatalf("%s identity changed: %q then %q", key, was, now)
 		}
@@ -300,81 +304,51 @@ func TestPlanSetFlow_PublishedRevisionStaleRefusalPromotionAndDraftingOrder(t *t
 	if set == nil || !set.Promoted || set.PromotedRevision != current || set.Keys["a"] != "story-001" || set.Keys["b"] != "story-002" || set.Keys["c"] != "story-003" {
 		t.Fatalf("promoted set %+v", set)
 	}
-	// Keys and public ordinals were reserved in the displayed order, with no issue yet,
-	// before the first story was even drafted.
-	if snap := run.atFirstStory; snap == nil || snap.creates != 0 || len(snap.ordinals) != 3 || snap.ordinals["story-001"] != 1 || snap.ordinals["story-002"] != 2 || snap.ordinals["story-003"] != 3 {
-		t.Fatalf("at the first draft request: %+v", snap)
-	} else {
-		for key, id := range snap.issueIDs {
-			if id != 0 {
-				t.Fatalf("%s already had an issue when its first draft was requested", key)
-			}
+	// Keys and public ordinals were reserved in the displayed order, and the
+	// promotion created every sub-issue at once without asking any story agent.
+	snap := setFlowSnap(t, f, remote)
+	if run.storyCalls != 0 || snap.creates != 3 || len(snap.ordinals) != 3 || snap.ordinals["story-001"] != 1 || snap.ordinals["story-002"] != 2 || snap.ordinals["story-003"] != 3 {
+		t.Fatalf("after promotion: story calls %d, %+v", run.storyCalls, snap)
+	}
+	for key, id := range snap.issueIDs {
+		if id == 0 {
+			t.Fatalf("%s has no issue after promotion", key)
 		}
 	}
 	if got := state.Stories[0].Draft.Dependencies.StoryKeys; !slices.Equal(got, []string{"story-003"}) {
 		t.Fatalf("the first displayed story's dependency on the later one was not translated: %v", got)
 	}
-	// The dependency rule chose b first: a is not eligible before c, and b is displayed before c.
-	if !slices.Equal(c.order, []string{"story-002"}) {
-		t.Fatalf("the promotion run drafted %v", c.order)
-	}
-	requireOwedStages(t, f, 1)
 
-	// (4) Two more runs, one per remaining story: c, then a.
-	if steps := drainGraphSteps(t, f, base); steps != 2 {
-		t.Fatalf("%d further runs, want 2", steps)
+	// The dependency rule chooses the first drafts: b and c are free and a waits for c.
+	draftAllStories(t, f, base)
+	var first []string
+	for i, stage := range c.stage {
+		if stage == "story" {
+			first = append(first, c.order[i])
+		}
 	}
 	want := []string{"story-002", "story-003", "story-001"}
-	if !slices.Equal(c.order, want) || run.storyCalls != 3 || run.setCalls != 2 {
-		t.Fatalf("drafting order %v (story calls %d, set calls %d), want %v in three runs", c.order, run.storyCalls, run.setCalls, want)
+	if !slices.Equal(first, want) || run.setCalls != 2 {
+		t.Fatalf("first drafts %v (set calls %d), want %v", first, run.setCalls, want)
 	}
-	requireSetFlowCreated(t, f, remote, want)
-	requireOwedStages(t, f, 0)
-
-	// One retained result per drafting attempt, each of its own, none revised.
-	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
-	mustProgress(t, err)
-	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
-	mustProgress(t, err)
-	contexts, storyAttempts := map[string]bool{}, 0
-	for _, attempt := range attempts {
-		if attempt.Node != "story_agent" {
-			continue
-		}
-		storyAttempts++
-		outputs, err := f.db.ListGraphOutputs(t.Context(), attempt.ID)
-		mustProgress(t, err)
-		for _, output := range outputs {
-			if ref, ok := decodePlanResultRef(output.Payload); ok {
-				if ref.Revision != 1 || contexts[ref.Binding.WorkContext] {
-					t.Fatalf("attempt %d shares or revises another attempt's result: %+v", attempt.ID, ref)
-				}
-				contexts[ref.Binding.WorkContext] = true
-			}
-		}
-	}
-	if storyAttempts != 3 || len(contexts) != 3 {
-		t.Fatalf("story attempts %d with %d retained results, want 3 and 3", storyAttempts, len(contexts))
-	}
+	requireSetFlowCreated(t, f, remote, []string{"story-001", "story-002", "story-003"})
 
 	// Each story's review request reached its own sub-issue, not the parent.
 	final := graphPlanState(t, f)
 	for _, item := range final.Stories {
-		if item.Wait == nil || item.Wait.Kind != "review" {
-			t.Fatalf("%s has no review wait: %+v", item.Key, item)
-		}
-		if len(setFlowParentPosts(f, forge, "/approve-plan "+item.Key+" story ")) != 0 {
-			t.Fatalf("the review request for %s went to the parent", item.Key)
+		if item.Candidate == "" || len(setFlowParentPosts(f, forge, "/approve-plan "+item.Key+" ")) != 0 {
+			t.Fatalf("%s has no draft or its review request went to the parent", item.Key)
 		}
 	}
 
 	// A replay of the promotion, once complete, changes nothing.
 	before := setFlowIdentities(t, f)
+	ran := len(c.order)
 	if replay, err := Execute(t.Context(), f.opts, promoteTrigger(base, 802, 7, promoteCommand(current))); err != nil || replay.Run.ID != out.Run.ID {
 		t.Fatalf("replay: %v", err)
 	}
 	requireIdentitiesKept(t, before, setFlowIdentities(t, f))
-	if remote.creates != 3 || !slices.Equal(c.order, want) {
+	if remote.creates != 3 || len(c.order) != ran {
 		t.Fatalf("replay repeated work: creates=%d order=%v", remote.creates, c.order)
 	}
 }
@@ -399,57 +373,47 @@ func TestPlanSetFlow_LostCreateReplyAndRestartBetweenRunsKeepIdentities(t *testi
 	if len(reserved) != 3 || !strings.HasPrefix(reserved["story-001"], "ordinal=1") || !strings.HasPrefix(reserved["story-002"], "ordinal=2") || !strings.HasPrefix(reserved["story-003"], "ordinal=3") {
 		t.Fatalf("reserved rows %v", reserved)
 	}
-	// A retry settles the create from the forge, never creating that story again.
+	// A retry settles the create from the forge, never creating that story again,
+	// and creates the two issues still missing.
 	if _, err := Execute(t.Context(), f.opts, nextTrigger(base, 803, "Please retry.")); err != nil {
 		t.Fatalf("retry: %v logs=%s", err, f.logs.String())
 	}
-	// The retry settles story-002 from the forge (no second create) and the cycle goes
-	// on to the next story, which is the only further create.
-	if remote.creates != 2 || !slices.Equal(c.order, []string{"story-002", "story-003"}) {
-		t.Fatalf("the retry created again or skipped ahead: creates=%d order=%v", remote.creates, c.order)
+	if remote.creates != 3 || len(c.order) != 0 {
+		t.Fatalf("the retry created again or drafted: creates=%d order=%v", remote.creates, c.order)
 	}
 	settled := setFlowIdentities(t, f)
 	requireIdentitiesKept(t, reserved, settled)
-	if strings.Contains(settled["story-002"], "issue=0/0") {
-		t.Fatalf("story-002 was not settled onto the created issue: %q", settled["story-002"])
+	if strings.Contains(settled["story-001"], "issue=0/0") {
+		t.Fatalf("story-001 was not settled onto the created issue: %q", settled["story-001"])
 	}
 
-	// A daemon restart between runs: the owed stage is reserved, the daemon dies, and
-	// the stage is requeued. A separately opened store sees the same durable identities.
-	due, err := f.db.ListDueGraphDispatches(t.Context(), time.Now().Add(time.Hour), 8)
-	mustProgress(t, err)
-	if len(due) != 1 {
-		t.Fatalf("%d stages owed after the settled create, want 1", len(due))
-	}
-	if _, ok, err := f.db.ReserveGraphDispatch(t.Context(), due[0].ID, time.Now().Add(time.Hour)); err != nil || !ok {
-		t.Fatalf("reserve: %v %v", ok, err)
-	}
-	if requeued, err := f.db.RequeueGraphDispatch(t.Context(), due[0].ID, time.Now(), "daemon restarted"); err != nil || !requeued {
-		t.Fatalf("requeue: %v %v", requeued, err)
-	}
+	// A separately opened store (a restarted daemon) sees the same durable identities.
 	reopened, err := store.Open(t.Context(), f.paths.DBPath())
 	mustProgress(t, err)
 	rows, err := reopened.ListPlanStoryDrafts(t.Context(), f.ref().String())
 	mustProgress(t, err)
 	mustProgress(t, reopened.Close())
-	if len(rows) != 3 || rows[1].Key != "story-002" || rows[1].IssueID == 0 || rows[1].Ordinal != 2 || rows[2].IssueID == 0 || rows[0].IssueID != 0 {
+	if len(rows) != 3 || rows[0].IssueID == 0 || rows[1].IssueID == 0 || rows[2].IssueID == 0 || rows[1].Ordinal != 2 {
 		t.Fatalf("a restarted daemon sees %+v", rows)
 	}
-	requireOwedStages(t, f, 1)
-	if steps := drainGraphSteps(t, f, base); steps != 1 {
-		t.Fatalf("%d further runs after the restart, want 1", steps)
-	}
+	draftAllStories(t, f, base)
 	requireIdentitiesKept(t, settled, setFlowIdentities(t, f))
-	requireSetFlowCreated(t, f, remote, []string{"story-002", "story-003", "story-001"})
-	if want := []string{"story-002", "story-003", "story-001"}; !slices.Equal(c.order, want) {
-		t.Fatalf("a story was drafted twice or out of order: %v, want %v", c.order, want)
+	requireSetFlowCreated(t, f, remote, []string{"story-001", "story-002", "story-003"})
+	var first []string
+	for i, stage := range c.stage {
+		if stage == "story" {
+			first = append(first, c.order[i])
+		}
+	}
+	if want := []string{"story-002", "story-003", "story-001"}; !slices.Equal(first, want) {
+		t.Fatalf("a story was drafted twice or out of order: %v, want %v", first, want)
 	}
 	// Replaying the promotion after everything changes nothing.
 	if _, err := Execute(t.Context(), f.opts, promote); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	requireIdentitiesKept(t, settled, setFlowIdentities(t, f))
-	if remote.creates != 3 || len(c.order) != 3 {
+	if remote.creates != 3 || len(first) != 3 {
 		t.Fatalf("replay repeated work: creates=%d order=%v", remote.creates, c.order)
 	}
 }
@@ -466,19 +430,26 @@ func TestPlanSetFlow_QuestionThenFailureDuringInitialDraftingResumeTheSameStorie
 	if out, err := Execute(t.Context(), f.opts, promoteTrigger(base, 802, 7, promoteCommand(current))); err != nil || out.Err != nil {
 		t.Fatalf("promotion run: %v %v logs=%s", err, out.Err, f.logs.String())
 	}
-	// story-003 (the second in order) asks the owner instead of drafting.
-	if out, ran, err := runDueGraphStep(t, f, base); !ran || err != nil || out.Err != nil {
-		t.Fatalf("the asking stage: ran=%v %v %v", ran, err, out.Err)
+	// story-002 drafts, then story-003 asks the owner instead of drafting.
+	for range 2 {
+		if out, ran, err := runOwedStory(t, f, base); !ran || err != nil || out.Err != nil {
+			t.Fatalf("a first draft: ran=%v %v %v", ran, err, out.Err)
+		}
 	}
-	if !slices.Equal(c.order, []string{"story-002", "story-003"}) || remote.creates != 1 {
+	if !slices.Equal(c.order, []string{"story-002", "story-003"}) || remote.creates != 3 {
 		t.Fatalf("order %v creates %d", c.order, remote.creates)
 	}
-	if len(setFlowParentPosts(f, forge, "Which variant of story-003?")) != 1 {
-		t.Fatal("the question did not reach the parent issue exactly once")
+	asked := func() int {
+		n := 0
+		for _, post := range forge.all() {
+			if strings.Contains(post.body, "Which variant of story-003?") {
+				n++
+			}
+		}
+		return n
 	}
-	requireOwedStages(t, f, 0)
-	if steps := drainGraphSteps(t, f, base); steps != 0 {
-		t.Fatal("a paused cycle continued without the owner")
+	if asked() != 1 || len(setFlowParentPosts(f, forge, "Which variant of story-003?")) != 0 {
+		t.Fatal("the question did not reach the story's own issue exactly once")
 	}
 	pausedState := graphPlanState(t, f)
 	if pausedState.StoryDrafted("story-003") || !pausedState.StoryDrafted("story-002") {
@@ -486,8 +457,9 @@ func TestPlanSetFlow_QuestionThenFailureDuringInitialDraftingResumeTheSameStorie
 	}
 	paused := setFlowIdentities(t, f)
 
-	// The owner's reply resumes the same story.
-	if out, err := Execute(t.Context(), f.opts, nextTrigger(base, 804, "Variant A, please.")); err != nil || out.Err != nil {
+	// The owner's reply on the story's issue resumes the same story.
+	answer := asStoryTask(t, f, nextTrigger(base, 804, "Variant A, please."), "story-003")
+	if out, err := Execute(t.Context(), f.opts, answer); err != nil || out.Err != nil {
 		t.Fatalf("resumed run: %v %v logs=%s", err, out.Err, f.logs.String())
 	}
 	if want := []string{"story-002", "story-003", "story-003"}; !slices.Equal(c.order, want) {
@@ -495,16 +467,16 @@ func TestPlanSetFlow_QuestionThenFailureDuringInitialDraftingResumeTheSameStorie
 	}
 	requireIdentitiesKept(t, paused, setFlowIdentities(t, f))
 
-	// The last story fails: the cause and the retry advice reach the owner.
-	out, ran, err := runDueGraphStep(t, f, base)
-	if !ran || err == nil || out.Run.Status != store.RunFailed {
-		t.Fatalf("the failing stage: ran=%v err=%v run=%+v", ran, err, out.Run)
+	// story-001 waits for story-003's story review; once approved it fails.
+	executeGraphPlan(t, f, graphPlanApproveKey(t, f, base, "story-003", 806))
+	out, ran, err := runOwedStory(t, f, base)
+	if !ran || err == nil || out.Run.Status != store.RunFailed || c.order[len(c.order)-1] != "story-001" {
+		t.Fatalf("the failing stage: ran=%v err=%v run=%+v order=%v", ran, err, out.Run, c.order)
 	}
 	requireFailureComment(t, forge, "process outcome")
-	requireOwedStages(t, f, 0)
 	failedState := graphPlanState(t, f)
-	if remote.creates != 2 || failedState.StoryDrafted("story-001") {
-		t.Fatalf("the earlier sub-issues were not preserved or the failed story has a draft: creates=%d", remote.creates)
+	if remote.creates != 3 || failedState.StoryDrafted("story-001") {
+		t.Fatalf("the sub-issues were not preserved or the failed story has a draft: creates=%d", remote.creates)
 	}
 	failed := setFlowIdentities(t, f)
 	requireIdentitiesKept(t, paused, failed)
@@ -512,45 +484,19 @@ func TestPlanSetFlow_QuestionThenFailureDuringInitialDraftingResumeTheSameStorie
 		t.Fatalf("keys changed after the failure: %v", failed)
 	}
 
-	// The retry resumes at the failed story and finishes the set.
-	if _, err := Execute(t.Context(), f.opts, nextTrigger(base, 805, "Please retry.")); err != nil {
+	// The retry on the failed story's issue resumes at that story.
+	if _, err := Execute(t.Context(), f.opts, asStoryTask(t, f, nextTrigger(base, 805, "Please retry."), "story-001")); err != nil {
 		t.Fatalf("retry: %v logs=%s", err, f.logs.String())
 	}
-	if want := []string{"story-002", "story-003", "story-003", "story-001", "story-001"}; !slices.Equal(c.order, want) {
+	if c.order[len(c.order)-1] != "story-001" {
 		t.Fatalf("the retry worked on %v, want the failed story again", c.order)
 	}
-	if steps := drainGraphSteps(t, f, base); steps != 0 {
-		t.Fatalf("%d further runs, want none: the failed story was the last", steps)
+	if retried := graphPlanState(t, f); !retried.StoryDrafted("story-001") {
+		t.Fatal("the failed story has no draft after the retry")
 	}
 	requireIdentitiesKept(t, failed, setFlowIdentities(t, f))
-	requireSetFlowCreated(t, f, remote, []string{"story-002", "story-003", "story-001"})
-	if len(failureBodies(forge)) != 1 || len(setFlowParentPosts(f, forge, "Which variant of story-003?")) != 1 {
-		t.Fatalf("failure comments %d, questions %d", len(failureBodies(forge)), len(setFlowParentPosts(f, forge, "Which variant of story-003?")))
-	}
-
-	// No result is retained twice: every accepted result has its own context at revision 1.
-	// A resumed or retried run is a new instance, so every instance is read.
-	latest, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
-	mustProgress(t, err)
-	contexts := map[string]bool{}
-	for id := int64(1); id <= latest.ID; id++ {
-		attempts, err := f.db.ListGraphNodeAttempts(t.Context(), id)
-		mustProgress(t, err)
-		for _, attempt := range attempts {
-			outputs, err := f.db.ListGraphOutputs(t.Context(), attempt.ID)
-			mustProgress(t, err)
-			for _, output := range outputs {
-				if ref, ok := decodePlanResultRef(output.Payload); ok {
-					if ref.Revision != 1 || contexts[ref.Binding.WorkContext] {
-						t.Fatalf("instance %d attempt %d (%s) shares or revises another attempt's result: %+v", id, attempt.ID, attempt.Node, ref)
-					}
-					contexts[ref.Binding.WorkContext] = true
-				}
-			}
-		}
-	}
-	// Two set proposals, the question, and one accepted draft per story.
-	if len(contexts) != 6 {
-		t.Fatalf("%d retained results, want 6 (2 sets, 1 question, 3 drafts)", len(contexts))
+	requireSetFlowCreated(t, f, remote, []string{"story-001", "story-002", "story-003"})
+	if len(failureBodies(forge)) != 1 || asked() != 1 {
+		t.Fatalf("failure comments %d, questions %d", len(failureBodies(forge)), asked())
 	}
 }

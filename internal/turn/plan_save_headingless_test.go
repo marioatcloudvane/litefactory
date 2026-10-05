@@ -24,6 +24,7 @@ func TestPlanSaveAppendsAStoryIndexToAHeadinglessPlanBrief(t *testing.T) {
 	for i := range 3 {
 		executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+int64(i+1)))
 	}
+	runParent(t, f, base)
 	state := graphPlanState(t, f)
 	if state.AssembledWait == "" {
 		t.Fatal("final Plan set wait missing")

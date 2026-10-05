@@ -305,7 +305,7 @@ func graphPlanApprove(t *testing.T, f *fixture, base Request, id int64) Request 
 	reply := &planbrief.PlanOwnerReply{ID: id, OwnerID: 7, ActorID: 7, IssueID: w.IssueID, Key: item.Key, Stage: w.Stage, Candidate: w.Candidate, WaitID: w.ID, Body: "/approve-plan " + item.Key + " " + w.Stage + " " + w.Candidate}
 	base.Trigger = Trigger{CommentID: id, Body: reply.Body, Author: "owner", AuthorID: 7, PlanReply: reply}
 	base.Command = Command{Kind: KindFreeText, Text: reply.Body}
-	return base
+	return asStoryTask(t, f, base, item.Key)
 }
 func executeGraphPlan(t *testing.T, f *fixture, req Request) Result {
 	t.Helper()
@@ -335,6 +335,7 @@ func TestPlanGraphBoundary_ProgressiveHandoffAndSave(t *testing.T) {
 				req := graphPlanApprove(t, f, base, base.Trigger.CommentID+int64(i+1))
 				executeGraphPlan(t, f, req)
 			}
+			runParent(t, f, base)
 			state := graphPlanState(t, f)
 			if state.AssembledWait == "" || state.PlanReady(planbrief.ContentScope{Roles: []string{"go-implementation-engineer"}}) {
 				t.Fatal("third-stage set wait missing or prematurely ready")
@@ -439,16 +440,14 @@ func TestPlanGraphBoundary_DirectEditsPreserveAndReopen(t *testing.T) {
 	}
 	got, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001")
 	mustProgress(t, err)
-	observed, err := f.db.GetPlanOwnerEditObservation(t.Context(), f.ref().String(), got.Key, got.Candidate)
-	mustProgress(t, err)
-	if observed.Body != issue.Body || got.IssueID != binding.IssueID {
-		t.Fatal("owner edit discarded text or identity")
+	if got.Revision != PlanIssueRevision(issue.Title, issue.Body) || got.IssueID != binding.IssueID {
+		t.Fatal("owner edit discarded revision or identity")
 	}
 }
 
 func TestPlanGraphBoundary_AgentSuppliedFactoryValuesRefused(t *testing.T) {
 	f, _, _, _ := graphPlanFixture(t, "agent")
-	runtime := planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, selected: "story-001", stage: "story"}
+	runtime := planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, selected: "story-001", stage: "story"}
 	trusted, err := runtime.resultContext(t.Context(), ActivityRequest{InstanceID: 1, NodeAttemptID: 2})
 	mustProgress(t, err)
 	for _, member := range []string{"upstream", "stage", "candidate", "request_id", "shared_revision"} {
@@ -557,7 +556,7 @@ func graphPlanApproveKey(t *testing.T, f *fixture, base Request, key string, id 
 			reply := &planbrief.PlanOwnerReply{ID: id, OwnerID: 7, ActorID: 7, IssueID: w.IssueID, Key: key, Stage: w.Stage, Candidate: w.Candidate, WaitID: w.ID, Body: "/approve-plan " + key + " " + w.Stage + " " + w.Candidate}
 			base.Trigger = Trigger{CommentID: id, Body: reply.Body, AuthorID: 7, PlanReply: reply}
 			base.Command = Command{Kind: KindFreeText, Text: reply.Body}
-			return base
+			return asStoryTask(t, f, base, key)
 		}
 	}
 	t.Fatal("selected story wait missing", key)
@@ -643,6 +642,7 @@ func TestPlanGraphBoundary_SaveFailureKeepsPublicationUnready(t *testing.T) {
 	for i := range 3 {
 		executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+int64(i+1)))
 	}
+	runParent(t, f, base)
 	state := graphPlanState(t, f)
 	if state.AssembledWait == "" {
 		t.Fatal("set review missing")
@@ -760,6 +760,7 @@ func TestPlanGraphBoundary_PartialHandoffResumesSameIssues(t *testing.T) {
 			executeGraphPlan(t, f, graphPlanApproveKey(t, f, base, key, id))
 		}
 	}
+	runParent(t, f, base)
 	state := graphPlanState(t, f)
 	id++
 	next.Trigger = Trigger{CommentID: id, AuthorID: 7, Body: "/approve-plan-set " + state.PlanSetRevision()}
@@ -808,7 +809,7 @@ func TestPlanGraphBoundary_LaterNodesReadTheRetainedSharedResult(t *testing.T) {
 	mustProgress(t, err)
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
 	mustProgress(t, err)
-	runtime := planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, selected: "story-001", stage: "story"}
+	runtime := planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, selected: "story-001", stage: "story"}
 	var agentSeen, refused int
 	for _, attempt := range attempts {
 		got, err := runtime.loadRetainedResult(t.Context(), attempt.ID)

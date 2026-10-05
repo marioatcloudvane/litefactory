@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
 )
@@ -19,9 +21,21 @@ func (db *DB) AdmitPlanPath(ctx context.Context, sessionID int64) (string, error
 	return db.AdmitPlanWorkflowPath(ctx, sessionID, "graph")
 }
 
+// GraphPlanStory is a live story issue of a graph Plan parent: the story key,
+// the parent task that owns the Plan state and the story's own issue.
+type GraphPlanStory struct {
+	Parent, Key string
+	IssueID     int64
+	IssueNumber int
+	RepoID      int64
+}
+
+const graphPlanStoryColumns = `d.parent,d.story_key,d.issue_id,d.issue_number,s.repo_id`
+
 // GraphPlanStoryParent returns the parent task of a live graph Plan story
 // issue, identified by its forge issue id. That parent observes the issue's
-// comments as Plan input, so the issue is never a task of its own.
+// comments as Plan input, unless the issue is a task of its own
+// ([DB.GraphPlanStoryOf]).
 func (db *DB) GraphPlanStoryParent(ctx context.Context, issueID int64) (string, bool, error) {
 	if issueID < 1 {
 		return "", false, nil
@@ -35,6 +49,60 @@ func (db *DB) GraphPlanStoryParent(ctx context.Context, issueID int64) (string, 
 		return "", false, fmt.Errorf("store: graph plan story parent: %w", err)
 	}
 	return parent, true, nil
+}
+
+// GraphPlanStoryOf returns the live graph Plan story an issue is, identified by
+// its forge issue id, when it is a task of its own: it runs its story's stages
+// while its parent keeps the story set, the summary and the assembly.
+func (db *DB) GraphPlanStoryOf(ctx context.Context, issueID int64) (GraphPlanStory, bool, error) {
+	var story GraphPlanStory
+	if issueID < 1 {
+		return story, false, nil
+	}
+	err := db.sql.QueryRowContext(ctx, `SELECT `+graphPlanStoryColumns+` FROM plan_story_drafts d JOIN sessions s ON s.task_ref=d.parent JOIN plan_execution_paths p ON p.session_id=s.id WHERE d.issue_id=? AND d.retired=0 AND p.path='graph' LIMIT 1`, issueID).Scan(&story.Parent, &story.Key, &story.IssueID, &story.IssueNumber, &story.RepoID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return story, false, nil
+	}
+	if err != nil {
+		return story, false, fmt.Errorf("store: graph plan story: %w", err)
+	}
+	return story, true, nil
+}
+
+// GraphPlanStoryAt is [DB.GraphPlanStoryOf] for an issue named by repository
+// and number, as a turn knows its task.
+func (db *DB) GraphPlanStoryAt(ctx context.Context, repoID int64, number int) (GraphPlanStory, bool, error) {
+	var story GraphPlanStory
+	if number < 1 {
+		return story, false, nil
+	}
+	err := db.sql.QueryRowContext(ctx, `SELECT `+graphPlanStoryColumns+` FROM plan_story_drafts d JOIN sessions s ON s.task_ref=d.parent JOIN plan_execution_paths p ON p.session_id=s.id WHERE s.repo_id=? AND d.issue_number=? AND d.retired=0 AND p.path='graph' LIMIT 1`, repoID, number).Scan(&story.Parent, &story.Key, &story.IssueID, &story.IssueNumber, &story.RepoID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return story, false, nil
+	}
+	if err != nil {
+		return story, false, fmt.Errorf("store: graph plan story at %d: %w", number, err)
+	}
+	return story, true, nil
+}
+
+// ListGraphPlanStories lists every live story issue of every open graph Plan
+// parent, so discovery can offer the stories that have work.
+func (db *DB) ListGraphPlanStories(ctx context.Context) ([]GraphPlanStory, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+graphPlanStoryColumns+` FROM plan_story_drafts d JOIN sessions s ON s.task_ref=d.parent JOIN plan_execution_paths p ON p.session_id=s.id WHERE d.issue_id>0 AND d.retired=0 AND p.path='graph' AND d.parent NOT IN (SELECT parent_task FROM managed_parent_closures) ORDER BY s.id,d.ordinal`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list graph plan stories: %w", err)
+	}
+	defer rows.Close()
+	var out []GraphPlanStory
+	for rows.Next() {
+		var story GraphPlanStory
+		if err = rows.Scan(&story.Parent, &story.Key, &story.IssueID, &story.IssueNumber, &story.RepoID); err != nil {
+			return nil, fmt.Errorf("store: scan graph plan story: %w", err)
+		}
+		out = append(out, story)
+	}
+	return out, rows.Err()
 }
 
 // AdmitPlanWorkflowPath freezes a factory-selected route on first admission.
@@ -64,6 +132,62 @@ func (db *DB) PlanExecutionPath(ctx context.Context, sessionID int64) (string, e
 	return selected, err
 }
 
+// ErrPlanStateConflict reports that Plan state changed since it was read, so a
+// save bound to the old revision was refused. Re-reading and re-applying the
+// change is always safe.
+var ErrPlanStateConflict = errors.New("plan state revision conflict")
+
+// ErrPlanStateUncertain reports that Plan state kept changing under every
+// attempt to apply one change, so the change is not known to have been saved.
+var ErrPlanStateUncertain = errors.New("plan state kept changing; the change was not saved")
+
+// planStateAttempts bounds how often one change is re-read and re-applied after
+// a revision conflict. Parallel stories write different entries, so one retry
+// normally lands once the other write has.
+const planStateAttempts = 8
+
+// WithPlanWorkflowState reads the Plan state fresh, hands it with its revision
+// to apply, and repeats on a revision conflict. apply must save with the
+// revision it is given and return ErrPlanStateConflict (possibly wrapped) when
+// the save was refused; no revision is ever kept across a remote call.
+func (db *DB) WithPlanWorkflowState(ctx context.Context, parent string, apply func(state *planbrief.PlanState, revision int64) error) error {
+	for attempt := range planStateAttempts {
+		state, revision, err := db.GetPlanWorkflowState(ctx, parent)
+		if err != nil {
+			return err
+		}
+		if err = apply(&state, revision); !errors.Is(err, ErrPlanStateConflict) {
+			return err
+		}
+		// A short jittered pause keeps two writers that clashed from clashing again.
+		pause := time.Duration(1+rand.IntN(4*(attempt+1))) * time.Millisecond // #nosec G404 -- backoff jitter only
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pause):
+		}
+	}
+	return ErrPlanStateUncertain
+}
+
+// UpdatePlanWorkflowState is the one write path for a change to one story of
+// the Plan state: it reads fresh, lets change edit the state, and saves with
+// the revision check, retrying on conflict. change reports whether it altered
+// anything; an unchanged state is not saved.
+func (db *DB) UpdatePlanWorkflowState(ctx context.Context, parent string, change func(state *planbrief.PlanState) (bool, error)) error {
+	return db.WithPlanWorkflowState(ctx, parent, func(state *planbrief.PlanState, revision int64) error {
+		changed, err := change(state)
+		if err != nil || !changed {
+			return err
+		}
+		if state.SharedRevision == "" {
+			state.SharedRevision = "initial"
+		}
+		_, err = db.SavePlanWorkflowState(ctx, parent, revision, *state)
+		return err
+	})
+}
+
 // GetPlanWorkflowState returns the current state and optimistic local revision.
 // Missing state is an empty value with revision zero, suitable for first save.
 func (db *DB) GetPlanWorkflowState(ctx context.Context, parent string) (planbrief.PlanState, int64, error) {
@@ -83,8 +207,8 @@ func (db *DB) GetPlanWorkflowState(ctx context.Context, parent string) (planbrie
 	return state, revision, nil
 }
 
-// SavePlanWorkflowState journals an immutable snapshot and changes current state
-// in one local transaction. No transaction spans remote publication or git save.
+// SavePlanWorkflowState changes current state with its revision check in one
+// local transaction. No transaction spans remote publication or git save.
 func (db *DB) SavePlanWorkflowState(ctx context.Context, parent string, expected int64, state planbrief.PlanState) (int64, error) {
 	if parent == "" || expected < 0 || state.SharedRevision == "" {
 		return 0, errors.New("plan parent, shared revision and expected revision required")
@@ -113,31 +237,12 @@ func (db *DB) SavePlanWorkflowState(ctx context.Context, parent string, expected
 			return e
 		}
 		if n != 1 {
-			return errors.New("plan state revision conflict")
+			return ErrPlanStateConflict
 		}
-		if e = retainPlanNoticesTx(ctx, tx, parent, state); e != nil {
-			return e
-		}
-		_, e = tx.ExecContext(ctx, `INSERT INTO plan_workflow_history(parent,revision,state_json) VALUES(?,?,?)`, parent, revision, string(raw))
-		return e
+		return retainPlanNoticesTx(ctx, tx, parent, state)
 	})
 	if err != nil {
 		return 0, err
 	}
 	return revision, nil
-}
-
-// PlanWorkflowHistory returns an exact immutable restart/reconciliation snapshot.
-func (db *DB) PlanWorkflowHistory(ctx context.Context, parent string, revision int64) (planbrief.PlanState, error) {
-	var state planbrief.PlanState
-	var raw string
-	err := db.sql.QueryRowContext(ctx, `SELECT state_json FROM plan_workflow_history WHERE parent=? AND revision=?`, parent, revision).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return state, ErrNotFound
-	}
-	if err != nil {
-		return state, err
-	}
-	err = json.Unmarshal([]byte(raw), &state)
-	return state, err
 }

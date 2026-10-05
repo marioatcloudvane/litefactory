@@ -24,7 +24,7 @@ func TestAdmitReplyChildRefusalIsAPlanReplyRefusal(t *testing.T) {
 	req := base
 	reply := planbrief.PlanOwnerReply{ID: 77, OwnerID: 7, ActorID: 7, IssueID: 3980, Key: "story-009", Stage: "acceptance", Candidate: "plan-55-600", WaitID: "stale-wait", Body: "/approve-plan story-009 acceptance plan-55-600"}
 	req.Trigger = Trigger{CommentID: 77, AuthorID: 7, Body: reply.Body, PlanReply: &reply}
-	r := &planGraphRuntime{opts: f.opts, req: req, result: Result{Ref: f.ref()}, ownerID: 7}
+	r := &planGraphRuntime{opts: f.opts, req: req, result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, ownerID: 7}
 
 	err = r.admitReply(t.Context())
 	var refusal *PlanReplyRefusal

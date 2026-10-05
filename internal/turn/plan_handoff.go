@@ -1,7 +1,6 @@
 package turn
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -144,9 +143,17 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 			return fail(err)
 		}
 	}
-	outcomeData, err := readPlanArtifact(root, planbrief.OutcomeFileName, planbrief.MaxOutcomeBytes)
-	if err != nil {
-		return fail(fmt.Errorf("current Plan outcome required: %w", err))
+	var recordedOutcome, recordedProposal, recordedWorking []byte
+	var haveRecorded bool
+	if prep.typedPlan != nil {
+		recordedOutcome, recordedProposal, recordedWorking, haveRecorded = prep.typedPlan.recorded()
+	}
+	outcomeData := recordedOutcome
+	if !haveRecorded {
+		outcomeData, err = readPlanArtifact(root, planbrief.OutcomeFileName, planbrief.MaxOutcomeBytes)
+		if err != nil {
+			return fail(fmt.Errorf("current Plan outcome required: %w", err))
+		}
 	}
 	outcome, err := planbrief.ParseOutcome(outcomeData)
 	if err != nil {
@@ -155,21 +162,16 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 	if outcome.Parent != prep.ref.String() || outcome.Generation != prep.promptInput.PlanGeneration || outcome.RunID != prep.run.ID || outcome.Attempt != prep.promptInput.PlanAttempt {
 		return fail(fmt.Errorf("plan outcome does not match current parent, generation, run and attempt"))
 	}
-	if prep.typedPlan != nil && outcome.Outcome == "discussion" {
-		if err := prep.typedPlan.checkTransport(outcomeData, nil); err != nil {
-			return fail(err)
-		}
-	}
 	if outcome.Outcome == "discussion" {
-		if _, err := root.Lstat(planbrief.ProposalFileName); !errors.Is(err, os.ErrNotExist) {
-			return fail(fmt.Errorf("discussion must not supply a proposal: %w", errors.Join(err, errors.New("contradictory plan transport"))))
-		}
-		data, err := readPlanArtifact(root, filepath.FromSlash(prep.promptInput.PlanContextPath), planbrief.MaxContextBytes)
-		if err != nil {
-			return fail(err)
-		}
-		if prep.typedPlan != nil && !bytes.Equal(data, prep.typedPlan.working) {
-			return fail(fmt.Errorf("typed planning context differs from submitted contribution"))
+		data := recordedWorking
+		if !haveRecorded {
+			if _, err := root.Lstat(planbrief.ProposalFileName); !errors.Is(err, os.ErrNotExist) {
+				return fail(fmt.Errorf("discussion must not supply a proposal: %w", errors.Join(err, errors.New("contradictory plan transport"))))
+			}
+			data, err = readPlanArtifact(root, filepath.FromSlash(prep.promptInput.PlanContextPath), planbrief.MaxContextBytes)
+			if err != nil {
+				return fail(err)
+			}
 		}
 		working, err := planbrief.ParseWorkingContext(data)
 		if err != nil {
@@ -178,17 +180,15 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 		if err := checkPlanningIdentity(working, prep.ref.String(), prep.session.Branch, prep.session.FeatureSlug); err != nil {
 			return fail(err)
 		}
-		if err := root.Remove(planbrief.OutcomeFileName); err != nil {
+		if err := root.Remove(planbrief.OutcomeFileName); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fail(err)
 		}
 		return result
 	}
-	data, err := readPlanArtifact(root, planbrief.ProposalFileName, planbrief.MaxProposalBytes)
-	if err != nil {
-		return fail(err)
-	}
-	if prep.typedPlan != nil {
-		if err := prep.typedPlan.checkTransport(outcomeData, data); err != nil {
+	data := recordedProposal
+	if !haveRecorded {
+		data, err = readPlanArtifact(root, planbrief.ProposalFileName, planbrief.MaxProposalBytes)
+		if err != nil {
 			return fail(err)
 		}
 	}
@@ -228,20 +228,6 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 	if err != nil {
 		return fail(err)
 	}
-	// Parsing and index validation must not allow a changed transport to be
-	// published under evidence from the earlier descriptor.
-	for _, transport := range []struct {
-		path    string
-		content []byte
-	}{{planbrief.OutcomeFileName, outcomeData}, {planbrief.ProposalFileName, data}} {
-		current, err := readPlanArtifact(root, transport.path, planbrief.MaxProposalBytes)
-		if err != nil {
-			return fail(err)
-		}
-		if !bytes.Equal(current, transport.content) {
-			return fail(fmt.Errorf("plan transport changed before publication"))
-		}
-	}
 	publication := PublicationOptions{DB: o.DB, Forge: forge, Renderer: renderer, Parent: prep.ref, Generation: prep.promptInput.PlanGeneration, BotID: bot.UserID}
 	if prep.typedPlan != nil {
 		publication.TypedContent = prep.typedPlan.content
@@ -254,10 +240,10 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 	if err := indexFile.replace(root, index); err != nil {
 		return fail(err)
 	}
-	if err := root.Remove(planbrief.ProposalFileName); err != nil {
+	if err := root.Remove(planbrief.ProposalFileName); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fail(err)
 	}
-	if err := root.Remove(planbrief.OutcomeFileName); err != nil {
+	if err := root.Remove(planbrief.OutcomeFileName); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fail(err)
 	}
 	prep.planCompleted = true

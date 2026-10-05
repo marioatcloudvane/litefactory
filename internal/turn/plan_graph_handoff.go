@@ -28,29 +28,40 @@ func (r *planGraphRuntime) settled(ctx context.Context) (Result, error) {
 	if err != nil {
 		return out, err
 	}
+	// Stories run in tasks of their own, so the parent also finds a plan whose
+	// stories are not all finished: it waits for them instead of assembling.
+	waiting := s.ValidateComplete(r.scope) != nil
 	for _, story := range s.Stories {
-		if story.Blocked() || (story.Active() && story.Wait != nil) {
-			out.Reason = "planning waits for story feedback or effect reconciliation"
-			// The run found only owner waits: say so where the owner asked, with
-			// the command that works now on each sub-issue.
-			applies, noticeErr := r.storiesCreated(ctx)
-			r.logNotice(noticeErr, "plan-stories-created")
-			if !applies {
-				r.logNotice(r.waiting(ctx, s), "plan-waiting")
-			}
-			return out, nil
-		}
+		waiting = waiting || story.Blocked() || (story.Active() && story.Wait != nil)
 	}
-	if err = s.ValidateComplete(r.scope); err != nil {
-		return out, err
+	if waiting {
+		out.Reason = "planning waits for story feedback or effect reconciliation"
+		// The run found only owner waits: say so where the owner asked, with
+		// the command that works now on each sub-issue.
+		applies, noticeErr := r.storiesCreated(ctx)
+		r.logNotice(noticeErr, "plan-stories-created")
+		if !applies {
+			r.logNotice(r.waiting(ctx, s), "plan-waiting")
+		}
+		return out, nil
 	}
 	if s.AssembledApproval != s.PlanSetRevision() {
 		ref, err := s.OpenAssembledReview(r.scope)
 		if err != nil {
 			return out, err
 		}
-		if err = r.persist(ctx, s, revision); err != nil {
+		// Saved on freshly read state: a story that changed meanwhile moves the
+		// plan's revision, and a review of the old one is then not posted.
+		stale := false
+		if err = r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(fresh *planbrief.PlanState) (bool, error) {
+			opened, e := fresh.OpenAssembledReview(r.scope)
+			stale = e == nil && opened != ref
+			return !stale, e
+		}); err != nil {
 			return out, err
+		}
+		if stale {
+			return out, nil
 		}
 		return out, r.assembledComment(ctx, s, ref)
 	}

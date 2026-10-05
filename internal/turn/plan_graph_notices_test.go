@@ -23,17 +23,24 @@ func parentPostsWith(f *fixture, forge *fakeForge, needle string) []string {
 	return out
 }
 
-// C1: once the creation cycle has a sub-issue for every promoted story and parks
-// at the owner's reviews, exactly one parent comment lists every story with its
-// sub-issue and explains how to continue. Rerunning adds no second comment.
+// C1: once every promoted story has a sub-issue and a draft and waits for the
+// owner's review, the parent's next run posts exactly one comment that lists every
+// story with its sub-issue and explains how to continue. Rerunning adds no second
+// comment. The set is independent: a dependant is drafted only after its upstream
+// story review, so a set with dependencies never has every story waiting unapproved.
 func TestPlanNotices_StoriesCreatedGuideIsPostedOnceOnTheParent(t *testing.T) {
 	c := &creationAgent{}
-	f, _, base, forge, promote := creationFixture(t, c)
+	f, _, base, forge, promote := creationFixtureFor(t, c, []planbrief.PlanStorySetEntry{
+		{ID: "s1", Name: "Storage", Intent: "Deliver Storage"},
+		{ID: "s2", Name: "Schema", Intent: "Deliver Schema"},
+		{ID: "s3", Name: "Screens", Intent: "Deliver Screens"},
+	})
 	executeGraphPlan(t, f, promote)
 	if guides := parentPostsWith(f, forge, "stories are ready for your review"); len(guides) != 0 {
 		t.Fatalf("the guide was posted before every story existed: %v", guides)
 	}
 	drainGraphSteps(t, f, base)
+	runParent(t, f, base)
 	guides := parentPostsWith(f, forge, "stories are ready for your review")
 	if len(guides) != 1 {
 		t.Fatalf("%d guides on the parent, want 1", len(guides))
@@ -47,14 +54,14 @@ func TestPlanNotices_StoriesCreatedGuideIsPostedOnceOnTheParent(t *testing.T) {
 			t.Fatalf("guide lacks the row for %s with %s:\n%s", d.Key, link, guide)
 		}
 	}
-	for _, want := range []string{"| ID | Name | Description | Dependencies | Sub-issue |", "Deliver Storage", "| story-002 |", "story-001, story-002", "/approve-plan", "in plain words", "technical design", "acceptance", "`/approve-plan-set`"} {
+	for _, want := range []string{"| ID | Name | Description | Dependencies | Sub-issue |", "Deliver Storage", "/approve-plan", "in plain words", "technical design", "acceptance", "`/approve-plan-set`"} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("guide lacks %q:\n%s", want, guide)
 		}
 	}
 	// Another tick and an owner comment on the parent find only waits: the one
 	// guide is resumed, never posted again.
-	drainGraphSteps(t, f, base)
+	runParent(t, f, base)
 	executeGraphPlan(t, f, nextTrigger(base, 991, "What happens now?"))
 	if again := parentPostsWith(f, forge, "stories are ready for your review"); len(again) != 1 {
 		t.Fatalf("rerunning posted %d guides", len(again))
@@ -70,6 +77,7 @@ func completeSingleStory(t *testing.T) (*fixture, Request, *fakeForge, planbrief
 	for i := range 3 {
 		executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+int64(i+1)))
 	}
+	runParent(t, f, base)
 	state := graphPlanState(t, f)
 	if state.AssembledWait == "" {
 		t.Fatal("final plan review did not open")
@@ -134,7 +142,7 @@ func TestPlanNotices_FinalApprovalIsConfirmedOnceOnTheParent(t *testing.T) {
 	// A replay of the approval and a repeat of the confirmation post nothing new.
 	_, _ = Execute(t.Context(), f.opts, final)
 	saved := graphPlanState(t, f)
-	r := &planGraphRuntime{opts: f.opts, req: final, result: Result{Ref: f.ref()}, scope: planbrief.TaskOwnerScope()}
+	r := &planGraphRuntime{opts: f.opts, req: final, result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, scope: planbrief.TaskOwnerScope()}
 	mustProgress(t, r.planReady(t.Context(), saved))
 	if again := parentPostsWith(f, forge, "Plan approved and ready"); len(again) != 1 {
 		t.Fatalf("a replay posted %d confirmations", len(again))
@@ -245,7 +253,7 @@ func TestPlanNotices_OutOfPassesStopIsReportedOnce(t *testing.T) {
 	mustProgress(t, err)
 	_, err = f.db.RecordGraphTransition(t.Context(), store.GraphTransition{InstanceID: instance.ID, FromNode: "technical_loop", ToNode: "stopped", OnOutcome: "false", At: now})
 	mustProgress(t, err)
-	r := &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, definition: definition}
+	r := &planGraphRuntime{opts: f.opts, req: base, result: Result{Ref: f.ref()}, parentRef: f.ref(), parentNumber: f.ref().Issue, definition: definition}
 	for range 2 {
 		mustProgress(t, r.reportStop(t.Context(), instance.ID))
 	}

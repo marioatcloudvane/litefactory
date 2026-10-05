@@ -22,8 +22,11 @@ import (
 // on story-002, and story-003 depends on both. Fake agents prove orchestration and
 // the store's rules only; they say nothing about the quality of real reviews.
 
-// indepFixture is a session whose three promoted stories all have a first draft
-// and each waits for its own story review.
+// indepFixture is a session whose three promoted stories all have a first draft.
+// A dependant is drafted only after its upstream story review is approved, so the
+// fixture ends with story-002 and story-001 past their story review (story-002
+// waits for its technical review, story-001 waits for story-002's technical
+// approval) and story-003 waiting for its own story review.
 func indepFixture(t *testing.T) (*fixture, *graphPlanHTTP, Request, *fakeForge, *creationAgent) {
 	t.Helper()
 	c := &creationAgent{}
@@ -31,11 +34,15 @@ func indepFixture(t *testing.T) (*fixture, *graphPlanHTTP, Request, *fakeForge, 
 	if _, err := Execute(t.Context(), f.opts, promote); err != nil {
 		t.Fatalf("promotion: %v logs=%s", err, f.logs.String())
 	}
-	drainGraphSteps(t, f, base)
+	draftAllStories(t, f, base)
 	requireCreated(t, f, remote)
-	for _, item := range graphPlanState(t, f).Stories {
-		if item.Wait == nil || item.Wait.Kind != "review" || item.Wait.Stage != "story" || item.Stage != "story" {
-			t.Fatalf("%s is not waiting for its first review: %+v", item.Key, item)
+	for key, want := range map[string]string{"story-001": "", "story-002": "technical", "story-003": "story"} {
+		item := indepStory(t, f, key)
+		switch {
+		case want == "" && (item.Wait != nil || item.Stage != "technical" || len(item.Approvals) != 1):
+			t.Fatalf("%s is not waiting for its upstream's technical approval: %+v", key, item)
+		case want != "" && (item.Wait == nil || item.Wait.Kind != "review" || item.Wait.Stage != want || item.Stage != want):
+			t.Fatalf("%s is not waiting for its %s review: %+v", key, want, item)
 		}
 	}
 	return f, remote, base, forge, c
@@ -95,16 +102,15 @@ func indepStory(t *testing.T, f *fixture, key string) planbrief.PlanStoryState {
 	return planbrief.PlanStoryState{}
 }
 
-// advanceIndependently walks one story through its story, technical and
-// acceptance reviews and requires, after every single approval, that each held
+// advanceIndependently walks one story through the given reviews and requires, after every single approval, that each held
 // story is exactly as it was and that no set-wide state came into being.
-func advanceIndependently(t *testing.T, f *fixture, remote *graphPlanHTTP, base Request, forge *fakeForge, advance string, held []string, id int64) {
+func advanceIndependently(t *testing.T, f *fixture, remote *graphPlanHTTP, base Request, forge *fakeForge, advance string, stages, held []string, id int64) {
 	t.Helper()
 	want := map[string]string{}
 	for _, key := range held {
 		want[key] = indepFingerprint(t, f, remote, forge, key)
 	}
-	for _, stage := range []string{"story", "technical", "acceptance"} {
+	for _, stage := range stages {
 		if w := indepStory(t, f, advance).Wait; w == nil || w.Stage != stage {
 			t.Fatalf("%s should wait for its %s review: %+v", advance, stage, w)
 		}
@@ -138,41 +144,60 @@ func advanceIndependently(t *testing.T, f *fixture, remote *graphPlanHTTP, base 
 func TestPlanIndependence_DependencyAdvancesThroughAllReviewsWhileDependantsWait(t *testing.T) {
 	f, remote, base, forge, c := indepFixture(t)
 	drafting := len(c.order)
-	advanceIndependently(t, f, remote, base, forge, "story-002", []string{"story-001", "story-003"}, 950)
+	advanceIndependently(t, f, remote, base, forge, "story-002", []string{"technical", "acceptance"}, []string{"story-003"}, 950)
 
-	if !slices.Equal(c.order[drafting:], []string{"story-002", "story-002"}) || !slices.Equal(c.stage[drafting:], []string{"technical", "acceptance"}) {
+	if !slices.Equal(c.order[drafting:], []string{"story-002"}) || !slices.Equal(c.stage[drafting:], []string{"acceptance"}) {
 		t.Fatalf("later agent runs %v %v", c.order[drafting:], c.stage[drafting:])
 	}
 	if remote.creates != 3 {
 		t.Fatalf("an approval created an issue: %d", remote.creates)
 	}
-	// The held stories are still approvable with the very commands they were waiting
-	// for: nothing the other story did outdated them, so they progress on their own.
-	for i, key := range []string{"story-001", "story-003"} {
-		indepApprove(t, f, base, key, int64(970+i))
-		if item := indepStory(t, f, key); item.Stage != "technical" || len(item.Approvals) != 1 {
-			t.Fatalf("%s could not proceed on its own approval: %+v", key, item)
-		}
+	// The held story is still approvable with the very command it was waiting
+	// for: nothing the other story did outdated it, so it progresses on its own.
+	indepApprove(t, f, base, "story-003", 970)
+	if item := indepStory(t, f, "story-003"); item.Stage != "technical" || len(item.Approvals) != 1 {
+		t.Fatalf("story-003 could not proceed on its own approval: %+v", item)
 	}
 }
 
-// AC-047: the same holds the other way round. The story that depends on another
-// advances through all three reviews while the story it depends on, and the one
-// depending on both, wait: no dependency approval barrier and no set-wide barrier
-// exists, and the waiting ones stay exactly as they were.
-func TestPlanIndependence_DependantAdvancesThroughAllReviewsWhileItsDependencyWaits(t *testing.T) {
+// A dependant story waits for its upstream story at every stage, not only for its
+// first draft: story-001, which depends on story-002, is approved at its story
+// review and moves to its technical stage, but no technical draft starts until
+// story-002 has approved its own technical stage. Neither waiting story is
+// disturbed by the other's progress, and the dependant then runs.
+func TestPlanIndependence_DependantWaitsAtEachStageForItsUpstreamApproval(t *testing.T) {
 	f, remote, base, forge, c := indepFixture(t)
 	drafting := len(c.order)
-	advanceIndependently(t, f, remote, base, forge, "story-001", []string{"story-002", "story-003"}, 950)
-	if !slices.Equal(c.order[drafting:], []string{"story-001", "story-001"}) || !slices.Equal(c.stage[drafting:], []string{"technical", "acceptance"}) {
-		t.Fatalf("later agent runs %v %v", c.order[drafting:], c.stage[drafting:])
+	dependant := indepStory(t, f, "story-001")
+	if dependant.Stage != "technical" || dependant.Wait != nil || len(dependant.Approvals) != 1 {
+		t.Fatalf("story-001 after its first approval: %+v", dependant)
+	}
+	if _, ran, _ := runOwedStory(t, f, base); ran || len(c.order) != drafting {
+		t.Fatalf("a technical draft started before the upstream story approved that stage: %v", c.order[drafting:])
+	}
+	held := indepFingerprint(t, f, remote, forge, "story-003")
+	indepApprove(t, f, base, "story-002", 951)
+	if got := indepFingerprint(t, f, remote, forge, "story-003"); got != held {
+		t.Fatalf("story-003 changed while an unrelated story was approved:\nbefore %s\nafter  %s", held, got)
+	}
+	drainGraphSteps(t, f, base)
+	if w := indepStory(t, f, "story-001").Wait; w == nil || w.Stage != "technical" {
+		t.Fatalf("story-001 should run its technical stage once story-002 approved it: %+v", w)
 	}
 }
 
-// AC-047: the last story, which depends on the other two, advances alone as well.
-func TestPlanIndependence_StoryDependingOnBothAdvancesWhileBothWait(t *testing.T) {
-	f, remote, base, forge, _ := indepFixture(t)
-	advanceIndependently(t, f, remote, base, forge, "story-003", []string{"story-001", "story-002"}, 950)
+// The story that depends on both others waits at its technical stage until both
+// have approved it, however far it got on its own approvals.
+func TestPlanIndependence_StoryDependingOnBothWaitsForBothUpstreams(t *testing.T) {
+	f, _, base, _, c := indepFixture(t)
+	drafting := len(c.order)
+	indepApprove(t, f, base, "story-003", 950)
+	if item := indepStory(t, f, "story-003"); item.Stage != "technical" || item.Wait != nil || len(item.Approvals) != 1 {
+		t.Fatalf("story-003 after its first approval: %+v", item)
+	}
+	if _, ran, _ := runOwedStory(t, f, base); ran || len(c.order) != drafting {
+		t.Fatalf("a technical draft started with both upstream stories unapproved: %v", c.order[drafting:])
+	}
 }
 
 // Independence does not let an approval leave its own story, stage or candidate.
@@ -184,7 +209,7 @@ func TestPlanIndependence_ApprovalCannotSkipAStageOrBorrowAnotherStoryWait(t *te
 	f, remote, base, forge, _ := indepFixture(t)
 	snapshot := func() string {
 		var parts []string
-		for _, key := range []string{"story-001", "story-002", "story-003"} {
+		for _, key := range []string{"story-003", "story-002", "story-003"} {
 			parts = append(parts, indepFingerprint(t, f, remote, forge, key))
 		}
 		state, _ := json.Marshal(graphPlanState(t, f))
@@ -194,7 +219,7 @@ func TestPlanIndependence_ApprovalCannotSkipAStageOrBorrowAnotherStoryWait(t *te
 		t.Helper()
 		t.Run(name, func(t *testing.T) {
 			before := snapshot()
-			req := graphPlanApproveKey(t, f, base, "story-001", 960)
+			req := graphPlanApproveKey(t, f, base, "story-003", 960)
 			mutate(&req)
 			out, err := Execute(t.Context(), f.opts, req)
 			if err == nil || !strings.Contains(err.Error(), "stale or wrong-story Plan reply") {
@@ -203,51 +228,51 @@ func TestPlanIndependence_ApprovalCannotSkipAStageOrBorrowAnotherStoryWait(t *te
 			if after := snapshot(); after != before {
 				t.Fatalf("a refused reply changed state (err=%v out=%+v):\nbefore %s\nafter  %s", err, out.Err, before, after)
 			}
-			if item := indepStory(t, f, "story-001"); item.Stage != "story" || len(item.Approvals) != 0 {
-				t.Fatalf("story-001 advanced on a refused reply: %+v", item)
+			if item := indepStory(t, f, "story-003"); item.Stage != "story" || len(item.Approvals) != 0 {
+				t.Fatalf("story-003 advanced on a refused reply: %+v", item)
 			}
 		})
 	}
 	// Skipping ahead: the story waits at its story review, the reply names its technical stage.
 	refused("technical reply at a story review", func(r *Request) {
 		r.Trigger.PlanReply.Stage = "technical"
-		r.Trigger.PlanReply.Body = "/approve-plan story-001 technical " + r.Trigger.PlanReply.Candidate
+		r.Trigger.PlanReply.Body = "/approve-plan story-003 technical " + r.Trigger.PlanReply.Candidate
 		r.Trigger.Body, r.Command.Text = r.Trigger.PlanReply.Body, r.Trigger.PlanReply.Body
 	})
 	refused("acceptance reply at a story review", func(r *Request) {
 		r.Trigger.PlanReply.Stage = "acceptance"
-		r.Trigger.PlanReply.Body = "/approve-plan story-001 acceptance " + r.Trigger.PlanReply.Candidate
+		r.Trigger.PlanReply.Body = "/approve-plan story-003 acceptance " + r.Trigger.PlanReply.Candidate
 		r.Trigger.Body, r.Command.Text = r.Trigger.PlanReply.Body, r.Trigger.PlanReply.Body
 	})
-	// Borrowing: story-001's command carrying story-002's wait, candidate and issue.
+	// Borrowing: story-003's command carrying story-002's wait, candidate and issue.
 	refused("another story's wait", func(r *Request) {
 		other := indepStory(t, f, "story-002").Wait
 		r.Trigger.PlanReply.WaitID, r.Trigger.PlanReply.Candidate, r.Trigger.PlanReply.IssueID = other.ID, other.Candidate, other.IssueID
-		r.Trigger.PlanReply.Body = "/approve-plan story-001 story " + other.Candidate
+		r.Trigger.PlanReply.Body = "/approve-plan story-003 story " + other.Candidate
 		r.Trigger.Body, r.Command.Text = r.Trigger.PlanReply.Body, r.Trigger.PlanReply.Body
 	})
 	refused("a candidate the story does not have", func(r *Request) {
 		r.Trigger.PlanReply.Candidate = "plan-9-9"
-		r.Trigger.PlanReply.Body = "/approve-plan story-001 story plan-9-9"
+		r.Trigger.PlanReply.Body = "/approve-plan story-003 story plan-9-9"
 		r.Trigger.Body, r.Command.Text = r.Trigger.PlanReply.Body, r.Trigger.PlanReply.Body
 	})
 
-	// A consumed approval is not a new one: replaying story-002's story approval after it
-	// advanced does not advance it again, and story-001 stays where it was.
+	// A consumed approval is not a new one: replaying story-002's technical approval after it
+	// advanced does not advance it again, and story-003 stays where it was.
 	first := indepApprove(t, f, base, "story-002", 961)
-	if item := indepStory(t, f, "story-002"); item.Stage != "technical" || len(item.Approvals) != 1 {
+	if item := indepStory(t, f, "story-002"); item.Stage != "acceptance" || len(item.Approvals) != 2 {
 		t.Fatalf("story-002 after its story approval: %+v", item)
 	}
-	held := indepFingerprint(t, f, remote, forge, "story-001")
+	held := indepFingerprint(t, f, remote, forge, "story-003")
 	mid, _ := json.Marshal(graphPlanState(t, f))
 	if out, err := Execute(t.Context(), f.opts, first); err != nil || out.Err != nil {
 		t.Fatalf("replaying a consumed approval is a no-op, not a failure: err=%v out=%v", err, out.Err)
 	}
 	after, _ := json.Marshal(graphPlanState(t, f))
-	if string(mid) != string(after) || indepFingerprint(t, f, remote, forge, "story-001") != held {
+	if string(mid) != string(after) || indepFingerprint(t, f, remote, forge, "story-003") != held {
 		t.Fatalf("replaying a consumed approval changed state:\n%s\n%s", mid, after)
 	}
-	// The story-stage command is outdated once its story is at technical: it cannot skip a stage twice.
+	// The technical-stage command is outdated once its story is at acceptance: it cannot skip a stage twice.
 	stale := first
 	stale.Trigger.CommentID = 962
 	stale.Trigger.PlanReply = &planbrief.PlanOwnerReply{}
@@ -256,7 +281,7 @@ func TestPlanIndependence_ApprovalCannotSkipAStageOrBorrowAnotherStoryWait(t *te
 	if _, err := Execute(t.Context(), f.opts, stale); err == nil || !strings.Contains(err.Error(), "stale or wrong-story Plan reply") {
 		t.Fatalf("an outdated command was not refused as stale: %v", err)
 	}
-	if item := indepStory(t, f, "story-002"); item.Stage != "technical" || len(item.Approvals) != 1 {
+	if item := indepStory(t, f, "story-002"); item.Stage != "acceptance" || len(item.Approvals) != 2 {
 		t.Fatalf("an outdated command advanced story-002: %+v", item)
 	}
 }
@@ -270,12 +295,11 @@ func TestPlanIndependence_ApprovalCannotSkipAStageOrBorrowAnotherStoryWait(t *te
 // there is no path by which the earlier independent progress carries over.
 func TestPlanIndependence_DependencyChangeOutdatesTheDependantsProgressAndWaits(t *testing.T) {
 	f, remote, base, _, _ := indepFixture(t)
-	indepApprove(t, f, base, "story-001", 950)
 	dependant := indepStory(t, f, "story-001")
-	if dependant.Stage != "technical" || dependant.Wait == nil || dependant.Wait.Stage != "technical" || len(dependant.Approvals) != 1 {
+	if dependant.Stage != "technical" || dependant.Wait != nil || len(dependant.Approvals) != 1 {
 		t.Fatalf("story-001 after its first approval: %+v", dependant)
 	}
-	stale := graphPlanApproveKey(t, f, base, "story-001", 951)
+	stale := graphPlanApproveKey(t, f, base, "story-003", 951)
 	third := indepStory(t, f, "story-003")
 	if third.Wait == nil || third.Wait.Stage != "story" {
 		t.Fatalf("story-003 should wait at its story review: %+v", third)
@@ -320,7 +344,7 @@ func TestPlanIndependence_DependencyChangeOutdatesTheDependantsProgressAndWaits(
 	if string(before) != string(after) {
 		t.Fatalf("an outdated approval changed state:\n%s\n%s", before, after)
 	}
-	if item := indepStory(t, f, "story-001"); item.Stage != "story" || len(item.Approvals) != 0 {
-		t.Fatalf("an approval given against replaced dependency content advanced story-001: %+v", item)
+	if item := indepStory(t, f, "story-003"); item.Stage != "story" || len(item.Approvals) != 0 {
+		t.Fatalf("an approval given against replaced dependency content advanced story-003: %+v", item)
 	}
 }

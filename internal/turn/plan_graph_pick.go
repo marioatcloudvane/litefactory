@@ -20,12 +20,24 @@ type planPick struct {
 
 // pickPlanStep chooses the next work from saved Plan state alone, so the same
 // state always yields the same pick and a pass can ask again after every draft.
-// Promoted stories owed a first draft come first, in stable topological order:
-// dependencies before dependants, displayed order among the ready. Only then
-// does ordinary eligibility apply, which is what picks later stages of drafted
-// stories and revisions the owner asked for.
-func pickPlanStep(s planbrief.PlanState) (planPick, error) {
-	if _, key, ok, err := s.NextSetStory(); err != nil {
+//
+// A story task passes its own story key and is offered only that story's next
+// stage, by the one upstream-approval rule every stage obeys. The parent passes
+// no key and issued, the stories that already have an issue and so a task of
+// their own: it never picks one of them, and keeps only the set stage and any
+// story that has no issue yet. Of those, promoted stories owed a first draft
+// come first, in stable topological order: dependencies before dependants,
+// displayed order among the ready.
+func pickPlanStep(s planbrief.PlanState, story string, issued map[string]bool) (planPick, error) {
+	if story != "" {
+		stage, create, ok := s.StoryNextStep(story)
+		if !ok {
+			return planPick{}, nil
+		}
+		return planPick{Key: story, Stage: stage, Create: create}, nil
+	}
+	drafted := func(key string) bool { return s.StoryDrafted(key) || issued[key] }
+	if _, key, ok, err := s.StorySet.NextUndrafted(drafted); err != nil {
 		return planPick{}, fmt.Errorf("select next promoted story: %w", err)
 	} else if ok {
 		return planPick{Key: key, Stage: "story", Create: true}, nil
@@ -40,14 +52,16 @@ func pickPlanStep(s planbrief.PlanState) (planPick, error) {
 		// never reaches it, and neither does a promoted set.
 		return planPick{Stage: planSetStage}, nil
 	}
-	eligible := s.EligiblePlanStories()
-	if len(eligible) == 0 {
-		return planPick{}, nil
-	}
-	for _, item := range s.Stories {
-		if item.Key == eligible[0] {
-			return planPick{Key: item.Key, Stage: item.Stage}, nil
+	for _, key := range s.EligiblePlanStories() {
+		if issued[key] {
+			continue
 		}
+		for _, item := range s.Stories {
+			if item.Key == key {
+				return planPick{Key: item.Key, Stage: item.Stage}, nil
+			}
+		}
+		return planPick{}, fmt.Errorf("eligible Plan story %q missing", key)
 	}
-	return planPick{}, fmt.Errorf("eligible Plan story %q missing", eligible[0])
+	return planPick{}, nil
 }

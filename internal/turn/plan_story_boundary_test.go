@@ -26,6 +26,8 @@ type planBoundaryForge struct {
 	creates, patches                               int
 	failCreate, failAttach, failUpdate, failRetire bool
 	raceUpdate, hidden, reparent, deleted          bool
+	comments                                       []map[string]any
+	failComment                                    bool
 }
 
 func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +76,24 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.attached = true
 		out = f.child
+	case r.URL.Path == "/repos/acme/app/issues/400/comments" && r.Method == http.MethodPost:
+		if f.failComment {
+			f.failComment = false
+			http.Error(w, `{"message":"comment failed"}`, http.StatusInternalServerError)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		body["id"] = int64(5000 + len(f.comments))
+		body["user"] = map[string]any{"id": 1, "login": "bot"}
+		f.comments = append(f.comments, body)
+		out = body
+	case r.URL.Path == "/repos/acme/app/issues/400/comments" && r.Method == http.MethodGet:
+		list := f.comments
+		if list == nil {
+			list = []map[string]any{}
+		}
+		out = list
 	case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/issues/400":
 		if f.deleted {
 			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
@@ -436,25 +456,38 @@ func planAuthorizeRetirement(t *testing.T, h *PlanStoryActivity, a *PlanStoryAut
 	a.Confirmation = &planbrief.PlanOwnerReply{ID: 99, OwnerID: a.OwnerID, ActorID: a.ActorID, IssueID: 4000, Key: r.Draft.Key, Stage: r.Stage, Candidate: a.RetirementCandidate, WaitID: "retire-wait", Body: "/retire-plan " + r.Draft.Key + " " + a.RetirementCandidate}
 }
 
-// A draft within the raw budget can still render too large once the hidden
-// metadata repeats it. That request can never publish, so it fails without a
-// remote mutation and recovery settles it instead of retrying it every turn.
-func TestPlanBoundaryOversizedRenderFailsAndSettles(t *testing.T) {
-	h, f, a, r, restart := planBoundarySetup(t)
-	r.Draft.Problem = strings.Repeat("x", 40000)
-	got := planApply(t, h, a, r, "failed")
-	if f.creates != 0 || f.patches != 0 || !strings.Contains(got.Detail, "exceeds byte budget") {
-		t.Fatalf("oversized draft reached the forge or lost its cause: %+v creates=%d patches=%d", got, f.creates, f.patches)
+// A draft too long for one body is posted shortened with its full text as
+// numbered part comments; a failed part comment is uncertain, and the retry
+// posts only the missing parts.
+func TestPlanBoundaryOversizedDraftPostsPartComments(t *testing.T) {
+	h, f, a, r, _ := planBoundarySetup(t)
+	r.Draft.Problem = strings.Repeat("x", 100000)
+	f.failComment = true
+	if got, err := h.Apply(t.Context(), a, r); err == nil || got.Outcome != "uncertain" {
+		t.Fatalf("failed part comment must be uncertain: %+v err=%v", got, err)
 	}
-	restart()
-	if err := h.Reconcile(t.Context(), a, 8); err != nil {
-		t.Fatalf("recovery failed instead of settling: %v", err)
+	if f.creates != 1 || len(f.comments) != 0 {
+		t.Fatalf("creates=%d comments=%d", f.creates, len(f.comments))
 	}
-	debt, err := h.DB.PlanStoryRecoveryDebt(t.Context(), a.Parent, 8)
-	if err != nil || len(debt) != 0 {
-		t.Fatalf("unpublishable request still owed: %+v err=%v", debt, err)
+	planApply(t, h, a, r, "applied")
+	body, _ := f.child["body"].(string)
+	if !strings.Contains(body, planbrief.PlanShortenedMarker) || len(f.comments) < 2 {
+		t.Fatalf("expected shortened body and part comments: comments=%d", len(f.comments))
 	}
-	if err = h.Reconcile(t.Context(), a, 8); err != nil || f.creates != 0 {
-		t.Fatalf("settled request replayed: err=%v creates=%d", err, f.creates)
+	first := len(f.comments)
+	var joined strings.Builder
+	for _, c := range f.comments {
+		text, _ := c["body"].(string)
+		if len(text) > github.CommentSizeLimit || !strings.HasPrefix(text, "<!-- lf:plan-part ") {
+			t.Fatalf("bad part comment of %d bytes", len(text))
+		}
+		joined.WriteString(text)
+	}
+	if strings.Count(joined.String(), "x") < 100000 {
+		t.Fatal("parts do not hold the full draft")
+	}
+	_, _ = h.Apply(t.Context(), a, r)
+	if len(f.comments) != first {
+		t.Fatalf("retry duplicated parts: %d -> %d", first, len(f.comments))
 	}
 }

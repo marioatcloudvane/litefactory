@@ -264,6 +264,34 @@ func (c *Client) PostComment(ctx context.Context, repo Repo, issue int, body red
 	return convertComment(payload), nil
 }
 
+// EditComment replaces the body of a comment litefactory posted, which is how the
+// one summary a Plan parent keeps stays current in place. Like [Client.PostComment]
+// it takes only a redacted body, so nothing unredacted can reach the forge.
+func (c *Client) EditComment(ctx context.Context, repo Repo, commentID int64, body redact.Body) error {
+	if err := repo.Validate(); err != nil {
+		return err
+	}
+	if err := checkCommentID(commentID); err != nil {
+		return err
+	}
+	if !body.Valid() {
+		return fmt.Errorf("github: edit comment %d on %s: %w: body did not come from redact.Apply",
+			commentID, repo, ErrInvalidArgument)
+	}
+	if body.Len() == 0 || body.Len() > CommentSizeLimit {
+		return fmt.Errorf("github: edit comment %d on %s: %w: body is %d bytes, the limit is %d",
+			commentID, repo, ErrInvalidArgument, body.Len(), CommentSizeLimit)
+	}
+	_, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.IssueComment, *gogithub.Response, error) {
+		return c.api.Issues.EditComment(ctx, repo.Owner, repo.Name, commentID,
+			&gogithub.IssueComment{Body: gogithub.Ptr(body.String())})
+	})
+	if err != nil {
+		return fmt.Errorf("github: edit comment %d on %s: %w", commentID, repo, err)
+	}
+	return nil
+}
+
 // ReactionContent is one of GitHub's fixed reaction names.
 type ReactionContent string
 

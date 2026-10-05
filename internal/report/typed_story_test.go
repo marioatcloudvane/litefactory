@@ -229,3 +229,19 @@ func TestRenderTypedPlan_EscapedTransportBudget(t *testing.T) {
 		t.Fatal("escaped aggregate exceeds budget but was accepted")
 	}
 }
+
+func TestRenderTypedStoryParts_OversizedIsShortenedWithParts(t *testing.T) {
+	s := renderFixture()
+	s.AcceptanceCriteria = nil
+	for i := 1; i <= 64; i++ {
+		s.AcceptanceCriteria = append(s.AcceptanceCriteria, planbrief.CriterionContent{ID: fmt.Sprintf("AC-%03d", i), Text: strings.Repeat("x", 4096)})
+	}
+	body, parts, err := report.RenderTypedStoryParts(s, renderScope())
+	if err != nil || len(parts) == 0 || len(body) > 65536 || !strings.Contains(body, planbrief.PlanShortenedMarker) || !strings.Contains(body, "AC-064") {
+		t.Fatalf("oversized typed story: parts=%d len=%d err=%v", len(parts), len(body), err)
+	}
+	fit, none, err := report.RenderTypedStoryParts(renderFixture(), renderScope())
+	if err != nil || len(none) != 0 || strings.Contains(fit, planbrief.PlanShortenedMarker) {
+		t.Fatalf("fitting typed story changed: %v", err)
+	}
+}

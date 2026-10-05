@@ -23,11 +23,25 @@ func heldPlanStory(reason string) error { return fmt.Errorf("%w: %s", ErrPlanSto
 // Reconcile revisits original requests independently of shaping selection. Its
 // caller owns scheduling; each pass has a durable bounded rotating budget.
 func (h PlanStoryActivity) Reconcile(ctx context.Context, a PlanStoryAuthority, budget int) error {
+	return h.reconcile(ctx, a, budget, "")
+}
+
+// ReconcileStory is [PlanStoryActivity.Reconcile] for one story's requests only,
+// which is all a story task reconciles: a sibling's debt is its own task's.
+func (h PlanStoryActivity) ReconcileStory(ctx context.Context, a PlanStoryAuthority, budget int, key string) error {
+	return h.reconcile(ctx, a, budget, key)
+}
+
+func (h PlanStoryActivity) reconcile(ctx context.Context, a PlanStoryAuthority, budget int, only string) error {
 	debt, err := h.DB.PlanStoryRecoveryDebt(ctx, a.Parent, budget)
 	if err != nil {
 		return err
 	}
 	for _, c := range debt {
+		// A story task reconciles its own story's effects only.
+		if only != "" && c.Key != only {
+			continue
+		}
 		if err = h.DB.AdvancePlanStoryRecovery(ctx, a.Parent, c.RequestID); err != nil {
 			return err
 		}
@@ -95,34 +109,31 @@ func (h PlanStoryActivity) Reconcile(ctx context.Context, a PlanStoryAuthority, 
 }
 
 func (h PlanStoryActivity) hold(ctx context.Context, c store.PlanStoryCandidate, r graphexec.PlanStoryRequest, reason string) error {
-	s, revision, err := h.DB.GetPlanWorkflowState(ctx, c.Parent)
-	if err != nil {
-		return err
-	}
-	if s.SharedRevision == "" {
-		s.SharedRevision = "initial"
-	}
-	found := false
-	for i := range s.Stories {
-		item := &s.Stories[i]
-		if item.Key != c.Key {
-			continue
+	return h.DB.UpdatePlanWorkflowState(ctx, c.Parent, func(s *planbrief.PlanState) (bool, error) {
+		if s.SharedRevision == "" {
+			s.SharedRevision = "initial"
 		}
-		found = true
-		if item.EffectHolds[c.RequestID] == reason || (item.EffectRequest == c.RequestID && item.EffectHold == reason) {
-			return nil
+		found := false
+		for i := range s.Stories {
+			item := &s.Stories[i]
+			if item.Key != c.Key {
+				continue
+			}
+			found = true
+			if item.EffectHolds[c.RequestID] == reason || (item.EffectRequest == c.RequestID && item.EffectHold == reason) {
+				return false, nil
+			}
+			item.SetEffectHold(c.RequestID, reason)
 		}
-		item.SetEffectHold(c.RequestID, reason)
-	}
-	if !found {
-		s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: c.Key, Candidate: c.Candidate, Stage: r.Stage, Draft: r.Draft, Effect: "uncertain", EffectRequest: c.RequestID, EffectHold: reason, EffectHolds: map[string]string{c.RequestID: reason}})
-	}
-	s.AssembledApproval = ""
-	s.AssembledWait = ""
-	s.PublishedRevision = ""
-	s.SavedRevision = ""
-	_, err = h.DB.SavePlanWorkflowState(ctx, c.Parent, revision, s)
-	return err
+		if !found {
+			s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: c.Key, Candidate: c.Candidate, Stage: r.Stage, Draft: r.Draft, Effect: "uncertain", EffectRequest: c.RequestID, EffectHold: reason, EffectHolds: map[string]string{c.RequestID: reason}})
+		}
+		s.AssembledApproval = ""
+		s.AssembledWait = ""
+		s.PublishedRevision = ""
+		s.SavedRevision = ""
+		return true, nil
+	})
 }
 
 func (h PlanStoryActivity) retainRetirement(ctx context.Context, a *PlanStoryAuthority, r graphexec.PlanStoryRequest, d store.PlanStoryDraft) error {
@@ -208,34 +219,31 @@ func (h PlanStoryActivity) retainRetirement(ctx context.Context, a *PlanStoryAut
 	return nil
 }
 
-func (h PlanStoryActivity) prepareCompletion(ctx context.Context, a PlanStoryAuthority, r graphexec.PlanStoryRequest, draft planbrief.PlanDraft) (planbrief.PlanState, int64, error) {
-	state, revision, err := h.DB.GetPlanWorkflowState(ctx, a.Parent)
-	if err != nil {
-		return state, revision, err
-	}
-	if state.SharedRevision == "" {
-		state.SharedRevision = "initial"
-	}
-	found := false
-	for i := range state.Stories {
-		item := &state.Stories[i]
-		if item.Key == r.Draft.Key {
-			found = true
-			item.Effect = "pending"
-			if len(item.EffectHolds) == 0 && item.EffectHold == "" {
-				item.EffectRequest = r.RequestID
+func (h PlanStoryActivity) prepareCompletion(ctx context.Context, a PlanStoryAuthority, r graphexec.PlanStoryRequest, draft planbrief.PlanDraft) error {
+	return h.DB.UpdatePlanWorkflowState(ctx, a.Parent, func(state *planbrief.PlanState) (bool, error) {
+		if state.SharedRevision == "" {
+			state.SharedRevision = "initial"
+		}
+		found := false
+		for i := range state.Stories {
+			item := &state.Stories[i]
+			if item.Key == r.Draft.Key {
+				found = true
+				item.Effect = "pending"
+				if len(item.EffectHolds) == 0 && item.EffectHold == "" {
+					item.EffectRequest = r.RequestID
+				}
 			}
 		}
-	}
-	if !found {
-		state.Stories = append(state.Stories, planbrief.PlanStoryState{Key: r.Draft.Key, Candidate: r.Candidate, Stage: r.Stage, Draft: draft, Effect: "pending", EffectRequest: r.RequestID})
-	}
-	state.AssembledApproval = ""
-	state.AssembledWait = ""
-	state.PublishedRevision = ""
-	state.SavedRevision = ""
-	revision, err = h.DB.SavePlanWorkflowState(ctx, a.Parent, revision, state)
-	return state, revision, err
+		if !found {
+			state.Stories = append(state.Stories, planbrief.PlanStoryState{Key: r.Draft.Key, Candidate: r.Candidate, Stage: r.Stage, Draft: draft, Effect: "pending", EffectRequest: r.RequestID})
+		}
+		state.AssembledApproval = ""
+		state.AssembledWait = ""
+		state.PublishedRevision = ""
+		state.SavedRevision = ""
+		return true, nil
+	})
 }
 
 func completePlanState(state *planbrief.PlanState, a PlanStoryAuthority, r graphexec.PlanStoryRequest, d store.PlanStoryDraft, child github.Issue) error {

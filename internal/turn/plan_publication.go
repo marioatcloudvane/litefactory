@@ -85,13 +85,16 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 			if !ok {
 				return nil, fmt.Errorf("typed story content missing")
 			}
-			body, err := report.RenderTypedStory(typed, o.TypedScope)
+			body, parts, err := report.RenderTypedStoryParts(typed, o.TypedScope)
 			if err != nil {
 				return nil, err
 			}
 			bodyMatches := body == story.Body
 			if story.Intent != "create" {
 				bodyMatches = planbrief.TypedStoryBodyMatches(typed, story.Body)
+				if len(parts) > 0 && story.Intent == "update" {
+					bodyMatches = strings.Contains(story.Body, planbrief.PlanShortenedMarker)
+				}
 			}
 			if story.Intent == "unchanged" {
 				bodyMatches = planbrief.TypedStoryBodyMatches(typed, story.Body)
@@ -223,6 +226,9 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 			projection := store.SubmissionProjection{Parent: p.Parent, Generation: p.Generation, Story: s.Key, IssueID: issue.ID, Revision: entry.BodyHash, ContentVersion: 2, Title: issue.Title, Body: issue.Body, Content: content, Criteria: criteria}
 			if err := retainTypedPublicationProjection(ctx, o.DB, projection, typed); err != nil {
 				return nil, err
+			}
+			if err := publishTypedParts(ctx, o, issue, typed); err != nil {
+				return nil, fmt.Errorf("story %s: %w", s.Key, err)
 			}
 		}
 		// URL is derived from validated numeric identity, never remote Markdown.
@@ -446,6 +452,59 @@ func retainTypedPublicationProjection(ctx context.Context, db *store.DB, project
 	original.Intent = typed.Intent
 	if prior.IssueID != projection.IssueID || prior.Title != projection.Title || prior.Body != projection.Body || !reflect.DeepEqual(original, typed) {
 		return fmt.Errorf("typed publication conflicts with immutable issue projection")
+	}
+	return nil
+}
+
+// typedPartCommenter is the comment surface the numbered full-draft parts need.
+type typedPartCommenter interface {
+	ListCommentsAfter(context.Context, github.Repo, int, int64) ([]github.Comment, error)
+	PostComment(context.Context, github.Repo, int, redact.Body) (github.Comment, error)
+}
+
+// typedPartMarker is the hidden marker that identifies one numbered part comment.
+func typedPartMarker(ref naming.Ref, key string, n, total int) string {
+	return fmt.Sprintf("<!-- lf:plan-part parent=%s key=%s part=%d/%d -->", ref.String(), key, n, total)
+}
+
+// publishTypedParts posts, after the story issue carries its shortened body,
+// every numbered part comment of the full text that is not there yet. A story
+// that fits has no parts and posts nothing; a repeat finds each part by its
+// hidden marker and never posts one twice.
+func publishTypedParts(ctx context.Context, o PublicationOptions, issue github.Issue, typed planbrief.TypedStory) error {
+	_, parts, err := report.RenderTypedStoryParts(typed, o.TypedScope)
+	if err != nil || len(parts) == 0 {
+		return err
+	}
+	commenter, ok := o.Forge.(typedPartCommenter)
+	if !ok {
+		return fmt.Errorf("publication forge cannot post the full-draft part comments")
+	}
+	repo := github.RepoFromRef(o.Parent)
+	comments, err := commenter.ListCommentsAfter(ctx, repo, issue.Number, 0)
+	if err != nil {
+		return fmt.Errorf("list part comments: %w", err)
+	}
+	for i, part := range parts {
+		marker := typedPartMarker(o.Parent, typed.Key, i+1, len(parts))
+		posted := false
+		for _, c := range comments {
+			if strings.Contains(c.Body, marker) {
+				posted = true
+				break
+			}
+		}
+		if posted {
+			continue
+		}
+		text := marker + "\n**Full draft, part " + fmt.Sprintf("%d/%d", i+1, len(parts)) + "**\n\n" + part
+		safe, err := o.Renderer.RenderCompleteStory(ctx, report.Story{Ref: o.Parent, ID: typed.Key, Title: typed.Title, Excerpt: text})
+		if err != nil {
+			return fmt.Errorf("render part %d: %w", i+1, err)
+		}
+		if _, err := commenter.PostComment(ctx, repo, issue.Number, safe.Body); err != nil {
+			return fmt.Errorf("post part %d: %w", i+1, err)
+		}
 	}
 	return nil
 }
