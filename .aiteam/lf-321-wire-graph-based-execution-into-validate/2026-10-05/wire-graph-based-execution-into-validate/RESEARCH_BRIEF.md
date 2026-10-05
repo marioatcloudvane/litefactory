@@ -6,42 +6,47 @@ Shape graph-based Validate execution from retained findings, settling its goal, 
 
 ## Decisions
 
-- **d1** — This pass shapes the Validate scope in Research without implementing, creating stories, publishing remote changes or selecting another mode.
-- **d2** — The issue requires read-only reviewer authority, owner-selected modes, independent engineering and acceptance states, separate merge approval and continued legacy support.
-- **d3** — Proposed scope uses factory-run declared full-suite evidence followed by one read-only reviewer on the identical source and frozen scope.
-- **d4** — Repairs leave Validate through an explicit owner-selected handback rather than an internal repair loop.
-- **d5** — Implement test reduction is allowed only for paired adopted policy versions after Validate full-suite entry is verified.
-- **d6** — The proposed recipe and retained-result contracts cover version identity, commands, prerequisites, environment, snapshot binding, statuses, output and recovery as specified in the scope.
-- **d7** — Failed or missing suite evidence blocks acceptance while permitting useful static review and concrete proposed fixes.
-- **d8** — Existing acceptance, merge and closure authority and recovery contracts remain in force.
-- **d9** — The first release excludes inferred suites, automatic flaky retries, language-specific failure parsing and broader deployment drift.
+- **d1** — This pass shapes Research without implementing, creating issues now or selecting another mode.
+- **d2** — Owner feedback permits configurable automatic Validate entry and a separate minor-repair role while preserving read-only review agents and independent delivery approval.
+- **d3** — Owner selects three parallel agents for acceptance, code review and architecture review against the final tested snapshot.
+- **d4** — Owner permits minor repairs in Validate and requires larger repairs to stop with explicit Implement handback.
+- **d5** — Owner removes the full-suite obligation from graph-based Implement and assigns it to Validate.
+- **d6** — The proposed retained contracts cover command recipes, snapshot identity, repair attempts, review findings, owner choices and independently recovered external effects.
+- **d7** — Failed or missing full-suite evidence blocks acceptance and delivery while permitting useful static findings.
+- **d8** — Owner selects final issue-creation or delivery choices, with exact-head authorization and closure limited to the displayed accepted cohort.
+- **d9** — Framework execution is language neutral and does not depend on failure parsers.
+- **d10** — Owner settles q2 as serial full-suite tests rather than exclusive slots or recurring windows.
+- **d11** — Proposed repair handback creates a linked repair execution rather than rewinding a completed graph.
+- **d12** — Proposed live reporting shows per-stage status, criterion progress, stable findings and owner options in one updated report.
 
 
 ## Assumptions
 
-- **a1** — Drift means code, architecture and approved-plan compliance because those are the issue's stated review obligations.
-- **a2** — Local versus remote execution and scheduling/capacity remain owner choices presented as q1 and q2.
-- **a3** — Recommend local tests with one active full-suite stage per daemon and existing one-off scheduling based on the established local executor and scheduler; resource isolation is not established.
-- **a4** — Retain the bounded prior evidence: source revision 680c4f2ba575a18b2f704a90f8b777079470724f and sampled historical logs establish specific behavior and failures, not current live adoption or all historical failures.
-- **a5** — Exact storage layout and serialized field names belong to later technical shaping; this scope fixes the information and observable rules without an implementation design.
+- **a1** — Drift remains code, architecture and approved-plan compliance.
+- **a2** — Remote execution remains unresolved in q1 after explaining its distributed execution and evidence obligations.
+- **a3** — Serial full-suite tests apply per factory daemon and do not guarantee CPU or memory isolation.
+- **a4** — Prior source and historical evidence remain bounded to the inspected revisions and sampled runs; current graph-based Implement reentry is not established.
+- **a5** — Serialized field names and storage design remain for Plan while this scope fixes required information and observable behavior.
+- **a6** — Propose manual automatic-entry default, with opt-in configuration as standing owner authorization, because the owner requested a setting without specifying its default.
+- **a7** — Interpret approval agent as acceptance review rather than permission to merge because the owner separately specifies an end-of-workflow delivery choice.
+- **a8** — Interpret close all issues as the displayed accepted workflow cohort, excluding unrelated or unresolved issues.
 
 
 ## Open questions
 
-### q1 — Where should the first Validate release run the full suite?
+### q1 — Should remote test-server execution be included in this release?
 
 _Asked of: Product Owner Questions_
 
-- **local** — Local factory host (recommended): use isolated local execution now and defer dedicated test servers to a separate scope.  *(recommended)*
-- **remote** — Dedicated test server in this scope: add runner admission, environment identity, authentication, artifact transfer and remote recovery before adoption; this expands the first release.
+- **local** — Local first (recommended): keep the framework-neutral contract and defer authenticated remote runners, artifact transfer and distributed recovery to a separate scope.  *(recommended)*
+- **remote** — Include remote execution now: build and verify the runner, host/environment selection, credentials, snapshot transfer, logs, cancellation and recovery contract described above.
 
-### q2 — What scheduling and capacity policy should the first release provide?
+### q3 — What changes count as minor repairs inside Validate?
 
 _Asked of: Product Owner Questions_
 
-- **serial_tests** — One active full-suite stage per daemon plus existing one-off scheduling (recommended): waiting tests consume no reviewer slot, reviewers use normal capacity, and other modes continue; retain queue order and release capacity only after the test process is confirmed stopped.  *(recommended)*
-- **exclusive** — One Validate run reserves all factory slots plus existing one-off scheduling: drain current work before tests, prevent new ordinary work during that run, and accept the resulting throughput loss.
-- **windows** — One active full-suite stage plus recurring overnight windows: add timezone-aware daily windows, explicit daylight-saving behavior and durable queues; let started tests finish after the window closes, with a configurable 03:00–07:00 starting window.
+- **bounded_source** — Small source or test corrections within approved behavior (recommended): at most two repair rounds, each with a 15-minute agent budget; no public API, schema, dependency, architecture or criteria changes, and no weakened assertions; rerun the full suite after each repair and hand back any uncertain or larger fix.  *(recommended)*
+- **mechanical** — Mechanical changes only: formatting, imports and obvious compilation or test-fixture mistakes, with the same two-round and time limits; send behavior fixes to Implement.
 
 ## Research documents
 
