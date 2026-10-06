@@ -42,6 +42,10 @@ type FamilyDispatcherOptions struct {
 	AllowCreation  bool
 	CommentTargets []int
 	Registrations  []FamilyRegistration
+	// WithoutEvidence is set for an Implement story worker of the graph, which
+	// submits only its application result: it is checked once, at submit, against
+	// its one story, and no engineering checkpoints or evidence are collected.
+	WithoutEvidence bool
 }
 
 // FamilyPermissionDigest is called before binding the attempt lease, with the
@@ -64,7 +68,7 @@ func prepareFamilies(o FamilyDispatcherOptions) (submission.ToolProfile, map[str
 		return bad()
 	}
 	registrations := []FamilyRegistration{{Name: "feedback_preflight", Owner: o.Feedback, Handle: o.Feedback.HandlePreflight}, {Name: "receipts_get", Owner: o.Receipts, Handle: o.Receipts.HandleGet}}
-	if b.Mode == "implement" || b.Mode == "validate" {
+	if (b.Mode == "implement" || b.Mode == "validate") && !o.WithoutEvidence {
 		if o.Evidence == nil || o.Evidence.receipts != o.Receipts || o.Receipts.projections["submission"] == nil || o.Receipts.projections["tool:evidence_submit"] == nil {
 			return bad()
 		}

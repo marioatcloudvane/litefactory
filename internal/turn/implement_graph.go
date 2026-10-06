@@ -1,0 +1,388 @@
+package turn
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
+)
+
+const (
+	// implementPollInterval is how long a coordinator rests before it looks at
+	// the ledger again on its own. A story that changes state wakes it sooner;
+	// this only bounds a lost wake.
+	implementPollInterval = 5 * time.Minute
+	// implementRetryDelay is how long a coordinator waits before it tries a merge
+	// again that found the integration branch busy or moved.
+	implementRetryDelay = 30 * time.Second
+)
+
+// implementRuntime is one admitted Implement run: the parent's coordinator
+// (worker nil) or one story's worker. It holds the factory-owned facts the
+// graph's activities and hooks read; none of it comes from agent text.
+type implementRuntime struct {
+	opts   Options
+	req    Request
+	result Result
+	// parentRef is the parent task: the run's own task for the coordinator, the
+	// story's parent for a worker.
+	parentRef  naming.Ref
+	definition *teamsource.WorkflowDefinition
+	// generation is the managed feature generation the ledger is scoped to.
+	generation int64
+	// worker is the story this run builds, nil for the coordinator.
+	worker *store.ImplementStory
+	// save is the run's save step, set when the graph is executed.
+	save func(context.Context) (Result, error)
+}
+
+func (rt *implementRuntime) now() time.Time { return spikeNow(rt.opts) }
+
+// admitImplementExecution takes every Implement launch on a managed parent, and
+// every story worker, onto the graph. Anything else, such as an Implement task
+// with no managed stories, keeps the legacy path, as does automatic recovery of a
+// run that began there.
+func admitImplementExecution(ctx context.Context, opts Options, req Request, result Result) (Result, bool, error) {
+	if req.mode() != string(agent.ModeImplement) || req.Workflow == agent.WorkflowBug {
+		return result, false, nil
+	}
+	rt := &implementRuntime{opts: opts, req: req, result: result, parentRef: result.Ref}
+	row, err := opts.DB.ImplementStoryByWorkerSession(ctx, req.SessionID)
+	switch {
+	case err == nil:
+		rt.parentRef, err = naming.ParseRef(row.Parent)
+		if err != nil {
+			return result, true, fmt.Errorf("implement story parent: %w", err)
+		}
+		rt.generation = row.Generation
+		rt.worker = &row
+	case errors.Is(err, store.ErrNotFound):
+		feature, featureErr := opts.DB.GetManagedFeature(ctx, result.Ref.String())
+		if errors.Is(featureErr, store.ErrNotFound) {
+			return result, false, nil
+		}
+		if featureErr != nil {
+			return result, true, featureErr
+		}
+		rt.generation = int64(feature.Generation)
+	default:
+		return result, true, err
+	}
+	graph, err := opts.DB.HasWorkflowGraphSession(ctx, req.SessionID, string(agent.ModeImplement))
+	if err != nil {
+		return result, true, err
+	}
+	if req.Continuation != nil {
+		if !graph {
+			return result, false, nil
+		}
+		return result, true, errors.New("implement graphs require explicit owner continuation")
+	}
+	if opts.MCP == nil || opts.ResearchReporter == nil {
+		if rt.worker != nil {
+			return result, true, errors.New("graph Implement requires durable reporting and redacted effect dependencies")
+		}
+		// A launch with none of the graph's runtime (a bare harness, never the
+		// daemon) keeps the legacy path.
+		return result, false, nil
+	}
+	out, err := rt.admit(ctx)
+	return out, true, err
+}
+
+func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
+	if store.IsGraphTrigger(rt.req.Trigger.CommentID) {
+		return rt.resumeDispatch(ctx)
+	}
+	if rt.worker != nil {
+		if row, err := rt.opts.DB.GetImplementStory(ctx, rt.worker.Parent, rt.worker.Generation, rt.worker.Key); err != nil {
+			return rt.result, err
+		} else if row.State != store.ImplementRunning {
+			return rt.idle("this story is no longer running"), nil
+		}
+	} else {
+		if err := rt.opts.DB.CheckManagedReadiness(ctx, rt.parentRef.String()); err != nil {
+			if errors.Is(err, store.ErrPlanNotReady) {
+				return readinessRefused(ctx, rt.opts, rt.result)
+			}
+			return rt.result, err
+		}
+		if err := prepareManagedScope(ctx, rt.opts, rt.req, rt.parentRef); err != nil {
+			return rt.result, err
+		}
+		feature, err := rt.opts.DB.GetManagedFeature(ctx, rt.parentRef.String())
+		if err != nil {
+			return rt.result, err
+		}
+		if feature.State != "implementing" {
+			return rt.result, errors.New("managed stories are not approved for implementation")
+		}
+		rt.generation = int64(feature.Generation)
+	}
+	if _, err := rt.opts.DB.AdmitWorkflowPath(ctx, rt.req.SessionID, "graph"); err != nil {
+		return rt.result, err
+	}
+	definition, err := captureImplement(ctx)
+	if err != nil {
+		return rt.result, err
+	}
+	rt.definition = definition
+	topology, err := graphexec.SemanticDigest(definition.Profile)
+	if err != nil {
+		return rt.result, err
+	}
+	files, err := json.Marshal(definition.Files)
+	if err != nil {
+		return rt.result, err
+	}
+	pin, err := rt.opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: string(agent.ModeImplement), ProfileVersion: definition.Profile.ProfileVersion, Path: "implement/implement.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	if err != nil {
+		return rt.result, err
+	}
+	admitted, err := rt.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeImplement), SessionID: rt.req.SessionID, TriggerID: rt.req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Reply: rt.req.Trigger.Body})
+	if err != nil {
+		return rt.result, err
+	}
+	actual, err := rt.opts.DB.GetGraphDefinition(ctx, admitted.Instance.DefinitionID)
+	if err != nil {
+		return rt.result, err
+	}
+	definition.Profile.Digest = actual.Digest
+	if rt.worker == nil {
+		if err := rt.applyReply(ctx, admitted.Instance); err != nil {
+			return rt.result, err
+		}
+	}
+	return rt.execute(ctx, definition, admitted)
+}
+
+// resumeDispatch enters the graph at an instance's current node with the
+// definition it was admitted under. Nothing here is a fresh admission.
+func (rt *implementRuntime) resumeDispatch(ctx context.Context) (Result, error) {
+	instance, err := rt.opts.DB.LatestWorkflowInstance(ctx, rt.req.SessionID, string(agent.ModeImplement))
+	if err != nil {
+		return rt.result, fmt.Errorf("resume implement dispatch: %w", err)
+	}
+	if instance.Status != store.GraphRunning {
+		return rt.result, errors.New("implement graph dispatch targets an instance that is no longer running")
+	}
+	pin, err := rt.opts.DB.GetGraphDefinition(ctx, instance.DefinitionID)
+	if err != nil {
+		return rt.result, err
+	}
+	definition, err := captureImplement(ctx)
+	if err != nil {
+		return rt.result, err
+	}
+	if definition.Profile.Digest != pin.Digest {
+		return rt.result, errors.New("shipped Implement graph changed under a running instance; the resting instance cannot resume")
+	}
+	rt.definition = definition
+	return rt.execute(ctx, definition, store.WorkflowAdmission{Instance: instance})
+}
+
+// idle is the result of a run that found nothing left to do.
+func (rt *implementRuntime) idle(reason string) Result {
+	out := rt.result
+	out.ResearchGraph = true
+	out.Reason = reason
+	return out
+}
+
+func captureImplement(ctx context.Context) (*teamsource.WorkflowDefinition, error) {
+	specs, err := ImplementSpecs()
+	if err != nil {
+		return nil, err
+	}
+	definition, err := teamsource.CaptureImplement(ctx, specs)
+	if err != nil {
+		return nil, fmt.Errorf("capture current shipped Implement: %w", err)
+	}
+	return definition, nil
+}
+
+// execute advances the captured graph under the task lock through the shared
+// driver, with this run's policy.
+func (rt *implementRuntime) execute(ctx context.Context, definition *teamsource.WorkflowDefinition, admission store.WorkflowAdmission) (Result, error) {
+	policy, err := rt.policy()
+	if err != nil {
+		return rt.result, err
+	}
+	return ExecuteWorkflow(ctx, rt.opts, rt.req, rt.result, definition, admission, policy)
+}
+
+// policy is the Implement policy with this run's activities and hooks.
+func (rt *implementRuntime) policy() (WorkflowPolicy, error) {
+	// Only the coordinator merges, starts stories and reports; a story worker needs
+	// none of the forge, repository or authority they bind.
+	var bindings ImplementBindings
+	if rt.worker == nil {
+		var err error
+		if bindings, err = rt.bindings(); err != nil {
+			return WorkflowPolicy{}, err
+		}
+	}
+	p := ImplementWorkflowPolicy()
+	p.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, _ *graphexec.Profile, _ func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error), env WorkflowEnv) error {
+		rt.save = env.Save
+		return rt.registerEffects(specs, activities, bindings)
+	}
+	p.Park = rt.parkHook
+	p.AfterAgentFailure = implementAfterAgentFailure
+	p.ResultOverride = implementResultOverride
+	return p, nil
+}
+
+// resumeStories applies an owner's reply to the parked stories: it resumes the
+// ones the reply names by key, or all of them when it names none. A resumed story
+// keeps its branch and work, gets its attempts reset and takes the reply as
+// guidance; it restarts through ready within the cap. It is safe to repeat: only a
+// row that is still parked is resumed.
+func (rt *implementRuntime) resumeStories(ctx context.Context, reply string) (int, error) {
+	parent := rt.parentRef.String()
+	rows, err := rt.opts.DB.ListImplementStories(ctx, parent, rt.generation)
+	if err != nil {
+		return 0, err
+	}
+	named := map[string]bool{}
+	for _, row := range rows {
+		if namesStory(reply, row.Key) {
+			named[row.Key] = true
+		}
+	}
+	resumed := 0
+	for _, row := range rows {
+		if row.State != store.ImplementParked || (len(named) > 0 && !named[row.Key]) {
+			continue
+		}
+		_, err := rt.opts.DB.TransitionImplementStory(ctx, store.ImplementTransition{
+			Parent: parent, Generation: rt.generation, Key: row.Key,
+			From: store.ImplementParked, To: store.ImplementWaiting, ExpectedRevision: row.Revision,
+			Guidance: strings.TrimSpace(reply), At: rt.now(),
+		})
+		if errors.Is(err, store.ErrImplementConflict) {
+			continue
+		}
+		if err != nil {
+			return resumed, err
+		}
+		resumed++
+	}
+	return resumed, nil
+}
+
+// namesStory reports whether text names a story by its key, as a whole word.
+func namesStory(text, key string) bool {
+	if strings.TrimSpace(key) == "" {
+		return false
+	}
+	return regexp.MustCompile(`(?i)(^|[^a-z0-9_-])` + regexp.QuoteMeta(key) + `($|[^a-z0-9_-])`).MatchString(text)
+}
+
+// applyReply resumes parked stories from the owner reply that answers the
+// batched question. It acts only on a reply the daemon claimed for this very
+// launch; a replay after the continuation was allocated finds nothing to do.
+func (rt *implementRuntime) applyReply(ctx context.Context, instance store.GraphInstance) error {
+	wait, err := rt.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if wait.State != "claimed" || wait.ReplyID != rt.req.Trigger.CommentID {
+		return nil
+	}
+	_, err = rt.resumeStories(ctx, wait.ReplyBody)
+	return err
+}
+
+// parkHook rests the coordinator at its await node while stories build and
+// nothing needs it: stories are running and none is waiting to be merged. A
+// merge that found the branch busy rests briefly before it tries again. In every
+// other case the coordinator runs on, because the ledger, not the graph position,
+// says what is left to do.
+func (rt *implementRuntime) parkHook(ctx context.Context, opts Options, instance store.GraphInstance, node graphexec.Node) (ParkDecision, error) {
+	if rt.worker != nil || node.Name != graphexec.ImplementAwaitNode {
+		return ParkDecision{}, nil
+	}
+	rows, err := opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)
+	if err != nil {
+		return ParkDecision{}, err
+	}
+	running, done := 0, 0
+	for _, row := range rows {
+		switch row.State {
+		case store.ImplementRunning:
+			running++
+		case store.ImplementDone:
+			done++
+		}
+	}
+	now := rt.now()
+	if done > 0 {
+		retry, err := rt.lastOutcomeWasRetry(ctx, instance.ID)
+		if err != nil || !retry {
+			return ParkDecision{}, err
+		}
+		return ParkDecision{Park: true, Due: now.Add(implementRetryDelay)}, nil
+	}
+	if running == 0 {
+		return ParkDecision{}, nil
+	}
+	return ParkDecision{Park: true, Due: now.Add(implementPollInterval)}, nil
+}
+
+// lastOutcomeWasRetry reports whether the latest finished step of the instance
+// answered retry.
+func (rt *implementRuntime) lastOutcomeWasRetry(ctx context.Context, instanceID int64) (bool, error) {
+	attempts, err := rt.opts.DB.ListGraphNodeAttempts(ctx, instanceID)
+	if err != nil {
+		return false, err
+	}
+	for _, a := range slices.Backward(attempts) {
+		if a.Status == store.GraphSucceeded {
+			return a.Outcome == "retry", nil
+		}
+	}
+	return false, nil
+}
+
+// wakeImplementParent makes the parent's resting coordinator owed a run now.
+// Several wakes leave exactly one dispatch open. A parent with no resting
+// coordinator is left alone: the ledger is read whenever it next runs.
+func wakeImplementParent(ctx context.Context, db *store.DB, parent string, at time.Time) error {
+	session, err := db.GetSessionByTaskRef(ctx, parent)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	instance, err := db.LatestWorkflowInstance(ctx, session.ID, string(agent.ModeImplement))
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = db.WakeGraphInstance(ctx, instance.ID, graphexec.ImplementAwaitNode, at)
+	return err
+}
+
+// implementScratchDir is where merge scratch worktrees are made.
+func implementScratchDir(opts Options) string {
+	return filepath.Join(opts.MCP.Paths.Home(), "implement-scratch")
+}

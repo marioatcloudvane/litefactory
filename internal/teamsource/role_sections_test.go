@@ -42,7 +42,7 @@ type shippedWorkflow struct {
 // it. A new workflow directory with a graph but no entry here fails the walk, so
 // it cannot ship uncovered.
 func embeddedWorkflowRoots() map[string]fs.FS {
-	return map[string]fs.FS{"plan": planAssets, "research": researchAssets, "bug": bugAssets, "spike": spikeAssets}
+	return map[string]fs.FS{"plan": planAssets, "research": researchAssets, "bug": bugAssets, "spike": spikeAssets, "implement": implementAssets}
 }
 
 // discoverShippedWorkflows finds workflow packages from the source layout (any
@@ -227,7 +227,7 @@ func TestShippedWorkflowRolesHaveTheNineSections(t *testing.T) {
 			roleCount[w.Name+"/"+role]++
 		}
 	}
-	for _, want := range []string{"research/research", "research/shaping", "plan/plan-story", "plan/plan-technical", "plan/plan-acceptance", "bug/bug-analyst", "bug/bug-fixer", "spike/spike-investigator", "spike/spike-fixer"} {
+	for _, want := range []string{"research/research", "research/shaping", "plan/plan-story", "plan/plan-technical", "plan/plan-acceptance", "bug/bug-analyst", "bug/bug-fixer", "spike/spike-investigator", "spike/spike-fixer", "implement/story-worker"} {
 		if roleCount[want] == 0 {
 			t.Errorf("shipped graphs no longer name role %s", want)
 		}

@@ -663,6 +663,9 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	if err := RecoverWorkflowPublications(ctx, opts, session.ID, SpikeWorkflowPolicy()); err != nil {
 		return result, err
 	}
+	if err := RecoverWorkflowPublications(ctx, opts, session.ID, ImplementWorkflowPolicy()); err != nil {
+		return result, err
+	}
 	existing, replay, err := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)
 	if err != nil {
 		return result, fmt.Errorf("look for an existing run of comment %d: %w", req.Trigger.CommentID, err)
@@ -691,6 +694,9 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		return graphResult, graphErr
 	}
 	if graphResult, handled, graphErr := admitSpikeExecution(ctx, opts, req, result); handled {
+		return graphResult, graphErr
+	}
+	if graphResult, handled, graphErr := admitImplementExecution(ctx, opts, req, result); handled {
 		return graphResult, graphErr
 	}
 
