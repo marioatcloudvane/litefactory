@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/bugchecks"
-	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -85,9 +83,6 @@ type ImplementForge interface {
 	EditComment(context.Context, github.Repo, int64, redact.Body) error
 }
 
-// ImplementCheckRunner runs one recipe command in a worktree.
-type ImplementCheckRunner func(ctx context.Context, worktree string, command config.BugCheckCommand) bugchecks.CommandResult
-
 // ImplementBindings carries what the three activities need. Bind is the one
 // trusted source of the parent, the story set and the integration branch.
 type ImplementBindings struct {
@@ -96,8 +91,6 @@ type ImplementBindings struct {
 	Redactor *redact.Redactor
 	LockDir  string
 	Repo     ImplementRepo
-	// RunCheck overrides the configured check sandbox; nil uses it.
-	RunCheck ImplementCheckRunner
 	// Now overrides the clock; nil uses the run's clock.
 	Now  func() time.Time
 	Bind ImplementBind

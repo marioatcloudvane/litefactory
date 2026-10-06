@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-	"github.com/cloudvane/litefactory/internal/bugchecks"
-	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
@@ -82,16 +80,14 @@ func (f *implementForgeFake) bodies(issue int) []string {
 
 // implementRepoFake scripts the scratch worktree.
 type implementRepoFake struct {
-	begins    int
-	beginErr  error
-	recipe    []byte
-	recipeErr error
-	mergeErr  error
-	merged    bool
-	pushErr   error
-	merges    []string
-	pushes    []string
-	closed    int
+	begins   int
+	beginErr error
+	mergeErr error
+	merged   bool
+	pushErr  error
+	merges   []string
+	pushes   []string
+	closed   int
 }
 
 func (r *implementRepoFake) Begin(context.Context, string) (ImplementScratch, error) {
@@ -111,9 +107,6 @@ const (
 
 func (s *implementScratchFake) Head() string { return fakeIntegrationHead }
 func (s *implementScratchFake) Path() string { return "/scratch" }
-func (s *implementScratchFake) Recipe(context.Context) ([]byte, error) {
-	return s.r.recipe, s.r.recipeErr
-}
 func (s *implementScratchFake) Merge(_ context.Context, branch string) (string, bool, error) {
 	s.r.merges = append(s.r.merges, branch)
 	if s.r.mergeErr != nil {
@@ -127,25 +120,6 @@ func (s *implementScratchFake) Publish(_ context.Context, branch, expected strin
 }
 func (s *implementScratchFake) Close(context.Context) error { s.r.closed++; return nil }
 
-const implementRecipe = `version: 1
-phases:
-  regression:
-    commands:
-      - argv: ["check-regression"]
-        cwd: "."
-        timeout_seconds: 5
-  focused:
-    commands:
-      - argv: ["check-focused"]
-        cwd: "."
-        timeout_seconds: 5
-  full:
-    commands:
-      - argv: ["check-full"]
-        cwd: "."
-        timeout_seconds: 5
-`
-
 type implementFixture struct {
 	t        *testing.T
 	db       *store.DB
@@ -153,8 +127,6 @@ type implementFixture struct {
 	repo     *implementRepoFake
 	auth     ImplementAuthority
 	lockDir  string
-	commands []string
-	failOn   string
 	bindings ImplementBindings
 }
 
@@ -168,20 +140,12 @@ func newImplementFixture(t *testing.T, stories ...ImplementStory) *implementFixt
 	if err := db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	f := &implementFixture{t: t, db: db, forge: &implementForgeFake{}, repo: &implementRepoFake{recipe: []byte(implementRecipe), merged: true}, lockDir: t.TempDir()}
+	f := &implementFixture{t: t, db: db, forge: &implementForgeFake{}, repo: &implementRepoFake{merged: true}, lockDir: t.TempDir()}
 	f.auth = ImplementAuthority{Parent: implementParent, Generation: 1, Stories: stories, IntegrationBranch: "lf/1-feature"}
 	f.bindings = ImplementBindings{
 		DB: db, Forge: f.forge, Redactor: redact.New(redact.Options{Environ: []string{}}), LockDir: f.lockDir, Repo: f.repo,
 		Now:  func() time.Time { return implementClock },
 		Bind: func(context.Context, Options, ActivityRequest) (ImplementAuthority, error) { return f.auth, nil },
-		RunCheck: func(_ context.Context, _ string, c config.BugCheckCommand) bugchecks.CommandResult {
-			f.commands = append(f.commands, c.Argv[0])
-			if c.Argv[0] == f.failOn {
-				exit := 2
-				return bugchecks.CommandResult{Outcome: "failed", Exit: &exit}
-			}
-			return bugchecks.CommandResult{Outcome: "passed"}
-		},
 	}
 	return f
 }
@@ -396,16 +360,15 @@ func TestImplementMergeTakesTheOldestDoneStoryOnePerCall(t *testing.T) {
 	}
 }
 
-func TestImplementMergeRunsAllPhasesThenPushesWithTheExpectedHead(t *testing.T) {
+// The merge runs no tests: the worker tested its story against the integration
+// branch before it reported done.
+func TestImplementMergePushesWithTheExpectedHeadAndRunsNoChecks(t *testing.T) {
 	f := newImplementFixture(t, implementStories(1, nil)...)
 	f.ready()
 	f.drive("story-001", store.ImplementDone, implementClock)
 	res, out, err := f.merge()
 	if err != nil || res.Outcome != "merged" || out.Commit != fakeMergeCommit {
 		t.Fatalf("%s %+v %v", res.Outcome, out, err)
-	}
-	if strings.Join(f.commands, ",") != "check-regression,check-focused,check-full" {
-		t.Fatalf("commands = %v", f.commands)
 	}
 	if len(f.repo.pushes) != 1 || f.repo.pushes[0] != "lf/1-feature@"+fakeIntegrationHead || f.repo.closed != 1 {
 		t.Fatalf("pushes=%v closed=%d", f.repo.pushes, f.repo.closed)
@@ -422,9 +385,6 @@ func TestImplementMergeParksWithAPlainReason(t *testing.T) {
 		pushed bool
 	}{
 		"conflict":       {func(f *implementFixture) { f.repo.mergeErr = fmt.Errorf("x: %w", git.ErrMergeConflict) }, "conflicts", false},
-		"failing check":  {func(f *implementFixture) { f.failOn = "check-focused" }, "focused build check failed", false},
-		"missing recipe": {func(f *implementFixture) { f.repo.recipeErr = fmt.Errorf("x: %w", git.ErrBugCheckRecipe) }, "no build check configured", false},
-		"invalid recipe": {func(f *implementFixture) { f.repo.recipe = []byte("not: [a recipe") }, "recipe is invalid", false},
 		"missing branch": {func(f *implementFixture) { f.repo.mergeErr = fmt.Errorf("x: %w", git.ErrRevisionNotFound) }, "branch was not found", false},
 	}
 	for name, tc := range cases {
@@ -465,12 +425,9 @@ func TestImplementMergeNextDoneStoryGetsItsTurnAfterAPark(t *testing.T) {
 
 func TestImplementMergeTransientFaultsDoNotPark(t *testing.T) {
 	setups := map[string]func(*implementFixture){
-		"git outage":     func(f *implementFixture) { f.repo.beginErr = errors.New("network down") },
-		"merge failure":  func(f *implementFixture) { f.repo.mergeErr = errors.New("disk full") },
-		"recipe read":    func(f *implementFixture) { f.repo.recipeErr = errors.New("git exploded") },
-		"push outage":    func(f *implementFixture) { f.repo.pushErr = errors.New("connection reset") },
-		"check blocked":  func(f *implementFixture) { f.bindings.RunCheck = blockedCheck },
-		"check canceled": func(f *implementFixture) { f.bindings.RunCheck = cancelledCheck },
+		"git outage":    func(f *implementFixture) { f.repo.beginErr = errors.New("network down") },
+		"merge failure": func(f *implementFixture) { f.repo.mergeErr = errors.New("disk full") },
+		"push outage":   func(f *implementFixture) { f.repo.pushErr = errors.New("connection reset") },
 	}
 	for name, setup := range setups {
 		t.Run(name, func(t *testing.T) {
@@ -489,14 +446,6 @@ func TestImplementMergeTransientFaultsDoNotPark(t *testing.T) {
 			}
 		})
 	}
-}
-
-func blockedCheck(context.Context, string, config.BugCheckCommand) bugchecks.CommandResult {
-	return bugchecks.CommandResult{Outcome: "blocked", Reason: "no sandbox"}
-}
-
-func cancelledCheck(context.Context, string, config.BugCheckCommand) bugchecks.CommandResult {
-	return bugchecks.CommandResult{Outcome: "cancelled", Reason: "stopped"}
 }
 
 func TestImplementMergeMovedHeadRetriesWithoutParkingOrNote(t *testing.T) {
@@ -557,8 +506,8 @@ func TestImplementMergeOfAnAlreadyContainedStoryNeedsNoCheckOrPush(t *testing.T)
 	if err != nil || res.Outcome != "merged" || out.Commit != fakeIntegrationHead {
 		t.Fatalf("%s %+v %v", res.Outcome, out, err)
 	}
-	if len(f.commands) != 0 || len(f.repo.pushes) != 0 || f.forge.posts != 1 {
-		t.Fatalf("commands=%v pushes=%v posts=%d", f.commands, f.repo.pushes, f.forge.posts)
+	if len(f.repo.pushes) != 0 || f.forge.posts != 1 {
+		t.Fatalf("pushes=%v posts=%d", f.repo.pushes, f.forge.posts)
 	}
 }
 
