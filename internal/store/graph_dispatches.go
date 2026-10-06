@@ -168,11 +168,12 @@ func (db *DB) ListDueGraphDispatches(ctx context.Context, now time.Time, limit i
 }
 
 // NextFreshGraphDispatch returns the oldest pending dispatch of a session that
-// has never been attempted: a stage its instance parked for and is owed at
-// once. A dispatch that failed to start keeps its back-off and is left to the
+// has never been attempted and is already due: a stage its instance parked for
+// and is owed at once. A dispatch parked for later, such as an Implement
+// coordinator retrying a merge, is left to the tick. A dispatch that failed to start keeps its back-off and is left to the
 // tick.
 func (db *DB) NextFreshGraphDispatch(ctx context.Context, sessionID int64) (GraphDispatch, bool, error) {
-	row := db.sql.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE session_id=? AND status='pending' AND attempts=0 ORDER BY due_at,id LIMIT 1`, sessionID)
+	row := db.sql.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE session_id=? AND status='pending' AND attempts=0 AND due_at<=? ORDER BY due_at,id LIMIT 1`, sessionID, FormatTime(nowUTC()))
 	d, err := scanGraphDispatch(row)
 	if errors.Is(err, ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
 		return GraphDispatch{}, false, nil
@@ -385,4 +386,56 @@ func (db *DB) GraphDispatchFollowsCancellation(ctx context.Context, dispatch Gra
 	var recovered bool
 	err := db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_dispatches WHERE id=(SELECT MAX(id) FROM graph_dispatches WHERE instance_id=? AND id<?) AND status='cancelled' AND allocated_run_id IS NULL AND node=?)`, dispatch.InstanceID, dispatch.ID, dispatch.Node).Scan(&recovered)
 	return recovered, err
+}
+
+// WakeGraphInstance makes a resting instance owed its next run now. It acts only
+// on a running instance that rests on node with no attempt in flight, and it
+// never adds a second open dispatch: an open pending one is brought forward, one
+// already reserved or running is returned as it is, and only an instance with
+// none gets a new one. However many wakes arrive, exactly one dispatch is open. A
+// terminal or moved-on instance is reported as not woken.
+func (db *DB) WakeGraphInstance(ctx context.Context, instanceID int64, node string, at time.Time) (woken bool, err error) {
+	if instanceID < 1 || node == "" || at.IsZero() {
+		return false, graphInvariant("invalid graph wake")
+	}
+	err = db.withTx(ctx, func(tx *sql.Tx) error {
+		instance, e := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, instanceID))
+		if e != nil {
+			return e
+		}
+		if instance.Status != GraphRunning || instance.CurrentNode != node {
+			return nil
+		}
+		var owner int
+		if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_owner_waits WHERE instance_id=? AND state IN ('waiting','claimed')`, instanceID).Scan(&owner); e != nil || owner > 0 {
+			return e
+		}
+		stamp := FormatTime(at)
+		res, e := tx.ExecContext(ctx, `UPDATE graph_dispatches SET due_at=? WHERE instance_id=? AND status='pending' AND due_at>?`, stamp, instanceID, stamp)
+		if e != nil {
+			return e
+		}
+		brought, e := res.RowsAffected()
+		if e != nil {
+			return e
+		}
+		var open int
+		if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_dispatches WHERE instance_id=? AND status IN ('pending','reserved','running')`, instanceID).Scan(&open); e != nil {
+			return e
+		}
+		if open == 0 {
+			if _, e = tx.ExecContext(ctx, `INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at) VALUES(?,?,?,?,'pending',?)`, instanceID, instance.SessionID, node, stamp, stamp); e != nil {
+				return e
+			}
+			brought = 1
+		}
+		if brought > 0 {
+			if _, e = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=? WHERE id=?`, stamp, instanceID); e != nil {
+				return e
+			}
+			woken = true
+		}
+		return nil
+	})
+	return woken, err
 }

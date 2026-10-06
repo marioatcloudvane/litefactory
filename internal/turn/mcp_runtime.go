@@ -311,17 +311,23 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		return nil, nil, err
 	}
 	var evidence *EvidenceService
-	if req.Mode == "implement" || req.Mode == "validate" {
+	withoutEvidence := req.Mode == "implement" && req.Invocation == agent.InvocationResearchNode
+	if (req.Mode == "implement" || req.Mode == "validate") && !withoutEvidence {
 		evidence, err = NewEvidenceService(session, receipts)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
-	feedback, err := NewFeedbackService(service, evidence)
+	var feedback *FeedbackService
+	if withoutEvidence {
+		feedback, err = newFeedbackServiceWithoutEvidence(service)
+	} else {
+		feedback, err = NewFeedbackService(service, evidence)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	families := FamilyDispatcherOptions{Service: service, Receipts: receipts, Feedback: feedback, Evidence: evidence}
+	families := FamilyDispatcherOptions{Service: service, Receipts: receipts, Feedback: feedback, Evidence: evidence, WithoutEvidence: withoutEvidence}
 	now := runtime.Now()
 	activity, err := NewActivityService(ActivityOptions{Receipts: receipts, Now: now})
 	if err != nil {

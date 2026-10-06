@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -86,6 +87,34 @@ type WorkflowPolicy struct {
 	// comment is about to report, from durable records only. It runs for every
 	// kind except failure; an error refuses the publication.
 	Annotate func(ctx context.Context, db *store.DB, source store.GraphNodeAttempt, kind string, candidate agentresult.Result) (agentresult.Result, error)
+
+	// ResultOverride gives one agent attempt its own trusted result context and
+	// grants, for a mode whose context carries more than the generic one does.
+	// Nil uses the generic route.
+	ResultOverride func(ctx context.Context, w *researchWorkflow, a ActivityRequest) (*resultOverride, error)
+
+	// AfterAgentFailure lets a mode settle an agent attempt that failed after its
+	// process ran, such as turning it into a declared outcome its graph routes.
+	// It receives what the attempt produced and its error, and returns the result
+	// and error the step records. A failure before the process ran (preparation)
+	// is passed through the same way; the hook tells them apart by ProcessResult.
+	// Nil keeps the failure as it is.
+	AfterAgentFailure func(ctx context.Context, opts Options, a ActivityRequest, out ActivityResult, cause error) (ActivityResult, error)
+
+	// Park lets a mode rest its instance at a node instead of running it. It runs
+	// before a node executes, only when this run already executed a node, so a
+	// resumed run always executes the node it resumed at. A true decision parks
+	// the instance on that node with a dispatch due at Due, and ends the run
+	// without failing it.
+	Park func(ctx context.Context, opts Options, instance store.GraphInstance, node graphexec.Node) (ParkDecision, error)
+}
+
+// ParkDecision is a mode's answer to [WorkflowPolicy.Park].
+type ParkDecision struct {
+	Park bool
+	// Due is when the parked instance is owed its next run: a backstop poll, since
+	// a state change wakes it sooner.
+	Due time.Time
 }
 
 // WorkflowEnv is the trusted run context a mode's scoped activities are built
@@ -93,6 +122,11 @@ type WorkflowPolicy struct {
 type WorkflowEnv struct {
 	Ref      naming.Ref
 	Worktree func() (*git.Worktree, error)
+	// Save commits and pushes whatever the run's worktree holds, as the end of a
+	// run does, and reports what became of it. It is for a mode whose graph
+	// decides, mid-run, that the work is to be saved. It records that the run has
+	// saved, so the end of the run does not save again.
+	Save func(context.Context) (Result, error)
 }
 
 // baseContext is the trusted result scope every graph node of this policy shares.

@@ -42,7 +42,7 @@ func TestInterruptionDurableBeforeAnnouncementAndReplay(t *testing.T) {
 			reporter := newReporter(t, f, forge, nil)
 			result := f.execute(f.request())
 			run := f.runs()[0]
-			if run.SemanticOutcome != "interrupted" || run.Succeeded() || run.CommitSHA != "" {
+			if run.SemanticOutcome != "interrupted" || run.Succeeded() || run.CommitSHA == "" {
 				t.Fatalf("interrupted run = %+v", run)
 			}
 			bytes, err := os.ReadFile(filepath.Join(f.worktreeDir(), "partial.txt"))
