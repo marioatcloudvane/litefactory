@@ -39,7 +39,7 @@ func (d *Daemon) admitWorkflow(ctx context.Context, t *task, trigger turn.Trigge
 			return "", "", labelErr
 		}
 		_, commanded := command.Mode()
-		if !labelled && !commanded && !t.refining && t.continuation == nil && slices.Contains(issue.Labels, "bug") {
+		if !labelled && !commanded && !t.refining && !t.implementing && t.continuation == nil && slices.Contains(issue.Labels, "bug") {
 			a, err = d.db.AdmitWorkflow(ctx, store.TaskWorkflowAdmission{SessionID: t.session.ID, Version: 1, Family: "standalone", Workflow: "bug", SourceTrigger: trigger.CommentID})
 			if err != nil {
 				return "", "", err

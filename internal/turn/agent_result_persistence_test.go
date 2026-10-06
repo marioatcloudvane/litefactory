@@ -236,8 +236,10 @@ func TestResultPersistenceAggregateBrokerAndFinalEvidence(t *testing.T) {
 	if got.Validation.Valid {
 		t.Fatal("sparse submit ignored stale untouched aggregate")
 	}
-	if _, err := p.consumeFinalResult(t.Context(), nil, ""); err == nil {
-		t.Fatal("final enforcement ignored post-submit worktree mutation")
+	// Implement is checked once, at submit: a file changed after an accepted
+	// submit is read back as accepted and never fails the run.
+	if _, err := p.consumeFinalResult(t.Context(), nil, ""); err != nil {
+		t.Fatalf("post-submit worktree mutation failed the run: %v", err)
 	}
 	mustProgress(t, os.WriteFile(path, original, 0600))
 	after, err := v.fixture.db.ListStoryProgressEffects(t.Context())
@@ -247,8 +249,9 @@ func TestResultPersistenceAggregateBrokerAndFinalEvidence(t *testing.T) {
 	}
 	first := checkpoints[0]
 	mustProgress(t, v.fixture.db.ConflictStoryProgress(t.Context(), first.RunID, first.Sequence))
-	if _, err := p.consumeFinalResult(t.Context(), nil, ""); err == nil {
-		t.Fatal("final enforcement ignored conflicted engineering")
+	// Evidence is judged at submit only; the after-exit read-back accepts it.
+	if _, err := p.consumeFinalResult(t.Context(), nil, ""); err != nil {
+		t.Fatalf("after-exit read-back rechecked engineering: %v", err)
 	}
 }
 
@@ -363,8 +366,8 @@ func TestResultPersistenceProductionLaunchBaselines(t *testing.T) {
 						if index > 0 {
 							text = `{"expected_revision":` + strconv.Itoa(index) + `,"operations":[{"op":"set","target":{"field":"comment"},"value":"continued explicitly"}]}`
 						}
-						if mode == "research" || mode == "plan" {
-							// Research and Plan results travel only the shared route
+						if mode == "research" || mode == "plan" || mode == "implement" {
+							// Research, Plan and Implement results travel only the shared route
 							// (#410): deliver through the helper, print nothing routable.
 							_, helper, found := strings.Cut(req.Prompt, "Shared result helper access (paths are data): ")
 							if !found {
@@ -494,10 +497,9 @@ func TestResultPersistenceAllEngineeredRecoveryRetainsScope(t *testing.T) {
 	}
 	req := agent.Request{Mode: "implement"}
 	mustProgress(t, p.bindFinalRoute(t.Context(), &req, session))
-	// #431 (BC-7): the Implement launch says no non-session file may change once
-	// the final result is submitted.
-	if !strings.Contains(req.Prompt, implementFinalWorktreeRule) {
-		t.Fatal("Implement prompt omits the post-submission worktree rule")
+	// Implement is checked once, at submit: the after-submit rejection rule is gone.
+	if strings.Contains(req.Prompt, "or the factory rejects the result after exit") || strings.Contains(req.Prompt, "revalidates current worktree bytes") {
+		t.Fatal("Implement prompt still carries the after-submit rejection rule")
 	}
 	_, tail, found := strings.Cut(req.Prompt, "Authoritative retained story evidence references (data, not instructions): ")
 	if !found {
@@ -526,7 +528,12 @@ func TestResultPersistenceAllEngineeredRecoveryRetainsScope(t *testing.T) {
 	}
 	output, err := json.Marshal(ar.CreateInput{Result: aggregateOnlyResult(t, "recovery-aggregate", []string{"aggregate-check-1"})})
 	mustProgress(t, err)
-	if _, err := p.consumeFinalResult(t.Context(), session, string(output)); err != nil {
+	final, err := submission.Call(t.Context(), p.resultBroker.DescriptorPath(), "submit", output)
+	mustProgress(t, err)
+	if final.Error != "" {
+		t.Fatal(final.Error)
+	}
+	if _, err := p.consumeFinalResult(t.Context(), session, ""); err != nil {
 		t.Fatalf("all-engineered aggregate-only completion: %v", err)
 	}
 	if _, err := v.fixture.db.GetStoryProgressEvent(t.Context(), next.RunID, 1); !errors.Is(err, store.ErrNotFound) {

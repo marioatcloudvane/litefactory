@@ -1,0 +1,167 @@
+package turn
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"unicode"
+
+	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/store"
+)
+
+// bind supplies the coordinator's trusted authority from factory state: the
+// parent, the generation, the unfinished stories in plan order with the branch of
+// each story's own task, and the parent's branch they merge into. Nothing here
+// comes from agent text. A story already complete counts as merged for the
+// stories that depend on it, so it is left out of the set and out of their
+// prerequisites.
+func (rt *implementRuntime) bind(ctx context.Context, opts Options, _ ActivityRequest) (ImplementAuthority, error) {
+	if rt.worker != nil {
+		return ImplementAuthority{}, errors.New("a story worker has no coordinator authority")
+	}
+	parent := rt.parentRef.String()
+	feature, err := opts.DB.GetManagedFeature(ctx, parent)
+	if err != nil {
+		return ImplementAuthority{}, fmt.Errorf("read the managed feature: %w", err)
+	}
+	if feature.State != "implementing" {
+		return ImplementAuthority{}, errors.New("managed stories are not approved for implementation")
+	}
+	revisions, err := opts.DB.ListApprovedStoryRevisions(ctx, parent, feature.Generation)
+	if err != nil {
+		return ImplementAuthority{}, fmt.Errorf("read approved stories: %w", err)
+	}
+	session, err := opts.DB.GetSession(ctx, rt.req.SessionID)
+	if err != nil {
+		return ImplementAuthority{}, err
+	}
+	if strings.TrimSpace(session.Branch) == "" {
+		return ImplementAuthority{}, errors.New("the feature branch of this task does not exist yet, so stories have nothing to merge into")
+	}
+	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
+	if err != nil {
+		return ImplementAuthority{}, err
+	}
+	unfinished := map[string]bool{}
+	for _, r := range revisions {
+		if r.State != "completed" && !r.EngineeringComplete {
+			unfinished[r.Key] = true
+		}
+	}
+	authority := ImplementAuthority{Parent: rt.parentRef, Generation: int64(feature.Generation), IntegrationBranch: session.Branch}
+	for _, r := range revisions {
+		if !unfinished[r.Key] {
+			continue
+		}
+		storySession, err := opts.DB.GetOrCreateSession(ctx, repo, r.IssueNumber)
+		if err != nil {
+			return ImplementAuthority{}, fmt.Errorf("find the task of story %s: %w", r.Key, err)
+		}
+		branch := storySession.Branch
+		if branch == "" {
+			slug, err := naming.Slug(r.Title)
+			if err != nil {
+				return ImplementAuthority{}, fmt.Errorf("the slug of story %s: %w", r.Key, err)
+			}
+			if branch, err = naming.Branch(repo.FeaturePrefix, r.IssueNumber, slug); err != nil {
+				return ImplementAuthority{}, fmt.Errorf("the branch of story %s: %w", r.Key, err)
+			}
+		}
+		var dependencies []string
+		for _, key := range r.Dependencies {
+			if unfinished[key] {
+				dependencies = append(dependencies, key)
+			}
+		}
+		authority.Stories = append(authority.Stories, ImplementStory{Key: r.Key, Name: r.Title, Branch: branch, IssueNumber: r.IssueNumber, Dependencies: dependencies})
+	}
+	return authority, nil
+}
+
+// implementQuestionCandidate builds the one question the owner gets after the
+// hand-off: every parked story, by key, with its reason in plain language, and
+// how to answer.
+func implementQuestionCandidate(parked []store.ImplementStory) agentresult.Result {
+	noun := "stories are stopped and need"
+	if len(parked) == 1 {
+		noun = "story is stopped and needs"
+	}
+	candidate := agentresult.Result{
+		Outcome: "incomplete",
+		Comment: fmt.Sprintf("The work that could be done is done. %d %s your decision. Each one keeps its branch and everything built so far.", len(parked), noun),
+		Reason:  "Reply on this issue to restart the stopped stories. Name a story by its key (for example story-002) and say what it should do differently; a reply that names no story restarts all of them. A restarted story continues from its branch with your reply as guidance.",
+		Payload: agentresult.Payload{Implement: &agentresult.Implement{}},
+	}
+	for i, row := range parked {
+		where := "its worker could not finish it"
+		if row.ParkOrigin == store.ImplementOriginMerge {
+			where = "it could not be merged into the feature branch"
+		}
+		candidate.Questions = append(candidate.Questions, agentresult.Question{
+			ID: fmt.Sprintf("q%d", i+1), Audience: "business",
+			Text: fmt.Sprintf("**%s**: %s. %s", row.Key, where, sentence(row.Reason)),
+		})
+	}
+	return candidate
+}
+
+// ask publishes the one batched owner question on the parent, listing every
+// parked story, and opens the owner wait. The wait rests on the merge step, so
+// the owner's reply resumes the coordinator where it merges and starts stories.
+func (rt *implementRuntime) ask(ctx context.Context, opts Options, a ActivityRequest) (ActivityResult, error) {
+	rows, err := opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	var parked []store.ImplementStory
+	for _, row := range rows {
+		if row.State == store.ImplementParked {
+			parked = append(parked, row)
+		}
+	}
+	if len(parked) == 0 {
+		return ActivityResult{}, errors.New("no story is parked, so there is nothing to ask")
+	}
+	source, err := opts.DB.LatestGraphNodeAttempt(ctx, a.InstanceID, a.Attrs["lf_source"])
+	if err != nil {
+		return ActivityResult{}, fmt.Errorf("find the step the owner's reply resumes: %w", err)
+	}
+	if source.Status != store.GraphSucceeded {
+		return ActivityResult{}, errors.New("the step the owner's reply resumes has not finished")
+	}
+	policy := ImplementWorkflowPolicy()
+	scope := policy.baseContext(true)
+	posted, key, err := opts.ResearchReporter.ReportWorkflowCandidate(ctx, source, a.Node, "question", implementQuestionCandidate(parked), scope, "", policy)
+	if err != nil {
+		return ActivityResult{Diagnostic: err.Error()}, err
+	}
+	payload, err := json.Marshal(struct {
+		DeliveryKey string `json:"delivery_key"`
+		CommentID   int64  `json:"comment_id"`
+		Stories     int    `json:"stories"`
+	}{key, posted.CommentID, len(parked)})
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: payload}, nil
+}
+
+// sentence makes a reason read as a sentence: it starts with a capital letter and
+// ends with a full stop.
+func sentence(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" {
+		return "No reason was recorded."
+	}
+	runes := []rune(text)
+	runes[0] = unicode.ToUpper(runes[0])
+	text = string(runes)
+	if !strings.ContainsAny(text[len(text)-1:], ".!?") {
+		text += "."
+	}
+	return text
+}

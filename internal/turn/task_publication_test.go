@@ -59,9 +59,10 @@ func TestTaskPublicationNoOpRunner(t *testing.T) {
 	}
 }
 
-// AC-010: failure retains a preparation merge and dirty work; a subsequent
-// successful no-op run publishes the outstanding commit after recovery.
-func TestTaskPublicationFailedRunnerRetainsWork(t *testing.T) {
+// AC-010, revised by #488 (git is the record): a failed run's preparation
+// merge and dirty work are committed and published like any other run's, and a
+// following successful no-op run has nothing left to publish.
+func TestTaskPublicationFailedRunnerPublishesWork(t *testing.T) {
 	t.Parallel()
 	var f *fixture
 	fail := false
@@ -83,30 +84,22 @@ func TestTaskPublicationFailedRunnerRetainsWork(t *testing.T) {
 	fail = true
 	r := executePublicationTurn(f)
 	head := strings.TrimSpace(f.repo.GitIn(f.worktreeDir(), "rev-parse", "HEAD"))
-	if r.Succeeded() || r.Pushed || head == remoteBefore {
-		t.Fatalf("failure did not preserve unpublished merge: %+v", r)
+	if r.Succeeded() || !r.Committed || !r.Pushed || head == remoteBefore {
+		t.Fatalf("failed run did not publish its work: %+v", r)
 	}
-	if remote := strings.Fields(f.repo.Git("ls-remote", "origin", "refs/heads/"+testBranch))[0]; remote != remoteBefore {
-		t.Fatal("failed runner published")
+	if remote := strings.Fields(f.repo.Git("ls-remote", "origin", "refs/heads/"+testBranch))[0]; remote != head {
+		t.Fatalf("origin is at %s, want the failed run's commit %s", remote, head)
 	}
-	data, err := os.ReadFile(filepath.Join(f.worktreeDir(), "unfinished.txt"))
-	if err != nil || string(data) != "unfinished bytes\n" {
-		t.Fatalf("lost edits: %q %v", data, err)
+	if got := f.repo.GitIn(f.worktreeDir(), "show", "HEAD:unfinished.txt"); strings.TrimSpace(got) != "unfinished bytes" {
+		t.Fatalf("the failed run's edits are not in its commit: %q", got)
 	}
-	if !strings.Contains(r.Publication, head) || !strings.Contains(r.Publication, "retained") {
-		t.Fatalf("missing retained evidence: %s", r.Publication)
-	}
-	// Explicit local operator recovery preserves the edits as a commit.
-	f.repo.GitIn(f.worktreeDir(), "add", "unfinished.txt")
-	f.repo.GitIn(f.worktreeDir(), "commit", "-m", "recover unfinished work")
-	recovered := strings.TrimSpace(f.repo.GitIn(f.worktreeDir(), "rev-parse", "HEAD"))
 	fail = false
 	r = executePublicationTurn(f)
-	if !r.Succeeded() || !r.Pushed || r.Changed || r.Committed {
-		t.Fatalf("recovered publication: %+v", r)
+	if !r.Succeeded() || r.Changed || r.Committed {
+		t.Fatalf("following no-op run: %+v", r)
 	}
-	if remote := strings.Fields(f.repo.Git("ls-remote", "origin", "refs/heads/"+testBranch))[0]; remote != recovered {
-		t.Fatal("prior work not published")
+	if remote := strings.Fields(f.repo.Git("ls-remote", "origin", "refs/heads/"+testBranch))[0]; remote != head {
+		t.Fatal("following run moved the published branch")
 	}
 }
 

@@ -166,6 +166,8 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 	}
 	commandMode, commanded := command.Mode()
 	switch {
+	case t.implementing:
+		mode = agent.ModeImplement
 	case t.refining:
 		mode = agent.ModePlan
 	// An explicit owner command outranks the managed pin below. It has to:
