@@ -357,3 +357,23 @@ func TestImplementCoordinatorStartsStoriesRestsAsksOnceAndResumesOnTheReply(t *t
 		t.Fatalf("the coordinator rests again while the restarted story builds: %+v", instance)
 	}
 }
+
+// A story issue planned as its own task (#475) keeps its own Plan row in
+// planning. The worker is admitted by the parent's approval, never by that row.
+func TestImplementWorkerIgnoresTheStoryIssuesOwnPlanRow(t *testing.T) {
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "health.go"), []byte("package health\n"), 0o600))
+		submitLiveResult(t, req, implementCompletedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	mustProgress(t, f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning", WorkflowVersion: store.WorkflowSeparated}))
+	out, err := Execute(t.Context(), f.opts, req)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("the worker was refused by its story issue's own Plan row: %+v %v", out, err)
+	}
+	if row := implementWorkerRow(t, f); row.State != store.ImplementDone {
+		t.Fatalf("%+v", row)
+	}
+}
