@@ -449,7 +449,12 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%w: %w", agent.ErrInvalidRequest, err)
 			}
-			args = append(args, "-c", instructions, "-c", "features.multi_agent=false")
+			args = append(args, "-c", instructions)
+			// An Implement story worker hands independent tasks and test runs
+			// to subagents; every other main role works alone.
+			if req.Mode != string(agent.ModeImplement) {
+				args = append(args, "-c", "features.multi_agent=false")
+			}
 		} else {
 			for _, role := range req.Delivery.Roles {
 				args = append(args, "-c", "agents."+role+".description="+strconv.Quote("Selected mode specialist; consult the mode roster."), "-c", "agents."+role+".config_file="+strconv.Quote(filepath.Join(req.Delivery.Root, "roles", role+".toml")))

@@ -147,3 +147,28 @@ printf '%s\n' '{"type":"turn.completed"}'`)
 		})
 	}
 }
+
+// An Implement story worker keeps Codex's subagents so it can run independent
+// tasks and test runs side by side; Research and every other main role do not.
+func TestImplementMainRoleKeepsSubagents(t *testing.T) {
+	t.Parallel()
+	for mode, wantDisabled := range map[string]bool{"implement": false, "research": true, "plan": true} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			runner, argv := fakeRunner(t, `cat > stdin.txt
+printf '%s\n' '{"type":"turn.completed"}'`)
+			req := request(t, agent.PathCold)
+			req.Mode = mode
+			req.Delivery = &agent.Delivery{Root: t.TempDir(), Identity: strings.Repeat("a", 64), MainRole: "story-worker", MainModel: "worker", Roles: []string{"story-worker"}}
+			if err := os.WriteFile(filepath.Join(req.Delivery.Root, "main-instructions.md"), []byte("Selected main role\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if result, err := runner.Run(t.Context(), req); err != nil || result == nil || !result.Succeeded() {
+				t.Fatalf("launch failed: result=%+v error=%v", result, err)
+			}
+			if got := strings.Contains(string(mustRead(t, argv)), "features.multi_agent=false"); got != wantDisabled {
+				t.Fatalf("multi_agent disabled = %t, want %t", got, wantDisabled)
+			}
+		})
+	}
+}
