@@ -18,7 +18,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // TypedPlanSubmission holds factory-bound input for one actual Plan attempt.
@@ -57,16 +56,6 @@ func prepareTypedPlanSubmission(ctx context.Context, o Options, prep *preparatio
 		return nil, fmt.Errorf("typed Plan renderer unavailable")
 	}
 	scope := planbrief.TaskOwnerScope()
-	if prep.repo.ExternalTeam != "" {
-		roster, err := teamsource.Capture(ctx, o.Paths, prep.repo.ExternalTeam, "implement")
-		if err != nil {
-			return nil, err
-		}
-		scope.Roles = nil
-		for _, role := range roster.Agents {
-			scope.Roles = append(scope.Roles, role.Definition.ID)
-		}
-	}
 	existing, err := o.DB.ListManagedStories(ctx, prep.ref.String(), contract.Generation)
 	if err != nil {
 		return nil, err

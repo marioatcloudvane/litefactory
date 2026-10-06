@@ -1,0 +1,10 @@
+# github.com/cloudvane/litefactory/internal/turn
+internal/turn/delivery.go:13:2: "strings" imported and not used
+ok  	github.com/cloudvane/litefactory/internal/repos	(cached)	coverage: 48.4% of statements
+FAIL	github.com/cloudvane/litefactory/internal/cli [build failed]
+FAIL	github.com/cloudvane/litefactory/internal/daemon [build failed]
+# github.com/cloudvane/litefactory/internal/turn [github.com/cloudvane/litefactory/internal/store.test]
+internal/turn/delivery.go:13:2: "strings" imported and not used
+FAIL	github.com/cloudvane/litefactory/internal/turn [build failed]
+FAIL	github.com/cloudvane/litefactory/internal/store [build failed]
+FAIL

@@ -275,7 +275,6 @@ func TestUpsertRepoIsIdempotentOnPath(t *testing.T) {
 		BaseBranch:    "develop",
 		FeaturePrefix: "task",
 		WorktreeRoot:  "/elsewhere",
-		AiteamTeam:    "go-backend",
 	})
 	if err != nil {
 		t.Fatalf("re-upsert: %v", err)
@@ -285,7 +284,7 @@ func TestUpsertRepoIsIdempotentOnPath(t *testing.T) {
 		t.Fatalf("re-registering path %s created row %d beside %d", first.Path, second.ID, first.ID)
 	}
 	if second.BaseBranch != "develop" || second.FeaturePrefix != "task" ||
-		second.WorktreeRoot != "/elsewhere" || second.AiteamTeam != "go-backend" {
+		second.WorktreeRoot != "/elsewhere" {
 		t.Fatalf("mutable fields were not updated: %+v", second)
 	}
 	if !second.LastFetchAt.Equal(fetchedAt) {

@@ -91,12 +91,6 @@ linters:
       - path: ^cmd/litefactory/
         linters:
           - forbidigo
-      # Independent content-tool entry points also own their process root
-      # context; the exception does not extend into their implementation packages.
-      - path: ^cmd/team-(publish|benchmark)/main\.go$
-        text: context.Background
-        linters:
-          - forbidigo
       # Tests fabricate their own contexts and shell out to fixtures.
       - path: _test\.go
         linters:

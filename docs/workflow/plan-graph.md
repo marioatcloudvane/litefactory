@@ -8,8 +8,7 @@ to save context without publishing stories.
 
 ## Package and ownership
 
-`teams/source/plan/` contains the editable neutral roles, skills and graph.
-`internal/teamsource/plan/` is its explicit embedded runtime copy;
+`internal/teamsource/plan/` contains the embedded neutral roles, skills and graph;
 `teamsource.CapturePlan` captures the complete bounded resource closure and
 `NativeWorkflow` renders it in memory for either supported harness. Package
 capture does not select the production route or authorize remote effects.
@@ -67,7 +66,6 @@ effect has drained or undergone a supported explicit upgrade.
 | `internal/turn/plan_handoff.go`, `typed_plan.go`; `internal/store/typed_plan.go` | Legacy full-body proposal v1 and typed contribution v2 Plan handoff, readiness invalidation, receipts and save confirmation | Every supported legacy content/submission cohort and unsettled handoff has drained or been explicitly upgraded; a graph admission does not rewrite these versions |
 | `internal/turn/plan_publication.go`, `plan_index.go` | Existing complete-plan publication, expected-base checks, pending creation/attachment/update reconciliation and link-only index replacement | All legacy publication effects resolved and all still-used complete-publication responsibilities transferred with equivalent recovery guarantees |
 | `internal/planbrief/proposal.go`, `typed_content.go`, `legacy_upgrade.go`, `reconcile.go` | Existing complete/frozen typed validation, legacy bodies and explicit contract upgrades | No supported frozen generation, retained acceptance or pending reconciliation depends on the format; incomplete graph drafts are not a replacement complete contract |
-| `teams/source/index.json` and `teams/source/agents/shared/{plan-orchestrator,requirements-engineer,proxy-product-owner}.md`; `teams/source/agents/go-team/go-architect.md` | Existing catalog-based Plan team and its explicit team installation/rendering surface | Prove the catalog route has no supported callers/cohorts before removing its definitions; shipping neutral graph roles does not make these resources unused |
 | Installed `.claude/` and `.codex/` instruction trees | Existing factory roles and installed legacy workflows | Separate authorized instruction maintenance and supported cohort migration; this feature does not rewrite installed trees |
 
 The new package does not substitute its neutral architecture role into the

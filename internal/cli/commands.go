@@ -33,12 +33,5 @@ func Commands() []*Command {
 		newTaskCleanCommand(),
 		newTaskRetireCommand(),
 		newStoryContractUpgradeCommand(),
-		newTeamListCommand(),
-		newTeamShowCommand(),
-		newTeamAddCommand(),
-		newTeamStatusCommand(),
-		newTeamUpdateCommand(),
-		newTeamManageCommand(),
-		newTeamValidateCommand(),
 	}
 }

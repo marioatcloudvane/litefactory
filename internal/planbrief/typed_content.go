@@ -108,11 +108,8 @@ type ContentScope struct {
 	IssueRefs []string
 }
 
-// taskOwnerRoles is the Implement roster's specialists: the only roles a
-// planned task may name as its owner. It mirrors the implement roster of the
-// shipped go-team (teams/source/index.json) without its orchestrator, which
-// owns no task. It is the one place the list lives until task owners are read
-// from the admitted team's roster (#319).
+// taskOwnerRoles lists the built-in Implement specialists that may own planned
+// tasks. The orchestrator sequences work and owns no task.
 var taskOwnerRoles = []string{"go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}
 
 // TaskOwnerScope is the content scope planned stories are drafted, validated

@@ -38,7 +38,7 @@ orchestrator's job and its context is cheaper than yours.
 Never `git add`, `commit`, `stash` or `push` — litefactory commits the worktree
 itself, and uncommitted work at the end of a run is normal.
 
-Research uses `teams/source/skills/research-evidence/SKILL.md` only. For other
+Research uses `internal/teamsource/research/skills/research-evidence/SKILL.md` only. For other
 modes, lifecycle, managed stories, Plan continuation and the story protocol are in
 `.codex/skills/workflow/SKILL.md`.
 

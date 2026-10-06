@@ -1,20 +1,5 @@
-// Package teamsource loads centrally installed team definitions and captures
-// exact mode rosters with their transitive skill resources. Resolve never
-// consults a repository or falls back to embedded defaults. Explicit management
-// fetches independently released web content or imports a local package.
-//
-// Capture holds the same management lock as catalog writers. os.Root confines
-// reads to the catalog even through symlinks; bounded regular-file reads,
-// frontmatter agreement and a second byte comparison reject unsafe or changing
-// input before rendering. Snapshot files retain their catalog-relative trees.
-// Skill requires entries may reference another skill ID or a relative Markdown
-// path; resources are relative paths. Every transitive byte affects the digest.
-//
-// CaptureResearch is a separate fixed built-in source: embedded Research DOT,
-// roles and selected skill resources require no catalog lock, installation or
-// source override. NativeResearch renders only the selected node closure for
-// the existing confined temporary bundle writer.
-//
-// This package is the bridge from team metadata to render's pure adapters;
-// neither team nor render needs knowledge of source acquisition.
+// Package teamsource captures the embedded workflow graphs, built-in roles and
+// their transitive skill resources. Bounded, confined reads and resource hashes
+// preserve the exact definitions used by a run. NativeWorkflow renders only the
+// selected node closure for the confined temporary delivery bundle writer.
 package teamsource
