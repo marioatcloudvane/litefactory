@@ -135,6 +135,8 @@ var archiveRegistry = []ArchiveTable{
 	archived("graph_transitions", `instance_id IN `+subInst),
 	archived("graph_dispatches", `(session_id IN `+inFS+` OR instance_id IN `+subInst+`)`),
 	archived("spike_records", `instance_id IN `+subInst),
+	archived("suite_commands", `run_id IN (SELECT id FROM suite_runs WHERE instance_id IN `+subInst+`)`),
+	archived("suite_runs", `instance_id IN `+subInst),
 	archived("implement_stories", byParent),
 	archived("research_successors", `(instance_id IN `+subInst+` OR predecessor_id IN `+subInst+`)`),
 	archived("research_launch_definitions", `(session_id IN `+inFS+` OR instance_id IN `+subInst+`)`),
