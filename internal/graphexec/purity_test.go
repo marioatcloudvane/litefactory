@@ -53,10 +53,11 @@ func TestGraphPackagePurity(t *testing.T) {
 // source and embedded copies. No general nested graph namespace is admitted.
 // Any other DOT file is an unexpected workflow or a stray copy.
 var shippedDOT = map[string]bool{
-	"../../internal/teamsource/bug/bug.dot":           true,
-	"../../internal/teamsource/research/research.dot": true,
-	"../../internal/teamsource/plan/plan.dot":         true,
-	"../../internal/teamsource/spike/spike.dot":       true,
+	"../../internal/teamsource/bug/bug.dot":             true,
+	"../../internal/teamsource/research/research.dot":   true,
+	"../../internal/teamsource/plan/plan.dot":           true,
+	"../../internal/teamsource/spike/spike.dot":         true,
+	"../../internal/teamsource/implement/implement.dot": true,
 }
 
 func TestGraphShippedDOTScope(t *testing.T) {

@@ -23,9 +23,9 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 		return errors.New("store: invalid graph comment intent")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error {
-		var instance int64
+		var instance, sourceRun int64
 		var status, workflow, instanceStatus string
-		if err := tx.QueryRowContext(ctx, `SELECT a.instance_id,a.status,COALESCE(NULLIF(g.workflow,''),g.mode),i.status FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions g ON g.id=i.definition_id WHERE a.id=?`, in.SourceAttemptID).Scan(&instance, &status, &workflow, &instanceStatus); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT a.instance_id,a.status,COALESCE(NULLIF(g.workflow,''),g.mode),i.status,COALESCE(a.run_id,0) FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions g ON g.id=i.definition_id WHERE a.id=?`, in.SourceAttemptID).Scan(&instance, &status, &workflow, &instanceStatus, &sourceRun); err != nil {
 			return err
 		}
 		exhaustedResearch := workflow == "research" && instanceStatus == GraphFailed && status == GraphSucceeded
@@ -50,7 +50,10 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 		// A review waits like a question does: the agent has shown finished
 		// work and the stage does not advance until the owner answers.
 		if GraphCommentWaits(in.Kind) {
-			if _, err = tx.ExecContext(ctx, `INSERT INTO graph_owner_waits(delivery_key,instance_id,source_attempt_id,state) VALUES(?,?,?,'waiting')`, in.Key, in.InstanceID, in.SourceAttemptID); err != nil {
+			// The Implement coordinator runs no agent, so its question has no run and
+			// the reply that answers it resumes a runless step.
+			runless := workflow == "implement" && sourceRun == 0
+			if _, err = tx.ExecContext(ctx, `INSERT INTO graph_owner_waits(delivery_key,instance_id,source_attempt_id,state,allow_runless) VALUES(?,?,?,'waiting',?)`, in.Key, in.InstanceID, in.SourceAttemptID, runless); err != nil {
 				return err
 			}
 			_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=NULL WHERE id=?`, in.InstanceID)
@@ -78,7 +81,7 @@ func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (b
 	var session int64
 	var run sql.NullInt64
 	var workflow, status, kind, stopOrigin string
-	err := tx.QueryRowContext(ctx, `SELECT i.session_id,a.run_id,COALESCE(g.workflow,''),COALESCE(a.status,''),c.kind,COALESCE(c.stop_origin,'') FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id JOIN graph_definitions g ON g.id=i.definition_id LEFT JOIN graph_node_attempts a ON a.id=c.source_attempt_id AND a.instance_id=i.id WHERE c.delivery_key=?`, d.Key).Scan(&session, &run, &workflow, &status, &kind, &stopOrigin)
+	err := tx.QueryRowContext(ctx, `SELECT i.session_id,a.run_id,COALESCE(NULLIF(g.workflow,''),g.mode),COALESCE(a.status,''),c.kind,COALESCE(c.stop_origin,'') FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id JOIN graph_definitions g ON g.id=i.definition_id LEFT JOIN graph_node_attempts a ON a.id=c.source_attempt_id AND a.instance_id=i.id WHERE c.delivery_key=?`, d.Key).Scan(&session, &run, &workflow, &status, &kind, &stopOrigin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -94,8 +97,10 @@ func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (b
 		}
 		return true, nil
 	}
-	if !run.Valid && (workflow != "bug" || d.RunID != 0 || (kind == "failure" && status != GraphFailed) || (kind != "failure" && status != GraphSucceeded)) {
-		return false, errors.New("store: runless graph report requires a terminal Bug factory source")
+	// The Implement coordinator is factory-only too: it runs no agent, so the
+	// batched question it publishes has no run, only its succeeded source attempt.
+	if !run.Valid && ((workflow != "bug" && workflow != "implement") || d.RunID != 0 || (kind == "failure" && status != GraphFailed) || (kind != "failure" && status != GraphSucceeded)) {
+		return false, errors.New("store: runless graph report requires a terminal Bug or Implement factory source")
 	}
 	if session != d.SessionID || run.Int64 != d.RunID {
 		return false, errors.New("store: graph report run/session mismatch")

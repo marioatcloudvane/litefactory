@@ -82,7 +82,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				return nil, errors.New("scoped activity requires admitted session")
 			}
 			return w.prep.worktree, nil
-		}}
+		}, Save: w.saveNow}
 		if err := policy.RegisterEffects(&specs, &activities, definition.Profile, scope, func() (string, string, error) {
 			if w.prep == nil || w.artifactSession == "" {
 				return "", "", errors.New("scoped activity requires admitted session")
@@ -92,6 +92,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			return result, err
 		}
 	}
+	executed := false
 	for {
 		if err := ctx.Err(); err != nil {
 			return w.finish(ctx, w.failed(ctx, scope, GraphNodeResult{}, err, true))
@@ -119,6 +120,19 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		node, ok := definition.Profile.Node(instance.CurrentNode)
 		if !ok {
 			return w.finish(ctx, errors.New("research current node is absent from shipped graph"))
+		}
+		if executed && policy.Park != nil && node.Action != ResearchAgentAction {
+			decision, parkErr := policy.Park(ctx, opts, instance, node)
+			if parkErr != nil {
+				return w.finish(ctx, parkErr)
+			}
+			if decision.Park {
+				spent, _ := store.GraphTriggerDispatch(req.Trigger.CommentID)
+				if _, parkErr = opts.DB.ParkGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, node.Name, decision.Due, opts.MCP.Now(), spent); parkErr != nil {
+					return w.finish(ctx, fmt.Errorf("park %s graph at %q: %w", policy.Mode, node.Name, parkErr))
+				}
+				return w.finish(ctx, nil)
+			}
 		}
 		if node.Action == ResearchAgentAction {
 			if w.prep != nil {
@@ -162,6 +176,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			w.result.WorktreePath, w.result.Branch, w.result.SHABefore = w.prep.worktree.Path(), w.prep.session.Branch, w.prep.shaBefore
 			w.result.LogPath, w.result.MetaPath = started.LogPath, w.prep.metaPath
 		}
+		executed = true
 		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: w.result.Run.ID, At: opts.MCP.Now()})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
@@ -188,6 +203,41 @@ type researchWorkflow struct {
 	admission       store.ResearchAdmission
 	prep            *preparation
 	process         *agent.RunResult
+	// saved reports that a graph step already committed and pushed this run's
+	// worktree, so the end of the run does not save it again.
+	saved bool
+}
+
+// saveNow commits and pushes the run's worktree for a step that decided the work
+// is to be saved. It saves with the process result of the agent that ran, and
+// never for an abandoned run, whose context is cancelled and whose work stays in
+// the worktree for the next run.
+func (w *researchWorkflow) saveNow(ctx context.Context) (Result, error) {
+	if w.prep == nil || w.process == nil {
+		return Result{}, errors.New("saving requires an admitted run and its process result")
+	}
+	if w.process.Outcome == agent.OutcomeAbandoned || ctx.Err() != nil {
+		return Result{}, errors.New("the run was interrupted before its work could be saved")
+	}
+	out := save(ctx, w.opts, w.prep, w.result, w.process, w.opts.Logger)
+	w.result = out
+	if out.Err != nil {
+		return out, out.Err
+	}
+	w.saved = true
+	commit := out.SHAAfter
+	if commit == "" {
+		commit = out.CommitSHA
+	}
+	if commit != "" {
+		if err := w.opts.DB.SetRunCommit(ctx, w.prep.run.ID, commit); err != nil {
+			return out, err
+		}
+	}
+	if err := w.opts.DB.SetRunPublication(ctx, w.prep.run.ID, out.Pushed, out.Publication); err != nil {
+		return out, err
+	}
+	return out, nil
 }
 
 func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a ActivityRequest) (ResearchInvocation, error) {
@@ -235,7 +285,13 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 		}
 	}
 	w.artifactSession = sessionPath
-	route, err := w.openResultRoute(ctx, &req, nil)
+	var override *resultOverride
+	if w.policy.ResultOverride != nil {
+		if override, err = w.policy.ResultOverride(ctx, w, a); err != nil {
+			return ResearchInvocation{}, err
+		}
+	}
+	route, err := w.openResultRoute(ctx, &req, override)
 	if err != nil {
 		return ResearchInvocation{}, err
 	}
@@ -440,7 +496,7 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 		return out, errors.Join(cause, err)
 	}
 	out.Run = run
-	if !w.req.graphBugPreparation && cause == nil && w.process != nil && w.process.Succeeded() && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
+	if !w.saved && !w.req.graphBugPreparation && cause == nil && w.process != nil && w.process.Succeeded() && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
 		out = save(bookkeeping, w.opts, w.prep, out, w.process, w.opts.Logger)
 		if w.req.Workflow == agent.WorkflowBug {
 			commit := out.SHAAfter

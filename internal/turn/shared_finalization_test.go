@@ -46,10 +46,10 @@ func TestSharedFinalizationTerminationMatrix(t *testing.T) {
 					if got.ResumeToken != original.ResumeToken || got.ExitCode != original.ExitCode || original.Outcome != outcome {
 						t.Fatalf("process metadata changed: %+v", got)
 					}
-					// Research and Plan results travel only the shared result route
+					// Research, Plan and Implement results travel only the shared result route
 					// (#410): printed JSON is never parsed or resubmitted, so for them
 					// every output here is a missing result.
-					if mode == "research" || mode == "plan" {
+					if mode == "research" || mode == "plan" || mode == "implement" {
 						output = "missing"
 					}
 					switch {
@@ -262,17 +262,6 @@ func TestSharedFinalizationZeroExitRejectionKeepsDiagnostic(t *testing.T) {
 	}
 	if original.Diagnostic != "" || original.Outcome != agent.OutcomeSucceeded {
 		t.Fatal("finalization mutated the original run result")
-	}
-}
-
-// TestImplementFinalWorktreeRuleWording is #431 (BC-7): the rule added to the
-// Implement prompt by bindFinalRoute forbids non-session changes after the
-// final result and keeps .aiteam/ session files writable.
-func TestImplementFinalWorktreeRuleWording(t *testing.T) {
-	for _, want := range []string{"After you submit the final result", "no non-session file may change", naming.AITeamDirName + "/"} {
-		if !strings.Contains(implementFinalWorktreeRule, want) {
-			t.Errorf("Implement worktree rule lacks %q: %s", want, implementFinalWorktreeRule)
-		}
 	}
 }
 
@@ -540,8 +529,8 @@ func TestSharedManagedRunnerModesAndPermissions(t *testing.T) {
 						if !strings.Contains(req.Prompt, "Required final route:") {
 							t.Fatal("missing authoritative route")
 						}
-						// C8 (#410): only Research and Plan lose the terminal sentence.
-						if !strings.Contains(req.Prompt, "or return the application JSON as your final terminal response") || strings.Contains(req.Prompt, "Do not print a JSON result") {
+						// Research, Plan and Implement lose the terminal sentence; Validate keeps it.
+						if (mode == "validate") != strings.Contains(req.Prompt, "or return the application JSON as your final terminal response") || (mode == "implement") != strings.Contains(req.Prompt, "Do not print a JSON result") {
 							t.Fatalf("%s final route sentence changed: %s", mode, req.Prompt)
 						}
 						if mode == "validate" && (req.SubmissionRoot != "" || strings.Contains(req.Prompt, "Shared result helper access")) {

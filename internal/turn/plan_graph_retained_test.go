@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -45,6 +46,11 @@ func newRetainedFixture(t *testing.T, mode string) *retainedFixture {
 		f.policy, f.result = PlanWorkflowPolicy(), retainedPlanResult
 	case "spike":
 		f.policy, f.result = SpikeWorkflowPolicy(), retainedSpikeResult
+	case "implement":
+		o.Resolve = func(context.Context) (ar.Context, error) {
+			return ar.Context{SchemaVersion: 1, WorkflowVersion: 2, Mode: "implement", Stories: map[string]agent.ContributionStory{"story-001": {Revision: strings.Repeat("ab", 32)}}, EngineeringComplete: map[string]bool{"story-001": true}}, nil
+		}
+		f.policy, f.result = ImplementWorkflowPolicy(), retainedImplementResult
 	default:
 		f.policy, f.result = ResearchWorkflowPolicy(), retainedResearchResult
 	}
@@ -486,3 +492,6 @@ func TestAgentResultService_GraphPlanBranchesAndCorrection(t *testing.T) {
 		t.Fatalf("legacy retained a graph branch: %v %v", revisions, err)
 	}
 }
+
+// retainedImplementResult is the accepted result of an Implement story worker.
+const retainedImplementResult = `{"outcome":"completed","comment":"The story is built and its unit tests pass.","payload":{"implement":{"stories":[]}}}`

@@ -188,9 +188,13 @@ func (r *Reporter) ReportWorkflowCandidate(ctx context.Context, source store.Gra
 	if pin.Mode != string(policy.Mode) {
 		return Posted{}, "", errors.New("comment source differs from admitted mode")
 	}
-	run, err := r.db.GetRun(ctx, source.RunID)
-	if err != nil {
-		return Posted{}, "", err
+	// The Implement coordinator runs no agent, so its source attempt has no run;
+	// the question it publishes is identified by the attempt alone.
+	var run store.Run
+	if source.RunID != 0 || policy.Mode != agent.ModeImplement {
+		if run, err = r.db.GetRun(ctx, source.RunID); err != nil {
+			return Posted{}, "", err
+		}
 	}
 	session, err := r.db.GetSession(ctx, instance.SessionID)
 	if err != nil {
