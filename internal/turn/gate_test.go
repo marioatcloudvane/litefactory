@@ -202,6 +202,10 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"beginImplementScratch": "implement_steps.go",
 		"gatedScratch.Publish":  "implement_steps.go",
 		"gatedScratch.Close":    "implement_steps.go",
+		// The Validate suite checkout fetches and adds its scratch worktree in
+		// one acquisition, and removes it in another.
+		"GitValidateSuiteRepo.Begin": "validate_suite.go",
+		"gitSuiteScratch.Close":      "validate_suite.go",
 	}
 
 	// gated names each call that must not happen outside a critical section,
