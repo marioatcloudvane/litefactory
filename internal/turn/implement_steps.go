@@ -393,37 +393,44 @@ func (l implementRepoLoader) Begin(ctx context.Context, integrationBranch string
 	if err != nil {
 		return nil, err
 	}
-	gate := func() (func(), error) { return opts.CloneGate.Acquire(ctx, repo.Path) }
-	release, err := gate()
+	gitRepo := GitImplementRepo{Clone: clone, Remote: opts.remote(), ScratchRoot: implementScratchDir(opts), Author: author}
+	scratch, err := beginImplementScratch(ctx, opts.CloneGate, repo.Path, gitRepo, integrationBranch)
 	if err != nil {
 		return nil, err
 	}
-	scratch, err := GitImplementRepo{Clone: clone, Remote: opts.remote(), ScratchRoot: implementScratchDir(opts), Author: author}.Begin(ctx, integrationBranch)
-	release()
+	return gatedScratch{ImplementScratch: scratch, gate: opts.CloneGate, clone: repo.Path}, nil
+}
+
+// beginImplementScratch builds the scratch tree under the clone gate, since it
+// fetches and adds a worktree to the shared clone.
+func beginImplementScratch(ctx context.Context, gate CloneGate, clone string, repo GitImplementRepo, integrationBranch string) (ImplementScratch, error) {
+	release, err := gate.Acquire(ctx, clone)
 	if err != nil {
 		return nil, err
 	}
-	return gatedScratch{ImplementScratch: scratch, gate: gate}, nil
+	defer release()
+	return repo.Begin(ctx, integrationBranch)
 }
 
 // gatedScratch holds the clone gate while the scratch tree publishes or is
 // removed, since both change refs of the shared clone.
 type gatedScratch struct {
 	ImplementScratch
-	gate func() (func(), error)
+	gate  CloneGate
+	clone string
 }
 
-func (s gatedScratch) Push(ctx context.Context, integrationBranch, expectedHead string) error {
-	release, err := s.gate()
+func (s gatedScratch) Publish(ctx context.Context, integrationBranch, expectedHead string) error {
+	release, err := s.gate.Acquire(ctx, s.clone)
 	if err != nil {
 		return err
 	}
 	defer release()
-	return s.ImplementScratch.Push(ctx, integrationBranch, expectedHead)
+	return s.ImplementScratch.Publish(ctx, integrationBranch, expectedHead)
 }
 
 func (s gatedScratch) Close(ctx context.Context) error {
-	release, err := s.gate()
+	release, err := s.gate.Acquire(ctx, s.clone)
 	if err != nil {
 		return err
 	}

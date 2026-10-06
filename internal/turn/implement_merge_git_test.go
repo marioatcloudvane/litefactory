@@ -233,12 +233,12 @@ type movingScratch struct {
 	advance func()
 }
 
-func (s *movingScratch) Push(ctx context.Context, branch, expected string) error {
+func (s *movingScratch) Publish(ctx context.Context, branch, expected string) error {
 	if s.advance != nil {
 		s.advance()
 		s.advance = nil
 	}
-	return s.ImplementScratch.Push(ctx, branch, expected)
+	return s.ImplementScratch.Publish(ctx, branch, expected)
 }
 
 func TestImplementMergeGitPushRaceRetriesAndTheRebuiltMergeLands(t *testing.T) {

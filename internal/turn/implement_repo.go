@@ -31,9 +31,9 @@ type ImplementScratch interface {
 	// git.ErrMergeConflict and leaves the tree as it was; merged is false when
 	// the story is already part of the integration head.
 	Merge(ctx context.Context, storyBranch string) (head string, merged bool, err error)
-	// Push publishes the merge as the integration branch without force, only
+	// Publish pushes the merge as the integration branch without force, only
 	// while the remote is still at expectedHead (git.ErrIntegrationHeadMoved otherwise).
-	Push(ctx context.Context, integrationBranch, expectedHead string) error
+	Publish(ctx context.Context, integrationBranch, expectedHead string) error
 	// Close discards the scratch worktree.
 	Close(ctx context.Context) error
 }
@@ -95,7 +95,7 @@ func (s *gitScratch) Merge(ctx context.Context, storyBranch string) (string, boo
 	return res.Head, res.Merged, nil
 }
 
-func (s *gitScratch) Push(ctx context.Context, integrationBranch, expectedHead string) error {
+func (s *gitScratch) Publish(ctx context.Context, integrationBranch, expectedHead string) error {
 	return s.wt.PushHeadTo(ctx, s.repo.Remote, integrationBranch, expectedHead)
 }
 

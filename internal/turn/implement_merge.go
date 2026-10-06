@@ -155,7 +155,7 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 		return park(failure)
 	}
 
-	err = scratch.Push(ctx, a.IntegrationBranch, scratch.Head())
+	err = scratch.Publish(ctx, a.IntegrationBranch, scratch.Head())
 	if errors.Is(err, git.ErrIntegrationHeadMoved) {
 		return implementResult("retry", implementMergeOutput{Story: story.Key, Result: "retry", Reason: "the integration branch moved while the story was being checked"})
 	}

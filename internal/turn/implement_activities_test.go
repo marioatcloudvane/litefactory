@@ -121,7 +121,7 @@ func (s *implementScratchFake) Merge(_ context.Context, branch string) (string, 
 	}
 	return fakeMergeCommit, s.r.merged, nil
 }
-func (s *implementScratchFake) Push(_ context.Context, branch, expected string) error {
+func (s *implementScratchFake) Publish(_ context.Context, branch, expected string) error {
 	s.r.pushes = append(s.r.pushes, branch+"@"+expected)
 	return s.r.pushErr
 }
