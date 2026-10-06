@@ -33,5 +33,13 @@ func Commands() []*Command {
 		newTaskCleanCommand(),
 		newTaskRetireCommand(),
 		newStoryContractUpgradeCommand(),
+		newRightsCatalogueCommand(),
+		newRightsListCommand(),
+		newRightsGrantCommand(),
+		newRightsRevokeCommand(),
+		newRightsHistoryCommand(),
+		newReviewerAssignCommand(),
+		newReviewerRemoveCommand(),
+		newReviewerListCommand(),
 	}
 }
