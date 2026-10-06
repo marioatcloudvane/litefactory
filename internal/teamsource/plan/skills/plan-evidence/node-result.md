@@ -56,7 +56,7 @@ The result is `{"result": {outcome, comment, reason, questions, payload}}`:
 - A done has result.outcome completed, a comment, no questions and exactly one of
   payload.plan.storyrequest (one story: create, update or retire) or
   payload.plan.storyset (a proposed decomposition), and none of summary, context or
-  stories. Never both branches, never neither.
+  stories. Never both branches. During an ordinary owner discussion, an answer-only done instead carries a nonblank result.comment and an empty payload.plan with neither branch. It publishes the answer on the originating issue and preserves candidates, waits and approvals. Use a draft branch only for requested changes. Explain unsupported changes, including replacing a promoted set, in an answer.
 
 The storyrequest members you author are operation (create/update/retire),
 expected_revision when updating/retiring, draft, changed_sections when updating

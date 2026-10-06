@@ -149,8 +149,10 @@ func prepare(
 	if err := prepareManagedReplan(ctx, opts, req, session, ref); err != nil {
 		return nil, err
 	}
-	if err := invalidatePlanReadiness(ctx, opts, ref, req.mode()); err != nil {
-		return nil, err
+	if req.researchDefinition == nil {
+		if err := invalidatePlanReadiness(ctx, opts, ref, req.mode()); err != nil {
+			return nil, err
+		}
 	}
 
 	repo, err := opts.DB.GetRepo(ctx, session.RepoID)

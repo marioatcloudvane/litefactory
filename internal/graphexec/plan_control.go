@@ -25,7 +25,7 @@ const PlanNodeLimitMax = 4 * PlanCreationBound
 // Plan stage-decision and cycle conditions. They compare against the factory's
 // fresh selection, never against anything an agent returned.
 const (
-	// PlanSetCondition is true while the scope has no stories and needs a set.
+	// PlanSetCondition selects a set proposal or parent discussion.
 	PlanSetCondition = "set"
 	// PlanCreateCondition is true while a promoted story has no draft yet.
 	PlanCreateCondition = "create"
@@ -38,7 +38,7 @@ const planReviewReady = "review_ready"
 // PlanControlPolicy includes factory-only scheduling/promotion responses. The
 // dedicated Plan node decoder admits neither stage selectors nor approved.
 func PlanControlPolicy() ControlPolicy {
-	return ControlPolicy{Mode: agent.ModePlan, Responses: []string{PlanSetCondition, "story", "technical", "acceptance", PlanCreateCondition, "ask", planReviewReady, "approved"}, Defaults: []string{PlanSetCondition, "story", "technical", "acceptance"}, Ask: "ask", Approved: "approved"}
+	return ControlPolicy{Mode: agent.ModePlan, Responses: []string{PlanSetCondition, "story", "technical", "acceptance", PlanCreateCondition, "ask", "answer", planReviewReady, "approved"}, Defaults: []string{PlanSetCondition, "story", "technical", "acceptance"}, Ask: "ask", Approved: "approved"}
 }
 
 // planFailureOutcomes are the outcomes that mean a step did not finish. Whatever
@@ -138,7 +138,12 @@ func (c *planCheck) node(n Node) {
 	case "lf_ask":
 		c.ask(n)
 	case "lf_comment":
-		if n.Attrs["lf_kind"] != "failure" || n.Name != PlanFailureNode {
+		if n.Attrs["lf_kind"] == "final" {
+			c.agentSource(n)
+			if target, ok := c.next(n, "published"); ok && !target.Terminal {
+				c.fail("plan answer %s must end at a terminal", n.Name)
+			}
+		} else if n.Attrs["lf_kind"] != "failure" || n.Name != PlanFailureNode {
 			c.fail("plan comment %s must be the %s failure comment", n.Name, PlanFailureNode)
 		}
 	default:
@@ -161,6 +166,8 @@ func (c *planCheck) control(n Node) {
 		c.fail("plan node %s compares review_ready, which is never a declared condition", n.Name)
 	case PlanControlPolicy().Approved:
 		c.gate(n)
+	case "answer":
+		c.answer(n)
 	case PlanControlPolicy().Ask:
 		c.question(n)
 	default:
@@ -209,8 +216,8 @@ func (c *planCheck) question(n Node) {
 	if target, found := c.next(n, "true"); found && (target.Action != "lf_ask" || target.Attrs["lf_kind"] != "question" || target.Attrs["lf_source"] != source.Name) {
 		c.fail("plan question decision %s must publish %s's question", n.Name, source.Name)
 	}
-	if target, found := c.next(n, "false"); found && (target.Action != PlanStoryAction || target.Attrs["lf_source"] != source.Name) {
-		c.fail("plan question decision %s must continue at %s's story effect", n.Name, source.Name)
+	if target, found := c.next(n, "false"); found && ((target.Action != PlanStoryAction && (target.Action != ResearchIfAction || target.Attrs["lf_condition"] != "answer")) || target.Attrs["lf_source"] != source.Name) {
+		c.fail("plan question decision %s must continue at %s's answer decision", n.Name, source.Name)
 	}
 }
 
@@ -319,5 +326,22 @@ func (c *planCheck) cycles() {
 		if !n.Terminal && n.Limit < PlanCreationBound && walk(forward[n.Name], forward)[n.Name] {
 			c.fail("plan node %s is on a cycle and requires a bound of at least %d", n.Name, PlanCreationBound)
 		}
+	}
+}
+
+// answer separates a completed reply from a draft; neither branch grants approval.
+func (c *planCheck) answer(n Node) {
+	source, ok := c.agentSource(n)
+	if !ok {
+		return
+	}
+	if n.Action != ResearchIfAction {
+		c.fail("plan answer decision %s must be an lf_if", n.Name)
+	}
+	if target, found := c.next(n, "true"); found && (target.Action != "lf_comment" || target.Attrs["lf_kind"] != "final" || target.Attrs["lf_source"] != source.Name) {
+		c.fail("plan answer decision %s must publish its agent's answer", n.Name)
+	}
+	if target, found := c.next(n, "false"); found && (target.Action != PlanStoryAction || target.Attrs["lf_source"] != source.Name) {
+		c.fail("plan answer decision %s must continue at its agent's story effect", n.Name)
 	}
 }

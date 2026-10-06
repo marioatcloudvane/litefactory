@@ -62,7 +62,11 @@ func TestPlanNotices_StoriesCreatedGuideIsPostedOnceOnTheParent(t *testing.T) {
 	// Another tick and an owner comment on the parent find only waits: the one
 	// guide is resumed, never posted again.
 	runParent(t, f, base)
+	calls := discussionRunner(t, f, "set", "What happens now?")
 	executeGraphPlan(t, f, nextTrigger(base, 991, "What happens now?"))
+	if *calls != 1 || len(parentPostsWith(f, forge, "This plan delivers bounded story shaping.")) != 1 {
+		t.Fatal("parent question received no agent answer")
+	}
 	if again := parentPostsWith(f, forge, "stories are ready for your review"); len(again) != 1 {
 		t.Fatalf("rerunning posted %d guides", len(again))
 	}

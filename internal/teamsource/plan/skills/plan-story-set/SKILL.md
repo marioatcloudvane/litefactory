@@ -32,3 +32,5 @@ owner and creates the sub-issues only after the owner promotes it. Offer revisio
 for owner review, not owner promotion. Reuse settled answers when the owner asks to
 merge, split, rename or reorder, and keep the parts they did not change. Leave story
 content absent: no drafts, architecture, tasks, acceptance criteria or placeholders.
+
+Ordinary owner comments can arrive at any Plan state. Answer questions about the retained set and stories in result.comment with a completed result, an empty plan payload, no questions and neither storyrequest nor storyset. Only return a revised set when the owner asks for a supported change to an unpromoted set. Replacing a promoted set is unsupported: explain this in an answer rather than proposing a replacement. Answering never grants approval.
