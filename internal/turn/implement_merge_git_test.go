@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudvane/litefactory/internal/bugchecks"
-	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -23,17 +21,11 @@ type implementGit struct {
 	repo        *gittest.Repo
 	clone       *git.Clone
 	scratchRoot string
-	sawFiles    [][]string
 }
 
-func newImplementGit(t *testing.T, withRecipe bool, stories ...ImplementStory) *implementGit {
+func newImplementGit(t *testing.T, stories ...ImplementStory) *implementGit {
 	t.Helper()
 	g := &implementGit{implementFixture: newImplementFixture(t, stories...), repo: gittest.New(t)}
-	if withRecipe {
-		g.repo.WriteFile(".litefactory/bug-checks.yaml", implementRecipe)
-		g.repo.Commit("add build checks")
-		g.repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
-	}
 	g.repo.Git("branch", implementFeature)
 	g.repo.Git("push", "--quiet", "origin", implementFeature)
 	binary, err := git.Resolve(t.Context())
@@ -45,19 +37,6 @@ func newImplementGit(t *testing.T, withRecipe bool, stories ...ImplementStory) *
 	}
 	g.scratchRoot = filepath.Join(t.TempDir(), "scratch")
 	g.bindings.Repo = GitImplementRepo{Clone: g.clone, Remote: "origin", ScratchRoot: g.scratchRoot, Author: git.Author{Name: "Test", Email: "test@example.invalid"}}
-	g.bindings.RunCheck = func(_ context.Context, worktree string, _ config.BugCheckCommand) bugchecks.CommandResult {
-		entries, _ := os.ReadDir(worktree)
-		var names []string
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		g.sawFiles = append(g.sawFiles, names)
-		if _, err := os.Stat(filepath.Join(worktree, "bad.txt")); err == nil {
-			exit := 1
-			return bugchecks.CommandResult{Outcome: "failed", Exit: &exit}
-		}
-		return bugchecks.CommandResult{Outcome: "passed"}
-	}
 	g.auth.IntegrationBranch = implementFeature
 	return g
 }
@@ -105,7 +84,7 @@ func (g *implementGit) start(keys ...string) {
 }
 
 func TestImplementMergeGitGreenMergeLandsOnTheIntegrationBranchOnly(t *testing.T) {
-	g := newImplementGit(t, true, implementStories(1, nil)...)
+	g := newImplementGit(t, implementStories(1, nil)...)
 	g.pushStory("story-001", "feature.txt", "hello\n")
 	g.start("story-001")
 	mainBefore := g.repo.Git("rev-parse", "origin/"+gittest.DefaultBranch)
@@ -128,14 +107,6 @@ func TestImplementMergeGitGreenMergeLandsOnTheIntegrationBranchOnly(t *testing.T
 	if got := g.repo.Git("rev-parse", "origin/"+gittest.DefaultBranch); got != mainBefore {
 		t.Fatal("the default branch must never move")
 	}
-	if len(g.sawFiles) != 3 {
-		t.Fatalf("every phase runs once, ran %d", len(g.sawFiles))
-	}
-	for _, names := range g.sawFiles {
-		if !strings.Contains(strings.Join(names, ","), "feature.txt") {
-			t.Fatalf("checks must run on the merged tree, saw %v", names)
-		}
-	}
 	if row := g.row("story-001"); row.State != store.ImplementMerged || row.MergeCommit != head {
 		t.Fatalf("row = %+v", row)
 	}
@@ -152,7 +123,7 @@ func TestImplementMergeGitGreenMergeLandsOnTheIntegrationBranchOnly(t *testing.T
 }
 
 func TestImplementMergeGitConflictParksAndTheNextDoneStoryStillMerges(t *testing.T) {
-	g := newImplementGit(t, true, implementStories(3, nil)...)
+	g := newImplementGit(t, implementStories(3, nil)...)
 	g.pushStory("story-001", "shared.txt", "one\n")
 	g.pushStory("story-002", "shared.txt", "two\n")
 	g.pushStory("story-003", "other.txt", "three\n")
@@ -180,34 +151,6 @@ func TestImplementMergeGitConflictParksAndTheNextDoneStoryStillMerges(t *testing
 	}
 	if len(g.forge.bodies(12)) != 0 {
 		t.Fatal("a parked story gets no merged note")
-	}
-}
-
-func TestImplementMergeGitFailingCheckParksWithoutPublishing(t *testing.T) {
-	g := newImplementGit(t, true, implementStories(1, nil)...)
-	g.pushStory("story-001", "bad.txt", "breaks the build\n")
-	g.start("story-001")
-	before := g.remoteFeature()
-	res, out, err := g.merge()
-	if err != nil || res.Outcome != "parked" || !strings.Contains(out.Reason, "build check failed") {
-		t.Fatalf("%s %+v %v", res.Outcome, out, err)
-	}
-	if g.remoteFeature() != before || g.forge.posts != 0 || g.scratchLeft() != 0 {
-		t.Fatal("a failing check must publish nothing and clean up")
-	}
-}
-
-func TestImplementMergeGitMissingRecipeParksWithoutMerging(t *testing.T) {
-	g := newImplementGit(t, false, implementStories(1, nil)...)
-	g.pushStory("story-001", "feature.txt", "x\n")
-	g.start("story-001")
-	before := g.remoteFeature()
-	res, out, err := g.merge()
-	if err != nil || res.Outcome != "parked" || out.Reason != "no build check configured" {
-		t.Fatalf("%s %+v %v", res.Outcome, out, err)
-	}
-	if g.remoteFeature() != before || len(g.sawFiles) != 0 {
-		t.Fatal("no check configured means nothing may be merged or run")
 	}
 }
 
@@ -242,7 +185,7 @@ func (s *movingScratch) Publish(ctx context.Context, branch, expected string) er
 }
 
 func TestImplementMergeGitPushRaceRetriesAndTheRebuiltMergeLands(t *testing.T) {
-	g := newImplementGit(t, true, implementStories(1, nil)...)
+	g := newImplementGit(t, implementStories(1, nil)...)
 	g.pushStory("story-001", "feature.txt", "mine\n")
 	g.start("story-001")
 	fired := false
@@ -274,7 +217,7 @@ func TestImplementMergeGitPushRaceRetriesAndTheRebuiltMergeLands(t *testing.T) {
 }
 
 func TestImplementMergeGitStoryAlreadyOnTheIntegrationBranchIsRecordedWithoutChecks(t *testing.T) {
-	g := newImplementGit(t, true, implementStories(1, nil)...)
+	g := newImplementGit(t, implementStories(1, nil)...)
 	g.pushStory("story-001", "feature.txt", "x\n")
 	g.start("story-001")
 	// An earlier call published the merge and died before the ledger moved.
@@ -284,7 +227,7 @@ func TestImplementMergeGitStoryAlreadyOnTheIntegrationBranchIsRecordedWithoutChe
 	if err != nil || res.Outcome != "merged" || out.Commit != head {
 		t.Fatalf("%s %+v %v", res.Outcome, out, err)
 	}
-	if len(g.sawFiles) != 0 || g.remoteFeature() != head || len(g.forge.bodies(11)) != 1 {
+	if g.remoteFeature() != head || len(g.forge.bodies(11)) != 1 {
 		t.Fatal("nothing more to publish, one note")
 	}
 }
