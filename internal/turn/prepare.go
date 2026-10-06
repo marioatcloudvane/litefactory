@@ -126,9 +126,21 @@ func prepare(
 	ref naming.Ref,
 	logger *slog.Logger,
 ) (*preparation, error) {
+	// A story worker was admitted by its parent's approval. The story issue's
+	// own Plan row (#475) neither gates it nor is approved by it.
+	storyWorker := false
 	if req.mode() == "implement" {
-		if err := opts.DB.CheckManagedReadiness(ctx, ref.String()); err != nil {
+		_, err := opts.DB.ImplementStoryByWorkerSession(ctx, session.ID)
+		switch {
+		case err == nil:
+			storyWorker = true
+		case !errors.Is(err, store.ErrNotFound):
 			return nil, err
+		}
+		if !storyWorker {
+			if err := opts.DB.CheckManagedReadiness(ctx, ref.String()); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := validateContinuation(ctx, opts, req, session); err != nil {
@@ -404,8 +416,10 @@ func prepare(
 			Behind: sync.Behind, Ahead: sync.Ahead,
 		}
 	}
-	if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
-		return nil, err
+	if !storyWorker {
+		if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
+			return nil, err
+		}
 	}
 	if req.researchDefinition == nil {
 		if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
@@ -419,13 +433,17 @@ func prepare(
 	if err := prepareRefinementContext(ctx, opts, req, &promptInput); err != nil {
 		return nil, err
 	}
-	if err := prepareApprovedContext(ctx, opts, &promptInput, run.ID); err != nil {
-		return nil, err
-	}
-	if contract, contractErr := opts.DB.GetFeatureContract(ctx, ref.String()); contractErr == nil {
-		promptInput.SubmissionVersion = contract.SubmissionVersion
-	} else if !errors.Is(contractErr, store.ErrNotFound) {
-		return nil, contractErr
+	// A story worker's story comes from the Implement graph, not from a
+	// parent bundle or contract of its own story issue.
+	if !storyWorker {
+		if err := prepareApprovedContext(ctx, opts, &promptInput, run.ID); err != nil {
+			return nil, err
+		}
+		if contract, contractErr := opts.DB.GetFeatureContract(ctx, ref.String()); contractErr == nil {
+			promptInput.SubmissionVersion = contract.SubmissionVersion
+		} else if !errors.Is(contractErr, store.ErrNotFound) {
+			return nil, contractErr
+		}
 	}
 	// Populated on every path, cold or resumed (harness itself renders the
 	// pointer only on the cold path — see [harness.PromptInput.SessionArtifactDir]).
