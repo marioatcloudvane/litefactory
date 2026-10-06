@@ -63,7 +63,9 @@ func lockIndex(t *testing.T, worktree string) {
 	t.Cleanup(func() { _ = os.Remove(lock) })
 }
 
-func TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun(t *testing.T) {
+// A failed run's work is committed and pushed like any other (#488: git is the
+// record), and the next run builds on it.
+func TestCommitAndPushKeepsFailedRunWorkAndTheNextRunBuildsOnIt(t *testing.T) {
 	t.Parallel()
 
 	var f *fixture
@@ -85,8 +87,11 @@ func TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun(t *testing.T) 
 	if first.Succeeded() {
 		t.Fatalf("the first run was reported as a success: %+v", first)
 	}
-	if f.originHas(testBranch) {
-		t.Fatalf("origin carries %s after the first, failed run", testBranch)
+	if !first.Committed || !first.Pushed {
+		t.Fatalf("committed=%t pushed=%t after the failed run, want both", first.Committed, first.Pushed)
+	}
+	if content := originFile(t, f, testBranch, "leftover.go"); strings.TrimSpace(content) == "" {
+		t.Fatalf("origin's %s is missing the failed run's leftover.go", testBranch)
 	}
 
 	second := f.execute(req2(f, "/spike finish the job"))
@@ -100,10 +105,10 @@ func TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun(t *testing.T) 
 	for _, name := range []string{"leftover.go", "finished.go"} {
 		content := originFile(t, f, testBranch, name)
 		if strings.TrimSpace(content) == "" {
-			t.Errorf("origin's %s is missing %s; the predecessor's leftovers were not committed", testBranch, name)
+			t.Errorf("origin's %s is missing %s", testBranch, name)
 		}
 	}
-	if got := commitCount(t, f, testBranch); got != 2 {
-		t.Errorf("branch carries %d commits, want 2 (the base commit and the one commit that landed both files)", got)
+	if got := commitCount(t, f, testBranch); got != 3 {
+		t.Errorf("branch carries %d commits, want 3 (the base commit, the failed run's and the succeeding run's)", got)
 	}
 }
