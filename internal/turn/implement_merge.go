@@ -4,29 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
-	"github.com/cloudvane/litefactory/internal/bugchecks"
-	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Reasons a story is parked. They are plain language: the owner reads them in
-// the hand-off report.
 const (
-	implementNoCheckReason = "no build check configured"
-	implementCommentPages  = 50
-	implementCommentLimit  = 100
+	implementCommentPages = 50
+	implementCommentLimit = 100
 )
 
-// implementCheckPhases are the recipe phases a merge runs, in order.
-var implementCheckPhases = []string{"regression", "focused", "full"}
-
 // ImplementMergeActivity merges the oldest done story into the integration
-// branch, one story per call, while holding the parent's progress lock.
+// branch, one story per call, while holding the parent's progress lock. It runs
+// no tests: the story worker tests its story against the integration branch
+// before it reports done, and the full suite belongs to Validate.
 type ImplementMergeActivity struct{ b ImplementBindings }
 
 type implementMergeOutput struct {
@@ -38,9 +31,9 @@ type implementMergeOutput struct {
 
 // Execute returns
 //
-//	merged  the story landed after a clean merge and passing checks
-//	parked  a conflict, a failing check or a missing recipe; the integration
-//	        branch is unchanged
+//	merged  the story landed after a clean merge
+//	parked  a conflict or a missing story branch; the integration branch is
+//	        unchanged
 //	none    no story is done
 //	retry   the lock is busy or the integration branch moved; nothing changed
 //
@@ -121,18 +114,6 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 		}
 	}()
 
-	recipeRaw, err := scratch.Recipe(ctx)
-	if errors.Is(err, git.ErrBugCheckRecipe) {
-		return park(implementNoCheckReason)
-	}
-	if err != nil {
-		return ActivityResult{}, fmt.Errorf("read build check recipe: %w", err)
-	}
-	recipe, err := config.ParseBugCheckRecipe(recipeRaw)
-	if err != nil {
-		return park("the build check recipe is invalid: " + clipText(err.Error(), 300))
-	}
-
 	head, merged, err := scratch.Merge(ctx, story.Branch)
 	switch {
 	case errors.Is(err, git.ErrMergeConflict):
@@ -147,14 +128,6 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 		return finish(scratch.Head(), false)
 	}
 
-	failure, err := h.runChecks(ctx, opts, recipe, scratch.Path())
-	if err != nil {
-		return ActivityResult{}, err
-	}
-	if failure != "" {
-		return park(failure)
-	}
-
 	err = scratch.Publish(ctx, a.IntegrationBranch, scratch.Head())
 	if errors.Is(err, git.ErrIntegrationHeadMoved) {
 		return implementResult("retry", implementMergeOutput{Story: story.Key, Result: "retry", Reason: "the integration branch moved while the story was being checked"})
@@ -163,51 +136,6 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 		return ActivityResult{}, fmt.Errorf("publish merge of %s: %w", story.Key, err)
 	}
 	return finish(head, false)
-}
-
-// runChecks runs every phase's commands in order. It returns a plain reason for
-// the first failing check, or an error when a check could not be run at all.
-func (h ImplementMergeActivity) runChecks(ctx context.Context, opts Options, recipe config.BugCheckRecipe, worktree string) (string, error) {
-	run := h.b.RunCheck
-	if run == nil {
-		if opts.MCP == nil {
-			return "", errors.New("the check sandbox is not configured")
-		}
-		isolation := opts.MCP.BugChecksIsolation
-		if err := isolation.Validate(); err != nil {
-			return "", fmt.Errorf("the check sandbox is unavailable: %w", err)
-		}
-		run = func(ctx context.Context, worktree string, command config.BugCheckCommand) bugchecks.CommandResult {
-			return isolation.Run(ctx, worktree, command, func(bugchecks.CommandResult) error { return nil })
-		}
-	}
-	for _, name := range implementCheckPhases {
-		phase, err := recipe.Phase(name)
-		if err != nil {
-			return "", fmt.Errorf("recipe phase %q: %w", name, err)
-		}
-		for _, command := range phase.Commands {
-			result := run(ctx, worktree, command)
-			switch result.Outcome {
-			case "passed":
-			case "failed":
-				return fmt.Sprintf("the %s build check failed: %s", name, describeImplementCommand(command, result)), nil
-			case "cancelled":
-				return "", fmt.Errorf("build check cancelled: %w", errors.Join(ctx.Err(), errors.New(result.Reason)))
-			default:
-				return "", fmt.Errorf("a %s build check could not run: %s", name, result.Reason)
-			}
-		}
-	}
-	return "", nil
-}
-
-func describeImplementCommand(command config.BugCheckCommand, result bugchecks.CommandResult) string {
-	text := "`" + clipText(strings.Join(command.Argv, " "), 120) + "`"
-	if result.Exit != nil {
-		text += fmt.Sprintf(" exited with code %d", *result.Exit)
-	}
-	return text
 }
 
 // findMergedNote looks for an existing story-merged note for this story and
