@@ -375,7 +375,7 @@ func TestPlanSetFlow_LostCreateReplyAndRestartBetweenRunsKeepIdentities(t *testi
 	}
 	// A retry settles the create from the forge, never creating that story again,
 	// and creates the two issues still missing.
-	if _, err := Execute(t.Context(), f.opts, nextTrigger(base, 803, "Please retry.")); err != nil {
+	if _, err := Execute(t.Context(), f.opts, nextTrigger(base, 803, "/plan retry")); err != nil {
 		t.Fatalf("retry: %v logs=%s", err, f.logs.String())
 	}
 	if remote.creates != 3 || len(c.order) != 0 {

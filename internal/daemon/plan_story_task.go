@@ -258,27 +258,11 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 			wait = item.Wait
 		}
 	}
-	if wait == nil {
-		// Feedback on a story that shows no review still reaches its stage: the
-		// factory opens the wait the reply answers.
-		if err = d.db.UpdatePlanWorkflowState(ctx, parent, func(s *planbrief.PlanState) (bool, error) {
-			return true, s.OpenPlanWait(story.Key, "feedback-"+draft.Candidate, "question", t.issue.ID)
-		}); err != nil {
-			return d.leave(ctx, t, log, "could not open the feedback wait", err)
-		}
-		if state, _, err = d.db.GetPlanWorkflowState(ctx, parent); err != nil {
-			return d.leave(ctx, t, log, "could not read the Plan state", err)
-		}
-		for _, item := range state.Stories {
-			if item.Key == story.Key {
-				wait = item.Wait
-			}
-		}
-		if wait == nil {
-			return d.leave(ctx, t, log, "the feedback wait was not retained", errors.New("plan feedback wait was not retained"))
-		}
+	reply := &planbrief.PlanOwnerReply{ID: c.ID, OwnerID: ids.OwnerUserID, ActorID: c.Author.ID, IssueID: t.issue.ID, Key: story.Key, Body: c.Body}
+	if wait != nil {
+		reply.Stage, reply.Candidate, reply.WaitID = wait.Stage, wait.Candidate, wait.ID
 	}
-	reply := &planbrief.PlanOwnerReply{ID: c.ID, OwnerID: ids.OwnerUserID, ActorID: c.Author.ID, IssueID: t.issue.ID, Key: story.Key, Stage: wait.Stage, Candidate: wait.Candidate, WaitID: wait.ID, Body: c.Body}
+
 	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID, PlanReply: reply}
 	err = d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
 	var refusal *turn.PlanReplyRefusal

@@ -126,9 +126,7 @@ func planChildrenRoutingCase(t *testing.T, ownerBody string, locked bool) {
 		if locked && attempts == 1 {
 			return turn.Result{Disposition: turn.DispositionLocked}, nil
 		}
-		out, err := f.ranSuccessfully(ctx, req)
-		out.ResearchGraph = true
-		return out, err
+		return reportedPlanFixtureTurn(ctx, f, req)
 	})
 	renamed := owner()
 	renamed.Login = "renamed-owner"
@@ -209,9 +207,7 @@ func TestPlanChildrenBoundary_RefusedReplyIsAnsweredOnceAndQueueProgresses(t *te
 		if req.Trigger.CommentID == 60 {
 			return turn.Result{}, &turn.PlanReplyRefusal{Reason: "This reply " + refusedText + " of this story.", Err: errors.New("stale")}
 		}
-		out, err := f.ranSuccessfully(ctx, req)
-		out.ResearchGraph = true
-		return out, err
+		return reportedPlanFixtureTurn(ctx, f, req)
 	})
 	refusals := func() int {
 		posted, _, _ := f.forge.snapshot()
@@ -307,11 +303,7 @@ func (c *countingPlanForge) parentReads() (issue, comments int) {
 
 func countingPlanChildFixture(t *testing.T) (*fixture, store.Session, *countingPlanForge) {
 	t.Helper()
-	f, session := planChildFixture(t, func(ctx context.Context, f *fixture, req turn.Request) (turn.Result, error) {
-		out, err := f.ranSuccessfully(ctx, req)
-		out.ResearchGraph = true
-		return out, err
-	})
+	f, session := planChildFixture(t, reportedPlanFixtureTurn)
 	forge := newCountingPlanForge(f)
 	f.daemon = f.newDaemon(daemon.Options{Forge: forge})
 	return f, session, forge
@@ -401,5 +393,73 @@ func TestPlanChildrenSweep_UnconfirmedExplanationKeepsTheDebt(t *testing.T) {
 	}
 	if !strings.Contains(f.logs.String(), "Plan child reply awaits confirmed explanation") {
 		t.Fatalf("the story task never reached an unconfirmed explanation\n%s", f.logs)
+	}
+}
+
+func TestPlanDiscussionDaemon_RefusalsAreVisible(t *testing.T) {
+	for _, kind := range []string{"held", "stale", "closed", "retired", "blocked upstream"} {
+		t.Run(kind, func(t *testing.T) {
+			f, parent := planChildFixture(t, func(context.Context, *fixture, turn.Request) (turn.Result, error) {
+				t.Error("refused comment reached agent")
+				return turn.Result{}, nil
+			})
+			err := f.db.UpdatePlanWorkflowState(t.Context(), parent.TaskRef, func(s *planbrief.PlanState) (bool, error) {
+				switch kind {
+				case "held":
+					s.Stories[0].Hold = "Unresolved decision"
+				case "stale":
+					s.Stories[0].Wait.Revision = "stale"
+				case "closed":
+					s.Stories[0].Lifecycle.State = "closed"
+				case "retired":
+					s.Stories[0].Retired = true
+				case "blocked upstream":
+					s.Stories[0].Draft.Dependencies.StoryKeys = []string{"missing"}
+				}
+				return true, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == "retired" {
+				binding, err := f.db.GetPlanStoryDraft(t.Context(), parent.TaskRef, "story")
+				if err != nil {
+					t.Fatal(err)
+				}
+				binding.Retired = true
+				binding.Candidate = "retirement-candidate"
+				if err = f.db.PutPlanStoryCandidate(t.Context(), store.PlanStoryCandidate{Parent: parent.TaskRef, Key: "story", RequestID: "retirement", Candidate: binding.Candidate, RequestJSON: `{"operation":"retire"}`}); err != nil {
+					t.Fatal(err)
+				}
+				err = f.db.ApplyPlanStoryDraft(t.Context(), binding, binding.Revision, store.PlanStoryEffect{Parent: parent.TaskRef, RequestID: "retirement", Phase: "close", Outcome: "applied", IssueID: binding.IssueID, IssueNumber: binding.IssueNumber, Revision: binding.Revision})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if kind == "closed" {
+				f.forge.closeIssue(200)
+			}
+			f.forge.addComment(200, 60, owner(), "Please explain this story")
+			for range 3 {
+				f.settle()
+			}
+			task := f.sessionOf(200).TaskRef
+			if kind == "closed" || kind == "retired" {
+				task = parent.TaskRef
+			}
+			explanation, err := f.db.PlanReplyExplanation(t.Context(), task, 60)
+			if err != nil || explanation.Reason == "" {
+				t.Fatalf("no visible explanation: %+v err=%v logs=%s", explanation, err, f.logs)
+			}
+			delivery, err := f.db.GetReportDelivery(t.Context(), explanation.DeliveryKey)
+			if err != nil || !delivery.Completed || !strings.HasSuffix(delivery.Destination, "#200") {
+				t.Fatalf("reply not delivered to source: %+v %v", delivery, err)
+			}
+			f.settle()
+			again, err := f.db.PlanReplyExplanation(t.Context(), task, 60)
+			if err != nil || again.DeliveryKey != explanation.DeliveryKey {
+				t.Fatal("duplicate discovery changed reply identity")
+			}
+		})
 	}
 }

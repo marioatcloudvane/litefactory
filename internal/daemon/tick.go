@@ -1841,14 +1841,28 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	// Any other graph Plan story issue belongs to its parent, whose worker reads
 	// the issue's comments as Plan input. Acting here as well would answer the
 	// same reply twice, or start a second run beside the Plan revision.
-	if parent, owned, err := d.db.GraphPlanStoryParent(ctx, t.issue.ID); err != nil || owned {
+	if parent, err := d.db.GraphPlanParentForChild(ctx, t.repo.ID, t.issue.Number); !errors.Is(err, store.ErrNotFound) {
 		if err != nil {
-			return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
+			return d.leave(ctx, t, log, "could not read retained Plan story membership", err)
 		}
-		log.InfoContext(ctx, "comment on a graph Plan story issue; its parent Plan handles it", slog.String("parent", parent))
-		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, its parent Plan "+parent+" handles comments on a Plan story issue")
-		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
-		return d.leave(ctx, t, log, "could not consume a graph Plan story comment", err)
+		// Retired stories still belong to their parent. Its discovery path
+		// explains the refusal; this task must not consume ahead of that reply.
+		explanation, err := d.db.PlanReplyExplanation(ctx, parent, c.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			return &recoveryPending{errors.New("retained Plan story awaits its parent's reply")}
+		}
+		if err != nil {
+			return err
+		}
+		delivery, err := d.db.GetReportDelivery(ctx, explanation.DeliveryKey)
+		if err != nil {
+			return err
+		}
+		if !delivery.Completed {
+			return &recoveryPending{errors.New("retained Plan story reply awaits confirmed delivery")}
+		}
+		_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
+		return d.leave(ctx, t, log, "could not consume the answered Plan story comment", err)
 	}
 	if pending, err := d.resumeReport(ctx, t, c.ID); pending || err != nil {
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
@@ -2312,6 +2326,11 @@ func (d *Daemon) run(
 }
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
+	if mode == agent.ModePlan && turnResult.ResearchGraph && trigger.CommentID > 0 && !store.IsPrivateTrigger(trigger.CommentID) && turn.ParseCommand(trigger.Body).Kind == turn.KindFreeText {
+		if err := d.requirePlanDiscussionReported(ctx, turnResult); err != nil {
+			return &recoveryPending{err}
+		}
+	}
 	if trigger.PlanReply != nil {
 		// A child comment belongs to its own discovery cursor, except on a story
 		// that is a task of its own, whose watermark this reply advances. The Plan
@@ -2405,7 +2424,21 @@ func (d *Daemon) requirePlanFailureReported(ctx context.Context, result turn.Res
 		return fmt.Errorf("read the failure comment of failed Plan run %d: %w", result.Run.ID, err)
 	}
 	if !reported {
-		return fmt.Errorf("failed Plan run %d has no published failure comment; the owner's comment stays unhandled", result.Run.ID)
+		attempts, err := d.db.ListGraphNodeAttemptsByRun(ctx, result.Run.ID)
+		if err != nil {
+			return err
+		}
+		if len(attempts) > 0 {
+			// A failed publication may have recovered its original answer or
+			// review without creating a second failure notice.
+			reported, err = d.db.GraphFailureReported(ctx, result.Run.ID, attempts[len(attempts)-1].Node)
+			if err != nil {
+				return err
+			}
+		}
+		if !reported {
+			return fmt.Errorf("failed Plan run %d has no published failure comment; the owner's comment stays unhandled", result.Run.ID)
+		}
 	}
 	return nil
 }
@@ -2618,4 +2651,20 @@ func (d *Daemon) rateLimited(ctx context.Context, log *slog.Logger, now time.Tim
 		slog.Bool("secondary", rateLimit.Secondary),
 		slog.String("resource", rateLimit.Resource),
 		slog.Any("error", err))
+}
+
+// A discussion is consumed only after its own graph publication is confirmed.
+func (d *Daemon) requirePlanDiscussionReported(ctx context.Context, result turn.Result) error {
+	if result.Run.ID > 0 {
+		for _, node := range []string{"failed", "set_reply", "set_review", "set_ask", "story_reply", "story_review", "story_ask", "technical_reply", "technical_review", "technical_ask", "acceptance_reply", "acceptance_review", "acceptance_ask"} {
+			reported, err := d.db.GraphFailureReported(ctx, result.Run.ID, node)
+			if err != nil {
+				return err
+			}
+			if reported {
+				return nil
+			}
+		}
+	}
+	return errors.New("plan discussion has no confirmed answer, review or refusal; the comment stays pending")
 }

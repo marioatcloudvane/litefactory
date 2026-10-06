@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -227,6 +228,13 @@ func (w *researchWorkflow) reportStepFailure(ctx context.Context, step GraphNode
 // comment instead of ending silently. Other dispatch errors keep their graph
 // routing. The result always carries the original cause.
 func (w *researchWorkflow) failed(ctx context.Context, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), step GraphNodeResult, cause error, dispatched bool) error {
+	if w.policy.Mode == agent.ModePlan && w.definition != nil {
+		if node, ok := w.definition.Profile.Node(step.Node); ok && (node.Action == "lf_comment" || node.Action == "lf_ask") {
+			// The retained reply is the recovery debt. A second failure notice
+			// for the same input would make its pending delivery ambiguous.
+			return cause
+		}
+	}
 	if w.policy.Handlers != nil {
 		if w.prep == nil {
 			// No run was allocated, so no owner comment is spent: the trigger
@@ -350,6 +358,10 @@ func ensurePlanFailureReported(ctx context.Context, opts Options, req Request, r
 			source = attempts[i]
 			break
 		}
+	}
+	// A publication failure is handled by recovering the original reply.
+	if reported, err := opts.DB.GraphFailureReported(ctx, run.ID, source.Node); err != nil || reported {
+		return err
 	}
 	cause := errors.New(strings.TrimSpace(run.Error))
 	if strings.TrimSpace(run.Error) == "" {
