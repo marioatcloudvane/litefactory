@@ -166,6 +166,12 @@ func prepare(
 	if err != nil {
 		return nil, err
 	}
+	if storyWorker {
+		// A story builds on its parent's branch, where finished stories are
+		// merged; syncing with it brings in the dependencies merged since the
+		// story's branch was cut.
+		repo.BaseBranch = storyBaseBranch(ctx, opts, clone, session, repo)
+	}
 
 	session, branch, worktree, sync, _, err := prepareClone(ctx, opts, req, clone, session, repo, author, logger, nil)
 	if err != nil {
