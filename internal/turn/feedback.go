@@ -33,6 +33,16 @@ func NewFeedbackService(application MCPResultService, evidence *EvidenceService)
 	return &FeedbackService{application: application, evidence: evidence}, nil
 }
 
+// newFeedbackServiceWithoutEvidence is the feedback service of an Implement story
+// worker of the graph, which collects no engineering evidence: its result is
+// checked once, when it is submitted, against its one story.
+func newFeedbackServiceWithoutEvidence(application MCPResultService) (*FeedbackService, error) {
+	if application == nil || application.Binding().Mode != "implement" {
+		return nil, errors.New("feedback without checkpoints is only for an Implement story worker")
+	}
+	return &FeedbackService{application: application}, nil
+}
+
 // Binding returns the immutable application scope used by the family dispatcher.
 func (s *FeedbackService) Binding() store.ResultBinding { return s.application.Binding() }
 

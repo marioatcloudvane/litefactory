@@ -82,8 +82,18 @@ func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, hand
 	return activities.Register(ResearchAgentAction, handler)
 }
 
-// Execute invokes a reserved attempt and retains its validated result without publication.
-func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequest) (out ActivityResult, returnedErr error) {
+// Execute invokes a reserved attempt and retains its validated result without
+// publication. A mode that settles its own failed attempts does so here, after the
+// attempt has ended and its resources are released.
+func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequest) (ActivityResult, error) {
+	out, err := h.execute(ctx, opts, a)
+	if err != nil && h.Policy.AfterAgentFailure != nil {
+		return h.Policy.AfterAgentFailure(ctx, opts, a, out, err)
+	}
+	return out, err
+}
+
+func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequest) (out ActivityResult, returnedErr error) {
 	if opts.DB == nil || h.Prepare == nil || a.Mode != h.Policy.Mode || a.RunID < 1 {
 		return out, errors.New("research agent requires a real Research run and preparation")
 	}
