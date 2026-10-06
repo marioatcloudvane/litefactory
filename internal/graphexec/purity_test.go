@@ -54,12 +54,10 @@ func TestGraphPackagePurity(t *testing.T) {
 // Any other DOT file is an unexpected workflow or a stray copy.
 var shippedDOT = map[string]bool{
 	"../../internal/teamsource/bug/bug.dot":             true,
-	"../../teams/source/bug/bug.dot":                    true,
 	"../../internal/teamsource/research/research.dot":   true,
 	"../../internal/teamsource/plan/plan.dot":           true,
 	"../../internal/teamsource/spike/spike.dot":         true,
 	"../../internal/teamsource/implement/implement.dot": true,
-	"../../teams/source/plan/plan.dot":                  true,
 }
 
 func TestGraphShippedDOTScope(t *testing.T) {

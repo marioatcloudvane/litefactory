@@ -1,0 +1,69 @@
+{
+  "expected_revision": 1,
+  "operations": [
+    {
+      "op": "set",
+      "target": {
+        "field": "outcome"
+      },
+      "value": "completed"
+    },
+    {
+      "op": "remove",
+      "target": {
+        "field": "reason"
+      }
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "comment"
+      },
+      "value": "Story #490 retained engineering completion is preserved. Story #491 engineering is complete: the remaining distribution-dependent exchange fixture uses local protocol fixtures and keeps result-equivalence and reply-recovery coverage. Final make check passed formatting, vet, pinned lint and the full race suite against the final worktree. Scoped tests, built-in delivery coverage, retired-surface searches and operator-file protections are retained. Acceptance and code/architecture/plan review were not performed. No issues were closed, and no commit or push was made. Factory input, engineering, acceptance and remote-effect states remain separate; processing and remote effects are pending receipt observation."
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.implement.stories"
+      },
+      "value": [
+        {
+          "story": "story-001",
+          "outcome": "engineering_complete",
+          "engineering": {
+            "snapshot_id": "lf489-story001-final-run1051",
+            "check_ids": [
+              "story-001-final-race"
+            ]
+          }
+        },
+        {
+          "story": "story-002",
+          "outcome": "engineering_complete",
+          "engineering": {
+            "snapshot_id": "lf489-story002-run1055",
+            "check_ids": [
+              "story002-exchange-race-run1055",
+              "story002-repos-run1055",
+              "story002-build-run1055",
+              "story002-format-run1055",
+              "story002-vet-run1055"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.implement.aggregate_checks"
+      },
+      "value": {
+        "snapshot_id": "lf489-aggregate-run1055",
+        "check_ids": [
+          "aggregate-check-run1055"
+        ]
+      }
+    }
+  ]
+}

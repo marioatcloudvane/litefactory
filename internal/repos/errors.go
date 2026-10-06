@@ -3,9 +3,6 @@ package repos
 import (
 	"errors"
 	"fmt"
-	"strings"
-
-	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // The named checks `repo add` runs, in the order it runs them. They are
@@ -23,8 +20,6 @@ const (
 	CheckOriginRemote = "origin remote"
 	// CheckSupportedForge is "the origin URL names a forge litefactory speaks".
 	CheckSupportedForge = "supported forge"
-	// CheckAiteam is "aiteam is installed in the repository".
-	CheckAiteam = "aiteam installed"
 	// CheckBaseBranch is "a base branch could be determined".
 	CheckBaseBranch = "base branch"
 	// CheckFeaturePrefix is "the branch prefix is one git would accept".
@@ -36,13 +31,6 @@ const (
 // Sentinel conditions. A caller branches on these with errors.Is; the command
 // layer is what turns them into exit codes.
 var (
-	// ErrAiteamMissing reports a repository with no aiteam installation.
-	// AC-1.4: the repository is not registered, the message names `npx
-	// aiteam`, and the command exits 3.
-	ErrAiteamMissing = errors.New(
-		"aiteam is not installed here: no CLAUDE.md mentioning aiteam and no .aiteam directory; " +
-			"run `npx aiteam` in the repository first (litefactory never installs it for you)")
-
 	// ErrBaseBranchUnknown reports that none of the three sources in AC-1.3
 	// produced a base branch.
 	ErrBaseBranchUnknown = errors.New(
@@ -57,40 +45,6 @@ var (
 	// an absolute path (AC-1.6).
 	ErrInvalidWorktreeRoot = errors.New("invalid worktree root")
 )
-
-// RepoNotFoundError reports that a `team add` <repo-identifier> ([ResolveIdentifier])
-// matched no registered repository. It names the identifier exactly as typed
-// (US-19 AC-4), never the resolution path it took to get there.
-type RepoNotFoundError struct {
-	// Identifier is the raw <repo-identifier> the operator typed.
-	Identifier string
-}
-
-func (e *RepoNotFoundError) Error() string {
-	return fmt.Sprintf("no registered repository matches %q", e.Identifier)
-}
-
-// AmbiguousRepoError reports that a `team add` <repo-identifier>
-// ([ResolveIdentifier]) matched more than one registered repository. It is a
-// typed error rather than a sentinel so the caller can list every candidate's
-// full owner/name (US-19 AC-3) — the same shape [store.AmbiguousIssueError]
-// uses for the same reason.
-type AmbiguousRepoError struct {
-	// Identifier is the raw <repo-identifier> the operator typed.
-	Identifier string
-	// Candidates are every repository the identifier matched, in the order
-	// [store.DB.ListRepos] returned them (owner, then name).
-	Candidates []store.Repo
-}
-
-func (e *AmbiguousRepoError) Error() string {
-	names := make([]string, 0, len(e.Candidates))
-	for _, c := range e.Candidates {
-		names = append(names, c.Slug())
-	}
-	return fmt.Sprintf("%q matches more than one registered repository (%s)",
-		e.Identifier, strings.Join(names, ", "))
-}
 
 // CheckError reports which registration check rejected a path, and why.
 //

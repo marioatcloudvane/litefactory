@@ -96,7 +96,7 @@ func TestModeAdmissionAcrossAgentsAndBundleConfigs(t *testing.T) {
 				if withBundle {
 					_, _, snapshot := deliveryFixture()
 					var err error
-					bundle, err = planDelivery(f.opts, Request{Agent: kind, Mode: agent.ModeResearch}, snapshot, t.TempDir())
+					bundle, err = planFixtureDelivery(f.opts, Request{Agent: kind, Mode: agent.ModeResearch}, snapshot, t.TempDir())
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -203,7 +203,7 @@ func TestSimultaneousBundleAndModeChangeRotatesExactlyOnce(t *testing.T) {
 			ref := testRef(t)
 
 			_, _, snapshot := deliveryFixture()
-			original, err := planDelivery(f.opts, Request{Agent: kind, Mode: agent.ModeResearch}, snapshot, t.TempDir())
+			original, err := planFixtureDelivery(f.opts, Request{Agent: kind, Mode: agent.ModeResearch}, snapshot, t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -215,8 +215,10 @@ func TestSimultaneousBundleAndModeChangeRotatesExactlyOnce(t *testing.T) {
 			}
 			finishTerminalRun(t, f, ref, first, kind, agent.ModeResearch, testComment)
 
-			snapshot.Provenance.Version = "9.9.9"
-			changed, err := planDelivery(f.opts, Request{Agent: kind, Mode: agent.ModePlan}, snapshot, t.TempDir())
+			node := snapshot.Nodes["first"]
+			node.Task = "Changed effective task"
+			snapshot.Nodes["first"] = node
+			changed, err := planFixtureDelivery(f.opts, Request{Agent: kind, Mode: agent.ModePlan}, snapshot, t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -271,7 +273,7 @@ func TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates(t *testing.T)
 	ref := testRef(t)
 
 	_, _, snapshot := deliveryFixture()
-	claudePlan, err := planDelivery(f.opts, Request{Agent: agent.Kind(store.AgentClaude), Mode: agent.ModeResearch}, snapshot, t.TempDir())
+	claudePlan, err := planFixtureDelivery(f.opts, Request{Agent: agent.Kind(store.AgentClaude), Mode: agent.ModeResearch}, snapshot, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +288,7 @@ func TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates(t *testing.T)
 	}
 	finishTerminalRun(t, f, ref, first, agent.Kind(store.AgentClaude), agent.ModeResearch, testComment)
 
-	codexPlan, err := planDelivery(f.opts, Request{Agent: agent.Kind(store.AgentCodex), Mode: agent.ModePlan}, snapshot, t.TempDir())
+	codexPlan, err := planFixtureDelivery(f.opts, Request{Agent: agent.Kind(store.AgentCodex), Mode: agent.ModePlan}, snapshot, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +584,7 @@ func TestContinuationRefusesWhenTheBundleIdentityChanged(t *testing.T) {
 	kind := agent.Kind(store.AgentClaude)
 
 	_, _, snapshot := deliveryFixture()
-	original, err := planDelivery(f.opts, Request{Agent: kind, Mode: agent.ModeResearch}, snapshot, t.TempDir())
+	original, err := planFixtureDelivery(f.opts, Request{Agent: kind, Mode: agent.ModeResearch}, snapshot, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -596,8 +598,10 @@ func TestContinuationRefusesWhenTheBundleIdentityChanged(t *testing.T) {
 		t.Fatal("expected the first admission to publish a bundle")
 	}
 
-	snapshot.Provenance.Version = "9.9.9"
-	changed, err := planDelivery(f.opts, Request{Agent: kind, Mode: agent.ModeResearch}, snapshot, t.TempDir())
+	node := snapshot.Nodes["first"]
+	node.Task = "Changed effective task"
+	snapshot.Nodes["first"] = node
+	changed, err := planFixtureDelivery(f.opts, Request{Agent: kind, Mode: agent.ModeResearch}, snapshot, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

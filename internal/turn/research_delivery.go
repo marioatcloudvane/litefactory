@@ -14,7 +14,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/render"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/team"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
@@ -64,7 +63,7 @@ func planWorkflowDelivery(opts Options, req Request, definition *teamsource.Work
 	}
 	p.evidence = agent.DeliveryEvidence{Team: definition.Profile.Team, Mode: string(policy.Mode), SnapshotDigest: definition.Digest, ResourceHashes: map[string]string{}}
 	for name, raw := range node.Files {
-		p.evidence.ResourceHashes[name] = team.HashBytes(raw)
+		p.evidence.ResourceHashes[name] = hashBytes(raw)
 		p.evidence.SourceBytes += len(raw)
 	}
 	p.evidence.Specialists = []agent.SpecialistEvidence{{ID: p.mainRole, Tier: string(node.Tier), Model: model}}
@@ -104,7 +103,7 @@ func planWorkflowDelivery(opts Options, req Request, definition *teamsource.Work
 	if err != nil {
 		return nil, fmt.Errorf("hash Research delivery: %w", err)
 	}
-	p.identity = team.HashBytes(encoded)
+	p.identity = hashBytes(encoded)
 	return p, nil
 }
 

@@ -1,0 +1,5 @@
+go vet ./...
+# github.com/cloudvane/litefactory/internal/teamsource
+# [github.com/cloudvane/litefactory/internal/teamsource]
+vet: internal/teamsource/aggregate_instruction_parity_test.go:213:20: undefined: CaptureRoot
+make: *** [vet] Error 1

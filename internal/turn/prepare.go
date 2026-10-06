@@ -18,7 +18,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // preparation is everything the run needs, assembled and recorded before the
@@ -146,13 +145,6 @@ func prepare(
 	if err != nil {
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
 	}
-	var selected *teamsource.Snapshot
-	if repo.ExternalTeam != "" && req.researchDefinition == nil {
-		selected, err = teamsource.Capture(ctx, opts.Paths, repo.ExternalTeam, req.mode())
-		if err != nil {
-			return nil, failuref(err, "external team instructions could not be captured")
-		}
-	}
 
 	clone, err := opts.Git.Open(ctx, repo.Path)
 	if err != nil {
@@ -216,11 +208,9 @@ func prepare(
 			policy = *req.workflowPolicy
 		}
 		deliveryPlan, err = planWorkflowDelivery(opts, req, req.researchDefinition, req.researchNode, policy)
-	} else {
-		deliveryPlan, err = planDelivery(opts, req, selected, worktree.Path())
 	}
 	if err != nil {
-		return nil, failuref(err, "external team instructions could not be prepared")
+		return nil, failuref(err, "built-in instructions could not be prepared")
 	}
 
 	// The one place in the tree that derives a session ref. Every later

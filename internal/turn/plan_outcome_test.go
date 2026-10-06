@@ -407,26 +407,6 @@ func TestPlanNewColdAttemptClearsStaleTransportAndReadiness(t *testing.T) {
 	}
 }
 
-func TestPlanReadinessInvalidatedBeforeExternalTeamCapture(t *testing.T) {
-	runner := newStubRunner(func(context.Context, agent.Request) (*agent.RunResult, error) {
-		t.Fatal("unavailable team reached subprocess")
-		return nil, nil
-	})
-	f := newFixture(t, runner)
-	setupOutcomeForge(t, f)
-	mustProgress(t, f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}))
-	mustProgress(t, f.db.SetManagedFeatureReady(t.Context(), f.session.TaskRef, 1, true))
-	repo := f.repoRow()
-	repo.ExternalTeam = "missing-team"
-	_, err := f.db.UpsertRepo(t.Context(), repo)
-	mustProgress(t, err)
-	_, err = Execute(t.Context(), f.opts, planRequest(f))
-	if err == nil || !strings.Contains(err.Error(), "external team") {
-		t.Fatalf("expected retryable team preparation failure: %v", err)
-	}
-	assertPlanUnready(t, f)
-}
-
 func TestPlanArtifactRejectsChangedPinnedSnapshot(t *testing.T) {
 	for _, scenario := range []string{"parent replacement", "inode replacement", "content change"} {
 		t.Run(scenario, func(t *testing.T) {

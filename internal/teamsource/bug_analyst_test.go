@@ -73,7 +73,7 @@ func TestBugAnalyst_SourceEmbeddedParity(t *testing.T) {
 	for name, captured := range node.Files {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			source, err := os.ReadFile(path.Join("../../teams/source/bug", name))
+			source, err := os.ReadFile(path.Join("../../internal/teamsource/bug", name))
 			if err != nil {
 				t.Fatal(err)
 			}
