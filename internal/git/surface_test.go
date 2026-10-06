@@ -108,6 +108,10 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// the confirmed list and roll back on any failure via
 		// abortInProgressMerge (S-5).
 		"WriteResolvedFiles", "StageResolvedFiles", "CompleteMerge",
+		// Implement merge: publish a scratch merge as the integration branch
+		// without force, only while the remote still has the expected head.
+		// It pushes a commit that descends from that head and nothing else.
+		"PushHeadTo",
 	}
 	slices.Sort(want)
 

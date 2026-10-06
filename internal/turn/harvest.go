@@ -69,18 +69,6 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 			logger.Error("story progress remains pending", slog.Any("error", err))
 		}
 	}
-	if runResult != nil && runResult.Succeeded() && prep.promptInput.ApprovedStories != nil && prep.promptInput.ApprovedStories.WorkflowVersion == store.WorkflowSeparated {
-		pending, err := opts.DB.PendingEngineering(bookkeeping, prep.ref.String(), prep.promptInput.ApprovedStories.Generation)
-		if err != nil || len(pending) > 0 {
-			runResult = runResult.Clone()
-			runResult.Outcome = agent.OutcomeFailed
-			runResult.Reason = "Engineering evidence remains incomplete: " + strings.Join(pending, ", ")
-			if err != nil {
-				runResult.Reason = "Cannot confirm engineering evidence: " + err.Error()
-			}
-			runResult.ResultText += "\n\n" + runResult.Reason
-		}
-	}
 	if runResult != nil && prep.promptInput.ApprovedStories != nil {
 		drift, checkErr := prep.validateScope(bookkeeping)
 		if checkErr != nil {
@@ -185,7 +173,7 @@ func harvestStopped(ctx context.Context, opts Options, prep *preparation, result
 
 	result = publishPlanHandoff(ctx, opts, prep, result, runResult, logger)
 	result = save(ctx, opts, prep, result, runResult, logger)
-	if prep.promptInput.ApprovedStories != nil && result.Succeeded() {
+	if prep.promptInput.ApprovedStories != nil && result.Succeeded() && prep.workComplete() {
 		if err := opts.DB.MarkStoryAggregateSucceeded(bookkeeping, prep.run.ID); err != nil {
 			result.Err = err
 		} else if opts.StoryProgress != nil {
@@ -197,7 +185,7 @@ func harvestStopped(ctx context.Context, opts Options, prep *preparation, result
 			}
 		}
 	}
-	if prep.promptInput.ApprovedStories != nil && prep.promptInput.ApprovedStories.WorkflowVersion == store.WorkflowSeparated && result.Succeeded() {
+	if prep.promptInput.ApprovedStories != nil && prep.promptInput.ApprovedStories.WorkflowVersion == store.WorkflowSeparated && result.Succeeded() && prep.workComplete() {
 		feature, err := opts.DB.GetManagedFeature(bookkeeping, prep.ref.String())
 		if err != nil {
 			result.Err = err
@@ -421,8 +409,9 @@ func runOutcome(result *harness.RunResult) store.RunOutcome {
 	return outcome
 }
 
-// save commits and pushes whatever the run left in the worktree, but only for
-// a run that actually succeeded.
+// save commits and pushes whatever the run left in the worktree. For Implement
+// that happens on every outcome (see [preparation.alwaysCommits]); for every
+// other mode only for a run that actually succeeded, as described below.
 //
 // A branch's history is read as finished, reviewed work. A run that failed,
 // timed out, was abandoned or produced no result did not clear that bar, so
@@ -444,7 +433,18 @@ func save(
 	runResult *harness.RunResult,
 	logger *slog.Logger,
 ) Result {
-	if result.Err != nil || prep.promptInput.Validation != nil {
+	if prep.promptInput.Validation != nil {
+		return result
+	}
+	// An abandoned run is the daemon shutting down: its context is cancelled, the
+	// push cannot run and the work is safe in the worktree until the next run.
+	if prep.alwaysCommits() && runResult.Outcome != agent.OutcomeAbandoned {
+		// Git is the record for Implement: whatever the run left is committed and
+		// pushed to its own branch on every outcome. A commit or push failure is
+		// reported on the result and never changes the run's accepted outcome.
+		return commitAndPush(ctx, opts, prep, result, runResult, logger)
+	}
+	if result.Err != nil {
 		return result
 	}
 	if !runResult.Succeeded() {
@@ -460,6 +460,39 @@ func save(
 		return result
 	}
 	return commitAndPush(ctx, opts, prep, result, runResult, logger)
+}
+
+// alwaysCommits reports whether the save step commits on every outcome. Only an
+// Implement run does; every other mode keeps the success-only rule.
+func (prep *preparation) alwaysCommits() bool {
+	return prep.run.Mode == string(agent.ModeImplement) && prep.run.Workflow == ""
+}
+
+// workComplete reports whether the success-only steps (aggregate success and
+// the next-action note) may run: an accepted Implement answer of incomplete or
+// blocked is a valid result but not finished work.
+func (prep *preparation) workComplete() bool {
+	return prep.acceptedOutcome == "" || prep.acceptedOutcome == "completed"
+}
+
+// implementCommitSummary names the outcome, and the reason when the run did not
+// complete, ahead of the run's own result text.
+func implementCommitSummary(prep *preparation, runResult *harness.RunResult) string {
+	outcome, reason := prep.acceptedOutcome, prep.acceptedReason
+	if outcome == "" {
+		outcome, reason = runResult.Outcome.String(), runResult.Reason
+		if runResult.Succeeded() {
+			outcome, reason = "completed", ""
+		}
+	}
+	subject := "Implement run " + outcome
+	if outcome != "completed" && strings.TrimSpace(reason) != "" {
+		subject += ": " + strings.Join(strings.Fields(reason), " ")
+	}
+	if strings.TrimSpace(runResult.ResultText) == "" {
+		return subject
+	}
+	return subject + "\n\n" + runResult.ResultText
 }
 
 // commitAndPush is the turn's second critical section against the registered
@@ -522,7 +555,7 @@ func commitAndPush(
 		// Untrusted: claude wrote it. internal/git strips any forged
 		// Litefactory- line out of it before the real trailers are appended
 		// (AC-3.21).
-		Summary:  runResult.ResultText,
+		Summary:  commitSummary(prep, runResult),
 		Task:     prep.ref.String(),
 		Mode:     prep.run.Mode,
 		Workflow: prep.run.Workflow,
@@ -705,4 +738,11 @@ func displayRemoteHead(sha string) string {
 		return "(absent)"
 	}
 	return sha
+}
+
+func commitSummary(prep *preparation, runResult *harness.RunResult) string {
+	if prep.alwaysCommits() {
+		return implementCommitSummary(prep, runResult)
+	}
+	return runResult.ResultText
 }

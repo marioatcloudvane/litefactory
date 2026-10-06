@@ -569,6 +569,9 @@ func (d *Daemon) discover(
 	if err := d.graphPlanStories(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
+	if err := d.graphImplementStories(ctx, byRepo, seen, now); err != nil {
+		return nil, err
+	}
 	if err := d.managedParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -944,6 +947,10 @@ type task struct {
 	commentUnderWay int64
 
 	refining bool
+	// implementing marks a run the factory started for an Implement story worker.
+	// The story is a graph Plan story issue too, so without it the issue would
+	// run Plan, whatever its labels say.
+	implementing bool
 	// hinted is set when a webhook named this task's issue. Its comment
 	// listing then takes the operational lane, so an owner's comment does not
 	// wait behind background discovery.
@@ -1416,6 +1423,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		// Comments come first: an owner's reply may change the work this task owes.
 		if err := d.startPlanWork(ctx, t); err != nil {
 			d.stopped(ctx, t, "could not run the Plan work of this task", err)
+			return
+		}
+		if err := d.startImplementWork(ctx, t); err != nil {
+			d.stopped(ctx, t, "could not run the Implement work of this task", err)
 			return
 		}
 		// The clean-drain clear site, deliberately a statement on the success path
@@ -2079,7 +2090,18 @@ func (d *Daemon) run(
 
 	// A graph Plan story issue only ever runs Plan, whatever its labels say, and
 	// so does Plan work the factory started itself.
-	if t.scheduled != nil && t.scheduled.Payload == planWorkPayload {
+	workerRun := t.scheduled != nil && t.scheduled.Payload == implementWorkPayload
+	if !workerRun && store.IsGraphTrigger(trigger.CommentID) {
+		// A repair of a story worker is owed as a graph dispatch, not a schedule.
+		if _, err := d.db.ImplementStoryByWorkerSession(ctx, t.session.ID); err == nil {
+			workerRun = true
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return d.leave(ctx, t, log, "could not tell whether this is an Implement story worker", err)
+		}
+	}
+	if workerRun {
+		t.implementing = true
+	} else if t.scheduled != nil && t.scheduled.Payload == planWorkPayload {
 		t.refining = true
 	} else if _, owned, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
 		return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
@@ -2161,7 +2183,7 @@ func (d *Daemon) run(
 
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
-	if (mode == agent.ModeResearch || mode == agent.ModeSpike || workflow == agent.WorkflowBug) && t.continuation == nil {
+	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeImplement || workflow == agent.WorkflowBug) && t.continuation == nil {
 		if err := d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
 			// A comment written before the open question was published can
 			// never answer it. Refuse it once, visibly; the reply path consumes

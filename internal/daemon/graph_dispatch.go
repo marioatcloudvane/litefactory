@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -229,6 +230,21 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		t.log.ErrorContext(ctx, "read graph step outcome", slog.Any("error", lookupErr))
 		return
 	}
+	// The Implement coordinator runs no agent, so a step of it has no run by design.
+	// It ran if it did not fail; the instance records where it rests.
+	if !exists && err == nil {
+		runless, runlessErr := d.implementCoordinatorDispatch(ctx, dispatch)
+		if runlessErr != nil {
+			t.recordWorkerError(runlessErr)
+			return
+		}
+		if runless {
+			if finishErr := d.db.FinishGraphDispatch(ctx, dispatch.ID, t.tickAt.UTC()); finishErr != nil {
+				t.recordWorkerError(finishErr)
+			}
+			return
+		}
+	}
 	// No run means the step never started. The instance keeps its node and its
 	// findings, so the work is still owed: requeue rather than cancel, unless
 	// the reason it could not start will not go away on its own.
@@ -304,4 +320,27 @@ func (d *Daemon) requeueGraphStep(ctx context.Context, dispatch store.GraphDispa
 	}
 	_, err = reporter.ReportGraphDispatchStop(ctx, *stopped)
 	return false, err
+}
+
+// implementCoordinatorDispatch reports whether a dispatch belongs to an Implement
+// coordinator: an instance of the Implement graph on a session that is not one
+// story's worker. Such a step runs no agent and so owns no run.
+func (d *Daemon) implementCoordinatorDispatch(ctx context.Context, dispatch store.GraphDispatch) (bool, error) {
+	instance, err := d.db.GetGraphInstance(ctx, dispatch.InstanceID)
+	if err != nil {
+		return false, err
+	}
+	definition, err := d.db.GetGraphDefinition(ctx, instance.DefinitionID)
+	if err != nil {
+		return false, err
+	}
+	if definition.Mode != string(agent.ModeImplement) {
+		return false, nil
+	}
+	if _, err := d.db.ImplementStoryByWorkerSession(ctx, dispatch.SessionID); err == nil {
+		return false, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	return true, nil
 }

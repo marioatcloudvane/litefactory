@@ -197,6 +197,11 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"PrepareGraphBugSource":        "bug_graph_prepare.go",
 		"BugRuntime.saveGraphDelivery": "bug_graph_runtime.go",
 		"BugRuntime.pushGraphDelivery": "bug_graph_runtime.go",
+		// The Implement merge builds, publishes and removes its scratch tree
+		// on the shared clone; each is one acquisition.
+		"beginImplementScratch": "implement_steps.go",
+		"gatedScratch.Publish":  "implement_steps.go",
+		"gatedScratch.Close":    "implement_steps.go",
 	}
 
 	// gated names each call that must not happen outside a critical section,

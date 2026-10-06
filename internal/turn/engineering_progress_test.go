@@ -170,8 +170,10 @@ func TestEngineeringHarvestRequiresEvidenceBeforeSaveAndSuggestion(t *testing.T)
 			req.Command = ParseCommand("/implement work")
 			req.Trigger.Body = "/implement work"
 			result := f.execute(req)
-			if result.Succeeded() != complete {
-				t.Fatalf("result succeeded=%v want %v: %+v", result.Succeeded(), complete, result)
+			// The after-exit whole-feature evidence check is gone: the run is judged
+			// at submit against its own bundle, so it stays valid either way.
+			if !result.Succeeded() {
+				t.Fatalf("result failed: %+v", result)
 			}
 			feature, err := f.db.GetManagedFeature(t.Context(), f.session.TaskRef)
 			mustProgress(t, err)
@@ -181,9 +183,6 @@ func TestEngineeringHarvestRequiresEvidenceBeforeSaveAndSuggestion(t *testing.T)
 			suggestion := result.Harness != nil && strings.Contains(result.Harness.ResultText, "Factory next action:")
 			if suggestion != complete {
 				t.Fatalf("suggestion=%v want %v", suggestion, complete)
-			}
-			if !complete && result.Run.CommitSHA != "" {
-				t.Fatal("saved incomplete engineering")
 			}
 			if forge.children[200].State != "open" || forge.children[201].State != "open" {
 				t.Fatal("engineering closed children")
