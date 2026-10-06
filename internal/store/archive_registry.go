@@ -217,7 +217,9 @@ var archiveRetained = map[string]ArchiveClass{
 	"daemon_listener_status": ArchiveClassGlobal, "repo_discovery_status": ArchiveClassGlobal,
 	"schema_migrations": ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
 	"retirement_sweep": ArchiveClassGlobal, "archive_sweep": ArchiveClassGlobal,
-	planArchiveGrantsTable:  ArchiveClassGlobal,
+	planArchiveGrantsTable: ArchiveClassGlobal,
+	// Rights are keyed by repository, never archived or deleted.
+	"rights_grants": ArchiveClassGlobal, "reviewer_assignments": ArchiveClassGlobal, "rights_history": ArchiveClassGlobal,
 	"meter_price_revisions": ArchiveClassGlobal, "meter_price_rates": ArchiveClassGlobal,
 	"graph_definitions": ArchiveClassGlobal,
 	"doctor_attempts":   ArchiveClassGlobal, "doctor_conversations": ArchiveClassGlobal,
