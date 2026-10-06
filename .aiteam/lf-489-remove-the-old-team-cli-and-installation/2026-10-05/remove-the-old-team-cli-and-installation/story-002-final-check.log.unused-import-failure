@@ -1,0 +1,11 @@
+# github.com/cloudvane/litefactory/internal/turn
+internal/turn/delivery.go:13:2: "strings" imported and not used
+ok  	github.com/cloudvane/litefactory/internal/config	1.554s
+FAIL	github.com/cloudvane/litefactory/internal/cli [build failed]
+ok  	github.com/cloudvane/litefactory/internal/planbrief	1.565s
+FAIL	github.com/cloudvane/litefactory/internal/turn [build failed]
+ok  	github.com/cloudvane/litefactory/internal/harness	2.033s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	2.194s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	2.539s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	2.757s [no tests to run]
+FAIL

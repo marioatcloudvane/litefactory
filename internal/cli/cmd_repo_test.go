@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -47,7 +46,7 @@ func newRepoHome(t *testing.T) config.Paths {
 }
 
 // newRepoFixture builds a registrable clone: an origin on GitHub, a cached
-// origin/HEAD and an aiteam marker declaring a team.
+// origin/HEAD and a legacy marker that registration ignores.
 func newRepoFixture(t *testing.T) *gittest.Repo {
 	t.Helper()
 
@@ -81,7 +80,7 @@ func listRepos(t *testing.T, paths config.Paths) []store.Repo {
 }
 
 // TestRepoAddRegistersTheClone covers the happy path and AC-1.6: the row lands
-// with the resolved base branch, the sibling worktree root and the team.
+// with the resolved base branch and the sibling worktree root.
 func TestRepoAddRegistersTheClone(t *testing.T) {
 	paths := newRepoHome(t)
 	repo := newRepoFixture(t)
@@ -106,13 +105,11 @@ func TestRepoAddRegistersTheClone(t *testing.T) {
 		t.Errorf("base branch = %q, want %q", got.BaseBranch, gittest.DefaultBranch)
 	case got.WorktreeRoot != wantRoot:
 		t.Errorf("worktree root = %q, want %q", got.WorktreeRoot, wantRoot)
-	case got.AiteamTeam != "go-backend":
-		t.Errorf("aiteam team = %q, want %q", got.AiteamTeam, "go-backend")
 	case !got.LastFetchAt.IsZero():
 		t.Errorf("last fetch = %v, want the zero time", got.LastFetchAt)
 	}
 
-	for _, want := range []string{"registered", "github:acme/does-not-exist", repo.Dir, gittest.DefaultBranch, "go-backend"} {
+	for _, want := range []string{"registered", "github:acme/does-not-exist", repo.Dir, gittest.DefaultBranch} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout does not mention %q:\n%s", want, stdout)
 		}
@@ -137,7 +134,7 @@ func TestRepoAddIsIdempotent(t *testing.T) {
 		t.Fatalf("after the first add there are %d rows, want 1", len(first))
 	}
 
-	// Change every mutable field the second time round, including the team.
+	// Change registration options while leaving a changed legacy marker ignored.
 	repo.WriteFile("CLAUDE.md", "# acme-api\n\n<!-- aiteam:team=swift-apple -->\n")
 	repo.Commit("change the team")
 	stdout.Reset()
@@ -165,56 +162,29 @@ func TestRepoAddIsIdempotent(t *testing.T) {
 		t.Errorf("worktree root = %q, want %q", got.WorktreeRoot, "/srv/worktrees")
 	case got.FeaturePrefix != "bots":
 		t.Errorf("feature prefix = %q, want %q", got.FeaturePrefix, "bots")
-	case got.AiteamTeam != "swift-apple":
-		t.Errorf("aiteam team = %q, want %q", got.AiteamTeam, "swift-apple")
 	}
 	if !strings.Contains(stdout.String(), "updated") {
 		t.Errorf("stdout does not say the registration was updated:\n%s", stdout)
 	}
 }
 
-// TestRepoAddWithoutAiteamIsRefused is AC-1.4: exit 3, the message names
-// `npx aiteam`, and nothing is registered.
-func TestRepoAddWithoutAiteamIsRefused(t *testing.T) {
+// TestRepoAddWithoutInstallation registers a fresh clone without team setup.
+func TestRepoAddWithoutInstallation(t *testing.T) {
 	paths := newRepoHome(t)
 	repo := gittest.New(t)
 	repo.SetOriginURL(repoTestRemoteURL)
-	router, _, stderr := newTestRouter(t)
-
-	if code := router.Run(t.Context(), []string{"repo", "add", repo.Dir}); code != ExitPrecondition {
-		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitPrecondition, stderr)
-	}
-	if !strings.Contains(stderr.String(), "npx aiteam") {
-		t.Errorf("stderr does not name `npx aiteam`:\n%s", stderr)
-	}
-	if list := listRepos(t, paths); len(list) != 0 {
-		t.Errorf("registered %d repositories, want 0", len(list))
-	}
-}
-
-// TestRepoAddWarnsWhenTheTeamIsUnknown is AC-1.5: an undetectable team is a
-// warning and a null column, and the repository is registered anyway.
-func TestRepoAddWarnsWhenTheTeamIsUnknown(t *testing.T) {
-	paths := newRepoHome(t)
-	repo := gittest.New(t)
-	if err := os.MkdirAll(filepath.Join(repo.Dir, ".aiteam"), 0o700); err != nil {
-		t.Fatalf("create .aiteam: %v", err)
-	}
-	repo.SetOriginURL(repoTestRemoteURL)
-	router, _, stderr := newTestRouter(t)
-
+	router, stdout, stderr := newTestRouter(t)
 	if code := router.Run(t.Context(), []string{"repo", "add", repo.Dir}); code != ExitOK {
-		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+		t.Fatalf("exit code = %d, want %d: %s", code, ExitOK, stderr)
 	}
-	if !strings.Contains(stderr.String(), "warning") {
-		t.Errorf("stderr carries no warning:\n%s", stderr)
+	if list := listRepos(t, paths); len(list) != 1 {
+		t.Fatalf("registered %d repositories, want 1", len(list))
 	}
-	list := listRepos(t, paths)
-	if len(list) != 1 {
-		t.Fatalf("registered %d repositories, want 1 — an unknown team must not block registration", len(list))
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr)
 	}
-	if list[0].AiteamTeam != "" {
-		t.Errorf("aiteam team = %q, want empty (SQL NULL)", list[0].AiteamTeam)
+	if strings.Contains(strings.ToLower(stdout.String()), "team") {
+		t.Errorf("unexpected team output: %s", stdout)
 	}
 }
 
@@ -371,13 +341,15 @@ func TestRepoListRendersEveryColumn(t *testing.T) {
 		repo.Dir,
 		"github:acme/does-not-exist",
 		gittest.DefaultBranch,
-		"go-backend",
 		wantRoot,
 		"never",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("repo list output does not contain %q:\n%s", want, stdout)
 		}
+	}
+	if strings.Contains(strings.ToLower(stdout.String()), "team") {
+		t.Errorf("unexpected team output: %s", stdout)
 	}
 }
 
@@ -464,5 +436,28 @@ func TestRepoAddDoesNotCollideWithItself(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "updated") {
 		t.Errorf("the last add did not report an update:\n%s", stdout)
+	}
+}
+
+// TestRepoAddRejectsRetiredTeamFlag fails during argument parsing, before setup.
+func TestRepoAddRejectsRetiredTeamFlag(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"repo", "add", "/unused", "--team", "old-team"},
+		{"repo", "add", "--team=old-team", "/unused"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
+			router, stdout, stderr := newTestRouter(t)
+			if code := router.Run(t.Context(), args); code != ExitUsage {
+				t.Fatalf("exit = %d, want %d: %s", code, ExitUsage, stderr)
+			}
+			if !strings.Contains(stderr.String(), "flag provided but not defined") || !strings.Contains(stderr.String(), "team") {
+				t.Errorf("missing unknown-flag diagnostic: %s", stderr)
+			}
+			if strings.Contains(stderr.String(), "init") || stdout.Len() != 0 {
+				t.Errorf("argument rejection reached setup: stdout=%s stderr=%s", stdout, stderr)
+			}
+		})
 	}
 }

@@ -23,12 +23,6 @@ func DefaultFileContents() []byte {
 # references only: token_keychain names a Keychain item; token_env, shown as
 # the commented alternative below, names an environment variable.
 
-teams:
-  # GitHub file locations are fetched as raw JSON. Omission uses this URL.
-  index_url: %q
-  # Optional sources: {corporate: {index_url: "https://teams.example/index.json"}}
-  # default_source: corporate # takes precedence over index_url
-
 webhook:
   # Local address the GitHub webhook listener binds, as host:port. Deliveries
   # arrive at /litefactory/webhook and only wake a scoped discovery pass. Empty
@@ -49,7 +43,6 @@ settings:
   default_base_branch: %q # empty means discover it from the remote
   feature_prefix: %q
   worktree_root: %q # empty means the per-repository sibling default
-  team_config: %q # deprecated; central teams use teams.index_url above
   worktree_retain_days: %d # daily cleanup of safe closed-task worktrees; days since last completed run
   deploy_backup_keep: %d # newest pre-deploy database backups kept by daily cleanup; valid range: %d..%d
   log_retain_days: %d # days rotated global logs are kept before daily deletion; valid range: %d..%d
@@ -135,13 +128,11 @@ tiers:
 tool_profiles:
   permissions:
 `,
-		d.Teams.IndexURL,
 		d.Webhook.Listen,
 		d.Webhook.PublicURL,
 		d.Settings.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,
-		d.Settings.TeamConfig,
 		d.Settings.WorktreeRetainDays,
 		d.Settings.DeployBackupKeep, MinDeployBackupKeep, MaxDeployBackupKeep,
 		d.Settings.LogRetainDays, MinLogRetainDays, MaxLogRetainDays,

@@ -5,79 +5,79 @@
     {
       "name": "cold",
       "full": {
-        "input": 36403,
+        "input": 22692,
         "output": 1154,
-        "total": 37557
+        "total": 23846
       },
       "scoped": {
-        "input": 7959,
+        "input": 1015,
         "output": 1231,
-        "total": 9190
+        "total": 2246
       }
     },
     {
       "name": "continuation",
       "full": {
-        "input": 37889,
+        "input": 24178,
         "output": 1704,
-        "total": 39593
+        "total": 25882
       },
       "scoped": {
-        "input": 8195,
+        "input": 1251,
         "output": 340,
-        "total": 8535
+        "total": 1591
       }
     },
     {
       "name": "stale-retry",
       "full": {
-        "input": 39545,
+        "input": 25834,
         "output": 3408,
-        "total": 42953
+        "total": 29242
       },
       "scoped": {
-        "input": 8601,
+        "input": 1657,
         "output": 603,
-        "total": 9204
+        "total": 2260
       }
     },
     {
       "name": "incomplete",
       "full": {
-        "input": 37892,
+        "input": 24181,
         "output": 1745,
-        "total": 39637
+        "total": 25926
       },
       "scoped": {
-        "input": 8310,
+        "input": 1366,
         "output": 549,
-        "total": 8859
+        "total": 1915
       }
     },
     {
       "name": "blocked",
       "full": {
-        "input": 37886,
+        "input": 24175,
         "output": 1733,
-        "total": 39619
+        "total": 25908
       },
       "scoped": {
-        "input": 8399,
+        "input": 1455,
         "output": 689,
-        "total": 9088
+        "total": 2144
       }
     }
   ],
   "aggregate": {
     "full": {
-      "input": 189615,
+      "input": 121060,
       "output": 9744,
-      "total": 199359
+      "total": 130804
     },
     "scoped": {
-      "input": 41464,
+      "input": 6744,
       "output": 3412,
-      "total": 44876
+      "total": 10156
     }
   }
 }

@@ -17,7 +17,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -67,7 +66,7 @@ func runStoryContractUpgrade(ctx context.Context, env *Env, parent string, apply
 	if err != nil {
 		return Preconditionf("configured numeric owner and bot identities required: %v", err)
 	}
-	repo, err := db.GetRepoBySlug(ctx, store.ForgeGitHub, ref.Owner, ref.Repo)
+	_, err = db.GetRepoBySlug(ctx, store.ForgeGitHub, ref.Owner, ref.Repo)
 	if err != nil {
 		return fmt.Errorf("upgrade repository must be registered: %w", err)
 	}
@@ -95,16 +94,6 @@ func runStoryContractUpgrade(ctx context.Context, env *Env, parent string, apply
 		return err
 	}
 	scope := planbrief.TaskOwnerScope()
-	if repo.ExternalTeam != "" {
-		roster, err := teamsource.Capture(ctx, paths, repo.ExternalTeam, "implement")
-		if err != nil {
-			return err
-		}
-		scope.Roles = nil
-		for _, role := range roster.Agents {
-			scope.Roles = append(scope.Roles, role.Definition.ID)
-		}
-	}
 	o := turn.StoryContractUpgradeOptions{DB: db, Forge: forge, Renderer: renderer, Parent: ref, OwnerID: ids.OwnerUserID, Scope: scope, LockDir: filepath.Dir(paths.DBPath())}
 	p, err := turn.PreviewStoryContractUpgrade(ctx, o)
 	if err != nil {

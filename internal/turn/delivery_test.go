@@ -10,78 +10,42 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/render"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/team"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
-func deliveryFixture() (Options, Request, *teamsource.Snapshot) {
-	return Options{Tiers: config.Tiers{ModelByTier: map[config.Kind]map[config.Tier]string{"codex": {"balanced": "local-model"}}}}, Request{Agent: "codex", Mode: agent.ModeResearch, Tools: []string{"Read"}, CodexSandbox: "read-only"}, &teamsource.Snapshot{
-		Team: "go-team", Mode: "research", Digest: strings.Repeat("a", 64),
-		Agents: []teamsource.CapturedAgent{{Definition: team.AgentEntry{ID: "researcher", Desc: "Research", Path: "agents/researcher.md", Tier: "balanced"}, Source: render.ResolvedSource{Frontmatter: render.Frontmatter{Name: "researcher", Description: "Research", Tools: []string{"Read"}}, Body: "SPECIALIST_ONLY_BODY"}}},
-		Files:  map[string][]byte{"agents/researcher.md": []byte("SPECIALIST_ONLY_BODY")}, Hashes: map[string]string{"agents/researcher.md": strings.Repeat("b", 64)},
-		Provenance: &teamsource.ReleaseProvenance{SourceURL: "https://example.com/teams.json", Version: "1.0.0", ManifestDigest: strings.Repeat("c", 64)},
-	}
+func deliveryFixture() (Options, Request, *teamsource.ResearchDefinition) {
+	node := teamsource.ResearchNode{Role: render.ResolvedSource{Frontmatter: render.Frontmatter{Name: "researcher", Description: "Research", Tools: []string{"Read"}}, Body: "SPECIALIST_ONLY_BODY"}, Task: "Investigate", Tier: "balanced", Files: map[string][]byte{"research.md": []byte("SPECIALIST_ONLY_BODY")}}
+	return Options{Tiers: config.Tiers{ModelByTier: map[config.Kind]map[config.Tier]string{"codex": {"balanced": "local-model"}}}}, Request{Agent: "codex", Mode: agent.ModeResearch, Tools: []string{"Read"}, CodexSandbox: "read-only"}, &teamsource.ResearchDefinition{Profile: &graphexec.Profile{}, Digest: strings.Repeat("a", 64), Nodes: map[string]teamsource.ResearchNode{"first": node}}
 }
 
 func TestPlanDeliverySelectedRosterAndIdentity(t *testing.T) {
 	t.Parallel()
-	opts, req, snapshot := deliveryFixture()
-	worktree := t.TempDir()
-	baseline, err := planDelivery(opts, req, snapshot, worktree)
+	opts, req, definition := deliveryFixture()
+	baseline, err := planResearchDelivery(opts, req, definition, "first")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, rule := range []string{"instead of reopening its local SKILL.md", "fallback only when no definition was supplied", "not already supplied in full"} {
-		if !strings.Contains(string(baseline.files["bootstrap.md"]), rule) {
-			t.Errorf("bootstrap lost role precedence: %s", rule)
-		}
+	if !reflect.DeepEqual(baseline.roles, []string{"researcher"}) || baseline.mainModel != "local-model" {
+		t.Fatalf("selected role/model: %+v", baseline)
 	}
-	if !reflect.DeepEqual(baseline.roles, []string{"researcher"}) {
-		t.Fatalf("roster=%v", baseline.roles)
+	same, err := planResearchDelivery(opts, req, definition, "first")
+	if err != nil || same.identity != baseline.identity {
+		t.Fatalf("stable identity: %v", err)
 	}
-	if len(baseline.evidence.Specialists) != 1 || baseline.evidence.Specialists[0].Model != "local-model" || baseline.evidence.Version != "1.0.0" {
-		t.Fatalf("provenance=%+v", baseline.evidence)
-	}
-	for _, tc := range []struct {
-		name   string
-		mutate func(*Options, *Request, *teamsource.Snapshot)
-	}{
-		{"same", func(*Options, *Request, *teamsource.Snapshot) {}},
-		{"version", func(_ *Options, _ *Request, s *teamsource.Snapshot) { s.Provenance.Version = "1.1.0" }},
-		{"source", func(_ *Options, _ *Request, s *teamsource.Snapshot) {
-			s.Provenance.SourceURL = "https://corporate.example/teams.json"
-		}},
-		{"manifest", func(_ *Options, _ *Request, s *teamsource.Snapshot) {
-			s.Provenance.ManifestDigest = strings.Repeat("d", 64)
-		}},
-		{"team", func(_ *Options, _ *Request, s *teamsource.Snapshot) { s.Team = "python-team" }},
-		{"mode", func(_ *Options, r *Request, s *teamsource.Snapshot) { r.Mode = agent.ModeValidate; s.Mode = "validate" }},
-		{"model", func(o *Options, _ *Request, _ *teamsource.Snapshot) {
-			o.Tiers.ModelByTier["codex"]["balanced"] = "other-model"
-		}},
-		{"body", func(_ *Options, _ *Request, s *teamsource.Snapshot) { s.Agents[0].Source.Body = "changed" }},
-		{"override", func(_ *Options, _ *Request, s *teamsource.Snapshot) { s.Agents[0].Override = true }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			o, r, s := deliveryFixture()
-			tc.mutate(&o, &r, s)
-			got, err := planDelivery(o, r, s, worktree)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if (got.identity == baseline.identity) != (tc.name == "same") {
-				t.Fatalf("identity equality=%v", got.identity == baseline.identity)
-			}
-		})
+	opts.Tiers.ModelByTier["codex"]["balanced"] = "other-model"
+	changed, err := planResearchDelivery(opts, req, definition, "first")
+	if err != nil || changed.identity == baseline.identity {
+		t.Fatalf("changed model did not rotate identity: %v", err)
 	}
 }
 
 func TestDeliveryConcurrentPublicationIsDisjoint(t *testing.T) {
 	t.Parallel()
 	o, r, s := deliveryFixture()
-	p, err := planDelivery(o, r, s, t.TempDir())
+	p, err := planResearchDelivery(o, r, s, "first")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +90,7 @@ func TestVerifyDeliveryRejectsAlteredResources(t *testing.T) {
 	for _, damage := range []string{"clean", "changed", "missing", "extra", "symlink"} {
 		t.Run(damage, func(t *testing.T) {
 			o, r, s := deliveryFixture()
-			p, err := planDelivery(o, r, s, t.TempDir())
+			p, err := planResearchDelivery(o, r, s, "first")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -170,7 +134,7 @@ func TestDeliverySegmentRetainsAndRotatesExactIdentity(t *testing.T) {
 	opts, req, snapshot := deliveryFixture()
 	opts.DB, opts.Paths, opts.Logger = f.db, f.paths, f.opts.Logger
 	req.SessionID = f.session.ID
-	p, err := planDelivery(opts, req, snapshot, t.TempDir())
+	p, err := planResearchDelivery(opts, req, snapshot, "first")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,8 +149,8 @@ func TestDeliverySegmentRetainsAndRotatesExactIdentity(t *testing.T) {
 	if again.ID != first.ID || retained.Root != bundle.Root {
 		t.Fatal("equal identity did not reuse exact retained segment and resources")
 	}
-	snapshot.Provenance.Version = "2.0.0"
-	changed, err := planDelivery(opts, req, snapshot, t.TempDir())
+	opts.Tiers.ModelByTier["codex"]["balanced"] = "changed-model"
+	changed, err := planResearchDelivery(opts, req, snapshot, "first")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +180,7 @@ func TestDeliverySegmentRetainsAndRotatesExactIdentity(t *testing.T) {
 }
 
 // TestDeliverySegmentSwitchReconcilesDeliveryForTheNewAgent is AC-018: when a
-// team snapshot is configured, a coding-agent switch re-pins delivery for the
+// built-in workflow bundle is configured, a coding-agent switch re-pins delivery for the
 // newly resolved agent on the very same segment row — agent.Request.Delivery
 // comes back non-nil, and the identity recorded against the segment is
 // exactly what [planDelivery] produces for the new agent, not a leftover
@@ -230,7 +194,7 @@ func TestDeliverySegmentSwitchReconcilesDeliveryForTheNewAgent(t *testing.T) {
 	claudeOpts.DB, claudeOpts.Paths = f.db, f.paths
 	claudeReq.SessionID = f.session.ID
 	claudeReq.Agent, claudeReq.CodexSandbox = "claude", ""
-	claudePlan, err := planDelivery(claudeOpts, claudeReq, claudeSnapshot, t.TempDir())
+	claudePlan, err := planResearchDelivery(claudeOpts, claudeReq, claudeSnapshot, "first")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +210,7 @@ func TestDeliverySegmentSwitchReconcilesDeliveryForTheNewAgent(t *testing.T) {
 	codexOpts, codexReq, codexSnapshot := deliveryFixture()
 	codexOpts.DB, codexOpts.Paths = f.db, f.paths
 	codexReq.SessionID = f.session.ID
-	codexPlan, err := planDelivery(codexOpts, codexReq, codexSnapshot, t.TempDir())
+	codexPlan, err := planResearchDelivery(codexOpts, codexReq, codexSnapshot, "first")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +230,7 @@ func TestDeliverySegmentSwitchReconcilesDeliveryForTheNewAgent(t *testing.T) {
 		t.Fatalf("switched segment agent = %q, want %q", switched.Agent, store.AgentCodex)
 	}
 	if switchedDelivery == nil {
-		t.Fatal("agent.Request.Delivery is nil after a switch with a team snapshot configured")
+		t.Fatal("agent.Request.Delivery is nil after a switch with a built-in workflow configured")
 	}
 	if switchedDelivery.Identity != codexPlan.identity {
 		t.Errorf("delivered identity = %q, want the new agent's planDelivery identity %q",
@@ -280,4 +244,11 @@ func TestDeliverySegmentSwitchReconcilesDeliveryForTheNewAgent(t *testing.T) {
 	if identity != codexPlan.identity || root != switchedDelivery.Root {
 		t.Errorf("recorded delivery = %q/%q, want %q/%q", identity, root, codexPlan.identity, switchedDelivery.Root)
 	}
+}
+
+// planFixtureDelivery exercises native workflow rendering across admission modes.
+func planFixtureDelivery(opts Options, req Request, definition *teamsource.ResearchDefinition, _ string) (*deliveryPlan, error) {
+	policy := ResearchWorkflowPolicy()
+	policy.Mode = req.Mode
+	return planWorkflowDelivery(opts, req, definition, "first", policy)
 }

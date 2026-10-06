@@ -1,0 +1,8 @@
+go vet ./...
+# github.com/cloudvane/litefactory/internal/turn
+internal/turn/delivery.go:13:2: "strings" imported and not used
+# github.com/cloudvane/litefactory/internal/turn [github.com/cloudvane/litefactory/internal/store.test]
+internal/turn/delivery.go:13:2: "strings" imported and not used
+# github.com/cloudvane/litefactory/internal/turn [github.com/cloudvane/litefactory/internal/turn.test]
+internal/turn/delivery.go:13:2: "strings" imported and not used
+make: *** [vet] Error 1

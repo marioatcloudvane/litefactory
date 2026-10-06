@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -142,7 +141,7 @@ func ValidateNewWorktreeRoot(r *Registration, existing []store.Repo) error {
 	// the worktree root are read, and this row is not the one that gets stored.
 	// Deriving it through StoreRepo rather than assembling a store.Repo by hand
 	// keeps the check reading the same fields the upsert will write.
-	candidate := r.StoreRepo(time.Time{})
+	candidate := r.StoreRepo()
 	dir, err := worktreeKey(candidate)
 	if err != nil {
 		return err

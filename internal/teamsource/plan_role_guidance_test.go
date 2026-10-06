@@ -21,9 +21,11 @@ func squash(s string) string { return strings.ToLower(strings.Join(strings.Field
 
 // ---- AC-039: the source tree and the embedded copy are identical ----
 
+const repoRoot = "../.."
+
 func planSourceTree(t *testing.T) map[string][]byte {
 	t.Helper()
-	root := filepath.Join(repoRoot, "teams", "source", "plan")
+	root := filepath.Join(repoRoot, "internal", "teamsource", "plan")
 	out := map[string][]byte{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -241,7 +243,7 @@ func TestPlanRolesCarryAskDoneAndRecoveryGuidance(t *testing.T) {
 func TestPlanGuidanceNeverAsksForAPrintedResultInEitherCopy(t *testing.T) {
 	t.Parallel()
 	source, embedded := planSourceTree(t), planEmbeddedTree(t)
-	for tree, files := range map[string]map[string][]byte{"teams/source/plan": source, "internal/teamsource/plan": embedded} {
+	for tree, files := range map[string]map[string][]byte{"internal/teamsource/plan-files": source, "internal/teamsource/plan": embedded} {
 		for _, name := range append([]string{"skills/plan-evidence/node-result.md"}, planRoleFiles...) {
 			raw, ok := files[name]
 			if !ok {

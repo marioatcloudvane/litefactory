@@ -1,0 +1,103 @@
+{
+  "request_id": "bde14cbbf9ff0cc60fc5bde543eaa409",
+  "result": {
+    "Validation": {
+      "valid": true,
+      "complete": true,
+      "diagnostics": [],
+      "unchecked_paths": [],
+      "expected_revision": 1,
+      "current_revision": 1
+    },
+    "Receipt": {
+      "ID": 477,
+      "ResultID": 295,
+      "RunID": 1055,
+      "AppliedRevision": 2,
+      "SubmissionReceiptID": 0,
+      "Attempt": "e07c0a259988ce5ddfd47ac33533ac4a",
+      "RequestID": "bde14cbbf9ff0cc60fc5bde543eaa409",
+      "RequestHash": "23f1e7c62b349e0c929d56330e10a7a59075f62f2867885c23631d66978c7ac1",
+      "InputState": "accepted",
+      "Observations": [
+        {
+          "Sequence": 1,
+          "RunID": 1055,
+          "Attempt": "e07c0a259988ce5ddfd47ac33533ac4a",
+          "Dimension": "received",
+          "State": "received"
+        },
+        {
+          "Sequence": 2,
+          "RunID": 1055,
+          "Attempt": "e07c0a259988ce5ddfd47ac33533ac4a",
+          "Dimension": "input",
+          "State": "accepted"
+        }
+      ],
+      "Latest": {
+        "Received": "received",
+        "Input": "accepted",
+        "Engineering": "pending",
+        "Acceptance": "pending",
+        "Publication": "pending"
+      }
+    },
+    "Snapshot": {
+      "meta": {
+        "schema_version": 1,
+        "task": "github:marioatcloudvane/litefactory#489",
+        "run_id": 1055,
+        "attempt_id": "e07c0a259988ce5ddfd47ac33533ac4a",
+        "mode": "implement",
+        "result_id": "result-295",
+        "result_revision": 2,
+        "scope_ref": "0ab49d9a0d2969e00bbfc065d1f79ada42dc4649fd86c6fcbe618e7ed085b4da",
+        "request_id": "bde14cbbf9ff0cc60fc5bde543eaa409",
+        "workflow_version": 2,
+        "submission_contract_version": 2
+      },
+      "result": {
+        "outcome": "completed",
+        "comment": "Story #490 retained engineering completion is preserved. Story #491 engineering is complete: the remaining distribution-dependent exchange fixture uses local protocol fixtures and keeps result-equivalence and reply-recovery coverage. Final make check passed formatting, vet, pinned lint and the full race suite against the final worktree. Scoped tests, built-in delivery coverage, retired-surface searches and operator-file protections are retained. Acceptance and code/architecture/plan review were not performed. No issues were closed, and no commit or push was made. Factory input, engineering, acceptance and remote-effect states remain separate; processing and remote effects are pending receipt observation.",
+        "payload": {
+          "implement": {
+            "stories": [
+              {
+                "story": "story-001",
+                "outcome": "engineering_complete",
+                "engineering": {
+                  "snapshot_id": "lf489-story001-final-run1051",
+                  "check_ids": [
+                    "story-001-final-race"
+                  ]
+                }
+              },
+              {
+                "story": "story-002",
+                "outcome": "engineering_complete",
+                "engineering": {
+                  "snapshot_id": "lf489-story002-run1055",
+                  "check_ids": [
+                    "story002-exchange-race-run1055",
+                    "story002-repos-run1055",
+                    "story002-build-run1055",
+                    "story002-format-run1055",
+                    "story002-vet-run1055"
+                  ]
+                }
+              }
+            ],
+            "aggregate_checks": {
+              "snapshot_id": "lf489-aggregate-run1055",
+              "check_ids": [
+                "aggregate-check-run1055"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "Baseline": null
+  }
+}

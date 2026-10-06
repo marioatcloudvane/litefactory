@@ -1,7 +1,6 @@
 // Package repos turns a clone that already exists on disk into a registered
 // repository: it decides what litefactory will call it, where it will put its
-// worktrees, which branch it will cut from, and whether aiteam is installed
-// there at all.
+// worktrees, and which branch it will cut from.
 //
 // # Nothing is written inside the clone
 //
@@ -31,19 +30,4 @@
 // configuration at daemon startup and [ValidateNewWorktreeRoot] refuses it at
 // `repo add`, before the row is written. The first of those documents why the
 // collision is refused rather than designed out (AC-PAR-4.8).
-//
-// # aiteam detection is one rule, and it is deliberately dumb
-//
-// See [DetectAiteam]. It reads two explicit markers and infers nothing from
-// prose. A cleverer rule would be wrong in ways nobody notices until it
-// matters, and nothing at M0 consumes the team name.
-//
-// # A repo identifier is resolved one way, never two
-//
-// See [ResolveIdentifier], used by `team add <repo-identifier> <team>`. An
-// identifier containing "/" is an exact owner/name slug and nothing else is
-// tried; an identifier with no "/" is a case-insensitive substring match
-// against every registered repository's Name. The two paths never mix within
-// one call, and more than one match is refused ([*AmbiguousRepoError]) rather
-// than guessed at.
 package repos

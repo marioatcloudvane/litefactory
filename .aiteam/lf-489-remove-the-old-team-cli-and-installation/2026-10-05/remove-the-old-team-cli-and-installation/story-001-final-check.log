@@ -1,0 +1,5 @@
+ok  	github.com/cloudvane/litefactory/internal/repos	(cached)	coverage: 48.4% of statements
+ok  	github.com/cloudvane/litefactory/internal/cli	50.125s	coverage: 13.6% of statements
+ok  	github.com/cloudvane/litefactory/internal/daemon	1.955s	coverage: 1.9% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	33.364s	coverage: 12.2% of statements
+ok  	github.com/cloudvane/litefactory/internal/store	50.058s	coverage: 4.1% of statements

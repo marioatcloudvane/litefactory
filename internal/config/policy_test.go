@@ -3,7 +3,7 @@ package config
 import "testing"
 
 // TestContainsForbiddenFlag exercises the newly exported string-in/bool-out
-// contract directly (US-14 T-40): internal/team calls this function rather
+// contract directly (US-14 T-40): agent configuration calls this function rather
 // than duplicating forbiddenFlag() or the strings.Contains check itself, so
 // its behavior as a public API surface needs its own direct coverage,
 // independent of whatever validateNoForbiddenFlag's existing tests already

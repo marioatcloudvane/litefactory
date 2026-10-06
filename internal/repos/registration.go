@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -52,8 +51,6 @@ const (
 // empty field means "not given", which is how the resolution order below falls
 // through to the next source.
 type Options struct {
-	// ExternalTeam is an explicitly selected, already validated central team.
-	ExternalTeam string
 	// BaseBranch is --base.
 	BaseBranch string
 	// WorktreeRoot is --worktrees.
@@ -81,7 +78,6 @@ type Defaults struct {
 // and it is a plain value: nothing here has been written to disk or to the
 // database yet.
 type Registration struct {
-	ExternalTeam string
 	// Path is the clone's top level: absolute, symlink-resolved, canonical.
 	// It is the unique key the repos table is upserted on (AC-1.8).
 	Path string
@@ -99,33 +95,23 @@ type Registration struct {
 	// and WorktreeRootSource says which of the three sources supplied it.
 	WorktreeRoot       string
 	WorktreeRootSource Source
-	// Aiteam is what the detection rule found. Registration only gets this far
-	// when aiteam is present; the team inside may still be empty (AC-1.5).
-	Aiteam Aiteam
 }
 
 // StoreRepo renders the registration as the row to upsert.
 //
-// verifiedAt is passed in rather than read from the clock here because it
-// records when aiteam's presence was confirmed — an event the caller observed,
-// not the moment the row happens to be written.
-//
 // LastFetchAt is deliberately left at the zero time. It belongs to
 // [store.DB.TouchRepoFetch], and registration must never make litefactory
 // believe it has fetched.
-func (r Registration) StoreRepo(verifiedAt time.Time) store.Repo {
+func (r Registration) StoreRepo() store.Repo {
 	return store.Repo{
-		Path:             r.Path,
-		Forge:            r.Ref.Forge,
-		Owner:            r.Ref.Owner,
-		Name:             r.Ref.Name,
-		RemoteURL:        r.RemoteURL,
-		BaseBranch:       r.BaseBranch,
-		FeaturePrefix:    r.FeaturePrefix,
-		WorktreeRoot:     r.WorktreeRoot,
-		AiteamTeam:       r.Aiteam.Team,
-		ExternalTeam:     r.ExternalTeam,
-		AiteamVerifiedAt: verifiedAt.UTC(),
+		Path:          r.Path,
+		Forge:         r.Ref.Forge,
+		Owner:         r.Ref.Owner,
+		Name:          r.Ref.Name,
+		RemoteURL:     r.RemoteURL,
+		BaseBranch:    r.BaseBranch,
+		FeaturePrefix: r.FeaturePrefix,
+		WorktreeRoot:  r.WorktreeRoot,
 	}
 }
 
@@ -134,7 +120,7 @@ func (r Registration) StoreRepo(verifiedAt time.Time) store.Repo {
 //
 // The checks run in the order a user would want to hear about them, and the
 // first failure stops the rest: the path is a working clone, it has an origin,
-// the origin is a forge we speak, aiteam is installed, a base branch can be
+// the origin is a forge we speak, a base branch can be
 // determined, the branch prefix is legal, and a worktree root resolves. Every
 // failure is a [*CheckError] naming which of those it was (AC-1.1), wrapping a
 // cause that is either one of this package's sentinels or one of
@@ -161,14 +147,6 @@ func Resolve(ctx context.Context, binary *git.Binary, path string, opts Options,
 		return nil, &CheckError{Check: CheckSupportedForge, Path: root, Err: err}
 	}
 
-	aiteam, err := DetectAiteam(root)
-	if err != nil {
-		return nil, &CheckError{Check: CheckAiteam, Path: root, Err: err}
-	}
-	if !aiteam.Present && opts.ExternalTeam == "" {
-		return nil, &CheckError{Check: CheckAiteam, Path: root, Err: ErrAiteamMissing}
-	}
-
 	base, baseSource, err := resolveBaseBranch(ctx, clone, opts.BaseBranch, def.BaseBranch)
 	if err != nil {
 		return nil, &CheckError{Check: CheckBaseBranch, Path: root, Err: err}
@@ -185,7 +163,6 @@ func Resolve(ctx context.Context, binary *git.Binary, path string, opts Options,
 	}
 
 	return &Registration{
-		ExternalTeam:       opts.ExternalTeam,
 		Path:               root,
 		Ref:                ref,
 		RemoteURL:          remoteURL,
@@ -194,7 +171,6 @@ func Resolve(ctx context.Context, binary *git.Binary, path string, opts Options,
 		FeaturePrefix:      prefix,
 		WorktreeRoot:       worktreeRoot,
 		WorktreeRootSource: rootSource,
-		Aiteam:             aiteam,
 	}, nil
 }
 

@@ -1,0 +1,19 @@
+{
+  "request_id": "dc125fb22ffac694728ff007ef2fcad6",
+  "result": {
+    "ID": 401,
+    "RunID": 1055,
+    "Attempt": "e07c0a259988ce5ddfd47ac33533ac4a",
+    "RequestID": "dc125fb22ffac694728ff007ef2fcad6",
+    "RequestHash": "693bea8f5dd050becb0895e2e841f97650ee144553b5b8b4a938f98905ff785c",
+    "Story": "story-002",
+    "Revision": "30d696533ada1ea0903b96a53512c4a0e034bac31d7613dc72860789f4b6ea9d",
+    "Sequence": 1,
+    "StoryAttempt": 1,
+    "InputState": "valid",
+    "EngineeringState": "recorded",
+    "AcceptanceState": "not_applicable",
+    "EffectState": "pending",
+    "PlanState": "not_applicable"
+  }
+}

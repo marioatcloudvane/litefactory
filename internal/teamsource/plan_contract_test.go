@@ -105,7 +105,7 @@ func TestPlanPackageClosureAndDigest(t *testing.T) {
 	// Static packaging consistency reads source assets only; runtime capture above
 	// uses embedded bytes and native rendering below performs no filesystem writes.
 	for _, name := range keys {
-		raw, err := os.ReadFile("../../teams/source/plan/" + name)
+		raw, err := os.ReadFile("../../internal/teamsource/plan/" + name)
 		if err != nil {
 			t.Fatal(err)
 		}
