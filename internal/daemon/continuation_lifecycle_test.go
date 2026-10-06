@@ -137,8 +137,9 @@ func TestRecoveryLifecycleBothRealCLIRunners(t *testing.T) {
 			if data, err := os.ReadFile(filepath.Join(action.Context.Worktree, "partial.txt")); err != nil || string(data) != "unfinished work\n" {
 				t.Fatalf("unsaved partial work lost=%q %v", data, err)
 			}
-			if runs[0].CommitSHA != "" {
-				t.Fatalf("interrupted work was committed=%+v", runs[0])
+			// Implement saves on every outcome, so the interrupted work is committed.
+			if runs[0].CommitSHA == "" {
+				t.Fatalf("interrupted work was not committed=%+v", runs[0])
 			}
 			if _, err := f.db.AdvanceWatermark(t.Context(), session.ID, 42); err != nil {
 				t.Fatal(err)
@@ -198,7 +199,9 @@ func TestRecoveryLifecycleBothRealCLIRunners(t *testing.T) {
 				if len(posts) == 0 || !strings.Contains(posts[len(posts)-1], "three automatic invocation limit") {
 					t.Fatalf("exhaustion not visible=%v", posts)
 				}
-			} else if !terminal.Succeeded() || saved.Status != "succeeded" || terminal.CommitSHA == "" {
+			} else if !terminal.Succeeded() || saved.Status != "succeeded" {
+				// The interrupted attempt already committed the partial work, so a
+				// recovery that adds nothing makes no commit of its own.
 				t.Fatalf("recovery did not save successfully=%+v %+v logs=%s", terminal, saved, f.logs)
 			}
 			argv, err := os.ReadFile(argvPath)

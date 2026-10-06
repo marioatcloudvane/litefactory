@@ -36,6 +36,10 @@ type preparation struct {
 
 	validateScope func(context.Context) (string, error)
 	scopeDrift    string
+	// acceptedOutcome and acceptedReason carry the accepted Implement result's
+	// own outcome (completed, incomplete or blocked) past the process outcome.
+	acceptedOutcome string
+	acceptedReason  string
 	// researchInstance is the graph instance this run advances, when it is a
 	// graph run. It scopes the application result, so each instance authors
 	// its own rather than revising whatever the task already held.
@@ -1574,14 +1578,24 @@ func ensureWorktree(
 // storyBaseBranch is the branch a task's own branch starts from. A Plan story
 // task starts from the latest pushed commit of its parent's branch, so it sees the
 // parent's research and session artifacts; nothing from its branch is merged back.
+// An Implement story task starts from its parent's branch too, because that is the
+// branch its finished work is merged into.
 // Every other task, and a story whose parent has pushed nothing, starts from the
 // repository's base branch.
 func storyBaseBranch(ctx context.Context, opts Options, clone *git.Clone, session store.Session, repo store.Repo) string {
-	story, ok, err := opts.DB.GraphPlanStoryAt(ctx, repo.ID, session.IssueNumber)
-	if err != nil || !ok {
+	var parentRef string
+	if story, ok, err := opts.DB.GraphPlanStoryAt(ctx, repo.ID, session.IssueNumber); err != nil {
+		return repo.BaseBranch
+	} else if ok {
+		parentRef = story.Parent
+	} else if row, rowErr := opts.DB.ImplementStoryByWorkerSession(ctx, session.ID); rowErr == nil {
+		// An Implement story builds on what its parent's branch holds, which is
+		// what its work will be merged into.
+		parentRef = row.Parent
+	} else {
 		return repo.BaseBranch
 	}
-	parent, err := opts.DB.GetSessionByTaskRef(ctx, story.Parent)
+	parent, err := opts.DB.GetSessionByTaskRef(ctx, parentRef)
 	if err != nil || parent.Branch == "" {
 		return repo.BaseBranch
 	}

@@ -83,48 +83,20 @@ func dirtyRetained(t *testing.T, f *fixture, dir string) {
 	}
 }
 
-func TestExecuteDeferredDirtyRetryLifecycle(t *testing.T) {
+func TestExecuteFailedImplementCommitsRetainedEdits(t *testing.T) {
 	for _, kind := range []agent.Kind{store.AgentClaude, store.AgentCodex} {
 		t.Run(string(kind), func(t *testing.T) {
 			t.Parallel()
 			var f *fixture
-			var snapshot retainedSnapshot
-			phase := -1
-			sawFallback := false
+			failing := false
 			runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
-				if phase > 0 && phase < 5 {
-					assertRetained(t, snapshot, captureRetained(t, f, req.WorktreePath))
-					for _, text := range []string{"preserved uncommitted changes", "2 commit(s) behind and 0 ahead", "The base was not merged"} {
-						if !strings.Contains(req.Prompt, text) {
-							t.Errorf("agent prompt lacks %q: %s", text, req.Prompt)
-						}
-					}
-				}
-				if phase == 2 && req.Path == agent.PathResume {
-					return nil, agent.ErrSessionNotResumable
-				}
-				if phase == 2 {
-					if req.Path != agent.PathColdAfterResumeRefused {
-						t.Errorf("want fallback path, got %s", req.Path)
-					}
-					sawFallback = true
-				}
 				r := succeeded(req, f.paths.Home())
 				r.ResumeToken = "retained-thread"
-				switch phase {
-				case 0:
+				if failing {
 					dirtyRetained(t, f, req.WorktreePath)
-					fallthrough
-				case 1:
 					r.Outcome = harness.OutcomeFailed
 					r.ExitCode = 2
 					r.Reason = "failed"
-				case 2:
-					r.Outcome = harness.OutcomeTimedOut
-					r.Reason = "timed out"
-				case 3:
-					r.Outcome = harness.OutcomeAbandoned
-					r.Reason = "abandoned"
 				}
 				return r, nil
 			})
@@ -133,43 +105,19 @@ func TestExecuteDeferredDirtyRetryLifecycle(t *testing.T) {
 			f.opts.AutoSyncBase = true
 			req := f.request()
 			req.Agent = kind
-			// Establish a real successful conversation before a later failed run.
-			// Codex only persists its resume token after success.
 			if setup := f.execute(req); !setup.Succeeded() {
 				t.Fatalf("conversation setup failed: %+v", setup)
 			}
 			req.Trigger.CommentID++
-			phase = 0
+			failing = true
 			first := f.execute(req)
-			if first.Committed || first.Succeeded() {
-				t.Fatalf("failed output saved: %+v", first)
+			// Implement saves on every outcome: the failed run's dirty edits are
+			// committed and pushed instead of being retained uncommitted.
+			if first.Succeeded() || !first.Committed || !first.Pushed || first.CommitSHA == "" {
+				t.Fatalf("failed Implement output not committed and pushed: %+v", first)
 			}
-			snapshot = captureRetained(t, f, f.worktreeDir())
-			advanceSyncBase(t, f.repo, 2)
-			for phase = 1; phase <= 5; phase++ {
-				req.Trigger.CommentID++
-				result := f.execute(req)
-				if phase <= 3 {
-					if result.Committed || result.CommitSHA != "" {
-						t.Fatalf("failed retry committed: %+v", result)
-					}
-					assertRetained(t, snapshot, captureRetained(t, f, f.worktreeDir()))
-				}
-				if phase == 4 && (!result.Succeeded() || !result.Committed) {
-					t.Fatalf("recovery save failed: %+v logs %s", result, f.logs)
-				}
-				runs := f.runs()
-				row := runs[len(runs)-1]
-				if phase < 5 {
-					if row.SyncOutcome != store.SyncDeferredDirty || row.SyncBehind != 2 || row.SyncAhead != 0 || row.SyncCommitSHA != "" {
-						t.Errorf("deferred persistence: %+v", row)
-					}
-				} else if row.SyncOutcome != store.SyncSynced || row.SyncCommitSHA == "" {
-					t.Errorf("clean retry did not sync: %+v", row)
-				}
-			}
-			if !sawFallback {
-				t.Error("fallback was never exercised")
+			if status := f.repo.GitIn(f.worktreeDir(), "status", "--porcelain"); strings.TrimSpace(status) != "" {
+				t.Fatalf("worktree left dirty after save: %q", status)
 			}
 		})
 	}

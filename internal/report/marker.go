@@ -2,6 +2,7 @@ package report
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/naming"
 )
@@ -93,4 +94,57 @@ func ReplyMarker(ref naming.Ref) string {
 // (S-8, AC-2.14).
 func StoryMarker(ref naming.Ref, storyID string) string {
 	return fmt.Sprintf("%sstory task=%s story=%s -->", MarkerPrefix, ref, storyID)
+}
+
+// StoryMergedMarker renders the marker of the note posted on a story when its
+// branch landed on the integration branch:
+//
+//	<!-- lf:story-merged task=github:acme/acme-api#123 story=story-002 commit=<sha> -->
+//
+// Like the other markers it begins with [MarkerPrefix], so the self-filter
+// ignores the comment. The story key and commit are bound to characters that
+// cannot close the comment or start a second marker.
+func StoryMergedMarker(ref naming.Ref, storyKey, commit string) string {
+	return storyMergedPrefix(ref, storyKey) + markerToken(commit) + " -->"
+}
+
+func storyMergedPrefix(ref naming.Ref, storyKey string) string {
+	return fmt.Sprintf("%sstory-merged task=%s story=%s commit=", MarkerPrefix, ref, markerToken(storyKey))
+}
+
+// ParseStoryMergedMarker reads the commit from a story-merged marker that opens
+// body and names exactly this task and story. It reports false for any other body.
+func ParseStoryMergedMarker(body string, ref naming.Ref, storyKey string) (commit string, ok bool) {
+	rest, found := strings.CutPrefix(body, storyMergedPrefix(ref, storyKey))
+	if !found {
+		return "", false
+	}
+	commit, _, found = strings.Cut(rest, " -->")
+	if !found || commit == "" || strings.ContainsAny(commit, " \t\r\n") {
+		return "", false
+	}
+	return commit, true
+}
+
+// ImplementHandoffMarker renders the marker of the one handoff report the
+// parent of an Implement job keeps:
+//
+//	<!-- lf:implement-handoff task=github:acme/acme-api#123 -->
+func ImplementHandoffMarker(parent naming.Ref) string {
+	return fmt.Sprintf("%simplement-handoff task=%s -->", MarkerPrefix, parent)
+}
+
+// markerToken keeps a value inside one marker field: anything that is not a
+// letter, digit or one of ._/- becomes an underscore.
+func markerToken(value string) string {
+	out := make([]rune, 0, len(value))
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-', r == '/':
+			out = append(out, r)
+		default:
+			out = append(out, '_')
+		}
+	}
+	return string(out)
 }
