@@ -377,3 +377,44 @@ func TestImplementWorkerIgnoresTheStoryIssuesOwnPlanRow(t *testing.T) {
 		t.Fatalf("%+v", row)
 	}
 }
+
+// A story branch cut before a dependency was merged (here: created from the base
+// branch during Plan) is brought up to date with its parent's branch, where
+// finished stories are merged, before the worker runs.
+func TestImplementWorkerSyncsWithItsParentsBranch(t *testing.T) {
+	var sawDependency bool
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		_, err := os.Stat(filepath.Join(req.WorktreePath, "dependency.go"))
+		sawDependency = err == nil
+		submitLiveResult(t, req, implementCompletedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	f.opts.AutoSyncBase = true
+	ctx := t.Context()
+
+	// The story's own branch already exists on origin, cut from the base branch.
+	f.repo.Git("push", "--quiet", "origin", "HEAD:refs/heads/"+testBranch)
+	_, err := f.db.FreezeSessionSlug(ctx, f.session.ID, testSlug, testBranch)
+	mustProgress(t, err)
+
+	// The parent's branch carries a story merged after that.
+	parent := f.otherSession(900)
+	const parentBranch = "lf/900-feature"
+	_, err = f.db.FreezeSessionSlug(ctx, parent.ID, "feature", parentBranch)
+	mustProgress(t, err)
+	f.repo.Git("checkout", "--quiet", "-b", parentBranch)
+	f.repo.WriteFile("dependency.go", "package api // merged story\n")
+	f.repo.Commit("merge story-000")
+	f.repo.Git("push", "--quiet", "origin", parentBranch)
+	f.repo.Git("checkout", "--quiet", "-")
+
+	out, err := Execute(ctx, f.opts, req)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if !sawDependency {
+		t.Fatal("the worker ran without the work merged into its parent's branch")
+	}
+}
