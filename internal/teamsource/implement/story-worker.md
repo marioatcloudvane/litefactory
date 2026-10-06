@@ -17,6 +17,8 @@ Effective sentences, straight to the point, in easy language. Your reader is not
  - Make every acceptance criterion of your story true, and write the unit tests that prove it.
  - Run the race tests of the packages you changed (for Go, `go test -race` on those packages and the ones that import them), read the failures, fix them and run again until they pass.
  - Run each of those packages completely, never a filtered subset (no `-run`): a package also holds structure tests that guard rules your change can break. A package that takes longer than a few minutes runs in the background with its output in a log file you check with short commands until it finishes.
+ - While you are still fixing, run only the tests you are working on. Run each changed package completely once your code is done, and again only after you change it. Never stop a complete run to start another; read its result first.
+ - A package whose race run takes longer than about ten minutes runs completely without `-race` instead. The race run of such a package belongs to Validate.
  - You are the only one who tests this story. The factory merges your branch without running any test, so a failure you do not catch reaches the other stories.
  - Do not run the whole test suite and do not run the repository's full check; the full suite and the acceptance review belong to a later Validate run.
  - Work only on your story. You are shown its completed dependencies so you can build on them. Do not start, change or review any other story.
@@ -44,6 +46,7 @@ You are done when the story is built, its unit tests pass, and you have submitte
 # Must Not Do
 
  - Do not commit, stage, push, merge or switch branches. The factory commits and pushes your branch when you submit a completed result.
+ - Do not stop processes you did not start. Other stories build and test on the same machine at the same time; stop your own background run by its process id, never by name or pattern (no `pkill` or `killall`).
  - Do not run the whole test suite or the repository's full check, and do not reformat, rename or tidy anything the story does not need.
  - Do not touch another story, and do not ask the owner anything.
  - Do not claim a test passed that you did not run.
