@@ -33,6 +33,9 @@ func ValidateWorkflowPolicy() WorkflowPolicy {
 		Respond:           validateRespond,
 		Guidance:          validateNodeInstructions + validateNodeHardRules,
 		Handoff:           validateRepairHandoff,
+		Contract:          validateWorkflowComment,
+		Render:            renderValidateComment,
+		NextStep:          func(*graphexec.Profile, string, string) string { return "" },
 		AfterAgentFailure: validateAfterAgentFailure,
 		ResultPerNode:     true,
 	}
@@ -114,7 +117,10 @@ type ValidateFlowBindings struct {
 	// Reviewers starts one reviewer; Slots meters the run-slot pool.
 	Reviewers ValidateReviewRunner
 	Slots     ValidateSlots
-	Now       func() time.Time
+	// Delivery supplies the trusted context of the owner steps: the forge, the
+	// delivery target, the branch head, the guarded push and the owner identity.
+	Delivery ValidateDelivery
+	Now      func() time.Time
 }
 
 func (b ValidateFlowBindings) now(opts Options) time.Time {
@@ -124,7 +130,7 @@ func (b ValidateFlowBindings) now(opts Options) time.Time {
 	return spikeNow(opts)
 }
 
-// RegisterValidateFlow registers the four Validate steps in both registries.
+// RegisterValidateFlow registers the Validate steps after the suite in both registries.
 func RegisterValidateFlow(specs *graphexec.Registry, activities *ActivityRegistry, b ValidateFlowBindings) error {
 	if specs == nil || activities == nil || b.Profile == nil {
 		return errors.New("validate flow requires registries and a profile")
@@ -134,12 +140,20 @@ func RegisterValidateFlow(specs *graphexec.Registry, activities *ActivityRegistr
 		graphexec.ValidateRepairCheckAction:  ValidateRepairCheckActivity{b},
 		graphexec.ValidateReviewAction:       ValidateReviewActivity{b},
 		graphexec.ValidateOutcomeAction:      ValidateOutcomeActivity{b},
+		graphexec.ValidateResolveAction:      ValidateResolveActivity{b},
+		graphexec.ValidateReportAction:       ValidateReportActivity{b},
+		graphexec.ValidateAskAction:          ValidateAskActivity{b},
+		graphexec.ValidateIssueAction:        ValidateIssueActivity{b},
+		graphexec.ValidatePushAction:         ValidatePushActivity{b},
+		graphexec.ValidateMergeAction:        ValidateMergeActivity{b},
+		graphexec.ValidateCloseAction:        ValidateCloseActivity{b},
 	} {
 		if err := activities.Register(name, handler); err != nil {
 			return err
 		}
 	}
-	for _, spec := range []graphexec.ActionSpec{graphexec.ValidateRepairBudgetSpec(), graphexec.ValidateRepairCheckSpec(), graphexec.ValidateReviewSpec(), graphexec.ValidateOutcomeSpec()} {
+	for _, spec := range []graphexec.ActionSpec{graphexec.ValidateRepairBudgetSpec(), graphexec.ValidateRepairCheckSpec(), graphexec.ValidateReviewSpec(), graphexec.ValidateOutcomeSpec(),
+		graphexec.ValidateResolveSpec(), graphexec.ValidateReportSpec(), graphexec.ValidateAskSpec(), graphexec.ValidateIssueSpec(), graphexec.ValidatePushSpec(), graphexec.ValidateMergeSpec(), graphexec.ValidateCloseSpec()} {
 		if _, ok := specs.Resolve(spec.Name); ok {
 			continue
 		}

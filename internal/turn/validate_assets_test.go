@@ -122,13 +122,16 @@ func TestValidateGraphDeclaresLoopBoundLimitsReviewAndEnds(t *testing.T) {
 		{"repair_agent", "failed", "repair_check"}, {"repair_check", "kept", "suite"},
 		{"repair_check", "too_big", "review"}, {"repair_check", "handback", "review"}, {"repair_check", "blocked", "review"},
 		{"repair_check", "unfinished", "repair_budget"}, {"review", "done", "outcome"}, {"review", "retry", "review"},
-		{"outcome", "assessed", "assessed"}, {"outcome", "handed_back", "handed_back"}, {"outcome", "blocked", "blocked"},
+		{"outcome", "assessed", "owner_resolve"}, {"outcome", "handed_back", "owner_resolve"}, {"outcome", "blocked", "owner_resolve"},
+		{"owner_resolve", "push", "owner_push"}, {"owner_resolve", "merge", "owner_merge"}, {"owner_resolve", "close", "owner_close"}, {"owner_resolve", "create_issue", "owner_issue"},
+		{"owner_resolve", "wait", "owner_report"}, {"owner_resolve", "stale", "owner_report"}, {"owner_report", "done", "owner_ask"}, {"owner_ask", "published", "waiting"},
+		{"owner_close", "closed", "delivered"}, {"owner_close", "open", "owner_report"},
 	} {
 		if got, ok := graphexec.Decide(p, want[0], want[1]); !ok || got != want[2] {
 			t.Errorf("%s on %s goes to %q, want %s", want[0], want[1], got, want[2])
 		}
 	}
-	for _, end := range []string{"assessed", "handed_back", "blocked"} {
+	for _, end := range []string{"waiting", "delivered"} {
 		if n := node(end); !n.Terminal {
 			t.Errorf("%s is not a terminal", end)
 		}

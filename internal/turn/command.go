@@ -74,6 +74,14 @@ const (
 	// unknown command everywhere else. Text is the whole trimmed body, because
 	// the graph Plan runtime matches the exact command text.
 	KindPlanControl
+
+	// KindValidateControl is one of [ValidateControlCommands]: the owner's
+	// verdict, finding choice, push, merge or close confirmation for a Validate
+	// run. Like a Plan control it starts a turn only for a session that has a
+	// Validate graph; everywhere else it is answered as an unknown command. Text
+	// is the whole trimmed body, because the Validate resolve step matches the
+	// exact grammar and the report revision itself.
+	KindValidateControl
 )
 
 // String renders the kind for logs and test failures.
@@ -95,6 +103,8 @@ func (k CommandKind) String() string {
 		return "unknown"
 	case KindPlanControl:
 		return "plan_control"
+	case KindValidateControl:
+		return "validate_control"
 	default:
 		return "invalid"
 	}
@@ -144,7 +154,7 @@ type Command struct {
 // Spawns reports whether this command starts a run. A Plan control spawns a
 // Plan turn only where the daemon admits it; see [KindPlanControl].
 func (c Command) Spawns() bool {
-	return c.Kind == KindSpike || c.Kind == KindFreeText || c.Kind == KindPlanControl
+	return c.Kind == KindSpike || c.Kind == KindFreeText || c.Kind == KindPlanControl || c.Kind == KindValidateControl
 }
 
 // NeedsReply reports whether this command should draw a comment back. The
@@ -154,7 +164,7 @@ func (c Command) NeedsReply() bool {
 	switch c.Kind {
 	case KindSpikeEmpty, KindUnknown:
 		return true
-	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm, KindPlanControl:
+	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm, KindPlanControl, KindValidateControl:
 		return false
 	default:
 		return false
@@ -240,6 +250,8 @@ func ParseCommand(body string) Command {
 		return Command{Kind: KindConfirm, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case PlanControlCommands[0], PlanControlCommands[1], PlanControlCommands[2]:
 		return Command{Kind: KindPlanControl, Name: name, Text: strings.TrimSpace(body), Tagged: tagged}
+	case ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand:
+		return Command{Kind: KindValidateControl, Name: name, Text: strings.TrimSpace(body), Tagged: tagged}
 	default:
 		return Command{Kind: KindUnknown, Name: name, Tagged: tagged}
 	}
@@ -249,6 +261,9 @@ func ParseCommand(body string) Command {
 func (c Command) Mode() (agent.Mode, bool) {
 	if c.Kind == KindPlanControl {
 		return agent.ModePlan, true
+	}
+	if c.Kind == KindValidateControl {
+		return agent.ModeValidate, true
 	}
 	if c.Kind != KindSpike || len(c.Name) < 2 {
 		return "", false
