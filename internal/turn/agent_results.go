@@ -186,13 +186,14 @@ func (s *AgentResultService) prepare(ctx context.Context, data []byte) (candidat
 		}
 	}()
 
+	graphDiscussion := false
 	// MCP cannot initiate deferred issue creation. Refuse the fully assembled
 	// candidate, including updates to retained proposals, before durable admission.
 	// Ordinary helper/terminal callers retain the existing publication policy.
 	defer func() {
 		restricted, _ := ctx.Value(mcpCommunicationKey{}).(bool)
 		plan := candidate.Snapshot.Result.Payload.Plan
-		if restricted && diagnostics.Valid && creationCapablePlan(plan, candidate.Snapshot.Result.Outcome) {
+		if restricted && !graphDiscussion && diagnostics.Valid && creationCapablePlan(plan, candidate.Snapshot.Result.Outcome) {
 			diagnostics.Valid = false
 			diagnostics.Diagnostics.Diagnostics = append(diagnostics.Diagnostics.Diagnostics, agentresult.Diagnostic{Path: "$.result.payload.plan", Code: "mcp_creation_refused", Expected: "discussion without publishable stories", Actual: "creation-capable Plan", Message: "MCP cannot submit a publishable Plan; use the owner-controlled Plan workflow. No proposal was accepted."})
 			candidate = agentresult.PreparedUpdate{}
@@ -202,6 +203,7 @@ func (s *AgentResultService) prepare(ctx context.Context, data []byte) (candidat
 	if err != nil {
 		return agentresult.PreparedUpdate{}, agentresult.UpdateDiagnostics{}, err
 	}
+	graphDiscussion = c.PlanGraph != nil && c.PlanGraph.Discussion
 	retained, err := s.db.GetResultRevision(ctx, s.binding, 0)
 	if errors.Is(err, store.ErrNotFound) {
 		r, d := agentresult.Create(data, c)

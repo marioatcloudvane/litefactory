@@ -106,7 +106,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		// own stages; the parent only observes its issue.
 		if _, task, taskErr := d.db.GraphPlanStoryAt(ctx, t.repo.ID, draft.IssueNumber); taskErr != nil {
 			return false, taskErr
-		} else if task {
+		} else if task && child.State == "open" {
 			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
 				return false, err
 			}
@@ -180,28 +180,11 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 				after = comment.ID
 				continue
 			}
-			if wait == nil {
-				current, revision, err := d.db.GetPlanWorkflowState(ctx, t.ref.String())
-				if err != nil {
-					return false, err
-				}
-				if err = current.OpenPlanWait(draft.Key, "feedback-"+draft.Candidate, "question", child.ID); err != nil {
-					return false, err
-				}
-				if _, err = d.db.SavePlanWorkflowState(ctx, t.ref.String(), revision, current); err != nil {
-					return false, err
-				}
-				for _, item := range current.Stories {
-					if item.Key == draft.Key {
-						wait = item.Wait
-						break
-					}
-				}
-				if wait == nil {
-					return false, errors.New("plan feedback wait was not retained")
-				}
+			reply := &planbrief.PlanOwnerReply{ID: comment.ID, OwnerID: ids.OwnerUserID, ActorID: comment.Author.ID, IssueID: child.ID, Key: draft.Key, Body: comment.Body}
+			if wait != nil {
+				reply.Stage, reply.Candidate, reply.WaitID = wait.Stage, wait.Candidate, wait.ID
 			}
-			reply := &planbrief.PlanOwnerReply{ID: comment.ID, OwnerID: ids.OwnerUserID, ActorID: comment.Author.ID, IssueID: child.ID, Key: draft.Key, Stage: wait.Stage, Candidate: wait.Candidate, WaitID: wait.ID, Body: comment.Body}
+
 			trigger := turn.Trigger{CommentID: comment.ID, Body: comment.Body, Author: comment.Author.Login, AuthorID: comment.Author.ID, PlanReply: reply}
 			if err = d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: comment.Body}, t.log); err != nil {
 				var refusal *turn.PlanReplyRefusal

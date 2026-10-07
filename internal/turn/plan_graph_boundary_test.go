@@ -535,7 +535,7 @@ func TestPlanGraphBoundary_LostCreateAndAttachmentRecovery(t *testing.T) {
 			}
 			next := base
 			next.Trigger.CommentID++
-			next.Trigger.Body = "Continue retained draft"
+			next.Trigger.Body = "/plan Continue retained draft"
 			next.Command = Command{Kind: KindFreeText, Text: next.Trigger.Body}
 			executeGraphPlan(t, f, next)
 			binding, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001")
@@ -667,7 +667,7 @@ func TestPlanGraphBoundary_SaveFailureKeepsPublicationUnready(t *testing.T) {
 	}
 	mustProgress(t, os.Remove(hook))
 	req.Trigger.CommentID++
-	req.Trigger.Body = "Resume retained save"
+	req.Trigger.Body = "/plan Resume retained save"
 	req.Command.Text = req.Trigger.Body
 	executeGraphPlan(t, f, req)
 	state = graphPlanState(t, f)
@@ -686,7 +686,7 @@ func TestPlanGraphBoundary_LostUpdatePreservesIdentity(t *testing.T) {
 	mustProgress(t, err)
 	next := base
 	next.Trigger.CommentID += 2
-	next.Trigger.Body = "Continue retained update"
+	next.Trigger.Body = "/plan Continue retained update"
 	next.Command = Command{Kind: KindFreeText, Text: next.Trigger.Body}
 	executeGraphPlan(t, f, next)
 	after, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001")
@@ -785,7 +785,7 @@ func TestPlanGraphBoundary_PartialHandoffResumesSameIssues(t *testing.T) {
 		t.Fatal("first retained identity changed", first)
 	}
 	id++
-	next.Trigger = Trigger{CommentID: id, AuthorID: 7, Body: "Resume retained publication"}
+	next.Trigger = Trigger{CommentID: id, AuthorID: 7, Body: "/plan Resume retained publication"}
 	next.Command.Text = next.Trigger.Body
 	executeGraphPlan(t, f, next)
 	state = graphPlanState(t, f)
