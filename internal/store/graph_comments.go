@@ -52,7 +52,7 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 		if GraphCommentWaits(in.Kind) {
 			// The Implement coordinator runs no agent, so its question has no run and
 			// the reply that answers it resumes a runless step.
-			runless := workflow == "implement" && sourceRun == 0
+			runless := (workflow == "implement" || workflow == "validate") && sourceRun == 0
 			if _, err = tx.ExecContext(ctx, `INSERT INTO graph_owner_waits(delivery_key,instance_id,source_attempt_id,state,allow_runless) VALUES(?,?,?,'waiting',?)`, in.Key, in.InstanceID, in.SourceAttemptID, runless); err != nil {
 				return err
 			}
@@ -99,8 +99,8 @@ func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (b
 	}
 	// The Implement coordinator is factory-only too: it runs no agent, so the
 	// batched question it publishes has no run, only its succeeded source attempt.
-	if !run.Valid && ((workflow != "bug" && workflow != "implement") || d.RunID != 0 || (kind == "failure" && status != GraphFailed) || (kind != "failure" && status != GraphSucceeded)) {
-		return false, errors.New("store: runless graph report requires a terminal Bug or Implement factory source")
+	if !run.Valid && ((workflow != "bug" && workflow != "implement" && workflow != "validate") || d.RunID != 0 || (kind == "failure" && status != GraphFailed) || (kind != "failure" && status != GraphSucceeded)) {
+		return false, errors.New("store: runless graph report requires a terminal Bug, Implement or Validate factory source")
 	}
 	if session != d.SessionID || run.Int64 != d.RunID {
 		return false, errors.New("store: graph report run/session mismatch")
