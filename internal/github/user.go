@@ -64,3 +64,23 @@ func convertUser(payload *gogithub.User) User {
 		IsBot: payload.GetType() == "Bot",
 	}
 }
+
+// UserByLogin resolves a public login to its numeric account (GET
+// /users/{login}). The ID is the identity; callers store it and keep the login
+// for display only.
+func (c *Client) UserByLogin(ctx context.Context, login string) (User, error) {
+	if login == "" {
+		return User{}, fmt.Errorf("github: resolve user: login is empty")
+	}
+	payload, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.User, *gogithub.Response, error) {
+		return c.api.Users.Get(ctx, login)
+	})
+	if err != nil {
+		return User{}, fmt.Errorf("github: resolve user %q: %w", login, err)
+	}
+	user := convertUser(payload)
+	if user.ID == 0 || user.Login == "" {
+		return User{}, fmt.Errorf("github: resolve user %q: %w: response carried no id or login", login, ErrUnexpectedStatus)
+	}
+	return user, nil
+}

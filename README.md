@@ -6,6 +6,20 @@ A lightweight Software Factory
 Agents ship with litefactory and need no team selection or installation. Register
 any supported repository with `litefactory repo add /absolute/path/to/project`.
 
+## Starting Validate
+
+After Implement has merged every approved story, the owner starts Validate with
+`/validate <note>` on the parent issue. Validate tests the exact commit the
+integration branch is at when it starts; starting it twice for the same commit
+gives one run. It is refused, with a plain reply, while Implement is still
+running, waiting or has parked stories. To let the factory start it by itself,
+set (default `false`, loaded at daemon start):
+
+```yaml
+validate:
+  auto_start: true
+```
+
 ## Automatic recovery after session limits
 
 Automatic quota recovery is disabled by default. To opt in for both Claude Code
