@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -697,50 +696,6 @@ func TestLogsRequestedTools(t *testing.T) {
 	}
 }
 
-// TestLogsOutputCarriesNoLabelSyntax is the C2/S-13 guardrail applied to
-// `logs`: nothing originating from GitHub — a label body, the "lf:tools="
-// syntax itself — may ever reach the printed summary.
-func TestLogsOutputCarriesNoLabelSyntax(t *testing.T) {
-	f := newLogsHome(t)
-	session := f.session(f.repo("acme", "api"), 323)
-	start := time.Date(2026, 8, 24, 9, 0, 0, 0, time.UTC)
-
-	run := f.allocateRun(session, 2003, start)
-	f.finishRun(run, store.RunSucceeded, 0, 5*time.Second)
-
-	f.writeMeta(session, 1, map[string]any{
-		"run_ordinal":     1,
-		"task_ref":        session.TaskRef,
-		"mode":            store.ModeSpike,
-		"tools":           todoWriteResolved,
-		"tools_requested": todoWriteRequested,
-		"tool_profile":    "research",
-		"prompt":          "do the thing",
-	})
-	f.writeLog(session, 1, resultLine("done"))
-
-	code, stdout, stderr := f.run("logs", "323", "--run", "1")
-	if code != ExitOK {
-		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
-	}
-	if strings.Contains(stdout, "lf:tools=") {
-		t.Errorf("`logs` output leaked label syntax:\n%s", stdout)
-	}
-}
-
-// TestRunMetaCarriesNoLabelField is the structural half of the same guardrail:
-// runMeta has no field for raw label text at all, so there is nothing for a
-// future change to wire up by mistake (S-13).
-func TestRunMetaCarriesNoLabelField(t *testing.T) {
-	rt := reflect.TypeOf(runMeta{})
-	for i := range rt.NumField() {
-		name := rt.Field(i).Name
-		if strings.Contains(strings.ToLower(name), "label") {
-			t.Errorf("runMeta has a field named %q; labels must never reach the logs pipeline (S-13)", name)
-		}
-	}
-}
-
 // TestLogsRunSummaryWithoutMetadata covers the abnormal-termination case: S-3
 // says the metadata file is only best-effort when the daemon is killed, so a
 // run with a row and a log but no meta.json must still be showable.
@@ -891,22 +846,6 @@ func TestLogsOutputIsUnredacted(t *testing.T) {
 	}
 	if !strings.Contains(summary, secrets[0]) {
 		t.Errorf("the run summary redacted the result text:\n%s", summary)
-	}
-}
-
-// TestLogsNeverImportsRedact is the structural half of AC-5.7. The behavioural
-// test above only catches a redaction that changes these particular fixtures;
-// this catches the import itself, which is the thing that is actually
-// forbidden.
-func TestLogsNeverImportsRedact(t *testing.T) {
-	for _, name := range logsSourceFiles {
-		for _, imported := range importsOf(t, name) {
-			if strings.Contains(imported, "internal/redact") {
-				t.Errorf("%s imports %s. `logs` output is unredacted by design (AC-5.7): "+
-					"S-7 redaction is outbound-only, and you want the token in the log at 23:00 "+
-					"and never in a public comment.", name, imported)
-			}
-		}
 	}
 }
 

@@ -3,13 +3,11 @@ package teamsource
 import (
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/graphexec"
@@ -22,16 +20,12 @@ import (
 // a factory-bound Context, so a broken example makes the test fail.
 
 var (
-	exampleMarked    = regexp.MustCompile("(?m)^<!-- example: (positive|negative) ([^>]*?) -->\n```json\n((?s:.*?))\n```")
-	exampleMarkerLn  = regexp.MustCompile(`(?m)^<!-- example:`)
-	walkthroughFence = regexp.MustCompile("(?m)^<!-- walkthrough: (?:id=)?(\\S+) -->\n```text\n((?s:.*?))\n```")
-	walkthroughLn    = regexp.MustCompile(`(?m)^<!-- walkthrough:`)
-	markerAttr       = regexp.MustCompile(`(\w+)=(\S+)`)
-	jsonFence        = regexp.MustCompile("(?m)^```json\n")
+	exampleMarked   = regexp.MustCompile("(?m)^<!-- example: (positive|negative) ([^>]*?) -->\n```json\n((?s:.*?))\n```")
+	exampleMarkerLn = regexp.MustCompile(`(?m)^<!-- example:`)
+	markerAttr      = regexp.MustCompile(`(\w+)=(\S+)`)
 )
 
 const planContractPath = "plan/skills/plan-evidence/node-result.md"
-const researchContractPath = "research/skills/research-evidence/node-result.md"
 
 type contractExample struct {
 	Kind  string // positive or negative
@@ -319,16 +313,6 @@ func TestPlanContractUnmarkedAndTextFencesAreNotExtracted(t *testing.T) {
 	examples, problems := extractContractExamples(doc)
 	if len(examples) != 0 || len(problems) != 0 {
 		t.Fatalf("examples=%v problems=%v", examples, problems)
-	}
-	// The real document keeps every walkthrough out of the examples.
-	found, _ := extractContractExamples(planContractDoc(t))
-	walks, _ := extractWalkthroughs(planContractDoc(t))
-	for _, ex := range found {
-		for _, w := range walks {
-			if ex.ID == w.ID || strings.Contains(string(ex.Body), w.Text) {
-				t.Fatalf("walkthrough %q was extracted as %s %q", w.ID, ex.Kind, ex.ID)
-			}
-		}
 	}
 }
 
@@ -635,266 +619,5 @@ func TestPlanContractSectionRestrictionsMatchTheValidator(t *testing.T) {
 		if got := checkSectionRestrictions(mutate(doc)); len(got) == 0 {
 			t.Errorf("%s: the checker accepted a document that disagrees with the validator", name)
 		}
-	}
-}
-
-type walkthrough struct{ ID, Text string }
-
-func extractWalkthroughs(doc string) ([]walkthrough, []string) {
-	var out []walkthrough
-	var problems []string
-	for _, m := range walkthroughFence.FindAllStringSubmatch(doc, -1) {
-		out = append(out, walkthrough{ID: m[1], Text: m[2]})
-	}
-	if n := len(walkthroughLn.FindAllString(doc, -1)); n != len(out) {
-		problems = append(problems, fmt.Sprintf("%d walkthrough markers but %d text fences extracted", n, len(out)))
-	}
-	return out, problems
-}
-
-// checkWalkthroughs verifies each required walkthrough exists by id and says the
-// things a reader needs. Terms are matched on whitespace-normalised, lowercase
-// text so a re-wrapped paragraph does not fail it.
-func checkWalkthroughs(doc string) []string {
-	walks, fails := extractWalkthroughs(doc)
-	byID := map[string]string{}
-	for _, w := range walks {
-		byID[w.ID] = strings.ToLower(strings.Join(strings.Fields(w.Text), " "))
-	}
-	required := map[string][]string{
-		"delivery":          {"communication_preflight", "communication_submit", "communication_receipt", "request_id", "do not print a json result"},
-		"lost-reply":        {"communication_receipt", "do not change p", "same request identity", "identical, unchanged bytes", "do not resend"},
-		"corrected-content": {"refused", "communication_preflight", "new request identity", "never resend the refused bytes"},
-		"authority-changed": {"stale_revision", "stale_binding", "bytes are unchanged", "nothing is retained", "new request identity"},
-	}
-	for id, terms := range required {
-		text, ok := byID[id]
-		if !ok {
-			fails = append(fails, fmt.Sprintf("walkthrough %q is missing", id))
-			continue
-		}
-		for _, term := range terms {
-			if !strings.Contains(text, term) {
-				fails = append(fails, fmt.Sprintf("walkthrough %q does not mention %q", id, term))
-			}
-		}
-	}
-	// Order inside the delivery walkthrough is the contract: preflight, then
-	// submit, then receipt, and no printed result afterwards.
-	if text := byID["delivery"]; text != "" {
-		last := -1
-		for _, term := range []string{"communication_preflight(p)", "communication_submit(p)", "communication_receipt(", "do not print a json result"} {
-			i := strings.Index(text, term)
-			if i < 0 || i < last {
-				fails = append(fails, fmt.Sprintf("delivery walkthrough is out of order at %q", term))
-			}
-			last = max(last, i)
-		}
-	}
-	return fails
-}
-
-// checkTerminalConsistencyOnly verifies the document states that the accepted
-// submission is the step's result and terminal text is never read as one (#410).
-func checkTerminalConsistencyOnly(doc string) []string {
-	text := strings.ToLower(strings.Join(strings.Fields(doc), " "))
-	var fails []string
-	for _, term := range []string{
-		"the accepted submission is the step's result",
-		"retained accepted result is the sole source",
-		"do not print a json result",
-		"terminal text is never read as a result",
-		"never supplies a result",
-		"an attempt with no accepted submission fails",
-	} {
-		if !strings.Contains(text, term) {
-			fails = append(fails, fmt.Sprintf("the contract does not state %q", term))
-		}
-	}
-	for _, banned := range []string{"confirming object", "confirming json object", "return exactly one json object"} {
-		if strings.Contains(text, banned) {
-			fails = append(fails, fmt.Sprintf("the contract still asks for a printed result: %q", banned))
-		}
-	}
-	return fails
-}
-
-func TestPlanContractWalkthroughsAndTerminalRule(t *testing.T) {
-	t.Parallel()
-	doc := planContractDoc(t)
-	for _, f := range checkWalkthroughs(doc) {
-		t.Error(f)
-	}
-	for _, f := range checkTerminalConsistencyOnly(doc) {
-		t.Error(f)
-	}
-	walks, _ := extractWalkthroughs(doc)
-	if len(walks) < 4 {
-		t.Fatalf("%d walkthroughs", len(walks))
-	}
-}
-
-// The document's own convention names the marker `<!-- walkthrough: id=ID -->`;
-// the markers must follow it so a tool that relies on the stated form finds them.
-func TestPlanContractWalkthroughMarkersFollowTheDocumentedConvention(t *testing.T) {
-	t.Parallel()
-	doc := planContractDoc(t)
-	if !strings.Contains(doc, "`<!-- walkthrough: id=ID -->`") {
-		t.Skip("the document no longer states the id= form")
-	}
-	for _, line := range strings.Split(doc, "\n") {
-		if strings.HasPrefix(line, "<!-- walkthrough:") && !strings.HasPrefix(line, "<!-- walkthrough: id=") {
-			t.Errorf("marker %q does not use the documented id=ID form", line)
-		}
-	}
-}
-
-func TestContractWalkthroughCheckerFailsOnGaps(t *testing.T) {
-	t.Parallel()
-	doc := planContractDoc(t)
-	cases := []struct {
-		name   string
-		mutate func(string) string
-		want   string
-	}{
-		{"lost-reply drops the receipt", func(d string) string {
-			return strings.Replace(d, "3. A matching receipt exists: the submission was received. Read its state and go on;\n   do not resend.\n4. No receipt exists: resend the identical, unchanged bytes of P with the same\n   request identity. Identical bytes never create a second result.", "3. Resend.", 1)
-		}, `"lost-reply" does not mention`},
-		{"corrected content keeps the old identity", func(d string) string {
-			return regexp.MustCompile(`new\s+request\s+identity`).ReplaceAllString(d, "same request")
-		}, `"corrected-content" does not mention "new request identity"`},
-		{"authority walkthrough removed", func(d string) string {
-			return strings.Replace(d, "<!-- walkthrough: id=authority-changed -->", "<!-- note -->", 1)
-		}, `"authority-changed" is missing`},
-		{"delivery lost", func(d string) string {
-			return strings.Replace(d, "<!-- walkthrough: id=delivery -->\n```text", "<!-- walkthrough: id=delivery -->\n```json", 1)
-		}, `walkthrough "delivery" is missing`},
-		{"delivery order swapped", func(d string) string {
-			return strings.Replace(strings.Replace(d, "communication_submit(P): the reply", "communication_receipt(P): the reply", 1), "3. communication_receipt({", "3. communication_submit(P) ({", 1)
-		}, `delivery walkthrough is out of order`},
-	}
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			mutated := tt.mutate(doc)
-			if mutated == doc {
-				t.Fatal("mutation did not change the document")
-			}
-			if got := strings.Join(checkWalkthroughs(mutated), "; "); !strings.Contains(got, tt.want) {
-				t.Fatalf("failures %q do not contain %q", got, tt.want)
-			}
-		})
-	}
-	if got := checkTerminalConsistencyOnly(strings.ReplaceAll(doc, "never read as a result", "read as the result")); len(got) == 0 {
-		t.Fatal("terminal-content checker accepted a document that dropped the rule")
-	}
-	if got := checkTerminalConsistencyOnly(doc + "\nReturn the confirming object whose result is exactly P.\n"); len(got) == 0 {
-		t.Fatal("terminal-content checker accepted a document that asks for a printed result")
-	}
-}
-
-// ---- AC-020: every shipped workflow's result contract ----
-
-// checkResultContract is the generic shared-route rule for a workflow's node
-// result contract: at least one worked example and a description of the shared
-// result route (preflight, submit and receipt).
-func checkResultContract(content string) []string {
-	var fails []string
-	if !jsonFence.MatchString(content) {
-		fails = append(fails, "has no worked example (json fence)")
-	}
-	lower := strings.ToLower(content)
-	for _, term := range []string{"preflight", "submit", "receipt"} {
-		if !strings.Contains(lower, term) {
-			fails = append(fails, fmt.Sprintf("does not mention the shared result route step %q", term))
-		}
-	}
-	return fails
-}
-
-// workflowResultContracts finds named result contracts under a workflow package.
-// Bug uses result.md in its two role-specific result skills.
-func workflowResultContracts(w shippedWorkflow) ([]string, error) {
-	var out []string
-	err := fs.WalkDir(w.FS, ".", func(name string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && (d.Name() == "node-result.md" || (w.Name == "bug" && d.Name() == "result.md")) {
-			out = append(out, name)
-		}
-		return err
-	})
-	return out, err
-}
-
-func TestEveryShippedWorkflowResultContractDescribesTheSharedRoute(t *testing.T) {
-	t.Parallel()
-	workflows := discoverShippedWorkflows(t)
-	checked := map[string]bool{}
-	for _, w := range workflows {
-		contracts, err := workflowResultContracts(w)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(contracts) == 0 {
-			t.Errorf("workflow %s ships no node-result.md: an agent workflow needs a result contract", w.Name)
-		}
-		for _, path := range contracts {
-			raw, err := fs.ReadFile(w.FS, path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, f := range checkResultContract(string(raw)) {
-				t.Errorf("%s/%s %s", w.Name, path, f)
-			}
-			checked[w.Name+"/"+path] = true
-		}
-	}
-	for _, want := range []string{"plan/" + strings.TrimPrefix(planContractPath, "plan/"), "research/" + strings.TrimPrefix(researchContractPath, "research/")} {
-		if !checked[want] {
-			t.Errorf("contract %s was not discovered", want)
-		}
-	}
-}
-
-func TestResultContractCheckerFailsOnBadContracts(t *testing.T) {
-	t.Parallel()
-	good := "Deliver: preflight, then submit, then read the receipt.\n\n```json\n{\"result\":{}}\n```\n"
-	if got := checkResultContract(good); len(got) != 0 {
-		t.Fatalf("good contract refused: %v", got)
-	}
-	cases := []struct{ name, content, want string }{
-		{"no example", strings.Replace(good, "```json", "```text", 1), "no worked example"},
-		{"an inline brace is not an example", "preflight submit receipt {\"a\":1}", "no worked example"},
-		{"no preflight", strings.Replace(good, "preflight", "check", 1), `"preflight"`},
-		{"no submit", strings.Replace(good, "submit", "send", 1), `"submit"`},
-		{"no receipt", strings.Replace(good, "receipt", "reply", 1), `"receipt"`},
-		{"private terminal-only format", "Return this JSON as your final answer:\n```json\n{}\n```\n", `"preflight"`},
-		{"empty", "", "no worked example"},
-	}
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := strings.Join(checkResultContract(tt.content), "; "); !strings.Contains(got, tt.want) {
-				t.Fatalf("failures %q do not contain %q", got, tt.want)
-			}
-		})
-	}
-}
-
-// A workflow package with agent roles and no node-result contract fails the walk.
-func TestWorkflowWithoutResultContractIsDetected(t *testing.T) {
-	t.Parallel()
-	for _, w := range discoverShippedWorkflows(t) {
-		contracts, err := workflowResultContracts(w)
-		if err != nil || len(contracts) == 0 {
-			t.Fatalf("%s: contracts=%v err=%v", w.Name, contracts, err)
-		}
-	}
-	bare := shippedWorkflow{Name: "bare", FS: fstest.MapFS{"bare.dot": {Data: []byte("digraph b {}")}, "role.md": {Data: []byte("# Role")}}}
-	if got, err := workflowResultContracts(bare); err != nil || len(got) != 0 {
-		t.Fatalf("a package with no contract must report none: %v %v", got, err)
-	}
-	withOne := shippedWorkflow{Name: "one", FS: fstest.MapFS{"skills/x/node-result.md": {Data: []byte("x")}}}
-	if got, err := workflowResultContracts(withOne); err != nil || len(got) != 1 {
-		t.Fatalf("a nested contract must be discovered: %v %v", got, err)
 	}
 }

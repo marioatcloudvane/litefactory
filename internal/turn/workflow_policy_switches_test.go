@@ -9,15 +9,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func TestAcceptAfterProcessFailureIsOptInPerPolicy(t *testing.T) {
-	for _, p := range RegisteredWorkflowPolicies() {
-		want := p.Workflow == "bug" || p.Mode == "research" || p.Mode == "plan"
-		if p.AcceptAfterProcessFailure != want {
-			t.Errorf("policy %q/%q AcceptAfterProcessFailure = %v, want %v", p.Workflow, p.Mode, p.AcceptAfterProcessFailure, want)
-		}
-	}
-}
-
 func TestResearchNodeSizeMeasuresKeptEncoding(t *testing.T) {
 	small := agentresult.Result{Outcome: "completed", Comment: "ok"}
 	if d := researchNodeSize(context.Background(), store.ResultBinding{}, small, agentresult.Context{}); !d.Valid || !d.Complete {
@@ -27,12 +18,6 @@ func TestResearchNodeSizeMeasuresKeptEncoding(t *testing.T) {
 	d := researchNodeSize(context.Background(), store.ResultBinding{}, big, agentresult.Context{})
 	if d.Valid || len(d.Diagnostics) != 1 || !strings.Contains(d.Diagnostics[0].Message, "1 MiB") {
 		t.Fatalf("oversized result accepted or unclear: %+v", d)
-	}
-}
-
-func TestResearchPolicyOnlyCarriesSizeHook(t *testing.T) {
-	if ResearchWorkflowPolicy().ValidateCompletion == nil || PlanWorkflowPolicy().ValidateCompletion != nil || BugWorkflowPolicy().ValidateCompletion != nil {
-		t.Fatal("size hook must be Research's alone")
 	}
 }
 

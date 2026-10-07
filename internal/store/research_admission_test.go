@@ -53,7 +53,7 @@ func TestResearchAdmissionImmutablePathAndDefinitionBoundaries(t *testing.T) {
 	if err != nil || successor.Instance.ID == first.Instance.ID || successor.Instance.CurrentNode != "new-start" || successor.PredecessorID != first.Instance.ID {
 		t.Fatalf("topology successor: %+v %v", successor, err)
 	}
-	prior, reply, err := db.ResearchPredecessor(t.Context(), successor.Instance.ID)
+	prior, reply, err := db.WorkflowPredecessor(t.Context(), successor.Instance.ID)
 	if err != nil || prior != first.Instance.ID || reply != "investigate" {
 		t.Fatalf("saved predecessor/reply lost: %d %q %v", prior, reply, err)
 	}

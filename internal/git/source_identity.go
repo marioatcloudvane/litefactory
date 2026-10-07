@@ -229,32 +229,6 @@ func observeSourceFile(root *os.Root, path string) (SourceEntry, int64, error) {
 	return SourceEntry{Path: path, Mode: mode, SHA256: hex.EncodeToString(h.Sum(nil))}, size, nil
 }
 
-// ObserveEvidenceLog requires stable, regular, contained evidence bytes and
-// rejects symlinks in every component. Its digest can be compared again before
-// delivery; logs are evidence, never a substitute for a passed obligation.
-func ObserveEvidenceLog(ctx context.Context, rootPath, path string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	paths, err := sourcePaths([]string{path})
-	if err != nil || len(paths) != 1 {
-		return "", errors.New("invalid evidence reference")
-	}
-	root, rootInfo, err := openSourceRoot(rootPath)
-	if err != nil {
-		return "", err
-	}
-	defer root.Close()
-	entry, _, err := observeSourceFile(root, path)
-	if err != nil {
-		return "", err
-	}
-	if err = sourceRootUnchanged(rootPath, rootInfo); err != nil {
-		return "", err
-	}
-	return entry.SHA256, nil
-}
-
 func openSourceRoot(path string) (*os.Root, fs.FileInfo, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return nil, nil, errors.New("evidence/source root must be an absolute canonical path")

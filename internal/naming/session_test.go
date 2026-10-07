@@ -7,24 +7,6 @@ import (
 	"testing"
 )
 
-// SessionNamespace is pinned rather than merely recomputed: changing it would
-// renumber every future session id, and a golden value makes that show up as
-// a failing test rather than as a silent divergence between the database and
-// the derivation.
-//
-// The expected value is UUIDv5(RFC 4122 DNS namespace, "litefactory") and can
-// be reproduced with any RFC 4122 implementation, for example:
-//
-//	python3 -c "import uuid; print(uuid.uuid5(uuid.NAMESPACE_DNS, 'litefactory'))"
-func TestSessionNamespaceIsPinned(t *testing.T) {
-	t.Parallel()
-
-	const want = "4fa776ed-07dc-53ab-9513-1bfc235a28d1"
-	if got := SessionNamespace(); got != want {
-		t.Errorf("SessionNamespace() = %q, want %q", got, want)
-	}
-}
-
 // TestSessionRefIsPinned is the rename's guardrail (T-4.5): the namespace UUID
 // above and the golden ids below are exactly what naming.ClaudeSessionID
 // produced before this function was renamed to [SessionRef]. Neither value

@@ -152,13 +152,3 @@ func (db *DB) RetainDeliveryReadiness(ctx context.Context, key, parent string, g
 	}
 	return nil
 }
-
-// GetDeliveryReadiness retrieves the full retained factual readiness report.
-func (db *DB) GetDeliveryReadiness(ctx context.Context, key string) (string, error) {
-	var full string
-	err := db.sql.QueryRowContext(ctx, `SELECT full_report FROM delivery_readiness WHERE record_key=?`, key).Scan(&full)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = ErrNotFound
-	}
-	return full, err
-}
