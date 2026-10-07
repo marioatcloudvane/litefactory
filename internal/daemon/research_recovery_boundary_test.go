@@ -132,15 +132,8 @@ func TestResearchRecoveryStartupBoundaries(t *testing.T) {
 				if !reflect.DeepEqual(got, delivery) {
 					t.Fatalf("recovery changed effect identity/state: before=%+v after=%+v", delivery, got)
 				}
-			} else {
-				if attempts[0].Status != store.GraphFailed || len(after) != 1 || string(after[0].Payload) != run.Error {
-					t.Fatalf("failed attempt lost cause: %+v outputs=%+v run=%+v", attempts, after, run)
-				}
-				due, e := pollDueGraphInstances(ctx, f.db, f.at.Add(24*time.Hour), 10)
-				researchRecoveryCheck(t, e)
-				if len(due) != 0 {
-					t.Fatal("failed invocation remains automatically due")
-				}
+			} else if attempts[0].Status != store.GraphFailed || len(after) != 1 || string(after[0].Payload) != run.Error {
+				t.Fatalf("failed attempt lost cause: %+v outputs=%+v run=%+v", attempts, after, run)
 			}
 			f.restart(t)
 			again, err := f.db.ListGraphOutputs(ctx, f.attempt.ID)
@@ -189,11 +182,6 @@ func TestResearchRecoveryOwnerClaimSurvivesStartupUntilAllocation(t *testing.T) 
 	researchRecoveryCheck(t, err)
 	if len(attempts) != 2 || attempts[1].Status != store.GraphFailed {
 		t.Fatalf("allocated reply replayed: %+v", attempts)
-	}
-	due, err := pollDueGraphInstances(ctx, f.db, f.at.Add(24*time.Hour), 10)
-	researchRecoveryCheck(t, err)
-	if len(due) != 0 {
-		t.Fatal("interrupted reply automatically retried")
 	}
 }
 

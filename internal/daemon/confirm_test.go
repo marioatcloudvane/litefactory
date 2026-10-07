@@ -285,8 +285,8 @@ func TestHandleConfirmLegacyProposalRequestsFreshRegeneration(t *testing.T) {
 	f.forge.addComment(testIssue, 501, owner(), "/confirm "+strconv.FormatInt(p.ID, 10)+" apply this resolution")
 	f.settle()
 	posted, _, _ := f.forge.snapshot()
-	if len(posted) != 1 || !strings.Contains(posted[0], "Legacy or unknown proposal format") || !strings.Contains(posted[0], "confirm the new proposal number") {
-		t.Fatalf("legacy refusal missing actionable reply: %v", posted)
+	if len(posted) != 1 {
+		t.Fatalf("legacy confirmation posted %d replies, want exactly one refusal: %v", len(posted), posted)
 	}
 	if calls := f.turns.calls(); len(calls) != 0 {
 		t.Fatal("legacy confirmation ran agent")

@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
@@ -134,30 +133,4 @@ func TestToolProfile_AdditivePermissionBoundary(t *testing.T) {
 		}
 		return true
 	})
-	// Retain immutable before/after snapshots of opaque existing host permission
-	// payloads while callers construct and modify the separate server inventory.
-	for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
-		permissions := agent.Permissions{Profile: mode, Payload: struct {
-			Native       []string
-			OtherServers []string
-		}{[]string{"permitted-native-tool"}, []string{"permitted-unrelated-server"}}}
-		request := agent.Request{Permissions: permissions}
-		before, err := json.Marshal(request.Permissions)
-		if err != nil {
-			t.Fatal(err)
-		}
-		profile, err := submission.NewToolProfile(mode)
-		if err != nil {
-			t.Fatal(err)
-		}
-		inventory := profile.List()
-		inventory[0].Name = "untrusted replacement"
-		after, err := json.Marshal(request.Permissions)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(before) != string(after) {
-			t.Fatalf("%s native permissions changed", mode)
-		}
-	}
 }

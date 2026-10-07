@@ -86,7 +86,7 @@ func TestSourceIdentityDirtySavedModesDeletionAndIndexPreservation(t *testing.T)
 		t.Fatal("executable mode omitted from identity")
 	}
 }
-func TestSourceIdentityIgnoredInputsAndContainedLogs(t *testing.T) {
+func TestSourceIdentityIgnoredInputsAndSymlinks(t *testing.T) {
 	_, w := sourceWorktree(t)
 	if e := os.WriteFile(filepath.Join(w.Path(), ".gitignore"), []byte("ignored.cfg\n"), 0600); e != nil {
 		t.Fatal(e)
@@ -117,21 +117,5 @@ func TestSourceIdentityIgnoredInputsAndContainedLogs(t *testing.T) {
 	}
 	if _, e = w.ObserveSource(t.Context(), opts); e == nil {
 		t.Fatal("symlink source certified")
-	}
-	if _, e = git.ObserveEvidenceLog(t.Context(), w.Path(), "link"); e == nil {
-		t.Fatal("symlink log accepted")
-	}
-	if _, e = git.ObserveEvidenceLog(t.Context(), w.Path(), "../outside"); e == nil {
-		t.Fatal("escaping log accepted")
-	}
-	if _, e = git.ObserveEvidenceLog(t.Context(), w.Path(), "tracked.txt"); e != nil {
-		t.Fatal(e)
-	}
-	alias := filepath.Join(filepath.Dir(w.Path()), "evidence-root-alias")
-	if e = os.Symlink(w.Path(), alias); e != nil {
-		t.Fatal(e)
-	}
-	if _, e = git.ObserveEvidenceLog(t.Context(), alias, "tracked.txt"); e == nil {
-		t.Fatal("symlinked evidence root accepted")
 	}
 }

@@ -80,7 +80,7 @@ func TestRightsTablesRefuseEdits(t *testing.T) {
 	db := newTestDB(t)
 	repo := testRepo(t, db, "acme", "api")
 	g, _ := db.CreateRightsGrant(t.Context(), RightsGrant{RepoID: repo.ID, SubjectID: 1, SubjectLogin: "a", Workflow: "plan", Stage: "s", Action: "approve", GrantedBy: 7, CreatedAt: rightsAt})
-	a, err := db.CreateReviewerAssignment(t.Context(), ReviewerAssignment{RepoID: repo.ID, TaskRef: "github:acme/api#1", Workflow: "plan", Stage: "s", ReviewerID: 2, ReviewerLogin: "bo", AssignedBy: 7, CreatedAt: rightsAt})
+	a, err := db.ReplaceReviewerAssignment(t.Context(), ReviewerAssignment{RepoID: repo.ID, TaskRef: "github:acme/api#1", Workflow: "plan", Stage: "s", ReviewerID: 2, ReviewerLogin: "bo", AssignedBy: 7, CreatedAt: rightsAt}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,11 +112,11 @@ func TestReviewerAssignRemoveReplace(t *testing.T) {
 	db := newTestDB(t)
 	repo := testRepo(t, db, "acme", "api")
 	base := ReviewerAssignment{RepoID: repo.ID, TaskRef: "github:acme/api#1", Workflow: "plan", Stage: "s", ReviewerID: 2, ReviewerLogin: "bo", AssignedBy: 7, CreatedAt: rightsAt}
-	first, err := db.CreateReviewerAssignment(t.Context(), base)
+	first, err := db.ReplaceReviewerAssignment(t.Context(), base, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.CreateReviewerAssignment(t.Context(), base); !errors.Is(err, ErrRightsDuplicate) {
+	if _, err := db.ReplaceReviewerAssignment(t.Context(), base, false); !errors.Is(err, ErrRightsDuplicate) {
 		t.Fatalf("duplicate open assignment: %v", err)
 	}
 	next := base

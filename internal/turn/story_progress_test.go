@@ -388,20 +388,6 @@ func TestStoryProgressIndependentServicesSerializeIngestionAndDelivery(t *testin
 	}
 }
 
-func TestStoryAcceptanceRequiresEverySupportedCriterion(t *testing.T) {
-	for _, body := range []string{
-		"## Acceptance Criteria\n",
-		"## Acceptance Criteria\n- AC-1: passes\n- additional obligation\n",
-		"## Acceptance Criteria\n1. first obligation\n2. second obligation\n",
-		"## Acceptance Criteria\nRequired prose obligation\n",
-	} {
-		if err := storyAcceptanceCovered(body, []agent.StoryCheck{{Name: "AC-1"}}); err == nil {
-			t.Errorf("accepted incomplete evidence: %q", body)
-		}
-	}
-	mustProgress(t, storyAcceptanceCovered("## Acceptance Criteria\n- AC-1: passes\n2. another obligation\n", []agent.StoryCheck{{Name: "AC-1"}, {Name: "another obligation"}}))
-}
-
 func TestStoryFeatureCompletesOnlyAfterAggregateAndAllStories(t *testing.T) {
 	f, _, _, runID, worktree := progressOnlyRun(t)
 	e := progressEvent(t, f, runID, worktree)

@@ -51,7 +51,7 @@ func TestResearchControlValidation(t *testing.T) {
 	specs := graphexec.Registry{Policy: graphexec.ValidateResearchControlGraph}
 	for _, spec := range []graphexec.ActionSpec{
 		{Name: "lf_research_brief", Mode: agent.ModeResearch, Outcomes: []string{"success"}},
-		graphexec.ResearchControlSpec(graphexec.ResearchLoopAction), graphexec.ResearchControlSpec(graphexec.ResearchIfAction),
+		graphexec.ControlSpec(graphexec.ResearchLoopAction, graphexec.ResearchControlPolicy()), graphexec.ControlSpec(graphexec.ResearchIfAction, graphexec.ResearchControlPolicy()),
 		{Name: "lf_agent", Mode: agent.ModeResearch, Outcomes: []string{"success"}}, {Name: "lf_comment", Mode: agent.ModeResearch, Outcomes: []string{"published"}}, {Name: "lf_ask", Mode: agent.ModeResearch, Outcomes: []string{"published"}},
 	} {
 		if err := specs.Register(spec); err != nil {
@@ -101,7 +101,7 @@ func TestResearchControlValidation(t *testing.T) {
 
 func TestResearchAttributeSchemaCloning(t *testing.T) {
 	var r graphexec.Registry
-	spec := graphexec.ResearchControlSpec(graphexec.ResearchLoopAction)
+	spec := graphexec.ControlSpec(graphexec.ResearchLoopAction, graphexec.ResearchControlPolicy())
 	if err := r.Register(spec); err != nil {
 		t.Fatal(err)
 	}

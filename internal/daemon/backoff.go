@@ -36,8 +36,6 @@ const MaxBackoff = time.Hour
 // that is already past the forge's refusal has work in a worktree that a
 // cancellation would throw away, and it will finish or fail on its own.
 //
-// TestBackoffTouchesNoContext holds that shape structurally.
-//
 // A backoff is safe for concurrent use.
 type backoff struct {
 	mu       sync.Mutex

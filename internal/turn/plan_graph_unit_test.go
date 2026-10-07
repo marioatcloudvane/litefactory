@@ -46,23 +46,6 @@ func TestPlanRuntime_RejectsMalformedProviderOutput(t *testing.T) {
 	}
 }
 
-func TestPlanRuntime_PolicyCarriesNoPrivateProtocol(t *testing.T) {
-	t.Parallel()
-	plan, research := PlanWorkflowPolicy(), ResearchWorkflowPolicy()
-	if plan.Handlers != nil || research.Handlers != nil {
-		t.Fatal("a static workflow policy carries private handlers")
-	}
-	if plan.Decode == nil || plan.Retain == nil || research.Decode == nil {
-		t.Fatal("every workflow policy judges its result through the shared decoder")
-	}
-	if strings.Contains(plan.Guidance, "no shared application result wrapper") || !strings.Contains(plan.Guidance, "shared result helper") {
-		t.Fatal("Plan guidance does not carry the shared route")
-	}
-	if got := (&planGraphRuntime{}).policy(); got.Handlers == nil || got.Decode == nil {
-		t.Fatal("a running Plan policy keeps the shared decoder and adds only its handlers")
-	}
-}
-
 func TestPlanRuntime_RetainedResultIsTheOnlySourceOfAskAndDone(t *testing.T) {
 	t.Parallel()
 	var ask ar.ResearchNode

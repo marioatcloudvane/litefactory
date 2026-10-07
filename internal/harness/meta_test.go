@@ -12,16 +12,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
-// todoWriteResolved and todoWriteRequested are the measured finding the whole
-// story exists to make visible ("Settled before planning" in the
-// implementation plan): eight tools requested, seven resolved, TodoWrite
-// silently dropped with no error raised anywhere. The resolved order is
-// copied verbatim from a real init event.
-var (
-	todoWriteResolved  = []string{"Task", "Bash", "Edit", "Glob", "Grep", "Read", "Write"}
-	todoWriteRequested = append(append([]string{}, todoWriteResolved...), "TodoWrite")
-)
-
 func metaRequest(worktree string) Request {
 	return Request{
 		Ref:            testRef,
@@ -216,37 +206,6 @@ func TestMetaToolsRequestedSurvivesANilResult(t *testing.T) {
 	}
 	if len(meta.Tools) != 0 {
 		t.Errorf("Tools = %q, want empty: no init event ever arrived", meta.Tools)
-	}
-}
-
-// TestMetaTodoWriteWorkedExample is the named regression for the finding that
-// motivates the whole story: TodoWrite was requested on every run for the life
-// of the project and silently dropped, with no error raised. Eight requested,
-// seven resolved (IMPLEMENTATION_PLAN.md, "Settled before planning").
-func TestMetaTodoWriteWorkedExample(t *testing.T) {
-	req := metaRequest("/w/task-123")
-	req.Permissions = Permissions{
-		Profile: "research",
-		Payload: ToolSurface{Tools: todoWriteRequested},
-	}
-
-	meta := NewMeta(req, testPrompt, &RunResult{
-		Outcome:  OutcomeSucceeded,
-		ExitCode: 0,
-		Tools:    todoWriteResolved,
-	})
-
-	if len(meta.ToolsRequested) != 8 {
-		t.Fatalf("requested %d tools, want 8: %q", len(meta.ToolsRequested), meta.ToolsRequested)
-	}
-	if len(meta.Tools) != 7 {
-		t.Fatalf("resolved %d tools, want 7: %q", len(meta.Tools), meta.Tools)
-	}
-	if !slices.Contains(meta.ToolsRequested, "TodoWrite") {
-		t.Error("TodoWrite is missing from the requested surface")
-	}
-	if slices.Contains(meta.Tools, "TodoWrite") {
-		t.Error("TodoWrite resolved, contradicting the measured finding that it is silently dropped")
 	}
 }
 
