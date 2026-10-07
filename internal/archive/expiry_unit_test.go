@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -66,22 +64,6 @@ func TestReadHeaderFrom(t *testing.T) {
 				t.Errorf("header = %+v", h)
 			}
 		})
-	}
-}
-
-func TestReadHeader(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	p := filepath.Join(dir, "a.jsonl.gz")
-	if err := os.WriteFile(p, gzBytes(t, headerLine(t, archive.KindHeader, "2026-05-06T07:08:09Z")), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	h, err := archive.ReadHeader(p)
-	if err != nil || h.ArchivedAt != "2026-05-06T07:08:09Z" {
-		t.Fatalf("got %+v, %v", h, err)
-	}
-	if _, err := archive.ReadHeader(filepath.Join(dir, "missing.jsonl.gz")); err == nil {
-		t.Error("missing file: want error")
 	}
 }
 

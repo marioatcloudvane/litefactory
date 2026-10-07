@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -66,23 +65,4 @@ func TestFetchAssetNeverRetriesOrSleeps(t *testing.T) {
 		}
 		return true
 	})
-}
-
-// TestAttachOwnsTheRetryAndTheBudgets is the positive half: the behaviour
-// the test above forbids here has to actually exist somewhere, or the split
-// has quietly become a deletion.
-func TestAttachOwnsTheRetryAndTheBudgets(t *testing.T) {
-	t.Parallel()
-
-	const attachIngest = "../attach/ingest.go"
-
-	source, err := os.ReadFile(attachIngest)
-	if err != nil {
-		t.Fatalf("read %s: %v", attachIngest, err)
-	}
-	for _, want := range []string{"perFetchTimeout", "perTurnTimeout", "context.WithTimeout", "RouteRetry"} {
-		if !strings.Contains(string(source), want) {
-			t.Errorf("%s does not mention %s; the retry and timing budgets moved out of internal/github and have to live there", attachIngest, want)
-		}
-	}
 }

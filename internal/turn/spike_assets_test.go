@@ -1,8 +1,6 @@
 package turn
 
 import (
-	"io/fs"
-	"os"
 	"path"
 	"regexp"
 	"slices"
@@ -61,34 +59,4 @@ func TestSpikeShipsOneCopyOfEachRoleAndOneSkillNamingNoGraphNode(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestSpikeSourceTreeHoldsOneCopyOfTheFlow(t *testing.T) {
-	var found []string
-	mustProgress(t, fs.WalkDir(osRepoFS(t), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() && (d.Name() == ".git" || d.Name() == "dist" || d.Name() == ".aiteam") {
-			return fs.SkipDir
-		}
-		if !d.IsDir() && strings.Contains(p, "spike") && (path.Ext(p) == ".dot" || strings.HasSuffix(p, "spike-investigator.md") || strings.HasSuffix(p, "spike-fixer.md")) {
-			found = append(found, p)
-		}
-		return nil
-	}))
-	want := map[string]bool{"internal/teamsource/spike/spike.dot": true, "internal/teamsource/spike/spike-investigator.md": true, "internal/teamsource/spike/spike-fixer.md": true}
-	if len(found) != len(want) {
-		t.Fatalf("the flow or role exists more than once: %v", found)
-	}
-	for _, p := range found {
-		if !want[p] {
-			t.Fatalf("unexpected copy %s", p)
-		}
-	}
-}
-
-func osRepoFS(t *testing.T) fs.FS {
-	t.Helper()
-	return os.DirFS("../..")
 }

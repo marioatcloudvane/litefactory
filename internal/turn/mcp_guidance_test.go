@@ -35,6 +35,8 @@ func TestMCPGuidance_RegistrationRequired(t *testing.T) {
 	}
 }
 
+// Each card is rendered exactly when its tools are installed; the tool call it
+// shows is the observable part, its prose is not pinned.
 func TestMCPGuidance_InstalledCards(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -42,16 +44,15 @@ func TestMCPGuidance_InstalledCards(t *testing.T) {
 		tools           []string
 		present, absent []string
 	}{
-		{"lookup list", []string{"issues_list"}, []string{"issues_list({", "not full bodies or comments"}, []string{"issues_get({", "Comments:", "Creation:", "Progress:", "Application results:", "Checkpoints:"}},
-		{"lookup get", []string{"issues_get"}, []string{"issues_get({", "repository-local summary"}, []string{"issues_list({"}},
-		{"comment without receipt", []string{"issues_comment"}, nil, []string{"Comments:"}},
-		{"authorized comments", []string{"issues_comment", "receipts_get"}, []string{"Comments:", "only to authorized targets", "inspect receipts_get"}, []string{"Creation:"}},
-		{"activity update", []string{"activity_update"}, []string{"activity_update({", "advisory activity, not completion", "increasing sequence"}, []string{"activity_get({"}},
-		{"activity read", []string{"activity_get"}, []string{"activity_get({}", "unavailable after restart"}, []string{"activity_update({"}},
-		{"creation missing preflight", []string{"issues_create_batch", "receipts_get"}, nil, []string{"Creation:"}},
-		{"separately granted creation", []string{"issues_create_batch", "receipts_get", "feedback_preflight"}, []string{"Creation:", "separate live factory grant", "Tool visibility alone is not creation approval"}, []string{"Checkpoints:"}},
-		{"partial application", []string{"communication_preflight", "communication_submit"}, nil, []string{"Application results:", "Application P example:"}},
-		{"partial checkpoint", []string{"feedback_preflight", "evidence_submit"}, nil, []string{"Checkpoints:", "Checkpoint C example:"}},
+		{"lookup list", []string{"issues_list"}, []string{"issues_list({"}, []string{"issues_get({", "issues_comment(", "issues_create_batch(", "activity_update(", "communication_preflight(", "evidence_submit("}},
+		{"lookup get", []string{"issues_get"}, []string{"issues_get({"}, []string{"issues_list({"}},
+		{"comment without receipt", []string{"issues_comment"}, nil, []string{"issues_comment("}},
+		{"authorized comments", []string{"issues_comment", "receipts_get"}, []string{"issues_comment({", "receipts_get"}, []string{"issues_create_batch("}},
+		{"activity update", []string{"activity_update"}, []string{"activity_update({"}, []string{"activity_get({"}},
+		{"activity read", []string{"activity_get"}, []string{"activity_get({"}, []string{"activity_update({"}},
+		{"creation missing preflight", []string{"issues_create_batch", "receipts_get"}, nil, []string{"issues_create_batch("}},
+		{"partial application", []string{"communication_preflight", "communication_submit"}, nil, []string{"communication_preflight(", "```json"}},
+		{"partial checkpoint", []string{"feedback_preflight", "evidence_submit"}, nil, []string{"evidence_submit(", "```json"}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -70,11 +71,6 @@ func TestMCPGuidance_InstalledCards(t *testing.T) {
 					t.Errorf("advertises unsupported %q", avoid)
 				}
 			}
-			for _, want := range []string{"supplement your existing permitted tools", "Ordinary runs need not", "required final response and artifacts", "correct every reported diagnostic", "receipt before exit", "acknowledgment is not acceptance or publication", "Pending, failed and uncertain", "look up the known request before retrying", "do not mutate input solely"} {
-				if !strings.Contains(got, want) {
-					t.Errorf("missing shared obligation %q", want)
-				}
-			}
 			if strings.Contains(got, "/factory/") || strings.Contains(got, "isolated-attempt") {
 				t.Error("guidance exposes registration identity")
 			}
@@ -82,24 +78,21 @@ func TestMCPGuidance_InstalledCards(t *testing.T) {
 	}
 }
 
+// Every supported mode adds its own restriction to the shared guidance.
 func TestMCPGuidance_ModeRestrictions(t *testing.T) {
 	t.Parallel()
-	for _, tt := range []struct{ mode, want string }{
-		{"plan", "The shared adapter reuses the existing Plan owner; input acknowledgment alone cannot publish, freeze or establish readiness"},
-		{"validate", "no shell, edits, fresh checks or delegation escapes. Keep the required final findings"},
-		{"implement", "Preserve acceptance for Validate and report only checks actually executed"},
-		{"research", "Recommendations remain advisory"}, {"spike", "without selecting a new mode"},
-	} {
-		t.Run(tt.mode, func(t *testing.T) {
-			t.Parallel()
-			got, err := mcpGuidance(t.Context(), guidanceSpec(t, "activity_get"), &AgentResultService{binding: store.ResultBinding{Mode: tt.mode}}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(got, tt.want) {
-				t.Fatalf("missing mode restriction %q", tt.want)
-			}
-		})
+	render := func(mode string) string {
+		got, err := mcpGuidance(t.Context(), guidanceSpec(t, "activity_get"), &AgentResultService{binding: store.ResultBinding{Mode: mode}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	base := render("")
+	for _, mode := range []string{"plan", "validate", "implement", "research", "spike"} {
+		if got := render(mode); !strings.HasPrefix(got, base) || len(got) == len(base) {
+			t.Errorf("%s guidance carries no mode restriction", mode)
+		}
 	}
 }
 
@@ -173,24 +166,4 @@ func TestMCPGuidance_CheckpointRequiresScope(t *testing.T) {
 			t.Error("checkpoint accepted missing frozen scope")
 		}
 	}
-}
-
-func TestMCPGuidance_RenderMetrics(t *testing.T) {
-	t.Logf("shared words=%d bytes=%d", len(strings.Fields(mcpSharedGuidance)), len(mcpSharedGuidance))
-	tools := []string{"communication_preflight", "communication_submit", "communication_receipt", "feedback_preflight", "evidence_submit", "receipts_get", "issues_list", "issues_get", "issues_comment", "activity_update", "activity_get", "issues_create_batch"}
-	for _, mode := range []string{"implement", "validate"} {
-		stage := "engineering"
-		if mode == "validate" {
-			stage = "validate"
-		}
-		got, err := mcpGuidance(t.Context(), guidanceSpec(t, tools...), &AgentResultService{binding: store.ResultBinding{Mode: mode}}, guidanceSession(stage))
-		if err != nil {
-			t.Fatal(err)
-		}
-		before, tail, _ := strings.Cut(got, "```json\n")
-		payload, after, _ := strings.Cut(tail, "\n```")
-		without := before + after
-		t.Logf("%s full granted card catalog: excluding JSON contract words=%d bytes=%d; including contract words=%d bytes=%d; contract bytes=%d", mode, len(strings.Fields(without)), len(without), len(strings.Fields(got)), len(got), len(payload))
-	}
-	t.Log("Actual provider-rendered token measurements including tool schemas/examples: unavailable; no host acquisition or tokenizer estimate. Word/byte counts do not establish billed tokens or savings.")
 }

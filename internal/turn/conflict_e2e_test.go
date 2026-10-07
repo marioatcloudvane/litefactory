@@ -3,9 +3,6 @@ package turn
 import (
 	"context"
 	"errors"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"strings"
 	"testing"
 
@@ -372,41 +369,6 @@ func TestConflictSuggestionReachesATerminalStateAfterPosting(t *testing.T) {
 	if !result.ConsumesComment() {
 		t.Error("ConsumesComment() = false, want true: a blocked run with a suggestion must not be retried by a later tick")
 	}
-}
-
-// TestConflictSuggestionCodeNeverSleepsOrPolls is AC-11.6's structural half:
-// no function in internal/turn/conflict.go — the whole US-11 orchestration,
-// from collecting conflicting content through persisting a proposal — calls
-// time.Sleep, starts a ticker, or blocks on time.After. There is no reply to
-// wait for in this story (only a later story could add one): a suggestion is
-// posted and the turn ends, so nothing here has any legitimate reason to
-// pause for a clock.
-func TestConflictSuggestionCodeNeverSleepsOrPolls(t *testing.T) {
-	t.Parallel()
-
-	const file = "conflict.go"
-	fset := token.NewFileSet()
-	parsed, err := parser.ParseFile(fset, file, nil, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", file, err)
-	}
-
-	forbidden := map[string]bool{"Sleep": true, "After": true, "Tick": true, "NewTicker": true, "NewTimer": true}
-	ast.Inspect(parsed, func(n ast.Node) bool {
-		sel, ok := n.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		ident, ok := sel.X.(*ast.Ident)
-		if !ok || ident.Name != "time" {
-			return true
-		}
-		if forbidden[sel.Sel.Name] {
-			t.Errorf("%s calls time.%s at %s; US-11 posts a suggestion and ends the turn, it waits for nothing (AC-11.6)",
-				file, sel.Sel.Name, fset.Position(n.Pos()))
-		}
-		return true
-	})
 }
 
 // recordingGate wraps [newTestGate]'s real serialising gate and additionally

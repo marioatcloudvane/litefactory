@@ -39,13 +39,3 @@ func (db *DB) SegmentDelivery(ctx context.Context, id int64) (identity, root str
 	}
 	return identity, root, nil
 }
-
-// HasSessionDelivery distinguishes a delivery-aware conversation from the
-// legacy single-segment path, including after its external team is detached.
-func (db *DB) HasSessionDelivery(ctx context.Context, sessionID int64) (bool, error) {
-	var found bool
-	if err := db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM segment_deliveries d JOIN segments s ON s.id=d.segment_id WHERE s.session_id=?)`, sessionID).Scan(&found); err != nil {
-		return false, fmt.Errorf("store: inspect session delivery: %w", err)
-	}
-	return found, nil
-}

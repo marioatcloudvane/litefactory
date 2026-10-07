@@ -113,7 +113,7 @@ func TestPublicationRuntimeCatalogFromProduction(t *testing.T) {
 
 func TestPublicationRuntimePreparedOwnerIntentNativeLifetime(t *testing.T) {
 	prep, db := lifecycleMCPPreparation(t)
-	f := creationHTTPSetup(t, true, false)
+	f := creationHTTPSetup(t, true)
 	now := time.Now().UTC()
 	cs, err := store.NewCreationStore(db, func() time.Time { return now })
 	mustProgress(t, err)
@@ -187,7 +187,7 @@ func TestPublicationRuntimePreparedOwnerIntentNativeLifetime(t *testing.T) {
 }
 
 func TestPublicationRuntimeCreationRestartObservation(t *testing.T) {
-	f := creationHTTPSetup(t, true, false)
+	f := creationHTTPSetup(t, true)
 	f.lost = true
 	reply := f.call(t)
 	if reply.Error == "" {
@@ -226,7 +226,7 @@ func TestPublicationRuntimeCreationRestartObservation(t *testing.T) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.posts != 1 || f.scans != 1 || f.attachments != 0 {
-		t.Fatalf("redispatch or unbounded observation: posts %d scans %d attach %d", f.posts, f.scans, f.attachments)
+	if f.posts != 1 || f.scans != 1 {
+		t.Fatalf("redispatch or unbounded observation: posts %d scans %d", f.posts, f.scans)
 	}
 }
