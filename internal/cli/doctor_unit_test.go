@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 func TestDoctorCommand_Arguments(t *testing.T) {
@@ -54,5 +55,62 @@ func TestDoctorApplyReachesItsHandler(t *testing.T) {
 	var usageErr *UsageError
 	if errors.As(err, &usageErr) {
 		t.Fatalf("doctor apply returned the usage error %q instead of reaching its handler", err)
+	}
+}
+
+func TestDoctorStopCLIReportsOnlyLocally(t *testing.T) {
+	for _, shape := range []string{"workflow", "doctor", "both", "neither"} {
+		t.Run(shape, func(t *testing.T) {
+			paths := newRepoHome(t)
+			ctx := t.Context()
+			check := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			db, err := store.Open(ctx, paths.DBPath())
+			check(err)
+			defer db.Close()
+			repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+			check(err)
+			if shape == "workflow" || shape == "both" {
+				session, err := db.GetOrCreateSession(ctx, repo, 406)
+				check(err)
+				segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "implement", store.AgentClaude)
+				check(err)
+				_, err = db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: store.AgentClaude, LogPath: func(int) string { return "test.log" }})
+				check(err)
+			}
+			if shape == "doctor" || shape == "both" {
+				_, err := db.BeginDoctorAttempt(ctx, "github:acme/api#406", store.DoctorAttempt{ID: "active", SourceID: "test:active", OwnerText: "diagnose", PromptVersion: "test", GuideVersion: "test"})
+				check(err)
+			}
+			router, out, errout := newTestRouter(t)
+			code := router.Run(ctx, []string{"doctor", "stop", "acme/api", "406"})
+			if code != ExitOK {
+				t.Fatalf("exit=%d output=%s %s", code, out, errout)
+			}
+			want := "Nothing was running"
+			if shape == "doctor" {
+				want = "Doctor conversation stopped"
+			}
+			if shape == "workflow" || shape == "both" {
+				want = "cancellation and saving are pending"
+			}
+			if !strings.Contains(out.String(), want) {
+				t.Fatal(out.String())
+			}
+			if shape == "both" && !strings.Contains(out.String(), "Doctor conversation stopped: true") {
+				t.Fatal(out.String())
+			}
+			debts, err := db.PendingDoctorDeliveries(ctx)
+			check(err)
+			commands, err := db.DoctorCommandsNeedingReports(ctx)
+			check(err)
+			if len(debts) != 0 || len(commands) != 0 {
+				t.Fatal("CLI created issue report debt")
+			}
+		})
 	}
 }

@@ -1418,3 +1418,51 @@ func TestReconcileReclaimsAndLogs(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnerStopSavesCancelledWritableRun(t *testing.T) {
+	var f *fixture
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		writeInWorktree(t, req, "owner-stop.txt", "retained work\n")
+		_, err := f.db.RequestOwnerStop(t.Context(), f.ref().String())
+		mustProgress(t, err)
+		cancel()
+		return &harness.RunResult{Outcome: agent.OutcomeAbandoned, Reason: "cancelled", FinishedAt: time.Now()}, nil
+	})
+	f = newFixture(t, runner)
+	out, err := Execute(ctx, f.opts, f.request())
+	mustProgress(t, err)
+	if out.Outcome != agent.OutcomeAbandoned || out.Reason != store.ReasonOwnerStop || !out.Committed || !out.Pushed {
+		t.Fatalf("stop did not save: %+v", out)
+	}
+	run, err := f.db.GetRun(t.Context(), out.Run.ID)
+	mustProgress(t, err)
+	if _, ok := run.OwnerStop(); !ok || run.Error != store.ReasonOwnerStop || run.Status != store.RunFailed || run.CommitSHA == "" || !run.Published {
+		t.Fatalf("durable stop = %+v", run)
+	}
+	if got := f.repo.Git("show", out.CommitSHA+":owner-stop.txt"); !strings.Contains(got, "retained work") {
+		t.Fatal(got)
+	}
+}
+
+func TestOwnerStopPlanDoesNotPublishFailure(t *testing.T) {
+	var f *fixture
+	f, _, req, _, forge := graphPlanFixtureWithForge(t, "agent", func(a *graphPlanAnswer) {
+		_, err := f.db.RequestOwnerStop(t.Context(), f.ref().String())
+		mustProgress(t, err)
+		a.Stop, a.Reason = agent.OutcomeAbandoned, "cancelled"
+	})
+	out, err := Execute(t.Context(), f.opts, req)
+	if err == nil || out.Run.Error != store.ReasonOwnerStop {
+		t.Fatalf("stop outcome: %+v, %v", out, err)
+	}
+	if len(failureBodies(forge)) != 0 {
+		t.Fatal("CLI stop published a Plan failure")
+	}
+	_, err = Execute(t.Context(), f.opts, req)
+	mustProgress(t, err)
+	if len(failureBodies(forge)) != 0 {
+		t.Fatal("replay published a Plan failure")
+	}
+}

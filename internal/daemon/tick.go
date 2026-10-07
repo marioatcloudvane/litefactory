@@ -2295,6 +2295,14 @@ func (d *Daemon) run(
 		}
 		return d.leave(ctx, t, log, "stopped outcome requires repair", &recoveryPending{err})
 	}
+	if _, stopped := turnResult.Run.OwnerStop(); stopped {
+		t.recordWorkerStatus(workerCancelled)
+		if trigger.CommentID == 0 {
+			return nil
+		}
+		_, consumeErr := d.reporter.Consume(context.WithoutCancel(ctx), t.session.ID, trigger.CommentID)
+		return consumeErr
+	}
 	if turnResult.Outcome == agent.OutcomeAbandoned {
 		t.recordWorkerStatus(workerCancelled)
 	}

@@ -19,6 +19,7 @@ import (
 // GraphStopQuestion is immutable factory reporting data, not a result envelope.
 // The origin and source identity remain fixed across publication recovery.
 type GraphStopQuestion struct {
+	OwnerStop       *store.OwnerStop      `json:"owner_stop,omitempty"`
 	Diagnosis       *store.GraphDiagnosis `json:"diagnosis,omitempty"`
 	Version         int                   `json:"version"`
 	InstanceID      int64                 `json:"instance_id"`
@@ -42,6 +43,23 @@ func parkGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, ou
 		reason = strings.ToValidUTF8(reason[:16<<10], "") + "\n\n[explanation shortened]"
 	}
 	question := GraphStopQuestion{Version: 1, InstanceID: out.InstanceID, SourceAttemptID: out.AttemptID, Origin: out.Node, Cause: cause, Reason: reason}
+	if out.AttemptID != 0 {
+		attempt, err := opts.DB.GetGraphNodeAttempt(context.WithoutCancel(ctx), out.AttemptID)
+		if err != nil {
+			return out, err
+		}
+		if attempt.RunID != 0 {
+			run, err := opts.DB.GetRun(context.WithoutCancel(ctx), attempt.RunID)
+			if err != nil {
+				return out, err
+			}
+			if stop, ok := run.OwnerStop(); ok {
+				question.OwnerStop = &stop
+				reason = store.ReasonOwnerStop
+				question.Reason = reason
+			}
+		}
+	}
 	raw, err := json.Marshal(question)
 	if err != nil {
 		return out, err
@@ -67,6 +85,9 @@ func parkGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, ou
 		return out, err
 	}
 	out.Status, out.NextNode = "waiting_owner", out.Node
+	if question.OwnerStop != nil {
+		return out, nil
+	}
 	if opts.ResearchReporter == nil {
 		return out, errors.New("graph question saved; factory reporter unavailable, publication remains owed")
 	}
@@ -91,6 +112,21 @@ func (r *Reporter) RecoverGraphStopQuestion(ctx context.Context, key string) (Po
 	digest := sha256.Sum256(intent.Candidate)
 	if hex.EncodeToString(digest[:]) != key {
 		return Posted{}, errors.New("graph stop immutable question digest mismatch")
+	}
+	if question.OwnerStop != nil {
+		attempt, err := r.db.GetGraphNodeAttempt(ctx, intent.SourceAttemptID)
+		if err != nil {
+			return Posted{}, err
+		}
+		run, err := r.db.GetRun(ctx, attempt.RunID)
+		if err != nil {
+			return Posted{}, err
+		}
+		stop, ok := run.OwnerStop()
+		if !ok || stop != *question.OwnerStop || attempt.InstanceID != intent.InstanceID {
+			return Posted{}, errors.New("owner stop source mismatch")
+		}
+		return Posted{}, nil
 	}
 	delivery, err := r.db.GetReportDelivery(ctx, key)
 	if err == nil {

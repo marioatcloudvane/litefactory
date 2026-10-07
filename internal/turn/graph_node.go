@@ -149,6 +149,19 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	})
 	activity.Output = slices.Clone(activity.Output)
 	out.Activity = activity
+	// Owner cancellation must park even when private result submission completed
+	// before process cleanup; a stopped run cannot enter successful delivery.
+	if workflow == agent.WorkflowBug && req.RunID != 0 {
+		run, err := opts.DB.GetRun(context.WithoutCancel(ctx), req.RunID)
+		if err != nil {
+			return out, errors.Join(dispatchErr, err)
+		}
+		if _, stopped := run.OwnerStop(); stopped {
+			out.Activity.Diagnostic = store.ReasonOwnerStop
+			finished, err := parkGraphAction(ctx, opts, req, out, "failed", false)
+			return finished, errors.Join(dispatchErr, err)
+		}
+	}
 	// Owner-conversation activities atomically complete and park themselves,
 	// because their retained review and wait belong to the same boundary.
 	if activity.Suspended && workflow == agent.WorkflowBug && node.Action == graphexec.ResearchLoopAction && node.Attrs["lf_contract"] == "owner_conversation" {

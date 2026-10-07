@@ -496,9 +496,13 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 		return out, errors.Join(cause, err)
 	}
 	out.Run = run
-	if !w.saved && !w.req.graphBugPreparation && cause == nil && w.process != nil && w.process.Succeeded() && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
+	_, ownerStopped := run.OwnerStop()
+	if ownerStopped {
+		out.Reason = store.ReasonOwnerStop
+	}
+	if !w.saved && w.process != nil && (ownerStopped || (!w.req.graphBugPreparation && cause == nil && w.process.Succeeded())) && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
 		out = save(bookkeeping, w.opts, w.prep, out, w.process, w.opts.Logger)
-		if w.req.Workflow == agent.WorkflowBug {
+		if w.req.Workflow == agent.WorkflowBug || ownerStopped {
 			commit := out.SHAAfter
 			if commit == "" {
 				commit = out.CommitSHA
@@ -508,7 +512,7 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 			}
 			out.Err = errors.Join(out.Err, w.opts.DB.SetRunPublication(bookkeeping, w.prep.run.ID, out.Pushed, out.Publication))
 		}
-		if out.Err == nil && w.policy.Handlers != nil && w.policy.Handlers.AfterSave != nil {
+		if !ownerStopped && out.Err == nil && w.policy.Handlers != nil && w.policy.Handlers.AfterSave != nil {
 			out.Err = w.policy.Handlers.AfterSave(bookkeeping, w, &out)
 		}
 	}

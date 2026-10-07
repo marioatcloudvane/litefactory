@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -210,6 +211,14 @@ func (d *Daemon) admitDoctor(ctx context.Context, repo store.Repo, issue github.
 }
 
 func (d *Daemon) doctorControls(ctx context.Context) error {
+	runs, err := d.db.OwnerStopsRunning(ctx)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		d.inflight.cancel(run.SessionID, run.Status == store.RunRunning)
+	}
+
 	for range 16 {
 		c, err := d.db.ClaimDoctorCommand(ctx, "", true, d.instanceID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -221,12 +230,44 @@ func (d *Daemon) doctorControls(ctx context.Context) error {
 		body := "Use `/doctor <instructions>` to diagnose this issue, or `/doctor stop` to end the conversation."
 		switch c.Operation {
 		case "stop":
-			body = "Doctor conversation stopped. Saved history remains available. Normal workflow work continues."
+			var stop store.OwnerStop
+			if err := json.Unmarshal([]byte(c.ResultBody), &stop); err != nil {
+				return err
+			}
+			if stop.RunID != 0 {
+				run, err := d.db.GetRun(ctx, stop.RunID)
+				if err != nil {
+					return err
+				}
+				if d.inflight.cancel(run.SessionID, run.Status == store.RunRunning) || run.Status == store.RunRunning {
+					return d.db.RequeueDoctorBusy(ctx, c.ID)
+				}
+			}
+			body = doctor.StopSummary(stop)
+			if stop.RunID != 0 {
+				run, err := d.db.GetRun(ctx, stop.RunID)
+				if err != nil {
+					return err
+				}
+				body += " " + doctor.StopRunSummary(run)
+			}
+			if stop.RunID != 0 || stop.Conversation {
+				body += " Reply on this issue to resume; this does not approve a repair."
+			}
 		case "apply":
 			body = "Doctor apply is unavailable. This command did not approve or perform a repair."
 		}
-		body += "\n\nContinue with `/doctor <instructions>`."
-		if err := d.db.CompleteDoctorCommand(ctx, c.ID, body, 0); err != nil {
+		if c.Operation != "stop" {
+			body += "\n\nContinue with `/doctor <instructions>`."
+		}
+		safe, err := d.doctor.service.Redactor.Apply(ctx, body, 262144)
+		if err != nil {
+			return err
+		}
+		if safe.Truncated() {
+			return errors.New("doctor stop result exceeds publication bound")
+		}
+		if err := d.db.CompleteDoctorCommand(ctx, c.ID, safe.String(), 0); err != nil {
 			return err
 		}
 	}
