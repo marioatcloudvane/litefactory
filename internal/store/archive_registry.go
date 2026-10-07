@@ -146,6 +146,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("suite_commands", `run_id IN (SELECT id FROM suite_runs WHERE instance_id IN `+subInst+`)`),
 	archived("suite_runs", `instance_id IN `+subInst),
 	archived("implement_stories", byParent),
+	archived("validate_entries", bySession),
 	archived("research_successors", `(instance_id IN `+subInst+` OR predecessor_id IN `+subInst+`)`),
 	archived("research_launch_definitions", `(session_id IN `+inFS+` OR instance_id IN `+subInst+`)`),
 	archived("research_execution_paths", bySession),

@@ -206,6 +206,9 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// one acquisition, and removes it in another.
 		"GitValidateSuiteRepo.Begin": "validate_suite.go",
 		"gitSuiteScratch.Close":      "validate_suite.go",
+		// Validate pins the integration head: one fetch and one read, in one
+		// acquisition.
+		"IntegrationHead": "validate_admission.go",
 	}
 
 	// gated names each call that must not happen outside a critical section,
