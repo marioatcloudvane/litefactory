@@ -72,14 +72,6 @@ func (db *DB) PutReportRecovery(ctx context.Context, r ReportRecovery) error {
 	return nil
 }
 
-// DeleteReportRecovery retires scheduling debt after the daemon confirms repair.
-func (db *DB) DeleteReportRecovery(ctx context.Context, key string) error {
-	if _, err := db.sql.ExecContext(ctx, `DELETE FROM report_recoveries WHERE recovery_key=?`, key); err != nil {
-		return fmt.Errorf("store: delete report recovery: %w", err)
-	}
-	return nil
-}
-
 // ListReportRecoveries restores persisted scheduling and diagnostic state. Due
 // filtering and rate-limit holds belong to the daemon, not this accessor.
 func (db *DB) ListReportRecoveries(ctx context.Context) ([]ReportRecovery, error) {

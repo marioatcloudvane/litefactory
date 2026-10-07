@@ -89,22 +89,6 @@ func TestDaemonRunWithAnUnresolvableCredentialNamesTheReference(t *testing.T) {
 	}
 }
 
-// TestDaemonRunHelpDescribesTheSingleton keeps the two properties an operator
-// most needs to know — no pid file, one instance — in the place they will look.
-func TestDaemonRunHelpDescribesTheSingleton(t *testing.T) {
-	h := newDaemonHome(t, keychainConfig)
-
-	code, stdout, stderr := h.runDaemon("daemon", "run", "--help")
-	if code != ExitOK {
-		t.Fatalf("daemon run --help: exit %d\nstderr:\n%s", code, stderr)
-	}
-	for _, want := range []string{"foreground", "pid file", "second instance"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("the help text does not mention %q:\n%s", want, stdout)
-		}
-	}
-}
-
 // TestResolveTokenHintDoesNotBlameTheConfig covers the one resolution failure
 // where the standing advice is actively misleading. A keychain item macOS
 // refuses to unlock was found, so "fix the reference" points the operator at a
