@@ -38,12 +38,12 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	row("Delivery", deliveryText(st))
 
 	b.WriteString("\n**Findings**\n\n")
-	any := false
+	anyOpen := false
 	for _, f := range st.Findings {
 		if f.State == findingSatisfied {
 			continue
 		}
-		any = true
+		anyOpen = true
 		fmt.Fprintf(&b, "- `%s` — **%s** (%s%s)", f.ID, f.State, kindWord(f), choiceSuffix(f))
 		if f.Summary != "" {
 			b.WriteString(": " + planTableCell(f.Summary))
@@ -59,7 +59,7 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		}
 		b.WriteString("\n")
 	}
-	if !any {
+	if !anyOpen {
 		b.WriteString("No finding is open.\n")
 	}
 

@@ -17,7 +17,7 @@ import (
 
 // budgetRun runs one agent node that declares attrs, with a runner that waits for
 // release or for its own context to end, and returns the graph result and error.
-func budgetRun(t *testing.T, attrs map[string]string, runner func(context.Context) (*agent.RunResult, error)) (GraphNodeResult, error, *store.DB, int64) {
+func budgetRun(t *testing.T, attrs map[string]string, runner func(context.Context) (*agent.RunResult, error)) (GraphNodeResult, *store.DB, int64, error) {
 	t.Helper()
 	f := newRetainedFixture(t, "research")
 	at := time.Now().UTC()
@@ -42,7 +42,7 @@ func budgetRun(t *testing.T, attrs map[string]string, runner func(context.Contex
 	var registry ActivityRegistry
 	mustProgress(t, registry.Register(ResearchAgentAction, handler))
 	out, err := ExecuteNodeAction(t.Context(), Options{DB: f.db, Runners: runnerSet(stub)}, GraphNodeRequest{Profile: profile, Activities: registry, InstanceID: instance.ID, RunID: run.ID, At: at})
-	return out, err, f.db, instance.ID
+	return out, f.db, instance.ID, err
 }
 
 // AC-004: an agent node with a time budget is cancelled when the budget runs out
@@ -52,7 +52,7 @@ func TestAgentBudgetCancelsTheRunAndRecordsATimeout(t *testing.T) {
 	agentBudgetClock = func(time.Duration) time.Duration { return 50 * time.Millisecond }
 	defer func() { agentBudgetClock = old }()
 	cancelled := false
-	out, err, db, instance := budgetRun(t, map[string]string{graphexec.BudgetAttribute: "15"}, func(runctx context.Context) (*agent.RunResult, error) {
+	out, db, instance, err := budgetRun(t, map[string]string{graphexec.BudgetAttribute: "15"}, func(runctx context.Context) (*agent.RunResult, error) {
 		select {
 		case <-runctx.Done():
 			cancelled = true
@@ -81,7 +81,7 @@ func TestAgentBudgetCancelsTheRunAndRecordsATimeout(t *testing.T) {
 func TestAgentBudgetDoesNotTouchARunThatFinishes(t *testing.T) {
 	for name, attrs := range map[string]map[string]string{"inside the budget": {graphexec.BudgetAttribute: "15"}, "no budget": nil} {
 		t.Run(name, func(t *testing.T) {
-			_, err, db, instance := budgetRun(t, attrs, func(context.Context) (*agent.RunResult, error) {
+			_, db, instance, err := budgetRun(t, attrs, func(context.Context) (*agent.RunResult, error) {
 				return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "exit status 1"}, errors.New("process failure")
 			})
 			if errors.Is(err, ErrAgentTimedOut) {
@@ -98,7 +98,7 @@ func TestAgentBudgetDoesNotTouchARunThatFinishes(t *testing.T) {
 
 // AC-004: a factory shutdown is not a timeout.
 func TestAgentBudgetShutdownIsNotATimeout(t *testing.T) {
-	_, err, db, instance := budgetRun(t, map[string]string{graphexec.BudgetAttribute: "15"}, func(context.Context) (*agent.RunResult, error) {
+	_, db, instance, err := budgetRun(t, map[string]string{graphexec.BudgetAttribute: "15"}, func(context.Context) (*agent.RunResult, error) {
 		return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "stopped"}, context.Canceled
 	})
 	if errors.Is(err, ErrAgentTimedOut) {

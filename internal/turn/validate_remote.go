@@ -185,7 +185,7 @@ func (r *validateRemote) issueContent(ctx context.Context, f ValidateFinding, ma
 	if f.Choice != nil && f.Choice.IssueKind != "" {
 		kind = f.Choice.IssueKind
 	}
-	titleText := graphDeliveryTitle(fmt.Sprintf("Validate follow-up (%s): %s %s", kind, f.Story, f.Name), 160)
+	titleText := graphDeliveryTitle(fmt.Sprintf("Validate follow-up (%s): %s %s", kind, f.Story, f.Name))
 	title, err := r.b.Delivery.Redactor.Apply(ctx, titleText, 256)
 	if err != nil {
 		return redact.Body{}, redact.Body{}, err
@@ -319,7 +319,7 @@ func (r *validateRemote) openPR(ctx context.Context, e store.ValidateEffect) err
 		return r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The pull requests could not be listed: "+err.Error())
 	}
 	if !found {
-		titleText := graphDeliveryTitle(fmt.Sprintf("Deliver issue #%d", r.target.Parent.Number), 160)
+		titleText := graphDeliveryTitle(fmt.Sprintf("Deliver issue #%d", r.target.Parent.Number))
 		title, err := r.b.Delivery.Redactor.Apply(ctx, titleText, 256)
 		if err != nil {
 			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, err.Error())
@@ -372,7 +372,7 @@ func (h ValidateMergeActivity) Execute(ctx context.Context, opts Options, req Ac
 		return done(map[string]any{"acted": false}, r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The pull request could not be read: "+err.Error()))
 	}
 	if current.Merged {
-		return mergeSettled(r, ctx, e, current, pr)
+		return mergeSettled(ctx, r, e, current, pr)
 	}
 	if head, ok, err := r.headMatches(ctx); err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
@@ -398,10 +398,10 @@ func (h ValidateMergeActivity) Execute(ctx context.Context, opts Options, req Ac
 	if !current.Merged {
 		return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectUncertain, map[string]any{}, fmt.Sprintf("Pull request #%d is not merged yet.", pr.Number)))
 	}
-	return mergeSettled(r, ctx, e, current, pr)
+	return mergeSettled(ctx, r, e, current, pr)
 }
 
-func mergeSettled(r *validateRemote, ctx context.Context, e store.ValidateEffect, current github.DeliveryPR, pr validateEffectResult) (ActivityResult, error) {
+func mergeSettled(ctx context.Context, r *validateRemote, e store.ValidateEffect, current github.DeliveryPR, pr validateEffectResult) (ActivityResult, error) {
 	if current.Head != "" && current.Head != pr.Head {
 		return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("Pull request #%d merged at %s, not the confirmed head %s.", pr.Number, short(current.Head), short(pr.Head))))
 	}

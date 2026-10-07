@@ -100,7 +100,7 @@ func openValidateWorktree(b ValidateFlowBindings) (*git.Worktree, string, error)
 
 // settleInterrupted closes a round that never reached its check: the worktree
 // goes back to the commit before the round and the round is recorded as used.
-func (h ValidateRepairBudgetActivity) settleInterrupted(ctx context.Context, opts Options, step validateStep, round store.RepairRound, worktree *git.Worktree, session string) error {
+func (h ValidateRepairBudgetActivity) settleInterrupted(ctx context.Context, opts Options, _ validateStep, round store.RepairRound, worktree *git.Worktree, session string) error {
 	if err := worktree.ResetHard(ctx, round.PreCommit, session); err != nil {
 		return fmt.Errorf("reset the interrupted repair round: %w", err)
 	}

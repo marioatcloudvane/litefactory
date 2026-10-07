@@ -169,7 +169,7 @@ func (h ValidateReviewActivity) result(outcome string, suite validateSuiteView, 
 // start takes a slot per reviewer, one by one, opens the scratch checkout once
 // and runs the reviewers that got a slot side by side. A reviewer without a slot
 // is left for the next dispatch.
-func (h ValidateReviewActivity) start(ctx context.Context, opts Options, req ActivityRequest, suite validateSuiteView, stories []ValidateStory, have map[string]store.ValidateReview, roles []string) error {
+func (h ValidateReviewActivity) start(ctx context.Context, opts Options, req ActivityRequest, suite validateSuiteView, stories []ValidateStory, _ map[string]store.ValidateReview, roles []string) error {
 	b := h.b
 	type slot struct {
 		role    string

@@ -41,7 +41,7 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
 	wait, err := opts.DB.GetGraphOwnerWait(ctx, req.InstanceID)
-	if errors.Is(err, store.ErrNotFound) || err == nil && !(wait.State == "allocated" && wait.ContinuationAttemptID == req.NodeAttemptID) {
+	if errors.Is(err, store.ErrNotFound) || err == nil && (wait.State != "allocated" || wait.ContinuationAttemptID != req.NodeAttemptID) {
 		// The first pass after the outcome, or a pass with no reply of its own.
 		return validateResolveResult("wait", "no owner reply", st)
 	}
@@ -170,7 +170,7 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 
 // accept clears the notice and returns the outcome with the revision the state
 // has after the records just written.
-func (h ValidateResolveActivity) accept(ctx context.Context, opts Options, req ActivityRequest, before ValidateState, now time.Time, outcome, what string) (ActivityResult, error) {
+func (h ValidateResolveActivity) accept(ctx context.Context, opts Options, req ActivityRequest, _ ValidateState, now time.Time, outcome, what string) (ActivityResult, error) {
 	after, err := LoadValidateState(ctx, opts, h.b.Profile, req.InstanceID)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err

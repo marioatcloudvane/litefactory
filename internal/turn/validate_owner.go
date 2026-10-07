@@ -288,11 +288,12 @@ func validateQuestionCandidate(st ValidateState, closeSet []int, notice string) 
 	}
 	commands := st.NextCommands(closeSet)
 	reason := "Nothing is pushed, merged or closed until you give the command for it. One confirmation never implies the next."
-	if len(commands) > 0 {
+	switch {
+	case len(commands) > 0:
 		reason = "Give one of these commands (each names the current revision, and any change makes it stale):\n\n- " + strings.Join(commands, "\n- ") + "\n\n" + reason
-	} else if !st.Ready {
+	case !st.Ready:
 		reason = "Nothing can be done from this comment. A blocking finding clears only on a new tested snapshot: hand it back to Implement and run Validate again.\n\n" + reason
-	} else {
+	default:
 		reason = "Delivery is complete or waiting on a step that retries by itself.\n\n" + reason
 	}
 	c := agentresult.Result{Outcome: "incomplete", Comment: comment.String(), Reason: reason, Payload: agentresult.Payload{Validate: &agentresult.Validate{}}}

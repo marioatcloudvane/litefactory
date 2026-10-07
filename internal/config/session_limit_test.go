@@ -123,7 +123,7 @@ func TestDefaultFileValidateAutoStart(t *testing.T) {
 			AutoStart *bool `yaml:"auto_start"`
 		} `yaml:"validate"`
 	}
-	if err := yaml.Unmarshal([]byte(DefaultFileContents()), &raw); err != nil {
+	if err := yaml.Unmarshal(DefaultFileContents(), &raw); err != nil {
 		t.Fatal(err)
 	}
 	if raw.Validate.AutoStart == nil || *raw.Validate.AutoStart || Defaults().ValidateMode.AutoStart {

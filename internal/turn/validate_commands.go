@@ -132,7 +132,7 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		c.PR, c.Head = n, args[1]
 	case ValidateCloseCommand:
 		if len(args) < 1 || len(args) > 64 {
-			return c, errors.New("use /validate-close <revision> <issue number>...")
+			return c, errors.New("use /validate-close <revision> followed by one or more issue numbers")
 		}
 		seen := map[int]bool{}
 		for _, a := range args {

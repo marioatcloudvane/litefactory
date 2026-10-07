@@ -206,7 +206,8 @@ func (h ValidateSuiteActivity) recover(ctx context.Context, opts Options) (strin
 		}
 		stopped, perr := probe(ctx, c.ProcessIdentity)
 		if perr != nil || !stopped {
-			return "an earlier suite run was interrupted and its test processes could not be confirmed stopped; no new suite was started", nil
+			// An unconfirmed stop is a refusal reason, not a fault of this step.
+			return "an earlier suite run was interrupted and its test processes could not be confirmed stopped; no new suite was started", nil //nolint:nilerr
 		}
 	}
 	if err := h.b.DB.InterruptSuiteRun(ctx, old.ID, h.now(opts)); err != nil {
