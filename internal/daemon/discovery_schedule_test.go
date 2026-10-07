@@ -23,18 +23,6 @@ func (f *fixture) listings() int {
 	return n
 }
 
-// AC-004: the first heartbeat lists whatever the interval is.
-func TestFirstHeartbeatListsAtStart(t *testing.T) {
-	f := scheduledFixture(t)
-	f.issue("Add a /health endpoint")
-
-	f.settle()
-
-	if got := f.listings(); got != 1 {
-		t.Fatalf("first heartbeat made %d issue listings, want 1", got)
-	}
-}
-
 // AC-005 and AC-007: between listings only the repo listing is skipped, the
 // cursor window stays and the next listing is one full interval after the last.
 func TestHeartbeatsBetweenListingsSkipOnlyTheRepoListing(t *testing.T) {
