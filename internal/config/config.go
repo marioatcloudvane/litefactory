@@ -47,6 +47,8 @@ import (
 // absent key and is rejected instead of silently replaced.
 type Config struct {
 	Settings Settings `yaml:"settings"`
+	// Validate holds the factory-wide Validate controls.
+	ValidateMode ValidateSettings `yaml:"validate"`
 	// Webhook is the optional local listener for GitHub webhook deliveries.
 	Webhook Webhook `yaml:"webhook"`
 
@@ -74,6 +76,13 @@ func (c *Config) DefaultAgent() (Kind, bool) {
 		return "", false
 	}
 	return c.agentOrder[0], true
+}
+
+// ValidateSettings groups the factory-wide Validate controls.
+type ValidateSettings struct {
+	// AutoStart lets the daemon start Validate by itself for each parent whose
+	// Implement finished. The zero value keeps the start manual (/validate).
+	AutoStart bool `yaml:"auto_start"`
 }
 
 // Providers groups source-control provider configuration. GitHub is the only
@@ -646,6 +655,9 @@ func Decode(r io.Reader) (*Config, error) {
 	if err := strictMCPAutoStart(data); err != nil {
 		return nil, err
 	}
+	if err := strictValidateAutoStart(data); err != nil {
+		return nil, err
+	}
 	if err := removedTeamKeysError(data); err != nil {
 		return nil, err
 	}
@@ -942,6 +954,31 @@ func strictMCPAutoStart(data []byte) error {
 		for j := 0; j+1 < len(settings.Content); j += 2 {
 			if (settings.Content[j].Value == "mcp_auto_start" || settings.Content[j].Value == "allow_mcp_story_creation") && settings.Content[j+1].Tag != "!!bool" {
 				return fmt.Errorf("settings.%s must be a boolean", settings.Content[j].Value)
+			}
+		}
+	}
+	return nil
+}
+
+// strictValidateAutoStart rejects every non-boolean scalar for validate.auto_start,
+// such as quoted strings, nulls and yes/no.
+func strictValidateAutoStart(data []byte) error {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "validate" || root.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		section := root.Content[i+1]
+		for j := 0; j+1 < len(section.Content); j += 2 {
+			if section.Content[j].Value == "auto_start" && section.Content[j+1].Tag != "!!bool" {
+				return errors.New("validate.auto_start must be a boolean")
 			}
 		}
 	}

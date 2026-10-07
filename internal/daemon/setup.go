@@ -436,6 +436,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	turnOpts.Bug = bugRuntime
+	// Automatic start is offered only when the Validate graph has its host
+	// bindings; the hand-off line must not promise a start that cannot happen.
+	turnOpts.ValidateAutoStart = s.Config.ValidateMode.AutoStart && turnOpts.Validate != nil
 	daemon, err := New(Options{
 		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
 		Bug:        bugRuntime,
@@ -451,9 +454,16 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			LogSink:          s.LogSink,
 		},
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
-		DB:                       s.DB,
-		Forge:                    client,
-		Filter:                   filter,
+		// An automatic start needs the Validate graph's host bindings; without
+		// them the turn would take the legacy path, which must never be started
+		// by itself.
+		ValidateAutoStart: s.Config.ValidateMode.AutoStart && turnOpts.Validate != nil,
+		ValidateHead: func(ctx context.Context, session store.Session) (string, error) {
+			return turn.IntegrationHead(ctx, turnOpts, session)
+		},
+		DB:     s.DB,
+		Forge:  client,
+		Filter: filter,
 		// Schedule proposals are a separate, tool-free advisory call. They
 		// deliberately do not travel through turn.Execute, so no run is
 		// allocated and no worktree is created before owner acceptance.
