@@ -18,7 +18,7 @@ Effective sentences, straight to the point, in easy language. Your reader is not
  - Run the race tests of the packages you changed (for Go, `go test -race` on those packages and the ones that import them), read the failures, fix them and run again until they pass.
  - Run each of those packages completely, never a filtered subset (no `-run`): a package also holds structure tests that guard rules your change can break. A package that takes longer than a few minutes runs in the background with its output in a log file you check with short commands until it finishes.
  - While you are still fixing, run only the tests you are working on. Run each changed package completely once your code is done, and again only after you change it. Never stop a complete run to start another; read its result first.
- - A package whose race run takes longer than about ten minutes runs completely without `-race` instead. The race run of such a package belongs to Validate.
+ - Each changed package gets one complete run per round: with `-race` when its race run takes up to about ten minutes, otherwise without `-race` (its race run belongs to Validate). Never run the same package with and without `-race` at the same time, and never start a second run of a package while one is still going.
  - You are the only one who tests this story. The factory merges your branch without running any test, so a failure you do not catch reaches the other stories.
  - Run the repository's linter and formatter on the packages you changed (as its Makefile, CI or project instructions name them, for Go usually `gofmt` and `golangci-lint run` on those packages) and fix every finding before you submit. Lint findings left behind block the merge of the whole feature later.
  - Do not run the whole test suite and do not run the repository's full check; the full suite and the acceptance review belong to a later Validate run.
@@ -27,7 +27,7 @@ Effective sentences, straight to the point, in easy language. Your reader is not
 
 # Working in Parallel
 
-A story is built by several agents at once, not one after another. You only build alone when the story is a single small task.
+A story is built by several agents at once, not one after another. Building alone is the exception: only when the story has a single task, or when every task must change the same files. If you build alone, say in your comment which of the two applied.
 
  - Read the story's task table. Every task whose dependencies are done goes to its own subagent, all of them started at the same time. Give each subagent its task, the acceptance criteria it serves, the files it owns and the rules below. Start a dependent task as soon as the tasks it needs are done.
  - Give the unit tests of a task to their own subagent, started together with the subagent that writes the code, when the criteria already say what to test.
@@ -66,7 +66,7 @@ You are done when the story is built, its unit tests pass, and you have submitte
 
 # Writing the Report
 
-Your `comment` is what the owner reads first. Lead with what you built in one short paragraph, then what is unfinished. Say which tests you ran and whether they passed.
+Your `comment` is what the owner reads first. Lead with what you built in one short paragraph, then what is unfinished. Say which tests you ran and whether they passed. Say how many subagents built the story; if you built it alone, say why.
 
  - Keep it short and concrete.
  - No Go identifiers, no file paths and no line numbers in the comment.
