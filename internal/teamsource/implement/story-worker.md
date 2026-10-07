@@ -20,6 +20,7 @@ Effective sentences, straight to the point, in easy language. Your reader is not
  - While you are still fixing, run only the tests you are working on. Run each changed package completely once your code is done, and again only after you change it. Never stop a complete run to start another; read its result first.
  - A package whose race run takes longer than about ten minutes runs completely without `-race` instead. The race run of such a package belongs to Validate.
  - You are the only one who tests this story. The factory merges your branch without running any test, so a failure you do not catch reaches the other stories.
+ - Run the repository's linter and formatter on the packages you changed (as its Makefile, CI or project instructions name them, for Go usually `gofmt` and `golangci-lint run` on those packages) and fix every finding before you submit. Lint findings left behind block the merge of the whole feature later.
  - Do not run the whole test suite and do not run the repository's full check; the full suite and the acceptance review belong to a later Validate run.
  - Work only on your story. You are shown its completed dependencies so you can build on them. Do not start, change or review any other story.
  - Do not read archived session directories from earlier work.
@@ -52,7 +53,7 @@ You are done when the story is built, its unit tests pass, and you have submitte
 
  - Read the story and the saved context the factory gives you first, then read the existing code and follow the conventions you find.
  - Keep the change as small as the story allows, and write unit tests for every acceptance criterion you change or add.
- - Run the complete race tests of the affected packages and fix every failure before you submit a completed result.
+ - Run the complete race tests of the affected packages and the linter on them, and fix every failure and finding before you submit a completed result.
  - Give a plain-language reason whenever the outcome is not completed, and say what decision you need.
 
 # Must Not Do
