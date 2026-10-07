@@ -56,6 +56,28 @@ func TestTeamSubprocessHelper(t *testing.T) {
 	}
 	source := os.Getenv("LF_TEST_TEAM_SOURCE")
 	switch mode {
+	case "clone-staged", "clone-published":
+		m.writeClone = func(name string, raw []byte) error {
+			if err := writeStagedFile(name, raw); err != nil {
+				return err
+			}
+			if mode == "clone-staged" && filepath.Base(name) == "receipt.json" {
+				ready()
+			}
+			return nil
+		}
+		m.rename = func(from, to string) error {
+			if err := os.Rename(from, to); err != nil {
+				return err
+			}
+			if mode == "clone-published" {
+				ready()
+			}
+			return nil
+		}
+		if _, err := m.Clone(t.Context(), source, "example", "1.0.0", "custom", "1.0.0"); err != nil {
+			t.Fatal(err)
+		}
 	case "inspect":
 		entry, err := m.Inspect(t.Context(), source, "example", "1.0.0")
 		if err != nil {
@@ -281,3 +303,65 @@ func TestRemoveFaultsAreHonest(t *testing.T) {
 }
 
 func hashBytes(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
+
+func TestCloneProcessLockAndInterruptedPublication(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"clone-staged", "clone-published"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			_, server := newFixture(t, "1.0.0")
+			p := config.NewPaths(canonicalTemp(t))
+			m := fixtureManager(t, p, server)
+			source := server.URL + "/teams/teams.json"
+			original := installFixture(t, m, source, "1.0.0")
+			before := snapshot(t, filepath.Dir(original.Path))
+			child, _ := startTeamChild(t, mode, p, server)
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			if removed, err := m.Remove(ctx, source, "example", "1.0.0"); removed || !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("locked remove %v %v", removed, err)
+			}
+			cancel()
+			ctx, cancel = context.WithTimeout(t.Context(), 100*time.Millisecond)
+			if _, err := m.Clone(ctx, source, "example", "1.0.0", "custom", "1.0.0"); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal(err)
+			}
+			cancel()
+			ctx, cancel = context.WithTimeout(t.Context(), 100*time.Millisecond)
+			if _, _, err := m.Install(ctx, source, "example", "1.0.0"); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatal(err)
+			}
+			cancel()
+			if err := child.Process.Kill(); err != nil {
+				t.Fatal(err)
+			}
+			if err := child.Wait(); err == nil {
+				t.Fatal("killed child succeeded")
+			}
+			entries, err := m.List(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := 1
+			if mode == "clone-published" {
+				want = 2
+			}
+			if len(entries) != want {
+				t.Fatalf("visible=%d want %d", len(entries), want)
+			}
+			for path, raw := range before {
+				if string(snapshot(t, filepath.Dir(original.Path))[path]) != string(raw) {
+					t.Fatal("source changed")
+				}
+			}
+			if mode == "clone-published" {
+				clone, err := m.Inspect(t.Context(), "local", "custom", "1.0.0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if clone.Origin.Checksum != original.Identity.Digest {
+					t.Fatal("incomplete origin")
+				}
+			}
+		})
+	}
+}
