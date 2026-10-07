@@ -96,6 +96,8 @@ type Providers struct {
 // Keeping these values in config, rather than introducing a settings service,
 // preserves the existing immutable configuration flow to runtime consumers.
 type Settings struct {
+	// TeamSource is an anonymous HTTPS catalogue; empty uses DefaultTeamSource.
+	TeamSource string `yaml:"team_source"`
 	// PollIntervalMinutes is the fallback discovery poll interval: how often
 	// the forge is listed when no webhook has asked for it sooner.
 	PollIntervalMinutes        int    `yaml:"poll_interval_minutes"`
@@ -449,6 +451,7 @@ func Defaults() Config {
 
 		Webhook: Webhook{Listen: DefaultWebhookListen},
 		Settings: Settings{
+			TeamSource:          DefaultTeamSource,
 			PollIntervalMinutes: DefaultPollIntervalMinutes,
 			MaxConcurrentRuns:   DefaultMaxConcurrentRuns,
 			DefaultBaseBranch:   "",
