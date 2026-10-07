@@ -38,6 +38,7 @@ type MCPRuntime struct {
 	CreationAuthorizer *CreationAuthorizer
 	Redactor           *redact.Redactor
 	BotID              int64
+	ImplementStatus    *ImplementStatusService
 	// BugChecksIsolation supplies the configured sandbox to shared Spike checks.
 	BugChecksIsolation bugchecks.Isolation
 	// DisableMCP disables native registration while retaining the shared final route.
@@ -329,7 +330,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	}
 	families := FamilyDispatcherOptions{Service: service, Receipts: receipts, Feedback: feedback, Evidence: evidence, WithoutEvidence: withoutEvidence}
 	now := runtime.Now()
-	activity, err := NewActivityService(ActivityOptions{Receipts: receipts, Now: now})
+	activity, err := NewActivityService(ActivityOptions{Receipts: receipts, Now: now, Status: runtime.ImplementStatus})
 	if err != nil {
 		return nil, nil, err
 	}

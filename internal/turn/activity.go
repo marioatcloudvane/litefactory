@@ -16,11 +16,13 @@ import (
 type ActivityOptions struct {
 	Receipts *ReceiptService
 	Now      time.Time
+	Status   ImplementStatusRefresher
 }
 
 // ActivityService routes Implement worker activity to durable storage and keeps
 // other activity process-local. Neither path owns workflow or completion state.
 type ActivityService struct {
+	status   ImplementStatusRefresher
 	receipts *ReceiptService
 	mu       sync.Mutex
 	state    agentresult.ProgressState
@@ -34,7 +36,7 @@ func NewActivityService(o ActivityOptions) (*ActivityService, error) {
 	if o.Receipts == nil || o.Now.IsZero() {
 		return nil, errors.New("activity requires bound receipts and factory time")
 	}
-	return &ActivityService{receipts: o.Receipts, now: o.Now}, nil
+	return &ActivityService{receipts: o.Receipts, now: o.Now, status: o.Status}, nil
 }
 
 // Binding returns the immutable attempt scope used by the family dispatcher.
@@ -133,6 +135,10 @@ func (s *ActivityService) HandleUpdate(ctx context.Context, requestID string, ar
 		result, err := s.receipts.db.RecordImplementProgress(ctx, s.Binding(), requestID, update.Sequence, kind, update.Message)
 		if err != nil {
 			return nil, err
+		}
+		if result.Disposition == "accepted" && s.status != nil {
+			// Progress refresh only enqueues work and never changes the tool response.
+			_ = s.status.RefreshImplementStatus(ctx, result.Report.Parent, result.Report.Generation, ImplementStatusProgress)
 		}
 		view, err := s.durableView(ctx)
 		if err != nil {
