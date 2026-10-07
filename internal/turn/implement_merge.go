@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -126,6 +128,21 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 	if !merged {
 		// Already part of the integration branch: nothing to check or push.
 		return finish(scratch.Head(), false)
+	}
+
+	const migrationPath = "internal/store/migrations"
+	_, inspectErr := os.Lstat(filepath.Join(scratch.Path(), migrationPath))
+	if inspectErr == nil {
+		inspectErr = store.ValidateMigrationFS(os.DirFS(scratch.Path()), migrationPath)
+	} else if errors.Is(inspectErr, os.ErrNotExist) {
+		// Repositories without the store migration directory need no check.
+		inspectErr = nil
+	}
+	if errors.Is(inspectErr, store.ErrDuplicateMigrationVersion) {
+		return park("migration conflict: " + inspectErr.Error() + "; rename only this story's new, unapplied migration and recheck against current integration")
+	}
+	if inspectErr != nil {
+		return ActivityResult{}, fmt.Errorf("inspect migrations for story %s: %w", story.Key, inspectErr)
 	}
 
 	err = scratch.Publish(ctx, a.IntegrationBranch, scratch.Head())

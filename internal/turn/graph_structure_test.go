@@ -68,10 +68,19 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 						implementEntry = ok && name.Name == "implementRuntime"
 					}
 				}
+				// Validate enters the shared driver from its runtime's execute, with
+				// the Validate policy and the host's bindings.
+				validateEntry := false
+				if filepath.Clean(path) == filepath.Join("..", "turn", "validate_admission.go") && fn.Name.Name == "execute" && fn.Recv != nil && len(fn.Recv.List) == 1 {
+					if pointer, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
+						name, ok := pointer.X.(*ast.Ident)
+						validateEntry = ok && name.Name == "validateRuntimeState"
+					}
+				}
 				shared, sharedEntry := sharedEntries[fn.Name.Name]
 				sharedEntry = sharedEntry && filepath.Clean(path) == filepath.Join("..", "turn", shared.file)
 				researchFile := filepath.Clean(path) == filepath.Join("..", "turn", "research_workflow.go")
-				if !bugParentEntry && !implementEntry && ((!planEntry && !sharedEntry && !researchFile) || fn.Recv != nil) {
+				if !bugParentEntry && !implementEntry && !validateEntry && ((!planEntry && !sharedEntry && !researchFile) || fn.Recv != nil) {
 					continue
 				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -86,7 +95,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 					if !ok {
 						return true
 					}
-					sharedDispatch := (sharedEntry || planEntry || implementEntry) && id.Name == "ExecuteWorkflow"
+					sharedDispatch := (sharedEntry || planEntry || implementEntry || validateEntry) && id.Name == "ExecuteWorkflow"
 					if owners[id.Name] != fn.Name.Name && !sharedDispatch && (!bugParentEntry || id.Name != "ExecuteNodeAction") {
 						return true
 					}
@@ -94,7 +103,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 					calls[id.Name]++
 					if planEntry {
 						assertPlanDispatchPolicy(t, positions, fn, call)
-					} else if id.Name == "ExecuteWorkflow" && !implementEntry {
+					} else if id.Name == "ExecuteWorkflow" && !implementEntry && !validateEntry {
 						if len(call.Args) == 0 {
 							t.Errorf("%s: shared workflow lacks Research policy", positions.Position(call.Pos()))
 							return true
@@ -131,7 +140,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 	for name, owner := range owners {
 		want := 3
 		if name == "ExecuteWorkflow" {
-			want = 4 // Research, Spike, Plan and Implement
+			want = 5 // Research, Spike, Plan, Implement and Validate
 		}
 		if name == "ExecuteNodeAction" {
 			want = 2

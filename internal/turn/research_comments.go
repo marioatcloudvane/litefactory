@@ -191,7 +191,7 @@ func (r *Reporter) ReportWorkflowCandidate(ctx context.Context, source store.Gra
 	// The Implement coordinator runs no agent, so its source attempt has no run;
 	// the question it publishes is identified by the attempt alone.
 	var run store.Run
-	if source.RunID != 0 || policy.Mode != agent.ModeImplement {
+	if source.RunID != 0 || (policy.Mode != agent.ModeImplement && policy.Mode != agent.ModeValidate) {
 		if run, err = r.db.GetRun(ctx, source.RunID); err != nil {
 			return Posted{}, "", err
 		}
