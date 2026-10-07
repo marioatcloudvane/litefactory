@@ -41,6 +41,8 @@ webhook:
   public_url: %q
 
 settings:
+  # Anonymous HTTPS catalogue for machine-level team installation.
+  team_source: %q
   # Daemon scheduling, repository defaults, worktree placement and logging.
   # Fallback poll for discovery, in minutes. GitHub webhooks are recommended;
   # use a short poll only for setups without them.
@@ -137,6 +139,7 @@ tool_profiles:
 		d.ValidateMode.AutoStart,
 		d.Webhook.Listen,
 		d.Webhook.PublicURL,
+		d.Settings.TeamSource,
 		d.Settings.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,
