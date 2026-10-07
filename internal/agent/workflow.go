@@ -73,9 +73,3 @@ func ResolveWorkflow(w Workflow, m Mode) (Workflow, error) {
 	}
 	return w, nil
 }
-
-// ParseWorkflow accepts an exact canonical execution identity.
-func ParseWorkflow(value string) (Workflow, bool) {
-	w := Workflow(value)
-	return w, w.Valid()
-}

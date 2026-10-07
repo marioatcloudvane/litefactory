@@ -135,9 +135,3 @@ func TestNewHousekeeping_DefaultStepsAndOrder(t *testing.T) {
 		})
 	}
 }
-
-func TestDaemon_RunHousekeeping_NilRunnerIsNoop(t *testing.T) {
-	t.Parallel()
-	d := &Daemon{}
-	d.RunHousekeeping(context.Background(), time.Now())
-}

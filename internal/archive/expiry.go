@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"time"
 )
 
@@ -18,19 +17,8 @@ const (
 	DateSourceMtime  = "mtime"
 )
 
-// ReadHeader decodes only the first record of the archive at path, without
-// reading the rest of the file or verifying the trailer.
-func ReadHeader(path string) (Header, error) {
-	//nolint:gosec // G304: the path is built by the factory under its archive root, never from user input.
-	f, err := os.Open(path)
-	if err != nil {
-		return Header{}, fmt.Errorf("archive: open: %w", err)
-	}
-	defer f.Close()
-	return ReadHeaderFrom(f)
-}
-
-// ReadHeaderFrom is [ReadHeader] for an already opened gzip stream.
+// ReadHeaderFrom decodes only the first record of an already opened gzip
+// stream, without reading the rest of the file or verifying the trailer.
 func ReadHeaderFrom(r io.Reader) (Header, error) {
 	var h Header
 	gz, err := gzip.NewReader(r)

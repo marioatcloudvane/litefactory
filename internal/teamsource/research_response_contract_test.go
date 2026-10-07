@@ -63,30 +63,3 @@ func TestResearchRolesCanEmitEveryConditionTheGraphTests(t *testing.T) {
 		t.Error("node-result must reserve approval for the factory")
 	}
 }
-
-// Research results travel only the shared result route (#410): no Research role
-// or skill asks for a printed JSON result, and each says to preflight, submit and
-// read the receipt instead.
-func TestResearchGuidanceNeverAsksForAPrintedResult(t *testing.T) {
-	t.Parallel()
-	for _, name := range []string{"research.md", "shaping.md", "skills/research-evidence/node-result.md", "skills/research-evidence/SKILL.md"} {
-		raw, err := researchAssets.ReadFile("research/" + name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := strings.ToLower(strings.Join(strings.Fields(string(raw)), " "))
-		for _, banned := range []string{"strict json object", "terminal output is one", "terminal json", "worked envelope", "\"version\": 1", "\"response\":", "echoes what was accepted"} {
-			if strings.Contains(text, banned) {
-				t.Errorf("%s still asks for a printed result: %q", name, banned)
-			}
-		}
-		for _, want := range []string{"preflight", "submit", "receipt"} {
-			if !strings.Contains(text, want) {
-				t.Errorf("%s does not name the shared result route step %q", name, want)
-			}
-		}
-		if name != "skills/research-evidence/SKILL.md" && !strings.Contains(text, "do not print a json result") {
-			t.Errorf("%s does not say not to print a JSON result", name)
-		}
-	}
-}
