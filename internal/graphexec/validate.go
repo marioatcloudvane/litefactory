@@ -124,6 +124,7 @@ func validateNode(node Node, mode agent.Workflow, registry Registry) []error {
 	if node.Limit < 0 || (node.Attrs["lf_limit"] != "" && node.Limit == 0) {
 		faults = append(faults, fmt.Errorf("node %q lf_limit must be positive when supplied", node.Name))
 	}
+	faults = append(faults, validateRightsTag(node, mode)...)
 	if err := validateInvokeAttrs(node.Attrs); err != nil {
 		faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
 	}
@@ -203,4 +204,27 @@ func walk(roots []string, edges map[string][]string) map[string]bool {
 		pending = append(pending, edges[node]...)
 	}
 	return seen
+}
+
+// RightsAttribute tags a human wait node whose listed actions can be delegated
+// as managed repository rights.
+const RightsAttribute = "lf_rights"
+
+// RightsActions is the closed vocabulary of delegable human actions.
+var RightsActions = []string{"answer", "request_changes", "approve"}
+
+// validateRightsTag accepts lf_rights only on lf_ask nodes, only with closed
+// values, and never in the Implement graph, which stays owner-only.
+func validateRightsTag(node Node, mode agent.Workflow) []error {
+	value, present := node.Attrs[RightsAttribute]
+	if !present {
+		return nil
+	}
+	if mode == agent.WorkflowImplement {
+		return []error{fmt.Errorf("node %q: %s is not allowed in the Implement graph", node.Name, RightsAttribute)}
+	}
+	if node.Terminal || node.Action != "lf_ask" {
+		return []error{fmt.Errorf("node %q: %s is allowed only on lf_ask nodes", node.Name, RightsAttribute)}
+	}
+	return validateListAttribute(node.Name, RightsAttribute, value, RightsActions)
 }
