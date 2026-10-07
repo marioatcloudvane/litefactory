@@ -168,7 +168,7 @@ func (h GraphBugFinalization) presentation(ctx context.Context, b GraphDeliveryB
 	summary = regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b`).ReplaceAllString(summary, "address")
 	// Shorten before redaction: an over-budget title would get the redactor's
 	// multi-line truncation notice, which GitHub titles cannot carry.
-	title, e := h.Redactor.Apply(ctx, graphDeliveryTitle("Bug repair: "+strings.Split(summary, "\n")[0], 160), 256)
+	title, e := h.Redactor.Apply(ctx, graphDeliveryTitle("Bug repair: "+strings.Split(summary, "\n")[0]), 256)
 	if e != nil {
 		return redact.Body{}, redact.Body{}, e
 	}
@@ -177,7 +177,8 @@ func (h GraphBugFinalization) presentation(ctx context.Context, b GraphDeliveryB
 }
 
 // graphDeliveryTitle cuts a one-line title at a word boundary within limit bytes.
-func graphDeliveryTitle(s string, limit int) string {
+func graphDeliveryTitle(s string) string {
+	const limit = 160
 	s = strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(s))
 	if len(s) <= limit {
 		return s

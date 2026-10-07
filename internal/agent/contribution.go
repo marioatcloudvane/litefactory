@@ -101,8 +101,12 @@ type ContributionScope struct {
 	ContractVersion int
 	WorkflowVersion int
 	Stage           string
-	Stories         map[string]ContributionStory
-	ValidatePlan    func(json.RawMessage) ContributionDiagnostics
+	// ReviewRole narrows the required assessment coverage for one Validate
+	// reviewer: "acceptance" covers every criterion plus the plan review, "code"
+	// and "architecture" cover only their own review. Empty requires everything.
+	ReviewRole   string
+	Stories      map[string]ContributionStory
+	ValidatePlan func(json.RawMessage) ContributionDiagnostics
 }
 
 // ContributionStory is the authorized frozen source and retained evidence inventory.
@@ -211,7 +215,7 @@ func ParseContribution(data []byte, scope ContributionScope) (Contribution, Cont
 			d.add("$.story", "authorization", "authorized frozen story selector", "unknown selector", "Select a story supplied in the frozen scope.")
 		} else {
 			story = scopeWithCapture(root, root.stringField("story"), story, &d)
-			validateStoryContribution(root, stage, outcome, root.stringField("story"), story, &d)
+			validateStoryContribution(root, stage, scope.ReviewRole, outcome, root.stringField("story"), story, &d)
 		}
 	}
 	d.finish()
@@ -260,7 +264,7 @@ func validatePlanContribution(root *contributionNode, outcome string, scope Cont
 	}
 }
 
-func validateStoryContribution(root *contributionNode, stage, outcome, key string, s ContributionStory, d *ContributionDiagnostics) {
+func validateStoryContribution(root *contributionNode, stage, reviewRole, outcome, key string, s ContributionStory, d *ContributionDiagnostics) {
 	if outcome == "blocked" || outcome == "invalidated" {
 		reason := root.stringField("reason")
 		if strings.TrimSpace(reason) == "" || len(reason) > 4096 {
@@ -292,8 +296,15 @@ func validateStoryContribution(root *contributionNode, stage, outcome, key strin
 					}
 				}
 			}
-			validateContributionFindings(a.Criteria, s.Criteria, true, key, s, "$.assessment.criteria", d)
-			validateContributionFindings(a.Reviews, []string{"code", "architecture", "plan"}, false, key, s, "$.assessment.reviews", d)
+			criteriaNames, reviewNames := s.Criteria, []string{"code", "architecture", "plan"}
+			if names, ok := ReviewRoleCoverage(reviewRole); ok {
+				criteriaNames, reviewNames = nil, names
+				if reviewRole == ReviewRoleAcceptance {
+					criteriaNames = s.Criteria
+				}
+			}
+			validateContributionFindings(a.Criteria, criteriaNames, true, key, s, "$.assessment.criteria", d)
+			validateContributionFindings(a.Reviews, reviewNames, false, key, s, "$.assessment.reviews", d)
 			if stage == "legacy" {
 				for _, group := range [][]ContributionFinding{a.Criteria, a.Reviews} {
 					for _, f := range group {
@@ -372,4 +383,28 @@ func validateContributionFindings(findings []ContributionFinding, names []string
 			d.add(path, "coverage", "finding for "+name, "missing", "Cover every frozen criterion and required review.")
 		}
 	}
+}
+
+// The three Validate reviewer roles.
+const (
+	ReviewRoleAcceptance   = "acceptance"
+	ReviewRoleCode         = "code"
+	ReviewRoleArchitecture = "architecture"
+)
+
+// ReviewRoles lists the reviewer roles in their fixed order.
+var ReviewRoles = []string{ReviewRoleAcceptance, ReviewRoleCode, ReviewRoleArchitecture}
+
+// ReviewRoleCoverage returns the named reviews a reviewer role must cover. The
+// acceptance role also covers every criterion. ok is false for an unknown role.
+func ReviewRoleCoverage(role string) (reviews []string, ok bool) {
+	switch role {
+	case ReviewRoleAcceptance:
+		return []string{"plan"}, true
+	case ReviewRoleCode:
+		return []string{"code"}, true
+	case ReviewRoleArchitecture:
+		return []string{"architecture"}, true
+	}
+	return nil, false
 }

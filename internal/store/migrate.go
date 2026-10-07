@@ -23,7 +23,7 @@ var migrationFS embed.FS
 // migrationDir is the directory inside migrationFS holding the .sql files.
 const migrationDir = "migrations"
 
-// migration is one embedded .sql file. Version comes from the NNNN_ filename
+// migration is one embedded .sql file. Version comes from the numeric filename
 // prefix and orders the sequence.
 type migration struct {
 	version int
@@ -148,9 +148,24 @@ func (db *DB) applyMigration(ctx context.Context, m migration) error {
 // a programming error in this package and fails loudly rather than being
 // skipped.
 func loadMigrations() ([]migration, error) {
-	entries, err := fs.ReadDir(migrationFS, migrationDir)
+	return loadMigrationsFS(migrationFS, migrationDir)
+}
+
+// ErrDuplicateMigrationVersion identifies migration filenames sharing a version.
+var ErrDuplicateMigrationVersion = errors.New("duplicate migration version")
+
+// ValidateMigrationFS checks a migration directory using the runtime loader's
+// filename, duplicate-version and readability checks. Missing directories are
+// errors; callers decide whether their repository requires migrations.
+func ValidateMigrationFS(fsys fs.FS, dir string) error {
+	_, err := loadMigrationsFS(fsys, dir)
+	return err
+}
+
+func loadMigrationsFS(fsys fs.FS, dir string) ([]migration, error) {
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
-		return nil, fmt.Errorf("store: read embedded migrations: %w", err)
+		return nil, fmt.Errorf("store: read migrations: %w", err)
 	}
 
 	migrations := make([]migration, 0, len(entries))
@@ -164,18 +179,18 @@ func loadMigrations() ([]migration, error) {
 			return nil, err
 		}
 		if previous, dup := seen[version]; dup {
-			return nil, fmt.Errorf("store: migrations %s and %s share version %d", previous, entry.Name(), version)
+			return nil, fmt.Errorf("store: migrations %s and %s share version %d: %w", previous, entry.Name(), version, ErrDuplicateMigrationVersion)
 		}
 		seen[version] = entry.Name()
 
-		body, err := migrationFS.ReadFile(path.Join(migrationDir, entry.Name()))
+		body, err := fs.ReadFile(fsys, path.Join(dir, entry.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("store: read migration %s: %w", entry.Name(), err)
 		}
 		migrations = append(migrations, migration{version: version, name: name, sql: string(body)})
 	}
 	if len(migrations) == 0 {
-		return nil, errors.New("store: no embedded migrations found")
+		return nil, errors.New("store: no migrations found")
 	}
 	sort.Slice(migrations, func(i, j int) bool { return migrations[i].version < migrations[j].version })
 	return migrations, nil
