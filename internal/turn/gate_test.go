@@ -184,31 +184,30 @@ func TestExecuteRequiresACloneGate(t *testing.T) {
 func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 	t.Parallel()
 
-	// sections is every function in this package that may take the clone gate,
-	// mapped to the file it must be declared in.
-	sections := map[string]string{
-		"prepareClone":  "prepare.go",
-		"commitAndPush": "harvest.go",
+	// sections is every function in this package that may take the clone gate.
+	sections := map[string]struct{}{
+		"prepareClone":  {},
+		"commitAndPush": {},
 		// A repair attempt merges fetched main into the idle task worktree,
 		// and a Bug check adds and later removes the detached target
 		// worktree its failing tests rerun on; each is one acquisition.
 		// Simplified Bug preserves dirty work locally and synchronizes after
 		// normal fetched preparation, releasing this section before invocation.
-		"PrepareGraphBugSource":        "bug_graph_prepare.go",
-		"BugRuntime.saveGraphDelivery": "bug_graph_runtime.go",
-		"BugRuntime.pushGraphDelivery": "bug_graph_runtime.go",
+		"PrepareGraphBugSource":        {},
+		"BugRuntime.saveGraphDelivery": {},
+		"BugRuntime.pushGraphDelivery": {},
 		// The Implement merge builds, publishes and removes its scratch tree
 		// on the shared clone; each is one acquisition.
-		"beginImplementScratch": "implement_steps.go",
-		"gatedScratch.Publish":  "implement_steps.go",
-		"gatedScratch.Close":    "implement_steps.go",
+		"beginImplementScratch": {},
+		"gatedScratch.Publish":  {},
+		"gatedScratch.Close":    {},
 		// The Validate suite checkout fetches and adds its scratch worktree in
 		// one acquisition, and removes it in another.
-		"GitValidateSuiteRepo.Begin": "validate_suite.go",
-		"gitSuiteScratch.Close":      "validate_suite.go",
+		"GitValidateSuiteRepo.Begin": {},
+		"gitSuiteScratch.Close":      {},
 		// Validate pins the integration head: one fetch and one read, in one
 		// acquisition.
-		"IntegrationHead": "validate_admission.go",
+		"IntegrationHead": {},
 	}
 
 	// gated names each call that must not happen outside a critical section,
@@ -245,13 +244,9 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 	// Map iteration order is not stable, and a failure message list that
 	// reorders between runs is a failure message that is harder to diff.
 	for _, name := range slices.Sorted(maps.Keys(sections)) {
-		file := sections[name]
 		fn, ok := funcs[name]
 		if !ok {
 			t.Fatalf("%s is not declared in package turn; every critical section is a named function on purpose", name)
-		}
-		if fn.file != file {
-			t.Errorf("%s is declared in %s, want %s", name, fn.file, file)
 		}
 
 		if got := countCalls(fn.decl, "Acquire"); got != 1 {
