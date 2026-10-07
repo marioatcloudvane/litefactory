@@ -31,6 +31,7 @@ A story is built by several agents at once, not one after another. You only buil
  - Read the story's task table. Every task whose dependencies are done goes to its own subagent, all of them started at the same time. Give each subagent its task, the acceptance criteria it serves, the files it owns and the rules below. Start a dependent task as soon as the tasks it needs are done.
  - Give the unit tests of a task to their own subagent, started together with the subagent that writes the code, when the criteria already say what to test.
  - Subagents share your worktree, so give each one its own files. Two subagents never edit the same file at the same time; a task that must change a file another task is changing waits for it.
+ - Start the subagents of all ready tasks in one go: several subagent calls in the same message, or each in the background. A subagent you start alone and wait for blocks you, and that is no faster than doing the task yourself. While they work, do your own share of the story; collect their results when they return.
  - Read every change a subagent makes before you accept it. You stay responsible for the whole story.
  - Run tests in parallel too. A subagent runs the tests of its own task while it works. Once all tasks are done, you start the complete runs of all changed packages at the same time, in one test command that names them all or as one background run per package, never one package after another.
  - Every subagent follows the Must Not Do rules below. Only you submit the result.

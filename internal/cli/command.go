@@ -37,6 +37,8 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/rights"
 )
 
 // Handler runs a command. args holds the positional arguments, validated
@@ -88,6 +90,12 @@ type Env struct {
 	// test seam for webhook secret storage. Nil uses /usr/bin/security, which
 	// receives the value on stdin, never in its arguments.
 	KeychainWrite func(ctx context.Context, service, account, value string) error
+	// LookupUser resolves a GitHub login to its account for the rights commands
+	// and is their test seam. Nil asks the GitHub API with the bot credential.
+	LookupUser func(ctx context.Context, login string) (github.User, error)
+	// RightsCatalogue is the rights commands' catalogue source and their test
+	// seam. Nil uses the built-in source, the swap point for #317.
+	RightsCatalogue rights.Source
 	// Now is the clock `daemon status` measures "in 42m" against. Nil means
 	// time.Now.
 	Now func() time.Time

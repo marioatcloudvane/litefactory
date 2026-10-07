@@ -68,6 +68,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"AddCommentReaction", // POST …/issues/comments/{id}/reactions
 		"AddIssueLabel",      // POST …/issues/{n}/labels
 		"AddSubIssue",        // POST /repos/{o}/{r}/issues/{n}/sub_issues
+		"UserByLogin",        // GET  /users/{login}, numeric ID for rights grants
 		"AuthenticatedUser",  // GET  /user
 		"CreateIssue",        // POST /repos/{o}/{r}/issues
 		"EditComment",        // PATCH /repos/{o}/{r}/issues/comments/{id}, body of a comment litefactory posted

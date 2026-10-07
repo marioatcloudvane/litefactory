@@ -2138,6 +2138,10 @@ func (d *Daemon) run(
 	if workflow == agent.WorkflowBug && d.bug == nil {
 		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable)
 	}
+	// A story issue without its own agent label takes its parent's.
+	if err := d.inheritParentAgent(ctx, t); err != nil {
+		return d.leave(ctx, t, log, "could not give the story its parent's agent", err)
+	}
 	// Resolve the agent-selection label before checking for an obsolete
 	// permission label and before anything is locked, fetched, or written.
 	agentChoice := d.resolveAgent(t.issue.Labels)
