@@ -218,29 +218,6 @@ func TestAITeamBranchDirRefusesWhatItCannotName(t *testing.T) {
 	}
 }
 
-// TestResearchBriefPath is the artefact the run report links to. It is the
-// session directory plus one file name, and it must stay a relative path with
-// no leading slash — a caller joins it onto a forge URL.
-func TestResearchBriefPath(t *testing.T) {
-	t.Parallel()
-
-	got, err := ResearchBriefPath("lf/123-add-a-widget", day, "add-a-widget")
-	if err != nil {
-		t.Fatalf("ResearchBriefPath: %v", err)
-	}
-	want := ".aiteam/lf-123-add-a-widget/2026-08-26/add-a-widget/RESEARCH_BRIEF.md"
-	if got != want {
-		t.Errorf("ResearchBriefPath = %q, want %q", got, want)
-	}
-	if strings.HasPrefix(got, "/") {
-		t.Errorf("ResearchBriefPath = %q, which is absolute", got)
-	}
-
-	if _, err := ResearchBriefPath("lf/123-add-a-widget", time.Time{}, "add-a-widget"); !errors.Is(err, ErrInvalidPath) {
-		t.Errorf("ResearchBriefPath with no date: error = %v, want ErrInvalidPath", err)
-	}
-}
-
 // TestSlugFromBranchInvertsBranch is the property that matters: whatever
 // [Branch] builds, [SlugFromBranch] takes apart again. Holding the two together
 // is what lets a caller carry only the branch and still know the slug, with no

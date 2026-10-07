@@ -2,8 +2,13 @@ package store
 
 import (
 	"database/sql"
+	"errors"
+	"io/fs"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // applyMigrationsThrough migrates db up to and including version, using the
@@ -413,4 +418,95 @@ func historicalRun(t *testing.T, db *DB, sessionID, triggerID int64, mode string
 		t.Fatalf("seed historical run: %v", err)
 	}
 	return run
+}
+
+func TestValidateMigrationFS(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		files     fstest.MapFS
+		want      string
+		duplicate bool
+	}{
+		{name: "mixed", files: fstest.MapFS{"0001_old.sql": {Data: []byte("SELECT 1;")}, "20261007130500123_new.sql": {Data: []byte("SELECT 2;")}}},
+		{name: "duplicate", files: fstest.MapFS{"20261007130500123_one.sql": {}, "20261007130500123_two.sql": {}}, want: "20261007130500123_one.sql and 20261007130500123_two.sql share version 20261007130500123", duplicate: true},
+		{name: "numeric identity", files: fstest.MapFS{"0001_one.sql": {}, "1_two.sql": {}}, want: "share version 1", duplicate: true},
+		{name: "parse", files: fstest.MapFS{"bad.sql": {}}, want: "does not match"},
+		{name: "empty", files: fstest.MapFS{}, want: "no migrations"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateMigrationFS(tc.files, ".")
+			if tc.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, want %s", err, tc.want)
+			}
+			if errors.Is(err, ErrDuplicateMigrationVersion) != tc.duplicate {
+				t.Fatalf("duplicate classification: %v", err)
+			}
+		})
+	}
+	if strconv.IntSize != 64 {
+		t.Fatal("timestamp migrations require the supported 64-bit target")
+	}
+	if _, _, err := parseMigrationName("99991231235959999_last.sql"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateMigrationFS(fstest.MapFS{}, "missing"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing: %v", err)
+	}
+	if err := ValidateMigrationFS(unreadableMigrationFS{}, "."); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("read: %v", err)
+	}
+}
+
+type unreadableMigrationFS struct{}
+
+func (unreadableMigrationFS) Open(string) (fs.File, error) { return nil, fs.ErrPermission }
+
+func TestTimestampMigrationsApplyIndependentAndLateVersions(t *testing.T) {
+	t.Parallel()
+	files := fstest.MapFS{
+		"0001_legacy.sql":           {Data: []byte("CREATE TABLE legacy (id INTEGER);")},
+		"20261007130500123_one.sql": {Data: []byte("CREATE TABLE one (id INTEGER);")},
+		"20261007130500124_two.sql": {Data: []byte("CREATE TABLE two (id INTEGER);")},
+	}
+	migrations, err := loadMigrationsFS(files, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prior := range []string{"empty", "legacy", "higher timestamp"} {
+		t.Run(prior, func(t *testing.T) {
+			db, err := Open(t.Context(), filepath.Join(t.TempDir(), "db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+			switch prior {
+			case "legacy":
+				err = db.migrateAll(t.Context(), migrations[:1])
+			case "higher timestamp":
+				err = db.migrateAll(t.Context(), []migration{migrations[0], migrations[2]})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				if err := db.migrateAll(t.Context(), migrations); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, m := range migrations {
+				var count int
+				if err := db.sql.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", m.version).Scan(&count); err != nil || count != 1 {
+					t.Fatalf("version %d count %d: %v", m.version, count, err)
+				}
+				if len(tableColumns(t, db, m.name)) != 1 {
+					t.Fatalf("missing effect for %s", m.name)
+				}
+			}
+		})
+	}
 }

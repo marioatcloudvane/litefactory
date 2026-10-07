@@ -14,7 +14,7 @@ import (
 // SessionNamespaceName is the name, in the RFC 4122 DNS namespace, that
 // litefactory's own UUID namespace is derived from. Deriving the namespace
 // instead of writing down a made-up constant means the value in
-// [SessionNamespace] can be recomputed and audited from this one string.
+// sessionNamespace can be recomputed and audited from this one string.
 const SessionNamespaceName = "litefactory"
 
 // uuid is a raw RFC 4122 UUID. This package formats and derives UUIDs but
@@ -90,11 +90,6 @@ func SessionRef(ref Ref, segmentOrdinal int) (string, error) {
 // — which therefore cannot assume it arrived straight from the function above,
 // and checks the same post-condition [SessionRef] asserts on the way out.
 func ValidClaudeSessionID(s string) bool { return uuidPattern.MatchString(s) }
-
-// SessionNamespace returns litefactory's UUID namespace in canonical form. It
-// exists so the constant can be shown in diagnostics and pinned by tests
-// without exporting the uuid type.
-func SessionNamespace() string { return sessionNamespace.String() }
 
 // uuidV5 implements RFC 4122 §4.3: SHA-1 over the namespace bytes followed by
 // the name, with the version and variant fields overwritten in place.

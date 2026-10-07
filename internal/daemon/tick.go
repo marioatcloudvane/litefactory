@@ -572,6 +572,9 @@ func (d *Daemon) discover(
 	if err := d.graphImplementStories(ctx, byRepo, seen, now); err != nil {
 		return nil, err
 	}
+	if err := d.graphValidateStarts(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
 	if err := d.managedParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -1429,6 +1432,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 			d.stopped(ctx, t, "could not run the Implement work of this task", err)
 			return
 		}
+		if err := d.startValidateAuto(ctx, t); err != nil {
+			d.stopped(ctx, t, "could not start Validate for this task", err)
+			return
+		}
 		// The clean-drain clear site, deliberately a statement on the success path
 		// rather than a defer: a defer would fire on the error returns above too,
 		// which is exactly the stale-false the protocol forbids.
@@ -1623,7 +1630,7 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		log.DebugContext(ctx, "the issue body has nothing to act on; nothing runs")
 		return nil
 	}
-	if !command.Spawns() || command.Kind == turn.KindPlanControl {
+	if !command.Spawns() || command.Kind == turn.KindPlanControl || command.Kind == turn.KindValidateControl {
 		// /plan, /frobnicate, a bare /spike: nothing runs, and — unlike the
 		// same command in a comment — nothing is posted either (AC-2.16c). A
 		// reply would be litefactory answering a question nobody asked it, on
@@ -1927,6 +1934,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.handlePlanControl(ctx, t, c, command, log)
 	}
 
+	if command.Kind == turn.KindValidateControl {
+		return d.handleValidateControl(ctx, t, c, command, log)
+	}
+
 	if !command.Spawns() {
 		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, it is not a command that starts a run")
 		return d.reply(ctx, t, c, command, log)
@@ -1952,6 +1963,30 @@ func (d *Daemon) handlePlanControl(
 		return d.leave(ctx, t, log, "could not read the Plan route for "+command.Name, err)
 	}
 	if route != "graph" {
+		return d.reply(ctx, t, c, turn.Command{Kind: turn.KindUnknown, Name: command.Name, Tagged: command.Tagged}, log)
+	}
+	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	return d.run(ctx, t, trigger, command, log)
+}
+
+// handleValidateControl delivers a Validate owner command (a manual check, a
+// finding choice, push, merge or close) to the session's Validate graph. The
+// resolve step authenticates and parses the exact comment body against the
+// published owner wait and the current report revision. A session with no
+// Validate graph has no such controls, so the comment is answered as an unknown
+// command, as it was before.
+func (d *Daemon) handleValidateControl(
+	ctx context.Context,
+	t *task,
+	c github.Comment,
+	command turn.Command,
+	log *slog.Logger,
+) error {
+	graph, err := d.db.HasWorkflowGraphSession(ctx, t.session.ID, string(agent.ModeValidate))
+	if err != nil {
+		return d.leave(ctx, t, log, "could not read the Validate route for "+command.Name, err)
+	}
+	if !graph {
 		return d.reply(ctx, t, c, turn.Command{Kind: turn.KindUnknown, Name: command.Name, Tagged: command.Tagged}, log)
 	}
 	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
@@ -2201,7 +2236,7 @@ func (d *Daemon) run(
 
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
-	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeImplement || workflow == agent.WorkflowBug) && t.continuation == nil {
+	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeImplement || mode == agent.ModeValidate || workflow == agent.WorkflowBug) && t.continuation == nil {
 		if err := d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
 			// A comment written before the open question was published can
 			// never answer it. Refuse it once, visibly; the reply path consumes

@@ -267,7 +267,7 @@ func setupGraphPlanFixture(t *testing.T, runner agent.Runner, seedStory bool) (*
 	client, err := github.New(github.Options{APIBase: server.URL + "/", Token: secrets.NewToken("fixture"), HTTPClient: server.Client()})
 	mustProgress(t, err)
 	f.opts.SubIssueCreator = client
-	// New sessions default to legacy Plan; these tests exercise the graph route.
+	// New sessions are admitted to graph Plan on first launch; pin it up front.
 	_, err = f.db.AdmitPlanWorkflowPath(t.Context(), f.session.ID, "graph")
 	mustProgress(t, err)
 	base.Mode = agent.ModePlan

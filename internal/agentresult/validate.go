@@ -188,7 +188,7 @@ func contribution(c agent.Contribution, ctx Context, p string, d *Diagnostics) {
 		add(d, p, "encoding", "serializable contribution", "invalid", "Correct the contribution.")
 		return
 	}
-	_, cd := agent.ParseContribution(b, agent.ContributionScope{ContractVersion: agent.SubmissionContractVersion, WorkflowVersion: ctx.WorkflowVersion, Stage: c.Stage, Stories: ctx.Stories})
+	_, cd := agent.ParseContribution(b, agent.ContributionScope{ContractVersion: agent.SubmissionContractVersion, WorkflowVersion: ctx.WorkflowVersion, Stage: c.Stage, ReviewRole: ctx.ReviewRole, Stories: ctx.Stories})
 	mergeDiagnostics(d, cd, p)
 }
 func validateImplement(p *Implement, outcome string, ctx Context, d *Diagnostics) {
@@ -230,6 +230,10 @@ func validateImplement(p *Implement, outcome string, ctx Context, d *Diagnostics
 	}
 }
 func validateAssessments(p *Validate, outcome string, ctx Context, d *Diagnostics) {
+	if p.Repair != nil || ctx.RepairRole {
+		validateRepairReport(p, outcome, ctx, d)
+		return
+	}
 	seen := map[string]bool{}
 	for i, s := range p.Stories {
 		sp := fmt.Sprintf("$.result.payload.validate.stories[%d]", i)
@@ -424,5 +428,67 @@ func validateSpikeFixReport(f *SpikeFixReport, outcome string, ctx Context, d *D
 			add(d, p, "duplicate", "unique entry", "duplicate entry", "List each kind once.")
 		}
 		kinds[v] = true
+	}
+}
+
+// validateRepairReport checks the repair role's report. It carries no
+// assessment: a repair agent never judges acceptance.
+func validateRepairReport(p *Validate, outcome string, ctx Context, d *Diagnostics) {
+	const base = "$.result.payload.validate.repair"
+	if !ctx.RepairRole {
+		add(d, base, "forbidden", "no repair report outside the repair role", "present repair report", "Only the repair node reports a repair.")
+		return
+	}
+	if len(p.Stories) != 0 {
+		add(d, "$.result.payload.validate.stories", "forbidden", "no assessments from the repair role", "present stories", "Report the repair only; reviewers assess.")
+	}
+	r := p.Repair
+	if r == nil {
+		add(d, base, "required", "a repair report", "absent", "Report repaired, handback or blocked with the failures you handled.")
+		return
+	}
+	if !slices.Contains(RepairResponses, r.Response) {
+		add(d, base+".response", "enum", strings.Join(RepairResponses, ", "), "unsupported response", "Use a documented repair response.")
+		return
+	}
+	if outcome == "completed" && r.Response == RepairResponseBlocked {
+		add(d, base+".response", "consistency", "an unfinished outcome for a blocked repair", "completed", "Report a blocked repair as incomplete or blocked.")
+	}
+	if r.Response == RepairResponseBlocked {
+		required(d, base+".reason", r.Reason)
+	}
+	if r.Response != RepairResponseBlocked && len(r.Failures) == 0 {
+		add(d, base+".failures", "required", "at least one failure", "empty list", "Report every failure you handled or handed back.")
+	}
+	for i, f := range r.Failures {
+		fp := fmt.Sprintf("%s.failures[%d]", base, i)
+		required(d, fp+".command", f.Command)
+		required(d, fp+".observed", f.Observed)
+		required(d, fp+".cause", f.Cause)
+		for j, l := range f.Locations {
+			if !ValidPath(l.Path) || l.Line < 0 {
+				add(d, fmt.Sprintf("%s.locations[%d]", fp, j), "reference", "relative path and nonnegative line", "invalid location", "Supply a rooted source location.")
+			}
+		}
+		switch r.Response {
+		case RepairResponseRepaired:
+			required(d, fp+".fixed", f.Fixed)
+			if len(f.FilesChanged) == 0 {
+				add(d, fp+".files_changed", "required", "at least one changed file", "empty list", "List every file you changed for this failure.")
+			}
+			for j, v := range f.FilesChanged {
+				if !ValidPath(v) {
+					add(d, fmt.Sprintf("%s.files_changed[%d]", fp, j), "path", "rooted relative path syntax", "unsafe path", "Use a clean relative path within the repository.")
+				}
+			}
+			for j, v := range f.ChangeKinds {
+				if !slices.Contains(SpikeFixChangeKinds, v) {
+					add(d, fmt.Sprintf("%s.change_kinds[%d]", fp, j), "enum", strings.Join(SpikeFixChangeKinds, ", "), "unsupported change kind", "Name only the documented risky kinds of change, or none.")
+				}
+			}
+		case RepairResponseHandback:
+			required(d, fp+".expected", f.Expected)
+			required(d, fp+".objective", f.Objective)
+		}
 	}
 }

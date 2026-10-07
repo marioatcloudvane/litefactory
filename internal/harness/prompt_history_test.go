@@ -347,7 +347,7 @@ func TestResumedPromptCarriesNoHistory(t *testing.T) {
 
 // A cold run on a task with no recorded thread is the prompt litefactory sent
 // before there was a history block at all — no empty note, no paragraph
-// promising one. The exact bytes are pinned by TestSpikePromptIsUnchanged.
+// promising one.
 func TestColdPromptWithoutHistoryIsUnaffected(t *testing.T) {
 	for _, name := range []string{"nil history", "empty history"} {
 		t.Run(name, func(t *testing.T) {

@@ -96,6 +96,12 @@ type Options struct {
 	spikeRunCommand func(ctx context.Context, worktree string, command config.BugCheckCommand) bugchecks.CommandResult
 	// MCP is the optional startup-owned automatic tool runtime.
 	MCP *MCPRuntime
+	// ValidateAutoStart is the loaded validate.auto_start setting. It only changes
+	// the next-step line of Implement's hand-off report.
+	ValidateAutoStart bool
+	// Validate supplies the Validate graph's host bindings. Without it, Validate
+	// keeps its legacy single-run path.
+	Validate *ValidateRuntime
 	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
 	// False disables automatic recovery without affecting manual schedules.
 	AutoResumeOnSessionLimit bool
@@ -697,6 +703,9 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		return graphResult, graphErr
 	}
 	if graphResult, handled, graphErr := admitImplementExecution(ctx, opts, req, result); handled {
+		return graphResult, graphErr
+	}
+	if graphResult, handled, graphErr := admitValidateExecution(ctx, opts, req, result); handled {
 		return graphResult, graphErr
 	}
 
