@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -70,7 +71,7 @@ type GraphOwnerReply struct {
 // It neither starts a process nor consumes the claim: allocation does that in the
 // same transaction as StartGraphNodeAttempt. Replayed events are refused.
 func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out GraphOwnerWait, err error) {
-	if in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || in.QuestionCommentID < 1 || (strings.TrimSpace(in.Mode) == "" && in.Workflow != "bug") || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
+	if in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || (in.QuestionCommentID < 1 && in.Workflow != "bug") || (strings.TrimSpace(in.Mode) == "" && in.Workflow != "bug") || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
 		return out, graphInvariant("invalid authenticated graph reply")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
@@ -87,7 +88,7 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 		var task, mode, workflow, status, node string
 		var question int64
 		var completed bool
-		e = tx.QueryRowContext(ctx, `SELECT s.task_ref,CASE WHEN d.workflow='bug' THEN '' ELSE d.mode END,COALESCE(NULLIF(d.workflow,''),d.mode),i.status,COALESCE(w.origin_node,a.node),r.comment_id,r.completed FROM graph_instances i JOIN sessions s ON s.id=i.session_id JOIN graph_definitions d ON d.id=i.definition_id JOIN graph_owner_waits w ON w.instance_id=i.id AND w.delivery_key=? LEFT JOIN graph_node_attempts a ON a.id=w.source_attempt_id JOIN report_deliveries r ON r.delivery_key=w.delivery_key WHERE i.id=?`, wait.DeliveryKey, in.InstanceID).Scan(&task, &mode, &workflow, &status, &node, &question, &completed)
+		e = tx.QueryRowContext(ctx, `SELECT s.task_ref,CASE WHEN d.workflow='bug' THEN '' ELSE d.mode END,COALESCE(NULLIF(d.workflow,''),d.mode),i.status,COALESCE(w.origin_node,a.node),COALESCE(r.comment_id,0),COALESCE(r.completed,0) FROM graph_instances i JOIN sessions s ON s.id=i.session_id JOIN graph_definitions d ON d.id=i.definition_id JOIN graph_owner_waits w ON w.instance_id=i.id AND w.delivery_key=? LEFT JOIN graph_node_attempts a ON a.id=w.source_attempt_id LEFT JOIN report_deliveries r ON r.delivery_key=w.delivery_key WHERE i.id=?`, wait.DeliveryKey, in.InstanceID).Scan(&task, &mode, &workflow, &status, &node, &question, &completed)
 		if e != nil {
 			return e
 		}
@@ -95,7 +96,11 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 		if replyWorkflow == "" {
 			replyWorkflow = in.Mode
 		}
-		if task != in.TaskRef || mode != in.Mode || workflow != replyWorkflow || status != GraphRunning || !completed || question != in.QuestionCommentID {
+		ownerStop, e := validateOwnerStopReplyTx(ctx, tx, wait, in)
+		if e != nil {
+			return e
+		}
+		if task != in.TaskRef || mode != in.Mode || workflow != replyWorkflow || status != GraphRunning || (!ownerStop && (!completed || question < 1 || question != in.QuestionCommentID)) {
 			return graphInvariant("reply does not match published active graph question")
 		}
 		var running int
@@ -108,7 +113,7 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 		// The wait is open and its question is published and completed, but this
 		// comment is not newer than that question: it was written before the
 		// question existed and can never answer it.
-		if in.CommentID <= question {
+		if !ownerStop && in.CommentID <= question {
 			return ErrGraphReplyPredatesQuestion
 		}
 		_, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=? WHERE delivery_key=?`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), in.DeliveryKey)
@@ -149,4 +154,78 @@ func graphReplyAllocationTx(ctx context.Context, tx *sql.Tx, in GraphAttemptStar
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='allocated',continuation_attempt_id=? WHERE delivery_key=?`, attemptID, wait.DeliveryKey)
 	return err
+}
+
+// validateOwnerStopReplyTx recognizes only retained factory stop data bound to
+// this attempt's settled run. Ordinary graph questions keep publication checks.
+func validateOwnerStopReplyTx(ctx context.Context, tx *sql.Tx, wait GraphOwnerWait, in GraphOwnerReply) (bool, error) {
+	if in.Workflow != "bug" || wait.SourceAttemptID == 0 {
+		return false, nil
+	}
+	var raw []byte
+	if err := tx.QueryRowContext(ctx, `SELECT candidate FROM graph_comment_intents WHERE delivery_key=? AND instance_id=? AND source_attempt_id=?`, wait.DeliveryKey, wait.InstanceID, wait.SourceAttemptID).Scan(&raw); err != nil {
+		return false, err
+	}
+	var candidate struct {
+		OwnerStop *OwnerStop `json:"owner_stop"`
+	}
+	if err := json.Unmarshal(raw, &candidate); err != nil {
+		return false, err
+	}
+	if candidate.OwnerStop == nil {
+		return false, nil
+	}
+	var runID int64
+	if err := tx.QueryRowContext(ctx, `SELECT run_id FROM graph_node_attempts WHERE id=? AND instance_id=? AND node=? AND status<>'running'`, wait.SourceAttemptID, wait.InstanceID, wait.OriginNode).Scan(&runID); err != nil {
+		return false, err
+	}
+	run, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE id=?`, runID))
+	if err != nil {
+		return false, err
+	}
+	stop, ok := run.OwnerStop()
+	if !ok || stop != *candidate.OwnerStop || run.FinishedAt.IsZero() {
+		return false, graphInvariant("owner stop source has not settled")
+	}
+	var created string
+	var author int64
+	var body, classification string
+	if err := tx.QueryRowContext(ctx, `SELECT created_at,author_user_id,body,classification FROM comments WHERE session_id=? AND forge_comment_id=?`, run.SessionID, in.CommentID).Scan(&created, &author, &body, &classification); err != nil {
+		return false, err
+	}
+	at, err := ParseTime(created)
+	if err != nil {
+		return false, err
+	}
+	if author != in.OwnerID || body != in.Body || classification != string(ClassificationInstruction) {
+		return false, graphInvariant("owner stop reply source mismatch")
+	}
+	if stop.CommandID == 0 && !at.After(stop.At) {
+		return false, ErrGraphReplyPredatesQuestion
+	}
+	if stop.CommandID != 0 {
+		var commentID int64
+		var task, state string
+		if err := tx.QueryRowContext(ctx, `SELECT comment_id,task_ref,state FROM doctor_inbox WHERE id=? AND operation='stop'`, stop.CommandID).Scan(&commentID, &task, &state); err != nil {
+			return false, err
+		}
+		if in.CommentID <= commentID {
+			return false, ErrGraphReplyPredatesQuestion
+		}
+		if task != in.TaskRef || state != "completed" {
+			return false, graphInvariant("owner stop command has not completed")
+		}
+		var total, pending int
+		var lastDelivery int64
+		if err := tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(CASE WHEN completed=0 OR comment_id IS NULL THEN 1 ELSE 0 END),0),COALESCE(max(comment_id),0) FROM report_deliveries WHERE doctor_command_id=?`, stop.CommandID).Scan(&total, &pending, &lastDelivery); err != nil {
+			return false, err
+		}
+		if total == 0 || pending != 0 {
+			return false, graphInvariant("owner stop acknowledgment remains owed")
+		}
+		if in.CommentID <= commentID || in.CommentID <= lastDelivery {
+			return false, ErrGraphReplyPredatesQuestion
+		}
+	}
+	return true, nil
 }

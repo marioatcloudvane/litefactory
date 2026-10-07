@@ -61,9 +61,18 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 				return store.WorkflowAdmission{}, bugReplyNotApplied(e)
 			}
 			delivery, e := r.opts.DB.GetReportDelivery(ctx, wait.DeliveryKey)
-			if e != nil {
+			if errors.Is(e, store.ErrNotFound) {
+				intent, readErr := r.opts.DB.GetGraphComment(ctx, wait.DeliveryKey)
+				var question GraphStopQuestion
+				if readErr != nil || json.Unmarshal(intent.Candidate, &question) != nil || question.OwnerStop == nil {
+					return store.WorkflowAdmission{}, e
+				}
+			} else if e != nil {
 				return store.WorkflowAdmission{}, e
 			}
+			// The store validates the owner stop's retained run and real reply source
+			// inside the claim. Ordinary questions still require their report journal.
+
 			session, e := r.opts.DB.GetSession(ctx, req.SessionID)
 			if e != nil {
 				return store.WorkflowAdmission{}, e

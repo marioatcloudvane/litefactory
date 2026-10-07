@@ -548,6 +548,22 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 	if err := rep.validate(); err != nil {
 		return Posted{}, err
 	}
+	if rep.RunID != 0 {
+		run, err := r.db.GetRun(ctx, rep.RunID)
+		if err != nil {
+			return Posted{}, err
+		}
+		if _, stopped := run.OwnerStop(); stopped {
+			if posted, pending, err := r.ReportPending(ctx, rep.SessionID, rep.CommentID); pending || err != nil {
+				return posted, err
+			}
+			var err error
+			if rep.CommentID != 0 {
+				_, err = r.Consume(ctx, rep.SessionID, rep.CommentID)
+			}
+			return Posted{Skipped: true, Run: run}, err
+		}
+	}
 
 	ref := rep.Run.Ref
 	destination, refinement, err := r.refinementDestination(ctx, rep.SessionID, rep.CommentID, ref)

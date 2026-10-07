@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -155,6 +156,19 @@ func (db *DB) AdmitDoctorCommand(ctx context.Context, c DoctorCommand) (DoctorCo
 		}
 
 		if c.Operation == "stop" && state != "stopped" {
+			stop, err := requestOwnerStopTx(ctx, tx, c.TaskRef, out.ID)
+			if err != nil {
+				return err
+			}
+			raw, err := json.Marshal(stop)
+			if err != nil {
+				return err
+			}
+			out.ResultBody = string(raw)
+			if _, err := tx.ExecContext(ctx, `UPDATE doctor_inbox SET result_body=? WHERE id=?`, out.ResultBody, out.ID); err != nil {
+				return err
+			}
+
 			if _, err := tx.ExecContext(ctx, `UPDATE doctor_inbox SET state='stopped' WHERE task_ref=? AND id<? AND state IN ('queued','claimed')`, c.TaskRef, out.ID); err != nil {
 				return err
 			}

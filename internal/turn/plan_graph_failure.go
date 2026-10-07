@@ -228,6 +228,16 @@ func (w *researchWorkflow) reportStepFailure(ctx context.Context, step GraphNode
 // comment instead of ending silently. Other dispatch errors keep their graph
 // routing. The result always carries the original cause.
 func (w *researchWorkflow) failed(ctx context.Context, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), step GraphNodeResult, cause error, dispatched bool) error {
+	if w.prep != nil {
+		run, err := w.opts.DB.GetRun(context.WithoutCancel(ctx), w.prep.run.ID)
+		if err != nil {
+			return errors.Join(cause, err)
+		}
+		if _, stopped := run.OwnerStop(); stopped {
+			return cause
+		}
+	}
+
 	if w.policy.Mode == agent.ModePlan && w.definition != nil {
 		if node, ok := w.definition.Profile.Node(step.Node); ok && (node.Action == "lf_comment" || node.Action == "lf_ask") {
 			// The retained reply is the recovery debt. A second failure notice
@@ -338,6 +348,9 @@ func (r *planGraphRuntime) stepCause(ctx context.Context, source store.GraphNode
 // here if the run's own attempt never managed it; an error keeps the owner's
 // comment unhandled. A comment already delivered is never posted again.
 func ensurePlanFailureReported(ctx context.Context, opts Options, req Request, run store.Run) error {
+	if _, stopped := run.OwnerStop(); stopped {
+		return nil
+	}
 	reported, err := opts.DB.GraphFailureReported(ctx, run.ID, PlanFailureNode)
 	if err != nil || reported {
 		return err

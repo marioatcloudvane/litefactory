@@ -79,12 +79,26 @@ func runDoctor(ctx context.Context, env *Env, operation string, args []string) (
 	}
 
 	if operation == "stop" {
-		if err := service.Stop(ctx, ref); err != nil {
+		stop, err := service.StopIssue(ctx, ref)
+		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintln(env.Stdout, "Doctor conversation stopped; history retained. Ordinary workflow continues.")
+		if stop.RunID != 0 {
+			run, err := db.GetRun(ctx, stop.RunID)
+			if err != nil {
+				return err
+			}
+			if run.Status == store.RunRunning {
+				_, err = fmt.Fprintf(env.Stdout, "Stop requested for workflow run %d; cancellation and saving are pending daemon settlement. Doctor conversation stopped: %t. No issue comment will be posted.\n", stop.RunID, stop.Conversation)
+				return err
+			}
+			_, err = fmt.Fprintln(env.Stdout, doctor.StopSummary(stop)+" "+doctor.StopRunSummary(run))
+			return err
+		}
+		_, err = fmt.Fprintln(env.Stdout, doctor.StopSummary(stop))
 		return err
 	}
+
 	var result doctor.Conversation
 	if operation == "status" {
 		result, err = service.ReadConversation(ctx, ref)
