@@ -19,6 +19,22 @@ const (
 	ValidateOutcomeAction      = "lf_validate_outcome"
 )
 
+// The owner side of the Validate graph. After the outcome the run resolves the
+// owner's reply, reports and waits; every remote effect is its own step and is
+// reached only from the owner's command.
+const (
+	ValidateResolveAction = "lf_validate_resolve"
+	ValidateReportAction  = "lf_validate_report"
+	ValidateAskAction     = "lf_validate_ask"
+	ValidateIssueAction   = "lf_validate_issue"
+	ValidatePushAction    = "lf_validate_push"
+	ValidateMergeAction   = "lf_validate_merge"
+	ValidateCloseAction   = "lf_validate_close"
+)
+
+// ValidateResolveOutcomes are the outcomes of resolving the owner's reply.
+var ValidateResolveOutcomes = []string{"wait", "create_issue", "push", "merge", "close", "stale"}
+
 // ValidateMaxRepairRounds is the most repair rounds any Validate graph may
 // declare. The graph declares the bound it uses, at or below this.
 const ValidateMaxRepairRounds = 2
@@ -75,9 +91,50 @@ func ValidateOutcomeSpec() ActionSpec {
 	return ActionSpec{Name: ValidateOutcomeAction, Mode: agent.ModeValidate, Outcomes: slices.Clone(ValidateEnds)}
 }
 
+// ValidateResolveSpec declares the step that applies the owner's reply. It has
+// no remote effect: it records a verdict or a choice, or the owner's
+// confirmation, and says which step follows.
+func ValidateResolveSpec() ActionSpec {
+	return ActionSpec{Name: ValidateResolveAction, Mode: agent.ModeValidate, Outcomes: slices.Clone(ValidateResolveOutcomes), Attributes: map[string]AttributeSpec{}}
+}
+
+// ValidateReportSpec declares the step that keeps the one report comment current.
+func ValidateReportSpec() ActionSpec {
+	return ActionSpec{Name: ValidateReportAction, Mode: agent.ModeValidate, Outcomes: []string{"done"}}
+}
+
+// ValidateAskSpec declares the step that publishes the owner wait. Its lf_source
+// names the node an owner reply resumes the run at.
+func ValidateAskSpec() ActionSpec {
+	return ActionSpec{Name: ValidateAskAction, Mode: agent.ModeValidate, Outcomes: []string{"published"}}
+}
+
+// ValidateIssueSpec declares the step that creates or recovers a follow-up issue.
+func ValidateIssueSpec() ActionSpec {
+	return ActionSpec{Name: ValidateIssueAction, Mode: agent.ModeValidate, Outcomes: []string{"done"}}
+}
+
+// ValidatePushSpec declares the step that pushes the tested commit and finds or
+// creates the pull request.
+func ValidatePushSpec() ActionSpec {
+	return ActionSpec{Name: ValidatePushAction, Mode: agent.ModeValidate, Outcomes: []string{"done"}}
+}
+
+// ValidateMergeSpec declares the step that merges the pull request at its head.
+func ValidateMergeSpec() ActionSpec {
+	return ActionSpec{Name: ValidateMergeAction, Mode: agent.ModeValidate, Outcomes: []string{"done"}}
+}
+
+// ValidateCloseSpec declares the step that closes the accepted issues: closed
+// when every one is closed, open when something is still open.
+func ValidateCloseSpec() ActionSpec {
+	return ActionSpec{Name: ValidateCloseAction, Mode: agent.ModeValidate, Outcomes: []string{"closed", "open"}}
+}
+
 // ValidateSpecs lists every action of the Validate graph, the agent aside.
 func ValidateSpecs() []ActionSpec {
-	return []ActionSpec{ValidateSuiteSpec(), ValidateRepairBudgetSpec(), ValidateRepairCheckSpec(), ValidateReviewSpec(), ValidateOutcomeSpec()}
+	return []ActionSpec{ValidateSuiteSpec(), ValidateRepairBudgetSpec(), ValidateRepairCheckSpec(), ValidateReviewSpec(), ValidateOutcomeSpec(),
+		ValidateResolveSpec(), ValidateReportSpec(), ValidateAskSpec(), ValidateIssueSpec(), ValidatePushSpec(), ValidateMergeSpec(), ValidateCloseSpec()}
 }
 
 // ValidateFlowGraph checks the structure a Validate graph declares. It pins few
@@ -127,9 +184,20 @@ func ValidateFlowGraph(p *Profile) error {
 			c.review(n)
 		case ValidateOutcomeAction:
 			c.outcome(n)
+		case ValidateResolveAction:
+			c.resolve(n)
+		case ValidateReportAction:
+			c.edge(n, "done", action(ValidateAskAction), "must reach the owner wait")
+		case ValidateAskAction:
+			c.ask(n)
+		case ValidateIssueAction, ValidatePushAction, ValidateMergeAction:
+			c.edge(n, "done", action(ValidateReportAction), "must report")
+		case ValidateCloseAction:
+			c.closeStep(n)
 		}
 	}
-	for _, action := range []string{"lf_agent", ValidateSuiteAction, ValidateRepairBudgetAction, ValidateRepairCheckAction, ValidateReviewAction, ValidateOutcomeAction} {
+	for _, action := range []string{"lf_agent", ValidateSuiteAction, ValidateRepairBudgetAction, ValidateRepairCheckAction, ValidateReviewAction, ValidateOutcomeAction,
+		ValidateResolveAction, ValidateReportAction, ValidateAskAction, ValidateIssueAction, ValidatePushAction, ValidateMergeAction, ValidateCloseAction} {
 		if counts[action] != 1 {
 			c.fail("validate graph requires exactly one %s node, has %d", action, counts[action])
 		}
@@ -226,6 +294,29 @@ func (c *flowCheck) review(n Node) {
 func (c *flowCheck) outcome(n Node) {
 	c.named(n, "lf_suite", ValidateSuiteAction)
 	for _, end := range ValidateEnds {
-		c.edge(n, end, func(t Node) bool { return t.Terminal && t.Name == end }, "must end at the terminal of the same name")
+		c.edge(n, end, action(ValidateResolveAction), "must reach the owner resolution")
 	}
+}
+
+// resolve checks that each remote effect is reached only through its own step
+// from the resolution, and that a waiting or stale reply reports again.
+func (c *flowCheck) resolve(n Node) {
+	c.named(n, "lf_suite", ValidateSuiteAction)
+	c.edge(n, "wait", action(ValidateReportAction), "must report")
+	c.edge(n, "stale", action(ValidateReportAction), "must report")
+	c.edge(n, "create_issue", action(ValidateIssueAction), "must create the issue")
+	c.edge(n, "push", action(ValidatePushAction), "must push")
+	c.edge(n, "merge", action(ValidateMergeAction), "must merge")
+	c.edge(n, "close", action(ValidateCloseAction), "must close")
+}
+
+func (c *flowCheck) ask(n Node) {
+	c.named(n, "lf_source", ValidateResolveAction)
+	c.edge(n, "published", func(t Node) bool { return t.Terminal }, "must rest at a terminal")
+}
+
+// closeStep checks that the run succeeds only through the close step.
+func (c *flowCheck) closeStep(n Node) {
+	c.edge(n, "closed", func(t Node) bool { return t.Terminal }, "must end at a terminal")
+	c.edge(n, "open", action(ValidateReportAction), "must report")
 }

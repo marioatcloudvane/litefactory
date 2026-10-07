@@ -53,8 +53,17 @@ func TestValidateGraphRefusesAWeakenedFlow(t *testing.T) {
 			return strings.Replace(s, `repair_check  -> review        [lf_on="handback"]`, `repair_check  -> outcome       [lf_on="handback"]`, 1)
 		}, "must go to review"},
 		"an end that is not its terminal": {func(s string) string {
-			return strings.Replace(s, `outcome -> handed_back [lf_on="handed_back"]`, `outcome -> assessed    [lf_on="handed_back"]`, 1)
-		}, "terminal of the same name"},
+			return strings.Replace(s, `outcome -> owner_resolve [lf_on="handed_back"]`, `outcome -> owner_report [lf_on="handed_back"]`, 1)
+		}, "must reach the owner resolution"},
+		"a push that skips its step": {func(s string) string {
+			return strings.Replace(s, `owner_resolve -> owner_push         [lf_on="push"]`, `owner_resolve -> owner_report       [lf_on="push"]`, 1)
+		}, "must push"},
+		"a close that ends without closing": {func(s string) string {
+			return strings.Replace(s, `owner_close -> owner_report       [lf_on="open"]`, `owner_close -> delivered    [lf_on="open"]`, 1)
+		}, "must report"},
+		"an unclosed run that succeeds": {func(s string) string {
+			return strings.Replace(s, `owner_merge -> owner_report       [lf_on="done"]`, `owner_merge -> delivered    [lf_on="done"]`, 1)
+		}, "must report"},
 		"a second agent": {func(s string) string {
 			return strings.Replace(s, ` // ---- Review the final`, ` extra [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="validate-code", lf_limit="1"];`+"\n // ---- Review the final", 1)
 		}, ""},

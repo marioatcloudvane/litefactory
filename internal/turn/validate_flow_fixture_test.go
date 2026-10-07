@@ -141,6 +141,7 @@ type flowFixture struct {
 	slots     *flowSlots
 	reviewers *flowReviewers
 	stories   []ValidateStory
+	delivery  ValidateDelivery
 	b         ValidateFlowBindings
 }
 
@@ -269,6 +270,7 @@ func (f *flowFixture) register() {
 		Repo:      f.suiteRepo,
 		Reviewers: f.reviewers,
 		Slots:     f.slots,
+		Delivery:  f.delivery,
 		Now:       func() time.Time { return f.clock },
 	}
 	if err := RegisterValidateFlow(&specs, &f.registry, f.b); err != nil {
@@ -339,8 +341,9 @@ func (f *flowFixture) step() (GraphNodeResult, error) {
 	return ExecuteNodeAction(f.t.Context(), f.opts, GraphNodeRequest{Profile: f.profile, Activities: f.registry, InstanceID: f.instance.ID, RunID: 0, At: f.clock})
 }
 
-// runToEnd runs steps until the instance leaves its running state and returns
-// the nodes it visited, in order.
+// runToEnd runs steps until the part of the graph before the owner's turn is
+// over (the instance reaches the resolve step, or leaves its running state) and
+// returns the nodes it visited, in order.
 func (f *flowFixture) runToEnd() []string {
 	f.t.Helper()
 	var visited []string
@@ -349,7 +352,7 @@ func (f *flowFixture) runToEnd() []string {
 		if err != nil {
 			f.t.Fatal(err)
 		}
-		if inst.Status != store.GraphRunning {
+		if inst.Status != store.GraphRunning || inst.CurrentNode == "owner_resolve" {
 			return visited
 		}
 		visited = append(visited, inst.CurrentNode)
@@ -366,6 +369,18 @@ func (f *flowFixture) final() string {
 	inst, err := f.db.GetGraphInstance(f.t.Context(), f.instance.ID)
 	if err != nil {
 		f.t.Fatal(err)
+	}
+	if inst.CurrentNode == "owner_resolve" {
+		// The end Validate's own part reached is the outcome step's answer.
+		attempts, err := f.db.ListGraphNodeAttempts(f.t.Context(), f.instance.ID)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		for i := len(attempts) - 1; i >= 0; i-- {
+			if attempts[i].Node == "outcome" {
+				return attempts[i].Outcome
+			}
+		}
 	}
 	return inst.CurrentNode
 }
