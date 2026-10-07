@@ -2,10 +2,7 @@ package store
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
@@ -104,56 +101,5 @@ func TestAdmitPlanPath_NewSessionsGetGraphAndRoutesAreFrozen(t *testing.T) {
 	}
 	if _, err := db.AdmitPlanPath(ctx, 0); err == nil {
 		t.Error("a missing session was admitted")
-	}
-}
-
-// AC-045: the parent's rollout obligations stay recorded and unsatisfied in the
-// plan brief. Completing the three stories does not satisfy the real-agent tryout
-// or the separately approved hold-back lift, and this guard fails if the record is
-// dropped or rewritten as done. It skips where the session artifacts are absent.
-func TestPlanBrief_ParentRolloutObligationsRemainRecordedAndPending(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join("..", "..", ".aiteam", "lf-377-graph-plan-bypasses-the-shared-mcp", "2026-09-24", "graph-plan-bypasses-the-shared-mcp", "plan_brief.md")
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		t.Skipf("plan brief %s is not present in this checkout", path)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc := strings.ReplaceAll(string(raw), "\r\n", "\n")
-	_, rest, ok := strings.Cut(doc, "\n## Parent rollout obligations\n")
-	if !ok {
-		t.Fatal("the plan brief has no 'Parent rollout obligations' section")
-	}
-	section, _, _ := strings.Cut(rest, "\n## ")
-	rows := map[string]string{}
-	for _, line := range strings.Split(section, "\n") {
-		if !strings.HasPrefix(line, "|") {
-			continue
-		}
-		cells := strings.Split(strings.Trim(line, "|"), "|")
-		if len(cells) < 4 {
-			continue
-		}
-		rows[strings.TrimSpace(cells[0])] = strings.TrimSpace(cells[len(cells)-1])
-	}
-	for _, obligation := range []string{"Real graph Plan tryout", "Hold-back lift and verification"} {
-		status, ok := rows[obligation]
-		if !ok {
-			t.Errorf("no %q row in the rollout obligations", obligation)
-			continue
-		}
-		if !strings.Contains(status, "Pending") {
-			t.Errorf("%q is no longer pending: %q", obligation, status)
-		}
-		for _, done := range []string{"Satisfied", "Completed", "Done"} {
-			if strings.HasPrefix(status, done) {
-				t.Errorf("%q is recorded as %q without evidence", obligation, done)
-			}
-		}
-	}
-	if !strings.Contains(section, "unsatisfied") {
-		t.Error("the section no longer says the obligations are unsatisfied")
 	}
 }

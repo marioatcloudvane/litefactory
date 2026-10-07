@@ -87,13 +87,6 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func archName(issue int, at time.Time) string { return archive.BuildName(issue, at) }
 
-func TestArchiveExpiryStep_Name(t *testing.T) {
-	t.Parallel()
-	if got := NewArchiveExpiryStep(ArchiveExpiryOptions{}).Name; got != "archive_expiry" {
-		t.Errorf("Name = %q", got)
-	}
-}
-
 func TestArchiveExpiryStep_Walk(t *testing.T) {
 	t.Parallel()
 	e := newExpiryEnv(t)

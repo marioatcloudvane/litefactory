@@ -245,15 +245,36 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 			return
 		}
 	}
-	// No run means the step never started. The instance keeps its node and its
-	// findings, so the work is still owed: requeue rather than cancel, unless
-	// the reason it could not start will not go away on its own.
+	// A node limit can fail the instance before allocating a run. Such work
+	// owes a stop notice, not a retry against a terminal instance.
 	if !exists || run.Status == store.RunPrelaunch {
-		t.recordWorkerStatus(workerDeferred)
 		cause := ""
 		if err != nil {
 			cause = err.Error()
 		}
+		instance, instanceErr := d.db.GetGraphInstance(ctx, dispatch.InstanceID)
+		if instanceErr != nil {
+			t.recordWorkerError(instanceErr)
+			return
+		}
+		if instance.Status == store.GraphFailed {
+			if cause == "" {
+				cause = "graph instance failed before the step could start"
+			}
+			if cancelErr := d.db.CancelGraphDispatch(ctx, dispatch.ID, cause, t.tickAt.UTC()); cancelErr != nil {
+				t.recordWorkerError(cancelErr)
+				return
+			}
+			stopped, stopErr := d.db.LatestGraphDispatch(ctx, dispatch.InstanceID)
+			if stopErr == nil && stopped.ID == dispatch.ID && stopped.Status == "cancelled" && stopped.AllocatedRunID == 0 {
+				stopErr = d.reportGraphDispatchStop(ctx, stopped)
+			}
+			if stopErr != nil {
+				t.recordWorkerError(stopErr)
+			}
+			return
+		}
+		t.recordWorkerStatus(workerDeferred)
 		retryAt := t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts))
 		requeued, requeueErr := d.requeueGraphStep(ctx, dispatch, retryAt, cause)
 		if requeueErr != nil {
@@ -312,14 +333,18 @@ func (d *Daemon) requeueGraphStep(ctx context.Context, dispatch store.GraphDispa
 	if err != nil || stopped == nil {
 		return requeued, err
 	}
+	return false, d.reportGraphDispatchStop(ctx, *stopped)
+}
+
+func (d *Daemon) reportGraphDispatchStop(ctx context.Context, stopped store.GraphDispatch) error {
 	reporter, ok := d.reporter.(interface {
 		ReportGraphDispatchStop(context.Context, store.GraphDispatch) (turn.Posted, error)
 	})
 	if !ok {
-		return false, errors.New("graph dispatch stop requires durable reporting")
+		return errors.New("graph dispatch stop requires durable reporting")
 	}
-	_, err = reporter.ReportGraphDispatchStop(ctx, *stopped)
-	return false, err
+	_, err := reporter.ReportGraphDispatchStop(ctx, stopped)
+	return err
 }
 
 // implementCoordinatorDispatch reports whether a dispatch belongs to an Implement

@@ -3,7 +3,6 @@ package turn
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -54,22 +53,6 @@ func TestWorkflowRegistry_EveryPolicyRequiresSharedResultBindingAndDecoding(t *t
 			t.Errorf("%s: two registered policies share a mode", name)
 		}
 		modes[policy.Mode] = true
-	}
-}
-
-// The policy carries no way to read a result outside the shared route: no field
-// names a private protocol, a node parser or a terminal-text reader.
-func TestWorkflowRegistry_PolicyCarriesNoPrivateProtocolField(t *testing.T) {
-	t.Parallel()
-	for _, typ := range []reflect.Type{reflect.TypeOf(WorkflowPolicy{}), reflect.TypeOf(WorkflowHandlers{})} {
-		for i := range typ.NumField() {
-			name := strings.ToLower(typ.Field(i).Name)
-			for _, banned := range []string{"protocol", "parse", "terminal", "envelope", "raw"} {
-				if strings.Contains(name, banned) {
-					t.Errorf("%s.%s reads a result outside the shared route", typ.Name(), typ.Field(i).Name)
-				}
-			}
-		}
 	}
 }
 

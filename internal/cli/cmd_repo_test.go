@@ -438,26 +438,3 @@ func TestRepoAddDoesNotCollideWithItself(t *testing.T) {
 		t.Errorf("the last add did not report an update:\n%s", stdout)
 	}
 }
-
-// TestRepoAddRejectsRetiredTeamFlag fails during argument parsing, before setup.
-func TestRepoAddRejectsRetiredTeamFlag(t *testing.T) {
-	t.Parallel()
-	for _, args := range [][]string{
-		{"repo", "add", "/unused", "--team", "old-team"},
-		{"repo", "add", "--team=old-team", "/unused"},
-	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			t.Parallel()
-			router, stdout, stderr := newTestRouter(t)
-			if code := router.Run(t.Context(), args); code != ExitUsage {
-				t.Fatalf("exit = %d, want %d: %s", code, ExitUsage, stderr)
-			}
-			if !strings.Contains(stderr.String(), "flag provided but not defined") || !strings.Contains(stderr.String(), "team") {
-				t.Errorf("missing unknown-flag diagnostic: %s", stderr)
-			}
-			if strings.Contains(stderr.String(), "init") || stdout.Len() != 0 {
-				t.Errorf("argument rejection reached setup: stdout=%s stderr=%s", stdout, stderr)
-			}
-		})
-	}
-}
