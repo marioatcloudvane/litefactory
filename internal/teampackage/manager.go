@@ -30,6 +30,9 @@ type Options struct {
 	Paths     config.Paths
 	Transport http.RoundTripper
 	Validate  Validator
+	// InUse is called under the catalogue lock before any removal mutation.
+	// Application composition supplies all registered clone paths using the version.
+	InUse func(context.Context, Identity) ([]string, error)
 }
 
 // Manager has no repository, runtime, credential or SQL dependency.
@@ -37,6 +40,7 @@ type Manager struct {
 	paths     config.Paths
 	client    *http.Client
 	validate  Validator
+	inUse     func(context.Context, Identity) ([]string, error)
 	rename    func(string, string) error
 	removeAll func(string) error
 }
@@ -70,7 +74,7 @@ func New(o Options) (*Manager, error) {
 		}
 		return nil
 	}}
-	return &Manager{paths: o.Paths, client: client, validate: o.Validate, rename: os.Rename, removeAll: os.RemoveAll}, nil
+	return &Manager{paths: o.Paths, client: client, validate: o.Validate, inUse: o.InUse, rename: os.Rename, removeAll: os.RemoveAll}, nil
 }
 func sourceID(source string) string {
 	sum := sha256.Sum256([]byte(source))
@@ -626,6 +630,17 @@ func (m *Manager) Remove(ctx context.Context, source, slug, ver string) (bool, e
 	entry, err := m.resolve(ctx, source, slug, ver)
 	if err != nil {
 		return false, err
+	}
+	if m.inUse != nil {
+		paths, err := m.inUse(ctx, entry.Identity)
+		if err != nil {
+			return false, fmt.Errorf("cannot check repository team bindings: %w", err)
+		}
+		if len(paths) > 0 {
+			paths = slices.Clone(paths)
+			slices.Sort(paths)
+			return false, fmt.Errorf("team %s %s from %s is linked to repositories: %s; unlink them before removal", entry.Identity.Slug, entry.Identity.Version, entry.Identity.Source, strings.Join(paths, ", "))
+		}
 	}
 	if err := ensureDir(m.paths.TeamsTrashDir()); err != nil {
 		return false, err

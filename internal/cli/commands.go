@@ -13,6 +13,8 @@ func Commands() []*Command {
 		newTeamCommand("list"),
 		newTeamCommand("inspect"),
 		newTeamCommand("remove"),
+		newTeamBindingCommand("link"),
+		newTeamBindingCommand("unlink"),
 		newSubmissionCommand("preflight"),
 		newSubmissionCommand("submit"),
 		newSubmissionCommand("receipt"),

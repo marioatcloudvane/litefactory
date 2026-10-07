@@ -118,7 +118,7 @@ func runTeam(ctx context.Context, env *Env, operation, source string, args []str
 			}
 		}
 	}
-	manager, err := teampackage.New(teampackage.Options{Paths: paths, Transport: env.TeamTransport, Validate: validateTeamPackage})
+	manager, err := teampackage.New(teampackage.Options{Paths: paths, Transport: env.TeamTransport, Validate: validateTeamPackage, InUse: teamRemovalGuard(paths)})
 	if err != nil {
 		return err
 	}
