@@ -58,6 +58,7 @@ var shippedDOT = map[string]bool{
 	"../../internal/teamsource/plan/plan.dot":           true,
 	"../../internal/teamsource/spike/spike.dot":         true,
 	"../../internal/teamsource/implement/implement.dot": true,
+	"../../internal/teamsource/validate/validate.dot":   true,
 }
 
 func TestGraphShippedDOTScope(t *testing.T) {
