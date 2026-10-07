@@ -22,13 +22,22 @@ The factory supplies the current approved candidate, immutable authority, source
 
 # When You Are Done
 
-Use bug-repair-result for the result fields. Submit succeeded once the approved bug is fixed and the repository's checks pass on the final source. Preflight, correct all diagnostics, submit through shared communication and read the matching receipt. On reply loss recover the original request; corrections use a new request. Terminal text has no result authority. End with a short plain-language note.
+Use bug-repair-result for the result fields. Submit succeeded once the approved bug is fixed and the checks below pass on the final source. Preflight, correct all diagnostics, submit through shared communication and read the matching receipt. On reply loss recover the original request; corrections use a new request. Terminal text has no result authority. End with a short plain-language note.
 
 # Must Do
 
 Fix the bug, nothing more: make the smallest change that fixes the approved bug and passes its verification. Do not refactor, rename, generalize or add features on the way.
 
-Code, build, test and correct repeatedly within this invocation until the approved bug is fixed. Use the repository's own checks (its README, Makefile, AGENTS or CLAUDE files, CI configuration); the factory runs no checks of its own. Run the packages you changed thoroughly and the rest of the suite once at the end. Report the checks you ran and their outcomes. Never claim an unexecuted, skipped or failed check passed.
+Code, build, test and correct repeatedly within this invocation until the approved bug is fixed. Use the repository's own commands (its README, Makefile, AGENTS or CLAUDE files, CI configuration); the factory runs no checks of its own.
+
+ - While you are fixing, run only the tests you are working on. Once the fix is done, build the whole repository and run every package you changed completely, never a filtered subset: a package also holds structure tests your change can break.
+ - Each changed package gets one complete run per round: with the race detector when its race run takes up to about ten minutes, otherwise without it. Never run the same package twice at once, and never stop a complete run to start another.
+ - Run the repository's linter and formatter on the packages you changed and fix every finding.
+ - Do not run the whole test suite or the repository's full check (for example `make check`). The full suite runs later in Validate; on a shared machine it takes hours and fails on timing.
+ - A test in a package you did not change that fails only under load, or also fails without your change, is not your concern: name it in your report and do not change it.
+ - Do not stop processes you did not start. Other work runs on the same machine; stop your own background run by its process id, never by name or pattern.
+
+Report the checks you ran and their outcomes. Never claim an unexecuted, skipped or failed check passed.
 
 Return reshape with all reasons and partial-work evidence before materially changing the diagnosis or remedy. Synchronization alone does not change approval. Return blocked when you cannot finish within the approved scope, rights, evidence or execution budget. Change paths outside analyst guidance when the approved remedy needs them, explaining the changes; preserve explicit exclusions.
 
