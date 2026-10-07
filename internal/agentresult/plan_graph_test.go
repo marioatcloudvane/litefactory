@@ -399,3 +399,29 @@ func TestGraphPlan_LongDraftIsNotRefusedAtPreflight(t *testing.T) {
 		t.Fatalf("long draft refused at preflight: %v", diagnosticCodes(d))
 	}
 }
+
+func TestPlanGraph_DiscussionAnswerOnly(t *testing.T) {
+	t.Parallel()
+	c := graphContext()
+	c.PlanGraph.Discussion = true
+	for _, tt := range []struct {
+		name  string
+		raw   []byte
+		valid bool
+	}{
+		{"answer", graphDone(`{}`), true},
+		{"blank answer", []byte(strings.Replace(string(graphDone(`{}`)), `"comment":"Proposed."`, `"comment":""`, 1)), false},
+		{"answer with legacy content", graphDone(`{"summary":"wrong"}`), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, d := ar.Create(tt.raw, c)
+			if d.Valid != tt.valid {
+				t.Fatalf("diagnostics=%+v", d)
+			}
+		})
+	}
+	c.PlanGraph.Discussion = false
+	if _, d := ar.Create(graphDone(`{}`), c); d.Valid {
+		t.Fatal("automatic drafting accepted answer-only")
+	}
+}

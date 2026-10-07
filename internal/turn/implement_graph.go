@@ -22,8 +22,10 @@ import (
 const (
 	// implementPollInterval is how long a coordinator rests before it looks at
 	// the ledger again on its own. A story that changes state wakes it sooner;
-	// this only bounds a lost wake.
-	implementPollInterval = 5 * time.Minute
+	// this only bounds a lost wake. Every rest costs a visit of the coordinator
+	// loop's bounded nodes, so it is long: at five minutes a story building for
+	// over five hours used up the merge node's limit and failed the coordinator.
+	implementPollInterval = time.Hour
 	// implementRetryDelay is how long a coordinator waits before it tries a merge
 	// again that found the integration branch busy or moved.
 	implementRetryDelay = 30 * time.Second

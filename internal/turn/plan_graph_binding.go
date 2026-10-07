@@ -68,6 +68,7 @@ func (r *planGraphRuntime) resultContext(ctx context.Context, a ActivityRequest)
 	if err != nil {
 		return agentresult.Context{}, err
 	}
+	binding.Discussion = r.discussion
 	return agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "plan", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: questionPermission(r.req.mode(), r.req.Command), PlanScope: r.scope, PlanGraph: &binding}, nil
 }
 

@@ -1,6 +1,8 @@
 package turn
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
@@ -64,4 +66,36 @@ func pickPlanStep(s planbrief.PlanState, story string, issued map[string]bool) (
 		return planPick{}, fmt.Errorf("eligible Plan story %q missing", key)
 	}
 	return planPick{}, nil
+}
+
+// selectDiscussion binds ordinary input to its issue without changing saved work.
+func (r *planGraphRuntime) selectDiscussion(ctx context.Context) error {
+	s, rev, err := r.state(ctx)
+	if err != nil {
+		return err
+	}
+	if s.SharedRevision == "" {
+		s.SharedRevision = "initial"
+		if err = r.persist(ctx, s, rev); err != nil {
+			return err
+		}
+	}
+	key := r.story
+	if reply := r.req.Trigger.PlanReply; reply != nil {
+		key = reply.Key
+	}
+	if key == "" {
+		r.selected, r.stage = "", planSetStage
+		return nil
+	}
+	if reason := s.PlanReplyReason(key, r.req.Trigger.Body); reason != "" {
+		return &PlanReplyRefusal{Reason: reason, Err: errors.New(reason)}
+	}
+	for _, item := range s.Stories {
+		if item.Key == key {
+			r.selected, r.stage = key, item.Stage
+			return nil
+		}
+	}
+	return &PlanReplyRefusal{Reason: "This story is no longer in the plan.", Err: errors.New("plan discussion story not found")}
 }

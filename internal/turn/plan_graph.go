@@ -46,6 +46,8 @@ type planGraphRuntime struct {
 	scope           planbrief.ContentScope
 	ownerID         int64
 	selected, stage string
+	// discussion binds ordinary owner input to its issue without advancing work.
+	discussion bool
 	// creating reports that the current pick is a promoted story still owed its
 	// first draft, which is what keeps the story creation cycle going.
 	creating bool
@@ -79,9 +81,6 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if err = r.bindStoryTask(ctx); err != nil {
 		return result, true, err
 	}
-	if err = invalidateManagedPlanReadiness(ctx, o, r.parentRef); err != nil {
-		return result, true, err
-	}
 	if o.MCP == nil || o.MCP.Redactor == nil || o.ResearchReporter == nil {
 		return result, true, errors.New("graph Plan requires durable reporting and redacted effect dependencies")
 	}
@@ -94,6 +93,20 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		return result, true, err
 	}
 	r.ownerID = owner.UserID
+	r.discussion = req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.ownerID && ParseCommand(req.Trigger.Body).Kind == KindFreeText
+	feature, featureErr := o.DB.GetManagedFeature(ctx, r.parentRef.String())
+	if featureErr != nil && !errors.Is(featureErr, store.ErrNotFound) {
+		return result, true, featureErr
+	}
+	if r.discussion && featureErr == nil && feature.State != "planning" {
+		out, e := prelaunchRefused(ctx, o, result, "The plan is locked after promotion to Implement; this comment cannot change it.")
+		return out, true, e
+	}
+	if !r.discussion || errors.Is(featureErr, store.ErrNotFound) {
+		if err = invalidateManagedPlanReadiness(ctx, o, r.parentRef); err != nil {
+			return result, true, err
+		}
+	}
 	parent, err := forge.GetIssue(ctx, github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}, r.parentNumber)
 	if err != nil {
 		return result, true, err
@@ -107,11 +120,13 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		}
 		return result, true, err
 	}
-	if err = r.createStoryIssues(ctx); err != nil {
-		return result, true, err
-	}
-	if err = r.recoverStoryEffects(ctx); err != nil {
-		return result, true, err
+	if !r.discussion {
+		if err = r.createStoryIssues(ctx); err != nil {
+			return result, true, err
+		}
+		if err = r.recoverStoryEffects(ctx); err != nil {
+			return result, true, err
+		}
 	}
 	if err = r.selectStory(ctx); err != nil {
 		return result, true, err
@@ -164,7 +179,7 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	definition.Profile.Digest = actual.Digest
 	policy := r.policy()
 	out, err := ExecuteWorkflow(ctx, o, req, result, definition, admission, policy)
-	if err == nil && out.Err == nil && r.story == "" {
+	if err == nil && out.Err == nil && r.story == "" && !r.discussion {
 		// Where the run stopped, the owner hears why and what to do next.
 		_, noticeErr := r.storiesCreated(ctx)
 		r.logNotice(noticeErr, "plan-stories-created")
@@ -250,6 +265,9 @@ func (r *planGraphRuntime) issuedStories(ctx context.Context) (map[string]bool, 
 // pick it makes are read fresh; the write goes through the shared helper, which
 // re-reads on a revision conflict so no stale save can replace a sibling's change.
 func (r *planGraphRuntime) selectStory(ctx context.Context) error {
+	if r.discussion {
+		return r.selectDiscussion(ctx)
+	}
 	issued, bindings, err := r.issuedStories(ctx)
 	if err != nil {
 		return err
@@ -316,6 +334,16 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 		}
 		if strings.HasPrefix(strings.TrimSpace(reply.Body), "/retire-plan ") {
 			return r.retire(ctx, s, rev, reply)
+		}
+		if r.discussion {
+			binding, err := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), reply.Key)
+			if err != nil {
+				return err
+			}
+			if binding.IssueID != reply.IssueID || reply.Body != r.req.Trigger.Body {
+				return errors.New("plan discussion source mismatch")
+			}
+			return nil
 		}
 		return r.applyReply(ctx, reply)
 	}
@@ -511,6 +539,9 @@ func (r *planGraphRuntime) control(ctx context.Context, _ Options, a ActivityReq
 	condition := a.Attrs["lf_condition"]
 	response := r.stage
 	if condition == graphexec.PlanCreateCondition {
+		if r.discussion {
+			return ActivityResult{Outcome: "false"}, nil
+		}
 		// A creation pass never trusts the pick made at admission or by the
 		// previous pass: earlier passes changed which promoted stories have drafts.
 		if err := r.selectStory(ctx); err != nil {
@@ -521,7 +552,7 @@ func (r *planGraphRuntime) control(ctx context.Context, _ Options, a ActivityReq
 			response = condition
 		}
 	}
-	if condition == "ask" {
+	if condition == "ask" || condition == "answer" {
 		node, _, err := r.load(ctx, a)
 		if err != nil {
 			return ActivityResult{}, err
@@ -548,6 +579,9 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 	}
 	if node.Request == nil {
 		return ActivityResult{}, errors.New("plan effect lacks a story request in the retained result")
+	}
+	if err = invalidateManagedPlanReadiness(ctx, r.opts, r.parentRef); err != nil {
+		return ActivityResult{}, err
 	}
 	request := *node.Request
 	if request.Operation == "retire" {
@@ -595,22 +629,24 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	// bound to an issue has somewhere to wait for the owner.
 	if d, e := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), r.selected); e == nil && d.IssueID > 0 {
 		target.Issue = d.IssueNumber
-		waitKind := kind
-		if node.Request != nil && node.Request.Operation == "retire" {
-			waitKind = "retire"
-		}
-		// Only this story's own entry changes, so the wait is saved through the
-		// shared helper: a sibling saving at the same moment keeps its change.
-		if err = r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(st *planbrief.PlanState) (bool, error) {
-			return true, st.OpenPlanWait(r.selected, key, waitKind, d.IssueID)
-		}); err != nil {
-			return ActivityResult{}, err
-		}
-		if waitKind == "review" {
-			text += fmt.Sprintf("\n\nTo promote this exact candidate, reply `/approve-plan %s %s %s`.", r.selected, r.stage, d.Candidate)
-		}
-		if waitKind == "retire" {
-			text += fmt.Sprintf("\n\nTo retire this exact candidate as not planned, reply `/retire-plan %s %s`.", r.selected, d.Candidate)
+		if kind != "final" {
+			waitKind := kind
+			if node.Request != nil && node.Request.Operation == "retire" {
+				waitKind = "retire"
+			}
+			// Only this story's own entry changes, so the wait is saved through the
+			// shared helper: a sibling saving at the same moment keeps its change.
+			if err = r.opts.DB.UpdatePlanWorkflowState(ctx, r.parentRef.String(), func(st *planbrief.PlanState) (bool, error) {
+				return true, st.OpenPlanWait(r.selected, key, waitKind, d.IssueID)
+			}); err != nil {
+				return ActivityResult{}, err
+			}
+			if waitKind == "review" {
+				text += fmt.Sprintf("\n\nTo promote this exact candidate, reply `/approve-plan %s %s %s`.", r.selected, r.stage, d.Candidate)
+			}
+			if waitKind == "retire" {
+				text += fmt.Sprintf("\n\nTo retire this exact candidate as not planned, reply `/retire-plan %s %s`.", r.selected, d.Candidate)
+			}
 		}
 	} else if e != nil && !errors.Is(e, store.ErrNotFound) {
 		return ActivityResult{}, e

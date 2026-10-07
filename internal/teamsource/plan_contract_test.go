@@ -27,7 +27,7 @@ func planPackageRegistry(t *testing.T) graphexec.Registry {
 		{Name: "lf_agent", Mode: agent.ModePlan, Outcomes: []string{"success", "failed"}},
 		graphexec.ControlSpec("lf_if", policy), graphexec.ControlSpec("lf_loop", policy),
 		{Name: "lf_ask", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}}},
-		{Name: "lf_comment", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"failure"}}}}, graphexec.PlanStorySpec(),
+		{Name: "lf_comment", Mode: agent.ModePlan, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"failure", "final"}}}}, graphexec.PlanStorySpec(),
 	}
 	for _, s := range specs {
 		if err := r.Register(s); err != nil {

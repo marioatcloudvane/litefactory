@@ -367,7 +367,7 @@ func TestPlanCreation_LostCreateReplyIsSettledNotRepeated(t *testing.T) {
 	if remote.creates != 1 {
 		t.Fatalf("creates %d", remote.creates)
 	}
-	if _, err := Execute(t.Context(), f.opts, nextTrigger(base, 903, "retry")); err != nil {
+	if _, err := Execute(t.Context(), f.opts, nextTrigger(base, 903, "/plan retry")); err != nil {
 		t.Fatalf("retry: %v logs=%s", err, f.logs.String())
 	}
 	draftAllStories(t, f, base)

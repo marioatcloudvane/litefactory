@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"github.com/cloudvane/litefactory/internal/store"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -51,7 +52,7 @@ func runOwedStory(t *testing.T, f *fixture, base Request) (Result, bool, error) 
 			continue
 		}
 		instruction := "Continue the story " + key + "."
-		req.Trigger = Trigger{CommentID: nextStoryTrigger(), Body: instruction, Author: "owner", AuthorID: 7}
+		req.Trigger = Trigger{CommentID: (store.Schedule{ID: nextStoryTrigger()}).TriggerID(), Body: instruction, Author: "owner", AuthorID: 7}
 		req.Command = Command{Kind: KindFreeText, Text: instruction}
 		out, err := Execute(t.Context(), f.opts, req)
 		return out, true, err
@@ -99,7 +100,7 @@ func draftAllStories(t *testing.T, f *fixture, base Request) {
 func runParent(t *testing.T, f *fixture, base Request) Result {
 	t.Helper()
 	instruction := "Continue the plan."
-	base.Trigger = Trigger{CommentID: nextStoryTrigger(), Body: instruction, Author: "owner", AuthorID: 7}
+	base.Trigger = Trigger{CommentID: (store.Schedule{ID: nextStoryTrigger()}).TriggerID(), Body: instruction, Author: "owner", AuthorID: 7}
 	base.Command = Command{Kind: KindFreeText, Text: instruction}
 	return executeGraphPlan(t, f, base)
 }
