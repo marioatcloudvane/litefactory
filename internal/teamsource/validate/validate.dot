@@ -1,0 +1,77 @@
+// Validate checks the code a story branch holds. The factory first runs the full
+// suite on one exact commit. A passed suite goes straight to review. A failed
+// suite gets at most two repair rounds from one write-access agent; the factory
+// measures what the agent really changed, keeps a small change as a new commit
+// and runs the suite on it again, and rejects a change over the limits. Three
+// read-only reviewers then assess the final tested commit side by side. The run
+// ends in one of three ends: assessed, handed back to Implement, or blocked.
+//
+// This file is the only place the flow lives. Order, branches, the repair bound,
+// the time budget, the measured limits and the reviewers are all declared here.
+// Go supplies steps; it never picks the next step.
+//
+// The repair bound is two rounds. Every round is counted from the moment it
+// starts, so a round that times out or is interrupted is used. The time budget
+// is in agent minutes and does not include the time the suite runs. The limits
+// of one repair are the number of files and the kinds of change that are not
+// allowed: package layout, dependencies, schema, public API, a deleted or
+// skipped test and a changed acceptance criterion.
+//
+// Every path to an end passes through review, so a failed or blocked suite still
+// gets static findings. The outcome step decides the end from the recorded
+// facts: a passed suite ends assessed, a suite that still fails ends handed back
+// with what Implement must change, and a suite that could not give a trustworthy
+// answer ends blocked with its reason. Nothing here accepts or approves.
+digraph validate {
+ graph [team="builtin", mode="validate", profile_version="1", start="suite"];
+
+ // ---- Test the commit ---------------------------------------------------------
+ // A finished result for the commit is reused as it is. The suite runs again
+ // only on a new commit made by a kept repair.
+ suite [lf_action="lf_validate_suite", lf_outcomes="passed,failed,blocked,retry", lf_limit="16"];
+
+ // ---- Repair loop (at most two rounds) ---------------------------------------
+ repair_budget [lf_action="lf_validate_repair_budget", lf_outcomes="run,spent", lf_rounds="2", lf_suite="suite", lf_limit="6"];
+ repair_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="validate-repair", lf_skills="validate-repair-report", lf_access="write", lf_budget="15", lf_limit="2"];
+ repair_check  [lf_action="lf_validate_repair_check", lf_outcomes="kept,too_big,handback,unfinished,blocked", lf_max_files="3", lf_forbid="package,dependency,schema,api,tests,criteria", lf_source="repair_agent", lf_suite="suite", lf_limit="4"];
+
+ // ---- Review the final tested commit (read-only, side by side) ----------------
+ review [lf_action="lf_validate_review", lf_outcomes="done,retry", lf_roles="validate-acceptance,validate-code,validate-architecture", lf_skills="validate-review", lf_suite="suite", lf_limit="32"];
+
+ // ---- Join the findings and record the end -------------------------------------
+ outcome [lf_action="lf_validate_outcome", lf_outcomes="assessed,handed_back,blocked", lf_suite="suite", lf_limit="2"];
+
+ // ---- Ends ------------------------------------------------------------------------
+ assessed    [lf_terminal="true"];
+ handed_back [lf_terminal="true"];
+ blocked     [lf_terminal="true"];
+
+ // A passed suite needs no repair; a blocked one is not a code failure, so it is
+ // not repaired either. A failed suite starts a repair round.
+ suite -> review        [lf_on="passed"];
+ suite -> repair_budget [lf_on="failed"];
+ suite -> review        [lf_on="blocked"];
+ suite -> suite         [lf_on="retry"];
+
+ // One round: start it (this settles any round a restart left behind), run the
+ // agent, measure the real change. A kept change is a new commit and is tested
+ // again. A change that is too big, a diagnosis that is a handback and a round
+ // that cannot be measured go to review. A round that did not finish, such as a
+ // timeout, is used up; the budget decides whether another round may start.
+ repair_budget -> repair_agent  [lf_on="run"];
+ repair_budget -> review        [lf_on="spent"];
+ repair_agent  -> repair_check  [lf_on="success"];
+ repair_agent  -> repair_check  [lf_on="failed"];
+ repair_check  -> suite         [lf_on="kept"];
+ repair_check  -> review        [lf_on="too_big"];
+ repair_check  -> review        [lf_on="handback"];
+ repair_check  -> repair_budget [lf_on="unfinished"];
+ repair_check  -> review        [lf_on="blocked"];
+
+ review  -> outcome [lf_on="done"];
+ review  -> review  [lf_on="retry"];
+
+ outcome -> assessed    [lf_on="assessed"];
+ outcome -> handed_back [lf_on="handed_back"];
+ outcome -> blocked     [lf_on="blocked"];
+}
