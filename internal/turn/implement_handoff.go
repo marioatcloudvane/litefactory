@@ -118,7 +118,7 @@ func renderImplementHandoff(a ImplementAuthority, rows []store.ImplementStory) (
 	var out strings.Builder
 	out.WriteString(report.ImplementHandoffMarker(a.Parent) + "\n\n")
 	out.WriteString("**Implementation hand-off**\n\n")
-	fmt.Fprintf(&out, "Work is merged into `%s` one story at a time, and only after the build checks pass. This report is updated as the work moves on.\n\n", a.IntegrationBranch)
+	fmt.Fprintf(&out, "Work is merged into `%s` one story at a time; each story is tested by its worker before it is merged. This report is updated as the work moves on.\n\n", a.IntegrationBranch)
 	sections := []struct {
 		title, empty string
 		lines        []string
