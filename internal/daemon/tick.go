@@ -572,6 +572,9 @@ func (d *Daemon) discover(
 	if err := d.graphImplementStories(ctx, byRepo, seen, now); err != nil {
 		return nil, err
 	}
+	if err := d.graphValidateStarts(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
 	if err := d.managedParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -1427,6 +1430,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		}
 		if err := d.startImplementWork(ctx, t); err != nil {
 			d.stopped(ctx, t, "could not run the Implement work of this task", err)
+			return
+		}
+		if err := d.startValidateAuto(ctx, t); err != nil {
+			d.stopped(ctx, t, "could not start Validate for this task", err)
 			return
 		}
 		// The clean-drain clear site, deliberately a statement on the success path

@@ -43,6 +43,7 @@ func (h ImplementHandoffActivity) Execute(ctx context.Context, opts Options, req
 		return ActivityResult{}, err
 	}
 	text, counts := renderImplementHandoff(a, rows)
+	text += implementValidateNextStep(opts.ValidateAutoStart)
 	body, err := h.b.Redactor.Apply(ctx, text, implementHandoffLimit)
 	if err != nil {
 		return ActivityResult{}, fmt.Errorf("render hand-off: %w", err)
@@ -84,6 +85,18 @@ scan:
 		out.CommentID, out.URL = existing.ID, existing.HTMLURL
 	}
 	return implementResult("posted", out)
+}
+
+// ValidateStartCommand is the exact command that starts Validate by hand.
+const ValidateStartCommand = "/validate Validate the finished work."
+
+// implementValidateNextStep is the one line that tells the owner how Validate
+// starts once every story is merged.
+func implementValidateNextStep(autoStart bool) string {
+	if autoStart {
+		return "**Next step:** once every story is merged, Validate will start automatically.\n"
+	}
+	return "**Next step:** once every story is merged, start Validate by commenting `" + ValidateStartCommand + "`\n"
 }
 
 type implementHandoffCounts struct{ merged, parked, waiting int }

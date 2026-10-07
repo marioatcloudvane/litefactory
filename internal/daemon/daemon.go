@@ -205,6 +205,14 @@ type Options struct {
 	// False disables automatic recovery without affecting manual schedules.
 	AutoResumeOnSessionLimit bool
 
+	// ValidateAutoStart is the loaded validate.auto_start setting: when true the
+	// daemon starts Validate by itself for each finished Implement parent. The
+	// zero value keeps the start manual.
+	ValidateAutoStart bool
+	// ValidateHead reads the integration-branch head of a parent. Required for
+	// the automatic start to run.
+	ValidateHead func(ctx context.Context, session store.Session) (string, error)
+
 	DefaultAgent agent.Kind
 	Classifiers  map[agent.Kind]agent.Classifier
 	// DB is the open, migrated database. Required.
@@ -405,6 +413,8 @@ type Daemon struct {
 	instanceID          string
 	// Loaded once at startup, shared by dispatch and pending recovery cancellation.
 	autoResumeOnSessionLimit bool
+	validateAutoStart        bool
+	validateHead             func(ctx context.Context, session store.Session) (string, error)
 	// toolProfiles and toolCeiling are the operator's tool configuration as it
 	// stood at startup. Read-only after New; see [Options.ToolProfiles].
 	toolProfiles map[string]config.ToolProfile
@@ -506,6 +516,8 @@ func New(opts Options) (*Daemon, error) {
 		archive:                  opts.Archive,
 		housekeeping:             newHousekeeping(opts.Housekeeping, opts.Logger),
 		autoResumeOnSessionLimit: opts.AutoResumeOnSessionLimit,
+		validateAutoStart:        opts.ValidateAutoStart,
+		validateHead:             opts.ValidateHead,
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may
 		// reach back into the configuration the process is running on.
