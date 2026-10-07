@@ -1,0 +1,185 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io/fs"
+	"os"
+	"path"
+	"slices"
+	"strings"
+
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/teampackage"
+	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/turn"
+)
+
+func newTeamCommand(operation string) *Command {
+	args := ArgSpec{Names: []string{"name", "version"}, Min: 2}
+	switch operation {
+	case "install":
+		args.Min = 1
+	case "update":
+		args = ArgSpec{Names: []string{"name"}, Min: 1}
+	case "list":
+		args = ArgSpec{}
+	}
+	usage := "team " + operation
+	for i, name := range args.Names {
+		if i >= args.Min {
+			usage += " [<" + name + ">]"
+		} else {
+			usage += " <" + name + ">"
+		}
+	}
+	if operation != "list" {
+		usage += " [--source catalogue-url]"
+	}
+	cmd := &Command{Name: "team " + operation, Usage: usage, Short: "Manage machine-level installed team versions", Args: args}
+	cmd.New = func(flags *flag.FlagSet) Handler {
+		source := ""
+		if operation != "list" {
+			flags.StringVar(&source, "source", "", "anonymous HTTPS catalogue; selects local source for inspect/remove")
+		}
+		return func(ctx context.Context, env *Env, args []string) error {
+			return runTeam(ctx, env, operation, source, args)
+		}
+	}
+	return cmd
+}
+func validateTeamPackage(ctx context.Context, source fs.FS, workflows map[string]string) error {
+	builders := map[string]func() (graphexec.Registry, error){"research": turn.ResearchSpecs, "plan": turn.PlanSpecs, "implement": turn.ImplementSpecs, "validate": turn.ValidateFlowSpecs, "spike": turn.SpikeSpecs, "bug": turn.SimplifiedBugSpecs}
+	modes := make([]string, 0, len(workflows))
+	for mode := range workflows {
+		modes = append(modes, mode)
+	}
+	slices.Sort(modes)
+	var faults []error
+	for _, mode := range modes {
+		graph := workflows[mode]
+		raw, err := fs.ReadFile(source, graph)
+		if err != nil {
+			faults = append(faults, fmt.Errorf("%s: %w", graph, err))
+			continue
+		}
+		profile, err := graphexec.ParseProfile(raw)
+		if err != nil {
+			faults = append(faults, fmt.Errorf("%s: %w", graph, err))
+			continue
+		}
+		builder, ok := builders[mode]
+		if !ok {
+			faults = append(faults, fmt.Errorf("unknown workflow %s", mode))
+			continue
+		}
+		registry, err := builder()
+		if err != nil {
+			faults = append(faults, err)
+			continue
+		}
+		root, err := fs.Sub(source, path.Dir(graph))
+		if err != nil {
+			faults = append(faults, err)
+			continue
+		}
+		if _, err := teamsource.CaptureWorkflowIdentity(ctx, root, path.Base(graph), profile.Team, agent.Workflow(mode), registry); err != nil {
+			faults = append(faults, fmt.Errorf("%s: %w", graph, err))
+		}
+	}
+	return errors.Join(faults...)
+}
+func runTeam(ctx context.Context, env *Env, operation, source string, args []string) error {
+	paths, err := config.Locate()
+	if err != nil {
+		return err
+	}
+	if operation == "install" || operation == "update" {
+		if source == "" {
+			file, err := os.Open(paths.ConfigPath())
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			var cfg *config.Config
+			if file != nil {
+				// Team discovery needs only strict configuration decoding, not runner grants.
+				defer file.Close()
+				cfg, err = config.Decode(file)
+			}
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			if cfg != nil {
+				source = cfg.Settings.TeamSource
+			}
+		}
+	}
+	manager, err := teampackage.New(teampackage.Options{Paths: paths, Transport: env.TeamTransport, Validate: validateTeamPackage})
+	if err != nil {
+		return err
+	}
+	switch operation {
+	case "install":
+		ver := ""
+		if len(args) == 2 {
+			ver = args[1]
+		}
+		entry, already, err := manager.Install(ctx, source, args[0], ver)
+		if err != nil {
+			return err
+		}
+		status := "Installed"
+		if already {
+			status = "Already installed"
+		}
+		_, err = fmt.Fprintf(env.Stdout, "%s %s %s from %s\n", status, entry.Identity.Slug, entry.Identity.Version, entry.Identity.Source)
+		return err
+	case "update":
+		entry, updated, err := manager.Update(ctx, source, args[0])
+		if err != nil {
+			return err
+		}
+		status := "No update"
+		if updated {
+			status = "Installed update"
+		}
+		_, err = fmt.Fprintf(env.Stdout, "%s: %s %s from %s\n", status, entry.Identity.Slug, entry.Identity.Version, entry.Identity.Source)
+		return err
+	case "list":
+		entries, err := manager.List(ctx)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if _, err := fmt.Fprintf(env.Stdout, "%s %s %s\n", entry.Identity.Source, entry.Identity.Slug, entry.Identity.Version); err != nil {
+				return err
+			}
+		}
+		return nil
+	case "inspect":
+		entry, err := manager.Inspect(ctx, source, args[0], args[1])
+		if err != nil {
+			return err
+		}
+		modes := make([]string, 0, len(entry.Workflows))
+		for mode := range entry.Workflows {
+			modes = append(modes, mode)
+		}
+		slices.Sort(modes)
+		_, err = fmt.Fprintf(env.Stdout, "Team: %s\nVersion: %s\nSource: %s\nPath: %s\nChecksum: %s\nWorkflows: %s\nIntegrity: verified\n", entry.Identity.Slug, entry.Identity.Version, entry.Identity.Source, entry.Path, entry.Identity.Digest, strings.Join(modes, ", "))
+		return err
+	case "remove":
+		removed, err := manager.Remove(ctx, source, args[0], args[1])
+		if removed {
+			_, writeErr := fmt.Fprintf(env.Stdout, "Removed %s %s\n", args[0], args[1])
+			return errors.Join(err, writeErr)
+		}
+		return err
+	default:
+		return errors.New("unknown team operation")
+	}
+}

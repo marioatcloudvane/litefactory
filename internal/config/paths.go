@@ -133,3 +133,18 @@ func (p Paths) DoctorBackupsDir() string { return filepath.Join(p.home, "doctor"
 
 // DoctorRepairLocksDir serializes repair effects and stop across local processes.
 func (p Paths) DoctorRepairLocksDir() string { return filepath.Join(p.home, "doctor", "repair-locks") }
+
+// TeamsDir contains machine-level immutable team releases and private scratch data.
+func (p Paths) TeamsDir() string { return filepath.Join(p.home, "teams") }
+
+// TeamsInstalledDir contains only published releases.
+func (p Paths) TeamsInstalledDir() string { return filepath.Join(p.TeamsDir(), "installed") }
+
+// TeamsStagingDir contains unpublished install attempts.
+func (p Paths) TeamsStagingDir() string { return filepath.Join(p.TeamsDir(), "staging") }
+
+// TeamsTrashDir contains detached releases awaiting cleanup.
+func (p Paths) TeamsTrashDir() string { return filepath.Join(p.TeamsDir(), "trash") }
+
+// TeamsLockPath coordinates readers and mutations across processes.
+func (p Paths) TeamsLockPath() string { return filepath.Join(p.TeamsDir(), "catalogue.lock") }
