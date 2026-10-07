@@ -222,7 +222,22 @@ func (rt *implementRuntime) execute(ctx context.Context, definition *teamsource.
 	if err != nil {
 		return rt.result, err
 	}
-	return ExecuteWorkflow(ctx, rt.opts, rt.req, rt.result, definition, admission, policy)
+	out, err := ExecuteWorkflow(ctx, rt.opts, rt.req, rt.result, definition, admission, policy)
+	if err == nil || rt.worker == nil || out.Harness != nil || ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return out, err
+	}
+	// Before the process exists there is no agent repair attempt. Settle the
+	// admitted instance so daemon discovery can apply its infrastructure limit.
+	reason := clipText(strings.Join(strings.Fields(err.Error()), " "), maxImplementReason)
+	bookkeeping := context.WithoutCancel(ctx)
+	settleErr := rt.opts.DB.FailImplementWorkerInstance(bookkeeping, admission.Instance.ID, reason, rt.now())
+	// prepare can allocate a run and then fail without returning a preparation.
+	run, exists, lookupErr := rt.opts.DB.GetRunByTrigger(bookkeeping, rt.req.SessionID, rt.req.Trigger.CommentID)
+	if lookupErr == nil && exists && (run.Status == store.RunPrelaunch || run.Status == store.RunRunning) {
+		run, lookupErr = rt.opts.DB.FinishRun(bookkeeping, run.ID, store.RunOutcome{Status: store.RunFailed, Error: reason, FinishedAt: rt.now()})
+		out.Run = run
+	}
+	return out, errors.Join(err, settleErr, lookupErr)
 }
 
 // policy is the Implement policy with this run's activities and hooks.

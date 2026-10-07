@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -416,5 +417,86 @@ func TestImplementWorkerSyncsWithItsParentsBranch(t *testing.T) {
 	}
 	if !sawDependency {
 		t.Fatal("the worker ran without the work merged into its parent's branch")
+	}
+}
+
+func TestImplementWorkerStartupFailureSettlesAllocatedRun(t *testing.T) {
+	calls := 0
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		calls++
+		return nil, nil
+	}))
+	seedImplementStory(t, f)
+	// The runtime validates structurally, but cannot open an attempt route.
+	mustProgress(t, f.opts.MCP.Authority.Close(t.Context()))
+	out, err := Execute(t.Context(), f.opts, req)
+	if err == nil || calls != 0 {
+		t.Fatalf("startup error=%v runner calls=%d", err, calls)
+	}
+	instance, readErr := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, readErr)
+	row := implementWorkerRow(t, f)
+	if instance.Status != store.GraphFailed || row.Attempts != 0 || row.LastFailure == "" {
+		t.Fatalf("instance=%+v story=%+v", instance, row)
+	}
+	run, exists, readErr := f.db.GetRunByTrigger(t.Context(), f.session.ID, req.Trigger.CommentID)
+	mustProgress(t, readErr)
+	if !exists || run.Status != store.RunFailed || run.Error == "" || out.Run.ID != run.ID {
+		t.Fatalf("allocated run was not settled: %+v out=%+v", run, out)
+	}
+	row, readErr = f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: row.Parent, Generation: row.Generation, Key: row.Key, From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: row.LastFailure, At: time.Now()})
+	mustProgress(t, readErr)
+	candidate := implementQuestionCandidate([]store.ImplementStory{row})
+	if len(candidate.Questions) != 1 || !strings.Contains(candidate.Questions[0].Text, row.Key) || !strings.Contains(candidate.Questions[0].Text, sentence(row.LastFailure)) {
+		t.Fatalf("parked reason absent from coordinator: %+v", candidate)
+	}
+}
+
+func TestImplementWorkerCancelledPreparationKeepsOwedInstance(t *testing.T) {
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("cancelled preparation launched a runner")
+		return nil, nil
+	}))
+	seedImplementStory(t, f)
+	f.opts.CloneGate = cancelledImplementGate{}
+	_, err := Execute(t.Context(), f.opts, req)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("%v", err)
+	}
+	instance, readErr := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, readErr)
+	row := implementWorkerRow(t, f)
+	if instance.Status != store.GraphRunning || row.LastFailure != "" || row.Attempts != 0 {
+		t.Fatalf("cancellation spent infrastructure budget: %+v %+v", instance, row)
+	}
+}
+
+type cancelledImplementGate struct{}
+
+func (cancelledImplementGate) Acquire(context.Context, string) (func(), error) {
+	return nil, context.Canceled
+}
+
+func TestImplementWorkerPrepareFailureSettlesPrelaunchRun(t *testing.T) {
+	calls := 0
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		calls++
+		return nil, nil
+	}))
+	seedImplementStory(t, f)
+	// Request admission accepts nonempty text; prompt assembly rejects blank
+	// instructions after allocation, before prepare returns its preparation.
+	req.Command.Text = " "
+	out, err := Execute(t.Context(), f.opts, req)
+	if err == nil || !strings.Contains(err.Error(), "instruction is empty") || calls != 0 {
+		t.Fatalf("error=%v calls=%d", err, calls)
+	}
+	run, exists, readErr := f.db.GetRunByTrigger(t.Context(), f.session.ID, req.Trigger.CommentID)
+	mustProgress(t, readErr)
+	instance, readErr := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, readErr)
+	row := implementWorkerRow(t, f)
+	if !exists || run.Status != store.RunFailed || out.Run.ID != run.ID || instance.Status != store.GraphFailed || row.Attempts != 0 || !strings.Contains(row.LastFailure, "instruction is empty") {
+		t.Fatalf("run=%+v instance=%+v story=%+v", run, instance, row)
 	}
 }

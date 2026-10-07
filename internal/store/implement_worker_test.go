@@ -211,3 +211,39 @@ func TestNextFreshGraphDispatchWaitsForItsDueTime(t *testing.T) {
 		t.Fatalf("a woken dispatch is owed at once: %v %v", ok, err)
 	}
 }
+
+func TestFailImplementWorkerInstanceRetainsCauseAtomically(t *testing.T) {
+	db := newTestDB(t)
+	runningStory(t, db, "a")
+	session := testSession(t, db, 315)
+	pin, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), TeamSnapshotDigest: strings.Repeat("b", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := db.CreateGraphInstance(t.Context(), GraphInstance{SessionID: session.ID, DefinitionID: pin.ID, CurrentNode: "worker_agent", StartedAt: implementT0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Missing worker ownership must roll back without terminalizing the graph.
+	if err := db.FailImplementWorkerInstance(t.Context(), instance.ID, "prepare broke", implementT0); !errors.Is(err, ErrImplementConflict) {
+		t.Fatalf("%v", err)
+	}
+	got, err := db.GetGraphInstance(t.Context(), instance.ID)
+	if err != nil || got.Status != GraphRunning {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if err := db.SetImplementWorkerSession(t.Context(), "github:o/r#1", 1, "a", session.ID, implementT0); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FailImplementWorkerInstance(t.Context(), instance.ID, "prepare broke", implementT0); err != nil {
+		t.Fatal(err)
+	}
+	got, err = db.GetGraphInstance(t.Context(), instance.ID)
+	if err != nil || got.Status != GraphFailed {
+		t.Fatalf("%+v %v", got, err)
+	}
+	row, err := db.ImplementStoryByWorkerSession(t.Context(), session.ID)
+	if err != nil || row.LastFailure != "prepare broke" || row.Attempts != 0 {
+		t.Fatalf("%+v %v", row, err)
+	}
+}
