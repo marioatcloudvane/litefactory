@@ -95,6 +95,16 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// Spike fix check: the unique paths changed since a saved commit
 		// (committed, staged, unstaged, untracked); read-only, takes no index lock.
 		"ChangedSince",
+		// Validate repair: the textual change of the worktree against an exact
+		// commit (committed, staged, unstaged, untracked); read-only, so the
+		// factory can retain what a rejected repair did.
+		"DiffSince",
+		// Validate repair: puts the worktree back on one exact full commit object
+		// and removes the untracked files outside the paths the caller keeps, so
+		// a rejected, timed-out or interrupted repair leaves no half-made edit.
+		// It is not a general reset: it refuses anything but a full commit object
+		// that resolves to itself, and it is named apart from the forbidden Reset.
+		"ResetHard",
 		// Mutating, pre-US-12: the only three operations that write to a
 		// repository or a remote before this story.
 		"Commit", "Push", "MergeBase",

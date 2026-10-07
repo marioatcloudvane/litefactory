@@ -140,26 +140,28 @@ func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamN
 	}
 	faults = append(faults, graphexec.Validate(profile, registry))
 	result := &ResearchDefinition{Profile: profile, Nodes: map[string]ResearchNode{}, Files: r.files, Hashes: map[string]string{}}
-	for _, node := range profile.Nodes {
-		if node.Action != "lf_agent" {
-			continue
-		}
-		captured, err := captureResearchNode(ctx, source, node, profile.Attrs)
-		if err != nil {
-			faults = append(faults, fmt.Errorf("research node %s: %w", node.Name, err))
-			continue
-		}
-		result.Nodes[node.Name] = captured
-		for name, content := range captured.Files {
-			if _, exists := result.Files[name]; exists {
+	for _, declared := range profile.Nodes {
+		// A step that starts agents itself names them in lf_roles; each is
+		// captured as a node of its own, keyed "<step>:<role>", with the step's
+		// skills and limit.
+		for _, node := range capturedAgentNodes(declared) {
+			captured, err := captureResearchNode(ctx, source, node, profile.Attrs)
+			if err != nil {
+				faults = append(faults, fmt.Errorf("research node %s: %w", node.Name, err))
 				continue
 			}
-			if len(content) > MaxSnapshotBytes-r.total {
-				faults = append(faults, errors.New("research aggregate source bounds exceeded"))
-				break
+			result.Nodes[node.Name] = captured
+			for name, content := range captured.Files {
+				if _, exists := result.Files[name]; exists {
+					continue
+				}
+				if len(content) > MaxSnapshotBytes-r.total {
+					faults = append(faults, errors.New("research aggregate source bounds exceeded"))
+					break
+				}
+				r.total += len(content)
+				result.Files[name] = slices.Clone(content)
 			}
-			r.total += len(content)
-			result.Files[name] = slices.Clone(content)
 		}
 	}
 	if len(result.Nodes) == 0 {
@@ -180,6 +182,26 @@ func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamN
 	}
 	result.Digest = hashBytes([]byte(manifest.String()))
 	return result, nil
+}
+
+// capturedAgentNodes lists the agent nodes a declared node needs captured: the
+// node itself when it is an agent, or one node per role a step names in lf_roles.
+func capturedAgentNodes(node graphexec.Node) []graphexec.Node {
+	if node.Action == "lf_agent" {
+		return []graphexec.Node{node}
+	}
+	if node.Terminal || node.Attrs["lf_roles"] == "" {
+		return nil
+	}
+	var out []graphexec.Node
+	for _, role := range strings.Split(node.Attrs["lf_roles"], ",") {
+		attrs := map[string]string{"lf_agent_markdown": strings.TrimSpace(role)}
+		if skills := node.Attrs["lf_skills"]; skills != "" {
+			attrs["lf_skills"] = skills
+		}
+		out = append(out, graphexec.Node{Name: node.Name + ":" + strings.TrimSpace(role), Action: "lf_agent", Limit: node.Limit, Attrs: attrs})
+	}
+	return out
 }
 
 func captureResearchNode(ctx context.Context, source fs.FS, node graphexec.Node, defaults map[string]string) (ResearchNode, error) {

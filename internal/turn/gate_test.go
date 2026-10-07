@@ -202,6 +202,10 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"beginImplementScratch": "implement_steps.go",
 		"gatedScratch.Publish":  "implement_steps.go",
 		"gatedScratch.Close":    "implement_steps.go",
+		// The Validate suite checkout fetches and adds its scratch worktree in
+		// one acquisition, and removes it in another.
+		"GitValidateSuiteRepo.Begin": "validate_suite.go",
+		"gitSuiteScratch.Close":      "validate_suite.go",
 	}
 
 	// gated names each call that must not happen outside a critical section,
@@ -314,6 +318,14 @@ func TestTurnImposesNoAmbientDeadline(t *testing.T) {
 
 	for name, fn := range packageFuncs(t) {
 		for _, forbidden := range []string{"WithTimeout", "WithDeadline"} {
+			// The one deliberate exception: an agent node that declares a time
+			// budget (lf_budget) is cancelled when the budget runs out. The deadline
+			// bounds the agent process only, and never encloses a git command or the
+			// clone gate: the agent runs outside the gate and every git command
+			// starts its own deadline at exec time.
+			if name == "AgentActivity.execute" && forbidden == "WithTimeout" {
+				continue
+			}
 			if countCalls(fn.decl, forbidden) > 0 {
 				t.Errorf("%s calls context.%s; internal/turn imposes no deadline of its own, "+
 					"because git commands start theirs at exec time (AC-PAR-3.6)", name, forbidden)

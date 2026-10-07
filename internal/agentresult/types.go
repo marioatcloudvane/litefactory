@@ -62,7 +62,13 @@ type Context struct {
 	QuestionsAllowed bool
 	// WriteAccess is set only by a graph runtime for a node whose access level
 	// grants edits. A finished result from such a node must report its change.
-	WriteAccess         bool
+	WriteAccess bool
+	// ReviewRole scopes a Validate reviewer's required coverage (acceptance,
+	// code or architecture). Empty requires every criterion and review.
+	ReviewRole string
+	// RepairRole is set only for the Validate repair node and enables the
+	// repair report; reviewers and every other node must not send one.
+	RepairRole          bool
 	PlanScope           planbrief.ContentScope
 	Stories             map[string]agent.ContributionStory
 	EngineeringComplete map[string]bool
@@ -295,6 +301,53 @@ type ImplementationStory struct {
 // Validate contains reference-only assessments of selected stories.
 type Validate struct {
 	Stories []AssessmentStory `json:"stories,omitempty"`
+	// Repair is the report of the one write-access repair agent. It is valid
+	// only under the repair role binding and never together with stories.
+	Repair *ValidateRepair `json:"repair,omitempty"`
+}
+
+// Repair responses. The factory measures the real change; the agent explains it.
+const (
+	RepairResponseRepaired = "repaired"
+	RepairResponseHandback = "handback"
+	RepairResponseBlocked  = "blocked"
+)
+
+// RepairResponses is the closed set of repair responses.
+var RepairResponses = []string{RepairResponseRepaired, RepairResponseHandback, RepairResponseBlocked}
+
+// RepairUnknownCause is the cause to report when it cannot be found.
+const RepairUnknownCause = "unknown"
+
+// ValidateRepair reports what the repair agent found and did. Git holds the
+// change; the agent does not echo code.
+type ValidateRepair struct {
+	Response string          `json:"response"`
+	Reason   string          `json:"reason,omitempty"`
+	Failures []RepairFailure `json:"failures,omitempty"`
+}
+
+// RepairFailure is one failing suite command as the repair agent understood it.
+// A repaired failure names the files changed and what was fixed; a handed-back
+// one names the objective Implement must carry out.
+type RepairFailure struct {
+	Command      string           `json:"command"`
+	Observed     string           `json:"observed"`
+	Cause        string           `json:"cause"`
+	Locations    []RepairLocation `json:"locations,omitempty"`
+	Expected     string           `json:"expected,omitempty"`
+	Objective    string           `json:"objective,omitempty"`
+	FilesChanged []string         `json:"files_changed,omitempty"`
+	// ChangeKinds declares the risky kinds of change (package, dependency,
+	// schema, api) the repair made; the factory also measures what it can see.
+	ChangeKinds []string `json:"change_kinds,omitempty"`
+	Fixed       string   `json:"fixed,omitempty"`
+}
+
+// RepairLocation points at a line of the tested snapshot.
+type RepairLocation struct {
+	Path string `json:"path"`
+	Line int    `json:"line,omitempty"`
 }
 
 // AssessmentStory retains criterion and review findings without acceptance.

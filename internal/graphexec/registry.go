@@ -6,6 +6,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -106,10 +107,43 @@ const AccessAttribute = "lf_access"
 // AccessValues are the closed access levels an agent node may declare.
 var AccessValues = []string{"read", "write"}
 
+// BudgetAttribute names the optional agent node attribute that bounds how long
+// one run of the node may take, in whole minutes. Absent means no bound.
+const BudgetAttribute = "lf_budget"
+
+// MaxAgentBudgetMinutes is the largest time budget a node may declare, so a typo
+// cannot turn a bounded agent into an effectively unbounded one.
+const MaxAgentBudgetMinutes = 60
+
+// AgentBudget reads the time budget a node declares, in whole minutes. The second
+// result is false when it declares none. A value that is not a whole number of
+// minutes from 1 to [MaxAgentBudgetMinutes] is an error. The graph package keeps
+// no clock, so the caller turns minutes into a duration.
+func AgentBudget(attrs map[string]string) (int, bool, error) {
+	value, present := attrs[BudgetAttribute]
+	if !present {
+		return 0, false, nil
+	}
+	minutes, err := strconv.Atoi(value)
+	if err != nil || minutes < 1 || minutes > MaxAgentBudgetMinutes {
+		return 0, false, fmt.Errorf("%s %q must be a whole number of minutes from 1 to %d", BudgetAttribute, value, MaxAgentBudgetMinutes)
+	}
+	return minutes, true, nil
+}
+
+func budgetValues() []string {
+	values := make([]string, 0, MaxAgentBudgetMinutes)
+	for minutes := 1; minutes <= MaxAgentBudgetMinutes; minutes++ {
+		values = append(values, strconv.Itoa(minutes))
+	}
+	return values
+}
+
 // AgentAttributes declares the optional attributes of the shared agent action.
 func AgentAttributes() map[string]AttributeSpec {
 	attrs := OwnerStopAttributes()
 	attrs[AccessAttribute] = AttributeSpec{Values: slices.Clone(AccessValues)}
+	attrs[BudgetAttribute] = AttributeSpec{Values: budgetValues()}
 	attrs["lf_response"] = AttributeSpec{Values: []string{"result"}}
 	return attrs
 }

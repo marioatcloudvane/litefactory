@@ -24,9 +24,6 @@ type ImplementScratch interface {
 	Head() string
 	// Path is the scratch worktree directory the checks run in.
 	Path() string
-	// Recipe reads the check recipe from the integration head, never from the
-	// story, so a story cannot change the checks it is judged by.
-	Recipe(ctx context.Context) ([]byte, error)
 	// Merge merges the story branch with a merge commit. A conflict is
 	// git.ErrMergeConflict and leaves the tree as it was; merged is false when
 	// the story is already part of the integration head.
@@ -82,10 +79,6 @@ type gitScratch struct {
 
 func (s *gitScratch) Head() string { return s.head }
 func (s *gitScratch) Path() string { return s.wt.Path() }
-
-func (s *gitScratch) Recipe(ctx context.Context) ([]byte, error) {
-	return s.wt.ReadBugCheckRecipe(ctx, s.head)
-}
 
 func (s *gitScratch) Merge(ctx context.Context, storyBranch string) (string, bool, error) {
 	res, err := s.wt.MergeBase(ctx, "refs/remotes/"+s.repo.Remote+"/"+storyBranch, git.MergeOptions{Author: s.repo.Author})
