@@ -304,7 +304,7 @@ func TestCreationProposalCatalog_DigestChangesWhenInstalled(t *testing.T) {
 	if installed != digestFor(true) {
 		t.Fatal("digest is not deterministic")
 	}
-	if submission.FamilyCatalogVersion != "families-v3" {
+	if submission.FamilyCatalogVersion != "families-v4" {
 		t.Fatalf("catalog version %q", submission.FamilyCatalogVersion)
 	}
 }
