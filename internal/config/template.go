@@ -23,6 +23,12 @@ func DefaultFileContents() []byte {
 # references only: token_keychain names a Keychain item; token_env, shown as
 # the commented alternative below, names an environment variable.
 
+validate:
+  # Start Validate by itself once Implement has merged every story. Off by
+  # default: the owner starts it with /validate. Loaded at startup; changes
+  # require a daemon restart.
+  auto_start: %t
+
 webhook:
   # Local address the GitHub webhook listener binds, as host:port. Deliveries
   # arrive at /litefactory/webhook and only wake a scoped discovery pass. Empty
@@ -128,6 +134,7 @@ tiers:
 tool_profiles:
   permissions:
 `,
+		d.ValidateMode.AutoStart,
 		d.Webhook.Listen,
 		d.Webhook.PublicURL,
 		d.Settings.PollIntervalMinutes, MinPollIntervalMinutes, MaxPollIntervalMinutes,

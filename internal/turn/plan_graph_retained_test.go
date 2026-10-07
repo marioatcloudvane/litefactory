@@ -51,6 +51,11 @@ func newRetainedFixture(t *testing.T, mode string) *retainedFixture {
 			return ar.Context{SchemaVersion: 1, WorkflowVersion: 2, Mode: "implement", Stories: map[string]agent.ContributionStory{"story-001": {Revision: strings.Repeat("ab", 32)}}, EngineeringComplete: map[string]bool{"story-001": true}}, nil
 		}
 		f.policy, f.result = ImplementWorkflowPolicy(), retainedImplementResult
+	case "validate":
+		o.Resolve = func(context.Context) (ar.Context, error) {
+			return ar.Context{SchemaVersion: 1, WorkflowVersion: 2, Mode: "validate", RepairRole: true, WriteAccess: true}, nil
+		}
+		f.policy, f.result = ValidateWorkflowPolicy(), retainedValidateResult
 	default:
 		f.policy, f.result = ResearchWorkflowPolicy(), retainedResearchResult
 	}
@@ -494,4 +499,6 @@ func TestAgentResultService_GraphPlanBranchesAndCorrection(t *testing.T) {
 }
 
 // retainedImplementResult is the accepted result of an Implement story worker.
+const retainedValidateResult = `{"outcome":"completed","comment":"Fixed the sum.","payload":{"validate":{"repair":{"response":"repaired","failures":[{"command":"go test ./...","observed":"TestTotal fails","cause":"wrong sum","files_changed":["a.go"],"fixed":"Fixed the sum."}]}}}}`
+
 const retainedImplementResult = `{"outcome":"completed","comment":"The story is built and its unit tests pass.","payload":{"implement":{"stories":[]}}}`

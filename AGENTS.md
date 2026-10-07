@@ -71,10 +71,19 @@ Prefer `make build` only as the operator — see the prohibition above.
 - Driver is `modernc.org/sqlite`, driver name `"sqlite"` (not `"sqlite3"`). The
   pool is capped at **one** connection: a correctness requirement, not a tuning
   knob — read `internal/store/store.go`'s doc comment before changing it.
-- Migrations are hand-rolled and embedded: `internal/store/migrations/NNNN_*.sql`
+- Migrations are hand-rolled and embedded: `internal/store/migrations/*.sql`
   via `//go:embed`, one transaction per file, version from the filename prefix,
   recorded in `schema_migrations`. A schema change is a new `.sql` file and
   nothing else — no migration library.
+- New migrations use a fresh UTC millisecond timestamp per file:
+  `YYYYMMDDHHMMSSmmm_description.sql` (for example,
+  `20261007130500123_example.sql`), never the local maximum plus one.
+  Check the local directory for duplicate numeric prefixes before writing;
+  timestamps reduce collisions but do not guarantee uniqueness. Give dependent
+  migrations increasing versions in dependency order; timestamps do not validate
+  SQL dependencies. Keep historical/applied filenames unchanged. If Implement
+  parks a migration conflict, rename only the story's new, unapplied migration
+  and recheck against current integration when the owner resumes the story.
 - `store.Open` does not migrate; call `store.Migrate` explicitly. Every accessor
   takes `ctx` first.
 
