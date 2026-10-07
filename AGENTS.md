@@ -58,9 +58,13 @@ modes, lifecycle, managed stories, Plan continuation and the story protocol are 
 ## Build, test, lint
 
 `go build ./...` and `go vet ./...` are safe any time. `make check` runs
-`fmt vet lint test` in order, stops at the first failure, and is what CI
-enforces — run it before calling a change finished. `make test` is the full
-suite with `-race`. `gofmt -l .` must report nothing. `make lint` runs a pinned
+`fmt vet lint test` in order, stops at the first failure, and is what CI and
+Validate enforce. `make test` is the full suite with `-race`; on the shared
+factory machine it takes over an hour and fails on timing under load. A
+factory story worker or bug fixer does not run `make check` or `make test`:
+it builds the repository, runs every package it changed completely (with
+`-race` only where that is fast), and lints them; the full suite belongs to
+Validate. `gofmt -l .` must report nothing. `make lint` runs a pinned
 golangci-lint v2 against a v2 `.golangci.yml`; never an unpinned or v1 linter.
 Prefer `make build` only as the operator — see the prohibition above.
 
