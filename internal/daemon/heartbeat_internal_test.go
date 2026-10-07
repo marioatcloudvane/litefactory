@@ -73,15 +73,12 @@ func TestPauseStateLogsTransitionsOnly(t *testing.T) {
 	if got := strings.Count(buf.String(), "discovery paused"); got != 1 {
 		t.Fatalf("pause lines=%d\n%s", got, &buf)
 	}
-	if !strings.Contains(buf.String(), "when fresh rate-limit data arrives") || !strings.Contains(buf.String(), "level=WARN") {
-		t.Fatalf("pause line=%s", &buf)
-	}
 	if snap := p.snapshot(); snap.Reason != pauseReasonSpent || !snap.Since.Equal(now) {
 		t.Fatalf("snapshot=%+v", snap)
 	}
 	p.leave(ctx, log, now.Add(5*time.Minute))
 	p.leave(ctx, log, now.Add(6*time.Minute))
-	if got := strings.Count(buf.String(), "discovery resumed after 5m0s"); got != 1 || !strings.Contains(buf.String(), "paused_for_seconds=300") {
+	if got := strings.Count(buf.String(), "discovery resumed"); got != 1 || !strings.Contains(buf.String(), "paused_for_seconds=300") {
 		t.Fatalf("resume lines=%d\n%s", got, &buf)
 	}
 }

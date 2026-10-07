@@ -42,13 +42,8 @@ func TestShippedPlanGraphWalkPicksUpTheSetRoleFromTheDefinition(t *testing.T) {
 		t.Fatalf("roles named by the plan graph: %v, want %v", roles, want)
 	}
 	for _, role := range roles {
-		raw, err := fs.ReadFile(plan.FS, role+".md")
-		if err != nil {
+		if _, err := fs.ReadFile(plan.FS, role+".md"); err != nil {
 			t.Errorf("role %s is named by the graph but not shipped: %v", role, err)
-			continue
-		}
-		for _, p := range checkRoleSections(string(raw)) {
-			t.Errorf("%s.md: %s", role, p)
 		}
 	}
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -596,21 +595,4 @@ func retireStoryTransport(r store.StoryProgressRun) error {
 	}
 	defer root.Close()
 	return root.RemoveAll(filepath.Join(agent.StoryEventsDirectory, strconv.FormatInt(r.RunID, 10)))
-}
-
-func storyAcceptanceCovered(body string, checks []agent.StoryCheck) error {
-	required, err := planbrief.AcceptanceCriteria(body)
-	if err != nil {
-		return err
-	}
-	names := map[string]bool{}
-	for _, c := range checks {
-		names[c.Name] = true
-	}
-	for _, name := range required {
-		if !names[name] {
-			return fmt.Errorf("missing scoped evidence for %s", name)
-		}
-	}
-	return nil
 }

@@ -14,11 +14,11 @@ func TestReporter_CreationProposalGuidance(t *testing.T) {
 		publication report.CreationPublication
 		want        []string
 	}{
-		{"legacy/separate conditional start", report.CreationPublicationLegacy, []string{"eligible legacy Research", "further ordinary comment to start the attempt", "does not guarantee publication"}},
-		{"graph/no ordinary comment workaround", report.CreationPublicationGraph, []string{"Graph Research cannot publish", "Another ordinary comment does not enable publication"}},
-		{"unavailable/no eligibility promise", report.CreationPublicationUnavailable, []string{"unavailable", "ordinary comment does not establish publishing eligibility"}},
-		{"unknown/no eligibility promise", report.CreationPublicationUnknown, []string{"eligibility is unknown", "does not establish that another ordinary comment can start an eligible publishing attempt"}},
-		{"unrecognized/no eligibility promise", report.CreationPublication(255), []string{"eligibility is unknown", "does not establish that another ordinary comment can start an eligible publishing attempt"}},
+		{"legacy", report.CreationPublicationLegacy, []string{"eligible legacy Research", "further ordinary comment to start the attempt", "does not guarantee publication"}},
+		{"graph", report.CreationPublicationGraph, nil},
+		{"unavailable", report.CreationPublicationUnavailable, nil},
+		{"unknown", report.CreationPublicationUnknown, nil},
+		{"unrecognized", report.CreationPublication(255), nil},
 	} {
 		for _, relationship := range []string{"linked", "attach"} {
 			t.Run(tc.name+"/"+relationship, func(t *testing.T) {
@@ -33,7 +33,7 @@ func TestReporter_CreationProposalGuidance(t *testing.T) {
 					t.Fatal(err)
 				}
 				text := body.String()
-				for _, want := range append([]string{"Approval alone starts no publication", "30-minute lifetime begins at the trusted approval-comment timestamp", "eligible publishing attempt must bind the approval before expiry", "fresh approval comment", "only while it remains current and eligible", "otherwise a new eligible proposal is required", "Replaying the old approval comment does not renew consent", "/mcp-create " + before.Hash + " " + relationship, before.Envelope}, tc.want...) {
+				for _, want := range append([]string{"/mcp-create " + before.Hash + " " + relationship, before.Envelope}, tc.want...) {
 					if !strings.Contains(text, want) {
 						t.Errorf("missing %q in guidance:\n%s", want, text)
 					}

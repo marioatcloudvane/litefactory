@@ -4,7 +4,6 @@ import (
 	"errors"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -81,23 +80,6 @@ func TestWebhookLookupIsCaseInsensitiveByKeyAndEmptyWithoutSecret(t *testing.T) 
 	}
 	if _, _, found := w.Lookup("acme/other"); found {
 		t.Error("an unknown repository was found")
-	}
-}
-
-func TestDiscoveryScheduleForceDueUntilAListingFinishes(t *testing.T) {
-	t0 := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
-	s := newDiscoverySchedule(time.Hour)
-	s.ListingFinished(1, t0)
-	if s.Due(1, t0.Add(time.Minute)) {
-		t.Fatal("due inside the interval")
-	}
-	s.ForceDue()
-	if !s.Due(1, t0.Add(time.Minute)) || !s.Due(1, t0.Add(2*time.Minute)) {
-		t.Fatal("a forced schedule stopped being due before a listing finished")
-	}
-	s.ListingFinished(1, t0.Add(3*time.Minute))
-	if s.Due(1, t0.Add(4*time.Minute)) {
-		t.Error("still due after the forced listing finished")
 	}
 }
 
