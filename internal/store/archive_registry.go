@@ -119,6 +119,7 @@ var archiveRegistry = []ArchiveTable{
 	// Comment operations.
 	archived("comment_operations", byRun),
 	archived("family_requests", byRun),
+	archived("implement_progress_reports", byParent),
 	// Bug tasks.
 	archived("bug_analyses", bySession),
 	archived("bug_checks", bySession),
