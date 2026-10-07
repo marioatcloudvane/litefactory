@@ -54,8 +54,7 @@ func assetURLAllowed(u *url.URL) bool {
 // attachment — and returns them as an unread stream, alongside the
 // response's declared, unsniffed Content-Type header. The caller is
 // internal/attach, through an interface it declares at its own point of
-// use: this package exports no Forge-shaped abstraction (see doc.go and
-// surface_test.go's TestNoForgeAbstraction).
+// use: this package exports no Forge-shaped abstraction (see doc.go).
 //
 // This is the only place litefactory dials an attachment host, and it does
 // so with the same authenticated *http.Client every other method in this

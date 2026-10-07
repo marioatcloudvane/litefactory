@@ -69,7 +69,7 @@ type Options struct {
 // It is a concrete struct wrapping the SDK client, deliberately not an
 // interface: the Forge protocol is still LF-18's to extract from a second
 // working implementation, and adopting a dependency did not change that
-// (see the package documentation, and TestNoForgeAbstraction).
+// (see the package documentation).
 //
 // It is safe for concurrent use and it retries nothing: a [RateLimitError]
 // comes straight back to the caller with the delay GitHub asked for, and the

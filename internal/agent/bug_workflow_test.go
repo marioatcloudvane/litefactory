@@ -32,8 +32,8 @@ func TestBugWorkflow_ModeCompatibility(t *testing.T) {
 	for _, value := range []string{"bug", "unknown", "", "Bug", " bug"} {
 		t.Run("standalone_or_invalid/"+value, func(t *testing.T) {
 			t.Parallel()
-			workflow, ok := agent.ParseWorkflow(value)
-			if ok != (value == "bug") {
+			workflow := agent.Workflow(value)
+			if ok := workflow.Valid(); ok != (value == "bug") {
 				t.Fatalf("workflow parse = %q %v", workflow, ok)
 			}
 			if mode, ok := workflow.Mode(); ok || mode != "" {
