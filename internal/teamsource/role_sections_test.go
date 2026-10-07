@@ -42,7 +42,7 @@ type shippedWorkflow struct {
 // it. A new workflow directory with a graph but no entry here fails the walk, so
 // it cannot ship uncovered.
 func embeddedWorkflowRoots() map[string]fs.FS {
-	return map[string]fs.FS{"plan": planAssets, "research": researchAssets, "bug": bugAssets, "spike": spikeAssets, "implement": implementAssets}
+	return map[string]fs.FS{"plan": planAssets, "research": researchAssets, "bug": bugAssets, "spike": spikeAssets, "implement": implementAssets, "validate": validateAssets}
 }
 
 // discoverShippedWorkflows finds workflow packages from the source layout (any
@@ -105,6 +105,13 @@ func dotAgentRoles(dot string) []string {
 			attrs[attr[1]] = attr[2]
 		}
 		role := attrs["lf_agent_markdown"]
+		// A step that starts agents itself names them in lf_roles.
+		for _, named := range strings.Split(attrs["lf_roles"], ",") {
+			if named = strings.TrimSpace(named); named != "" && !seen[named] {
+				seen[named] = true
+				roles = append(roles, named)
+			}
+		}
 		if role == "" && attrs["lf_action"] != "lf_agent" {
 			continue
 		}
@@ -227,7 +234,7 @@ func TestShippedWorkflowRolesHaveTheNineSections(t *testing.T) {
 			roleCount[w.Name+"/"+role]++
 		}
 	}
-	for _, want := range []string{"research/research", "research/shaping", "plan/plan-story", "plan/plan-technical", "plan/plan-acceptance", "bug/bug-analyst", "bug/bug-fixer", "spike/spike-investigator", "spike/spike-fixer", "implement/story-worker"} {
+	for _, want := range []string{"research/research", "research/shaping", "plan/plan-story", "plan/plan-technical", "plan/plan-acceptance", "bug/bug-analyst", "bug/bug-fixer", "spike/spike-investigator", "spike/spike-fixer", "implement/story-worker", "validate/validate-repair", "validate/validate-acceptance", "validate/validate-code", "validate/validate-architecture"} {
 		if roleCount[want] == 0 {
 			t.Errorf("shipped graphs no longer name role %s", want)
 		}

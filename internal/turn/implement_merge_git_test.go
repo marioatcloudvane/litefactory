@@ -231,3 +231,111 @@ func TestImplementMergeGitStoryAlreadyOnTheIntegrationBranchIsRecordedWithoutChe
 		t.Fatal("nothing more to publish, one note")
 	}
 }
+
+func TestImplementMergeGitIndependentTimestampMigrations(t *testing.T) {
+	g := newImplementGit(t, implementStories(2, nil)...)
+	const one = "internal/store/migrations/20261007130500123_one.sql"
+	const two = "internal/store/migrations/20261007130500124_two.sql"
+	g.pushStory("story-001", one, "CREATE TABLE one (id INTEGER);\n")
+	g.pushStory("story-002", two, "CREATE TABLE two (id INTEGER);\n")
+	g.start("story-001", "story-002")
+	for range 2 {
+		if res, out, err := g.merge(); err != nil || res.Outcome != "merged" {
+			t.Fatalf("%s %+v %v", res.Outcome, out, err)
+		}
+	}
+	if g.remoteFile(one) != "CREATE TABLE one (id INTEGER);" || g.remoteFile(two) != "CREATE TABLE two (id INTEGER);" {
+		t.Fatal("combined migration contents changed")
+	}
+	if g.scratchLeft() != 0 || g.forge.posts != 2 {
+		t.Fatal("expected cleanup and both merged notes")
+	}
+}
+
+func TestImplementMergeGitDuplicateMigrationParksAndResumes(t *testing.T) {
+	g := newImplementGit(t, implementStories(2, nil)...)
+	const one = "internal/store/migrations/20261007130500123_one.sql"
+	const two = "internal/store/migrations/20261007130500123_two.sql"
+	const renamed = "internal/store/migrations/20261007130500124_two.sql"
+	g.pushStory("story-001", one, "CREATE TABLE one (id INTEGER);\n")
+	g.pushStory("story-002", two, "CREATE TABLE two (id INTEGER);\n")
+	g.start("story-001", "story-002")
+	if res, _, err := g.merge(); err != nil || res.Outcome != "merged" {
+		t.Fatalf("first: %s %v", res.Outcome, err)
+	}
+	before := g.remoteFeature()
+	res, out, err := g.merge()
+	if err != nil || res.Outcome != "parked" {
+		t.Fatalf("%s %+v %v", res.Outcome, out, err)
+	}
+	for _, want := range []string{filepath.Base(one), filepath.Base(two), "share version 20261007130500123"} {
+		if !strings.Contains(out.Reason, want) {
+			t.Fatalf("reason %q missing %q", out.Reason, want)
+		}
+	}
+	if g.remoteFeature() != before || g.forge.posts != 1 || len(g.forge.bodies(12)) != 0 || g.scratchLeft() != 0 {
+		t.Fatal("duplicate published, posted or leaked scratch")
+	}
+	if row := g.row("story-002"); row.State != store.ImplementParked || row.Reason != out.Reason {
+		t.Fatalf("row: %+v", row)
+	}
+	rt := &implementRuntime{opts: Options{DB: g.db}, parentRef: implementParent, generation: 1}
+	if n, err := rt.resumeStories(t.Context(), "retry story-002 with a fresh migration timestamp"); err != nil || n != 1 {
+		t.Fatalf("resume %d: %v", n, err)
+	}
+	g.repo.Git("checkout", "--quiet", "lf/story-002")
+	g.repo.Git("mv", two, renamed)
+	g.repo.Commit("rename only the unapplied migration")
+	g.repo.Git("push", "--quiet", "origin", "lf/story-002")
+	g.repo.Git("checkout", "--quiet", gittest.DefaultBranch)
+	g.start("story-002")
+	if res, out, err = g.merge(); err != nil || res.Outcome != "merged" {
+		t.Fatalf("resumed: %s %+v %v", res.Outcome, out, err)
+	}
+	if g.remoteFile(renamed) != "CREATE TABLE two (id INTEGER);" || g.scratchLeft() != 0 {
+		t.Fatal("rename did not land cleanly")
+	}
+}
+
+func TestImplementMergeGitPushRaceRechecksMigrationVersions(t *testing.T) {
+	g := newImplementGit(t, implementStories(1, nil)...)
+	g.pushStory("story-001", "internal/store/migrations/20261007130500123_one.sql", "SELECT 1;\n")
+	g.start("story-001")
+	g.bindings.Repo = &movingRepo{ImplementRepo: g.bindings.Repo, advance: func() {
+		g.repo.Git("checkout", "--quiet", implementFeature)
+		g.repo.WriteFile("internal/store/migrations/20261007130500123_rival.sql", "SELECT 2;\n")
+		g.repo.Commit("rival migration")
+		g.repo.Git("push", "--quiet", "origin", implementFeature)
+		g.repo.Git("checkout", "--quiet", gittest.DefaultBranch)
+	}}
+	if res, _, err := g.merge(); err != nil || res.Outcome != "retry" {
+		t.Fatalf("first: %s %v", res.Outcome, err)
+	}
+	before := g.remoteFeature()
+	if res, out, err := g.merge(); err != nil || res.Outcome != "parked" || !strings.Contains(out.Reason, "share version") {
+		t.Fatalf("retry: %s %+v %v", res.Outcome, out, err)
+	}
+	if g.remoteFeature() != before || g.forge.posts != 0 || g.scratchLeft() != 0 {
+		t.Fatal("revalidated conflict published or leaked")
+	}
+}
+
+func TestImplementMergeGitMigrationInspectionFailuresPreventPublication(t *testing.T) {
+	for _, tc := range []struct{ name, file string }{
+		{"parse", "internal/store/migrations/bad.sql"},
+		{"not a directory", "internal/store/migrations"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := newImplementGit(t, implementStories(1, nil)...)
+			g.pushStory("story-001", tc.file, "SELECT 1;\n")
+			g.start("story-001")
+			before := g.remoteFeature()
+			if _, _, err := g.merge(); err == nil || !strings.Contains(err.Error(), "inspect migrations") {
+				t.Fatalf("expected inspection failure, got %v", err)
+			}
+			if g.remoteFeature() != before || g.forge.posts != 0 || g.scratchLeft() != 0 || g.row("story-001").State != store.ImplementDone {
+				t.Fatal("inspection failure changed state or leaked")
+			}
+		})
+	}
+}

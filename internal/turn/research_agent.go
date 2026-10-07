@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -28,6 +29,14 @@ func researchNodeGuidance() string {
 }
 
 const researchNodeHardRules = "\nResult shapes: to ask the owner, submit result.outcome incomplete with a nonblank result.reason and a nonempty result.questions, each naming audience business or technical; when the work is done, submit result.outcome completed with no result.questions. For more investigation without an owner decision, submit incomplete with a reason, cumulative findings and payload.research.continue=true, without questions. Any other shape fails the step. Approval is the owner's reply, never something you claim. Read the research-evidence skill's node-result resource for the worked result of each shape, the artifact path rules and the correction contract, before you submit.\n"
+
+// agentBudgetClock maps a declared time budget to the time the run really gets.
+// It is the identity; a test shortens it so a budget can be spent in moments.
+var agentBudgetClock = func(d time.Duration) time.Duration { return d }
+
+// ErrAgentTimedOut marks an agent attempt cancelled because its declared time
+// budget ran out. The attempt is recorded as timed out before it is returned.
+var ErrAgentTimedOut = errors.New("agent run exceeded its time budget")
 
 // ResearchInvocation contains factory-prepared delivery and result authority.
 // Close joins the live helper transports before exit-time result validation.
@@ -166,21 +175,42 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	if invocation.Observe != nil {
 		invocation.Observe(req)
 	}
-	result, runErr := RunResearchMetered(ctx, opts.DB, invocation.Kind, req, runner)
-	if errors.Is(runErr, agent.ErrSessionNotResumable) && invocation.ColdRequest != nil && ctx.Err() == nil {
+	// A node that declares a time budget is cancelled when it runs out. The
+	// budget bounds the agent run only, never anything the factory does after it.
+	minutes, budgeted, err := graphexec.AgentBudget(a.Attrs)
+	if err != nil {
+		return out, err
+	}
+	budget := time.Duration(minutes) * time.Minute
+	runCtx := ctx
+	if budgeted {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, agentBudgetClock(budget))
+		defer cancel()
+	}
+	result, runErr := RunResearchMetered(runCtx, opts.DB, invocation.Kind, req, runner)
+	if errors.Is(runErr, agent.ErrSessionNotResumable) && invocation.ColdRequest != nil && runCtx.Err() == nil {
 		cold := *invocation.ColdRequest
 		cold.Invocation, cold.Graph = req.Invocation, req.Graph
 		cold.Path = agent.PathColdAfterResumeRefused
 		if invocation.Observe != nil {
 			invocation.Observe(cold)
 		}
-		result, runErr = RunResearchMetered(ctx, opts.DB, invocation.Kind, cold, runner)
+		result, runErr = RunResearchMetered(runCtx, opts.DB, invocation.Kind, cold, runner)
 	}
 	var closeErr error
 	if invocation.Close != nil {
 		closeErr = invocation.Close()
 	}
 	closed = true
+	if budgeted && ctx.Err() == nil && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		if result != nil {
+			out.ProcessResult = result.Clone()
+		}
+		out.Diagnostic = fmt.Sprintf("the agent ran out of its %d-minute time budget and was cancelled", int(budget/time.Minute))
+		recordErr := opts.DB.RecordAttemptTimeout(context.WithoutCancel(ctx), store.AttemptTimeout{NodeAttemptID: a.NodeAttemptID, Budget: budget, TimedOutAt: spikeNow(opts)})
+		return out, errors.Join(ErrAgentTimedOut, runErr, closeErr, recordErr)
+	}
 	if result == nil {
 		return out, errors.Join(errors.New("research invocation produced no process result"), runErr, closeErr)
 	}
