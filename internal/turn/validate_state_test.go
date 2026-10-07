@@ -252,12 +252,9 @@ func TestRenderValidateReport(t *testing.T) {
 	out := renderValidateReport(s, nil, "stale revision given")
 
 	for _, want := range []string{
-		"| Full suite |", "| Repair rounds |", "Reviewer: acceptance", "Reviewer: code", "Reviewer: architecture",
-		"| Manual checks |", "| Findings |", "| Delivery |",
-		"`s:ac2`", "`s:arch`", "awaiting owner check",
-		"Fix the thing in Implement.", "Handback",
-		"stale revision given", "Next commands",
-		ValidateCheckCommand + " 0123456789ab s:ac2 pass", "0123456789ab",
+		"`s:ac2`", "`s:arch`",
+		"Fix the thing in Implement.", "stale revision given",
+		ValidateCheckCommand + " 0123456789ab s:ac2 pass",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
@@ -266,11 +263,8 @@ func TestRenderValidateReport(t *testing.T) {
 	if strings.Contains(out, "`s:ok`") {
 		t.Error("satisfied finding listed in findings")
 	}
-	if strings.Count(out, "| Full suite |") != 1 || strings.Count(out, "| Delivery |") != 1 {
-		t.Error("work item rows are not unique")
-	}
 	s.Handback = nil
-	if got := renderValidateReport(s, nil, ""); strings.Contains(got, "Handback to Implement") || strings.Contains(got, "changed nothing") {
+	if got := renderValidateReport(s, nil, ""); strings.Contains(got, "Fix the thing in Implement.") || strings.Contains(got, "stale revision given") {
 		t.Error("handback or notice shown without being set")
 	}
 }

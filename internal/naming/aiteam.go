@@ -93,20 +93,6 @@ func AITeamBranchDir(branch string) (string, error) {
 	return path.Join(AITeamDirName, dir), nil
 }
 
-// ResearchBriefPath returns the repository-relative path of the research brief
-// for one aiteam session: [AITeamSessionDir] plus [ResearchBriefName].
-//
-// A session that has not run Research has no such file. This is a derivation,
-// not a discovery, and it says where the brief would be — see
-// [AITeamSessionDir].
-func ResearchBriefPath(branch string, day time.Time, slug string) (string, error) {
-	dir, err := AITeamSessionDir(branch, day, slug)
-	if err != nil {
-		return "", err
-	}
-	return path.Join(dir, ResearchBriefName), nil
-}
-
 // SlugFromBranch recovers the feature slug frozen into a task branch. It is the
 // inverse of [Branch]: given "lf/123-fix-the-thing" and issue 123 it returns
 // "fix-the-thing".

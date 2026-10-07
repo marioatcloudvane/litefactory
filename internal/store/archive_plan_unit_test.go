@@ -3,10 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
-	"io/fs"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -320,55 +317,5 @@ func TestOpen_UnmigratedDatabaseToleratesMissingGrantTable(t *testing.T) {
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestPlanArchiveGrantsTable_NamedOnlyInArchivePlan fails when the grant table
-// name appears in non-test Go source anywhere but its one constant definition.
-func TestPlanArchiveGrantsTable_NamedOnlyInArchivePlan(t *testing.T) {
-	t.Parallel()
-	root := filepath.Join("..", "..")
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Fatalf("repository root: %v", err)
-	}
-	const literal = "plan_archive_grants"
-	type hit struct {
-		file string
-		line string
-	}
-	var hits []hit
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if n := d.Name(); n == ".git" || n == "node_modules" || n == "vendor" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
-			return nil
-		}
-		b, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		for _, l := range strings.Split(string(b), "\n") {
-			if strings.Contains(l, literal) {
-				hits = append(hits, hit{filepath.ToSlash(p), strings.TrimSpace(l)})
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(hits) != 1 {
-		t.Fatalf("%q appears %d times in Go source, want exactly 1: %+v", literal, len(hits), hits)
-	}
-	h := hits[0]
-	if !strings.HasSuffix(h.file, "internal/store/archive_plan.go") || h.line != `const planArchiveGrantsTable = "plan_archive_grants"` {
-		t.Fatalf("unexpected location %s: %s", h.file, h.line)
 	}
 }

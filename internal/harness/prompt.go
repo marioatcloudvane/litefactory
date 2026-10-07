@@ -692,8 +692,7 @@ func writeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	//
 	// The two are composed with a single space rather than split into two
 	// paragraphs, because the untagged output has to be the same bytes it was
-	// before this branch existed (AC-A1.1) — one line, one paragraph, as
-	// TestSpikePromptIsUnchanged pins it.
+	// before this branch existed (AC-A1.1) — one line, one paragraph.
 	b.WriteString("\n")
 	if in.MayAsk {
 		b.WriteString(askingRule)

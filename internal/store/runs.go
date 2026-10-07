@@ -680,21 +680,6 @@ func (db *DB) GetRunByTrigger(ctx context.Context, sessionID, triggerCommentID i
 	return run, true, nil
 }
 
-// GetRunByOrdinal reads a run by its per-session ordinal — the NNNN a person
-// types into `litefactory logs 123 --run 2`. exists is false when the session
-// has no such run.
-func (db *DB) GetRunByOrdinal(ctx context.Context, sessionID int64, ordinal int) (Run, bool, error) {
-	run, err := scanRun(db.sql.QueryRowContext(ctx,
-		`SELECT `+runColumns+` FROM runs WHERE session_id = ? AND ordinal = ?`, sessionID, ordinal))
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return Run{}, false, nil
-	case err != nil:
-		return Run{}, false, fmt.Errorf("store: read run %d on session %d: %w", ordinal, sessionID, err)
-	}
-	return run, true, nil
-}
-
 // ListRuns returns a session's runs in ordinal order — oldest first, newest
 // last, which is the order `logs` prints them in (AC-5.1).
 func (db *DB) ListRuns(ctx context.Context, sessionID int64) ([]Run, error) {

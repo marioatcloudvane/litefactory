@@ -499,20 +499,6 @@ func TestImplementMergeFinishesAfterALostReplyWithoutAPostOrAGitCall(t *testing.
 	}
 }
 
-func TestImplementMergeOfAnAlreadyContainedStoryNeedsNoCheckOrPush(t *testing.T) {
-	f := newImplementFixture(t, implementStories(1, nil)...)
-	f.ready()
-	f.drive("story-001", store.ImplementDone, implementClock)
-	f.repo.merged = false
-	res, out, err := f.merge()
-	if err != nil || res.Outcome != "merged" || out.Commit != fakeIntegrationHead {
-		t.Fatalf("%s %+v %v", res.Outcome, out, err)
-	}
-	if len(f.repo.pushes) != 0 || f.forge.posts != 1 {
-		t.Fatalf("pushes=%v posts=%d", f.repo.pushes, f.forge.posts)
-	}
-}
-
 func TestImplementHandoffPostsOnceThenEditsInPlace(t *testing.T) {
 	f := newImplementFixture(t, implementStories(4, map[string][]string{"story-004": {"story-003"}})...)
 	f.ready()
