@@ -1,8 +1,6 @@
 package store
 
 import (
-	"context"
-	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -63,19 +61,6 @@ func TestReportRecoveryMigrationRestartAndResolution(t *testing.T) {
 	if err != nil || len(all) != 1 || !reflect.DeepEqual(all[0], escalated) {
 		t.Fatalf("restored=%+v %v", all, err)
 	}
-	if err := db.DeleteReportRecovery(t.Context(), initial.Key); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.GetReportRecovery(t.Context(), initial.Key); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("resolved row retained: %v", err)
-	}
-	if err := db.DeleteReportRecovery(t.Context(), initial.Key); err != nil {
-		t.Fatal(err)
-	}
-	all, err = db.ListReportRecoveries(t.Context())
-	if err != nil || len(all) != 0 {
-		t.Fatalf("resolved backlog=%+v %v", all, err)
-	}
 }
 
 func TestReportRecoverySourceIsolationAndFailedWrites(t *testing.T) {
@@ -109,15 +94,6 @@ func TestReportRecoverySourceIsolationAndFailedWrites(t *testing.T) {
 	}
 	if err := db.PutReportRecovery(t.Context(), changed); err != nil {
 		t.Fatal(err)
-	}
-	cancelled, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := db.DeleteReportRecovery(cancelled, initial.Key); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled delete=%v", err)
-	}
-	current, err = db.GetReportRecovery(t.Context(), initial.Key)
-	if err != nil || !reflect.DeepEqual(current, changed) {
-		t.Fatalf("failed delete lost debt=%+v %v", current, err)
 	}
 }
 

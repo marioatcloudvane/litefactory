@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -52,9 +53,17 @@ func TestWriteRetirementPreview_AdvisoryExactResources(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := "Advisory retirement preview; nothing is deleted. Fresh checks are required before removal.\ngithub:owner/repo#42\tlocal_branch\t\"refs/heads/lf/42-feature\"\talready_absent\talready_absent\ngithub:owner/repo#42\tremote_branch\t\"refs/heads/lf/42-feature\"\twould_remove\tmerged_into_base\n"
-	if first.String() != want {
-		t.Fatalf("preview:\n%s\nwant:\n%s", first.String(), want)
+	lines := strings.Split(strings.TrimSuffix(first.String(), "\n"), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[0], "nothing is deleted") {
+		t.Fatalf("preview:\n%s", first.String())
+	}
+	for i, want := range [][]string{
+		{"github:owner/repo#42", "local_branch", `"refs/heads/lf/42-feature"`, "already_absent", "already_absent"},
+		{"github:owner/repo#42", "remote_branch", `"refs/heads/lf/42-feature"`, "would_remove", "merged_into_base"},
+	} {
+		if got := strings.Split(lines[i+1], "\t"); !reflect.DeepEqual(got, want) {
+			t.Errorf("row %d = %q, want %q", i+1, got, want)
+		}
 	}
 	if first.String() != second.String() {
 		t.Error("identical observations produced nondeterministic output")

@@ -264,13 +264,6 @@ func closeAssignment(ctx context.Context, tx *sql.Tx, repoID, id, actor int64, a
 	return a, appendRightsHistory(ctx, tx, repoID, at, actor, "remove", id, a)
 }
 
-// CreateReviewerAssignment stores an assignment and its history row.
-// AssignedBy is the actor and CreatedAt the change time.
-func (db *DB) CreateReviewerAssignment(ctx context.Context, a ReviewerAssignment) (ReviewerAssignment, error) {
-	out, err := db.ReplaceReviewerAssignment(ctx, a, false)
-	return out, err
-}
-
 // ReplaceReviewerAssignment closes every open assignment of the same
 // repository, task and stage, then stores the new one, all in one transaction.
 // Each closed assignment and the new one write one history row each. With
