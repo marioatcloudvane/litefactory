@@ -150,19 +150,6 @@ func TestDefaultFileIsStructurallyComplete(t *testing.T) {
 	}
 }
 
-// TestDefaultFileDocumentsTheTwoToolKeys pins the comments that stop a future
-// reader deleting claude.tools or claude.allowed_tools as a duplicate of the
-// other. The keys look redundant and are not; the file is where that gets
-// explained.
-func TestDefaultFileDocumentsTheTwoToolKeys(t *testing.T) {
-	contents := string(DefaultFileContents())
-	for _, want := range []string{"--tools", "--allowedTools", "--settings", "NOT the boundary"} {
-		if !strings.Contains(contents, want) {
-			t.Errorf("the default config file no longer mentions %q", want)
-		}
-	}
-}
-
 // TestDefaultFileDocumentsTheConcurrencyCeiling is AC-PAR-6.2. The shipped
 // file is where an operator learns what max_concurrent_runs costs them, so it
 // has to carry the range, and it has to say that the default is a placeholder

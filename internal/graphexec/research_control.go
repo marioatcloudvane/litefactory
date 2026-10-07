@@ -14,11 +14,6 @@ const (
 	ResearchIfAction   = "lf_if"
 )
 
-// ResearchControlSpec declares data-only string comparisons, never expressions.
-func ResearchControlSpec(action string) ActionSpec {
-	return ControlSpec(action, ResearchControlPolicy())
-}
-
 // ControlPolicy is the admitted mode's closed response and owner-gate vocabulary.
 type ControlPolicy struct {
 	Generation          string

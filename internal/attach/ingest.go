@@ -90,8 +90,7 @@ const cancelledDetail = "the run ended before it was fetched"
 // It is declared here, at the point of use, rather than exported by the
 // package that implements it — the same reason internal/turn declares
 // SubIssueCreator for itself. *github.Client satisfies it, and
-// internal/github stays free of a Forge-shaped abstraction of its own
-// (surface_test.go's TestNoForgeAbstraction).
+// internal/github stays free of a Forge-shaped abstraction of its own.
 //
 // An implementation is expected to enforce its own SSRF allow-list before
 // dialing and on every redirect hop. [IsAssetURL] in this package filters
