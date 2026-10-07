@@ -49,7 +49,7 @@ func TestResearchOwnerAdmissionPublicationAndOtherDueWork(t *testing.T) {
 	check(err)
 	other, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: otherSession.ID, DefinitionID: definition.ID, CurrentNode: "research", StartedAt: at, NextDueAt: at})
 	check(err)
-	due, err := pollDueGraphInstances(ctx, db, at.Add(365*24*time.Hour), 10)
+	due, err := db.ListDueGraphInstances(ctx, at.Add(365*24*time.Hour), 10)
 	check(err)
 	if len(due) != 1 || due[0].ID != other.ID {
 		t.Fatalf("owner wait expired or excluded unrelated work: %+v", due)
@@ -102,7 +102,7 @@ func TestResearchOwnerAdmissionPublicationAndOtherDueWork(t *testing.T) {
 	if len(attempts) != 1 || attempts[0].Status != store.GraphSucceeded {
 		t.Fatal("admission launched an agent")
 	}
-	due, err = pollDueGraphInstances(ctx, db, at.Add(time.Hour), 10)
+	due, err = db.ListDueGraphInstances(ctx, at.Add(time.Hour), 10)
 	check(err)
 	if len(due) != 2 {
 		t.Fatalf("claimed reply not due with unrelated work: %+v", due)
