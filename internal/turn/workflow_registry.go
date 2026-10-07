@@ -12,7 +12,7 @@ import (
 // walks this list, so a policy that skips the shared result route fails before
 // any dispatch and is caught by the same test that covers Research and Plan.
 func RegisteredWorkflowPolicies() []WorkflowPolicy {
-	return []WorkflowPolicy{ResearchWorkflowPolicy(), PlanWorkflowPolicy(), BugWorkflowPolicy(), SpikeWorkflowPolicy(), ImplementWorkflowPolicy()}
+	return []WorkflowPolicy{ResearchWorkflowPolicy(), PlanWorkflowPolicy(), BugWorkflowPolicy(), SpikeWorkflowPolicy(), ImplementWorkflowPolicy(), ValidateWorkflowPolicy()}
 }
 
 // Admit is the policy-level requirement of every workflow: results are judged by
