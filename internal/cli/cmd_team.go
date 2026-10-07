@@ -22,6 +22,8 @@ import (
 func newTeamCommand(operation string) *Command {
 	args := ArgSpec{Names: []string{"name", "version"}, Min: 2}
 	switch operation {
+	case "clone":
+		args = ArgSpec{Names: []string{"name", "version", "new-name", "new-version"}, Min: 4}
 	case "install":
 		args.Min = 1
 	case "update":
@@ -38,13 +40,13 @@ func newTeamCommand(operation string) *Command {
 		}
 	}
 	if operation != "list" {
-		usage += " [--source catalogue-url]"
+		usage += " [--source catalogue-url|local]"
 	}
 	cmd := &Command{Name: "team " + operation, Usage: usage, Short: "Manage machine-level installed team versions", Args: args}
 	cmd.New = func(flags *flag.FlagSet) Handler {
 		source := ""
 		if operation != "list" {
-			flags.StringVar(&source, "source", "", "anonymous HTTPS catalogue; selects local source for inspect/remove")
+			flags.StringVar(&source, "source", "", "exact catalogue URL or local namespace for clone/inspect/remove")
 		}
 		return func(ctx context.Context, env *Env, args []string) error {
 			return runTeam(ctx, env, operation, source, args)
@@ -123,6 +125,13 @@ func runTeam(ctx context.Context, env *Env, operation, source string, args []str
 		return err
 	}
 	switch operation {
+	case "clone":
+		entry, err := manager.Clone(ctx, source, args[0], args[1], args[2], args[3])
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(env.Stdout, "Cloned %s %s\nEditable folder: %s\nOrigin: %s %s %s\n", entry.Identity.Slug, entry.Identity.Version, entry.Path, entry.Origin.Source, entry.Origin.Slug, entry.Origin.Version)
+		return err
 	case "install":
 		ver := ""
 		if len(args) == 2 {
@@ -163,6 +172,10 @@ func runTeam(ctx context.Context, env *Env, operation, source string, args []str
 	case "inspect":
 		entry, err := manager.Inspect(ctx, source, args[0], args[1])
 		if err != nil {
+			return err
+		}
+		if entry.Editable {
+			_, err = fmt.Fprintf(env.Stdout, "Team: %s\nVersion: %s\nSource: local, editable\nPath: %s\nOrigin: %s %s %s\nOrigin checksum: %s\nCloned at: %s\n", entry.Identity.Slug, entry.Identity.Version, entry.Path, entry.Origin.Source, entry.Origin.Slug, entry.Origin.Version, entry.Origin.Checksum, entry.Origin.ClonedAt)
 			return err
 		}
 		modes := make([]string, 0, len(entry.Workflows))

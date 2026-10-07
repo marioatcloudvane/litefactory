@@ -81,6 +81,8 @@ type Installed struct {
 	Path      string
 	Workflows map[string]string
 	Integrity bool
+	Editable  bool
+	Origin    *Origin
 }
 
 type receipt struct {

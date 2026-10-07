@@ -159,6 +159,44 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("broken: config"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
+	cloned := run("team", "clone", "standard", "1.0.0", "custom", "2.0.0", "--source", source)
+	for _, want := range []string{"Cloned custom 2.0.0", "Editable folder:", "Origin: " + source + " standard 1.0.0"} {
+		if !strings.Contains(cloned, want) {
+			t.Fatal(cloned)
+		}
+	}
+	localPath := filepath.Join(config.NewPaths(home).TeamsInstalledDir(), "local", "custom", "2.0.0", "content")
+	// A graph edit that factory capture would reject is valid editable content.
+	if err := os.WriteFile(filepath.Join(localPath, "research", "research.dot"), []byte("editable graph bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	localInspect := run("team", "inspect", "custom", "2.0.0", "--source", "local")
+	if !strings.Contains(localInspect, "Source: local, editable") || !strings.Contains(localInspect, "Origin: "+source+" standard 1.0.0") {
+		t.Fatal(localInspect)
+	}
+	if output := run("team", "list"); !strings.Contains(output, "local custom 2.0.0") {
+		t.Fatal(output)
+	}
+	run("team", "clone", "custom", "2.0.0", "second", "3.0.0", "--source", "local")
+	for _, args := range [][]string{
+		{"team", "clone", "missing", "1.0.0", "new", "1.0.0"},
+		{"team", "clone", "custom", "2.0.0", "second", "3.0.0"},
+		{"team", "clone", "custom", "2.0.0", "Bad", "1.0.0"},
+		{"team", "clone", "custom", "2.0.0", "new", "v1"},
+		{"team", "update", "custom", "--source", "local"},
+	} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := router.Run(t.Context(), args); code == ExitOK {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+	run("team", "remove", "custom", "2.0.0", "--source", "local")
+	if output := run("team", "inspect", "second", "3.0.0"); !strings.Contains(output, "Origin: local custom 2.0.0") {
+		t.Fatal(output)
+	}
+	run("team", "remove", "second", "3.0.0", "--source", "local")
 	listed := run("team", "list")
 	if !strings.Contains(listed, "1.0.0") || !strings.Contains(listed, "1.1.0") {
 		t.Fatal(listed)
