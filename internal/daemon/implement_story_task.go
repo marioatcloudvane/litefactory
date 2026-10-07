@@ -36,7 +36,7 @@ func implementWorkID(row store.ImplementStory, instanceID int64) int64 {
 // the identity of the worker instance that run would follow. A worker instance
 // still running rests for its own dispatch, which continues a repair; only a
 // story with no instance, or whose last instance ended, is offered, and a story
-// whose runs keep ending on a fault is left alone.
+// whose runs keep ending on a fault is parked with its latest cause.
 func (d *Daemon) implementWorkable(ctx context.Context, row store.ImplementStory) (int64, bool, error) {
 	if row.State != store.ImplementRunning {
 		return 0, false, nil
@@ -56,7 +56,22 @@ func (d *Daemon) implementWorkable(ctx context.Context, row store.ImplementStory
 		return 0, false, nil
 	case store.GraphFailed:
 		failed, err := d.db.CountFailedImplementInstances(ctx, row.WorkerSession, row.StateAt)
-		if err != nil || failed >= maxImplementInstanceFailures {
+		if err != nil {
+			return 0, false, err
+		}
+		if failed >= maxImplementInstanceFailures {
+			reason := row.LastFailure
+			if reason == "" {
+				reason = "The worker reached the infrastructure failure limit without a recorded diagnostic."
+			}
+			_, err := d.db.TransitionImplementStory(ctx, store.ImplementTransition{
+				Parent: row.Parent, Generation: row.Generation, Key: row.Key,
+				From: store.ImplementRunning, To: store.ImplementParked,
+				ExpectedRevision: row.Revision, Reason: reason, At: instance.FinishedAt,
+			})
+			if errors.Is(err, store.ErrImplementConflict) {
+				err = nil // Another discovery or owner transition already moved it.
+			}
 			return 0, false, err
 		}
 	}

@@ -208,6 +208,26 @@ func TestImplementWorkableStopsRetryingAFaultThatDoesNotGoAway(t *testing.T) {
 			t.Fatalf("after %d failed instance(s): ok=%v id=%d", i+1, ok, id)
 		}
 	}
+	parked := f.row(t, row.Key)
+	if parked.State != store.ImplementParked || parked.ParkOrigin != store.ImplementOriginWorker || parked.Reason == "" {
+		t.Fatalf("failure limit must park visibly: %+v", parked)
+	}
+	resumedAt := last.StartedAt.Add(time.Minute)
+	for _, to := range []string{store.ImplementWaiting, store.ImplementRunning} {
+		parked, err = db.TransitionImplementStory(t.Context(), store.ImplementTransition{
+			Parent: parked.Parent, Generation: parked.Generation, Key: parked.Key,
+			From: parked.State, To: to, ExpectedRevision: parked.Revision, At: resumedAt,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.SetImplementWorkerSession(t.Context(), row.Parent, row.Generation, row.Key, row.WorkerSession, resumedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := f.d.implementWorkable(t.Context(), f.row(t, row.Key)); err != nil || !ok {
+		t.Fatalf("owner resume must reset the infrastructure window: %v %v", ok, err)
+	}
 }
 
 func TestImplementCoordinatorDispatchIsRunlessOnlyForTheParent(t *testing.T) {
