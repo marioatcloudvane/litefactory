@@ -42,9 +42,7 @@ func newLifecycleBoundaryFixture(t *testing.T) *lifecycleBoundaryFixture {
 	f := newFixture(t)
 	x := &lifecycleBoundaryFixture{fixture: f, parents: map[int]int{}}
 	f.turns.fn = func(ctx context.Context, req turn.Request) (turn.Result, error) {
-		out, err := f.ranSuccessfully(ctx, req)
-		out.ResearchGraph = true
-		return out, err
+		return reportedPlanFixtureTurn(ctx, f, req)
 	}
 	x.restart()
 	f.plantCursor()
@@ -171,7 +169,13 @@ func TestPlanLifecycleBoundary_ClosedReasonsPreserveSiblingProgress(t *testing.T
 			}
 			x.restart()
 			x.settle()
-			if len(x.turns.calls()) != 1 || x.state().Stories[0].Lifecycle.Reason != reason {
+			ownerCalls := 0
+			for _, call := range x.turns.calls() {
+				if call.Trigger.CommentID == 60 {
+					ownerCalls++
+				}
+			}
+			if ownerCalls != 1 || x.state().Stories[0].Lifecycle.Reason != reason {
 				t.Fatal("restart lost closure or replayed sibling input")
 			}
 			x.assertNoChildMutation()

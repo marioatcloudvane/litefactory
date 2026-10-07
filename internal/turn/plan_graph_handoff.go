@@ -122,7 +122,7 @@ func (r *planGraphRuntime) assembledText(ctx context.Context, s planbrief.PlanSt
 	if len(inactive) > 0 {
 		fmt.Fprintf(&body, "\nNo longer part of the plan (closed or retired): %s.\n", strings.Join(inactive, ", "))
 	}
-	fmt.Fprintf(&body, "\nTo approve exactly this plan, reply `/approve-plan-set %s`.\nTo change something, reply on the story's sub-issue in plain words; a changed plan gets a new final review.\n", ref)
+	fmt.Fprintf(&body, "\nTo approve exactly this plan, reply `/approve-plan-set %s`.\nQuestions here reach the set agent; questions on a story reach its current stage. Answers leave approvals unchanged. To change something, reply on the story's sub-issue in plain words; a changed plan gets a new final review.\n", ref)
 	return body.String(), nil
 }
 

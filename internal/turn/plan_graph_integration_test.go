@@ -460,7 +460,7 @@ func TestPlanGraphIntegration_LaterNodesUseTheRetainedAcceptedResult(t *testing.
 		route = append(route, tr.FromNode+"/"+tr.OnOutcome+"->"+tr.ToNode)
 	}
 	t.Logf("route: %v", route)
-	if joined := strings.Join(route, " "); !strings.Contains(joined, "story_agent/success->story_question") || !strings.Contains(joined, "story_question/false->story_draft") || !strings.Contains(joined, "story_draft/applied") {
+	if joined := strings.Join(route, " "); !strings.Contains(joined, "story_agent/success->story_question") || !strings.Contains(joined, "story_question/false->story_answer") || !strings.Contains(joined, "story_draft/applied") {
 		t.Fatalf("control did not route the retained done response to the story effect: %v", route)
 	}
 }

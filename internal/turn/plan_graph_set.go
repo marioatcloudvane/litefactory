@@ -15,9 +15,12 @@ import (
 // stage is and is not. The set is about the whole parent scope and names no story;
 // real story keys exist only after the owner promotes a set.
 func planSetBinding(s planbrief.PlanState) string {
-	text := "\nFactory-selected stage: set; this scope has no story yet, so no story key exists. Propose the stories of the whole parent scope with result.payload.plan.storyset, or ask the owner a question. The factory records the set under a revision it derives from your content and publishes it on the parent issue; only the owner promotes a set, and no story exists before that. Never supply a story key, revision or any other factory value.\n"
+	text := "\nFactory-selected stage: set; answer questions about the retained set and stories. Propose the stories of the whole parent scope with result.payload.plan.storyset, or ask the owner a question. The factory records the set under a revision it derives from your content and publishes it on the parent issue; only the owner promotes a set, and no story exists before that. Never supply a story key, revision or any other factory value.\n"
 	if s.StorySet != nil && !s.StorySet.Promoted {
-		text += fmt.Sprintf("A set with revision %s is already proposed and not promoted. The owner's reply asks for a change: return the complete revised set, not a partial one. A changed set gets a new revision and a new review.\n", s.StorySet.Revision)
+		text += fmt.Sprintf("A set with revision %s is already proposed and not promoted. If the owner requests a change, return the complete revised set, not a partial one. A changed set gets a new revision and a new review.\n", s.StorySet.Revision)
+	}
+	if len(s.Stories) > 0 || (s.StorySet != nil && s.StorySet.Promoted) {
+		text += "The set has been promoted or has stories: replacement is unsupported. Answer questions, or explain why a requested set change cannot be applied.\n"
 	}
 	return text
 }

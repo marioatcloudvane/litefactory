@@ -547,3 +547,31 @@ func seedPlanChild(t *testing.T, f *fixture, session store.Session) {
 		t.Fatal(err)
 	}
 }
+
+func TestPlanDiscussionDaemon_SuccessWithoutPublicationStaysPending(t *testing.T) {
+	p := &planFailureTurn{outcome: harness.OutcomeSucceeded, conflict: true, silent: true}
+	f := planFailureFixture(t, p)
+	f.forge.mu.Lock()
+	rs := f.forge.state(testOwnerName, testRepoName)
+	for i := range rs.comments {
+		if rs.comments[i].ID == planFailureOwnerComment {
+			rs.comments[i].Body = "What does this plan deliver?"
+		}
+	}
+	f.forge.mu.Unlock()
+	f.settle()
+	if p.turnCalls() != 1 || f.watermark() >= planFailureOwnerComment {
+		t.Fatalf("silent success consumed input: calls=%d watermark=%d logs=%s", p.turnCalls(), f.watermark(), f.logs)
+	}
+}
+
+// Scripted Plan turns must include a durable reply before discussion is consumed.
+func reportedPlanFixtureTurn(ctx context.Context, f *fixture, req turn.Request) (turn.Result, error) {
+	if turn.ParseCommand(req.Trigger.Body).Kind == turn.KindFreeText {
+		p := &planFailureTurn{f: f, outcome: harness.OutcomeSucceeded, conflict: true, cause: "The scripted agent cannot apply this request."}
+		return p.execute(ctx, req)
+	}
+	out, err := f.ranSuccessfully(ctx, req)
+	out.ResearchGraph = true
+	return out, err
+}

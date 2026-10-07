@@ -78,6 +78,8 @@ type PlanStorySetEntry struct {
 // is trusted input, resolved afresh for every validation, so preflight and submit
 // see the same values for the same state and a changed state refuses old bytes.
 type PlanGraphBinding struct {
+	// Discussion permits a completed answer without a draft effect.
+	Discussion bool
 	// Story is the factory-selected story key the draft must carry.
 	Story string
 	// Stage is the factory-selected stage: story, technical or acceptance.
@@ -170,7 +172,7 @@ func validatePlanMode(p *Plan, outcome string, questions int, ctx Context, d *Di
 }
 
 // validatePlanGraph enforces the graph Plan branch contract: done carries exactly
-// one of a story request and a story set and no legacy planning field; ask carries
+// one story branch, or neither for a bound discussion answer, and no legacy field; ask carries
 // neither, authorizes no story effect and carries at least one shared question, the
 // same rule DecodePlanNode applies to the terminal envelope.
 func validatePlanGraph(p *Plan, outcome string, questions int, ctx Context, d *Diagnostics) {
@@ -198,7 +200,7 @@ func validatePlanGraph(p *Plan, outcome string, questions int, ctx Context, d *D
 			add(d, "$.result.questions", "questions", "at least one shared question on an unfinished graph Plan result", "no questions", "Add the owner question in result.questions, or finish with a completed result carrying one storyrequest or storyset.")
 		}
 		return
-	case p.StoryRequest == nil && p.StorySet == nil:
+	case p.StoryRequest == nil && p.StorySet == nil && !ctx.PlanGraph.Discussion:
 		add(d, base, "branch", "exactly one of storyrequest or storyset", "neither", "Add storyrequest to create, update or retire one story, or storyset to propose several; or ask a question instead of finishing.")
 	case p.StoryRequest != nil && p.StorySet != nil:
 		add(d, base, "branch", "exactly one of storyrequest or storyset", "both", "Return one branch: remove storyrequest or remove storyset.")
