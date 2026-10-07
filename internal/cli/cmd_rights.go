@@ -23,7 +23,7 @@ import (
 
 type rightsFlags struct {
 	repo, workflow, stage, action, task, expires string
-	json, all, open, replace                     bool
+	json, all, replace                           bool
 }
 
 func (o *rightsFlags) bindRepo(fs *flag.FlagSet) {
