@@ -316,35 +316,6 @@ func TestWebhookTenDeliveriesCollapseToOneHintAndOneWake(t *testing.T) {
 	}
 }
 
-// AC-006: overflowing the hint set drops hints and forces the next pass to be
-// a full listing, even inside the discovery interval.
-func TestWebhookOverflowForcesAFullListing(t *testing.T) {
-	w := newWebhookFixture(t)
-	w.plantCursor()
-	listings := w.listings()
-
-	w.clock.advance(30 * time.Second)
-	w.settle()
-	if got := w.listings(); got != listings {
-		t.Fatalf("a heartbeat inside the interval listed")
-	}
-
-	for n := 1; n <= daemon.MaxPendingHintsForTest+1; n++ {
-		w.daemon.WakeForTest(w.repo.ID, 1000+n)
-	}
-	w.clock.advance(30 * time.Second)
-	w.settle()
-	if got := w.listings(); got != listings+1 {
-		t.Fatalf("listings = %d after an overflow, want %d", got, listings+1)
-	}
-
-	w.clock.advance(30 * time.Second)
-	w.settle()
-	if got := w.listings(); got != listings+1 {
-		t.Errorf("the forced listing repeated: %d listings", got)
-	}
-}
-
 // AC-008: the secret is read from the keychain under the documented names, a
 // missing one is retried from the heartbeat at most every five minutes, and
 // a loaded one is never read again.

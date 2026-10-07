@@ -39,24 +39,6 @@ func TestRenderResearchCommentGroupsByAudience(t *testing.T) {
 	}
 }
 
-// Both of these were carried by the schema and thrown away at render time: an
-// owner had to quote text back to answer, and a proposed answer nobody sees is
-// not a proposal.
-func TestRenderResearchCommentKeepsIdentitiesAndRecommendation(t *testing.T) {
-	body := renderResearchComment(questionSet(), "", nil)
-	for _, want := range []string{
-		"### Options",
-		"- **`a`** — Pin per instance  \u2705 **recommended**",
-		"- **`b`** — Re-capture",
-		"- **`a`** — Successor issue",
-		"- **`b`** — Stays closed  \u2705 **recommended**",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("missing %q in:\n%s", want, body)
-		}
-	}
-}
-
 func TestRenderResearchCommentOmitsEmptySections(t *testing.T) {
 	body := renderResearchComment(agentresult.Result{Outcome: "completed", Comment: "Done."}, "", nil)
 	if strings.Contains(body, "#") {
@@ -123,25 +105,41 @@ func TestRenderResearchCommentNamesTheReasonForWhatItIs(t *testing.T) {
 	}
 }
 
-// Questions are numbered for a reader and identified for an answer. Numbering
-// runs across the whole report so "the second question" is unambiguous even
-// though the questions are filed under different readers.
+// An owner answers by identifier, never by quoting text back: every question
+// carries its id, every option its id, and the proposed answer is marked on the
+// option it names. Layout and wording are not pinned.
 func TestRenderResearchCommentNumbersQuestionsForAReader(t *testing.T) {
-	body := renderResearchComment(questionSet(), "", nil)
-	for _, want := range []string{
-		"## Question 1  \u00b7  Should a declined scope return as a successor issue?",
-		"_Answer with `Q-1`_",
-		"## Question 2  \u00b7  Pin the definition per instance, or re-capture on resume?",
-		"_Answer with `Q-2`_",
-		"- **`a`** — Successor issue",
-		"\u2705 **recommended**",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("missing %q in:\n%s", want, body)
+	set := questionSet()
+	body := renderResearchComment(set, "", nil)
+	for _, q := range set.Questions {
+		start := strings.Index(body, q.Text)
+		if start < 0 {
+			t.Fatalf("question %s is missing:\n%s", q.ID, body)
 		}
-	}
-	if strings.Contains(body, "## Q-1 —") {
-		t.Error("the bare identifier is no longer the heading")
+		end := len(body)
+		for _, other := range set.Questions {
+			if at := strings.Index(body, other.Text); at > start && at < end {
+				end = at
+			}
+		}
+		section := body[start:end]
+		if !strings.Contains(section, "`"+q.ID+"`") {
+			t.Errorf("question %s does not carry its id:\n%s", q.ID, section)
+		}
+		for _, o := range q.Options {
+			line := ""
+			for l := range strings.SplitSeq(section, "\n") {
+				if strings.Contains(l, "`"+o.ID+"`") && strings.Contains(l, o.Text) {
+					line = l
+				}
+			}
+			if line == "" {
+				t.Errorf("question %s option %s is not identified:\n%s", q.ID, o.ID, section)
+			}
+			if recommended := strings.Contains(line, "recommended"); recommended != (o.ID == q.RecommendedOption) {
+				t.Errorf("question %s option %s recommended=%t:\n%s", q.ID, o.ID, recommended, section)
+			}
+		}
 	}
 }
 

@@ -250,11 +250,6 @@ func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (Resea
 	return db.AdmitWorkflowLaunch(ctx, in)
 }
 
-// ResearchPredecessor returns retained predecessor identity and owner reply.
-func (db *DB) ResearchPredecessor(ctx context.Context, instanceID int64) (int64, string, error) {
-	return db.WorkflowPredecessor(ctx, instanceID)
-}
-
 // LatestStandaloneBugInstance recovers only the admitted standalone graph pins.
 func (db *DB) LatestStandaloneBugInstance(ctx context.Context, sessionID int64) (GraphInstance, error) {
 	return scanGraphInstance(db.sql.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? AND definition_id IN (SELECT id FROM graph_definitions WHERE workflow='bug' AND mode=?) ORDER BY id DESC LIMIT 1`, sessionID, standaloneGraphStorageKey))

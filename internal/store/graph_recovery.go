@@ -107,16 +107,6 @@ func cancelWorkflowGraphsTx(ctx context.Context, tx *sql.Tx, sessionID int64, mo
 	return err
 }
 
-// HasResearchGraphRun reports whether a run belongs to a Research graph.
-func (db *DB) HasResearchGraphRun(ctx context.Context, runID int64) (bool, error) {
-	return db.HasWorkflowGraphRun(ctx, runID, "research")
-}
-
-// HasResearchGraphSession reports whether a session has a Research graph.
-func (db *DB) HasResearchGraphSession(ctx context.Context, sessionID int64) (bool, error) {
-	return db.HasWorkflowGraphSession(ctx, sessionID, "research")
-}
-
 // ReconcileResearchGraphs settles interrupted Research activity attempts after restart.
 func (db *DB) ReconcileResearchGraphs(ctx context.Context, at time.Time) (int, error) {
 	return db.ReconcileWorkflowGraphs(ctx, "research", at)

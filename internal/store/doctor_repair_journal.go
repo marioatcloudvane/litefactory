@@ -191,8 +191,3 @@ func (db *DB) stopDoctorRepair(ctx context.Context, ref, reason string, onlyStop
 		return err
 	})
 }
-
-// VerifyDoctorPoll rereads a settled repair without reopening its write authority.
-func (db *DB) VerifyDoctorPoll(ctx context.Context, id string, number int) error {
-	return db.VerifyDoctorRows(ctx, id, number)
-}

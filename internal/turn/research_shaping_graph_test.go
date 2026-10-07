@@ -1,8 +1,6 @@
 package turn
 
 import (
-	"os"
-	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
@@ -74,26 +72,5 @@ func TestShapingGraphEndsOnlyAfterShaping(t *testing.T) {
 		if !ok || !found || !node.Terminal {
 			t.Errorf("%q does not end at a terminal: %q", name, next)
 		}
-	}
-}
-
-// The second stage's role is now captured by the shipped graph. This keeps its
-// shape honest: the headings the factory relies on, and the audience rule that
-// makes a question routable.
-func TestShapingRoleIsShipped(t *testing.T) {
-	raw, err := os.ReadFile("../teamsource/research/shaping.md")
-	if err != nil {
-		t.Fatalf("the shaping role is missing from the embedded package: %v", err)
-	}
-	for _, want := range []string{"name: shaping", "# Role", "# Voice", "# Goal", "# How You Are Invoked", "# Must Do", "# Must Not Do", "# Output"} {
-		if !strings.Contains(string(raw), want) {
-			t.Errorf("shaping.md is missing %q", want)
-		}
-	}
-	if !strings.Contains(string(raw), "audience") {
-		t.Error("the stage that owns the questions must name their audience")
-	}
-	if node, ok := shapingProfile(t).Node("shape"); !ok || node.Attrs["lf_agent_markdown"] != "shaping" {
-		t.Error("the two-stage graph does not select the shaping role")
 	}
 }

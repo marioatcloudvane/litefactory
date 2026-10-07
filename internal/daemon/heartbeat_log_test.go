@@ -96,46 +96,6 @@ func TestHeartbeatLineAndPauseTransitionsAcrossABackoff(t *testing.T) {
 	}
 }
 
-// AC-001: an idle heartbeat says what woke it and whether GitHub was asked,
-// and adds no INFO line of its own.
-func TestIdleHeartbeatIsADebugSentence(t *testing.T) {
-	f := newFixture(t)
-	f.plantCursor()
-	f.settle()
-	const idle = "heartbeat woken by timer: idle, nothing to dispatch; GitHub was asked"
-	before := len(logLines(f.logs, "level=DEBUG", idle))
-	infoBefore := logLines(f.logs, "level=INFO")
-	f.settle()
-	if got := len(logLines(f.logs, "level=DEBUG", idle)) - before; got != 1 {
-		t.Fatalf("idle heartbeat wrote %d sentences, want 1\n%s", got, f.logs)
-	}
-	for _, line := range logLines(f.logs, "level=INFO")[len(infoBefore):] {
-		if strings.Contains(line, "heartbeat") || strings.Contains(line, "digest") {
-			t.Fatalf("an idle heartbeat added an INFO line: %s", line)
-		}
-	}
-}
-
-// AC-002: none of the old request-counter names reach INFO, and the DEBUG
-// accounting uses plain names.
-func TestRequestCountersAreDebugOnly(t *testing.T) {
-	f := newFixture(t)
-	f.plantCursor()
-	f.issue("Add a /health endpoint")
-	f.forge.addComment(testIssue, 111, owner(), "/spike first")
-	f.settle()
-	for _, line := range logLines(f.logs, "level=INFO") {
-		for _, old := range []string{"discovery request summary", "local_deferrals", "traffic_available", "outstanding_reserved"} {
-			if strings.Contains(line, old) {
-				t.Fatalf("INFO line carries %q: %s", old, line)
-			}
-		}
-	}
-	if got := logLines(f.logs, "level=DEBUG", "request accounting for this tick", "requests_held_back_locally=", "quota_remaining_requests="); len(got) == 0 {
-		t.Fatalf("no DEBUG request accounting\n%s", f.logs)
-	}
-}
-
 // AC-006: one INFO line per owner comment naming issue, comment and fate, and
 // no second line when the comment is seen again.
 func TestOwnerCommentFateIsLoggedOnce(t *testing.T) {

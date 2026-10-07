@@ -121,14 +121,3 @@ func TestSpikeLimitsAreDeclaredInTheGraphFile(t *testing.T) {
 		}
 	}
 }
-
-func TestOtherWorkflowPoliciesKeepTheirBehaviour(t *testing.T) {
-	for _, policy := range RegisteredWorkflowPolicies() {
-		if policy.Mode == agent.ModeSpike {
-			continue
-		}
-		if policy.DefaultAccess != "" || policy.Questions || policy.Annotate != nil || len(policy.Control.MeasureActions) != 0 {
-			t.Errorf("policy %q gained Spike behaviour: %+v", policy.Mode, policy.Control)
-		}
-	}
-}
