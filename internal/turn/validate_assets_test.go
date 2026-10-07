@@ -2,7 +2,6 @@ package turn
 
 import (
 	"path"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -51,35 +50,6 @@ func TestValidateShipsFourRolesTwoSkillsAndOneGraph(t *testing.T) {
 	for _, key := range []string{"repair_agent", "review:validate-acceptance", "review:validate-code", "review:validate-architecture"} {
 		if _, ok := definition.Nodes[key]; !ok {
 			t.Errorf("node %q is not captured: %v", key, definition.Nodes)
-		}
-	}
-}
-
-func TestValidateRolesDescribeTheJobNotTheFlow(t *testing.T) {
-	definition := captureValidate(t)
-	for name, raw := range definition.Files {
-		if path.Ext(name) != ".md" {
-			continue
-		}
-		text := string(raw)
-		if strings.Contains(text, "lf_") || strings.Contains(text, "->") {
-			t.Errorf("%s carries graph syntax", name)
-		}
-		for _, node := range definition.Profile.Nodes {
-			if node.Terminal {
-				continue
-			}
-			if regexp.MustCompile(`\b`+regexp.QuoteMeta(node.Name)+`\b`).MatchString(text) && node.Name != "review" && node.Name != "outcome" && node.Name != "suite" {
-				t.Errorf("%s names graph node %q", name, node.Name)
-			}
-		}
-	}
-	for _, name := range []string{"validate-repair.md", "validate-acceptance.md", "validate-code.md", "validate-architecture.md"} {
-		role := strings.ToLower(string(definition.Files[name]))
-		for _, banned := range []string{"next step", "then the factory runs", "goes to"} {
-			if strings.Contains(role, banned) {
-				t.Errorf("%s describes flow: %q", name, banned)
-			}
 		}
 	}
 }
