@@ -48,11 +48,14 @@ func (d *Daemon) refreshRecoveries(ctx context.Context, at time.Time) {
 		if err == nil {
 			for _, row := range rows {
 				held, e := d.db.DoctorRepairHeldSession(ctx, row.SessionID)
-				if e != nil || held {
+				if (e != nil || held) && row.State != "resolved" {
 					continue
 				}
 				if _, exists := d.recoveries.items[row.Key]; exists {
 					continue
+				}
+				if row.State == "resolved" {
+					d.recoveries.dirty[row.Key] = true
 				}
 				if row.State != "resolved" && strings.HasPrefix(row.Key, "stopped:") && row.RunID != 0 {
 					run, readErr := d.db.GetRun(ctx, row.RunID)
@@ -88,6 +91,10 @@ func (d *Daemon) refreshRecoveries(ctx context.Context, at time.Time) {
 			continue
 		}
 		if strings.HasPrefix(key, "stopped:") && row.State == "resolved" && d.recoveries.dirty[strings.TrimPrefix(key, "stopped:")] {
+			continue
+		}
+		if row.State == "resolved" {
+			d.removeResolvedRecovery(ctx, row)
 			continue
 		}
 		if row.NextAt.IsZero() && at.IsZero() {
@@ -131,6 +138,9 @@ func (d *Daemon) recoveryAllowed(ctx context.Context, source store.ReportRecover
 			row = saved
 			exists = true
 			d.recoveries.items[source.Key] = saved
+			if saved.State == "resolved" {
+				d.recoveries.dirty[source.Key] = true
+			}
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return false, err
 		}
@@ -224,12 +234,32 @@ func (d *Daemon) recoverySucceeded(ctx context.Context, key string) {
 	row.State = "resolved"
 	d.recoveries.items[key] = row
 	d.recoveries.dirty[key] = true
-	if d.db != nil && !row.NextAt.IsZero() {
-		if err := d.db.PutReportRecovery(context.WithoutCancel(ctx), row); err == nil {
-			delete(d.recoveries.dirty, key)
-		}
-	}
+	d.removeResolvedRecovery(context.WithoutCancel(ctx), row)
 	d.log.InfoContext(ctx, "report recovery resolved", slog.String("task", row.Task), slog.String("delivery", row.DeliveryKey), slog.String("recovery", key), slog.Int64("run_id", row.RunID))
+}
+
+// removeResolvedRecovery checkpoints completion before deleting the live debt.
+// The caller holds recoveries.mu; failed writes retain dirty state for refresh.
+func (d *Daemon) removeResolvedRecovery(ctx context.Context, row store.ReportRecovery) {
+	if d.db == nil {
+		return
+	}
+	held, err := d.doctorHeldSession(ctx, row.SessionID)
+	if err != nil || held || (strings.HasPrefix(row.Key, "stopped:") && d.recoveries.dirty[strings.TrimPrefix(row.Key, "stopped:")]) {
+		return
+	}
+	if row.NextAt.IsZero() {
+		// Source-only outage debt has no deadline. Resolved rows are never due.
+		row.NextAt = time.Unix(0, 0).UTC()
+	}
+	if err := d.db.PutReportRecovery(ctx, row); err != nil {
+		return
+	}
+	if err := d.db.DeleteReportRecovery(ctx, row.Key); err != nil {
+		return
+	}
+	delete(d.recoveries.items, row.Key)
+	delete(d.recoveries.dirty, row.Key)
 }
 
 // guardedRecoveryAllowed consults durable holds only after the source is due.

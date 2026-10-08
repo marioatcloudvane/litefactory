@@ -90,3 +90,11 @@ func (db *DB) ListReportRecoveries(ctx context.Context) ([]ReportRecovery, error
 	}
 	return out, rows.Err()
 }
+
+// DeleteReportRecovery removes one completed recovery. Missing keys succeed.
+func (db *DB) DeleteReportRecovery(ctx context.Context, key string) error {
+	if _, err := db.sql.ExecContext(ctx, `DELETE FROM report_recoveries WHERE recovery_key=?`, key); err != nil {
+		return fmt.Errorf("store: delete report recovery: %w", err)
+	}
+	return nil
+}

@@ -28,6 +28,11 @@ func (f *doctorHostFakeReplacement) StartDoctorReplacement(context.Context, stor
 
 func doctorHostFixture(t *testing.T) (*Daemon, config.Paths, naming.Ref, store.DoctorRepair) {
 	t.Helper()
+	return doctorHostFixtureBeforeApproval(t, nil)
+}
+
+func doctorHostFixtureBeforeApproval(t *testing.T, seed func(*store.DB, store.Session)) (*Daemon, config.Paths, naming.Ref, store.DoctorRepair) {
+	t.Helper()
 	d, _, repo := doctorDaemonFixture(t)
 	ctx := t.Context()
 	root, err := os.MkdirTemp("/tmp", "lf-host-")
@@ -89,6 +94,9 @@ func doctorHostFixture(t *testing.T) (*Daemon, config.Paths, naming.Ref, store.D
 	}
 	if err = d.db.PresentDoctorProposal(ctx, ref.String(), "host-presentation", proposal); err != nil {
 		t.Fatal(err)
+	}
+	if seed != nil {
+		seed(d.db, session)
 	}
 	operation, err := d.db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "host-repair", SourceID: "host-approval", Principal: "local-owner", TaskRef: ref.String(), PresentationID: "host-presentation"})
 	if err != nil {
