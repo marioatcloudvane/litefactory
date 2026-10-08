@@ -14,19 +14,28 @@ const DefaultTeamSource = "https://raw.githubusercontent.com/marioatcloudvane/li
 
 // NormalizeTeamSource returns the canonical source identity used for local
 // namespacing. Errors deliberately exclude the input URL, which may contain
-// credentials. Empty selects the standard source.
+// credentials. Empty selects the standard source. A catalogue file on this
+// machine is a file:// URL or an absolute path, for teams kept in a private
+// repository.
 func NormalizeTeamSource(source string) (string, error) {
 	if source == "" {
 		return DefaultTeamSource, nil
 	}
 	invalid := func() (string, error) {
-		return "", fmt.Errorf("settings.team_source: require an anonymous absolute HTTPS catalogue URL without credentials, query or fragment and with a confined path")
+		return "", fmt.Errorf("settings.team_source: require an anonymous absolute HTTPS catalogue URL or an absolute catalogue file path, without credentials, query or fragment and with a confined path")
 	}
 	if strings.TrimSpace(source) != source || strings.ContainsAny(source, "\x00\r\n\\") {
 		return invalid()
 	}
+	if strings.HasPrefix(source, "/") && !strings.HasPrefix(source, "//") {
+		source = (&url.URL{Scheme: "file", Path: source}).String()
+	}
 	u, err := url.Parse(source)
-	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Hostname() == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(source, "#") {
+	if err == nil && strings.EqualFold(u.Scheme, "file") {
+		if u.Host != "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(source, "#") {
+			return invalid()
+		}
+	} else if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Hostname() == "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(source, "#") {
 		return invalid()
 	}
 	if u.Path == "" || !strings.HasPrefix(u.Path, "/") || strings.HasSuffix(u.Path, "/") {
@@ -39,6 +48,10 @@ func NormalizeTeamSource(source string) (string, error) {
 		if decodeErr != nil || decoded == "" || decoded == "." || decoded == ".." || strings.ContainsAny(decoded, "/\\\x00\r\n%") {
 			return invalid()
 		}
+	}
+	if strings.EqualFold(u.Scheme, "file") {
+		u.Scheme, u.RawPath = "file", ""
+		return u.String(), nil
 	}
 	u.Scheme = "https"
 	host := strings.ToLower(u.Hostname())
