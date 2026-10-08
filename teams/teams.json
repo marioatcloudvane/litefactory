@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": [
     {
-      "name": "Standard",
-      "slug": "standard",
+      "name": "Go development",
+      "slug": "go-development",
       "version": "1.0.0",
-      "description": "The built-in litefactory workflows, roles and skills, unchanged.",
+      "description": "Go development team: litefactory workflows, roles and skills for Go repositories.",
       "tags": [
-        "standard"
+        "go"
       ],
-      "download": "standard/v1",
+      "download": "go-development/v1",
       "files": [
         {
           "path": "bug/bug-analyst.md",
@@ -17,7 +17,7 @@
         },
         {
           "path": "bug/bug-fixer.md",
-          "sha256": "a18ae74148009739b963a0201c5984f46ffa2fc6c00d522572b800953454c1fd"
+          "sha256": "5233bada1f49297a8ebee9f775c01d1ca312d99a24b0e7cfef21986e75ee7891"
         },
         {
           "path": "bug/bug.dot",
@@ -177,15 +177,15 @@
         },
         {
           "path": "validate/validate-acceptance.md",
-          "sha256": "44311f6219b763937302fc6d56607d531319418cb4ec5577ba3aef282fdb61f9"
+          "sha256": "37c8344871a4ff63f080d77e9f25371a440ea75a7bbbe4eced0bbf77e0dc9356"
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "9b6a147e9d44cfe85f47685673b874f8562a6fbe583ffe9dc4030eaf1b29afbf"
+          "sha256": "817b05872cf8b84a670d964ec211f2aa58ab37e0d74a9fc4166c112c15f90f0d"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "288adc6bec86e4127a64473c9e7ca1e3d52987a92b69f5de713e07fae995c890"
+          "sha256": "d4ff26a2b278a7c7c045717f5b49f11187f420190f50c02ca8709d768ef82a03"
         },
         {
           "path": "validate/validate-repair.md",
@@ -196,7 +196,7 @@
           "sha256": "97c3ed6f773ca7bb5652ab7acf405f12c398dcd4d9147adad60bb717eafc4adb"
         }
       ],
-      "checksum": "cff82d67531306dccb75cf0abbe6f77245d40041354eaed8cc9a536ad338b6d7"
+      "checksum": "86c354158b96274098bd896c18d744eb392579cf5166fab451edab60fc5a09fe"
     }
   ]
 }
