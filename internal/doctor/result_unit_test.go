@@ -62,7 +62,7 @@ func TestDoctorValidateDiagnosis(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := store.DoctorEvidence{TaskRef: "github:owner/repo#406", Records: []store.DoctorEvidenceRecord{{Kind: "run", ID: "42", State: "running"}}, Gaps: []string{"logs missing"}}
-			d := doctor.Diagnosis{Findings: []doctor.Finding{{Explanation: "Run remains marked running", Evidence: []string{"run:42"}, Uncertainty: "Cannot determine process liveness"}}, CoverageGaps: []string{"logs missing"}, Proposal: []doctor.RepairStep{{Number: 1, Target: "run:42", Precondition: "running and process confirmed absent", Change: "mark interrupted", Reason: "retain honest interrupted outcome", Reversibility: "restore recorded state", Rollback: "restore backed-up run row"}}}
+			d := doctor.Diagnosis{Findings: []doctor.Finding{{Explanation: "Run remains marked running", Evidence: []string{"run:42"}, Uncertainty: "Cannot determine process liveness"}}, CoverageGaps: []string{"logs missing"}, Proposal: []doctor.RepairStep{{Number: 1, Target: "run:42", Action: &store.DoctorRepairAction{Kind: "stop_run", Before: "running", After: "failed"}, Precondition: "running and process confirmed absent", Change: "mark interrupted", Reason: "retain honest interrupted outcome", Reversibility: "restore recorded state", Rollback: "restore backed-up run row"}}}
 			tt.change(&d)
 			err := doctor.ValidateDiagnosis(d, e)
 			if (err == nil) != tt.valid {

@@ -149,7 +149,24 @@ func (db *DB) ReadDoctorEvidence(ctx context.Context, ref naming.Ref) (DoctorEvi
 		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 			return err
 		}
-		return nil
+		rows, err = tx.QueryContext(ctx, `SELECT CAST(i.rowid AS TEXT),i.state FROM implement_stories i WHERE i.parent=? OR EXISTS(SELECT 1 FROM managed_stories m WHERE m.parent_task=i.parent AND m.generation=i.generation AND m.story_key=i.story_key AND substr(m.parent_task,1,instr(m.parent_task,'#'))||m.issue_number=?) ORDER BY i.rowid DESC LIMIT 31`, out.TaskRef, out.TaskRef)
+		if err != nil {
+			return err
+		}
+		count = 0
+		for rows.Next() {
+			var id, state string
+			if err = rows.Scan(&id, &state); err != nil {
+				return errors.Join(err, rows.Close())
+			}
+			count++
+			if count > 30 {
+				out.Gaps = append(out.Gaps, "Implement story rows truncated")
+				continue
+			}
+			out.Records = append(out.Records, DoctorEvidenceRecord{Kind: "story", ID: id, State: state})
+		}
+		return errors.Join(rows.Err(), rows.Close())
 	})
 	if err != nil {
 		return DoctorEvidence{}, fmt.Errorf("read doctor evidence: %w", err)

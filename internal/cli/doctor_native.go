@@ -10,10 +10,13 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/doctor"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
+	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 // configureDoctorNative resolves installed provider transports only. Their
@@ -25,6 +28,7 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 	}
 	providers := make(map[string]agent.DoctorRunner)
 	repairs := make(map[string]agent.DoctorRepairRunner)
+	advisors := make(map[string]turn.ConflictAdvisor)
 	cfg := service.Config
 	environ := os.Environ()
 	// Missing forge credentials leave an explicit tool coverage error; they must
@@ -44,6 +48,7 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 		if e == nil {
 			providers["claude"] = runner
 			repairs["claude"] = runner
+			advisors["claude"] = runner
 		}
 	}
 	if cfg.Agents.Codex != nil {
@@ -52,10 +57,20 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 		if e == nil {
 			providers["codex"] = runner
 			repairs["codex"] = runner
+			advisors["codex"] = runner
 		}
 	}
 	service.Runner = &doctor.Adapters{Providers: providers, Paths: service.Paths, Executable: executable}
 	service.RepairRunner = &doctor.RepairAdapters{Providers: repairs, Paths: service.Paths, Executable: executable}
+	binary, gitErr := git.Resolve(ctx)
+	if gitErr == nil {
+		effects := &daemon.FactoryDoctorRepairEffects{DB: service.DB, Git: binary, CloneGate: daemon.NewDoctorRepairCloneGate(), Advisors: advisors, Redactor: service.Redactor}
+		effects.Comments, _ = service.Comments.(daemon.DoctorRepairComments)
+		if bot, e := service.DB.GetIdentity(ctx, store.ForgeGitHub, store.RoleBot); e == nil {
+			effects.BotID = bot.UserID
+		}
+		service.RepairEffects = effects
+	}
 	return nil
 }
 
@@ -89,7 +104,10 @@ func applyDoctorCLI(ctx context.Context, service *doctor.Service, env *Env, requ
 	}
 	_, err = service.Apply(ctx, request)
 	if err == nil {
-		_, err = service.DispatchRepairRestart(ctx, request.Target)
+		operation, readErr := service.DB.ReadDoctorRepair(ctx, request.Target.String())
+		if readErr == nil && operation.State == "restart_pending" {
+			_, err = service.DispatchRepairRestart(ctx, request.Target)
+		}
 	}
 	saved, statusErr := service.ReadConversation(ctx, request.Target)
 	if statusErr == nil {

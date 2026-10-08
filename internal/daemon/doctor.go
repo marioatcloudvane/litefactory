@@ -311,8 +311,8 @@ func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
 		if operation.SourceID != source {
 			return errors.New("doctor approved operation source mismatch")
 		}
-		_, runErr = d.doctor.service.Apply(ctx, doctor.ApplyRequest{Target: ref, SourceID: source, Principal: "github-owner:" + strconv.FormatInt(c.ActorID, 10), InboxID: c.ID, ReservedID: operation.ID})
-		if runErr == nil {
+		operation, runErr = d.doctor.service.Apply(ctx, doctor.ApplyRequest{Target: ref, SourceID: source, Principal: "github-owner:" + strconv.FormatInt(c.ActorID, 10), InboxID: c.ID, ReservedID: operation.ID})
+		if runErr == nil && operation.State == "restart_pending" {
 			_, runErr = d.doctor.service.DispatchRepairRestart(ctx, ref)
 		}
 		conversation, err = d.doctor.service.ReadConversation(context.WithoutCancel(ctx), ref)
@@ -325,7 +325,7 @@ func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
 	}
 	body := doctor.RenderConversation(conversation)
 	if runErr != nil {
-		body = "Doctor diagnosis did not complete: " + runErr.Error() + "\n\n" + body
+		body = "Doctor request did not complete: " + runErr.Error() + "\n\n" + body
 	}
 	safe, err := d.doctor.service.Redactor.Apply(context.WithoutCancel(ctx), body, 262144)
 	if err != nil {

@@ -72,7 +72,7 @@ func doctorHostFixtureBeforeApproval(t *testing.T, seed func(*store.DB, store.Se
 	if err = d.db.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "host-proposal", Provider: "claude", ConfiguredModel: "fixture", Evidence: string(encoded)}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := doctor.BindResults(ctx, d.db, "host-proposal", evidence, d.doctor.service.Redactor)
+	binding, err := d.db.BindDoctorResultAttempt(ctx, "host-proposal")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,10 +82,20 @@ func doctorHostFixtureBeforeApproval(t *testing.T, seed func(*store.DB, store.Se
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = result.Submit(ctx, "host-result", raw); err != nil {
+	// Model accepted legacy history directly in the durable result ledger.
+	// Current submission admission correctly refuses this old repair kind.
+	snapshot, err := json.Marshal(input.Diagnosis)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err = result.Adopt(ctx, "host-result"); err != nil {
+	manifest, err := json.Marshal(input.Diagnosis.Proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.db.RecordResult(ctx, store.ResultRecord{Binding: binding, RequestID: "host-result", Payload: raw, Snapshot: snapshot, Diagnostics: []byte(`{"valid":true,"errors":[]}`), Retired: []byte(`[]`), ExpectedRevision: input.ExpectedRevision, Accepted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err = d.db.AdoptDoctorResult(ctx, binding, "host-result", manifest); err != nil {
 		t.Fatal(err)
 	}
 	proposal, _, err := d.db.DoctorProposalReference(ctx, conversation.ID)

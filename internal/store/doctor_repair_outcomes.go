@@ -12,7 +12,7 @@ import (
 // DoctorRepairRecoveryTargets is bounded routing metadata for retained recovery
 // work. It does not disclose any other issue evidence to a doctor invocation.
 func (db *DB) DoctorRepairRecoveryTargets(ctx context.Context) ([]string, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT task_ref FROM doctor_repairs r WHERE state='restart_pending' OR (state='recovered' AND source_id LIKE 'github-doctor-apply:%' AND NOT EXISTS(SELECT 1 FROM report_deliveries d WHERE d.purpose='doctor-repair-outcome:'||r.id)) ORDER BY rowid LIMIT 16`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT task_ref FROM doctor_repairs r WHERE state='restart_pending' OR (state IN('recovered','completed','failed') AND source_id LIKE 'github-doctor-apply:%' AND NOT EXISTS(SELECT 1 FROM report_deliveries d WHERE d.purpose='doctor-repair-outcome:'||r.id)) ORDER BY rowid LIMIT 16`)
 	if err != nil {
 		return nil, err
 	}
@@ -28,6 +28,25 @@ func (db *DB) DoctorRepairRecoveryTargets(ctx context.Context) ([]string, error)
 	return refs, rows.Err()
 }
 
+// DoctorRepairRecoveryOperations binds delivery debt to its original operation,
+// even when a newer approved repair exists for the same issue.
+func (db *DB) DoctorRepairRecoveryOperations(ctx context.Context) ([]DoctorRepair, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+doctorRepairColumns+` FROM doctor_repairs r WHERE state='restart_pending' OR (state IN('recovered','completed','failed') AND source_id LIKE 'github-doctor-apply:%' AND NOT EXISTS(SELECT 1 FROM report_deliveries d WHERE d.purpose='doctor-repair-outcome:'||r.id)) ORDER BY rowid LIMIT 16`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var operations []DoctorRepair
+	for rows.Next() {
+		op, e := readDoctorRepair(rows)
+		if e != nil {
+			return nil, e
+		}
+		operations = append(operations, op)
+	}
+	return operations, rows.Err()
+}
+
 // EnsureDoctorRepairOutcome retains redacted complete outcome parts before any
 // remote effect, using the existing doctor delivery namespace and source identity.
 func (db *DB) EnsureDoctorRepairOutcome(ctx context.Context, id string, parts []string, bot int64) error {
@@ -37,7 +56,7 @@ func (db *DB) EnsureDoctorRepairOutcome(ctx context.Context, id string, parts []
 	return db.withTx(ctx, func(tx *sql.Tx) error {
 		var command, comment int64
 		var target string
-		err := tx.QueryRowContext(ctx, `SELECT i.id,i.comment_id,i.task_ref FROM doctor_repairs r JOIN doctor_inbox i ON r.source_id='github-doctor-apply:'||i.id WHERE r.id=? AND r.state='recovered' AND i.task_ref=r.task_ref`, id).Scan(&command, &comment, &target)
+		err := tx.QueryRowContext(ctx, `SELECT i.id,i.comment_id,i.task_ref FROM doctor_repairs r JOIN doctor_inbox i ON r.source_id='github-doctor-apply:'||i.id WHERE r.id=? AND r.state IN('recovered','completed','failed') AND i.task_ref=r.task_ref`, id).Scan(&command, &comment, &target)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}

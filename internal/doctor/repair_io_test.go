@@ -75,13 +75,7 @@ func fileRepairFixture(t *testing.T, reserve bool) (*Service, naming.Ref, string
 		t.Fatal(err)
 	}
 	input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "Notes need an approved correction.", Uncertainty: "Only these bytes were inspected.", Evidence: []string{"session_file:notes.md"}}}, Proposal: []RepairStep{{Number: 1, Target: "session_file:notes.md", Precondition: "Exact captured digest", Change: "Replace notes with reviewed text", Reason: "Correct issue notes", Reversibility: "Restore retained original", Rollback: "Copy original bytes and mode", Action: &store.DoctorRepairAction{Kind: "session_file", Before: evidence.Records[0].State, After: "corrected issue notes\n"}}}}}
-	raw, _ := json.Marshal(input)
-	if _, err = result.Submit(ctx, "file-proposal", raw); err != nil {
-		t.Fatal(err)
-	}
-	if err = result.Adopt(ctx, "file-proposal"); err != nil {
-		t.Fatal(err)
-	}
+	retainLegacyRepairDiagnosis(t, result, "file-proposal", input)
 	pid, _, err := s.DB.DoctorProposalReference(ctx, c.ID)
 	if err != nil {
 		t.Fatal(err)

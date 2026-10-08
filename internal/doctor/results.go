@@ -230,7 +230,7 @@ func (s *ResultService) adopt(ctx context.Context, requestID string, recovered b
 	if err != nil {
 		return err
 	}
-	if err := ValidateDiagnosis(d, s.evidence); err != nil {
+	if err := validateRetainedDiagnosis(d, s.evidence); err != nil {
 		return err
 	}
 	var proposal []byte

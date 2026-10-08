@@ -39,6 +39,7 @@ type doctorHostRequest struct {
 	Instance  string `json:"instance"`
 	Target    string `json:"target,omitempty"`
 	Operation string `json:"operation"`
+	Step      int    `json:"step,omitempty"`
 	Token     string `json:"token,omitempty"`
 }
 type doctorHostResponse struct {
@@ -143,6 +144,18 @@ func (h *DoctorRepairHost) handle(ctx context.Context, q submission.Request) (js
 		}
 		response.Instance, err = h.daemon.DrainDoctorTarget(ctx, target, input.Operation)
 		if err != nil {
+			return nil, err
+		}
+		response.Confirmed = true
+	case "doctor_host_stop_run":
+		target, err := naming.ParseRef(input.Target)
+		if err != nil {
+			return nil, err
+		}
+		if input.Token != "" {
+			return nil, errors.New("stop does not accept restart authority")
+		}
+		if err = h.daemon.StopDoctorRun(ctx, target, input.Operation, input.Step); err != nil {
 			return nil, err
 		}
 		response.Confirmed = true
@@ -260,4 +273,16 @@ func readDoctorHandoff(ctx context.Context, db *store.DB, want store.DoctorResta
 func validDoctorDescriptor(paths config.Paths, name string) bool {
 	relative, err := filepath.Rel(paths.DoctorControlDir(), name)
 	return err == nil && filepath.Base(name) == "descriptor.json" && filepath.IsLocal(relative) && filepath.Dir(filepath.Dir(name)) == paths.DoctorControlDir()
+}
+
+// StopDoctorRun invokes the exact held stop step over authenticated local IPC.
+func (c *DoctorLocalControl) StopDoctorRun(ctx context.Context, ref naming.Ref, id string, number int) error {
+	out, err := c.call(ctx, "doctor_host_stop_run", doctorHostRequest{Target: ref.String(), Operation: id, Step: number})
+	if err != nil {
+		return err
+	}
+	if !out.Confirmed {
+		return errors.New("doctor stop unconfirmed")
+	}
+	return nil
 }
