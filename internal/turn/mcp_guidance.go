@@ -60,6 +60,9 @@ func mcpGuidance(ctx context.Context, spec *agent.MCPLaunchSpec, service *AgentR
 		b.WriteString("\nComments: issues_comment({\"issue_number\":N,\"message\":TEXT}) publishes only to authorized targets; inspect receipts_get afterward.\n")
 	}
 	if has("activity_update") {
+		if service.binding.Mode == "implement" {
+			b.WriteString("\nImplement story workers must include kind (implementation, testing or repair) in activity_update. Their reports and receipts are durable and advisory only; they never complete a story or publish a comment. Recover a lost reply with receipts_get using the same request_id before retrying the identical call. Other runs refuse kind and retain in-memory activity.\n")
+		}
 		b.WriteString("\nProgress: activity_update({\"sequence\":N,\"message\":TEXT}) records advisory activity, not completion; use increasing sequence numbers.\n")
 	}
 	if has("activity_get") {

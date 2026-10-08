@@ -58,6 +58,11 @@ func (r *runtimeReviewers) run(_ context.Context, req agent.Request) (*agent.Run
 	}
 	var in validateReviewInput
 	mustProgress(r.t, json.Unmarshal([]byte(req.Prompt[start+len("<validate-review>"):end]), &in))
+	for _, s := range in.Stories {
+		if !strings.Contains(s.Text, "AC-") {
+			r.t.Errorf("reviewer %s got story %s without its approved text: %q", in.Role, s.Key, s.Text)
+		}
+	}
 	result := goodReview(ValidateReviewRequest{Role: in.Role, Stories: in.Stories, Evidence: in.Evidence, SnapshotID: in.SnapshotID})
 	raw, err := json.Marshal(struct {
 		Result agentresult.Result `json:"result"`
