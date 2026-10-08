@@ -20,11 +20,12 @@ import (
 // ImplementStory is one story of the frozen story set, as the factory knows it.
 // Dependencies are the keys of the stories that must be merged before it starts.
 type ImplementStory struct {
-	Key          string
-	Name         string
-	Branch       string
-	IssueNumber  int
-	Dependencies []string
+	Key             string
+	Name            string
+	Branch          string
+	AlreadyComplete bool
+	IssueNumber     int
+	Dependencies    []string
 }
 
 // ImplementAuthority is factory-only context for the Implement activities. It
@@ -92,8 +93,11 @@ type ImplementBindings struct {
 	LockDir  string
 	Repo     ImplementRepo
 	// Now overrides the clock; nil uses the run's clock.
-	Now  func() time.Time
-	Bind ImplementBind
+	Now          func() time.Time
+	Bind         ImplementBind
+	ProgressRead func(context.Context, string, int64) ([]store.ImplementProgressReport, error)
+	StatusBind   ImplementBind
+	Status       ImplementStatusRefresher
 }
 
 // RegisterImplementActivities registers the three Implement factory activities
@@ -174,6 +178,7 @@ func (h ImplementReadyActivity) Execute(ctx context.Context, opts Options, req A
 	if err != nil {
 		return ActivityResult{}, err
 	}
+	defer bestEffortImplementStatus(ctx, opts, h.b.Status, a.Parent.String(), a.Generation)
 	parent := a.Parent.String()
 	now := h.b.now(opts)
 	if err := h.b.DB.EnsureImplementStories(ctx, parent, a.Generation, a.seeds(), now); err != nil {

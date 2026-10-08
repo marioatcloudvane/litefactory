@@ -21,6 +21,16 @@ var ErrStoryProgressBusy = errors.New("store: story progress parent is busy")
 // between fork and exec, so closing only this descriptor could leave the lock
 // held. Process exit also releases ownership.
 func (db *DB) LockStoryProgress(ctx context.Context, parent, lockDir string) (func() error, error) {
+	return db.lockParentStatus(ctx, parent, lockDir, "story-progress", true)
+}
+
+// LockImplementStatus serializes status comment writers independently of merges.
+// It waits for an existing writer and reads no database state while waiting.
+func (db *DB) LockImplementStatus(ctx context.Context, parent, lockDir string) (func() error, error) {
+	return db.lockParentStatus(ctx, parent, lockDir, "implement-status", false)
+}
+
+func (db *DB) lockParentStatus(ctx context.Context, parent, lockDir, purpose string, nonblocking bool) (func() error, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -40,7 +50,7 @@ func (db *DB) LockStoryProgress(ctx context.Context, parent, lockDir string) (fu
 		return nil, err
 	}
 	defer root.Close()
-	name := fmt.Sprintf("%s.story-progress-%x.lock", filepath.Base(canonical), sha256.Sum256([]byte(canonical+"\x00"+parent)))
+	name := fmt.Sprintf("%s.%s-%x.lock", filepath.Base(canonical), purpose, sha256.Sum256([]byte(canonical+"\x00"+parent)))
 	f, err := root.OpenFile(name, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
@@ -49,11 +59,18 @@ func (db *DB) LockStoryProgress(ctx context.Context, parent, lockDir string) (fu
 	if err != nil || !info.Mode().IsRegular() {
 		return nil, errors.Join(fmt.Errorf("store: invalid progress lock file"), err, f.Close())
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	flags := syscall.LOCK_EX
+	if nonblocking {
+		flags |= syscall.LOCK_NB
+	}
+	if err := syscall.Flock(int(f.Fd()), flags); err != nil {
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 			err = ErrStoryProgressBusy
 		}
 		return nil, errors.Join(err, f.Close())
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, errors.Join(err, syscall.Flock(int(f.Fd()), syscall.LOCK_UN), f.Close())
 	}
 	return func() error {
 		return errors.Join(syscall.Flock(int(f.Fd()), syscall.LOCK_UN), f.Close())
