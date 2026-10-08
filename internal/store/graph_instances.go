@@ -157,3 +157,24 @@ func (db *DB) ListStandaloneBugInstances(ctx context.Context) ([]GraphInstance, 
 	}
 	return out, rows.Err()
 }
+
+// ListGraphOwnerWaitSessions discovers live waits even without a due time or
+// polling backlog. Selection is workflow independent; closure is checked later.
+func (db *DB) ListGraphOwnerWaitSessions(ctx context.Context) ([]Session, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE id IN (
+SELECT i.session_id FROM graph_instances i JOIN graph_owner_waits w ON w.instance_id=i.id
+WHERE i.status='running' AND w.state IN ('waiting','claimed')) ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list graph owner wait sessions: %w", err)
+	}
+	defer rows.Close()
+	var sessions []Session
+	for rows.Next() {
+		session, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, rows.Err()
+}
