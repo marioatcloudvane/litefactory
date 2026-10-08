@@ -223,12 +223,28 @@ func (rt *implementRuntime) parkStory(ctx context.Context, opts Options, a Activ
 		return ActivityResult{}, err
 	}
 	if row.State == store.ImplementParked {
+		if err := rt.publishParkAnswer(ctx, opts, a, row, row.Reason); err != nil {
+			return ActivityResult{}, err
+		}
 		return implementResult("parked", map[string]any{"story": row.Key, "reason": row.Reason})
 	}
 	reason := rt.parkReason(ctx, opts, a, row)
+	if row.State != store.ImplementRunning {
+		return ActivityResult{}, fmt.Errorf("story %s is %s, not running", row.Key, row.State)
+	}
+	if err := rt.publishParkAnswer(ctx, opts, a, row, reason); err != nil {
+		return ActivityResult{}, err
+	}
+	// The ledger remains a summary, but secrets must be removed before its
+	// clipping boundary can split a credential into an unrecognizable prefix.
+	safeReason, err := opts.ResearchReporter.renderer.RenderReportDelivery(ctx, reason, "")
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	reason = safeReason.String()
 	if _, err := opts.DB.TransitionImplementStory(ctx, store.ImplementTransition{
 		Parent: row.Parent, Generation: row.Generation, Key: row.Key,
-		From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: reason, At: rt.now(),
+		From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: clipText(reason, maxImplementReason), At: rt.now(),
 	}); err != nil {
 		return ActivityResult{}, err
 	}
@@ -238,13 +254,13 @@ func (rt *implementRuntime) parkStory(ctx context.Context, opts Options, a Activ
 
 func (rt *implementRuntime) parkReason(ctx context.Context, opts Options, a ActivityRequest, row store.ImplementStory) string {
 	if node, err := rt.retainedAnswer(ctx, opts, a); err == nil && node.Response != agentresult.ImplementResponseCompleted {
-		return clipText(fmt.Sprintf("The worker stopped with an %s answer: %s", node.Response, strings.TrimSpace(node.Result.Reason)), maxImplementReason)
+		return fmt.Sprintf("The worker stopped with an %s answer: %s", node.Response, strings.TrimSpace(node.Result.Reason))
 	}
 	detail := strings.TrimSpace(row.LastFailure)
 	if detail == "" {
 		detail = "no reason was recorded"
 	}
-	return clipText(fmt.Sprintf("The story failed %d attempt(s) in a row, so it was parked. The last problem: %s", max(row.Attempts, 1), detail), maxImplementReason)
+	return fmt.Sprintf("The story failed %d attempt(s) in a row, so it was parked. The last problem: %s", max(row.Attempts, 1), detail)
 }
 
 // implementAfterAgentFailure settles a worker attempt that failed after its

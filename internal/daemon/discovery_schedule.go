@@ -14,10 +14,9 @@ import (
 //   - it is owed a listing: the last attempt failed, was held back by a
 //     rate-limit backoff or deferred by the discovery budget, and no listing has
 //     finished since;
-//   - one interval has passed since the later of its last finished listing and
-//     its last valid webhook delivery (a webhook restarts the countdown).
+//   - one interval has passed since its last finished listing.
 //
-// One repository's webhook never moves another repository's due time.
+// Webhook deliveries never move a repository's due time.
 //
 // State is in memory only: a restarted daemon lists every repository on its
 // first heartbeat, which is what an unknown repository does.
@@ -75,9 +74,6 @@ func (s *discoverySchedule) state(repo int64) *repoSchedule {
 }
 
 func (r *repoSchedule) anchor() time.Time {
-	if r.lastWebhook.After(r.lastListing) {
-		return r.lastWebhook
-	}
 	return r.lastListing
 }
 
@@ -94,7 +90,7 @@ func (s *discoverySchedule) Due(repo int64, now time.Time) bool {
 
 // ListingFinished records that repo's listing completed at at. The owed flag and
 // any force request are cleared: the next listing is due one interval after the
-// later of at and the last webhook.
+// last finished listing.
 func (s *discoverySchedule) ListingFinished(repo int64, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -117,9 +113,8 @@ func (s *discoverySchedule) ListingFailed(repo int64) {
 	s.state(repo).owed = true
 }
 
-// WebhookAccepted records a valid webhook delivery for repo at at, which
-// restarts that repository's countdown. Deliveries that queue no hint never
-// reach it.
+// WebhookAccepted records a valid webhook delivery for repo at at without
+// changing its listing deadline. Deliveries that queue no hint never reach it.
 func (s *discoverySchedule) WebhookAccepted(repo int64, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

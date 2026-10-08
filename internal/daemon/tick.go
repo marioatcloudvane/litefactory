@@ -395,9 +395,8 @@ func (d *Daemon) repoWindow(ctx context.Context, repo store.Repo) (since, previo
 }
 
 // owePendingListings marks every due repository as owed a listing. A tick that
-// is skipped (rate-limit backoff) never reaches discover, and without the flag
-// a webhook arriving meanwhile would restart the countdown of a listing that was
-// already late.
+// is skipped (rate-limit backoff) never reaches discover; the flag records the
+// outstanding listing until it finishes.
 func (d *Daemon) owePendingListings(ctx context.Context, now time.Time) {
 	repos, err := d.db.ListRepos(ctx)
 	if err != nil {
