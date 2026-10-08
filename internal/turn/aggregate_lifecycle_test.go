@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -219,7 +220,7 @@ func TestAggregateLifecycle_BothWorkflowVersionsAllStagesCorrectionAndRestartRec
 				validate, err := StartSubmissionSession(ctx, SubmissionSessionOptions{DB: f.db, Progress: f.opts.StoryProgress, Paths: f.opts.Paths, RunID: next.ID, Worktree: o.Worktree, Validation: validation})
 				mustProgress(t, err)
 				t.Cleanup(func() {
-					cleanup, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+					cleanup, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), testutil.Wait)
 					defer cancel()
 					mustProgress(t, validate.Close(cleanup))
 				})
@@ -481,7 +482,7 @@ func TestAggregateLifecycle_256CriterionAssessmentThroughBroker(t *testing.T) {
 	session, err := StartSubmissionSession(ctx, SubmissionSessionOptions{DB: f.db, Progress: f.opts.StoryProgress, Paths: f.opts.Paths, RunID: next.ID, Worktree: worktree, Validation: validation})
 	mustProgress(t, err)
 	t.Cleanup(func() {
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), testutil.Wait)
 		defer cancel()
 		mustProgress(t, session.Close(cleanup))
 	})

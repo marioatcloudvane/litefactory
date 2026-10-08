@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"slices"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ import (
 // names no test and no line, so every wait below fails on its own clock with
 // a message that does (the house pattern from
 // internal/turn/gate_test.go's gateTimeout).
-const rendezvousTimeout = 10 * time.Second
+const rendezvousTimeout = testutil.Wait
 
 // TestTickReturnsWithoutWaitingForADispatchedRun is AC-PAR-1.1, the headline
 // of the whole feature: a run blocked mid-Execute must not stop a later tick

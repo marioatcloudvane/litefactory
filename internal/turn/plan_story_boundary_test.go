@@ -589,16 +589,16 @@ func (f *planBlockingCreate) CreateIssue(ctx context.Context, repo github.Repo, 
 	}
 }
 
-// Signal when the second effect reaches acquisition, before asserting it waits.
+// Signal at the retry wait, after the second effect observes the held lock.
 type planLockObservedContext struct {
 	context.Context
 	once    sync.Once
 	entered chan struct{}
 }
 
-func (c *planLockObservedContext) Err() error {
+func (c *planLockObservedContext) Done() <-chan struct{} {
 	c.once.Do(func() { close(c.entered) })
-	return c.Context.Err()
+	return c.Context.Done()
 }
 
 func TestPlanBoundarySiblingLockWait(t *testing.T) {
@@ -637,7 +637,7 @@ func TestPlanBoundarySiblingLockWait(t *testing.T) {
 	select {
 	case got := <-second:
 		t.Fatalf("second effect escaped held lock: %+v", got)
-	case <-time.After(300 * time.Millisecond):
+	default:
 	case <-ctx.Done():
 		t.Fatal("waiting for contention observation")
 	}

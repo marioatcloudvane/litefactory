@@ -9,6 +9,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"net"
 	"os"
@@ -126,7 +127,7 @@ func TestDoctorPriorityWorkerAndStopIgnoreFullWorkflowPool(t *testing.T) {
 	d.dispatchDoctor(ctx)
 	select {
 	case <-runner.started:
-	case <-time.After(3 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("doctor waited for workflow capacity")
 	}
 	if _, err := d.admitDoctor(ctx, repo, forge.issue, doctorComment(11, "/doctor later")); err != nil {
@@ -142,7 +143,7 @@ func TestDoctorPriorityWorkerAndStopIgnoreFullWorkflowPool(t *testing.T) {
 	if err := d.doctorControls(ctx); err != nil {
 		t.Fatal(err)
 	}
-	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	waitCtx, cancel := context.WithTimeout(ctx, testutil.Wait)
 	defer cancel()
 	if err := d.doctor.pool.quiesce(waitCtx); err != nil {
 		t.Fatal("stop did not cancel doctor", err)
@@ -387,7 +388,7 @@ func TestOwnerStopControlsAndReporting(t *testing.T) {
 				if run.ID != 0 {
 					select {
 					case <-worker.Done():
-					case <-time.After(3 * time.Second):
+					case <-time.After(testutil.Wait):
 						t.Fatal("workflow not cancelled with pool full")
 					}
 					check(d.publishDoctor(ctx))
@@ -521,7 +522,7 @@ func TestOwnerStopTerminatesRunnerAndChild(t *testing.T) {
 			case <-time.After(20 * time.Second):
 				t.Fatal("runner did not settle")
 			}
-			settled, stopWaiting := context.WithTimeout(ctx, 3*time.Second)
+			settled, stopWaiting := context.WithTimeout(ctx, testutil.Wait)
 			defer stopWaiting()
 			check(d.inflight.drain(settled, session.ID, false))
 			check(d.pool.quiesce(settled))

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,7 +95,7 @@ func submissionSessionFixture(t *testing.T, workflow int) (*fixture, *progressFo
 		t.Fatal("new contract did not start broker")
 	}
 	t.Cleanup(func() {
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), testutil.Wait)
 		defer cancel()
 		mustProgress(t, session.Close(cleanup))
 	})
@@ -573,7 +574,7 @@ func TestSubmissionFinalDrainRetainsPendingDecision(t *testing.T) {
 	mustProgress(t, err)
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
-	cleanup, stop := context.WithTimeout(context.WithoutCancel(cancelled), 5*time.Second)
+	cleanup, stop := context.WithTimeout(context.WithoutCancel(cancelled), testutil.Wait)
 	defer stop()
 	mustProgress(t, session.Close(cleanup))
 	r, err := f.db.GetSubmissionReceipt(t.Context(), o.RunID, pending.RequestID)

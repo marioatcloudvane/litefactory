@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -84,7 +85,7 @@ func TestWorkerDispatchAC1LaunchPaths(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer func() {
 				cancel()
-				join, stop := context.WithTimeout(context.Background(), 5*time.Second)
+				join, stop := context.WithTimeout(context.Background(), testutil.Wait)
 				defer stop()
 				_ = f.daemon.Quiesce(join)
 			}()
@@ -97,7 +98,7 @@ func TestWorkerDispatchAC1LaunchPaths(t *testing.T) {
 				if !seen {
 					t.Fatal("executor entered before dispatch diagnostic")
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(testutil.Wait):
 				t.Fatal("worker did not reach executor")
 			}
 			if result.Dispatched != 1 {
@@ -199,7 +200,7 @@ func TestWorkerDispatchAC2ContinuationDuplicateIdentity(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer func() {
 		cancel()
-		join, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		join, stop := context.WithTimeout(context.Background(), testutil.Wait)
 		defer stop()
 		_ = f.daemon.Quiesce(join)
 	}()
@@ -213,7 +214,7 @@ func TestWorkerDispatchAC2ContinuationDuplicateIdentity(t *testing.T) {
 	}
 	select {
 	case <-started:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("schedule not started")
 	}
 	f.clock.advance(2 * time.Hour)

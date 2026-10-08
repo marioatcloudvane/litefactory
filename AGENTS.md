@@ -59,9 +59,14 @@ modes, lifecycle, managed stories, Plan continuation and the story protocol are 
 
 `go build ./...` and `go vet ./...` are safe any time. `make check` runs
 `fmt vet lint test` in order, stops at the first failure, and is what CI and
-Validate enforce. `make test` is the full suite with `-race`; on the shared
-factory machine it takes over an hour and fails on timing under load. A
-factory story worker or bug fixer does not run `make check` or `make test`:
+Validate enforce. `make test` runs every test. It keeps full `-race` coverage outside
+`internal/turn`, `internal/store` and `internal/cli`; those SQL-heavy packages
+run completely without instrumentation and then repeat the explicit
+`RACE_TESTS_*` selections in Makefile with `-race`. Those lists cover existing
+goroutine/synchronization fixtures and shared-state owners; extend them when
+adding concurrent behavior. `PKGS` selects packages in both phases, and either
+phase failing stops the target. SQLite instrumentation dominates the blanket
+race cost. A factory story worker or bug fixer does not run `make check` or `make test`:
 it builds the repository, runs every package it changed completely (with
 `-race` only where that is fast), and lints them; the full suite belongs to
 Validate. `gofmt -l .` must report nothing. `make lint` runs a pinned
