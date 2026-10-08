@@ -21,6 +21,7 @@ type DoctorRequest struct {
 	UsageAttemptID   string
 	Usage            *UsageCapture
 	MCPLaunch        *MCPLaunchSpec
+	Sandbox          *DoctorSandbox
 }
 
 // Validate enforces the only permitted diagnosis communication surface.
@@ -28,7 +29,15 @@ func (r DoctorRequest) Validate() error {
 	if err := r.validateContext(); err != nil {
 		return err
 	}
-	return validateDoctorTools(r.MCPLaunch, []string{"communication_preflight", "communication_receipt", "communication_submit"})
+	if err := r.Sandbox.Validate(r.WorkingDirectory); err != nil {
+		return err
+	}
+	return validateDoctorTools(r.MCPLaunch, DoctorToolNames())
+}
+
+// DoctorToolNames is the exact diagnosis-only broker catalog.
+func DoctorToolNames() []string {
+	return []string{"communication_preflight", "communication_receipt", "communication_submit", "database_query", "issue_comments"}
 }
 
 func (r DoctorRequest) validateContext() error {

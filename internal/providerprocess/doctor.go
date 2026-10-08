@@ -18,11 +18,13 @@ import (
 // adapters must establish their tool ceiling before calling it. Output is
 // consumed as bounded JSON lines; stderr is discarded rather than disclosing
 // provider diagnostics that may contain credentials or unrelated local paths.
-func RunDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, timeout time.Duration, observe func([]byte)) error {
+// An optional adapter-owned cancellation callback handles native shells that
+// escape the provider's process group; it receives only the owned provider PID.
+func RunDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) error {
 	if err := request.Validate(); err != nil {
 		return err
 	}
-	return runScopedDoctorProcess(ctx, binary, args, env, request, timeout, observe)
+	return runScopedDoctorProcess(ctx, binary, args, env, request, timeout, observe, cancelProcess...)
 }
 
 // RunRepairProcess shares bounded I/O while validating the separate exact repair
@@ -34,7 +36,7 @@ func RunRepairProcess(ctx context.Context, binary string, args, env []string, re
 	return runScopedDoctorProcess(ctx, binary, args, env, request.Invocation, timeout, observe)
 }
 
-func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, timeout time.Duration, observe func([]byte)) error {
+func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) error {
 	if timeout <= 0 {
 		return errors.New("doctor provider timeout must be positive")
 	}
@@ -51,6 +53,11 @@ func runScopedDoctorProcess(ctx context.Context, binary string, args, env []stri
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Cancel = func() error {
+		// Native shells may leave this process group. The provider adapter can
+		// supply its existing subtree shutdown, bound only to this owned PID.
+		if len(cancelProcess) > 0 && cancelProcess[0] != nil {
+			return cancelProcess[0](cmd.Process.Pid)
+		}
 		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		if errors.Is(err, syscall.ESRCH) {
 			return nil
