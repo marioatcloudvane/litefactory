@@ -125,3 +125,17 @@ Evidence:
 - `docs/workflow/plan-graph.md:11`
 - `docs/workflow/validate.md:5`
 - `docs/workflow/spike.md:36`
+
+## f11
+
+All six surviving Go team workflow DOT files declare team builtin, and retained restoration reconstructs using saved team identity before verifying digests and the pinned identity.
+
+Evidence:
+
+- `teams/go-development/v1/research/research.dot:15`
+- `teams/go-development/v1/plan/plan.dot:22`
+- `teams/go-development/v1/implement/implement.dot:25`
+- `teams/go-development/v1/validate/validate.dot:34`
+- `teams/go-development/v1/spike/spike.dot:19`
+- `teams/go-development/v1/bug/bug.dot:5`
+- `internal/turn/workflow_capture.go:102`

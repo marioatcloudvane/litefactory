@@ -17,23 +17,16 @@ Research making installed per-factory teams the only runtime source of roles, sk
 - **d9** — Both hosts must launch factory agents only with verified delivered instructions and retain existing permission ceilings.
 - **d10** — Test-owned fixtures replace deleted embedded fixtures while shipped-release contracts, catalogue integrity, delivery isolation and saved-capture coverage remain.
 - **d11** — Branch rewrites, live factory installation changes and the remaining engine retirement are excluded from this scope.
+- **d12** — The owner chose to refuse single-run requests without verified delivery before agent launch with supported-workflow guidance, leaving legacy migration in #323.
+- **d13** — The owner added renaming all six shipped DOT team declarations to go-development so fresh capture identity and provenance name their source team.
+- **d14** — The identity rename applies to newly captured installed content and must not rewrite historical captures or prevent verified builtin captures from resuming.
 
 
 ## Assumptions
 
 - **a1** — Existing retained workflow and immutable delivery snapshots are run records, not competing editable team sources. Preserve resume from their saved bytes; current code restores them before consulting the linked source.
 - **a2** — The owner's statement that litefactory is linked to go-development is accepted as operational context, not independently measured. This investigation establishes code behavior, not authentic Claude/Codex host proof.
-- **a3** — Guidance placement and replacement of the embedded Bug digest check can be settled from repository context; the user-visible loss of instruction-free single-run support requires the owner's choice.
-
-
-## Open questions
-
-### q1 — How should surviving single-run requests without an instruction bundle behave?
-
-_Asked of: Product Owner Questions_
-
-- **refuse** — Recommended: refuse before agent launch with guidance to the supported workflow route; accept loss of this legacy launch capability and keep its migration in #323.  *(recommended)*
-- **deliver** — Preserve single-run support by capturing the linked team's appropriate role and skills and delivering a verified isolated bundle; include that additional delivery work here without deleting the old engine.
+- **a3** — The owner settled single-run behavior as refusal; no material open decision remains, and historical retained identities are preserved because saved captures are immutable run records.
 
 ## Research documents
 
