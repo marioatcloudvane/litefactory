@@ -33,12 +33,15 @@ func NewFeedbackService(application MCPResultService, evidence *EvidenceService)
 	return &FeedbackService{application: application, evidence: evidence}, nil
 }
 
-// newFeedbackServiceWithoutEvidence is the feedback service of an Implement story
-// worker of the graph, which collects no engineering evidence: its result is
-// checked once, when it is submitted, against its one story.
+// newFeedbackServiceWithoutEvidence is the feedback service of an Implement or
+// Validate graph node, which collects no engineering evidence: its result is
+// checked once, when it is submitted, against its trusted scope.
 func newFeedbackServiceWithoutEvidence(application MCPResultService) (*FeedbackService, error) {
-	if application == nil || application.Binding().Mode != "implement" {
-		return nil, errors.New("feedback without checkpoints is only for an Implement story worker")
+	if application == nil {
+		return nil, errors.New("feedback requires shared application validator")
+	}
+	if mode := application.Binding().Mode; mode != "implement" && mode != "validate" {
+		return nil, errors.New("feedback without checkpoints is only for an Implement or Validate graph node")
 	}
 	return &FeedbackService{application: application}, nil
 }

@@ -32,14 +32,18 @@ type ValidateEvidence struct {
 // ValidateReviewRequest is everything one reviewer needs. It is built from
 // factory state only.
 type ValidateReviewRequest struct {
-	Role     string
-	Attempt  string
-	Commit   string
-	Tree     string
-	Checkout string
-	Access   string
-	Stories  []ValidateStory
-	Evidence []ValidateEvidence
+	// InstanceID and NodeAttemptID name the review step that starts the
+	// reviewer.
+	InstanceID    int64
+	NodeAttemptID int64
+	Role          string
+	Attempt       string
+	Commit        string
+	Tree          string
+	Checkout      string
+	Access        string
+	Stories       []ValidateStory
+	Evidence      []ValidateEvidence
 	// SnapshotID is the snapshot every story's findings must name.
 	SnapshotID string
 	// Scope is the trusted result context the reviewer's submission is judged
@@ -237,6 +241,7 @@ func (h ValidateReviewActivity) start(ctx context.Context, opts Options, req Act
 		}
 		scope := validateReviewScope(g.role, stories, snapshot, digest, evidence)
 		runs = append(runs, started{row, ValidateReviewRequest{
+			InstanceID: req.InstanceID, NodeAttemptID: req.NodeAttemptID,
 			Role: g.role, Attempt: attempt, Commit: suite.Output.Commit, Tree: tree, Checkout: scratch.Path(), Access: ValidateReviewAccess,
 			Stories: stories, Evidence: evidence, SnapshotID: snapshot, Scope: scope,
 		}})

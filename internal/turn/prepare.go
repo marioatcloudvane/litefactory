@@ -479,15 +479,7 @@ func prepare(
 	// payload is narrowed into harness.ToolSurface here and
 	// nowhere else, because Claude's --tools/--allowedTools vocabulary is
 	// exactly the shape this package must not otherwise know.
-	var permissions agent.Permissions
-	if req.Agent == agent.Kind(store.AgentCodex) && req.CodexSandbox != "" {
-		permissions = agent.Permissions{Profile: req.ToolProfile, Payload: codex.Sandbox{Mode: req.CodexSandbox}}
-	} else if len(req.Tools) > 0 || req.ToolProfile != "" {
-		permissions = agent.Permissions{
-			Profile: req.ToolProfile,
-			Payload: harness.ToolSurface{Tools: req.Tools, AllowedTools: req.AllowedTools},
-		}
-	}
+	permissions := requestPermissions(req)
 
 	// This is prepare's last store write, deliberately: every error
 	// return above this line — the agent-switch refusal (AC-3.1) included —
@@ -1694,4 +1686,19 @@ func allocateRun(
 			req.Trigger.CommentID, ref, err)
 	}
 	return run, nil
+}
+
+// requestPermissions narrows the resolved tool surface of a request into the
+// provider-neutral permissions a runner receives.
+func requestPermissions(req Request) agent.Permissions {
+	if req.Agent == agent.Kind(store.AgentCodex) && req.CodexSandbox != "" {
+		return agent.Permissions{Profile: req.ToolProfile, Payload: codex.Sandbox{Mode: req.CodexSandbox}}
+	}
+	if len(req.Tools) > 0 || req.ToolProfile != "" {
+		return agent.Permissions{
+			Profile: req.ToolProfile,
+			Payload: harness.ToolSurface{Tools: req.Tools, AllowedTools: req.AllowedTools},
+		}
+	}
+	return agent.Permissions{}
 }

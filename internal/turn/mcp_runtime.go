@@ -151,6 +151,10 @@ type resultOverride struct {
 	// cycle's one attempt per story, needs each attempt's result identity to
 	// start at revision zero instead of revising the previous attempt's.
 	Pass string
+	// Attempt, when set, is the attempt identity instead of a fresh nonce. A
+	// launch whose lost reply must be found again later names it, such as a
+	// Validate reviewer, whose attempt is retained on its review row.
+	Attempt string
 }
 
 func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession, override *resultOverride) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
@@ -160,6 +164,9 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		return nil, nil, err
 	}
 	attempt := hex.EncodeToString(nonce[:])
+	if override != nil && override.Attempt != "" {
+		attempt = override.Attempt
+	}
 	workflow := store.WorkflowSeparated
 	if session != nil {
 		attempt = session.binding.Attempt
@@ -311,7 +318,9 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		return nil, nil, err
 	}
 	var evidence *EvidenceService
-	withoutEvidence := req.Mode == "implement" && req.Invocation == agent.InvocationResearchNode
+	// A graph node of Implement or Validate submits only its application result:
+	// it runs without a story checkpoint session, so it collects no evidence.
+	withoutEvidence := (req.Mode == "implement" || req.Mode == "validate") && req.Invocation == agent.InvocationResearchNode
 	if (req.Mode == "implement" || req.Mode == "validate") && !withoutEvidence {
 		evidence, err = NewEvidenceService(session, receipts)
 		if err != nil {
