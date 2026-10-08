@@ -24,6 +24,8 @@ type Delivery struct {
 	Identity  string   `json:"identity"`
 	Roles     []string `json:"roles"`
 	Skills    []string `json:"skills"`
+	// RequiredSkills is the captured main role's selected native skill closure.
+	RequiredSkills []string `json:"required_skills,omitempty"`
 	// RenderedFiles hashes native output bytes, rather than captured source bytes.
 	RenderedFiles map[string]string `json:"rendered_files,omitempty"`
 	Evidence      DeliveryEvidence  `json:"evidence"`
@@ -58,6 +60,7 @@ type SpecialistEvidence struct {
 func (d Delivery) Clone() Delivery {
 	d.Roles = slices.Clone(d.Roles)
 	d.Skills = slices.Clone(d.Skills)
+	d.RequiredSkills = slices.Clone(d.RequiredSkills)
 	d.RenderedFiles = maps.Clone(d.RenderedFiles)
 	d.Evidence.Specialists = slices.Clone(d.Evidence.Specialists)
 	d.Evidence.ResourceHashes = maps.Clone(d.Evidence.ResourceHashes)

@@ -62,7 +62,8 @@ type Request struct {
 	// Usage optionally receives incremental accounting. Nil preserves legacy callers.
 	Usage *UsageCapture
 
-	// Delivery is nil for catalog-free operations and unassigned repositories.
+	// Delivery is required for supported graph invocations. Separate advisory
+	// operations may omit it; project instructions never replace graph delivery.
 	Delivery *Delivery
 	// PlanProposalPath is trusted transient transport, delivered only through the prompt.
 	PlanProposalPath   string
@@ -169,7 +170,15 @@ func (req Request) Validate() error {
 
 	if req.Delivery != nil {
 		if err := req.Delivery.validate(); err != nil {
+			if req.Invocation == InvocationGraphNode {
+				return DeliveryRefusal(req, err)
+			}
 			return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
+		}
+	}
+	if req.Invocation == InvocationGraphNode {
+		if err := req.validateInstructionSelection(); err != nil {
+			return DeliveryRefusal(req, err)
 		}
 	}
 	if err := req.Ref.Validate(); err != nil {

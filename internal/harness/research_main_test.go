@@ -29,7 +29,7 @@ func TestResearchMainRoleFakeProcess(t *testing.T) {
 	for _, launch := range []RunPath{PathCold, PathResume, PathColdAfterResumeRefused} {
 		req := f.request()
 		req.Path = launch
-		req.Delivery = &agent.Delivery{Root: t.TempDir(), Identity: "effective", MainRole: "research", MainModel: "worker-model", Roles: []string{"research"}}
+		req.Delivery = verifiedClaudeDelivery(t)
 		result, err := f.runner.Run(t.Context(), req)
 		if err != nil || !result.Succeeded() {
 			t.Fatalf("%s: %v %+v", launch, err, result)

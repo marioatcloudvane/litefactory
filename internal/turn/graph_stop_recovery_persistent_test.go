@@ -211,6 +211,7 @@ func TestGraphStopPersistentAcceptedBugInputRoutesUnlessInterrupted(t *testing.T
 				}
 				return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "provider failed", ResultText: `{"response":"done"}`}, errors.New("controlled process failure")
 			})
+			delivered := fixtureNativeDelivery(t, BugWorkflowPolicy())
 			handler := AgentActivity{Policy: BugWorkflowPolicy(), Prepare: func(prepctx context.Context, _ Options, _ ActivityRequest) (ResearchInvocation, error) {
 				prepared := &preparedMCP{runtime: &MCPRuntime{Authority: authority, Paths: config.NewPaths(launchFixtureDirectory(t)), Executable: "/factory/litefactory", Now: time.Now}, service: service}
 				spec, err := prepareBugResultBroker(prepctx, prepared, binding.Attempt.Attempt)
@@ -218,7 +219,7 @@ func TestGraphStopPersistentAcceptedBugInputRoutesUnlessInterrupted(t *testing.T
 					return ResearchInvocation{}, err
 				}
 				t.Cleanup(func() { _ = prepared.close(context.WithoutCancel(t.Context())) })
-				request := agent.Request{Workflow: agent.WorkflowBug, MCPLaunch: spec, Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, WorktreePath: worktree, Prompt: "Investigate", Permissions: agent.Permissions{Profile: "bug-analyst"}}
+				request := agent.Request{Delivery: delivered, Workflow: agent.WorkflowBug, MCPLaunch: spec, Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, WorktreePath: worktree, Prompt: "Investigate", Permissions: agent.Permissions{Profile: "bug-analyst"}}
 				return ResearchInvocation{Request: request, Kind: agent.Kind(store.AgentClaude), SessionPath: ".aiteam/session", Results: service}, nil
 			}}
 			var registry ActivityRegistry

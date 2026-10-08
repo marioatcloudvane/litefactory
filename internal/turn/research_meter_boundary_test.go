@@ -28,7 +28,7 @@ func researchMeterFixture(t *testing.T) (*fixture, agent.Request) {
 	mustProgress(t, err)
 	ref, err := naming.ParseRef(f.session.TaskRef)
 	mustProgress(t, err)
-	return f, agent.Request{Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: seg.Ordinal, Session: agent.SessionRef{Ref: seg.SessionRef}, Mode: "research", WorktreePath: t.TempDir(), Prompt: "Investigate", Invocation: agent.InvocationResearchNode, Graph: &agent.GraphInvocation{InstanceID: inst.ID, AttemptID: attempt.ID, RunID: run.ID, Node: "work"}}
+	return f, agent.Request{Delivery: fixtureNativeDelivery(t, ResearchWorkflowPolicy()), Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: seg.Ordinal, Session: agent.SessionRef{Ref: seg.SessionRef}, Mode: "research", WorktreePath: t.TempDir(), Prompt: "Investigate", Invocation: agent.InvocationResearchNode, Graph: &agent.GraphInvocation{InstanceID: inst.ID, AttemptID: attempt.ID, RunID: run.ID, Node: "work"}}
 }
 
 func researchMeterRows(t *testing.T, db *store.DB, run int64) []store.MeterRow {
