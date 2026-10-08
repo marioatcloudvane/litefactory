@@ -17,7 +17,7 @@
         },
         {
           "path": "bug/bug-fixer.md",
-          "sha256": "5233bada1f49297a8ebee9f775c01d1ca312d99a24b0e7cfef21986e75ee7891"
+          "sha256": "5efacfa48c31b49611d356ae52f15a24520beda4d55ea7d67cf4a27fb0e31d9d"
         },
         {
           "path": "bug/bug.dot",
@@ -53,7 +53,7 @@
         },
         {
           "path": "implement/story-worker.md",
-          "sha256": "9e2acb7c65a64974cca757b8f94f05e434f481a7a7cdffe9ce41c9ea837cb975"
+          "sha256": "5b56d9dd10220af9e67b315058ad93da9878c920d3de32fc0f50ec48ae5cb38c"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -196,7 +196,7 @@
           "sha256": "97c3ed6f773ca7bb5652ab7acf405f12c398dcd4d9147adad60bb717eafc4adb"
         }
       ],
-      "checksum": "86c354158b96274098bd896c18d744eb392579cf5166fab451edab60fc5a09fe"
+      "checksum": "1481028e09821ddbe04c7f3ad3c99cf10bf8d84d90031ca458ca72a5df953787"
     }
   ]
 }
