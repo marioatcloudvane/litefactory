@@ -106,9 +106,9 @@ func TestHealthModeFollowsHookAndDelivery(t *testing.T) {
 	if r.WebhookMode != daemon.ModeWebhook || r.LastDeliveryAt.IsZero() {
 		t.Fatalf("row after a delivery = %+v", r)
 	}
-	// A delivery restarts the countdown: next poll is one interval after it.
-	if !r.NextPollDueAt.Equal(r.LastDeliveryAt.Add(scheduleInterval)) {
-		t.Errorf("next poll %s, want one interval after the delivery %s", r.NextPollDueAt, r.LastDeliveryAt)
+	// Delivery telemetry advances while the deadline stays anchored to the listing.
+	if !r.NextPollDueAt.Equal(r.LastPollFinishedAt.Add(scheduleInterval)) {
+		t.Errorf("next poll %s, want one interval after the listing %s", r.NextPollDueAt, r.LastPollFinishedAt)
 	}
 }
 
