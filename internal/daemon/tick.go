@@ -578,6 +578,9 @@ func (d *Daemon) discover(
 	if err := d.managedParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
+	if err := d.graphOwnerWaits(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
 	if err := d.backlog(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -1298,11 +1301,12 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		issue = fetched
 	}
 	if issue.State == "closed" {
-		if err := d.db.CancelResearchGraphs(ctx, c.session.ID, "issue closed", tickAt); err != nil {
+		cleared, err := d.cancelClosedIssueGraphs(ctx, c.session.ID, tickAt)
+		if err != nil {
 			return nil, fmt.Errorf("clear graph execution before retiring closed %s#%d backlog: %w", c.forgeRepo, c.session.IssueNumber, err)
 		}
-		if err := d.db.CancelWorkflowGraphs(ctx, c.session.ID, "spike", "issue closed", tickAt); err != nil {
-			return nil, fmt.Errorf("clear spike graph execution before retiring closed %s#%d backlog: %w", c.forgeRepo, c.session.IssueNumber, err)
+		if !cleared {
+			return nil, nil
 		}
 		if err := d.db.ClearSessionNeedsPoll(ctx, c.session.ID); err != nil {
 			return nil, fmt.Errorf("retire polling backlog for closed %s#%d: %w",
