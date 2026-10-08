@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,6 +21,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -266,9 +266,7 @@ func TestPublicationDaemonIO_TrustedPreparationApproval(t *testing.T) {
 	if posts != 1 || strings.Contains(body, "ghp_") || !strings.Contains(body, "Exact requested issue") || !strings.Contains(body, "278") {
 		t.Fatalf("missing exact redacted presentation: posts=%d body=%s", posts, body)
 	}
-	if _, _, err = f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("prepare granted authority %v", err)
-	}
+	creationfixture.NoCreationIntents(t, store.DSN(f.db.Path()), f.session.TaskRef)
 	// Deterministic preparation uses the same marker/hash even when replayed.
 	prepared, err := f.runtime.PrepareCreationProposal(t.Context(), turn.OwnerGrantControl{Repository: "owner/api", SourceTask: f.session.TaskRef, Mode: "research", Body: c.Body, CommentID: c.ID, ActorID: 10, CreatedAt: f.now})
 	publicationMust(t, err)
@@ -281,9 +279,7 @@ func TestPublicationDaemonIO_TrustedPreparationApproval(t *testing.T) {
 	bad.Author.Login = "owner"
 	bad.Body = "/mcp-create " + prepared.Hash + " linked"
 	publicationMust(t, f.d.handleComment(t.Context(), task, bad))
-	if _, _, err = f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("display-name spoof granted authority %v", err)
-	}
+	creationfixture.NoCreationIntents(t, store.DSN(f.db.Path()), f.session.TaskRef)
 	good := bad
 	good.ID++
 	good.Author.ID = 10
@@ -295,8 +291,8 @@ func TestPublicationDaemonIO_TrustedPreparationApproval(t *testing.T) {
 		t.Fatalf("approval not published %+v creations=%d", admitted, f.creationPosts)
 	}
 	// The factory published it, so no agent run may bind it a second time.
-	if _, _, err = f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("published approval still grantable: %v", err)
+	if pub, _, err := f.cs.ClaimOwnerPublication(t.Context(), admitted.IntentID, true); err != nil || pub.State != "uncertain" {
+		t.Fatalf("publication not retained: %+v %v", pub, err)
 	}
 	publicationMust(t, f.d.handleComment(t.Context(), task, good))
 	again, err := f.db.GetCreationAcknowledgment(t.Context(), source)
@@ -311,16 +307,12 @@ func TestPublicationDaemonIO_CreationRestartOpenClosedPages(t *testing.T) {
 	b := f.binding(t)
 	receipts, err := turn.NewReceiptService(f.db, b, nil, map[string]turn.FamilyProjection{"creation_publication": turn.CreationPublicationProjection(f.db, f.cs), "tool:issues_create_batch": turn.CreationPublicationProjection(f.db, f.cs)})
 	publicationMust(t, err)
-	service, err := turn.NewCreationPublicationService(f.db, receipts, f.runtime.CreationAuthorizer, f.runtime.Creation, f.runtime.Redactor, t.TempDir())
-	publicationMust(t, err)
-	prepared, err := service.Prepare(t.Context(), submission.CreationEnvelope{Artifacts: []submission.CreationArtifact{{Title: "Retained issue", Body: "Exact ghp_0123456789abcdefghijklmnopqrstuvwxyz", LinkIssues: []int{278}}}})
+	control := turn.OwnerGrantControl{Repository: "owner/api", SourceTask: b.Task, Mode: "research", ActorID: 10, CommentID: 89, CreatedAt: f.now, Body: `/mcp-create prepare {"artifacts":[{"title":"Retained issue","body":"Exact ghp_0123456789abcdefghijklmnopqrstuvwxyz","link_issues":[278]}]}`}
+	prepared, err := f.runtime.PrepareCreationProposal(t.Context(), control)
 	publicationMust(t, err)
 	id, err := f.runtime.CreationAuthorizer.AdmitOwnerGrantIntent(t.Context(), turn.OwnerGrantControl{Repository: "owner/api", SourceTask: b.Task, Mode: "research", Body: "/mcp-create " + prepared.Hash + " linked", CommentID: 90, ActorID: 10, CreatedAt: f.now})
 	publicationMust(t, err)
 	guard, err := f.runtime.Authority.Bind(t.Context(), b, strings.Repeat("a", 64), time.Now().Add(time.Hour))
-	publicationMust(t, err)
-	publicationMust(t, service.BindGuard(guard))
-	_, err = f.runtime.CreationAuthorizer.BindCreationGrant(t.Context(), guard, id)
 	publicationMust(t, err)
 	args, err := json.Marshal(prepared.Envelope)
 	publicationMust(t, err)
@@ -329,15 +321,20 @@ func TestPublicationDaemonIO_CreationRestartOpenClosedPages(t *testing.T) {
 	_, _, err = receipts.Begin(live, "lost-creation", "issues_create_batch", args)
 	publicationMust(t, err)
 	release()
-	if _, err = service.HandleCreate(t.Context(), "lost-creation", args); err == nil {
-		t.Fatal("lost create reply accepted")
-	}
+	opID := creationfixture.CreationHistory(t, store.DSN(f.db.Path()), id, b.RunID, b.Attempt, "lost-creation", 0)
+	publicationMust(t, receipts.Finish(t.Context(), "lost-creation", "uncertain", store.FamilyReference{Kind: "creation_publication", ID: opID}))
+	// Seed the prior remote call whose response was lost before restart.
+	f.creationPosts = 1
+	f.creationTitle = prepared.Envelope.Artifacts[0].Title
+	f.creationBody = prepared.Envelope.Artifacts[0].Body
 	rows, err := f.db.PendingCreationOperations(t.Context(), 0, 1)
 	publicationMust(t, err)
 	if len(rows) != 1 {
 		t.Fatalf("pending creation missing %+v", rows)
 	}
-	opID := rows[0].ID
+	if rows[0].ID != opID {
+		t.Fatal("wrong historical operation")
+	}
 	live, release, err = guard.Context(t.Context())
 	publicationMust(t, err)
 	receipt, err := receipts.Get(live, "lost-creation")

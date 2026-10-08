@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -87,9 +88,7 @@ func TestCreationSuccessIO_PreparationRestart(t *testing.T) {
 			if f.posts != 1 {
 				t.Fatal("recovery duplicated presentation")
 			}
-			if _, _, err = f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-				t.Fatalf("preparation created authority: %v", err)
-			}
+			creationfixture.NoCreationIntents(t, store.DSN(f.db.Path()), f.session.TaskRef)
 		})
 	}
 }
@@ -128,8 +127,8 @@ func TestCreationSuccessIO_ApprovalConsumptionRestart(t *testing.T) {
 	if after != before || f.posts != 1 || f.creationPosts != 1 {
 		t.Fatalf("changed admission/effects: %+v -> %+v posts=%d creations=%d", before, after, f.posts, f.creationPosts)
 	}
-	if _, _, err = f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("recovery renewed authority: %v", err)
+	if pub, _, err := f.cs.ClaimOwnerPublication(t.Context(), after.IntentID, true); err != nil || pub.State != "uncertain" {
+		t.Fatalf("recovery changed retained publication: %+v %v", pub, err)
 	}
 	if _, err = f.db.GetCreationRejection(t.Context(), f.session.ID, 70); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("false rejection: %v", err)

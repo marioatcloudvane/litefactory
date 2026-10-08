@@ -2,32 +2,14 @@ package store
 
 import (
 	"errors"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 	"testing"
 )
 
 func TestCreationPublicationDBDispatchAndMonotonicFacts(t *testing.T) {
 	f := newCreationDBFixture(t)
-	lease, proposal, _ := f.approved(t, "api", 273, 2)
-	reservation, err := f.c.ReserveCreation(t.Context(), lease, proposal)
-	if err != nil {
-		t.Fatal(err)
-	}
-	id := reservation.Operation.ID
-	if err = f.db.BeginCreationArtifact(t.Context(), id, 0); !errors.Is(err, ErrCreationConflict) {
-		t.Fatalf("reserved operation dispatched artifact: %v", err)
-	}
-	if _, err = f.c.BeginDispatch(t.Context(), reservation.Permit); err != nil {
-		t.Fatal(err)
-	}
-	if err = f.db.BeginCreationArtifact(t.Context(), id, 2); !errors.Is(err, ErrCreationConflict) {
-		t.Fatalf("out of bounds ordinal: %v", err)
-	}
-	if err = f.db.BeginCreationArtifact(t.Context(), id, 0); err != nil {
-		t.Fatal(err)
-	}
-	if err = f.db.BeginCreationArtifact(t.Context(), id, 0); !errors.Is(err, ErrCreationConflict) {
-		t.Fatalf("duplicate dispatch: %v", err)
-	}
+	lease, proposal, intent := f.approved(t, "api", 273, 2)
+	id := creationfixture.CreationHistory(t, DSN(f.db.Path()), intent, lease.Binding.RunID, lease.Binding.Attempt, "", 0)
 	before, err := f.db.CreationPublicationArtifacts(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)

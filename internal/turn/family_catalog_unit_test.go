@@ -90,8 +90,7 @@ func TestFamilyCatalogUnit_RejectsIncompleteConstruction(t *testing.T) {
 		}},
 		{"replace receipt handler", func(t *testing.T, o *turn.FamilyDispatcherOptions) { o.Registrations[0].Name = "receipts_get" }},
 		{"replace feedback handler", func(t *testing.T, o *turn.FamilyDispatcherOptions) { o.Registrations[0].Name = "feedback_preflight" }},
-		{"creation without fresh replay check", func(t *testing.T, o *turn.FamilyDispatcherOptions) {
-			o.AllowCreation = true
+		{"retired creation tool", func(t *testing.T, o *turn.FamilyDispatcherOptions) {
 			o.Registrations[0].Name = "issues_create_batch"
 		}},
 		{"nonpositive comment target", func(t *testing.T, o *turn.FamilyDispatcherOptions) { o.CommentTargets = []int{0} }},
