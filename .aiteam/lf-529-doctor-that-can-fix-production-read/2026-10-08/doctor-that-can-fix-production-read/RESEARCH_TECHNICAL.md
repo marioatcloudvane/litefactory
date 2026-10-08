@@ -80,3 +80,12 @@ Evidence:
 - `internal/git/merge.go:334`
 - `internal/git/worktree_apply.go:316`
 - `internal/doctor/prompt.go:16`
+
+## f8
+
+Implement infrastructure failure allowance is computed from failed graph instances since the story state timestamp, independently of the story attempts field; merely setting attempts to zero would leave the infrastructure cap exhausted.
+
+Evidence:
+
+- `internal/store/implement_stories.go:365`
+- `internal/daemon/implement_story_task.go:58`

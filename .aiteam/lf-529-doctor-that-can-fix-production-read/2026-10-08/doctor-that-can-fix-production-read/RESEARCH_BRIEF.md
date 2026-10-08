@@ -16,7 +16,15 @@ Shape issue #529 into a buildable scope for direct read-only production diagnosi
 - **d8** — Stopping a run uses the existing stop request and distinguishes accepted intent from confirmed termination.
 - **d9** — Related database changes settle with their backups, while multi-action and external effects retain separate durable outcomes and never claim automatic rollback.
 - **d10** — Enable each native provider only after verified read isolation and typed repair authority, without general write access.
-- **d11** — Acceptance covers factual diagnosis, approved stranded-instance recovery, every operation's refusal rules, stale approvals and interrupted-effect recovery.
+- **d11** — Acceptance covers factual diagnosis, approved stranded-instance recovery with exhausted budgets reset to zero, every operation's refusal rules, stale approvals and interrupted-effect recovery.
+- **d12** — Owner q1 requires approved recovery to reset effective failed-attempt budgets to zero, including exhausted budgets, without deleting failure history.
+- **d13** — Reset both Implement story and infrastructure-failure budgets, and require an explicitly approved resume action when the story is already parked.
+- **d14** — Owner q2 selects skipping only the next blocking comment, with confirmed visible explanation before advancing processing.
+- **d15** — Owner q3 permits explicitly disclosed replay of settled scheduled work with prior-effect and dependent-work checks.
+- **d16** — Owner q4 permits the conflict-resolution agent to resolve only conflicts from the approved base or parent merge, with the factory checking and committing its result.
+- **d17** — Branch sync refuses dirty or concurrently active worktrees and retains a clean task worktree after failed or interrupted resolution.
+- **d18** — A retry reset restores allowance but does not grant workflow review approval or remove separate non-Implement continuation requirements.
+- **d19** — Schedule cancellation blocks named unfinished descendants while preserving completed work, and replay carries an approved due time and attempt lineage.
 
 
 ## Assumptions
@@ -26,37 +34,7 @@ Shape issue #529 into a buildable scope for direct read-only production diagnosi
 - **a3** — Use selected-issue and relevant Implement parent/child access with shared daemon logs, read-output redaction and secret-file exclusion as the reasonable read boundary.
 - **a4** — A database SELECT-only interface is acceptable because the issue explicitly offers it as an alternative to sqlite3 -readonly.
 - **a5** — Doctor may record diagnosis, proposal and audit history through factory interfaces even though its diagnostic shell cannot write production state.
-
-
-## Open questions
-
-### q1 — What retry guarantee should release_instance provide?
-
-_Asked of: Product Owner Questions_
-
-- **existing** — Recommended: preserve existing retry rules; eligible Implement work restarts on the next eligible tick, while exhausted retries or other workflows explicitly require owner continuation.  *(recommended)*
-- **automatic** — Make release_instance authorize a new attempt for every supported workflow, including exhausted retries; expand scope to define how that authority is carried and bounded.
-
-### q2 — What does consume_comment authorize?
-
-_Asked of: Product Owner Questions_
-
-- **skip** — Recommended: explicitly skip only the next blocking comment without executing it, post its identity and reason, and advance processing only after a durable reply; refuse unresolved execution or publication and never skip later comments.  *(recommended)*
-- **complete** — Allow it only to acknowledge a comment whose requested work is already proven complete; an unexecuted blocking comment stays blocked.
-
-### q3 — May requeue_schedule replay previously settled work?
-
-_Asked of: Product Owner Questions_
-
-- **explicit** — Recommended: include settled work, but require the proposal to name prior effects, duplicate risk and dependent schedules; refuse active successors or uncertain publication and preserve the prior attempt as history.  *(recommended)*
-- **unstarted** — Limit repair to work proven never executed; previously settled schedules require normal owner continuation rather than doctor replay.
-
-### q4 — How much authority should sync_branch give the conflict-resolution agent?
-
-_Asked of: Product Owner Questions_
-
-- **merge** — Recommended: approve merging the displayed base or Implement parent commit and resolving only conflicts caused by that merge; factory reviews the changed set and commits, with no unrelated fixes, push or deploy.  *(recommended)*
-- **separate** — Allow clean merges only; conflicts stop with a report and require a separate Bug or Implement request, reducing this feature's requested conflict recovery.
+- **a6** — Interpret q1 as restoring the targeted work's retry allowance, including both Implement failure budgets, without granting unrelated workflow approval or resetting unrelated work.
 
 ## Research documents
 
