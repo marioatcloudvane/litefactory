@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,7 +77,7 @@ func TestImplementStatusLockIsIndependentAndSerializesAliases(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("status writer did not acquire released lock")
 	}
 }

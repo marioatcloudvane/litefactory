@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
@@ -529,61 +530,63 @@ func TestLogsFollowRendersAsItStreams(t *testing.T) {
 // mid-write case: a half-written event must not be rendered as an event, and
 // must not be lost when it is completed either.
 func TestLogsFollowRenderedNeverEmitsAPartialLine(t *testing.T) {
-	f := newLogsHome(t)
-	session := f.session(f.repo("acme", "api"), 123)
-	f.allocateRun(session, 1001, time.Now().UTC())
-	path := f.runLogPath(session, 1)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("create run dir: %v", err)
-	}
-
-	whole := assistantLine(t, "", textBlock("a complete event"))
-	split := assistantLine(t, "", textBlock("an event written in two halves"))
-	head, tail := split[:len(split)/2], split[len(split)/2:]
-
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-
-	out := &recordingWriter{}
-	writerDone := make(chan error, 1)
-	go func() {
-		defer close(writerDone)
-		if err := appendToFile(path, whole+head); err != nil {
-			writerDone <- err
-			return
+	synctest.Test(t, func(t *testing.T) {
+		f := newLogsHome(t)
+		session := f.session(f.repo("acme", "api"), 123)
+		f.allocateRun(session, 1001, time.Now().UTC())
+		path := f.runLogPath(session, 1)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("create run dir: %v", err)
 		}
-		if err := out.waitForWrites(ctx, 1); err != nil {
-			writerDone <- err
-			return
-		}
-		select {
-		case <-ctx.Done():
-			writerDone <- ctx.Err()
-			return
-		case <-time.After(4 * followInterval):
-		}
-		if n := out.count(); n != 1 {
-			writerDone <- fmt.Errorf("follower emitted %d writes while only a partial line was pending, want 1", n)
-			return
-		}
-		if err := appendToFile(path, tail+resultLine("done")); err != nil {
-			writerDone <- err
-		}
-	}()
 
-	var stderr bytes.Buffer
-	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--only", "text"})
+		whole := assistantLine(t, "", textBlock("a complete event"))
+		split := assistantLine(t, "", textBlock("an event written in two halves"))
+		head, tail := split[:len(split)/2], split[len(split)/2:]
 
-	if err := <-writerDone; err != nil {
-		t.Fatalf("live writer: %v", err)
-	}
-	if code != ExitOK {
-		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
-	}
-	want := "text    a complete event\ntext    an event written in two halves\n"
-	if got := out.joined(); got != want {
-		t.Errorf("followed output\n got %q\nwant %q", got, want)
-	}
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+
+		out := &recordingWriter{}
+		writerDone := make(chan error, 1)
+		go func() {
+			defer close(writerDone)
+			if err := appendToFile(path, whole+head); err != nil {
+				writerDone <- err
+				return
+			}
+			if err := out.waitForWrites(ctx, 1); err != nil {
+				writerDone <- err
+				return
+			}
+			select {
+			case <-ctx.Done():
+				writerDone <- ctx.Err()
+				return
+			case <-time.After(4 * followInterval):
+			}
+			if n := out.count(); n != 1 {
+				writerDone <- fmt.Errorf("follower emitted %d writes while only a partial line was pending, want 1", n)
+				return
+			}
+			if err := appendToFile(path, tail+resultLine("done")); err != nil {
+				writerDone <- err
+			}
+		}()
+
+		var stderr bytes.Buffer
+		code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--only", "text"})
+
+		if err := <-writerDone; err != nil {
+			t.Fatalf("live writer: %v", err)
+		}
+		if code != ExitOK {
+			t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
+		}
+		want := "text    a complete event\ntext    an event written in two halves\n"
+		if got := out.joined(); got != want {
+			t.Errorf("followed output\n got %q\nwant %q", got, want)
+		}
+	})
 }
 
 // TestLogsAcceptsATaskRef covers the other way a task is named. The canonical

@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"strings"
 	"testing"
@@ -128,10 +129,10 @@ func TestMeterExportReleasesDatabaseBeforeWriter(t *testing.T) {
 	}()
 	select {
 	case <-writer.entered:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("waiting for CSV header")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.Wait)
 	defer cancel()
 	_, err := f.db.StartMeterAttempt(ctx, a.RunID, "claude")
 	close(writer.release)
@@ -143,7 +144,7 @@ func TestMeterExportReleasesDatabaseBeforeWriter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("export did not finish")
 	}
 }

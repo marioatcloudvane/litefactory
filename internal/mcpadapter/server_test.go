@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"strings"
 	"sync/atomic"
@@ -83,7 +84,7 @@ func newPipeSession(t *testing.T, backend fakeBackend, consume bool) *pipeSessio
 		p.join(t)
 		select {
 		case <-p.readDone:
-		case <-time.After(3 * time.Second):
+		case <-time.After(testutil.Wait):
 			t.Error("output consumer failed to join")
 		}
 	})
@@ -97,7 +98,7 @@ func (p *pipeSession) send(t *testing.T, data string) {
 }
 func (p *pipeSession) read(t *testing.T) wireResponse {
 	t.Helper()
-	return p.readWithin(t, 3*time.Second)
+	return p.readWithin(t, testutil.Wait)
 }
 
 // readWithin is read with its own deadline, for a response whose work grows
@@ -121,7 +122,7 @@ func (p *pipeSession) join(t *testing.T) {
 	t.Helper()
 	select {
 	case <-p.done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("server failed to join owned workers")
 	}
 }
@@ -296,7 +297,7 @@ func TestMCPServer_CancellationAndWorkerLimits(t *testing.T) {
 		p.send(t, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"communication_submit","arguments":{"token":"%d"}}}`, i+10, i))
 		select {
 		case <-started:
-		case <-time.After(3 * time.Second):
+		case <-time.After(testutil.Wait):
 			t.Fatal("worker did not start")
 		}
 	}
@@ -311,7 +312,7 @@ func TestMCPServer_CancellationAndWorkerLimits(t *testing.T) {
 		if token != "0" {
 			t.Fatalf("cancelled wrong request %s", token)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("matching cancellation did not propagate")
 	}
 	requireCode(t, p.read(t), -32603)
@@ -363,7 +364,7 @@ func TestMCPServer_EOFAndBlockedOutputJoin(t *testing.T) {
 		p.send(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"communication_submit","arguments":{}}}`)
 		select {
 		case <-started:
-		case <-time.After(3 * time.Second):
+		case <-time.After(testutil.Wait):
 			t.Fatal("backend not started")
 		}
 		_ = p.in.Close()
@@ -450,7 +451,7 @@ func TestMCPServer_StringNumericAndConnectionCancellationIsolation(t *testing.T)
 	for range 3 {
 		select {
 		case <-started:
-		case <-time.After(3 * time.Second):
+		case <-time.After(testutil.Wait):
 			t.Fatal("distinct IDs collided or worker did not start")
 		}
 	}
@@ -460,7 +461,7 @@ func TestMCPServer_StringNumericAndConnectionCancellationIsolation(t *testing.T)
 		if token != "string" {
 			t.Fatalf("cancelled foreign request %s", token)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("string cancellation did not propagate")
 	}
 	requireCode(t, first.read(t), -32603)

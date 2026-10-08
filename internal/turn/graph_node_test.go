@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"reflect"
 	"strings"
 	"testing"
@@ -125,7 +126,7 @@ func TestGraphNodeDispatchPersistenceAndCloning(t *testing.T) {
 		opts.Tiers.ModelByTier[config.KindClaude][config.TierFast] = "mutated"
 		delete(opts.Runners, agent.Kind(store.AgentClaude))
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.Wait)
 	defer cancel()
 	result, err := ExecuteNodeAction(ctx, f.opts, req)
 	if err != nil {

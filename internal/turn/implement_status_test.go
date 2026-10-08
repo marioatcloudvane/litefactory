@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -243,7 +244,7 @@ func receiveStatus[T any](t *testing.T, ch <-chan T) T {
 	select {
 	case v := <-ch:
 		return v
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("status operation timed out")
 		var zero T
 		return zero

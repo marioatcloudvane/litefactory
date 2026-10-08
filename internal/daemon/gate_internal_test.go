@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 // for presents as a goroutine that never wakes up, and "panic: test timed out
 // after 10m" names neither the test nor the line. Failing on our own clock is
 // the difference between a diagnosis and a stack dump.
-const gateTestTimeout = 10 * time.Second
+const gateTestTimeout = testutil.Wait
 
 // TestCloneGateExcludesOneClone is AC-PAR-3.1's core: concurrent holders of one
 // clone are serialised.

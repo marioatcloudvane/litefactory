@@ -1,9 +1,12 @@
 package bugchecks
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/config"
@@ -96,8 +99,31 @@ func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 	if infra.Outcome != "blocked" {
 		t.Fatalf("infrastructure exit classified %q", infra.Outcome)
 	}
-	slow := p.Run(t.Context(), worktree, config.BugCheckCommand{Argv: []string{"/bin/sh", "-c", "sleep 30 & sleep 30"}, TimeoutSeconds: 1}, noop)
+	// Both children outlive the startup-inclusive timeout. Record their PIDs
+	// before waiting, so a timeout before the fixture starts cannot pass.
+	script := `sleep 120 & child=$!; echo $child > child.pid; echo $$ > parent.pid; /bin/ps -o pgid= -p "$child" > child.pgid; /bin/ps -o pgid= -p $$ > parent.pgid; echo ready > ready; wait`
+	slow := p.Run(t.Context(), worktree, config.BugCheckCommand{Argv: []string{"/bin/sh", "-c", script}, TimeoutSeconds: 10}, noop)
 	if slow.Outcome != "blocked" || slow.Reason != "check timed out" || !slow.CleanupConfirmed {
 		t.Fatalf("timeout outcome %q reason %q cleanup %v", slow.Outcome, slow.Reason, slow.CleanupConfirmed)
 	}
+	ready, err := os.ReadFile(filepath.Join(worktree, "ready"))
+	if err != nil || strings.TrimSpace(string(ready)) != "ready" {
+		t.Fatalf("timeout fixture not ready: %q %v", ready, err)
+	}
+	for _, name := range []string{"child.pid", "parent.pid", "child.pgid", "parent.pgid"} {
+		data, err := os.ReadFile(filepath.Join(worktree, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil || pid <= 0 {
+			t.Fatal(fmt.Errorf("invalid %s: %q", name, data))
+		}
+		if strings.HasSuffix(name, ".pid") {
+			if err := syscall.Kill(pid, 0); err == nil {
+				t.Errorf("%s %d survived timeout", name, pid)
+			}
+		}
+	}
+
 }

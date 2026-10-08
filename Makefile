@@ -18,18 +18,440 @@ build:
 	@mkdir -p $(DIST)
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/$(BINARY) ./cmd/litefactory
 
-## test: run the test suite with the race detector
-# No package deadline: the real git/SQLite race tests keep growing, and any
-# fixed limit (Go's default is ten minutes) eventually fails a healthy run.
-# Override for a bounded run with `make test TEST_TIMEOUT=30m`.
+## test: all tests, with race coverage concentrated on shared-state behavior
+# All packages except the SQL-heavy suites retain full race coverage, including
+# daemon dispatch, submission, mcpadapter, harness, codex and gittest. Instrumented
+# pure-Go SQLite dominates turn/store/cli: run their full suites without -race,
+# then the existing concurrency tests below with it. When adding concurrency in
+# these packages, extend the selections. No tests are omitted from the full run.
+# These conservative lists include all tests in files with goroutine or sync
+# fixtures, plus the shared-state owners (attempt authority, submission sessions,
+# progress/status, validation runtime, activity and meter snapshots).
 TEST_TIMEOUT ?= 0
+empty :=
+space := $(empty) $(empty)
+MIXED_PACKAGES := ./internal/turn ./internal/store ./internal/cli
+RACE_TESTS_store := \
+	TestApprovalIsAtomicAndExcludesPendingRefinements \
+	TestReplanPreservesCompletedAndOldApprovedScope \
+	TestCommentReservationCrossConnectionAndReopen \
+	TestFamilyLedgerConcurrentReopenAndIsolation \
+	TestGraphTriggerBandIsDisjoint \
+	TestGraphDispatchLifecycle \
+	TestParkRefusesADisagreeingNode \
+	TestGraphDispatchGivesUpAfterRepeatedFailures \
+	TestGraphDispatchRetryDelayGrows \
+	TestGraphDispatchStopOutcomeIsOnlyActualExhaustion \
+	TestGraphReplyRecoveryAtomicallyConsumesInput \
+	TestImplementProgressSequenceValidationAndReceipt \
+	TestImplementProgressAtomicFailureAndLostReply \
+	TestImplementProgressAuthority \
+	TestImplementProgressBudgetAndConcurrentRetry \
+	TestImplementProgressLatestRestartAndAdvisoryOnly \
+	TestImplementProgressMembershipWithRetainedGeneration \
+	TestImplementProgressReceiptSurvivesCompaction \
+	TestImplementStatusLockIsIndependentAndSerializesAliases \
+	TestMeterPriceCatalogImmutableAndAtomic \
+	TestMeterValuationSnapshotAndPin \
+	TestMeterConcurrentCatalogEdits \
+	TestMeterDiagnosticDedupBeforeBound \
+	TestMeterRejectsMalformedFrozenValuations \
+	TestMeterReplayAndSnapshot \
+	TestMeterAtomicRollbackAndConstraints \
+	TestMeterAttemptAndFinalization \
+	TestMeterSnapshotLimitsAndCancellation \
+	TestMeterSnapshotExactTimeBounds \
+	TestMeterOutOfOrderAndCrossAttempt \
+	TestMeterCheckpointAndRollback \
+	TestMeterConcurrentAttempts \
+	TestMeterQueryIndexes \
+	TestMeterDiagnosticUnionAndProvenance \
+	TestMeterPopulatedMigrationAndReopenReplay \
+	TestMeterJoinedQueryWithRealisticCardinality \
+	TestMeterFilteredIdentityCollisionAndCancelledCollection \
+	TestReportDeliveryHTTPAndSQLiteFailureWindows \
+	TestCreationAcceptanceHTTPAndSQLiteFailureWindows \
+	TestResultBinding_AllModesAndContextContinuation \
+	TestResultBinding_ModeTaskAndVersionIsolation \
+	TestResultRecord_ConcurrentCASAndRollback \
+	TestResultRequestReferences_OrderedBoundedAndScoped \
+	TestResultHistory_ReopenReplayCollisionAndObservations \
+	TestResultRecord_RejectionAndV2Isolation \
+	TestRunLifecycleStorageBoundaries \
+	TestForeignKeysAreEnforced \
+	TestOpenRejectsAMissingDirectory \
+	TestMigrateIsIdempotent \
+	TestPollCursorTableHoldsOneRow \
+	TestTimeRoundTripsAndSortsLexicographically \
+	TestUpsertIdentityRefreshesWithoutDuplicating \
+	TestUpsertRepoIsIdempotentOnPath \
+	TestGetOrCreateSessionIsStable \
+	TestFreezeSessionSlugKeepsTheFirstValue \
+	TestSessionWorktreeAndState \
+	TestSessionLockIsAtomic \
+	TestAcquireSessionLockOnAMissingSession \
+	TestSessionNeedsPollRoundTrips \
+	TestListBacklogSessionsIsCrossRepo \
+	TestNeedsPollSurvivesAReMigration \
+	TestBootstrapWatermarkDoesNotConsumeComments \
+	TestAdvanceWatermarkNeverRewinds \
+	TestRecordCommentIsIdempotentAndTagsThirdParties \
+	TestNextCommentTagCountsNumerically \
+	TestPollCursorSurvivesAReopen \
+	TestGetOrCreateSegmentReusesTheConversation \
+	TestGetOrCreateSegmentRequiresAgentKind \
+	TestSetSegmentResumeTokenNeverOverwritesANonEmptyToken \
+	TestSetSegmentResumeTokenRejectsBadInput \
+	TestSetSegmentAgentSwitchesInPlaceTransactionally \
+	TestSetSegmentAgentRejectsBadInput \
+	TestAllocateRunAssignsOrdinalsAndRefusesReplay \
+	TestAllocateRunTakesTheIssueBodyAsTriggerZero \
+	TestFinishRunComputesDuration \
+	TestFinishRunRecordsAKillWithAReason \
+	TestRecordRunSyncRoundTripsEveryOutcome \
+	TestRecordRunSyncRefusesACommitShaOutsideSynced \
+	TestRecordRunSyncOnAMissingRunReportsNotFound \
+	TestCompleteRunReportIsOneTransaction \
+	TestWithTxRollsBackEveryWrite \
+	TestReconcileOrphans \
+	TestFindSessionByIssueReportsAmbiguity \
+	TestConcurrentAccessorsDoNotDeadlock \
+	TestSubmissionMigrationPreservesLegacyVersions \
+	TestSubmissionContractAndProjectionImmutability \
+	TestSubmissionConcurrentAllocationAndIdempotency \
+	TestSubmissionStaleAuthorityAndRollback \
+	TestSubmissionReceiptRecoveryKeepsIndependentStates \
+	TestSubmissionRetainsImmutableReferencedEvidence \
+	TestSubmissionRejectsUnsafeSnapshotFacts \
+	TestSubmissionRestartRetainsDiagnosticsAndPendingEffects \
+	TestSubmissionRollsBackCounterAndBudgetAfterInsertFailure \
+	TestSubmissionRunBudgetRejectsOverflowAtomically \
+	TestSubmissionAssessmentMarkerIsFollowupMaterialized \
+	TestSubmissionAssessmentKeepsExistingV1FollowupDebt \
+	TestSubmissionMarkerFollowupMigrationBackfills \
+	TestFollowupListsExcludeSubmissionMarkerRows \
+	TestSubmissionAttemptReplacementRevokesOldAuthority \
+	TestWorkflowBoundaryCompetingAdmissionReopen \
+	TestWorkflowBoundaryPriorEvidence \
+	TestWorkflowBoundaryCancellationAndWriteFailure \
+	TestWorkflowBoundaryAmbiguousPriorEvidenceStops \
+	TestWorkflowBoundaryWorktreeCleanupRetainsAdmission
+RACE_TESTS_turn := \
+	TestActivitySocketBoundsAndOrdering \
+	TestActivitySocketDurableRetryAndLifecycle \
+	TestActivitySocketConcurrentRetry \
+	TestActivitySQLiteUpdateBudgetAndReplayWindow \
+	TestActivitySocketRevokedCallsHaveNoEffect \
+	TestActivityService_LifecycleRetention \
+	TestActivityService_LifecycleDoesNotRenewOrReopen \
+	TestActivityService_LifecycleClonesViews \
+	TestActivityService_LifecycleRequiresTime \
+	TestActivityService_LifecycleConcurrentCopies \
+	TestActivityService_EmptyLifecycle \
+	TestAggregateLifecycle_BothWorkflowVersionsAllStagesCorrectionAndRestartRecovery \
+	TestAggregateLifecycle_BothSyntheticAdapterPathsPerformSameRunCorrection \
+	TestAggregateLifecycle_256CriterionAssessmentThroughBroker \
+	TestAggregateLifecycle_LegacyContentVersionSkipsTypedBroker \
+	TestExecuteRefusesASimultaneousSecondCallAtOneSession \
+	TestReportCreationPresentationPostsOnceWithoutTouchingTheRunResult \
+	TestReportCreationPresentationDoesNotConsumeAFreshOwnerComment \
+	TestReportCreationPresentationRecoversPostThenCrashWithOneComment \
+	TestReportCreationPresentationFailureLeavesItOwed \
+	TestReportCreationPresentationFinalisesDeliveryCompletedByReportRecovery \
+	TestReportCreationPresentationSkipsLegacyProbeButOrdinaryRunlessRepliesKeepIt \
+	TestReportCreationPresentationNothingOwed \
+	TestCreationHTTPLostReplyReopenObservation \
+	TestCreationHTTPObservationRequiresExactUnambiguousProvenance \
+	TestPlanDeliverySelectedRosterAndIdentity \
+	TestDeliveryConcurrentPublicationIsDisjoint \
+	TestVerifyDeliveryRejectsAlteredResources \
+	TestDeliverySegmentRetainsAndRotatesExactIdentity \
+	TestDeliverySegmentSwitchReconcilesDeliveryForTheNewAgent \
+	TestExecuteFullTurnLeavesTheCloneUntouched \
+	TestExecuteCommitCarriesTheTrailersAndStripsForgeries \
+	TestExecuteNoChangesDoesNotCommitOrPush \
+	TestExecuteAllocatesTheRunRowBeforeTheSubprocess \
+	TestExecuteMarksTheSessionRunningForTheWholeDispatchWindow \
+	TestExecuteReleasesTheLockOnPanic \
+	TestExecuteReleasesTheLockOnAFailedRun \
+	TestExecuteSwitchesTheSegmentInPlaceWhenTheResolvedAgentChanges \
+	TestExecuteMakesNoSegmentWriteWhenTheAgentAlreadyMatches \
+	TestExecuteSwitchAlwaysColdStartsRegardlessOfPriorSameAgentHistory \
+	TestExecuteRefusesAnAgentSwitchOnlyForAContinuation \
+	TestExecuteInFlightTurnFinishesUnderOldAgentThenTheNextTurnSwitches \
+	TestExecuteLeavesTheCommentUnconsumedWhenLocked \
+	TestExecuteReplayIsANoOp \
+	TestExecuteFetchFailureAbortsWithNoWorktree \
+	TestExecuteRecordsTheFetch \
+	TestExecuteFreezesTheSlugThenReusesIt \
+	TestExecuteRefusesACorruptedFrozenSlug \
+	TestExecuteRefusesAnOccupiedWorktreePath \
+	TestExecutePushFailurePreservesTheCommit \
+	TestExecuteRecordsADistinctReasonPerOutcome \
+	TestExecuteDoesNotCommitAnAbandonedRun \
+	TestExecuteReportsAClaudeThatNeverStarted \
+	TestExecuteResolvesTheAuthorFromTheClone \
+	TestExecuteValidatesItsArguments \
+	TestReconcileReclaimsAndLogs \
+	TestOwnerStopSavesCancelledWritableRun \
+	TestOwnerStopPlanDoesNotPublishFailure \
+	TestExecuteRequiresACloneGate \
+	TestCriticalSectionsAreSingleAcquisitions \
+	TestTurnImposesNoAmbientDeadline \
+	TestClaudeRunsOutsideTheCloneGate \
+	TestConcurrentTurnsAgainstTwoClones \
+	TestImplementReadyStartsAtMostFourInPlanOrder \
+	TestImplementReadyHonoursMergedPrerequisites \
+	TestImplementReadyDrainsWhenNothingCanEverStart \
+	TestImplementReadyUnknownPrerequisiteNeverStarts \
+	TestImplementActivitiesRefuseForeignModeAndBadAuthority \
+	TestImplementMergeBusyLockReturnsRetryAndChangesNothing \
+	TestImplementMergeNoneWhenNothingIsDone \
+	TestImplementMergeTakesTheOldestDoneStoryOnePerCall \
+	TestImplementMergePushesWithTheExpectedHeadAndRunsNoChecks \
+	TestImplementMergeParksWithAPlainReason \
+	TestImplementMergeNextDoneStoryGetsItsTurnAfterAPark \
+	TestImplementMergeTransientFaultsDoNotPark \
+	TestImplementMergeMovedHeadRetriesWithoutParkingOrNote \
+	TestImplementMergePostsExactlyOneMarkedNoteAndReusesIt \
+	TestImplementMergeFinishesAfterALostReplyWithoutAPostOrAGitCall \
+	TestImplementHandoffPostsOnceThenEditsInPlace \
+	TestImplementHandoffStaysWithin64KiB \
+	TestImplementHandoffShowsStoriesTheLedgerDoesNotHoldYetAsWaiting \
+	TestRegisterImplementActivitiesFillsBothRegistriesWithoutAPolicy \
+	TestRegisterImplementActivitiesRequiresEveryDependency \
+	TestImplementMergeUnreadableMigrationPreventsPublication \
+	TestImplementStatusActivityIsCurrentAndAdvisory \
+	TestImplementStatusProgressSafety \
+	TestImplementStatusRedactsBeforeClippingAndEscaping \
+	TestImplementStatusMissingProgressStillRendersLedger \
+	TestImplementStatusRestartDeletionDuplicatesAndConcurrentRefresh \
+	TestImplementStatusFailureCatchUpAndFinalError \
+	TestImplementStatusAlreadyComplete \
+	TestImplementStatusCoalescesTrailingAndStateSkipsGap \
+	TestImplementStatusAcceptedProgressDoesNotFailOrWakeGraph \
+	TestImplementStatusWorkerChangesRemainSuccessfulOnDisplayFailure \
+	TestImplementStatusProgressBodyBudget \
+	TestImplementStatusReadyStartsLiveCommentAndRebuildsLatestProgress \
+	TestImplementStatusProductionBindingIncludesApprovedWithoutScheduling \
+	TestCommentHTTPConcurrentRetries \
+	TestCommentHTTPRefusesInvalidTargetsAndPreparedContent \
+	TestCommentHTTPLostResponseReopenAndExactObservation \
+	TestCommentHTTPCancellationRetainsIntentBeforeDispatch \
+	TestMCPAttempt_PrivateSocketRevocationAndRecovery \
+	TestMCPAttempt_RevokeBeforeAdmissionAndAfterRecordedWork \
+	TestMCPAttempt_FreshLaunchBindingsAndCopiedScope \
+	TestCodexMCPLifecycleEnabledDisabledAbsentSetup \
+	TestCodexMCPLifecycleMalformedQuotedValuesSurvive \
+	TestCodexMCPLifecycleServerCollisionRefusesSafely \
+	TestCodexMCPLifecycleRunPathsPreserveRegistration \
+	TestCodexMCPLifecycleConcurrentCancellationIsolation \
+	TestMCPFamilyCompleteCatalogPipeSocketHTTP \
+	TestMCPRuntimeActualLaunchPaths \
+	TestMCPRuntimeConcurrentCancellationIsolation \
+	TestMCPRuntimeReplacementRejectsStaleRegistration \
+	TestMCPRuntimeApplicationGuidanceSizes \
+	TestMCPTools_ModeServiceSocket \
+	TestMCPTools_RevokedSocketDeniesBackend \
+	TestMCPTools_PlanUnsafeRouteAndRecovery \
+	TestMCPTools_ValidateRetainedAssessment \
+	TestMCPTools_CompletedPlanRefused \
+	TestMCPTools_EditSelectorAndPermissionBinding \
+	TestMeterPersistsDistinctFallbackAttempts \
+	TestPlanGraphBoundary_ProgressiveHandoffAndSave \
+	TestPlanGraphBoundary_DirectEditsPreserveAndReopen \
+	TestPlanGraphBoundary_AgentSuppliedFactoryValuesRefused \
+	TestPlanGraphBoundary_SubmittedResultStandsWhateverIsPrinted \
+	TestPlanGraphBoundary_TerminalOnlyOutputCannotCreateStories \
+	TestPlanGraphBoundary_LostCreateAndAttachmentRecovery \
+	TestPlanGraphBoundary_ThreeIndependentStories \
+	TestPlanGraphBoundary_ChildAuthorityAndMixedFeedback \
+	TestPlanGraphBoundary_SaveFailureKeepsPublicationUnready \
+	TestPlanGraphBoundary_LostUpdatePreservesIdentity \
+	TestPlanGraphBoundary_OwnerRetirementExcludesOnlyConfirmedScope \
+	TestPlanGraphBoundary_PartialHandoffResumesSameIssues \
+	TestPlanGraphBoundary_LaterNodesReadTheRetainedSharedResult \
+	TestPlanGraphBoundary_AskPublishesQuestionsWithoutAStoryEffect \
+	TestGraphPlanLostReply_RecoversAcceptedCandidateBeforeRetry \
+	TestGraphPlanLostReply_RecoversAcrossDaemonRestart \
+	TestGraphPlanLostReply_UncertainRecoveryStaysUncertain \
+	TestGraphPlanLostReply_CorrectedRejectionUsesNewIdentity \
+	TestPlanNodeGuidance_TellsAgentToRecoverBeforeRetry \
+	TestPlanBoundaryCreateRecovery \
+	TestPlanBoundaryUpdateAndRetirementRecovery \
+	TestPlanBoundaryRejectsDriftAndUnauthorized \
+	TestPlanBoundaryScopedArchitecturePersistsAcrossCycles \
+	TestPlanBoundaryConcurrentUpdateIsUncertain \
+	TestPlanBoundaryOversizedDraftPostsPartComments \
+	TestPlanStoryLockWait \
+	TestPlanBoundarySiblingLockWait \
+	TestPlanBoundaryLockCancellation \
+	TestPlanStoryHeldLockExpires \
+	TestReportRunPostsThenCommitsAllThree \
+	TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched \
+	TestReportRenderFailurePostsNothingAndAdvancesNothing \
+	TestReportUsesTheBotCredentialOnly \
+	TestReportReplyAdvancesWithoutARunRow \
+	TestReportFailedRunStillPostsAndAdvances \
+	TestReportReadinessRefusalPostsWithNoRunRow \
+	TestReportReplayOfAReportedRunIsANoOp \
+	TestReportRunTriggeredByTheIssueBody \
+	TestReportSkipsALockedTurn \
+	TestReportConsumeAdvancesWithoutPosting \
+	TestReportValidatesItsArguments \
+	TestSpikeFixOnlySmallStartsTheWriteFixer \
+	TestSpikeFixPassedRecordsFixedThenReportsOnce \
+	TestSpikeFixFailedCheckIsUnverifiedWithoutIssueOrRetry \
+	TestSpikeFixTooBigNotesThenFilesOneIssueThenReports \
+	TestSpikeFixIssueFailureStillReportsUnconfirmed \
+	TestSpikeFixBlockedWhenTheRecipeIsMissingOrNothingChanged \
+	TestSpikeFixFixerFailureReportsOnceAndStops \
+	TestSpikeFixDotSwapsChangeThePathWithoutGoChange \
+	TestSpikeFixCheckBlockedByRunnerSetupTimeoutAndCancellation \
+	TestSpikeFixRouteRefusesAFinishedFixWithoutAValidReport \
+	TestSpikeFixIssueReplayRecoversByMarkerAndNeverRecreates \
+	TestSpikeFixCheckReplayIsSafeAndDoesNotRestartTheFixer \
+	TestStoryAcknowledgementRecoversAcrossIndependentReporters \
+	TestStoryProgressClosesDuringHeldParentBeforeSave \
+	TestStoryProgressResponseLossAndInvalidationSurviveNewService \
+	TestStoryProgressRejectsMutableEvidenceAndConflictingReplay \
+	TestStoryProgressPendingCloseBlocksReplanUntilDelivered \
+	TestStoryProgressUnreadInputPreventsPendingClose \
+	TestStoryProgressIndependentServicesSerializeIngestionAndDelivery \
+	TestStoryFeatureCompletesOnlyAfterAggregateAndAllStories \
+	TestValidationCheckpointReconcilesTerminal \
+	TestSubmissionLiveCorrectionAndFactoryEnvelope \
+	TestSubmissionRejectsChangedWorktreeAndUnauthorizedSelector \
+	TestSubmissionLegacyDecisionRecovery \
+	TestSubmissionReplacementAttemptRejectsOldAuthority \
+	TestSubmissionBothSyntheticRunnerPathsObserveDecisionBeforeExit \
+	TestSubmissionValidationConsumesRetainedEvidenceOnly \
+	TestSubmissionV2AcceptedStoryPollHasNoValidationParserError \
+	TestSubmissionReferenceReworkChecksCurrentBytes \
+	TestSubmissionConcurrentStoriesKeepCorrelation \
+	TestSubmissionFinalDrainRetainsPendingDecision \
+	TestSubmissionTerminalValidationRequiresRecordedReceipt \
+	TestSubmissionRecoveryFromFreshStoreConnection \
+	TestConcurrentTurnsSyncIndependentlyOnOneClone \
+	TestTypedPlanFactoryBindingAndCompleteSet \
+	TestTypedPlanRejectsSemanticRedactionAndInjectedEnvelope \
+	TestTypedCriterionSourceAuthorityAndLegacyDispatch \
+	TestTypedPlanSubmissionBoundArtifactsAndPendingReadiness \
+	TestValidateManualStartRunsSuiteReviewAndOutcomeToTheOwnerWait \
+	TestValidateAutomaticStartReachesTheSameStateAsAManualStart \
+	TestValidateRestartAfterTheEntryWasSavedStillStartsOnce \
+	TestValidateRestartAfterAdmissionLosesNoStartAndMakesNoSecondRun \
+	TestValidateRestartMidSuiteNeedsOneOwnerStartAndNeverTwoLiveRuns \
+	TestValidateProductionRuntimeRunsTheGraphToTheOwnerWait
+RACE_TESTS_cli := \
+	TestInitCreatesTheHomeConfigAndDatabase \
+	TestInitKeepsTheGenericWarningForARealFailure \
+	TestInitStoresTheBotIdentity \
+	TestInitNeverPrintsTheBotToken \
+	TestInitRefusesWhenTheBotIsTheOwner \
+	TestInitFailsWhenGHCannotAnswer \
+	TestInitIsIdempotent \
+	TestInitRejectsABrokenConfig \
+	TestInitWarnsWhenTheBotTokenCannotBeResolved \
+	TestFollowAppLog_StreamsAppendedRecord \
+	TestFollowAppLog_TerminalEventDoesNotStopFollow \
+	TestFollowAppLog_WaitsForFileThenStreams \
+	TestFollowAppLog_ResumesAfterTruncation \
+	TestLogsRendersTheEventStream \
+	TestLogsRendersTheNewestRunByDefault \
+	TestLogsOnlySelectsKinds \
+	TestLogsRejectsAnUnknownKind \
+	TestLogsGrepFiltersLines \
+	TestLogsGrepRejectsABadPattern \
+	TestLogsGrepAppliesToRaw \
+	TestLogsMarksSubAgentActivity \
+	TestLogsFullShowsWholeToolOutput \
+	TestLogsRendersWhatItCannotDecode \
+	TestLogsRenderedOutputIsUnredacted \
+	TestLogsRendersCodexThroughTheSameView \
+	TestLogsFollowRendersAsItStreams \
+	TestLogsFollowRenderedNeverEmitsAPartialLine \
+	TestLogsAcceptsATaskRef \
+	TestLogsRunWithNoEventLogIsReportedNotFatal \
+	TestLogsListsRunsNewestLast \
+	TestLogsListsATaskWithNoRuns \
+	TestLogsAmbiguousIssuePrintsCandidates \
+	TestLogsRejectsAMalformedRepoFlag \
+	TestLogsUnknownTaskIsCleanAndNonZero \
+	TestLogsRejectsANonNumericIssue \
+	TestLogsWithNoDatabaseIsAPrecondition \
+	TestLogsRunSummary \
+	TestLogsRunSummaryAgentAndSessionRef \
+	TestLogsRunSummaryTodoWriteWorkedExample \
+	TestLogsRunSummaryOmitsRequestedToolsWhenTheyMatchResolved \
+	TestLogsRequestedTools \
+	TestLogsRunSummaryWithoutMetadata \
+	TestLogsUnknownRunOrdinal \
+	TestLogsRawIsByteForByte \
+	TestLogsRawDefaultsToTheNewestRun \
+	TestLogsOutputIsUnredacted \
+	TestLogsUsesNoDaemonIPC \
+	TestLogsRunFlagSelectsTheRunAfterThePositional \
+	TestLogsFollowStreamsFromALiveWriter \
+	TestLogsFollowNeverEmitsAPartialLine \
+	TestLogsFollowOnAFinishedRunPrintsAndExits \
+	TestLogsFollowOnAFinishedRunPrintsAnUnterminatedTail \
+	TestLogsFollowStopsOnAnInterrupt \
+	TestLogsFollowWithoutAnEventLog \
+	TestMCPCLI_ExplicitServeWithAutomaticPolicyDisabled \
+	TestMCPCLI_StaleDescriptorRefusedBeforeHandshake \
+	TestMCPCLI_CancellationReachesSharedService \
+	TestWebhookKeychainServiceMatchesTheDaemon \
+	TestRepoAddWithoutPublicURLSkipsAndSaysSo \
+	TestRepoAddRegistersTheWebhookAndIsRepeatable \
+	TestRepoAddKeepsTheRegistrationWhenTheWebhookFails \
+	TestRepoAddWarnsAboutPlainHTTP \
+	TestRepoAddMakesNoGitHubCallWhenTheSecretCannotBeStored \
+	TestRepoWebhookRepairsOneAndAll \
+	TestRepoWebhookArguments \
+	TestStoryContractUpgrade_CLIBoundary \
+	TestTeamCommandsOutsideRepository \
+	TestTeamWorkflowValidationRefusesUnknownActionAndMissingResource \
+	TestTeamSourceSettingsCannotBeSilentlyTruncated \
+	TestMeterEndToEndSyntheticProviderCoverage \
+	TestMeterEndToEndProjectAndFilterMatrix \
+	TestMeterEndToEndFrozenPricingDuringSlowExport \
+	TestMeterEndToEndCancelledSlowExportCleanup \
+	TestMeterExportFiltersAndCoverage \
+	TestMeterCSVTextRoundTrip \
+	TestMeterSummaryUnknownModelRetained \
+	TestMeterExportReleasesDatabaseBeforeWriter \
+	TestMeterExportBrokenWriterAndCancellation \
+	TestMeterCSVShortHeader \
+	TestMeterExactTimeBoundsAndProjectIsolation \
+	TestMeterTextDetailsExposeMeasurementsAndProvenance \
+	TestTeamBindingProcessHelper
+
 test:
-	$(GO) test -race -timeout=$(TEST_TIMEOUT) $(PKGS)
+	@set -e; \
+	selected="$$($(GO) list $(PKGS))"; \
+	mixed="$$($(GO) list $(MIXED_PACKAGES) | tr '\n' ' ')"; \
+	full_race=""; mixed_selected=""; \
+	for pkg in $$selected; do \
+	  case " $$mixed " in \
+	    *" $$pkg "*) mixed_selected="$$mixed_selected $$pkg" ;; \
+	    *) full_race="$$full_race $$pkg" ;; \
+	  esac; \
+	done; \
+	if [ -n "$$full_race" ]; then $(GO) test -race -timeout=$(TEST_TIMEOUT) $$full_race; fi; \
+	if [ -n "$$mixed_selected" ]; then $(GO) test -timeout=$(TEST_TIMEOUT) $$mixed_selected; fi; \
+	for pkg in $$mixed_selected; do \
+	  case $$pkg in \
+	    */turn) tests='$(subst $(space),|,$(strip $(RACE_TESTS_turn)))' ;; \
+	    */store) tests='$(subst $(space),|,$(strip $(RACE_TESTS_store)))' ;; \
+	    */cli) tests='$(subst $(space),|,$(strip $(RACE_TESTS_cli)))' ;; \
+	  esac; \
+	  $(GO) test -race -timeout=$(TEST_TIMEOUT) -run "^($$tests)"'$$' $$pkg; \
+	done
 
 ## test-fast: run the test suite without the race detector
-# The same tests in a fraction of the time: race instrumentation of the
-# transpiled SQLite dominates `test`. Use it to iterate; it does not replace
-# `check` as the gate.
+# Run every package without instrumentation for local iteration. This does
+# not replace the selected concurrency coverage in `test` and `check`.
 test-fast:
 	$(GO) test -timeout=$(TEST_TIMEOUT) $(PKGS)
 
@@ -72,10 +494,10 @@ lint:
 	@if command -v golangci-lint >/dev/null 2>&1 && \
 	   golangci-lint --version 2>/dev/null | grep -q "$(patsubst v%,%,$(GOLANGCI_VERSION))"; then \
 		echo "golangci-lint $(GOLANGCI_VERSION) (installed)"; \
-		golangci-lint run; \
+		golangci-lint run $(PKGS); \
 	else \
 		echo "golangci-lint $(GOLANGCI_VERSION) (go run; slower — 'brew install golangci-lint' to speed this up)"; \
-		$(GO) run $(GOLANGCI) run; \
+		$(GO) run $(GOLANGCI) run $(PKGS); \
 	fi
 
 ## clean: remove build output

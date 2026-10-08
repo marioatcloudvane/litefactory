@@ -3,6 +3,7 @@ package secrets
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"strings"
 	"testing"
 	"time"
@@ -235,7 +236,7 @@ func TestResolveBoundsTheKeychainLookup(t *testing.T) {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("err = %v, want it to wrap context.DeadlineExceeded", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("Resolve did not give up on a keychain lookup that never returns")
 	}
 }
@@ -263,7 +264,7 @@ func TestResolveCancelsWithTheCaller(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("err = %v, want it to wrap context.Canceled", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("Resolve ignored its caller's cancellation")
 	}
 }

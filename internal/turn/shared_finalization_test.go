@@ -27,7 +27,13 @@ import (
 func TestSharedFinalizationTerminationMatrix(t *testing.T) {
 	for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
 		for _, outcome := range []agent.Outcome{agent.OutcomeSucceeded, agent.OutcomeFailed, agent.OutcomeTimedOut, agent.OutcomeAbandoned, agent.OutcomeInterrupted, agent.OutcomeNoResult} {
-			for _, output := range []string{"valid", "missing", "malformed"} {
+			// Shared-route modes ignore terminal text. Keep all outcomes with
+			// missing text plus both ignored text forms on success.
+			outputs := []string{"valid", "missing", "malformed"}
+			if (mode == "research" || mode == "plan" || mode == "implement") && outcome != agent.OutcomeSucceeded {
+				outputs = []string{"missing"}
+			}
+			for _, output := range outputs {
 				t.Run(mode+"/"+outcome.String()+"/"+output, func(t *testing.T) {
 					_, _, o := agentResultFixture(t, mode)
 					service, err := BindAgentResultService(t.Context(), o)

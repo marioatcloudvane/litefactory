@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"log/slog"
 	"sync/atomic"
@@ -38,7 +39,7 @@ func stoppedResultFixture(t *testing.T) (*Daemon, *task, *stoppedResultReporter)
 
 func joinStoppedWorkers(t *testing.T, d *Daemon) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.Wait)
 	defer cancel()
 	if err := d.Quiesce(ctx); err != nil {
 		t.Fatalf("repair worker did not finish: %v", err)
@@ -102,7 +103,7 @@ func TestStoppedResultRepair_WaitsForOwnedWorkerCleanup(t *testing.T) {
 	})
 	select {
 	case <-ready:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("worker did not retain stopped evidence")
 	}
 	now := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)

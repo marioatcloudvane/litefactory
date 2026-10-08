@@ -69,6 +69,11 @@ func newArchiveITFixture(t *testing.T) *archiveITFixture {
 	}
 	x.raw.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = x.raw.Close() })
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("archive logs:\n%s", x.logs.String())
+		}
+	})
 	x.repo, err = x.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -324,6 +329,9 @@ func archiveITColumn(t *testing.T, r archive.Row, name string) archive.Column {
 func TestArchiveIntegrationRoundTripDeletesAndKeepsSkeleton(t *testing.T) {
 	x := newArchiveITFixture(t)
 	x.seed(t)
+	// Keep the auxiliary assertion pool from retaining an idle SQLite handle
+	// across VACUUM/checkpoint. Deliberate lock-contention fixtures keep theirs.
+	x.raw.SetMaxIdleConns(0)
 	want := x.liveRows(t)
 	skeleton := x.skeleton(t)
 	familyBefore := x.count(t, `SELECT COUNT(*) FROM comments WHERE session_id IN (?,?)`, x.parent.ID, x.child.ID)
@@ -420,6 +428,9 @@ func TestArchiveIntegrationRoundTripDeletesAndKeepsSkeleton(t *testing.T) {
 func TestArchiveIntegrationIdempotentSecondRun(t *testing.T) {
 	x := newArchiveITFixture(t)
 	x.seed(t)
+	// Keep the auxiliary assertion pool from retaining an idle SQLite handle
+	// across VACUUM/checkpoint. Deliberate lock-contention fixtures keep theirs.
+	x.raw.SetMaxIdleConns(0)
 	if errs := x.runPass(t, x.now); len(errs) != 0 {
 		t.Fatal(errs)
 	}

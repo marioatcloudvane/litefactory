@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -134,7 +135,7 @@ func TestFamilyJournalSocketLostReplyRetainsPretransmissionIdentity(t *testing.T
 	var id string
 	select {
 	case id = <-entered:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("journal not present at handler entry")
 	}
 	cancel()
@@ -143,7 +144,7 @@ func TestFamilyJournalSocketLostReplyRetainsPretransmissionIdentity(t *testing.T
 		if lost.e == nil || lost.r.RequestID != id {
 			t.Fatalf("lost reply discarded identity: %+v", lost)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("cancel did not return")
 	}
 	close(release)
