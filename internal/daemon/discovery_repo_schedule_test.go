@@ -48,10 +48,9 @@ func TestEveryRepoIsListedOnceAtStart(t *testing.T) {
 	}
 }
 
-// AC-001, AC-002, AC-006, AC-008: a webhook for one repository restarts only its
-// countdown (listed at 0, webhook at 50: not due at 60, due at 110), moves no
-// cursor, and leaves the neighbour on its own clock.
-func TestWebhookPostponesOnlyItsOwnRepoPoll(t *testing.T) {
+// Steady hints for one issue must not postpone discovery of an unannounced
+// issue in the same repository or change either repository's listing cursor.
+func TestWebhooksDoNotPostponeDiscoveryOfUnannouncedWork(t *testing.T) {
 	w, other := twoRepoWebhookFixture(t)
 	w.settle()
 	startRepo, ok := w.repoCursor(w.repo)
@@ -59,46 +58,47 @@ func TestWebhookPostponesOnlyItsOwnRepoPoll(t *testing.T) {
 		t.Fatal("the first listing wrote no cursor for the repo")
 	}
 	listedAt := scheduleOf(t, w.daemon, w.repo).LastListing
+	otherDue := scheduleOf(t, w.daemon, other).NextDue
+	w.issue("Unannounced work")
+	w.forge.addIssue(fakeIssue{Number: testIssue + 1, Title: "Hinted issue", User: stranger()})
 
-	w.clock.advance(50 * time.Minute)
-	w.daemon.WakeForTest(w.repo.ID, testIssue)
-	hookedAt := w.clock.peek()
+	for range 5 {
+		w.clock.advance(10 * time.Minute)
+		w.daemon.WakeForTest(w.repo.ID, testIssue+1)
+		hookedAt := w.clock.peek()
+		w.settle()
+		if got, _ := w.repoCursor(w.repo); !got.Equal(startRepo) {
+			t.Errorf("a webhook moved the repo cursor from %s to %s", startRepo, got)
+		}
+		snap := scheduleOf(t, w.daemon, w.repo)
+		if !snap.LastWebhook.Equal(hookedAt) || !snap.LastListing.Equal(listedAt) || snap.Owed ||
+			!snap.NextDue.Equal(listedAt.Add(scheduleInterval)) {
+			t.Errorf("snapshot after the webhook = %+v", snap)
+		}
+		if got := scheduleOf(t, w.daemon, other).NextDue; !got.Equal(otherDue) {
+			t.Errorf("the neighbour's deadline moved from %s to %s", otherDue, got)
+		}
+		if a, b := w.listingsIn(w.repo), w.listingsIn(other); a != 1 || b != 1 {
+			t.Fatalf("listed before the deadline: %d and %d", a, b)
+		}
+		if got := w.forge.issueReadsOf(testIssue); got != 0 {
+			t.Fatalf("unannounced issue read before fallback: %d reads", got)
+		}
+	}
+	w.clock.advance(listedAt.Add(scheduleInterval).Sub(w.clock.peek()))
+	w.daemon.WakeForTest(w.repo.ID, testIssue+1)
 	w.settle()
-	if got, _ := w.repoCursor(w.repo); !got.Equal(startRepo) {
-		t.Errorf("a webhook moved the repo cursor from %s to %s", startRepo, got)
+	if a, b := w.listingsIn(w.repo), w.listingsIn(other); a != 2 || b != 2 {
+		t.Fatalf("first eligible tick listed %d and %d times, want 2 and 2", a, b)
 	}
-	snap := scheduleOf(t, w.daemon, w.repo)
-	if !snap.LastWebhook.Equal(hookedAt) || !snap.LastListing.Equal(listedAt) || snap.Owed {
-		t.Errorf("snapshot after the webhook = %+v", snap)
-	}
-	if !snap.NextDue.Equal(hookedAt.Add(scheduleInterval)) {
-		t.Errorf("NextDue = %s, want %s", snap.NextDue, hookedAt.Add(scheduleInterval))
-	}
-
-	// About 60 minutes in: the neighbour is due, the hooked repo is not.
-	w.clock.advance(10 * time.Minute)
-	w.settle()
-	if got := w.listingsIn(w.repo); got != 1 {
-		t.Errorf("the hooked repo listed at 60 minutes: %d listings", got)
-	}
-	if got := w.listingsIn(other); got != 2 {
-		t.Errorf("the neighbour was postponed by another repo's webhook: %d listings", got)
-	}
-
-	w.clock.advance(45 * time.Minute)
-	w.settle()
-	if got := w.listingsIn(w.repo); got != 1 {
-		t.Errorf("the hooked repo listed before 110 minutes: %d listings", got)
-	}
-	w.clock.advance(6 * time.Minute)
-	w.settle()
-	if got := w.listingsIn(w.repo); got != 2 {
-		t.Errorf("the hooked repo was not listed after its restarted interval: %d listings", got)
+	w.sessionOf(testIssue) // The fallback discovered the issue with no hint.
+	if got, _ := w.repoCursor(w.repo); !got.After(startRepo) {
+		t.Errorf("the fallback listing did not advance the cursor: %s", got)
 	}
 }
 
-// AC-002: only a delivery that queued a hint postpones; bad signature, ping,
-// no-number and duplicate deliveries do not.
+// AC-002: only a delivery that queued a hint updates webhook telemetry; bad
+// signature, ping, no-number and duplicate deliveries do not.
 func TestRejectedDeliveriesNeverPostponeThePoll(t *testing.T) {
 	w := newWebhookFixture(t)
 	w.settle()
@@ -113,7 +113,7 @@ func TestRejectedDeliveriesNeverPostponeThePoll(t *testing.T) {
 	check := func(what string) {
 		t.Helper()
 		if snap := scheduleOf(t, w.daemon, w.repo); !snap.LastWebhook.IsZero() {
-			t.Fatalf("%s postponed the poll: %+v", what, snap)
+			t.Fatalf("%s recorded a webhook: %+v", what, snap)
 		}
 	}
 	if got := w.post("issues", "d-bad", "sha256="+strings.Repeat("0", 64), body); got != http.StatusUnauthorized {
@@ -145,7 +145,7 @@ func TestRejectedDeliveriesNeverPostponeThePoll(t *testing.T) {
 		t.Fatalf("a redelivery answered %d, want 200", got)
 	}
 	if got := scheduleOf(t, w.daemon, w.repo).LastWebhook; !got.Equal(first) {
-		t.Errorf("a duplicate delivery moved the countdown from %s to %s", first, got)
+		t.Errorf("a duplicate delivery moved the last webhook from %s to %s", first, got)
 	}
 	if err := stop(); err != nil {
 		t.Fatalf("Run: %v", err)

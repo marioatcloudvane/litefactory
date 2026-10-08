@@ -112,7 +112,8 @@ Webhooks are recommended. If you cannot use them, set a shorter poll interval.
 
 - `settings.poll_interval_minutes` sets how often each repository is checked. The
   default is 60. The minimum is 1 and the maximum is 180.
-- A delivery for a repository postpones that repository's next poll.
+- Each repository's next poll is due one interval after its last completed poll,
+  regardless of webhook deliveries.
 - Every repository is checked once when the daemon starts.
 - The old `poll_interval_seconds` key is refused (see section 9).
 
@@ -128,7 +129,7 @@ Run `litefactory daemon status` and match what you see.
 | `mode  webhook, no delivery yet` | A hook is registered but nothing has arrived since the daemon started. | Check the proxy or port forward, then redeliver a test event from the hook's page on GitHub. |
 | `mode  webhook` | A valid delivery arrived since start. | Nothing to fix. |
 | `last delivery  none since start` | No valid delivery since the daemon started. | Same as `webhook, no delivery yet`. |
-| `next poll` far in the future, `last poll  none since start` | Webhooks postponed the poll, or the daemon just started. | Expected while deliveries arrive. |
+| `last poll  none since start` | No poll has completed since the daemon started. | The first poll is due immediately; if this persists, check daemon logs for listing failures, rate limits or discovery budget deferrals. Webhooks do not postpone polls. |
 | `secret  MISSING` | The listener is on but the Keychain has no secret for that repository. | Run `litefactory repo webhook <owner/name>` to create it, then restart. |
 
 If the daemon log shows the warning
