@@ -60,12 +60,12 @@ var shippedDOT = map[string]bool{
 	"../../internal/teamsource/implement/implement.dot": true,
 	"../../internal/teamsource/validate/validate.dot":   true,
 	// The standard team publishes the same workflows 1:1 (#317 story-005).
-	"../../teams/standard/v1/bug/bug.dot":             true,
-	"../../teams/standard/v1/implement/implement.dot": true,
-	"../../teams/standard/v1/plan/plan.dot":           true,
-	"../../teams/standard/v1/research/research.dot":   true,
-	"../../teams/standard/v1/spike/spike.dot":         true,
-	"../../teams/standard/v1/validate/validate.dot":   true,
+	"../../teams/go-development/v1/bug/bug.dot":             true,
+	"../../teams/go-development/v1/implement/implement.dot": true,
+	"../../teams/go-development/v1/plan/plan.dot":           true,
+	"../../teams/go-development/v1/research/research.dot":   true,
+	"../../teams/go-development/v1/spike/spike.dot":         true,
+	"../../teams/go-development/v1/validate/validate.dot":   true,
 }
 
 func TestGraphShippedDOTScope(t *testing.T) {
