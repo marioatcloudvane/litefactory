@@ -336,7 +336,7 @@ func TestActivityRuntimeIO_BoundedOwnersAndCancelledCleanup(t *testing.T) {
 }
 
 func TestActivityRuntimeIO_CleanupPreservesUncertainPublication(t *testing.T) {
-	f := commentHTTPSetup(t, false)
+	f := commentHTTPSetup(t)
 	f.lost = true
 	reply, err := f.client.Call(t.Context(), "issues_comment", []byte(`{"issue_number":284,"message":"status"}`))
 	mustProgress(t, err)

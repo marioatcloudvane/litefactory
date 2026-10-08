@@ -121,7 +121,8 @@ func replayable(state string) bool {
 //	retry    another suite holds the lock; nothing was started
 //
 // A finished result for the same graph instance and commit is returned
-// unchanged without running anything. A cancelled context is an error.
+// unchanged without running anything, and a passed suite of another instance
+// on the same commit is copied instead of run again. A cancelled context is an error.
 func (h ValidateSuiteActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (res ActivityResult, err error) {
 	b := h.b
 	if req.Mode != agent.ModeValidate || b.Bind == nil {
@@ -136,6 +137,11 @@ func (h ValidateSuiteActivity) Execute(ctx context.Context, opts Options, req Ac
 	}
 	if done, ok, err := h.finished(ctx, req.InstanceID, auth.Commit); err != nil || ok {
 		return done, err
+	}
+	if reused, err := b.DB.ReuseSuiteRun(ctx, req.InstanceID, req.Node, auth.Commit, h.now(opts)); err == nil {
+		return suiteResult(reused.State, suiteOutput(reused))
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return ActivityResult{}, err
 	}
 	unlock, err := b.DB.LockSuite(ctx, b.LockDir)
 	if errors.Is(err, store.ErrSuiteBusy) {

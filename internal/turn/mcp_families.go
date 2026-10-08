@@ -23,14 +23,11 @@ type FamilyOwner interface {
 // FamilyHandler handles a guarded family request using its stable request identity.
 type FamilyHandler func(context.Context, string, []byte) (json.RawMessage, error)
 
-// FamilyRegistration installs a known catalog handler. ReplayCheck must perform
-// fresh creation authorization without dispatch; other families recover receipts
-// without invoking their handler again. Owners finish authoritative references.
+// FamilyRegistration installs a known catalog handler. Owners finish authoritative references.
 type FamilyRegistration struct {
-	Name        string
-	Owner       FamilyOwner
-	Handle      FamilyHandler
-	ReplayCheck func(context.Context, string, []byte) error
+	Name   string
+	Owner  FamilyOwner
+	Handle FamilyHandler
 }
 
 // FamilyDispatcherOptions supplies factory-owned dependencies and immutable catalog scope.
@@ -39,7 +36,6 @@ type FamilyDispatcherOptions struct {
 	Receipts       *ReceiptService
 	Feedback       *FeedbackService
 	Evidence       *EvidenceService
-	AllowCreation  bool
 	CommentTargets []int
 	Registrations  []FamilyRegistration
 	// WithoutEvidence is set for an Implement story worker of the graph, which
@@ -87,9 +83,6 @@ func prepareFamilies(o FamilyDispatcherOptions) (submission.ToolProfile, map[str
 		if _, found := handlers[r.Name]; found {
 			return bad()
 		}
-		if r.Name == "issues_create_batch" && r.ReplayCheck == nil {
-			return bad()
-		}
 		material, err := r.Owner.PermissionMaterial()
 		if err != nil {
 			return submission.ToolProfile{}, nil, "", err
@@ -111,7 +104,7 @@ func prepareFamilies(o FamilyDispatcherOptions) (submission.ToolProfile, map[str
 	if len(targets) > 100 {
 		return bad()
 	}
-	profile, err := submission.NewFamilyToolProfile(b.Mode, o.AllowCreation, names)
+	profile, err := submission.NewFamilyToolProfile(b.Mode, names)
 	if err != nil {
 		return submission.ToolProfile{}, nil, "", err
 	}
@@ -119,10 +112,9 @@ func prepareFamilies(o FamilyDispatcherOptions) (submission.ToolProfile, map[str
 		Catalog        string
 		Binding        store.ResultBinding
 		Application    string
-		Creation       bool
 		CommentTargets []int
 		Materials      map[string]json.RawMessage
-	}{submission.FamilyCatalogVersion, b, o.Service.MCPPermissionDigest(), o.AllowCreation, targets, materials})
+	}{submission.FamilyCatalogVersion, b, o.Service.MCPPermissionDigest(), targets, materials})
 	if err != nil {
 		return submission.ToolProfile{}, nil, "", err
 	}
@@ -183,11 +175,6 @@ func (d *ToolDispatcher) dispatchFamily(ctx context.Context, requestID string, c
 				}
 			}
 		}
-		if handler.ReplayCheck != nil {
-			if err := handler.ReplayCheck(ctx, requestID, call.Arguments); err != nil {
-				return nil, err
-			}
-		}
 		result, err := d.receipts.Get(ctx, requestID)
 		if err != nil {
 			return nil, err
@@ -205,7 +192,7 @@ func (d *ToolDispatcher) dispatchFamily(ctx context.Context, requestID string, c
 			disposition = "rejected"
 			// Owners distinguish validation refusal from an uncertain dispatched write
 			// by finishing the ledger themselves. Never guess that an effect was absent.
-			if call.Name == "issues_comment" || call.Name == "issues_create_batch" || call.Name == "evidence_submit" || call.Name == "activity_update" {
+			if call.Name == "issues_comment" || call.Name == "evidence_submit" || call.Name == "activity_update" {
 				disposition = "uncertain"
 			}
 		}

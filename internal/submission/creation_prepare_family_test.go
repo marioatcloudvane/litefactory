@@ -19,33 +19,31 @@ func prepareSpec(t *testing.T, p submission.ToolProfile) (submission.ToolSpec, b
 	return submission.ToolSpec{}, false
 }
 
-func TestCreationPrepareCatalog_ModeAndFlagGating(t *testing.T) {
+func TestCreationPrepareCatalog_ModeGating(t *testing.T) {
 	t.Parallel()
 	if submission.FamilyCatalogVersion != "families-v4" {
 		t.Fatalf("catalog version %q", submission.FamilyCatalogVersion)
 	}
 	for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
-		for _, flag := range []bool{false, true} {
-			p, err := submission.NewFamilyToolProfile(mode, flag, []string{"issues_create_prepare"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, listed := prepareSpec(t, p)
-			want := mode == "research"
-			if listed != want || p.Allows("issues_create_prepare") != want {
-				t.Errorf("%s flag=%t listed=%t allowed=%t want=%t", mode, flag, listed, p.Allows("issues_create_prepare"), want)
-			}
-			// Installing the drafting tool never installs or enables publication.
-			if p.Allows("issues_create_batch") {
-				t.Errorf("%s flag=%t: drafting installed the batch tool", mode, flag)
-			}
+		p, err := submission.NewFamilyToolProfile(mode, []string{"issues_create_prepare"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, listed := prepareSpec(t, p)
+		want := mode == "research"
+		if listed != want || p.Allows("issues_create_prepare") != want {
+			t.Errorf("%s listed=%t allowed=%t want=%t", mode, listed, p.Allows("issues_create_prepare"), want)
+		}
+		// Installing the drafting tool never installs or enables publication.
+		if p.Allows("issues_create_batch") {
+			t.Errorf("%s: drafting installed the batch tool", mode)
 		}
 	}
 }
 
 func TestCreationPrepareCatalog_NotInstalledIsAbsent(t *testing.T) {
 	t.Parallel()
-	p, err := submission.NewFamilyToolProfile("research", true, []string{"issues_list"})
+	p, err := submission.NewFamilyToolProfile("research", []string{"issues_list"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +54,7 @@ func TestCreationPrepareCatalog_NotInstalledIsAbsent(t *testing.T) {
 
 func TestCreationPrepareCatalog_SpecAndSchema(t *testing.T) {
 	t.Parallel()
-	p, err := submission.NewFamilyToolProfile("research", false, []string{"issues_create_prepare"})
+	p, err := submission.NewFamilyToolProfile("research", []string{"issues_create_prepare"})
 	if err != nil {
 		t.Fatal(err)
 	}

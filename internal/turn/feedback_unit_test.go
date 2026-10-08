@@ -178,7 +178,6 @@ func TestFeedbackUnit_PermissionDigest(t *testing.T) {
 		change func(*testing.T, *turn.FamilyDispatcherOptions)
 		same   bool
 	}{
-		{"creation visibility", func(t *testing.T, o *turn.FamilyDispatcherOptions) { o.AllowCreation = true }, false},
 		{"comment target", func(t *testing.T, o *turn.FamilyDispatcherOptions) { o.CommentTargets = []int{273} }, false},
 		{"target ordering", func(t *testing.T, o *turn.FamilyDispatcherOptions) { o.CommentTargets = []int{281, 273} }, true},
 		{"application grants", func(t *testing.T, o *turn.FamilyDispatcherOptions) {

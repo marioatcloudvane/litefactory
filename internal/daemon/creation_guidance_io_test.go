@@ -1,12 +1,12 @@
 package daemon
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -73,9 +73,7 @@ func TestCreationGuidanceIOPreparation(t *testing.T) {
 				if len(runs) != 0 {
 					t.Fatalf("guidance started runs: %+v", runs)
 				}
-				if _, _, err := f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-					t.Fatalf("preparation granted authority: %v", err)
-				}
+				creationfixture.NoCreationIntents(t, store.DSN(f.db.Path()), f.session.TaskRef)
 				rejectionWatermark(t, f, 70)
 			})
 		}

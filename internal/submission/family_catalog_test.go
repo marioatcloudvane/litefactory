@@ -6,12 +6,11 @@ import (
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
-// Incremental registration cannot accidentally enable an uninstalled family,
-// including when the creation gate is enabled.
+// Incremental registration cannot accidentally enable an uninstalled family.
 func TestFamilyCatalog_IncrementalInstallation(t *testing.T) {
 	families := []struct{ name, effect string }{
 		{"feedback_preflight", "read"}, {"issues_list", "read"}, {"issues_get", "read"},
-		{"issues_comment", "publication"}, {"issues_create_batch", "creation"}, {"issues_create_prepare", "input"},
+		{"issues_comment", "publication"}, {"issues_create_prepare", "input"},
 		{"evidence_submit", "checkpoint"}, {"activity_update", "advisory"},
 		{"activity_get", "read"}, {"receipts_get", "read"},
 	}
@@ -19,12 +18,12 @@ func TestFamilyCatalog_IncrementalInstallation(t *testing.T) {
 		for _, installed := range families {
 			t.Run(mode+"/"+installed.name, func(t *testing.T) {
 				t.Parallel()
-				profile, err := submission.NewFamilyToolProfile(mode, true, []string{installed.name})
+				profile, err := submission.NewFamilyToolProfile(mode, []string{installed.name})
 				if err != nil {
 					t.Fatal(err)
 				}
 				want := mode == "research" || mode == "implement" || mode == "validate"
-				if installed.name == "issues_create_batch" || installed.name == "issues_create_prepare" {
+				if installed.name == "issues_create_prepare" {
 					want = mode == "research"
 				}
 				if installed.name == "evidence_submit" {

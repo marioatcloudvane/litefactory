@@ -3,7 +3,6 @@ package turn
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -118,230 +117,185 @@ func catalogApplication(t *testing.T, mode string) (*store.DB, *AgentResultServi
 
 func TestMCPFamilyCompleteCatalogPipeSocketHTTP(t *testing.T) {
 	for _, mode := range []string{"research", "implement", "validate", "plan", "spike"} {
-		for _, gate := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/gate=%t", mode, gate), func(t *testing.T) {
-				db, app, session, evidencePayload := catalogApplication(t, mode)
-				now := time.Now().UTC().Add(-time.Minute)
-				cs, err := store.NewCreationStore(db, func() time.Time { return now })
-				mustProgress(t, err)
-				auth, err := NewCreationAuthorizer(CreationAuthorizerOptions{Store: cs, Enabled: gate, OwnerID: 10, BotID: 20})
-				mustProgress(t, err)
-				cp := CreationPublicationProjection(db, cs)
-				ep := EvidenceReceiptProjection(db)
-				commentProjection := CommentReceiptProjection(db)
-				receipts, err := NewReceiptService(db, app.Binding(), nil, map[string]FamilyProjection{"comment": commentProjection, "tool:issues_comment": commentProjection, "creation_publication": cp, "tool:issues_create_batch": cp, "submission": ep, "tool:evidence_submit": ep})
-				mustProgress(t, err)
-				var posts, reads atomic.Int32
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if !strings.HasPrefix(r.URL.Path, "/repos/"+receipts.scope.Repository+"/issues") {
-						t.Errorf("foreign path %s", r.URL.Path)
-						http.NotFound(w, r)
-						return
-					}
-					w.Header().Set("Content-Type", "application/json")
-					if r.Method == http.MethodPost {
-						posts.Add(1)
-						w.WriteHeader(http.StatusCreated)
-						if strings.HasSuffix(r.URL.Path, "/comments") {
-							var payload struct {
-								Body string `json:"body"`
-							}
-							if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-								t.Error(err)
-							}
-							_ = json.NewEncoder(w).Encode(map[string]any{"id": 555, "body": payload.Body, "user": map[string]any{"id": 20, "type": "Bot"}})
-						} else {
-							var artifact submission.CreationArtifact
-							if err := json.NewDecoder(r.Body).Decode(&artifact); err != nil {
-								t.Error(err)
-							}
-							_ = json.NewEncoder(w).Encode(map[string]any{"id": 901, "number": 401, "title": artifact.Title, "body": artifact.Body, "user": map[string]any{"id": 20, "type": "Bot"}})
+		t.Run(mode, func(t *testing.T) {
+			db, app, session, evidencePayload := catalogApplication(t, mode)
+			now := time.Now().UTC().Add(-time.Minute)
+			cs, err := store.NewCreationStore(db, func() time.Time { return now })
+			mustProgress(t, err)
+			cp := CreationPublicationProjection(db, cs)
+			ep := EvidenceReceiptProjection(db)
+			commentProjection := CommentReceiptProjection(db)
+			receipts, err := NewReceiptService(db, app.Binding(), nil, map[string]FamilyProjection{"comment": commentProjection, "tool:issues_comment": commentProjection, "creation_publication": cp, "tool:issues_create_batch": cp, "submission": ep, "tool:evidence_submit": ep})
+			mustProgress(t, err)
+			var posts, reads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if !strings.HasPrefix(r.URL.Path, "/repos/"+receipts.scope.Repository+"/issues") {
+					t.Errorf("foreign path %s", r.URL.Path)
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodPost {
+					posts.Add(1)
+					w.WriteHeader(http.StatusCreated)
+					if strings.HasSuffix(r.URL.Path, "/comments") {
+						var payload struct {
+							Body string `json:"body"`
 						}
-						return
-					}
-					reads.Add(1)
-					if strings.HasSuffix(r.URL.Path, "/issues") {
-						_, _ = w.Write([]byte(`[{"number":284,"title":"Visible","state":"open"}]`))
+						if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+							t.Error(err)
+						}
+						_ = json.NewEncoder(w).Encode(map[string]any{"id": 555, "body": payload.Body, "user": map[string]any{"id": 20, "type": "Bot"}})
 					} else {
-						_, _ = w.Write([]byte(`{"id":2840,"number":284,"title":"Visible","state":"open"}`))
-					}
-				}))
-				t.Cleanup(server.Close)
-				forge, err := github.New(github.Options{APIBase: server.URL, HTTPClient: server.Client(), Token: secrets.NewToken("catalog-fixture")})
-				mustProgress(t, err)
-				query, err := NewIssueQueryService(receipts, forge)
-				mustProgress(t, err)
-				comments, err := NewIssuePublicationService(db, receipts, forge, redact.New(redact.Options{}), []int{284}, 20)
-				mustProgress(t, err)
-				creation, err := NewCreationPublicationService(db, receipts, auth, forge, redact.New(redact.Options{}), t.TempDir())
-				mustProgress(t, err)
-				activity, err := NewActivityService(ActivityOptions{Receipts: receipts, Now: now})
-				mustProgress(t, err)
-				var evidence *EvidenceService
-				if session != nil {
-					evidence, err = NewEvidenceService(session, receipts)
-					mustProgress(t, err)
-				}
-				feedback, err := NewFeedbackService(app, evidence)
-				mustProgress(t, err)
-				registrations := append(query.Registrations(), comments.Registration(), creation.Registration(), FamilyRegistration{Name: "activity_update", Owner: activity, Handle: activity.HandleUpdate}, FamilyRegistration{Name: "activity_get", Owner: activity, Handle: activity.HandleGet})
-				options := FamilyDispatcherOptions{Service: app, Receipts: receipts, Feedback: feedback, Evidence: evidence, AllowCreation: gate, CommentTargets: []int{284}, Registrations: registrations}
-				client, guard, _ := familySocketFixture(t, db, options)
-				mustProgress(t, creation.BindGuard(guard))
-				if _, err := NewFamilyToolDispatcher(nil, options); err == nil {
-					t.Fatal("missing guard accepted")
-				}
-				changed := options
-				changed.CommentTargets = []int{285}
-				if _, err := NewFamilyToolDispatcher(guard, changed); err == nil {
-					t.Fatal("mismatched scope accepted")
-				}
-				pipe := newCatalogPipe(t, client)
-				var listed struct {
-					Tools []submission.ToolSpec `json:"tools"`
-				}
-				mustProgress(t, json.Unmarshal(pipe.rpc(t, "tools/list", map[string]any{}), &listed))
-				names := []string{}
-				for _, tool := range listed.Tools {
-					names = append(names, tool.Name)
-				}
-				expected := []string{"communication_preflight", "communication_submit", "communication_receipt"}
-				familyMode := mode == "research" || mode == "implement" || mode == "validate"
-				if familyMode {
-					expected = append(expected, "feedback_preflight", "issues_list", "issues_get", "issues_comment", "activity_update", "activity_get", "receipts_get")
-				}
-				if mode == "research" && gate {
-					expected = append(expected, "issues_create_batch")
-				}
-				if session != nil {
-					expected = append(expected, "evidence_submit")
-				}
-				slices.Sort(names)
-				slices.Sort(expected)
-				if !slices.Equal(names, expected) {
-					t.Fatalf("catalog=%v want=%v", names, expected)
-				}
-				calls := []struct {
-					name string
-					args json.RawMessage
-				}{{"feedback_preflight", json.RawMessage(`{"kind":"creation","input":{"artifacts":[{"title":"Proposed","body":"Unapproved"}]}}`)}, {"issues_list", json.RawMessage(`{}`)}, {"issues_get", json.RawMessage(`{"issue_number":284}`)}, {"issues_comment", json.RawMessage(`{"issue_number":284,"message":"Catalog comment"}`)}, {"activity_update", json.RawMessage(`{"sequence":1,"message":"Working"}`)}, {"activity_get", json.RawMessage(`{}`)}, {"evidence_submit", evidencePayload}}
-				for _, call := range calls {
-					if call.args == nil {
-						call.args = json.RawMessage(`{}`)
-					}
-					beforePosts, beforeReads := posts.Load(), reads.Load()
-					response := pipe.call(t, call.name, call.args)
-					allowed := slices.Contains(expected, call.name)
-					if !allowed {
-						if response.Error == "" || posts.Load() != beforePosts || reads.Load() != beforeReads {
-							t.Fatalf("forbidden %s effected: %+v", call.name, response)
+						var artifact submission.CreationArtifact
+						if err := json.NewDecoder(r.Body).Decode(&artifact); err != nil {
+							t.Error(err)
 						}
-						continue
+						_ = json.NewEncoder(w).Encode(map[string]any{"id": 901, "number": 401, "title": artifact.Title, "body": artifact.Body, "user": map[string]any{"id": 20, "type": "Bot"}})
 					}
-					if response.Error != "" {
-						t.Fatalf("allowed %s failed: %s", call.name, response.Error)
-					}
-					beforePosts, beforeReads = posts.Load(), reads.Load()
-					recovered := pipe.call(t, "receipts_get", mcpReceiptArgs(t, response.RequestID))
-					if recovered.Error != "" {
-						t.Fatal(recovered.Error)
-					}
-					var receipt FamilyReceipt
-					mustProgress(t, json.Unmarshal(recovered.Result, &receipt))
-					if receipt.Tool != call.name || receipt.Disposition == "missing" || receipt.Disposition == "pending" {
-						t.Fatalf("lost family outcome: %+v", receipt)
-					}
-					if call.name == "issues_comment" && (len(receipt.Publications) != 1 || receipt.Publications[0].CommentID != 555) {
-						t.Fatalf("missing comment identity %+v", receipt)
-					}
-					if posts.Load() != beforePosts || reads.Load() != beforeReads {
-						t.Fatal("receipt redispatched HTTP")
-					}
+					return
 				}
-				if !familyMode {
-					beforePosts, beforeReads := posts.Load(), reads.Load()
-					denied := pipe.call(t, "receipts_get", mcpReceiptArgs(t, "missing"))
-					if denied.Error == "" || posts.Load() != beforePosts || reads.Load() != beforeReads {
-						t.Fatalf("forbidden receipt access: %+v", denied)
-					}
+				reads.Add(1)
+				if strings.HasSuffix(r.URL.Path, "/issues") {
+					_, _ = w.Write([]byte(`[{"number":284,"title":"Visible","state":"open"}]`))
+				} else {
+					_, _ = w.Write([]byte(`{"id":2840,"number":284,"title":"Visible","state":"open"}`))
 				}
-				// Authored prose and tokens are data even when the complete creation handler is installed.
-				for _, args := range []string{`{}`, `{"token":"approved","comment_count":10000}`, `{"confirmation":"yes"}`} {
-					before := posts.Load()
-					response := pipe.call(t, "issues_create_batch", json.RawMessage(args))
-					if response.Error == "" || posts.Load() != before {
-						t.Fatalf("ungranted creation: %+v", response)
-					}
+			}))
+			t.Cleanup(server.Close)
+			forge, err := github.New(github.Options{APIBase: server.URL, HTTPClient: server.Client(), Token: secrets.NewToken("catalog-fixture")})
+			mustProgress(t, err)
+			query, err := NewIssueQueryService(receipts, forge)
+			mustProgress(t, err)
+			comments, err := NewIssuePublicationService(db, receipts, forge, redact.New(redact.Options{}), []int{284}, 20)
+			mustProgress(t, err)
+			activity, err := NewActivityService(ActivityOptions{Receipts: receipts, Now: now})
+			mustProgress(t, err)
+			var evidence *EvidenceService
+			if session != nil {
+				evidence, err = NewEvidenceService(session, receipts)
+				mustProgress(t, err)
+			}
+			feedback, err := NewFeedbackService(app, evidence)
+			mustProgress(t, err)
+			registrations := append(query.Registrations(), comments.Registration(), FamilyRegistration{Name: "activity_update", Owner: activity, Handle: activity.HandleUpdate}, FamilyRegistration{Name: "activity_get", Owner: activity, Handle: activity.HandleGet})
+			options := FamilyDispatcherOptions{Service: app, Receipts: receipts, Feedback: feedback, Evidence: evidence, CommentTargets: []int{284}, Registrations: registrations}
+			client, guard, _ := familySocketFixture(t, db, options)
+			if _, err := NewFamilyToolDispatcher(nil, options); err == nil {
+				t.Fatal("missing guard accepted")
+			}
+			changed := options
+			changed.CommentTargets = []int{285}
+			if _, err := NewFamilyToolDispatcher(guard, changed); err == nil {
+				t.Fatal("mismatched scope accepted")
+			}
+			pipe := newCatalogPipe(t, client)
+			var listed struct {
+				Tools []submission.ToolSpec `json:"tools"`
+			}
+			mustProgress(t, json.Unmarshal(pipe.rpc(t, "tools/list", map[string]any{}), &listed))
+			names := []string{}
+			for _, tool := range listed.Tools {
+				names = append(names, tool.Name)
+			}
+			expected := []string{"communication_preflight", "communication_submit", "communication_receipt"}
+			familyMode := mode == "research" || mode == "implement" || mode == "validate"
+			if familyMode {
+				expected = append(expected, "feedback_preflight", "issues_list", "issues_get", "issues_comment", "activity_update", "activity_get", "receipts_get")
+			}
+			if session != nil {
+				expected = append(expected, "evidence_submit")
+			}
+			slices.Sort(names)
+			slices.Sort(expected)
+			if !slices.Equal(names, expected) {
+				t.Fatalf("catalog=%v want=%v", names, expected)
+			}
+			calls := []struct {
+				name string
+				args json.RawMessage
+			}{{"feedback_preflight", json.RawMessage(`{"kind":"creation","input":{"artifacts":[{"title":"Proposed","body":"Unapproved"}]}}`)}, {"issues_list", json.RawMessage(`{}`)}, {"issues_get", json.RawMessage(`{"issue_number":284}`)}, {"issues_comment", json.RawMessage(`{"issue_number":284,"message":"Catalog comment"}`)}, {"activity_update", json.RawMessage(`{"sequence":1,"message":"Working"}`)}, {"activity_get", json.RawMessage(`{}`)}, {"evidence_submit", evidencePayload}}
+			for _, call := range calls {
+				if call.args == nil {
+					call.args = json.RawMessage(`{}`)
 				}
-				if mode == "research" && gate {
-					prepared, err := creation.Prepare(t.Context(), submission.CreationEnvelope{Artifacts: []submission.CreationArtifact{{Title: "Reviewed batch", Body: "Exact reviewed bytes"}}})
-					mustProgress(t, err)
-					intent, err := auth.AdmitOwnerGrantIntent(t.Context(), OwnerGrantControl{Repository: receipts.scope.Repository, SourceTask: app.Binding().Task, Mode: "research", Body: "/mcp-create " + prepared.Hash + " " + prepared.Envelope.Relationship, CommentID: 1, ActorID: 10, CreatedAt: now})
-					mustProgress(t, err)
-					_, err = auth.BindCreationGrant(t.Context(), guard, intent)
-					mustProgress(t, err)
-					args, err := json.Marshal(prepared.Envelope)
-					mustProgress(t, err)
-					before := posts.Load()
-					created := pipe.call(t, "issues_create_batch", args)
-					if created.Error != "" {
-						t.Fatal(created.Error)
-					}
-					retry := pipe.call(t, "issues_create_batch", args)
-					if retry.Error != "" || retry.RequestID != created.RequestID || posts.Load() != before+1 {
-						t.Fatalf("creation retry dispatched again: %+v", retry)
-					}
-					recovered := pipe.call(t, "receipts_get", mcpReceiptArgs(t, created.RequestID))
-					var receipt FamilyReceipt
-					mustProgress(t, json.Unmarshal(recovered.Result, &receipt))
-					if receipt.States.Effects != "confirmed" || len(receipt.Publications) != 1 || receipt.Publications[0].IssueID != 901 || receipt.Publications[0].IssueNumber != 401 {
-						t.Fatalf("creation identity: %+v", receipt)
-					}
-					// Advance only the creation owner's injected factory clock: replay cannot renew its grant.
-					now = now.Add(31 * time.Minute)
-					expired := pipe.call(t, "issues_create_batch", args)
-					if expired.Error == "" || posts.Load() != before+1 {
-						t.Fatalf("expired creation replay: %+v", expired)
-					}
-					observed := pipe.call(t, "receipts_get", mcpReceiptArgs(t, created.RequestID))
-					if observed.Error != "" || string(observed.Result) != string(recovered.Result) {
-						t.Fatalf("expired grant destroyed independent receipt read: %+v", observed)
-					}
-				}
-				if familyMode {
-					for _, state := range []string{"pending", "uncertain", "rejected"} {
-						id := "catalog-" + state
-						_, _, err := receipts.Begin(t.Context(), id, "issues_list", []byte(`{}`))
-						mustProgress(t, err)
-						if state != "pending" {
-							mustProgress(t, receipts.Finish(t.Context(), id, state, store.FamilyReference{}))
-						}
-						r := pipe.call(t, "receipts_get", mcpReceiptArgs(t, id))
-						var got FamilyReceipt
-						mustProgress(t, json.Unmarshal(r.Result, &got))
-						if got.Disposition != state {
-							t.Fatalf("state=%s receipt=%+v", state, got)
-						}
-					}
-					r := pipe.call(t, "receipts_get", mcpReceiptArgs(t, "not-recorded"))
-					var missing FamilyReceipt
-					mustProgress(t, json.Unmarshal(r.Result, &missing))
-					if missing.Disposition != "missing" {
-						t.Fatalf("recursive receipt %+v", missing)
-					}
-				}
-				mustProgress(t, guard.Revoke(t.Context(), "cancelled"))
 				beforePosts, beforeReads := posts.Load(), reads.Load()
-				for _, name := range expected {
-					response := pipe.call(t, name, json.RawMessage(`{}`))
-					if response.Error == "" {
-						t.Fatalf("revoked %s admitted", name)
+				response := pipe.call(t, call.name, call.args)
+				allowed := slices.Contains(expected, call.name)
+				if !allowed {
+					if response.Error == "" || posts.Load() != beforePosts || reads.Load() != beforeReads {
+						t.Fatalf("forbidden %s effected: %+v", call.name, response)
 					}
+					continue
+				}
+				if response.Error != "" {
+					t.Fatalf("allowed %s failed: %s", call.name, response.Error)
+				}
+				beforePosts, beforeReads = posts.Load(), reads.Load()
+				recovered := pipe.call(t, "receipts_get", mcpReceiptArgs(t, response.RequestID))
+				if recovered.Error != "" {
+					t.Fatal(recovered.Error)
+				}
+				var receipt FamilyReceipt
+				mustProgress(t, json.Unmarshal(recovered.Result, &receipt))
+				if receipt.Tool != call.name || receipt.Disposition == "missing" || receipt.Disposition == "pending" {
+					t.Fatalf("lost family outcome: %+v", receipt)
+				}
+				if call.name == "issues_comment" && (len(receipt.Publications) != 1 || receipt.Publications[0].CommentID != 555) {
+					t.Fatalf("missing comment identity %+v", receipt)
 				}
 				if posts.Load() != beforePosts || reads.Load() != beforeReads {
-					t.Fatal("revoked calls reached forge")
+					t.Fatal("receipt redispatched HTTP")
 				}
-			})
-		}
+			}
+			if !familyMode {
+				beforePosts, beforeReads := posts.Load(), reads.Load()
+				denied := pipe.call(t, "receipts_get", mcpReceiptArgs(t, "missing"))
+				if denied.Error == "" || posts.Load() != beforePosts || reads.Load() != beforeReads {
+					t.Fatalf("forbidden receipt access: %+v", denied)
+				}
+			}
+			// The retired batch tool is rejected regardless of authored prose or tokens.
+			for _, args := range []string{`{}`, `{"token":"approved","comment_count":10000}`, `{"confirmation":"yes"}`} {
+				before := posts.Load()
+				response := pipe.call(t, "issues_create_batch", json.RawMessage(args))
+				if response.Error == "" || posts.Load() != before {
+					t.Fatalf("ungranted creation: %+v", response)
+				}
+			}
+			if familyMode {
+				for _, state := range []string{"pending", "uncertain", "rejected"} {
+					id := "catalog-" + state
+					_, _, err := receipts.Begin(t.Context(), id, "issues_list", []byte(`{}`))
+					mustProgress(t, err)
+					if state != "pending" {
+						mustProgress(t, receipts.Finish(t.Context(), id, state, store.FamilyReference{}))
+					}
+					r := pipe.call(t, "receipts_get", mcpReceiptArgs(t, id))
+					var got FamilyReceipt
+					mustProgress(t, json.Unmarshal(r.Result, &got))
+					if got.Disposition != state {
+						t.Fatalf("state=%s receipt=%+v", state, got)
+					}
+				}
+				r := pipe.call(t, "receipts_get", mcpReceiptArgs(t, "not-recorded"))
+				var missing FamilyReceipt
+				mustProgress(t, json.Unmarshal(r.Result, &missing))
+				if missing.Disposition != "missing" {
+					t.Fatalf("recursive receipt %+v", missing)
+				}
+			}
+			mustProgress(t, guard.Revoke(t.Context(), "cancelled"))
+			beforePosts, beforeReads := posts.Load(), reads.Load()
+			for _, name := range expected {
+				response := pipe.call(t, name, json.RawMessage(`{}`))
+				if response.Error == "" {
+					t.Fatalf("revoked %s admitted", name)
+				}
+			}
+			if posts.Load() != beforePosts || reads.Load() != beforeReads {
+				t.Fatal("revoked calls reached forge")
+			}
+		})
 	}
 }

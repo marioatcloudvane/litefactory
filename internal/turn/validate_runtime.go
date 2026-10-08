@@ -262,7 +262,7 @@ func (h *validateHost) keepChange(ctx context.Context, summary string) (string, 
 }
 
 // stories are the frozen approved stories Implement built, with the criterion
-// IDs their approved revision declares.
+// IDs and the text of their approved revision.
 func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 	var out []ValidateStory
 	for _, r := range h.revisions {
@@ -273,7 +273,7 @@ func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 		if err != nil {
 			return nil, fmt.Errorf("criteria of %s: %w", r.Key, err)
 		}
-		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria})
+		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, Text: r.Body})
 	}
 	if len(out) == 0 {
 		return nil, errors.New("no approved story is under review")
@@ -534,5 +534,5 @@ func validateReviewPrompt(vr ValidateReviewRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Factory invocation: Validate %s review of commit %s. The working directory is a read-only checkout of exactly that commit. Report one entry under stories for every story below, with the snapshot ID exactly as given, and cite only the check IDs of the evidence list; only a passed command proves a finding.\n<validate-review>%s</validate-review>\n", vr.Role, vr.Commit, data), nil
+	return fmt.Sprintf("Factory invocation: Validate %s review of commit %s. The working directory is a read-only checkout of exactly that commit; read it with your file tools or read-only shell commands, never run tests or builds. Report one entry under stories for every story below, with the snapshot ID exactly as given, and cite only the check IDs of the evidence list; only a passed command proves a finding.\n<validate-review>%s</validate-review>\n", vr.Role, vr.Commit, data), nil
 }

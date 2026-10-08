@@ -2,7 +2,6 @@ package submission_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -10,70 +9,61 @@ import (
 )
 
 func TestFamilyProfile_ModeMatrix(t *testing.T) {
-	installed := []string{"feedback_preflight", "issues_list", "issues_get", "issues_comment", "issues_create_batch", "issues_create_prepare", "evidence_submit", "activity_update", "activity_get", "receipts_get"}
+	installed := []string{"feedback_preflight", "issues_list", "issues_get", "issues_comment", "issues_create_prepare", "evidence_submit", "activity_update", "activity_get", "receipts_get"}
 	for _, mode := range []string{"research", "implement", "validate", "plan", "spike"} {
-		for _, gate := range []bool{false, true} {
-			name := mode + "/gate off"
-			if gate {
-				name = mode + "/gate on"
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			p, err := submission.NewFamilyToolProfile(mode, installed)
+			if err != nil {
+				t.Fatal(err)
 			}
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-				p, err := submission.NewFamilyToolProfile(mode, gate, installed)
-				if err != nil {
-					t.Fatal(err)
+			catalog := map[string]submission.ToolSpec{}
+			for _, spec := range p.List() {
+				if _, duplicate := catalog[spec.Name]; duplicate {
+					t.Fatalf("duplicate %s", spec.Name)
 				}
-				catalog := map[string]submission.ToolSpec{}
-				for _, spec := range p.List() {
-					if _, duplicate := catalog[spec.Name]; duplicate {
-						t.Fatalf("duplicate %s", spec.Name)
-					}
-					if !json.Valid(spec.InputSchema) || spec.Description == "" {
-						t.Fatalf("invalid advertised spec: %+v", spec)
-					}
-					catalog[spec.Name] = spec
+				if !json.Valid(spec.InputSchema) || spec.Description == "" {
+					t.Fatalf("invalid advertised spec: %+v", spec)
 				}
-				for _, tool := range installed {
-					want := mode != "plan" && mode != "spike"
-					if tool == "issues_create_batch" {
-						want = mode == "research" && gate
-					}
-					// Drafting needs no grant, so the creation flag never gates it.
-					if tool == "issues_create_prepare" {
-						want = mode == "research"
-					}
-					if tool == "evidence_submit" {
-						want = mode == "implement" || mode == "validate"
-					}
-					_, discovered := catalog[tool]
-					if p.Allows(tool) != want || discovered != want {
-						t.Errorf("%s: allowed=%v discovered=%v want=%v", tool, p.Allows(tool), discovered, want)
-					}
+				catalog[spec.Name] = spec
+			}
+			for _, tool := range installed {
+				want := mode != "plan" && mode != "spike"
+				// Drafting needs no grant.
+				if tool == "issues_create_prepare" {
+					want = mode == "research"
 				}
-				for _, tool := range []string{"communication_preflight", "communication_submit", "communication_receipt"} {
-					if !p.Allows(tool) {
-						t.Errorf("compatibility lost: %s", tool)
-					}
+				if tool == "evidence_submit" {
+					want = mode == "implement" || mode == "validate"
 				}
-				for _, tool := range []string{"shell", "approve", "grant", "issues_delete", "capture_execution"} {
-					if p.Allows(tool) {
-						t.Errorf("unknown authority granted: %s", tool)
-					}
+				_, discovered := catalog[tool]
+				if p.Allows(tool) != want || discovered != want {
+					t.Errorf("%s: allowed=%v discovered=%v want=%v", tool, p.Allows(tool), discovered, want)
 				}
-			})
-		}
+			}
+			for _, tool := range []string{"communication_preflight", "communication_submit", "communication_receipt"} {
+				if !p.Allows(tool) {
+					t.Errorf("compatibility lost: %s", tool)
+				}
+			}
+			for _, tool := range []string{"shell", "approve", "grant", "issues_delete", "capture_execution"} {
+				if p.Allows(tool) {
+					t.Errorf("unknown authority granted: %s", tool)
+				}
+			}
+		})
 	}
 }
 
 func TestFamilyProfile_RegistrationAndImmutability(t *testing.T) {
 	t.Parallel()
-	for _, names := range [][]string{{"unknown"}, {"issues_list", "issues_list"}, {"communication_submit"}} {
-		if _, err := submission.NewFamilyToolProfile("research", true, names); err == nil {
+	for _, names := range [][]string{{"issues_create_batch"}, {"unknown"}, {"issues_list", "issues_list"}, {"communication_submit"}} {
+		if _, err := submission.NewFamilyToolProfile("research", names); err == nil {
 			t.Fatalf("invalid registration accepted: %v", names)
 		}
 	}
 	installed := []string{"issues_list", "feedback_preflight"}
-	p, err := submission.NewFamilyToolProfile("research", false, installed)
+	p, err := submission.NewFamilyToolProfile("research", installed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +76,7 @@ func TestFamilyProfile_RegistrationAndImmutability(t *testing.T) {
 		t.Fatal("caller mutated immutable catalog")
 	}
 	for _, name := range []string{"feedback_preflight", "receipts_get"} {
-		profile, err := submission.NewFamilyToolProfile("research", false, []string{name})
+		profile, err := submission.NewFamilyToolProfile("research", []string{name})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,37 +110,35 @@ func TestFamilyProfile_RegistrationAndImmutability(t *testing.T) {
 // takes no arguments; a missing member is what leaves the model guessing.
 func TestToolSchemasAreUsableInEveryMode(t *testing.T) {
 	t.Parallel()
-	installed := []string{"feedback_preflight", "issues_list", "issues_get", "issues_comment", "issues_create_batch", "issues_create_prepare", "evidence_submit", "activity_update", "activity_get", "receipts_get"}
+	installed := []string{"feedback_preflight", "issues_list", "issues_get", "issues_comment", "issues_create_prepare", "evidence_submit", "activity_update", "activity_get", "receipts_get"}
 	for _, mode := range []string{"research", "spike", "plan", "implement", "validate"} {
-		for _, creation := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/creation=%t", mode, creation), func(t *testing.T) {
-				t.Parallel()
-				p, err := submission.NewFamilyToolProfile(mode, creation, installed)
-				if err != nil {
-					t.Fatal(err)
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			p, err := submission.NewFamilyToolProfile(mode, installed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tools := p.List()
+			if len(tools) == 0 {
+				t.Fatalf("%s exposes no tools", mode)
+			}
+			for _, tool := range tools {
+				var schema struct {
+					Type       string                     `json:"type"`
+					Properties map[string]json.RawMessage `json:"properties"`
 				}
-				tools := p.List()
-				if len(tools) == 0 {
-					t.Fatalf("%s exposes no tools", mode)
+				if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+					t.Errorf("%s: input schema does not parse: %v", tool.Name, err)
+					continue
 				}
-				for _, tool := range tools {
-					var schema struct {
-						Type       string                     `json:"type"`
-						Properties map[string]json.RawMessage `json:"properties"`
-					}
-					if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
-						t.Errorf("%s: input schema does not parse: %v", tool.Name, err)
-						continue
-					}
-					if schema.Type != "object" {
-						t.Errorf("%s: input schema type = %q, want object", tool.Name, schema.Type)
-					}
-					if schema.Properties == nil {
-						t.Errorf("%s: input schema declares no properties, so a host cannot validate any call against it", tool.Name)
-					}
+				if schema.Type != "object" {
+					t.Errorf("%s: input schema type = %q, want object", tool.Name, schema.Type)
 				}
-			})
-		}
+				if schema.Properties == nil {
+					t.Errorf("%s: input schema declares no properties, so a host cannot validate any call against it", tool.Name)
+				}
+			}
+		})
 	}
 }
 
