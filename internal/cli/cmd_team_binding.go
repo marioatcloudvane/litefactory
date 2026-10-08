@@ -127,6 +127,10 @@ func runTeamBinding(ctx context.Context, env *Env, operation, repoPath, source s
 		return access.WithSelected(ctx, source, args[0], args[1], func(entry teampackage.Installed, _ fs.FS) error {
 			id := entry.Identity
 			binding := store.RepositoryTeamBinding{RepoID: repo.ID, Source: id.Source, Slug: id.Slug, Version: id.Version, Kind: "fetched", ReleaseDigest: id.Digest}
+			if entry.Editable {
+				binding.Kind = "local"
+				binding.ReleaseDigest = ""
+			}
 			changed, err := db.ReplaceRepositoryTeamBinding(ctx, binding)
 			if err != nil {
 				return err

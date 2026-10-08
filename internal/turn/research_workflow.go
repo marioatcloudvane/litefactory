@@ -30,6 +30,23 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 	if definition == nil || definition.Profile == nil || definition.Profile.Mode != policy.Mode || req.mode() != string(policy.Mode) {
 		return result, errors.New("workflow differs from admitted mode policy")
 	}
+	if admission.LaunchID == 0 {
+		saved, err := opts.DB.WorkflowCaptureForAdmission(ctx, req.SessionID, req.Trigger.CommentID, string(policy.Mode))
+		if err != nil {
+			return result, fmt.Errorf("workflow execution requires exact retained capture: %w", err)
+		}
+		if saved.InstanceID != admission.Instance.ID {
+			return result, errors.New("workflow capture instance mismatch")
+		}
+		admission.LaunchID = saved.ID
+	}
+	saved, err := opts.DB.GetWorkflowCapture(ctx, admission.LaunchID)
+	if err != nil {
+		return result, fmt.Errorf("workflow execution requires intact retained capture: %w", err)
+	}
+	if saved.InstanceID != admission.Instance.ID || saved.ContentDigest != definition.Digest {
+		return result, errors.New("workflow execution capture differs from admitted instance or bytes")
+	}
 	result.ResearchGraph = true
 	if opts.MCP == nil || opts.ResearchReporter == nil {
 		return result, errors.New("research graph requires result authority and durable reporter")
@@ -128,7 +145,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			}
 			if decision.Park {
 				spent, _ := store.GraphTriggerDispatch(req.Trigger.CommentID)
-				if _, parkErr = opts.DB.ParkGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, node.Name, decision.Due, opts.MCP.Now(), spent); parkErr != nil {
+				if _, parkErr = opts.DB.ParkCapturedGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, node.Name, decision.Due, opts.MCP.Now(), spent, w.admission.LaunchID); parkErr != nil {
 					return w.finish(ctx, fmt.Errorf("park %s graph at %q: %w", policy.Mode, node.Name, parkErr))
 				}
 				return w.finish(ctx, nil)
@@ -144,7 +161,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				// A run a dispatch allocated is that dispatch's; the next stage is owed
 				// under a new one, so the spent one is closed with the same write.
 				spent, _ := store.GraphTriggerDispatch(req.Trigger.CommentID)
-				if _, parkErr := opts.DB.ParkGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, node.Name, opts.MCP.Now(), opts.MCP.Now(), spent); parkErr != nil {
+				if _, parkErr := opts.DB.ParkCapturedGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, node.Name, opts.MCP.Now(), opts.MCP.Now(), spent, w.admission.LaunchID); parkErr != nil {
 					return w.finish(ctx, fmt.Errorf("park research graph at %q: %w", node.Name, parkErr))
 				}
 				opts.Logger.Info("research graph parked for its next stage",
@@ -177,7 +194,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			w.result.LogPath, w.result.MetaPath = started.LogPath, w.prep.metaPath
 		}
 		executed = true
-		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: w.result.Run.ID, At: opts.MCP.Now()})
+		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: w.result.Run.ID, At: opts.MCP.Now()})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}
@@ -342,7 +359,11 @@ func (w *researchWorkflow) predecessorContext(ctx context.Context, scope agentre
 		if err := json.Unmarshal(raw, &files); err != nil {
 			return "", err
 		}
-		if dot, found := files["research.dot"]; found {
+		graphFile, err := retainedGraphFile(ctx, w.opts.DB, prior)
+		if err != nil {
+			return "", err
+		}
+		if dot, found := files[graphFile]; found {
 			historical, err = graphexec.ParseProfile(dot)
 			if err != nil {
 				return "", err

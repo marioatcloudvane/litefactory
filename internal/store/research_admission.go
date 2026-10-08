@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -34,6 +35,7 @@ type WorkflowLaunch struct {
 	DefinitionID                         int64
 	Start, ContentDigest, TopologyDigest string
 	Files                                []byte
+	Provenance                           WorkflowProvenance
 	// Reply is authenticated owner input from turn admission, never node output.
 	Reply string
 	// ResearchCompatible retains the current node when its action/source still maps.
@@ -78,6 +80,10 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 	if in.Mode == "" || in.SessionID < 1 || in.TriggerID < 0 || in.DefinitionID < 1 || in.Start == "" || !validDigest(in.ContentDigest) || !validDigest(in.TopologyDigest) || len(in.Files) == 0 || len(in.Files) > 16<<20 || len(in.Reply) > 65536 {
 		return out, graphInvariant("invalid workflow launch capture")
 	}
+	metadata, metadataErr := serializedWorkflowProvenance(in.Provenance)
+	if metadataErr != nil {
+		return out, metadataErr
+	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		admission, admissionErr := readTaskWorkflowAdmission(ctx, tx, in.SessionID)
 		if admissionErr != nil && !errors.Is(admissionErr, ErrNotFound) {
@@ -117,7 +123,7 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 				return e
 			}
 			var topology string
-			if e = tx.QueryRowContext(ctx, `SELECT id,topology_digest FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1`, dispatch.InstanceID).Scan(&out.LaunchID, &topology); e != nil {
+			if e = tx.QueryRowContext(ctx, `SELECT id,topology_digest FROM research_launch_definitions WHERE id=? AND instance_id=?`, dispatch.LaunchID, dispatch.InstanceID).Scan(&out.LaunchID, &topology); e != nil {
 				return e
 			}
 			if out.Instance.Status != GraphRunning || out.Instance.CurrentNode != dispatch.Node || out.Instance.DefinitionID != in.DefinitionID || topology != in.TopologyDigest || (dispatch.Status != "reserved" && dispatch.Status != "running") {
@@ -127,7 +133,8 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 		}
 		var replayInstance int64
 		var replayDigest string
-		e := tx.QueryRowContext(ctx, `SELECT id,instance_id,content_digest FROM research_launch_definitions WHERE session_id=? AND trigger_id=?`, in.SessionID, in.TriggerID).Scan(&out.LaunchID, &replayInstance, &replayDigest)
+		var replayFiles, replayMetadata []byte
+		e := tx.QueryRowContext(ctx, `SELECT id,instance_id,content_digest,files,provenance FROM research_launch_definitions WHERE session_id=? AND trigger_id=?`, in.SessionID, in.TriggerID).Scan(&out.LaunchID, &replayInstance, &replayDigest, &replayFiles, &replayMetadata)
 		if e == nil {
 			var replayMode string
 			if e = tx.QueryRowContext(ctx, `SELECT d.mode FROM graph_instances i JOIN graph_definitions d ON d.id=i.definition_id WHERE i.id=?`, replayInstance).Scan(&replayMode); e != nil {
@@ -136,7 +143,7 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 			if replayMode != in.Mode {
 				return graphInvariant("workflow replay mode mismatch")
 			}
-			if replayDigest != in.ContentDigest {
+			if replayDigest != in.ContentDigest || !bytes.Equal(replayFiles, in.Files) || !bytes.Equal(replayMetadata, metadata) {
 				return graphInvariant("workflow launch replay cannot replace captured instructions; a new owner continuation is required")
 			}
 			out.Instance, e = scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, replayInstance))
@@ -205,7 +212,7 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 				}
 			}
 		}
-		return tx.QueryRowContext(ctx, `INSERT INTO research_launch_definitions(session_id,trigger_id,instance_id,content_digest,topology_digest,files) VALUES(?,?,?,?,?,?) RETURNING id`, in.SessionID, in.TriggerID, out.Instance.ID, in.ContentDigest, in.TopologyDigest, in.Files).Scan(&out.LaunchID)
+		return tx.QueryRowContext(ctx, `INSERT INTO research_launch_definitions(session_id,trigger_id,instance_id,content_digest,topology_digest,files,provenance,files_digest) VALUES(?,?,?,?,?,?,?,?) RETURNING id`, in.SessionID, in.TriggerID, out.Instance.ID, in.ContentDigest, in.TopologyDigest, in.Files, metadata, captureBytesDigest(in.Files)).Scan(&out.LaunchID)
 	})
 	if err != nil {
 		return WorkflowAdmission{}, fmt.Errorf("store: admit workflow launch: %w", err)

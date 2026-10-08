@@ -92,6 +92,9 @@ func TestTeamBindingCommandsOfflineLifecycle(t *testing.T) {
 	run(ExitOK, "team", "install", "standard", "1.0.0", "--source", source)
 	run(ExitOK, "team", "install", "standard", "2.0.0", "--source", source)
 	run(ExitOK, "team", "install", "standard", "1.0.0", "--source", aliasSource)
+	run(ExitOK, "team", "clone", "standard", "1.0.0", "custom", "1.0.0", "--source", source)
+	assertProcessLinkProtectsRemoval(t, paths, clone.Dir)
+	run(ExitOK, "team", "unlink", "--repo", clone.Dir)
 	server.Close()
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
@@ -153,6 +156,16 @@ func TestTeamBindingCommandsOfflineLifecycle(t *testing.T) {
 		t.Fatal(out)
 	}
 	run(ExitOK, "team", "remove", "standard", "2.0.0")
+	run(ExitOK, "team", "link", "custom", "1.0.0", "--source", "local")
+	if local, err := db.GetRepositoryTeamBinding(t.Context(), repo.ID); err != nil || local.Kind != "local" || local.ReleaseDigest != "" {
+		t.Fatalf("editable binding retained origin digest: %+v %v", local, err)
+	}
+	if out := run(ExitOK, "team", "link", "custom", "1.0.0", "--source", "local"); !strings.Contains(out, "Already linked") {
+		t.Fatal(out)
+	}
+	run(ExitFailure, "team", "remove", "custom", "1.0.0", "--source", "local")
+	run(ExitOK, "team", "unlink")
+	run(ExitOK, "team", "remove", "custom", "1.0.0", "--source", "local")
 	if _, err := db.GetRepositoryTeamBinding(t.Context(), repo.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal(err)
 	}

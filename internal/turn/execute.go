@@ -83,6 +83,8 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// WorkflowSource copies the current linked package under catalogue coordination.
+	WorkflowSource WorkflowSourceResolver
 	// ResearchDriver is the application-owned DOT execution path. An explicit
 	// graph selection fails closed when the driver is unavailable.
 	ResearchDriver   ResearchLaunchDriver

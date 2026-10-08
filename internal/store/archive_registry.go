@@ -148,9 +148,9 @@ var archiveRegistry = []ArchiveTable{
 	archived("implement_stories", byParent),
 	archived("validate_entries", bySession),
 	archived("research_successors", `(instance_id IN `+subInst+` OR predecessor_id IN `+subInst+`)`),
+	archived("graph_node_attempts", `id IN `+subNodeAt),
 	archived("research_launch_definitions", `(session_id IN `+inFS+` OR instance_id IN `+subInst+`)`),
 	archived("research_execution_paths", bySession),
-	archived("graph_node_attempts", `id IN `+subNodeAt),
 	archived("graph_instances", `id IN `+subInst),
 	// Application results.
 	archived("application_result_observations", byRun+` AND `+notDoctor),
