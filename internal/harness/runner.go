@@ -621,6 +621,17 @@ func (r *Runner) args(req agent.Request) []string {
 		sessionFlag = "--resume"
 	}
 	tools, allowedTools := r.surface(req)
+	// Delivered skills are loadable only through claude's Skill tool; the
+	// bundle itself stays unreadable under the $LF_HOME deny. Skill loads the
+	// run's own plugin skills and grants no file, shell or network access.
+	if req.Delivery != nil && len(req.Delivery.Skills) > 0 {
+		if !slices.Contains(tools, "Skill") {
+			tools = append(slices.Clone(tools), "Skill")
+		}
+		if len(allowedTools) > 0 && !slices.Contains(allowedTools, "Skill") {
+			allowedTools = append(slices.Clone(allowedTools), "Skill")
+		}
+	}
 	if req.MCPLaunch != nil {
 		allowedTools = slices.Clone(allowedTools)
 		for _, name := range req.MCPLaunch.PermittedTools() {
