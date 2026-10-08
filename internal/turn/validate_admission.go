@@ -464,12 +464,17 @@ func captureShippedValidate(ctx context.Context) (*teamsource.WorkflowDefinition
 // driver, with the host's bindings for this entry.
 func (rt *validateRuntimeState) execute(ctx context.Context, definition *teamsource.WorkflowDefinition, admission store.WorkflowAdmission) (Result, error) {
 	policy := ValidateWorkflowPolicy()
-	policy.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, profile *graphexec.Profile, _ func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error), _ WorkflowEnv) error {
+	policy.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, profile *graphexec.Profile, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error), _ WorkflowEnv) error {
 		suite, flow, err := rt.opts.Validate.Bind(ctx, rt.opts, rt.req, rt.entry)
 		if err != nil {
 			return err
 		}
 		flow.Profile = profile
+		if flow.Scope == nil {
+			// A repair result is judged in the same trusted scope the shared
+			// workflow gave its attempt.
+			flow.Scope = scope
+		}
 		if err := RegisterValidateSuiteActivity(specs, activities, suite); err != nil {
 			return err
 		}

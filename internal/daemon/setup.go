@@ -436,6 +436,15 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	turnOpts.Bug = bugRuntime
+	// The Validate graph's host bindings. Its reviewers take their run slots
+	// from the daemon's own pool, which exists only once the daemon is built
+	// below, so the slots are bound to it then.
+	validateSlots := &runSlots{}
+	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Forge: client, OwnerID: identities.OwnerUserID, Slots: validateSlots})
+	if err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
+	turnOpts.Validate = validateRuntime
 	// Automatic start is offered only when the Validate graph has its host
 	// bindings; the hand-off line must not promise a start that cannot happen.
 	turnOpts.ValidateAutoStart = s.Config.ValidateMode.AutoStart && turnOpts.Validate != nil
@@ -506,6 +515,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
 	handedOver = true
+	validateSlots.bind(daemon.pool)
 	if daemon.webhook != nil {
 		// Secrets are loaded once here; the heartbeat only retries the missing.
 		now := s.Now
