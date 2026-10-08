@@ -60,7 +60,7 @@ func StartRepairBroker(ctx context.Context, directory, attempt string, results *
 				if input.Step < 1 || input.Step > 30 {
 					return nil, errors.New("doctor repair step outside manifest")
 				}
-				_, err = tools.service.DB.ApplyDoctorTypedRows(ctx, tools.operation, input.Step, call.Name)
+				_, err = tools.ApplyTyped(ctx, input.Step, call.Name)
 				if err != nil {
 					return nil, err
 				}

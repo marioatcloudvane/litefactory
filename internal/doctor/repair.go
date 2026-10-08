@@ -315,6 +315,29 @@ func (t *RepairTools) step(ctx context.Context, number int) (store.DoctorRepairS
 	return store.DoctorRepairStep{}, errors.New("unapproved doctor repair step")
 }
 
+// ApplyTyped serializes effects and fences the operation on the first refusal.
+// The lock is shared with owner stop and final verification, so a concurrent
+// broker call cannot pass an earlier failed step before the fence is retained.
+func (t *RepairTools) ApplyTyped(ctx context.Context, number int, kind string) (step store.DoctorRepairStep, err error) {
+	unlock, err := t.service.repairEffectLock(ctx, t.target)
+	if err != nil {
+		return step, err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	step, err = t.service.DB.ApplyDoctorTypedRows(ctx, t.operation, number, kind)
+	if err != nil {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		// Do not retain untrusted arguments or raw store errors in the outcome.
+		current, readErr := t.service.DB.ReadDoctorRepair(cleanup, t.target.String())
+		err = errors.Join(err, readErr)
+		if readErr == nil && current.ID == t.operation && !current.Fenced {
+			err = errors.Join(err, t.service.DB.StopDoctorRepair(cleanup, t.target.String(), "Approved repair tool failed or was refused; no further steps may run"))
+		}
+	}
+	return step, err
+}
+
 // Backup creates the declared original copy, refusing undeclared handles.
 func (t *RepairTools) Backup(ctx context.Context, number int) (err error) {
 	unlock, err := t.service.repairEffectLock(ctx, t.target)
@@ -365,6 +388,8 @@ func (t *RepairTools) verifyAll(ctx context.Context) error {
 			if err = t.service.verifyReplacedFile(ctx, t.target, step); err != nil {
 				return fmt.Errorf("verify doctor file: %w", err)
 			}
+		} else if err = t.service.DB.VerifyDoctorRows(ctx, t.operation, step.Number); err != nil {
+			return fmt.Errorf("verify doctor row: %w", err)
 		}
 	}
 	return nil

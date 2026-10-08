@@ -225,7 +225,12 @@ func (db *DB) VerifyDoctorRows(ctx context.Context, id string, number int) error
 		if err != nil {
 			return err
 		}
-		state, _, err := doctorRowSnapshot(ctx, tx, r.TaskRef, s.Kind, s.Target)
+		var state string
+		if DoctorRepairToolKind(s.Kind) {
+			state, _, err = doctorTypedRowSnapshot(ctx, tx, r.TaskRef, s.Kind, s.Target)
+		} else {
+			state, _, err = doctorRowSnapshot(ctx, tx, r.TaskRef, s.Kind, s.Target)
+		}
 		if err != nil {
 			return err
 		}
