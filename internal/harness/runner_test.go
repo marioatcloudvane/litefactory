@@ -1619,3 +1619,45 @@ func TestResumeUnusableRerunsColdOnlyWhenNothingHappened(t *testing.T) {
 		})
 	}
 }
+
+func TestArgsAddSkillToolOnlyForDeliveredSkills(t *testing.T) {
+	t.Parallel()
+	tools := []string{"Read", "Glob", "Grep"}
+	allowed := []string{"Read"}
+	runner := &Runner{tools: tools, allowedTools: allowed}
+	flag := func(args []string, name string) string {
+		for i, a := range args {
+			if a == name && i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+		return ""
+	}
+
+	plain := agent.Request{}
+	before := runner.args(plain)
+	if got := flag(before, "--tools"); got != "Read,Glob,Grep" {
+		t.Fatalf("--tools without delivery = %q", got)
+	}
+
+	withSkills := agent.Request{Delivery: &agent.Delivery{Root: t.TempDir(), Roles: []string{"reviewer"}, Skills: []string{"validate-review"}}}
+	args := runner.args(withSkills)
+	if got := flag(args, "--tools"); got != "Read,Glob,Grep,Skill" {
+		t.Fatalf("--tools with delivered skills = %q", got)
+	}
+	if got := flag(args, "--allowedTools"); got != "Read,Skill" {
+		t.Fatalf("--allowedTools with delivered skills = %q", got)
+	}
+	if !slices.Equal(tools, []string{"Read", "Glob", "Grep"}) || !slices.Equal(allowed, []string{"Read"}) {
+		t.Fatalf("configured slices mutated: %v %v", tools, allowed)
+	}
+
+	noSkills := agent.Request{Delivery: &agent.Delivery{Root: t.TempDir(), Roles: []string{"reviewer"}}}
+	if got := flag(runner.args(noSkills), "--tools"); got != "Read,Glob,Grep" {
+		t.Fatalf("--tools with delivery but no skills = %q", got)
+	}
+
+	if after := runner.args(plain); !slices.Equal(before, after) {
+		t.Fatalf("argv without delivery changed:\n%v\n%v", before, after)
+	}
+}
