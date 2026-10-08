@@ -37,12 +37,13 @@ type Options struct {
 
 // Manager has no repository, runtime, credential or SQL dependency.
 type Manager struct {
-	paths     config.Paths
-	client    *http.Client
-	validate  Validator
-	inUse     func(context.Context, Identity) ([]string, error)
-	rename    func(string, string) error
-	removeAll func(string) error
+	paths      config.Paths
+	client     *http.Client
+	validate   Validator
+	inUse      func(context.Context, Identity) ([]string, error)
+	rename     func(string, string) error
+	removeAll  func(string) error
+	writeClone func(string, []byte) error
 }
 
 // New constructs an anonymous bounded package manager.
@@ -74,14 +75,18 @@ func New(o Options) (*Manager, error) {
 		}
 		return nil
 	}}
-	return &Manager{paths: o.Paths, client: client, validate: o.Validate, inUse: o.InUse, rename: os.Rename, removeAll: os.RemoveAll}, nil
+	return &Manager{paths: o.Paths, client: client, validate: o.Validate, inUse: o.InUse, rename: os.Rename, removeAll: os.RemoveAll, writeClone: writeStagedFile}, nil
 }
 func sourceID(source string) string {
 	sum := sha256.Sum256([]byte(source))
 	return hex.EncodeToString(sum[:])
 }
 func (m *Manager) destination(source, slug, ver string) string {
-	return filepath.Join(m.paths.TeamsInstalledDir(), sourceID(source), slug, ver)
+	namespace := sourceID(source)
+	if source == "local" {
+		namespace = "local"
+	}
+	return filepath.Join(m.paths.TeamsInstalledDir(), namespace, slug, ver)
 }
 func ordinaryComponents(name string, directory bool) error {
 	abs, err := filepath.Abs(name)
@@ -377,6 +382,13 @@ func (m *Manager) install(ctx context.Context, source string, r Release) (Instal
 	if err := ctx.Err(); err != nil {
 		return Installed{}, false, err
 	}
+	if local := m.destination("local", r.Slug, r.Version); local != m.destination(source, r.Slug, r.Version) {
+		if _, err := os.Lstat(local); err == nil {
+			return Installed{}, false, fmt.Errorf("%w: local team already exists at %s", ErrConflict, local)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return Installed{}, false, err
+		}
+	}
 	dest := m.destination(source, r.Slug, r.Version)
 	if _, err := os.Lstat(dest); err == nil {
 		installed, err := m.inspectPath(ctx, dest)
@@ -406,6 +418,9 @@ func (m *Manager) inspectPath(ctx context.Context, dir string) (Installed, error
 	raw, err := readLocal(filepath.Join(dir, "receipt.json"), MaxCatalogueBytes)
 	if err != nil {
 		return fail(err)
+	}
+	if filepath.Base(filepath.Dir(filepath.Dir(dir))) == "local" {
+		return m.inspectLocal(ctx, dir, raw)
 	}
 	var rec receipt
 	if err := strictJSON(raw, &rec); err != nil {
@@ -504,7 +519,7 @@ func (m *Manager) resolve(ctx context.Context, source, slug, ver string) (Instal
 		return Installed{}, err
 	}
 	if source != "" {
-		normalized, err := config.NormalizeTeamSource(source)
+		normalized, err := normalizeSelector(source)
 		if err != nil {
 			return Installed{}, err
 		}
@@ -575,6 +590,9 @@ func (m *Manager) WithExact(ctx context.Context, id Identity, use func(Installed
 
 // Update installs the highest newer stable version from the same source.
 func (m *Manager) Update(ctx context.Context, source, slug string) (Installed, bool, error) {
+	if source == "local" {
+		return Installed{}, false, fmt.Errorf("%w: local teams are editable and cannot be updated", ErrInvalidPackage)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	normalized, err := config.NormalizeTeamSource(source)

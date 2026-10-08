@@ -9,6 +9,7 @@ func Commands() []*Command {
 	return []*Command{
 		newInitCommand(),
 		newTeamCommand("install"),
+		newTeamCommand("clone"),
 		newTeamCommand("update"),
 		newTeamCommand("list"),
 		newTeamCommand("inspect"),
