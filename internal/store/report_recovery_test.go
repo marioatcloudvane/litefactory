@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -132,5 +133,29 @@ func TestReportRecoveryRetainsStoppedRunAndSourceOnlyDebt(t *testing.T) {
 	wm, _, err := db.GetWatermark(t.Context(), session.ID)
 	if err != nil || wm.LastCommentID != 0 {
 		t.Fatalf("scheduling consumed source=%+v %v", wm, err)
+	}
+}
+
+func TestDeleteReportRecoveryIsIdempotentAndKeyScoped(t *testing.T) {
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+	source := ReportRecovery{Key: "source:123:55", SessionID: session.ID, TriggerID: 55, State: "uncertain", NextAt: time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC), Attempts: 4, Escalated: true}
+	completed := source
+	completed.Key, completed.State = "creation:"+source.Key, "resolved"
+	for _, row := range []ReportRecovery{source, completed} {
+		if err := db.PutReportRecovery(t.Context(), row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := db.DeleteReportRecovery(t.Context(), completed.Key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.GetReportRecovery(t.Context(), completed.Key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("completed row retained: %v", err)
+	}
+	if row, err := db.GetReportRecovery(t.Context(), source.Key); err != nil || row != source {
+		t.Fatalf("unrelated debt changed: %+v %v", row, err)
 	}
 }

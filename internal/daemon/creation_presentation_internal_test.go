@@ -245,8 +245,8 @@ func TestPresentCreationProposalDefersBesideADifferentUnresolvedDelivery(t *test
 	if err := u.d.presentCreationProposal(recoveryUnitContext(t, u.at.Add(time.Minute)), u.t, u.run.ID, 40); err != nil || len(stub.runs) != 1 {
 		t.Fatalf("err=%v calls=%v", err, stub.runs)
 	}
-	if got := u.d.recoveries.items[creationRecoveryKey(u.session.ID, 40)].State; got != "resolved" {
-		t.Fatalf("debt state = %q for %s", got, p.Hash)
+	if got, exists := u.d.recoveries.items[creationRecoveryKey(u.session.ID, 40)]; exists {
+		t.Fatalf("completed debt = %+v for %s", got, p.Hash)
 	}
 }
 

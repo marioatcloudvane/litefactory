@@ -1,6 +1,7 @@
 package daemon_test
 
 import (
+	"errors"
 	"github.com/cloudvane/litefactory/internal/store"
 	"net/http"
 	"strings"
@@ -135,7 +136,7 @@ func TestRecoveryCleanupResolvesAfterSourceAlreadyConsumed(t *testing.T) {
 	f.clock.advance(testInterval)
 	f.settle()
 	saved, err := f.db.GetReportRecovery(t.Context(), debt.Key)
-	if err != nil || saved.State != "resolved" || !saved.Escalated {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("completed cleanup debt=%+v %v", saved, err)
 	}
 	posts, _, _ := f.forge.snapshot()
