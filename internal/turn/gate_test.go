@@ -208,6 +208,12 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// Validate pins the integration head: one fetch and one read, in one
 		// acquisition.
 		"IntegrationHead": {},
+		// Validate's host bindings: the task worktree is created or reused,
+		// a kept repair is committed and the tested commit is pushed, each in
+		// one acquisition.
+		"validateHost.checkoutTaskWorktree": {},
+		"validateHost.keepChange":           {},
+		"validateHost.publish":              {},
 	}
 
 	// gated names each call that must not happen outside a critical section,
@@ -223,7 +229,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// proposal is being applied (CR-B-003): see WriteResolvedFiles below.
 		"syncBase": {"prepareClone", "PrepareGraphBugSource"},
 		"syncTask": {"prepareClone", "PrepareGraphBugSource"},
-		"Commit":   {"commitAndPush", "BugRuntime.saveGraphDelivery", "PrepareGraphBugSource"},
+		"Commit":   {"commitAndPush", "BugRuntime.saveGraphDelivery", "PrepareGraphBugSource", "validateHost.keepChange"},
 		// WriteResolvedFiles, StageResolvedFiles and CompleteMerge are US-12's
 		// three new git.Worktree mutators. They run as prepareClone's fourth
 		// step, in place of syncBase (which this turn shape never calls),

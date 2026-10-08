@@ -416,7 +416,7 @@ RETURNING `+runColumns,
 		}
 		// Direct allocation binds immediately; prelaunch allocation leaves preparation
 		// retryable and binds atomically with execution in StartRun instead.
-		if err == nil && !params.Prelaunch && IsGraphTrigger(params.TriggerCommentID) {
+		if err == nil && !params.Prelaunch && IsGraphTrigger(params.TriggerCommentID) && !isValidateReviewTrigger(params.TriggerCommentID) {
 			err = bindGraphDispatch(ctx, tx, run)
 		}
 		return err
