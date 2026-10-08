@@ -24,6 +24,7 @@ type DoctorEvidenceRecord struct {
 
 // DoctorEvidence is a short consistent database snapshot, not a global snapshot.
 type DoctorEvidence struct {
+	Live       bool                   `json:"live,omitempty"`
 	Atomicity  string                 `json:"atomicity"`
 	TaskRef    string                 `json:"task_ref"`
 	CapturedAt time.Time              `json:"captured_at"`

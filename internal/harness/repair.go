@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
+	"log/slog"
 	"time"
 )
 
@@ -40,9 +41,12 @@ func validateScopedDoctorRequest(request agent.DoctorRequest, operation string) 
 	return (agent.RepairRequest{Invocation: request, Operation: operation}).Validate()
 }
 
-func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, operation string, timeout time.Duration, observe func([]byte)) error {
+func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, operation string, timeout time.Duration, observe func([]byte), logger *slog.Logger) error {
 	if operation == "" {
-		return providerprocess.RunDoctorProcess(ctx, binary, args, env, request, timeout, observe)
+		if logger == nil {
+			logger = slog.New(slog.DiscardHandler)
+		}
+		return providerprocess.RunDoctorProcess(ctx, binary, args, env, request, timeout, observe, func(pid int) error { return killSubtree(context.WithoutCancel(ctx), pid, logger) })
 	}
 	return providerprocess.RunRepairProcess(ctx, binary, args, env, agent.RepairRequest{Invocation: request, Operation: operation}, timeout, observe)
 }

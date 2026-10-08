@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -50,11 +51,11 @@ func TestDoctorProcessCancellationAndNativeFailure(t *testing.T) {
 			if err := os.WriteFile(binary, []byte("#!/bin/sh\n"+test.body+"\n"), 0700); err != nil {
 				t.Fatal(err)
 			}
-			spec, err := agent.NewMCPLaunchSpec(binary, filepath.Join(dir, "descriptor.json"), "attempt", "communication_preflight", "communication_submit", "communication_receipt")
+			spec, err := agent.NewMCPLaunchSpec(binary, filepath.Join(dir, "descriptor.json"), "attempt", agent.DoctorToolNames()...)
 			if err != nil {
 				t.Fatal(err)
 			}
-			request := agent.DoctorRequest{Attempt: "attempt", Model: "configured", Prompt: "context", WorkingDirectory: dir, MCPLaunch: spec}
+			request := agent.DoctorRequest{Attempt: "attempt", Model: "configured", Prompt: "context", WorkingDirectory: dir, MCPLaunch: spec, Sandbox: &agent.DoctorSandbox{Version: agent.DoctorSandboxVersion, ScratchDirectory: dir, ReadableRoots: []string{"/"}, DeniedReadPaths: []string{"/credential-fixture"}}}
 			err = RunDoctorProcess(t.Context(), binary, nil, DoctorEnvironment(nil, dir), request, 50*time.Millisecond, func([]byte) {})
 			if err == nil {
 				t.Fatal("expected failure")
@@ -66,5 +67,34 @@ func TestDoctorProcessCancellationAndNativeFailure(t *testing.T) {
 				t.Fatalf("native path disclosed: %v", err)
 			}
 		})
+	}
+}
+
+func TestDoctorProcessUsesAdapterOwnedCancellation(t *testing.T) {
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "provider")
+	if err := os.WriteFile(fixture, []byte("#!/bin/sh\n/bin/sleep 20\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := agent.NewMCPLaunchSpec(fixture, filepath.Join(dir, "descriptor.json"), "attempt", agent.DoctorToolNames()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := agent.DoctorRequest{Attempt: "attempt", Model: "flagship", Prompt: "inspect", WorkingDirectory: dir, MCPLaunch: spec, Sandbox: &agent.DoctorSandbox{Version: agent.DoctorSandboxVersion, ScratchDirectory: dir, ReadableRoots: []string{"/"}, DeniedReadPaths: []string{"/credentials"}}}
+	cancelled := make(chan int, 1)
+	err = RunDoctorProcess(t.Context(), fixture, nil, DoctorEnvironment(nil, dir), request, 50*time.Millisecond, func([]byte) {}, func(pid int) error {
+		cancelled <- pid
+		return syscall.Kill(-pid, syscall.SIGKILL)
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout: %v", err)
+	}
+	select {
+	case pid := <-cancelled:
+		if pid <= 1 || pid == os.Getpid() {
+			t.Fatalf("wrong cancellation identity %d", pid)
+		}
+	default:
+		t.Fatal("adapter subtree cancellation was not called")
 	}
 }

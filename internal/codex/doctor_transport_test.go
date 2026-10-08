@@ -16,8 +16,9 @@ func TestDoctorNativeTransportKeepsUnknownModelAndInclusiveUsage(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(t.TempDir(), "fixture")
 	script := `#!/bin/sh
-[ -z "$GH_TOKEN$LF_HOME$OPENAI_BASE_URL" ] || exit 9
+[ -z "$GH_TOKEN$LF_HOME$OPENAI_BASE_URL$CODEX_API_KEY" ] || exit 9
 [ "$HOME" = "$CODEX_HOME" ] || exit 10
+[ "$GIT_OPTIONAL_LOCKS" = "0" ] || exit 14
 read -r prompt
 [ "$prompt" = "prepared context" ] || exit 11
 printf '%s\n' '{"type":"thread.started","thread_id":"thread"}' '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":3}}'
@@ -25,13 +26,13 @@ printf '%s\n' '{"type":"thread.started","thread_id":"thread"}' '{"type":"turn.co
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	spec, err := agent.NewMCPLaunchSpec(binary, filepath.Join(dir, "descriptor.json"), "doctor-attempt", "communication_preflight", "communication_submit", "communication_receipt")
+	spec, err := agent.NewMCPLaunchSpec(binary, filepath.Join(dir, "descriptor.json"), "doctor-attempt", agent.DoctorToolNames()...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var events []agent.UsageEvent
-	request := agent.DoctorRequest{Attempt: "doctor-attempt", Model: "configured-model", Prompt: "prepared context\n", WorkingDirectory: dir, UsageAttemptID: "usage-attempt", MCPLaunch: spec, Usage: &agent.UsageCapture{AttemptID: "usage-attempt", Sink: func(_ context.Context, event agent.UsageEvent) error { events = append(events, event); return nil }}}
-	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=unrelated", "OPENAI_BASE_URL=untrusted"}}
+	request := agent.DoctorRequest{Attempt: "doctor-attempt", Model: "configured-model", Prompt: "prepared context\n", WorkingDirectory: dir, UsageAttemptID: "usage-attempt", MCPLaunch: spec, Sandbox: &agent.DoctorSandbox{Version: agent.DoctorSandboxVersion, ScratchDirectory: dir, ReadableRoots: []string{"/"}, DeniedReadPaths: []string{"/credential-fixture"}}, Usage: &agent.UsageCapture{AttemptID: "usage-attempt", Sink: func(_ context.Context, event agent.UsageEvent) error { events = append(events, event); return nil }}}
+	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=unrelated", "OPENAI_BASE_URL=untrusted", "CODEX_API_KEY=fixture-secret"}}
 	if _, err = runner.RunDoctor(t.Context(), request); !errors.Is(err, agent.ErrDoctorIsolationUnverified) {
 		t.Fatalf("gate: %v", err)
 	}
@@ -66,7 +67,7 @@ printf '%s\n' '{"type":"thread.started","thread_id":"thread"}' '{"type":"turn.co
 		t.Fatal(err)
 	}
 	joined := strings.Join(args, " ")
-	for _, flag := range []string{"--strict-config", "--ignore-user-config", "--ignore-rules", "--ephemeral", "features.shell_tool=false", "features.multi_agent=false", "communication_receipt"} {
+	for _, flag := range []string{"--strict-config", "--ignore-user-config", "--ignore-rules", "--ephemeral", "features.shell_tool=true", "features.multi_agent=false", "communication_receipt"} {
 		if !strings.Contains(joined, flag) {
 			t.Errorf("missing %s", flag)
 		}
