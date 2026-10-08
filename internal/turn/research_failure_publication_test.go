@@ -3,6 +3,9 @@ package turn
 import (
 	"context"
 	"errors"
+	"reflect"
+
+	"github.com/cloudvane/litefactory/internal/github"
 	"strings"
 	"testing"
 	"time"
@@ -132,5 +135,89 @@ func TestShippedResearchGraphDeclaresAFailurePublication(t *testing.T) {
 	terminal, found := definition.Profile.Node(next)
 	if !exists || !found || !terminal.Terminal {
 		t.Fatalf("failure publication at %q does not end the graph", target)
+	}
+}
+
+// Owner authentication uses the same numeric-identity admission as daemon input.
+func TestResearchPrelaunchFailureOwnerRetry(t *testing.T) {
+	ctx := t.Context()
+	calls := 0
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		if calls == 1 {
+			return nil, errors.New("claude did not start: no such file or directory")
+		}
+		submitLiveResult(t, req, researchDoneJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, FinishedAt: time.Now()}, nil
+	})
+	f, forge, original := assembledResearchFixture(t, runner)
+	out, err := Execute(ctx, f.opts, original)
+	if err == nil || out.Run.Status != store.RunFailed || calls != 1 || forge.attemptCount() != 1 {
+		t.Fatalf("prelaunch failure: %+v err=%v calls=%d posts=%d", out, err, calls, forge.attemptCount())
+	}
+	failed, err := f.db.LatestResearchInstance(ctx, f.session.ID)
+	mustProgress(t, err)
+	if failed.Status != store.GraphFailed {
+		t.Fatalf("instance not failed: %+v", failed)
+	}
+	attempts, err := f.db.ListGraphNodeAttempts(ctx, failed.ID)
+	mustProgress(t, err)
+	intents, err := f.db.ListGraphComments(ctx, failed.ID, "", 100)
+	mustProgress(t, err)
+	if len(intents) != 1 || intents[0].Kind != "failure" {
+		t.Fatalf("failure notice: %+v", intents)
+	}
+	delivery, err := f.db.GetReportDelivery(ctx, intents[0].Key)
+	mustProgress(t, err)
+	filter, err := NewFilter(f.db, Identities{OwnerUserID: 7, BotUserID: 9999}, nil)
+	mustProgress(t, err)
+	retry := original
+	retry.Trigger.CommentID++
+	retry.Trigger.AuthorID = 7
+	retry.Trigger.Body = "retry"
+	retry.Command = ParseCommand("retry")
+	comment := github.Comment{ID: retry.Trigger.CommentID, Author: github.User{ID: 8, Login: "owner"}, Body: "retry"}
+	admitted, err := filter.Admit(ctx, f.session.ID, comment)
+	mustProgress(t, err)
+	if admitted.Triggers() {
+		t.Fatal("non-owner admitted")
+	}
+	comment.ID++
+	retry.Trigger.CommentID = comment.ID
+	comment.Author = github.User{ID: 7, Login: "renamed-owner"}
+	admitted, err = filter.Admit(ctx, f.session.ID, comment)
+	mustProgress(t, err)
+	if !admitted.Triggers() {
+		t.Fatal("owner retry refused")
+	}
+	out, err = Execute(ctx, f.opts, retry)
+	mustProgress(t, err)
+	if !out.Succeeded() || calls != 2 || forge.attemptCount() != 2 {
+		t.Fatalf("retry: %+v calls=%d posts=%d", out, calls, forge.attemptCount())
+	}
+	next, err := f.db.LatestResearchInstance(ctx, f.session.ID)
+	mustProgress(t, err)
+	prior, _, err := f.db.WorkflowPredecessor(ctx, next.ID)
+	mustProgress(t, err)
+	if next.ID == failed.ID || prior != failed.ID {
+		t.Fatal("retry did not link a fresh instance")
+	}
+	posts := forge.all()
+	if !strings.Contains(posts[1].body, "Investigation finished.") {
+		t.Fatalf("retry report: %s", posts[1].body)
+	}
+	for _, req := range []Request{original, retry} {
+		_, err = Execute(ctx, f.opts, req)
+		mustProgress(t, err)
+	}
+	if calls != 2 || forge.attemptCount() != 2 {
+		t.Fatal("replayed triggers repeated work or publication")
+	}
+	after, err := f.db.ListGraphNodeAttempts(ctx, failed.ID)
+	mustProgress(t, err)
+	afterDelivery, err := f.db.GetReportDelivery(ctx, intents[0].Key)
+	mustProgress(t, err)
+	if !reflect.DeepEqual(attempts, after) || !reflect.DeepEqual(delivery, afterDelivery) {
+		t.Fatal("retry altered predecessor attempts or delivery identity")
 	}
 }
