@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"testing"
 	"time"
 
@@ -62,7 +63,7 @@ func TestStoryAcknowledgementRecoversAcrossIndependentReporters(t *testing.T) {
 	go func() { done <- a.AcknowledgeStoryRefinement(t.Context(), ref, f.session.ID, source) }()
 	select {
 	case <-forge.entered:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("acknowledgement did not reach paused post")
 	}
 	if err := b.AcknowledgeStoryRefinement(t.Context(), ref, f.session.ID, source); !errors.Is(err, store.ErrStoryProgressBusy) {
@@ -74,7 +75,7 @@ func TestStoryAcknowledgementRecoversAcrossIndependentReporters(t *testing.T) {
 		if err == nil {
 			t.Fatal("response loss not surfaced")
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("acknowledgement did not finish")
 	}
 	mustProgress(t, b.AcknowledgeStoryRefinement(t.Context(), ref, f.session.ID, source))

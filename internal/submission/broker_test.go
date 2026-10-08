@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"net"
 	"os"
@@ -165,7 +166,7 @@ func TestBrokerCloseCancelsAndJoinsHandlers(t *testing.T) {
 	}()
 	select {
 	case <-entered:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("handler not entered")
 	}
 	if err := b.Close(); err != nil {
@@ -178,7 +179,7 @@ func TestBrokerCloseCancelsAndJoinsHandlers(t *testing.T) {
 	}
 	select {
 	case <-callDone:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("client did not observe broker drain")
 	}
 	if _, err := submission.Call(t.Context(), b.DescriptorPath(), "preflight", json.RawMessage(`{"story":"US-1"}`)); err == nil {
@@ -204,7 +205,7 @@ func TestBrokerDeadlineCancelsHandler(t *testing.T) {
 	}
 	select {
 	case <-exited:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("request deadline did not cancel handler")
 	}
 	if response.RequestID == "" {
@@ -288,7 +289,7 @@ func TestBrokerRejectsForeignCapabilityAndOversizedFrame(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer connection.Close()
-			if err := connection.SetDeadline(time.Now().Add(time.Second)); err != nil {
+			if err := connection.SetDeadline(time.Now().Add(testutil.Wait)); err != nil {
 				t.Fatal(err)
 			}
 			data := []byte(`{"method":"submit","request_id":"request","payload":{"story":"US-1"},"capability":"00000000000000000000000000000000"}`)
@@ -419,14 +420,14 @@ func TestBrokerLostReplyKeepsRequestIdentityForRetry(t *testing.T) {
 	var persistedID string
 	select {
 	case persistedID = <-recorded:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("handler did not receive persisted request")
 	}
 	cancel()
 	var lost callResult
 	select {
 	case lost = <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("canceled caller did not return")
 	}
 	if lost.err == nil || lost.response.RequestID != persistedID {
@@ -476,7 +477,7 @@ func TestBrokerWorkerBound(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		select {
 		case <-entered:
-		case <-time.After(5 * time.Second):
+		case <-time.After(testutil.Wait):
 			close(release)
 			wg.Wait()
 			t.Fatal("bounded workers did not enter")

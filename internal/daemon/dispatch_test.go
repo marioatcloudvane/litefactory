@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -245,7 +246,7 @@ type gatedForge struct {
 
 func (g gatedForge) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
 	if number == g.number {
-		wait, cancel := context.WithTimeout(ctx, 5*time.Second)
+		wait, cancel := context.WithTimeout(ctx, testutil.Wait)
 		defer cancel()
 		select {
 		case <-g.until:

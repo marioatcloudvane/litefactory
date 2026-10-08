@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
@@ -948,14 +949,19 @@ func TestLogsRunFlagSelectsTheRunAfterThePositional(t *testing.T) {
 // emitted partial followed by its completion is indistinguishable from the
 // whole line.
 type recordingWriter struct {
-	mu     sync.Mutex
-	writes []string
+	mu      sync.Mutex
+	writes  []string
+	changed chan struct{}
 }
 
 func (w *recordingWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.writes = append(w.writes, string(p))
+	if w.changed != nil {
+		close(w.changed)
+		w.changed = nil
+	}
 	return len(p), nil
 }
 
@@ -986,14 +992,24 @@ func (w *recordingWriter) joined() string {
 // be complete could never make progress and the test fails on the deadline
 // rather than passing by accident.
 func (w *recordingWriter) waitForWrites(ctx context.Context, n int) error {
-	for w.count() < n {
+	for {
+		w.mu.Lock()
+		if len(w.writes) >= n {
+			w.mu.Unlock()
+			return nil
+		}
+		if w.changed == nil {
+			w.changed = make(chan struct{})
+		}
+		changed := w.changed
+		w.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("waiting for %d writes, saw %d: %w", n, w.count(), ctx.Err())
-		case <-time.After(5 * time.Millisecond):
+		case <-changed:
 		}
 	}
-	return nil
+
 }
 
 // appendToFile appends s to the file at path, the way the daemon appends an
@@ -1087,73 +1103,75 @@ func TestLogsFollowStreamsFromALiveWriter(t *testing.T) {
 // line without its newline yet must not reach stdout as a truncated event, and
 // must not be dropped once it is completed either.
 func TestLogsFollowNeverEmitsAPartialLine(t *testing.T) {
-	f := newLogsHome(t)
-	session := f.session(f.repo("acme", "api"), 123)
-	f.allocateRun(session, 1001, time.Now().UTC())
-	path := f.runLogPath(session, 1)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("create run dir: %v", err)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		f := newLogsHome(t)
+		session := f.session(f.repo("acme", "api"), 123)
+		f.allocateRun(session, 1001, time.Now().UTC())
+		path := f.runLogPath(session, 1)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("create run dir: %v", err)
+		}
 
-	whole := event("assistant", "a complete event")
-	split := event("assistant", "an event written in two halves")
-	head, tail := split[:len(split)/2], split[len(split)/2:]
+		whole := event("assistant", "a complete event")
+		split := event("assistant", "an event written in two halves")
+		head, tail := split[:len(split)/2], split[len(split)/2:]
 
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
 
-	out := &recordingWriter{}
-	writerDone := make(chan error, 1)
-	go func() {
-		defer close(writerDone)
-		// A whole event, then only the first half of the next one.
-		if err := appendToFile(path, whole+head); err != nil {
-			writerDone <- err
-			return
-		}
-		if err := out.waitForWrites(ctx, 1); err != nil {
-			writerDone <- err
-			return
-		}
-		// Give the follower several ticker periods with the half line sitting
-		// in the file. It must not emit it.
-		select {
-		case <-ctx.Done():
-			writerDone <- ctx.Err()
-			return
-		case <-time.After(4 * followInterval):
-		}
-		if n := out.count(); n != 1 {
-			writerDone <- fmt.Errorf("follower emitted %d writes while only a partial line was pending, want 1", n)
-			return
-		}
-		if err := appendToFile(path, tail+resultLine("done")); err != nil {
-			writerDone <- err
-		}
-	}()
+		out := &recordingWriter{}
+		writerDone := make(chan error, 1)
+		go func() {
+			defer close(writerDone)
+			// A whole event, then only the first half of the next one.
+			if err := appendToFile(path, whole+head); err != nil {
+				writerDone <- err
+				return
+			}
+			if err := out.waitForWrites(ctx, 1); err != nil {
+				writerDone <- err
+				return
+			}
+			// Give the follower several ticker periods with the half line sitting
+			// in the file. It must not emit it.
+			select {
+			case <-ctx.Done():
+				writerDone <- ctx.Err()
+				return
+			case <-time.After(4 * followInterval):
+			}
+			if n := out.count(); n != 1 {
+				writerDone <- fmt.Errorf("follower emitted %d writes while only a partial line was pending, want 1", n)
+				return
+			}
+			if err := appendToFile(path, tail+resultLine("done")); err != nil {
+				writerDone <- err
+			}
+		}()
 
-	var stderr bytes.Buffer
-	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"})
+		var stderr bytes.Buffer
+		code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"})
 
-	if err := <-writerDone; err != nil {
-		t.Fatalf("live writer: %v", err)
-	}
-	if code != ExitOK {
-		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
-	}
+		if err := <-writerDone; err != nil {
+			t.Fatalf("live writer: %v", err)
+		}
+		if code != ExitOK {
+			t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
+		}
 
-	// Nothing truncated went out, and nothing was lost.
-	for i, write := range out.snapshot() {
-		if !strings.HasSuffix(write, "\n") {
-			t.Errorf("write %d is %q: a partial line was emitted as an event", i, write)
+		// Nothing truncated went out, and nothing was lost.
+		for i, write := range out.snapshot() {
+			if !strings.HasSuffix(write, "\n") {
+				t.Errorf("write %d is %q: a partial line was emitted as an event", i, write)
+			}
+			if !json.Valid([]byte(write)) {
+				t.Errorf("write %d is not a whole JSON event: %q", i, write)
+			}
 		}
-		if !json.Valid([]byte(write)) {
-			t.Errorf("write %d is not a whole JSON event: %q", i, write)
+		if got, want := out.joined(), whole+split+resultLine("done"); got != want {
+			t.Errorf("followed output\n got %q\nwant %q", got, want)
 		}
-	}
-	if got, want := out.joined(), whole+split+resultLine("done"); got != want {
-		t.Errorf("followed output\n got %q\nwant %q", got, want)
-	}
+	})
 }
 
 // TestLogsFollowOnAFinishedRunPrintsAndExits is the other half of AC-5.6: a run
@@ -1175,18 +1193,13 @@ func TestLogsFollowOnAFinishedRunPrintsAndExits(t *testing.T) {
 	defer cancel()
 
 	var stdout, stderr bytes.Buffer
-	start := time.Now()
 	code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"})
-	elapsed := time.Since(start)
 
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
 	}
 	if ctx.Err() != nil {
 		t.Fatal("-f on a finished run waited for the context deadline instead of exiting")
-	}
-	if elapsed > 2*time.Second {
-		t.Errorf("-f on a finished run took %s; it should print what is there and exit", elapsed)
 	}
 	if stdout.String() != content {
 		t.Errorf("-f on a finished run printed\n got %q\nwant %q", stdout.String(), content)

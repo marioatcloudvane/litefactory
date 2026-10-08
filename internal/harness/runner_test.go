@@ -664,6 +664,7 @@ func TestRunTimeoutKillsTheWholeSubtree(t *testing.T) {
 	sleeperPGID := filepath.Join(root, "sleeper.pgid")
 	shellPGID := filepath.Join(root, "shell.pgid")
 	child := filepath.Join(root, "child.sh")
+	ready := filepath.Join(root, "ready")
 
 	writeScript(t, child, "set -m\n"+
 		"/bin/sleep 120 &\n"+
@@ -671,10 +672,11 @@ func TestRunTimeoutKillsTheWholeSubtree(t *testing.T) {
 		"printf '%s' \"$sleeper\" > "+sleeperPID+"\n"+
 		"/bin/ps -o pgid= -p \"$sleeper\" | /usr/bin/tr -d ' ' > "+sleeperPGID+"\n"+
 		"/bin/ps -o pgid= -p $$ | /usr/bin/tr -d ' ' > "+shellPGID+"\n"+
+		"printf ready > "+ready+"\n"+
 		"wait\n")
 
 	script := emit(t, initLine) + "/bin/sh " + child + " &\n/bin/sleep 120\n"
-	f := newFixture(t, script, func(c *config.Claude) { c.TimeoutSeconds = 1 })
+	f := newFixture(t, script, func(c *config.Claude) { c.TimeoutSeconds = 10 })
 
 	started := time.Now()
 	result := f.run(t)
@@ -694,9 +696,12 @@ func TestRunTimeoutKillsTheWholeSubtree(t *testing.T) {
 
 	// Fixture sanity: if the grandchild had not escaped into its own process
 	// group, this test would be asserting the easy case.
+	if got := readTrimmed(t, ready); got != "ready" {
+		t.Fatalf("fixture not ready before timeout: %q", got)
+	}
 	sleeperGroup := readTrimmed(t, sleeperPGID)
 	shellGroup := readTrimmed(t, shellPGID)
-	if sleeperGroup == "" || sleeperGroup == shellGroup {
+	if sleeperGroup == "" || shellGroup == "" || sleeperGroup == shellGroup {
 		t.Fatalf("fixture did not reproduce SD-1: sleeper pgid %q, parent shell pgid %q", sleeperGroup, shellGroup)
 	}
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -426,7 +427,7 @@ func TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses(t *testing.T)
 // The HTTP boundary supplies the rendezvous; all client and reservation code is real.
 func TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory(t *testing.T) {
 	f := newDiscoveryHTTPFixture(t)
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.Wait)
 	defer cancel()
 	arrived := make(chan struct{})
 	release := make(chan struct{})

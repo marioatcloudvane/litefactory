@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -25,7 +26,7 @@ import (
 // gateTimeout bounds every rendezvous in this file. A gate bug is a deadlock,
 // and a deadlock reported as "panic: test timed out after 10m" names no test
 // and no line. Failing on our own clock keeps the message useful.
-const gateTimeout = 30 * time.Second
+const gateTimeout = testutil.Wait
 
 // testGate is a real per-clone gate with an assertion harness bolted on.
 //

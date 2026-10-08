@@ -3,6 +3,7 @@ package mcpadapter_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"strings"
 	"testing"
 	"time"
@@ -64,7 +65,7 @@ func TestMCPServer_MetadataHandshakeAndCancellation(t *testing.T) {
 	p.send(t, `{"jsonrpc":"2.0","id":"work","method":"tools/call","params":{"name":"communication_submit","arguments":`+args+`,"_meta":{"progressToken":2}}}`)
 	select {
 	case <-started:
-	case <-time.After(3 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("call did not start")
 	}
 	// Invalid metadata cannot gain cancellation authority. A subsequent list
