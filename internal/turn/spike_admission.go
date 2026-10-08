@@ -52,7 +52,13 @@ func admitSpikeExecution(ctx context.Context, opts Options, req Request, result 
 	if opts.spikeCapture != nil {
 		capture = opts.spikeCapture
 	}
-	definition, err := capture(ctx, policy)
+	specs, err := SpikeSpecs()
+	if err != nil {
+		return result, true, err
+	}
+	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowSpike, specs, func(ctx context.Context, _ graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		return capture(ctx, policy)
+	})
 	if err != nil {
 		return result, true, err
 	}
@@ -78,11 +84,11 @@ func launchSpikeGraph(ctx context.Context, opts Options, req Request, result Res
 	if err != nil {
 		return result, err
 	}
-	pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: string(agent.ModeSpike), ProfileVersion: definition.Profile.ProfileVersion, Path: "spike/spike.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: definition.Profile.Team, Mode: string(agent.ModeSpike), ProfileVersion: definition.Profile.ProfileVersion, Path: workflowGraphPath(definition), Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	if err != nil {
 		return result, err
 	}
-	admitted, err := opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeSpike), SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Reply: req.Trigger.Body})
+	admitted, err := opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeSpike), SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body})
 	if err != nil {
 		return result, err
 	}
@@ -128,12 +134,18 @@ func resumeSpikeDispatch(ctx context.Context, opts Options, req Request, result 
 	if opts.spikeCapture != nil {
 		capture = opts.spikeCapture
 	}
-	definition, err := capture(ctx, policy)
+	specs, err := SpikeSpecs()
+	if err != nil {
+		return result, err
+	}
+	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowSpike, specs, func(ctx context.Context, _ graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		return capture(ctx, policy)
+	})
 	if err != nil {
 		return result, err
 	}
 	if definition.Profile.Digest != pin.Digest {
 		return result, errors.New("shipped Spike graph changed under a running instance; the parked stage cannot resume")
 	}
-	return ExecuteSpikeWorkflow(ctx, opts, req, result, definition, store.WorkflowAdmission{Instance: instance})
+	return ExecuteSpikeWorkflow(ctx, opts, req, result, definition, retainedAdmission(ctx, opts.DB, req, instance, "spike"))
 }

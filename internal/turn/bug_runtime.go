@@ -90,7 +90,7 @@ func (r *BugRuntime) identity(ctx context.Context, session int64) (store.BugIden
 }
 
 func (r *BugRuntime) pin(ctx context.Context, d *teamsource.WorkflowDefinition, path string) (store.GraphDefinition, error) {
-	return r.opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Workflow: "bug", Team: "builtin", ProfileVersion: d.Profile.ProfileVersion, Path: path, Digest: d.Profile.Digest, TeamSnapshotDigest: r.definition.Digest})
+	return r.opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Workflow: "bug", Team: d.Profile.Team, ProfileVersion: d.Profile.ProfileVersion, Path: path, Digest: d.Profile.Digest, TeamSnapshotDigest: d.Digest})
 }
 
 // CheckExistingAdmission refuses unsupported old pins before factory scheduling,
@@ -107,8 +107,17 @@ func (r *BugRuntime) CheckExistingAdmission(ctx context.Context, sessionID int64
 	if err != nil {
 		return err
 	}
-	if definition.ProfileVersion != 2 || definition.Digest != r.definition.Profile.Digest {
+	if definition.ProfileVersion != 2 {
 		return errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused")
 	}
-	return nil
+	specs, err := SimplifiedBugSpecs()
+	if err != nil {
+		return err
+	}
+	saved, err := r.opts.DB.WorkflowCaptureForAdmission(ctx, sessionID, 0, "bug")
+	if err != nil {
+		return err
+	}
+	_, err = restoreWorkflow(ctx, r.opts.DB, saved, agent.WorkflowBug, specs)
+	return err
 }

@@ -177,7 +177,11 @@ func TestMigration0047PreservesPopulatedEvidenceAndIsIdempotent(t *testing.T) {
 	if err := db.sql.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatal(err)
 	}
-	if applied != afterVersion {
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != len(migrations) {
 		t.Fatalf("schema_migrations holds %d rows for version %d: a migration was recorded twice", applied, afterVersion)
 	}
 	final, err := db.GetSubmissionCheck(t.Context(), run.ID, snapshot.Reference, check.Reference)

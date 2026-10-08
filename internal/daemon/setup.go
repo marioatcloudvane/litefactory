@@ -341,7 +341,12 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		mcpRuntime = &turn.MCPRuntime{Authority: authority, Paths: s.Paths, Executable: executable, Now: now, Issues: client, DisableMCP: !s.Config.Settings.MCPAutoStart, Comments: client, Creation: client, CreationAuthorizer: creationAuthorizer, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}), BotID: identities.BotUserID}
 	}
 	sharedCloneGate := newCloneGate()
+	workflowSource, err := repositoryWorkflowSource(s.Paths, s.DB)
+	if err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
 	turnOpts := turn.Options{
+		WorkflowSource:           workflowSource,
 		ResearchDriver:           turn.ExecuteResearchWorkflow,
 		ResearchReporter:         reporter,
 		MCP:                      mcpRuntime,

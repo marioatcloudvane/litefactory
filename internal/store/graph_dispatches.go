@@ -18,6 +18,7 @@ const graphTriggerBase int64 = 1 << 60
 // GraphDispatch is one intended graph step and the run it was allocated.
 type GraphDispatch struct {
 	ID, InstanceID, SessionID int64
+	LaunchID                  int64
 	Node                      string
 	DueAt                     time.Time
 	Status                    string
@@ -41,7 +42,7 @@ func (d GraphDispatch) TriggerID() int64 { return graphTriggerBase + d.ID }
 // bands are disjoint and ordered, so a caller can tell the three apart.
 func IsGraphTrigger(id int64) bool { return id > graphTriggerBase && id < automaticTriggerBase }
 
-const graphDispatchColumns = `id,instance_id,session_id,node,due_at,status,allocated_run_id,reserved_at,finished_at,cancellation_reason,attempts,created_at`
+const graphDispatchColumns = `id,instance_id,session_id,node,due_at,status,allocated_run_id,reserved_at,finished_at,cancellation_reason,attempts,created_at,launch_id`
 
 // GraphTriggerDispatch returns the dispatch a factory-private run identity was
 // allocated under, and false for any identity that is not a graph dispatch's.
@@ -70,7 +71,7 @@ func (db *DB) ParkGraphInstance(ctx context.Context, instanceID int64, node stri
 // a crash between the two cannot lose the continuation. spent is zero for a run
 // that no dispatch allocated.
 func (db *DB) ParkGraphInstanceAfter(ctx context.Context, instanceID int64, node string, dueAt, now time.Time, spent int64) (GraphDispatch, error) {
-	return db.parkGraphInstance(ctx, instanceID, node, dueAt, now, spent, 0)
+	return db.parkGraphInstance(ctx, instanceID, node, dueAt, now, spent, 0, 0)
 }
 
 // ParkGraphInstanceForReply consumes an authenticated reply atomically with
@@ -80,15 +81,44 @@ func (db *DB) ParkGraphInstanceForReply(ctx context.Context, instanceID int64, n
 	if replyID <= 0 || IsGraphTrigger(replyID) || IsAutomaticTrigger(replyID) || IsScheduleTrigger(replyID) {
 		return GraphDispatch{}, graphInvariant("recovery requires an owner comment")
 	}
-	return db.parkGraphInstance(ctx, instanceID, node, at, at, 0, replyID)
+	return db.parkGraphInstance(ctx, instanceID, node, at, at, 0, replyID, 0)
 }
 
-func (db *DB) parkGraphInstance(ctx context.Context, instanceID int64, node string, dueAt, now time.Time, spent, replyID int64) (GraphDispatch, error) {
+// ParkCapturedGraphInstanceAfter retains the executing run's exact capture when
+// scheduling its next stage, independently of later launches on the instance.
+func (db *DB) ParkCapturedGraphInstanceAfter(ctx context.Context, instanceID int64, node string, dueAt, now time.Time, spent, launchID int64) (GraphDispatch, error) {
+	if launchID <= 0 {
+		return GraphDispatch{}, graphInvariant("parking execution requires exact capture")
+	}
+	return db.parkGraphInstance(ctx, instanceID, node, dueAt, now, spent, 0, launchID)
+}
+
+func (db *DB) parkGraphInstance(ctx context.Context, instanceID int64, node string, dueAt, now time.Time, spent, replyID, launchID int64) (GraphDispatch, error) {
 	var out GraphDispatch
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		instance, err := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, instanceID))
 		if err != nil {
 			return err
+		}
+		var capture sql.NullInt64
+		switch {
+		case launchID > 0:
+			if err := tx.QueryRowContext(ctx, `SELECT id FROM research_launch_definitions WHERE id=? AND instance_id=?`, launchID, instanceID).Scan(&capture); err != nil {
+				return err
+			}
+		case spent > 0:
+			if err := tx.QueryRowContext(ctx, `SELECT launch_id FROM graph_dispatches WHERE id=? AND instance_id=?`, spent, instanceID).Scan(&capture); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		case replyID > 0:
+			if err := tx.QueryRowContext(ctx, `SELECT launch_id FROM graph_dispatches WHERE instance_id=? ORDER BY id DESC LIMIT 1`, instanceID).Scan(&capture); err != nil {
+				return err
+			}
+		default:
+			err := tx.QueryRowContext(ctx, `SELECT id FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1`, instanceID).Scan(&capture)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
 		}
 		if replyID > 0 {
 			var consumed bool
@@ -129,8 +159,8 @@ AND EXISTS(SELECT 1 FROM graph_dispatches WHERE id=(SELECT MAX(id) FROM graph_di
 			return err
 		}
 		out, err = scanGraphDispatch(tx.QueryRowContext(ctx,
-			`INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at) VALUES(?,?,?,?,'pending',?) RETURNING `+graphDispatchColumns,
-			instanceID, instance.SessionID, node, FormatTime(dueAt), FormatTime(now)))
+			`INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id) VALUES(?,?,?,?,'pending',?,?) RETURNING `+graphDispatchColumns,
+			instanceID, instance.SessionID, node, FormatTime(dueAt), FormatTime(now), capture))
 		if err != nil {
 			return err
 		}
@@ -308,8 +338,8 @@ func scanGraphDispatch(row scanner) (GraphDispatch, error) {
 	var v GraphDispatch
 	var due, created string
 	var reserved, finished sql.NullString
-	var allocated sql.NullInt64
-	if err := row.Scan(&v.ID, &v.InstanceID, &v.SessionID, &v.Node, &due, &v.Status, &allocated, &reserved, &finished, &v.CancellationReason, &v.Attempts, &created); err != nil {
+	var allocated, launch sql.NullInt64
+	if err := row.Scan(&v.ID, &v.InstanceID, &v.SessionID, &v.Node, &due, &v.Status, &allocated, &reserved, &finished, &v.CancellationReason, &v.Attempts, &created, &launch); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return v, ErrNotFound
 		}
@@ -333,6 +363,7 @@ func scanGraphDispatch(row scanner) (GraphDispatch, error) {
 		}
 	}
 	v.AllocatedRunID = allocated.Int64
+	v.LaunchID = scanID(launch)
 	return v, nil
 }
 
@@ -424,7 +455,7 @@ func (db *DB) WakeGraphInstance(ctx context.Context, instanceID int64, node stri
 			return e
 		}
 		if open == 0 {
-			if _, e = tx.ExecContext(ctx, `INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at) VALUES(?,?,?,?,'pending',?)`, instanceID, instance.SessionID, node, stamp, stamp); e != nil {
+			if _, e = tx.ExecContext(ctx, `INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id) VALUES(?,?,?,?,'pending',?,(SELECT id FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1))`, instanceID, instance.SessionID, node, stamp, stamp, instanceID); e != nil {
 				return e
 			}
 			brought = 1

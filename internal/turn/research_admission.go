@@ -77,7 +77,7 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	if err != nil {
 		return result, true, err
 	}
-	definition, err := teamsource.CaptureResearch(ctx, specs)
+	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowResearch, specs, teamsource.CaptureResearch)
 	if err != nil {
 		return result, true, fmt.Errorf("capture current shipped Research: %w", err)
 	}
@@ -92,7 +92,7 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	if err != nil {
 		return result, true, err
 	}
-	pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: definition.Profile.ProfileVersion, Path: "research/research.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: definition.Profile.Team, Mode: "research", ProfileVersion: definition.Profile.ProfileVersion, Path: workflowGraphPath(definition), Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	if err != nil {
 		return result, true, err
 	}
@@ -118,7 +118,7 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 			return result, true, err
 		}
 	}
-	admitted, err := opts.DB.AdmitResearchLaunch(ctx, store.ResearchLaunch{SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Reply: req.Trigger.Body, ResearchCompatible: compatible})
+	admitted, err := opts.DB.AdmitResearchLaunch(ctx, store.ResearchLaunch{SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body, ResearchCompatible: compatible})
 	if err != nil {
 		return result, true, err
 	}
@@ -145,33 +145,15 @@ func resumeResearchDispatch(ctx context.Context, opts Options, req Request, resu
 	if err != nil {
 		return result, err
 	}
-	definition, err := teamsource.CaptureResearch(ctx, specs)
+	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowResearch, specs, teamsource.CaptureResearch)
 	if err != nil {
 		return result, fmt.Errorf("capture current shipped Research: %w", err)
 	}
-	compatible, err := researchNodeCompatible(ctx, opts.DB, instance, definition.Profile)
+	saved, err := opts.DB.WorkflowCaptureForAdmission(ctx, req.SessionID, req.Trigger.CommentID, "research")
 	if err != nil {
 		return result, err
 	}
-	admission := store.ResearchAdmission{Instance: instance}
-	if !compatible {
-		files, err := json.Marshal(definition.Files)
-		if err != nil {
-			return result, err
-		}
-		topology, err := graphexec.SemanticDigest(definition.Profile)
-		if err != nil {
-			return result, err
-		}
-		pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: definition.Profile.ProfileVersion, Path: "research/research.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
-		if err != nil {
-			return result, err
-		}
-		admission, err = opts.DB.RecoverResearchDispatch(ctx, instance.ID, store.ResearchLaunch{SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files})
-		if err != nil {
-			return result, err
-		}
-	}
+	admission := store.ResearchAdmission{Instance: instance, LaunchID: saved.ID}
 	return opts.ResearchDriver(ctx, opts, req, result, definition, admission)
 }
 
@@ -192,7 +174,11 @@ func researchNodeCompatible(ctx context.Context, db *store.DB, instance store.Gr
 	if err := json.Unmarshal(files, &captured); err != nil {
 		return false, err
 	}
-	raw, present := captured["research.dot"]
+	graphFile, err := retainedGraphFile(ctx, db, instance.ID)
+	if err != nil {
+		return false, err
+	}
+	raw, present := captured[graphFile]
 	if !present {
 		_, found := current.Node(instance.CurrentNode)
 		return found, nil

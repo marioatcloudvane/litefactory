@@ -87,7 +87,9 @@ func TestBugArchivePreservesHistoryAndRefusesAllWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: instance.ID, Node: "legacy", StartedAt: graphTestTime()})
+	// Seed the historical schema directly; current accessors require the new schema.
+	var attempt GraphNodeAttempt
+	err = db.sql.QueryRowContext(t.Context(), `INSERT INTO graph_node_attempts(instance_id,node,attempt,status,started_at) VALUES(?, 'legacy', 1, 'running', ?) RETURNING id`, instance.ID, FormatTime(graphTestTime())).Scan(&attempt.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

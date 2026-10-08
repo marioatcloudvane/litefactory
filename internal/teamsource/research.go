@@ -36,6 +36,7 @@ type ResearchNode struct {
 // team catalogs. Digest includes DOT formatting as well as effective resources;
 // topology identity is a separate concern at the launch boundary.
 type ResearchDefinition struct {
+	Origin  WorkflowOrigin
 	Profile *graphexec.Profile
 	Nodes   map[string]ResearchNode
 	Files   map[string][]byte

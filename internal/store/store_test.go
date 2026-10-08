@@ -153,7 +153,11 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != after {
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != len(migrations) {
 		t.Fatalf("schema_migrations holds %d rows for version %d: a migration was recorded twice", applied, after)
 	}
 }

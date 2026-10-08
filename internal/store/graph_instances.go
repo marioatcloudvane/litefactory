@@ -139,3 +139,21 @@ func (db *DB) ListPinnedGraphInstances(ctx context.Context, digest string) ([]Gr
 	}
 	return out, rows.Err()
 }
+
+// ListStandaloneBugInstances selects retained Bug work independently of current package bytes.
+func (db *DB) ListStandaloneBugInstances(ctx context.Context) ([]GraphInstance, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE definition_id IN (SELECT id FROM graph_definitions WHERE workflow='bug') AND status IN ('running','succeeded') ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GraphInstance
+	for rows.Next() {
+		v, e := scanGraphInstance(rows)
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
