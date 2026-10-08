@@ -215,6 +215,8 @@ const (
 	// the workflow was holding another owner reply or question, so it was not
 	// used. It is posted and the comment is consumed.
 	ReplyGraphOwnerWaitRefused
+	// ReplyImplementCommentNotApplied answers parent guidance with no parked target.
+	ReplyImplementCommentNotApplied
 )
 
 // String renders the kind for logs and test failures.
@@ -298,6 +300,8 @@ func (k ReplyKind) String() string {
 		return "bug_comment_not_applied"
 	case ReplyGraphOwnerWaitRefused:
 		return "graph_owner_wait_refused"
+	case ReplyImplementCommentNotApplied:
+		return "implement_comment_not_applied"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -320,7 +324,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
-	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused:
+	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -360,7 +364,7 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused:
+	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied:
 		return true
 	default:
 		return false
@@ -861,6 +865,10 @@ func (r Reply) body() string {
 		b.WriteString("This comment could not be applied to the bug work at its current step, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
 		b.WriteString("Reply to the latest question or review instead. To approve a review, put `/approve-bug analysis <revision>` on the first line, using the revision that review names.")
+	case ReplyImplementCommentNotApplied:
+		b.WriteString("This Implement comment did not select any parked stories, so no stories were resumed.")
+		b.WriteString(sectionGap)
+		b.WriteString("Name a parked story key to resume it with your guidance, or name no existing story key to resume all parked stories. Running and merged stories are unchanged.")
 	case ReplyGraphOwnerWaitRefused:
 		b.WriteString("This comment could not be used because the workflow is already handling another reply or question, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)

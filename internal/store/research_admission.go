@@ -59,6 +59,14 @@ func (db *DB) LatestWorkflowInstance(ctx context.Context, sessionID int64, mode 
 	return scanGraphInstance(db.sql.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? AND definition_id IN (SELECT id FROM graph_definitions WHERE mode=?) ORDER BY id DESC LIMIT 1`, sessionID, mode))
 }
 
+// HasWorkflowLaunch reports whether this input already has a retained launch.
+// It does not imply that execution or effects completed.
+func (db *DB) HasWorkflowLaunch(ctx context.Context, sessionID, triggerID int64) (bool, error) {
+	var found bool
+	err := db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM research_launch_definitions WHERE session_id=? AND trigger_id=?)`, sessionID, triggerID).Scan(&found)
+	return found, err
+}
+
 // AdmitWorkflowLaunch atomically records the launch and, when topology changes
 // or an owner continues terminal work, links a successor at the current start.
 // Calling it is explicit owner authority; recovery must never call this method.

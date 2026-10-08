@@ -153,6 +153,11 @@ func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
 	if err != nil {
 		return rt.result, err
 	}
+	if rt.worker == nil {
+		if err := rt.checkEarlyReply(ctx); err != nil {
+			return rt.result, err
+		}
+	}
 	admitted, err := rt.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeImplement), SessionID: rt.req.SessionID, TriggerID: rt.req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Reply: rt.req.Trigger.Body})
 	if err != nil {
 		return rt.result, err
@@ -268,10 +273,31 @@ func (rt *implementRuntime) policy() (WorkflowPolicy, error) {
 // guidance; it restarts through ready within the cap. It is safe to repeat: only a
 // row that is still parked is resumed.
 func (rt *implementRuntime) resumeStories(ctx context.Context, reply string) (int, error) {
-	parent := rt.parentRef.String()
-	rows, err := rt.opts.DB.ListImplementStories(ctx, parent, rt.generation)
+	rows, err := rt.parkedReplyTargets(ctx, reply)
 	if err != nil {
 		return 0, err
+	}
+	resumed := 0
+	for _, row := range rows {
+		_, err := rt.opts.DB.TransitionImplementStory(ctx, store.ImplementTransition{
+			Parent: rt.parentRef.String(), Generation: rt.generation, Key: row.Key,
+			From: store.ImplementParked, To: store.ImplementWaiting, ExpectedRevision: row.Revision,
+			Guidance: strings.TrimSpace(reply), At: rt.now(),
+		})
+		if err != nil {
+			return resumed, err
+		}
+		resumed++
+	}
+	return resumed, nil
+}
+
+// parkedReplyTargets shares the existing key selection between the fresh-input
+// check and application, so refusing an unused input needs no launch record.
+func (rt *implementRuntime) parkedReplyTargets(ctx context.Context, reply string) ([]store.ImplementStory, error) {
+	rows, err := rt.opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)
+	if err != nil {
+		return nil, err
 	}
 	named := map[string]bool{}
 	for _, row := range rows {
@@ -279,25 +305,13 @@ func (rt *implementRuntime) resumeStories(ctx context.Context, reply string) (in
 			named[row.Key] = true
 		}
 	}
-	resumed := 0
+	var targets []store.ImplementStory
 	for _, row := range rows {
-		if row.State != store.ImplementParked || (len(named) > 0 && !named[row.Key]) {
-			continue
+		if row.State == store.ImplementParked && (len(named) == 0 || named[row.Key]) {
+			targets = append(targets, row)
 		}
-		_, err := rt.opts.DB.TransitionImplementStory(ctx, store.ImplementTransition{
-			Parent: parent, Generation: rt.generation, Key: row.Key,
-			From: store.ImplementParked, To: store.ImplementWaiting, ExpectedRevision: row.Revision,
-			Guidance: strings.TrimSpace(reply), At: rt.now(),
-		})
-		if errors.Is(err, store.ErrImplementConflict) {
-			continue
-		}
-		if err != nil {
-			return resumed, err
-		}
-		resumed++
 	}
-	return resumed, nil
+	return targets, nil
 }
 
 // namesStory reports whether text names a story by its key, as a whole word.
@@ -308,22 +322,75 @@ func namesStory(text, key string) bool {
 	return regexp.MustCompile(`(?i)(^|[^a-z0-9_-])` + regexp.QuoteMeta(key) + `($|[^a-z0-9_-])`).MatchString(text)
 }
 
-// applyReply resumes parked stories from the owner reply that answers the
-// batched question. It acts only on a reply the daemon claimed for this very
-// launch; a replay after the continuation was allocated finds nothing to do.
+// ErrImplementReplyNotApplied identifies ordinary parent guidance with no
+// parked target. The daemon answers it through durable report-and-consume.
+var ErrImplementReplyNotApplied = errors.New("implement reply selected no parked stories")
+
+// applyReply retains the claimed-question path and also accepts ordinary owner
+// guidance while the coordinator rests between stories. Owner authentication and
+// session serialization belong to daemon admission; private inputs and commands
+// never become early guidance here.
 func (rt *implementRuntime) applyReply(ctx context.Context, instance store.GraphInstance) error {
 	wait, err := rt.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if err == nil && wait.State == "claimed" && wait.ReplyID == rt.req.Trigger.CommentID {
+		_, err = rt.resumeStories(ctx, wait.ReplyBody)
+		return err
+	}
+	if !rt.earlyReply(instance) || (err == nil && (wait.State == "waiting" || wait.State == "claimed")) {
+		return nil
+	}
+	wm, _, err := rt.opts.DB.GetWatermark(ctx, rt.req.SessionID)
+	if err != nil || wm.LastCommentID >= rt.req.Trigger.CommentID {
+		return err
+	}
+	_, err = rt.resumeStories(ctx, rt.req.Trigger.Body)
+	return err
+}
+
+func (rt *implementRuntime) earlyReply(instance store.GraphInstance) bool {
+	command := ParseCommand(rt.req.Trigger.Body)
+	return instance.Status == store.GraphRunning && instance.CurrentNode == graphexec.ImplementAwaitNode &&
+		rt.req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(rt.req.Trigger.CommentID) &&
+		command.Kind == KindFreeText && command.Name == ""
+}
+
+// checkEarlyReply refuses a fresh unused input before retaining its launch.
+// Existing launches may have applied guidance before an execution failure, so
+// their retries must still advance ready even when no parked targets remain.
+func (rt *implementRuntime) checkEarlyReply(ctx context.Context) error {
+	instance, err := rt.opts.DB.LatestWorkflowInstance(ctx, rt.req.SessionID, string(agent.ModeImplement))
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}
+	if err != nil || !rt.earlyReply(instance) {
+		return err
+	}
+	wait, err := rt.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if err == nil && (wait.State == "waiting" || wait.State == "claimed") {
+		return nil
+	}
+	wm, _, err := rt.opts.DB.GetWatermark(ctx, rt.req.SessionID)
+	if err != nil || wm.LastCommentID >= rt.req.Trigger.CommentID {
+		return err
+	}
+	replayed, err := rt.opts.DB.HasWorkflowLaunch(ctx, rt.req.SessionID, rt.req.Trigger.CommentID)
+	if err != nil || replayed {
+		return err
+	}
+	targets, err := rt.parkedReplyTargets(ctx, rt.req.Trigger.Body)
 	if err != nil {
 		return err
 	}
-	if wait.State != "claimed" || wait.ReplyID != rt.req.Trigger.CommentID {
-		return nil
+	if len(targets) == 0 {
+		return ErrImplementReplyNotApplied
 	}
-	_, err = rt.resumeStories(ctx, wait.ReplyBody)
-	return err
+	return nil
 }
 
 // parkHook rests the coordinator at its await node while stories build and
