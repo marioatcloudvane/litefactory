@@ -1,9 +1,9 @@
 package daemon_test
 
 import (
-	"errors"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 	"github.com/cloudvane/litefactory/internal/turn"
 	"strings"
 	"testing"
@@ -72,9 +72,7 @@ func TestCreationRejectionQueueIO_EnabledResearchMalformedThenWork(t *testing.T)
 			if err != nil || !delivery.Completed || delivery.CommentID == 0 || f.watermark() != 501 {
 				t.Fatalf("source not confirmed and consumed: %+v %v watermark %d", delivery, err, f.watermark())
 			}
-			if _, _, err = cs.EligibleCreationIntent(t.Context(), f.session().TaskRef); !errors.Is(err, store.ErrNotFound) {
-				t.Fatalf("rejection granted intent: %v", err)
-			}
+			creationfixture.NoCreationIntents(t, store.DSN(f.db.Path()), f.session().TaskRef)
 			if len(f.runs()) != 0 {
 				t.Fatal("rejected command ran work")
 			}

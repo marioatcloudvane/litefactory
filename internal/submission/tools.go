@@ -21,7 +21,6 @@ type ToolProfile struct {
 	mode     string
 	workflow string
 	families []string
-	creation bool
 }
 
 // NewToolProfile assigns only explicitly supported modes a server-local tool profile.
@@ -112,7 +111,7 @@ func (p ToolProfile) List() []ToolSpec {
 	}
 	for _, name := range p.families {
 		spec, ok := familyTool(name)
-		if ok && familyAllowed(p.mode, p.creation, name) {
+		if ok && familyAllowed(p.mode, name) {
 			tools = append(tools, spec)
 		}
 	}

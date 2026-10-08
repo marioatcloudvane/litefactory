@@ -12,6 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -81,9 +82,7 @@ func TestCreationRejectionIO_MalformedCommandsRetainAndConsume(t *testing.T) {
 				t.Fatalf("unconfirmed rejection %+v", delivery)
 			}
 			rejectionWatermark(t, f, 70)
-			if _, _, err = f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-				t.Fatalf("rejection admitted intent: %v", err)
-			}
+			creationfixture.NoCreationIntents(t, store.DSN(f.db.Path()), f.session.TaskRef)
 			if f.posts != 1 || f.creationPosts != 0 {
 				t.Fatalf("posts=%d creations=%d", f.posts, f.creationPosts)
 			}

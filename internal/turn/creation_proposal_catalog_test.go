@@ -209,11 +209,11 @@ func TestCreationProposalCatalog_InstallationGrantsNothingAndKeepsGraphExclusion
 	intent, err := rt.AdmitCreationApproval(t.Context(), control)
 	mustProgress(t, err)
 
-	graph, names := r.launch(t, agent.Request{Mode: "research", Invocation: agent.InvocationResearchNode})
-	if !slices.Contains(names, "issues_create_prepare") || slices.Contains(names, "issues_create_batch") || slices.Contains(names, "issues_comment") || len(graph.creationProposal) != 0 {
+	_, names := r.launch(t, agent.Request{Mode: "research", Invocation: agent.InvocationResearchNode})
+	if !slices.Contains(names, "issues_create_prepare") || slices.Contains(names, "issues_create_batch") || slices.Contains(names, "issues_comment") {
 		t.Fatalf("graph catalog %v", names)
 	}
-	got, _, err := r.cs.EligibleCreationIntent(t.Context(), task)
+	got, err := r.cs.GetOwnerIntent(t.Context(), creationSource(control))
 	mustProgress(t, err)
 	if got != intent {
 		t.Fatal("graph launch consumed the owner intent")
@@ -291,7 +291,7 @@ func TestCreationProposalCatalog_DigestChangesWhenInstalled(t *testing.T) {
 	if installed != digestFor(true) {
 		t.Fatal("digest is not deterministic")
 	}
-	if submission.FamilyCatalogVersion != "families-v3" {
+	if submission.FamilyCatalogVersion != "families-v4" {
 		t.Fatalf("catalog version %q", submission.FamilyCatalogVersion)
 	}
 }
@@ -322,10 +322,5 @@ func TestMCPGuidance_CreationProposal(t *testing.T) {
 		if strings.Contains(render(other...), "issues_create_prepare") {
 			t.Errorf("guidance for %v mentions the uninstalled tool", other)
 		}
-	}
-	// With both creation tools the grant paragraph stays separate and unchanged.
-	both := render("issues_create_prepare", "issues_create_batch", "feedback_preflight", "receipts_get")
-	if !strings.Contains(both, "Tool visibility alone is not creation approval") || !strings.Contains(both, "Creation proposal:") {
-		t.Error("both paragraphs must render when both tools are installed")
 	}
 }

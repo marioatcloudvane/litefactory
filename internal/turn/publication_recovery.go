@@ -82,7 +82,7 @@ func (r *MCPRuntime) ObserveCreation(ctx context.Context, o store.PendingCreatio
 		return store.CreationOperation{}, 0, err
 	}
 	forge := &creationObservation{CreationForge: r.Creation}
-	service, err := NewCreationPublicationService(r.Authority.db, receipts, r.CreationAuthorizer, forge, r.Redactor, r.Paths.StoryProgressLocksDir())
+	service, err := NewCreationPublicationService(r.Authority.db, receipts, r.CreationAuthorizer, forge, r.Redactor)
 	if err != nil {
 		return store.CreationOperation{}, 0, err
 	}

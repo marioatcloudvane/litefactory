@@ -121,10 +121,6 @@ func TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding(t *testing.T)
 			if created != afterCreated || expiry != afterExpiry || revision != afterRevision {
 				t.Fatal("recovery changed original authority")
 			}
-			lease := f.lease(t, s, "recovery", "research", f.now.Add(time.Hour))
-			if _, err = f.c.BindGrant(t.Context(), lease, id); !errors.Is(err, ErrCreationAuthority) {
-				t.Fatalf("recovered stale admission bypassed grant checks: %v", err)
-			}
 			for name, change := range map[string]func(*CreationSource){"owner": func(s *CreationSource) { s.OwnerID++ }, "repository": func(s *CreationSource) { s.Repository = "other/api" }, "task": func(s *CreationSource) { s.SourceTask = "github:owner/api#315" }, "comment": func(s *CreationSource) { s.CommentID++ }} {
 				t.Run(name, func(t *testing.T) {
 					bad := source

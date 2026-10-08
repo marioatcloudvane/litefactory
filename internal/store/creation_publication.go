@@ -36,23 +36,6 @@ func (db *DB) CreationPublicationRequest(ctx context.Context, s FamilyScope, req
 	return id, err
 }
 
-// BeginCreationArtifact marks uncertain intent before the first outward write.
-// The caller must already hold the primitive's consumed private batch permit.
-func (db *DB) BeginCreationArtifact(ctx context.Context, id int64, ordinal int) error {
-	result, err := db.sql.ExecContext(ctx, `INSERT INTO creation_publication_artifacts(operation_id,ordinal,dispatched) SELECT id,?,1 FROM mcp_creation_operations WHERE id=? AND dispatched=1 AND state='dispatched' AND artifacts>? ON CONFLICT DO NOTHING`, ordinal, id, ordinal)
-	if err != nil {
-		return err
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n != 1 {
-		return ErrCreationConflict
-	}
-	return nil
-}
-
 // SaveCreationArtifact retains monotonic confirmed identities and relation facts.
 func (db *DB) SaveCreationArtifact(ctx context.Context, id int64, a CreationPublicationArtifact) error {
 	if a.IssueID < 1 || a.IssueNumber < 1 || !submissionState(a.Relationship, "pending", "uncertain", "linked", "attached") {
@@ -88,26 +71,4 @@ func (db *DB) CreationPublicationArtifacts(ctx context.Context, id int64) ([]Cre
 		out = append(out, a)
 	}
 	return out, rows.Err()
-}
-
-// LinkCreationPublication retains correlation before any dispatch can start.
-func (db *DB) LinkCreationPublication(ctx context.Context, b ResultBinding, scope FamilyScope, request string, id int64) error {
-	if !familyScopeMatches(scope, b) {
-		return ErrCreationAuthority
-	}
-	return db.withTx(ctx, func(tx *sql.Tx) error {
-		if err := checkResultAccess(ctx, tx, b, true); err != nil {
-			return err
-		}
-		var valid int
-		err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM family_requests f JOIN mcp_creation_grants g ON g.run_id=f.run_id AND g.attempt=f.attempt JOIN mcp_creation_operations o ON o.grant_id=g.id JOIN mcp_creation_proposals p ON p.hash=o.proposal_hash WHERE f.run_id=? AND f.attempt=? AND f.request_id=? AND f.repository=? AND f.task=? AND f.tool='issues_create_batch' AND p.repository=f.repository AND p.source_task=f.task AND o.id=?`, scope.RunID, scope.Attempt, request, scope.Repository, scope.Task, id).Scan(&valid)
-		if err != nil {
-			return err
-		}
-		if valid != 1 {
-			return ErrCreationAuthority
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO creation_publication_requests(run_id,attempt,request_id,operation_id) VALUES(?,?,?,?) ON CONFLICT DO NOTHING`, scope.RunID, scope.Attempt, request, id)
-		return err
-	})
 }

@@ -131,55 +131,6 @@ func (a *CreationAuthorizer) AdmitOwnerGrantIntent(ctx context.Context, c OwnerG
 	return a.store.AdmitOwnerIntent(ctx, store.CreationApproval{Repository: c.Repository, SourceTask: c.SourceTask, ProposalHash: command.ProposalHash, CommentID: c.CommentID, OwnerID: a.ownerID, ActorID: c.ActorID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, Bot: c.Bot}, command.Relationship)
 }
 
-// CreationVisible checks the loaded gate and Research profile for creation.
-// It does not imply a grant; the exact owner intent is checked independently.
-func (a *CreationAuthorizer) CreationVisible(ctx context.Context, guard *AttemptGuard) bool {
-	return a.enabled && guard != nil && guard.Binding().Mode == "research" && guard.Check(ctx) == nil
-}
-
-// BindCreationGrant consumes an eligible intent into one live Research launch.
-func (a *CreationAuthorizer) BindCreationGrant(ctx context.Context, guard *AttemptGuard, intent int64) (int64, error) {
-	if !a.CreationVisible(ctx, guard) {
-		return 0, store.ErrCreationAuthority
-	}
-	live, release, err := guard.Context(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer release()
-	return a.store.BindGrant(live, guard.Lease(), intent)
-}
-
-// ReserveCreation recomputes canonical content and atomically reserves authorized volume.
-func (a *CreationAuthorizer) ReserveCreation(ctx context.Context, guard *AttemptGuard, e submission.CreationEnvelope) (store.CreationReservation, error) {
-	if !a.CreationVisible(ctx, guard) {
-		return store.CreationReservation{}, store.ErrCreationAuthority
-	}
-	p, err := creationProposal(e)
-	if err != nil {
-		return store.CreationReservation{}, err
-	}
-	live, release, err := guard.Context(ctx)
-	if err != nil {
-		return store.CreationReservation{}, err
-	}
-	defer release()
-	return a.store.ReserveCreation(live, guard.Lease(), p)
-}
-
-// BeginDispatch rechecks the loaded gate and consumes the original internal permit.
-func (a *CreationAuthorizer) BeginDispatch(ctx context.Context, permit *store.CreationPermit) (store.CreationOperation, error) {
-	if !a.enabled {
-		return store.CreationOperation{}, store.ErrCreationAuthority
-	}
-	return a.store.BeginDispatch(ctx, permit)
-}
-
-// RecordOperationOutcome retains a known effect after caller authority may have ended.
-func (a *CreationAuthorizer) RecordOperationOutcome(ctx context.Context, permit *store.CreationPermit, outcome string) (store.CreationOperation, error) {
-	return a.store.RecordOperationOutcome(ctx, permit, outcome)
-}
-
 // ReconcileOperation records factory-observed history without issuing dispatch authority.
 func (a *CreationAuthorizer) ReconcileOperation(ctx context.Context, id int64, outcome string) (store.CreationOperation, error) {
 	return a.store.ReconcileOperation(ctx, id, outcome)

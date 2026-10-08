@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +29,7 @@ type commentHTTPFixture struct {
 	client              submission.Client
 }
 
-func commentHTTPSetup(t *testing.T, gate bool) *commentHTTPFixture {
+func commentHTTPSetup(t *testing.T) *commentHTTPFixture {
 	t.Helper()
 	f := &commentHTTPFixture{}
 	db, _, opts := agentResultFixture(t, "research")
@@ -98,68 +97,64 @@ func commentHTTPSetup(t *testing.T, gate bool) *commentHTTPFixture {
 	mustProgress(t, err)
 	feedback, err := NewFeedbackService(app, nil)
 	mustProgress(t, err)
-	f.client, _, _ = familySocketFixture(t, db, FamilyDispatcherOptions{Service: app, Receipts: f.receipts, Feedback: feedback, AllowCreation: gate, CommentTargets: []int{284}, Registrations: []FamilyRegistration{f.service.Registration()}})
+	f.client, _, _ = familySocketFixture(t, db, FamilyDispatcherOptions{Service: app, Receipts: f.receipts, Feedback: feedback, CommentTargets: []int{284}, Registrations: []FamilyRegistration{f.service.Registration()}})
 	return f
 }
 
-func TestCommentHTTPConcurrentRetriesAndGateIndependence(t *testing.T) {
-	for _, gate := range []bool{false, true} {
-		t.Run(fmt.Sprint(gate), func(t *testing.T) {
-			f := commentHTTPSetup(t, gate)
-			args := []byte(`{"issue_number":284,"message":"status ghp_0123456789abcdefghijklmnopqrstuvwxyz"}`)
-			var wg sync.WaitGroup
-			ids := make(chan string, 12)
-			for range 12 {
-				wg.Go(func() {
-					r, e := f.client.Call(t.Context(), "issues_comment", args)
-					if e != nil {
-						t.Error(e)
-						return
-					}
-					if r.Error != "" {
-						t.Error(r.Error)
-					}
-					ids <- r.RequestID
-				})
+func TestCommentHTTPConcurrentRetries(t *testing.T) {
+	f := commentHTTPSetup(t)
+	args := []byte(`{"issue_number":284,"message":"status ghp_0123456789abcdefghijklmnopqrstuvwxyz"}`)
+	var wg sync.WaitGroup
+	ids := make(chan string, 12)
+	for range 12 {
+		wg.Go(func() {
+			r, e := f.client.Call(t.Context(), "issues_comment", args)
+			if e != nil {
+				t.Error(e)
+				return
 			}
-			wg.Wait()
-			close(ids)
-			var id string
-			for got := range ids {
-				if id != "" && id != got {
-					t.Fatal("retry identity changed")
-				}
-				id = got
+			if r.Error != "" {
+				t.Error(r.Error)
 			}
-			f.mu.Lock()
-			posts, body := f.posts, f.body
-			f.mu.Unlock()
-			if posts != 1 || strings.Contains(body, "ghp_") || !strings.Contains(body, "<!-- lf:mcp-comment v=1 key=") {
-				t.Fatalf("posts=%d prepared=%q", posts, body)
-			}
-			receipt, err := f.receipts.Get(t.Context(), id)
-			mustProgress(t, err)
-			if receipt.States.Effects != "confirmed" {
-				t.Fatalf("receipt: %+v", receipt)
-			}
-			op, err := f.db.GetCommentOperation(t.Context(), f.receipts.scope, id)
-			mustProgress(t, err)
-			if op.CommentID != 555 || op.Body != body {
-				t.Fatalf("intent/outcome %+v", op)
-			}
-			for range 3 {
-				r, e := f.client.Call(t.Context(), "receipts_get", mcpReceiptArgs(t, id))
-				mustProgress(t, e)
-				if r.Error != "" {
-					t.Fatal(r.Error)
-				}
-			}
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			if f.posts != 1 || f.observations != 0 {
-				t.Fatal("receipt redispatched")
-			}
+			ids <- r.RequestID
 		})
+	}
+	wg.Wait()
+	close(ids)
+	var id string
+	for got := range ids {
+		if id != "" && id != got {
+			t.Fatal("retry identity changed")
+		}
+		id = got
+	}
+	f.mu.Lock()
+	posts, body := f.posts, f.body
+	f.mu.Unlock()
+	if posts != 1 || strings.Contains(body, "ghp_") || !strings.Contains(body, "<!-- lf:mcp-comment v=1 key=") {
+		t.Fatalf("posts=%d prepared=%q", posts, body)
+	}
+	receipt, err := f.receipts.Get(t.Context(), id)
+	mustProgress(t, err)
+	if receipt.States.Effects != "confirmed" {
+		t.Fatalf("receipt: %+v", receipt)
+	}
+	op, err := f.db.GetCommentOperation(t.Context(), f.receipts.scope, id)
+	mustProgress(t, err)
+	if op.CommentID != 555 || op.Body != body {
+		t.Fatalf("intent/outcome %+v", op)
+	}
+	for range 3 {
+		r, e := f.client.Call(t.Context(), "receipts_get", mcpReceiptArgs(t, id))
+		mustProgress(t, e)
+		if r.Error != "" {
+			t.Fatal(r.Error)
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.posts != 1 || f.observations != 0 {
+		t.Fatal("receipt redispatched")
 	}
 }
 
@@ -175,7 +170,7 @@ func TestCommentHTTPRefusesInvalidTargetsAndPreparedContent(t *testing.T) {
 		{"pull request", "message", 284, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := commentHTTPSetup(t, false)
+			f := commentHTTPSetup(t)
 			f.pr = tc.pr
 			args, err := json.Marshal(IssueCommentRequest{IssueNumber: tc.number, Message: tc.message})
 			mustProgress(t, err)
@@ -194,7 +189,7 @@ func TestCommentHTTPRefusesInvalidTargetsAndPreparedContent(t *testing.T) {
 }
 
 func TestCommentHTTPLostResponseReopenAndExactObservation(t *testing.T) {
-	f := commentHTTPSetup(t, false)
+	f := commentHTTPSetup(t)
 	f.lost = true
 	args := []byte(`{"issue_number":284,"message":"reviewed status"}`)
 	r, err := f.client.Call(t.Context(), "issues_comment", args)
@@ -278,7 +273,7 @@ func TestCommentHTTPLostResponseReopenAndExactObservation(t *testing.T) {
 }
 
 func TestCommentHTTPCancellationRetainsIntentBeforeDispatch(t *testing.T) {
-	f := commentHTTPSetup(t, false)
+	f := commentHTTPSetup(t)
 	const id = "cancelled-dispatch"
 	args := []byte(`{"issue_number":284,"message":"cancellable status"}`)
 	_, _, err := f.receipts.Begin(t.Context(), id, "issues_comment", args)

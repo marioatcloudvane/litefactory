@@ -1,12 +1,12 @@
 package turn
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 )
 
 func TestCreationGuidanceIOPostRun(t *testing.T) {
@@ -57,9 +57,7 @@ func TestCreationGuidanceIOPostRun(t *testing.T) {
 			if run.Status != p.run.Status || run.ResultCommentID != p.run.ResultCommentID {
 				t.Fatal("presentation changed completed run")
 			}
-			if _, _, err := p.cs.EligibleCreationIntent(t.Context(), p.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-				t.Fatalf("presentation granted authority: %v", err)
-			}
+			creationfixture.NoCreationIntents(t, store.DSN(p.db.Path()), p.session.TaskRef)
 		})
 	}
 }
