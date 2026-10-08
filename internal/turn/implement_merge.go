@@ -45,6 +45,7 @@ func (h ImplementMergeActivity) Execute(ctx context.Context, opts Options, req A
 	if err != nil {
 		return ActivityResult{}, err
 	}
+	defer bestEffortImplementStatus(ctx, opts, h.b.Status, a.Parent.String(), a.Generation)
 	unlock, err := h.b.DB.LockStoryProgress(ctx, a.Parent.String(), h.b.LockDir)
 	if errors.Is(err, store.ErrStoryProgressBusy) {
 		return implementResult("retry", implementMergeOutput{Result: "retry", Reason: "another merge is in progress"})
