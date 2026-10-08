@@ -262,7 +262,7 @@ func (h *validateHost) keepChange(ctx context.Context, summary string) (string, 
 }
 
 // stories are the frozen approved stories Implement built, with the criterion
-// IDs their approved revision declares.
+// IDs and the text of their approved revision.
 func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 	var out []ValidateStory
 	for _, r := range h.revisions {
@@ -273,7 +273,7 @@ func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 		if err != nil {
 			return nil, fmt.Errorf("criteria of %s: %w", r.Key, err)
 		}
-		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria})
+		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, Text: r.Body})
 	}
 	if len(out) == 0 {
 		return nil, errors.New("no approved story is under review")
