@@ -23,6 +23,7 @@ type GraphNodeRequest struct {
 	Profile           *graphexec.Profile
 	Activities        ActivityRegistry
 	InstanceID, RunID int64
+	LaunchID          int64
 	// ResumeAttemptID is factory-owned recovery of a Bug bookkeeping effect.
 	ResumeAttemptID      int64
 	OwnerAllowanceSource int64
@@ -113,7 +114,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 				return out, err
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{ResearchPriorNodes: ancestors, InstanceID: instance.ID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
@@ -267,7 +268,11 @@ func researchBudgetAncestors(ctx context.Context, db *store.DB, instance int64, 
 		if err := json.Unmarshal(raw, &files); err != nil {
 			return nil, err
 		}
-		if dot, found := files["research.dot"]; found {
+		graphFile, err := retainedGraphFile(ctx, db, prior)
+		if err != nil {
+			return nil, err
+		}
+		if dot, found := files[graphFile]; found {
 			profile, err := graphexec.ParseProfile(dot)
 			if err != nil {
 				return nil, err

@@ -28,6 +28,9 @@ func TestResearchAdmissionImmutablePathAndDefinitionBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	launch := ResearchLaunch{SessionID: session.ID, TriggerID: 10, DefinitionID: definition.ID, Start: "loop", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte(`{"research.md":"b2xk"}`), Reply: "investigate"}
+	if exists, err := db.HasWorkflowLaunch(t.Context(), session.ID, launch.TriggerID); err != nil || exists {
+		t.Fatalf("fresh input has a launch: %v %v", exists, err)
+	}
 	first, err := db.AdmitResearchLaunch(t.Context(), launch)
 	if err != nil {
 		t.Fatal(err)
@@ -35,6 +38,9 @@ func TestResearchAdmissionImmutablePathAndDefinitionBoundaries(t *testing.T) {
 	replay, err := db.AdmitResearchLaunch(t.Context(), launch)
 	if err != nil || replay.Instance.ID != first.Instance.ID || replay.LaunchID != first.LaunchID {
 		t.Fatalf("launch replay: %+v %v", replay, err)
+	}
+	if exists, err := db.HasWorkflowLaunch(t.Context(), session.ID, launch.TriggerID); err != nil || !exists {
+		t.Fatalf("retained input lacks its launch: %v %v", exists, err)
 	}
 	launch.ContentDigest = strings.Repeat("d", 64)
 	launch.Files = []byte(`{"research.md":"bmV3"}`)

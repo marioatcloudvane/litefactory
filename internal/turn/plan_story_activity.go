@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -129,7 +130,9 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	if a.Parent == "" || a.ParentNumber < 1 || a.ParentID < 1 || a.SelectedKey != r.Draft.Key || a.Candidate != r.Candidate || a.Stage != r.Stage {
 		return receipt, errors.New("foreign or unbound Plan story request")
 	}
-	unlock, err := h.DB.LockStoryProgress(ctx, a.Parent, h.LockDir)
+	unlock, err := lockPlanStory(ctx, 250*time.Millisecond, 60*time.Second, func() (func() error, error) {
+		return h.DB.LockStoryProgress(ctx, a.Parent, h.LockDir)
+	})
 	if err != nil {
 		return receipt, err
 	}
@@ -498,4 +501,36 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		return receipt, err
 	}
 	return receipt, nil
+}
+
+// lockPlanStory tolerates brief sibling effect contention within this invocation
+// (AC-520-4). Only acquisition is retried; the effect and its context are unchanged.
+func lockPlanStory(ctx context.Context, interval, limit time.Duration, acquire func() (func() error, error)) (func() error, error) {
+	deadline := time.Now().Add(limit)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		unlock, err := acquire()
+		if !errors.Is(err, store.ErrStoryProgressBusy) {
+			return unlock, err
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, err
+		}
+		timer := time.NewTimer(min(interval, remaining))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !time.Now().Before(deadline) {
+			return nil, err
+		}
+	}
 }

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const graphAttemptColumns = `id,instance_id,node,attempt,run_id,status,outcome,started_at,finished_at`
+const graphAttemptColumns = `id,instance_id,node,attempt,run_id,status,outcome,started_at,finished_at,launch_id`
 
 // StartGraphNodeAttempt reserves MAX(attempt)+1 in a short transaction. Every
 // dispatch consumes an identity, including successful loop re-entry. A stale
@@ -36,6 +36,15 @@ func (db *DB) StartGraphNodeAttempt(ctx context.Context, in GraphAttemptStart) (
 			}
 			if sessionID != instance.SessionID {
 				return graphInvariant("attempt run belongs to another session")
+			}
+		}
+		if in.LaunchID != 0 {
+			var captureInstance int64
+			if e = tx.QueryRowContext(ctx, `SELECT instance_id FROM research_launch_definitions WHERE id=?`, in.LaunchID).Scan(&captureInstance); e != nil {
+				return e
+			}
+			if captureInstance != in.InstanceID {
+				return graphInvariant("attempt capture belongs to another instance")
 			}
 		}
 		var maximum, running int
@@ -78,7 +87,7 @@ func (db *DB) StartGraphNodeAttempt(ctx context.Context, in GraphAttemptStart) (
 				return ErrGraphAttemptLimit
 			}
 		}
-		out, e = scanGraphAttempt(tx.QueryRowContext(ctx, `INSERT INTO graph_node_attempts(instance_id,node,attempt,run_id,status,started_at) VALUES(?,?,?,?,?,?) RETURNING `+graphAttemptColumns, in.InstanceID, in.Node, maximum+1, nullID(in.RunID), GraphRunning, FormatTime(in.StartedAt)))
+		out, e = scanGraphAttempt(tx.QueryRowContext(ctx, `INSERT INTO graph_node_attempts(instance_id,node,attempt,run_id,status,started_at,launch_id) VALUES(?,?,?,?,?,?,COALESCE(?,(SELECT id FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1))) RETURNING `+graphAttemptColumns, in.InstanceID, in.Node, maximum+1, nullID(in.RunID), GraphRunning, FormatTime(in.StartedAt), nullID(in.LaunchID), in.InstanceID))
 		if e != nil {
 			return e
 		}
@@ -222,16 +231,17 @@ func (db *DB) CompleteGraphNodeAttempt(ctx context.Context, id int64, in GraphCo
 
 func scanGraphAttempt(row scanner) (GraphNodeAttempt, error) {
 	var v GraphNodeAttempt
-	var run sql.NullInt64
+	var run, launch sql.NullInt64
 	var outcome, finished sql.NullString
 	var started string
-	if err := row.Scan(&v.ID, &v.InstanceID, &v.Node, &v.Attempt, &run, &v.Status, &outcome, &started, &finished); err != nil {
+	if err := row.Scan(&v.ID, &v.InstanceID, &v.Node, &v.Attempt, &run, &v.Status, &outcome, &started, &finished, &launch); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return v, ErrNotFound
 		}
 		return v, err
 	}
 	v.RunID = scanID(run)
+	v.LaunchID = scanID(launch)
 	v.Outcome = outcome.String
 	var err error
 	if v.StartedAt, err = ParseTime(started); err != nil {

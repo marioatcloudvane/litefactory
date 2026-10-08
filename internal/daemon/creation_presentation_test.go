@@ -341,8 +341,8 @@ func TestCreationPresentationForgeFailureRetriesOnTheNextEligibleTick(t *testing
 	if got := r.commentsContaining(hash); got != 1 {
 		t.Fatalf("comments carrying the proposal = %d, want exactly 1", got)
 	}
-	if resolved := r.creationRecovery(); resolved.State != "resolved" {
-		t.Fatalf("recovery debt after success = %+v", resolved)
+	if _, err := r.db.GetReportRecovery(t.Context(), fmt.Sprintf("creation:source:%d:%d", r.session().ID, presentationTrigger)); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("recovery debt after success: %v", err)
 	}
 	r.settle()
 	if got := r.commentsContaining(hash); got != 1 {

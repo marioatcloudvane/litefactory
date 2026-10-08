@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -42,6 +43,7 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 	if _, err := f.db.AdmitWorkflowPath(t.Context(), s.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
+	var bugCapture *teamsource.WorkflowDefinition
 	definition := store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64)}
 	if isBug {
 		specs, err := turn.SimplifiedBugSpecs()
@@ -52,6 +54,7 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 		if err != nil {
 			t.Fatal(err)
 		}
+		bugCapture = capture
 		definition = store.GraphDefinition{Team: "builtin", Workflow: "bug", ProfileVersion: 2, Path: "bug/bug.dot", Digest: capture.Profile.Digest}
 		if _, err = f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: s.ID, Version: 1, Family: "standalone", Workflow: "bug", SourceTrigger: 22}); err != nil {
 			t.Fatal(err)
@@ -66,6 +69,15 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 		launch.Mode = ""
 		launch.Workflow = "bug"
 		launch.Start = "conversation"
+		launch.ContentDigest = bugCapture.Digest
+		launch.TopologyDigest, err = graphexec.SemanticDigest(bugCapture.Profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		launch.Files, err = json.Marshal(bugCapture.Files)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	admitted, err := f.db.AdmitWorkflowLaunch(t.Context(), launch)
 	if err != nil {

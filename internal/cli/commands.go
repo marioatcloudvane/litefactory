@@ -8,6 +8,14 @@ package cli
 func Commands() []*Command {
 	return []*Command{
 		newInitCommand(),
+		newTeamCommand("install"),
+		newTeamCommand("clone"),
+		newTeamCommand("update"),
+		newTeamCommand("list"),
+		newTeamCommand("inspect"),
+		newTeamCommand("remove"),
+		newTeamBindingCommand("link"),
+		newTeamBindingCommand("unlink"),
 		newSubmissionCommand("preflight"),
 		newSubmissionCommand("submit"),
 		newSubmissionCommand("receipt"),

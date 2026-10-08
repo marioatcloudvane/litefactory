@@ -135,7 +135,7 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if err != nil {
 		return result, true, err
 	}
-	definition, err := teamsource.CapturePlan(ctx, specs)
+	definition, err := capturedWorkflow(ctx, o, req, agent.WorkflowPlan, specs, teamsource.CapturePlan)
 	if err != nil {
 		return result, true, err
 	}
@@ -164,11 +164,11 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if err != nil {
 		return result, true, err
 	}
-	pin, err := o.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "plan", ProfileVersion: definition.Profile.ProfileVersion, Path: "plan/plan.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	pin, err := o.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: definition.Profile.Team, Mode: "plan", ProfileVersion: definition.Profile.ProfileVersion, Path: workflowGraphPath(definition), Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	if err != nil {
 		return result, true, err
 	}
-	admission, err := o.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: "plan", SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Reply: req.Trigger.Body})
+	admission, err := o.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: "plan", SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body})
 	if err != nil {
 		return result, true, err
 	}

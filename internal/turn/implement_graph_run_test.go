@@ -500,3 +500,141 @@ func TestImplementWorkerPrepareFailureSettlesPrelaunchRun(t *testing.T) {
 		t.Fatalf("run=%+v instance=%+v story=%+v", run, instance, row)
 	}
 }
+
+func TestImplementCoordinatorResumesBeforeQuestionWhileSiblingRuns(t *testing.T) {
+	for _, reply := range []string{"story-001: use the v2 API", "Try again with the v2 API"} {
+		t.Run(reply, func(t *testing.T) {
+			f, forge, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+				t.Fatal("the coordinator must not launch an agent")
+				return nil, nil
+			}))
+			parent := seedImplementParent(t, f,
+				store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
+				store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002},
+				store.ManagedStory{Key: "story-003", IssueNumber: 203, IssueID: 7003})
+			_, err := Execute(t.Context(), f.opts, req)
+			mustProgress(t, err)
+			rows := implementStatesOf(t, f, parent)
+			for _, key := range []string{"story-001", "story-003"} {
+				_, err = f.db.RecordImplementFailure(t.Context(), parent, 1, key, "build failed", implementClock)
+				mustProgress(t, err)
+				row, e := f.db.GetImplementStory(t.Context(), parent, 1, key)
+				mustProgress(t, e)
+				_, err = f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: parent, Generation: 1, Key: key, From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: "needs guidance", At: implementClock})
+				mustProgress(t, err)
+			}
+			answer := req
+			answer.Trigger.CommentID++
+			answer.Trigger.Body = reply
+			answer.Command = ParseCommand(reply)
+			_, err = Execute(t.Context(), f.opts, answer)
+			mustProgress(t, err)
+			after := implementStatesOf(t, f, parent)
+			got := after["story-001"]
+			if got.State != store.ImplementRunning || got.Attempts != 0 || got.Guidance != reply || got.Branch != rows["story-001"].Branch || got.WorkerSession != rows["story-001"].WorkerSession {
+				t.Fatalf("parked story did not restart with retained work: %+v", got)
+			}
+			if got := after["story-002"]; got.Revision != rows["story-002"].Revision || got.State != store.ImplementRunning {
+				t.Fatalf("running sibling changed: %+v", got)
+			}
+			want := store.ImplementParked
+			if !strings.Contains(reply, "story-001") {
+				want = store.ImplementRunning
+			}
+			if after["story-003"].State != want {
+				t.Fatalf("selection changed: %+v", after["story-003"])
+			}
+			instance, e := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+			mustProgress(t, e)
+			if _, e = f.db.GetGraphOwnerWait(t.Context(), instance.ID); !errors.Is(e, store.ErrNotFound) {
+				t.Fatalf("early reply required a question: %v", e)
+			}
+			for _, post := range forge.all() {
+				if strings.Contains(post.body, "need your decision") {
+					t.Fatal("unexpected owner question")
+				}
+			}
+			// A consumed successful input cannot reset a subsequently parked story.
+			_, err = f.db.AdvanceWatermark(t.Context(), f.session.ID, answer.Trigger.CommentID)
+			mustProgress(t, err)
+			_, err = f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: parent, Generation: 1, Key: got.Key, From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: got.Revision, Reason: "another failure", At: implementClock})
+			mustProgress(t, err)
+			_, err = Execute(t.Context(), f.opts, answer)
+			mustProgress(t, err)
+			if got := implementStatesOf(t, f, parent)["story-001"]; got.State != store.ImplementParked {
+				t.Fatalf("replay restarted the story: %+v", got)
+			}
+		})
+	}
+}
+
+func TestImplementEarlyReplyRetriesAfterGuidanceWasApplied(t *testing.T) {
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Fatal("the coordinator must not launch an agent")
+		return nil, nil
+	}))
+	parent := seedImplementParent(t, f,
+		store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
+		store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002})
+	_, err := Execute(t.Context(), f.opts, req)
+	mustProgress(t, err)
+	row := implementStatesOf(t, f, parent)["story-001"]
+	_, err = f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: parent, Generation: 1, Key: row.Key, From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: "needs guidance", At: implementClock})
+	mustProgress(t, err)
+	req.Trigger.CommentID++
+	req.Trigger.Body = "story-001: retry with the v2 API"
+	req.Command = ParseCommand(req.Trigger.Body)
+	redactor := f.opts.MCP.Redactor
+	f.opts.MCP.Redactor = nil // Fail coordinator binding after applying guidance.
+	_, err = Execute(t.Context(), f.opts, req)
+	if err == nil || errors.Is(err, ErrImplementReplyNotApplied) {
+		t.Fatalf("expected an execution failure: %v", err)
+	}
+	row = implementStatesOf(t, f, parent)["story-001"]
+	if row.State != store.ImplementWaiting || row.Guidance != req.Trigger.Body {
+		t.Fatalf("failure did not occur after guidance application: %+v", row)
+	}
+	f.opts.MCP.Redactor = redactor
+	_, err = Execute(t.Context(), f.opts, req)
+	mustProgress(t, err)
+	row = implementStatesOf(t, f, parent)["story-001"]
+	if row.State != store.ImplementRunning || row.Guidance != req.Trigger.Body {
+		t.Fatalf("retry failed to schedule applied guidance: %+v", row)
+	}
+	// Also replay a successful runless coordinator input before consumption.
+	_, err = Execute(t.Context(), f.opts, req)
+	mustProgress(t, err)
+	if got := implementStatesOf(t, f, parent)["story-001"]; got.Revision != row.Revision {
+		t.Fatalf("successful reply was applied twice: %+v", got)
+	}
+}
+
+func TestImplementUnusedReplyRemainsARefusalBeforeDeliveryIsRecorded(t *testing.T) {
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Fatal("the coordinator must not launch an agent")
+		return nil, nil
+	}))
+	parent := seedImplementParent(t, f,
+		store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
+		store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002})
+	_, err := Execute(t.Context(), f.opts, req)
+	mustProgress(t, err)
+	row := implementStatesOf(t, f, parent)["story-001"]
+	_, err = f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: parent, Generation: 1, Key: row.Key, From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: "needs guidance", At: implementClock})
+	mustProgress(t, err)
+	req.Trigger.CommentID++
+	req.Trigger.Body = "story-002: retry the running story"
+	req.Command = ParseCommand(req.Trigger.Body)
+	for range 2 {
+		_, err = Execute(t.Context(), f.opts, req)
+		if !errors.Is(err, ErrImplementReplyNotApplied) {
+			t.Fatalf("unused input lost its refusal on retry: %v", err)
+		}
+		if exists, e := f.db.HasWorkflowLaunch(t.Context(), f.session.ID, req.Trigger.CommentID); e != nil || exists {
+			t.Fatalf("unused input acquired a launch: %v %v", exists, e)
+		}
+		if got := implementStatesOf(t, f, parent)["story-001"]; got.State != store.ImplementParked {
+			t.Fatalf("unused reply changed a story: %+v", got)
+		}
+	}
+}
