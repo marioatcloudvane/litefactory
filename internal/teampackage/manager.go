@@ -210,6 +210,9 @@ func (m *Manager) fetch(ctx context.Context, source string, limit int64) ([]byte
 	if err != nil {
 		return nil, err
 	}
+	if strings.HasPrefix(normalized, "file://") {
+		return readSourceFile(normalized, limit)
+	}
 	//nolint:gosec // Anonymous HTTPS sources are explicitly user-selected; normalization and redirect policy prohibit credentials and origin changes.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalized, nil)
 	if err != nil {
@@ -239,6 +242,29 @@ func (m *Manager) fetch(ctx context.Context, source string, limit int64) ([]byte
 	}
 	return raw, nil
 }
+
+// readSourceFile reads one catalogue or release file of a file:// source.
+func readSourceFile(normalized string, limit int64) ([]byte, error) {
+	u, err := url.Parse(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid file source", ErrTransport)
+	}
+	//nolint:gosec // The operator selects this file; normalization requires an absolute path without traversal segments.
+	f, err := os.Open(filepath.FromSlash(u.Path))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("%w: reading file failed", ErrTransport)
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("%w: file exceeds size limit", ErrTransport)
+	}
+	return raw, nil
+}
+
 func (m *Manager) catalogue(ctx context.Context, source string) (Catalogue, error) {
 	raw, err := m.fetch(ctx, source, MaxCatalogueBytes)
 	if err != nil {

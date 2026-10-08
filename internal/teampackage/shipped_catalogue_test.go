@@ -1,6 +1,7 @@
 package teampackage
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
@@ -9,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/config"
 )
 
 // TestShippedCatalogueMatchesItsFiles keeps teams/teams.json installable: every
@@ -57,5 +60,35 @@ func TestShippedCatalogueMatchesItsFiles(t *testing.T) {
 			}
 			return nil
 		})
+	}
+}
+
+// TestShippedTeamInstallsFromTheCatalogueFile installs the Go team the way an
+// operator does for a private repository: from the checkout's catalogue file.
+func TestShippedTeamInstallsFromTheCatalogueFile(t *testing.T) {
+	catalogue, err := filepath.Abs("../../teams/teams.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(Options{Paths: config.NewPaths(canonicalTemp(t)), Validate: func(ctx context.Context, source fs.FS, workflows map[string]string) error {
+		for _, graph := range workflows {
+			if _, err := fs.ReadFile(source, graph); err != nil {
+				return err
+			}
+		}
+		return ctx.Err()
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, already, err := m.Install(t.Context(), catalogue, "go-development", "1.0.0")
+	if err != nil || already || !got.Integrity || got.Identity.Source != "file://"+filepath.ToSlash(catalogue) {
+		t.Fatalf("install: %+v already=%v %v", got.Identity, already, err)
+	}
+	if len(got.Workflows) != 6 {
+		t.Fatalf("workflows: %v", got.Workflows)
+	}
+	if _, again, err := m.Install(t.Context(), "file://"+filepath.ToSlash(catalogue), "go-development", "1.0.0"); err != nil || !again {
+		t.Fatalf("reinstall: already=%v %v", again, err)
 	}
 }
