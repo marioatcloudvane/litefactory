@@ -534,5 +534,5 @@ func validateReviewPrompt(vr ValidateReviewRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Factory invocation: Validate %s review of commit %s. The working directory is a read-only checkout of exactly that commit. Report one entry under stories for every story below, with the snapshot ID exactly as given, and cite only the check IDs of the evidence list; only a passed command proves a finding.\n<validate-review>%s</validate-review>\n", vr.Role, vr.Commit, data), nil
+	return fmt.Sprintf("Factory invocation: Validate %s review of commit %s. The working directory is a read-only checkout of exactly that commit; read it with your file tools or read-only shell commands, never run tests or builds. Report one entry under stories for every story below, with the snapshot ID exactly as given, and cite only the check IDs of the evidence list; only a passed command proves a finding.\n<validate-review>%s</validate-review>\n", vr.Role, vr.Commit, data), nil
 }
