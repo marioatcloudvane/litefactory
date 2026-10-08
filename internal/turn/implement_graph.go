@@ -273,6 +273,7 @@ func (rt *implementRuntime) policy() (WorkflowPolicy, error) {
 // guidance; it restarts through ready within the cap. It is safe to repeat: only a
 // row that is still parked is resumed.
 func (rt *implementRuntime) resumeStories(ctx context.Context, reply string) (int, error) {
+	defer rt.refreshStatus(ctx, rt.opts)
 	rows, err := rt.parkedReplyTargets(ctx, reply)
 	if err != nil {
 		return 0, err

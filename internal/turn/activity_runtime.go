@@ -105,6 +105,9 @@ func (r *MCPRuntime) CleanActivities(ctx context.Context, now time.Time) error {
 // Close retires process-local activity before closing runtime authority. Daemon
 // shutdown owns this operation independently of any abandoned runner's return.
 func (r *MCPRuntime) Close(ctx context.Context) error {
+	if r.ImplementStatus != nil {
+		r.ImplementStatus.Close()
+	}
 	r.activityMu.Lock()
 	r.activityClosed = true
 	var errs []error

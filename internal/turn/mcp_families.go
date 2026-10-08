@@ -167,6 +167,14 @@ func (d *ToolDispatcher) dispatchFamily(ctx context.Context, requestID string, c
 	// including an identical retry, rather than replaying a stale receipt. It
 	// still records a durable receipted outcome via the terminal Finish below.
 	if !first && call.Name != "activity_get" {
+		if call.Name == "activity_update" {
+			if activity, ok := handler.Owner.(*ActivityService); ok {
+				recovered, result, err := activity.recoverUpdate(ctx, requestID, call.Arguments)
+				if recovered || err != nil {
+					return result, err
+				}
+			}
+		}
 		result, err := d.receipts.Get(ctx, requestID)
 		if err != nil {
 			return nil, err
