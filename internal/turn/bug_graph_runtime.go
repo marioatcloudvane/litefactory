@@ -439,8 +439,12 @@ func (r *BugRuntime) reconcileGraphBugInstance(ctx context.Context, instance sto
 	if instance.Status == store.GraphSucceeded {
 		// A finished instance only owes its completion report; its retained
 		// capture (which may predate captures or the current Bug graph) is not
-		// needed for that.
+		// needed for that. One finished before delivery progress was recorded
+		// owes nothing.
 		_, e := r.opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID)
+		if errors.Is(e, store.ErrNotFound) {
+			return nil
+		}
 		return e
 	}
 	specs, e := SimplifiedBugSpecs()
