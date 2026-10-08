@@ -2246,11 +2246,11 @@ func (d *Daemon) run(
 					slog.Any("error", err))
 				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
 			}
-			// A plain Research comment refused because the wait already holds
+			// A plain Research or Implement comment refused because the wait holds
 			// another reply is answered and consumed. Explicit commands keep retry.
-			if errors.Is(err, store.ErrGraphOwnerWait) && mode == agent.ModeResearch &&
+			if errors.Is(err, store.ErrGraphOwnerWait) && (mode == agent.ModeResearch || (mode == agent.ModeImplement && command.Name == "")) &&
 				workflow != agent.WorkflowBug && command.Kind == turn.KindFreeText {
-				log.InfoContext(ctx, "Research owner comment refused while the wait holds another reply; refusing it with a reply",
+				log.InfoContext(ctx, "Owner comment refused while the wait holds another reply; refusing it with a reply",
 					slog.Any("error", err))
 				return d.refuseMode(ctx, t, trigger, report.ReplyGraphOwnerWaitRefused)
 			}
@@ -2307,6 +2307,9 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
+		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && errors.Is(err, turn.ErrImplementReplyNotApplied) {
+			return d.refuseMode(ctx, t, trigger, report.ReplyImplementCommentNotApplied)
+		}
 		// A Bug owner comment written before the open review or question can
 		// never answer it; refuse it once and consume it, as for Research.
 		if workflow == agent.WorkflowBug && errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
