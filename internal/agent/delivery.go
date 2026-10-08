@@ -18,13 +18,15 @@ const DeliveryPlugin = "litefactory-workflow"
 // Delivery names a retained immutable instruction bundle. It contains no
 // credentials and no vendor-specific representation crossing this boundary.
 type Delivery struct {
-	MainRole  string           `json:"main_role,omitempty"`
-	MainModel string           `json:"main_model,omitempty"`
-	Root      string           `json:"root"`
-	Identity  string           `json:"identity"`
-	Roles     []string         `json:"roles"`
-	Skills    []string         `json:"skills"`
-	Evidence  DeliveryEvidence `json:"evidence"`
+	MainRole  string   `json:"main_role,omitempty"`
+	MainModel string   `json:"main_model,omitempty"`
+	Root      string   `json:"root"`
+	Identity  string   `json:"identity"`
+	Roles     []string `json:"roles"`
+	Skills    []string `json:"skills"`
+	// RenderedFiles hashes native output bytes, rather than captured source bytes.
+	RenderedFiles map[string]string `json:"rendered_files,omitempty"`
+	Evidence      DeliveryEvidence  `json:"evidence"`
 }
 
 // DeliveryEvidence stays in per-run metadata even if an operator later removes
@@ -56,6 +58,7 @@ type SpecialistEvidence struct {
 func (d Delivery) Clone() Delivery {
 	d.Roles = slices.Clone(d.Roles)
 	d.Skills = slices.Clone(d.Skills)
+	d.RenderedFiles = maps.Clone(d.RenderedFiles)
 	d.Evidence.Specialists = slices.Clone(d.Evidence.Specialists)
 	d.Evidence.ResourceHashes = maps.Clone(d.Evidence.ResourceHashes)
 	return d
