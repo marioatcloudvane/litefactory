@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -45,8 +44,10 @@ func TestOwnerApprovalPublishesInAnyModeAndPath(t *testing.T) {
 					t.Errorf("missing %q in %s", want, reply)
 				}
 			}
-			if _, _, err := f.cs.EligibleCreationIntent(t.Context(), f.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-				t.Fatalf("published approval still grantable to an agent: %v", err)
+			intent, err := f.cs.GetOwnerIntent(t.Context(), store.CreationSource{Repository: "owner/api", SourceTask: f.session.TaskRef, CommentID: c.ID, OwnerID: 10})
+			publicationMust(t, err)
+			if pub, _, err := f.cs.ClaimOwnerPublication(t.Context(), intent, true); err != nil || pub.State != "confirmed" {
+				t.Fatalf("publication not retained: %+v %v", pub, err)
 			}
 
 			// A crash before consumption replays the same comment: the retained

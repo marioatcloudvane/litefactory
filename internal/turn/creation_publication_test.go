@@ -6,24 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
 type creationHTTPFixture struct {
 	mu           sync.Mutex
 	posts, scans int
-	lost         bool
 	items        []github.Issue
 	db           *store.DB
 	cs           *store.CreationStore
@@ -32,6 +30,7 @@ type creationHTTPFixture struct {
 	guard        *AttemptGuard
 	client       submission.Client
 	prepared     PreparedCreation
+	intent       int64
 	now          time.Time
 }
 
@@ -60,20 +59,8 @@ func creationHTTPSetup(t *testing.T, gate bool) *creationHTTPFixture {
 		}
 		if r.Method == http.MethodPost {
 			f.posts++
-			var a submission.CreationArtifact
-			if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
-				t.Error(err)
-				return
-			}
-			issue := github.Issue{ID: int64(900 + f.posts), Number: 400 + f.posts, Title: a.Title, Body: a.Body}
-			issue.Author.ID = 20
-			f.items = append(f.items, issue)
-			w.WriteHeader(http.StatusCreated)
-			if f.lost {
-				_, _ = w.Write([]byte(`{"id":`))
-				return
-			}
-			_ = json.NewEncoder(w).Encode(creationWireIssue(issue))
+			t.Error("recovery attempted publication")
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		if r.URL.Path == "/repos/example/results/issues" {
@@ -99,10 +86,10 @@ func creationHTTPSetup(t *testing.T, gate bool) *creationHTTPFixture {
 	t.Cleanup(server.Close)
 	forge, err := github.New(github.Options{APIBase: server.URL, HTTPClient: server.Client(), Token: secrets.NewToken("fixture")})
 	mustProgress(t, err)
-	f.service, err = NewCreationPublicationService(db, f.receipts, auth, forge, redact.New(redact.Options{}), t.TempDir())
+	f.service, err = NewCreationPublicationService(db, f.receipts, auth, forge, redact.New(redact.Options{}))
 	mustProgress(t, err)
 	envelope := submission.CreationEnvelope{Artifacts: []submission.CreationArtifact{{Title: "Reviewed", Body: "Exact body", LinkIssues: []int{280}}}}
-	f.prepared, err = f.service.Prepare(t.Context(), envelope)
+	f.prepared, err = f.service.prepare(t.Context(), envelope, [16]byte{1}, 0, auth.RetainProposal)
 	mustProgress(t, err)
 	// Trusted fixture approval must predate the next bound attempt; use the existing primitive directly.
 	enabled, err := NewCreationAuthorizer(CreationAuthorizerOptions{Store: f.cs, Enabled: true, OwnerID: 10, BotID: 20})
@@ -111,54 +98,39 @@ func creationHTTPSetup(t *testing.T, gate bool) *creationHTTPFixture {
 	mustProgress(t, err)
 	feedback, err := NewFeedbackService(app, nil)
 	mustProgress(t, err)
-	f.client, f.guard, _ = familySocketFixture(t, db, FamilyDispatcherOptions{Service: app, Receipts: f.receipts, Feedback: feedback, AllowCreation: gate, Registrations: []FamilyRegistration{f.service.Registration()}})
-	mustProgress(t, f.service.BindGuard(f.guard))
-	_, err = enabled.BindCreationGrant(t.Context(), f.guard, intent)
-	mustProgress(t, err)
+	f.client, f.guard, _ = familySocketFixture(t, db, FamilyDispatcherOptions{Service: app, Receipts: f.receipts, Feedback: feedback})
+	f.intent = intent
 	return f
 }
-func (f *creationHTTPFixture) call(t *testing.T) submission.Response {
+
+// seedHistory models a lost legacy response: one remote call happened, but its
+// issue identity was not recorded before the process stopped. No retired API runs.
+func (f *creationHTTPFixture) seedHistory(t *testing.T) string {
 	t.Helper()
+	const request = "lost-creation"
 	args, err := json.Marshal(f.prepared.Envelope)
 	mustProgress(t, err)
-	r, err := f.client.Call(t.Context(), "issues_create_batch", args)
+	live, release, err := f.guard.Context(t.Context())
 	mustProgress(t, err)
-	return r
+	defer release()
+	_, _, err = f.receipts.Begin(live, request, "issues_create_batch", args)
+	mustProgress(t, err)
+	b := f.receipts.Binding()
+	id := creationfixture.CreationHistory(t, store.DSN(f.db.Path()), f.intent, b.RunID, b.Attempt, request, 0)
+	mustProgress(t, f.receipts.Finish(t.Context(), request, "uncertain", store.FamilyReference{Kind: "creation_publication", ID: id}))
+	a := f.prepared.Envelope.Artifacts[0]
+	issue := github.Issue{ID: 901, Number: 401, Title: a.Title, Body: a.Body}
+	issue.Author.ID = 20
+	f.mu.Lock()
+	f.items = []github.Issue{issue}
+	f.posts = 1 // Historical remote call; subsequent observation must add none.
+	f.mu.Unlock()
+	return request
 }
 
-func TestCreationHTTPDefaultOffRefusesLiveGrant(t *testing.T) {
-	defaults := string(config.DefaultFileContents())
-	for _, body := range []string{strings.Replace(defaults, "  allow_mcp_story_creation: false\n", "", 1), defaults} {
-		t.Run(fmt.Sprint(len(body)), func(t *testing.T) {
-			paths := config.NewPaths(t.TempDir())
-			mustProgress(t, os.WriteFile(paths.ConfigPath(), []byte(body), 0600))
-			cfg, err := config.Load(paths)
-			mustProgress(t, err)
-			f := creationHTTPSetup(t, cfg.Settings.AllowMCPStoryCreation)
-			catalog, err := f.client.List(t.Context())
-			mustProgress(t, err)
-			if strings.Contains(string(catalog.Result), "issues_create_batch") {
-				t.Fatal("gate-off advertised creation")
-			}
-			r := f.call(t)
-			if r.Error == "" {
-				t.Fatal("gate-off accepted live grant")
-			}
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			if f.posts != 0 {
-				t.Fatal("gate-off published")
-			}
-		})
-	}
-}
 func TestCreationHTTPLostReplyReopenObservation(t *testing.T) {
 	f := creationHTTPSetup(t, true)
-	f.lost = true
-	r := f.call(t)
-	if r.Error == "" {
-		t.Fatal("lost response confirmed")
-	}
+	request := f.seedHistory(t)
 	reopened, err := store.Open(t.Context(), f.db.Path())
 	mustProgress(t, err)
 	defer reopened.Close()
@@ -169,11 +141,11 @@ func TestCreationHTTPLostReplyReopenObservation(t *testing.T) {
 	mustProgress(t, err)
 	auth, err := NewCreationAuthorizer(CreationAuthorizerOptions{Store: cs, Enabled: true, OwnerID: 10, BotID: 20})
 	mustProgress(t, err)
-	svc, err := NewCreationPublicationService(reopened, receipts, auth, f.service.forge, redact.New(redact.Options{}), t.TempDir())
+	svc, err := NewCreationPublicationService(reopened, receipts, auth, f.service.forge, redact.New(redact.Options{}))
 	mustProgress(t, err)
-	id, err := reopened.CreationPublicationRequest(t.Context(), receipts.scope, r.RequestID)
+	id, err := reopened.CreationPublicationRequest(t.Context(), receipts.scope, request)
 	mustProgress(t, err)
-	before, err := receipts.Get(t.Context(), r.RequestID)
+	before, err := receipts.Get(t.Context(), request)
 	mustProgress(t, err)
 	if before.States.Effects != "uncertain" {
 		t.Fatalf("before %+v", before)
@@ -182,14 +154,18 @@ func TestCreationHTTPLostReplyReopenObservation(t *testing.T) {
 		t.Fatal("unauthorized observation")
 	}
 	for range 3 {
-		f.call(t)
+		reply, err := f.client.Call(t.Context(), "issues_create_batch", []byte(`{}`))
+		mustProgress(t, err)
+		if reply.Error == "" {
+			t.Fatal("retired batch tool accepted")
+		}
 	}
 	op, err := svc.Reconcile(t.Context(), id, "open", 1, func(context.Context, store.CreationProposal) error { return nil })
 	mustProgress(t, err)
 	if op.State != "confirmed" {
 		t.Fatalf("op %+v", op)
 	}
-	got, err := receipts.Get(t.Context(), r.RequestID)
+	got, err := receipts.Get(t.Context(), request)
 	mustProgress(t, err)
 	if got.States.Effects != "confirmed" {
 		t.Fatalf("got %+v", got)
@@ -206,12 +182,8 @@ func creationWireIssue(i github.Issue) map[string]any {
 
 func TestCreationHTTPObservationRequiresExactUnambiguousProvenance(t *testing.T) {
 	f := creationHTTPSetup(t, true)
-	f.lost = true
-	r := f.call(t)
-	if r.Error == "" {
-		t.Fatal("lost response confirmed")
-	}
-	id, err := f.db.CreationPublicationRequest(t.Context(), f.receipts.scope, r.RequestID)
+	request := f.seedHistory(t)
+	id, err := f.db.CreationPublicationRequest(t.Context(), f.receipts.scope, request)
 	mustProgress(t, err)
 	f.mu.Lock()
 	exact := f.items[0]

@@ -99,7 +99,7 @@ func TestActivityRuntimeIO_ProductionModes(t *testing.T) {
 			if !slices.Equal(names, spec.PermittedTools()) || hasActivity != activityExposed {
 				t.Fatalf("catalog %v", names)
 			}
-			if len(p.guard.Lease().PermissionDigest) != 64 || submission.FamilyCatalogVersion != "families-v3" {
+			if len(p.guard.Lease().PermissionDigest) != 64 || submission.FamilyCatalogVersion != "families-v4" {
 				t.Fatal("activity catalog missing version/digest")
 			}
 			before, err := prep.mcpRuntime.Authority.db.GetRun(t.Context(), prep.run.ID)
@@ -336,7 +336,7 @@ func TestActivityRuntimeIO_BoundedOwnersAndCancelledCleanup(t *testing.T) {
 }
 
 func TestActivityRuntimeIO_CleanupPreservesUncertainPublication(t *testing.T) {
-	f := commentHTTPSetup(t, false)
+	f := commentHTTPSetup(t)
 	f.lost = true
 	reply, err := f.client.Call(t.Context(), "issues_comment", []byte(`{"issue_number":284,"message":"status"}`))
 	mustProgress(t, err)

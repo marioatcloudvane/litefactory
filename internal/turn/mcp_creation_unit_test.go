@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/submission"
 )
 
 func TestOwnerGrantCommand_ExactPublicGrammar(t *testing.T) {
@@ -62,49 +61,6 @@ func TestCreationAuthorizer_RejectsUntrustedControlBeforeStore(t *testing.T) {
 				t.Fatalf("untrusted control=%d %v", id, err)
 			}
 		})
-	}
-}
-
-func TestCreationAuthorizer_GateAndUnassignedPermissions(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		a, err := NewCreationAuthorizer(CreationAuthorizerOptions{Store: &store.CreationStore{}, Enabled: enabled, OwnerID: 42, BotID: 99})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if a.CreationVisible(t.Context(), nil) {
-			t.Fatal("gate allocated absent attempt authority")
-		}
-		if r, err := a.ReserveCreation(t.Context(), nil, submission.CreationEnvelope{}); !errors.Is(err, store.ErrCreationAuthority) || r.Permit != nil {
-			t.Fatal("gate alone granted reservation")
-		}
-		if _, err := a.BindCreationGrant(t.Context(), nil, 1); !errors.Is(err, store.ErrCreationAuthority) {
-			t.Fatal("gate bound an absent attempt")
-		}
-		for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
-			profile, err := submission.NewToolProfile(mode)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, tool := range profile.List() {
-				if tool.Effect == "creation" || tool.Name == "create_issue" {
-					t.Fatal("advertised unimplemented creation handler")
-				}
-			}
-			if mode != "research" {
-				guard := &AttemptGuard{lease: store.MCPLease{Binding: store.ResultBinding{Mode: mode}}}
-				if a.CreationVisible(t.Context(), guard) {
-					t.Fatalf("creation exposed in %s", mode)
-				}
-			}
-		}
-		if !enabled {
-			if _, err := a.AdmitOwnerGrantIntent(t.Context(), OwnerGrantControl{Mode: "research", ActorID: 42, Body: "/mcp-create " + strings.Repeat("a", 64) + " linked"}); !errors.Is(err, store.ErrCreationAuthority) {
-				t.Fatal("disabled gate accepted intent")
-			}
-			if _, err := a.BeginDispatch(t.Context(), &store.CreationPermit{}); !errors.Is(err, store.ErrCreationAuthority) {
-				t.Fatal("disabled gate dispatched")
-			}
-		}
 	}
 }
 

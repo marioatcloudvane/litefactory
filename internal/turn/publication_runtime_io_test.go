@@ -3,7 +3,6 @@ package turn
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
@@ -139,9 +139,7 @@ func TestPublicationRuntimePreparedOwnerIntentNativeLifetime(t *testing.T) {
 	if a.Title != "Exact title" || !slices.Contains(a.LinkIssues, prep.ref.Issue) || !slices.Contains(a.LinkIssues, 280) {
 		t.Fatalf("retained content %+v", a)
 	}
-	if _, _, err = cs.EligibleCreationIntent(t.Context(), prep.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("preparation grants permission: %v", err)
-	}
+	creationfixture.NoCreationIntents(t, store.DSN(db.Path()), prep.session.TaskRef)
 	control.CommentID++
 	control.Body = "/mcp-create " + prepared.Hash + " linked"
 	intent, err := runtime.AdmitCreationApproval(t.Context(), control)
@@ -151,7 +149,7 @@ func TestPublicationRuntimePreparedOwnerIntentNativeLifetime(t *testing.T) {
 	p, _, err := prepareMCP(t.Context(), prep, agent.Request{Mode: "research"}, nil)
 	mustProgress(t, err)
 	mustProgress(t, p.close(context.WithoutCancel(t.Context())))
-	got, _, err := cs.EligibleCreationIntent(t.Context(), prep.session.TaskRef)
+	got, err := cs.GetOwnerIntent(t.Context(), creationSource(control))
 	mustProgress(t, err)
 	if got != intent {
 		t.Fatal("disabled registration consumed owner intent")
@@ -160,20 +158,8 @@ func TestPublicationRuntimePreparedOwnerIntentNativeLifetime(t *testing.T) {
 	p, spec, err := prepareMCP(t.Context(), prep, agent.Request{Mode: "research"}, nil)
 	mustProgress(t, err)
 	defer func() { mustProgress(t, p.close(context.WithoutCancel(t.Context()))) }()
-	if !slices.Contains(spec.PermittedTools(), "issues_create_batch") || len(p.creationProposal) == 0 {
-		t.Fatalf("approved native proposal unavailable: %v", spec.PermittedTools())
-	}
-	var bound submission.CreationEnvelope
-	mustProgress(t, json.Unmarshal(p.creationProposal, &bound))
-	expected, err := json.Marshal(prepared.Envelope)
-	mustProgress(t, err)
-	actual, err := json.Marshal(bound)
-	mustProgress(t, err)
-	if string(actual) != string(expected) {
-		t.Fatal("bound bytes differ from approval")
-	}
-	if _, _, err = cs.EligibleCreationIntent(t.Context(), prep.session.TaskRef); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("consumed intent remains eligible: %v", err)
+	if slices.Contains(spec.PermittedTools(), "issues_create_batch") {
+		t.Fatalf("retired batch tool available: %v", spec.PermittedTools())
 	}
 	replacement, nextSpec, err := prepareMCP(t.Context(), prep, agent.Request{Mode: "research"}, nil)
 	mustProgress(t, err)
@@ -188,11 +174,7 @@ func TestPublicationRuntimePreparedOwnerIntentNativeLifetime(t *testing.T) {
 
 func TestPublicationRuntimeCreationRestartObservation(t *testing.T) {
 	f := creationHTTPSetup(t, true)
-	f.lost = true
-	reply := f.call(t)
-	if reply.Error == "" {
-		t.Fatal("lost response confirmed")
-	}
+	f.seedHistory(t)
 	db, err := store.Open(t.Context(), f.db.Path())
 	mustProgress(t, err)
 	defer db.Close()

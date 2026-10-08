@@ -2,21 +2,7 @@ package store
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 )
-
-// EligibleCreationIntent observes the exact current, unconsumed owner approval.
-// BindGrant remains the atomic authority check and consumption boundary.
-func (c *CreationStore) EligibleCreationIntent(ctx context.Context, task string) (int64, CreationProposal, error) {
-	var id int64
-	var p CreationProposal
-	err := c.db.sql.QueryRowContext(ctx, `SELECT i.id,p.hash,p.repository,p.source_task,p.relationship,p.artifacts,p.envelope FROM mcp_creation_intents i JOIN mcp_creation_current n ON n.source_task=i.source_task AND n.proposal_hash=i.proposal_hash AND n.revision=i.proposal_revision JOIN mcp_creation_proposals p ON p.hash=i.proposal_hash WHERE i.source_task=? AND i.expires_ns>? AND NOT EXISTS (SELECT 1 FROM mcp_creation_grants g WHERE g.intent_id=i.id) AND NOT EXISTS (SELECT 1 FROM creation_owner_publications o WHERE o.intent_id=i.id) ORDER BY i.id DESC LIMIT 1`, task, c.now().UnixNano()).Scan(&id, &p.Hash, &p.Repository, &p.SourceTask, &p.Relationship, &p.Artifacts, &p.Envelope)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = ErrNotFound
-	}
-	return id, p, err
-}
 
 // PendingCommentOperations enumerates bounded retained effects for factory observation.
 func (db *DB) PendingCommentOperations(ctx context.Context, afterRun int64, afterAttempt, afterRequest string, limit int) ([]CommentOperation, error) {

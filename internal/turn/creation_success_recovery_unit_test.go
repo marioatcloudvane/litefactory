@@ -74,10 +74,6 @@ func TestCreationSuccessRecovery_OriginalResultBeforeMutableControls(t *testing.
 					if err != nil || id != 817 {
 						t.Fatalf("original intent=%d err=%v", id, err)
 					}
-					// Successful historical observation is not launch authority.
-					if _, err := r.CreationAuthorizer.BindCreationGrant(t.Context(), nil, id); !errors.Is(err, store.ErrCreationAuthority) {
-						t.Fatalf("recovery acquired grant: %v", err)
-					}
 				} else {
 					got, err := r.PrepareCreationProposal(t.Context(), c)
 					if err != nil || got.Hash != hash || !reflect.DeepEqual(got.Envelope, envelope) {

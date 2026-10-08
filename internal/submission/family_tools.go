@@ -7,16 +7,15 @@ import (
 )
 
 // FamilyCatalogVersion changes when immutable family call permissions change.
-const FamilyCatalogVersion = "families-v3"
+const FamilyCatalogVersion = "families-v4"
 
 // NewFamilyToolProfile enables only explicitly installed catalog entries. Mode
-// restrictions and the default-off creation gate cannot be supplied by callers.
-func NewFamilyToolProfile(mode string, allowCreation bool, installed []string) (ToolProfile, error) {
+// restrictions cannot be supplied by callers.
+func NewFamilyToolProfile(mode string, installed []string) (ToolProfile, error) {
 	p, err := NewToolProfile(mode)
 	if err != nil {
 		return p, err
 	}
-	p.creation = allowCreation
 	for _, name := range installed {
 		if _, ok := familyTool(name); !ok || slices.Contains(p.families, name) {
 			return ToolProfile{}, errors.New("invalid or duplicate family registration")
@@ -27,16 +26,12 @@ func NewFamilyToolProfile(mode string, allowCreation bool, installed []string) (
 	return p, nil
 }
 
-func familyAllowed(mode string, creation bool, name string) bool {
+func familyAllowed(mode string, name string) bool {
 	if mode != "research" && mode != "implement" && mode != "validate" {
 		return false
 	}
-	if name == "issues_create_batch" {
-		return mode == "research" && creation
-	}
 	// Drafting retains a proposal and publishes nothing, so it needs no grant.
-	// The creation flag means a live grant exists and must never gate this tool;
-	// installation, not that flag, is the story-creation gate.
+	// Installation is the story-creation gate.
 	if name == "issues_create_prepare" {
 		return mode == "research"
 	}
@@ -66,10 +61,6 @@ func familyTool(name string) (ToolSpec, bool) {
 		spec.Description = "Draft 1 to 5 issues the owner asked to have created and have the factory retain them as a creation proposal. Call it only when the owner's request asks for issues or stories to be created. It publishes nothing and needs no approval; the factory presents the proposal to the owner, who decides. Repository, source task and version are supplied by the factory. The whole proposal must stay under about 48000 bytes; a larger one is refused, so shorten it or split the work. Recommendation: split large work into several focused issues rather than one big one; this is advice only and never blocks a proposal."
 		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"relationship":{"type":"string","enum":["linked","attach"],"description":"linked (default) links each draft to the source issue; attach also attaches each draft as a sub-issue of the source issue."},"drafts":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":256},"body":{"type":"string","minLength":1,"maxLength":65536},"parent_issue":{"type":"integer","minimum":1,"description":"Only with attach; must be the source issue."},"link_issues":{"type":"array","maxItems":16,"items":{"type":"integer","minimum":1}}},"required":["title","body"],"additionalProperties":false}}},"required":["drafts"],"additionalProperties":false}`)
 		spec.Effect = "input"
-	case "issues_create_batch":
-		spec.Description = "Publish an exactly reviewed batch using the factory-held live creation grant."
-		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"envelope":{"type":"object","description":"The exact reviewed creation envelope."},"hash":{"type":"string"}},"required":["envelope","hash"],"additionalProperties":false}`)
-		spec.Effect = "creation"
 	case "evidence_submit":
 		spec.Description = "Apply the permitted shared stage checkpoint; engineering and acceptance remain separate."
 		// Stage-specific active fields stay with the server: it already forbids

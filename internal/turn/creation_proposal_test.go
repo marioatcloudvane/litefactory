@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/store/creationfixture"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
@@ -175,9 +176,7 @@ func TestCreationProposalTool_RetainsAndPresentsWithoutApproval(t *testing.T) {
 		t.Fatalf("pending presentation %+v", pending)
 	}
 	// Drafting is not approval: no intent is eligible and nothing was published.
-	if _, _, err := f.cs.EligibleCreationIntent(t.Context(), f.task); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("drafting created an eligible intent: %v", err)
-	}
+	creationfixture.NoCreationIntents(t, store.DSN(f.db.Path()), f.task)
 }
 
 func TestCreationProposalTool_AttachFillsSourceParent(t *testing.T) {
