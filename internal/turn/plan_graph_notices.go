@@ -141,7 +141,7 @@ func planReadyText(ref naming.Ref, rows []planStoryRow) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "**Plan approved and ready.** It has %d stories:\n\n", len(rows))
 	out.WriteString(renderPlanStoryTable(ref, rows, false))
-	out.WriteString("\n**Next step:** reply `/implement` on this issue to start building the stories.\n")
+	out.WriteString("\n**Next step:** reply `/implement implement the approved stories` on this issue to start building the stories.\n")
 	return out.String()
 }
 

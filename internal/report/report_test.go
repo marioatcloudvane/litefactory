@@ -1531,3 +1531,23 @@ func TestFailureAroundTheRunWithNoCommitNamesTheWorktreeOnce(t *testing.T) {
 		})
 	}
 }
+
+// An empty-command hint names the mode command the owner actually typed. A
+// bare `/plan` that is answered with a `/spike` example sends the owner to the
+// wrong command.
+func TestEmptyCommandHintNamesTheTypedCommand(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+	for _, command := range []string{"/plan", "/validate", "/research", "/implement"} {
+		body := renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyEmptySpike, Command: command})
+		if want := "`" + command + "` needs something to work on"; !strings.Contains(body, want) {
+			t.Errorf("%s: body lacks %q:\n%s", command, want, body)
+		}
+		if want := command + " <what you want done>"; !strings.Contains(body, want) {
+			t.Errorf("%s: body lacks example %q:\n%s", command, want, body)
+		}
+		if strings.Contains(body, "/spike") {
+			t.Errorf("%s: body still names /spike:\n%s", command, body)
+		}
+	}
+}

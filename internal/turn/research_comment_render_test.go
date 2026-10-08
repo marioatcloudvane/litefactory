@@ -196,7 +196,7 @@ func TestResearchNextStepDistinguishesAReviewGate(t *testing.T) {
 	if review == clarify {
 		t.Fatal("a review gate and a clarification must not read the same")
 	}
-	for _, want := range []string{"dig deeper", "`done`", "`/plan`", "Nothing moves on until you say so"} {
+	for _, want := range []string{"dig deeper", "`done`", "`/plan plan the approved scope above into stories`", "Nothing moves on until you say so"} {
 		if !strings.Contains(review, want) {
 			t.Errorf("the review gate is missing %q: %q", want, review)
 		}
