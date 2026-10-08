@@ -25,7 +25,11 @@ func oldTeamDatabase(t *testing.T) *DB {
 func TestRepoTeamRetirementPreservesRepositoryAndGraphHistory(t *testing.T) {
 	db := oldTeamDatabase(t)
 	instance := graphTestInstance(t, db)
-	attempt := graphTestAttempt(t, db, instance, 3)
+	// Current accessors include capture references absent from this old schema.
+	var attempt GraphNodeAttempt
+	if err := db.sql.QueryRowContext(t.Context(), `INSERT INTO graph_node_attempts(instance_id,node,attempt,status,started_at) VALUES(?, 'work', 1, 'running', ?) RETURNING id`, instance.ID, FormatTime(graphTestTime())).Scan(&attempt.ID); err != nil {
+		t.Fatal(err)
+	}
 	transition, err := db.RecordGraphTransition(t.Context(), GraphTransition{InstanceID: instance.ID, FromNode: "work", ToNode: "done", OnOutcome: "success", At: graphTestTime()})
 	if err != nil {
 		t.Fatal(err)

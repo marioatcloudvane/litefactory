@@ -20,15 +20,14 @@ func NewGraphBugRuntime(ctx context.Context, opts Options, cfg BugRuntimeConfig)
 	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || cfg.Forge == nil || cfg.OwnerID < 1 || cfg.Permissions == nil {
 		return nil, errors.New("simplified Bug requires concrete source, result, owner, reporter and delivery bindings")
 	}
-	specs, e := SimplifiedBugSpecs()
-	if e != nil {
-		return nil, e
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	definition, e := teamsource.CaptureBugParent(ctx, specs)
-	if e != nil {
-		return nil, e
+	if _, err := SimplifiedBugSpecs(); err != nil {
+		return nil, err
 	}
-	return &BugRuntime{opts: opts, cfg: cfg, definition: definition}, nil
+	// Source selection belongs to each repository admission or retained capture.
+	return &BugRuntime{opts: opts, cfg: cfg}, nil
 }
 
 // bugReplyNotApplied marks a refusal of an owner comment so the daemon answers
@@ -42,6 +41,30 @@ func bugReplyNotApplied(e error) error {
 }
 
 func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.WorkflowAdmission, error) {
+	// Reject retired contracts before attempting to reconstruct their files.
+	if existing, err := r.opts.DB.LatestStandaloneBugInstance(ctx, req.SessionID); err == nil {
+		pin, err := r.opts.DB.GetGraphDefinition(ctx, existing.DefinitionID)
+		if err != nil {
+			return store.WorkflowAdmission{}, err
+		}
+		if pin.ProfileVersion != 2 {
+			err := errors.New("unsupported pinned legacy Bug; existing work is preserved and dispatch is refused")
+			if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
+				err = bugReplyNotApplied(err)
+			}
+			return store.WorkflowAdmission{}, err
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return store.WorkflowAdmission{}, err
+	}
+	specs, e := SimplifiedBugSpecs()
+	if e != nil {
+		return store.WorkflowAdmission{}, e
+	}
+	r.definition, e = capturedWorkflow(ctx, r.opts, req, agent.WorkflowBug, specs, teamsource.CaptureBugParent)
+	if e != nil {
+		return store.WorkflowAdmission{}, e
+	}
 	instance, e := r.opts.DB.LatestStandaloneBugInstance(ctx, req.SessionID)
 	if e == nil {
 		pin, e := r.opts.DB.GetGraphDefinition(ctx, instance.DefinitionID)
@@ -78,14 +101,14 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 				return store.WorkflowAdmission{}, e
 			}
 			if wait.State == "claimed" && wait.ReplyID == req.Trigger.CommentID && wait.ReplyAuthorID == r.cfg.OwnerID && req.Trigger.AuthorID == r.cfg.OwnerID && wait.ReplyBody == req.Trigger.Body {
-				return store.WorkflowAdmission{Instance: instance}, nil
+				return retainedAdmission(ctx, r.opts.DB, req, instance, "bug"), nil
 			}
 			_, e = AdmitGraphBugOwnerReply(ctx, r.opts.DB, store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: r.cfg.OwnerID, AuthorID: req.Trigger.AuthorID, CommentID: req.Trigger.CommentID, QuestionCommentID: delivery.CommentID, TaskRef: session.TaskRef, SourceRef: session.TaskRef, Workflow: "bug", DeliveryKey: wait.DeliveryKey, Body: req.Trigger.Body, At: r.opts.MCP.Now()})
 			if e != nil {
 				return store.WorkflowAdmission{}, bugReplyNotApplied(e)
 			}
 		}
-		return store.WorkflowAdmission{Instance: instance}, nil
+		return retainedAdmission(ctx, r.opts.DB, req, instance, "bug"), nil
 	}
 	if !errors.Is(e, store.ErrNotFound) {
 		return store.WorkflowAdmission{}, e
@@ -96,7 +119,7 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 	if _, e = r.opts.DB.AdmitWorkflowPath(ctx, req.SessionID, "graph"); e != nil {
 		return store.WorkflowAdmission{}, e
 	}
-	pin, e := r.pin(ctx, r.definition, "bug/bug.dot")
+	pin, e := r.pin(ctx, r.definition, workflowGraphPath(r.definition))
 	if e != nil {
 		return store.WorkflowAdmission{}, e
 	}
@@ -108,10 +131,12 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 	if e != nil {
 		return store.WorkflowAdmission{}, e
 	}
-	return r.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Workflow: "bug", SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: r.definition.Profile.Start, ContentDigest: r.definition.Digest, TopologyDigest: topology, Files: raw, Reply: req.Trigger.Body})
+	return r.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Workflow: "bug", SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: r.definition.Profile.Start, ContentDigest: r.definition.Digest, TopologyDigest: topology, Files: raw, Provenance: store.WorkflowProvenance(r.definition.Origin), Reply: req.Trigger.Body})
 }
 
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {
+	local := *r
+	r = &local
 	result.ResearchGraph = true
 	admission, e := r.graphAdmission(ctx, req)
 	if e != nil {
@@ -250,7 +275,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 				}
 			}
 			if node.Limit > 0 && maximum >= node.Limit && allowanceSource == 0 && (we != nil || wait.State != "claimed" || wait.OriginNode != node.Name) {
-				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)}}, "exhausted", false)
+				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)}}, "exhausted", false)
 				return finish(parkErr)
 			}
 			permissions, e := r.cfg.Permissions(req.Agent, node.Attrs["lf_agent_markdown"])
@@ -274,7 +299,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 			runID = w.prep.run.ID
 			w.result.Run, w.result.Session = w.prep.run, w.prep.session
 		}
-		step, e := ExecuteNodeAction(ctx, r.opts, GraphNodeRequest{StopOnFailure: true, Profile: r.definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, OwnerAllowanceSource: allowanceSource, At: r.opts.MCP.Now()})
+		step, e := ExecuteNodeAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, StopOnFailure: true, Profile: r.definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, OwnerAllowanceSource: allowanceSource, At: r.opts.MCP.Now()})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}
@@ -299,7 +324,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 			}
 			if next.Status == store.GraphRunning {
 				spent, _ := store.GraphTriggerDispatch(req.Trigger.CommentID)
-				_, se = r.opts.DB.ParkGraphInstanceAfter(ctx, next.ID, next.CurrentNode, r.opts.MCP.Now(), r.opts.MCP.Now(), spent)
+				_, se = r.opts.DB.ParkCapturedGraphInstanceAfter(ctx, next.ID, next.CurrentNode, r.opts.MCP.Now(), r.opts.MCP.Now(), spent, admission.LaunchID)
 			}
 			return finish(se)
 		}
@@ -396,7 +421,7 @@ func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a Activit
 }
 
 func (r *BugRuntime) reconcileGraphBug(ctx context.Context) error {
-	instances, e := r.opts.DB.ListPinnedGraphInstances(ctx, r.definition.Profile.Digest)
+	instances, e := r.opts.DB.ListStandaloneBugInstances(ctx)
 	if e != nil {
 		return e
 	}
@@ -409,6 +434,24 @@ func (r *BugRuntime) reconcileGraphBug(ctx context.Context) error {
 }
 
 func (r *BugRuntime) reconcileGraphBugInstance(ctx context.Context, instance store.GraphInstance) error {
+	local := *r
+	r = &local
+	specs, e := SimplifiedBugSpecs()
+	if e != nil {
+		return e
+	}
+	saved, e := r.opts.DB.WorkflowCaptureForAdmission(ctx, instance.SessionID, 0, "bug")
+	if e != nil {
+		return e
+	}
+	if saved.InstanceID != instance.ID {
+		return errors.New("bug recovery capture belongs to another instance")
+	}
+	_, e = restoreWorkflow(ctx, r.opts.DB, saved, agent.WorkflowBug, specs)
+	if e != nil {
+		return e
+	}
+
 	if instance.Status == store.GraphSucceeded {
 		_, e := r.opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID)
 		return e
@@ -421,7 +464,15 @@ func (r *BugRuntime) reconcileGraphBugInstance(ctx context.Context, instance sto
 		if a.Status != store.GraphRunning && a.Status != store.GraphPending {
 			continue
 		}
-		request := GraphNodeRequest{Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}
+		attemptCapture, err := r.opts.DB.WorkflowCaptureForAttempt(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		definition, err := restoreWorkflow(ctx, r.opts.DB, attemptCapture, agent.WorkflowBug, specs)
+		if err != nil {
+			return err
+		}
+		request := GraphNodeRequest{LaunchID: a.LaunchID, Profile: definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}
 		if a.RunID > 0 {
 			if _, e = RecoverGraphStoppedExecution(ctx, r.opts, request, a.ID); e != nil {
 				return e
@@ -442,7 +493,7 @@ func (r *BugRuntime) reconcileGraphBugInstance(ctx context.Context, instance sto
 		return e
 	}
 	if wait.State == "claimed" {
-		if _, e = r.opts.DB.ParkGraphInstance(ctx, instance.ID, instance.CurrentNode, r.opts.MCP.Now(), r.opts.MCP.Now()); e != nil {
+		if _, e = r.opts.DB.ParkCapturedGraphInstanceAfter(ctx, instance.ID, instance.CurrentNode, r.opts.MCP.Now(), r.opts.MCP.Now(), 0, saved.ID); e != nil {
 			return e
 		}
 	}

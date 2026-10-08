@@ -136,7 +136,7 @@ func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
 	if _, err := rt.opts.DB.AdmitWorkflowPath(ctx, rt.req.SessionID, "graph"); err != nil {
 		return rt.result, err
 	}
-	definition, err := captureImplement(ctx)
+	definition, err := capturedImplement(ctx, rt.opts, rt.req)
 	if err != nil {
 		return rt.result, err
 	}
@@ -149,7 +149,7 @@ func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
 	if err != nil {
 		return rt.result, err
 	}
-	pin, err := rt.opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: string(agent.ModeImplement), ProfileVersion: definition.Profile.ProfileVersion, Path: "implement/implement.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	pin, err := rt.opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: definition.Profile.Team, Mode: string(agent.ModeImplement), ProfileVersion: definition.Profile.ProfileVersion, Path: workflowGraphPath(definition), Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	if err != nil {
 		return rt.result, err
 	}
@@ -158,7 +158,7 @@ func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
 			return rt.result, err
 		}
 	}
-	admitted, err := rt.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeImplement), SessionID: rt.req.SessionID, TriggerID: rt.req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Reply: rt.req.Trigger.Body})
+	admitted, err := rt.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeImplement), SessionID: rt.req.SessionID, TriggerID: rt.req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: rt.req.Trigger.Body})
 	if err != nil {
 		return rt.result, err
 	}
@@ -189,7 +189,7 @@ func (rt *implementRuntime) resumeDispatch(ctx context.Context) (Result, error) 
 	if err != nil {
 		return rt.result, err
 	}
-	definition, err := captureImplement(ctx)
+	definition, err := capturedImplement(ctx, rt.opts, rt.req)
 	if err != nil {
 		return rt.result, err
 	}
@@ -197,7 +197,7 @@ func (rt *implementRuntime) resumeDispatch(ctx context.Context) (Result, error) 
 		return rt.result, errors.New("shipped Implement graph changed under a running instance; the resting instance cannot resume")
 	}
 	rt.definition = definition
-	return rt.execute(ctx, definition, store.WorkflowAdmission{Instance: instance})
+	return rt.execute(ctx, definition, retainedAdmission(ctx, rt.opts.DB, rt.req, instance, "implement"))
 }
 
 // idle is the result of a run that found nothing left to do.

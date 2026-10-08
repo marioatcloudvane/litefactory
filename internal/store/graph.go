@@ -67,6 +67,7 @@ type GraphNodeAttempt struct {
 	Node                  string
 	Attempt               int
 	RunID                 int64
+	LaunchID              int64
 	Status, Outcome       string
 	StartedAt, FinishedAt time.Time
 }
@@ -96,6 +97,7 @@ type GraphAttemptStart struct {
 	// continuation to one immediately declared substantive invocation.
 	OwnerAllowanceSource int64
 	InstanceID           int64
+	LaunchID             int64
 	Node                 string
 	RunID                int64
 	Limit                int

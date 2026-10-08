@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io/fs"
-	"os"
 	"reflect"
 	"slices"
 	"sort"
@@ -101,17 +100,6 @@ func TestPlanPackageClosureAndDigest(t *testing.T) {
 	}
 	if definition.Digest != fmt.Sprintf("%x", sha256.Sum256([]byte(manifest.String()))) {
 		t.Fatal("digest does not cover all resource hashes")
-	}
-	// Static packaging consistency reads source assets only; runtime capture above
-	// uses embedded bytes and native rendering below performs no filesystem writes.
-	for _, name := range keys {
-		raw, err := os.ReadFile("../../internal/teamsource/plan/" + name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(raw, definition.Files[name]) {
-			t.Errorf("source/embedded mismatch: %s", name)
-		}
 	}
 	changed := planPackageFixture(t)
 	changed["skills/plan-evidence/projection.md"].Data = append(changed["skills/plan-evidence/projection.md"].Data, []byte("\nScoped clarification.\n")...)

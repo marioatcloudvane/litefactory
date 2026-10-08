@@ -148,9 +148,9 @@ var archiveRegistry = []ArchiveTable{
 	archived("implement_stories", byParent),
 	archived("validate_entries", bySession),
 	archived("research_successors", `(instance_id IN `+subInst+` OR predecessor_id IN `+subInst+`)`),
+	archived("graph_node_attempts", `id IN `+subNodeAt),
 	archived("research_launch_definitions", `(session_id IN `+inFS+` OR instance_id IN `+subInst+`)`),
 	archived("research_execution_paths", bySession),
-	archived("graph_node_attempts", `id IN `+subNodeAt),
 	archived("graph_instances", `id IN `+subInst),
 	// Application results.
 	archived("application_result_observations", byRun+` AND `+notDoctor),
@@ -226,7 +226,8 @@ var archiveRetained = map[string]ArchiveClass{
 	// holds; a family with doctor references is kept by the pending check.
 	"repos": ArchiveClassGlobal, "identities": ArchiveClassGlobal, "poll_cursor": ArchiveClassGlobal, "repo_poll_cursors": ArchiveClassGlobal, "repo_webhooks": ArchiveClassGlobal,
 	"daemon_listener_status": ArchiveClassGlobal, "repo_discovery_status": ArchiveClassGlobal,
-	"schema_migrations": ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
+	"repository_team_bindings": ArchiveClassGlobal,
+	"schema_migrations":        ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
 	"retirement_sweep": ArchiveClassGlobal, "archive_sweep": ArchiveClassGlobal,
 	planArchiveGrantsTable: ArchiveClassGlobal,
 	// Rights are keyed by repository, never archived or deleted.
