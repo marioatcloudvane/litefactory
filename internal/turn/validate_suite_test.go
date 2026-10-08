@@ -289,10 +289,47 @@ func TestValidateSuiteReplaysFinishedResult(t *testing.T) { // AC-005
 		if len(f.commands) != ran || f.repo.begun != 1 {
 			t.Fatal("replay ran the suite again")
 		}
-		// A different graph instance is a different key.
-		if _, _, err := f.exec(4); err != nil || f.repo.begun != 2 {
-			t.Fatalf("other instance must run: %v", err)
+		// A different graph instance is a different key; only a pass carries over.
+		want := 2
+		if exit == 0 {
+			want = 1
 		}
+		if _, _, err := f.exec(4); err != nil || f.repo.begun != want {
+			t.Fatalf("other instance after exit %d: begun %d, %v", exit, f.repo.begun, err)
+		}
+	}
+}
+
+func TestValidateSuiteReusesPassOfAnotherInstance(t *testing.T) {
+	f := newSuiteFixture(t)
+	_, first, err := f.exec(3)
+	if err != nil || first.Outcome != "passed" {
+		t.Fatalf("first run: %+v %v", first, err)
+	}
+	ran := len(f.commands)
+	res, out, err := f.exec(4)
+	if err != nil || res.Outcome != "passed" || out.Commit != suiteCommit || out.RecipeDigest != first.RecipeDigest || out.RunID == first.RunID {
+		t.Fatalf("reuse: %+v %+v %v", res, out, err)
+	}
+	if len(f.commands) != ran || f.repo.begun != 1 {
+		t.Fatal("reuse ran the suite again")
+	}
+	src, err := f.db.SuiteCommands(t.Context(), first.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.db.SuiteCommands(t.Context(), out.RunID)
+	if err != nil || len(got) != len(src) || len(got) == 0 {
+		t.Fatalf("copied commands: %d of %d, %v", len(got), len(src), err)
+	}
+	for i := range got {
+		if got[i].State != src[i].State || got[i].OutputDigest != src[i].OutputDigest || strings.Join(got[i].Argv, " ") != strings.Join(src[i].Argv, " ") {
+			t.Fatalf("command %d differs: %+v %+v", i, got[i], src[i])
+		}
+	}
+	// The copy replays for its own instance like a run of its own.
+	if _, again, err := f.exec(4); err != nil || again.RunID != out.RunID {
+		t.Fatalf("replay of reuse: %+v %v", again, err)
 	}
 }
 

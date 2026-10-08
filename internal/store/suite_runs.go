@@ -156,6 +156,52 @@ func (db *DB) LatestSuiteRun(ctx context.Context, instanceID int64, commit strin
 	return scanSuiteRun(db.sql.QueryRowContext(ctx, `SELECT `+suiteRunColumns+` FROM suite_runs WHERE instance_id=? AND commit_sha=? ORDER BY id DESC LIMIT 1`, instanceID, commit))
 }
 
+// ReuseSuiteRun copies the newest passed attempt of another instance on the
+// same commit, with its commands, into instanceID as that instance's next
+// attempt. The commit fixes the recipe, so the result still holds. No passed
+// attempt is ErrNotFound.
+func (db *DB) ReuseSuiteRun(ctx context.Context, instanceID int64, node, commit string, at time.Time) (SuiteRun, error) {
+	if instanceID < 1 || node == "" || len(commit) != 40 && len(commit) != 64 || at.IsZero() {
+		return SuiteRun{}, fmt.Errorf("store: invalid suite run reuse")
+	}
+	var out SuiteRun
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		src, err := scanSuiteRun(tx.QueryRowContext(ctx, `SELECT `+suiteRunColumns+` FROM suite_runs WHERE commit_sha=? AND state='passed' AND instance_id<>? ORDER BY id DESC LIMIT 1`, commit, instanceID))
+		if err != nil {
+			return err
+		}
+		var attempt int
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt),0)+1 FROM suite_runs WHERE instance_id=? AND commit_sha=? AND recipe_digest=?`, instanceID, commit, src.RecipeDigest).Scan(&attempt); err != nil {
+			return err
+		}
+		reason := fmt.Sprintf("reused passed suite run %d of instance %d", src.ID, src.InstanceID)
+		stamp := FormatTime(at)
+		res, err := tx.ExecContext(ctx, `INSERT INTO suite_runs(instance_id,node,attempt,commit_sha,recipe_digest,tree_before,tree_after,state,reason,started_at,finished_at) VALUES(?,?,?,?,?,?,?,'passed',?,?,?)`,
+			instanceID, node, attempt, commit, src.RecipeDigest, src.TreeBefore, src.TreeAfter, reason, stamp, stamp)
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO suite_commands(run_id,position,argv,state,exit_code,reason,started_at,finished_at,process_identity,cleanup_confirmed,output_tail,output_truncated,output_digest)
+SELECT ?,position,argv,state,exit_code,reason,started_at,finished_at,process_identity,cleanup_confirmed,output_tail,output_truncated,output_digest FROM suite_commands WHERE run_id=?`, id, src.ID); err != nil {
+			return err
+		}
+		out = src
+		out.ID, out.InstanceID, out.Node, out.Attempt, out.Reason, out.StartedAt, out.FinishedAt = id, instanceID, node, attempt, reason, at, at
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) {
+		return SuiteRun{}, err
+	}
+	if err != nil {
+		return SuiteRun{}, fmt.Errorf("store: reuse suite run: %w", err)
+	}
+	return out, nil
+}
+
 // GetSuiteRun returns one attempt or ErrNotFound.
 func (db *DB) GetSuiteRun(ctx context.Context, id int64) (SuiteRun, error) {
 	return scanSuiteRun(db.sql.QueryRowContext(ctx, `SELECT `+suiteRunColumns+` FROM suite_runs WHERE id=?`, id))
