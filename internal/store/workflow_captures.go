@@ -135,28 +135,26 @@ func (db *DB) WorkflowCaptureForAdmission(ctx context.Context, sessionID, trigge
 	// has several historical launches.
 	var launch sql.NullInt64
 	err = db.sql.QueryRowContext(ctx, `SELECT a.launch_id FROM graph_owner_waits w JOIN graph_node_attempts a ON a.id=w.source_attempt_id WHERE w.instance_id=? AND w.state IN ('waiting','claimed','allocated') ORDER BY w.rowid DESC LIMIT 1`, instance.ID).Scan(&launch)
-	if err == nil {
-		if !launch.Valid {
-			return WorkflowCapture{}, graphInvariant("retained owner question has no exact capture reference")
-		}
+	if err == nil && launch.Valid {
 		return db.requiredWorkflowCapture(ctx, launch.Int64)
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return WorkflowCapture{}, err
 	}
 	err = db.sql.QueryRowContext(ctx, `SELECT launch_id FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running') ORDER BY id DESC LIMIT 1`, instance.ID).Scan(&launch)
-	if err == nil {
-		if !launch.Valid {
-			return WorkflowCapture{}, graphInvariant("active attempt has no exact retained capture")
-		}
+	if err == nil && launch.Valid {
 		return db.requiredWorkflowCapture(ctx, launch.Int64)
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return WorkflowCapture{}, err
 	}
+	// A question or attempt from before captures existed (its launch_id stayed
+	// empty when the instance had no single launch to backfill) binds to the
+	// instance's latest launch, as a new attempt would. An instance with no
+	// launch at all predates captures and is admitted like fresh work.
 	err = db.sql.QueryRowContext(ctx, `SELECT id FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1`, instance.ID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return WorkflowCapture{}, graphInvariant("admitted workflow has no retained capture")
+		return WorkflowCapture{}, ErrNotFound
 	}
 	if err != nil {
 		return WorkflowCapture{}, err
