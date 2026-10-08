@@ -84,7 +84,11 @@ func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 			return errors.New("doctor finding without evidence must name a coverage gap")
 		}
 		for _, handle := range f.Evidence {
-			if !known[handle] {
+			if e.Live {
+				if !boundedText(handle) {
+					return errors.New("doctor live source citation is empty or oversized")
+				}
+			} else if !known[handle] {
 				return fmt.Errorf("doctor finding references unknown evidence handle %q", handle)
 			}
 		}

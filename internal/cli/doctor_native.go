@@ -10,12 +10,15 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/doctor"
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/secrets"
 )
 
 // configureDoctorNative resolves installed provider transports only. Their
 // provider-owned isolation attestations still gate every diagnosis/repair launch.
-func configureDoctorNative(service *doctor.Service, env *Env) error {
+func configureDoctorNative(ctx context.Context, service *doctor.Service, env *Env) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -24,6 +27,17 @@ func configureDoctorNative(service *doctor.Service, env *Env) error {
 	repairs := make(map[string]agent.DoctorRepairRunner)
 	cfg := service.Config
 	environ := os.Environ()
+	// Missing forge credentials leave an explicit tool coverage error; they must
+	// not discard owner input or prevent diagnosis from inspecting local sources.
+	ref, configured := secrets.ReferenceFrom(cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
+	if configured {
+		if token, resolveErr := (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, ref); resolveErr == nil {
+			service.Redactor = redact.New(redact.Options{Logger: env.Logger, Token: token, Environ: environ})
+			if client, clientErr := github.New(github.Options{APIBase: cfg.Providers.GitHub.APIBase, Token: token, Logger: env.Logger, UserAgent: initUserAgent(env)}); clientErr == nil {
+				service.Comments = client
+			}
+		}
+	}
 	if cfg.Agents.Claude != nil {
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
 		runner, e := harness.New(harness.Options{Paths: service.Paths, Claude: *cfg.Agents.Claude, Model: model, Environ: environ, Logger: env.Logger})
