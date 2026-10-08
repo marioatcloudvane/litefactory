@@ -68,7 +68,8 @@ adding concurrent behavior. `PKGS` selects packages in both phases, and either
 phase failing stops the target. SQLite instrumentation dominates the blanket
 race cost. A factory story worker or bug fixer does not run `make check` or `make test`:
 it builds the repository, runs every package it changed completely (with
-`-race` only where that is fast), and lints them; the full suite belongs to
+`-race`, except `internal/store`, `internal/turn` and `internal/cli`, which run
+without it), and lints them; the full suite belongs to
 Validate. `gofmt -l .` must report nothing. `make lint` runs a pinned
 golangci-lint v2 against a v2 `.golangci.yml`; never an unpinned or v1 linter.
 Prefer `make build` only as the operator — see the prohibition above.
