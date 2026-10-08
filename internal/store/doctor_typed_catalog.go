@@ -1,15 +1,16 @@
 package store
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/cloudvane/litefactory/internal/agent"
+)
 
 // DoctorRepairToolKinds returns the closed typed repair catalog in stable order.
 // Legacy repair kinds are retained in the database for history, but are not
 // members of this catalog. The returned slice belongs to the caller.
 func DoctorRepairToolKinds() []string {
-	return []string{
-		"release_instance", "resume_story", "park_story", "stop_run",
-		"requeue_schedule", "cancel_schedule", "consume_comment", "sync_branch",
-	}
+	return agent.TypedRepairToolKinds()
 }
 
 // DoctorRepairToolKind distinguishes approved typed tools from retained legacy

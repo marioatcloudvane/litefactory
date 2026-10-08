@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// DoctorRepairIsolation is separately closed until exact repair-tool isolation
-// and authentication are observed for this binary. Diagnosis evidence is not
-// sufficient, and native filesystem/SQL/lifecycle operations remain forbidden.
+// DoctorRepairIsolation stays closed until the typed repair route is wired.
+// The scoped launcher disables native tools, but transport alone is not readiness.
 func (r *Runner) DoctorRepairIsolation(context.Context) (string, error) {
 	return "", agent.ErrDoctorIsolationUnverified
 }

@@ -29,7 +29,9 @@ func StartRepairBroker(ctx context.Context, directory, attempt string, results *
 				return nil, err
 			}
 			schema := json.RawMessage(`{"type":"object","properties":{"step":{"type":"integer","minimum":1,"maximum":30}},"required":["step"],"additionalProperties":false}`)
-			list.Tools = append(list.Tools, []submission.ToolSpec{{Name: "doctor_backup", Description: "Create and retain the exact declared original backup", InputSchema: schema}, {Name: "doctor_write", Description: "Apply only the immutable numbered step after all backups; never replay an uncertain write", InputSchema: schema}, {Name: "doctor_verify", Description: "Reread one step and return its durable state; no repair or restart", InputSchema: schema}}...)
+			for _, kind := range store.DoctorRepairToolKinds() {
+				list.Tools = append(list.Tools, submission.ToolSpec{Name: kind, Description: "Back up, apply and recheck the matching approved numbered repair", InputSchema: schema})
+			}
 			return json.Marshal(list)
 		}
 		if q.Method == "tools/call" {
@@ -37,8 +39,7 @@ func StartRepairBroker(ctx context.Context, directory, attempt string, results *
 			if err != nil {
 				return nil, err
 			}
-			switch call.Name {
-			case "doctor_backup", "doctor_write", "doctor_verify":
+			if store.DoctorRepairToolKind(call.Name) {
 				// Shared durable receipts are checked before any replay, including
 				// after authority was fenced. Tool and final-result IDs share one ledger.
 				if prior, replayErr := results.db.ReplayResultRequest(ctx, results.binding, q.RequestID, q.Payload); replayErr == nil {
@@ -59,22 +60,7 @@ func StartRepairBroker(ctx context.Context, directory, attempt string, results *
 				if input.Step < 1 || input.Step > 30 {
 					return nil, errors.New("doctor repair step outside manifest")
 				}
-				switch call.Name {
-				case "doctor_backup":
-					err = tools.Backup(ctx, input.Step)
-				case "doctor_write":
-					step, readErr := tools.step(ctx, input.Step)
-					switch {
-					case readErr != nil:
-						err = readErr
-					case step.State == "verified":
-						err = tools.Verify(ctx, input.Step)
-					default:
-						err = tools.Write(ctx, input.Step)
-					}
-				case "doctor_verify":
-					err = tools.Verify(ctx, input.Step)
-				}
+				_, err = tools.service.DB.ApplyDoctorTypedRows(ctx, tools.operation, input.Step, call.Name)
 				if err != nil {
 					return nil, err
 				}

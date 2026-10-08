@@ -56,6 +56,17 @@ func EvidenceHandle(r store.DoctorEvidenceRecord) string { return r.Kind + ":" +
 // ValidateDiagnosis refuses invented/foreign evidence and incomplete proposals.
 // File proposals remain unavailable until the collector can prove exact ownership.
 func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
+	for _, p := range d.Proposal {
+		if p.Action == nil || !store.DoctorRepairToolKind(p.Action.Kind) {
+			return errors.New("new doctor proposals require an exact typed repair tool")
+		}
+	}
+	return validateRetainedDiagnosis(d, e)
+}
+
+// validateRetainedDiagnosis reads previously accepted legacy proposals without
+// granting them admission as a newly submitted proposal.
+func validateRetainedDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 	if len(d.Findings) == 0 || len(d.Findings) > 30 || len(d.Proposal) > 30 || len(d.Questions) > 30 || len(d.CoverageGaps) > 100 {
 		return errors.New("doctor diagnosis exceeds collection bounds or has no findings")
 	}
@@ -72,7 +83,7 @@ func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 			if r.Identity != "" && (len(r.State) == 64 || r.State == absentFile) && repairableWorktreePath(r.ID) {
 				targets[EvidenceHandle(r)] = true
 			}
-		case "session_lock", "session", "run", "watermark", "schedule", "report", "report_recovery", "graph", "graph_attempt", "graph_dispatch", "owner_wait":
+		case "session_lock", "session", "run", "watermark", "schedule", "report", "report_recovery", "graph", "graph_attempt", "graph_dispatch", "owner_wait", "story", "comment":
 			targets[EvidenceHandle(r)] = true
 		}
 	}
@@ -123,7 +134,7 @@ func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 					return errors.New("invalid exact session file repair")
 				}
 			default:
-				if !store.DoctorRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
+				if !store.DoctorRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) && !store.DoctorTypedRowRepairTarget(p.Action.Kind, p.Target, p.Action.Before, p.Action.After) {
 					return errors.New("unsupported exact repair action")
 				}
 				observed := false
@@ -132,7 +143,7 @@ func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 					if p.Action.Kind == "poll_flag" {
 						state = strings.TrimPrefix(r.Content, "needs_poll=")
 					}
-					if EvidenceHandle(r) == p.Target && state == p.Action.Before {
+					if (EvidenceHandle(r) == p.Target || (p.Action.Kind == "consume_comment" && r.Kind == "watermark")) && state == p.Action.Before {
 						observed = true
 					}
 				}

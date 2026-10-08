@@ -9,7 +9,7 @@ import (
 
 func TestDoctorTypedRepairCatalog(t *testing.T) {
 	t.Parallel()
-	want := []string{"release_instance", "resume_story", "park_story", "stop_run", "requeue_schedule", "cancel_schedule", "consume_comment", "sync_branch"}
+	want := []string{"cancel_schedule", "consume_comment", "park_story", "release_instance", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
 	if got := DoctorRepairToolKinds(); !slices.Equal(got, want) {
 		t.Fatalf("catalog = %v, want %v", got, want)
 	}

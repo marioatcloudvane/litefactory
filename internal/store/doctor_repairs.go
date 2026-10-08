@@ -163,7 +163,7 @@ func reserveDoctorRepairTx(ctx context.Context, tx *sql.Tx, a DoctorApproval, ou
 				return errors.New("invalid doctor file target")
 			}
 		default:
-			if !DoctorRowRepairTarget(kind, step.Target, step.Action.Before, step.Action.After) {
+			if !DoctorRowRepairTarget(kind, step.Target, step.Action.Before, step.Action.After) && !DoctorTypedRowRepairTarget(kind, step.Target, step.Action.Before, step.Action.After) {
 				return errors.New("unsupported or unsafe doctor row repair")
 			}
 			state, _, e := doctorRowSnapshot(ctx, tx, a.TaskRef, kind, step.Target)

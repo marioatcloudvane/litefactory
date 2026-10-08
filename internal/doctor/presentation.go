@@ -38,11 +38,22 @@ func RenderConversation(c Conversation) string {
 	}
 	if c.Repair != nil {
 		fmt.Fprintf(&body, "\nRepair %s: %s\n", c.Repair.ID, c.Repair.State)
+		outcome := "rechecked"
+		if c.Repair.Failure != "" || c.Repair.State == "stopped" || c.Repair.State == "needs_review" {
+			outcome = "failed"
+		} else if c.Repair.State == "recovered" {
+			outcome = "worked"
+		}
+		fmt.Fprintf(&body, "Overall: %s\n", outcome)
 		if c.Repair.Failure != "" {
 			fmt.Fprintf(&body, "Unresolved: %s\n", c.Repair.Failure)
 		}
 		for _, step := range c.RepairSteps {
-			fmt.Fprintf(&body, "Step %d: %s; backup: %s\n", step.Number, step.State, step.BackupReference)
+			recheck := "not completed"
+			if step.State == "verified" {
+				recheck = "passed: " + step.ObservedAfter
+			}
+			fmt.Fprintf(&body, "Step %d: %s; backup: %s; recheck: %s\n", step.Number, step.State, step.BackupReference, recheck)
 		}
 		if c.Restart != nil {
 			fmt.Fprintf(&body, "Restart: %s\n%s\n", c.Restart.State, c.Restart.Report)

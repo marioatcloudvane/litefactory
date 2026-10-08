@@ -54,6 +54,9 @@ func DoctorRowRepairTarget(kind, target, before, after string) bool {
 var doctorRowPrefixes = map[string]string{"poll_flag": "session", "run_interrupt": "run", "session_unlock": "session_lock", "report_completion": "report", "watermark_rewind": "watermark", "graph_dispatch_cancel": "graph_dispatch", "graph_wait_cancel": "owner_wait", "graph_attempt_cancel": "graph_attempt", "graph_fail": "graph"}
 
 func doctorRowSnapshot(ctx context.Context, tx *sql.Tx, ref, kind, target string) (state string, backup []byte, err error) {
+	if _, ok := doctorTypedPrefixes[kind]; ok {
+		return doctorTypedRowSnapshot(ctx, tx, ref, kind, target)
+	}
 	prefix, ok := doctorRowPrefixes[kind]
 	if !ok || !strings.HasPrefix(target, prefix+":") {
 		return "", nil, errors.New("unsupported doctor row target")

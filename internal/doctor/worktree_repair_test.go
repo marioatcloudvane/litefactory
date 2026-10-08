@@ -55,13 +55,7 @@ func worktreeRepairFixture(t *testing.T, absent bool) (*Service, naming.Ref, str
 	}
 	handle := EvidenceHandle(evidence.Records[0])
 	input := ResultInput{ExpectedRevision: 1, Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "The issue-owned changed file needs correction", Uncertainty: "Only selected local file observed", Evidence: []string{handle}}}, Proposal: []RepairStep{{Number: 1, Target: handle, Precondition: evidence.Records[0].State, Change: "Use reviewed replacement bytes", Reason: "Recover issue file", Reversibility: "Restore exact recorded original existence", Rollback: "Use retained manifest bytes/mode/existence", Action: &store.DoctorRepairAction{Kind: "worktree_file", Before: evidence.Records[0].State, After: "approved new worktree bytes"}}}}}
-	payload, _ := json.Marshal(input)
-	if _, err = results.Submit(ctx, "worktree-proposal", payload); err != nil {
-		t.Fatal(err)
-	}
-	if err = results.Adopt(ctx, "worktree-proposal"); err != nil {
-		t.Fatal(err)
-	}
+	retainLegacyRepairDiagnosis(t, results, "worktree-proposal", input)
 	pid, _, err := s.DB.DoctorProposalReference(ctx, c.ID)
 	if err != nil {
 		t.Fatal(err)
