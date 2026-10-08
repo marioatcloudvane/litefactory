@@ -10,7 +10,7 @@ import (
 
 func TestActivityCatalogOptionalKindEnum(t *testing.T) {
 	t.Parallel()
-	profile, err := submission.NewFamilyToolProfile("implement", false, []string{"activity_update"})
+	profile, err := submission.NewFamilyToolProfile("implement", []string{"activity_update"})
 	if err != nil {
 		t.Fatal(err)
 	}
