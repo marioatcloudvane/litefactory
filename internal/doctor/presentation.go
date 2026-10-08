@@ -39,9 +39,9 @@ func RenderConversation(c Conversation) string {
 	if c.Repair != nil {
 		fmt.Fprintf(&body, "\nRepair %s: %s\n", c.Repair.ID, c.Repair.State)
 		outcome := "rechecked"
-		if c.Repair.Failure != "" || c.Repair.State == "stopped" || c.Repair.State == "needs_review" {
+		if c.Repair.Failure != "" || c.Repair.State == "stopped" || c.Repair.State == "needs_review" || c.Repair.State == "failed" {
 			outcome = "failed"
-		} else if c.Repair.State == "recovered" {
+		} else if c.Repair.State == "recovered" || c.Repair.State == "completed" {
 			outcome = "worked"
 		}
 		fmt.Fprintf(&body, "Overall: %s\n", outcome)
@@ -60,7 +60,8 @@ func RenderConversation(c Conversation) string {
 		}
 	}
 
-	if !c.ApplyAvailable {
+	terminalTypedRepair := c.Repair != nil && (c.Repair.State == "completed" || c.Repair.State == "failed")
+	if !c.ApplyAvailable && !terminalTypedRepair {
 		body.WriteString("\nApply is unavailable. No repair or restart was performed by diagnosis.\n")
 	}
 	body.WriteString("\nContinue with /doctor <instructions>; end the conversation with /doctor stop.\n")

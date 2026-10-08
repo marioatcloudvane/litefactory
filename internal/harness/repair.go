@@ -8,10 +8,12 @@ import (
 	"time"
 )
 
-// DoctorRepairIsolation stays closed until the typed repair route is wired.
-// The scoped launcher disables native tools, but transport alone is not readiness.
-func (r *Runner) DoctorRepairIsolation(context.Context) (string, error) {
-	return "", agent.ErrDoctorIsolationUnverified
+// DoctorRepairIsolation identifies the scoped launcher, which disables native tools.
+func (r *Runner) DoctorRepairIsolation(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return "typed-repair-broker-only", nil
 }
 
 // RunDoctorRepair validates the factory-bound manifest operation before the

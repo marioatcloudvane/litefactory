@@ -241,7 +241,7 @@ func (db *DB) ApplyDoctorConsumeComment(ctx context.Context, id string, number i
 			out = s
 			return nil
 		}
-		if s.State != "pending" || current != s.Before || d.Completed {
+		if (s.State != "pending" && s.State != "backed_up") || current != s.Before || d.Completed {
 			return errors.New("doctor consume precondition changed")
 		}
 		var n int

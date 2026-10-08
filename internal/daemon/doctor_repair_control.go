@@ -53,6 +53,9 @@ func (d *Daemon) DrainDoctorTarget(ctx context.Context, ref naming.Ref, repairID
 	if !held || operation.ID != repairID || operation.Fenced {
 		return "", errors.New("doctor target lacks active repair hold")
 	}
+	if err := d.db.CheckDoctorTargetStopped(ctx, ref.String()); err != nil {
+		return "", err
+	}
 	target, err := d.db.GetSessionByTaskRef(ctx, ref.String())
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err

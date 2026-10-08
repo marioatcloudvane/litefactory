@@ -147,6 +147,25 @@ func reserveDoctorRepairTx(ctx context.Context, tx *sql.Tx, a DoctorApproval, ou
 		kind := step.Action.Kind
 		sourceIdentity := ""
 		switch kind {
+		case "sync_branch":
+			if !DoctorBranchRepairTarget(step.Target, step.Action.Before, step.Action.After) {
+				return errors.New("invalid approved branch synchronization")
+			}
+			var branch string
+			if e := tx.QueryRowContext(ctx, `SELECT branch FROM sessions WHERE task_ref=?`, a.TaskRef).Scan(&branch); e != nil {
+				return e
+			}
+			if step.Target != "branch:"+branch {
+				return errors.New("branch repair belongs to another session")
+			}
+			for _, record := range evidence.Records {
+				if record.Kind == "branch" && "branch:"+record.ID == step.Target && record.State == step.Action.Before && record.Identity == step.Action.After {
+					sourceIdentity = record.Identity
+				}
+			}
+			if sourceIdentity == "" {
+				return errors.New("branch repair inputs were not captured")
+			}
 		case "session_file", "worktree_file":
 			if len(step.Action.After) > 32768 {
 				return errors.New("doctor file replacement exceeds bound")

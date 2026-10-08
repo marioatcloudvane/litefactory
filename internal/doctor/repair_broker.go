@@ -55,10 +55,8 @@ func StartRepairBroker(ctx context.Context, directory, attempt string, results *
 					Step int `json:"step"`
 				}
 				if err = submission.DecodeJSON(call.Arguments, &input); err != nil {
-					return nil, err
-				}
-				if input.Step < 1 || input.Step > 30 {
-					return nil, errors.New("doctor repair step outside manifest")
+					_, refusal := tools.ApplyTyped(ctx, 0, call.Name)
+					return nil, errors.Join(err, refusal)
 				}
 				_, err = tools.ApplyTyped(ctx, input.Step, call.Name)
 				if err != nil {

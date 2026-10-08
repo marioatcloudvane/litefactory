@@ -39,6 +39,7 @@ type Service struct {
 	RestartRoute      RestartRoute
 	RepairEnvironment RepairEnvironment
 	RepairRunner      RepairRunner
+	RepairEffects     RepairEffects
 	mu                sync.Mutex
 	active            map[string]activeInvocation
 	DB                *store.DB
@@ -239,7 +240,7 @@ func (s *Service) ReadConversation(ctx context.Context, ref naming.Ref) (Convers
 	if err != nil {
 		return out, err
 	}
-	out = Conversation{ProposalID: proposalID, Conversation: c, Attempts: attempts, Diagnosis: diagnosis, CurrentProposal: proposal, HistoryWindow: "Latest 30 attempts in this generation; earlier history remains retained", ApplyAvailable: false}
+	out = Conversation{ProposalID: proposalID, Conversation: c, Attempts: attempts, Diagnosis: diagnosis, CurrentProposal: proposal, HistoryWindow: "Latest 30 attempts in this generation; earlier history remains retained", ApplyAvailable: s.CheckRepairCapability(ctx, ref) == nil}
 	repair, repairErr := s.DB.ReadDoctorRepair(ctx, ref.String())
 	if repairErr != nil && !errors.Is(repairErr, store.ErrNotFound) {
 		return out, repairErr

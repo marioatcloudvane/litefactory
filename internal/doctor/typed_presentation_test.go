@@ -12,6 +12,8 @@ func TestTypedRepairOutcomePresentation(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct{ state, failure, overall string }{
 		{"recovered", "", "worked"},
+		{"completed", "", "worked"},
+		{"failed", "Interrupted typed repair", "failed"},
 		{"stopped", "Tool refused drift", "failed"},
 		{"needs_review", "Interrupted effect", "failed"},
 		{"restart_pending", "", "rechecked"},
@@ -28,5 +30,15 @@ func TestTypedRepairOutcomePresentation(t *testing.T) {
 				t.Fatal("available repair presented as unavailable")
 			}
 		})
+	}
+}
+
+func TestRetainedTypedRepairOutcomeDoesNotAdvertiseUnavailableApply(t *testing.T) {
+	t.Parallel()
+	for _, state := range []string{"completed", "failed"} {
+		body := doctor.RenderConversation(doctor.Conversation{Repair: &store.DoctorRepair{State: state}})
+		if strings.Contains(body, "Apply is unavailable") {
+			t.Fatalf("retained %s outcome advertises unavailable apply", state)
+		}
 	}
 }

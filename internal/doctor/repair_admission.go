@@ -11,7 +11,7 @@ import (
 // CheckRepairCapability verifies installed isolation and lifecycle support before
 // admitting approval. It grants no agent authority and writes no workflow state.
 func (s *Service) CheckRepairCapability(ctx context.Context, ref naming.Ref) error {
-	if s.RepairEnvironment == nil || s.RepairRunner == nil || s.RestartRoute == nil {
+	if s.RepairEnvironment == nil || s.RepairRunner == nil {
 		return errors.New("doctor apply unavailable: verified provider and lifecycle capabilities are not installed")
 	}
 	evidence, err := s.DB.ReadDoctorEvidence(ctx, ref)

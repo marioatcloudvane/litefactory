@@ -83,7 +83,7 @@ func validateRetainedDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 			if r.Identity != "" && (len(r.State) == 64 || r.State == absentFile) && repairableWorktreePath(r.ID) {
 				targets[EvidenceHandle(r)] = true
 			}
-		case "session_lock", "session", "run", "watermark", "schedule", "report", "report_recovery", "graph", "graph_attempt", "graph_dispatch", "owner_wait", "story", "comment":
+		case "branch", "session_lock", "session", "run", "watermark", "schedule", "report", "report_recovery", "graph", "graph_attempt", "graph_dispatch", "owner_wait", "story", "comment":
 			targets[EvidenceHandle(r)] = true
 		}
 	}
@@ -127,6 +127,19 @@ func validateRetainedDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 		}
 		if p.Action != nil {
 			switch p.Action.Kind {
+			case "sync_branch":
+				if !store.DoctorBranchRepairTarget(p.Target, p.Action.Before, p.Action.After) {
+					return errors.New("invalid branch repair action")
+				}
+				matched := false
+				for _, r := range e.Records {
+					if r.Kind == "branch" && EvidenceHandle(r) == p.Target && r.State == p.Action.Before && r.Identity == p.Action.After {
+						matched = true
+					}
+				}
+				if !matched {
+					return errors.New("branch repair inputs were not observed")
+				}
 			case "session_file", "worktree_file":
 				matched := false
 				for _, r := range e.Records {
