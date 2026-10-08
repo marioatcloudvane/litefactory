@@ -436,6 +436,13 @@ func (r *BugRuntime) reconcileGraphBug(ctx context.Context) error {
 func (r *BugRuntime) reconcileGraphBugInstance(ctx context.Context, instance store.GraphInstance) error {
 	local := *r
 	r = &local
+	if instance.Status == store.GraphSucceeded {
+		// A finished instance only owes its completion report; its retained
+		// capture (which may predate captures or the current Bug graph) is not
+		// needed for that.
+		_, e := r.opts.ResearchReporter.ReportGraphDeliveryCompletion(ctx, instance.ID)
+		return e
+	}
 	specs, e := SimplifiedBugSpecs()
 	if e != nil {
 		return e
