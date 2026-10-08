@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -63,19 +62,6 @@ func TestReportRecoveryMigrationRestartAndResolution(t *testing.T) {
 	if err != nil || len(all) != 1 || !reflect.DeepEqual(all[0], escalated) {
 		t.Fatalf("restored=%+v %v", all, err)
 	}
-	if err := db.DeleteReportRecovery(t.Context(), initial.Key); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.GetReportRecovery(t.Context(), initial.Key); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("resolved row retained: %v", err)
-	}
-	if err := db.DeleteReportRecovery(t.Context(), initial.Key); err != nil {
-		t.Fatal(err)
-	}
-	all, err = db.ListReportRecoveries(t.Context())
-	if err != nil || len(all) != 0 {
-		t.Fatalf("resolved backlog=%+v %v", all, err)
-	}
 }
 
 func TestReportRecoverySourceIsolationAndFailedWrites(t *testing.T) {
@@ -109,15 +95,6 @@ func TestReportRecoverySourceIsolationAndFailedWrites(t *testing.T) {
 	}
 	if err := db.PutReportRecovery(t.Context(), changed); err != nil {
 		t.Fatal(err)
-	}
-	cancelled, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := db.DeleteReportRecovery(cancelled, initial.Key); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled delete=%v", err)
-	}
-	current, err = db.GetReportRecovery(t.Context(), initial.Key)
-	if err != nil || !reflect.DeepEqual(current, changed) {
-		t.Fatalf("failed delete lost debt=%+v %v", current, err)
 	}
 }
 
@@ -156,5 +133,29 @@ func TestReportRecoveryRetainsStoppedRunAndSourceOnlyDebt(t *testing.T) {
 	wm, _, err := db.GetWatermark(t.Context(), session.ID)
 	if err != nil || wm.LastCommentID != 0 {
 		t.Fatalf("scheduling consumed source=%+v %v", wm, err)
+	}
+}
+
+func TestDeleteReportRecoveryIsIdempotentAndKeyScoped(t *testing.T) {
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+	source := ReportRecovery{Key: "source:123:55", SessionID: session.ID, TriggerID: 55, State: "uncertain", NextAt: time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC), Attempts: 4, Escalated: true}
+	completed := source
+	completed.Key, completed.State = "creation:"+source.Key, "resolved"
+	for _, row := range []ReportRecovery{source, completed} {
+		if err := db.PutReportRecovery(t.Context(), row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := db.DeleteReportRecovery(t.Context(), completed.Key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.GetReportRecovery(t.Context(), completed.Key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("completed row retained: %v", err)
+	}
+	if row, err := db.GetReportRecovery(t.Context(), source.Key); err != nil || row != source {
+		t.Fatalf("unrelated debt changed: %+v %v", row, err)
 	}
 }

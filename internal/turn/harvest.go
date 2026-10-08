@@ -157,6 +157,9 @@ func harvestStopped(ctx context.Context, opts Options, prep *preparation, result
 		return result, fmt.Errorf("finish run %d of task %s: %w", prep.run.Ordinal, prep.ref, err)
 	}
 	result.Run = run
+	if _, stopped := run.OwnerStop(); stopped {
+		result.Reason = store.ReasonOwnerStop
+	}
 	terminalSaved = true
 
 	// A local factory fault surfaced only after the subprocess above already
@@ -436,6 +439,13 @@ func save(
 	if prep.promptInput.Validation != nil {
 		return result
 	}
+	if _, stopped := result.Run.OwnerStop(); stopped {
+		if prep.request.Permissions.Profile == "bug-analyst" {
+			return result
+		}
+		return commitAndPush(context.WithoutCancel(ctx), opts, prep, result, runResult, logger)
+	}
+
 	// An abandoned run is the daemon shutting down: its context is cancelled, the
 	// push cannot run and the work is safe in the worktree until the next run.
 	if prep.alwaysCommits() && runResult.Outcome != agent.OutcomeAbandoned {

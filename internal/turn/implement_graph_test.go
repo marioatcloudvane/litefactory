@@ -311,6 +311,11 @@ func TestImplementResumeRestartsThroughReadyWithinTheCap(t *testing.T) {
 	if len(out.Started) != store.MaxImplementRunning || out.Running != store.MaxImplementRunning || len(out.Waiting) != 2 {
 		t.Fatalf("resumed stories restart through ready within the cap of four: %+v", out)
 	}
+	for _, key := range []string{"story-005", "story-006"} {
+		if got := f.row(key); got.State != store.ImplementWaiting || got.Guidance != "retry all" {
+			t.Fatalf("capacity-blocked guidance lost: %+v", got)
+		}
+	}
 }
 
 func TestNamesStoryMatchesWholeKeysOnly(t *testing.T) {
@@ -489,5 +494,49 @@ func TestImplementNodeDecoderIsSubmitTimeOnly(t *testing.T) {
 	}
 	if _, d := agentresult.DecodeImplementNode([]byte(good), agentresult.Context{Mode: "spike"}); d.Valid {
 		t.Error("another mode accepted")
+	}
+}
+
+func TestImplementEarlyReplyEligibilityAndUnusableTargets(t *testing.T) {
+	for _, tc := range []struct {
+		name, body  string
+		trigger     int64
+		park        bool
+		wantRefusal bool
+	}{
+		{"running target", "story-001: change API", 91, true, true},
+		{"merged target", "story-001: change API", 91, true, true},
+		{"no parked targets", "please retry", 91, false, true},
+		{"command", "/implement story-002", 91, true, false},
+		{"issue body", "story-002", 0, true, false},
+		{"private dispatch", "story-002", store.GraphDispatch{ID: 1}.TriggerID(), true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newImplementWorkerFixture(t)
+			f.rt.worker = nil
+			if tc.name == "merged target" {
+				f.drive("story-001", store.ImplementMerged, implementClock)
+			}
+			if tc.park {
+				f.drive("story-002", store.ImplementRunning, implementClock)
+				f.drive("story-002", store.ImplementParked, implementClock)
+			}
+			before := f.row("story-002")
+			f.rt.req = Request{SessionID: f.session.ID, Trigger: Trigger{CommentID: tc.trigger, Body: tc.body}}
+			pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64)})
+			mustProgress(t, err)
+			instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: pin.ID, CurrentNode: "await", StartedAt: implementClock})
+			mustProgress(t, err)
+			err = f.rt.checkEarlyReply(t.Context())
+			if err == nil {
+				err = f.rt.applyReply(t.Context(), instance)
+			}
+			if errors.Is(err, ErrImplementReplyNotApplied) != tc.wantRefusal || (err != nil && !tc.wantRefusal) {
+				t.Fatalf("reply error: %v", err)
+			}
+			if got := f.row("story-002"); got.Revision != before.Revision || got.Guidance != before.Guidance {
+				t.Fatalf("unusable input changed story: %+v", got)
+			}
+		})
 	}
 }

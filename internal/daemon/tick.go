@@ -2246,11 +2246,11 @@ func (d *Daemon) run(
 					slog.Any("error", err))
 				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
 			}
-			// A plain Research comment refused because the wait already holds
+			// A plain Research or Implement comment refused because the wait holds
 			// another reply is answered and consumed. Explicit commands keep retry.
-			if errors.Is(err, store.ErrGraphOwnerWait) && mode == agent.ModeResearch &&
+			if errors.Is(err, store.ErrGraphOwnerWait) && (mode == agent.ModeResearch || (mode == agent.ModeImplement && command.Name == "")) &&
 				workflow != agent.WorkflowBug && command.Kind == turn.KindFreeText {
-				log.InfoContext(ctx, "Research owner comment refused while the wait holds another reply; refusing it with a reply",
+				log.InfoContext(ctx, "Owner comment refused while the wait holds another reply; refusing it with a reply",
 					slog.Any("error", err))
 				return d.refuseMode(ctx, t, trigger, report.ReplyGraphOwnerWaitRefused)
 			}
@@ -2295,10 +2295,21 @@ func (d *Daemon) run(
 		}
 		return d.leave(ctx, t, log, "stopped outcome requires repair", &recoveryPending{err})
 	}
+	if _, stopped := turnResult.Run.OwnerStop(); stopped {
+		t.recordWorkerStatus(workerCancelled)
+		if trigger.CommentID == 0 {
+			return nil
+		}
+		_, consumeErr := d.reporter.Consume(context.WithoutCancel(ctx), t.session.ID, trigger.CommentID)
+		return consumeErr
+	}
 	if turnResult.Outcome == agent.OutcomeAbandoned {
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
+		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && errors.Is(err, turn.ErrImplementReplyNotApplied) {
+			return d.refuseMode(ctx, t, trigger, report.ReplyImplementCommentNotApplied)
+		}
 		// A Bug owner comment written before the open review or question can
 		// never answer it; refuse it once and consume it, as for Research.
 		if workflow == agent.WorkflowBug && errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
@@ -2632,9 +2643,9 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	d.rateLimited(ctx, log, t.tickAt, err)
 	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 		slog.Any("error", err))
-	if store.IsGraphTrigger(t.commentUnderWay) {
-		// Dispatch failure needs its actual cause for bounded retry and the
-		// durable stop notice; it has no owner-comment drain to retain it.
+	if store.IsGraphTrigger(t.commentUnderWay) || t.scheduled != nil {
+		// Dispatches and schedules need the actual cause for accounting and
+		// bounded retry; no owner-comment drain retains their errors.
 		return err
 	}
 	return nil

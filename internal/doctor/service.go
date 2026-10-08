@@ -280,17 +280,29 @@ func (s *Service) ReadConversation(ctx context.Context, ref naming.Ref) (Convers
 	return out, nil
 }
 
-// Stop fences pending doctor results without cancelling ordinary workflow work.
+// Stop requests cancellation of issue work and fences pending doctor results.
 func (s *Service) Stop(ctx context.Context, ref naming.Ref) error {
+	_, err := s.StopIssue(ctx, ref)
+	return err
+}
+
+// StopIssue retains the local stop source without admitting a GitHub command.
+func (s *Service) StopIssue(ctx context.Context, ref naming.Ref) (store.OwnerStop, error) {
+	var stop store.OwnerStop
 	ref = canonicalTarget(ref)
 	if err := s.validate(ctx, ref); err != nil {
-		return err
+		return stop, err
+	}
+	var err error
+	stop, err = s.DB.RequestOwnerStop(ctx, ref.String())
+	if err != nil {
+		return stop, err
 	}
 	if err := s.stopRepair(ctx, ref, "Owner stopped repair"); err != nil {
-		return err
+		return stop, err
 	}
 	if err := s.DB.StopDoctorConversation(ctx, ref.String()); err != nil {
-		return err
+		return stop, err
 	}
 	s.mu.Lock()
 	active := s.active[ref.String()]
@@ -298,7 +310,7 @@ func (s *Service) Stop(ctx context.Context, ref naming.Ref) error {
 	if active.cancel != nil {
 		active.cancel()
 	}
-	return nil
+	return stop, nil
 }
 
 func randomID() string { return rand.Text() }
@@ -438,4 +450,31 @@ func (s *Service) CancelStopped(ctx context.Context, ref naming.Ref) error {
 		active.cancel()
 	}
 	return nil
+}
+
+// StopSummary identifies the work selected by a settled stop request.
+func StopSummary(stop store.OwnerStop) string {
+	switch {
+	case stop.RunID != 0 && stop.Conversation:
+		return "Workflow and doctor conversation stopped by the owner. Worktree and history retained."
+	case stop.RunID != 0:
+		return "Workflow stopped by the owner. Worktree retained."
+	case stop.Conversation:
+		return "Doctor conversation stopped by the owner. History retained."
+	default:
+		return "Nothing was running."
+	}
+}
+
+// StopRunSummary keeps save/publication uncertainty visible after execution ends.
+func StopRunSummary(run store.Run) string {
+	workflow := run.Workflow
+	if workflow == "" {
+		workflow = run.Mode
+	}
+	publication := run.Publication
+	if publication == "" {
+		publication = "Saving was not confirmed; retained work needs review."
+	}
+	return fmt.Sprintf("Run %d (%s). %s", run.Ordinal, workflow, publication)
 }

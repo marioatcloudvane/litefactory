@@ -1,13 +1,21 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"log/slog"
+	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -321,4 +329,225 @@ func TestDoctorRecoveryBudgetIsOneRetry(t *testing.T) {
 	if err != nil || len(reports) != 1 || !strings.Contains(reports[0].ResultBody, "interrupted twice") {
 		t.Fatalf("missing truthful failure %+v %v", reports, err)
 	}
+}
+
+func TestOwnerStopControlsAndReporting(t *testing.T) {
+	for _, source := range []string{"cli", "comment"} {
+		for _, shape := range []string{"workflow", "doctor", "both", "neither"} {
+			t.Run(source+"/"+shape, func(t *testing.T) {
+				d, forge, repo := doctorDaemonFixture(t)
+				ctx := t.Context()
+				check := func(err error) {
+					t.Helper()
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				ref, err := doctor.Target("acme/api", 406)
+				check(err)
+				var run store.Run
+				worker, cancel := context.WithCancel(ctx)
+				defer cancel()
+				other, otherCancel := context.WithCancel(ctx)
+				defer otherCancel()
+				d.inflight.enter(999)
+				d.inflight.bindCancel(999, otherCancel)
+				defer d.inflight.leave(999)
+				if shape == "workflow" || shape == "both" {
+					session, err := d.db.GetOrCreateSession(ctx, repo, 406)
+					check(err)
+					segment, err := d.db.GetOrCreateSegment(ctx, session.ID, 1, "implement", store.AgentClaude)
+					check(err)
+					run, err = d.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: store.AgentClaude, LogPath: func(int) string { return "fixture.log" }})
+					check(err)
+					d.inflight.enter(session.ID)
+					d.inflight.bindCancel(session.ID, cancel)
+				}
+				if shape == "doctor" || shape == "both" {
+					_, err := d.db.BeginDoctorAttempt(ctx, ref.String(), store.DoctorAttempt{ID: "active", SourceID: "test:active", OwnerText: "diagnose", PromptVersion: "test", GuideVersion: "test"})
+					check(err)
+				}
+				if !d.pool.try() {
+					t.Fatal("no worker slot")
+				}
+				defer d.pool.done()
+				if source == "cli" {
+					// Separate service, as used by the CLI, with no shared cancel map.
+					service := doctor.Service{DB: d.db, Paths: d.doctor.service.Paths, Config: d.doctor.service.Config, Redactor: d.doctor.service.Redactor}
+					stop, err := service.StopIssue(ctx, ref)
+					check(err)
+					if stop.RunID != run.ID || stop.Conversation != (shape == "doctor" || shape == "both") {
+						t.Fatalf("stop=%+v", stop)
+					}
+				} else {
+					_, err := d.admitDoctor(ctx, repo, forge.issue, doctorComment(12, "/doctor stop"))
+					check(err)
+				}
+				check(d.doctorControls(ctx))
+				if run.ID != 0 {
+					select {
+					case <-worker.Done():
+					case <-time.After(3 * time.Second):
+						t.Fatal("workflow not cancelled with pool full")
+					}
+					check(d.publishDoctor(ctx))
+					if len(forge.posts) != 0 {
+						t.Fatal("reported before settlement")
+					}
+					finished, err := d.db.FinishRun(ctx, run.ID, store.RunOutcome{Status: store.RunFailed, Error: "cancelled", SemanticOutcome: "abandoned"})
+					check(err)
+					if finished.Error != store.ReasonOwnerStop {
+						t.Fatalf("reason=%q", finished.Error)
+					}
+					check(d.db.SetRunPublication(ctx, run.ID, true, "Saved fixture work."))
+					d.inflight.leave(run.SessionID)
+					check(d.doctorControls(ctx))
+				}
+				if other.Err() != nil {
+					t.Fatal("unrelated worker cancelled")
+				}
+				check(d.publishDoctor(ctx))
+				check(d.publishDoctor(ctx))
+				if source == "cli" {
+					if len(forge.posts) != 0 {
+						t.Fatal("CLI stop posted")
+					}
+					return
+				}
+				if len(forge.posts) != 1 {
+					t.Fatalf("posts=%d", len(forge.posts))
+				}
+				body := forge.posts[0].Body
+				if shape == "neither" {
+					if !strings.Contains(body, "Nothing was running") {
+						t.Fatal(body)
+					}
+				} else {
+					if !strings.Contains(body, "Reply on this issue to resume") {
+						t.Fatal(body)
+					}
+					if run.ID != 0 && !strings.Contains(body, "Workflow") {
+						t.Fatal(body)
+					}
+					if (shape == "doctor" || shape == "both") && !strings.Contains(strings.ToLower(body), "doctor conversation") {
+						t.Fatal(body)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestOwnerStopTerminatesRunnerAndChild(t *testing.T) {
+	for _, source := range []string{"cli", "comment"} {
+		t.Run(source, func(t *testing.T) {
+			d, forge, repo := doctorDaemonFixture(t)
+			ctx := t.Context()
+			check := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			session, err := d.db.GetOrCreateSession(ctx, repo, 406)
+			check(err)
+			segment, err := d.db.GetOrCreateSegment(ctx, session.ID, 1, "implement", store.AgentClaude)
+			check(err)
+			run, err := d.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: store.AgentClaude, LogPath: func(int) string { return "fixture.log" }})
+			check(err)
+			listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1")})
+			check(err)
+			defer listener.Close()
+			check(listener.SetDeadline(time.Now().Add(20 * time.Second)))
+			root := t.TempDir()
+			script := filepath.Join(root, "claude")
+			address, ok := listener.Addr().(*net.TCPAddr)
+			if !ok {
+				t.Fatal("fixture listener is not TCP")
+			}
+			body := fmt.Sprintf("#!/bin/sh\n/bin/sleep 120 &\nchild=$!\nprintf '%%s %%s\\n' \"$$\" \"$child\" | /usr/bin/nc 127.0.0.1 %d\nwait\n", address.Port)
+			check(os.WriteFile(script, []byte(body), 0700))
+			runner, err := harness.New(harness.Options{Paths: config.NewPaths(filepath.Join(root, "home")), Claude: config.Claude{Binary: script, Tools: []string{"Read"}, AllowedTools: []string{"Read"}, SettingsPath: filepath.Join(root, "settings.json"), TimeoutSeconds: 60}, Model: config.DefaultClaudeModel, Environ: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "USER=fixture"}, Logger: d.log})
+			check(err)
+			worker, cancel := context.WithCancel(ctx)
+			defer cancel()
+			d.inflight.enter(session.ID)
+			d.inflight.bindCancel(session.ID, cancel)
+			done := make(chan error, 1)
+			if !d.pool.try() {
+				t.Fatal("workflow slot unavailable")
+			}
+			// One fixture worker, joined below and bounded by its runner timeout.
+			go func() {
+				defer d.pool.done()
+				defer d.inflight.leave(session.ID)
+				result, err := runner.Run(worker, agent.Request{Ref: mustDoctorTarget(t), Mode: "implement", RunOrdinal: 1, SegmentOrdinal: 1, Session: agent.SessionRef{Ref: "6f2a1c3d-9e4b-5a7c-8d1e-2f3a4b5c6d7e"}, WorktreePath: root, Prompt: "controlled cancellation"})
+				if err == nil && (result == nil || result.Outcome != agent.OutcomeAbandoned) {
+					err = fmt.Errorf("runner did not abandon: %+v", result)
+				}
+				if err == nil {
+					_, err = d.db.FinishRun(context.WithoutCancel(ctx), run.ID, store.RunOutcome{Status: store.RunFailed, Error: result.Reason, SemanticOutcome: result.Outcome.String()})
+				}
+				done <- err
+			}()
+			conn, err := listener.AcceptTCP()
+			if err != nil {
+				select {
+				case runnerErr := <-done:
+					t.Fatalf("runner before readiness: %v", runnerErr)
+				default:
+					t.Fatal(err)
+				}
+			}
+
+			check(conn.SetReadDeadline(time.Now().Add(20 * time.Second)))
+			line, err := bufio.NewReader(conn).ReadString('\n')
+			check(err)
+			check(conn.Close())
+			var parent, child int
+			_, err = fmt.Sscanf(line, "%d %d", &parent, &child)
+			check(err)
+			if source == "cli" {
+				_, err = d.doctor.service.StopIssue(ctx, mustDoctorTarget(t))
+				check(err)
+			} else {
+				_, err = d.admitDoctor(ctx, repo, forge.issue, doctorComment(12, "/doctor stop"))
+				check(err)
+			}
+			check(d.doctorControls(ctx))
+			select {
+			case err := <-done:
+				check(err)
+			case <-time.After(20 * time.Second):
+				t.Fatal("runner did not settle")
+			}
+			settled, stopWaiting := context.WithTimeout(ctx, 3*time.Second)
+			defer stopWaiting()
+			check(d.inflight.drain(settled, session.ID, false))
+			check(d.pool.quiesce(settled))
+			for _, pid := range []int{parent, child} {
+				if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+					t.Fatalf("process %d remains or could not be checked: %v", pid, err)
+				}
+			}
+
+			check(d.doctorControls(ctx))
+			check(d.publishDoctor(ctx))
+			if source == "cli" && len(forge.posts) != 0 {
+				t.Fatal("CLI posted")
+			}
+			if source == "comment" && len(forge.posts) != 1 {
+				t.Fatalf("posts=%d", len(forge.posts))
+			}
+		})
+	}
+}
+
+func mustDoctorTarget(t *testing.T) naming.Ref {
+	t.Helper()
+	ref, err := doctor.Target("acme/api", 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
 }

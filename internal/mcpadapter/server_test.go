@@ -97,6 +97,14 @@ func (p *pipeSession) send(t *testing.T, data string) {
 }
 func (p *pipeSession) read(t *testing.T) wireResponse {
 	t.Helper()
+	return p.readWithin(t, 3*time.Second)
+}
+
+// readWithin is read with its own deadline, for a response whose work grows
+// with the input (a 4 MiB argument takes seconds to parse under -race on a
+// loaded machine).
+func (p *pipeSession) readWithin(t *testing.T, limit time.Duration) wireResponse {
+	t.Helper()
 	select {
 	case data := <-p.messages:
 		var r wireResponse
@@ -104,7 +112,7 @@ func (p *pipeSession) read(t *testing.T) wireResponse {
 			t.Fatalf("stdout is not pure protocol JSON: %q %v", data, err)
 		}
 		return r
-	case <-time.After(3 * time.Second):
+	case <-time.After(limit):
 		t.Fatal("protocol response timeout")
 		return wireResponse{}
 	}
@@ -378,7 +386,7 @@ func TestMCPServer_SizeBounds(t *testing.T) {
 		}}, true)
 		p.handshake(t, mcpadapter.ProtocolVersion)
 		p.send(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"communication_submit","arguments":`+arguments+`}}`)
-		if r := p.read(t); r.Error != nil || !intact.Load() {
+		if r := p.readWithin(t, 30*time.Second); r.Error != nil || !intact.Load() {
 			t.Fatalf("full contribution rejected or altered: %+v", r)
 		}
 	})

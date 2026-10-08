@@ -58,9 +58,13 @@ modes, lifecycle, managed stories, Plan continuation and the story protocol are 
 ## Build, test, lint
 
 `go build ./...` and `go vet ./...` are safe any time. `make check` runs
-`fmt vet lint test` in order, stops at the first failure, and is what CI
-enforces — run it before calling a change finished. `make test` is the full
-suite with `-race`. `gofmt -l .` must report nothing. `make lint` runs a pinned
+`fmt vet lint test` in order, stops at the first failure, and is what CI and
+Validate enforce. `make test` is the full suite with `-race`; on the shared
+factory machine it takes over an hour and fails on timing under load. A
+factory story worker or bug fixer does not run `make check` or `make test`:
+it builds the repository, runs every package it changed completely (with
+`-race` only where that is fast), and lints them; the full suite belongs to
+Validate. `gofmt -l .` must report nothing. `make lint` runs a pinned
 golangci-lint v2 against a v2 `.golangci.yml`; never an unpinned or v1 linter.
 Prefer `make build` only as the operator — see the prohibition above.
 
@@ -71,10 +75,19 @@ Prefer `make build` only as the operator — see the prohibition above.
 - Driver is `modernc.org/sqlite`, driver name `"sqlite"` (not `"sqlite3"`). The
   pool is capped at **one** connection: a correctness requirement, not a tuning
   knob — read `internal/store/store.go`'s doc comment before changing it.
-- Migrations are hand-rolled and embedded: `internal/store/migrations/NNNN_*.sql`
+- Migrations are hand-rolled and embedded: `internal/store/migrations/*.sql`
   via `//go:embed`, one transaction per file, version from the filename prefix,
   recorded in `schema_migrations`. A schema change is a new `.sql` file and
   nothing else — no migration library.
+- New migrations use a fresh UTC millisecond timestamp per file:
+  `YYYYMMDDHHMMSSmmm_description.sql` (for example,
+  `20261007130500123_example.sql`), never the local maximum plus one.
+  Check the local directory for duplicate numeric prefixes before writing;
+  timestamps reduce collisions but do not guarantee uniqueness. Give dependent
+  migrations increasing versions in dependency order; timestamps do not validate
+  SQL dependencies. Keep historical/applied filenames unchanged. If Implement
+  parks a migration conflict, rename only the story's new, unapplied migration
+  and recheck against current integration when the owner resumes the story.
 - `store.Open` does not migrate; call `store.Migrate` explicitly. Every accessor
   takes `ctx` first.
 

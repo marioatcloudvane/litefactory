@@ -374,3 +374,36 @@ func (db *DB) CountFailedImplementInstances(ctx context.Context, session int64, 
 	}
 	return n, nil
 }
+
+// FailImplementWorkerInstance retains an infrastructure cause and terminalizes
+// its instance together, without spending the post-process repair budget.
+func (db *DB) FailImplementWorkerInstance(ctx context.Context, instanceID int64, reason string, at time.Time) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" || len(reason) > maxImplementReason || at.IsZero() {
+		return errors.New("store: invalid implement infrastructure failure")
+	}
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		instance, err := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, instanceID))
+		if err != nil {
+			return err
+		}
+		if instance.Status != GraphRunning && instance.Status != GraphFailed {
+			return ErrGraphInstanceTerminal
+		}
+		res, err := tx.ExecContext(ctx, `UPDATE implement_stories SET last_failure=?,revision=revision+1,updated_at=? WHERE worker_session=? AND state=? AND EXISTS (SELECT 1 FROM graph_definitions WHERE id=? AND mode='implement')`, reason, FormatTime(at), instance.SessionID, ImplementRunning, instance.DefinitionID)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return ErrImplementConflict
+		}
+		if instance.Status == GraphFailed {
+			return nil
+		}
+		return setGraphInstanceTx(ctx, tx, instance.ID, instance.CurrentNode, GraphFailed, time.Time{}, at)
+	})
+}

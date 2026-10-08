@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -55,5 +56,33 @@ func TestDoctorGuardedReportHeldTargetPreservesDebt(t *testing.T) {
 	}
 	if len(d.recoveries.items) != 0 {
 		t.Fatal("repair hold fabricated failure or resolved debt")
+	}
+}
+
+func TestReportRecoveryDoctorHeldResolvedRowCleansAfterRelease(t *testing.T) {
+	ctx := t.Context()
+	var row store.ReportRecovery
+	d, _, ref, _ := doctorHostFixtureBeforeApproval(t, func(db *store.DB, session store.Session) {
+		row = store.ReportRecovery{Key: recoveryKey(session.ID, 321), SessionID: session.ID, TriggerID: 321, State: "resolved", NextAt: time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)}
+		if err := db.PutReportRecovery(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := d.db.DeleteReportRecovery(ctx, row.Key); err == nil {
+		t.Fatal("delete bypassed doctor hold")
+	}
+	d.refreshRecoveries(ctx, row.NextAt)
+	if saved, err := d.db.GetReportRecovery(ctx, row.Key); err != nil || saved != row || !d.recoveries.dirty[row.Key] {
+		t.Fatalf("held history lost: %+v %v", saved, err)
+	}
+	if err := d.db.StopDoctorRepair(ctx, ref.String(), "fixture release"); err != nil {
+		t.Fatal(err)
+	}
+	d.refreshRecoveries(ctx, row.NextAt)
+	if _, err := d.db.GetReportRecovery(ctx, row.Key); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("released history retained: %v", err)
+	}
+	if len(d.recoveries.items) != 0 || len(d.recoveries.dirty) != 0 {
+		t.Fatal("released cache retained")
 	}
 }

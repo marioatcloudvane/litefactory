@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,8 +13,11 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 func TestGraphBugConcreteHostAnalystContinuationLeavesWorktreeAlone(t *testing.T) {
@@ -151,5 +155,174 @@ func TestGraphBugConcreteHostRefusesLegacyPinWithoutDispatchOrMutation(t *testin
 	mustProgress(t, err)
 	if string(saved) != "untouched old edits" {
 		t.Fatal("legacy work changed")
+	}
+}
+
+func TestOwnerStopBugFinalizerAndReplyChannel(t *testing.T) {
+	for _, source := range []string{"cli", "comment"} {
+		for _, role := range []string{"bug-fixer", "bug-analyst"} {
+			t.Run(source+"/"+role, func(t *testing.T) {
+				f, p, inst := approvedGraphRepairFixture(t)
+				ctx := t.Context()
+				segment, err := f.db.GetOrCreateSegment(ctx, f.session.ID, 2, "stop-fixer", store.AgentClaude)
+				mustProgress(t, err)
+				run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: 140, LogPath: func(int) string { return "stop.log" }})
+				mustProgress(t, err)
+				attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: inst.ID, Node: "fixer", RunID: run.ID, Limit: 3, StartedAt: f.opts.MCP.Now()})
+				mustProgress(t, err)
+				binary, err := git.Resolve(ctx)
+				mustProgress(t, err)
+				clone, err := binary.Open(ctx, f.repo.Dir)
+				mustProgress(t, err)
+				tree, err := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: filepath.Join(f.storeRepo.WorktreeRoot, "owner-stop"), Branch: "lf/owner-stop", BaseBranch: gittest.DefaultBranch})
+				mustProgress(t, err)
+				head, err := tree.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+				mustProgress(t, err)
+				mustProgress(t, os.WriteFile(filepath.Join(tree.Worktree.Path(), "unfinished.txt"), []byte("retain me\n"), 0600))
+				var stop store.OwnerStop
+				var command store.DoctorCommand
+				if source == "cli" {
+					stop, err = f.db.RequestOwnerStop(ctx, f.session.TaskRef)
+				} else {
+					command, err = f.db.AdmitDoctorCommand(ctx, store.DoctorCommand{RepoID: f.storeRepo.ID, TaskRef: f.session.TaskRef, IssueID: 123, IssueNumber: testIssue, CommentID: 200, ActorID: 7, CreatedAt: time.Now().UTC(), Operation: "stop"})
+					mustProgress(t, err)
+					err = json.Unmarshal([]byte(command.ResultBody), &stop)
+				}
+				mustProgress(t, err)
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				step, err := parkGraphAction(cancelled, f.opts, GraphNodeRequest{Profile: p, InstanceID: inst.ID, RunID: run.ID, At: f.opts.MCP.Now()}, GraphNodeResult{InstanceID: inst.ID, AttemptID: attempt.ID, Node: "fixer", Activity: ActivityResult{Diagnostic: "cancelled"}}, "failed", false)
+				mustProgress(t, err)
+				if step.Status != "waiting_owner" {
+					t.Fatalf("step=%+v", step)
+				}
+				wait, err := f.db.GetGraphOwnerWait(ctx, inst.ID)
+				mustProgress(t, err)
+				_, err = f.opts.ResearchReporter.RecoverGraphStopQuestion(ctx, wait.DeliveryKey)
+				mustProgress(t, err)
+				if _, err = f.db.GetReportDelivery(ctx, wait.DeliveryKey); !errors.Is(err, store.ErrNotFound) {
+					t.Fatalf("graph stop report exists: %v", err)
+				}
+				prep := &preparation{run: run, segment: segment, session: f.session, repo: f.storeRepo, ref: f.ref(), worktree: tree.Worktree, shaBefore: head, author: f.opts.Author, metaPath: filepath.Join(t.TempDir(), "meta.json"), request: agent.Request{Permissions: agent.Permissions{Profile: role}}}
+				w := researchWorkflow{opts: f.opts, req: Request{Workflow: agent.WorkflowBug, graphBugPreparation: true}, prep: prep, process: &agent.RunResult{Outcome: agent.OutcomeAbandoned, Reason: "cancelled", FinishedAt: time.Now()}, policy: BugWorkflowPolicy()}
+				out, err := w.finish(cancelled, context.Canceled)
+				if !errors.Is(err, context.Canceled) || out.Outcome != agent.OutcomeAbandoned || out.Reason != store.ReasonOwnerStop {
+					t.Fatalf("out=%+v err=%v", out, err)
+				}
+				saved, err := f.db.GetRun(ctx, run.ID)
+				mustProgress(t, err)
+				if saved.Error != store.ReasonOwnerStop || saved.Status != store.RunFailed {
+					t.Fatalf("run=%+v", saved)
+				}
+				if role == "bug-fixer" {
+					if !saved.Published || saved.CommitSHA == "" || !out.Committed {
+						t.Fatalf("not saved: %+v %+v", saved, out)
+					}
+				} else if saved.Published || saved.CommitSHA != "" {
+					t.Fatal("analyst saved work")
+				}
+				body, err := os.ReadFile(filepath.Join(tree.Worktree.Path(), "unfinished.txt"))
+				mustProgress(t, err)
+				if string(body) != "retain me\n" {
+					t.Fatal("lost work")
+				}
+				runtime := BugRuntime{opts: f.opts, cfg: BugRuntimeConfig{OwnerID: 7}, definition: &teamsource.WorkflowDefinition{Profile: p}}
+				req := Request{SessionID: f.session.ID, Workflow: agent.WorkflowBug, Trigger: Trigger{CommentID: 400, AuthorID: 7, Body: "Continue the approved repair"}}
+				if source == "comment" {
+					req.Trigger.CommentID = command.CommentID - 1
+				}
+				_, err = f.db.RecordComment(ctx, store.Comment{SessionID: f.session.ID, ForgeCommentID: req.Trigger.CommentID, AuthorUserID: 7, Body: req.Trigger.Body, Classification: store.ClassificationInstruction, CreatedAt: stop.At.Add(-time.Second)})
+				mustProgress(t, err)
+				if _, err = runtime.graphAdmission(ctx, req); !errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
+					t.Fatalf("old reply admitted: %v", err)
+				}
+				req.Trigger.CommentID = 401
+				_, err = f.db.RecordComment(ctx, store.Comment{SessionID: f.session.ID, ForgeCommentID: 401, AuthorUserID: 7, Body: req.Trigger.Body, Classification: store.ClassificationInstruction, CreatedAt: stop.At.Add(time.Second)})
+				mustProgress(t, err)
+				if source == "comment" {
+					if _, err = runtime.graphAdmission(ctx, req); err == nil {
+						t.Fatal("unpublished doctor reply admitted")
+					}
+					command, err = f.db.ClaimDoctorCommand(ctx, "", true, "fixture")
+					mustProgress(t, err)
+					command.ResultBody = "Workflow stopped by the owner. Reply to resume."
+					mustProgress(t, f.db.CompleteDoctorCommand(ctx, command.ID, command.ResultBody, 0))
+					mustProgress(t, f.db.EnsureDoctorDeliveries(ctx, command, []string{command.ResultBody}, 99))
+					debts, err := f.db.PendingDoctorDeliveries(ctx)
+					mustProgress(t, err)
+					if len(debts) != 1 {
+						t.Fatalf("debts=%d", len(debts))
+					}
+					_, err = f.db.ConfirmReportDelivery(ctx, debts[0].Key, 300)
+					mustProgress(t, err)
+					mustProgress(t, f.db.CompleteDoctorDelivery(ctx, debts[0].Key))
+				}
+				req.Trigger.AuthorID = 8
+				if _, err = runtime.graphAdmission(ctx, req); err == nil {
+					t.Fatal("foreign reply admitted")
+				}
+				req.Trigger.AuthorID = 7
+				_, err = runtime.graphAdmission(ctx, req)
+				mustProgress(t, err)
+				wait, err = f.db.GetGraphOwnerWait(ctx, inst.ID)
+				mustProgress(t, err)
+				if wait.State != "claimed" || wait.OriginNode != "fixer" {
+					t.Fatalf("wait=%+v", wait)
+				}
+				handoff, err := GraphBugApprovedHandoff(ctx, f.db, inst.ID)
+				mustProgress(t, err)
+				if handoff.Candidate.Revision != 1 {
+					t.Fatal("approval changed")
+				}
+				nextRun, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: req.Trigger.CommentID, LogPath: func(int) string { return "resume.log" }})
+				mustProgress(t, err)
+				next, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: inst.ID, Node: wait.OriginNode, RunID: nextRun.ID, Limit: 3, StartedAt: stop.At.Add(2 * time.Second)})
+				mustProgress(t, err)
+				resumed, err := f.db.GetGraphOwnerWait(ctx, inst.ID)
+				mustProgress(t, err)
+				if resumed.State != "allocated" || resumed.ContinuationAttemptID != next.ID || next.Node != "fixer" {
+					t.Fatalf("continuation=%+v attempt=%+v", resumed, next)
+				}
+
+			})
+		}
+	}
+}
+
+type ownerStopAcceptedActivity struct{}
+
+func (ownerStopAcceptedActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+	instance, err := opts.DB.GetGraphInstance(ctx, req.InstanceID)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	session, err := opts.DB.GetSession(ctx, instance.SessionID)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	if _, err = opts.DB.RequestOwnerStop(ctx, session.TaskRef); err != nil {
+		return ActivityResult{}, err
+	}
+	return ActivityResult{Outcome: "succeeded", ProcessResult: &agent.RunResult{Outcome: agent.OutcomeAbandoned, Reason: "cancelled"}}, nil
+}
+
+func TestOwnerStopBugCannotAdvanceAcceptedResult(t *testing.T) {
+	f, p, inst := approvedGraphRepairFixture(t)
+	ctx := t.Context()
+	segment, err := f.db.GetOrCreateSegment(ctx, f.session.ID, 2, "stop-fixer", store.AgentClaude)
+	mustProgress(t, err)
+	run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: 140, LogPath: func(int) string { return "stop.log" }})
+	mustProgress(t, err)
+	var activities ActivityRegistry
+	mustProgress(t, activities.Register(ResearchAgentAction, ownerStopAcceptedActivity{}))
+	out, err := ExecuteNodeAction(ctx, f.opts, GraphNodeRequest{Profile: p, Activities: activities, InstanceID: inst.ID, RunID: run.ID, At: f.opts.MCP.Now()})
+	mustProgress(t, err)
+	if out.Status != "waiting_owner" || out.NextNode != "fixer" {
+		t.Fatalf("stop advanced to delivery: %+v", out)
+	}
+	wait, err := f.db.GetGraphOwnerWait(ctx, inst.ID)
+	mustProgress(t, err)
+	if _, err = f.db.GetReportDelivery(ctx, wait.DeliveryKey); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("stop created graph publication: %v", err)
 	}
 }

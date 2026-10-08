@@ -626,8 +626,14 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 	}
 
 	if d.bug != nil {
+		// One Bug instance that cannot be reconciled (for example one captured
+		// before captures existed, or from an older Bug graph) must not keep
+		// the daemon from starting; its work stays where it is.
 		if err := d.bug.Reconcile(ctx); err != nil {
-			return Reconciled{}, err
+			if ctx.Err() != nil {
+				return Reconciled{}, err
+			}
+			d.log.WarnContext(ctx, "some Bug instances could not be reconciled at startup; their work is preserved", slog.Any("error", err))
 		}
 	}
 

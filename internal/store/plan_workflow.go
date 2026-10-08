@@ -32,45 +32,10 @@ type GraphPlanStory struct {
 
 const graphPlanStoryColumns = `d.parent,d.story_key,d.issue_id,d.issue_number,s.repo_id`
 
-// GraphPlanStoryParent returns the parent task of a live graph Plan story
-// issue, identified by its forge issue id. That parent observes the issue's
-// comments as Plan input, unless the issue is a task of its own
-// ([DB.GraphPlanStoryOf]).
-func (db *DB) GraphPlanStoryParent(ctx context.Context, issueID int64) (string, bool, error) {
-	if issueID < 1 {
-		return "", false, nil
-	}
-	var parent string
-	err := db.sql.QueryRowContext(ctx, `SELECT d.parent FROM plan_story_drafts d JOIN sessions s ON s.task_ref=d.parent JOIN plan_execution_paths p ON p.session_id=s.id WHERE d.issue_id=? AND d.retired=0 AND p.path='graph' LIMIT 1`, issueID).Scan(&parent)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, fmt.Errorf("store: graph plan story parent: %w", err)
-	}
-	return parent, true, nil
-}
-
-// GraphPlanStoryOf returns the live graph Plan story an issue is, identified by
-// its forge issue id, when it is a task of its own: it runs its story's stages
-// while its parent keeps the story set, the summary and the assembly.
-func (db *DB) GraphPlanStoryOf(ctx context.Context, issueID int64) (GraphPlanStory, bool, error) {
-	var story GraphPlanStory
-	if issueID < 1 {
-		return story, false, nil
-	}
-	err := db.sql.QueryRowContext(ctx, `SELECT `+graphPlanStoryColumns+` FROM plan_story_drafts d JOIN sessions s ON s.task_ref=d.parent JOIN plan_execution_paths p ON p.session_id=s.id WHERE d.issue_id=? AND d.retired=0 AND p.path='graph' LIMIT 1`, issueID).Scan(&story.Parent, &story.Key, &story.IssueID, &story.IssueNumber, &story.RepoID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return story, false, nil
-	}
-	if err != nil {
-		return story, false, fmt.Errorf("store: graph plan story: %w", err)
-	}
-	return story, true, nil
-}
-
-// GraphPlanStoryAt is [DB.GraphPlanStoryOf] for an issue named by repository
-// and number, as a turn knows its task.
+// GraphPlanStoryAt returns the live graph Plan story an issue is, named by
+// repository and number as a turn knows its task, when it is a task of its
+// own: it runs its story's stages while its parent keeps the story set, the
+// summary and the assembly.
 func (db *DB) GraphPlanStoryAt(ctx context.Context, repoID int64, number int) (GraphPlanStory, bool, error) {
 	var story GraphPlanStory
 	if number < 1 {

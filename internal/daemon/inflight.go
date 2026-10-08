@@ -140,3 +140,16 @@ func (f *inflight) drain(ctx context.Context, session int64, interrupt bool) err
 		return ctx.Err()
 	}
 }
+
+// cancel observes active work and optionally interrupts it without blocking the
+// control lane on finalization. Finished runs only need the settlement check.
+func (f *inflight) cancel(session int64, interrupt bool) bool {
+	f.mu.Lock()
+	cancel := f.cancels[session]
+	_, busy := f.sessions[session]
+	f.mu.Unlock()
+	if interrupt && cancel != nil {
+		cancel()
+	}
+	return busy
+}

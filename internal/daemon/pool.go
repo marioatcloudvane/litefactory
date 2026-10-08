@@ -187,3 +187,37 @@ func (d *Daemon) Quiesce(ctx context.Context) error {
 	}
 	return errors.Join(d.pool.quiesce(ctx), d.doctor.pool.quiesce(ctx))
 }
+
+// runSlots lends the daemon's run-slot pool to work a running turn starts by
+// itself, such as the Validate reviewers, so it counts against
+// max_concurrent_runs like any dispatched turn. It is built before the daemon
+// that owns the pool, and bound to that pool once it exists.
+//
+// A reviewer asks from inside a turn worker, which already holds a slot of the
+// same pool, so its Add never takes the join's counter off zero and cannot race
+// [pool.wait].
+type runSlots struct {
+	mu   sync.Mutex
+	pool *pool
+}
+
+func (s *runSlots) bind(p *pool) {
+	s.mu.Lock()
+	s.pool = p
+	s.mu.Unlock()
+}
+
+// TryAcquire takes a slot without waiting; ok is false when none is free.
+func (s *runSlots) TryAcquire(context.Context) (func(), bool, error) {
+	s.mu.Lock()
+	p := s.pool
+	s.mu.Unlock()
+	if p == nil {
+		return nil, false, errors.New("the run-slot pool is not running")
+	}
+	if !p.try() {
+		return nil, false, nil
+	}
+	var once sync.Once
+	return func() { once.Do(p.done) }, true, nil
+}

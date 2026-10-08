@@ -3,6 +3,8 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
@@ -20,6 +24,7 @@ import (
 )
 
 type planBoundaryForge struct {
+	number                                         int
 	mu                                             sync.Mutex
 	child                                          map[string]any
 	attached                                       bool
@@ -35,6 +40,11 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	parent := map[string]any{"id": int64(3620), "number": 362, "state": "open"}
+	number := f.number
+	if number == 0 {
+		number = 400
+	}
+	childPath := fmt.Sprintf("/repos/acme/app/issues/%d", number)
 	var out any
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/issues/362":
@@ -43,8 +53,8 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.creates++
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		body["id"] = int64(4000)
-		body["number"] = 400
+		body["id"] = int64(number * 10)
+		body["number"] = number
 		body["state"] = "open"
 		f.child = body
 		if f.failCreate {
@@ -58,7 +68,7 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if f.child != nil && !f.hidden {
 			out = []any{f.child}
 		}
-	case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/issues/400/parent":
+	case r.Method == http.MethodGet && r.URL.Path == childPath+"/parent":
 		if !f.attached {
 			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 			return
@@ -76,7 +86,7 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.attached = true
 		out = f.child
-	case r.URL.Path == "/repos/acme/app/issues/400/comments" && r.Method == http.MethodPost:
+	case r.URL.Path == childPath+"/comments" && r.Method == http.MethodPost:
 		if f.failComment {
 			f.failComment = false
 			http.Error(w, `{"message":"comment failed"}`, http.StatusInternalServerError)
@@ -88,19 +98,19 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body["user"] = map[string]any{"id": 1, "login": "bot"}
 		f.comments = append(f.comments, body)
 		out = body
-	case r.URL.Path == "/repos/acme/app/issues/400/comments" && r.Method == http.MethodGet:
+	case r.URL.Path == childPath+"/comments" && r.Method == http.MethodGet:
 		list := f.comments
 		if list == nil {
 			list = []map[string]any{}
 		}
 		out = list
-	case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/issues/400":
+	case r.Method == http.MethodGet && r.URL.Path == childPath:
 		if f.deleted {
 			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 			return
 		}
 		out = f.child
-	case r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/app/issues/400":
+	case r.Method == http.MethodPatch && r.URL.Path == childPath:
 		f.patches++
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -489,5 +499,253 @@ func TestPlanBoundaryOversizedDraftPostsPartComments(t *testing.T) {
 	_, _ = h.Apply(t.Context(), a, r)
 	if len(f.comments) != first {
 		t.Fatalf("retry duplicated parts: %d -> %d", first, len(f.comments))
+	}
+}
+
+// Fake time checks pacing and the acquisition bound without minute-long tests.
+func TestPlanStoryLockWait(t *testing.T) {
+	for _, mode := range []string{"immediate", "busy-then-success", "timeout", "error", "cancel", "deadline", "already-canceled"} {
+		t.Run(mode, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				if mode == "deadline" {
+					var stop context.CancelFunc
+					ctx, stop = context.WithTimeout(ctx, 15*time.Millisecond)
+					defer stop()
+				}
+				if mode == "already-canceled" {
+					cancel()
+				}
+				other := errors.New("lock filesystem failure")
+				busy := fmt.Errorf("wrapped: %w", store.ErrStoryProgressBusy)
+				attempts, released := 0, false
+				start := time.Now()
+				unlock, err := lockPlanStory(ctx, 10*time.Millisecond, 35*time.Millisecond, func() (func() error, error) {
+					attempts++
+					if elapsed := time.Since(start); elapsed != time.Duration(attempts-1)*10*time.Millisecond {
+						t.Fatalf("attempt %d at %s: acquisition was not paced", attempts, elapsed)
+					}
+					if mode == "error" {
+						return nil, other
+					}
+					if mode == "cancel" && attempts == 2 {
+						cancel()
+					}
+					if mode == "immediate" || (mode == "busy-then-success" && attempts == 4) {
+						return func() error { released = true; return nil }, nil
+					}
+					return nil, busy
+				})
+				wantAttempts, wantElapsed := 1, time.Duration(0)
+				var wantErr error
+				switch mode {
+				case "busy-then-success":
+					wantAttempts, wantElapsed = 4, 30*time.Millisecond
+				case "timeout":
+					wantAttempts, wantElapsed, wantErr = 4, 35*time.Millisecond, store.ErrStoryProgressBusy
+				case "error":
+					wantErr = other
+				case "cancel":
+					wantAttempts, wantElapsed, wantErr = 2, 10*time.Millisecond, context.Canceled
+				case "deadline":
+					wantAttempts, wantElapsed, wantErr = 2, 15*time.Millisecond, context.DeadlineExceeded
+				case "already-canceled":
+					wantAttempts, wantErr = 0, context.Canceled
+				}
+				if !errors.Is(err, wantErr) || attempts != wantAttempts || time.Since(start) != wantElapsed {
+					t.Fatalf("attempts=%d elapsed=%s err=%v; want %d %s %v", attempts, time.Since(start), err, wantAttempts, wantElapsed, wantErr)
+				}
+				if wantErr != nil {
+					if unlock != nil {
+						t.Fatal("failed acquisition returned ownership")
+					}
+					return
+				}
+				if unlock == nil {
+					t.Fatal("missing unlock")
+				}
+				if err := unlock(); err != nil || !released {
+					t.Fatalf("unlock: %v", err)
+				}
+			})
+		})
+	}
+}
+
+type planBlockingCreate struct {
+	PlanStoryForge
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (f *planBlockingCreate) CreateIssue(ctx context.Context, repo github.Repo, title, body redact.Body) (github.Issue, error) {
+	close(f.entered)
+	select {
+	case <-f.release:
+		return f.PlanStoryForge.CreateIssue(ctx, repo, title, body)
+	case <-ctx.Done():
+		return github.Issue{}, ctx.Err()
+	}
+}
+
+// Signal when the second effect reaches acquisition, before asserting it waits.
+type planLockObservedContext struct {
+	context.Context
+	once    sync.Once
+	entered chan struct{}
+}
+
+func (c *planLockObservedContext) Err() error {
+	c.once.Do(func() { close(c.entered) })
+	return c.Context.Err()
+}
+
+func TestPlanBoundarySiblingLockWait(t *testing.T) {
+	h1, f1, a1, r1, _ := planBoundarySetup(t)
+	h2, f2, a2, r2, _ := planBoundarySetup(t)
+	f2.number = 401
+	// Separate forge fixtures represent the two story targets; both effects use
+	// the same real store and parent lock.
+	activity2 := *h2
+	activity2.DB, activity2.LockDir = h1.DB, h1.LockDir
+	a2.SelectedKey, a2.Candidate = "story-two", "candidate-two"
+	r2.Draft.Key, r2.Candidate, r2.RequestID = a2.SelectedKey, a2.Candidate, "request-two"
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	blocked := &planBlockingCreate{PlanStoryForge: h1.Forge, entered: make(chan struct{}), release: make(chan struct{})}
+	h1.Forge = blocked
+	type result struct {
+		receipt PlanStoryReceipt
+		err     error
+	}
+	first, second := make(chan result, 1), make(chan result, 1)
+	// Both workers are bounded by ctx; buffered results permit exit on test failure.
+	go func() { v, err := h1.Apply(ctx, a1, r1); first <- result{v, err} }()
+	select {
+	case <-blocked.entered:
+	case <-ctx.Done():
+		t.Fatal("waiting for first effect's lock-protected create")
+	}
+	observed := &planLockObservedContext{Context: ctx, entered: make(chan struct{})}
+	go func() { v, err := activity2.Apply(observed, a2, r2); second <- result{v, err} }()
+	select {
+	case <-observed.entered:
+	case <-ctx.Done():
+		t.Fatal("waiting for second effect acquisition")
+	}
+	select {
+	case got := <-second:
+		t.Fatalf("second effect escaped held lock: %+v", got)
+	case <-time.After(300 * time.Millisecond):
+	case <-ctx.Done():
+		t.Fatal("waiting for contention observation")
+	}
+	f2.mu.Lock()
+	mutations := f2.creates + f2.patches + len(f2.comments)
+	f2.mu.Unlock()
+	if mutations != 0 {
+		t.Fatal("blocked effect mutated forge")
+	}
+	if _, err := h1.DB.GetPlanStoryCandidate(ctx, a2.Parent, r2.RequestID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("blocked effect retained candidate: %v", err)
+	}
+	close(blocked.release)
+	for i, ch := range []chan result{first, second} {
+		select {
+		case got := <-ch:
+			req := []graphexec.PlanStoryRequest{r1, r2}[i]
+			if got.err != nil || got.receipt.Outcome != "applied" || got.receipt.RequestID != req.RequestID || got.receipt.Candidate != req.Candidate {
+				t.Fatalf("effect %d: %+v err=%v", i, got.receipt, got.err)
+			}
+		case <-ctx.Done():
+			t.Fatalf("waiting for effect %d completion", i)
+		}
+	}
+	for i, h := range []*PlanStoryActivity{h1, &activity2} {
+		a, r, f := []PlanStoryAuthority{a1, a2}[i], []graphexec.PlanStoryRequest{r1, r2}[i], []*planBoundaryForge{f1, f2}[i]
+		planApply(t, h, a, r, "applied")
+		f.mu.Lock()
+		creates, patches := f.creates, f.patches
+		f.mu.Unlock()
+		if creates != 1 || patches != 0 {
+			t.Fatalf("effect %d repeated mutations: creates=%d patches=%d", i, creates, patches)
+		}
+		candidate, err := h.DB.GetPlanStoryCandidate(ctx, a.Parent, r.RequestID)
+		raw, marshalErr := json.Marshal(r)
+		if err != nil || marshalErr != nil || candidate.RequestJSON != string(raw) {
+			t.Fatalf("original request lost: %+v %v %v", candidate, err, marshalErr)
+		}
+	}
+}
+
+func TestPlanBoundaryLockCancellation(t *testing.T) {
+	for _, mode := range []string{"cancel", "deadline", "non-busy-error"} {
+		t.Run(mode, func(t *testing.T) {
+			h, f, a, r, _ := planBoundarySetup(t)
+			unlock, err := h.DB.LockStoryProgress(t.Context(), a.Parent, h.LockDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := unlock(); err != nil {
+					t.Error(err)
+				}
+			}()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			want := context.Canceled
+			switch mode {
+			case "cancel":
+				cancel()
+			case "deadline":
+				var stop context.CancelFunc
+				ctx, stop = context.WithTimeout(ctx, 20*time.Millisecond)
+				defer stop()
+				want = context.DeadlineExceeded
+			case "non-busy-error":
+				h.LockDir = filepath.Join(t.TempDir(), "missing")
+				want = os.ErrNotExist
+			}
+			if _, err := h.Apply(ctx, a, r); !errors.Is(err, want) {
+				t.Fatalf("Apply error=%v want=%v", err, want)
+			}
+			if f.creates != 0 || f.patches != 0 || len(f.comments) != 0 {
+				t.Fatal("failed acquisition mutated forge")
+			}
+			if _, err := h.DB.GetPlanStoryCandidate(t.Context(), a.Parent, r.RequestID); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("failed acquisition retained candidate: %v", err)
+			}
+		})
+	}
+}
+
+func TestPlanStoryHeldLockExpires(t *testing.T) {
+	h, f, a, r, _ := planBoundarySetup(t)
+	unlock, err := h.DB.LockStoryProgress(t.Context(), a.Parent, h.LockDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unlock(); err != nil {
+			t.Error(err)
+		}
+	}()
+	synctest.Test(t, func(t *testing.T) {
+		start := time.Now()
+		attempts := 0
+		release, err := lockPlanStory(t.Context(), 10*time.Millisecond, 35*time.Millisecond, func() (func() error, error) {
+			attempts++
+			return h.DB.LockStoryProgress(t.Context(), a.Parent, h.LockDir)
+		})
+		if release != nil || !errors.Is(err, store.ErrStoryProgressBusy) || attempts != 4 || time.Since(start) != 35*time.Millisecond {
+			t.Fatalf("held lock: release=%v err=%v attempts=%d elapsed=%s", release != nil, err, attempts, time.Since(start))
+		}
+	})
+	if f.creates != 0 || f.patches != 0 || len(f.comments) != 0 {
+		t.Fatal("timeout mutated forge")
+	}
+	if _, err := h.DB.GetPlanStoryCandidate(t.Context(), a.Parent, r.RequestID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("timeout retained candidate: %v", err)
 	}
 }

@@ -153,26 +153,12 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != after {
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied != len(migrations) {
 		t.Fatalf("schema_migrations holds %d rows for version %d: a migration was recorded twice", applied, after)
-	}
-}
-
-func TestMigrateCreatesEveryTable(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-
-	want := []string{
-		"identities", "repos", "sessions", "segments", "runs",
-		"comments", "watermarks", "poll_cursor",
-	}
-	for _, table := range want {
-		var name string
-		err := db.sql.QueryRowContext(t.Context(),
-			`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name)
-		if err != nil {
-			t.Errorf("table %s: %v", table, err)
-		}
 	}
 }
 
@@ -1218,7 +1204,7 @@ func TestFinishRunRecordsAKillWithAReason(t *testing.T) {
 }
 
 // TestRecordRunSyncRoundTripsEveryOutcome is AC-9.2 and AC-9.3: whichever of
-// the five outcomes syncBase reached, RecordRunSync stores it and GetRun
+// the outcomes syncBase reached, RecordRunSync stores it and GetRun
 // reads it back unchanged, and a commit sha survives the round trip only for
 // the outcome that may legitimately carry one.
 func TestRecordRunSyncRoundTripsEveryOutcome(t *testing.T) {
@@ -1237,6 +1223,7 @@ func TestRecordRunSyncRoundTripsEveryOutcome(t *testing.T) {
 		{SyncBlocked, 7, 0, ""},
 		{SyncSkipped, 40, 3, ""},
 		{SyncFailed, 3, 0, ""},
+		{SyncDeferredDirty, 3, 2, ""},
 	} {
 		run := testRun(t, db, session.ID, int64(1000+i))
 

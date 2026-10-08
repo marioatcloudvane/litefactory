@@ -184,22 +184,3 @@ func (db *DB) HasPlanStoryMutation(ctx context.Context, parent, request, phase s
 	err := db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM plan_story_effects WHERE parent=? AND request_id=? AND phase=? AND outcome='uncertain')`, parent, request, phase).Scan(&found)
 	return found, err
 }
-
-// PendingPlanStoryCandidates returns original requests whose effects still need
-// reconciliation. Callers must not allocate replacement mutation identities.
-func (db *DB) PendingPlanStoryCandidates(ctx context.Context, parent string) ([]PlanStoryCandidate, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT c.request_id,c.story_key,c.candidate,c.request_json FROM plan_story_candidates c WHERE c.parent=? AND COALESCE((SELECT outcome FROM plan_story_effects e WHERE e.parent=c.parent AND e.request_id=c.request_id ORDER BY id DESC LIMIT 1),'pending') IN ('pending','uncertain') ORDER BY c.rowid`, parent)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []PlanStoryCandidate
-	for rows.Next() {
-		c := PlanStoryCandidate{Parent: parent}
-		if err = rows.Scan(&c.RequestID, &c.Key, &c.Candidate, &c.RequestJSON); err != nil {
-			return nil, err
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
-}

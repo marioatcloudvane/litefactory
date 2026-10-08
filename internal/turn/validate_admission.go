@@ -350,7 +350,7 @@ func (rt *validateRuntimeState) launch(ctx context.Context, now time.Time) (Resu
 	if _, err := opts.DB.AdmitWorkflowPath(ctx, req.SessionID, "graph"); err != nil {
 		return rt.result, err
 	}
-	definition, err := captureShippedValidate(ctx)
+	definition, err := capturedValidate(ctx, opts, req)
 	if err != nil {
 		return rt.result, err
 	}
@@ -362,13 +362,13 @@ func (rt *validateRuntimeState) launch(ctx context.Context, now time.Time) (Resu
 	if err != nil {
 		return rt.result, err
 	}
-	pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: string(agent.ModeValidate), ProfileVersion: definition.Profile.ProfileVersion, Path: "validate/validate.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	pin, err := opts.DB.CreateGraphDefinition(ctx, store.GraphDefinition{Team: definition.Profile.Team, Mode: string(agent.ModeValidate), ProfileVersion: definition.Profile.ProfileVersion, Path: workflowGraphPath(definition), Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	if err != nil {
 		return rt.result, err
 	}
 	// The same trigger always yields the same instance: the owner's comment id,
 	// or the private identity of the saved automatic schedule.
-	admitted, err := opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeValidate), SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Reply: req.Trigger.Body})
+	admitted, err := opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeValidate), SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body})
 	if err != nil {
 		return rt.result, err
 	}
@@ -420,7 +420,7 @@ func (rt *validateRuntimeState) resumeDispatch(ctx context.Context) (Result, err
 	if err != nil {
 		return rt.result, err
 	}
-	definition, err := captureShippedValidate(ctx)
+	definition, err := capturedValidate(ctx, rt.opts, rt.req)
 	if err != nil {
 		return rt.result, err
 	}
@@ -432,7 +432,7 @@ func (rt *validateRuntimeState) resumeDispatch(ctx context.Context) (Result, err
 		return rt.result, err
 	}
 	rt.entry = entry
-	return rt.execute(ctx, definition, store.WorkflowAdmission{Instance: instance})
+	return rt.execute(ctx, definition, retainedAdmission(ctx, rt.opts.DB, rt.req, instance, "validate"))
 }
 
 func (rt *validateRuntimeState) entryOf(ctx context.Context, instanceID int64) (store.ValidateEntry, error) {
@@ -448,28 +448,21 @@ func (rt *validateRuntimeState) entryOf(ctx context.Context, instanceID int64) (
 	return store.ValidateEntry{}, errors.New("the Validate instance has no saved entry")
 }
 
-func captureShippedValidate(ctx context.Context) (*teamsource.WorkflowDefinition, error) {
-	specs, err := ValidateFlowSpecs()
-	if err != nil {
-		return nil, err
-	}
-	definition, err := teamsource.CaptureValidate(ctx, specs)
-	if err != nil {
-		return nil, fmt.Errorf("capture current shipped Validate: %w", err)
-	}
-	return definition, nil
-}
-
 // execute advances the captured graph under the task lock through the shared
 // driver, with the host's bindings for this entry.
 func (rt *validateRuntimeState) execute(ctx context.Context, definition *teamsource.WorkflowDefinition, admission store.WorkflowAdmission) (Result, error) {
 	policy := ValidateWorkflowPolicy()
-	policy.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, profile *graphexec.Profile, _ func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error), _ WorkflowEnv) error {
+	policy.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, profile *graphexec.Profile, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error), _ WorkflowEnv) error {
 		suite, flow, err := rt.opts.Validate.Bind(ctx, rt.opts, rt.req, rt.entry)
 		if err != nil {
 			return err
 		}
 		flow.Profile = profile
+		if flow.Scope == nil {
+			// A repair result is judged in the same trusted scope the shared
+			// workflow gave its attempt.
+			flow.Scope = scope
+		}
 		if err := RegisterValidateSuiteActivity(specs, activities, suite); err != nil {
 			return err
 		}

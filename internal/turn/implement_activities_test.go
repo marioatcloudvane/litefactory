@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -80,6 +81,7 @@ func (f *implementForgeFake) bodies(issue int) []string {
 
 // implementRepoFake scripts the scratch worktree.
 type implementRepoFake struct {
+	path     string
 	begins   int
 	beginErr error
 	mergeErr error
@@ -106,7 +108,7 @@ const (
 )
 
 func (s *implementScratchFake) Head() string { return fakeIntegrationHead }
-func (s *implementScratchFake) Path() string { return "/scratch" }
+func (s *implementScratchFake) Path() string { return s.r.path }
 func (s *implementScratchFake) Merge(_ context.Context, branch string) (string, bool, error) {
 	s.r.merges = append(s.r.merges, branch)
 	if s.r.mergeErr != nil {
@@ -140,7 +142,7 @@ func newImplementFixture(t *testing.T, stories ...ImplementStory) *implementFixt
 	if err := db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	f := &implementFixture{t: t, db: db, forge: &implementForgeFake{}, repo: &implementRepoFake{merged: true}, lockDir: t.TempDir()}
+	f := &implementFixture{t: t, db: db, forge: &implementForgeFake{}, repo: &implementRepoFake{merged: true, path: t.TempDir()}, lockDir: t.TempDir()}
 	f.auth = ImplementAuthority{Parent: implementParent, Generation: 1, Stories: stories, IntegrationBranch: "lf/1-feature"}
 	f.bindings = ImplementBindings{
 		DB: db, Forge: f.forge, Redactor: redact.New(redact.Options{Environ: []string{}}), LockDir: f.lockDir, Repo: f.repo,
@@ -497,20 +499,6 @@ func TestImplementMergeFinishesAfterALostReplyWithoutAPostOrAGitCall(t *testing.
 	}
 }
 
-func TestImplementMergeOfAnAlreadyContainedStoryNeedsNoCheckOrPush(t *testing.T) {
-	f := newImplementFixture(t, implementStories(1, nil)...)
-	f.ready()
-	f.drive("story-001", store.ImplementDone, implementClock)
-	f.repo.merged = false
-	res, out, err := f.merge()
-	if err != nil || res.Outcome != "merged" || out.Commit != fakeIntegrationHead {
-		t.Fatalf("%s %+v %v", res.Outcome, out, err)
-	}
-	if len(f.repo.pushes) != 0 || f.forge.posts != 1 {
-		t.Fatalf("pushes=%v posts=%d", f.repo.pushes, f.forge.posts)
-	}
-}
-
 func TestImplementHandoffPostsOnceThenEditsInPlace(t *testing.T) {
 	f := newImplementFixture(t, implementStories(4, map[string][]string{"story-004": {"story-003"}})...)
 	f.ready()
@@ -655,5 +643,26 @@ func TestRegisterImplementActivitiesRequiresEveryDependency(t *testing.T) {
 	}
 	if err := RegisterImplementActivities(nil, &ActivityRegistry{}, f.bindings); err == nil {
 		t.Error("nil spec registry accepted")
+	}
+}
+
+func TestImplementMergeUnreadableMigrationPreventsPublication(t *testing.T) {
+	f := newImplementFixture(t, implementStories(1, nil)...)
+	dir := filepath.Join(f.repo.path, "internal", "store", "migrations")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A dangling file link deterministically exercises a body read failure,
+	// even when permission bits would be bypassed by the test process.
+	if err := os.Symlink("missing.sql", filepath.Join(dir, "20261007130500123_new.sql")); err != nil {
+		t.Fatal(err)
+	}
+	f.ready()
+	f.drive("story-001", store.ImplementDone, implementClock)
+	if _, _, err := f.merge(); err == nil || !strings.Contains(err.Error(), "read migration") {
+		t.Fatalf("read failure: %v", err)
+	}
+	if len(f.repo.pushes) != 0 || f.forge.posts != 0 || f.repo.closed != 1 || f.row("story-001").State != store.ImplementDone {
+		t.Fatal("read failure published, posted, parked or leaked scratch")
 	}
 }

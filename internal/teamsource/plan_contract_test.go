@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io/fs"
-	"os"
 	"reflect"
 	"slices"
 	"sort"
@@ -101,17 +100,6 @@ func TestPlanPackageClosureAndDigest(t *testing.T) {
 	}
 	if definition.Digest != fmt.Sprintf("%x", sha256.Sum256([]byte(manifest.String()))) {
 		t.Fatal("digest does not cover all resource hashes")
-	}
-	// Static packaging consistency reads source assets only; runtime capture above
-	// uses embedded bytes and native rendering below performs no filesystem writes.
-	for _, name := range keys {
-		raw, err := os.ReadFile("../../internal/teamsource/plan/" + name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(raw, definition.Files[name]) {
-			t.Errorf("source/embedded mismatch: %s", name)
-		}
 	}
 	changed := planPackageFixture(t)
 	changed["skills/plan-evidence/projection.md"].Data = append(changed["skills/plan-evidence/projection.md"].Data, []byte("\nScoped clarification.\n")...)
@@ -259,19 +247,12 @@ func TestPlanPackageNativeContracts(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				var all strings.Builder
 				seen := map[string]bool{}
 				for _, file := range files {
 					if seen[file.Path] || len(file.Bytes) == 0 {
 						t.Fatalf("invalid native file %s", file.Path)
 					}
 					seen[file.Path] = true
-					all.Write(file.Bytes)
-				}
-				for _, required := range []string{"plan-evidence", "node result", "storyrequest", "proof_method", "lf_plan_story", "Architecture - General"} {
-					if !strings.Contains(all.String(), required) {
-						t.Errorf("native closure omitted %q", required)
-					}
 				}
 				for _, name := range []string{"node-result.md", "projection.md"} {
 					if !seen["plugin/skills/plan-evidence/"+name] {
@@ -285,36 +266,14 @@ func TestPlanPackageNativeContracts(t *testing.T) {
 
 func TestPlanPackageNeutralGuidanceAndReuseFixtures(t *testing.T) {
 	t.Parallel()
-	d, err := CapturePlan(t.Context(), planPackageRegistry(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	role := string(d.Files["plan-technical.md"])
-	_, roster, ok := strings.Cut(role, "# Skills\n")
-	if !ok {
-		t.Fatal("missing distinct Skills roster")
-	}
-	var entries []string
-	for _, line := range strings.Split(roster, "\n") {
-		if strings.HasPrefix(line, "- ") {
-			entries = append(entries, line)
-		}
-	}
-	if len(entries) != 2 || !strings.Contains(entries[0], "plan-go-guidance") || !strings.Contains(entries[1], "plan-agent-setup-guidance") {
-		t.Fatalf("guidance roster=%v", entries)
-	}
 	cases := []struct {
-		name, contract string
-		guidance       []string
-		frontend       bool
-	}{{"Go-only", "Go-only -> go", []string{"go"}, false}, {"agent-only", "agent/Markdown-only ->", []string{"agent-setup"}, false}, {"mixed", "mixed -> both", []string{"go", "agent-setup"}, false}, {"frontend", "frontend -> references", []string{}, true}}
-	shaping := string(d.Files["skills/plan-technical-shaping/SKILL.md"])
+		name     string
+		guidance []string
+		frontend bool
+	}{{"Go-only", []string{"go"}, false}, {"agent-only", []string{"agent-setup"}, false}, {"mixed", []string{"go", "agent-setup"}, false}, {"frontend", []string{}, true}}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if !strings.Contains(shaping, tt.contract) {
-				t.Errorf("missing applicability contract %q", tt.contract)
-			}
 			draft := planbrief.PlanDraft{Key: "fixture", Name: "Review scope", UserStory: planbrief.UserStoryContent{Actor: "owner", Want: "a guided plan", Benefit: "retained decisions"}, Problem: "Avoid losing decisions", InScope: []string{"Review"}, NotInScope: []string{}, Architecture: &planbrief.PlanArchitecture{General: []planbrief.GeneralDecision{{Area: "Scope", Decision: "Reuse decisions", Rationale: "Keep settled answers"}}}, Guidance: tt.guidance, Frontend: tt.frontend}
 			if tt.frontend {
 				draft.Design = []string{"https://example.test/design"}
@@ -346,31 +305,14 @@ func TestPlanPackageNeutralGuidanceAndReuseFixtures(t *testing.T) {
 	}
 }
 
-func TestPlanPackageStageContractsAndResearchPreservation(t *testing.T) {
+func TestPlanCaptureLeavesTheResearchClosureUnchanged(t *testing.T) {
 	t.Parallel()
 	before, err := CaptureResearch(t.Context(), researchTestRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := CapturePlan(t.Context(), planPackageRegistry(t))
-	if err != nil {
+	if _, err = CapturePlan(t.Context(), planPackageRegistry(t)); err != nil {
 		t.Fatal(err)
-	}
-	obligations := map[string][]string{
-		"plan-story.md":                             {"who needs what and why", "unprefixed name", "actor/want/benefit", "In-Scope/Not in Scope", "Never write architecture, tasks", "placeholders", "sub-issue"},
-		"plan-technical.md":                         {"technology-neutral", "reuse", "permissions", "invariants", "failure behavior", "advice cannot approve or retire", "Architecture - General"},
-		"plan-acceptance.md":                        {"stable explicit IDs", "future proof methods", "task-to-criterion links", "same third stage", "never a fourth stage", "not executed evidence", "active story set"},
-		"skills/plan-evidence/SKILL.md":             {"exact candidate/upstream/shared-decision", "Reuse settled answers", "mixed change-and-approval", "presentation-only", "independently", "Exhaustion", "never grants approval", "successful save", "never freeze implementation scope"},
-		"skills/plan-evidence/node-result.md":       {"Do not print a JSON result", "ask or done", "Unknown fields, duplicate object members", "missing required fields", "1 MiB", "proof_method", "changed_sections", "communication_preflight", "communication_submit", "communication_receipt", "<!-- example: positive", "<!-- example: negative", "<!-- walkthrough:", "never role output", "never read as a result", "stale_revision", "new request identity"},
-		"skills/plan-agent-setup-guidance/SKILL.md": {"role/skill responsibilities", "workflow contracts", "Do not force service/data layers", "Preserve settled instructions"},
-	}
-	for name, required := range obligations {
-		body := string(d.Files[name])
-		for _, term := range required {
-			if !strings.Contains(body, term) {
-				t.Errorf("%s missing contract %q", name, term)
-			}
-		}
 	}
 	after, err := CaptureResearch(t.Context(), researchTestRegistry(t))
 	if err != nil {

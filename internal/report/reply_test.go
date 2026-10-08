@@ -88,3 +88,20 @@ func TestRenderReplyGraphOwnerWaitRefused(t *testing.T) {
 		t.Fatalf("kind = %q, RefusesMode = %v", kind.String(), kind.RefusesMode())
 	}
 }
+
+func TestRenderReplyImplementCommentNotApplied(t *testing.T) {
+	rep := newReporter(t)
+	kind := report.ReplyImplementCommentNotApplied
+	body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: kind})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{report.ReplyMarker(testRef), "Implement", "did not select any parked stories", "no stories were resumed", "name no existing story key"} {
+		if !strings.Contains(body.String(), want) {
+			t.Errorf("reply lacks %q: %s", want, body.String())
+		}
+	}
+	if !kind.RefusesMode() || kind.RefusesTools() || kind.RefusesAgent() || kind.RefusesSwitch() || kind.RefusesSync() || kind.IsConfirmationReply() {
+		t.Fatal("wrong refusal family")
+	}
+}

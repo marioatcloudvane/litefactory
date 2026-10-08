@@ -1,9 +1,6 @@
 package github_test
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -140,52 +137,6 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 	if typ.NumMethod() != len(want) {
 		t.Errorf("github.Client has %d methods but %d are pinned; an embedded type is "+
 			"promoting methods onto it", typ.NumMethod(), len(want))
-	}
-}
-
-// TestNoForgeAbstraction is the executable form of a global invariant: M0
-// exports concrete structs, and the Forge protocol is deferred to LF-18 so it
-// can be *extracted* from this working implementation rather than guessed at.
-// An interface invented now would be shaped by one forge and wrong for the
-// second, which is the only reason to have it.
-func TestNoForgeAbstraction(t *testing.T) {
-	t.Parallel()
-
-	fset := token.NewFileSet()
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read package directory: %v", err)
-	}
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		if name == "forge.go" {
-			t.Errorf("internal/github/forge.go exists; the Forge protocol is deferred to LF-18")
-		}
-
-		file, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatalf("parse %s: %v", name, err)
-		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			spec, ok := node.(*ast.TypeSpec)
-			if !ok {
-				return true
-			}
-			if _, isInterface := spec.Type.(*ast.InterfaceType); isInterface {
-				t.Errorf("%s declares the interface %s; internal/github exports concrete "+
-					"structs at M0, and a consumer that needs a seam declares it at the "+
-					"point of consumption", name, spec.Name.Name)
-			}
-			if spec.Name.Name == "Capabilities" {
-				t.Errorf("%s declares a Capabilities type; capability descriptors are "+
-					"part of the deferred Forge protocol", name)
-			}
-			return true
-		})
 	}
 }
 

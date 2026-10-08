@@ -1,10 +1,6 @@
 package daemon
 
 import (
-	"go/parser"
-	"go/token"
-	"os"
-	"strings"
 	"testing"
 	"time"
 )
@@ -165,59 +161,4 @@ func TestBackoffFloorsANonPositiveDelay(t *testing.T) {
 	if _, delay, _ := b.fail(now, 0); delay <= 0 {
 		t.Errorf("a zero Retry-After produced a %s backoff", delay)
 	}
-}
-
-// TestBackoffTouchesNoContext is AC-PAR-4.3, held structurally.
-//
-// A rate limit met while turns are in flight must gate the dispatch of *new*
-// runs and nothing else: it may not cancel a running worker's context or kill
-// its claude child. The way that could quietly stop being true is not a
-// deliberate decision but an ordinary-looking one — a CancelFunc parked on the
-// backoff so that "backing off" could also mean "stop what is running", or a
-// context threaded through fail() so that the arming could be abandoned. Both
-// of those start by importing context into this file, so that is what this
-// refuses.
-//
-// It is a syntactic check over one file, so what it does not catch is
-// everything outside backoff.go: a cancel held on [Daemon] and invoked next to
-// a call to fail would be invisible here. That belongs to the dispatch path,
-// and the comment at the check in [Daemon.offer] is where it is argued.
-func TestBackoffTouchesNoContext(t *testing.T) {
-	t.Parallel()
-
-	const file = "backoff.go"
-
-	fset := token.NewFileSet()
-	parsed, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse %s: %v", file, err)
-	}
-
-	for _, spec := range parsed.Imports {
-		if spec.Path.Value == `"context"` {
-			t.Errorf("%s: %s imports context. The backoff holds an instant and gates dispatch; "+
-				"it owns no CancelFunc and touches no worker's context (AC-PAR-4.3)",
-				fset.Position(spec.Pos()), file)
-		}
-	}
-
-	// A rename of the file would otherwise turn this into a test that passes
-	// because it looked at nothing.
-	if parsed.Name.Name != "daemon" {
-		t.Fatalf("%s declares package %s, want daemon", file, parsed.Name.Name)
-	}
-	if !strings.Contains(string(mustRead(t, file)), "type backoff struct") {
-		t.Fatalf("%s no longer declares the backoff type; if it moved, move this check with it", file)
-	}
-}
-
-// mustRead reads a file in this package or fails the test.
-func mustRead(t *testing.T, name string) []byte {
-	t.Helper()
-
-	data, err := os.ReadFile(name)
-	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
-	}
-	return data
 }

@@ -23,6 +23,7 @@ type GraphNodeRequest struct {
 	Profile           *graphexec.Profile
 	Activities        ActivityRegistry
 	InstanceID, RunID int64
+	LaunchID          int64
 	// ResumeAttemptID is factory-owned recovery of a Bug bookkeeping effect.
 	ResumeAttemptID      int64
 	OwnerAllowanceSource int64
@@ -113,7 +114,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 				return out, err
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{ResearchPriorNodes: ancestors, InstanceID: instance.ID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
@@ -149,6 +150,19 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	})
 	activity.Output = slices.Clone(activity.Output)
 	out.Activity = activity
+	// Owner cancellation must park even when private result submission completed
+	// before process cleanup; a stopped run cannot enter successful delivery.
+	if workflow == agent.WorkflowBug && req.RunID != 0 {
+		run, err := opts.DB.GetRun(context.WithoutCancel(ctx), req.RunID)
+		if err != nil {
+			return out, errors.Join(dispatchErr, err)
+		}
+		if _, stopped := run.OwnerStop(); stopped {
+			out.Activity.Diagnostic = store.ReasonOwnerStop
+			finished, err := parkGraphAction(ctx, opts, req, out, "failed", false)
+			return finished, errors.Join(dispatchErr, err)
+		}
+	}
 	// Owner-conversation activities atomically complete and park themselves,
 	// because their retained review and wait belong to the same boundary.
 	if activity.Suspended && workflow == agent.WorkflowBug && node.Action == graphexec.ResearchLoopAction && node.Attrs["lf_contract"] == "owner_conversation" {
@@ -254,7 +268,11 @@ func researchBudgetAncestors(ctx context.Context, db *store.DB, instance int64, 
 		if err := json.Unmarshal(raw, &files); err != nil {
 			return nil, err
 		}
-		if dot, found := files["research.dot"]; found {
+		graphFile, err := retainedGraphFile(ctx, db, prior)
+		if err != nil {
+			return nil, err
+		}
+		if dot, found := files[graphFile]; found {
 			profile, err := graphexec.ParseProfile(dot)
 			if err != nil {
 				return nil, err

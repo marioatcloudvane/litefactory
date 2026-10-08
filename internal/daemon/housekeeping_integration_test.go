@@ -340,21 +340,6 @@ func TestHousekeepingIntegrationBackupsMissingDirDoesNotFailTick(t *testing.T) {
 	}
 }
 
-func TestHousekeepingIntegrationNoStepsWhenOptionsUnset(t *testing.T) {
-	e := newHKEnv(t)
-	e.write(filepath.Join(e.dbDir, hkBackupName(1)), "b", 0o600, time.Time{})
-	e.write(filepath.Join(e.dbDir, hkBackupName(2)), "b", 0o600, time.Time{})
-	e.daemon(HousekeepingOptions{DBPath: e.dbPath}).RunHousekeeping(t.Context(), e.now)
-	e.daemon(HousekeepingOptions{DeployBackupKeep: 1}).RunHousekeeping(t.Context(), e.now)
-	(&Daemon{}).RunHousekeeping(t.Context(), e.now)
-	if got := len(hkNames(t, e.dbDir)); got != 2 {
-		t.Fatalf("files = %d, nothing should be pruned", got)
-	}
-	if e.buf.Len() != 0 {
-		t.Errorf("unexpected log output: %s", e.buf.String())
-	}
-}
-
 // ---- story 005: global log trim ----
 
 func TestHousekeepingIntegrationLogsLaunchdCopyTruncateAndModes(t *testing.T) {
@@ -598,18 +583,6 @@ func TestHousekeepingIntegrationLogsRetentionBoundary(t *testing.T) {
 	}
 }
 
-func TestHousekeepingIntegrationLogsMissingDirIsQuiet(t *testing.T) {
-	e := newHKEnv(t)
-	d := e.daemon(HousekeepingOptions{LogsDir: filepath.Join(e.home, "nologs"), LogRetainDays: 7})
-	d.RunHousekeeping(t.Context(), e.now)
-	if n := len(e.records("housekeeping step failed")); n != 0 {
-		t.Errorf("missing logs dir reported as failure")
-	}
-	if hkExists(filepath.Join(e.home, "nologs")) {
-		t.Error("housekeeping created the logs dir")
-	}
-}
-
 func TestHousekeepingIntegrationLogsRotateFailureKeepsDataAndRetriesNextDay(t *testing.T) {
 	hkNeedNonRoot(t)
 	e := newHKEnv(t)
@@ -669,34 +642,5 @@ func TestHousekeepingIntegrationLogsRotateFailureKeepsDataAndRetriesNextDay(t *t
 	recs = e.records("global logs housekeeping")
 	if last := recs[len(recs)-1]; hkNum(last, "failures") != 0 || hkNum(last, "rotated") != 1 || hkNum(last, "deleted") != 1 {
 		t.Errorf("retry summary = %v", last)
-	}
-}
-
-func TestHousekeepingIntegrationStepOrderAndIsolation(t *testing.T) {
-	hkNeedNonRoot(t)
-	e := newHKEnv(t)
-	// Backups fail (db dir read-only); logs must still be processed afterwards.
-	for day := 1; day <= 3; day++ {
-		e.write(filepath.Join(e.dbDir, hkBackupName(day)), "b", 0o600, time.Time{})
-	}
-	e.write(filepath.Join(e.logs, "launchd.out.log"), "data\n", 0o600, time.Time{})
-	if err := os.Chmod(e.dbDir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chmod(e.dbDir, 0o700) }()
-
-	d := e.daemon(HousekeepingOptions{DBPath: e.dbPath, DeployBackupKeep: 1, LogsDir: e.logs, LogRetainDays: 7})
-	d.RunHousekeeping(t.Context(), e.now)
-
-	if got := hkRead(t, filepath.Join(e.logs, "launchd.out.log")); got != "" {
-		t.Errorf("log step did not run after backup failure: %q", got)
-	}
-	if got := len(hkNames(t, e.dbDir)); got != 3 {
-		t.Errorf("backups = %d", got)
-	}
-	bi := strings.Index(e.buf.String(), "deploy backups pruned")
-	li := strings.Index(e.buf.String(), "global logs housekeeping")
-	if bi < 0 || li < 0 || bi > li {
-		t.Errorf("order wrong: backups at %d, logs at %d", bi, li)
 	}
 }

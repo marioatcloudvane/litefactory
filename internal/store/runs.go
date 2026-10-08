@@ -6,11 +6,90 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	sqlite "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
+
+// OwnerStop is factory-owned control data retained in the run recovery field.
+// A zero CommandID is a local CLI request and never creates report debt.
+type OwnerStop struct {
+	RunID        int64     `json:"run_id"`
+	CommandID    int64     `json:"command_id,omitempty"`
+	Conversation bool      `json:"conversation,omitempty"`
+	At           time.Time `json:"at"`
+}
+
+// ReasonOwnerStop distinguishes owner cancellation without adding a run state.
+const ReasonOwnerStop = "stopped by the owner"
+const ownerStopPrefix = "owner-stop:"
+
+// OwnerStop reads the factory-retained source of an owner cancellation.
+func (r Run) OwnerStop() (OwnerStop, bool) {
+	var stop OwnerStop
+	if !strings.HasPrefix(r.RecoveryReason, ownerStopPrefix) {
+		return stop, false
+	}
+	err := json.Unmarshal([]byte(strings.TrimPrefix(r.RecoveryReason, ownerStopPrefix)), &stop)
+	return stop, err == nil && stop.RunID == r.ID && !stop.At.IsZero()
+}
+
+// RequestOwnerStop records only the currently running issue invocation.
+func (db *DB) RequestOwnerStop(ctx context.Context, ref string) (OwnerStop, error) {
+	var stop OwnerStop
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		stop, err = requestOwnerStopTx(ctx, tx, ref, 0)
+		return err
+	})
+	return stop, err
+}
+
+func requestOwnerStopTx(ctx context.Context, tx *sql.Tx, ref string, commandID int64) (OwnerStop, error) {
+	stop := OwnerStop{CommandID: commandID, At: nowUTC()}
+	var conversations int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM doctor_conversations WHERE task_ref=? AND state='active'`, ref).Scan(&conversations); err != nil {
+		return stop, err
+	}
+	stop.Conversation = conversations > 0
+	run, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE session_id=(SELECT id FROM sessions WHERE task_ref=?) AND status='running' ORDER BY id DESC LIMIT 1`, ref))
+	if errors.Is(err, ErrNotFound) {
+		return stop, nil
+	}
+	if err != nil {
+		return stop, err
+	}
+	if prior, ok := run.OwnerStop(); ok {
+		return prior, nil
+	}
+	stop.RunID = run.ID
+	raw, err := json.Marshal(stop)
+	if err != nil {
+		return stop, err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE runs SET error=?,recovery_reason=? WHERE id=?`, ReasonOwnerStop, ownerStopPrefix+string(raw), run.ID)
+	return stop, err
+}
+
+// OwnerStopsRunning is consumed by the existing daemon control tick.
+func (db *DB) OwnerStopsRunning(ctx context.Context) ([]Run, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+runColumns+` FROM runs WHERE status='running' AND recovery_reason LIKE 'owner-stop:%' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var runs []Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
 
 // RunStatus is a run's position in its lifecycle.
 //
@@ -337,7 +416,7 @@ RETURNING `+runColumns,
 		}
 		// Direct allocation binds immediately; prelaunch allocation leaves preparation
 		// retryable and binds atomically with execution in StartRun instead.
-		if err == nil && !params.Prelaunch && IsGraphTrigger(params.TriggerCommentID) {
+		if err == nil && !params.Prelaunch && IsGraphTrigger(params.TriggerCommentID) && !isValidateReviewTrigger(params.TriggerCommentID) {
 			err = bindGraphDispatch(ctx, tx, run)
 		}
 		return err
@@ -407,6 +486,10 @@ func finishRunTx(ctx context.Context, tx *sql.Tx, runID int64, outcome RunOutcom
 		`SELECT `+runColumns+` FROM runs WHERE id = ?`, runID))
 	if err != nil {
 		return Run{}, err
+	}
+	if _, ok := current.OwnerStop(); ok {
+		outcome.Error = ReasonOwnerStop
+		outcome.RecoveryReason = current.RecoveryReason
 	}
 	durationMS := finishedAt.Sub(current.StartedAt).Milliseconds()
 	if durationMS < 0 {
@@ -593,21 +676,6 @@ func (db *DB) GetRunByTrigger(ctx context.Context, sessionID, triggerCommentID i
 	case err != nil:
 		return Run{}, false, fmt.Errorf("store: read run for comment %d on session %d: %w",
 			triggerCommentID, sessionID, err)
-	}
-	return run, true, nil
-}
-
-// GetRunByOrdinal reads a run by its per-session ordinal — the NNNN a person
-// types into `litefactory logs 123 --run 2`. exists is false when the session
-// has no such run.
-func (db *DB) GetRunByOrdinal(ctx context.Context, sessionID int64, ordinal int) (Run, bool, error) {
-	run, err := scanRun(db.sql.QueryRowContext(ctx,
-		`SELECT `+runColumns+` FROM runs WHERE session_id = ? AND ordinal = ?`, sessionID, ordinal))
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return Run{}, false, nil
-	case err != nil:
-		return Run{}, false, fmt.Errorf("store: read run %d on session %d: %w", ordinal, sessionID, err)
 	}
 	return run, true, nil
 }

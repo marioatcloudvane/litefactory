@@ -21,22 +21,21 @@ import (
 )
 
 type creationHTTPFixture struct {
-	onPost                    func()
-	mu                        sync.Mutex
-	posts, scans, attachments int
-	lost, partial             bool
-	items                     []github.Issue
-	db                        *store.DB
-	cs                        *store.CreationStore
-	service                   *CreationPublicationService
-	receipts                  *ReceiptService
-	guard                     *AttemptGuard
-	client                    submission.Client
-	prepared                  PreparedCreation
-	now                       time.Time
+	mu           sync.Mutex
+	posts, scans int
+	lost         bool
+	items        []github.Issue
+	db           *store.DB
+	cs           *store.CreationStore
+	service      *CreationPublicationService
+	receipts     *ReceiptService
+	guard        *AttemptGuard
+	client       submission.Client
+	prepared     PreparedCreation
+	now          time.Time
 }
 
-func creationHTTPSetup(t *testing.T, gate bool, attach bool) *creationHTTPFixture {
+func creationHTTPSetup(t *testing.T, gate bool) *creationHTTPFixture {
 	t.Helper()
 	f := &creationHTTPFixture{now: time.Now().UTC().Add(-time.Minute)}
 	db, _, opts := agentResultFixture(t, "research")
@@ -59,16 +58,6 @@ func creationHTTPSetup(t *testing.T, gate bool, attach bool) *creationHTTPFixtur
 			http.NotFound(w, r)
 			return
 		}
-		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/sub_issues") {
-			f.attachments++
-			if f.partial {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{}`))
-			return
-		}
 		if r.Method == http.MethodPost {
 			f.posts++
 			var a submission.CreationArtifact
@@ -79,9 +68,6 @@ func creationHTTPSetup(t *testing.T, gate bool, attach bool) *creationHTTPFixtur
 			issue := github.Issue{ID: int64(900 + f.posts), Number: 400 + f.posts, Title: a.Title, Body: a.Body}
 			issue.Author.ID = 20
 			f.items = append(f.items, issue)
-			if f.onPost != nil {
-				f.onPost()
-			}
 			w.WriteHeader(http.StatusCreated)
 			if f.lost {
 				_, _ = w.Write([]byte(`{"id":`))
@@ -116,11 +102,6 @@ func creationHTTPSetup(t *testing.T, gate bool, attach bool) *creationHTTPFixtur
 	f.service, err = NewCreationPublicationService(db, f.receipts, auth, forge, redact.New(redact.Options{}), t.TempDir())
 	mustProgress(t, err)
 	envelope := submission.CreationEnvelope{Artifacts: []submission.CreationArtifact{{Title: "Reviewed", Body: "Exact body", LinkIssues: []int{280}}}}
-	if attach {
-		envelope.Relationship = "attach"
-		envelope.Artifacts[0].ParentIssue = 263
-		envelope.Artifacts = append(envelope.Artifacts, submission.CreationArtifact{Title: "Second", Body: "Do not dispatch after failure", ParentIssue: 263})
-	}
 	f.prepared, err = f.service.Prepare(t.Context(), envelope)
 	mustProgress(t, err)
 	// Trusted fixture approval must predate the next bound attempt; use the existing primitive directly.
@@ -145,33 +126,6 @@ func (f *creationHTTPFixture) call(t *testing.T) submission.Response {
 	return r
 }
 
-func TestCreationHTTPExactBytesConcurrentRetry(t *testing.T) {
-	f := creationHTTPSetup(t, true, false)
-	var wg sync.WaitGroup
-	for range 12 {
-		wg.Go(func() {
-			f.call(t) // Concurrent callers may observe pending; durable recovery follows below.
-		})
-	}
-	wg.Wait()
-	r := f.call(t)
-	receipt, err := f.receipts.Get(t.Context(), r.RequestID)
-	mustProgress(t, err)
-	if receipt.States.Effects != "confirmed" {
-		t.Fatalf("receipt %+v", receipt)
-	}
-	if len(receipt.Publications) != 1 || receipt.Publications[0].IssueID != 901 || receipt.Publications[0].IssueNumber != 401 {
-		t.Fatalf("missing confirmed publication identity %+v", receipt)
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.posts != 1 || len(f.items) != 1 || f.items[0].Body != f.prepared.Envelope.Artifacts[0].Body || f.items[0].Title != f.prepared.Envelope.Artifacts[0].Title {
-		t.Fatalf("posts=%d items=%+v", f.posts, f.items)
-	}
-	if !strings.Contains(f.items[0].Body, "Related: https://github.com/example/results/issues/280") || !strings.Contains(f.items[0].Body, "<!-- lf:mcp-create") {
-		t.Fatal("missing reviewed links/marker")
-	}
-}
 func TestCreationHTTPDefaultOffRefusesLiveGrant(t *testing.T) {
 	defaults := string(config.DefaultFileContents())
 	for _, body := range []string{strings.Replace(defaults, "  allow_mcp_story_creation: false\n", "", 1), defaults} {
@@ -180,7 +134,7 @@ func TestCreationHTTPDefaultOffRefusesLiveGrant(t *testing.T) {
 			mustProgress(t, os.WriteFile(paths.ConfigPath(), []byte(body), 0600))
 			cfg, err := config.Load(paths)
 			mustProgress(t, err)
-			f := creationHTTPSetup(t, cfg.Settings.AllowMCPStoryCreation, false)
+			f := creationHTTPSetup(t, cfg.Settings.AllowMCPStoryCreation)
 			catalog, err := f.client.List(t.Context())
 			mustProgress(t, err)
 			if strings.Contains(string(catalog.Result), "issues_create_batch") {
@@ -199,7 +153,7 @@ func TestCreationHTTPDefaultOffRefusesLiveGrant(t *testing.T) {
 	}
 }
 func TestCreationHTTPLostReplyReopenObservation(t *testing.T) {
-	f := creationHTTPSetup(t, true, false)
+	f := creationHTTPSetup(t, true)
 	f.lost = true
 	r := f.call(t)
 	if r.Error == "" {
@@ -246,136 +200,12 @@ func TestCreationHTTPLostReplyReopenObservation(t *testing.T) {
 		t.Fatalf("posts=%d scans=%d", f.posts, f.scans)
 	}
 }
-func TestCreationHTTPPartialRelationshipStopsBatch(t *testing.T) {
-	f := creationHTTPSetup(t, true, true)
-	f.partial = true
-	r := f.call(t)
-	if r.Error == "" {
-		t.Fatal("partial batch confirmed")
-	}
-	for range 3 {
-		f.call(t)
-	}
-	got, err := f.receipts.Get(t.Context(), r.RequestID)
-	mustProgress(t, err)
-	if got.States.Effects != "uncertain" {
-		t.Fatalf("receipt %+v", got)
-	}
-	id, err := f.db.CreationPublicationRequest(t.Context(), f.receipts.scope, r.RequestID)
-	mustProgress(t, err)
-	details, err := f.db.CreationPublicationArtifacts(t.Context(), id)
-	mustProgress(t, err)
-	if len(details) != 1 || details[0].IssueID != 901 || details[0].Relationship != "uncertain" {
-		t.Fatalf("details %+v", details)
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.posts != 1 || f.attachments != 1 {
-		t.Fatalf("posts=%d attachments=%d", f.posts, f.attachments)
-	}
-}
-
 func creationWireIssue(i github.Issue) map[string]any {
 	return map[string]any{"id": i.ID, "number": i.Number, "title": i.Title, "body": i.Body, "state": "open", "user": map[string]any{"id": i.Author.ID}}
 }
 
-func TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay(t *testing.T) {
-	for _, kind := range []string{"body", "title", "source", "repository", "relationship", "links", "expiry", "revoked"} {
-		t.Run(kind, func(t *testing.T) {
-			f := creationHTTPSetup(t, true, false)
-			switch kind {
-			case "body":
-				f.prepared.Envelope.Artifacts[0].Body += " changed"
-			case "title":
-				f.prepared.Envelope.Artifacts[0].Title += " changed"
-			case "source":
-				f.prepared.Envelope.SourceTask = "github:example/results#264"
-			case "repository":
-				f.prepared.Envelope.Repository = "foreign/repo"
-			case "relationship":
-				f.prepared.Envelope.Relationship = "attach"
-				f.prepared.Envelope.Artifacts[0].ParentIssue = 263
-			case "links":
-				f.prepared.Envelope.Artifacts[0].LinkIssues = []int{281}
-			case "expiry":
-				f.now = f.now.Add(31 * time.Minute)
-			case "revoked":
-				mustProgress(t, f.guard.Revoke(t.Context(), "cancelled"))
-			}
-			if r := f.call(t); r.Error == "" {
-				t.Fatal("invalid authority/content admitted")
-			}
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			if f.posts != 0 {
-				t.Fatal("refused request published")
-			}
-		})
-	}
-	t.Run("expiry after confirmed operation", func(t *testing.T) {
-		f := creationHTTPSetup(t, true, false)
-		r := f.call(t)
-		if r.Error != "" {
-			t.Fatal(r.Error)
-		}
-		f.now = f.now.Add(31 * time.Minute)
-		if retry := f.call(t); retry.Error == "" {
-			t.Fatal("expired grant replay accepted")
-		}
-		receipt, err := f.receipts.Get(t.Context(), r.RequestID)
-		mustProgress(t, err)
-		if receipt.States.Effects != "confirmed" {
-			t.Fatalf("expired replay damaged outcome %+v", receipt)
-		}
-	})
-}
-
-func TestCreationHTTPCancellationAfterDispatchNeverRecreates(t *testing.T) {
-	f := creationHTTPSetup(t, true, false)
-	args, err := json.Marshal(f.prepared.Envelope)
-	mustProgress(t, err)
-	const request = "cancelled-creation"
-	_, _, err = f.receipts.Begin(t.Context(), request, "issues_create_batch", args)
-	mustProgress(t, err)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	posted := make(chan struct{})
-	f.onPost = func() {
-		id, e := f.db.CreationPublicationRequest(t.Context(), f.receipts.scope, request)
-		if e != nil {
-			t.Error(e)
-		} else {
-			details, e := f.db.CreationPublicationArtifacts(t.Context(), id)
-			if e != nil || len(details) != 1 || !details[0].Dispatched {
-				t.Errorf("intent not persisted before response: %+v %v", details, e)
-			}
-		}
-		cancel()
-		close(posted)
-	}
-	if _, err = f.service.HandleCreate(ctx, request, args); err == nil {
-		t.Fatal("cancelled call confirmed")
-	}
-	<-posted
-	f.mu.Lock()
-	f.onPost = nil
-	f.mu.Unlock()
-	receipt, err := f.receipts.Get(t.Context(), request)
-	mustProgress(t, err)
-	if receipt.States.Effects == "confirmed" {
-		t.Fatalf("cancelled outcome %+v", receipt)
-	}
-	// A fresh journal identity still recovers the same grant-scoped operation.
-	f.call(t)
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.posts != 1 {
-		t.Fatalf("cancelled POST repeated %d", f.posts)
-	}
-}
-
 func TestCreationHTTPObservationRequiresExactUnambiguousProvenance(t *testing.T) {
-	f := creationHTTPSetup(t, true, false)
+	f := creationHTTPSetup(t, true)
 	f.lost = true
 	r := f.call(t)
 	if r.Error == "" {

@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync/atomic"
@@ -107,8 +108,8 @@ func TestReportRecoverySQLiteTickPreservesOrderingAndOtherTaskCapacity(t *testin
 			f.settle()
 			f.settle()
 			row, err := f.db.GetReportRecovery(t.Context(), key)
-			if err != nil || row.State != "resolved" {
-				t.Fatalf("resolution not retained: %+v %v", row, err)
+			if !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("resolved recovery retained: %+v %v", row, err)
 			}
 			saved, err := f.db.GetReportDelivery(t.Context(), delivery.Key)
 			if err != nil || !saved.Completed || saved.CommentID != 900 {

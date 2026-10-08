@@ -112,8 +112,7 @@ func (r *proposalRuntime) client(t *testing.T, req agent.Request) (submission.Cl
 	return submission.Client{DescriptorPath: spec.DescriptorPath()}, spec.PermittedTools()
 }
 
-// One table, invocation as a column: Research is offered the tool on the legacy
-// path and on the graph Research-node path alike, and only then.
+// Research is offered the tool on the graph Research-node path, and only then.
 func TestCreationProposalCatalog_Installation(t *testing.T) {
 	const tool = "issues_create_prepare"
 	for _, tt := range []struct {
@@ -126,15 +125,10 @@ func TestCreationProposalCatalog_Installation(t *testing.T) {
 		noForge    bool
 		want       bool
 	}{
-		{"legacy research", "research", "", true, true, false, false, true},
 		{"graph research node", "research", agent.InvocationResearchNode, true, true, false, false, true},
-		{"legacy research, creation disabled", "research", "", false, true, false, false, false},
 		{"graph research node, creation disabled", "research", agent.InvocationResearchNode, false, true, false, false, false},
-		{"legacy research, host without native MCP", "research", "", true, false, false, false, false},
 		{"graph research node, host without native MCP", "research", agent.InvocationResearchNode, true, false, false, false, false},
-		{"legacy research, MCP disabled", "research", "", true, true, true, false, false},
 		{"graph research node, MCP disabled", "research", agent.InvocationResearchNode, true, true, true, false, false},
-		{"legacy research, no creation forge", "research", "", true, true, false, true, false},
 		{"graph research node, no creation forge", "research", agent.InvocationResearchNode, true, true, false, true, false},
 		{"plan", "plan", "", true, true, false, false, false},
 		{"spike", "spike", "", true, true, false, false, false},
@@ -177,7 +171,7 @@ func TestCreationProposalCatalog_OnlyAddsTheTool(t *testing.T) {
 
 // Installing the tool is not a grant. The graph path keeps its exclusions for
 // the comment service and the publication grant even with an approved intent,
-// and never consumes that intent; the legacy path still binds it.
+// and never consumes that intent.
 func TestCreationProposalCatalog_InstallationGrantsNothingAndKeepsGraphExclusions(t *testing.T) {
 	r := newProposalRuntime(t, "research", true)
 	rt := r.prep.mcpRuntime
@@ -225,13 +219,6 @@ func TestCreationProposalCatalog_InstallationGrantsNothingAndKeepsGraphExclusion
 		t.Fatal("graph launch consumed the owner intent")
 	}
 
-	legacy, names := r.launch(t, agent.Request{Mode: "research"})
-	if !slices.Contains(names, "issues_create_prepare") || !slices.Contains(names, "issues_create_batch") || !slices.Contains(names, "issues_comment") || len(legacy.creationProposal) == 0 {
-		t.Fatalf("legacy catalog %v", names)
-	}
-	if _, _, err := r.cs.EligibleCreationIntent(t.Context(), task); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("legacy launch left the intent eligible: %v", err)
-	}
 	if r.forge.calls.Load() != 0 {
 		t.Fatal("launch reached the forge")
 	}

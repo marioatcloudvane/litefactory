@@ -2,7 +2,9 @@ package daemon_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
@@ -40,6 +43,7 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 	if _, err := f.db.AdmitWorkflowPath(t.Context(), s.ID, "graph"); err != nil {
 		t.Fatal(err)
 	}
+	var bugCapture *teamsource.WorkflowDefinition
 	definition := store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64)}
 	if isBug {
 		specs, err := turn.SimplifiedBugSpecs()
@@ -50,6 +54,7 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 		if err != nil {
 			t.Fatal(err)
 		}
+		bugCapture = capture
 		definition = store.GraphDefinition{Team: "builtin", Workflow: "bug", ProfileVersion: 2, Path: "bug/bug.dot", Digest: capture.Profile.Digest}
 		if _, err = f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: s.ID, Version: 1, Family: "standalone", Workflow: "bug", SourceTrigger: 22}); err != nil {
 			t.Fatal(err)
@@ -64,6 +69,15 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 		launch.Mode = ""
 		launch.Workflow = "bug"
 		launch.Start = "conversation"
+		launch.ContentDigest = bugCapture.Digest
+		launch.TopologyDigest, err = graphexec.SemanticDigest(bugCapture.Profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		launch.Files, err = json.Marshal(bugCapture.Files)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	admitted, err := f.db.AdmitWorkflowLaunch(t.Context(), launch)
 	if err != nil {
@@ -195,4 +209,161 @@ type unusedRecoveryCloneGate struct{}
 
 func (unusedRecoveryCloneGate) Acquire(context.Context, string) (func(), error) {
 	return nil, errors.New("unexpected source preparation")
+}
+
+// A small coordinator loop uses the real node executor and store to cross the
+// runless seam: the dispatch names await, but the exhausted node is merge.
+type limitCoordinatorActivity struct{}
+
+func (limitCoordinatorActivity) Execute(context.Context, turn.Options, turn.ActivityRequest) (turn.ActivityResult, error) {
+	return turn.ActivityResult{Outcome: "next"}, nil
+}
+
+func limitCoordinatorFixture(t *testing.T) (*fixture, turn.GraphNodeRequest, store.GraphDispatch) {
+	t.Helper()
+	f := newFixture(t)
+	f.plantCursor()
+	f.forge.addIssue(fakeIssue{ID: 1230, Number: testIssue, Title: "Coordinator limit", User: stranger(), Labels: toFakeLabels("Mode: Implement")})
+	f.settle()
+	session := f.sessionOf(testIssue)
+	if _, err := f.db.AdmitWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
+	profile, err := graphexec.ParseProfile([]byte(`digraph {team=test;mode=implement;profile_version=1;start=merge;
+ merge [lf_action=lf_implement_work,lf_outcomes="next",lf_limit=1];
+ await [lf_action=lf_implement_work,lf_outcomes="next",lf_limit=2];
+ merge -> await [on=next]; await -> merge [on=next];}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: profile.Team, Mode: string(profile.Mode), ProfileVersion: profile.ProfileVersion, Path: "test/implement.dot", Digest: profile.Digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: profile.Start, StartedAt: f.clock.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := turn.GraphNodeRequest{Profile: profile, InstanceID: instance.ID, At: f.clock.Now()}
+	if err := req.Activities.Register("lf_implement_work", limitCoordinatorActivity{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := turn.ExecuteNodeAction(t.Context(), turn.Options{DB: f.db}, req); err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err := f.db.ParkGraphInstance(t.Context(), instance.ID, "await", f.clock.Now(), f.clock.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f, req, dispatch
+}
+
+func TestRunlessNodeLimitStopsAndReports(t *testing.T) {
+	for _, posting := range []string{"success", "uncertain"} {
+		t.Run(posting, func(t *testing.T) {
+			f, req, dispatch := limitCoordinatorFixture(t)
+			f.turns.fn = func(ctx context.Context, _ turn.Request) (turn.Result, error) {
+				req.At = f.clock.Now()
+				if _, err := turn.ExecuteNodeAction(ctx, turn.Options{DB: f.db}, req); err != nil {
+					return turn.Result{}, err
+				}
+				result, err := turn.ExecuteNodeAction(ctx, turn.Options{DB: f.db}, req)
+				if err != nil {
+					return turn.Result{}, err
+				}
+				if result.Status != store.GraphFailed || result.AttemptID != 0 {
+					t.Errorf("expected real exhaustion: %+v", result)
+				}
+				return turn.Result{}, errors.New(result.Activity.Diagnostic)
+			}
+			if posting == "uncertain" {
+				f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "post response unavailable"})
+					return true
+				}
+			}
+			f.settle()
+			instance, err := f.db.GetGraphInstance(t.Context(), req.InstanceID)
+			if err != nil || instance.Status != store.GraphFailed || instance.FinishedAt.IsZero() || !instance.NextDueAt.IsZero() {
+				t.Fatalf("terminal instance: %+v %v", instance, err)
+			}
+			stopped, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
+			if err != nil || stopped.ID != dispatch.ID || stopped.Node != "await" || stopped.Status != "cancelled" || stopped.AllocatedRunID != 0 || stopped.Attempts != 1 || !strings.Contains(stopped.CancellationReason, `node "merge" dispatch limit 1 exhausted`) {
+				t.Fatalf("cancelled dispatch: %+v %v\n%s", stopped, err, f.logs)
+			}
+			if strings.Contains(f.logs.String(), "requeue graph step") || strings.Contains(f.logs.String(), "CHECK constraint") {
+				t.Fatalf("terminal work requeued: %s", f.logs)
+			}
+			if posting == "uncertain" {
+				pending, found, err := f.db.FindPendingReportDelivery(t.Context(), instance.SessionID, dispatch.TriggerID())
+				if err != nil || !found || !pending.PossiblySent {
+					t.Fatalf("missing delivery debt: %+v %v %v", pending, found, err)
+				}
+				f.forge.onPostComment = nil
+				f.clock.advance(time.Hour)
+				f.settle()
+				posts, _, _ := f.forge.snapshot()
+				if len(posts) != 0 {
+					t.Fatalf("uncertain notice resent: %v", posts)
+				}
+				f.forge.addComment(testIssue, 900040, bot(), pending.Body)
+				if _, found, err := f.reporter.ReportPending(t.Context(), instance.SessionID, dispatch.TriggerID()); err != nil || !found {
+					t.Fatalf("recover retained notice: found=%v error=%v", found, err)
+				}
+				f.clock.advance(time.Hour)
+				f.settle()
+				saved, err := f.db.GetReportDelivery(t.Context(), pending.Key)
+				if err != nil || !saved.Completed || saved.CommentID != 900040 {
+					t.Fatalf("delivery not recovered: %+v %v\n%s", saved, err, f.logs)
+				}
+			} else {
+				posts, _, _ := f.forge.snapshot()
+				if len(posts) != 1 || !strings.Contains(posts[0], `node "merge" dispatch limit 1 exhausted`) || !strings.Contains(posts[0], "Reply on this open issue to resume") {
+					t.Fatalf("stop notice: %v", posts)
+				}
+			}
+			posts, _, _ := f.forge.snapshot()
+			f.clock.advance(time.Hour)
+			f.settle()
+			after, _, _ := f.forge.snapshot()
+			attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+			if err != nil || len(attempts) != 2 || len(f.turns.calls()) != 1 || len(after) != len(posts) {
+				t.Fatalf("terminal work repeated: attempts=%+v calls=%d posts=%v error=%v", attempts, len(f.turns.calls()), after, err)
+			}
+			latest, err := f.db.LatestGraphDispatch(t.Context(), instance.ID)
+			if err != nil || latest != stopped {
+				t.Fatalf("terminal dispatch changed: %+v %v", latest, err)
+			}
+		})
+	}
+}
+
+func TestRunlessCoordinatorStartupRetryAndSuccess(t *testing.T) {
+	f, req, dispatch := limitCoordinatorFixture(t)
+	f.turns.fn = func(context.Context, turn.Request) (turn.Result, error) {
+		return turn.Result{}, errors.New("transient startup refusal")
+	}
+	f.settle()
+	pending, err := f.db.LatestGraphDispatch(t.Context(), req.InstanceID)
+	instance, instanceErr := f.db.GetGraphInstance(t.Context(), req.InstanceID)
+	if err != nil || instanceErr != nil || pending.Status != "pending" || pending.Attempts != 1 || instance.Status != store.GraphRunning || instance.NextDueAt.IsZero() {
+		t.Fatalf("not retried: %+v %+v %v %v", pending, instance, err, instanceErr)
+	}
+	f.turns.fn = func(ctx context.Context, _ turn.Request) (turn.Result, error) {
+		req.At = f.clock.Now()
+		_, err := turn.ExecuteNodeAction(ctx, turn.Options{DB: f.db}, req)
+		return turn.Result{}, err
+	}
+	f.clock.advance(time.Hour)
+	f.settle()
+	// Discovery can hold the task during the due-dispatch phase.
+	f.settle()
+	done, err := f.db.LatestGraphDispatch(t.Context(), req.InstanceID)
+	if err != nil || done.ID != dispatch.ID || done.Status != "finished" || done.AllocatedRunID != 0 || len(f.turns.calls()) != 2 {
+		t.Fatalf("runless success: %+v %v\n%s", done, err, f.logs)
+	}
+	posts, _, _ := f.forge.snapshot()
+	if len(posts) != 0 {
+		t.Fatalf("successful work reported stopped: %v", posts)
+	}
 }
