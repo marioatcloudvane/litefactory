@@ -81,14 +81,14 @@ func TestShippedTeamInstallsFromTheCatalogueFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, already, err := m.Install(t.Context(), catalogue, "go-development", "1.0.0")
+	got, already, err := m.Install(t.Context(), catalogue, "go-development", "")
 	if err != nil || already || !got.Integrity || got.Identity.Source != "file://"+filepath.ToSlash(catalogue) {
 		t.Fatalf("install: %+v already=%v %v", got.Identity, already, err)
 	}
 	if len(got.Workflows) != 6 {
 		t.Fatalf("workflows: %v", got.Workflows)
 	}
-	if _, again, err := m.Install(t.Context(), "file://"+filepath.ToSlash(catalogue), "go-development", "1.0.0"); err != nil || !again {
+	if _, again, err := m.Install(t.Context(), "file://"+filepath.ToSlash(catalogue), "go-development", got.Identity.Version); err != nil || !again {
 		t.Fatalf("reinstall: already=%v %v", again, err)
 	}
 }

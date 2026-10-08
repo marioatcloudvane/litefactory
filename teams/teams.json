@@ -4,7 +4,7 @@
     {
       "name": "Go development",
       "slug": "go-development",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Go development team: litefactory workflows, roles and skills for Go repositories.",
       "tags": [
         "go"
@@ -17,7 +17,7 @@
         },
         {
           "path": "bug/bug-fixer.md",
-          "sha256": "5efacfa48c31b49611d356ae52f15a24520beda4d55ea7d67cf4a27fb0e31d9d"
+          "sha256": "3fc81396821bf1898527b2d1ec6d9a9134fb5aa636046c3a12e0028a2c55cd74"
         },
         {
           "path": "bug/bug.dot",
@@ -53,7 +53,7 @@
         },
         {
           "path": "implement/story-worker.md",
-          "sha256": "5b56d9dd10220af9e67b315058ad93da9878c920d3de32fc0f50ec48ae5cb38c"
+          "sha256": "0e808bfb70010aecad881b438f1e0c5b78eba60628e9ab7db8b460cb535fcf77"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -196,7 +196,7 @@
           "sha256": "97c3ed6f773ca7bb5652ab7acf405f12c398dcd4d9147adad60bb717eafc4adb"
         }
       ],
-      "checksum": "1481028e09821ddbe04c7f3ad3c99cf10bf8d84d90031ca458ca72a5df953787"
+      "checksum": "ffe3af31451e27c2748b3b9e01dabbc93ea73327db7cfbe196c550f0395cef3e"
     }
   ]
 }
