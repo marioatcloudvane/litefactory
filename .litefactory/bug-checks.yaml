@@ -23,8 +23,10 @@ phases:
         timeout_seconds: 1200
   full:
     commands:
+      # 86400 is the recipe maximum: the full race suite takes well over an
+      # hour on the factory machine and must not be cut off.
       - argv: [go, test, -race, -timeout=0, ./...]
-        timeout_seconds: 3600
+        timeout_seconds: 86400
         rerun:
           failures: go-test
           argv: [go, test, -race, -count=1, -timeout=0, -run, "{tests}", "{packages}"]
