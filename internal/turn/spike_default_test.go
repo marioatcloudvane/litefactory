@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
@@ -73,7 +74,7 @@ func TestSpikeSettingFileIsNeverRead(t *testing.T) {
 	// reader; an inert file changes nothing.
 	dir := filepath.Join(f.repo.Dir, ".litefactory", "spike.yaml")
 	mustProgress(t, os.MkdirAll(dir, 0700))
-	f.opts.spikeCapture = func(context.Context, WorkflowPolicy) (*teamsource.WorkflowDefinition, error) {
+	f.opts.WorkflowSource = func(context.Context, store.Repo, agent.Workflow, graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 		return nil, errors.New("stop after admission")
 	}
 	if _, handled, err := admitSpikeExecution(t.Context(), f.opts, req, Result{Session: f.session}); !handled || err == nil || !strings.Contains(err.Error(), "stop after admission") {
@@ -84,7 +85,7 @@ func TestSpikeSettingFileIsNeverRead(t *testing.T) {
 func TestSpikeRoutePersistedBeforeDispatch(t *testing.T) {
 	f, _, req := assembledSpikeFixture(t, spikeDoneRunner(t), "")
 	var atCapture string
-	f.opts.spikeCapture = func(context.Context, WorkflowPolicy) (*teamsource.WorkflowDefinition, error) {
+	f.opts.WorkflowSource = func(context.Context, store.Repo, agent.Workflow, graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 		atCapture = spikePersistedRoute(t, f)
 		return nil, errors.New("fault before dispatch")
 	}
@@ -124,7 +125,7 @@ func TestSpikeRetiredOrCrossModeProvenanceIsRefusedBeforeAnyAgent(t *testing.T) 
 
 func TestSpikeRuntimeFaultDoesNotFallBackToAnotherRoute(t *testing.T) {
 	f, _, req := assembledSpikeFixture(t, nil, "")
-	f.opts.spikeCapture = func(context.Context, WorkflowPolicy) (*teamsource.WorkflowDefinition, error) {
+	f.opts.WorkflowSource = func(context.Context, store.Repo, agent.Workflow, graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 		return nil, errors.New("capture broke")
 	}
 	_, handled, err := admitSpikeExecution(t.Context(), f.opts, req, Result{Session: f.session})

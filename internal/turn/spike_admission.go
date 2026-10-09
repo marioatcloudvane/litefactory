@@ -47,18 +47,11 @@ func admitSpikeExecution(ctx context.Context, opts Options, req Request, result 
 		}
 		return result, true, err
 	}
-	policy := SpikeWorkflowPolicy()
-	capture := captureSpike
-	if opts.spikeCapture != nil {
-		capture = opts.spikeCapture
-	}
 	specs, err := SpikeSpecs()
 	if err != nil {
 		return result, true, err
 	}
-	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowSpike, specs, func(ctx context.Context, _ graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-		return capture(ctx, policy)
-	})
+	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowSpike, specs)
 	if err != nil {
 		return result, true, err
 	}
@@ -102,19 +95,6 @@ func launchSpikeGraph(ctx context.Context, opts Options, req Request, result Res
 	return ExecuteSpikeWorkflow(ctx, opts, req, result, definition, admitted)
 }
 
-// captureSpike captures the shipped Spike under the generic control validator.
-func captureSpike(ctx context.Context, policy WorkflowPolicy) (*teamsource.WorkflowDefinition, error) {
-	specs, err := WorkflowSpecs(policy)
-	if err != nil {
-		return nil, err
-	}
-	definition, err := teamsource.CaptureSpike(ctx, specs)
-	if err != nil {
-		return nil, fmt.Errorf("capture current shipped Spike: %w", err)
-	}
-	return definition, nil
-}
-
 // resumeSpikeDispatch enters the workflow at an instance's current node with the
 // definition it was admitted under. Nothing here is a fresh admission.
 func resumeSpikeDispatch(ctx context.Context, opts Options, req Request, result Result) (Result, error) {
@@ -129,23 +109,16 @@ func resumeSpikeDispatch(ctx context.Context, opts Options, req Request, result 
 	if err != nil {
 		return result, err
 	}
-	policy := SpikeWorkflowPolicy()
-	capture := captureSpike
-	if opts.spikeCapture != nil {
-		capture = opts.spikeCapture
-	}
 	specs, err := SpikeSpecs()
 	if err != nil {
 		return result, err
 	}
-	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowSpike, specs, func(ctx context.Context, _ graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-		return capture(ctx, policy)
-	})
+	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowSpike, specs)
 	if err != nil {
 		return result, err
 	}
 	if definition.Profile.Digest != pin.Digest {
-		return result, errors.New("shipped Spike graph changed under a running instance; the parked stage cannot resume")
+		return result, errors.New("retained spike graph does not match the running instance; the parked stage cannot resume")
 	}
 	return ExecuteSpikeWorkflow(ctx, opts, req, result, definition, retainedAdmission(ctx, opts.DB, req, instance, "spike"))
 }
