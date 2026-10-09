@@ -248,3 +248,48 @@ func TestClosedIssueOwnerWaitDoctorHold(t *testing.T) {
 		t.Fatalf("held graph changed: %+v %v", got, err)
 	}
 }
+
+// #577: an idle wait is cancelled when it is open, or when it is claimed by
+// exactly the named reply; any other claim keeps the instance running.
+func TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		state        string
+		claimedReply int64
+		want         bool
+	}{
+		{"open wait", "waiting", 0, true},
+		{"open wait with a named reply", "waiting", 77, true},
+		{"claimed without a named reply", "claimed", 0, false},
+		{"claimed by another reply", "claimed", 78, false},
+		{"claimed by the named reply", "claimed", 77, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, instance, _ := closureWaitFixture(t, "validate", tc.state)
+			ctx := t.Context()
+			if tc.state == "claimed" {
+				if _, err := db.sql.ExecContext(ctx, "UPDATE graph_owner_waits SET reply_id=77 WHERE instance_id=?", instance.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := db.CancelIdleGraphOwnerWait(ctx, instance.ID, tc.claimedReply, "the owner started Validate again", graphTestTime().Add(time.Minute))
+			if err != nil || got != tc.want {
+				t.Fatalf("cancelled=%v err=%v, want %v", got, err, tc.want)
+			}
+			inst, err := db.GetGraphInstance(ctx, instance.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wait, err := db.GetGraphOwnerWait(ctx, instance.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want && (inst.Status != GraphCancelled || wait.State != "cancelled") {
+				t.Fatalf("instance %s wait %s, want both cancelled", inst.Status, wait.State)
+			}
+			if !tc.want && (inst.Status != GraphRunning || wait.State != tc.state) {
+				t.Fatalf("instance %s wait %s, want unchanged", inst.Status, wait.State)
+			}
+		})
+	}
+}
