@@ -286,6 +286,12 @@ type ReplyRequest struct {
 	// [ReplyRequest.kind] and [ReplyRequest.validate] check membership in.
 	ConfirmKind report.ReplyKind
 	Confirm     report.ConfirmReply
+
+	// ResumeNode and ResumeReason belong to [report.ReplyGraphResumeRefused]
+	// alone: the stopped node and the factory-owned reason a reply could not
+	// resume it. internal/report checks both before rendering.
+	ResumeNode   string
+	ResumeReason string
 }
 
 // refusing reports whether this request is a tool-permission or
@@ -689,6 +695,8 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 			Creation:                 req.Creation,
 			CreationAcceptance:       req.CreationAcceptance,
 			Confirm:                  req.Confirm,
+			ResumeNode:               req.ResumeNode,
+			ResumeReason:             req.ResumeReason,
 		})
 	})
 }

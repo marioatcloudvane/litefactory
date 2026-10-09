@@ -192,7 +192,7 @@ func TestStoppedBugReplyRecoveryBoundary(t *testing.T) {
 			if tc.child {
 				trigger.PlanReply = &planbrief.PlanOwnerReply{}
 			}
-			_, err = d.recoverGraphReply(ctx, work, trigger, turn.Command{Kind: turn.KindFreeText, Text: "resume"}, "")
+			_, err = d.recoverGraphReply(ctx, work, trigger, turn.Command{Kind: turn.KindFreeText, Text: "resume"})
 			if tc.observation == nil {
 				check(err)
 			} else if err == nil {
@@ -215,7 +215,7 @@ func TestStoppedBugReplyRecoveryBoundary(t *testing.T) {
 					t.Fatalf("changed target: %+v", got)
 				}
 				check(db.CancelGraphDispatch(ctx, got.ID, "later stop", at))
-				_, err = d.recoverGraphReply(ctx, work, trigger, turn.Command{Kind: turn.KindFreeText, Text: "resume"}, "")
+				_, err = d.recoverGraphReply(ctx, work, trigger, turn.Command{Kind: turn.KindFreeText, Text: "resume"})
 				check(err)
 				replay, err := db.LatestGraphDispatch(ctx, instance.ID)
 				check(err)

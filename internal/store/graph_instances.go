@@ -38,6 +38,12 @@ func (db *DB) GetGraphInstance(ctx context.Context, id int64) (GraphInstance, er
 	return out, nil
 }
 
+// LatestSessionGraphInstance returns the session's most recent graph instance
+// of any workflow. Only it can be resumed by an owner reply.
+func (db *DB) LatestSessionGraphInstance(ctx context.Context, sessionID int64) (GraphInstance, error) {
+	return scanGraphInstance(db.sql.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? ORDER BY id DESC LIMIT 1`, sessionID))
+}
+
 // SetGraphInstanceStatus changes running progress or terminalizes it. Terminal
 // instances cannot be revived. Cancellation with an in-flight attempt requires
 // explicit attempt finalization; automatic reconciliation is future wiring.
