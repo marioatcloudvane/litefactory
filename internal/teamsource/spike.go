@@ -24,5 +24,5 @@ func CaptureSpike(ctx context.Context, registry graphexec.Registry) (*WorkflowDe
 	if err != nil {
 		return nil, fmt.Errorf("open built-in Spike: %w", err)
 	}
-	return CaptureWorkflow(ctx, source, "spike.dot", "builtin", agent.ModeSpike, registry)
+	return CaptureWorkflow(ctx, source, "spike.dot", "go-development", agent.ModeSpike, registry)
 }

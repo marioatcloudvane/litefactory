@@ -102,7 +102,7 @@ func TestImplementGraphCapturesAndEveryNodeIsBounded(t *testing.T) {
 		}
 		if n.Action == "lf_agent" {
 			roles++
-			if n.Attrs["lf_agent_markdown"] != "story-worker" || n.Attrs["lf_skills"] != "implement-result" || n.Limit != 3 {
+			if n.Attrs["lf_agent_markdown"] != "story-worker" || n.Attrs["lf_skills"] != "implement-result,team-guidance" || n.Limit != 3 {
 				t.Errorf("worker node = %+v", n)
 			}
 		}
@@ -203,7 +203,7 @@ func TestImplementStoryDoneRefusesAStoryThatIsNotRunning(t *testing.T) {
 func TestImplementAfterAgentFailureSettlesProcessFailuresOnly(t *testing.T) {
 	f := newImplementWorkerFixture(t)
 	definition := mustCaptureImplement(t)
-	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement/implement.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: definition.Profile.Team, Mode: "implement", ProfileVersion: 1, Path: "implement/implement.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	if err != nil {
 		t.Fatal(err)
 	}

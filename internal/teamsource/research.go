@@ -105,7 +105,7 @@ func safeResearchPath(name string) bool {
 }
 
 func captureResearch(ctx context.Context, source fs.FS, registry graphexec.Registry) (*ResearchDefinition, error) {
-	return CaptureWorkflow(ctx, source, "research.dot", "builtin", agent.ModeResearch, registry)
+	return CaptureWorkflow(ctx, source, "research.dot", "go-development", agent.ModeResearch, registry)
 }
 
 // WorkflowDefinition and WorkflowNode are captured packages and roles, independent of mode.

@@ -42,7 +42,7 @@ func TestShippedCatalogueMatchesItsFiles(t *testing.T) {
 			if sum := sha256.Sum256(b); hex.EncodeToString(sum[:]) != f.SHA256 {
 				t.Errorf("%s/%s: listed hash is stale", r.Slug, f.Path)
 			}
-			if f.Path == "team.config" {
+			if f.Path == "team.config" || f.Path == "GENERATED.md" {
 				continue
 			}
 			live, err := os.ReadFile(filepath.Join("../teamsource", filepath.FromSlash(f.Path)))
@@ -81,14 +81,14 @@ func TestShippedTeamInstallsFromTheCatalogueFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, already, err := m.Install(t.Context(), catalogue, "go-development", "1.0.0")
+	got, already, err := m.Install(t.Context(), catalogue, "go-development", "1.1.0")
 	if err != nil || already || !got.Integrity || got.Identity.Source != "file://"+filepath.ToSlash(catalogue) {
 		t.Fatalf("install: %+v already=%v %v", got.Identity, already, err)
 	}
 	if len(got.Workflows) != 6 {
 		t.Fatalf("workflows: %v", got.Workflows)
 	}
-	if _, again, err := m.Install(t.Context(), "file://"+filepath.ToSlash(catalogue), "go-development", "1.0.0"); err != nil || !again {
+	if _, again, err := m.Install(t.Context(), "file://"+filepath.ToSlash(catalogue), "go-development", "1.1.0"); err != nil || !again {
 		t.Fatalf("reinstall: already=%v %v", again, err)
 	}
 }

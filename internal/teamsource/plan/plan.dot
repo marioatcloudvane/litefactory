@@ -19,7 +19,7 @@
 // finds none parks the run at the owner waits. The cycle nodes carry
 // lf_limit="13": twelve stories in a set plus one owner-requested revision.
 digraph plan {
- graph [team="builtin", mode="plan", profile_version="1", start="select_set"];
+ graph [team="go-development", mode="plan", profile_version="1", start="select_set"];
 
  // ---- Stage selection ------------------------------------------------------
  select_set        [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="set", lf_limit="24"];
@@ -29,7 +29,7 @@ digraph plan {
 
  // ---- Stage 1: story set ---------------------------------------------------
  set_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="set", lf_limit="8"];
- set_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-set", lf_skills="plan-story-set", lf_limit="8"];
+ set_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-set", lf_skills="plan-story-set,team-guidance", lf_limit="8"];
  set_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="set_agent", lf_limit="8"];
  set_draft    [lf_action="lf_plan_story", lf_source="set_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="8"];
  set_gate     [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8"];
@@ -39,7 +39,7 @@ digraph plan {
  // ---- Stage 2: stories (bounded creation cycle) ----------------------------
  story_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="story", lf_limit="8"];
  story_pick     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="create", lf_limit="13"];
- story_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-story", lf_skills="plan-story-shaping", lf_limit="13"];
+ story_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-story", lf_skills="plan-story-shaping,team-guidance", lf_limit="13"];
  story_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="story_agent", lf_limit="13"];
  story_draft    [lf_action="lf_plan_story", lf_source="story_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="13"];
  story_gate     [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="13"];
@@ -48,7 +48,7 @@ digraph plan {
 
  // ---- Stage 3: technical ---------------------------------------------------
  technical_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="technical", lf_limit="8"];
- technical_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-technical", lf_skills="plan-technical-shaping", lf_limit="8"];
+ technical_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-technical", lf_skills="plan-technical-shaping,team-guidance", lf_limit="8"];
  technical_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="technical_agent", lf_limit="8"];
  technical_draft    [lf_action="lf_plan_story", lf_source="technical_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="8"];
  technical_gate     [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8"];
@@ -57,7 +57,7 @@ digraph plan {
 
  // ---- Stage 4: acceptance --------------------------------------------------
  acceptance_loop     [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="acceptance", lf_limit="8"];
- acceptance_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-acceptance", lf_skills="plan-acceptance-shaping", lf_limit="8"];
+ acceptance_agent    [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="plan-acceptance", lf_skills="plan-acceptance-shaping,team-guidance", lf_limit="8"];
  acceptance_question [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_source="acceptance_agent", lf_limit="8"];
  acceptance_draft    [lf_action="lf_plan_story", lf_source="acceptance_agent", lf_outcomes="applied,conflict,failed,uncertain", lf_limit="8"];
  acceptance_gate     [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8"];

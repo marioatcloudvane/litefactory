@@ -31,7 +31,7 @@
 // with what Implement must change, and a suite that could not give a trustworthy
 // answer ends blocked with its reason. Nothing here accepts or approves.
 digraph validate {
- graph [team="builtin", mode="validate", profile_version="1", start="suite"];
+ graph [team="go-development", mode="validate", profile_version="1", start="suite"];
 
  // ---- Test the commit ---------------------------------------------------------
  // A finished result for the commit is reused as it is. The suite runs again
@@ -40,11 +40,11 @@ digraph validate {
 
  // ---- Repair loop (at most two rounds) ---------------------------------------
  repair_budget [lf_action="lf_validate_repair_budget", lf_outcomes="run,spent", lf_rounds="2", lf_suite="suite", lf_limit="6"];
- repair_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="validate-repair", lf_skills="validate-repair-report", lf_access="write", lf_budget="15", lf_limit="2"];
+ repair_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="validate-repair", lf_skills="validate-repair-report,team-guidance", lf_access="write", lf_budget="15", lf_limit="2"];
  repair_check  [lf_action="lf_validate_repair_check", lf_outcomes="kept,too_big,handback,unfinished,blocked", lf_max_files="3", lf_forbid="package,dependency,schema,api,tests,criteria", lf_source="repair_agent", lf_suite="suite", lf_limit="4"];
 
  // ---- Review the final tested commit (read-only, side by side) ----------------
- review [lf_action="lf_validate_review", lf_outcomes="done,retry", lf_roles="validate-acceptance,validate-code,validate-architecture", lf_skills="validate-review", lf_suite="suite", lf_limit="32"];
+ review [lf_action="lf_validate_review", lf_outcomes="done,retry", lf_roles="validate-acceptance,validate-code,validate-architecture", lf_skills="validate-review,team-guidance", lf_suite="suite", lf_limit="32"];
 
  // ---- Join the findings and record the end -------------------------------------
  outcome [lf_action="lf_validate_outcome", lf_outcomes="assessed,handed_back,blocked", lf_suite="suite", lf_limit="2"];
