@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 )
 
@@ -14,10 +15,16 @@ type RepairRequest struct {
 	Operation  string
 }
 
-// RepairToolNames returns the complete catalog, including scoped readback through
-// doctor_verify. No generic read, shell, SQL, path or restart operation exists.
+// TypedRepairToolKinds is the closed catalog of approved factory repairs.
+func TypedRepairToolKinds() []string {
+	return []string{"cancel_schedule", "consume_comment", "park_story", "release_instance", "requeue_schedule", "resume_story", "stop_run", "sync_branch"}
+}
+
+// RepairToolNames returns exactly the typed repairs and scoped communication.
 func RepairToolNames() []string {
-	return []string{"communication_preflight", "communication_receipt", "communication_submit", "doctor_backup", "doctor_verify", "doctor_write"}
+	names := append(TypedRepairToolKinds(), "communication_preflight", "communication_receipt", "communication_submit")
+	slices.Sort(names)
+	return names
 }
 
 // Validate binds repair transport to a bounded operation identity and exact tools.

@@ -68,9 +68,9 @@ func runDoctor(ctx context.Context, env *Env, operation string, args []string) (
 		return err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
-	service := doctor.Service{DB: db, Paths: paths, Config: cfg, Redactor: redact.New(redact.Options{Logger: env.Logger})}
+	service := doctor.Service{DB: db, Paths: paths, Config: cfg, Redactor: redact.New(redact.Options{Logger: env.Logger, Environ: os.Environ()})}
 	if operation == "apply" || operation == "" {
-		if err = configureDoctorNative(&service, env); err != nil {
+		if err = configureDoctorNative(ctx, &service, env); err != nil {
 			return err
 		}
 	}

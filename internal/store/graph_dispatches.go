@@ -93,6 +93,17 @@ func (db *DB) ParkCapturedGraphInstanceAfter(ctx context.Context, instanceID int
 	return db.parkGraphInstance(ctx, instanceID, node, dueAt, now, spent, 0, launchID)
 }
 
+// GraphReplyResumeRefusal is the graph invariant a reply recovery meets when
+// the stopped work cannot be resumed. Reason is factory-owned, owner-facing text.
+type GraphReplyResumeRefusal struct{ Reason string }
+
+func (e *GraphReplyResumeRefusal) Error() string {
+	return ErrGraphInvariant.Error() + ": reply recovery refused: " + e.Reason
+}
+
+// Is keeps the refusal a graph invariant for callers that only test for one.
+func (e *GraphReplyResumeRefusal) Is(target error) bool { return target == ErrGraphInvariant }
+
 func (db *DB) parkGraphInstance(ctx context.Context, instanceID int64, node string, dueAt, now time.Time, spent, replyID, launchID int64) (GraphDispatch, error) {
 	var out GraphDispatch
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
@@ -125,18 +136,31 @@ func (db *DB) parkGraphInstance(ctx context.Context, instanceID int64, node stri
 			if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM watermarks WHERE session_id=? AND last_comment_id>=?)`, instance.SessionID, replyID).Scan(&consumed); err != nil || consumed {
 				return err
 			}
-			var eligible bool
+			var launched, newer, running, stepping, waiting, stopped bool
 			if err = tx.QueryRowContext(ctx, `SELECT
-EXISTS(SELECT 1 FROM research_launch_definitions WHERE instance_id=?)
-AND NOT EXISTS(SELECT 1 FROM graph_instances WHERE session_id=? AND id>?)
-AND NOT EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running')
-AND NOT EXISTS(SELECT 1 FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running'))
-AND NOT EXISTS(SELECT 1 FROM graph_owner_waits WHERE instance_id=? AND state IN ('waiting','claimed'))
-AND EXISTS(SELECT 1 FROM graph_dispatches WHERE id=(SELECT MAX(id) FROM graph_dispatches WHERE instance_id=?) AND status='cancelled' AND allocated_run_id IS NULL AND node=?)`, instanceID, instance.SessionID, instanceID, instance.SessionID, instanceID, instanceID, instanceID, node).Scan(&eligible); err != nil {
+EXISTS(SELECT 1 FROM research_launch_definitions WHERE instance_id=?),
+EXISTS(SELECT 1 FROM graph_instances WHERE session_id=? AND id>?),
+EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running'),
+EXISTS(SELECT 1 FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running')),
+EXISTS(SELECT 1 FROM graph_owner_waits WHERE instance_id=? AND state IN ('waiting','claimed')),
+EXISTS(SELECT 1 FROM graph_dispatches WHERE id=(SELECT MAX(id) FROM graph_dispatches WHERE instance_id=?) AND status='cancelled' AND allocated_run_id IS NULL AND node=?)`, instanceID, instance.SessionID, instanceID, instance.SessionID, instanceID, instanceID, instanceID, node).Scan(&launched, &newer, &running, &stepping, &waiting, &stopped); err != nil {
 				return err
 			}
-			if !eligible || !instance.NextDueAt.IsZero() {
-				return graphInvariant("reply recovery no longer targets stopped work")
+			switch {
+			case !stopped:
+				return &GraphReplyResumeRefusal{Reason: "it is no longer stopped at that step"}
+			case newer:
+				return &GraphReplyResumeRefusal{Reason: "newer work on this issue has replaced it"}
+			case waiting:
+				return &GraphReplyResumeRefusal{Reason: "it is waiting for an answer to its open question"}
+			case running:
+				return &GraphReplyResumeRefusal{Reason: "another run on this issue is still in progress"}
+			case stepping:
+				return &GraphReplyResumeRefusal{Reason: "one of its steps is still in progress"}
+			case !launched:
+				return &GraphReplyResumeRefusal{Reason: "it has no saved launch to resume from"}
+			case !instance.NextDueAt.IsZero():
+				return &GraphReplyResumeRefusal{Reason: "it is already scheduled to continue"}
 			}
 		}
 		if instance.Status != GraphRunning {

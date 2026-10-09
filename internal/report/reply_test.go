@@ -105,3 +105,29 @@ func TestRenderReplyImplementCommentNotApplied(t *testing.T) {
 		t.Fatal("wrong refusal family")
 	}
 }
+
+// A reply that could not resume stopped work names the node and the reason,
+// and drops either one that is not plain text.
+func TestRenderReplyGraphResumeRefused(t *testing.T) {
+	rep := newReporter(t)
+	kind := report.ReplyGraphResumeRefused
+	body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: kind, ResumeNode: "repair_agent", ResumeReason: "newer work on this issue has replaced it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{report.ReplyMarker(testRef), "could not resume the stopped work at `repair_agent` because newer work on this issue has replaced it", "nothing was run"} {
+		if !strings.Contains(body.String(), want) {
+			t.Errorf("reply lacks %q: %s", want, body.String())
+		}
+	}
+	body, err = rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: kind, ResumeNode: "a`b", ResumeReason: "@someone [x](y)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := body.String(); strings.Contains(text, "a`b") || strings.Contains(text, "@someone") || !strings.Contains(text, "could not resume the stopped work, so") {
+		t.Fatalf("unsafe detail rendered: %s", text)
+	}
+	if kind.String() != "graph_resume_refused" || !kind.RefusesMode() || kind.RefusesTools() || kind.RefusesAgent() || kind.RefusesSwitch() || kind.RefusesSync() || kind.IsConfirmationReply() {
+		t.Fatal("wrong refusal family")
+	}
+}

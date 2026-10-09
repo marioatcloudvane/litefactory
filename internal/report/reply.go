@@ -217,6 +217,10 @@ const (
 	ReplyGraphOwnerWaitRefused
 	// ReplyImplementCommentNotApplied answers parent guidance with no parked target.
 	ReplyImplementCommentNotApplied
+	// ReplyGraphResumeRefused answers an owner reply on work stopped at a node
+	// that the reply could not resume, naming the node and the reason. It is
+	// posted and the comment is consumed.
+	ReplyGraphResumeRefused
 )
 
 // String renders the kind for logs and test failures.
@@ -302,6 +306,8 @@ func (k ReplyKind) String() string {
 		return "graph_owner_wait_refused"
 	case ReplyImplementCommentNotApplied:
 		return "implement_comment_not_applied"
+	case ReplyGraphResumeRefused:
+		return "graph_resume_refused"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -324,7 +330,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
-	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied:
+	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -364,7 +370,7 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied:
+	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
 		return true
 	default:
 		return false
@@ -507,6 +513,12 @@ type Reply struct {
 	// Confirm carries the safe, structured facts of a /confirm reply
 	// (US-12). It is set only for [ReplyKind.IsConfirmationReply] kinds.
 	Confirm ConfirmReply
+
+	// ResumeNode and ResumeReason are read by [ReplyGraphResumeRefused]
+	// alone: the node the work stopped at and the factory-owned reason the
+	// reply could not resume it. Either is omitted when it is not plain text.
+	ResumeNode   string
+	ResumeReason string
 }
 
 // ConfirmReply is the factory-owned disclosure for a /confirm control
@@ -581,6 +593,13 @@ type ScheduleReply struct {
 // place a value that reached this package from a
 // forge label is echoed into a comment litefactory signs its own name to
 // (SEC-5), rather than trusted from whatever validated it upstream.
+// resumeNodePattern and resumeReasonPattern keep [ReplyGraphResumeRefused]
+// to an identifier-shaped node and a plain lowercase sentence fragment.
+var (
+	resumeNodePattern   = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$`)
+	resumeReasonPattern = regexp.MustCompile(`^[a-z][a-z ,']{0,119}$`)
+)
+
 var agentNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 
 // agentSpan renders a coding-agent-tool name for quoting back, the same way
@@ -875,6 +894,18 @@ func (r Reply) body() string {
 		b.WriteString("This Implement comment did not select any parked stories, so no stories were resumed.")
 		b.WriteString(sectionGap)
 		b.WriteString("Name a parked story key to resume it with your guidance, or name no existing story key to resume all parked stories. Running and merged stories are unchanged.")
+	case ReplyGraphResumeRefused:
+		b.WriteString("This comment could not resume the stopped work")
+		if resumeNodePattern.MatchString(r.ResumeNode) {
+			fmt.Fprintf(&b, " at `%s`", r.ResumeNode)
+		}
+		if resumeReasonPattern.MatchString(r.ResumeReason) {
+			b.WriteString(" because ")
+			b.WriteString(r.ResumeReason)
+		}
+		b.WriteString(", so it was set aside and nothing was run for it.")
+		b.WriteString(sectionGap)
+		b.WriteString("If it still applies, please reply again once that has changed.")
 	case ReplyGraphOwnerWaitRefused:
 		b.WriteString("This comment could not be used because the workflow is already handling another reply or question, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
