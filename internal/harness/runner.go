@@ -518,6 +518,15 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 	if err := r.validateRequest(req); err != nil {
 		return nil, err
 	}
+	if err := agent.VerifyRequestDelivery(ctx, req); err != nil {
+		return nil, err
+	}
+	if req.Invocation == agent.InvocationGraphNode {
+		rolePath := "plugin/agents/" + req.Delivery.MainRole + ".md"
+		if _, ok := req.Delivery.RenderedFiles[rolePath]; !ok {
+			return nil, agent.DeliveryRefusal(req, fmt.Errorf("missing Claude main-role resource: %s", rolePath))
+		}
+	}
 
 	logPath, err := naming.RunLogPath(r.home, req.Ref, req.RunOrdinal)
 	if err != nil {
@@ -800,6 +809,10 @@ func (r *Runner) exec(
 		usage.prepareTranscripts(r.claudeConfigDir, req.WorktreePath)
 	}
 	startedAt := time.Now()
+	if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
+		closeAll(stdoutR, stdoutW, stderrR, stderrW)
+		return nil, err
+	}
 	if err := cmd.Start(); err != nil {
 		closeAll(stdoutR, stdoutW, stderrR, stderrW)
 		return nil, fmt.Errorf("%w: %s: %w", ErrStartFailed, r.binary.Path, err)

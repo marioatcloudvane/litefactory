@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -33,6 +34,7 @@ func TestRequest_GraphNodeIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r := agent.Request{Invocation: agent.InvocationResearchNode, Graph: &agent.GraphInvocation{InstanceID: 1, AttemptID: 2, RunID: 3, Node: "investigate"}, Ref: naming.Ref{Forge: "github", Owner: "owner", Repo: "repo", Issue: 1}, RunOrdinal: 1, SegmentOrdinal: 1, Session: agent.SessionRef{Ref: "session"}, Mode: "research", WorktreePath: "/fixture/worktree", Prompt: "Investigate the supplied request."}
+			r.Delivery = &agent.Delivery{Root: "/fixture/bundle", Identity: "capture", MainRole: "research", MainModel: "worker", Roles: []string{"research"}, Evidence: agent.DeliveryEvidence{Specialists: []agent.SpecialistEvidence{{ID: "research", Model: "worker"}}}, RenderedFiles: map[string]string{"bootstrap.md": strings.Repeat("a", 64), "plugin/.claude-plugin/plugin.json": strings.Repeat("b", 64), "plugin/agents/research.md": strings.Repeat("c", 64)}}
 			tc.change(&r)
 			err := r.Validate()
 			if tc.valid {

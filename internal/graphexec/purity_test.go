@@ -1,6 +1,7 @@
 package graphexec_test
 
 import (
+	"encoding/json"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -59,7 +60,7 @@ var shippedDOT = map[string]bool{
 	"../../internal/teamsource/spike/spike.dot":         true,
 	"../../internal/teamsource/implement/implement.dot": true,
 	"../../internal/teamsource/validate/validate.dot":   true,
-	// The standard team publishes the same workflows 1:1 (#317 story-005).
+	// The immutable pre-consolidation release remains historical evidence.
 	"../../teams/go-development/v1/bug/bug.dot":             true,
 	"../../teams/go-development/v1/implement/implement.dot": true,
 	"../../teams/go-development/v1/plan/plan.dot":           true,
@@ -69,7 +70,29 @@ var shippedDOT = map[string]bool{
 }
 
 func TestGraphShippedDOTScope(t *testing.T) {
-	err := filepath.WalkDir(filepath.Join("..", ".."), func(path string, d fs.DirEntry, err error) error {
+	// The current distribution path has one author: canonical release metadata.
+	// Admit only its six existing workflows, never a general graph namespace.
+	raw, err := os.ReadFile("../teamsource/release.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var release struct {
+		Download string `json:"download"`
+	}
+	if err := json.Unmarshal(raw, &release); err != nil {
+		t.Fatal(err)
+	}
+	if !fs.ValidPath(release.Download) || !strings.HasPrefix(release.Download, "go-development/") {
+		t.Fatal("unsafe current release path")
+	}
+	allowed := make(map[string]bool, len(shippedDOT)+6)
+	for name := range shippedDOT {
+		allowed[name] = true
+	}
+	for _, workflow := range []string{"research", "plan", "implement", "validate", "spike", "bug"} {
+		allowed["../../teams/"+release.Download+"/"+workflow+"/"+workflow+".dot"] = true
+	}
+	err = filepath.WalkDir(filepath.Join("..", ".."), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -80,7 +103,7 @@ func TestGraphShippedDOTScope(t *testing.T) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".dot") && !shippedDOT[filepath.ToSlash(path)] {
+		if strings.HasSuffix(path, ".dot") && !allowed[filepath.ToSlash(path)] {
 			t.Errorf("unexpected shipped DOT file: %s", path)
 		}
 		return nil

@@ -60,7 +60,7 @@ func TestPlanSetAgentNodeCapturesTheShippedRoleAndSkill(t *testing.T) {
 	if !ok || node.Action != "lf_agent" {
 		t.Fatalf("set_agent is not a declared agent: %+v %v", node, ok)
 	}
-	if node.Attrs["lf_skills"] != "plan-story-set" {
+	if node.Attrs["lf_skills"] != "plan-story-set,team-guidance" {
 		t.Fatalf("set_agent skills %q", node.Attrs["lf_skills"])
 	}
 	if got, want := string(d.Files["plan-set.md"]), planEmbeddedText(t, "plan-set.md"); got != want || got == "" {
@@ -85,7 +85,7 @@ func mutatedShippedPlan(t *testing.T, f func(string) string) error {
 		t.Fatal("mutation changed nothing")
 	}
 	fixture["plan.dot"].Data = []byte(after)
-	d, err := CaptureWorkflow(t.Context(), fixture, "plan.dot", "builtin", agent.ModePlan, planPackageRegistry(t))
+	d, err := CaptureWorkflow(t.Context(), fixture, "plan.dot", "go-development", agent.ModePlan, planPackageRegistry(t))
 	if err != nil {
 		return err
 	}

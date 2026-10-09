@@ -33,6 +33,11 @@ func captureBytesDigest(raw []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// ValidateWorkflowProvenance checks captured identity without writing an admission.
+func ValidateWorkflowProvenance(p WorkflowProvenance) error {
+	return validateWorkflowProvenance(p)
+}
+
 func validateWorkflowProvenance(p WorkflowProvenance) error {
 	if p.Kind == "" {
 		if p.Source != "" || p.Slug != "" || p.Version != "" || p.ReleaseDigest != "" || p.GraphPath != "" || p.GraphFile != "" || p.Team != "" || len(p.TeamConfig) != 0 || p.ConfigDigest != "" {
@@ -148,16 +153,15 @@ func (db *DB) WorkflowCaptureForAdmission(ctx context.Context, sessionID, trigge
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return WorkflowCapture{}, err
 	}
-	// A question or attempt from before captures existed (its launch_id stayed
-	// empty when the instance had no single launch to backfill) binds to the
-	// instance's latest launch, as a new attempt would. An instance with no
-	// launch at all predates captures and is admitted like fresh work.
-	err = db.sql.QueryRowContext(ctx, `SELECT id FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1`, instance.ID).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return WorkflowCapture{}, ErrNotFound
-	}
+	// Historical evidence is usable only when one launch can be attributed to
+	// this saved instance. Missing or ambiguous evidence must not select anew.
+	var count int
+	err = db.sql.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(MIN(id),0) FROM research_launch_definitions WHERE instance_id=?`, instance.ID).Scan(&count, &id)
 	if err != nil {
 		return WorkflowCapture{}, err
+	}
+	if count != 1 {
+		return WorkflowCapture{}, graphInvariant(fmt.Sprintf("saved graph requires a unique retained capture; found %d", count))
 	}
 	return db.requiredWorkflowCapture(ctx, id)
 }

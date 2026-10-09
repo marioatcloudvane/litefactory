@@ -166,7 +166,7 @@ func TestModeAdmissionAcrossAgentsAndBundleConfigs(t *testing.T) {
 						if gotDelivery == nil || gotDelivery.Root == firstDelivery.Root {
 							t.Fatalf("a mode change did not publish its own bundle: %+v", gotDelivery)
 						}
-						if _, err := verifyDelivery(firstDelivery.Root, bundle); err != nil {
+						if _, err := verifyDelivery(t.Context(), firstDelivery.Root, bundle); err != nil {
 							t.Fatalf("rotation modified the retained bundle it left behind: %v", err)
 						}
 					}
@@ -247,7 +247,7 @@ func TestSimultaneousBundleAndModeChangeRotatesExactlyOnce(t *testing.T) {
 			if gotDelivery == nil || gotDelivery.Identity != changed.identity {
 				t.Fatalf("the rotated segment did not carry the changed bundle: %+v", gotDelivery)
 			}
-			if _, err := verifyDelivery(firstDelivery.Root, original); err != nil {
+			if _, err := verifyDelivery(t.Context(), firstDelivery.Root, original); err != nil {
 				t.Fatalf("the simultaneous rotation modified the bundle the first segment retained: %v", err)
 			}
 		})
@@ -328,7 +328,7 @@ func TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates(t *testing.T)
 	if gotDelivery == nil || gotDelivery.Identity != codexPlan.identity {
 		t.Fatalf("the reconciled segment did not carry the new agent's delivery: %+v", gotDelivery)
 	}
-	if _, err := verifyDelivery(firstDelivery.Root, claudePlan); err != nil {
+	if _, err := verifyDelivery(t.Context(), firstDelivery.Root, claudePlan); err != nil {
 		t.Fatalf("the simultaneous switch modified the bundle the segment retained before it: %v", err)
 	}
 }
@@ -617,7 +617,7 @@ func TestContinuationRefusesWhenTheBundleIdentityChanged(t *testing.T) {
 	}
 
 	// The retained bundle from the accepted segment is untouched by the refusal.
-	if _, err := verifyDelivery(delivery.Root, original); err != nil {
+	if _, err := verifyDelivery(t.Context(), delivery.Root, original); err != nil {
 		t.Fatalf("the refused continuation modified the retained bundle: %v", err)
 	}
 }

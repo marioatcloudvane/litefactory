@@ -144,8 +144,9 @@ func newFixture(t *testing.T, runner Runner) *fixture {
 			// runs the same git the daemon runs, and a fixture that skipped the
 			// gate would be testing a path production does not take. Tests that
 			// need two fixtures to share one gate overwrite this field.
-			CloneGate: newTestGate(),
-			Logger:    slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+			WorkflowSource: fixtureWorkflowSource,
+			CloneGate:      newTestGate(),
+			Logger:         slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		},
 	}
 }

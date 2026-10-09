@@ -105,14 +105,8 @@ func (e *UnknownTierError) Unwrap() error { return ErrUnknownTier }
 // Tiers is the one litefactory-owned table answering "for this tool, at this
 // tier, which concrete model runs" (T-6.1).
 //
-// It is deliberately not where a specialist's tier assignment lives —
-// .aiteam/AGENT_TIERS.md is, because .claude/agents/*.md frontmatter is
-// parsed by Claude Code itself, not by litefactory: an unrecognised tier:
-// key there would be silently ignored and the specialist would silently
-// fall back to the session default, which is exactly the failure mode a
-// litefactory-owned table exists to avoid. A specialist's own
-// .claude/agents/*.md file keeps a literal model: value; T-6.6's test is
-// what keeps that value honest against this map.
+// Canonical roles in internal/teamsource declare a tier; native delivery resolves
+// that tier through this map. No repository host tree owns a second model copy.
 type Tiers struct {
 	// ModelByTier maps a tool ([Kind]) and a capability tier ([Tier]) to the
 	// literal --model value that tool takes for it. Only "claude" is

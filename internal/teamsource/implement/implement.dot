@@ -22,7 +22,7 @@
 // the next step. Every node has a positive lf_limit; the limits on the coordinator
 // loop are sized for the largest story set plus owner resumes.
 digraph implement {
- graph [team="builtin", mode="implement", profile_version="1", start="select_path"];
+ graph [team="go-development", mode="implement", profile_version="1", start="select_path"];
 
  // ---- Path selection ---------------------------------------------------------
  select_path [lf_action="lf_implement_select", lf_outcomes="coordinator,worker", lf_limit="4"];
@@ -37,7 +37,7 @@ digraph implement {
 
  // ---- Worker -----------------------------------------------------------------------
  budget        [lf_action="lf_implement_budget", lf_outcomes="run,park", lf_limit="8"];
- worker_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="story-worker", lf_skills="implement-result", lf_limit="3"];
+ worker_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="story-worker", lf_skills="implement-result,team-guidance", lf_limit="3"];
  worker_result [lf_action="lf_implement_result", lf_outcomes="completed,stopped", lf_source="worker_agent", lf_limit="3"];
  story_done    [lf_action="lf_implement_story_done", lf_outcomes="done,retry", lf_limit="3"];
  park_story    [lf_action="lf_implement_park", lf_outcomes="parked", lf_limit="4"];

@@ -482,6 +482,15 @@ func researchFailureCandidate(req Request, cause error) agentresult.Result {
 }
 
 func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, error) {
+	// Delivery can fail before any run is allocated. Use the existing
+	// preparation-failure report route rather than silently consuming a graph
+	// input whose failure comment has no run-backed source attempt.
+	if w.prep == nil && errors.Is(cause, agent.ErrDeliveryRefused) {
+		out, err := prelaunchRefused(ctx, w.opts, w.result, cause.Error())
+		out.ResearchGraph = false
+		out.Err = cause
+		return out, err
+	}
 	out := w.result
 	if w.prep == nil {
 		return out, cause

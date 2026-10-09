@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -233,10 +234,10 @@ func TestSpikeGraphSwappedGraphRunsWithoutGoChange(t *testing.T) {
 	}
 	// The same Go, given a graph whose gate allows two files, reaches the other branch.
 	_, _, swapped, err := runSpikeOnce(t, proposal, func(f *fixture) {
-		f.opts.spikeCapture = func(ctx context.Context, policy WorkflowPolicy) (*teamsource.WorkflowDefinition, error) {
-			return captureSpikeVariant(ctx, t, policy, func(dot string) string {
+		f.opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, _ graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+			return fixtureInstalled(captureSpikeVariant(ctx, t, SpikeWorkflowPolicy(), func(dot string) string {
 				return strings.Replace(dot, `lf_max_files="3"`, `lf_max_files="2"`, 1)
-			})
+			}))
 		}
 	})
 	mustProgress(t, err)
@@ -263,7 +264,7 @@ func captureSpikeVariant(ctx context.Context, t *testing.T, policy WorkflowPolic
 	}))
 	specs, err := WorkflowSpecs(policy)
 	mustProgress(t, err)
-	return teamsource.CaptureWorkflow(ctx, files, "spike.dot", "builtin", agent.ModeSpike, specs)
+	return teamsource.CaptureWorkflow(ctx, files, "spike.dot", "go-development", agent.ModeSpike, specs)
 }
 
 func TestSpikeGraphUnroutedResponseFailsExplicitly(t *testing.T) {

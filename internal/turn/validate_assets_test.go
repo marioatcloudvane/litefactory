@@ -44,7 +44,7 @@ func TestValidateShipsFourRolesTwoSkillsAndOneGraph(t *testing.T) {
 	if len(graphs) != 1 || strings.Join(roles, ",") != "validate-acceptance.md,validate-architecture.md,validate-code.md,validate-repair.md" {
 		t.Fatalf("shipped package: graphs=%v roles=%v", graphs, roles)
 	}
-	if strings.Join(skills, ",") != "skills/validate-repair-report/SKILL.md,skills/validate-review/SKILL.md" {
+	if strings.Join(skills, ",") != "skills/team-guidance/SKILL.md,skills/validate-repair-report/SKILL.md,skills/validate-review/SKILL.md" {
 		t.Fatalf("skills %v", skills)
 	}
 	for _, key := range []string{"repair_agent", "review:validate-acceptance", "review:validate-code", "review:validate-architecture"} {

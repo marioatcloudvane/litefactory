@@ -20,7 +20,7 @@ func TestResearchFileOnlyRoleAdditionUsesExistingContract(t *testing.T) {
 		}
 	}
 	registry := researchTestRegistry(t)
-	before, err := captureResearch(t.Context(), os.DirFS(root), registry)
+	before, err := captureHistoricalResearch(t.Context(), os.DirFS(root), registry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestResearchFileOnlyRoleAdditionUsesExistingContract(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(root, "research.dot"), []byte(graph), 0600); err != nil {
 		t.Fatal(err)
 	}
-	after, err := captureResearch(t.Context(), os.DirFS(root), registry)
+	after, err := captureHistoricalResearch(t.Context(), os.DirFS(root), registry)
 	if err != nil {
 		t.Fatal(err)
 	}

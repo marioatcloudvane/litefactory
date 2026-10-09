@@ -1,8 +1,10 @@
 package codex
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +31,9 @@ printf '%s\n' '{"type":"turn.completed"}'`)
 			if err := os.WriteFile(filepath.Join(req.Delivery.Root, "main-instructions.md"), []byte(instructions), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			manifestDelivery(t, req.Delivery)
 			req.Prompt = "Incremental owner input only"
+			manifestDelivery(t, req.Delivery)
 			result, err := runner.Run(t.Context(), req)
 			if err != nil || result == nil || !result.Succeeded() {
 				t.Fatalf("main role launch failed: result=%+v error=%v", result, err)
@@ -86,7 +90,12 @@ func TestResearchMainRoleRejectsInvalidRetainedInstructions(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := runner.Run(t.Context(), req); !errors.Is(err, agent.ErrInvalidRequest) {
+			if raw != nil {
+				manifestDelivery(t, req.Delivery)
+			} else {
+				req.Delivery.RenderedFiles = map[string]string{"main-instructions.md": strings.Repeat("a", 64)}
+			}
+			if _, err := runner.Run(t.Context(), req); !errors.Is(err, agent.ErrInvalidRequest) && !errors.Is(err, agent.ErrDeliveryRefused) {
 				t.Fatalf("expected prelaunch refusal, got %v", err)
 			}
 			if _, err := os.Stat(argv); !errors.Is(err, os.ErrNotExist) {
@@ -119,6 +128,7 @@ printf '%s\n' '{"type":"turn.completed"}'`)
 				t.Fatal(err)
 			}
 
+			manifestDelivery(t, req.Delivery)
 			result, err := runner.Run(t.Context(), req)
 
 			if err != nil || result == nil || !result.Succeeded() {
@@ -163,6 +173,7 @@ printf '%s\n' '{"type":"turn.completed"}'`)
 			if err := os.WriteFile(filepath.Join(req.Delivery.Root, "main-instructions.md"), []byte("Selected main role\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			manifestDelivery(t, req.Delivery)
 			if result, err := runner.Run(t.Context(), req); err != nil || result == nil || !result.Succeeded() {
 				t.Fatalf("launch failed: result=%+v error=%v", result, err)
 			}
@@ -171,4 +182,10 @@ printf '%s\n' '{"type":"turn.completed"}'`)
 			}
 		})
 	}
+}
+
+func manifestDelivery(t *testing.T, delivery *agent.Delivery) {
+	t.Helper()
+	raw := mustRead(t, filepath.Join(delivery.Root, "main-instructions.md"))
+	delivery.RenderedFiles = map[string]string{"main-instructions.md": fmt.Sprintf("%x", sha256.Sum256(raw))}
 }

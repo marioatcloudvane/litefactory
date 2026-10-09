@@ -42,7 +42,7 @@ func TestShippedCatalogueMatchesItsFiles(t *testing.T) {
 			if sum := sha256.Sum256(b); hex.EncodeToString(sum[:]) != f.SHA256 {
 				t.Errorf("%s/%s: listed hash is stale", r.Slug, f.Path)
 			}
-			if f.Path == "team.config" {
+			if f.Path == "team.config" || f.Path == "GENERATED.md" {
 				continue
 			}
 			live, err := os.ReadFile(filepath.Join("../teamsource", filepath.FromSlash(f.Path)))
