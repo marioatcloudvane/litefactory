@@ -126,6 +126,10 @@ func (r *typedApplyRunner) RunRepair(ctx context.Context, in Invocation, tools *
 		return InvocationOutcome{}, nil
 	}
 	input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "Approved repair steps were rechecked.", Uncertainty: "No wider repair was attempted.", Evidence: []string{EvidenceHandle(results.evidence.Records[0])}}}, CoverageGaps: results.evidence.Gaps, Repair: &RepairSummary{OperationID: tools.operation, CompletedSteps: completed, Observations: []string{"Step reread"}}}}
+	if r.mode == "notes" {
+		input.Diagnosis.Repair.Unresolved = []string{"post-apply state not observable"}
+		input.Diagnosis.Questions = []string{"Does the next turn start as intended?"}
+	}
 	data, err := json.Marshal(input)
 	if err != nil {
 		return InvocationOutcome{}, err
@@ -150,7 +154,7 @@ func (r *typedApplyRunner) RunRepair(ctx context.Context, in Invocation, tools *
 }
 
 func TestTypedApplySettlesWithoutRestart(t *testing.T) {
-	for _, mode := range []string{"success", "failure", "interrupted"} {
+	for _, mode := range []string{"success", "notes", "failure", "interrupted"} {
 		t.Run(mode, func(t *testing.T) {
 			s, request, schedule := typedApplyFixture(t, mode == "failure")
 			runner := &typedApplyRunner{mode: mode}
@@ -158,7 +162,7 @@ func TestTypedApplySettlesWithoutRestart(t *testing.T) {
 			s.RepairEnvironment = repairFixtureEnvironment{}
 			operation, err := s.Apply(t.Context(), request)
 			want := "failed"
-			if mode == "success" {
+			if mode == "success" || mode == "notes" {
 				want = "completed"
 				if err != nil {
 					t.Fatal(err)
@@ -181,7 +185,7 @@ func TestTypedApplySettlesWithoutRestart(t *testing.T) {
 			if err != nil || string(current.Status) != "failed" {
 				t.Fatal(current, err)
 			}
-			if mode == "success" && !runner.receipt {
+			if (mode == "success" || mode == "notes") && !runner.receipt {
 				t.Fatal("no durable result receipt")
 			}
 			if _, err = s.Apply(t.Context(), request); err == nil || runner.runs != 1 {
