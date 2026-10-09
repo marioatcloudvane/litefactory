@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/resultservice"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -49,6 +50,19 @@ func BindResults(ctx context.Context, db *store.DB, id string, e store.DoctorEvi
 	}
 	if b.Task != e.TaskRef {
 		return nil, errors.New("doctor result evidence identity mismatch")
+	}
+	if e.Live {
+		// Live manifests carry no typed records; resolve proposal targets from
+		// the issue's current store rows, keeping the manifest's own gaps.
+		ref, err := naming.ParseRef(e.TaskRef)
+		if err != nil {
+			return nil, err
+		}
+		snapshot, err := db.ReadDoctorEvidence(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		e.Records = snapshot.Records
 	}
 	e.Records = append([]store.DoctorEvidenceRecord(nil), e.Records...)
 	e.Gaps = append([]string(nil), e.Gaps...)
