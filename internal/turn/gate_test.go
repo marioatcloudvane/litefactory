@@ -335,6 +335,13 @@ func TestTurnImposesNoAmbientDeadline(t *testing.T) {
 			if name == "AgentActivity.execute" && forbidden == "WithTimeout" {
 				continue
 			}
+			// The same holds for the doctor sync conflict advisor: its budget
+			// bounds the advisor run only, which happens between the two gate
+			// acquisitions and before any git write, so the merge, recheck and
+			// push fit inside the repair broker's tool deadline.
+			if name == "SyncDoctorBranch" && forbidden == "WithTimeout" {
+				continue
+			}
 			if countCalls(fn.decl, forbidden) > 0 {
 				t.Errorf("%s calls context.%s; internal/turn imposes no deadline of its own, "+
 					"because git commands start theirs at exec time (AC-PAR-3.6)", name, forbidden)

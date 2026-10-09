@@ -91,6 +91,9 @@ func (r *Runner) scopedDoctorArguments(request agent.DoctorRequest, operation st
 		// keeps tools it cannot disable (exec, apply_patch), which the
 		// read-only sandbox confines.
 		args = append(args, "--sandbox", "read-only", "-c", "features.shell_tool=false", "-c", "features.unified_exec=false", "-c", "features.view_image=false", "-c", "features.image_generation=false", "-c", `web_search="disabled"`)
+		// A conflicted sync_branch runs the conflict advisor inside one tool
+		// call; Codex must wait just past the broker's repair tool timeout.
+		args = append(args, "-c", "mcp_servers.litefactory.tool_timeout_sec=630")
 	} else {
 		args = append(args, "-c", "features.shell_tool=true", "-c", "approval_policy=\"never\"", "-c", "default_permissions=\"doctor_diagnosis\"", "-c", "permissions.doctor_diagnosis.network.enabled=false")
 		for _, path := range request.Sandbox.ReadableRoots {

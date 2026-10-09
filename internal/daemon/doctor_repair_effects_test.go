@@ -12,6 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 func approveEffect(t *testing.T, db *store.DB, session store.Session, step store.DoctorRepairStep, evidence store.DoctorEvidence) store.DoctorRepair {
@@ -186,5 +187,95 @@ func TestFactoryDoctorBranchAdapterRecordsAndRechecks(t *testing.T) {
 	}
 	if _, e = adapter.Execute(context.Background(), ref, op, step, "claude"); e == nil {
 		t.Fatal("verified external effect replay accepted")
+	}
+}
+
+// finishRacingGate records the step as finished during the apply acquisition,
+// so the adapter's own FinishDoctorBranchSync fails after a successful push.
+type finishRacingGate struct {
+	turn.CloneGate
+	acquisitions int
+	race         func()
+}
+
+func (g *finishRacingGate) Acquire(ctx context.Context, root string) (func(), error) {
+	release, e := g.CloneGate.Acquire(ctx, root)
+	if e == nil {
+		if g.acquisitions++; g.acquisitions == 3 {
+			g.race()
+		}
+	}
+	return release, e
+}
+
+func TestFactoryDoctorBranchFinishFailureKeepsPushedHead(t *testing.T) {
+	d, _, _ := doctorDaemonFixture(t)
+	ctx := t.Context()
+	fixture := gittest.New(t)
+	repo, e := d.db.UpsertRepo(ctx, store.Repo{Path: fixture.Dir, Forge: "github", Owner: "fixture", Name: "repo", RemoteURL: fixture.Origin, BaseBranch: gittest.DefaultBranch, FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	if e != nil {
+		t.Fatal(e)
+	}
+	session, e := d.db.GetOrCreateSession(ctx, repo, 539)
+	if e != nil {
+		t.Fatal(e)
+	}
+	session, e = d.db.FreezeSessionSlug(ctx, session.ID, "sync", "lf/539-sync")
+	if e != nil {
+		t.Fatal(e)
+	}
+	binary, e := git.Resolve(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	clone, e := binary.Open(ctx, fixture.Dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	tree, e := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: filepath.Join(repo.WorktreeRoot, "task-539"), Branch: session.Branch, BaseBranch: repo.BaseBranch})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = d.db.SetSessionWorktree(ctx, session.ID, tree.Worktree.Path()); e != nil {
+		t.Fatal(e)
+	}
+	head, e := tree.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	fixture.WriteFile("base-only.txt", "base advanced\n")
+	baseHead := fixture.Commit("advance base")
+	fixture.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+	ref, e := naming.ParseRef(session.TaskRef)
+	if e != nil {
+		t.Fatal(e)
+	}
+	evidence, e := d.db.ReadDoctorEvidence(ctx, ref)
+	if e != nil {
+		t.Fatal(e)
+	}
+	evidence.Records = append(evidence.Records, store.DoctorEvidenceRecord{Kind: "branch", ID: session.Branch, State: head, Identity: baseHead})
+	step := store.DoctorRepairStep{Number: 1, Kind: "sync_branch", Target: "branch:" + session.Branch, Before: head, After: baseHead}
+	op := approveEffect(t, d.db, session, step, evidence)
+	gate := &finishRacingGate{CloneGate: newCloneGate()}
+	gate.race = func() {
+		if _, x := d.db.FinishDoctorBranchSync(context.WithoutCancel(ctx), op.ID, step.Number, "racing"); x != nil {
+			t.Error(x)
+		}
+	}
+	adapter := FactoryDoctorRepairEffects{DB: d.db, Git: binary, CloneGate: gate, Author: git.Author{Name: "Fixture", Email: "fixture@example.invalid"}}
+	if _, e = adapter.Execute(ctx, ref, op, step, "claude"); e == nil {
+		t.Fatal("finish failure reported success")
+	}
+	if gate.acquisitions < 3 {
+		t.Fatalf("sync stopped before apply: %d acquisitions", gate.acquisitions)
+	}
+	local, e := tree.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	remote := fixture.GitIn(fixture.Origin, "rev-parse", "refs/heads/"+session.Branch)
+	if local == head || local != remote {
+		t.Fatalf("local %s diverged from pushed %s (before %s)", local, remote, head)
 	}
 }

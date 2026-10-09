@@ -241,7 +241,9 @@ func TestDoctorSyncAdvisorOutsideGateAndMutationRechecksDrift(t *testing.T) {
 		if held != 0 {
 			t.Fatal("advisor invoked inside gate")
 		}
-		release, e := gate.Acquire(ctx, w.ClonePath())
+		// The intervening writer is another actor: it does not inherit the
+		// advisor's budget deadline.
+		release, e := gate.Acquire(t.Context(), w.ClonePath())
 		if e != nil {
 			return agent.ConflictResolution{}, e
 		}
@@ -307,5 +309,113 @@ func TestDoctorSyncSerializesSharedCloneWrites(t *testing.T) {
 	acquisitions, overlaps, deadlined := gate.report()
 	if acquisitions[worktrees[0].ClonePath()] != 4 || len(acquisitions) != 1 || overlaps != 0 || deadlined != 0 {
 		t.Fatalf("gate %v overlaps %d deadlines %d", acquisitions, overlaps, deadlined)
+	}
+}
+
+// conflictedDoctorSync prepares a conflicting task branch and its approved inputs.
+func conflictedDoctorSync(t *testing.T, advisor ConflictAdvisor) (*gittest.Repo, *git.Worktree, DoctorSyncOptions) {
+	t.Helper()
+	repo := gittest.New(t)
+	w := newSyncWorktree(t, repo, 559, "doctor conflict budget")
+	conflictBaseAndBranch(t, repo, w.Path())
+	head, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	base, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	return repo, w, DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: head, Base: "origin/" + gittest.DefaultBranch, BaseHead: base, Author: syncTestAuthor, Advisor: advisor, OperationID: 1, Task: "github:fixture/repo#559", Owner: "owner", Model: "test", RecordBackup: func(context.Context, string) error { return nil }}
+}
+
+func TestDoctorSyncAdvisorGetsBudgetInsideRepairDeadline(t *testing.T) {
+	outer, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
+	defer cancel()
+	outerDeadline, _ := outer.Deadline()
+	var remaining time.Duration
+	advisor := doctorSyncAdvisorFunc(func(ctx context.Context, r agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || !deadline.Before(outerDeadline) {
+			t.Errorf("advisor deadline %v not before repair deadline %v", deadline, outerDeadline)
+		}
+		remaining = time.Until(deadline)
+		return (&doctorSyncAdvisor{}).ProposeConflictResolution(ctx, r)
+	})
+	repo, w, o := conflictedDoctorSync(t, advisor)
+	result, e := SyncDoctorBranch(outer, o)
+	if e != nil || !result.Rechecked {
+		t.Fatalf("sync %+v %v", result, e)
+	}
+	if remaining <= 8*time.Minute || remaining > doctorSyncAdvisorBudget {
+		t.Fatalf("advisor budget %v", remaining)
+	}
+	local, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+	if e != nil || local != result.Head || local == o.BeforeHead {
+		t.Fatalf("local %s result %s %v", local, result.Head, e)
+	}
+	if remote := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remote != local {
+		t.Fatalf("remote %s local %s", remote, local)
+	}
+}
+
+func TestDoctorSyncAdvisorOverBudgetChangesNothing(t *testing.T) {
+	saved := doctorSyncAdvisorBudget
+	doctorSyncAdvisorBudget = 50 * time.Millisecond
+	t.Cleanup(func() { doctorSyncAdvisorBudget = saved })
+	advisor := doctorSyncAdvisorFunc(func(ctx context.Context, _ agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+		<-ctx.Done()
+		return agent.ConflictResolution{}, ctx.Err()
+	})
+	repo, w, o := conflictedDoctorSync(t, advisor)
+	remoteBranches := repo.GitIn(repo.Origin, "branch", "--list", w.Branch())
+	result, e := SyncDoctorBranch(t.Context(), o)
+	if !errors.Is(e, context.DeadlineExceeded) || result.Rechecked {
+		t.Fatalf("over-budget advisor %+v %v", result, e)
+	}
+	local, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+	if e != nil || local != o.BeforeHead {
+		t.Fatalf("head changed %s %v", local, e)
+	}
+	if changes, e := w.Status(t.Context()); e != nil || len(changes) != 0 {
+		t.Fatalf("worktree changed %v %v", changes, e)
+	}
+	if after := repo.GitIn(repo.Origin, "branch", "--list", w.Branch()); after != remoteBranches {
+		t.Fatalf("origin branch changed %q -> %q", remoteBranches, after)
+	}
+}
+
+func TestDoctorSyncDeadlineDuringPushKeepsPushedHead(t *testing.T) {
+	repo, w, o := conflictedDoctorSync(t, &doctorSyncAdvisor{})
+	marker := filepath.Join(t.TempDir(), "received")
+	hook := "#!/bin/sh\ntouch '" + marker + "'\nsleep 2\n"
+	if e := os.WriteFile(filepath.Join(repo.Origin, "hooks", "post-receive"), []byte(hook), 0o700); e != nil {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() {
+		for ctx.Err() == nil {
+			if _, e := os.Stat(marker); e == nil {
+				cancel()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	result, e := SyncDoctorBranch(ctx, o)
+	if _, x := os.Stat(marker); x != nil {
+		t.Fatalf("origin never received the push: %v (sync %v)", x, e)
+	}
+	local, x := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+	if x != nil {
+		t.Fatal(x)
+	}
+	remote := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch())
+	if local != remote || local == o.BeforeHead {
+		t.Fatalf("local %s diverged from origin %s (sync %+v %v)", local, remote, result, e)
+	}
+	if e != nil || !result.Rechecked || result.Head != remote {
+		t.Fatalf("sync after accepted push %+v %v", result, e)
 	}
 }
