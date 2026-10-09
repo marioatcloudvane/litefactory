@@ -35,7 +35,7 @@ func TestResearchFailureCandidateIsPublishable(t *testing.T) {
 			if d := agentresult.ValidateResult(candidate, scope); !d.Valid || !d.Complete {
 				t.Fatalf("candidate is not a valid result: %+v", d.Diagnostics)
 			}
-			// The guard in ReportResearchCandidate for kind "failure".
+			// The guard in ReportWorkflowCandidate for kind "failure".
 			if candidate.Outcome == "completed" || candidate.Reason == "" {
 				t.Fatalf("candidate fails the failure-kind guard: %+v", candidate)
 			}

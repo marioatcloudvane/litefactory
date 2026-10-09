@@ -30,7 +30,6 @@ package cli
 import (
 	"context"
 	"flag"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -134,12 +133,3 @@ type Command struct {
 
 // words splits the command name into its path segments.
 func (c *Command) words() []string { return splitWords(c.Name) }
-
-// notImplemented returns a handler for a command that is declared but not yet
-// built. It keeps the dispatch table and usage text honest while the
-// behaviour lands in a later story.
-func notImplemented(name string) Handler {
-	return func(context.Context, *Env, []string) error {
-		return fmt.Errorf("%s: %w", name, ErrNotImplemented)
-	}
-}

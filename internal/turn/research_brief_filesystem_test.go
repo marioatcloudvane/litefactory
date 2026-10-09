@@ -70,7 +70,7 @@ func TestResearchBriefPartialWriteNeverAuthorizesPublication(t *testing.T) {
 	}
 	forge := newFakeForge(t)
 	reporter := newReporter(t, f, forge, nil)
-	if _, _, err = reporter.ReportResearchCandidate(t.Context(), source, "report", "final", candidate, scope, ""); err == nil || forge.attemptCount() != 0 {
+	if _, _, err = reporter.ReportWorkflowCandidate(t.Context(), source, "report", "final", candidate, scope, "", ResearchWorkflowPolicy()); err == nil || forge.attemptCount() != 0 {
 		t.Fatal("partial documents published")
 	}
 }
@@ -160,7 +160,7 @@ func TestResearchQuestionRejectsChangedDocumentsBeforeEffect(t *testing.T) {
 	mustProgress(t, os.WriteFile(filepath.Join(session.WorktreePath, ".aiteam/session", ResearchBriefName), []byte("another candidate"), 0600))
 	forge := newFakeForge(t)
 	reporter := newReporter(t, f, forge, nil)
-	if _, _, err = reporter.ReportResearchCandidate(t.Context(), source, "ask", "question", candidate, scope, ""); err == nil {
+	if _, _, err = reporter.ReportWorkflowCandidate(t.Context(), source, "ask", "question", candidate, scope, "", ResearchWorkflowPolicy()); err == nil {
 		t.Fatal("question published changed document")
 	}
 	if forge.attemptCount() != 0 {

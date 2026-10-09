@@ -29,10 +29,10 @@ func TestResearchClaimReplayResumesOnlySavedOwnerInput(t *testing.T) {
 	researchRecoveryCheck(t, err)
 	task := &task{session: f.session, ref: ref, tickAt: f.at.Add(time.Minute)}
 	trigger := turn.Trigger{CommentID: 102, AuthorID: 7, Body: "Continue saved findings"}
-	researchRecoveryCheck(t, d.claimResearchReply(t.Context(), task, trigger))
+	researchRecoveryCheck(t, d.claimGraphReply(t.Context(), task, trigger, "research"))
 	// Repeating admission after a restart/preparation failure reuses the retained
 	// claim. It neither claims another reply nor allocates an agent attempt.
-	researchRecoveryCheck(t, d.claimResearchReply(t.Context(), task, trigger))
+	researchRecoveryCheck(t, d.claimGraphReply(t.Context(), task, trigger, "research"))
 	wait, err := f.db.GetGraphOwnerWait(t.Context(), f.instance.ID)
 	researchRecoveryCheck(t, err)
 	if !wait.ClaimedAt.Equal(task.tickAt) {
@@ -43,12 +43,12 @@ func TestResearchClaimReplayResumesOnlySavedOwnerInput(t *testing.T) {
 	}
 	bad := trigger
 	bad.AuthorID = 8
-	if err := d.claimResearchReply(t.Context(), task, bad); err == nil {
+	if err := d.claimGraphReply(t.Context(), task, bad, "research"); err == nil {
 		t.Fatal("foreign author reused claimed input")
 	}
 	bad = trigger
 	bad.Body = "changed content"
-	if err := d.claimResearchReply(t.Context(), task, bad); err == nil {
+	if err := d.claimGraphReply(t.Context(), task, bad, "research"); err == nil {
 		t.Fatal("changed reply reused claimed input")
 	}
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), f.instance.ID)
@@ -89,7 +89,7 @@ func TestResearchClaimReportsCommentThatPredatesQuestion(t *testing.T) {
 	publishResearchQuestion(t, f)
 	d, task := researchClaimDaemon(t, f)
 	for _, id := range []int64{100, 101} {
-		err := d.claimResearchReply(t.Context(), task, turn.Trigger{CommentID: id, AuthorID: 7, Body: "written while shaping ran"})
+		err := d.claimGraphReply(t.Context(), task, turn.Trigger{CommentID: id, AuthorID: 7, Body: "written while shaping ran"}, "research")
 		if !errors.Is(err, store.ErrGraphReplyPredatesQuestion) || errors.Is(err, store.ErrGraphInvariant) {
 			t.Fatalf("comment %d: error=%v, want only ErrGraphReplyPredatesQuestion", id, err)
 		}
@@ -99,7 +99,7 @@ func TestResearchClaimReportsCommentThatPredatesQuestion(t *testing.T) {
 	if wait.State != "waiting" || wait.ReplyID != 0 {
 		t.Fatalf("refused comment changed the open question: %+v", wait)
 	}
-	researchRecoveryCheck(t, d.claimResearchReply(t.Context(), task, turn.Trigger{CommentID: 102, AuthorID: 7, Body: "Continue saved findings"}))
+	researchRecoveryCheck(t, d.claimGraphReply(t.Context(), task, turn.Trigger{CommentID: 102, AuthorID: 7, Body: "Continue saved findings"}, "research"))
 	wait, err = f.db.GetGraphOwnerWait(t.Context(), f.instance.ID)
 	researchRecoveryCheck(t, err)
 	if wait.State != "claimed" || wait.ReplyID != 102 {
@@ -123,7 +123,7 @@ func TestResearchClaimHoldsPredatingCommentWhileAttemptRuns(t *testing.T) {
 	researchRecoveryCheck(t, err)
 	publishResearchQuestion(t, f)
 	d, task := researchClaimDaemon(t, f)
-	err = d.claimResearchReply(ctx, task, turn.Trigger{CommentID: 100, AuthorID: 7, Body: "written while shaping ran"})
+	err = d.claimGraphReply(ctx, task, turn.Trigger{CommentID: 100, AuthorID: 7, Body: "written while shaping ran"}, "research")
 	if !errors.Is(err, store.ErrGraphAttemptRunning) || errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
 		t.Fatalf("error=%v, want ErrGraphAttemptRunning while an attempt runs", err)
 	}
