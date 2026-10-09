@@ -2242,7 +2242,10 @@ func (d *Daemon) run(
 
 	// Claim after mode, agent and permission admission can no longer consume
 	// this input as a runless refusal; preparation failure retains the claim.
-	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeImplement || mode == agent.ModeValidate || workflow == agent.WorkflowBug) && t.continuation == nil {
+	// A /validate start goes to Validate admission only: the owner wait can
+	// never apply it, and a refused start must leave the wait open.
+	validateStart := mode == agent.ModeValidate && command.Name == "/validate"
+	if (mode == agent.ModeResearch || mode == agent.ModeSpike || mode == agent.ModeImplement || mode == agent.ModeValidate || workflow == agent.WorkflowBug) && t.continuation == nil && !validateStart {
 		if err := d.claimGraphReply(ctx, t, trigger, string(mode)); err != nil {
 			// A comment written before the open question was published can
 			// never answer it. Refuse it once, visibly; the reply path consumes

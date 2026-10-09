@@ -358,11 +358,21 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 func (rt *validateRuntimeState) endUnreviewed(ctx context.Context, entry store.ValidateEntry, now time.Time) (bool, error) {
 	db := rt.opts.DB
 	wait, err := db.GetGraphOwnerWait(ctx, entry.InstanceID)
-	if errors.Is(err, store.ErrNotFound) || err == nil && wait.State != "waiting" {
+	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
+	}
+	// A wait claimed by a /validate start comment can never be applied, so it
+	// counts as open; any other claim keeps the run.
+	var claimedReply int64
+	switch {
+	case wait.State == "waiting":
+	case wait.State == "claimed" && ParseCommand(wait.ReplyBody).Name == "/validate":
+		claimedReply = wait.ReplyID
+	default:
+		return false, nil
 	}
 	outcome, err := db.GetValidateOutcome(ctx, entry.InstanceID, entry.Commit)
 	if errors.Is(err, store.ErrNotFound) {
@@ -389,7 +399,7 @@ func (rt *validateRuntimeState) endUnreviewed(ctx context.Context, entry store.V
 	if err != nil || !gate.Open {
 		return false, err
 	}
-	return db.CancelIdleGraphOwnerWait(ctx, entry.InstanceID, "the owner started Validate again to repeat the reviews", now)
+	return db.CancelIdleGraphOwnerWait(ctx, entry.InstanceID, claimedReply, "the owner started Validate again to repeat the reviews", now)
 }
 
 // replayedEntry finds the admitted entry this very trigger launched.
