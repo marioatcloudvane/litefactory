@@ -181,6 +181,11 @@ tool_profiles:
 #     # claude: {tools: [Read, Glob, Grep, Edit, Write, Bash, Task], allowed_tools: [...]}
 #     # The fixer builds and tests its own work; the factory's check is the final gate.
 # An absent role blocks that Bug agent. Existing modes never supply its grant.
+# Optional Validate repair grant (only the repair agent writes; reviewers stay read-only):
+#   validate-repair:
+#     codex: {sandbox: workspace-write}
+#     # claude: {tools: [Read, Glob, Grep, Edit, Write, Bash, Task], allowed_tools: [...]}
+# Without it only the Validate repair agent is refused.
 # Optional check sandbox ceiling (macOS or Linux); no unisolated fallback exists.
 # Checks run under the Codex sandbox: everything readable except deny_read and
 # $LF_HOME, writes only to the worktree, a private temp dir and writable_roots,
