@@ -21,6 +21,8 @@ Settle Q7 using an allowlist in each team's JSON and retain the corrected multi-
 - **D-13** — Scope: undeclared commands follow existing approval policy, missing fields add no grants, and legacy profile-free releases retain existing behaviour.
 - **D-14** — Owner Q8: home-directory caches granted silently on link; network and other access needs operator confirmation at link time.
 - **D-15** — Owner Q11: network off for read/plan roles, on for Implement and package-restore checks.
+- **D-16** — Owner Q12 a: profile is a checksummed JSON file in the package, summarised in the catalogue; install fails on mismatch.
+- **D-17** — Owner Q13 a: non-Go teams ship on Claude and Codex; Codex has sandbox limits only, documented.
 
 
 ## Assumptions
@@ -32,24 +34,6 @@ Settle Q7 using an allowlist in each team's JSON and retain the corrected multi-
 - **A-6** — No global edits assumes preinstalled runtime tools and host capabilities; runtime provisioning and credentials are outside this issue.
 - **A-7** — Withdrawn as settled: silent grant on link was my reading of Q7, now put to the owner as Q-8.
 - **A-8** — Research web reading uses Claude's web tools under existing mode permissions, not the sandbox network switch; the profile does not change it. Not verified for Codex.
-
-
-## Open questions
-
-### Q-13 — Given the Codex gap, do non-Go teams ship on Codex now?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Yes. Ship on both; document that Codex has sandbox limits only. Recommended: matches the done-when.  *(recommended)*
-- **b** — Ship on Claude first; enable Codex for non-Go teams once command control exists.
-- **c** — Ship on both, but on Codex keep network off for non-Go Implement unless the operator confirms each run.
-
-### Q-12 — Confirm the profile is a checksummed JSON file inside the package, mirrored in the catalogue?
-
-_Asked of: Technical Questions_
-
-- **a** — Yes. Package file is the truth; catalogue shows a summary; install fails on mismatch. Recommended: grants cannot be changed by editing the catalogue alone.  *(recommended)*
-- **b** — No. Catalogue JSON is the only source and install writes YAML from it. Simpler, but the catalogue then decides grants without a checksum.
 
 ## Research documents
 
