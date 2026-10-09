@@ -24,6 +24,9 @@ const (
 	findingAwaitingCheck = "awaiting owner check"
 	findingOwnerFailed   = "owner failed"
 	findingOpen          = "open"
+	// findingNotReviewed marks an item whose owning reviewer has no usable
+	// result. It is not an owner task: only a new review can settle it.
+	findingNotReviewed = "not reviewed"
 )
 
 // ValidateFinding is one criterion or review of the joined assessment, with the
@@ -34,11 +37,13 @@ type ValidateFinding struct {
 	Story     string
 	Name      string
 	Criterion bool
-	Status    string
-	Class     string
-	Summary   string
-	Checks    []string
-	State     string
+	// Role is the reviewer that owns the item.
+	Role    string
+	Status  string
+	Class   string
+	Summary string
+	Checks  []string
+	State   string
 	// Blocking findings clear only on a new tested snapshot. A repair or an
 	// issue choice never clears one.
 	Blocking bool
@@ -178,10 +183,12 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 	}
 	for _, story := range st.Stories {
 		for _, c := range story.Criteria {
-			f := ValidateFinding{ID: story.Story + ":" + c.Name, Story: story.Story, Name: c.Name, Criterion: true, Status: c.Status, Class: c.Classification, Blocking: true}
+			f := ValidateFinding{ID: story.Story + ":" + c.Name, Story: story.Story, Name: c.Name, Criterion: true, Role: agent.ReviewRoleAcceptance, Status: c.Status, Class: c.Classification, Blocking: true}
 			f.Summary, f.Checks = findingEvidence(c.Evidence)
 			f.Verdict, f.Choice = verdictOf[f.ID], choiceOf[f.ID]
 			switch {
+			case slices.Contains(story.Unresolved, f.Role):
+				f.State = findingNotReviewed
 			case c.Status == "satisfied":
 				f.State = findingSatisfied
 			case c.Status == "unverified" && f.Verdict != nil && f.Verdict.Verdict == store.VerdictPass:
@@ -196,14 +203,17 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 			st.Findings = append(st.Findings, f)
 		}
 		for _, r := range story.Reviews {
-			f := ValidateFinding{ID: story.Story + ":" + r.Name, Story: story.Story, Name: r.Name, Status: r.Status, Class: r.Classification}
+			f := ValidateFinding{ID: story.Story + ":" + r.Name, Story: story.Story, Name: r.Name, Role: reviewOwner(r.Name), Status: r.Status, Class: r.Classification}
 			f.Summary, f.Checks = findingEvidence(r.Evidence)
 			f.Choice = choiceOf[f.ID]
 			f.Blocking = r.Classification == "blocking"
 			f.Optional = !f.Blocking
-			if r.Status == "satisfied" {
+			switch {
+			case slices.Contains(story.Unresolved, f.Role):
+				f.State = findingNotReviewed
+			case r.Status == "satisfied":
 				f.State = findingSatisfied
-			} else {
+			default:
 				f.State = findingOpen
 			}
 			st.Findings = append(st.Findings, f)
@@ -212,6 +222,47 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 	st.computeReadiness()
 	st.Revision = st.revision()
 	return st, nil
+}
+
+// reviewOwner names the reviewer that owns a review, as JoinValidateAssessments
+// assigns them: the acceptance reviewer owns the plan review.
+func reviewOwner(name string) string {
+	switch name {
+	case "code":
+		return agent.ReviewRoleCode
+	case "architecture":
+		return agent.ReviewRoleArchitecture
+	}
+	return agent.ReviewRoleAcceptance
+}
+
+// notReviewed lists the not-reviewed items of each reviewer role, in role order.
+func (s ValidateState) notReviewed() (roles []string, items map[string][]string) {
+	items = map[string][]string{}
+	for _, f := range s.Findings {
+		if f.State == findingNotReviewed {
+			items[f.Role] = append(items[f.Role], f.ID)
+		}
+	}
+	for _, role := range ValidateReviewRoles {
+		if len(items[role]) > 0 {
+			roles = append(roles, role)
+		}
+	}
+	return roles, items
+}
+
+// reviewerReason is the recorded reason a reviewer has no usable result.
+func reviewerReason(reviews []store.ValidateReview, role string) string {
+	for _, r := range reviews {
+		if r.Role == role {
+			if strings.TrimSpace(r.Reason) != "" {
+				return r.State + ": " + clipText(r.Reason, 160)
+			}
+			return r.State
+		}
+	}
+	return "not run"
 }
 
 func findingEvidence(ev []agent.EvidenceExplanation) (string, []string) {
@@ -236,6 +287,10 @@ func (s *ValidateState) computeReadiness() {
 	}
 	if !s.Assessed {
 		s.Open = append(s.Open, "The assessment of this commit is not recorded yet.")
+	}
+	roles, items := s.notReviewed()
+	for _, role := range roles {
+		s.Open = append(s.Open, fmt.Sprintf("The %s reviewer has no usable result (%s); %d items are not reviewed.", role, reviewerReason(s.Reviews, role), len(items[role])))
 	}
 	for _, f := range s.Findings {
 		switch {

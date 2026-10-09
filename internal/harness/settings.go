@@ -70,6 +70,7 @@ func DefaultSettings(home string) ([]byte, error) {
 	if home == "" || !filepath.IsAbs(home) {
 		return nil, invalidOptions("settings: $LF_HOME %q must be an absolute path", home)
 	}
+	homeRule := "//" + filepath.ToSlash(filepath.Clean(home))
 
 	settings := claudeSettings{
 		Permissions: settingsPermissions{
@@ -103,9 +104,24 @@ func DefaultSettings(home string) ([]byte, error) {
 				"Bash(git commit:*)",
 				"Bash(git push:*)",
 				"Bash(git stash:*)",
-				// litefactory's own state: unredacted daemon.log, the database,
-				// and every run's raw event stream.
-				"Read(//" + filepath.ToSlash(filepath.Clean(home)) + "/**)",
+				// litefactory's own state: unredacted daemon.log and every run's
+				// raw event stream (logs/), the database, config.yaml and the
+				// credential-bearing paths config.DoctorCredentialPaths names.
+				// The rest of $LF_HOME is deliberately left readable: Validate
+				// review checkouts live in validate-scratch/ and every run reads
+				// its skills from bundles/, so a blanket //$LF_HOME/** deny
+				// refuses a run its own working directory and instructions.
+				"Read(" + homeRule + "/logs/**)",
+				"Read(" + homeRule + "/litefactory.db*)",
+				"Read(" + homeRule + "/config.yaml)",
+				"Read(" + homeRule + "/claude-settings.json)",
+				"Read(" + homeRule + "/claude-home/**)",
+				"Read(" + homeRule + "/secrets/**)",
+				"Read(" + homeRule + "/s/**)",
+				"Read(" + homeRule + "/dc/**)",
+				"Read(" + homeRule + "/doctor/**)",
+				"Read(" + homeRule + "/teams/**)",
+				"Read(" + homeRule + "/archive/**)",
 				// The credential stores an agent would reach for first.
 				"Read(~/.ssh/**)",
 				"Read(~/.aws/**)",

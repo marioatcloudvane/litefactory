@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -40,11 +42,6 @@ func TestDefaultSettingsIsValidJSONAndDeniesTheObviousTargets(t *testing.T) {
 	}
 
 	deny := strings.Join(settings.Permissions.Deny, "\n")
-	// $LF_HOME holds daemon.log, which is unredacted by design (S-7 applies to
-	// forge-bound bodies, never to the local copy).
-	if !strings.Contains(deny, home) {
-		t.Errorf("$LF_HOME is not denied:\n%s", deny)
-	}
 	for _, want := range []string{".ssh", ".aws", ".config/gh"} {
 		if !strings.Contains(deny, want) {
 			t.Errorf("%s is not denied:\n%s", want, deny)
@@ -145,4 +142,86 @@ func TestWriteFileAtomicCreatesMissingDirectories(t *testing.T) {
 	if perm := dir.Mode().Perm(); perm != 0o700 {
 		t.Errorf("directory mode = %o, want 700", perm)
 	}
+}
+
+// A Claude Validate reviewer works in a checkout under
+// $LF_HOME/validate-scratch and every run reads its skills from
+// $LF_HOME/bundles, so neither may be denied. daemon.log (unredacted by
+// design; S-7 applies to forge-bound bodies, never to the local copy), the raw
+// run logs, the database, config.yaml and the credential-bearing paths must
+// stay denied.
+func TestDefaultSettingsDeniesHomeStateButNotCheckoutOrBundle(t *testing.T) {
+	const home = "/Users/tester/.litefactory"
+	data, err := DefaultSettings(home)
+	if err != nil {
+		t.Fatalf("DefaultSettings: %v", err)
+	}
+	var settings claudeSettings
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("settings do not decode: %v", err)
+	}
+	deny := settings.Permissions.Deny
+	joined := strings.Join(deny, "\n")
+
+	for _, want := range []string{
+		"Read(//" + home + "/logs/**)",
+		"Read(//" + home + "/litefactory.db*)",
+		"Read(//" + home + "/config.yaml)",
+		"Read(//" + home + "/claude-settings.json)",
+		"Read(//" + home + "/claude-home/**)",
+		"Read(//" + home + "/secrets/**)",
+		"Read(//" + home + "/s/**)",
+		"Read(//" + home + "/dc/**)",
+	} {
+		if !slices.Contains(deny, want) {
+			t.Errorf("deny lacks %s:\n%s", want, joined)
+		}
+	}
+
+	readable := []string{
+		home + "/validate-scratch/validate-suite-x/tree/file.go",
+		home + "/bundles/github/o/r/1/run-1/plugin/skills/s/SKILL.md",
+	}
+	for _, rule := range deny {
+		if rule == "Read(//"+home+"/**)" {
+			t.Errorf("deny still holds the blanket $LF_HOME rule %s", rule)
+		}
+		if !strings.HasPrefix(rule, "Read(//") || !strings.HasSuffix(rule, ")") {
+			continue
+		}
+		pattern := strings.TrimSuffix(strings.TrimPrefix(rule, "Read(//"), ")")
+		for _, file := range readable {
+			if denyPatternCovers(pattern, file) {
+				t.Errorf("deny rule %s covers %s", rule, file)
+			}
+		}
+	}
+
+	// The patterns must still match what they protect.
+	for _, file := range []string{
+		home + "/logs/daemon.log",
+		home + "/logs/runs/1.jsonl",
+		home + "/litefactory.db-wal",
+		home + "/config.yaml",
+	} {
+		covered := false
+		for _, rule := range deny {
+			if strings.HasPrefix(rule, "Read(//") && denyPatternCovers(strings.TrimSuffix(strings.TrimPrefix(rule, "Read(//"), ")"), file) {
+				covered = true
+			}
+		}
+		if !covered {
+			t.Errorf("no deny rule covers %s:\n%s", file, joined)
+		}
+	}
+}
+
+// denyPatternCovers reports whether a gitignore-style absolute pattern (only
+// a trailing "/**" or a trailing "*" on the last segment) matches file.
+func denyPatternCovers(pattern, file string) bool {
+	if dir, ok := strings.CutSuffix(pattern, "/**"); ok {
+		return file == dir || strings.HasPrefix(file, dir+"/")
+	}
+	matched, err := path.Match(pattern, file)
+	return err == nil && matched
 }

@@ -26,12 +26,20 @@ type ValidateForge interface {
 	ListFollowupIssues(context.Context, github.Repo) ([]github.Issue, error)
 	CreateIssue(context.Context, github.Repo, redact.Body, redact.Body) (github.Issue, error)
 	SetStoryState(ctx context.Context, repo github.Repo, parentNumber int, parentID int64, number int, issueID int64, completed bool) error
+	// UpdateIssue writes the ticked criteria into a story body.
+	UpdateIssue(context.Context, github.Repo, int, redact.Body, redact.Body) (github.Issue, error)
 }
 
-// ValidateIssueRef names one issue by number and numeric id.
+// ValidateIssueRef names one issue by number and numeric id. A story issue
+// also carries its story key, title and frozen approved revision and body, so
+// the report links its row and the story's criteria can be ticked.
 type ValidateIssueRef struct {
-	Number int
-	ID     int64
+	Number   int
+	ID       int64
+	Key      string
+	Title    string
+	Revision string
+	Body     string
 }
 
 // ValidateDeliveryTarget is where an accepted run is delivered and which issues
@@ -43,6 +51,8 @@ type ValidateDeliveryTarget struct {
 	Parent  ValidateIssueRef
 	Stories []ValidateIssueRef
 	BotID   int64
+	// Generation is the plan generation the stories were approved in.
+	Generation int
 }
 
 // CloseSet is the issue numbers a close command lists: the parent and the
@@ -146,6 +156,14 @@ func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Op
 		return false, err
 	}
 	text := renderValidateReport(st, target, report.Notice)
+	// The story sub-issues follow the parent report: they are written only when
+	// the report changed, and a failure returns before the report row is saved,
+	// so the next refresh retries them.
+	if target != nil && (report.CommentID == 0 || report.Digest != fmt.Sprintf("%x", sha256.Sum256([]byte(text)))) {
+		if err := b.refreshValidateStories(ctx, opts, req, st, *target); err != nil {
+			return false, err
+		}
+	}
 	return opts.ResearchReporter.ReportValidate(ctx, req.InstanceID, st.Revision, report.Notice, text, b.now(opts))
 }
 
@@ -174,6 +192,16 @@ func (r *Reporter) ReportValidate(ctx context.Context, instanceID int64, revisio
 		return false, err
 	}
 	intent := r.deliveryIntent(ref, ref, session.ID, 0, 0, fmt.Sprintf("validate-report:%d", instanceID))
+	delivery, err := r.upsertValidateComment(ctx, intent, ref, text)
+	if err != nil {
+		return false, err
+	}
+	return true, r.db.PutValidateReport(ctx, store.ValidateReport{InstanceID: instanceID, CommentID: delivery.CommentID, Marker: intent.Marker, Revision: revision, Digest: digest, Notice: notice, UpdatedAt: now})
+}
+
+// upsertValidateComment posts a Validate comment once under its delivery
+// identity and then edits it in place.
+func (r *Reporter) upsertValidateComment(ctx context.Context, intent store.ReportDelivery, destination naming.Ref, text string) (store.ReportDelivery, error) {
 	// A factory notice to the owner answers no input, so completing it consumes
 	// nothing. Plan notices are the same kind of delivery.
 	intent.TriggerNamespace = store.PlanNoticeNamespace
@@ -181,38 +209,32 @@ func (r *Reporter) ReportValidate(ctx context.Context, instanceID int64, revisio
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		if _, err = r.deliver(ctx, intent, func() (redact.Body, error) { return r.renderer.RenderReportDelivery(ctx, text, "") }); err != nil {
-			return false, err
+			return delivery, err
+		}
+		return r.db.GetReportDelivery(ctx, intent.Key)
+	case err != nil:
+		return delivery, err
+	}
+	if delivery.CommentID == 0 || !delivery.Completed {
+		if _, err = r.dispatchDelivery(ctx, delivery); err != nil {
+			return delivery, err
 		}
 		if delivery, err = r.db.GetReportDelivery(ctx, intent.Key); err != nil {
-			return false, err
-		}
-	case err != nil:
-		return false, err
-	default:
-		if delivery.CommentID == 0 || !delivery.Completed {
-			if _, err = r.dispatchDelivery(ctx, delivery); err != nil {
-				return false, err
-			}
-			if delivery, err = r.db.GetReportDelivery(ctx, intent.Key); err != nil {
-				return false, err
-			}
-		}
-		if delivery.CommentID == 0 {
-			return false, errors.New("the validate report comment is not confirmed yet")
-		}
-		editor, ok := r.forge.(CommentEditor)
-		if !ok {
-			return false, errors.New("the validate report cannot be edited in place")
-		}
-		body, err := r.renderer.RenderReportDelivery(ctx, text, intent.Marker)
-		if err != nil {
-			return false, err
-		}
-		if err = editor.EditComment(ctx, github.RepoFromRef(ref), delivery.CommentID, body); err != nil {
-			return false, err
+			return delivery, err
 		}
 	}
-	return true, r.db.PutValidateReport(ctx, store.ValidateReport{InstanceID: instanceID, CommentID: delivery.CommentID, Marker: intent.Marker, Revision: revision, Digest: digest, Notice: notice, UpdatedAt: now})
+	if delivery.CommentID == 0 {
+		return delivery, errors.New("the validate comment is not confirmed yet")
+	}
+	editor, ok := r.forge.(CommentEditor)
+	if !ok {
+		return delivery, errors.New("the validate comment cannot be edited in place")
+	}
+	body, err := r.renderer.RenderReportDelivery(ctx, text, intent.Marker)
+	if err != nil {
+		return delivery, err
+	}
+	return delivery, editor.EditComment(ctx, github.RepoFromRef(destination), delivery.CommentID, body)
 }
 
 // saveValidateNotice keeps the last refusal (or clears it) on the report row
@@ -286,16 +308,7 @@ func validateQuestionCandidate(st ValidateState, closeSet []int, notice string) 
 	if strings.TrimSpace(notice) != "" {
 		comment.WriteString("\n\n**Your last command changed nothing:** " + strings.TrimSpace(notice))
 	}
-	commands := st.NextCommands(closeSet)
-	reason := "Nothing is pushed, merged or closed until you give the command for it. One confirmation never implies the next."
-	switch {
-	case len(commands) > 0:
-		reason = "Give one of these commands (each names the current revision, and any change makes it stale):\n\n- " + strings.Join(commands, "\n- ") + "\n\n" + reason
-	case !st.Ready:
-		reason = "Nothing can be done from this comment. A blocking finding clears only on a new tested snapshot: hand it back to Implement and run Validate again.\n\n" + reason
-	default:
-		reason = "Delivery is complete or waiting on a step that retries by itself.\n\n" + reason
-	}
+	reason := "Next: " + st.NextStep(closeSet) + "\n\nNothing is pushed, merged or closed until you give the command for it. One confirmation never implies the next."
 	c := agentresult.Result{Outcome: "incomplete", Comment: comment.String(), Reason: reason, Payload: agentresult.Payload{Validate: &agentresult.Validate{}}}
 	for i, o := range st.Open {
 		if i >= 12 {
