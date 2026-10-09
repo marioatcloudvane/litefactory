@@ -729,6 +729,739 @@
         }
       ],
       "checksum": "2077d6484ec66d279d25416f062a9d8399238c0d4628d8423d1892003e754583"
+    },
+    {
+      "name": "Go development",
+      "slug": "go-development",
+      "version": "1.2.0",
+      "description": "Go development team: workflows, retained specialist guidance and scoped litefactory rules for Go repositories.",
+      "tags": [
+        "go"
+      ],
+      "download": "go-development/v1.2.0",
+      "files": [
+        {
+          "path": "GENERATED.md",
+          "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
+        },
+        {
+          "path": "bug/bug-analyst.md",
+          "sha256": "909823053a1c63dd1a0d4ae9fb036e913fbdb54187da19e053eb42264c066026"
+        },
+        {
+          "path": "bug/bug-fixer.md",
+          "sha256": "3fc81396821bf1898527b2d1ec6d9a9134fb5aa636046c3a12e0028a2c55cd74"
+        },
+        {
+          "path": "bug/bug.dot",
+          "sha256": "7fc0ed95a866bc359fc7af728d64d6b655765e0ae4a50b18756a1f17abb520ef"
+        },
+        {
+          "path": "bug/skills/bug-analysis-result/SKILL.md",
+          "sha256": "ce8d92f5e7cc817daa4f018e2732a562deefed1cf1b7f699fac9be66dc39aabb"
+        },
+        {
+          "path": "bug/skills/bug-analysis-result/result.md",
+          "sha256": "f2d75d29753d40ae6962d7efd9fb0ae052e8f88c7cf9402c7f0d0498e35c811f"
+        },
+        {
+          "path": "bug/skills/bug-repair-result/SKILL.md",
+          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
+        },
+        {
+          "path": "bug/skills/bug-repair-result/result.md",
+          "sha256": "3667e21870e11e1a4cf33990c34740e3e502405a05d84a33f09c771a98a1247d"
+        },
+        {
+          "path": "bug/skills/team-guidance/SKILL.md",
+          "sha256": "5529334ea42df67c8e831499ebef8b7ffcfc3778938062a4a9f29aedfa32a528"
+        },
+        {
+          "path": "bug/skills/team-guidance/app-context-updater.md",
+          "sha256": "c596282858328450d787c6d3eb9c7b57d1d7c12b8d5e27e1d25e92f5e69e1d0c"
+        },
+        {
+          "path": "bug/skills/team-guidance/architect.md",
+          "sha256": "bb86aec5a9434c7d7fc6a987b6e8c83ef40285636acfa32d1f7bc8042e1cace4"
+        },
+        {
+          "path": "bug/skills/team-guidance/architecture-scanner.md",
+          "sha256": "89eb24ad1e56bd2d7bad881531614dc331a04c5ab37fddaf7ad9a5466d27a18b"
+        },
+        {
+          "path": "bug/skills/team-guidance/asking.md",
+          "sha256": "f68592db018e5be28ad4e10b5523b22a21bf01b74d3cf09b16b92d28e1a68b5e"
+        },
+        {
+          "path": "bug/skills/team-guidance/code-reviewer.md",
+          "sha256": "881bb29f3e6f80f554d00dba30ca7347edd4895e23009300fea0d5791ed186d1"
+        },
+        {
+          "path": "bug/skills/team-guidance/environment-safety.md",
+          "sha256": "a152c2d6c999577ceedaceb7c240f58936cc6a11111aef1b17aee1dba2b376c5"
+        },
+        {
+          "path": "bug/skills/team-guidance/implementation-engineer.md",
+          "sha256": "df2ffc7243cdd5084d24861e3e2b49f923de9e073eef99886365fb26fc7d6802"
+        },
+        {
+          "path": "bug/skills/team-guidance/integration-test-engineer.md",
+          "sha256": "dc50b5b8ce325cb55512b9c797e60fad4d7364850c96de9fe8ed65569241f97f"
+        },
+        {
+          "path": "bug/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "644a113f55154e4f6fc5c62603275a2e6aa7684342a3ef9b5a3954e5b1144add"
+        },
+        {
+          "path": "bug/skills/team-guidance/litefactory.md",
+          "sha256": "e131fa4b15696fe117422d17ce443cf6e57785bb7d98f2da60c4833ef15cc905"
+        },
+        {
+          "path": "bug/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "aa805230d324c748cd999783e7154eb2aa6f1497c08ff95730481a178324ad41"
+        },
+        {
+          "path": "bug/skills/team-guidance/platform-constraints.md",
+          "sha256": "95cd979cf3d282ee554bbf41fa3005077d88a2af1228e9010b80b2b76d29a8de"
+        },
+        {
+          "path": "bug/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "9fd7143e7a138246be395f62d26cc213e022cdbb99822303b8ed3f41246adaa1"
+        },
+        {
+          "path": "bug/skills/team-guidance/requirements-engineer.md",
+          "sha256": "16944d6f5ec1b05bc47e9e633b4889191ba8e94cd11190e02813c372222b3f3f"
+        },
+        {
+          "path": "bug/skills/team-guidance/review-evidence.md",
+          "sha256": "f34fe431f829ed215dbf745adfa9edc3eca9b6e535e6e53f52758463529b0091"
+        },
+        {
+          "path": "bug/skills/team-guidance/security-scanner.md",
+          "sha256": "b037ea18c40ae31c921e6e8b56780b7a1874c2062170e8ee17d8907b1a97af37"
+        },
+        {
+          "path": "bug/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "105ede3b2456eaa2b5e52e7db9de826296a4eaa03e8ccba48f1588d36663e2f9"
+        },
+        {
+          "path": "bug/skills/team-guidance/task-decomposer.md",
+          "sha256": "75f099c2590fe0ac5621872f3123e3270b73579e4d6018032be5365d2dd0480f"
+        },
+        {
+          "path": "bug/skills/team-guidance/testing-scanner.md",
+          "sha256": "5484dac2f5f94dc41b8e5a48fb7c40b405c5131753883f221b8709715f1c2c5a"
+        },
+        {
+          "path": "bug/skills/team-guidance/unit-test-engineer.md",
+          "sha256": "e68feeed425077c23e1e13de7f8685feb39da26d6d462e57490741ea0dd3386a"
+        },
+        {
+          "path": "bug/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "implement/implement.dot",
+          "sha256": "14cfb09267791ce2618cde7821076d243776cc7304d13520917756e111314591"
+        },
+        {
+          "path": "implement/skills/implement-result/SKILL.md",
+          "sha256": "62b9dcac040cc901ec1afb8e13942744b640b1d57cc29ded6aec5d4b2ec0ecee"
+        },
+        {
+          "path": "implement/skills/implement-result/node-result.md",
+          "sha256": "a126164c44621fa3c0a4696aee49de6a277bc43d9cbb732fff364cb2085a7c2f"
+        },
+        {
+          "path": "implement/skills/team-guidance/SKILL.md",
+          "sha256": "5529334ea42df67c8e831499ebef8b7ffcfc3778938062a4a9f29aedfa32a528"
+        },
+        {
+          "path": "implement/skills/team-guidance/app-context-updater.md",
+          "sha256": "c596282858328450d787c6d3eb9c7b57d1d7c12b8d5e27e1d25e92f5e69e1d0c"
+        },
+        {
+          "path": "implement/skills/team-guidance/architect.md",
+          "sha256": "bb86aec5a9434c7d7fc6a987b6e8c83ef40285636acfa32d1f7bc8042e1cace4"
+        },
+        {
+          "path": "implement/skills/team-guidance/architecture-scanner.md",
+          "sha256": "89eb24ad1e56bd2d7bad881531614dc331a04c5ab37fddaf7ad9a5466d27a18b"
+        },
+        {
+          "path": "implement/skills/team-guidance/asking.md",
+          "sha256": "f68592db018e5be28ad4e10b5523b22a21bf01b74d3cf09b16b92d28e1a68b5e"
+        },
+        {
+          "path": "implement/skills/team-guidance/code-reviewer.md",
+          "sha256": "881bb29f3e6f80f554d00dba30ca7347edd4895e23009300fea0d5791ed186d1"
+        },
+        {
+          "path": "implement/skills/team-guidance/environment-safety.md",
+          "sha256": "a152c2d6c999577ceedaceb7c240f58936cc6a11111aef1b17aee1dba2b376c5"
+        },
+        {
+          "path": "implement/skills/team-guidance/implementation-engineer.md",
+          "sha256": "df2ffc7243cdd5084d24861e3e2b49f923de9e073eef99886365fb26fc7d6802"
+        },
+        {
+          "path": "implement/skills/team-guidance/integration-test-engineer.md",
+          "sha256": "dc50b5b8ce325cb55512b9c797e60fad4d7364850c96de9fe8ed65569241f97f"
+        },
+        {
+          "path": "implement/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "644a113f55154e4f6fc5c62603275a2e6aa7684342a3ef9b5a3954e5b1144add"
+        },
+        {
+          "path": "implement/skills/team-guidance/litefactory.md",
+          "sha256": "e131fa4b15696fe117422d17ce443cf6e57785bb7d98f2da60c4833ef15cc905"
+        },
+        {
+          "path": "implement/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "aa805230d324c748cd999783e7154eb2aa6f1497c08ff95730481a178324ad41"
+        },
+        {
+          "path": "implement/skills/team-guidance/platform-constraints.md",
+          "sha256": "95cd979cf3d282ee554bbf41fa3005077d88a2af1228e9010b80b2b76d29a8de"
+        },
+        {
+          "path": "implement/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "9fd7143e7a138246be395f62d26cc213e022cdbb99822303b8ed3f41246adaa1"
+        },
+        {
+          "path": "implement/skills/team-guidance/requirements-engineer.md",
+          "sha256": "16944d6f5ec1b05bc47e9e633b4889191ba8e94cd11190e02813c372222b3f3f"
+        },
+        {
+          "path": "implement/skills/team-guidance/review-evidence.md",
+          "sha256": "f34fe431f829ed215dbf745adfa9edc3eca9b6e535e6e53f52758463529b0091"
+        },
+        {
+          "path": "implement/skills/team-guidance/security-scanner.md",
+          "sha256": "b037ea18c40ae31c921e6e8b56780b7a1874c2062170e8ee17d8907b1a97af37"
+        },
+        {
+          "path": "implement/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "105ede3b2456eaa2b5e52e7db9de826296a4eaa03e8ccba48f1588d36663e2f9"
+        },
+        {
+          "path": "implement/skills/team-guidance/task-decomposer.md",
+          "sha256": "75f099c2590fe0ac5621872f3123e3270b73579e4d6018032be5365d2dd0480f"
+        },
+        {
+          "path": "implement/skills/team-guidance/testing-scanner.md",
+          "sha256": "5484dac2f5f94dc41b8e5a48fb7c40b405c5131753883f221b8709715f1c2c5a"
+        },
+        {
+          "path": "implement/skills/team-guidance/unit-test-engineer.md",
+          "sha256": "e68feeed425077c23e1e13de7f8685feb39da26d6d462e57490741ea0dd3386a"
+        },
+        {
+          "path": "implement/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "implement/story-worker.md",
+          "sha256": "0e808bfb70010aecad881b438f1e0c5b78eba60628e9ab7db8b460cb535fcf77"
+        },
+        {
+          "path": "plan/plan-acceptance.md",
+          "sha256": "ee4e0112dede28851b273e58ede8618f1dc772c012baf79b7f1d0f0d2ebdab85"
+        },
+        {
+          "path": "plan/plan-set.md",
+          "sha256": "c27a9dc0e40c81094d48fcac414ffce19a27b2e024e8700f0457a8e12be02fce"
+        },
+        {
+          "path": "plan/plan-story.md",
+          "sha256": "9b7fdfe8d4e72d40b96026270f63fe2bcd3fa790411bedcecfe9966523e040ec"
+        },
+        {
+          "path": "plan/plan-technical.md",
+          "sha256": "c5058fcbf07cbfcd464182fe5aab28fcec064c1dd1158a4d513e25a6394e202b"
+        },
+        {
+          "path": "plan/plan.dot",
+          "sha256": "90cf9ab1c20106c1bc1a43979672ef54e3ad7b3572605a36c8aebc908f73004f"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
+          "sha256": "09773b63aec00e6e0138738685fe954b20df1cfb52e4f38e83bc74d248804077"
+        },
+        {
+          "path": "plan/skills/plan-agent-setup-guidance/SKILL.md",
+          "sha256": "c4b8ac1eff5fee2a0bb77e6a779f6936e5958abb0c77b0d2c6b22b80fed8a6b1"
+        },
+        {
+          "path": "plan/skills/plan-evidence/SKILL.md",
+          "sha256": "39866d68b32e5b998e735302c3af447336e5406f6d57430a10b881efbf85254d"
+        },
+        {
+          "path": "plan/skills/plan-evidence/node-result.md",
+          "sha256": "5c40550c3f9cfb914f45c0b69439e07851031a2839f0ecfbaa4dc938fdb1d286"
+        },
+        {
+          "path": "plan/skills/plan-evidence/projection.md",
+          "sha256": "ad35476da207ae35130d0a7265c71019975067b79ea130c8459a84cdb9e469d8"
+        },
+        {
+          "path": "plan/skills/plan-go-guidance/SKILL.md",
+          "sha256": "8c09e6609b9a2adae6f49cd448ed36a3dae9c2e4d4f83fccd55e7617085034e7"
+        },
+        {
+          "path": "plan/skills/plan-story-set/SKILL.md",
+          "sha256": "9de26cafcc66ea7bd9835230aec6d354791ad51aabe9d02fee93b143a495f637"
+        },
+        {
+          "path": "plan/skills/plan-story-shaping/SKILL.md",
+          "sha256": "fe5fc8ac8d0fe5e116d4d221132f6cc1ca2a39b2b51d213e92dd2691bba8675d"
+        },
+        {
+          "path": "plan/skills/plan-technical-shaping/SKILL.md",
+          "sha256": "d0c245c2ee81d2ecd5ba682de1c13b9cfd91daa12fd40e9aa4ec3595fa68ccd8"
+        },
+        {
+          "path": "plan/skills/team-guidance/SKILL.md",
+          "sha256": "5529334ea42df67c8e831499ebef8b7ffcfc3778938062a4a9f29aedfa32a528"
+        },
+        {
+          "path": "plan/skills/team-guidance/app-context-updater.md",
+          "sha256": "c596282858328450d787c6d3eb9c7b57d1d7c12b8d5e27e1d25e92f5e69e1d0c"
+        },
+        {
+          "path": "plan/skills/team-guidance/architect.md",
+          "sha256": "bb86aec5a9434c7d7fc6a987b6e8c83ef40285636acfa32d1f7bc8042e1cace4"
+        },
+        {
+          "path": "plan/skills/team-guidance/architecture-scanner.md",
+          "sha256": "89eb24ad1e56bd2d7bad881531614dc331a04c5ab37fddaf7ad9a5466d27a18b"
+        },
+        {
+          "path": "plan/skills/team-guidance/asking.md",
+          "sha256": "f68592db018e5be28ad4e10b5523b22a21bf01b74d3cf09b16b92d28e1a68b5e"
+        },
+        {
+          "path": "plan/skills/team-guidance/code-reviewer.md",
+          "sha256": "881bb29f3e6f80f554d00dba30ca7347edd4895e23009300fea0d5791ed186d1"
+        },
+        {
+          "path": "plan/skills/team-guidance/environment-safety.md",
+          "sha256": "a152c2d6c999577ceedaceb7c240f58936cc6a11111aef1b17aee1dba2b376c5"
+        },
+        {
+          "path": "plan/skills/team-guidance/implementation-engineer.md",
+          "sha256": "df2ffc7243cdd5084d24861e3e2b49f923de9e073eef99886365fb26fc7d6802"
+        },
+        {
+          "path": "plan/skills/team-guidance/integration-test-engineer.md",
+          "sha256": "dc50b5b8ce325cb55512b9c797e60fad4d7364850c96de9fe8ed65569241f97f"
+        },
+        {
+          "path": "plan/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "644a113f55154e4f6fc5c62603275a2e6aa7684342a3ef9b5a3954e5b1144add"
+        },
+        {
+          "path": "plan/skills/team-guidance/litefactory.md",
+          "sha256": "e131fa4b15696fe117422d17ce443cf6e57785bb7d98f2da60c4833ef15cc905"
+        },
+        {
+          "path": "plan/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "aa805230d324c748cd999783e7154eb2aa6f1497c08ff95730481a178324ad41"
+        },
+        {
+          "path": "plan/skills/team-guidance/platform-constraints.md",
+          "sha256": "95cd979cf3d282ee554bbf41fa3005077d88a2af1228e9010b80b2b76d29a8de"
+        },
+        {
+          "path": "plan/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "9fd7143e7a138246be395f62d26cc213e022cdbb99822303b8ed3f41246adaa1"
+        },
+        {
+          "path": "plan/skills/team-guidance/requirements-engineer.md",
+          "sha256": "16944d6f5ec1b05bc47e9e633b4889191ba8e94cd11190e02813c372222b3f3f"
+        },
+        {
+          "path": "plan/skills/team-guidance/review-evidence.md",
+          "sha256": "f34fe431f829ed215dbf745adfa9edc3eca9b6e535e6e53f52758463529b0091"
+        },
+        {
+          "path": "plan/skills/team-guidance/security-scanner.md",
+          "sha256": "b037ea18c40ae31c921e6e8b56780b7a1874c2062170e8ee17d8907b1a97af37"
+        },
+        {
+          "path": "plan/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "105ede3b2456eaa2b5e52e7db9de826296a4eaa03e8ccba48f1588d36663e2f9"
+        },
+        {
+          "path": "plan/skills/team-guidance/task-decomposer.md",
+          "sha256": "75f099c2590fe0ac5621872f3123e3270b73579e4d6018032be5365d2dd0480f"
+        },
+        {
+          "path": "plan/skills/team-guidance/testing-scanner.md",
+          "sha256": "5484dac2f5f94dc41b8e5a48fb7c40b405c5131753883f221b8709715f1c2c5a"
+        },
+        {
+          "path": "plan/skills/team-guidance/unit-test-engineer.md",
+          "sha256": "e68feeed425077c23e1e13de7f8685feb39da26d6d462e57490741ea0dd3386a"
+        },
+        {
+          "path": "plan/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "research/research.dot",
+          "sha256": "836415e23089e6ccb87734d2ce1be62d3717ae7ea46129203695027bb200c86a"
+        },
+        {
+          "path": "research/research.md",
+          "sha256": "e7ba7e0a397f7e589e7e8b53072d54faa84368330c4b3fe6671bdb7a363165cf"
+        },
+        {
+          "path": "research/shaping.md",
+          "sha256": "fb93bee34d575995035968ff94239e4a131037fc89ee3eae1824a88695b0b625"
+        },
+        {
+          "path": "research/skills/research-evidence/SKILL.md",
+          "sha256": "bf90961a8b1e01df99039071d1baaa7552f8f17175073df8afd0382b17650ff9"
+        },
+        {
+          "path": "research/skills/research-evidence/evidence.md",
+          "sha256": "6a60ccc8c1dbdf69ee1988c5e850e383d4070637301fd8084449b8e05c57780f"
+        },
+        {
+          "path": "research/skills/research-evidence/node-result.md",
+          "sha256": "a6b148a4ad0c92e9e25350200fd90d3182d7de8c14e7398c0568fbda3b30bcac"
+        },
+        {
+          "path": "research/skills/team-guidance/SKILL.md",
+          "sha256": "5529334ea42df67c8e831499ebef8b7ffcfc3778938062a4a9f29aedfa32a528"
+        },
+        {
+          "path": "research/skills/team-guidance/app-context-updater.md",
+          "sha256": "c596282858328450d787c6d3eb9c7b57d1d7c12b8d5e27e1d25e92f5e69e1d0c"
+        },
+        {
+          "path": "research/skills/team-guidance/architect.md",
+          "sha256": "bb86aec5a9434c7d7fc6a987b6e8c83ef40285636acfa32d1f7bc8042e1cace4"
+        },
+        {
+          "path": "research/skills/team-guidance/architecture-scanner.md",
+          "sha256": "89eb24ad1e56bd2d7bad881531614dc331a04c5ab37fddaf7ad9a5466d27a18b"
+        },
+        {
+          "path": "research/skills/team-guidance/asking.md",
+          "sha256": "f68592db018e5be28ad4e10b5523b22a21bf01b74d3cf09b16b92d28e1a68b5e"
+        },
+        {
+          "path": "research/skills/team-guidance/code-reviewer.md",
+          "sha256": "881bb29f3e6f80f554d00dba30ca7347edd4895e23009300fea0d5791ed186d1"
+        },
+        {
+          "path": "research/skills/team-guidance/environment-safety.md",
+          "sha256": "a152c2d6c999577ceedaceb7c240f58936cc6a11111aef1b17aee1dba2b376c5"
+        },
+        {
+          "path": "research/skills/team-guidance/implementation-engineer.md",
+          "sha256": "df2ffc7243cdd5084d24861e3e2b49f923de9e073eef99886365fb26fc7d6802"
+        },
+        {
+          "path": "research/skills/team-guidance/integration-test-engineer.md",
+          "sha256": "dc50b5b8ce325cb55512b9c797e60fad4d7364850c96de9fe8ed65569241f97f"
+        },
+        {
+          "path": "research/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "644a113f55154e4f6fc5c62603275a2e6aa7684342a3ef9b5a3954e5b1144add"
+        },
+        {
+          "path": "research/skills/team-guidance/litefactory.md",
+          "sha256": "e131fa4b15696fe117422d17ce443cf6e57785bb7d98f2da60c4833ef15cc905"
+        },
+        {
+          "path": "research/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "aa805230d324c748cd999783e7154eb2aa6f1497c08ff95730481a178324ad41"
+        },
+        {
+          "path": "research/skills/team-guidance/platform-constraints.md",
+          "sha256": "95cd979cf3d282ee554bbf41fa3005077d88a2af1228e9010b80b2b76d29a8de"
+        },
+        {
+          "path": "research/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "9fd7143e7a138246be395f62d26cc213e022cdbb99822303b8ed3f41246adaa1"
+        },
+        {
+          "path": "research/skills/team-guidance/requirements-engineer.md",
+          "sha256": "16944d6f5ec1b05bc47e9e633b4889191ba8e94cd11190e02813c372222b3f3f"
+        },
+        {
+          "path": "research/skills/team-guidance/review-evidence.md",
+          "sha256": "f34fe431f829ed215dbf745adfa9edc3eca9b6e535e6e53f52758463529b0091"
+        },
+        {
+          "path": "research/skills/team-guidance/security-scanner.md",
+          "sha256": "b037ea18c40ae31c921e6e8b56780b7a1874c2062170e8ee17d8907b1a97af37"
+        },
+        {
+          "path": "research/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "105ede3b2456eaa2b5e52e7db9de826296a4eaa03e8ccba48f1588d36663e2f9"
+        },
+        {
+          "path": "research/skills/team-guidance/task-decomposer.md",
+          "sha256": "75f099c2590fe0ac5621872f3123e3270b73579e4d6018032be5365d2dd0480f"
+        },
+        {
+          "path": "research/skills/team-guidance/testing-scanner.md",
+          "sha256": "5484dac2f5f94dc41b8e5a48fb7c40b405c5131753883f221b8709715f1c2c5a"
+        },
+        {
+          "path": "research/skills/team-guidance/unit-test-engineer.md",
+          "sha256": "e68feeed425077c23e1e13de7f8685feb39da26d6d462e57490741ea0dd3386a"
+        },
+        {
+          "path": "research/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "spike/skills/spike-result/SKILL.md",
+          "sha256": "e5bf45567a3e415e474b8178deafb6e0b678efa5e5ddbd778bb9f7a6a18c1ebd"
+        },
+        {
+          "path": "spike/skills/spike-result/node-result.md",
+          "sha256": "e2b842997e085e2bf2435cfe6a6393de4e5a56f44ce0c3e9fd0ed1bd67d7dcd8"
+        },
+        {
+          "path": "spike/skills/team-guidance/SKILL.md",
+          "sha256": "5529334ea42df67c8e831499ebef8b7ffcfc3778938062a4a9f29aedfa32a528"
+        },
+        {
+          "path": "spike/skills/team-guidance/app-context-updater.md",
+          "sha256": "c596282858328450d787c6d3eb9c7b57d1d7c12b8d5e27e1d25e92f5e69e1d0c"
+        },
+        {
+          "path": "spike/skills/team-guidance/architect.md",
+          "sha256": "bb86aec5a9434c7d7fc6a987b6e8c83ef40285636acfa32d1f7bc8042e1cace4"
+        },
+        {
+          "path": "spike/skills/team-guidance/architecture-scanner.md",
+          "sha256": "89eb24ad1e56bd2d7bad881531614dc331a04c5ab37fddaf7ad9a5466d27a18b"
+        },
+        {
+          "path": "spike/skills/team-guidance/asking.md",
+          "sha256": "f68592db018e5be28ad4e10b5523b22a21bf01b74d3cf09b16b92d28e1a68b5e"
+        },
+        {
+          "path": "spike/skills/team-guidance/code-reviewer.md",
+          "sha256": "881bb29f3e6f80f554d00dba30ca7347edd4895e23009300fea0d5791ed186d1"
+        },
+        {
+          "path": "spike/skills/team-guidance/environment-safety.md",
+          "sha256": "a152c2d6c999577ceedaceb7c240f58936cc6a11111aef1b17aee1dba2b376c5"
+        },
+        {
+          "path": "spike/skills/team-guidance/implementation-engineer.md",
+          "sha256": "df2ffc7243cdd5084d24861e3e2b49f923de9e073eef99886365fb26fc7d6802"
+        },
+        {
+          "path": "spike/skills/team-guidance/integration-test-engineer.md",
+          "sha256": "dc50b5b8ce325cb55512b9c797e60fad4d7364850c96de9fe8ed65569241f97f"
+        },
+        {
+          "path": "spike/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "644a113f55154e4f6fc5c62603275a2e6aa7684342a3ef9b5a3954e5b1144add"
+        },
+        {
+          "path": "spike/skills/team-guidance/litefactory.md",
+          "sha256": "e131fa4b15696fe117422d17ce443cf6e57785bb7d98f2da60c4833ef15cc905"
+        },
+        {
+          "path": "spike/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "aa805230d324c748cd999783e7154eb2aa6f1497c08ff95730481a178324ad41"
+        },
+        {
+          "path": "spike/skills/team-guidance/platform-constraints.md",
+          "sha256": "95cd979cf3d282ee554bbf41fa3005077d88a2af1228e9010b80b2b76d29a8de"
+        },
+        {
+          "path": "spike/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "9fd7143e7a138246be395f62d26cc213e022cdbb99822303b8ed3f41246adaa1"
+        },
+        {
+          "path": "spike/skills/team-guidance/requirements-engineer.md",
+          "sha256": "16944d6f5ec1b05bc47e9e633b4889191ba8e94cd11190e02813c372222b3f3f"
+        },
+        {
+          "path": "spike/skills/team-guidance/review-evidence.md",
+          "sha256": "f34fe431f829ed215dbf745adfa9edc3eca9b6e535e6e53f52758463529b0091"
+        },
+        {
+          "path": "spike/skills/team-guidance/security-scanner.md",
+          "sha256": "b037ea18c40ae31c921e6e8b56780b7a1874c2062170e8ee17d8907b1a97af37"
+        },
+        {
+          "path": "spike/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "105ede3b2456eaa2b5e52e7db9de826296a4eaa03e8ccba48f1588d36663e2f9"
+        },
+        {
+          "path": "spike/skills/team-guidance/task-decomposer.md",
+          "sha256": "75f099c2590fe0ac5621872f3123e3270b73579e4d6018032be5365d2dd0480f"
+        },
+        {
+          "path": "spike/skills/team-guidance/testing-scanner.md",
+          "sha256": "5484dac2f5f94dc41b8e5a48fb7c40b405c5131753883f221b8709715f1c2c5a"
+        },
+        {
+          "path": "spike/skills/team-guidance/unit-test-engineer.md",
+          "sha256": "e68feeed425077c23e1e13de7f8685feb39da26d6d462e57490741ea0dd3386a"
+        },
+        {
+          "path": "spike/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "spike/spike-fixer.md",
+          "sha256": "c244618825c8ccc2c257b6a8f968dac86fe7a02410c35989c843802d32e19af9"
+        },
+        {
+          "path": "spike/spike-investigator.md",
+          "sha256": "053e0252c4cf1676c852f669f757f86a3d94cbe987eeea5b850af8289d45e1fb"
+        },
+        {
+          "path": "spike/spike.dot",
+          "sha256": "e7eaf81c6d52167c5eeee0b8e8e7bee52612fe117556f8da7e9a2d4f91ba6f89"
+        },
+        {
+          "path": "stack-profile.json",
+          "sha256": "628e6522bab5c36efc9060fd8bbc21b20c89cdeff1be840c7f125ec4d34435dd"
+        },
+        {
+          "path": "team.config",
+          "sha256": "b16c875d208c77742c72ea48caeaf42950b4fbb0b13fb62d93724b8ad48aec67"
+        },
+        {
+          "path": "validate/skills/team-guidance/SKILL.md",
+          "sha256": "5529334ea42df67c8e831499ebef8b7ffcfc3778938062a4a9f29aedfa32a528"
+        },
+        {
+          "path": "validate/skills/team-guidance/app-context-updater.md",
+          "sha256": "c596282858328450d787c6d3eb9c7b57d1d7c12b8d5e27e1d25e92f5e69e1d0c"
+        },
+        {
+          "path": "validate/skills/team-guidance/architect.md",
+          "sha256": "bb86aec5a9434c7d7fc6a987b6e8c83ef40285636acfa32d1f7bc8042e1cace4"
+        },
+        {
+          "path": "validate/skills/team-guidance/architecture-scanner.md",
+          "sha256": "89eb24ad1e56bd2d7bad881531614dc331a04c5ab37fddaf7ad9a5466d27a18b"
+        },
+        {
+          "path": "validate/skills/team-guidance/asking.md",
+          "sha256": "f68592db018e5be28ad4e10b5523b22a21bf01b74d3cf09b16b92d28e1a68b5e"
+        },
+        {
+          "path": "validate/skills/team-guidance/code-reviewer.md",
+          "sha256": "881bb29f3e6f80f554d00dba30ca7347edd4895e23009300fea0d5791ed186d1"
+        },
+        {
+          "path": "validate/skills/team-guidance/environment-safety.md",
+          "sha256": "a152c2d6c999577ceedaceb7c240f58936cc6a11111aef1b17aee1dba2b376c5"
+        },
+        {
+          "path": "validate/skills/team-guidance/implementation-engineer.md",
+          "sha256": "df2ffc7243cdd5084d24861e3e2b49f923de9e073eef99886365fb26fc7d6802"
+        },
+        {
+          "path": "validate/skills/team-guidance/integration-test-engineer.md",
+          "sha256": "dc50b5b8ce325cb55512b9c797e60fad4d7364850c96de9fe8ed65569241f97f"
+        },
+        {
+          "path": "validate/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "644a113f55154e4f6fc5c62603275a2e6aa7684342a3ef9b5a3954e5b1144add"
+        },
+        {
+          "path": "validate/skills/team-guidance/litefactory.md",
+          "sha256": "e131fa4b15696fe117422d17ce443cf6e57785bb7d98f2da60c4833ef15cc905"
+        },
+        {
+          "path": "validate/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "aa805230d324c748cd999783e7154eb2aa6f1497c08ff95730481a178324ad41"
+        },
+        {
+          "path": "validate/skills/team-guidance/platform-constraints.md",
+          "sha256": "95cd979cf3d282ee554bbf41fa3005077d88a2af1228e9010b80b2b76d29a8de"
+        },
+        {
+          "path": "validate/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "9fd7143e7a138246be395f62d26cc213e022cdbb99822303b8ed3f41246adaa1"
+        },
+        {
+          "path": "validate/skills/team-guidance/requirements-engineer.md",
+          "sha256": "16944d6f5ec1b05bc47e9e633b4889191ba8e94cd11190e02813c372222b3f3f"
+        },
+        {
+          "path": "validate/skills/team-guidance/review-evidence.md",
+          "sha256": "f34fe431f829ed215dbf745adfa9edc3eca9b6e535e6e53f52758463529b0091"
+        },
+        {
+          "path": "validate/skills/team-guidance/security-scanner.md",
+          "sha256": "b037ea18c40ae31c921e6e8b56780b7a1874c2062170e8ee17d8907b1a97af37"
+        },
+        {
+          "path": "validate/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "105ede3b2456eaa2b5e52e7db9de826296a4eaa03e8ccba48f1588d36663e2f9"
+        },
+        {
+          "path": "validate/skills/team-guidance/task-decomposer.md",
+          "sha256": "75f099c2590fe0ac5621872f3123e3270b73579e4d6018032be5365d2dd0480f"
+        },
+        {
+          "path": "validate/skills/team-guidance/testing-scanner.md",
+          "sha256": "5484dac2f5f94dc41b8e5a48fb7c40b405c5131753883f221b8709715f1c2c5a"
+        },
+        {
+          "path": "validate/skills/team-guidance/unit-test-engineer.md",
+          "sha256": "e68feeed425077c23e1e13de7f8685feb39da26d6d462e57490741ea0dd3386a"
+        },
+        {
+          "path": "validate/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "validate/skills/validate-repair-report/SKILL.md",
+          "sha256": "57c6cb0e7d6e26ff5dbb6f183a9dc30d02b5df57a1c58fc0607258f77b8acae8"
+        },
+        {
+          "path": "validate/skills/validate-repair-report/node-result.md",
+          "sha256": "c1fb75efe2885d4f4fb271b8a36c15a667536255f5ccf0cc2da2808f47c50f95"
+        },
+        {
+          "path": "validate/skills/validate-review/SKILL.md",
+          "sha256": "008b01ac5fbeacba0aea8bb9109cfb53755a810ccfee0e394800babaa78896dd"
+        },
+        {
+          "path": "validate/skills/validate-review/node-result.md",
+          "sha256": "77ba705ce46d89426979a68d1095bb108e1599b7643fb7fa7cdee81b383dd638"
+        },
+        {
+          "path": "validate/validate-acceptance.md",
+          "sha256": "37c8344871a4ff63f080d77e9f25371a440ea75a7bbbe4eced0bbf77e0dc9356"
+        },
+        {
+          "path": "validate/validate-architecture.md",
+          "sha256": "817b05872cf8b84a670d964ec211f2aa58ab37e0d74a9fc4166c112c15f90f0d"
+        },
+        {
+          "path": "validate/validate-code.md",
+          "sha256": "d4ff26a2b278a7c7c045717f5b49f11187f420190f50c02ca8709d768ef82a03"
+        },
+        {
+          "path": "validate/validate-repair.md",
+          "sha256": "0502f2e7f522d8455615e3273fa772097cfbce9bcfb1be72828ac28ccc03b786"
+        },
+        {
+          "path": "validate/validate.dot",
+          "sha256": "7ee97b43eb84431c5c527da08a4b08d525a0d9f963061ba2551ec722904644d6"
+        }
+      ],
+      "checksum": "faf6db6f0173f4a52ec55f4d74819f88a6e2c790744a38a31f2f66b0ebf86951"
     }
   ]
 }

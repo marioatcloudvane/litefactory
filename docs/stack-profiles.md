@@ -1,11 +1,12 @@
 # Stack profile schema
 
-The version 1 model lives in configuration parsing. Release packaging, workflow
-admission and runner integration are still pending; placing these files on disk
-does not yet change factory behavior.
+The version 1 profile is captured from the selected team release at workflow
+admission. Claude, Codex, engineering recipes and setup use the same resolved
+settings. Repository overrides are read from the admitted Git commit, so dirty
+working files do not affect a run.
 
-New team packages will carry a package-root `stack-profile.json`. A repository's
-optional `.litefactory/stack.overrides.json` will be read from its admitted
+New team packages carry a package-root `stack-profile.json`. A repository's
+optional `.litefactory/stack.overrides.json` is read from its admitted
 revision. The model accepts JSON objects with exact, lower-case schema field
 names. Duplicate keys (including escaped spellings), unknown fields, null values,
 trailing data and unsupported versions are rejected. Each input is limited to
@@ -101,3 +102,47 @@ responsibilities of the release and admission owners, not this pure model.
 Historical profile-free Go releases and saved captures still use their existing
 behavior. This model introduces no implicit Go fallback and does not rewrite
 historical releases, tasks, approvals or result identities.
+
+## Releases and compatibility
+
+Generate the canonical Go release with `go run ./cmd/teamrelease`. To generate
+several teams into one catalogue, repeat `-source` with each canonical source
+root. Each source supplies its own `release.json`, `team.config`, workflows and
+package-root profile. `-check` verifies the generated result without publishing.
+All candidates are validated before publication. Existing exact versions are
+immutable; use a new version for changed content. Catalogue entries for other
+releases and historical download bytes are preserved.
+
+The new Go release is `go-development@1.2.0`. Its profile retains the supported
+Go engineering recipe and declares Go and agent-setup Plan guidance. New role
+IDs name functions such as `implementation-engineer`, `unit-test-engineer` and
+`integration-test-engineer`. A captured role resource explicitly declares
+`task_owner: true` in its header to authorize future Plan task ownership. Plan
+guidance IDs come from the selected effective profile; submitted content cannot
+create either owner or guidance authority.
+
+Fetched teams must match their installed immutable inventory. Editable local
+teams retain local provenance and are captured again at fresh admission; their
+new digest records local bytes, rather than authenticating a fetched release.
+Profile-selected skills, declared dependencies and resources are captured
+together. Their closure is limited to 4,096 files, including empty resources,
+and 16 MiB. Missing, oversized or unsafe guidance refuses admission before execution.
+
+Only historical Go versions `1.0.0` and `1.1.1`, or an editable clone with that
+explicit historical origin, may omit the profile. Historical saved workflow
+captures keep their original role IDs and result contracts. Other teams and
+versions require a profile and never inherit Go defaults.
+
+Declared setup runs only for writable Implement engineering work, through the
+existing operator command isolation and retained command evidence. Engineering
+checks remain within the existing check evidence contract; profile defaults
+do not replace pinned Bug/Spike recipes. Validate consumes retained evidence
+and does not execute profile setup. Host requirements are checked before agent
+launch and never install software. Provider fallback and resumed workflow
+attempts use retained profile, override and guidance bytes; fresh admission
+reads the newly selected configuration.
+
+Inferred conversations have no execution graph. They capture configuration
+through the selected team's Research workflow while retaining the inferred
+mode and its existing permissions. This requires that workflow in the selected
+release and does not select a different team.
