@@ -164,15 +164,69 @@ func (s ValidateState) NextCommands(closeSet []int) []string {
 			out = append(out, line)
 		}
 	}
+	if c := s.deliveryCommand(closeSet); c != "" {
+		out = append(out, c)
+	}
+	return out
+}
+
+// deliveryCommand is the one delivery command the owner can give now: push,
+// then merge, then close. It is empty while the run is not ready or delivery
+// is complete.
+func (s ValidateState) deliveryCommand(closeSet []int) string {
+	rev := s.Revision
 	switch {
 	case !s.Ready:
 	case !effectDone(s.Effects.PR) || !effectDone(s.Effects.Push):
-		out = append(out, fmt.Sprintf("`%s %s`", ValidatePushCommand, rev))
+		return fmt.Sprintf("`%s %s`", ValidatePushCommand, rev)
 	case !effectDone(s.Effects.Merge):
 		r := decodeEffectResult(s.Effects.PR)
-		out = append(out, fmt.Sprintf("`%s %s %d %s`", ValidateMergeCommand, rev, r.Number, r.Head))
+		return fmt.Sprintf("`%s %s %d %s`", ValidateMergeCommand, rev, r.Number, r.Head)
 	case !effectDone(s.Effects.Close):
-		out = append(out, fmt.Sprintf("`%s %s %s`", ValidateCloseCommand, rev, validateNumbers(closeSet)))
+		return fmt.Sprintf("`%s %s %s`", ValidateCloseCommand, rev, validateNumbers(closeSet))
+	}
+	return ""
+}
+
+// NextStep is the one next step the parent report and the owner wait name: the
+// retry when a reviewer has no usable result, the sub-issues while the owner
+// has checks or choices open, otherwise the next delivery command. Per-item
+// command templates stay on the story sub-issues.
+func (s ValidateState) NextStep(closeSet []int) string {
+	roles, _ := s.notReviewed()
+	owner := false
+	for _, f := range s.Findings {
+		if validateOwnerItem(s, f) {
+			owner = true
+		}
+	}
+	switch {
+	case s.Suite.Outcome != store.SuitePassed:
+		return "The suite did not pass. It clears only on a new tested snapshot: hand it back to Implement and run Validate again."
+	case len(roles) > 0:
+		return validateRetryStep(s.Commit)
+	case !s.Assessed:
+		return "Wait for the assessment of this commit; the report updates by itself."
+	case owner:
+		return "Work through the sub-issues above: each lists its open checks and choices with the command to give here."
+	case !s.Ready && len(s.blockingIDs()) > 0:
+		return "A failed criterion or blocking finding clears only on a new tested snapshot: hand it back to Implement and run Validate again."
+	case !s.Ready:
+		return "Wait: an issue you chose is still being created; the report updates by itself."
+	}
+	if c := s.deliveryCommand(closeSet); c != "" {
+		return c
+	}
+	return "Nothing. Delivery is complete."
+}
+
+// blockingIDs lists the items that clear only on a new tested snapshot.
+func (s ValidateState) blockingIDs() []string {
+	var out []string
+	for _, f := range s.Findings {
+		if f.State != findingNotReviewed && validateItemBlocks(f) {
+			out = append(out, f.ID)
+		}
 	}
 	return out
 }

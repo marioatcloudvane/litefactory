@@ -59,37 +59,19 @@ func TestValidateFailedReviewersAreReportedOnceNotPerItem(t *testing.T) {
 		t.Fatalf("one report: %d", len(reports))
 	}
 	out := reports[0].Body
-	for _, role := range agent.ReviewRoles {
-		line := "- Reviewer " + role + " has no usable result:"
-		if n := strings.Count(out, line); n != 1 || !strings.Contains(out, line+" failed: the reviewer could not finish: "+deniedReason) {
-			t.Errorf("reviewer %s is named once with its reason (%d):\n%s", role, n, out)
-		}
+	// #571: each reviewer column of the story row names the reviewer's reason,
+	// the row is red and the one Next line is the retry.
+	if n := strings.Count(out, "not reviewed: failed: the reviewer could not finish: "+deniedReason); n != len(agent.ReviewRoles) {
+		t.Errorf("each reviewer is named once with its reason (%d):\n%s", n, out)
 	}
-	if n := strings.Count(out, "Run Validate again on commit `"+short(st.Commit)+"`"); n != 1 || !strings.Contains(out, "the passed suite is reused and only the reviews run again") {
-		t.Errorf("exactly one retry step (%d):\n%s", n, out)
+	if !strings.Contains(out, "| "+lightRed+" story-002") || !strings.HasPrefix(out, lightRed) {
+		t.Errorf("the story row and the header are red:\n%s", out)
+	}
+	if n := strings.Count(out, "Run Validate again on commit `"+short(st.Commit)+"`"); n != 1 || !strings.Contains(out, "\nNext: Run Validate again") || !strings.Contains(out, "the passed suite is reused and only the reviews run again") {
+		t.Errorf("exactly one retry step as the Next line (%d):\n%s", n, out)
 	}
 	if strings.Contains(out, findingAwaitingCheck) || strings.Contains(out, ValidateCheckCommand) || strings.Contains(out, ValidateFindingCommand) || strings.Contains(out, "review, optional") {
 		t.Errorf("no owner task for a not-reviewed item:\n%s", out)
-	}
-	var list string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "Not reviewed (") {
-			if list != "" {
-				t.Fatalf("one compact list:\n%s", out)
-			}
-			list = line
-		}
-	}
-	if !strings.HasPrefix(list, "Not reviewed (5): ") {
-		t.Fatalf("compact list: %q", list)
-	}
-	for _, id := range ids {
-		if !strings.Contains(list, "`"+id+"`") {
-			t.Errorf("%s is missing from the not-reviewed list: %s", id, list)
-		}
-	}
-	if !strings.Contains(out, "None now. Use the next step under Not reviewed above.") {
-		t.Errorf("the empty command list points at the retry:\n%s", out)
 	}
 
 	// BC-4: a check or a choice on a not-reviewed item is refused and records nothing.
@@ -148,7 +130,7 @@ func TestValidateOneFailedReviewerLeavesTheOthersItems(t *testing.T) {
 		t.Fatalf("the manual check keeps its command, the code review has none: %s", commands)
 	}
 	out := renderValidateReport(st, nil, "")
-	if !strings.Contains(out, "`story-002:AC-002` — **awaiting owner check**") || !strings.Contains(out, "Not reviewed (1): `story-002:code`") || strings.Count(out, "- Reviewer ") != 1 {
+	if !strings.Contains(out, "1 of 2 satisfied · 1 awaiting owner check") || strings.Count(out, "not reviewed: ") != 1 || !strings.Contains(out, "\nNext: Run Validate again") || strings.Contains(out, ValidateCheckCommand) {
 		t.Fatalf("report:\n%s", out)
 	}
 }
