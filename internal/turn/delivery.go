@@ -17,6 +17,8 @@ import (
 )
 
 type deliveryPlan struct {
+	workflow  agent.Workflow
+	node      string
 	mainRole  string
 	mainModel string
 	identity  string
@@ -83,51 +85,27 @@ func writeDelivery(ctx context.Context, home, relative string, p *deliveryPlan) 
 			return nil, err
 		}
 	}
-	d := agent.Delivery{MainRole: p.mainRole, MainModel: p.mainModel, Root: dir, Identity: p.identity, Roles: p.roles, Skills: p.skills, Evidence: p.evidence}.Clone()
+	d := agent.Delivery{MainRole: p.mainRole, MainModel: p.mainModel, Root: dir, Identity: p.identity, Roles: p.roles, Skills: p.skills, RequiredSkills: p.skills, RenderedFiles: renderedHashes(p), Evidence: p.evidence}.Clone()
+	if err := agent.VerifyDelivery(ctx, d); err != nil {
+		return nil, deliveryPlanRefusal(p, err)
+	}
 	return &d, nil
 }
 
-// verifyDelivery refuses missing or edited retained bytes rather than silently
-// rebuilding the resources a previous conversation actually saw.
-func verifyDelivery(root string, p *deliveryPlan) (*agent.Delivery, error) {
-	r, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, fmt.Errorf("open retained bundle: %w", err)
+func renderedHashes(p *deliveryPlan) map[string]string {
+	hashes := make(map[string]string, len(p.files))
+	for name, raw := range p.files {
+		hashes[name] = hashBytes(raw)
 	}
-	defer r.Close()
-	if err := fs.WalkDir(r.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("retained bundle contains a symlink")
-		}
-		if !entry.IsDir() {
-			if _, ok := p.files[path]; !ok {
-				return fmt.Errorf("retained bundle contains undeclared file: %s", path)
-			}
-		}
-		return nil
-	}); err != nil {
-		return nil, err
+	return hashes
+}
+
+// verifyDelivery refuses missing or edited retained bytes without rebuilding them.
+func verifyDelivery(ctx context.Context, root string, p *deliveryPlan) (*agent.Delivery, error) {
+	d := agent.Delivery{MainRole: p.mainRole, MainModel: p.mainModel, Root: root, Identity: p.identity, Roles: p.roles, Skills: p.skills, RequiredSkills: p.skills, RenderedFiles: renderedHashes(p), Evidence: p.evidence}.Clone()
+	if err := agent.VerifyDelivery(ctx, d); err != nil {
+		return nil, deliveryPlanRefusal(p, err)
 	}
-	for path, expected := range p.files {
-		info, err := r.Lstat(path)
-		if err != nil {
-			return nil, err
-		}
-		if !info.Mode().IsRegular() || info.Size() != int64(len(expected)) {
-			return nil, fmt.Errorf("retained bundle resource is not the expected regular file")
-		}
-		actual, err := r.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read retained bundle %s: %w", path, err)
-		}
-		if hashBytes(actual) != hashBytes(expected) {
-			return nil, fmt.Errorf("retained bundle was modified: %s", path)
-		}
-	}
-	d := agent.Delivery{MainRole: p.mainRole, MainModel: p.mainModel, Root: root, Identity: p.identity, Roles: p.roles, Skills: p.skills, Evidence: p.evidence}.Clone()
 	return &d, nil
 }
 
@@ -169,7 +147,7 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 		if p == nil {
 			return segment, nil, nil
 		}
-		delivery, err := verifyDelivery(segment.DeliveryRoot, p)
+		delivery, err := verifyDelivery(ctx, segment.DeliveryRoot, p)
 		return segment, delivery, err
 	}
 	// No p==nil/HasSessionDelivery fast path here: a bundleless repository's
@@ -215,7 +193,7 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 			if p == nil {
 				return last, nil, nil
 			}
-			delivery, err := verifyDelivery(last.DeliveryRoot, p)
+			delivery, err := verifyDelivery(ctx, last.DeliveryRoot, p)
 			return last, delivery, err
 		default:
 			ordinal = last.Ordinal + 1
@@ -315,4 +293,8 @@ func freshSegmentSessionRef() (string, error) {
 	b[6] = b[6]&0x0f | 0x50 // version 5, matching the shape naming.SessionRef produces
 	b[8] = b[8]&0x3f | 0x80 // RFC 4122 variant
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
+func deliveryPlanRefusal(p *deliveryPlan, cause error) error {
+	return agent.DeliveryRefusal(agent.Request{Workflow: p.workflow, Mode: p.evidence.Mode, Graph: &agent.GraphInvocation{Node: p.node}}, cause)
 }

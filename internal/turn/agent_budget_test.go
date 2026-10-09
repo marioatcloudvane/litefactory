@@ -35,8 +35,9 @@ func budgetRun(t *testing.T, attrs map[string]string, runner func(context.Contex
 	worktree := t.TempDir()
 	mustProgress(t, os.MkdirAll(filepath.Join(worktree, ".aiteam/session"), 0700))
 	stub := newStubRunner(func(runctx context.Context, _ agent.Request) (*agent.RunResult, error) { return runner(runctx) })
+	delivered := fixtureNativeDelivery(t, f.policy)
 	handler := AgentActivity{Policy: f.policy, Prepare: func(context.Context, Options, ActivityRequest) (ResearchInvocation, error) {
-		request := agent.Request{Mode: string(f.policy.Mode), Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, WorktreePath: worktree, Prompt: "Work", Permissions: agent.Permissions{Profile: "research"}}
+		request := agent.Request{Delivery: delivered, Mode: string(f.policy.Mode), Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, WorktreePath: worktree, Prompt: "Work", Permissions: agent.Permissions{Profile: "research"}}
 		return ResearchInvocation{Request: request, Kind: agent.Kind(store.AgentClaude), SessionPath: ".aiteam/session", Results: f.service}, nil
 	}}
 	var registry ActivityRegistry

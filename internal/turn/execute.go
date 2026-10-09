@@ -90,9 +90,6 @@ type Options struct {
 	ResearchDriver   ResearchLaunchDriver
 	Bug              *BugRuntime
 	ResearchReporter *Reporter
-	// spikeCapture replaces the shipped Spike capture. It exists so a test can
-	// run a different graph file through the unchanged Go; production leaves it nil.
-	spikeCapture func(context.Context, WorkflowPolicy) (*teamsource.WorkflowDefinition, error)
 	// spikeRunCommand replaces the sandboxed recipe runner. It exists so a test can
 	// supply command results without a sandbox; production leaves it nil.
 	spikeRunCommand func(ctx context.Context, worktree string, command config.BugCheckCommand) bugchecks.CommandResult
@@ -656,7 +653,8 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	}
 
 	if req.Workflow == agent.WorkflowBug {
-		return opts.Bug.Execute(ctx, req, result)
+		out, executeErr := opts.Bug.Execute(ctx, req, result)
+		return out, workflowRequestError(ctx, opts, req, session, executeErr)
 	}
 
 	// AC-3.4: a comment that already produced a run never produces a second
@@ -696,19 +694,19 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	}
 
 	if graphResult, handled, graphErr := admitPlanExecution(ctx, opts, req, result); handled {
-		return graphResult, graphErr
+		return graphResult, workflowRequestError(ctx, opts, req, session, graphErr)
 	}
 	if graphResult, handled, graphErr := admitResearchExecution(ctx, opts, req, result); handled {
-		return graphResult, graphErr
+		return graphResult, workflowRequestError(ctx, opts, req, session, graphErr)
 	}
 	if graphResult, handled, graphErr := admitSpikeExecution(ctx, opts, req, result); handled {
-		return graphResult, graphErr
+		return graphResult, workflowRequestError(ctx, opts, req, session, graphErr)
 	}
 	if graphResult, handled, graphErr := admitImplementExecution(ctx, opts, req, result); handled {
-		return graphResult, graphErr
+		return graphResult, workflowRequestError(ctx, opts, req, session, graphErr)
 	}
 	if graphResult, handled, graphErr := admitValidateExecution(ctx, opts, req, result); handled {
-		return graphResult, graphErr
+		return graphResult, workflowRequestError(ctx, opts, req, session, graphErr)
 	}
 
 	prep, err := prepare(ctx, opts, req, session, ref, logger)

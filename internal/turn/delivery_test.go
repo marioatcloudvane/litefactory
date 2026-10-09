@@ -76,7 +76,7 @@ func TestDeliveryConcurrentPublicationIsDisjoint(t *testing.T) {
 			t.Errorf("publication reused %s", root)
 		}
 		seen[root] = true
-		if _, err := verifyDelivery(root, p); err != nil {
+		if _, err := verifyDelivery(t.Context(), root, p); err != nil {
 			t.Error(err)
 		}
 	}
@@ -120,7 +120,7 @@ func TestVerifyDeliveryRejectsAlteredResources(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = verifyDelivery(d.Root, p)
+			_, err = verifyDelivery(t.Context(), d.Root, p)
 			if (err == nil) != (damage == "clean") {
 				t.Fatalf("verify %s: %v", damage, err)
 			}
@@ -161,7 +161,7 @@ func TestDeliverySegmentRetainsAndRotatesExactIdentity(t *testing.T) {
 	if next.ID == first.ID || replacement.Root == bundle.Root {
 		t.Fatal("changed identity reused segment or bundle")
 	}
-	if _, err := verifyDelivery(bundle.Root, p); err != nil {
+	if _, err := verifyDelivery(t.Context(), bundle.Root, p); err != nil {
 		t.Fatalf("rotation invalidated resumable resources: %v", err)
 	}
 	identity, root, err := f.db.SegmentDelivery(t.Context(), first.ID)

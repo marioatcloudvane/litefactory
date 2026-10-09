@@ -425,7 +425,7 @@ func (rt *validateRuntimeState) resumeDispatch(ctx context.Context) (Result, err
 		return rt.result, err
 	}
 	if definition.Profile.Digest != pin.Digest {
-		return rt.result, errors.New("shipped Validate graph changed under a running instance; the resting instance cannot resume")
+		return rt.result, errors.New("retained validate graph does not match the running instance; the resting instance cannot resume")
 	}
 	entry, err := rt.entryOf(ctx, instance.ID)
 	if err != nil {

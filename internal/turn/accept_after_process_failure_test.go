@@ -56,8 +56,9 @@ func TestAgentActivityExecute_AcceptAfterProcessFailure(t *testing.T) {
 					}
 					return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "exit status 1"}, errors.New("process failure")
 				})
+				delivered := fixtureNativeDelivery(t, f.policy)
 				handler := AgentActivity{Policy: f.policy, Prepare: func(context.Context, Options, ActivityRequest) (ResearchInvocation, error) {
-					request := agent.Request{Mode: string(f.policy.Mode), Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, WorktreePath: worktree, Prompt: "Work", Permissions: agent.Permissions{Profile: mode}}
+					request := agent.Request{Delivery: delivered, Mode: string(f.policy.Mode), Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, WorktreePath: worktree, Prompt: "Work", Permissions: agent.Permissions{Profile: mode}}
 					return ResearchInvocation{Request: request, Kind: agent.Kind(store.AgentClaude), SessionPath: ".aiteam/session", Results: f.service}, nil
 				}}
 				var registry ActivityRegistry

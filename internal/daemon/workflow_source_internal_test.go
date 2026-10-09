@@ -2,9 +2,14 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -103,7 +108,7 @@ func TestRepositoryWorkflowSourceEditableSelectionAcrossSixWorkflows(t *testing.
 		t.Fatal(err)
 	}
 	unlinked, err := resolver(t.Context(), repo, agent.WorkflowImplement, specs)
-	if err != nil || unlinked != nil {
+	if err == nil || unlinked != nil || !strings.Contains(err.Error(), "no linked installed team") {
 		t.Fatalf("unlinked source: %v %v", unlinked, err)
 	}
 	if _, err := db.ReplaceRepositoryTeamBinding(t.Context(), store.RepositoryTeamBinding{RepoID: repo.ID, Source: "local", Slug: "custom", Version: "1.0.0", Kind: "local"}); err != nil {
@@ -137,6 +142,89 @@ func TestRepositoryWorkflowSourceEditableSelectionAcrossSixWorkflows(t *testing.
 	after, err := os.ReadFile(receiptPath)
 	if err != nil || string(after) != string(receipt) {
 		t.Fatal("admission changed permanent clone origin")
+	}
+	// Retain the same offline content as an immutable fetched release.
+	source := "https://example.com/teams.json"
+	sourceHash := sha256.Sum256([]byte(source))
+	fetchedDir := filepath.Join(paths.TeamsInstalledDir(), hex.EncodeToString(sourceHash[:]), "custom", "1.0.0")
+	var inventory []teampackage.File
+	err = filepath.WalkDir(content, func(file string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relative, e := filepath.Rel(content, file)
+		if e != nil {
+			return e
+		}
+		raw, e := os.ReadFile(file)
+		if e != nil {
+			return e
+		}
+		sum := sha256.Sum256(raw)
+		inventory = append(inventory, teampackage.File{Path: filepath.ToSlash(relative), SHA256: hex.EncodeToString(sum[:])})
+		target := filepath.Join(fetchedDir, "content", relative)
+		if e = os.MkdirAll(filepath.Dir(target), 0700); e != nil {
+			return e
+		}
+		return os.WriteFile(target, raw, 0600)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.SortFunc(inventory, func(a, b teampackage.File) int { return strings.Compare(a.Path, b.Path) })
+	var inventoryText strings.Builder
+	for _, file := range inventory {
+		inventoryText.WriteString(file.Path + "\x00" + file.SHA256 + "\n")
+	}
+	releaseHash := sha256.Sum256([]byte(inventoryText.String()))
+	checksum := hex.EncodeToString(releaseHash[:])
+	release := teampackage.Release{Name: "offline fetched fixture", Tags: []string{}, Slug: "custom", Version: "1.0.0", Download: "release.tar.gz", Files: inventory, Checksum: checksum}
+	fetchedReceipt, err := json.Marshal(struct {
+		Schema   int                 `json:"schema"`
+		Source   string              `json:"source"`
+		Release  teampackage.Release `json:"release"`
+		Checksum string              `json:"checksum"`
+	}{1, source, release, checksum})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(fetchedDir, "receipt.json"), fetchedReceipt, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ReplaceRepositoryTeamBinding(t.Context(), store.RepositoryTeamBinding{RepoID: repo.ID, Source: source, Slug: "custom", Version: "1.0.0", Kind: "fetched", ReleaseDigest: checksum}); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range variants {
+		t.Run("fetched/"+string(v.workflow), func(t *testing.T) {
+			registry, e := v.specs()
+			if e != nil {
+				t.Fatal(e)
+			}
+			def, e := resolver(t.Context(), repo, v.workflow, registry)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if def.Origin.Kind != "fetched" || def.Origin.ReleaseDigest != checksum || def.Origin.Source != source {
+				t.Fatalf("lost fetched identity: %+v", def.Origin)
+			}
+		})
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err = resolver(cancelled, repo, agent.WorkflowImplement, specs); !errors.Is(err, context.Canceled) {
+		t.Fatalf("lost cancellation: %v", err)
+	}
+	if err = os.WriteFile(filepath.Join(fetchedDir, "content", "implement", "implement.dot"), []byte("corrupt"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = resolver(t.Context(), repo, agent.WorkflowImplement, specs); err == nil || !strings.Contains(err.Error(), repo.Path) || !strings.Contains(err.Error(), "implement") {
+		t.Fatalf("corrupt release accepted: %v", err)
+	}
+	if _, err = db.ReplaceRepositoryTeamBinding(t.Context(), store.RepositoryTeamBinding{RepoID: repo.ID, Source: "local", Slug: "custom", Version: "1.0.0", Kind: "local"}); err != nil {
+		t.Fatal(err)
 	}
 	write("team.config", []byte("research: research/research.dot\n"))
 	if _, err := resolver(t.Context(), repo, agent.WorkflowImplement, specs); err == nil || !strings.Contains(err.Error(), repo.Path) || !strings.Contains(err.Error(), "available workflows: research") {

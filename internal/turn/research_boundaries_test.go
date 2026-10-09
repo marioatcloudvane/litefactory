@@ -46,7 +46,7 @@ func TestResearchNativeBundleFilesystem(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err = verifyDelivery(delivery.Root, plan); err != nil {
+				if _, err = verifyDelivery(t.Context(), delivery.Root, plan); err != nil {
 					t.Fatal(err)
 				}
 				for path, want := range plan.files {
@@ -195,7 +195,7 @@ func TestResearchAgentRealStorePrivateRetention(t *testing.T) {
 				if variant == "provider mismatch" {
 					ordinal++
 				}
-				return ResearchInvocation{Request: agent.Request{Ref: ref, RunOrdinal: ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, Mode: "research", WorktreePath: worktree, Prompt: "Investigate"}, Kind: agent.Kind(store.AgentClaude), SessionPath: ".aiteam/session", Results: service, Close: func() error { closed++; return nil }}, nil
+				return ResearchInvocation{Request: agent.Request{Delivery: fixtureNativeDelivery(t, ResearchWorkflowPolicy()), Ref: ref, RunOrdinal: ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, Mode: "research", WorktreePath: worktree, Prompt: "Investigate"}, Kind: agent.Kind(store.AgentClaude), SessionPath: ".aiteam/session", Results: service, Close: func() error { closed++; return nil }}, nil
 			}}
 			req := GraphNodeRequest{Profile: profile, InstanceID: instance.ID, RunID: run.ID, At: at}
 			var registry graphexec.Registry
