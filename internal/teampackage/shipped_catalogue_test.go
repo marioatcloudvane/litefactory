@@ -4,11 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/config"
@@ -16,7 +15,8 @@ import (
 
 // TestShippedCatalogueMatchesItsFiles keeps teams/teams.json installable: every
 // listed file exists with its hash, nothing unlisted ships, and each release
-// carries the same role and workflow bytes as the embedded teamsource.
+// preserves its checksummed immutable bytes. Only the canonical current release
+// carries the same role and workflow bytes as the editable teamsource.
 func TestShippedCatalogueMatchesItsFiles(t *testing.T) {
 	raw, err := os.ReadFile("../../teams/teams.json")
 	if err != nil {
@@ -26,9 +26,22 @@ func TestShippedCatalogueMatchesItsFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("teams.json does not parse: %v", err)
 	}
+	canonicalRaw, err := os.ReadFile("../teamsource/release.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var canonical Release
+	if err := json.Unmarshal(canonicalRaw, &canonical); err != nil {
+		t.Fatal(err)
+	}
+	foundCanonical := false
 	for _, r := range cat.Releases {
 		if r.Slug == "standard" {
 			t.Errorf("release %s: there is no standard team; name it after what it is", r.Version)
+		}
+		current := r.Slug == canonical.Slug && r.Version == canonical.Version
+		if current {
+			foundCanonical = true
 		}
 		root := filepath.Join("../../teams", filepath.FromSlash(r.Download))
 		listed := map[string]bool{}
@@ -42,7 +55,7 @@ func TestShippedCatalogueMatchesItsFiles(t *testing.T) {
 			if sum := sha256.Sum256(b); hex.EncodeToString(sum[:]) != f.SHA256 {
 				t.Errorf("%s/%s: listed hash is stale", r.Slug, f.Path)
 			}
-			if f.Path == "team.config" || f.Path == "GENERATED.md" {
+			if !current || f.Path == "team.config" || f.Path == "GENERATED.md" {
 				continue
 			}
 			live, err := os.ReadFile(filepath.Join("../teamsource", filepath.FromSlash(f.Path)))
@@ -50,16 +63,21 @@ func TestShippedCatalogueMatchesItsFiles(t *testing.T) {
 				t.Errorf("%s/%s differs from internal/teamsource/%s", r.Slug, f.Path, f.Path)
 			}
 		}
-		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
 			}
 			rel, _ := filepath.Rel(root, p)
-			if rel = filepath.ToSlash(rel); !listed[rel] && !strings.HasPrefix(path.Base(rel), ".") {
+			if rel = filepath.ToSlash(rel); !listed[rel] {
 				t.Errorf("%s/%s ships but is not listed", r.Slug, rel)
 			}
 			return nil
-		})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !foundCanonical {
+		t.Fatal("canonical current release missing from catalogue")
 	}
 }
 

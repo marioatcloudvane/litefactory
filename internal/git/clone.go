@@ -16,7 +16,11 @@ import (
 // The method set is the whole of S-6 and nothing more:
 //
 //	Fetch  WorktreeAdd  WorktreeList  WorktreeRemove
-//	RevParse  RemoteURL  ConfigGet  ShowRef
+//	RevParse  RemoteURL  ConfigGet  ShowRef  ReadStackOverrides
+//
+// ReadStackOverrides is the bounded stack-admission read: rev-parse verifies an
+// exact commit, ls-tree checks directory/file modes and cat-file reads its one
+// declared override blob. It changes no checkout, index, object or reference.
 //
 // There is deliberately no Commit, and no Checkout, Switch, Stash, Reset, Merge
 // or Pull either. An engineer who tries to commit to the registered clone gets
@@ -25,7 +29,7 @@ import (
 // [Worktree], and the only way to obtain one is [Clone.WorktreeAdd].
 //
 // A Clone is safe for concurrent use: it holds no mutable state, and each
-// method is one git process. That is a statement about this Go value and not
+// method uses only its declared git operations. That is a statement about this Go value and not
 // about the repository on disk it points at, and conflating the two is the
 // mistake this paragraph exists to prevent. git keeps its own mutable state in
 // the .git directory, and against *one* clone the methods here contend on it:

@@ -21,7 +21,7 @@ Break the confirmed feature spec into implementation tasks. Return the task tabl
 | `infra` | Config, environment variable, CI step, deployment change |
 | `test` | Unit tests, integration tests |
 
-This is a single-layer team — every task goes to `go-implementation-engineer`. There is no BE/FE split to track.
+This is a single-layer team — every task goes to `implementation-engineer`. There is no BE/FE split to track.
 
 ## Estimates
 
