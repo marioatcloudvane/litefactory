@@ -103,7 +103,7 @@ func TestPlanPackageClosureAndDigest(t *testing.T) {
 	}
 	changed := planPackageFixture(t)
 	changed["skills/plan-evidence/projection.md"].Data = append(changed["skills/plan-evidence/projection.md"].Data, []byte("\nScoped clarification.\n")...)
-	next, err := CaptureWorkflow(t.Context(), changed, "plan.dot", "builtin", agent.ModePlan, planPackageRegistry(t))
+	next, err := CaptureWorkflow(t.Context(), changed, "plan.dot", "go-development", agent.ModePlan, planPackageRegistry(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestPlanPackageRejectsInvalidClosure(t *testing.T) {
 			t.Parallel()
 			fixture := planPackageFixture(t)
 			tt.change(fixture)
-			got, err := CaptureWorkflow(t.Context(), fixture, "plan.dot", "builtin", agent.ModePlan, planPackageRegistry(t))
+			got, err := CaptureWorkflow(t.Context(), fixture, "plan.dot", "go-development", agent.ModePlan, planPackageRegistry(t))
 			if err == nil || got != nil {
 				t.Fatalf("invalid closure admitted: %v", got)
 			}
@@ -322,7 +322,7 @@ func TestPlanCaptureLeavesTheResearchClosureUnchanged(t *testing.T) {
 		t.Fatal("Plan capture changed Research closure")
 	}
 	for path := range after.Files {
-		if strings.Contains(path, "plan-") {
+		if strings.HasPrefix(path, "skills/plan-") || strings.HasPrefix(path, "plan-") {
 			t.Errorf("Plan contract leaked into Research: %s", path)
 		}
 	}

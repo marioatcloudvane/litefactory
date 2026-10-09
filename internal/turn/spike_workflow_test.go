@@ -264,7 +264,7 @@ func captureSpikeVariant(ctx context.Context, t *testing.T, policy WorkflowPolic
 	}))
 	specs, err := WorkflowSpecs(policy)
 	mustProgress(t, err)
-	return teamsource.CaptureWorkflow(ctx, files, "spike.dot", "builtin", agent.ModeSpike, specs)
+	return teamsource.CaptureWorkflow(ctx, files, "spike.dot", "go-development", agent.ModeSpike, specs)
 }
 
 func TestSpikeGraphUnroutedResponseFailsExplicitly(t *testing.T) {

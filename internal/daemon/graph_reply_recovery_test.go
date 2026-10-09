@@ -55,7 +55,7 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 			t.Fatal(err)
 		}
 		bugCapture = capture
-		definition = store.GraphDefinition{Team: "builtin", Workflow: "bug", ProfileVersion: 2, Path: "bug/bug.dot", Digest: capture.Profile.Digest}
+		definition = store.GraphDefinition{Team: capture.Profile.Team, Workflow: "bug", ProfileVersion: 2, Path: "bug/bug.dot", Digest: capture.Profile.Digest}
 		if _, err = f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: s.ID, Version: 1, Family: "standalone", Workflow: "bug", SourceTrigger: 22}); err != nil {
 			t.Fatal(err)
 		}

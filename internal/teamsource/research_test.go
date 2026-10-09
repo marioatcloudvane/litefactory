@@ -9,6 +9,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 )
 
@@ -84,7 +85,7 @@ func TestCaptureResearchValidation(t *testing.T) {
 			t.Parallel()
 			f := researchTestSource()
 			tt.mutate(f)
-			got, err := captureResearch(t.Context(), f, researchTestRegistry(t))
+			got, err := captureHistoricalResearch(t.Context(), f, researchTestRegistry(t))
 			if err == nil || !strings.Contains(err.Error(), tt.want) || got != nil {
 				t.Fatalf("capture = %v, %v; want no definition and diagnostic %q", got, err, tt.want)
 			}
@@ -114,7 +115,7 @@ func TestCaptureResearchEffectiveDefaults(t *testing.T) {
 				replaceResearchFixture(f, "research.md", "tier: balanced\n", "")
 			}
 			replaceResearchFixture(f, "research.dot", `lf_limit="2"`, `lf_limit="2"`+tt.nodeAttrs)
-			got, err := captureResearch(t.Context(), f, researchTestRegistry(t))
+			got, err := captureHistoricalResearch(t.Context(), f, researchTestRegistry(t))
 			if tt.fail {
 				if err == nil {
 					t.Fatal("accepted empty override")
@@ -136,7 +137,7 @@ func TestCaptureResearchOwnedClosure(t *testing.T) {
 	t.Parallel()
 	f := researchTestSource()
 	r := researchTestRegistry(t)
-	got, err := captureResearch(t.Context(), f, r)
+	got, err := captureHistoricalResearch(t.Context(), f, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +154,7 @@ func TestCaptureResearchOwnedClosure(t *testing.T) {
 	if string(got.Files["skills/reader/guide.md"]) != before {
 		t.Fatal("captured bytes alias source")
 	}
-	changed, err := captureResearch(t.Context(), f, r)
+	changed, err := captureHistoricalResearch(t.Context(), f, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func TestCaptureResearchIndependentDiagnostics(t *testing.T) {
 	f := researchTestSource()
 	delete(f, "research.md")
 	delete(f, "skills/reader/guide.md")
-	_, err := captureResearch(t.Context(), f, researchTestRegistry(t))
+	_, err := captureHistoricalResearch(t.Context(), f, researchTestRegistry(t))
 	if err == nil {
 		t.Fatal("accepted missing resources")
 	}
@@ -185,7 +186,7 @@ func TestCaptureResearchBuiltin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Profile.Team != "builtin" || len(got.Nodes) == 0 || got.Digest == "" {
+	if got.Profile.Team != "go-development" || len(got.Nodes) == 0 || got.Digest == "" {
 		t.Fatalf("invalid built-in definition: %+v", got)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -205,7 +206,7 @@ func TestCaptureResearchAggregateBounds(t *testing.T) {
 		f["skills/reader/"+name] = &fstest.MapFile{Data: make([]byte, MaxSourceBytes)}
 	}
 	replaceResearchFixture(f, "skills/reader/SKILL.md", "resources: [guide.md]", "resources: ["+strings.Join(resources, ",")+"]")
-	got, err := captureResearch(t.Context(), f, researchTestRegistry(t))
+	got, err := captureHistoricalResearch(t.Context(), f, researchTestRegistry(t))
 	if err == nil || got != nil || !strings.Contains(err.Error(), "bounds") {
 		t.Fatalf("capture = %v, %v; want aggregate bound refusal", got, err)
 	}
@@ -217,7 +218,7 @@ func TestCaptureResearchMissingEffectiveDefaults(t *testing.T) {
 	replaceResearchFixture(f, "research.md", "task: role task\n", "")
 	replaceResearchFixture(f, "research.md", "tier: balanced\n", "")
 	replaceResearchFixture(f, "research.dot", `, lf_task="package task", lf_model_tier="fast"`, "")
-	got, err := captureResearch(t.Context(), f, researchTestRegistry(t))
+	got, err := captureHistoricalResearch(t.Context(), f, researchTestRegistry(t))
 	if err == nil || got != nil {
 		t.Fatal("accepted missing effective task and tier")
 	}
@@ -226,4 +227,9 @@ func TestCaptureResearchMissingEffectiveDefaults(t *testing.T) {
 			t.Errorf("missing %s diagnostic: %v", want, err)
 		}
 	}
+}
+
+// Historical fixture identity is explicit; current-source helpers use go-development.
+func captureHistoricalResearch(ctx context.Context, source fs.FS, registry graphexec.Registry) (*ResearchDefinition, error) {
+	return CaptureWorkflow(ctx, source, "research.dot", "builtin", agent.ModeResearch, registry)
 }

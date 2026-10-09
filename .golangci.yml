@@ -88,7 +88,7 @@ linters:
     rules:
       # main is the one place allowed to create the root context and to write
       # directly to the process stderr before the logger exists.
-      - path: ^cmd/litefactory/
+      - path: ^cmd/(litefactory|teamrelease)/
         linters:
           - forbidigo
       # Tests fabricate their own contexts and shell out to fixtures.

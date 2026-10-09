@@ -124,7 +124,7 @@ func TestRepositoryWorkflowSourceEditableSelectionAcrossSixWorkflows(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			if def.Profile.Team != "builtin" || def.Origin.Kind != "local" || def.Origin.Slug != "custom" || len(def.Origin.TeamConfig) == 0 {
+			if def.Profile.Team != "go-development" || def.Origin.Kind != "local" || def.Origin.Slug != "custom" || len(def.Origin.TeamConfig) == 0 {
 				t.Fatalf("source lost provenance: %+v", def.Origin)
 			}
 			graph := string(v.workflow) + "/" + string(v.workflow) + ".dot"
