@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
 )
+
+// doctorSyncAdvisorBudget leaves time for the merge, recheck and push before
+// the repair broker's ten-minute tool deadline. Tests may shorten it.
+var doctorSyncAdvisorBudget = 9 * time.Minute
 
 // DoctorSyncOptions binds branch synchronization to the approved immutable heads.
 // RecordBackup must durably retain the head before returning success.
@@ -46,7 +51,9 @@ func SyncDoctorBranch(ctx context.Context, o DoctorSyncOptions) (result DoctorSy
 			return result, errors.New("conflict advisor unavailable")
 		}
 		req := agent.ConflictResolutionRequest{Branch: o.Branch, Base: o.Base, LocalSHA: o.BeforeHead, TargetSHA: o.BaseHead, TaskInputSHA: o.BeforeHead, BaseInputSHA: o.BaseHead, Files: conflictAdvisorFiles(snapshots)}
-		resolution, e := o.Advisor.ProposeConflictResolution(ctx, req)
+		advisorCtx, cancel := context.WithTimeout(ctx, doctorSyncAdvisorBudget)
+		resolution, e := o.Advisor.ProposeConflictResolution(advisorCtx, req)
+		cancel()
 		if e != nil {
 			return result, e
 		}
@@ -128,7 +135,8 @@ func checkDoctorSyncInputs(ctx context.Context, o DoctorSyncOptions) error {
 
 // applyDoctorSync reacquires once after advisory work and revalidates every
 // input before the first write. Commit, push, recheck and rollback stay inside
-// this acquisition. Git owns per-command deadlines, including rollback.
+// this acquisition. Git owns per-command deadlines, including rollback, which
+// never runs after a successful push.
 func applyDoctorSync(ctx context.Context, o DoctorSyncOptions, preview git.MergePreview, files []git.ResolvedFile, result DoctorSyncResult) (out DoctorSyncResult, err error) {
 	release, err := o.CloneGate.Acquire(ctx, o.CloneRoot)
 	if err != nil {
@@ -139,8 +147,10 @@ func applyDoctorSync(ctx context.Context, o DoctorSyncOptions, preview git.Merge
 		return result, err
 	}
 	w := o.Worktree
+	pushed := false
 	defer func() {
-		if err != nil {
+		// Once origin accepted the push, the local branch must keep that head.
+		if err != nil && !pushed {
 			err = errors.Join(err, w.ResetHard(context.WithoutCancel(ctx), o.BeforeHead))
 		}
 	}()
@@ -172,9 +182,12 @@ func applyDoctorSync(ctx context.Context, o DoctorSyncOptions, preview git.Merge
 	if err != nil {
 		return result, err
 	}
-	if err = w.Push(ctx, git.DefaultRemote); err != nil {
+	// Git's per-command timeout bounds the push; a request deadline must not
+	// cut it short after the remote may have accepted it.
+	if err = w.Push(context.WithoutCancel(ctx), git.DefaultRemote); err != nil {
 		return result, err
 	}
+	pushed = true
 	result.Rechecked = true
 	return result, nil
 }

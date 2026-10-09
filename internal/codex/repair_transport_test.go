@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/submission"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +51,11 @@ printf '%s\n' '{"type":"thread.started","thread_id":"repair-thread"}' '{"type":"
 		if !strings.Contains(joined, want) {
 			t.Errorf("repair launch lacks %s: %s", want, joined)
 		}
+	}
+	// The conflict advisor runs inside one sync_branch call: Codex must wait
+	// longer than the repair broker does.
+	if !strings.Contains(joined, "-c mcp_servers.litefactory.tool_timeout_sec=630") || 630*time.Second <= submission.RepairToolTimeout {
+		t.Errorf("repair launch lacks a tool timeout above the broker's: %s", joined)
 	}
 	if _, err := runner.runDoctorTransport(t.Context(), request.Invocation); err == nil {
 		t.Fatal("repair request launched through diagnosis path")

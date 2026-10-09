@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
@@ -77,16 +78,13 @@ func (f *FactoryDoctorRepairEffects) Execute(ctx context.Context, target naming.
 		if e != nil {
 			return step, e
 		}
-		completed, e := f.DB.FinishDoctorBranchSync(ctx, op.ID, step.Number, result.Head)
+		// Origin already holds result.Head: record it on a short detached
+		// context and never reset the local branch away from the remote.
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		completed, e := f.DB.FinishDoctorBranchSync(finishCtx, op.ID, step.Number, result.Head)
 		if e != nil {
-			recoveryCtx := context.WithoutCancel(ctx)
-			release, gateErr := f.CloneGate.Acquire(recoveryCtx, options.CloneRoot)
-			if gateErr != nil {
-				return step, errors.Join(e, gateErr)
-			}
-			rollbackErr := options.Worktree.ResetHard(recoveryCtx, result.BackupHead)
-			release()
-			return step, errors.Join(e, rollbackErr)
+			return step, e
 		}
 		return completed, nil
 	default:
