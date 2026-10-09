@@ -11,12 +11,13 @@ import (
 
 // bugRolePermissions captures operator configuration once. Neither an issue
 // label nor the mode profile map can substitute authority for a missing role.
+// The Validate repair agent's validate-repair grant is resolved the same way.
 func bugRolePermissions(profiles map[string]config.ToolProfile, ceiling []string) func(agent.Kind, string) (turn.BugRolePermissions, error) {
 	profiles = cloneToolProfiles(profiles)
 	ceiling = slices.Clone(ceiling)
 	return func(kind agent.Kind, role string) (turn.BugRolePermissions, error) {
 		var out turn.BugRolePermissions
-		if role != "bug-analyst" && role != "bug-fixer" {
+		if role != "bug-analyst" && role != "bug-fixer" && role != config.ValidateRepairProfile {
 			return out, fmt.Errorf("unknown Bug role %q", role)
 		}
 		profile, ok := profiles[role]
@@ -26,7 +27,7 @@ func bugRolePermissions(profiles map[string]config.ToolProfile, ceiling []string
 		switch kind {
 		case agent.Kind(config.KindCodex):
 			want := "read-only"
-			if role == "bug-fixer" {
+			if role == "bug-fixer" || role == config.ValidateRepairProfile {
 				want = "workspace-write"
 			}
 			if profile.Codex.Sandbox != want {

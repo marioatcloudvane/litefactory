@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -92,5 +93,44 @@ func TestBugRuntimePermissionsRejectWidening(t *testing.T) {
 				t.Fatal("unsafe role grant admitted")
 			}
 		})
+	}
+}
+
+// The Validate repair agent's grant is resolved like the Bug fixer's: explicit,
+// contained workspace-write on Codex, the fixer surface on Claude, and never
+// borrowed from the read-only validate mode profile.
+func TestValidateRepairPermissionsExplicitAndBounded(t *testing.T) {
+	ceiling := []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash"}
+	modeOnly := map[string]config.ToolProfile{"validate": {Codex: &config.ToolProfileCodex{Sandbox: "read-only"}, Claude: &config.ToolProfileClaude{Tools: []string{"Read", "Glob", "Grep", "Task"}}}}
+	for _, kind := range []agent.Kind{agent.Kind(config.KindCodex), agent.Kind(config.KindClaude)} {
+		if _, err := bugRolePermissions(modeOnly, ceiling)(kind, config.ValidateRepairProfile); err == nil || !strings.Contains(err.Error(), "missing explicit validate-repair") {
+			t.Fatalf("%s: missing validate-repair borrowed mode authority: %v", kind, err)
+		}
+	}
+	profiles := map[string]config.ToolProfile{config.ValidateRepairProfile: {
+		Codex:  &config.ToolProfileCodex{Sandbox: "workspace-write"},
+		Claude: &config.ToolProfileClaude{Tools: []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash"}, AllowedTools: []string{"Read", "Bash(go test:*)"}},
+	}}
+	resolve := bugRolePermissions(profiles, ceiling)
+	if p, err := resolve(agent.Kind(config.KindCodex), config.ValidateRepairProfile); err != nil || p.Sandbox != "workspace-write" {
+		t.Fatalf("Codex validate-repair: %+v %v", p, err)
+	}
+	if p, err := resolve(agent.Kind(config.KindClaude), config.ValidateRepairProfile); err != nil || strings.Join(p.Tools, ",") != "Read,Glob,Grep,Edit,Write,Bash" {
+		t.Fatalf("Claude validate-repair: %+v %v", p, err)
+	}
+	for _, profile := range []config.ToolProfile{
+		{Codex: &config.ToolProfileCodex{Sandbox: "read-only"}},
+		{Codex: &config.ToolProfileCodex{Sandbox: "danger-full-access"}},
+		{Codex: &config.ToolProfileCodex{Sandbox: "workspace-write"}, Attachments: true},
+	} {
+		if _, err := bugRolePermissions(map[string]config.ToolProfile{config.ValidateRepairProfile: profile}, ceiling)(agent.Kind(config.KindCodex), config.ValidateRepairProfile); err == nil {
+			t.Fatalf("unsafe Codex validate-repair grant admitted: %+v", profile.Codex)
+		}
+	}
+	for _, tools := range [][]string{{"Read", "NotebookEdit"}, {"Read", "Edit", "Task"}} {
+		p := map[string]config.ToolProfile{config.ValidateRepairProfile: {Claude: &config.ToolProfileClaude{Tools: tools}}}
+		if _, err := bugRolePermissions(p, ceiling)(agent.Kind(config.KindClaude), config.ValidateRepairProfile); err == nil {
+			t.Fatalf("Claude validate-repair tools %v outside the role surface or ceiling admitted", tools)
+		}
 	}
 }

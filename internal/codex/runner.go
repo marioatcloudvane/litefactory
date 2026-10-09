@@ -264,7 +264,13 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	if req.Workflow == agent.WorkflowBug && req.Permissions.Profile == "bug-fixer" && sandbox != "workspace-write" {
 		return nil, fmt.Errorf("%w: Bug fixer requires contained workspace-write sandbox", agent.ErrInvalidRequest)
 	}
-	if (req.Mode == "validate" || (req.Workflow == agent.WorkflowBug && req.Permissions.Profile != "bug-fixer")) && sandbox != "read-only" {
+	// Only the Validate repair agent writes, through its own validate-repair
+	// grant; every other Validate run stays read-only.
+	validateRepair := req.Mode == "validate" && req.Workflow != agent.WorkflowBug && req.Permissions.Profile == config.ValidateRepairProfile
+	if validateRepair && sandbox != "workspace-write" {
+		return nil, fmt.Errorf("%w: Validate repair requires contained workspace-write sandbox", agent.ErrInvalidRequest)
+	}
+	if ((req.Mode == "validate" && !validateRepair) || (req.Workflow == agent.WorkflowBug && req.Permissions.Profile != "bug-fixer")) && sandbox != "read-only" {
 		return nil, fmt.Errorf("%w: Validate requires read-only sandbox", agent.ErrInvalidRequest)
 	}
 	if sandbox != "read-only" && sandbox != "workspace-write" {
