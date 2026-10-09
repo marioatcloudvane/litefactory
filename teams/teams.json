@@ -4,12 +4,12 @@
     {
       "name": "Go development",
       "slug": "go-development",
-      "version": "1.1.1",
+      "version": "1.2.0",
       "description": "Go development team: workflows, retained specialist guidance and scoped litefactory rules for Go repositories.",
       "tags": [
         "go"
       ],
-      "download": "go-development/v1.1.1",
+      "download": "go-development/v1.2.0",
       "files": [
         {
           "path": "GENERATED.md",
@@ -725,10 +725,10 @@
         },
         {
           "path": "validate/validate.dot",
-          "sha256": "7ee97b43eb84431c5c527da08a4b08d525a0d9f963061ba2551ec722904644d6"
+          "sha256": "25249ffd852e5e18ddcda88da68058d489cbfc140048518bff4b51ea4334b82d"
         }
       ],
-      "checksum": "2077d6484ec66d279d25416f062a9d8399238c0d4628d8423d1892003e754583"
+      "checksum": "7c090ffa31d3ea139acc7ce716846bf9f6b8e3e8aba16f6cae47504ca8525264"
     }
   ]
 }
