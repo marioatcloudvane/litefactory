@@ -14,6 +14,7 @@ Shape the owner-selected bounded cleanup into a buildable, behavior-preserving s
 - **d6** — Exclude the dependency-related Plan review notice defect from cleanup because it changes behavior and needs its own reproduction and acceptance rules.
 - **d7** — Keep the parent retirement gate open after bounded cleanup until cohort, pending-effect, authentic five-mode provider, recovery, permission, result and rollback evidence is established.
 - **d8** — Use the retained candidate findings as the bounded removal list rather than treating every legacy-looking package as removable.
+- **d9** — Order the cleanup: zero-caller items first, thin wrappers next, test-coupled items last. Run the full suite before and after, add a compiler/static-analysis dead-code pass and a string search of docs and team resources, and retain test-only fixtures such as ApplyPlanStoryDraft unless a replacement keeps equal assertions.
 
 
 ## Assumptions

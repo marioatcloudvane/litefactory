@@ -207,3 +207,21 @@ Evidence:
 - `internal/config/config.go:822`
 - `internal/store/runs.go:1`
 - `internal/cli/cmd_story_contract.go:24`
+
+## f18
+
+Re-check by name search across internal and cmd: RegisterResearchComment has zero callers including tests. RegisterResearchAgent and RegisterResearchControl have one test caller each. ReportResearchCandidate and RecoverResearchComment have about 12 test references and no production caller. claimResearchReply has 7 test references. validateConflictResolution has 8. renderImplementHandoff has 5. ApplyPlanStoryDraft appears in 7 test files. PendingPlanStoryCandidates is absent. The earlier candidate list is confirmed, but cleanup cost is mostly test rewriting.
+
+Evidence:
+
+- `internal/turn/research_comments.go:52`
+- `internal/turn/research_agent.go:68`
+- `internal/turn/research_control.go:27`
+- `internal/store/plan_story.go:157`
+- `internal/turn/conflict.go:218`
+
+## f19
+
+Gaps in the earlier review: it was name-based only, with no build, vet or test run, no check of string-registered action names, reflection, docs or team resources, and no executed evidence for legacy Plan, unmanaged Implement/Validate or pending-effect paths. The no-production-caller claims are therefore observed by search and not compiler-proven.
+
+_No source reference was recorded for this finding._
