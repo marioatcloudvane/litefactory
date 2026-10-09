@@ -100,6 +100,25 @@ fi
 # Stage next to the target so the final mv is a same-filesystem rename.
 cp "$BUILT" "$BIN.new"
 
+# ---- Wait for graph launches ------------------------------------------------
+# A stop during a worker launch leaves its node attempt open. Wait until no
+# attempt of a running graph instance is pending or running. Attempts of
+# finished instances are orphans that startup recovery closes; they do not
+# block. The wait narrows the window, it cannot close it.
+GRAPH_WAIT="${LF_DEPLOY_GRAPH_WAIT:-300}"
+open_attempts() {
+	sqlite3 -cmd ".timeout 5000" "$DB" "SELECT COUNT(*) FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id WHERE a.status IN ('pending','running') AND i.status='running';"
+}
+waited=0
+while :; do
+	open="$(open_attempts)" || die "cannot read open graph attempts from $DB; $BIN.new is staged, nothing replaced"
+	[ "$open" = 0 ] && break
+	[ "$waited" -ge "$GRAPH_WAIT" ] && die "$open graph node attempt(s) still open after ${GRAPH_WAIT}s; $BIN.new is staged, nothing replaced"
+	[ "$waited" = 0 ] && say "waiting for $open open graph node attempt(s) to finish (up to ${GRAPH_WAIT}s)"
+	sleep 1
+	waited=$((waited + 1))
+done
+
 # ---- Stop -----------------------------------------------------------------
 OLD_PID="$(daemon_pid)"
 say "stopping the daemon${OLD_PID:+ (pid $OLD_PID)}"

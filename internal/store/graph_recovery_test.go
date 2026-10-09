@@ -293,3 +293,54 @@ func TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim(t *testing.T) {
 		})
 	}
 }
+
+// A restart during a worker launch can leave an attempt open on an instance
+// that already failed. Startup recovery cancels it with a reason; an attempt of
+// a still-running instance keeps failing itself and its instance.
+func TestReconcileWorkflowGraphsCancelsAttemptsOfFinishedInstances(t *testing.T) {
+	db := newTestDB(t)
+	def, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), CreatedAt: graphTestTime()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := func(issue int) (GraphInstance, GraphNodeAttempt) {
+		session := testSession(t, db, issue)
+		instance, err := db.CreateGraphInstance(t.Context(), GraphInstance{SessionID: session.ID, DefinitionID: def.ID, CurrentNode: "budget", StartedAt: graphTestTime()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return instance, graphTestAttempt(t, db, instance, 3)
+	}
+	failed, orphan := open(587)
+	if err = db.SetGraphInstanceStatus(t.Context(), failed.ID, GraphFailed, time.Time{}, graphTestTime()); err != nil {
+		t.Fatal(err)
+	}
+	running, interrupted := open(588)
+	at := graphTestTime().Add(time.Hour)
+	count, err := db.ReconcileWorkflowGraphs(t.Context(), "implement", at)
+	if err != nil || count != 2 {
+		t.Fatalf("reconciled %d: %v", count, err)
+	}
+	for _, c := range []struct {
+		attempt               GraphNodeAttempt
+		instance              int64
+		attemptWant, instWant string
+	}{{orphan, failed.ID, GraphCancelled, GraphFailed}, {interrupted, running.ID, GraphFailed, GraphFailed}} {
+		got, err := db.GetGraphNodeAttempt(t.Context(), c.attempt.ID)
+		if err != nil || got.Status != c.attemptWant || got.FinishedAt.IsZero() {
+			t.Fatalf("attempt %d: %+v %v, want %s", c.attempt.ID, got, err, c.attemptWant)
+		}
+		outputs, err := db.ListGraphOutputs(t.Context(), c.attempt.ID)
+		if err != nil || len(outputs) != 1 || outputs[0].Kind != "diagnostic" || len(outputs[0].Payload) == 0 {
+			t.Fatalf("attempt %d lacks its reason: %+v %v", c.attempt.ID, outputs, err)
+		}
+		instance, err := db.GetGraphInstance(t.Context(), c.instance)
+		if err != nil || instance.Status != c.instWant {
+			t.Fatalf("instance %d: %+v %v", c.instance, instance, err)
+		}
+	}
+	var left int
+	if err = db.sql.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM graph_node_attempts WHERE status IN ('pending','running')`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("%d attempts still open: %v", left, err)
+	}
+}
