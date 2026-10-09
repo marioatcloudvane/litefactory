@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"slices"
@@ -197,9 +199,8 @@ func TestCommandHelpShowsOnlyItsOwnFlags(t *testing.T) {
 // would fail with a usage error instead of reaching the handler.
 //
 // The assertion is the absence of a UsageError, not the presence of one
-// particular error. It used to be errors.Is(err, ErrNotImplemented), which
-// held only while logs was a stub — that was the stub's behaviour, not the
-// parser's contract, and LF-5 replacing the stub is not a regression. What
+// particular error. A sentinel check held only while logs was a stub — that
+// was the stub's behaviour, not the parser's contract. What
 // the handler goes on to do belongs to LF-5's own tests; that the flag value
 // really arrives as 2 is covered end to end by
 // TestLogsRunFlagSelectsTheRunAfterThePositional.
@@ -279,7 +280,7 @@ func TestRouterReportsAnUnimplementedCommand(t *testing.T) {
 		Name:  "frobnicate",
 		Usage: "frobnicate",
 		Short: "Not built yet",
-		New:   func(*flag.FlagSet) Handler { return notImplemented("frobnicate") },
+		New:   func(*flag.FlagSet) Handler { return failingHandler("frobnicate") },
 	}
 
 	code := NewRouter("litefactory", env, []*Command{cmd}).Run(t.Context(), []string{"frobnicate"})
@@ -301,7 +302,7 @@ func TestRouterLookupPrefersTheLongestName(t *testing.T) {
 			Name:  name,
 			Usage: name,
 			Short: name,
-			New:   func(*flag.FlagSet) Handler { return notImplemented(name) },
+			New:   func(*flag.FlagSet) Handler { return failingHandler(name) },
 		}
 	}
 	env := &Env{Stdout: io.Discard, Stderr: io.Discard, Logger: slog.New(slog.DiscardHandler)}
@@ -326,5 +327,13 @@ func TestRouterLookupPrefersTheLongestName(t *testing.T) {
 		if !slices.Equal(rest, tc.wantRest) {
 			t.Errorf("lookup(%q) rest = %q, want %q", tc.args, rest, tc.wantRest)
 		}
+	}
+}
+
+// failingHandler returns a handler that always fails with a plain error naming
+// the command, for tests of the router's failure path.
+func failingHandler(name string) Handler {
+	return func(context.Context, *Env, []string) error {
+		return fmt.Errorf("%s: not implemented yet", name)
 	}
 }

@@ -39,7 +39,7 @@ func TestImplementStatusActivityIsCurrentAndAdvisory(t *testing.T) {
 		store.ImplementProgressReport{ID: 102, Parent: implementParent.String(), Generation: 1, StoryKey: "story-001", StoryAttempts: 1, Kind: "implementation", Message: "newest activity", RecordedAt: implementClock.Add(2 * time.Minute)},
 	)
 	body, counts := renderImplementHandoffProgress(f.auth, rows, progress)
-	_, without := renderImplementHandoff(f.auth, rows)
+	_, without := renderImplementHandoffProgress(f.auth, rows, nil)
 	if counts != without || counts != (implementHandoffCounts{1, 1, 3}) {
 		t.Fatalf("activity changed counts: %+v %+v", counts, without)
 	}
@@ -220,12 +220,12 @@ func TestImplementStatusAlreadyComplete(t *testing.T) {
 	f := newImplementFixture(t, implementStories(2, nil)...)
 	f.auth.Stories[0].AlreadyComplete = true
 	f.auth.Stories[1].Dependencies = []string{"story-001"}
-	body, counts := renderImplementHandoff(f.auth, nil)
+	body, counts := renderImplementHandoffProgress(f.auth, nil, nil)
 	if counts.merged != 1 || counts.waiting != 1 || !strings.Contains(html.UnescapeString(body), "already complete before this run.") || strings.Contains(html.UnescapeString(body), "unknown story") {
 		t.Fatal(body)
 	}
 	// A ledger row remains authoritative even if the approved revision is complete.
-	body, counts = renderImplementHandoff(f.auth, []store.ImplementStory{{Key: "story-001", State: store.ImplementRunning}})
+	body, counts = renderImplementHandoffProgress(f.auth, []store.ImplementStory{{Key: "story-001", State: store.ImplementRunning}}, nil)
 	if counts.merged != 0 || !strings.Contains(html.UnescapeString(body), "being built now.") {
 		t.Fatal(body)
 	}
@@ -463,7 +463,7 @@ func TestImplementStatusProductionBindingIncludesApprovedWithoutScheduling(t *te
 	if len(rows) != 0 {
 		t.Fatal("status binding created ledger rows")
 	}
-	body, _ := renderImplementHandoff(auth, rows)
+	body, _ := renderImplementHandoffProgress(auth, rows, nil)
 	if !strings.Contains(html.UnescapeString(body), "story-001") || !strings.Contains(html.UnescapeString(body), "story-002") {
 		t.Fatal(body)
 	}

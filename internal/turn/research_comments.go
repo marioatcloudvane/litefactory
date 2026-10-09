@@ -24,12 +24,10 @@ const ResearchCommentAction = "lf_comment"
 // AskAction names the shared publication mechanism that opens a durable owner wait.
 const AskAction = "lf_ask"
 
-// ResearchCommentActivity publishes only explicit graph comments. Failure, when
+// CommentActivity publishes only explicit graph comments. Failure, when
 // configured, supplies an already-authored application candidate for a failed
 // attempt; it must not invoke an agent or change the original process outcome.
-type ResearchCommentActivity = CommentActivity
-
-// CommentActivity retains and delivers candidates under an admitted mode contract.
+// It retains and delivers candidates under an admitted mode contract.
 type CommentActivity struct {
 	Policy   WorkflowPolicy
 	Profile  *graphexec.Profile
@@ -46,12 +44,6 @@ func ResearchCommentSpec() graphexec.ActionSpec {
 // ResearchAskSpec declares Research question and review publication kinds.
 func ResearchAskSpec() graphexec.ActionSpec {
 	return graphexec.ActionSpec{Name: AskAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}}}
-}
-
-// RegisterResearchComment installs the validated specification and its publication handler.
-func RegisterResearchComment(specs *graphexec.Registry, activities *ActivityRegistry, h ResearchCommentActivity) error {
-	h.Policy = ResearchWorkflowPolicy()
-	return RegisterComment(specs, activities, h)
 }
 
 // RegisterComment installs shared report and owner-wait activities for the admitted policy.
@@ -142,13 +134,6 @@ func (h CommentActivity) Execute(ctx context.Context, opts Options, req Activity
 	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: payload}, nil
 }
 
-// ReportResearchCandidate retains exact authored bytes before rendering. The
-// content digest is part of the operation identity: corrections cannot overwrite
-// or replay an earlier uncertain effect. No run finalization or git save occurs.
-func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.GraphNodeAttempt, node, kind string, candidate agentresult.Result, scope agentresult.Context, next string) (Posted, string, error) {
-	return r.ReportWorkflowCandidate(ctx, source, node, kind, candidate, scope, next, ResearchWorkflowPolicy())
-}
-
 func validateResearchComment(source store.GraphNodeAttempt, kind string, candidate agentresult.Result, scope agentresult.Context) error {
 	d := agentresult.ValidateResult(candidate, scope)
 	if !d.Valid || !d.Complete {
@@ -157,7 +142,9 @@ func validateResearchComment(source store.GraphNodeAttempt, kind string, candida
 	return nil
 }
 
-// ReportWorkflowCandidate retains and delivers an exact candidate under the admitted contract.
+// ReportWorkflowCandidate retains exact authored bytes before rendering and delivers them under the admitted contract. The
+// content digest is part of the operation identity: corrections cannot overwrite
+// or replay an earlier uncertain effect. No run finalization or git save occurs.
 func (r *Reporter) ReportWorkflowCandidate(ctx context.Context, source store.GraphNodeAttempt, node, kind string, candidate agentresult.Result, scope agentresult.Context, next string, policy WorkflowPolicy) (Posted, string, error) {
 	if scope.Mode != string(policy.Mode) || policy.Contract == nil || policy.Render == nil {
 		return Posted{}, "", errors.New("comment policy differs from admitted mode")
@@ -216,13 +203,8 @@ func (r *Reporter) ReportWorkflowCandidate(ctx context.Context, source store.Gra
 	return posted, intent.Key, err
 }
 
-// RecoverResearchComment retries only the original durable publication. It does
+// RecoverWorkflowComment retries only the original durable publication. It does
 // not reserve a graph attempt, invoke a process, save artifacts or alter outcomes.
-func (r *Reporter) RecoverResearchComment(ctx context.Context, key string, scope agentresult.Context) (Posted, error) {
-	return r.RecoverWorkflowComment(ctx, key, scope, ResearchWorkflowPolicy())
-}
-
-// RecoverWorkflowComment reconciles a retained delivery without invoking a worker.
 func (r *Reporter) RecoverWorkflowComment(ctx context.Context, key string, scope agentresult.Context, policy WorkflowPolicy) (Posted, error) {
 	intent, err := r.db.GetGraphComment(ctx, key)
 	if err != nil {
