@@ -48,16 +48,24 @@ type ownerForge struct {
 	createIssueLostReply                           bool
 	createIssueErr                                 error
 	mergeNoEffect                                  bool
+
+	// storyIssues holds the story sub-issues by number; commentIssue records
+	// the issue each comment was posted on.
+	storyIssues  map[int]github.Issue
+	commentIssue map[int64]int
+	updateErr    error
+	updates      int
 }
 
 func newOwnerForge() *ownerForge {
-	return &ownerForge{nextID: 9000, issueStates: map[int]string{}}
+	return &ownerForge{nextID: 9000, issueStates: map[int]string{}, storyIssues: map[int]github.Issue{}, commentIssue: map[int64]int{}}
 }
 
-func (f *ownerForge) PostComment(_ context.Context, _ github.Repo, _ int, body redact.Body) (github.Comment, error) {
+func (f *ownerForge) PostComment(_ context.Context, _ github.Repo, issue int, body redact.Body) (github.Comment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
+	f.commentIssue[f.nextID] = issue
 	c := github.Comment{ID: f.nextID, Body: body.String(), Author: github.User{ID: ownerBotID}, HTMLURL: fmt.Sprintf("https://example.invalid/c/%d", f.nextID)}
 	f.comments = append(f.comments, c)
 	return c, nil
@@ -181,7 +189,42 @@ func (f *ownerForge) MergeDeliveryPR(_ context.Context, _ github.Repo, n int, he
 func (f *ownerForge) BaseURL() string { return "https://example.invalid" }
 
 func (f *ownerForge) GetIssue(_ context.Context, _ github.Repo, n int) (github.Issue, error) {
-	return github.Issue{Number: n, State: f.issueStates[n]}, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	issue, ok := f.storyIssues[n]
+	if !ok {
+		issue = github.Issue{Number: n}
+	}
+	issue.State = f.issueStates[n]
+	return issue, nil
+}
+
+func (f *ownerForge) UpdateIssue(_ context.Context, _ github.Repo, n int, title, body redact.Body) (github.Issue, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.updateErr != nil {
+		err := f.updateErr
+		f.updateErr = nil
+		return github.Issue{}, err
+	}
+	issue := f.storyIssues[n]
+	issue.Number, issue.Title, issue.Body = n, title.String(), body.String()
+	f.storyIssues[n] = issue
+	f.updates++
+	return issue, nil
+}
+
+// commentsOn returns the comments posted on one issue.
+func (f *ownerForge) commentsOn(issue int) []github.Comment {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []github.Comment
+	for _, c := range f.comments {
+		if f.commentIssue[c.ID] == issue {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func (f *ownerForge) CloseDeliveredParent(_ context.Context, _ github.Repo, n int, _ int64) error {
