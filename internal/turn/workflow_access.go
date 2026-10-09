@@ -94,7 +94,12 @@ func applyWriteAccess(node graphexec.Node, req Request) (Request, error) {
 		}
 		req.CodexSandbox = "workspace-write"
 	case agent.Kind(store.AgentClaude):
-		fixer := config.BugRoleClaudeTools(config.SpikeFixerProfile)
+		// A dedicated role grant (validate-repair) bounds the node by its own
+		// role surface; otherwise the Spike fixer's surface applies.
+		fixer := config.BugRoleClaudeTools(req.ToolProfile)
+		if fixer == nil {
+			fixer = config.BugRoleClaudeTools(config.SpikeFixerProfile)
+		}
 		tools := slices.Clone(fixer)
 		if len(req.Tools) > 0 {
 			tools = tools[:0]

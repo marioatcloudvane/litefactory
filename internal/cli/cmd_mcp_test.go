@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"log/slog"
 	"os"
@@ -181,13 +182,13 @@ func (p *mcpCLIProcess) join(t *testing.T) {
 	t.Helper()
 	select {
 	case <-p.done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("CLI and stdio workers failed to join")
 	}
 }
 func (p *mcpCLIProcess) send(t *testing.T, s string) {
 	t.Helper()
-	if err := p.input.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := p.input.SetWriteDeadline(time.Now().Add(testutil.Wait)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := io.WriteString(p.input, s+"\n"); err != nil {
@@ -196,7 +197,7 @@ func (p *mcpCLIProcess) send(t *testing.T, s string) {
 }
 func (p *mcpCLIProcess) read(t *testing.T) mcpCLIResponse {
 	t.Helper()
-	if err := p.output.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := p.output.SetReadDeadline(time.Now().Add(testutil.Wait)); err != nil {
 		t.Fatal(err)
 	}
 	data, err := p.reader.ReadBytes('\n')
@@ -333,7 +334,7 @@ func TestMCPCLI_CancellationReachesSharedService(t *testing.T) {
 			p.send(t, `{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"communication_preflight","arguments":{"result":{"outcome":"incomplete","reason":"Pending","comment":"Work","payload":{"research":{"request":"Inspect"}}}}}}`)
 			select {
 			case <-f.started:
-			case <-time.After(5 * time.Second):
+			case <-time.After(testutil.Wait):
 				t.Fatal("shared service was not reached through socket")
 			}
 			if method == "notification" {
@@ -347,7 +348,7 @@ func TestMCPCLI_CancellationReachesSharedService(t *testing.T) {
 			}
 			select {
 			case <-f.joined:
-			case <-time.After(5 * time.Second):
+			case <-time.After(testutil.Wait):
 				t.Fatal("cancellation failed to reach broker/service context")
 			}
 			revisions, err := f.db.ResultRevisionNumbers(t.Context(), f.service.Binding())

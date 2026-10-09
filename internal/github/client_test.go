@@ -3,6 +3,7 @@ package github_test
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -675,7 +676,7 @@ func TestContextCancellationStopsARequest(t *testing.T) {
 	}
 	select {
 	case <-released:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Error("the server never saw the request cancelled")
 	}
 }

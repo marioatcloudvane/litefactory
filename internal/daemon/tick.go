@@ -395,9 +395,8 @@ func (d *Daemon) repoWindow(ctx context.Context, repo store.Repo) (since, previo
 }
 
 // owePendingListings marks every due repository as owed a listing. A tick that
-// is skipped (rate-limit backoff) never reaches discover, and without the flag
-// a webhook arriving meanwhile would restart the countdown of a listing that was
-// already late.
+// is skipped (rate-limit backoff) never reaches discover; the flag records the
+// outstanding listing until it finishes.
 func (d *Daemon) owePendingListings(ctx context.Context, now time.Time) {
 	repos, err := d.db.ListRepos(ctx)
 	if err != nil {
@@ -576,6 +575,9 @@ func (d *Daemon) discover(
 		return nil, err
 	}
 	if err := d.managedParents(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
+	if err := d.graphOwnerWaits(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
 	if err := d.backlog(ctx, byRepo, seen); err != nil {
@@ -954,6 +956,9 @@ type task struct {
 	// The story is a graph Plan story issue too, so without it the issue would
 	// run Plan, whatever its labels say.
 	implementing bool
+	// validating marks a graph step of a Validate instance. The issue still
+	// carries its Implement label, so without it the step would run Implement.
+	validating bool
 	// hinted is set when a webhook named this task's issue. Its comment
 	// listing then takes the operational lane, so an owner's comment does not
 	// wait behind background discovery.
@@ -1298,11 +1303,12 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		issue = fetched
 	}
 	if issue.State == "closed" {
-		if err := d.db.CancelResearchGraphs(ctx, c.session.ID, "issue closed", tickAt); err != nil {
+		cleared, err := d.cancelClosedIssueGraphs(ctx, c.session.ID, tickAt)
+		if err != nil {
 			return nil, fmt.Errorf("clear graph execution before retiring closed %s#%d backlog: %w", c.forgeRepo, c.session.IssueNumber, err)
 		}
-		if err := d.db.CancelWorkflowGraphs(ctx, c.session.ID, "spike", "issue closed", tickAt); err != nil {
-			return nil, fmt.Errorf("clear spike graph execution before retiring closed %s#%d backlog: %w", c.forgeRepo, c.session.IssueNumber, err)
+		if !cleared {
+			return nil, nil
 		}
 		if err := d.db.ClearSessionNeedsPoll(ctx, c.session.ID); err != nil {
 			return nil, fmt.Errorf("retire polling backlog for closed %s#%d: %w",

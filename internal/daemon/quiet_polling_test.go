@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -37,7 +38,7 @@ func TestQuietPollingAC5SummaryAliases(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer func() {
 		cancel()
-		join, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		join, stop := context.WithTimeout(context.Background(), testutil.Wait)
 		defer stop()
 		_ = f.daemon.Quiesce(join)
 	}()
@@ -53,7 +54,7 @@ func TestQuietPollingAC5SummaryAliases(t *testing.T) {
 	}
 	select {
 	case <-started:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("worker did not start")
 	}
 	if result.Dispatched != 1 || result.InFlight != 1 || result.Issues != 1 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"io/fs"
 	"net/http"
@@ -206,7 +207,7 @@ func TestCallerDeadlineAndCancellationReachFetch(t *testing.T) {
 		if !deadline.Equal(callerDeadline) {
 			t.Errorf("fetch deadline=%v want caller %v", deadline, callerDeadline)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("waiting for fetch to observe caller deadline")
 	}
 	cancel()
@@ -215,7 +216,7 @@ func TestCallerDeadlineAndCancellationReachFetch(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled fetch=%v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("waiting for cancelled fetch to return")
 	}
 }

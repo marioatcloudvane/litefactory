@@ -2,26 +2,30 @@
   "schema": 1,
   "releases": [
     {
-      "name": "Standard",
-      "slug": "standard",
-      "version": "1.0.0",
-      "description": "The built-in litefactory workflows, roles and skills, unchanged.",
+      "name": "Go development",
+      "slug": "go-development",
+      "version": "1.1.1",
+      "description": "Go development team: workflows, retained specialist guidance and scoped litefactory rules for Go repositories.",
       "tags": [
-        "standard"
+        "go"
       ],
-      "download": "standard/v1",
+      "download": "go-development/v1.1.1",
       "files": [
+        {
+          "path": "GENERATED.md",
+          "sha256": "e401551909f49808cf48cf7f79e28291c97313a5117f7b6525c79ecc28e6fbc8"
+        },
         {
           "path": "bug/bug-analyst.md",
           "sha256": "909823053a1c63dd1a0d4ae9fb036e913fbdb54187da19e053eb42264c066026"
         },
         {
           "path": "bug/bug-fixer.md",
-          "sha256": "a18ae74148009739b963a0201c5984f46ffa2fc6c00d522572b800953454c1fd"
+          "sha256": "3fc81396821bf1898527b2d1ec6d9a9134fb5aa636046c3a12e0028a2c55cd74"
         },
         {
           "path": "bug/bug.dot",
-          "sha256": "f1d4d23ae64a3504813df3141be475d1081b2d27b40c1c31cad17e9d1cd93982"
+          "sha256": "7fc0ed95a866bc359fc7af728d64d6b655765e0ae4a50b18756a1f17abb520ef"
         },
         {
           "path": "bug/skills/bug-analysis-result/SKILL.md",
@@ -33,15 +37,103 @@
         },
         {
           "path": "bug/skills/bug-repair-result/SKILL.md",
-          "sha256": "e8830035d5bab220d54d2ae30581964bc187619a0a9852ea505481ebfae93fab"
+          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
         },
         {
           "path": "bug/skills/bug-repair-result/result.md",
           "sha256": "3667e21870e11e1a4cf33990c34740e3e502405a05d84a33f09c771a98a1247d"
         },
         {
+          "path": "bug/skills/team-guidance/SKILL.md",
+          "sha256": "a9300bd9261269c8c2aa36ff5aefbd59f82070a9ce1c6edf699e09a4ef5acf21"
+        },
+        {
+          "path": "bug/skills/team-guidance/app-context-updater.md",
+          "sha256": "e68b529a4f945b9890482fc36efe56adf5e1786381e84b5aecf0a6494f3ffc14"
+        },
+        {
+          "path": "bug/skills/team-guidance/architecture-scanner.md",
+          "sha256": "9799f8e79187991d778193346c714767e19739e189e9b638a2cb0885e1523592"
+        },
+        {
+          "path": "bug/skills/team-guidance/asking.md",
+          "sha256": "700369ed3cbc1f18ef1be38bbc82e782a575567e265d543faf8a6ab440393c8d"
+        },
+        {
+          "path": "bug/skills/team-guidance/environment-safety.md",
+          "sha256": "15304ca865a1e611111686f8074ec47057d7510b4249239cd6655148ebc33f60"
+        },
+        {
+          "path": "bug/skills/team-guidance/go-architect.md",
+          "sha256": "737f1e140b77079700b9deb6c0be0802ed45cae2092e31b11454fbfc61beb1b5"
+        },
+        {
+          "path": "bug/skills/team-guidance/go-code-reviewer.md",
+          "sha256": "e284e06531de32b4dd82280ce510d55ae2b4687dbf50e5c9f4871304f255dc0b"
+        },
+        {
+          "path": "bug/skills/team-guidance/go-implementation-engineer.md",
+          "sha256": "3789013544a80a973ea6d1f8ccb0f57ed5f9602f60772c0386dc6a13b203caab"
+        },
+        {
+          "path": "bug/skills/team-guidance/go-integration-test-engineer.md",
+          "sha256": "ec1ad72d70d9d05f581187dcfc267bfda62cc24794a3005f63f2b48b658ad1fc"
+        },
+        {
+          "path": "bug/skills/team-guidance/go-unit-test-engineer.md",
+          "sha256": "03618bd03139592d187020d9e12da550fd06a1cde9e0898a9c77088e60d8a0fb"
+        },
+        {
+          "path": "bug/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "51e67a7685b7b377c3c0b1840febf52f940c342214ac5ff149dfedbf76ef03da"
+        },
+        {
+          "path": "bug/skills/team-guidance/litefactory.md",
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
+        },
+        {
+          "path": "bug/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "df809e33feefabd6db72812f8551b0079fd9547f3821a176a4ae3b045cee5f42"
+        },
+        {
+          "path": "bug/skills/team-guidance/platform-constraints.md",
+          "sha256": "5c70d95614326a3ba6d333cf62a4df107426299da190a7e59d90ea7b12bb7094"
+        },
+        {
+          "path": "bug/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "c1c607010b0e5dac964d22d98e538915557f6442b52f290cefcd0e93903e627b"
+        },
+        {
+          "path": "bug/skills/team-guidance/requirements-engineer.md",
+          "sha256": "022b5b758091ce67ca23bcd50b09e3f105f7edd27239dd5b20b6fd53671e5689"
+        },
+        {
+          "path": "bug/skills/team-guidance/review-evidence.md",
+          "sha256": "6ade8cdf6ecaadfd159cee625efe129cbe544733d51583352ac915676caad939"
+        },
+        {
+          "path": "bug/skills/team-guidance/security-scanner.md",
+          "sha256": "c186e5fee41eb8916cdc5c92c088900fb5bd499a50942a4a405e69511383ee5d"
+        },
+        {
+          "path": "bug/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "afe4b25b9c4ecd207e6f4e098b70e6d4ae33662b8208c6aea002fb15c02af5cd"
+        },
+        {
+          "path": "bug/skills/team-guidance/task-decomposer.md",
+          "sha256": "4f9861b32452aa25f0dff55137b191f9e1f7b1184178153429d36e106c200eff"
+        },
+        {
+          "path": "bug/skills/team-guidance/testing-scanner.md",
+          "sha256": "9f2c38e4c005e755fa14348580de1c8217a8814159468e6c1dd2b74d243d359e"
+        },
+        {
+          "path": "bug/skills/team-guidance/workflow.md",
+          "sha256": "1f25c404cb2aba5370c2584b933e4cf7783c3772e1b193936a51bd2088a318d7"
+        },
+        {
           "path": "implement/implement.dot",
-          "sha256": "88db5c458c60a15cc1886d4b3d059619bad9d27194d575252ccdd65c0c63925d"
+          "sha256": "14cfb09267791ce2618cde7821076d243776cc7304d13520917756e111314591"
         },
         {
           "path": "implement/skills/implement-result/SKILL.md",
@@ -52,8 +144,96 @@
           "sha256": "a126164c44621fa3c0a4696aee49de6a277bc43d9cbb732fff364cb2085a7c2f"
         },
         {
+          "path": "implement/skills/team-guidance/SKILL.md",
+          "sha256": "a9300bd9261269c8c2aa36ff5aefbd59f82070a9ce1c6edf699e09a4ef5acf21"
+        },
+        {
+          "path": "implement/skills/team-guidance/app-context-updater.md",
+          "sha256": "e68b529a4f945b9890482fc36efe56adf5e1786381e84b5aecf0a6494f3ffc14"
+        },
+        {
+          "path": "implement/skills/team-guidance/architecture-scanner.md",
+          "sha256": "9799f8e79187991d778193346c714767e19739e189e9b638a2cb0885e1523592"
+        },
+        {
+          "path": "implement/skills/team-guidance/asking.md",
+          "sha256": "700369ed3cbc1f18ef1be38bbc82e782a575567e265d543faf8a6ab440393c8d"
+        },
+        {
+          "path": "implement/skills/team-guidance/environment-safety.md",
+          "sha256": "15304ca865a1e611111686f8074ec47057d7510b4249239cd6655148ebc33f60"
+        },
+        {
+          "path": "implement/skills/team-guidance/go-architect.md",
+          "sha256": "737f1e140b77079700b9deb6c0be0802ed45cae2092e31b11454fbfc61beb1b5"
+        },
+        {
+          "path": "implement/skills/team-guidance/go-code-reviewer.md",
+          "sha256": "e284e06531de32b4dd82280ce510d55ae2b4687dbf50e5c9f4871304f255dc0b"
+        },
+        {
+          "path": "implement/skills/team-guidance/go-implementation-engineer.md",
+          "sha256": "3789013544a80a973ea6d1f8ccb0f57ed5f9602f60772c0386dc6a13b203caab"
+        },
+        {
+          "path": "implement/skills/team-guidance/go-integration-test-engineer.md",
+          "sha256": "ec1ad72d70d9d05f581187dcfc267bfda62cc24794a3005f63f2b48b658ad1fc"
+        },
+        {
+          "path": "implement/skills/team-guidance/go-unit-test-engineer.md",
+          "sha256": "03618bd03139592d187020d9e12da550fd06a1cde9e0898a9c77088e60d8a0fb"
+        },
+        {
+          "path": "implement/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "51e67a7685b7b377c3c0b1840febf52f940c342214ac5ff149dfedbf76ef03da"
+        },
+        {
+          "path": "implement/skills/team-guidance/litefactory.md",
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
+        },
+        {
+          "path": "implement/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "df809e33feefabd6db72812f8551b0079fd9547f3821a176a4ae3b045cee5f42"
+        },
+        {
+          "path": "implement/skills/team-guidance/platform-constraints.md",
+          "sha256": "5c70d95614326a3ba6d333cf62a4df107426299da190a7e59d90ea7b12bb7094"
+        },
+        {
+          "path": "implement/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "c1c607010b0e5dac964d22d98e538915557f6442b52f290cefcd0e93903e627b"
+        },
+        {
+          "path": "implement/skills/team-guidance/requirements-engineer.md",
+          "sha256": "022b5b758091ce67ca23bcd50b09e3f105f7edd27239dd5b20b6fd53671e5689"
+        },
+        {
+          "path": "implement/skills/team-guidance/review-evidence.md",
+          "sha256": "6ade8cdf6ecaadfd159cee625efe129cbe544733d51583352ac915676caad939"
+        },
+        {
+          "path": "implement/skills/team-guidance/security-scanner.md",
+          "sha256": "c186e5fee41eb8916cdc5c92c088900fb5bd499a50942a4a405e69511383ee5d"
+        },
+        {
+          "path": "implement/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "afe4b25b9c4ecd207e6f4e098b70e6d4ae33662b8208c6aea002fb15c02af5cd"
+        },
+        {
+          "path": "implement/skills/team-guidance/task-decomposer.md",
+          "sha256": "4f9861b32452aa25f0dff55137b191f9e1f7b1184178153429d36e106c200eff"
+        },
+        {
+          "path": "implement/skills/team-guidance/testing-scanner.md",
+          "sha256": "9f2c38e4c005e755fa14348580de1c8217a8814159468e6c1dd2b74d243d359e"
+        },
+        {
+          "path": "implement/skills/team-guidance/workflow.md",
+          "sha256": "1f25c404cb2aba5370c2584b933e4cf7783c3772e1b193936a51bd2088a318d7"
+        },
+        {
           "path": "implement/story-worker.md",
-          "sha256": "9e2acb7c65a64974cca757b8f94f05e434f481a7a7cdffe9ce41c9ea837cb975"
+          "sha256": "0e808bfb70010aecad881b438f1e0c5b78eba60628e9ab7db8b460cb535fcf77"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -73,7 +253,7 @@
         },
         {
           "path": "plan/plan.dot",
-          "sha256": "eab34ef355dba9b804e452d19b65bf7b22e42cafb65ce133477a0c339d975164"
+          "sha256": "90cf9ab1c20106c1bc1a43979672ef54e3ad7b3572605a36c8aebc908f73004f"
         },
         {
           "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
@@ -112,8 +292,96 @@
           "sha256": "a33128f2e9b360b868febf5ded8c422bcde6034ee0f918fd5abdaf01e7b322ee"
         },
         {
+          "path": "plan/skills/team-guidance/SKILL.md",
+          "sha256": "a9300bd9261269c8c2aa36ff5aefbd59f82070a9ce1c6edf699e09a4ef5acf21"
+        },
+        {
+          "path": "plan/skills/team-guidance/app-context-updater.md",
+          "sha256": "e68b529a4f945b9890482fc36efe56adf5e1786381e84b5aecf0a6494f3ffc14"
+        },
+        {
+          "path": "plan/skills/team-guidance/architecture-scanner.md",
+          "sha256": "9799f8e79187991d778193346c714767e19739e189e9b638a2cb0885e1523592"
+        },
+        {
+          "path": "plan/skills/team-guidance/asking.md",
+          "sha256": "700369ed3cbc1f18ef1be38bbc82e782a575567e265d543faf8a6ab440393c8d"
+        },
+        {
+          "path": "plan/skills/team-guidance/environment-safety.md",
+          "sha256": "15304ca865a1e611111686f8074ec47057d7510b4249239cd6655148ebc33f60"
+        },
+        {
+          "path": "plan/skills/team-guidance/go-architect.md",
+          "sha256": "737f1e140b77079700b9deb6c0be0802ed45cae2092e31b11454fbfc61beb1b5"
+        },
+        {
+          "path": "plan/skills/team-guidance/go-code-reviewer.md",
+          "sha256": "e284e06531de32b4dd82280ce510d55ae2b4687dbf50e5c9f4871304f255dc0b"
+        },
+        {
+          "path": "plan/skills/team-guidance/go-implementation-engineer.md",
+          "sha256": "3789013544a80a973ea6d1f8ccb0f57ed5f9602f60772c0386dc6a13b203caab"
+        },
+        {
+          "path": "plan/skills/team-guidance/go-integration-test-engineer.md",
+          "sha256": "ec1ad72d70d9d05f581187dcfc267bfda62cc24794a3005f63f2b48b658ad1fc"
+        },
+        {
+          "path": "plan/skills/team-guidance/go-unit-test-engineer.md",
+          "sha256": "03618bd03139592d187020d9e12da550fd06a1cde9e0898a9c77088e60d8a0fb"
+        },
+        {
+          "path": "plan/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "51e67a7685b7b377c3c0b1840febf52f940c342214ac5ff149dfedbf76ef03da"
+        },
+        {
+          "path": "plan/skills/team-guidance/litefactory.md",
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
+        },
+        {
+          "path": "plan/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "df809e33feefabd6db72812f8551b0079fd9547f3821a176a4ae3b045cee5f42"
+        },
+        {
+          "path": "plan/skills/team-guidance/platform-constraints.md",
+          "sha256": "5c70d95614326a3ba6d333cf62a4df107426299da190a7e59d90ea7b12bb7094"
+        },
+        {
+          "path": "plan/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "c1c607010b0e5dac964d22d98e538915557f6442b52f290cefcd0e93903e627b"
+        },
+        {
+          "path": "plan/skills/team-guidance/requirements-engineer.md",
+          "sha256": "022b5b758091ce67ca23bcd50b09e3f105f7edd27239dd5b20b6fd53671e5689"
+        },
+        {
+          "path": "plan/skills/team-guidance/review-evidence.md",
+          "sha256": "6ade8cdf6ecaadfd159cee625efe129cbe544733d51583352ac915676caad939"
+        },
+        {
+          "path": "plan/skills/team-guidance/security-scanner.md",
+          "sha256": "c186e5fee41eb8916cdc5c92c088900fb5bd499a50942a4a405e69511383ee5d"
+        },
+        {
+          "path": "plan/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "afe4b25b9c4ecd207e6f4e098b70e6d4ae33662b8208c6aea002fb15c02af5cd"
+        },
+        {
+          "path": "plan/skills/team-guidance/task-decomposer.md",
+          "sha256": "4f9861b32452aa25f0dff55137b191f9e1f7b1184178153429d36e106c200eff"
+        },
+        {
+          "path": "plan/skills/team-guidance/testing-scanner.md",
+          "sha256": "9f2c38e4c005e755fa14348580de1c8217a8814159468e6c1dd2b74d243d359e"
+        },
+        {
+          "path": "plan/skills/team-guidance/workflow.md",
+          "sha256": "1f25c404cb2aba5370c2584b933e4cf7783c3772e1b193936a51bd2088a318d7"
+        },
+        {
           "path": "research/research.dot",
-          "sha256": "e36f05ea0aceddd12b1b35853625943c2cff8fe7ebf679d00f4eae58dbb8a270"
+          "sha256": "836415e23089e6ccb87734d2ce1be62d3717ae7ea46129203695027bb200c86a"
         },
         {
           "path": "research/research.md",
@@ -136,12 +404,188 @@
           "sha256": "a6b148a4ad0c92e9e25350200fd90d3182d7de8c14e7398c0568fbda3b30bcac"
         },
         {
+          "path": "research/skills/team-guidance/SKILL.md",
+          "sha256": "a9300bd9261269c8c2aa36ff5aefbd59f82070a9ce1c6edf699e09a4ef5acf21"
+        },
+        {
+          "path": "research/skills/team-guidance/app-context-updater.md",
+          "sha256": "e68b529a4f945b9890482fc36efe56adf5e1786381e84b5aecf0a6494f3ffc14"
+        },
+        {
+          "path": "research/skills/team-guidance/architecture-scanner.md",
+          "sha256": "9799f8e79187991d778193346c714767e19739e189e9b638a2cb0885e1523592"
+        },
+        {
+          "path": "research/skills/team-guidance/asking.md",
+          "sha256": "700369ed3cbc1f18ef1be38bbc82e782a575567e265d543faf8a6ab440393c8d"
+        },
+        {
+          "path": "research/skills/team-guidance/environment-safety.md",
+          "sha256": "15304ca865a1e611111686f8074ec47057d7510b4249239cd6655148ebc33f60"
+        },
+        {
+          "path": "research/skills/team-guidance/go-architect.md",
+          "sha256": "737f1e140b77079700b9deb6c0be0802ed45cae2092e31b11454fbfc61beb1b5"
+        },
+        {
+          "path": "research/skills/team-guidance/go-code-reviewer.md",
+          "sha256": "e284e06531de32b4dd82280ce510d55ae2b4687dbf50e5c9f4871304f255dc0b"
+        },
+        {
+          "path": "research/skills/team-guidance/go-implementation-engineer.md",
+          "sha256": "3789013544a80a973ea6d1f8ccb0f57ed5f9602f60772c0386dc6a13b203caab"
+        },
+        {
+          "path": "research/skills/team-guidance/go-integration-test-engineer.md",
+          "sha256": "ec1ad72d70d9d05f581187dcfc267bfda62cc24794a3005f63f2b48b658ad1fc"
+        },
+        {
+          "path": "research/skills/team-guidance/go-unit-test-engineer.md",
+          "sha256": "03618bd03139592d187020d9e12da550fd06a1cde9e0898a9c77088e60d8a0fb"
+        },
+        {
+          "path": "research/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "51e67a7685b7b377c3c0b1840febf52f940c342214ac5ff149dfedbf76ef03da"
+        },
+        {
+          "path": "research/skills/team-guidance/litefactory.md",
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
+        },
+        {
+          "path": "research/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "df809e33feefabd6db72812f8551b0079fd9547f3821a176a4ae3b045cee5f42"
+        },
+        {
+          "path": "research/skills/team-guidance/platform-constraints.md",
+          "sha256": "5c70d95614326a3ba6d333cf62a4df107426299da190a7e59d90ea7b12bb7094"
+        },
+        {
+          "path": "research/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "c1c607010b0e5dac964d22d98e538915557f6442b52f290cefcd0e93903e627b"
+        },
+        {
+          "path": "research/skills/team-guidance/requirements-engineer.md",
+          "sha256": "022b5b758091ce67ca23bcd50b09e3f105f7edd27239dd5b20b6fd53671e5689"
+        },
+        {
+          "path": "research/skills/team-guidance/review-evidence.md",
+          "sha256": "6ade8cdf6ecaadfd159cee625efe129cbe544733d51583352ac915676caad939"
+        },
+        {
+          "path": "research/skills/team-guidance/security-scanner.md",
+          "sha256": "c186e5fee41eb8916cdc5c92c088900fb5bd499a50942a4a405e69511383ee5d"
+        },
+        {
+          "path": "research/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "afe4b25b9c4ecd207e6f4e098b70e6d4ae33662b8208c6aea002fb15c02af5cd"
+        },
+        {
+          "path": "research/skills/team-guidance/task-decomposer.md",
+          "sha256": "4f9861b32452aa25f0dff55137b191f9e1f7b1184178153429d36e106c200eff"
+        },
+        {
+          "path": "research/skills/team-guidance/testing-scanner.md",
+          "sha256": "9f2c38e4c005e755fa14348580de1c8217a8814159468e6c1dd2b74d243d359e"
+        },
+        {
+          "path": "research/skills/team-guidance/workflow.md",
+          "sha256": "1f25c404cb2aba5370c2584b933e4cf7783c3772e1b193936a51bd2088a318d7"
+        },
+        {
           "path": "spike/skills/spike-result/SKILL.md",
           "sha256": "e5bf45567a3e415e474b8178deafb6e0b678efa5e5ddbd778bb9f7a6a18c1ebd"
         },
         {
           "path": "spike/skills/spike-result/node-result.md",
           "sha256": "e2b842997e085e2bf2435cfe6a6393de4e5a56f44ce0c3e9fd0ed1bd67d7dcd8"
+        },
+        {
+          "path": "spike/skills/team-guidance/SKILL.md",
+          "sha256": "a9300bd9261269c8c2aa36ff5aefbd59f82070a9ce1c6edf699e09a4ef5acf21"
+        },
+        {
+          "path": "spike/skills/team-guidance/app-context-updater.md",
+          "sha256": "e68b529a4f945b9890482fc36efe56adf5e1786381e84b5aecf0a6494f3ffc14"
+        },
+        {
+          "path": "spike/skills/team-guidance/architecture-scanner.md",
+          "sha256": "9799f8e79187991d778193346c714767e19739e189e9b638a2cb0885e1523592"
+        },
+        {
+          "path": "spike/skills/team-guidance/asking.md",
+          "sha256": "700369ed3cbc1f18ef1be38bbc82e782a575567e265d543faf8a6ab440393c8d"
+        },
+        {
+          "path": "spike/skills/team-guidance/environment-safety.md",
+          "sha256": "15304ca865a1e611111686f8074ec47057d7510b4249239cd6655148ebc33f60"
+        },
+        {
+          "path": "spike/skills/team-guidance/go-architect.md",
+          "sha256": "737f1e140b77079700b9deb6c0be0802ed45cae2092e31b11454fbfc61beb1b5"
+        },
+        {
+          "path": "spike/skills/team-guidance/go-code-reviewer.md",
+          "sha256": "e284e06531de32b4dd82280ce510d55ae2b4687dbf50e5c9f4871304f255dc0b"
+        },
+        {
+          "path": "spike/skills/team-guidance/go-implementation-engineer.md",
+          "sha256": "3789013544a80a973ea6d1f8ccb0f57ed5f9602f60772c0386dc6a13b203caab"
+        },
+        {
+          "path": "spike/skills/team-guidance/go-integration-test-engineer.md",
+          "sha256": "ec1ad72d70d9d05f581187dcfc267bfda62cc24794a3005f63f2b48b658ad1fc"
+        },
+        {
+          "path": "spike/skills/team-guidance/go-unit-test-engineer.md",
+          "sha256": "03618bd03139592d187020d9e12da550fd06a1cde9e0898a9c77088e60d8a0fb"
+        },
+        {
+          "path": "spike/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "51e67a7685b7b377c3c0b1840febf52f940c342214ac5ff149dfedbf76ef03da"
+        },
+        {
+          "path": "spike/skills/team-guidance/litefactory.md",
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
+        },
+        {
+          "path": "spike/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "df809e33feefabd6db72812f8551b0079fd9547f3821a176a4ae3b045cee5f42"
+        },
+        {
+          "path": "spike/skills/team-guidance/platform-constraints.md",
+          "sha256": "5c70d95614326a3ba6d333cf62a4df107426299da190a7e59d90ea7b12bb7094"
+        },
+        {
+          "path": "spike/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "c1c607010b0e5dac964d22d98e538915557f6442b52f290cefcd0e93903e627b"
+        },
+        {
+          "path": "spike/skills/team-guidance/requirements-engineer.md",
+          "sha256": "022b5b758091ce67ca23bcd50b09e3f105f7edd27239dd5b20b6fd53671e5689"
+        },
+        {
+          "path": "spike/skills/team-guidance/review-evidence.md",
+          "sha256": "6ade8cdf6ecaadfd159cee625efe129cbe544733d51583352ac915676caad939"
+        },
+        {
+          "path": "spike/skills/team-guidance/security-scanner.md",
+          "sha256": "c186e5fee41eb8916cdc5c92c088900fb5bd499a50942a4a405e69511383ee5d"
+        },
+        {
+          "path": "spike/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "afe4b25b9c4ecd207e6f4e098b70e6d4ae33662b8208c6aea002fb15c02af5cd"
+        },
+        {
+          "path": "spike/skills/team-guidance/task-decomposer.md",
+          "sha256": "4f9861b32452aa25f0dff55137b191f9e1f7b1184178153429d36e106c200eff"
+        },
+        {
+          "path": "spike/skills/team-guidance/testing-scanner.md",
+          "sha256": "9f2c38e4c005e755fa14348580de1c8217a8814159468e6c1dd2b74d243d359e"
+        },
+        {
+          "path": "spike/skills/team-guidance/workflow.md",
+          "sha256": "1f25c404cb2aba5370c2584b933e4cf7783c3772e1b193936a51bd2088a318d7"
         },
         {
           "path": "spike/spike-fixer.md",
@@ -153,11 +597,99 @@
         },
         {
           "path": "spike/spike.dot",
-          "sha256": "5512b6c18ca461b6c6e19ca74a6caad332651240e9597c345e3960cc73b69aea"
+          "sha256": "e7eaf81c6d52167c5eeee0b8e8e7bee52612fe117556f8da7e9a2d4f91ba6f89"
         },
         {
           "path": "team.config",
-          "sha256": "6dd3a4f78c5348e9cb4c1ec419282ff66cb0efc00a815fae552f90dc1a051fe2"
+          "sha256": "db7353286ea7cfee04824a87a54f418a37d2f3f6f86faae5a6a90c4aa3a48624"
+        },
+        {
+          "path": "validate/skills/team-guidance/SKILL.md",
+          "sha256": "a9300bd9261269c8c2aa36ff5aefbd59f82070a9ce1c6edf699e09a4ef5acf21"
+        },
+        {
+          "path": "validate/skills/team-guidance/app-context-updater.md",
+          "sha256": "e68b529a4f945b9890482fc36efe56adf5e1786381e84b5aecf0a6494f3ffc14"
+        },
+        {
+          "path": "validate/skills/team-guidance/architecture-scanner.md",
+          "sha256": "9799f8e79187991d778193346c714767e19739e189e9b638a2cb0885e1523592"
+        },
+        {
+          "path": "validate/skills/team-guidance/asking.md",
+          "sha256": "700369ed3cbc1f18ef1be38bbc82e782a575567e265d543faf8a6ab440393c8d"
+        },
+        {
+          "path": "validate/skills/team-guidance/environment-safety.md",
+          "sha256": "15304ca865a1e611111686f8074ec47057d7510b4249239cd6655148ebc33f60"
+        },
+        {
+          "path": "validate/skills/team-guidance/go-architect.md",
+          "sha256": "737f1e140b77079700b9deb6c0be0802ed45cae2092e31b11454fbfc61beb1b5"
+        },
+        {
+          "path": "validate/skills/team-guidance/go-code-reviewer.md",
+          "sha256": "e284e06531de32b4dd82280ce510d55ae2b4687dbf50e5c9f4871304f255dc0b"
+        },
+        {
+          "path": "validate/skills/team-guidance/go-implementation-engineer.md",
+          "sha256": "3789013544a80a973ea6d1f8ccb0f57ed5f9602f60772c0386dc6a13b203caab"
+        },
+        {
+          "path": "validate/skills/team-guidance/go-integration-test-engineer.md",
+          "sha256": "ec1ad72d70d9d05f581187dcfc267bfda62cc24794a3005f63f2b48b658ad1fc"
+        },
+        {
+          "path": "validate/skills/team-guidance/go-unit-test-engineer.md",
+          "sha256": "03618bd03139592d187020d9e12da550fd06a1cde9e0898a9c77088e60d8a0fb"
+        },
+        {
+          "path": "validate/skills/team-guidance/legacy-plan-contract.md",
+          "sha256": "51e67a7685b7b377c3c0b1840febf52f940c342214ac5ff149dfedbf76ef03da"
+        },
+        {
+          "path": "validate/skills/team-guidance/litefactory.md",
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
+        },
+        {
+          "path": "validate/skills/team-guidance/planning-responsibilities.md",
+          "sha256": "df809e33feefabd6db72812f8551b0079fd9547f3821a176a4ae3b045cee5f42"
+        },
+        {
+          "path": "validate/skills/team-guidance/platform-constraints.md",
+          "sha256": "5c70d95614326a3ba6d333cf62a4df107426299da190a7e59d90ea7b12bb7094"
+        },
+        {
+          "path": "validate/skills/team-guidance/proxy-product-owner.md",
+          "sha256": "c1c607010b0e5dac964d22d98e538915557f6442b52f290cefcd0e93903e627b"
+        },
+        {
+          "path": "validate/skills/team-guidance/requirements-engineer.md",
+          "sha256": "022b5b758091ce67ca23bcd50b09e3f105f7edd27239dd5b20b6fd53671e5689"
+        },
+        {
+          "path": "validate/skills/team-guidance/review-evidence.md",
+          "sha256": "6ade8cdf6ecaadfd159cee625efe129cbe544733d51583352ac915676caad939"
+        },
+        {
+          "path": "validate/skills/team-guidance/security-scanner.md",
+          "sha256": "c186e5fee41eb8916cdc5c92c088900fb5bd499a50942a4a405e69511383ee5d"
+        },
+        {
+          "path": "validate/skills/team-guidance/specialist-boundaries.md",
+          "sha256": "afe4b25b9c4ecd207e6f4e098b70e6d4ae33662b8208c6aea002fb15c02af5cd"
+        },
+        {
+          "path": "validate/skills/team-guidance/task-decomposer.md",
+          "sha256": "4f9861b32452aa25f0dff55137b191f9e1f7b1184178153429d36e106c200eff"
+        },
+        {
+          "path": "validate/skills/team-guidance/testing-scanner.md",
+          "sha256": "9f2c38e4c005e755fa14348580de1c8217a8814159468e6c1dd2b74d243d359e"
+        },
+        {
+          "path": "validate/skills/team-guidance/workflow.md",
+          "sha256": "1f25c404cb2aba5370c2584b933e4cf7783c3772e1b193936a51bd2088a318d7"
         },
         {
           "path": "validate/skills/validate-repair-report/SKILL.md",
@@ -177,26 +709,26 @@
         },
         {
           "path": "validate/validate-acceptance.md",
-          "sha256": "44311f6219b763937302fc6d56607d531319418cb4ec5577ba3aef282fdb61f9"
+          "sha256": "37c8344871a4ff63f080d77e9f25371a440ea75a7bbbe4eced0bbf77e0dc9356"
         },
         {
           "path": "validate/validate-architecture.md",
-          "sha256": "9b6a147e9d44cfe85f47685673b874f8562a6fbe583ffe9dc4030eaf1b29afbf"
+          "sha256": "817b05872cf8b84a670d964ec211f2aa58ab37e0d74a9fc4166c112c15f90f0d"
         },
         {
           "path": "validate/validate-code.md",
-          "sha256": "288adc6bec86e4127a64473c9e7ca1e3d52987a92b69f5de713e07fae995c890"
+          "sha256": "d4ff26a2b278a7c7c045717f5b49f11187f420190f50c02ca8709d768ef82a03"
         },
         {
           "path": "validate/validate-repair.md",
-          "sha256": "2c2c41accf37cc4507b02b88360d5af669e7aee10f9da574e20c5ef18ea552d9"
+          "sha256": "0502f2e7f522d8455615e3273fa772097cfbce9bcfb1be72828ac28ccc03b786"
         },
         {
           "path": "validate/validate.dot",
-          "sha256": "97c3ed6f773ca7bb5652ab7acf405f12c398dcd4d9147adad60bb717eafc4adb"
+          "sha256": "7ee97b43eb84431c5c527da08a4b08d525a0d9f963061ba2551ec722904644d6"
         }
       ],
-      "checksum": "cff82d67531306dccb75cf0abbe6f77245d40041354eaed8cc9a536ad338b6d7"
+      "checksum": "2077d6484ec66d279d25416f062a9d8399238c0d4628d8423d1892003e754583"
     }
   ]
 }

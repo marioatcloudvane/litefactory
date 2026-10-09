@@ -3,6 +3,8 @@ package turn
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
+	"html"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,33 +39,24 @@ func TestImplementStatusActivityIsCurrentAndAdvisory(t *testing.T) {
 		store.ImplementProgressReport{ID: 102, Parent: implementParent.String(), Generation: 1, StoryKey: "story-001", StoryAttempts: 1, Kind: "implementation", Message: "newest activity", RecordedAt: implementClock.Add(2 * time.Minute)},
 	)
 	body, counts := renderImplementHandoffProgress(f.auth, rows, progress)
-	plain, without := renderImplementHandoff(f.auth, rows)
+	_, without := renderImplementHandoff(f.auth, rows)
 	if counts != without || counts != (implementHandoffCounts{1, 1, 3}) {
 		t.Fatalf("activity changed counts: %+v %+v", counts, without)
 	}
-	if strings.Count(body, "Latest activity (advisory, not completion)") != 3 {
+	if strings.Count(body, "Latest activity (advisory, not completion)") != 1 {
 		t.Fatal(body)
 	}
 	for _, unwanted := range []string{"old attempt", "before resume", "implementation at 2026-03-04T05:07:07Z"} {
-		if strings.Contains(body, unwanted) {
+		if strings.Contains(html.UnescapeString(body), unwanted) {
 			t.Errorf("unexpected %q in %s", unwanted, body)
 		}
 	}
-	for _, want := range []string{"being built now.", "newest activity", "testing at 2026-03-04T05:07:07Z, attempt 2", "repair at 2026-03-04T05:07:07Z, attempt 2"} {
-		if !strings.Contains(body, want) {
+	for _, want := range []string{"being built now.", "newest activity", "implementation at 2026-03-04T05:08:07Z, attempt 2", "| Implementing |"} {
+		if !strings.Contains(html.UnescapeString(body), want) {
 			t.Errorf("missing %q in %s", want, body)
 		}
 	}
-	// Removing activity lines leaves precisely the original ledger rendering.
-	var lines []string
-	for _, line := range strings.Split(body, "\n") {
-		if !strings.Contains(line, "Latest activity") {
-			lines = append(lines, line)
-		}
-	}
-	if strings.Join(lines, "\n") != plain {
-		t.Fatal("progress changed ledger status")
-	}
+
 }
 
 func TestImplementStatusProgressSafety(t *testing.T) {
@@ -93,10 +86,10 @@ func TestImplementStatusRedactsBeforeClippingAndEscaping(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := f.forge.bodies(1)[0]
-	if strings.Contains(body, "secret-with") || strings.Contains(body, "punctuation-value") {
+	if strings.Contains(html.UnescapeString(body), "secret-with") || strings.Contains(html.UnescapeString(body), "punctuation-value") {
 		t.Fatal("secret leaked: " + body)
 	}
-	if !strings.Contains(body, "Latest activity") {
+	if !strings.Contains(html.UnescapeString(body), "Latest activity") {
 		t.Fatal(body)
 	}
 	if strings.Count(body, report.ImplementHandoffMarker(implementParent)) != 1 || len(body) > implementHandoffLimit {
@@ -120,7 +113,7 @@ func TestImplementStatusMissingProgressStillRendersLedger(t *testing.T) {
 				t.Fatal(err)
 			}
 			body := f.forge.bodies(1)[0]
-			if !strings.Contains(body, "being built now.") || strings.Contains(body, "Latest activity") {
+			if !strings.Contains(html.UnescapeString(body), "being built now.") || strings.Contains(html.UnescapeString(body), "Latest activity") {
 				t.Fatal(body)
 			}
 		})
@@ -228,12 +221,12 @@ func TestImplementStatusAlreadyComplete(t *testing.T) {
 	f.auth.Stories[0].AlreadyComplete = true
 	f.auth.Stories[1].Dependencies = []string{"story-001"}
 	body, counts := renderImplementHandoff(f.auth, nil)
-	if counts.merged != 1 || counts.waiting != 1 || !strings.Contains(body, "already complete before this run.") || strings.Contains(body, "unknown story") {
+	if counts.merged != 1 || counts.waiting != 1 || !strings.Contains(html.UnescapeString(body), "already complete before this run.") || strings.Contains(html.UnescapeString(body), "unknown story") {
 		t.Fatal(body)
 	}
 	// A ledger row remains authoritative even if the approved revision is complete.
 	body, counts = renderImplementHandoff(f.auth, []store.ImplementStory{{Key: "story-001", State: store.ImplementRunning}})
-	if counts.merged != 0 || !strings.Contains(body, "being built now.") {
+	if counts.merged != 0 || !strings.Contains(html.UnescapeString(body), "being built now.") {
 		t.Fatal(body)
 	}
 }
@@ -243,7 +236,7 @@ func receiveStatus[T any](t *testing.T, ch <-chan T) T {
 	select {
 	case v := <-ch:
 		return v
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("status operation timed out")
 		var zero T
 		return zero
@@ -412,7 +405,7 @@ func TestImplementStatusProgressBodyBudget(t *testing.T) {
 		}
 	}
 	body, _ := renderImplementHandoffProgress(f.auth, rows, progress)
-	if len(body) > implementHandoffBudget || !strings.Contains(body, " more.") {
+	if len(body) <= implementHandoffBudget || strings.Contains(body, " more.") || strings.Count(body, "| Implementing |") != 1000 {
 		t.Fatalf("body length=%d", len(body))
 	}
 }
@@ -434,7 +427,7 @@ func TestImplementStatusReadyStartsLiveCommentAndRebuildsLatestProgress(t *testi
 	t.Cleanup(status.Close)
 	f.bindings.Status = status
 	f.ready()
-	if f.forge.posts != 1 || !strings.Contains(f.forge.bodies(1)[0], "being built now.") {
+	if f.forge.posts != 1 || !strings.Contains(html.UnescapeString(f.forge.bodies(1)[0]), "being built now.") {
 		t.Fatal("ready did not post a live comment")
 	}
 	latest = []store.ImplementProgressReport{{ID: 1, Parent: implementParent.String(), Generation: 1, StoryKey: "story-001", Kind: "testing", RecordedAt: implementClock, Message: "done"}}
@@ -442,7 +435,7 @@ func TestImplementStatusReadyStartsLiveCommentAndRebuildsLatestProgress(t *testi
 		t.Fatal(err)
 	}
 	body := f.forge.bodies(1)[0]
-	if f.forge.posts != 1 || f.forge.edits != 1 || !strings.Contains(body, "Latest activity") || !strings.Contains(body, "being built now.") {
+	if f.forge.posts != 1 || f.forge.edits != 1 || !strings.Contains(html.UnescapeString(body), "Latest activity") || !strings.Contains(html.UnescapeString(body), "being built now.") {
 		t.Fatal(body)
 	}
 	latest[0].ID = 2
@@ -471,11 +464,87 @@ func TestImplementStatusProductionBindingIncludesApprovedWithoutScheduling(t *te
 		t.Fatal("status binding created ledger rows")
 	}
 	body, _ := renderImplementHandoff(auth, rows)
-	if !strings.Contains(body, "story-001") || !strings.Contains(body, "story-002") {
+	if !strings.Contains(html.UnescapeString(body), "story-001") || !strings.Contains(html.UnescapeString(body), "story-002") {
 		t.Fatal(body)
 	}
 	_, err = RefreshImplementParentStatus(t.Context(), f.opts, parent, 2)
 	if err == nil {
 		t.Fatal("accepted a stale generation")
+	}
+}
+
+func TestImplementHandoffAllStatesAndLatestKind(t *testing.T) {
+	f := newImplementFixture(t, implementStories(10, map[string][]string{"story-009": {"story-006"}})...)
+	f.auth.Stories[9].AlreadyComplete = true
+	rows := []store.ImplementStory{
+		{Key: "story-001", State: store.ImplementWaiting},
+		{Key: "story-002", State: store.ImplementRunning, StateAt: implementClock},
+		{Key: "story-003", State: store.ImplementRunning, StateAt: implementClock},
+		{Key: "story-004", State: store.ImplementDone},
+		{Key: "story-005", State: store.ImplementMerged},
+		{Key: "story-006", State: store.ImplementParked},
+		{Key: "story-007", State: store.ImplementParked},
+		{Key: "story-008", State: store.ImplementParked, ParkOrigin: store.ImplementOriginWorker, Attempts: store.MaxImplementAttempts},
+	}
+	var progress []store.ImplementProgressReport
+	for _, row := range rows {
+		progress = append(progress, store.ImplementProgressReport{ID: 1, Parent: f.auth.Parent.String(), Generation: 1, StoryKey: row.Key, Kind: "testing", RecordedAt: implementClock})
+	}
+	progress = append(progress, store.ImplementProgressReport{ID: 2, Parent: f.auth.Parent.String(), Generation: 1, StoryKey: "story-002", Kind: "repair", RecordedAt: implementClock})
+	progress = append(progress, []store.ImplementProgressReport{
+		{ID: 100, Parent: "foreign", Generation: 1, StoryKey: "story-003", Kind: "repair", RecordedAt: implementClock},
+		{ID: 101, Parent: f.auth.Parent.String(), Generation: 2, StoryKey: "story-003", Kind: "repair", RecordedAt: implementClock},
+	}...)
+	notes := map[string]store.ReportDelivery{"story-007": {CommentID: 123, Body: "**Story parked**\n\nWorker response: blocked\n"}}
+	body, counts := renderImplementHandoffNotes(f.auth, rows, progress, notes)
+	body = html.UnescapeString(body)
+	expected := []string{"Waiting", "Implementing", "Testing", "Merging", "Finished", "Parked", "Blocked", "Failed", "Blocked", "Finished"}
+	var storyRows []string
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "| story-") {
+			storyRows = append(storyRows, line)
+		}
+	}
+	if len(storyRows) != len(expected) {
+		t.Fatal(body)
+	}
+	for i, want := range expected {
+		if !strings.Contains(storyRows[i], "| "+want+" |") {
+			t.Fatalf("story %d: %s", i, storyRows[i])
+		}
+	}
+	if counts != (implementHandoffCounts{2, 3, 5}) {
+		t.Fatal(counts)
+	}
+}
+
+func TestImplementHandoffTwelveEscapedRowsKeepLinksAndFooter(t *testing.T) {
+	f := newImplementFixture(t, implementStories(12, nil)...)
+	var rows []store.ImplementStory
+	notes := map[string]store.ReportDelivery{}
+	for i := range f.auth.Stories {
+		story := &f.auth.Stories[i]
+		story.Name = strings.Repeat("|界@", 100)
+		rows = append(rows, store.ImplementStory{Key: story.Key, State: store.ImplementParked, Reason: strings.Repeat("|@界", 2000)})
+		notes[story.Key] = store.ReportDelivery{CommentID: int64(100 + i)}
+	}
+	for _, auto := range []bool{false, true} {
+		body, _ := renderImplementHandoffNotes(f.auth, rows, nil, notes)
+		body += implementValidateNextStep(auto)
+		if len(body) > implementHandoffBudget || strings.Count(body, "[Full answer]") != 12 || strings.Count(body, "| Parked |") != 12 || !utf8.ValidString(body) {
+			t.Fatal("table lost rows, links or exceeded budget")
+		}
+		if !strings.HasSuffix(body, implementValidateNextStep(auto)) || strings.Contains(body, "more.") {
+			t.Fatal(body)
+		}
+		decoded := html.UnescapeString(body)
+		last := -1
+		for _, story := range f.auth.Stories {
+			at := strings.Index(decoded, "| "+story.Key+" ")
+			if at <= last || strings.Count(decoded, "| "+story.Key+" ") != 1 {
+				t.Fatal("story order or uniqueness changed")
+			}
+			last = at
+		}
 	}
 }

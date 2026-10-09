@@ -27,6 +27,9 @@ type ValidateRuntimeConfig struct {
 	Forge   ValidateForge
 	OwnerID int64
 	Slots   ValidateSlots
+	// Permissions resolves the operator's validate-repair grant for the one
+	// Validate node that writes. Nil refuses that node; reviewers never use it.
+	Permissions func(agent.Kind, string) (BugRolePermissions, error)
 }
 
 // NewValidateRuntime builds the production host bindings of the Validate graph.
@@ -35,14 +38,11 @@ func NewValidateRuntime(ctx context.Context, opts Options, cfg ValidateRuntimeCo
 	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || cfg.Forge == nil || cfg.OwnerID < 1 || cfg.Slots == nil {
 		return nil, errors.New("graph Validate requires concrete source, result, owner, reporter, forge and run-slot bindings")
 	}
-	// The shipped Validate graph must capture at startup; each run then
-	// captures the repository's own workflow source (#317) when it binds.
-	specs, err := ValidateFlowSpecs()
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if _, err := teamsource.CaptureValidate(ctx, specs); err != nil {
-		return nil, fmt.Errorf("capture current shipped Validate: %w", err)
+	if _, err := ValidateFlowSpecs(); err != nil {
+		return nil, err
 	}
 	owner := cfg.OwnerID
 	return &ValidateRuntime{
@@ -50,6 +50,7 @@ func NewValidateRuntime(ctx context.Context, opts Options, cfg ValidateRuntimeCo
 		Bind: func(ctx context.Context, opts Options, req Request, entry store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
 			return bindValidate(ctx, opts, req, entry, cfg)
 		},
+		Permissions: cfg.Permissions,
 	}, nil
 }
 

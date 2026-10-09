@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -67,7 +68,7 @@ func TestWorkerLifecycleAC3CleanupBoundary(t *testing.T) {
 			var record slog.Record
 			select {
 			case record = <-observed:
-			case <-time.After(5 * time.Second):
+			case <-time.After(testutil.Wait):
 				t.Fatal("no terminal record")
 			}
 			if record.Message != "worker finished" || record.Level != slog.LevelDebug {
@@ -88,7 +89,7 @@ func TestWorkerLifecycleAC3CleanupBoundary(t *testing.T) {
 				t.Fatalf("Quiesce did not join held terminal logger: %v", err)
 			}
 			release <- struct{}{}
-			final, finish := context.WithTimeout(t.Context(), 5*time.Second)
+			final, finish := context.WithTimeout(t.Context(), testutil.Wait)
 			defer finish()
 			if err := d.Quiesce(final); err != nil {
 				t.Fatal(err)

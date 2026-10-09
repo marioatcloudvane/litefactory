@@ -16,7 +16,7 @@ import (
 // It owns graph preparation and explicit publication, bypassing legacy finalization.
 type ResearchLaunchDriver func(context.Context, Options, Request, Result, *teamsource.ResearchDefinition, store.ResearchAdmission) (Result, error)
 
-// ResearchSpecs is the closed registry for prelaunch built-in asset validation.
+// ResearchSpecs is the closed factory registry for prelaunch workflow validation.
 func ResearchSpecs() (graphexec.Registry, error) {
 	return WorkflowSpecs(ResearchWorkflowPolicy())
 }
@@ -54,8 +54,8 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 		return result, false, nil
 	}
 	// A graph dispatch is the factory continuing work it already admitted. It
-	// must not manufacture owner authority. The shipped graph supplies future
-	// edges while the retained invocation and effect identities stay historical.
+	// must not manufacture owner authority. The retained graph supplies its
+	// edges while invocation and effect identities stay historical.
 	if store.IsGraphTrigger(req.Trigger.CommentID) {
 		out, err := resumeResearchDispatch(ctx, opts, req, result)
 		return out, true, err
@@ -77,9 +77,9 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	if err != nil {
 		return result, true, err
 	}
-	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowResearch, specs, teamsource.CaptureResearch)
+	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowResearch, specs)
 	if err != nil {
-		return result, true, fmt.Errorf("capture current shipped Research: %w", err)
+		return result, true, fmt.Errorf("capture research workflow: %w", err)
 	}
 	if err = graphexec.ValidateResearchControlGraph(definition.Profile); err != nil {
 		return result, true, err
@@ -127,7 +127,7 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 }
 
 // resumeResearchDispatch enters the workflow at an instance's current node with
-// the current shipped definition. Nothing here is a fresh owner admission: the
+// its verified retained definition. Nothing here is a fresh owner admission: the
 // dispatch that allocated this run is the authority, and it exists only because
 // a previous run of this instance published and had no run left to continue in.
 func resumeResearchDispatch(ctx context.Context, opts Options, req Request, result Result) (Result, error) {
@@ -145,9 +145,9 @@ func resumeResearchDispatch(ctx context.Context, opts Options, req Request, resu
 	if err != nil {
 		return result, err
 	}
-	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowResearch, specs, teamsource.CaptureResearch)
+	definition, err := capturedWorkflow(ctx, opts, req, agent.WorkflowResearch, specs)
 	if err != nil {
-		return result, fmt.Errorf("capture current shipped Research: %w", err)
+		return result, fmt.Errorf("capture research workflow: %w", err)
 	}
 	saved, err := opts.DB.WorkflowCaptureForAdmission(ctx, req.SessionID, req.Trigger.CommentID, "research")
 	if err != nil {

@@ -31,7 +31,7 @@ Fix the bug, nothing more: make the smallest change that fixes the approved bug 
 Code, build, test and correct repeatedly within this invocation until the approved bug is fixed. Use the repository's own commands (its README, Makefile, AGENTS or CLAUDE files, CI configuration); the factory runs no checks of its own.
 
  - While you are fixing, run only the tests you are working on. Once the fix is done, build the whole repository and run every package you changed completely, never a filtered subset: a package also holds structure tests your change can break.
- - Each changed package gets one complete run per round: with the race detector when its race run takes up to about ten minutes, otherwise without it. Never run the same package twice at once, and never stop a complete run to start another.
+ - Each changed package gets one complete run per round, with the race detector, except `internal/store`, `internal/turn`, `internal/daemon` and `internal/cli`: run those without it, because their race runs take far too long; Validate covers them. Never run the same package twice at once, and never stop a complete run to start another.
  - Run the repository's linter and formatter on the packages you changed and fix every finding.
  - Do not run the whole test suite or the repository's full check (for example `make check`). The full suite runs later in Validate; on a shared machine it takes hours and fails on timing.
  - A test in a package you did not change that fails only under load, or also fails without your change, is not your concern: name it in your report and do not change it.

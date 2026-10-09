@@ -2,7 +2,9 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -636,5 +639,53 @@ func TestImplementUnusedReplyRemainsARefusalBeforeDeliveryIsRecorded(t *testing.
 		if got := implementStatesOf(t, f, parent)["story-001"]; got.State != store.ImplementParked {
 			t.Fatalf("unused reply changed a story: %+v", got)
 		}
+	}
+}
+
+func TestImplementWorkerPublishesFullRetainedOwnerQuestion(t *testing.T) {
+	reason := strings.Repeat("Retained reason ", 130) + testBotToken + strings.Repeat(" remaining reason ", 30) + "OWNER_QUESTION_SUFFIX"
+	var raw agentresult.ResearchNode
+	mustProgress(t, json.Unmarshal([]byte(implementBlockedJSON), &raw))
+	raw.Result.Reason = reason
+	raw.Result.Comment = "Built what could be built. First complete question? Second complete question?"
+	encoded, err := json.Marshal(raw)
+	mustProgress(t, err)
+	f, forge, req := assembledImplementFixture(t, lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		submitLiveResult(t, req, string(encoded))
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, FinishedAt: time.Now()}, nil
+	}))
+	seedImplementStory(t, f)
+	_, err = Execute(t.Context(), f.opts, req)
+	mustProgress(t, err)
+	row := implementWorkerRow(t, f)
+	if row.State != store.ImplementParked || strings.Contains(row.Reason, "OWNER_QUESTION_SUFFIX") {
+		t.Fatal("fixture did not cross the ledger clipping boundary")
+	}
+	posts := forge.all()
+	if len(posts) != 1 {
+		t.Fatalf("got %d comments", len(posts))
+	}
+	body := html.UnescapeString(posts[0].body)
+	safeReason, err := f.opts.ResearchReporter.renderer.RenderReportDelivery(t.Context(), reason, "")
+	mustProgress(t, err)
+	if strings.Contains(body, testBotToken) || strings.Contains(row.Reason, "ghp_") {
+		t.Fatal("clipped reason leaked a credential")
+	}
+	for _, want := range []string{safeReason.String(), "Built what could be built.", "First complete question?", "Second complete question?"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("full retained comment lacks %q", want)
+		}
+	}
+	parent, err := naming.ParseRef(row.Parent)
+	mustProgress(t, err)
+	a := ImplementAuthority{Parent: parent, Generation: 1, Stories: []ImplementStory{{Key: row.Key, Name: "Health endpoint", IssueNumber: f.session.IssueNumber}}}
+	notes, err := implementParkNotes(t.Context(), f.db, a, []store.ImplementStory{row})
+	mustProgress(t, err)
+	table, _ := renderImplementHandoffNotes(a, []store.ImplementStory{row}, nil, notes)
+	if !strings.Contains(table, "| Blocked |") || !strings.Contains(table, forgePostURL(posts[0])) {
+		t.Fatal(table)
+	}
+	if forge.attemptCount() != 1 {
+		t.Fatal("reading status posted another comment")
 	}
 }

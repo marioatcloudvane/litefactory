@@ -435,7 +435,20 @@ func (r *Runner) validateRequest(req agent.Request) error {
 			return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 		}
 	}
-	if req.Mode == "validate" {
+	if req.Mode == "validate" && req.Workflow != agent.WorkflowBug && req.Permissions.Profile == config.ValidateRepairProfile {
+		// The Validate repair agent is bounded by its own role surface; every
+		// other Validate run keeps the read-only check below.
+		ts := toolSurface(req)
+		if len(ts.Tools) == 0 {
+			return invalidRequest("%s requires explicit tools", config.ValidateRepairProfile)
+		}
+		allowed := config.BugRoleClaudeTools(config.ValidateRepairProfile)
+		for _, tool := range append(append([]string{}, ts.Tools...), ts.AllowedTools...) {
+			if !slices.Contains(allowed, config.ClaudeToolName(tool)) {
+				return invalidRequest("%s cannot grant tool %q", config.ValidateRepairProfile, tool)
+			}
+		}
+	} else if req.Mode == "validate" {
 		ts := toolSurface(req)
 		if len(ts.Tools) == 0 {
 			return fmt.Errorf("%w: Validate requires explicit read-only tools", ErrInvalidRequest)
@@ -504,6 +517,15 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult,
 	req = retainedValidationRequest(req)
 	if err := r.validateRequest(req); err != nil {
 		return nil, err
+	}
+	if err := agent.VerifyRequestDelivery(ctx, req); err != nil {
+		return nil, err
+	}
+	if req.Invocation == agent.InvocationGraphNode {
+		rolePath := "plugin/agents/" + req.Delivery.MainRole + ".md"
+		if _, ok := req.Delivery.RenderedFiles[rolePath]; !ok {
+			return nil, agent.DeliveryRefusal(req, fmt.Errorf("missing Claude main-role resource: %s", rolePath))
+		}
 	}
 
 	logPath, err := naming.RunLogPath(r.home, req.Ref, req.RunOrdinal)
@@ -787,6 +809,10 @@ func (r *Runner) exec(
 		usage.prepareTranscripts(r.claudeConfigDir, req.WorktreePath)
 	}
 	startedAt := time.Now()
+	if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
+		closeAll(stdoutR, stdoutW, stderrR, stderrW)
+		return nil, err
+	}
 	if err := cmd.Start(); err != nil {
 		closeAll(stdoutR, stdoutW, stderrR, stderrW)
 		return nil, fmt.Errorf("%w: %s: %w", ErrStartFailed, r.binary.Path, err)

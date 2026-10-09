@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"os/exec"
 	"syscall"
 	"testing"
@@ -66,7 +67,7 @@ func TestBugCheckRecoveryProcessGroupLifecycle(t *testing.T) {
 	if !groupEmptyAfterStop(cmd.Process.Pid) {
 		t.Fatal("group cleanup not confirmed")
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(testutil.Wait)
 	for {
 		stopped, err := ProcessStopped(t.Context(), identity)
 		if err != nil {

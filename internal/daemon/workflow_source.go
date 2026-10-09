@@ -32,7 +32,7 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 			binding, e := db.GetRepositoryTeamBinding(ctx, repo.ID)
 			if e != nil {
 				if errors.Is(e, store.ErrNotFound) {
-					return nil
+					return fmt.Errorf("repository %s requested workflow %s has no linked installed team: %w", repo.Path, workflow, e)
 				}
 				return e
 			}
@@ -81,6 +81,9 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 				return nil
 			})
 		})
-		return definition, err
+		if err != nil {
+			return nil, fmt.Errorf("repository %s requested workflow %s: %w", repo.Path, workflow, err)
+		}
+		return definition, nil
 	}, nil
 }

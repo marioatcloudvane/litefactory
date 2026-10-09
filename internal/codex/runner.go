@@ -246,6 +246,16 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 
 // Run executes one ordinary coding-agent request.
 func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
+	if err := agent.VerifyRequestDelivery(ctx, req); err != nil {
+		return nil, err
+	}
+	if req.Invocation == agent.InvocationGraphNode && req.Delivery != nil {
+		for _, name := range []string{"main-instructions.md", "roles/" + req.Delivery.MainRole + ".toml"} {
+			if _, ok := req.Delivery.RenderedFiles[name]; !ok {
+				return nil, agent.DeliveryRefusal(req, fmt.Errorf("missing Codex native resource: %s", name))
+			}
+		}
+	}
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -264,7 +274,13 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	if req.Workflow == agent.WorkflowBug && req.Permissions.Profile == "bug-fixer" && sandbox != "workspace-write" {
 		return nil, fmt.Errorf("%w: Bug fixer requires contained workspace-write sandbox", agent.ErrInvalidRequest)
 	}
-	if (req.Mode == "validate" || (req.Workflow == agent.WorkflowBug && req.Permissions.Profile != "bug-fixer")) && sandbox != "read-only" {
+	// Only the Validate repair agent writes, through its own validate-repair
+	// grant; every other Validate run stays read-only.
+	validateRepair := req.Mode == "validate" && req.Workflow != agent.WorkflowBug && req.Permissions.Profile == config.ValidateRepairProfile
+	if validateRepair && sandbox != "workspace-write" {
+		return nil, fmt.Errorf("%w: Validate repair requires contained workspace-write sandbox", agent.ErrInvalidRequest)
+	}
+	if ((req.Mode == "validate" && !validateRepair) || (req.Workflow == agent.WorkflowBug && req.Permissions.Profile != "bug-fixer")) && sandbox != "read-only" {
 		return nil, fmt.Errorf("%w: Validate requires read-only sandbox", agent.ErrInvalidRequest)
 	}
 	if sandbox != "read-only" && sandbox != "workspace-write" {
@@ -325,6 +341,14 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	started := time.Now()
 	collector := newUsageCollector(runCtx, req)
 	collector.prepareRollouts(cmd.Env)
+	if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
+		_ = stdout.Close()
+		if pipe, ok := cmd.Stdout.(io.Closer); ok {
+			_ = pipe.Close()
+		}
+		collector.finish()
+		return nil, err
+	}
 	if err := cmd.Start(); err != nil {
 		collector.finish()
 		return nil, fmt.Errorf("codex did not start: %w", err)
@@ -447,7 +471,7 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 		if req.Delivery.MainRole != "" {
 			instructions, err := mainInstructionOverride(req.Delivery.Root)
 			if err != nil {
-				return nil, fmt.Errorf("%w: %w", agent.ErrInvalidRequest, err)
+				return nil, agent.DeliveryRefusal(req, fmt.Errorf("%w: %w", agent.ErrInvalidRequest, err))
 			}
 			args = append(args, "-c", instructions)
 			// An Implement story worker hands independent tasks and test runs

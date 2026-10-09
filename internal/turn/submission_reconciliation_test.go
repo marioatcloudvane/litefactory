@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -79,7 +79,7 @@ func TestValidationCheckpointReconcilesTerminal(t *testing.T) {
 				output = `{"contributions":[]}`
 			}
 			if scenario == "concurrent" {
-				wait, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				wait, cancel := context.WithTimeout(t.Context(), testutil.Wait)
 				defer cancel()
 				start := make(chan struct{})
 				done := make(chan error, 1)

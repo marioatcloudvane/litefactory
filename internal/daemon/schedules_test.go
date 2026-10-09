@@ -2,6 +2,8 @@ package daemon_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,7 +12,9 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -117,6 +121,21 @@ func TestImplementPrepareFailureRetriesAndParks(t *testing.T) {
 	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "prepare-failure", Logger: f.logger,
 		CloneGate: unusedRecoveryCloneGate{}, Runners: turn.RunnerSet{agent.Kind(store.AgentClaude): runner}, ResearchReporter: f.reporter,
 		MCP: &turn.MCPRuntime{Authority: authority, Paths: f.paths, Executable: "/factory/litefactory", Now: f.clock.Now}}
+	// This fixture isolates preparation: supply an owned installed definition
+	// so admission succeeds before the deliberately broken clone is opened.
+	opts.WorkflowSource = func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		if repo.ID != session.RepoID || workflow != agent.WorkflowImplement {
+			t.Fatal("preparation fixture selected another repository or workflow")
+		}
+		definition, err := teamsource.CaptureImplement(ctx, specs)
+		if err != nil {
+			return nil, err
+		}
+		config := []byte("implement: implement/implement.dot\n")
+		digest := sha256.Sum256(config)
+		definition.Origin = teamsource.WorkflowOrigin{Kind: "local", Source: "local", Slug: "fixture", Version: "1.0.0", GraphPath: "implement/implement.dot", GraphFile: "implement.dot", Team: definition.Profile.Team, TeamConfig: config, ConfigDigest: hex.EncodeToString(digest[:])}
+		return definition, nil
+	}
 	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
 		req.Mode = agent.ModeImplement
 		return turn.Execute(ctx, opts, req)

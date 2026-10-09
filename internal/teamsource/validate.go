@@ -25,5 +25,5 @@ func CaptureValidate(ctx context.Context, registry graphexec.Registry) (*Workflo
 	if err != nil {
 		return nil, fmt.Errorf("open built-in Validate: %w", err)
 	}
-	return CaptureWorkflow(ctx, source, "validate.dot", "builtin", agent.ModeValidate, registry)
+	return CaptureWorkflow(ctx, source, "validate.dot", "go-development", agent.ModeValidate, registry)
 }

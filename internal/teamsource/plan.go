@@ -24,5 +24,5 @@ func CapturePlan(ctx context.Context, registry graphexec.Registry) (*WorkflowDef
 	if err != nil {
 		return nil, fmt.Errorf("open built-in Plan: %w", err)
 	}
-	return CaptureWorkflow(ctx, source, "plan.dot", "builtin", agent.ModePlan, registry)
+	return CaptureWorkflow(ctx, source, "plan.dot", "go-development", agent.ModePlan, registry)
 }

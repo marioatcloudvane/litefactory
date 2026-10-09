@@ -25,10 +25,12 @@ package gittest
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -64,11 +66,84 @@ type Repo struct {
 	home string
 }
 
+type templateFile struct {
+	path string
+	mode fs.FileMode
+	data []byte
+}
+
+var fixtureTemplate struct {
+	sync.Once
+	files  []templateFile
+	origin string
+}
+
 // New creates a fixture repository and returns it. The clone has one commit
 // (README.md) on [DefaultBranch], an "origin" remote pointing at a local bare
 // repository, an upstream tracking branch, and origin/HEAD set — everything a
 // caller needs to exercise fetch, base-branch resolution and worktrees.
 func New(tb testing.TB) *Repo {
+	tb.Helper()
+	fixtureTemplate.Do(func() {
+		r := buildTemplate(tb)
+		root := filepath.Dir(r.Dir)
+		fixtureTemplate.origin = r.Origin
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if path == root {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			f := templateFile{path: rel, mode: info.Mode()}
+			if !entry.IsDir() {
+				// #nosec G304 G122 -- path comes from walking this test's freshly created git fixture; no untrusted writers.
+				f.data, err = os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+			}
+			fixtureTemplate.files = append(fixtureTemplate.files, f)
+			return nil
+		})
+		if err != nil {
+			tb.Fatalf("gittest: capture template: %v", err)
+		}
+	})
+	// Keep bytes, not paths into the first test's temporary directory. Each
+	// fixture receives independent files, including its Git objects and index.
+	root, err := filepath.EvalSymlinks(tb.TempDir())
+	if err != nil {
+		tb.Fatalf("gittest: resolve temporary directory: %v", err)
+	}
+	r := &Repo{Dir: filepath.Join(root, "clone"), Origin: filepath.Join(root, "origin.git"), tb: tb, home: filepath.Join(root, "home")}
+	for _, f := range fixtureTemplate.files {
+		path := filepath.Join(root, f.path)
+		if f.mode.IsDir() {
+			err = os.MkdirAll(path, f.mode.Perm())
+		} else {
+			data := f.data
+			if f.path == filepath.Join("clone", ".git", "config") {
+				data = []byte(strings.ReplaceAll(string(data), fixtureTemplate.origin, r.Origin))
+			}
+			err = os.WriteFile(path, data, f.mode.Perm())
+		}
+		if err != nil {
+			tb.Fatalf("gittest: restore %s: %v", f.path, err)
+		}
+	}
+	return r
+}
+
+func buildTemplate(tb testing.TB) *Repo {
 	tb.Helper()
 
 	// t.TempDir hands back a path under /var, which on macOS is a symlink to

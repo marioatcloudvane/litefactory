@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -84,36 +85,37 @@ func TestFilesystemEvidenceImplementUnchangedAncestor(t *testing.T) {
 }
 
 func TestFilesystemEvidenceDelayedFinalDrain(t *testing.T) {
-	t.Parallel()
-	home := t.TempDir()
-	filesystemEvidenceWrite(t, home, "root", filesystemEvidenceEnvelope("root", "", "old"))
-	c, got := filesystemEvidenceCollector(t, home)
-	c.collectRollouts(true)
-	// The delayed writer does not access the collector; finalization must discover
-	// a new rollout using its bounded drain, without another stdout event.
-	path := filepath.Join(home, ".codex", "sessions", "rollout-delayed.jsonl")
-	done := make(chan error, 1)
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		done <- os.WriteFile(path, []byte(filesystemEvidenceEnvelope("delayed", "root", "new")), 0600)
-	}()
-	started := time.Now()
-	coverage := c.finish()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	if elapsed := time.Since(started); elapsed > 5*time.Second {
-		t.Fatalf("drain unbounded: %v", elapsed)
-	}
-	if len(*got) != 1 || (*got)[0].InvocationID != "delayed" {
-		t.Fatalf("delayed descendant missing: %+v", *got)
-	}
-	if slices.Contains(coverage.Diagnostics, "collection_cancelled") {
-		t.Fatalf("ordinary final drain mislabeled as request cancellation: %v", coverage.Diagnostics)
-	}
-	if coverage.Status == agent.CollectionComplete {
-		t.Fatal("synthetic hierarchy certified complete")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		home := t.TempDir()
+		filesystemEvidenceWrite(t, home, "root", filesystemEvidenceEnvelope("root", "", "old"))
+		c, got := filesystemEvidenceCollector(t, home)
+		c.collectRollouts(true)
+		// The delayed writer does not access the collector; finalization must discover
+		// a new rollout using its bounded drain, without another stdout event.
+		path := filepath.Join(home, ".codex", "sessions", "rollout-delayed.jsonl")
+		done := make(chan error, 1)
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			done <- os.WriteFile(path, []byte(filesystemEvidenceEnvelope("delayed", "root", "new")), 0600)
+		}()
+		started := time.Now()
+		coverage := c.finish()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if elapsed := time.Since(started); elapsed > 5*time.Second {
+			t.Fatalf("drain unbounded: %v", elapsed)
+		}
+		if len(*got) != 1 || (*got)[0].InvocationID != "delayed" {
+			t.Fatalf("delayed descendant missing: %+v", *got)
+		}
+		if slices.Contains(coverage.Diagnostics, "collection_cancelled") {
+			t.Fatalf("ordinary final drain mislabeled as request cancellation: %v", coverage.Diagnostics)
+		}
+		if coverage.Status == agent.CollectionComplete {
+			t.Fatal("synthetic hierarchy certified complete")
+		}
+	})
 }
 
 func TestFilesystemEvidenceScanBudget(t *testing.T) {

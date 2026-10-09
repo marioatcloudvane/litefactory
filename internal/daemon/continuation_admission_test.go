@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"net/http"
 	"strings"
 	"testing"
@@ -167,7 +168,7 @@ func TestAutomaticAdmissionInflightExcludesDuplicateLaunch(t *testing.T) {
 		if req.Continuation == nil || req.Continuation.ID != c.ID {
 			t.Fatalf("wrong admission: %+v", req)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("automatic action did not start")
 	}
 	f.tick()

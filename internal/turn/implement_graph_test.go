@@ -102,7 +102,7 @@ func TestImplementGraphCapturesAndEveryNodeIsBounded(t *testing.T) {
 		}
 		if n.Action == "lf_agent" {
 			roles++
-			if n.Attrs["lf_agent_markdown"] != "story-worker" || n.Attrs["lf_skills"] != "implement-result" || n.Limit != 3 {
+			if n.Attrs["lf_agent_markdown"] != "story-worker" || n.Attrs["lf_skills"] != "implement-result,team-guidance" || n.Limit != 3 {
 				t.Errorf("worker node = %+v", n)
 			}
 		}
@@ -139,23 +139,20 @@ func TestImplementBudgetIsTheFirstAttemptAndTwoRepairs(t *testing.T) {
 }
 
 func TestImplementParkAfterTheBudgetKeepsTheLastFailureInPlainWords(t *testing.T) {
-	f := newImplementWorkerFixture(t)
-	f.rt.definition = mustCaptureImplement(t)
-	for range store.MaxImplementAttempts {
-		f.fail("the build did not compile")
-	}
-	res, err := f.rt.parkStory(t.Context(), f.rt.opts, ActivityRequest{Attrs: map[string]string{"lf_source": "worker_agent"}})
+	f, _, rt := parkNoteFixture(t)
+	res, err := rt.parkStory(t.Context(), f.opts, ActivityRequest{})
 	if err != nil || res.Outcome != "parked" {
 		t.Fatalf("%+v %v", res, err)
 	}
-	row := f.row("story-001")
+	row := implementWorkerRow(t, f)
 	if row.State != store.ImplementParked || row.ParkOrigin != store.ImplementOriginWorker || !strings.Contains(row.Reason, "3 attempt") || !strings.Contains(row.Reason, "the build did not compile") {
 		t.Fatalf("parked row = %+v", row)
 	}
-	again, err := f.rt.parkStory(t.Context(), f.rt.opts, ActivityRequest{Attrs: map[string]string{"lf_source": "worker_agent"}})
+	again, err := rt.parkStory(t.Context(), f.opts, ActivityRequest{})
 	if err != nil || again.Outcome != "parked" {
 		t.Fatalf("parking twice is a replay: %+v %v", again, err)
 	}
+
 }
 
 func TestImplementStoryDoneSavesBeforeTheLedgerMoves(t *testing.T) {
@@ -206,7 +203,7 @@ func TestImplementStoryDoneRefusesAStoryThatIsNotRunning(t *testing.T) {
 func TestImplementAfterAgentFailureSettlesProcessFailuresOnly(t *testing.T) {
 	f := newImplementWorkerFixture(t)
 	definition := mustCaptureImplement(t)
-	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement/implement.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: definition.Profile.Team, Mode: "implement", ProfileVersion: 1, Path: "implement/implement.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	if err != nil {
 		t.Fatal(err)
 	}

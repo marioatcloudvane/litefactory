@@ -361,7 +361,7 @@ func validateToolProfiles(c *Claude, profiles map[string]ToolProfile) []error {
 	for _, name := range sortedProfileNames(profiles) {
 		profile := profiles[name]
 		if !profileKeyRE.MatchString(name) {
-			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, validate, or a bug or spike role", name))
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, validate, validate-repair, or a bug or spike role", name))
 		}
 
 		if profile.Claude == nil && profile.Codex == nil {
@@ -407,10 +407,10 @@ func validatePermissionProfiles(c *Config) []error {
 		}
 	}
 	for _, name := range sortedProfileNames(profiles) {
-		if name == "bug-analyst" || name == "bug-fixer" || name == SpikeInvestigatorProfile || name == SpikeFixerProfile {
+		if name == "bug-analyst" || name == "bug-fixer" || name == SpikeInvestigatorProfile || name == SpikeFixerProfile || name == ValidateRepairProfile {
 			errs = append(errs, validateBugRoleProfile(c, name, profiles[name])...)
 		} else if !slices.Contains(canonicalPermissionProfiles, name) {
-			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, validate, or a bug or spike role", name))
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, validate, validate-repair, or a bug or spike role", name))
 		}
 	}
 	if c.Agents.Claude != nil {
@@ -432,12 +432,14 @@ func validatePermissionProfiles(c *Config) []error {
 // may be granted. The analyst and investigator only read. The Bug fixer works
 // like an Implement engineer: it edits, runs the build and tests itself and may
 // delegate or look things up; the factory's own check stays the final gate.
-// The Spike fixer edits but has no shell, delegation or network tools.
+// The Spike fixer edits but has no shell, delegation or network tools. The
+// Validate repair agent fixes a failing suite like the Bug fixer, so it gets
+// the Bug fixer's surface.
 func BugRoleClaudeTools(role string) []string {
 	switch role {
 	case "bug-analyst", SpikeInvestigatorProfile:
 		return []string{"Read", "Glob", "Grep"}
-	case "bug-fixer":
+	case "bug-fixer", ValidateRepairProfile:
 		return []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write", "Bash", "Task", "SendMessage", "WebFetch", "WebSearch"}
 	case SpikeFixerProfile:
 		return []string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write"}
@@ -462,6 +464,11 @@ const (
 	SpikeInvestigatorProfile = "spike-investigator"
 	SpikeFixerProfile        = "spike-fixer"
 )
+
+// ValidateRepairProfile is the optional operator grant of the one Validate node
+// that writes: the repair agent. Every other Validate node keeps the read-only
+// validate profile. Without it only the repair agent is refused.
+const ValidateRepairProfile = "validate-repair"
 
 // Bug and Spike roles are optional independent operator grants, never mode
 // aliases. Older configurations remain valid; absent roles block only that
@@ -488,7 +495,7 @@ func validateBugRoleProfile(c *Config, name string, profile ToolProfile) []error
 	}
 	if profile.Codex != nil {
 		want := "read-only"
-		if name == "bug-fixer" || name == SpikeFixerProfile {
+		if name == "bug-fixer" || name == SpikeFixerProfile || name == ValidateRepairProfile {
 			want = "workspace-write"
 		}
 		if c.Agents.Codex == nil || profile.Codex.Sandbox != want {

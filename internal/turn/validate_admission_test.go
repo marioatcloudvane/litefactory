@@ -83,7 +83,7 @@ func (v *validateAdmissionFixture) implementRan(t *testing.T, status string, sta
 		}
 	}
 	def := mustCaptureImplement(t)
-	pin, err := v.f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: def.Profile.ProfileVersion, Path: "implement/implement.dot", Digest: def.Profile.Digest, TeamSnapshotDigest: def.Digest})
+	pin, err := v.f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: def.Profile.Team, Mode: "implement", ProfileVersion: def.Profile.ProfileVersion, Path: "implement/implement.dot", Digest: def.Profile.Digest, TeamSnapshotDigest: def.Digest})
 	mustProgress(t, err)
 	inst, err := v.f.db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: v.f.session.ID, DefinitionID: pin.ID, CurrentNode: def.Profile.Start, StartedAt: implementClock})
 	mustProgress(t, err)
