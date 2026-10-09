@@ -40,7 +40,7 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	b.WriteString("\n**Findings**\n\n")
 	anyOpen := false
 	for _, f := range st.Findings {
-		if f.State == findingSatisfied {
+		if f.State == findingSatisfied || f.State == findingNotReviewed {
 			continue
 		}
 		anyOpen = true
@@ -59,8 +59,26 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		}
 		b.WriteString("\n")
 	}
-	if !anyOpen {
+	roles, items := st.notReviewed()
+	if !anyOpen && len(roles) == 0 {
 		b.WriteString("No finding is open.\n")
+	} else if !anyOpen {
+		b.WriteString("No finding from a reviewer that ran is open.\n")
+	}
+	retry := len(roles) > 0 && st.Suite.Outcome == store.SuitePassed
+	if len(roles) > 0 {
+		b.WriteString("\n**Not reviewed**\n\n")
+		var ids []string
+		for _, role := range roles {
+			fmt.Fprintf(&b, "- Reviewer %s has no usable result: %s\n", role, planTableCell(reviewerReason(st.Reviews, role)))
+			for _, id := range items[role] {
+				ids = append(ids, "`"+id+"`")
+			}
+		}
+		fmt.Fprintf(&b, "\nNot reviewed (%d): %s\n", len(ids), strings.Join(ids, ", "))
+		if retry {
+			b.WriteString("\n**Next step:** " + validateRetryStep(st.Commit) + "\n")
+		}
 	}
 
 	if st.Handback != nil {
@@ -84,7 +102,10 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	commands := st.NextCommands(closeSet)
 	if len(commands) == 0 {
 		b.WriteString("None now. ")
-		if !st.Ready {
+		switch {
+		case retry:
+			b.WriteString("Use the next step under Not reviewed above.")
+		case !st.Ready:
 			b.WriteString("A blocking finding clears only on a new tested snapshot: hand it back to Implement and run Validate again.")
 		}
 		b.WriteString("\n")
@@ -93,6 +114,12 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		b.WriteString("- " + c + "\n")
 	}
 	return b.String()
+}
+
+// validateRetryStep is the one next step for reviews that did not happen: a new
+// Validate run on the same commit reuses the passed suite and repeats the reviews.
+func validateRetryStep(commit string) string {
+	return fmt.Sprintf("Run Validate again on commit `%s` by commenting `%s`: the passed suite is reused and only the reviews run again.", short(commit), ValidateStartCommand)
 }
 
 func kindWord(f ValidateFinding) string {

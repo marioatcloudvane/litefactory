@@ -82,9 +82,15 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 	if cmd.Revision != st.Revision {
 		return refuse("stale", fmt.Sprintf("The command names revision `%s`, but the current report revision is `%s`. Use the commands in the latest report.", cmd.Revision, st.Revision))
 	}
+	notReviewed := func(id string) (ActivityResult, error) {
+		return refuse("wait", fmt.Sprintf("`%s` was not reviewed: its reviewer has no usable result, so it takes no check or choice. %s", id, validateRetryStep(st.Commit)))
+	}
 	switch cmd.Name {
 	case ValidateCheckCommand:
 		f, ok := st.finding(cmd.Criterion)
+		if ok && f.State == findingNotReviewed {
+			return notReviewed(f.ID)
+		}
 		if !ok || !f.Criterion || f.Status != "unverified" {
 			return refuse("wait", fmt.Sprintf("`%s` is not a criterion that awaits an owner check.", cmd.Criterion))
 		}
@@ -97,6 +103,8 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		switch {
 		case !ok:
 			return refuse("wait", fmt.Sprintf("`%s` is not a finding of this run.", cmd.Finding))
+		case f.State == findingNotReviewed:
+			return notReviewed(f.ID)
 		case f.State == findingAwaitingCheck:
 			return refuse("wait", fmt.Sprintf("`%s` awaits your check first: record pass or fail with evidence.", f.ID))
 		case !f.needsChoice():
