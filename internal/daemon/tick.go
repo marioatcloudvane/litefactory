@@ -2236,7 +2236,7 @@ func (d *Daemon) run(
 		syncOverride = &value
 	}
 
-	if handled, err := d.recoverGraphReply(ctx, t, trigger, command, string(mode)); handled || err != nil {
+	if handled, err := d.recoverGraphReply(ctx, t, trigger, command); handled || err != nil {
 		return d.leave(ctx, t, log, "stopped graph reply recovery deferred", err)
 	}
 
