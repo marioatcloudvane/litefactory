@@ -12,7 +12,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // NewGraphBugRuntime activates only the complete supported simplified package.
@@ -61,7 +60,7 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 	if e != nil {
 		return store.WorkflowAdmission{}, e
 	}
-	r.definition, e = capturedWorkflow(ctx, r.opts, req, agent.WorkflowBug, specs, teamsource.CaptureBugParent)
+	r.definition, e = capturedWorkflow(ctx, r.opts, req, agent.WorkflowBug, specs)
 	if e != nil {
 		return store.WorkflowAdmission{}, e
 	}

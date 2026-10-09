@@ -15,18 +15,11 @@ import (
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
-// WorkflowSourceResolver returns owned linked-package bytes, or nil for an
-// unlinked clone. It must never execute a graph or grant package-owned authority.
+// WorkflowSourceResolver returns owned linked-package bytes or a refusal.
+// It must never execute a graph or grant package-owned authority.
 type WorkflowSourceResolver func(context.Context, store.Repo, agent.Workflow, graphexec.Registry) (*teamsource.WorkflowDefinition, error)
 
-func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agent.Workflow, specs graphexec.Registry, builtin func(context.Context, graphexec.Registry) (*teamsource.WorkflowDefinition, error)) (*teamsource.WorkflowDefinition, error) {
-	saved, err := o.DB.WorkflowCaptureForAdmission(ctx, req.SessionID, req.Trigger.CommentID, string(workflow))
-	if err == nil {
-		return restoreWorkflow(ctx, o.DB, saved, workflow, specs)
-	}
-	if !errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrGraphInvariant) {
-		return nil, fmt.Errorf("refuse retained %s workflow: %w", workflow, err)
-	}
+func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 	session, err := o.DB.GetSession(ctx, req.SessionID)
 	if err != nil {
 		return nil, err
@@ -35,27 +28,51 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 	if err != nil {
 		return nil, err
 	}
-	var definition *teamsource.WorkflowDefinition
-	if o.WorkflowSource != nil {
-		definition, err = o.WorkflowSource(ctx, repo, workflow, specs)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		_, bindingErr := o.DB.GetRepositoryTeamBinding(ctx, repo.ID)
-		if bindingErr == nil {
-			return nil, errors.New("linked repository requires workflow source resolver")
-		}
-		if !errors.Is(bindingErr, store.ErrNotFound) {
-			return nil, bindingErr
-		}
+	fail := func(cause error) (*teamsource.WorkflowDefinition, error) {
+		return nil, fmt.Errorf("repository %s requested workflow %s: %w", repo.Path, workflow, cause)
 	}
-	if definition == nil {
-		definition, err = builtin(ctx, specs)
-		if err != nil {
-			return nil, err
+	saved, err := o.DB.WorkflowCaptureForAdmission(ctx, req.SessionID, req.Trigger.CommentID, string(workflow))
+	if err == nil {
+		definition, restoreErr := restoreWorkflow(ctx, o.DB, saved, workflow, specs)
+		if restoreErr != nil {
+			return fail(restoreErr)
 		}
-		definition.Origin = teamsource.WorkflowOrigin{Kind: "builtin", GraphPath: string(workflow) + "/" + string(workflow) + ".dot", GraphFile: string(workflow) + ".dot", Team: definition.Profile.Team}
+		return definition, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrGraphInvariant) {
+		return fail(fmt.Errorf("refuse retained workflow: %w", err))
+	}
+	if o.WorkflowSource == nil {
+		return fail(errors.New("installed workflow source resolver is required"))
+	}
+	definition, err := o.WorkflowSource(ctx, repo, workflow, specs)
+	if err != nil {
+		return fail(err)
+	}
+	if definition == nil || definition.Profile == nil {
+		return fail(errors.New("linked installed workflow definition is missing"))
+	}
+	if definition.Origin.Kind != "local" && definition.Origin.Kind != "fetched" {
+		return fail(errors.New("fresh workflow requires local or fetched installed provenance"))
+	}
+	if err := store.ValidateWorkflowProvenance(store.WorkflowProvenance(definition.Origin)); err != nil {
+		return fail(err)
+	}
+	verified, err := teamsource.CaptureWorkflowIdentity(ctx, teamsource.RetainedFiles(definition.Files), definition.Origin.GraphFile, definition.Origin.Team, workflow, specs)
+	if err != nil {
+		return fail(err)
+	}
+	if verified.Digest != definition.Digest || verified.Profile.Digest != definition.Profile.Digest || len(verified.Files) != len(definition.Files) {
+		return fail(errors.New("installed workflow bytes or identity do not match capture"))
+	}
+	verified.Origin = definition.Origin
+	definition = verified
+	total := len(definition.Origin.TeamConfig)
+	for _, raw := range definition.Files {
+		total += len(raw)
+	}
+	if total > teamsource.MaxSnapshotBytes {
+		return fail(errors.New("workflow and team.config raw capture exceed bounds"))
 	}
 	// Check serialization before definition retention or graph/provider execution.
 	raw, err := json.Marshal(definition.Files)
@@ -63,7 +80,7 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 		return nil, err
 	}
 	if len(raw) > 16<<20 {
-		return nil, errors.New("workflow serialized files exceed 16 MiB capture limit")
+		return fail(errors.New("workflow serialized files exceed 16 MiB capture limit"))
 	}
 	return definition, nil
 }
@@ -131,14 +148,14 @@ func capturedImplement(ctx context.Context, o Options, req Request) (*teamsource
 	if err != nil {
 		return nil, err
 	}
-	return capturedWorkflow(ctx, o, req, agent.WorkflowImplement, specs, teamsource.CaptureImplement)
+	return capturedWorkflow(ctx, o, req, agent.WorkflowImplement, specs)
 }
 func capturedValidate(ctx context.Context, o Options, req Request) (*teamsource.WorkflowDefinition, error) {
 	specs, err := ValidateFlowSpecs()
 	if err != nil {
 		return nil, err
 	}
-	return capturedWorkflow(ctx, o, req, agent.WorkflowValidate, specs, teamsource.CaptureValidate)
+	return capturedWorkflow(ctx, o, req, agent.WorkflowValidate, specs)
 }
 
 func retainedAdmission(ctx context.Context, db *store.DB, req Request, instance store.GraphInstance, workflow string) store.WorkflowAdmission {
@@ -169,4 +186,21 @@ func retainedGraphFile(ctx context.Context, db *store.DB, instanceID int64) (str
 		return "", err
 	}
 	return path.Base(pin.Path), nil
+}
+
+// workflowRequestError keeps admission and persistence refusals actionable even
+// when they happen after capture, while retaining the original wrapped cause.
+func workflowRequestError(ctx context.Context, opts Options, req Request, session store.Session, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	workflow := req.Workflow
+	if workflow == "" {
+		workflow, _ = agent.WorkflowForMode(req.Mode)
+	}
+	repo, err := opts.DB.GetRepo(context.WithoutCancel(ctx), session.RepoID)
+	if err != nil {
+		return fmt.Errorf("repository %d requested workflow %s: %w", session.RepoID, workflow, cause)
+	}
+	return fmt.Errorf("repository %s requested workflow %s: %w", repo.Path, workflow, cause)
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -126,5 +127,43 @@ func TestWorkflowCaptureBoundsCorruptionAndHistoricalReadability(t *testing.T) {
 	}
 	if historical.Provenance.Kind != "" {
 		t.Fatal("historical row mislabeled installed release")
+	}
+}
+
+func TestWorkflowCaptureHistoricalAdmissionRequiresUniqueEvidence(t *testing.T) {
+	for _, count := range []int{0, 1, 2} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			db, launch := captureFixture(t)
+			var instance GraphInstance
+			var launchID int64
+			if count == 0 {
+				var err error
+				instance, err = db.CreateGraphInstance(t.Context(), GraphInstance{DefinitionID: launch.DefinitionID, SessionID: launch.SessionID, CurrentNode: "work", Status: GraphRunning, StartedAt: graphTestTime()})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			for n := 0; n < count; n++ {
+				launch.TriggerID = int64(n + 1)
+				admitted, err := db.AdmitWorkflowLaunch(t.Context(), launch)
+				if err != nil {
+					t.Fatal(err)
+				}
+				instance = admitted.Instance
+				launchID = admitted.LaunchID
+			}
+			saved, err := db.WorkflowCaptureForAdmission(t.Context(), launch.SessionID, 100, "research")
+			if count == 1 {
+				if err != nil || saved.ID != launchID {
+					t.Fatalf("unique history refused: %+v %v", saved, err)
+				}
+			} else if !errors.Is(err, ErrGraphInvariant) || errors.Is(err, ErrNotFound) {
+				t.Fatalf("unverified saved graph treated as fresh: %+v %v", saved, err)
+			}
+			retained, err := db.GetGraphInstance(t.Context(), instance.ID)
+			if err != nil || retained.Status != GraphRunning {
+				t.Fatalf("saved work changed: %+v %v", retained, err)
+			}
+		})
 	}
 }

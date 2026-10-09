@@ -135,7 +135,7 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if err != nil {
 		return result, true, err
 	}
-	definition, err := capturedWorkflow(ctx, o, req, agent.WorkflowPlan, specs, teamsource.CapturePlan)
+	definition, err := capturedWorkflow(ctx, o, req, agent.WorkflowPlan, specs)
 	if err != nil {
 		return result, true, err
 	}
