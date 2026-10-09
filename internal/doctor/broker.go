@@ -10,7 +10,7 @@ import (
 )
 
 // StartResultsBroker reuses the private authenticated submission transport with
-// exactly three doctor communication tools. Its bounded workers are cancelled
+// exactly five diagnosis tools. Repair retains its separate catalog. Workers are cancelled
 // and joined by the invocation owner through Broker.Close.
 func StartResultsBroker(ctx context.Context, directory, attempt string, results *ResultService) (*submission.Broker, error) {
 	if results == nil || results.binding.DoctorAttemptID != attempt {
@@ -29,13 +29,20 @@ func (s *ResultService) handle(ctx context.Context, q submission.Request) (json.
 			input = diagnosisInputSchema(true)
 		}
 
-		return json.Marshal(struct {
-			Tools []submission.ToolSpec `json:"tools"`
-		}{[]submission.ToolSpec{
+		tools := []submission.ToolSpec{
 			{Name: "communication_preflight", Description: "Validate a doctor diagnosis without recording it", InputSchema: input},
 			{Name: "communication_submit", Description: "Retain the validated diagnosis; preserve request identity on reply loss", InputSchema: input},
 			{Name: "communication_receipt", Description: "Recover the exact durable receipt by request ID", InputSchema: json.RawMessage(`{"type":"object","properties":{"request_id":{"type":"string"}},"required":["request_id"],"additionalProperties":false}`)},
-		}})
+		}
+		if s.repairID == "" {
+			tools = append(tools,
+				submission.ToolSpec{Name: "database_query", Description: "Run exactly one SELECT on a separate read-only connection; bounded, redacted columns and rows with truncation", InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string","minLength":1,"maxLength":16384}},"required":["sql"],"additionalProperties":false}`)},
+				submission.ToolSpec{Name: "issue_comments", Description: "Read one redacted page of this attempt's target issue comments; target cannot be changed", InputSchema: json.RawMessage(`{"type":"object","properties":{"page":{"type":"integer","minimum":1,"maximum":10000}},"additionalProperties":false}`)},
+			)
+		}
+		return json.Marshal(struct {
+			Tools []submission.ToolSpec `json:"tools"`
+		}{tools})
 	}
 	if method == "tools/call" {
 		call, err := submission.DecodeToolCall(payload)
@@ -44,6 +51,17 @@ func (s *ResultService) handle(ctx context.Context, q submission.Request) (json.
 		}
 		payload = call.Arguments
 		switch call.Name {
+		case "database_query", "issue_comments":
+			if s.repairID != "" {
+				return nil, errors.New("diagnosis read tools are unavailable to repair")
+			}
+			if err := s.db.CheckResultWriter(ctx, s.binding); err != nil {
+				return nil, err
+			}
+			if call.Name == "database_query" {
+				return s.readResponse(ctx, s.query, payload)
+			}
+			return s.readResponse(ctx, s.commentsPage, payload)
 		case "communication_preflight":
 			method = "preflight"
 		case "communication_submit":
@@ -90,8 +108,8 @@ func (s *ResultService) handle(ctx context.Context, q submission.Request) (json.
 // Item shapes mirror Diagnosis and are checked again by ValidateDiagnosis. An
 // untyped array made the agent guess, and every guess failed preflight.
 const (
-	findingSchema = `{"type":"object","description":"One conclusion.","properties":{"explanation":{"type":"string","minLength":1,"maxLength":8192,"description":"Plain-language conclusion"},"evidence":{"type":"array","maxItems":30,"items":{"type":"string"},"description":"Evidence handles exactly as given in the prepared context (kind:id, e.g. session:229). May be empty only when coverage_gaps is not."},"uncertainty":{"type":"string","minLength":1,"maxLength":8192,"description":"What is not known or not observed"}},"required":["explanation","evidence","uncertainty"],"additionalProperties":false}`
-	gapsSchema    = `{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":8192},"description":"Must contain every collector coverage gap from the prepared context verbatim, character for character; you may add your own."}`
+	findingSchema = `{"type":"object","description":"One conclusion.","properties":{"explanation":{"type":"string","minLength":1,"maxLength":8192,"description":"Plain-language conclusion"},"evidence":{"type":"array","maxItems":30,"items":{"type":"string"},"description":"Cite a live source: file path and lines, database query/table/row, git commit or comment ID. Legacy attempts require their supplied kind:id handles. May be empty only when coverage_gaps is not."},"uncertainty":{"type":"string","minLength":1,"maxLength":8192,"description":"What is not known or not observed"}},"required":["explanation","evidence","uncertainty"],"additionalProperties":false}`
+	gapsSchema    = `{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":8192},"description":"Include every supplied coverage gap verbatim, and report read failures, unavailable sources and truncation."}`
 	textsSchema   = `{"type":"array","maxItems":30,"items":{"type":"string","minLength":1,"maxLength":8192}}`
 	stepSchema    = `{"type":"object","description":"One inert proposed step; never executed by diagnosis.","properties":{"number":{"type":"integer","minimum":1,"description":"1-based position; steps are numbered 1, 2, 3 in order"},"target":{"type":"string","description":"Evidence handle of the observed issue-owned record to change"},"precondition":{"type":"string"},"change":{"type":"string"},"reason":{"type":"string"},"reversibility":{"type":"string"},"rollback":{"type":"string"},"action":{"type":"object","properties":{"kind":{"type":"string"},"before":{"type":"string","description":"Observed current value"},"after":{"type":"string"}},"required":["kind","before","after"],"additionalProperties":false}},"required":["number","target","precondition","change","reason","reversibility","rollback"],"additionalProperties":false}`
 )

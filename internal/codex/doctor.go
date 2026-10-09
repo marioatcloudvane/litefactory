@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
-// DoctorIsolation stays closed: current exec controls disable shell/delegation,
-// but expose no proven deny-all native filesystem/search tool catalog. A
-// read-only sandbox and strict configuration do not prove issue-only reads.
+// DoctorIsolation stays closed pending the owner's authentic isolation decision.
+// Mapping a read-only shell profile is not certification of the installed binary.
 func (r *Runner) DoctorIsolation(context.Context) (string, error) {
 	return "", agent.ErrDoctorIsolationUnverified
 }
@@ -54,8 +54,12 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	defer func() { err = errors.Join(err, os.RemoveAll(home)) }()
 	env := providerprocess.DoctorEnvironment(r.environ, home)
 	env = append(env, "CODEX_HOME="+home)
+	if operation == "" {
+		env = append(env, "GIT_OPTIONAL_LOCKS=0")
+		args = append(args[:len(args)-1], "-c", "permissions.doctor_diagnosis.filesystem."+strconv.Quote(home)+"=\"deny\"", "-")
+	}
 	for _, entry := range r.environ {
-		if strings.HasPrefix(entry, "CODEX_API_KEY=") {
+		if operation != "" && strings.HasPrefix(entry, "CODEX_API_KEY=") {
 			env = append(env, entry)
 		}
 	}
@@ -80,7 +84,23 @@ func (r *Runner) scopedDoctorArguments(request agent.DoctorRequest, operation st
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"exec", "--json", "--strict-config", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "-c", "features.shell_tool=false", "-c", "features.multi_agent=false", "--model", request.Model}
+	args := []string{"exec", "--json", "--strict-config", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--ephemeral", "-c", "features.multi_agent=false", "--model", request.Model}
+	if operation != "" {
+		// Repair changes state only through the broker tools: the sandbox is
+		// read-only and every native tool Codex can switch off is off. Codex
+		// keeps tools it cannot disable (exec, apply_patch), which the
+		// read-only sandbox confines.
+		args = append(args, "--sandbox", "read-only", "-c", "features.shell_tool=false", "-c", "features.unified_exec=false", "-c", "features.view_image=false", "-c", "features.image_generation=false", "-c", `web_search="disabled"`)
+	} else {
+		args = append(args, "-c", "features.shell_tool=true", "-c", "approval_policy=\"never\"", "-c", "default_permissions=\"doctor_diagnosis\"", "-c", "permissions.doctor_diagnosis.network.enabled=false")
+		for _, path := range request.Sandbox.ReadableRoots {
+			args = append(args, "-c", "permissions.doctor_diagnosis.filesystem."+strconv.Quote(path)+"=\"read\"")
+		}
+		args = append(args, "-c", "permissions.doctor_diagnosis.filesystem."+strconv.Quote(request.WorkingDirectory)+"=\"write\"")
+		for _, path := range request.Sandbox.DeniedReadPaths {
+			args = append(args, "-c", "permissions.doctor_diagnosis.filesystem."+strconv.Quote(path)+"=\"deny\"")
+		}
+	}
 	args = append(args, overrides...)
 	return append(args, "-"), nil
 }

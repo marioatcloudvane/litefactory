@@ -1,0 +1,25 @@
+Factory field guide v2 (source-backed; real stuck-case reconciliation requires an owner observation).
+
+Find the live sources
+- The path manifest gives factory_home, daemon_log, database, run_logs and worktree. It contains locations only, never excerpts or a diagnosis. The daemon log is the full, unredacted logs/daemon.log under factory home. Use bounded shell reads and searches, then widen the window when the evidence calls for it.
+- Run event logs are recorded in runs.log_path. The manifest lists the latest 100 paths for this issue. Query runs joined to sessions by session_id to find older logs and sibling records. Missing paths and failed reads are coverage gaps.
+- sessions.task_ref identifies the repository issue. sessions.worktree_path names its task worktree. Use git -C <worktree> status, log and diff. Optional locks are disabled by the launcher. The worktree may be absent; do not create one.
+- database_query accepts exactly one SELECT, on any table, with a short timeout, row and byte limits. Discover columns with SELECT on sqlite_schema, not PRAGMA. Use joins and small LIMITs. Truncated results are incomplete; narrow or page the query. The factory opens a separate read-only, query-only connection; never request writes. Prefer this tool over an external SQLite reader because the live database is in WAL mode.
+- issue_comments returns one bounded, redacted page from the attempt's fixed target issue. Follow next_page when nonzero. A truncated body is a gap. You cannot choose another target. Refused, rate-limited, busy and missing reads are errors, never evidence of healthy state.
+- The only native tool is the sandboxed shell: use cat, sed -n, rg and git there. Native Read, Grep and Glob are unavailable. Credential locations and networking are denied; only private scratch is writable. Do not attempt repairs or bypass the sandbox.
+
+Key database tables
+sessions: issue identity, worktree, state and admission locks.
+runs: historical execution status, session_id and log_path.
+graph_instances: graph lifetime and retained workflow state.
+graph_dispatches: queued and dispatched graph work.
+graph_node_attempts: individual node attempts and their outcomes.
+implement_stories: frozen implementation scope and story progress.
+schedules: deferred work that can outlive a run.
+comments: recorded issue input and classification.
+watermarks: ordered normal-comment processing cursor.
+report_deliveries: confirmed, pending and possibly-sent publication.
+Segments identify a session's provider; doctor attempts/history are independent of workflow runs.
+
+Interpretation
+A failed run is historical evidence, not proof that the daemon is wedged now. Process liveness alone does not prove progress. Correlate log timestamps, database identities and git state; distinguish current state from past incidents that may already be repaired. State every unavailable source and uncertainty. Schedules and graph attempts can retain deferred work independently. Never advance a watermark. A possibly-sent report remains uncertain until its destination and bot provenance are confirmed; blind replay is not proven safe. Issue 406 was named as a stuck case, but no authentic live capture is implied by this guide. Diagnosis cannot change code, configuration, migrations, authority artifacts or workflow rules. Diagnosis presents a proposal; only the owner's /doctor apply can authorize repairs.

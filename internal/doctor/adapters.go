@@ -52,11 +52,16 @@ func (a *Adapters) Run(ctx context.Context, invocation Invocation, results *Resu
 		return InvocationOutcome{}, err
 	}
 	defer func() { err = errors.Join(err, broker.Close()) }()
-	spec, err := agent.NewMCPLaunchSpec(a.Executable, broker.DescriptorPath(), invocation.ID, "communication_preflight", "communication_submit", "communication_receipt")
+	spec, err := agent.NewMCPLaunchSpec(a.Executable, broker.DescriptorPath(), invocation.ID, agent.DoctorToolNames()...)
 	if err != nil {
 		return InvocationOutcome{}, err
 	}
-	request := agent.DoctorRequest{Attempt: invocation.ID, Model: invocation.ConfiguredModel, Prompt: invocation.Prompt, WorkingDirectory: invocation.WorkingDirectory, UsageAttemptID: invocation.MeterAttempt.ID, MCPLaunch: spec, Usage: invocation.Usage}
+	operatorHome, err := os.UserHomeDir()
+	if err != nil {
+		return InvocationOutcome{}, err
+	}
+	profile := &agent.DoctorSandbox{Version: agent.DoctorSandboxVersion, ScratchDirectory: invocation.WorkingDirectory, ReadableRoots: []string{"/"}, DeniedReadPaths: a.Paths.DoctorCredentialPaths(operatorHome)}
+	request := agent.DoctorRequest{Attempt: invocation.ID, Model: invocation.ConfiguredModel, Prompt: invocation.Prompt, WorkingDirectory: invocation.WorkingDirectory, UsageAttemptID: invocation.MeterAttempt.ID, MCPLaunch: spec, Usage: invocation.Usage, Sandbox: profile}
 	if err := request.Validate(); err != nil {
 		return InvocationOutcome{}, err
 	}

@@ -79,6 +79,7 @@ func (s *Service) collectLocal(ctx context.Context, ref naming.Ref, e *store.Doc
 		e.Gaps = append(e.Gaps, "Worktree git observation refused or unavailable")
 		return
 	}
+	s.collectBranchInputs(ctx, ref, sources, binary, observation.Head, e)
 	s.collectWorktreeFiles(ctx, ref, sources, observation.Status, e)
 	e.Records = append(e.Records, store.DoctorEvidenceRecord{CapturedAt: time.Now().UTC(), Kind: "worktree", ID: ref.String(), State: observation.Head, Content: observation.Unpushed + "\n" + observation.Status})
 }
@@ -274,4 +275,42 @@ func (s *Service) collectLiveness(e *store.DoctorEvidence) {
 	if err := f.Close(); err != nil {
 		e.Gaps = append(e.Gaps, "Daemon singleton observation close failed")
 	}
+}
+
+// collectBranchInputs binds synchronization to the locally observed base/parent
+// commit. No fetch is performed during diagnosis.
+func (s *Service) collectBranchInputs(ctx context.Context, ref naming.Ref, sources store.DoctorLocalSources, binary *git.Binary, head string, e *store.DoctorEvidence) {
+	session, err := s.DB.GetSessionByTaskRef(ctx, ref.String())
+	if err != nil {
+		e.Gaps = append(e.Gaps, "Branch synchronization session unavailable")
+		return
+	}
+	repo, err := s.DB.GetRepo(ctx, session.RepoID)
+	if err != nil {
+		e.Gaps = append(e.Gaps, "Branch synchronization repository unavailable")
+		return
+	}
+	base := repo.BaseBranch
+	if story, err := s.DB.ImplementStoryByWorkerSession(ctx, session.ID); err == nil {
+		parent, err := s.DB.GetSessionByTaskRef(ctx, story.Parent)
+		if err != nil || parent.Branch == "" {
+			e.Gaps = append(e.Gaps, "Branch synchronization parent unavailable")
+			return
+		}
+		base = parent.Branch
+	} else if !errors.Is(err, store.ErrNotFound) {
+		e.Gaps = append(e.Gaps, "Branch synchronization parent lookup failed")
+		return
+	}
+	clone, err := binary.Open(ctx, sources.ClonePath)
+	if err != nil {
+		e.Gaps = append(e.Gaps, "Branch synchronization clone unavailable")
+		return
+	}
+	commit, err := clone.RevParse(ctx, "refs/remotes/origin/"+base, git.RevParseOptions{})
+	if err != nil {
+		e.Gaps = append(e.Gaps, "Branch synchronization base unavailable; no fetch performed")
+		return
+	}
+	e.Records = append(e.Records, store.DoctorEvidenceRecord{CapturedAt: time.Now().UTC(), Kind: "branch", ID: sources.Branch, State: head, Identity: commit, Content: "Observed base/parent: " + base + "; no fetch performed"})
 }
