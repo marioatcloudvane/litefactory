@@ -2,23 +2,38 @@
 
 ## Request
 
-Overview of blockers to adding non-Go languages, and first teams: python-fastapi-stack, .NET C# web, Swift iOS.
+Challenge the prior scope and assumptions; identify misplaced hard dependencies on teams.
 
 ## Decisions
 
-- **D-1** — Scope is: multi-team release tooling, stack-neutral roles, stack profile wiring, wider Plan guidance, Spike manifests, three new teams. Go team unchanged.
-- **D-2** — Owner: stack profile lives in the team with per-field repository override.
-- **D-3** — Owner: one shared neutral role set; each team adds its own stack guidance.
-- **D-4** — Owner: team selection per repository already exists (#317); new teams are linked in, no new setting.
-- **D-5** — Owner: .NET team uses Blazor; Python team uses React + TypeScript + Vite.
-- **D-6** — Owner: Swift team ships as a release now; live run later on macOS. No automated per-team tests; Python and .NET proof is a manual live run.
+- **D-1** — Revised scope preserves generic installed-team admission and adds multi-team releases, linked-team rights catalogues, neutral guidance, profile wiring and manifest recognition.
+- **D-2** — Owner: team defaults supply stack settings with per-field repository override.
+- **D-3** — Owner: one shared neutral role set receives each team's stack guidance.
+- **D-4** — Owner and verified source: existing repository install/link selection is reused without a new selection setting.
+- **D-5** — Owner: .NET uses Blazor and FastAPI uses React, TypeScript and Vite.
+- **D-6** — Owner: Swift ships as a release with live macOS proof deferred, and no automated per-team suites are added.
+- **D-7** — Proposed: effective profiles are versioned, validated and retained at workflow admission, with list replacement and explicit false/empty overrides.
+- **D-8** — Proposed: factory workflow validation, rights grants, dependency safeguards and owner approval remain independent of team slug.
+- **D-9** — Proposed: profiles name commands, host prerequisites, guidance and requested runtime access, without secrets or environment values.
 
 
 ## Assumptions
 
-- **A-1** — Stack settings travel with the team, consistent with #317.
-- **A-2** — Tool stack suggestions come from model knowledge (cutoff June 2026), not a web check.
-- **A-4** — Shipped Go release stays as-is.
+- **A-1** — Team ownership of profile defaults is an owner decision, but profile storage and resolution are new work because existing team.config only maps workflows.
+- **A-2** — Earlier tool version suggestions are unverified and are not fixed acceptance requirements; supported versions must be recorded in release metadata before shipping.
+- **A-4** — Go compatibility means preserved behaviour and immutable historical releases, not unchanged current prompt source.
+- **A-5** — The original end-to-end acceptance requirement is retained as manual proof; the owner declined automated per-team suites, not runtime or compatibility verification.
+- **A-6** — No global edits assumes preinstalled runtime tools and host capabilities; runtime provisioning and credentials are outside this issue.
+
+
+## Open questions
+
+### Q-7 — How should a linked stack profile receive permission for caches, network and extra environment names?
+
+_Asked of: Technical Questions_
+
+- **a** — Explicitly approve the effective profile for this repository when linking; retain that approval and renew it only when access expands, while factory-protected paths, credentials and read-only modes stay protected. Recommended: supports profile-only setup without silently trusting package text.  *(recommended)*
+- **b** — Profiles only request access within existing global operator grants; reject requests outside them. Smaller change, but some Python/.NET setups will still require global configuration edits.
 
 ## Research documents
 
