@@ -114,3 +114,11 @@ team.config is parsed as a strict YAML workflow mapping; the owner asked for JSO
 Evidence:
 
 - `internal/teampackage/format.go:285`
+
+## F-13
+
+Catalogue is JSON listing releases with files and a checksum; the package holds the YAML team config. A profile held only in the catalogue entry would not be covered by the release checksum.
+
+Evidence:
+
+- `internal/teampackage/format.go:52`

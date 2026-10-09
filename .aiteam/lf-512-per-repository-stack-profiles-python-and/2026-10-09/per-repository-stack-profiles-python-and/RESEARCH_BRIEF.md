@@ -19,6 +19,8 @@ Settle Q7 using an allowlist in each team's JSON and retain the corrected multi-
 - **D-11** — Scope: team allowlists supply command rules, cache roots, environment names and network settings while factory-protected limits and operator restrictions take precedence.
 - **D-12** — Scope: operator-controlled repository overrides are validated and retained at admission; agents and check recipes cannot expand runtime access.
 - **D-13** — Scope: undeclared commands follow existing approval policy, missing fields add no grants, and legacy profile-free releases retain existing behaviour.
+- **D-14** — Owner Q8: home-directory caches granted silently on link; network and other access needs operator confirmation at link time.
+- **D-15** — Owner Q11: network off for read/plan roles, on for Implement and package-restore checks.
 
 
 ## Assumptions
@@ -29,39 +31,25 @@ Settle Q7 using an allowlist in each team's JSON and retain the corrected multi-
 - **A-5** — The original end-to-end acceptance requirement is retained as manual proof; the owner declined automated per-team suites, not runtime or compatibility verification.
 - **A-6** — No global edits assumes preinstalled runtime tools and host capabilities; runtime provisioning and credentials are outside this issue.
 - **A-7** — Withdrawn as settled: silent grant on link was my reading of Q7, now put to the owner as Q-8.
+- **A-8** — Research web reading uses Claude's web tools under existing mode permissions, not the sandbox network switch; the profile does not change it. Not verified for Codex.
 
 
 ## Open questions
 
-### Q-8 — Does linking a team grant its network and cache access silently, or must the operator confirm?
+### Q-13 — Given the Codex gap, do non-Go teams ship on Codex now?
 
 _Asked of: Product Owner Questions_
 
-- **a** — Silent for cache folders under the home directory; operator confirms at link time for network and anything else. Recommended: balanced.  *(recommended)*
-- **b** — Always silent, as the team author declares it. Simplest, but any team publisher sets your sandbox.
-- **c** — Always confirm at link time. Safest, adds a step per team.
+- **a** — Yes. Ship on both; document that Codex has sandbox limits only. Recommended: matches the done-when.  *(recommended)*
+- **b** — Ship on Claude first; enable Codex for non-Go teams once command control exists.
+- **c** — Ship on both, but on Codex keep network off for non-Go Implement unless the operator confirms each run.
 
-### Q-10 — Accept Codex runs on non-Go teams with only sandbox limits, not command rules?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Yes. Document it and rely on the sandbox. Recommended: it is all Codex offers.  *(recommended)*
-- **b** — No. Ship non-Go teams on Claude first and add Codex later.
-
-### Q-11 — How is network access set for roles in the new teams?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Off for roles that only read or plan; on only for Implement and checks that restore packages. Recommended.  *(recommended)*
-- **b** — On for all roles of the team, as the profile says.
-- **c** — Off everywhere; operators pre-fetch packages. Safest, breaks the profile-only goal.
-
-### Q-9 — Where does the profile live, given team config is YAML and you said JSON?
+### Q-12 — Confirm the profile is a checksummed JSON file inside the package, mirrored in the catalogue?
 
 _Asked of: Technical Questions_
 
-- **a** — A separate JSON file in the team package, listed in the manifest and covered by its digest. Recommended: team config stays untouched.  *(recommended)*
-- **b** — Extend team config with a profile section in YAML. One file, but a package format change.
+- **a** — Yes. Package file is the truth; catalogue shows a summary; install fails on mismatch. Recommended: grants cannot be changed by editing the catalogue alone.  *(recommended)*
+- **b** — No. Catalogue JSON is the only source and install writes YAML from it. Simpler, but the catalogue then decides grants without a checksum.
 
 ## Research documents
 
