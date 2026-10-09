@@ -12,7 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorConversation, id, provider, model string, evidence store.DoctorEvidence, instruction string, failure func(error) (Conversation, error)) (_ Conversation, err error) {
+func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorConversation, id, provider, model string, manifest PathManifest, instruction string, failure func(error) (Conversation, error)) (_ Conversation, err error) {
 	memory, e := s.DB.DoctorAttempts(ctx, c.ID)
 	if e != nil {
 		return failure(e)
@@ -35,7 +35,7 @@ func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorC
 	if e != nil {
 		return failure(e)
 	}
-	prompt, e := BuildPrompt(PromptContext{Instructions: instruction, Target: r.Target.String(), Evidence: evidence, Memory: prior, CurrentDiagnosis: current, CurrentProposal: proposal, MemoryOmissions: "Latest 30 attempts only; prior evidence snapshots omitted; current findings and proposal retained separately"})
+	prompt, e := BuildPrompt(PromptContext{Instructions: instruction, Target: r.Target.String(), Manifest: manifest, Memory: prior, CurrentDiagnosis: current, CurrentProposal: proposal, MemoryOmissions: "Latest 30 attempts only; prior evidence snapshots omitted; current findings and proposal retained separately"})
 	if e != nil {
 		return failure(e)
 	}
@@ -53,11 +53,12 @@ func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorC
 	if e != nil {
 		return failure(e)
 	}
-	defer func() { err = errors.Join(err, os.Remove(dir)) }()
-	results, e := BindResults(ctx, s.DB, id, evidence, s.Redactor)
+	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
+	results, e := BindResults(ctx, s.DB, id, manifest.evidenceIdentity(), s.Redactor)
 	if e != nil {
 		return failure(e)
 	}
+	results.comments = s.Comments
 	runCtx, runCancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	if s.active == nil {

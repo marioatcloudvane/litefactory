@@ -146,7 +146,7 @@ func TestDoctorResultServiceAdoptionReplayAndStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "A stranded run mentions doctor-secret-canary-001", Evidence: []string{"run:42"}, Uncertainty: "Process state unobserved"}}, CoverageGaps: e.Gaps, Proposal: []RepairStep{{Number: 1, Target: "run:42", Precondition: "Still running", Change: "Record interrupted", Reason: "Process absent", Reversibility: "Restore saved state", Rollback: "Restore backed-up row"}}}}
+	input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "A stranded run mentions doctor-secret-canary-001", Evidence: []string{"run:42"}, Uncertainty: "Process state unobserved"}}, CoverageGaps: e.Gaps, Proposal: []RepairStep{{Number: 1, Target: "run:42", Precondition: "Still running", Change: "Record interrupted", Reason: "Process absent", Reversibility: "Restore saved state", Rollback: "Restore backed-up row", Action: &store.DoctorRepairAction{Kind: "stop_run", Before: "running", After: "failed"}}}}}
 	data, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)

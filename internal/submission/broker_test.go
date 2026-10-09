@@ -347,6 +347,34 @@ func TestBrokerOptionsRejectUnsafeScope(t *testing.T) {
 	}
 }
 
+func TestBrokerRepairToolTimeoutBound(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		repair  bool
+		timeout time.Duration
+		ok      bool
+	}{
+		{"workflow keeps one minute", false, submission.RepairToolTimeout, false},
+		{"workflow one minute", false, time.Minute, true},
+		{"repair ten minutes", true, submission.RepairToolTimeout, true},
+		{"repair above bound", true, submission.RepairToolTimeout + time.Second, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b, err := submission.Start(t.Context(), submission.Options{Directory: privateSubmissionDir(t), AllowTools: true, Handler: successfulSubmissionHandler, MaxWorkers: 1, RequestTimeout: tc.timeout, RepairTools: tc.repair})
+			if b != nil {
+				if closeErr := b.Close(); closeErr != nil {
+					t.Error(closeErr)
+				}
+			}
+			if (err == nil) != tc.ok {
+				t.Fatalf("Start accepted=%v, want %v: %v", err == nil, tc.ok, err)
+			}
+		})
+	}
+}
+
 func TestBrokerConcurrentSubmissionsReuseStableCorrelation(t *testing.T) {
 	t.Parallel()
 	b := startSubmissionBroker(t, successfulSubmissionHandler)

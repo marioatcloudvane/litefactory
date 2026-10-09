@@ -7,11 +7,12 @@ import (
 	"time"
 )
 
-// DoctorRepairIsolation is separately closed until exact repair-tool isolation
-// and authentication are observed for this binary. Diagnosis evidence is not
-// sufficient, and native filesystem/SQL/lifecycle operations remain forbidden.
-func (r *Runner) DoctorRepairIsolation(context.Context) (string, error) {
-	return "", agent.ErrDoctorIsolationUnverified
+// DoctorRepairIsolation identifies the scoped launcher, which disables native tools.
+func (r *Runner) DoctorRepairIsolation(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return "typed-repair-broker-only", nil
 }
 
 // RunDoctorRepair validates the factory-bound manifest operation before the

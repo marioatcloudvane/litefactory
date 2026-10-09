@@ -38,9 +38,6 @@ func (e *DoctorRepairEnvironment) Preflight(ctx context.Context, ref naming.Ref)
 	if e.DB == nil || e.Paths.LockPath() == "" || ref.Issue <= 0 {
 		return errors.New("doctor exclusion configuration unavailable")
 	}
-	if preflight, ok := e.Replacement.(interface{ PreflightDoctorReplacement(context.Context) error }); ok {
-		return preflight.PreflightDoctorReplacement(ctx)
-	}
 	return nil
 }
 
@@ -83,6 +80,9 @@ func (e *DoctorRepairEnvironment) Exclude(ctx context.Context, ref naming.Ref, o
 		return "", errors.Join(liveErr, err)
 	}
 	if err = ctx.Err(); err != nil {
+		return "", errors.Join(err, lock.Close())
+	}
+	if err = e.DB.CheckDoctorTargetStopped(ctx, ref.String()); err != nil {
 		return "", errors.Join(err, lock.Close())
 	}
 	e.lock = lock

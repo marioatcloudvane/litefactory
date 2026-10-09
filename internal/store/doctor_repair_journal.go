@@ -16,7 +16,7 @@ func doctorRepairAuthority(ctx context.Context, tx *sql.Tx, id string) (DoctorRe
 	if err != nil {
 		return r, err
 	}
-	if n != 1 || r.Fenced || r.State == "needs_review" || r.State == "verified" || r.State == "restart_pending" || r.State == "recovered" || r.State == "stopped" {
+	if n != 1 || r.Fenced || r.State == "needs_review" || r.State == "verified" || r.State == "restart_pending" || r.State == "recovered" || r.State == "stopped" || r.State == "completed" || r.State == "failed" {
 		return r, ErrDoctorFenced
 	}
 	return r, nil

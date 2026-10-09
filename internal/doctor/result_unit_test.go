@@ -62,7 +62,7 @@ func TestDoctorValidateDiagnosis(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := store.DoctorEvidence{TaskRef: "github:owner/repo#406", Records: []store.DoctorEvidenceRecord{{Kind: "run", ID: "42", State: "running"}}, Gaps: []string{"logs missing"}}
-			d := doctor.Diagnosis{Findings: []doctor.Finding{{Explanation: "Run remains marked running", Evidence: []string{"run:42"}, Uncertainty: "Cannot determine process liveness"}}, CoverageGaps: []string{"logs missing"}, Proposal: []doctor.RepairStep{{Number: 1, Target: "run:42", Precondition: "running and process confirmed absent", Change: "mark interrupted", Reason: "retain honest interrupted outcome", Reversibility: "restore recorded state", Rollback: "restore backed-up run row"}}}
+			d := doctor.Diagnosis{Findings: []doctor.Finding{{Explanation: "Run remains marked running", Evidence: []string{"run:42"}, Uncertainty: "Cannot determine process liveness"}}, CoverageGaps: []string{"logs missing"}, Proposal: []doctor.RepairStep{{Number: 1, Target: "run:42", Action: &store.DoctorRepairAction{Kind: "stop_run", Before: "running", After: "failed"}, Precondition: "running and process confirmed absent", Change: "mark interrupted", Reason: "retain honest interrupted outcome", Reversibility: "restore recorded state", Rollback: "restore backed-up run row"}}}
 			tt.change(&d)
 			err := doctor.ValidateDiagnosis(d, e)
 			if (err == nil) != tt.valid {
@@ -81,7 +81,7 @@ func TestDoctorBuildPrompt(t *testing.T) {
 		valid  bool
 	}{
 		{"injection in saved memory/escaped data", func(*doctor.PromptContext) {}, true},
-		{"foreign evidence identity/rejected", func(c *doctor.PromptContext) { c.Evidence.TaskRef = "github:owner/repo#999" }, false},
+		{"foreign evidence identity/rejected", func(c *doctor.PromptContext) { c.Manifest.TaskRef = "github:owner/repo#999" }, false},
 		{"empty instructions/rejected", func(c *doctor.PromptContext) { c.Instructions = "" }, false},
 		{"oversized instructions/rejected", func(c *doctor.PromptContext) { c.Instructions = strings.Repeat("x", 32769) }, false},
 		{"oversized memory window/rejected", func(c *doctor.PromptContext) { c.Memory = make([]store.DoctorAttempt, 31) }, false},
@@ -89,7 +89,7 @@ func TestDoctorBuildPrompt(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := doctor.PromptContext{Target: "github:owner/repo#406", Instructions: "Explain why this issue stopped", Evidence: store.DoctorEvidence{TaskRef: "github:owner/repo#406", Gaps: []string{"logs missing"}}, Memory: []store.DoctorAttempt{{OwnerText: attack}}}
+			c := doctor.PromptContext{Target: "github:owner/repo#406", Instructions: "Explain why this issue stopped", Manifest: doctor.PathManifest{Live: true, TaskRef: "github:owner/repo#406", Gaps: []string{"logs missing"}}, Memory: []store.DoctorAttempt{{OwnerText: attack}}}
 			tt.change(&c)
 			got, err := doctor.BuildPrompt(c)
 			if (err == nil) != tt.valid {
