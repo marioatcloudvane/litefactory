@@ -72,6 +72,11 @@ type WorkflowPolicy struct {
 	// permission profile exactly as the daemon resolved it.
 	DefaultAccess string
 
+	// WriteGrant replaces the run's resolved profile with a mode's dedicated
+	// write grant for an agent node whose access is write, before that access
+	// is applied. Nil keeps the resolved profile as the write ceiling.
+	WriteGrant func(Request) (Request, error)
+
 	// ResultPerNode gives every agent node of a graph instance an application
 	// result of its own. Without it a graph instance authors one result that each
 	// agent stage revises, which is what a single-role mode wants.

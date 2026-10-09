@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -33,6 +34,24 @@ type ValidateRuntime struct {
 	Bind func(ctx context.Context, opts Options, req Request, entry store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error)
 	// Head overrides the integration-branch head read; nil reads the remote.
 	Head func(ctx context.Context, opts Options, session store.Session) (string, error)
+	// Permissions resolves the operator's validate-repair grant, the only
+	// write grant a Validate node can receive. Nil refuses the repair node.
+	Permissions func(agent.Kind, string) (BugRolePermissions, error)
+}
+
+// validateRepairGrant replaces the read-only validate profile of a write node
+// with the operator's validate-repair grant, the way a Bug node receives its
+// role's grant. A missing grant refuses the node instead of widening the run.
+func validateRepairGrant(resolve func(agent.Kind, string) (BugRolePermissions, error), req Request) (Request, error) {
+	if resolve == nil {
+		return req, fmt.Errorf("missing %s permission profile", config.ValidateRepairProfile)
+	}
+	permissions, err := resolve(req.Agent, config.ValidateRepairProfile)
+	if err != nil {
+		return req, err
+	}
+	req.Tools, req.AllowedTools, req.CodexSandbox, req.ToolProfile = permissions.Tools, permissions.AllowedTools, permissions.Sandbox, config.ValidateRepairProfile
+	return req, nil
 }
 
 // IntegrationHead reads the full commit the parent's integration branch is at on
@@ -452,6 +471,9 @@ func (rt *validateRuntimeState) entryOf(ctx context.Context, instanceID int64) (
 // driver, with the host's bindings for this entry.
 func (rt *validateRuntimeState) execute(ctx context.Context, definition *teamsource.WorkflowDefinition, admission store.WorkflowAdmission) (Result, error) {
 	policy := ValidateWorkflowPolicy()
+	policy.WriteGrant = func(req Request) (Request, error) {
+		return validateRepairGrant(rt.opts.Validate.Permissions, req)
+	}
 	policy.RegisterEffects = func(specs *graphexec.Registry, activities *ActivityRegistry, profile *graphexec.Profile, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), _ func() (string, string, error), _ WorkflowEnv) error {
 		suite, flow, err := rt.opts.Validate.Bind(ctx, rt.opts, rt.req, rt.entry)
 		if err != nil {

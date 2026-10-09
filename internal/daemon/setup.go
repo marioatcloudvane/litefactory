@@ -445,7 +445,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// from the daemon's own pool, which exists only once the daemon is built
 	// below, so the slots are bound to it then.
 	validateSlots := &runSlots{}
-	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Forge: client, OwnerID: identities.OwnerUserID, Slots: validateSlots})
+	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Forge: client, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(toolProfiles, toolCeiling)})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}

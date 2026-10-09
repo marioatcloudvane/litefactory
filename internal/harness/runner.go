@@ -435,7 +435,20 @@ func (r *Runner) validateRequest(req agent.Request) error {
 			return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 		}
 	}
-	if req.Mode == "validate" {
+	if req.Mode == "validate" && req.Workflow != agent.WorkflowBug && req.Permissions.Profile == config.ValidateRepairProfile {
+		// The Validate repair agent is bounded by its own role surface; every
+		// other Validate run keeps the read-only check below.
+		ts := toolSurface(req)
+		if len(ts.Tools) == 0 {
+			return invalidRequest("%s requires explicit tools", config.ValidateRepairProfile)
+		}
+		allowed := config.BugRoleClaudeTools(config.ValidateRepairProfile)
+		for _, tool := range append(append([]string{}, ts.Tools...), ts.AllowedTools...) {
+			if !slices.Contains(allowed, config.ClaudeToolName(tool)) {
+				return invalidRequest("%s cannot grant tool %q", config.ValidateRepairProfile, tool)
+			}
+		}
+	} else if req.Mode == "validate" {
 		ts := toolSurface(req)
 		if len(ts.Tools) == 0 {
 			return fmt.Errorf("%w: Validate requires explicit read-only tools", ErrInvalidRequest)

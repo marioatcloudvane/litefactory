@@ -286,7 +286,7 @@ func renderSpikeIssue(i *agentresult.SpikeIssueView) string {
 
 func spikeNextStep(profile *graphexec.Profile, node, kind string) string {
 	if kind == "final" {
-		return "this Spike is finished and its note is saved on the branch. A hand-back is advice only: comment `/research` or `/plan` if you want it taken further."
+		return "this Spike is finished and its note is saved on the branch. A hand-back is advice only: comment `/research <what to look into>` or `/plan <what to plan>` if you want it taken further."
 	}
 	return researchNextStep(profile, node, kind)
 }

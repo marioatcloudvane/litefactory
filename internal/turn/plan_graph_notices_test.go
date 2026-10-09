@@ -138,7 +138,7 @@ func TestPlanNotices_FinalApprovalIsConfirmedOnceOnTheParent(t *testing.T) {
 	if len(confirmations) != 1 {
 		t.Fatalf("%d confirmations on the parent, want 1", len(confirmations))
 	}
-	for _, want := range []string{"| `story-001` | Bounded Plan |", "`/implement`"} {
+	for _, want := range []string{"| `story-001` | Bounded Plan |", "`/implement implement the approved stories`"} {
 		if !strings.Contains(confirmations[0], want) {
 			t.Fatalf("confirmation lacks %q:\n%s", want, confirmations[0])
 		}

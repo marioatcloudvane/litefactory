@@ -21,7 +21,7 @@
         },
         {
           "path": "bug/bug-fixer.md",
-          "sha256": "5efacfa48c31b49611d356ae52f15a24520beda4d55ea7d67cf4a27fb0e31d9d"
+          "sha256": "3fc81396821bf1898527b2d1ec6d9a9134fb5aa636046c3a12e0028a2c55cd74"
         },
         {
           "path": "bug/bug.dot",
@@ -89,7 +89,7 @@
         },
         {
           "path": "bug/skills/team-guidance/litefactory.md",
-          "sha256": "b3a17e8f358802ead1af0667948b76aa01308763f9ee815af75ddf16ab84a244"
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
         },
         {
           "path": "bug/skills/team-guidance/planning-responsibilities.md",
@@ -189,7 +189,7 @@
         },
         {
           "path": "implement/skills/team-guidance/litefactory.md",
-          "sha256": "b3a17e8f358802ead1af0667948b76aa01308763f9ee815af75ddf16ab84a244"
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
         },
         {
           "path": "implement/skills/team-guidance/planning-responsibilities.md",
@@ -233,7 +233,7 @@
         },
         {
           "path": "implement/story-worker.md",
-          "sha256": "5b56d9dd10220af9e67b315058ad93da9878c920d3de32fc0f50ec48ae5cb38c"
+          "sha256": "0e808bfb70010aecad881b438f1e0c5b78eba60628e9ab7db8b460cb535fcf77"
         },
         {
           "path": "plan/plan-acceptance.md",
@@ -337,7 +337,7 @@
         },
         {
           "path": "plan/skills/team-guidance/litefactory.md",
-          "sha256": "b3a17e8f358802ead1af0667948b76aa01308763f9ee815af75ddf16ab84a244"
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
         },
         {
           "path": "plan/skills/team-guidance/planning-responsibilities.md",
@@ -449,7 +449,7 @@
         },
         {
           "path": "research/skills/team-guidance/litefactory.md",
-          "sha256": "b3a17e8f358802ead1af0667948b76aa01308763f9ee815af75ddf16ab84a244"
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
         },
         {
           "path": "research/skills/team-guidance/planning-responsibilities.md",
@@ -545,7 +545,7 @@
         },
         {
           "path": "spike/skills/team-guidance/litefactory.md",
-          "sha256": "b3a17e8f358802ead1af0667948b76aa01308763f9ee815af75ddf16ab84a244"
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
         },
         {
           "path": "spike/skills/team-guidance/planning-responsibilities.md",
@@ -649,7 +649,7 @@
         },
         {
           "path": "validate/skills/team-guidance/litefactory.md",
-          "sha256": "b3a17e8f358802ead1af0667948b76aa01308763f9ee815af75ddf16ab84a244"
+          "sha256": "ece63ceecb057520b7a1035b6e26347f54cf38c3a699ab79dae934d28a9820bb"
         },
         {
           "path": "validate/skills/team-guidance/planning-responsibilities.md",
@@ -728,7 +728,7 @@
           "sha256": "7ee97b43eb84431c5c527da08a4b08d525a0d9f963061ba2551ec722904644d6"
         }
       ],
-      "checksum": "a279aafdbd2528d88726be6634106616ee1977044f6c5f9dc309f6490aad1415"
+      "checksum": "e94d06adb77ab659d5c16d5799bae9d5e0f377a34338409cd920a6e39f39eb7c"
     }
   ]
 }

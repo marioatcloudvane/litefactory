@@ -27,6 +27,9 @@ type ValidateRuntimeConfig struct {
 	Forge   ValidateForge
 	OwnerID int64
 	Slots   ValidateSlots
+	// Permissions resolves the operator's validate-repair grant for the one
+	// Validate node that writes. Nil refuses that node; reviewers never use it.
+	Permissions func(agent.Kind, string) (BugRolePermissions, error)
 }
 
 // NewValidateRuntime builds the production host bindings of the Validate graph.
@@ -47,6 +50,7 @@ func NewValidateRuntime(ctx context.Context, opts Options, cfg ValidateRuntimeCo
 		Bind: func(ctx context.Context, opts Options, req Request, entry store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
 			return bindValidate(ctx, opts, req, entry, cfg)
 		},
+		Permissions: cfg.Permissions,
 	}, nil
 }
 

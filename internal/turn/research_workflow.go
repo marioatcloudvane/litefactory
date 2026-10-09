@@ -176,6 +176,11 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				nodeReq.resultPass = node.Name
 			}
 			nodeReq.noQuestions = policy.Questions && !graphexec.ResponseReachesOwnerWait(definition.Profile, node.Name, policy.Control)
+			if policy.WriteGrant != nil && nodeAccessLevel(policy, node) == "write" {
+				if nodeReq, err = policy.WriteGrant(nodeReq); err != nil {
+					return w.finish(ctx, w.failed(ctx, scope, GraphNodeResult{}, fmt.Errorf("node %q write access: %w", node.Name, err), true))
+				}
+			}
 			if nodeReq, err = applyNodeAccess(policy, node, nodeReq); err != nil {
 				return w.finish(ctx, w.failed(ctx, scope, GraphNodeResult{}, err, true))
 			}

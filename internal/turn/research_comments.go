@@ -426,7 +426,7 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 	switch kind {
 	case "review":
 		return "more questions, want me to dig deeper, or shall we plan this out?\n" +
-			"Reply with what you want changed, say **`done`** to close this out as it stands, or comment **`/plan`** to approve it and start planning straight away.\n" +
+			"Reply with what you want changed, say **`done`** to close this out as it stands, or comment **`/plan plan the approved scope above into stories`** to approve it and start planning straight away.\n" +
 			"Nothing moves on until you say so."
 	case "question":
 		return "reply on this issue to continue. Answer by option id, answer in your own words, or say `proceed` to let the factory assume the recommended answers. Nothing runs until you reply."
@@ -438,7 +438,7 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 			return ""
 		}
 		if after, found := profile.Node(target); found && after.Terminal {
-			return "this workflow is finished. Comment `/plan` to turn the agreed scope into stories."
+			return "this workflow is finished. Comment `/plan plan the agreed scope into stories` to turn it into stories."
 		}
 		return "the next stage starts on its own within a minute or two. No action is needed, and commenting before it finishes will interrupt it."
 	}
