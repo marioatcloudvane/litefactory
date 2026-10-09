@@ -4,11 +4,11 @@ These are retained ceilings for the specialist responsibilities, not grants or d
 
 | Assigned responsibility | Former specialist ceiling |
 |---|---|
-| go-architect | Read, Write, Glob, Grep, Bash, TodoWrite |
-| go-code-reviewer | Read, Glob, Grep |
-| go-implementation-engineer | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
-| go-unit-test-engineer | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
-| go-integration-test-engineer | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
+| architect | Read, Write, Glob, Grep, Bash, TodoWrite |
+| code-reviewer | Read, Glob, Grep |
+| implementation-engineer | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
+| unit-test-engineer | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
+| integration-test-engineer | Read, Write, Edit, Glob, Grep, Bash, TodoWrite |
 | requirements-engineer | Glob, Grep, Read, Write, TodoWrite |
 | proxy-product-owner | Read, Write, Edit, Glob, Grep, TodoWrite |
 
