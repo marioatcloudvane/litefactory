@@ -143,7 +143,7 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	mu.Lock()
-	versions = append(versions, "1.1.0")
+	versions = append(versions, "1.1.1")
 	mu.Unlock()
 	if output := run("team", "update", "standard", "--source", source); !strings.Contains(output, "Installed update") {
 		t.Fatal(output)
@@ -198,7 +198,7 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 	}
 	run("team", "remove", "second", "3.0.0", "--source", "local")
 	listed := run("team", "list")
-	if !strings.Contains(listed, "1.0.0") || !strings.Contains(listed, "1.1.0") {
+	if !strings.Contains(listed, "1.0.0") || !strings.Contains(listed, "1.1.1") {
 		t.Fatal(listed)
 	}
 	inspected := run("team", "inspect", "standard", "1.0.0", "--source", source)
@@ -210,7 +210,7 @@ func TestTeamCommandsOutsideRepository(t *testing.T) {
 	if output := run("team", "remove", "standard", "1.0.0"); !strings.Contains(output, "Removed") {
 		t.Fatal(output)
 	}
-	if output := run("team", "list"); strings.Contains(output, "1.0.0") || !strings.Contains(output, "1.1.0") {
+	if output := run("team", "list"); strings.Contains(output, "1.0.0") || !strings.Contains(output, "1.1.1") {
 		t.Fatal(output)
 	}
 	if _, err := os.Stat(filepath.Join(home, "litefactory.db")); !os.IsNotExist(err) {

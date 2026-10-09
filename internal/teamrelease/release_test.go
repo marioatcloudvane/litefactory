@@ -108,7 +108,7 @@ func TestGenerationDeterminismAndReadOnlyDrift(t *testing.T) {
 	if err := Generate(t.Context(), root, true); err != nil {
 		t.Fatal(err)
 	}
-	name := "teams/go-development/v1.1.0/research/research.md"
+	name := "teams/go-development/v1.1.1/research/research.md"
 	put(t, filepath.Join(root, filepath.FromSlash(name)), []byte("drift"))
 	changed := snapshot(t, root)
 	if err := Generate(t.Context(), root, true); err == nil || !strings.Contains(err.Error(), name) {
@@ -175,7 +175,7 @@ func TestInvalidCandidatePreservesValidOutput(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			put(t, p, bytes.ReplaceAll(b, []byte("go-development/v1.1.0"), []byte("../outside")))
+			put(t, p, bytes.ReplaceAll(b, []byte("go-development/v1.1.1"), []byte("../outside")))
 		}},
 		{"invalid version", "release.json", "SemVer", func(t *testing.T, root string) {
 			p := filepath.Join(root, "internal/teamsource/release.json")
@@ -183,7 +183,7 @@ func TestInvalidCandidatePreservesValidOutput(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			put(t, p, bytes.ReplaceAll(b, []byte("1.1.0"), []byte("invalid")))
+			put(t, p, bytes.ReplaceAll(b, []byte("1.1.1"), []byte("invalid")))
 		}},
 		{"invalid identity", "research.dot", "identity", func(t *testing.T, root string) {
 			p := filepath.Join(root, "internal/teamsource/research/research.dot")
@@ -332,14 +332,14 @@ func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		installed, _, err := m.Install(t.Context(), source, "go-development", "1.1.0")
+		installed, _, err := m.Install(t.Context(), source, "go-development", "1.1.1")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !installed.Integrity || len(installed.Workflows) != 6 {
 			t.Fatal("incomplete installed release")
 		}
-		clone, err := m.Clone(t.Context(), source, "go-development", "1.1.0", "custom", "2.0.0")
+		clone, err := m.Clone(t.Context(), source, "go-development", "1.1.1", "custom", "2.0.0")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -347,7 +347,7 @@ func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
 			t.Fatal("clone lost origin")
 		}
 		err = m.WithCatalogue(t.Context(), func(a *teampackage.CatalogueAccess) error {
-			return a.WithSelected(t.Context(), source, "go-development", "1.1.0", func(got teampackage.Installed, sourceFS fs.FS) error {
+			return a.WithSelected(t.Context(), source, "go-development", "1.1.1", func(got teampackage.Installed, sourceFS fs.FS) error {
 				if !reflect.DeepEqual(got.Identity, installed.Identity) {
 					t.Fatal("selection lost installed identity")
 				}
@@ -406,7 +406,7 @@ func TestBadCatalogueHashPreservesInstalledRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := filepath.Join(root, "teams/teams.json")
-	installed, _, err := m.Install(t.Context(), source, "go-development", "1.1.0")
+	installed, _, err := m.Install(t.Context(), source, "go-development", "1.1.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestBadCatalogueHashPreservesInstalledRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, source, updated)
-	put(t, filepath.Join(root, "teams/go-development/v1.1.0", filepath.FromSlash(file)), []byte("bad bytes"))
+	put(t, filepath.Join(root, "teams/go-development/v1.1.1", filepath.FromSlash(file)), []byte("bad bytes"))
 	if _, _, err := m.Install(t.Context(), source, "go-development", "1.2.0"); err == nil || !strings.Contains(err.Error(), file) {
 		t.Fatalf("bad file/hash accepted: %v", err)
 	}
@@ -468,7 +468,7 @@ func TestPublicationFailureRestoresEntireBatch(t *testing.T) {
 	}
 	outputs := map[string]map[string][]byte{
 		"internal/teamsource/bug/skills/team-guidance": {"SKILL.md": []byte("candidate")},
-		"teams/go-development/v1.1.0":                  {"candidate.md": []byte("candidate")},
+		"teams/go-development/v1.1.1":                  {"candidate.md": []byte("candidate")},
 	}
 	if err := publish(t.Context(), root, repo, outputs, []byte("new catalogue"), rename); err == nil || !strings.Contains(err.Error(), "injected publication") {
 		t.Fatal(err)

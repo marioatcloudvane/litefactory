@@ -956,6 +956,9 @@ type task struct {
 	// The story is a graph Plan story issue too, so without it the issue would
 	// run Plan, whatever its labels say.
 	implementing bool
+	// validating marks a graph step of a Validate instance. The issue still
+	// carries its Implement label, so without it the step would run Implement.
+	validating bool
 	// hinted is set when a webhook named this task's issue. Its comment
 	// listing then takes the operational lane, so an owner's comment does not
 	// wait behind background discovery.

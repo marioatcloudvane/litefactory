@@ -170,6 +170,8 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 		mode = agent.ModeImplement
 	case t.refining:
 		mode = agent.ModePlan
+	case t.validating:
+		mode = agent.ModeValidate
 	// An explicit owner command outranks the managed pin below. It has to:
 	// once a feature leaves planning the pin answers "what does a plain
 	// comment continue in", and answering that for a commented mode as well
