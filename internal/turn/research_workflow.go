@@ -64,6 +64,8 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		c := policy.baseContext(questionPermission(req.mode(), req.Command))
 		if node, found := definition.Profile.Node(attempt.Node); found && nodeAccessLevel(policy, node) == "write" {
 			c.WriteAccess = true
+			// The repair node is Validate's only write node; it reports a repair.
+			c.RepairRole = policy.Mode == agent.ModeValidate
 		}
 		return c, nil
 	}

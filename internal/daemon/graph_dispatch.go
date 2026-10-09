@@ -190,6 +190,12 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		}
 	}
 
+	validating, modeErr := d.validateDispatch(ctx, dispatch)
+	if modeErr != nil {
+		t.recordWorkerError(modeErr)
+		return
+	}
+	t.validating = validating
 	trigger, command := graphStepRequest(dispatch, d.filter.Identities().OwnerHandle)
 	previousTrigger := t.commentUnderWay
 	t.commentUnderWay = trigger.CommentID
@@ -345,6 +351,20 @@ func (d *Daemon) reportGraphDispatchStop(ctx context.Context, stopped store.Grap
 	}
 	_, err := reporter.ReportGraphDispatchStop(ctx, stopped)
 	return err
+}
+
+// validateDispatch reports whether a dispatch belongs to a Validate instance, so
+// its step runs in Validate whatever mode the issue's labels name.
+func (d *Daemon) validateDispatch(ctx context.Context, dispatch store.GraphDispatch) (bool, error) {
+	instance, err := d.db.GetGraphInstance(ctx, dispatch.InstanceID)
+	if err != nil {
+		return false, err
+	}
+	definition, err := d.db.GetGraphDefinition(ctx, instance.DefinitionID)
+	if err != nil {
+		return false, err
+	}
+	return definition.Mode == string(agent.ModeValidate), nil
 }
 
 // implementCoordinatorDispatch reports whether a dispatch belongs to an Implement
