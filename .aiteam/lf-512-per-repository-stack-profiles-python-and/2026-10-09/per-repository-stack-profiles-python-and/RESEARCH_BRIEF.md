@@ -28,7 +28,40 @@ Settle Q7 using an allowlist in each team's JSON and retain the corrected multi-
 - **A-4** — Go compatibility means preserved behaviour and immutable historical releases, not unchanged current prompt source.
 - **A-5** — The original end-to-end acceptance requirement is retained as manual proof; the owner declined automated per-team suites, not runtime or compatibility verification.
 - **A-6** — No global edits assumes preinstalled runtime tools and host capabilities; runtime provisioning and credentials are outside this issue.
-- **A-7** — Interpretation of owner Q7: linking an operator-selected team applies its declared JSON allowlist without a separate approval workflow; the reply does not approve bypassing factory-protected limits.
+- **A-7** — Withdrawn as settled: silent grant on link was my reading of Q7, now put to the owner as Q-8.
+
+
+## Open questions
+
+### Q-8 — Does linking a team grant its network and cache access silently, or must the operator confirm?
+
+_Asked of: Product Owner Questions_
+
+- **a** — Silent for cache folders under the home directory; operator confirms at link time for network and anything else. Recommended: balanced.  *(recommended)*
+- **b** — Always silent, as the team author declares it. Simplest, but any team publisher sets your sandbox.
+- **c** — Always confirm at link time. Safest, adds a step per team.
+
+### Q-10 — Accept Codex runs on non-Go teams with only sandbox limits, not command rules?
+
+_Asked of: Product Owner Questions_
+
+- **a** — Yes. Document it and rely on the sandbox. Recommended: it is all Codex offers.  *(recommended)*
+- **b** — No. Ship non-Go teams on Claude first and add Codex later.
+
+### Q-11 — How is network access set for roles in the new teams?
+
+_Asked of: Product Owner Questions_
+
+- **a** — Off for roles that only read or plan; on only for Implement and checks that restore packages. Recommended.  *(recommended)*
+- **b** — On for all roles of the team, as the profile says.
+- **c** — Off everywhere; operators pre-fetch packages. Safest, breaks the profile-only goal.
+
+### Q-9 — Where does the profile live, given team config is YAML and you said JSON?
+
+_Asked of: Technical Questions_
+
+- **a** — A separate JSON file in the team package, listed in the manifest and covered by its digest. Recommended: team config stays untouched.  *(recommended)*
+- **b** — Extend team config with a profile section in YAML. One file, but a package format change.
 
 ## Research documents
 

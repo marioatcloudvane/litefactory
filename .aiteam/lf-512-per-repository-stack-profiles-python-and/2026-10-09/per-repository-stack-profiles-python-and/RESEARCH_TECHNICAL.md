@@ -89,3 +89,28 @@ Spike dependency detection is already multilingual but lacks the listed .NET and
 Evidence:
 
 - `internal/turn/spike_check.go:117`
+
+## F-10
+
+Codex runner takes only writable roots, a network switch and environment; Claude has per-command Bash permissions. A command allowlist cannot bind Codex.
+
+Evidence:
+
+- `internal/codex/runner.go:93`
+- `internal/config/policy.go:103`
+
+## F-11
+
+Spike dependency detection matches exact base names, so .NET project/solution files and Swift project files need suffix matching.
+
+Evidence:
+
+- `internal/turn/spike_check.go:117`
+
+## F-12
+
+team.config is parsed as a strict YAML workflow mapping; the owner asked for JSON, so the profile needs its own file or a format change.
+
+Evidence:
+
+- `internal/teampackage/format.go:285`
