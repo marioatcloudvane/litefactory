@@ -86,7 +86,11 @@ func (r *Runner) scopedDoctorArguments(request agent.DoctorRequest, operation st
 	}
 	args := []string{"exec", "--json", "--strict-config", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--ephemeral", "-c", "features.multi_agent=false", "--model", request.Model}
 	if operation != "" {
-		args = append(args, "--sandbox", "read-only", "-c", "features.shell_tool=false")
+		// Repair changes state only through the broker tools: the sandbox is
+		// read-only and every native tool Codex can switch off is off. Codex
+		// keeps tools it cannot disable (exec, apply_patch), which the
+		// read-only sandbox confines.
+		args = append(args, "--sandbox", "read-only", "-c", "features.shell_tool=false", "-c", "features.unified_exec=false", "-c", "features.view_image=false", "-c", "features.image_generation=false", "-c", `web_search="disabled"`)
 	} else {
 		args = append(args, "-c", "features.shell_tool=true", "-c", "approval_policy=\"never\"", "-c", "default_permissions=\"doctor_diagnosis\"", "-c", "permissions.doctor_diagnosis.network.enabled=false")
 		for _, path := range request.Sandbox.ReadableRoots {

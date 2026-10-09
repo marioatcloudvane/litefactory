@@ -19,7 +19,9 @@ const (
 	// DoctorQueryBytes caps encoded output and SQLite's individual values.
 	DoctorQueryBytes = 65536
 	// DoctorQueryTimeout includes connection acquisition and query execution.
-	DoctorQueryTimeout = 2 * time.Second
+	// The doctor runs on the factory host while agents and test suites load
+	// it, so the bound must stay above opening a fresh read-only connection there.
+	DoctorQueryTimeout = 5 * time.Second
 )
 
 // DoctorQueryResult is bounded readback, never a writable database capability.

@@ -18,3 +18,17 @@ and the instance identity for the acceptance record.
 
 This checklist prepares the manual check. It does not claim that a live repair
 has been performed or that manual acceptance has passed.
+
+## Provider isolation during repair
+
+Both providers give the same guarantee: nothing changes except through the
+eight owner-approved repair tools of the broker. Each enforces it differently.
+
+- Claude: `--tools ""` with `--allowedTools` limited to the eight repair tools
+  and the communication tools; no native tool is available.
+- Codex: Codex cannot hide every native tool. The repair run uses
+  `--sandbox read-only`, `features.shell_tool`, `features.unified_exec`,
+  `features.view_image`, `features.image_generation` and
+  `features.multi_agent` off, and `web_search="disabled"`. The tools Codex
+  keeps (such as `exec` and `apply_patch`) cannot write through the read-only
+  sandbox, so every change still goes through the broker tools.

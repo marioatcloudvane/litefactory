@@ -118,7 +118,7 @@ func (p *liveProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorReque
 func TestDoctorLiveDiagnosisEndToEndRetainsOnlyManifest(t *testing.T) {
 	s := doctorIOService(t)
 	// Keep the Unix socket path short, independent of Go's descriptive test dirs.
-	root, err := os.MkdirTemp("", "lf538-")
+	root, err := os.MkdirTemp("/tmp", "lf538-")
 	if err != nil {
 		t.Fatal(err)
 	}

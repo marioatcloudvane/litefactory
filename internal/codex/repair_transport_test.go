@@ -44,6 +44,13 @@ printf '%s\n' '{"type":"thread.started","thread_id":"repair-thread"}' '{"type":"
 			t.Errorf("missing scoped tool %s", tool)
 		}
 	}
+	// Repair changes state only through the broker: read-only sandbox and
+	// every native tool Codex can switch off, including web search.
+	for _, want := range []string{"--sandbox read-only", "features.shell_tool=false", "features.unified_exec=false", "features.view_image=false", "features.image_generation=false", "features.multi_agent=false", `web_search="disabled"`} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("repair launch lacks %s: %s", want, joined)
+		}
+	}
 	if _, err := runner.runDoctorTransport(t.Context(), request.Invocation); err == nil {
 		t.Fatal("repair request launched through diagnosis path")
 	}
