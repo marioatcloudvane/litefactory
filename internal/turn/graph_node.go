@@ -249,6 +249,7 @@ const researchAncestorLimit = 64
 
 // researchBudgetAncestors carries the existing per-stage allowance across graph
 // successors. Renamed agent nodes match their captured role; effects match names.
+// A failed predecessor starts a fresh owner attempt, ending allowance inheritance.
 func researchBudgetAncestors(ctx context.Context, db *store.DB, instance int64, node graphexec.Node) (map[int64]string, error) {
 	out := make(map[int64]string)
 	for range researchAncestorLimit { // bounded walk, not a retry loop
@@ -258,6 +259,13 @@ func researchBudgetAncestors(ctx context.Context, db *store.DB, instance int64, 
 		}
 		if _, cycle := out[prior]; cycle {
 			return nil, errors.New("research successor cycle")
+		}
+		predecessor, err := db.GetGraphInstance(ctx, prior)
+		if err != nil {
+			return nil, err
+		}
+		if predecessor.Status == store.GraphFailed {
+			return out, nil
 		}
 		name := node.Name
 		raw, err := db.ResearchLaunchFiles(ctx, prior)

@@ -64,6 +64,8 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		c := policy.baseContext(questionPermission(req.mode(), req.Command))
 		if node, found := definition.Profile.Node(attempt.Node); found && nodeAccessLevel(policy, node) == "write" {
 			c.WriteAccess = true
+			// The repair node is Validate's only write node; it reports a repair.
+			c.RepairRole = policy.Mode == agent.ModeValidate
 		}
 		return c, nil
 	}
@@ -176,6 +178,11 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 				nodeReq.resultPass = node.Name
 			}
 			nodeReq.noQuestions = policy.Questions && !graphexec.ResponseReachesOwnerWait(definition.Profile, node.Name, policy.Control)
+			if policy.WriteGrant != nil && nodeAccessLevel(policy, node) == "write" {
+				if nodeReq, err = policy.WriteGrant(nodeReq); err != nil {
+					return w.finish(ctx, w.failed(ctx, scope, GraphNodeResult{}, fmt.Errorf("node %q write access: %w", node.Name, err), true))
+				}
+			}
 			if nodeReq, err = applyNodeAccess(policy, node, nodeReq); err != nil {
 				return w.finish(ctx, w.failed(ctx, scope, GraphNodeResult{}, err, true))
 			}
@@ -477,6 +484,15 @@ func researchFailureCandidate(req Request, cause error) agentresult.Result {
 }
 
 func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, error) {
+	// Delivery can fail before any run is allocated. Use the existing
+	// preparation-failure report route rather than silently consuming a graph
+	// input whose failure comment has no run-backed source attempt.
+	if w.prep == nil && errors.Is(cause, agent.ErrDeliveryRefused) {
+		out, err := prelaunchRefused(ctx, w.opts, w.result, cause.Error())
+		out.ResearchGraph = false
+		out.Err = cause
+		return out, err
+	}
 	out := w.result
 	if w.prep == nil {
 		return out, cause

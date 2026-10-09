@@ -445,7 +445,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// from the daemon's own pool, which exists only once the daemon is built
 	// below, so the slots are bound to it then.
 	validateSlots := &runSlots{}
-	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Forge: client, OwnerID: identities.OwnerUserID, Slots: validateSlots})
+	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Forge: client, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(toolProfiles, toolCeiling)})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
@@ -453,6 +453,17 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// Automatic start is offered only when the Validate graph has its host
 	// bindings; the hand-off line must not promise a start that cannot happen.
 	turnOpts.ValidateAutoStart = s.Config.ValidateMode.AutoStart && turnOpts.Validate != nil
+	status, err := turn.NewImplementStatusService(ctx, turn.ImplementStatusOptions{
+		Now: mcpRuntime.Now, Wait: waitImplementStatus,
+		Logger: s.Logger,
+		Refresh: func(ctx context.Context, parent string, generation int64) (bool, error) {
+			return turn.RefreshImplementParentStatus(ctx, turnOpts, parent, generation)
+		},
+	})
+	if err != nil {
+		return nil, Startup{}, errors.Join(err, lock.Close())
+	}
+	mcpRuntime.ImplementStatus = status
 	daemon, err := New(Options{
 		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
 		Bug:        bugRuntime,
@@ -516,6 +527,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Now:               s.Now,
 	})
 	if err != nil {
+		status.Close()
 		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
@@ -638,5 +650,17 @@ func attachmentLimits(cfg *config.Config) attach.Limits {
 		MaxDocumentBytes: cfg.Settings.AttachmentMaxDocumentBytes,
 		MaxTotalBytes:    cfg.Settings.AttachmentMaxTotalBytes,
 		MaxCount:         cfg.Settings.AttachmentMaxCount,
+	}
+}
+
+// waitImplementStatus keeps deferred comment timing in the daemon, not the turn.
+func waitImplementStatus(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }

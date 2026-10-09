@@ -34,17 +34,26 @@ func planResearchDelivery(opts Options, req Request, definition *teamsource.Rese
 	return planWorkflowDelivery(opts, req, definition, nodeName, ResearchWorkflowPolicy())
 }
 
-func planWorkflowDelivery(opts Options, req Request, definition *teamsource.WorkflowDefinition, nodeName string, policy WorkflowPolicy) (*deliveryPlan, error) {
+func planWorkflowDelivery(opts Options, req Request, definition *teamsource.WorkflowDefinition, nodeName string, policy WorkflowPolicy) (plan *deliveryPlan, returnedErr error) {
+	defer func() {
+		if returnedErr != nil {
+			workflow := policy.Workflow
+			if workflow == "" {
+				workflow, _ = agent.WorkflowForMode(policy.Mode)
+			}
+			returnedErr = agent.DeliveryRefusal(agent.Request{Workflow: workflow, Graph: &agent.GraphInvocation{Node: nodeName}}, returnedErr)
+		}
+	}()
 	if req.mode() != string(policy.Mode) || definition == nil || definition.Profile == nil {
-		return nil, fmt.Errorf("research delivery requires admitted Research and captured definitions")
+		return nil, fmt.Errorf("workflow delivery requires its admitted policy and captured definitions")
 	}
 	node, ok := definition.Nodes[nodeName]
 	if !ok {
-		return nil, fmt.Errorf("research delivery node %q is missing", nodeName)
+		return nil, fmt.Errorf("workflow delivery node %q is missing", nodeName)
 	}
 	model, ok := opts.Tiers.ResolveModel(config.Kind(req.Agent), node.Tier)
 	if !ok {
-		return nil, fmt.Errorf("missing local %s model for Research tier %s", req.Agent, node.Tier)
+		return nil, fmt.Errorf("missing local %s model for captured tier %s", req.Agent, node.Tier)
 	}
 	sandbox := req.CodexSandbox
 	if sandbox == "" {
@@ -57,7 +66,10 @@ func planWorkflowDelivery(opts Options, req Request, definition *teamsource.Work
 	if err != nil {
 		return nil, err
 	}
-	p := &deliveryPlan{mainRole: node.Role.Frontmatter.Name, mainModel: model, roles: []string{node.Role.Frontmatter.Name}, files: map[string][]byte{}}
+	p := &deliveryPlan{workflow: policy.Workflow, node: nodeName, mainRole: node.Role.Frontmatter.Name, mainModel: model, roles: []string{node.Role.Frontmatter.Name}, files: map[string][]byte{}}
+	if p.workflow == "" {
+		p.workflow, _ = agent.WorkflowForMode(policy.Mode)
+	}
 	for _, file := range files {
 		p.files[file.Path] = slices.Clone(file.Bytes)
 	}

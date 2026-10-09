@@ -41,3 +41,25 @@ func TestValidateRefusesWritableSandbox(t *testing.T) {
 		t.Fatalf("writable Validate sandbox accepted: %v", err)
 	}
 }
+
+// Only the Validate repair agent's validate-repair grant writes; it must be
+// contained workspace-write, and no other profile lifts the read-only gate.
+func TestValidateRepairProfileAloneRunsWorkspaceWrite(t *testing.T) {
+	runner, _ := fakeRunner(t, `printf '%s\n' '{"type":"turn.completed"}'`)
+	req := request(t, agent.PathCold)
+	req.Mode = "validate"
+	req.Permissions = agent.Permissions{Profile: "validate-repair", Payload: Sandbox{Mode: "workspace-write"}}
+	if _, err := runner.Run(context.Background(), req); errors.Is(err, agent.ErrInvalidRequest) {
+		t.Fatalf("Validate repair workspace-write refused: %v", err)
+	}
+	req.Permissions = agent.Permissions{Profile: "validate-repair", Payload: Sandbox{Mode: "read-only"}}
+	if _, err := runner.Run(context.Background(), req); !errors.Is(err, agent.ErrInvalidRequest) || !strings.Contains(fmt.Sprint(err), "workspace-write") {
+		t.Fatalf("Validate repair without workspace-write accepted: %v", err)
+	}
+	for _, profile := range []string{"validate", "bug-fixer", "implement", ""} {
+		req.Permissions = agent.Permissions{Profile: profile, Payload: Sandbox{Mode: "workspace-write"}}
+		if _, err := runner.Run(context.Background(), req); !errors.Is(err, agent.ErrInvalidRequest) || !strings.Contains(fmt.Sprint(err), "read-only sandbox") {
+			t.Fatalf("Validate profile %q widened to workspace-write: %v", profile, err)
+		}
+	}
+}

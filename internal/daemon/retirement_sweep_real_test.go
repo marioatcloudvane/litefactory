@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -255,7 +256,7 @@ func TestRetirementSweepRealShutdownDuringCloneContention(t *testing.T) {
 	go func() { done <- d.RunRetirementBatch(ctx, x.now) }()
 	select {
 	case <-reached:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("executor never reached clone gate")
 	}
 	cancel()
@@ -264,7 +265,7 @@ func TestRetirementSweepRealShutdownDuringCloneContention(t *testing.T) {
 		if err == nil {
 			t.Fatal("shutdown reported success")
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("shutdown blocked")
 	}
 	state := x.state(t)

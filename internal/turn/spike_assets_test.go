@@ -26,7 +26,8 @@ func TestSpikeShipsOneCopyOfEachRoleAndOneSkill(t *testing.T) {
 		}
 	}
 	slices.Sort(roles)
-	if len(graphs) != 1 || strings.Join(roles, ",") != "spike-fixer.md,spike-investigator.md" || len(skills) != 1 || skills[0] != "skills/spike-result/SKILL.md" {
+	slices.Sort(skills)
+	if len(graphs) != 1 || strings.Join(roles, ",") != "spike-fixer.md,spike-investigator.md" || strings.Join(skills, ",") != "skills/spike-result/SKILL.md,skills/team-guidance/SKILL.md" {
 		t.Fatalf("shipped package: graphs=%v roles=%v skills=%v", graphs, roles, skills)
 	}
 	if len(definition.Nodes) != 2 {

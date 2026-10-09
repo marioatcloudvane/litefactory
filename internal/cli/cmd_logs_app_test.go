@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
@@ -448,32 +449,34 @@ func TestLogsLevelAdvisoryDoesNotFireWhenCaptured(t *testing.T) {
 // ticks — it is checked once, after the initial tail pass and strictly before
 // the follow loop begins, never inside the loop itself.
 func TestLogsLevelAdvisoryDoesNotRepeatUnderFollow(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv(config.EnvHome, home)
+	synctest.Test(t, func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv(config.EnvHome, home)
 
-	logsDir := filepath.Join(home, "logs")
-	if err := os.MkdirAll(logsDir, 0o700); err != nil {
-		t.Fatalf("mkdir logs dir: %v", err)
-	}
-	const infoLine = `{"time":"2026-09-05T09:00:00Z","level":"INFO","msg":"daemon started"}` + "\n"
-	if err := os.WriteFile(filepath.Join(logsDir, "daemon.log"), []byte(infoLine), 0o600); err != nil {
-		t.Fatalf("write daemon.log: %v", err)
-	}
+		logsDir := filepath.Join(home, "logs")
+		if err := os.MkdirAll(logsDir, 0o700); err != nil {
+			t.Fatalf("mkdir logs dir: %v", err)
+		}
+		const infoLine = `{"time":"2026-09-05T09:00:00Z","level":"INFO","msg":"daemon started"}` + "\n"
+		if err := os.WriteFile(filepath.Join(logsDir, "daemon.log"), []byte(infoLine), 0o600); err != nil {
+			t.Fatalf("write daemon.log: %v", err)
+		}
 
-	// followInterval is 250ms; a deadline of several ticks gives the follow
-	// loop multiple chances to (wrongly) repeat the advisory before ctx is
-	// cancelled and the loop returns.
-	ctx, cancel := context.WithTimeout(t.Context(), 1200*time.Millisecond)
-	defer cancel()
+		// followInterval is 250ms; a deadline of several ticks gives the follow
+		// loop multiple chances to (wrongly) repeat the advisory before ctx is
+		// cancelled and the loop returns.
+		ctx, cancel := context.WithTimeout(t.Context(), 1200*time.Millisecond)
+		defer cancel()
 
-	var out, errOut bytes.Buffer
-	env := &Env{Stdout: &out, Stderr: &errOut, Stdin: strings.NewReader(""), Logger: slog.New(slog.DiscardHandler)}
-	code := NewRouter("litefactory", env, Commands()).Run(ctx, []string{"logs", "--raw", "--level", "error", "-f"})
+		var out, errOut bytes.Buffer
+		env := &Env{Stdout: &out, Stderr: &errOut, Stdin: strings.NewReader(""), Logger: slog.New(slog.DiscardHandler)}
+		code := NewRouter("litefactory", env, Commands()).Run(ctx, []string{"logs", "--raw", "--level", "error", "-f"})
 
-	if code != ExitOK {
-		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, errOut.String())
-	}
-	if got := strings.Count(errOut.String(), "no error (or higher) records were captured"); got != 1 {
-		t.Errorf("stderr contains the advisory %d times across the follow session, want exactly 1:\n%s", got, errOut.String())
-	}
+		if code != ExitOK {
+			t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, errOut.String())
+		}
+		if got := strings.Count(errOut.String(), "no error (or higher) records were captured"); got != 1 {
+			t.Errorf("stderr contains the advisory %d times across the follow session, want exactly 1:\n%s", got, errOut.String())
+		}
+	})
 }

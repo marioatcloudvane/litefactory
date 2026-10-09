@@ -38,6 +38,7 @@ type MCPRuntime struct {
 	CreationAuthorizer *CreationAuthorizer
 	Redactor           *redact.Redactor
 	BotID              int64
+	ImplementStatus    *ImplementStatusService
 	// BugChecksIsolation supplies the configured sandbox to shared Spike checks.
 	BugChecksIsolation bugchecks.Isolation
 	// DisableMCP disables native registration while retaining the shared final route.
@@ -178,7 +179,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	} else if prep.resultPass != "" {
 		workContext += "#" + prep.resultPass
 	}
-	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && req.Mode == "spike", RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
+	contextValue := agentresult.Context{Workflow: req.Workflow, SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, WriteAccess: prep.nodeWrite && (req.Mode == "spike" || req.Mode == "validate"), RepairRole: prep.nodeWrite && req.Mode == "validate", RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if prep.typedPlan != nil {
 		contextValue.PlanScope = prep.typedPlan.scope
 	}
@@ -334,7 +335,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	}
 	families := FamilyDispatcherOptions{Service: service, Receipts: receipts, Feedback: feedback, Evidence: evidence, WithoutEvidence: withoutEvidence}
 	now := runtime.Now()
-	activity, err := NewActivityService(ActivityOptions{Receipts: receipts, Now: now})
+	activity, err := NewActivityService(ActivityOptions{Receipts: receipts, Now: now, Status: runtime.ImplementStatus})
 	if err != nil {
 		return nil, nil, err
 	}

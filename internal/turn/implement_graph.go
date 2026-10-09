@@ -194,7 +194,7 @@ func (rt *implementRuntime) resumeDispatch(ctx context.Context) (Result, error) 
 		return rt.result, err
 	}
 	if definition.Profile.Digest != pin.Digest {
-		return rt.result, errors.New("shipped Implement graph changed under a running instance; the resting instance cannot resume")
+		return rt.result, errors.New("retained implement graph does not match the running instance; the resting instance cannot resume")
 	}
 	rt.definition = definition
 	return rt.execute(ctx, definition, retainedAdmission(ctx, rt.opts.DB, rt.req, instance, "implement"))
@@ -206,18 +206,6 @@ func (rt *implementRuntime) idle(reason string) Result {
 	out.ResearchGraph = true
 	out.Reason = reason
 	return out
-}
-
-func captureImplement(ctx context.Context) (*teamsource.WorkflowDefinition, error) {
-	specs, err := ImplementSpecs()
-	if err != nil {
-		return nil, err
-	}
-	definition, err := teamsource.CaptureImplement(ctx, specs)
-	if err != nil {
-		return nil, fmt.Errorf("capture current shipped Implement: %w", err)
-	}
-	return definition, nil
 }
 
 // execute advances the captured graph under the task lock through the shared
@@ -273,6 +261,7 @@ func (rt *implementRuntime) policy() (WorkflowPolicy, error) {
 // guidance; it restarts through ready within the cap. It is safe to repeat: only a
 // row that is still parked is resumed.
 func (rt *implementRuntime) resumeStories(ctx context.Context, reply string) (int, error) {
+	defer rt.refreshStatus(ctx, rt.opts)
 	rows, err := rt.parkedReplyTargets(ctx, reply)
 	if err != nil {
 		return 0, err

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -231,10 +232,10 @@ func TestMeterEndToEndFrozenPricingDuringSlowExport(t *testing.T) {
 	}()
 	select {
 	case <-writer.entered:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("snapshot not ready")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.Wait)
 	defer cancel()
 	// The header write is blocked, but catalog and measurement mutations must
 	// complete through the same single SQLite connection.
@@ -319,7 +320,7 @@ func TestMeterEndToEndCancelledSlowExportCleanup(t *testing.T) {
 	}()
 	select {
 	case <-writer.entered:
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("waiting for output")
 	}
 	cancel()
@@ -329,10 +330,10 @@ func TestMeterEndToEndCancelledSlowExportCleanup(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancellation reported as success: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("cancelled export did not finish")
 	}
-	cleanupCtx, cleanupCancel := context.WithTimeout(t.Context(), time.Second)
+	cleanupCtx, cleanupCancel := context.WithTimeout(t.Context(), testutil.Wait)
 	defer cleanupCancel()
 	if _, err := f.db.StartMeterAttempt(cleanupCtx, a.RunID, "claude"); err != nil {
 		t.Fatalf("database unavailable after cancelled snapshot: %v", err)

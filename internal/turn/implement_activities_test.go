@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -534,8 +535,8 @@ func TestImplementHandoffPostsOnceThenEditsInPlace(t *testing.T) {
 	if len(body) != 1 || !strings.HasPrefix(body[0], report.ImplementHandoffMarker(implementParent)) {
 		t.Fatalf("bodies = %q", body)
 	}
-	for _, want := range []string{"Merged (1)", "abcdef0123456789", "Parked (1)", "set aside for the test", "Still waiting (2)", "waiting for story-003 to be merged"} {
-		if !strings.Contains(body[0], want) {
+	for _, want := range []string{"| Finished |", "abcdef0123456789", "| Parked |", "set aside for the test", "| Implementing |", "waiting for story-003 to be merged"} {
+		if !strings.Contains(html.UnescapeString(body[0]), want) {
 			t.Errorf("report lacks %q:\n%s", want, body[0])
 		}
 	}
@@ -543,12 +544,12 @@ func TestImplementHandoffPostsOnceThenEditsInPlace(t *testing.T) {
 }
 
 func TestImplementHandoffStaysWithin64KiB(t *testing.T) {
-	f := newImplementFixture(t, implementStories(900, nil)...)
+	f := newImplementFixture(t, implementStories(1200, nil)...)
 	pid := implementParent.String()
 	if err := f.db.EnsureImplementStories(t.Context(), pid, 1, f.auth.seeds(), implementClock); err != nil {
 		t.Fatal(err)
 	}
-	for i := 1; i <= 900; i++ {
+	for i := 1; i <= 1200; i++ {
 		key := fmt.Sprintf("story-%03d", i)
 		to := store.ImplementMerged
 		if i%3 == 0 {
@@ -571,23 +572,17 @@ func TestImplementHandoffStaysWithin64KiB(t *testing.T) {
 		}
 	}
 	f.repo = nil
-	res, err := ImplementHandoffActivity{f.bindings}.Execute(t.Context(), Options{}, f.req())
-	if err != nil || res.Outcome != "posted" {
-		t.Fatalf("%s %v", res.Outcome, err)
+	_, err := ImplementHandoffActivity{f.bindings}.Execute(t.Context(), Options{}, f.req())
+	if err == nil || !strings.Contains(err.Error(), "size limit") || len(f.forge.bodies(1)) != 0 {
+		t.Fatalf("oversized minimal table must fail without publication: %v", err)
 	}
-	body := f.forge.bodies(1)[0]
-	if len(body) > 64<<10 || !strings.Contains(body, "and ") || !strings.Contains(body, " more.") {
-		t.Fatalf("len=%d, expected a summarized report", len(body))
-	}
-	if !strings.HasPrefix(body, report.ImplementHandoffMarker(implementParent)) {
-		t.Fatal("marker must open the report")
-	}
+
 }
 
 func TestImplementHandoffShowsStoriesTheLedgerDoesNotHoldYetAsWaiting(t *testing.T) {
 	f := newImplementFixture(t, implementStories(2, map[string][]string{"story-002": {"story-001"}})...)
 	text, counts := renderImplementHandoff(f.auth, nil)
-	if counts.waiting != 2 || !strings.Contains(text, "ready to start") || !strings.Contains(text, "waiting for story-001 (unknown story)") {
+	if counts.waiting != 2 || !strings.Contains(text, "ready to start") || !strings.Contains(html.UnescapeString(text), "waiting for story-001 (unknown story)") {
 		t.Fatalf("counts=%+v\n%s", counts, text)
 	}
 }

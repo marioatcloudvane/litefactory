@@ -29,10 +29,18 @@ func conversationFixture(t *testing.T) (*fixture, *fakeForge, *graphexec.Profile
 	}
 	profile := packageDef.Profile
 	at := time.Now().UTC()
-	def, e := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: profile.Team, Workflow: "bug", ProfileVersion: profile.ProfileVersion, Path: "bug.dot", Digest: profile.Digest, CreatedAt: at})
+	def, e := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: profile.Team, Workflow: "bug", ProfileVersion: profile.ProfileVersion, Path: "bug.dot", Digest: profile.Digest, TeamSnapshotDigest: packageDef.Digest, CreatedAt: at})
 	mustProgress(t, e)
-	inst, e := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, CurrentNode: profile.Start, StartedAt: at, NextDueAt: at})
+	_, e = f.db.AdmitWorkflowPath(t.Context(), f.session.ID, "graph")
 	mustProgress(t, e)
+	files, e := json.Marshal(packageDef.Files)
+	mustProgress(t, e)
+	topology, e := graphexec.SemanticDigest(profile)
+	mustProgress(t, e)
+	// Retain the fixture's original instructions before any attempt is started.
+	admitted, e := f.db.AdmitWorkflowLaunch(t.Context(), store.WorkflowLaunch{SessionID: f.session.ID, DefinitionID: def.ID, Workflow: "bug", Start: profile.Start, ContentDigest: packageDef.Digest, TopologyDigest: topology, Files: files})
+	mustProgress(t, e)
+	inst := admitted.Instance
 	f.opts.MCP = &MCPRuntime{Now: func() time.Time { return at }}
 	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
 	return f, forge, profile, inst

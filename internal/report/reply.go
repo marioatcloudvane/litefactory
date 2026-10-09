@@ -800,6 +800,12 @@ func (r Reply) body() string {
 			b.WriteString("\n\n" + CreationGuidance(r.Creation.Publication))
 		}
 	case ReplyEmptySpike:
+		if named && span != "`/spike`" {
+			b.WriteString(span + " needs something to work on. Say what you want done, on the same line or the ones after it:")
+			b.WriteString(sectionGap)
+			b.WriteString("```text\n" + strings.Trim(span, "`") + " <what you want done>\n```")
+			break
+		}
 		b.WriteString("`/spike` needs something to work on. Say what you want tried, on the same line or the ones after it:")
 		b.WriteString(sectionGap)
 		b.WriteString("```text\n/spike see whether the flaky checkout test is a race in the fixture\n```")

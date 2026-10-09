@@ -115,7 +115,7 @@ func TestGraphFixerAcceptedSubmissionIsTheAnswer(t *testing.T) {
 				if e != nil {
 					return ResearchInvocation{}, e
 				}
-				request := agent.Request{Workflow: agent.WorkflowBug, Invocation: agent.InvocationResearchNode, Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, WorktreePath: logRoot, Prompt: "Repair approved context\n" + r, Permissions: agent.Permissions{Profile: "bug-fixer"}, MCPLaunch: spec}
+				request := agent.Request{Delivery: fixtureNativeDelivery(t, BugWorkflowPolicy()), Workflow: agent.WorkflowBug, Invocation: agent.InvocationResearchNode, Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Session: agent.SessionRef{Ref: segment.SessionRef, Resume: segment.ResumeToken}, WorktreePath: logRoot, Prompt: "Repair approved context\n" + r, Permissions: agent.Permissions{Profile: "bug-fixer"}, MCPLaunch: spec}
 				cold := request
 				cold.Prompt = "Cold approved context\n" + r
 				return ResearchInvocation{Request: request, ColdRequest: &cold, Kind: agent.Kind(store.AgentClaude), Results: service}, nil

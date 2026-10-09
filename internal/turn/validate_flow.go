@@ -93,6 +93,8 @@ type ValidateStory struct {
 	Title    string
 	Revision string
 	Criteria []string
+	// Text is the approved story revision itself: its criteria and plan.
+	Text string
 }
 
 // ValidateFlowBindings supplies the trusted run context the Validate steps need.

@@ -59,7 +59,7 @@ func TestShippedGraphRoutesDoneToAReview(t *testing.T) {
 		}
 	}
 	// The owner is told which moment this is.
-	if step := researchNextStep(d.Profile, "review", "review"); !strings.Contains(step, "`done`") || !strings.Contains(step, "`/plan`") {
+	if step := researchNextStep(d.Profile, "review", "review"); !strings.Contains(step, "`done`") || !strings.Contains(step, "`/plan plan the approved scope above into stories`") {
 		t.Errorf("the review gate does not offer the owner its moves: %q", step)
 	}
 }

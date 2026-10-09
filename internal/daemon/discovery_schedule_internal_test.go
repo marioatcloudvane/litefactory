@@ -67,23 +67,22 @@ func TestDiscoveryScheduleForceDueMakesEveryRepoDueUntilItsListingFinishes(t *te
 	}
 }
 
-func TestDiscoveryScheduleWebhookRestartsTheCountdown(t *testing.T) {
-	s := newDiscoverySchedule(60 * time.Minute)
-	s.ListingFinished(1, scheduleT0)
-	s.WebhookAccepted(1, scheduleT0.Add(50*time.Minute))
-
-	if s.Due(1, scheduleT0.Add(60*time.Minute)) {
-		t.Error("due at 60 minutes although a webhook arrived at 50")
-	}
-	if s.Due(1, scheduleT0.Add(110*time.Minute-time.Nanosecond)) {
-		t.Error("due before 110 minutes")
-	}
-	if !s.Due(1, scheduleT0.Add(110*time.Minute)) {
-		t.Error("not due at 110 minutes")
-	}
-	snap, _ := s.Snapshot(1)
-	if !snap.NextDue.Equal(scheduleT0.Add(110 * time.Minute)) {
-		t.Errorf("NextDue = %s", snap.NextDue)
+func TestDiscoveryScheduleWebhooksDoNotPostponeTheCountdown(t *testing.T) {
+	s := newDiscoverySchedule(time.Hour)
+	for _, finished := range []time.Time{scheduleT0, scheduleT0.Add(2 * time.Hour)} {
+		s.ListingFinished(1, finished)
+		deadline := finished.Add(time.Hour)
+		for _, elapsed := range []time.Duration{10 * time.Minute, 50 * time.Minute, time.Hour - time.Nanosecond, time.Hour, 70 * time.Minute} {
+			now := finished.Add(elapsed)
+			s.WebhookAccepted(1, now)
+			if got, want := s.Due(1, now), !now.Before(deadline); got != want {
+				t.Errorf("Due at %s = %v, want %v", now, got, want)
+			}
+			snap, _ := s.Snapshot(1)
+			if !snap.NextDue.Equal(deadline) || !snap.LastWebhook.Equal(now) || !snap.LastListing.Equal(finished) {
+				t.Errorf("snapshot at %s = %+v, want deadline %s, webhook %s and listing %s", now, snap, deadline, now, finished)
+			}
+		}
 	}
 }
 
@@ -95,8 +94,8 @@ func TestDiscoveryScheduleWebhookNeverMovesAnotherRepo(t *testing.T) {
 	if !s.Due(2, scheduleT0.Add(60*time.Minute)) {
 		t.Error("repo 2 was postponed by repo 1's webhook")
 	}
-	if s.Due(1, scheduleT0.Add(60*time.Minute)) {
-		t.Error("repo 1 was not postponed")
+	if !s.Due(1, scheduleT0.Add(60*time.Minute)) {
+		t.Error("repo 1 was postponed by its own webhook")
 	}
 }
 

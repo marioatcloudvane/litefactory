@@ -68,11 +68,11 @@ func familyTool(name string) (ToolSpec, bool) {
 		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"stage":{"type":"string"},"story":{"type":"string"},"outcome":{"type":"string"},"reason":{"type":"string"},"capture":{"type":"object"},"plan":{"description":"Typed Plan content for the plan stage."},"context":{"type":"object"},"engineering":{"type":"object"},"assessment":{"type":"object"}},"required":["stage","outcome"],"additionalProperties":false}`)
 		spec.Effect = "checkpoint"
 	case "activity_update":
-		spec.Description = "Report bounded advisory activity; cannot record proof or extend authority."
-		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"sequence":{"type":"integer","minimum":1},"message":{"type":"string","minLength":1}},"required":["sequence","message"],"additionalProperties":false}`)
+		spec.Description = "Report advisory activity. Implement story workers require kind and receive durable receipts; cannot record completion or proof."
+		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"sequence":{"type":"integer","minimum":1},"message":{"type":"string","minLength":1},"kind":{"type":"string","enum":["implementation","testing","repair"]}},"required":["sequence","message"],"additionalProperties":false}`)
 		spec.Effect = "advisory"
 	case "activity_get":
-		spec.Description = "Read current process-local advisory activity or unavailable state."
+		spec.Description = "Read latest durable Implement worker activity, or process-local activity in other modes."
 		// Genuinely argument-free: the handler decodes into an empty struct.
 		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	case "receipts_get":

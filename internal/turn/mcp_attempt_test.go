@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,7 +107,7 @@ func TestMCPAttempt_PrivateSocketRevocationAndRecovery(t *testing.T) {
 			if state == "replaced" || state == "cancelled" || state == "closed" {
 				select {
 				case <-outstanding.Done():
-				case <-time.After(time.Second):
+				case <-time.After(testutil.Wait):
 					t.Fatal("revocation did not cancel outstanding work")
 				}
 			}
@@ -183,7 +184,7 @@ func TestMCPAttempt_RevokeBeforeAdmissionAndAfterRecordedWork(t *testing.T) {
 			}
 			select {
 			case <-live.Done():
-			case <-time.After(time.Second):
+			case <-time.After(testutil.Wait):
 				t.Fatal("slow external effect blocked revocation")
 			}
 			close(finish)

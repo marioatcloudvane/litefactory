@@ -61,7 +61,7 @@ func TestResearchDeliveryIdentityAndNativeClosure(t *testing.T) {
 	if delivery.MainRole != "research" || delivery.MainModel != "worker" {
 		t.Fatal("main role lost during retention")
 	}
-	retained, err := verifyDelivery(delivery.Root, p)
+	retained, err := verifyDelivery(t.Context(), delivery.Root, p)
 	if err != nil || retained.MainRole != "research" {
 		t.Fatalf("main role lost during resume: %v", err)
 	}

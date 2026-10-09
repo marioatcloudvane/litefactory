@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestBugRuntimeOptionalRoleConfiguration(t *testing.T) {
 	c := Config{Agents: Agents{Codex: &Codex{}}, ToolProfiles: ToolProfiles{Permissions: make(map[string]ToolProfile)}}
@@ -70,5 +73,34 @@ func TestBugRuntimeIsolationConfigurationBounds(t *testing.T) {
 				t.Fatal("unsafe isolation configuration accepted")
 			}
 		})
+	}
+}
+
+// The optional validate-repair grant is bounded like the Bug fixer: Codex
+// workspace-write only, Claude tools inside the fixer surface.
+func TestValidateRepairRoleConfiguration(t *testing.T) {
+	c := Config{Agents: Agents{Codex: &Codex{}}, ToolProfiles: ToolProfiles{Permissions: make(map[string]ToolProfile)}}
+	for _, name := range canonicalPermissionProfiles {
+		c.ToolProfiles.Permissions[name] = ToolProfile{Codex: &ToolProfileCodex{Sandbox: "read-only"}}
+	}
+	c.ToolProfiles.Permissions[ValidateRepairProfile] = ToolProfile{Codex: &ToolProfileCodex{Sandbox: "workspace-write"}}
+	if errs := validatePermissionProfiles(&c); len(errs) != 0 {
+		t.Fatalf("validate-repair workspace-write refused: %v", errs)
+	}
+	c.ToolProfiles.Permissions[ValidateRepairProfile] = ToolProfile{Codex: &ToolProfileCodex{Sandbox: "read-only"}}
+	if errs := validatePermissionProfiles(&c); len(errs) == 0 {
+		t.Fatal("validate-repair without workspace-write accepted")
+	}
+	c.Agents.Claude = &Claude{}
+	fixer := ToolProfile{Claude: &ToolProfileClaude{Tools: []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash"}, AllowedTools: []string{"Read", "Bash(go test:*)"}}}
+	if errs := validateBugRoleProfile(&c, ValidateRepairProfile, fixer); len(errs) != 0 {
+		t.Fatalf("validate-repair fixer surface refused: %v", errs)
+	}
+	outside := ToolProfile{Claude: &ToolProfileClaude{Tools: []string{"Read", "Edit", "NotebookEdit"}}}
+	if errs := validateBugRoleProfile(&c, ValidateRepairProfile, outside); len(errs) == 0 {
+		t.Fatal("validate-repair tool outside the fixer surface accepted")
+	}
+	if got := BugRoleClaudeTools(ValidateRepairProfile); !slices.Equal(got, BugRoleClaudeTools("bug-fixer")) {
+		t.Fatalf("validate-repair surface %v is not the bug-fixer surface", got)
 	}
 }

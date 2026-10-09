@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,7 +44,7 @@ func newCatalogPipe(t *testing.T, client submission.Client) *catalogPipe {
 		_ = reader.Close()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(testutil.Wait):
 			t.Error("MCP workers did not join")
 		}
 	})

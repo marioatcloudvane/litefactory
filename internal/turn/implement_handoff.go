@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -16,7 +20,6 @@ const (
 	implementHandoffLimit = 64 << 10
 	// implementHandoffBudget leaves room under the limit for redaction.
 	implementHandoffBudget = implementHandoffLimit - 4<<10
-	implementReasonLimit   = 600
 )
 
 // ImplementHandoffActivity writes the one hand-off report of a parent: what
@@ -34,31 +37,96 @@ type implementHandoffOutput struct {
 
 // Execute posts the report once and edits that comment in place afterwards.
 func (h ImplementHandoffActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
-	a, err := h.b.bind(ctx, opts, req)
+	out, _, err := refreshImplementHandoff(ctx, h.b, opts, req)
 	if err != nil {
 		return ActivityResult{}, err
 	}
-	rows, err := h.b.DB.ListImplementStories(ctx, a.Parent.String(), a.Generation)
-	if err != nil {
-		return ActivityResult{}, err
+	return implementResult("posted", out)
+}
+
+// refreshImplementHandoff always rebuilds from fresh authority under the status
+// lock. No durable comment identity or delivery state is needed on restart.
+func refreshImplementHandoff(ctx context.Context, b ImplementBindings, opts Options, req ActivityRequest) (out implementHandoffOutput, changed bool, err error) {
+	if b.StatusBind != nil {
+		b.Bind = b.StatusBind
 	}
-	text, counts := renderImplementHandoff(a, rows)
+	parent, err := b.Bind(ctx, opts, req)
+	if err != nil {
+		return implementHandoffOutput{}, false, err
+	}
+	unlock, err := b.DB.LockImplementStatus(ctx, parent.Parent.String(), b.LockDir)
+	if err != nil {
+		return implementHandoffOutput{}, false, err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	a, err := b.bind(ctx, opts, req)
+	if err != nil {
+		return implementHandoffOutput{}, false, err
+	}
+	rows, err := b.DB.ListImplementStories(ctx, a.Parent.String(), a.Generation)
+	if err != nil {
+		return implementHandoffOutput{}, false, err
+	}
+	readProgress := b.ProgressRead
+	if readProgress == nil {
+		readProgress = b.DB.LatestImplementProgress
+	}
+	progress, progressErr := readProgress(ctx, a.Parent.String(), a.Generation)
+	progress = slices.Clone(progress)
+	if progressErr != nil {
+		progress = nil
+	}
+	// Redact before clipping or escaping, so a secret crossing the clip boundary
+	// cannot escape detection through truncation or Markdown encoding.
+	for i := range progress {
+		safe, redactErr := b.Redactor.Apply(ctx, progress[i].Message, implementHandoffLimit)
+		if redactErr != nil {
+			progress = nil
+			break
+		}
+		progress[i].Message = safe.String()
+	}
+	// Redact every untrusted cell before any clipping or encoding.
+	rows = slices.Clone(rows)
+	a.Stories = slices.Clone(a.Stories)
+	for i := range rows {
+		safe, err := b.Redactor.Apply(ctx, rows[i].Reason, implementHandoffLimit)
+		if err != nil {
+			return out, false, err
+		}
+		rows[i].Reason = safe.String()
+	}
+	for i := range a.Stories {
+		safe, err := b.Redactor.Apply(ctx, a.Stories[i].Name, implementHandoffLimit)
+		if err != nil {
+			return out, false, err
+		}
+		a.Stories[i].Name = safe.String()
+	}
+	notes, err := implementParkNotes(ctx, b.DB, a, rows)
+	if err != nil {
+		return out, false, err
+	}
+	text, counts := renderImplementHandoffNotes(a, rows, progress, notes)
+	if len(text) > implementHandoffBudget {
+		return out, false, errors.New("hand-off report exceeds its size limit")
+	}
 	text += implementValidateNextStep(opts.ValidateAutoStart)
-	body, err := h.b.Redactor.Apply(ctx, text, implementHandoffLimit)
+	body, err := b.Redactor.Apply(ctx, text, implementHandoffLimit)
 	if err != nil {
-		return ActivityResult{}, fmt.Errorf("render hand-off: %w", err)
+		return implementHandoffOutput{}, false, fmt.Errorf("render hand-off: %w", err)
 	}
 	if body.Truncated() || body.Len() > implementHandoffLimit {
-		return ActivityResult{}, errors.New("hand-off report exceeds its size limit")
+		return implementHandoffOutput{}, false, errors.New("hand-off report exceeds its size limit")
 	}
 	repo := github.RepoFromRef(a.Parent)
 	marker := report.ImplementHandoffMarker(a.Parent)
 	var existing *github.Comment
 scan:
 	for page := 1; page > 0 && page <= implementCommentPages; {
-		got, err := h.b.Forge.ListCommentsPage(ctx, repo, a.Parent.Issue, page, implementCommentLimit)
+		got, err := b.Forge.ListCommentsPage(ctx, repo, a.Parent.Issue, page, implementCommentLimit)
 		if err != nil {
-			return ActivityResult{}, fmt.Errorf("look for hand-off report: %w", err)
+			return implementHandoffOutput{}, false, fmt.Errorf("look for hand-off report: %w", err)
 		}
 		for i := range got.Comments {
 			if strings.HasPrefix(got.Comments[i].Body, marker) {
@@ -68,23 +136,25 @@ scan:
 		}
 		page = got.NextPage
 	}
-	out := implementHandoffOutput{Merged: counts.merged, Parked: counts.parked, Waiting: counts.waiting}
+	out = implementHandoffOutput{Merged: counts.merged, Parked: counts.parked, Waiting: counts.waiting}
+	changed = true
 	switch {
 	case existing == nil:
-		posted, err := h.b.Forge.PostComment(ctx, repo, a.Parent.Issue, body)
+		posted, err := b.Forge.PostComment(ctx, repo, a.Parent.Issue, body)
 		if err != nil {
-			return ActivityResult{}, fmt.Errorf("post hand-off report: %w", err)
+			return implementHandoffOutput{}, false, fmt.Errorf("post hand-off report: %w", err)
 		}
 		out.CommentID, out.URL = posted.ID, posted.HTMLURL
 	case existing.Body == body.String():
+		changed = false
 		out.CommentID, out.URL = existing.ID, existing.HTMLURL
 	default:
-		if err := h.b.Forge.EditComment(ctx, repo, existing.ID, body); err != nil {
-			return ActivityResult{}, fmt.Errorf("edit hand-off report: %w", err)
+		if err := b.Forge.EditComment(ctx, repo, existing.ID, body); err != nil {
+			return implementHandoffOutput{}, false, fmt.Errorf("edit hand-off report: %w", err)
 		}
 		out.CommentID, out.URL = existing.ID, existing.HTMLURL
 	}
-	return implementResult("posted", out)
+	return out, changed, nil
 }
 
 // ValidateStartCommand is the exact command that starts Validate by hand.
@@ -101,65 +171,138 @@ func implementValidateNextStep(autoStart bool) string {
 
 type implementHandoffCounts struct{ merged, parked, waiting int }
 
-// renderImplementHandoff writes the report in plain language. When the report
-// would exceed its budget, the later entries of a section are summarized as a
-// count instead of listed.
+// renderImplementHandoff preserves every approved story in plan order.
 func renderImplementHandoff(a ImplementAuthority, rows []store.ImplementStory) (string, implementHandoffCounts) {
+	return renderImplementHandoffProgress(a, rows, nil)
+}
+
+func renderImplementHandoffProgress(a ImplementAuthority, rows []store.ImplementStory, progress []store.ImplementProgressReport) (string, implementHandoffCounts) {
+	return renderImplementHandoffNotes(a, rows, progress, nil)
+}
+
+func renderImplementHandoffNotes(a ImplementAuthority, rows []store.ImplementStory, progress []store.ImplementProgressReport, notes map[string]store.ReportDelivery) (string, implementHandoffCounts) {
 	state := map[string]store.ImplementStory{}
 	for _, row := range rows {
 		state[row.Key] = row
 	}
-	var merged, parked, waiting []string
+	dependencies := maps.Clone(state)
+	for _, story := range a.Stories {
+		if _, exists := dependencies[story.Key]; story.AlreadyComplete && !exists {
+			dependencies[story.Key] = store.ImplementStory{Key: story.Key, State: store.ImplementMerged}
+		}
+	}
+	type tableRow struct{ prefix, info, suffix string }
+	var table []tableRow
+	var counts implementHandoffCounts
+	header := report.ImplementHandoffMarker(a.Parent) + "\n\n**Implementation hand-off**\n\n| Story | State | Information |\n|---|---|---|\n"
+	// Reserve the longer next-step variant before assigning summary space.
+	fixed := len(header) + max(len(implementValidateNextStep(false)), len(implementValidateNextStep(true))) + 1
 	for _, story := range a.Stories {
 		row, ok := state[story.Key]
 		if !ok {
 			row = store.ImplementStory{Key: story.Key, State: store.ImplementWaiting}
 		}
-		label := story.Key
-		if story.Name != "" {
-			label = fmt.Sprintf("%s (%s)", story.Name, story.Key)
+		label := escapeImplementText(story.Key) + " " + safeImplementProgress(story.Name)
+		if story.IssueNumber > 0 {
+			label += fmt.Sprintf(" (#%d)", story.IssueNumber)
 		}
-		switch row.State {
-		case store.ImplementMerged:
-			merged = append(merged, fmt.Sprintf("- %s: merged as commit `%s`.", label, row.MergeCommit))
-		case store.ImplementParked:
-			parked = append(parked, fmt.Sprintf("- %s: set aside. Reason: %s", label, clipText(oneLine(row.Reason), implementReasonLimit)))
+		display, info := "Waiting", waitingSentence(story, row, dependencies)
+		suffix := ""
+		switch {
+		case row.State == store.ImplementMerged || story.AlreadyComplete && !ok:
+			display = "Finished"
+			info = "already complete before this run."
+			if ok {
+				info = "merged as commit " + row.MergeCommit + "."
+			}
+			counts.merged++
+		case row.State == store.ImplementParked:
+			display, info = "Parked", row.Reason
+			if row.ParkOrigin == store.ImplementOriginWorker && row.Attempts >= store.MaxImplementAttempts {
+				display = "Failed"
+			}
+			if note, exists := notes[story.Key]; exists {
+				if display != "Failed" && strings.HasPrefix(note.Body, "**Story parked**\n\nWorker response: blocked\n") {
+					display = "Blocked"
+				}
+				suffix = fmt.Sprintf(" [Full answer](https://github.com/%s/%s/issues/%d#issuecomment-%d)", a.Parent.Owner, a.Parent.Repo, story.IssueNumber, note.CommentID)
+			}
+			counts.parked++
 		default:
-			waiting = append(waiting, fmt.Sprintf("- %s: %s", label, waitingSentence(story, row, state)))
+			counts.waiting++
+			switch row.State {
+			case store.ImplementDone:
+				display = "Merging"
+			case store.ImplementRunning:
+				display = "Implementing"
+				if latest := latestImplementActivity(a, row, progress); latest != nil {
+					if latest.Kind == "testing" {
+						display = "Testing"
+					}
+					// Metadata is fixed overhead; only the worker's summary is budgeted.
+					suffix = fmt.Sprintf(" Latest activity (advisory, not completion): %s at %s, attempt %d.", latest.Kind, latest.RecordedAt.UTC().Format(time.RFC3339), row.Attempts+1)
+					info += " " + latest.Message
+				}
+			default:
+				for _, dep := range story.Dependencies {
+					if dependencies[dep].State == store.ImplementParked {
+						display = "Blocked"
+					}
+				}
+			}
 		}
+		tr := tableRow{prefix: "| " + label + " | " + display + " | ", info: info, suffix: suffix + " |\n"}
+		fixed += len(tr.prefix) + len(tr.suffix)
+		table = append(table, tr)
 	}
 	var out strings.Builder
-	out.WriteString(report.ImplementHandoffMarker(a.Parent) + "\n\n")
-	out.WriteString("**Implementation hand-off**\n\n")
-	fmt.Fprintf(&out, "Work is merged into `%s` one story at a time; each story is tested by its worker before it is merged. This report is updated as the work moves on.\n\n", a.IntegrationBranch)
-	sections := []struct {
-		title, empty string
-		lines        []string
-	}{
-		{"Merged", "Nothing has been merged yet.", merged},
-		{"Parked", "No story has been set aside.", parked},
-		{"Still waiting", "No story is waiting.", waiting},
+	out.WriteString(header)
+	share := max(0, implementHandoffBudget-fixed) / max(1, len(table))
+	for _, row := range table {
+		out.WriteString(row.prefix)
+		out.WriteString(budgetImplementText(row.info, min(1800, share)))
+		out.WriteString(row.suffix)
 	}
-	budget := implementHandoffBudget - out.Len()
-	for _, s := range sections {
-		fmt.Fprintf(&out, "**%s (%d)**\n\n", s.title, len(s.lines))
-		if len(s.lines) == 0 {
-			out.WriteString(s.empty + "\n\n")
+	out.WriteString("\n")
+	// If minimal rows exceed the budget, return them intact. The publication
+	// boundary rejects the oversized body; it never posts a partial table.
+	return out.String(), counts
+}
+
+func latestImplementActivity(a ImplementAuthority, row store.ImplementStory, progress []store.ImplementProgressReport) *store.ImplementProgressReport {
+	var latest *store.ImplementProgressReport
+	for i := range progress {
+		p := &progress[i]
+		if p.Kind != "implementation" && p.Kind != "testing" && p.Kind != "repair" {
 			continue
 		}
-		share := budget / 3
-		used := 0
-		for i, line := range s.lines {
-			if used+len(line)+1 > share {
-				fmt.Fprintf(&out, "- and %d more.\n", len(s.lines)-i)
-				break
-			}
-			out.WriteString(line + "\n")
-			used += len(line) + 1
+		if p.StoryKey == row.Key && p.StoryAttempts == row.Attempts && p.Generation == a.Generation && p.Parent == a.Parent.String() && !p.RecordedAt.Before(row.StateAt) && (latest == nil || p.RecordedAt.After(latest.RecordedAt) || p.RecordedAt.Equal(latest.RecordedAt) && p.ID > latest.ID) {
+			latest = p
 		}
-		out.WriteString("\n")
 	}
-	return out.String(), implementHandoffCounts{len(merged), len(parked), len(waiting)}
+	return latest
+}
+
+func budgetImplementText(text string, budget int) string {
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			return ' '
+		}
+		return r
+	}, text)
+	text = strings.Join(strings.Fields(text), " ")
+	var out strings.Builder
+	for _, r := range text {
+		next := escapeImplementText(string(r))
+		if out.Len()+len(next) > budget-3 {
+			if budget >= 3 {
+				out.WriteString("...")
+			}
+			break
+		}
+		out.WriteString(next)
+	}
+	return out.String()
 }
 
 // waitingSentence says what an unfinished story is waiting for.
@@ -189,4 +332,29 @@ func waitingSentence(story ImplementStory, row store.ImplementStory, state map[s
 		return "ready to start."
 	}
 	return "waiting for " + strings.Join(blockers, ", ") + " to be merged."
+}
+
+// safeImplementProgress keeps worker text inert even when it contains Markdown,
+// autolinks, mentions or the hidden hand-off marker.
+func safeImplementProgress(text string) string {
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			return ' '
+		}
+		return r
+	}, text)
+	text = strings.Join(strings.Fields(text), " ")
+	runes := []rune(text)
+	if len(runes) > 300 {
+		text = string(runes[:300]) + "..."
+	}
+	var out strings.Builder
+	for _, r := range text {
+		if strings.ContainsRune("&<>@#[]()!*_`~\\:./=-+|", r) {
+			fmt.Fprintf(&out, "&#%d;", r)
+		} else {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }

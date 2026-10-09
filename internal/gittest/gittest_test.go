@@ -178,3 +178,44 @@ func TestFixtureIsRemovedWithTheTest(t *testing.T) {
 		t.Errorf("fixture %s outlived the test that created it", dir)
 	}
 }
+
+func TestFixturesRemainIndependentAfterCleanup(t *testing.T) {
+	var first string
+	t.Run("first", func(t *testing.T) {
+		r := gittest.New(t)
+		first = r.Dir
+		r.WriteFile("README.md", "first changed\n")
+		r.Commit("change first")
+		r.Git("push", "origin", "main")
+	})
+	if _, err := os.Stat(first); !os.IsNotExist(err) {
+		t.Fatalf("first fixture still exists: %v", err)
+	}
+	a, b := gittest.New(t), gittest.New(t)
+	initial := b.Head()
+	a.WriteFile("README.md", "a changed\n")
+	changed := a.Commit("change a")
+	a.Git("push", "origin", "main")
+	b.Git("fetch", "origin")
+	if b.Head() != initial || b.Git("rev-parse", "origin/main") != initial {
+		t.Fatal("fixtures share an origin or clone")
+	}
+	if b.Git("status", "--porcelain") != "" {
+		t.Fatal("later fixture is dirty")
+	}
+	if b.Git("rev-parse", "--abbrev-ref", "@{upstream}") != "origin/main" {
+		t.Fatal("upstream missing")
+	}
+	b.WriteFile("other.txt", "b changed\n")
+	b.Commit("change b")
+	b.Git("push", "origin", "main")
+	a.Git("fetch", "origin")
+	if a.Git("rev-parse", "origin/main") != changed {
+		t.Fatal("second push changed first origin")
+	}
+	wt := filepath.Join(t.TempDir(), "worktree")
+	a.Git("worktree", "add", "--detach", wt, "origin/main")
+	if got := a.GitIn(wt, "rev-parse", "HEAD"); got != changed {
+		t.Fatalf("worktree HEAD = %s", got)
+	}
+}

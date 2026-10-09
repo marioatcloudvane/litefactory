@@ -19,6 +19,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -196,8 +197,8 @@ func (s *spikeFix) start(configure func(*spikeFix)) Result {
 		configure(s)
 	}
 	if s.graph != nil {
-		f.opts.spikeCapture = func(ctx context.Context, policy WorkflowPolicy) (*teamsource.WorkflowDefinition, error) {
-			return captureSpikeVariant(ctx, t, policy, s.graph)
+		f.opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, _ graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+			return fixtureInstalled(captureSpikeVariant(ctx, t, SpikeWorkflowPolicy(), s.graph))
 		}
 	}
 	if !s.noRecipe {

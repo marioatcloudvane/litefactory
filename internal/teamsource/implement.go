@@ -25,5 +25,5 @@ func CaptureImplement(ctx context.Context, registry graphexec.Registry) (*Workfl
 	if err != nil {
 		return nil, fmt.Errorf("open built-in Implement: %w", err)
 	}
-	return CaptureWorkflow(ctx, source, "implement.dot", "builtin", agent.ModeImplement, registry)
+	return CaptureWorkflow(ctx, source, "implement.dot", "go-development", agent.ModeImplement, registry)
 }

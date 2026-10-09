@@ -42,9 +42,13 @@ func (rt *implementRuntime) bindings() (ImplementBindings, error) {
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return ImplementBindings{}, fmt.Errorf("prepare the story progress lock directory: %w", err)
 	}
+	status, err := implementStatusBindings(opts, rt.parentRef.String(), rt.generation)
+	if err != nil {
+		return ImplementBindings{}, err
+	}
 	return ImplementBindings{
 		DB: opts.DB, Forge: forge, Redactor: opts.MCP.Redactor, LockDir: lockDir,
-		Repo: implementRepoLoader{rt: rt}, Bind: rt.bind,
+		Repo: implementRepoLoader{rt: rt}, Bind: rt.bind, StatusBind: status.Bind, Status: opts.MCP.ImplementStatus,
 	}, nil
 }
 
@@ -119,6 +123,7 @@ func (rt *implementRuntime) workerRow(ctx context.Context, opts Options) (store.
 // budget decides whether the story gets another attempt: the first attempt and
 // two repairs, counted in the ledger so an owner resume starts the count again.
 func (rt *implementRuntime) budget(ctx context.Context, opts Options, _ ActivityRequest) (ActivityResult, error) {
+	defer rt.refreshStatus(ctx, opts)
 	row, err := rt.workerRow(ctx, opts)
 	if err != nil {
 		return ActivityResult{}, err
@@ -163,6 +168,7 @@ func (rt *implementRuntime) retainedAnswer(ctx context.Context, opts Options, a 
 // failed attempt and is retried through the budget; a failed push never marks the
 // story done. A cancelled run is an infrastructure fault, not a failed attempt.
 func (rt *implementRuntime) storyDone(ctx context.Context, opts Options, _ ActivityRequest) (ActivityResult, error) {
+	defer rt.refreshStatus(ctx, opts)
 	row, err := rt.workerRow(ctx, opts)
 	if err != nil {
 		return ActivityResult{}, err
@@ -211,17 +217,34 @@ func (rt *implementRuntime) wake(ctx context.Context, opts Options, parent strin
 // answered blocked or incomplete, otherwise the last failed attempt's. It wakes
 // the parent, which asks the owner after the hand-off.
 func (rt *implementRuntime) parkStory(ctx context.Context, opts Options, a ActivityRequest) (ActivityResult, error) {
+	defer rt.refreshStatus(ctx, opts)
 	row, err := rt.workerRow(ctx, opts)
 	if err != nil {
 		return ActivityResult{}, err
 	}
 	if row.State == store.ImplementParked {
+		if err := rt.publishParkAnswer(ctx, opts, a, row, row.Reason); err != nil {
+			return ActivityResult{}, err
+		}
 		return implementResult("parked", map[string]any{"story": row.Key, "reason": row.Reason})
 	}
 	reason := rt.parkReason(ctx, opts, a, row)
+	if row.State != store.ImplementRunning {
+		return ActivityResult{}, fmt.Errorf("story %s is %s, not running", row.Key, row.State)
+	}
+	if err := rt.publishParkAnswer(ctx, opts, a, row, reason); err != nil {
+		return ActivityResult{}, err
+	}
+	// The ledger remains a summary, but secrets must be removed before its
+	// clipping boundary can split a credential into an unrecognizable prefix.
+	safeReason, err := opts.ResearchReporter.renderer.RenderReportDelivery(ctx, reason, "")
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	reason = safeReason.String()
 	if _, err := opts.DB.TransitionImplementStory(ctx, store.ImplementTransition{
 		Parent: row.Parent, Generation: row.Generation, Key: row.Key,
-		From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: reason, At: rt.now(),
+		From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: clipText(reason, maxImplementReason), At: rt.now(),
 	}); err != nil {
 		return ActivityResult{}, err
 	}
@@ -231,13 +254,13 @@ func (rt *implementRuntime) parkStory(ctx context.Context, opts Options, a Activ
 
 func (rt *implementRuntime) parkReason(ctx context.Context, opts Options, a ActivityRequest, row store.ImplementStory) string {
 	if node, err := rt.retainedAnswer(ctx, opts, a); err == nil && node.Response != agentresult.ImplementResponseCompleted {
-		return clipText(fmt.Sprintf("The worker stopped with an %s answer: %s", node.Response, strings.TrimSpace(node.Result.Reason)), maxImplementReason)
+		return fmt.Sprintf("The worker stopped with an %s answer: %s", node.Response, strings.TrimSpace(node.Result.Reason))
 	}
 	detail := strings.TrimSpace(row.LastFailure)
 	if detail == "" {
 		detail = "no reason was recorded"
 	}
-	return clipText(fmt.Sprintf("The story failed %d attempt(s) in a row, so it was parked. The last problem: %s", max(row.Attempts, 1), detail), maxImplementReason)
+	return fmt.Sprintf("The story failed %d attempt(s) in a row, so it was parked. The last problem: %s", max(row.Attempts, 1), detail)
 }
 
 // implementAfterAgentFailure settles a worker attempt that failed after its
@@ -265,6 +288,9 @@ func implementAfterAgentFailure(ctx context.Context, opts Options, a ActivityReq
 	reason := "The attempt ended without an accepted answer: " + clipText(strings.Join(strings.Fields(detail), " "), 400)
 	if _, err := opts.DB.RecordImplementFailure(ctx, row.Parent, row.Generation, row.Key, reason, spikeNow(opts)); err != nil {
 		return out, errors.Join(cause, err)
+	}
+	if opts.MCP != nil {
+		bestEffortImplementStatus(ctx, opts, opts.MCP.ImplementStatus, row.Parent, row.Generation)
 	}
 	return ActivityResult{Outcome: "failed", Diagnostic: reason, ProcessResult: out.ProcessResult}, nil
 }
@@ -436,4 +462,10 @@ func (s gatedScratch) Close(ctx context.Context) error {
 	}
 	defer release()
 	return s.ImplementScratch.Close(ctx)
+}
+
+func (rt *implementRuntime) refreshStatus(ctx context.Context, opts Options) {
+	if opts.MCP != nil {
+		bestEffortImplementStatus(ctx, opts, opts.MCP.ImplementStatus, rt.parentRef.String(), rt.generation)
+	}
 }

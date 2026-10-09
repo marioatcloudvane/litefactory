@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -419,7 +420,7 @@ func TestRetirementExecutionRealCoordination(t *testing.T) {
 		go func() { _, err := d.ExecuteRetirement(ctx, "contention", x.session.ID, x.now); done <- err }()
 		select {
 		case <-entered:
-		case <-time.After(5 * time.Second):
+		case <-time.After(testutil.Wait):
 			t.Fatal("executor never reached clone gate")
 		}
 		s, err := x.f.db.GetSession(t.Context(), x.session.ID)
@@ -435,7 +436,7 @@ func TestRetirementExecutionRealCoordination(t *testing.T) {
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("cancellation %v", err)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(testutil.Wait):
 			t.Fatal("clone wait ignored cancellation")
 		}
 		s, err = x.f.db.GetSession(t.Context(), x.session.ID)

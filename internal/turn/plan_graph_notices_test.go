@@ -138,7 +138,7 @@ func TestPlanNotices_FinalApprovalIsConfirmedOnceOnTheParent(t *testing.T) {
 	if len(confirmations) != 1 {
 		t.Fatalf("%d confirmations on the parent, want 1", len(confirmations))
 	}
-	for _, want := range []string{"| `story-001` | Bounded Plan |", "`/implement`"} {
+	for _, want := range []string{"| `story-001` | Bounded Plan |", "`/implement implement the approved stories`"} {
 		if !strings.Contains(confirmations[0], want) {
 			t.Fatalf("confirmation lacks %q:\n%s", want, confirmations[0])
 		}
@@ -250,7 +250,7 @@ func TestPlanNotices_OutOfPassesStopIsReportedOnce(t *testing.T) {
 	mustProgress(t, err)
 	definition, err := teamsource.CapturePlan(t.Context(), specs)
 	mustProgress(t, err)
-	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "plan", ProfileVersion: definition.Profile.ProfileVersion, Path: "plan/plan.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
+	pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: definition.Profile.Team, Mode: "plan", ProfileVersion: definition.Profile.ProfileVersion, Path: "plan/plan.dot", Digest: definition.Profile.Digest, TeamSnapshotDigest: definition.Digest})
 	mustProgress(t, err)
 	now := time.Now()
 	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: pin.ID, CurrentNode: "stopped", StartedAt: now})

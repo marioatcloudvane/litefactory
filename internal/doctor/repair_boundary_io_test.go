@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"os"
 	"reflect"
 	"testing"
@@ -65,7 +66,7 @@ func TestDoctorStopJoinsAdmittedFileEffectAcrossStoreHandles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testutil.Wait):
 		t.Fatal("stop failed to join admitted effect")
 	}
 	data, err := os.ReadFile(path)

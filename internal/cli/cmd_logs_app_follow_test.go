@@ -3,28 +3,46 @@ package cli
 import (
 	"bytes"
 	"context"
+	"github.com/cloudvane/litefactory/internal/testutil"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
 )
 
-// runFollowLogs dispatches args against the real command surface with a
-// caller-supplied context, exactly as TestLogsLevelAdvisoryDoesNotRepeatUnderFollow
-// does — runBareLogs cannot be reused here because it always runs against
-// t.Context(), and every test in this file needs a bounded, cancellable
-// context to let a -f session run for a few poll ticks before it ends.
-func runFollowLogs(ctx context.Context, t *testing.T, args ...string) (code int, stdout, stderr string) {
+// runFollowLogs orders filesystem changes after observed output and joins the
+// writer before reading its result. The deadline detects a hung follower.
+func runFollowLogs(t *testing.T, steps func(context.Context, *recordingWriter) error, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
-
-	var out, errOut bytes.Buffer
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.Wait)
+	defer cancel()
+	var out recordingWriter
+	var errOut bytes.Buffer
+	done := make(chan error, 1)
+	go func() { defer cancel(); done <- steps(ctx, &out) }()
 	env := &Env{Stdout: &out, Stderr: &errOut, Stdin: strings.NewReader(""), Logger: slog.New(slog.DiscardHandler)}
 	code = NewRouter("litefactory", env, Commands()).Run(ctx, args)
-	return code, out.String(), errOut.String()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	return code, out.joined(), errOut.String()
+}
+
+// followOpenContext observes the follower's first wait. In a direct call with
+// an absent file, Done is consulted only after the failed open, before polling.
+type followOpenContext struct {
+	context.Context
+	once    sync.Once
+	waiting chan struct{}
+}
+
+func (c *followOpenContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.waiting) })
+	return c.Context.Done()
 }
 
 // TestFollowAppLog_StreamsAppendedRecord is AC-2.1: a record appended to
@@ -45,19 +63,15 @@ func TestFollowAppLog_StreamsAppendedRecord(t *testing.T) {
 	}
 	const line2 = `{"time":"2026-09-05T09:00:01Z","level":"INFO","msg":"tick"}` + "\n"
 
-	// followInterval is 250ms; scheduling the append partway through a
-	// generous overall deadline gives the follow loop several chances to
-	// (correctly) pick it up before ctx is cancelled.
-	ctx, cancel := context.WithTimeout(t.Context(), 900*time.Millisecond)
-	defer cancel()
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		if err := appendToFile(logPath, line2); err != nil {
-			t.Errorf("append to %s: %v", logPath, err)
+	code, stdout, stderr := runFollowLogs(t, func(ctx context.Context, out *recordingWriter) error {
+		if err := out.waitForWrites(ctx, 1); err != nil {
+			return err
 		}
-	}()
-
-	code, stdout, stderr := runFollowLogs(ctx, t, "logs", "--raw", "-f")
+		if err := appendToFile(logPath, line2); err != nil {
+			return err
+		}
+		return out.waitForWrites(ctx, 2)
+	}, "logs", "--raw", "-f")
 
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
@@ -95,20 +109,21 @@ func TestFollowAppLog_TerminalEventDoesNotStopFollow(t *testing.T) {
 	const terminalLike = `{"type":"result","subtype":"success"}` + "\n"
 	const afterTerminal = `{"time":"2026-09-05T09:00:02Z","level":"INFO","msg":"still running"}` + "\n"
 
-	ctx, cancel := context.WithTimeout(t.Context(), 1200*time.Millisecond)
-	defer cancel()
-	go func() {
-		time.Sleep(300 * time.Millisecond)
+	code, stdout, stderr := runFollowLogs(t, func(ctx context.Context, out *recordingWriter) error {
+		if err := out.waitForWrites(ctx, 1); err != nil {
+			return err
+		}
 		if err := appendToFile(logPath, terminalLike); err != nil {
-			t.Errorf("append to %s: %v", logPath, err)
+			return err
 		}
-		time.Sleep(300 * time.Millisecond)
+		if err := out.waitForWrites(ctx, 2); err != nil {
+			return err
+		}
 		if err := appendToFile(logPath, afterTerminal); err != nil {
-			t.Errorf("append to %s: %v", logPath, err)
+			return err
 		}
-	}()
-
-	code, stdout, stderr := runFollowLogs(ctx, t, "logs", "--raw", "-f")
+		return out.waitForWrites(ctx, 3)
+	}, "logs", "--raw", "-f")
 
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
@@ -141,20 +156,29 @@ func TestFollowAppLog_WaitsForFileThenStreams(t *testing.T) {
 		t.Fatal("daemon.log unexpectedly exists before the test wrote it")
 	}
 
-	ctx, cancel := context.WithTimeout(t.Context(), 900*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.Wait)
 	defer cancel()
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		if err := os.WriteFile(logPath, []byte(line1+line2), 0o600); err != nil {
-			t.Errorf("create daemon.log mid-follow: %v", err)
-		}
-	}()
-
-	code, stdout, stderr := runFollowLogs(ctx, t, "logs", "--raw", "-f")
-
-	if code != ExitOK {
-		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+	observed := &followOpenContext{Context: ctx, waiting: make(chan struct{})}
+	var out recordingWriter
+	done := make(chan error, 1)
+	go func() { done <- followAppLog(observed, &rawSink{out: &out}, logPath, 0) }()
+	select {
+	case <-observed.waiting:
+	case <-ctx.Done():
+		t.Fatal("follower did not attempt absent open")
 	}
+	if err := os.WriteFile(logPath, []byte(line1+line2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.waitForWrites(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	stdout := out.joined()
+
 	if !strings.Contains(stdout, line1) || !strings.Contains(stdout, line2) {
 		t.Errorf("stdout = %q, want it to contain both lines written after the file was created", stdout)
 	}
@@ -180,18 +204,15 @@ func TestFollowAppLog_ResumesAfterTruncation(t *testing.T) {
 		t.Fatalf("write daemon.log: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond)
-	defer cancel()
-	go func() {
-		// Give the follow loop time to observe the pre-truncation content
-		// before shrinking the file out from under it.
-		time.Sleep(400 * time.Millisecond)
-		if err := os.WriteFile(logPath, []byte(afterTruncate), 0o600); err != nil {
-			t.Errorf("truncate and rewrite daemon.log: %v", err)
+	code, stdout, stderr := runFollowLogs(t, func(ctx context.Context, out *recordingWriter) error {
+		if err := out.waitForWrites(ctx, 1); err != nil {
+			return err
 		}
-	}()
-
-	code, stdout, stderr := runFollowLogs(ctx, t, "logs", "--raw", "-f")
+		if err := os.WriteFile(logPath, []byte(afterTruncate), 0o600); err != nil {
+			return err
+		}
+		return out.waitForWrites(ctx, 2)
+	}, "logs", "--raw", "-f")
 
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)

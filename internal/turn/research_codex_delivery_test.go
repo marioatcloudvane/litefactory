@@ -45,7 +45,7 @@ func TestResearchCodexDeliveryRetainsCompleteMainInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := verifyDelivery(delivery.Root, p); err != nil {
+	if _, err := verifyDelivery(t.Context(), delivery.Root, p); err != nil {
 		t.Fatalf("retained source verification failed: %v", err)
 	}
 }
