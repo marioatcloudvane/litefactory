@@ -581,7 +581,7 @@ func TestImplementHandoffStaysWithin64KiB(t *testing.T) {
 
 func TestImplementHandoffShowsStoriesTheLedgerDoesNotHoldYetAsWaiting(t *testing.T) {
 	f := newImplementFixture(t, implementStories(2, map[string][]string{"story-002": {"story-001"}})...)
-	text, counts := renderImplementHandoff(f.auth, nil)
+	text, counts := renderImplementHandoffProgress(f.auth, nil, nil)
 	if counts.waiting != 2 || !strings.Contains(text, "ready to start") || !strings.Contains(html.UnescapeString(text), "waiting for story-001 (unknown story)") {
 		t.Fatalf("counts=%+v\n%s", counts, text)
 	}

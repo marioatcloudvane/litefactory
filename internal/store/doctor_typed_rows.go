@@ -50,7 +50,7 @@ func doctorTypedRowSnapshot(ctx context.Context, tx *sql.Tx, ref, kind, target s
 	var query string
 	switch kind {
 	case "release_instance":
-		query = `SELECT g.status,json_object('table','graph_instances','id',g.id,'status',g.status,'finished_at',g.finished_at,'next_due_at',g.next_due_at,'implement_stories',json((SELECT json_group_array(json_object('parent',i.parent,'generation',i.generation,'story_key',i.story_key,'last_failure',i.last_failure,'revision',i.revision,'updated_at',i.updated_at)) FROM implement_stories i WHERE i.worker_session=g.session_id AND i.state='running'))) FROM graph_instances g JOIN sessions s ON s.id=g.session_id WHERE g.id=? AND s.task_ref=?`
+		query = `SELECT g.status,json_object('table','graph_instances','id',g.id,'status',g.status,'finished_at',g.finished_at,'next_due_at',g.next_due_at,'implement_stories',json((SELECT json_group_array(json_object('parent',i.parent,'generation',i.generation,'story_key',i.story_key,'last_failure',i.last_failure,'revision',i.revision,'updated_at',i.updated_at)) FROM implement_stories i WHERE i.worker_session=g.session_id AND i.state='running')),'owner_waits',json((SELECT json_group_array(json_object('delivery_key',w.delivery_key,'state',w.state,'reply_id',w.reply_id,'reply_author_id',w.reply_author_id,'claimed_at',w.claimed_at,'continuation_attempt_id',w.continuation_attempt_id)) FROM graph_owner_waits w WHERE w.instance_id=g.id AND w.state IN('waiting','claimed'))),'dispatches',json((SELECT json_group_array(json_object('id',d.id,'status',d.status,'reserved_at',d.reserved_at,'finished_at',d.finished_at,'cancellation_reason',d.cancellation_reason)) FROM graph_dispatches d WHERE d.instance_id=g.id AND d.status IN('pending','reserved') AND d.allocated_run_id IS NULL))) FROM graph_instances g JOIN sessions s ON s.id=g.session_id WHERE g.id=? AND s.task_ref=?`
 	case "resume_story", "park_story":
 		query = `SELECT i.state,json_object('table','implement_stories','rowid',i.rowid,'parent',i.parent,'generation',i.generation,'story_key',i.story_key,'state',i.state,'reason',i.reason,'merge_commit',i.merge_commit,'revision',i.revision,'updated_at',i.updated_at,'state_at',i.state_at,'park_origin',i.park_origin,'attempts',i.attempts,'last_failure',i.last_failure,'worker_session',i.worker_session,'guidance',i.guidance) FROM implement_stories i WHERE i.rowid=? AND (i.parent=? OR EXISTS(SELECT 1 FROM managed_stories m WHERE m.parent_task=i.parent AND m.generation=i.generation AND m.story_key=i.story_key AND substr(m.parent_task,1,instr(m.parent_task,'#'))||m.issue_number=?))`
 	case "stop_run":
@@ -144,7 +144,13 @@ func (db *DB) ApplyDoctorTypedRows(ctx context.Context, id string, number int, k
 		var res sql.Result
 		switch kind {
 		case "release_instance":
-			res, e = tx.ExecContext(ctx, `UPDATE graph_instances SET status='failed',finished_at=?,next_due_at=NULL WHERE id=? AND status='running' AND NOT EXISTS(SELECT 1 FROM graph_node_attempts WHERE instance_id=graph_instances.id AND status IN('pending','running')) AND NOT EXISTS(SELECT 1 FROM graph_dispatches WHERE instance_id=graph_instances.id AND status IN('pending','reserved','running')) AND NOT EXISTS(SELECT 1 FROM graph_owner_waits WHERE instance_id=graph_instances.id AND state IN('waiting','claimed','allocated')) AND NOT EXISTS(SELECT 1 FROM runs WHERE session_id=graph_instances.session_id AND status='running') AND NOT EXISTS(SELECT 1 FROM sessions WHERE id=graph_instances.session_id AND (state='running' OR lock_owner IS NOT NULL))`, stamp, key)
+			res, e = tx.ExecContext(ctx, `UPDATE graph_instances SET status='failed',finished_at=?,next_due_at=NULL WHERE id=? AND status='running' AND NOT EXISTS(SELECT 1 FROM graph_node_attempts WHERE instance_id=graph_instances.id AND status IN('pending','running')) AND NOT EXISTS(SELECT 1 FROM graph_dispatches WHERE instance_id=graph_instances.id AND (status='running' OR (status IN('pending','reserved') AND allocated_run_id IS NOT NULL))) AND NOT EXISTS(SELECT 1 FROM runs WHERE session_id=graph_instances.session_id AND status='running') AND NOT EXISTS(SELECT 1 FROM sessions WHERE id=graph_instances.session_id AND lock_owner IS NOT NULL)`, stamp, key)
+			if e == nil {
+				_, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='cancelled' WHERE instance_id=? AND state IN('waiting','claimed') AND EXISTS(SELECT 1 FROM graph_instances WHERE id=? AND status='failed')`, key, key)
+			}
+			if e == nil {
+				_, e = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='cancelled',finished_at=?,cancellation_reason=? WHERE instance_id=? AND status IN('pending','reserved') AND allocated_run_id IS NULL AND EXISTS(SELECT 1 FROM graph_instances WHERE id=? AND status='failed')`, stamp, reason, key, key)
+			}
 			if e == nil {
 				_, e = tx.ExecContext(ctx, `UPDATE implement_stories SET last_failure=?,revision=revision+1,updated_at=? WHERE worker_session=(SELECT session_id FROM graph_instances WHERE id=?) AND state='running' AND EXISTS(SELECT 1 FROM graph_instances g JOIN graph_definitions d ON d.id=g.definition_id WHERE g.id=? AND d.mode='implement')`, reason, stamp, key, key)
 			}
@@ -179,6 +185,15 @@ func (db *DB) ApplyDoctorTypedRows(ctx context.Context, id string, number int, k
 		}
 		if after != s.After {
 			return errors.New("doctor typed row recheck failed")
+		}
+		if kind == "release_instance" {
+			var open int
+			if e = tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM graph_owner_waits WHERE instance_id=? AND state IN('waiting','claimed'))+(SELECT count(*) FROM graph_dispatches WHERE instance_id=? AND status IN('pending','reserved'))`, key, key).Scan(&open); e != nil {
+				return e
+			}
+			if open != 0 {
+				return errors.New("doctor typed row recheck failed: open owner waits or dispatches remain")
+			}
 		}
 		ref := fmt.Sprintf("database:doctor_repair_steps:%s:%d", id, number)
 		if _, e = tx.ExecContext(ctx, `UPDATE doctor_repair_steps SET backup=?,backup_digest=?,backup_reference=?,state='verified',observed_after=? WHERE repair_id=? AND number=?`, data, doctorDigest(data), ref, after, id, number); e != nil {

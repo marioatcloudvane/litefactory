@@ -34,18 +34,18 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 		return 0, graphInvariant("reconciliation requires a timestamp")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
-		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,COALESCE(r.error,''),a.started_at FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id LEFT JOIN runs r ON r.id=a.run_id WHERE d.mode=? AND i.session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) AND a.status IN ('pending','running') ORDER BY a.id`, mode)
+		rows, e := tx.QueryContext(ctx, `SELECT a.id,a.instance_id,i.status,COALESCE(r.error,''),a.started_at FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id LEFT JOIN runs r ON r.id=a.run_id WHERE d.mode=? AND i.session_id NOT IN (SELECT session_id FROM doctor_held_session_owners) AND a.status IN ('pending','running') ORDER BY a.id`, mode)
 		if e != nil {
 			return e
 		}
 		type interrupted struct {
-			id, instance    int64
-			reason, started string
+			id, instance            int64
+			status, reason, started string
 		}
 		var attempts []interrupted
 		for rows.Next() {
 			var a interrupted
-			if e = rows.Scan(&a.id, &a.instance, &a.reason, &a.started); e != nil {
+			if e = rows.Scan(&a.id, &a.instance, &a.status, &a.reason, &a.started); e != nil {
 				break
 			}
 			attempts = append(attempts, a)
@@ -63,7 +63,13 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 			if finished < a.started {
 				finished = a.started
 			}
-			if _, e = tx.ExecContext(ctx, `UPDATE graph_node_attempts SET status='failed',outcome=NULL,finished_at=? WHERE id=? AND status IN ('pending','running')`, finished, a.id); e != nil {
+			// An attempt left open by an instance that already finished is
+			// cancelled: it can no longer run and must not block a successor.
+			status := "failed"
+			if a.status != GraphRunning {
+				status = "cancelled"
+			}
+			if _, e = tx.ExecContext(ctx, `UPDATE graph_node_attempts SET status=?,outcome=NULL,finished_at=? WHERE id=? AND status IN ('pending','running')`, status, finished, a.id); e != nil {
 				return e
 			}
 			if _, e = tx.ExecContext(ctx, `INSERT INTO graph_outputs(node_attempt_id,kind,payload,created_at) VALUES(?,'diagnostic',?,?)`, a.id, []byte(reason), finished); e != nil {
@@ -197,17 +203,18 @@ ORDER BY id`, sessionID)
 // wait: its wait and unallocated dispatches are cancelled and the instance is
 // cancelled with the reason in its trace. It reports false and changes nothing
 // when the instance is not running, has no waiting question, has an attempt in
-// progress or has a dispatch already allocated to a run.
-func (db *DB) CancelIdleGraphOwnerWait(ctx context.Context, instanceID int64, reason string, at time.Time) (cancelled bool, err error) {
+// progress or has a dispatch already allocated to a run. A claimedReply above
+// zero also accepts a wait claimed by exactly that reply, which is cancelled too.
+func (db *DB) CancelIdleGraphOwnerWait(ctx context.Context, instanceID, claimedReply int64, reason string, at time.Time) (cancelled bool, err error) {
 	if instanceID < 1 || strings.TrimSpace(reason) == "" || at.IsZero() {
 		return false, graphInvariant("invalid owner wait cancellation")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		instance, e := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances i
 WHERE id=? AND status='running'
-AND EXISTS(SELECT 1 FROM graph_owner_waits w WHERE w.instance_id=i.id AND w.state='waiting')
+AND EXISTS(SELECT 1 FROM graph_owner_waits w WHERE w.instance_id=i.id AND (w.state='waiting' OR (?>0 AND w.state='claimed' AND w.reply_id=?)))
 AND NOT EXISTS(SELECT 1 FROM graph_node_attempts a WHERE a.instance_id=i.id AND a.status IN ('pending','running'))
-AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=i.id AND d.allocated_run_id IS NOT NULL AND d.status IN ('pending','reserved','running'))`, instanceID))
+AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=i.id AND d.allocated_run_id IS NOT NULL AND d.status IN ('pending','reserved','running'))`, instanceID, claimedReply, claimedReply))
 		if errors.Is(e, ErrNotFound) {
 			return nil
 		}
@@ -218,7 +225,7 @@ AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=i.id AND d.a
 		if finished.Before(instance.StartedAt) {
 			finished = instance.StartedAt
 		}
-		if _, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='cancelled' WHERE instance_id=? AND state='waiting'`, instance.ID); e != nil {
+		if _, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='cancelled' WHERE instance_id=? AND (state='waiting' OR (?>0 AND state='claimed' AND reply_id=?))`, instance.ID, claimedReply, claimedReply); e != nil {
 			return e
 		}
 		if _, e = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='cancelled',finished_at=MAX(?,created_at),cancellation_reason=? WHERE instance_id=? AND status IN ('pending','reserved') AND allocated_run_id IS NULL`, FormatTime(finished), reason, instance.ID); e != nil {

@@ -62,7 +62,13 @@ func TestValidateGraphRefusesAWeakenedFlow(t *testing.T) {
 			return strings.Replace(s, `owner_close -> owner_report       [lf_on="open"]`, `owner_close -> delivered    [lf_on="open"]`, 1)
 		}, "must report"},
 		"an unclosed run that succeeds": {func(s string) string {
-			return strings.Replace(s, `owner_merge -> owner_report       [lf_on="done"]`, `owner_merge -> delivered    [lf_on="done"]`, 1)
+			return strings.Replace(s, `owner_merge -> owner_resolve      [lf_on="done"]`, `owner_merge -> delivered    [lf_on="done"]`, 1)
+		}, "must report or return to the owner resolution"},
+		"a push that goes on to merge by itself": {func(s string) string {
+			return strings.Replace(s, `owner_push -> owner_resolve      [lf_on="done"]`, `owner_push -> owner_merge      [lf_on="done"]`, 1)
+		}, "must report or return to the owner resolution"},
+		"an issue step that returns to resolve": {func(s string) string {
+			return strings.Replace(s, `owner_issue -> owner_report       [lf_on="done"]`, `owner_issue -> owner_resolve      [lf_on="done"]`, 1)
 		}, "must report"},
 		"a second agent": {func(s string) string {
 			return strings.Replace(s, ` // ---- Review the final`, ` extra [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="validate-code", lf_limit="1"];`+"\n // ---- Review the final", 1)

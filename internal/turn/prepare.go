@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -1745,7 +1746,12 @@ func requestPermissions(req Request) agent.Permissions {
 	if len(req.Tools) > 0 || req.ToolProfile != "" {
 		return agent.Permissions{
 			Profile: req.ToolProfile,
-			Payload: harness.ToolSurface{Tools: req.Tools, AllowedTools: req.AllowedTools},
+			Payload: harness.ToolSurface{
+				Tools: req.Tools, AllowedTools: req.AllowedTools,
+				// A validate surface holding Bash is a reviewer's read-only
+				// shell: the runner refuses everything AllowedTools does not name.
+				ReadOnlyShell: req.ToolProfile == "validate" && slices.Contains(req.Tools, "Bash"),
+			},
 		}
 	}
 	return agent.Permissions{}

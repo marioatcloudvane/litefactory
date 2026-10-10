@@ -83,11 +83,6 @@ func fixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(root, "internal/teamsource/release.json"), raw)
-	profile, err := os.ReadFile("../teamsource/stack-profile.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	put(t, filepath.Join(root, "internal/teamsource/stack-profile.json"), profile)
 	return root
 }
 func generate(t *testing.T, root string) {
@@ -113,7 +108,7 @@ func TestGenerationDeterminismAndReadOnlyDrift(t *testing.T) {
 	if err := Generate(t.Context(), root, true); err != nil {
 		t.Fatal(err)
 	}
-	name := "teams/go-development/v1.2.0/research/research.md"
+	name := "teams/go-development/v1.2.1/research/research.md"
 	put(t, filepath.Join(root, filepath.FromSlash(name)), []byte("drift"))
 	changed := snapshot(t, root)
 	if err := Generate(t.Context(), root, true); err == nil || !strings.Contains(err.Error(), name) {
@@ -135,12 +130,6 @@ func TestGenerationDeterminismAndReadOnlyDrift(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, root)) {
 		t.Fatal("source check wrote output")
 	}
-	meta := filepath.Join(root, "internal/teamsource/release.json")
-	b, err := os.ReadFile(meta)
-	if err != nil {
-		t.Fatal(err)
-	}
-	put(t, meta, bytes.ReplaceAll(b, []byte("1.2.0"), []byte("1.2.1")))
 	generate(t, root)
 	after := snapshot(t, root)
 	if bytes.Equal(first["teams/teams.json"], after["teams/teams.json"]) {
@@ -186,7 +175,7 @@ func TestInvalidCandidatePreservesValidOutput(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			put(t, p, bytes.ReplaceAll(b, []byte("go-development/v1.2.0"), []byte("../outside")))
+			put(t, p, bytes.ReplaceAll(b, []byte("go-development/v1.2.1"), []byte("../outside")))
 		}},
 		{"invalid version", "release.json", "SemVer", func(t *testing.T, root string) {
 			p := filepath.Join(root, "internal/teamsource/release.json")
@@ -194,7 +183,7 @@ func TestInvalidCandidatePreservesValidOutput(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			put(t, p, bytes.ReplaceAll(b, []byte("1.2.0"), []byte("invalid")))
+			put(t, p, bytes.ReplaceAll(b, []byte("1.2.1"), []byte("invalid")))
 		}},
 		{"invalid identity", "research.dot", "identity", func(t *testing.T, root string) {
 			p := filepath.Join(root, "internal/teamsource/research/research.dot")
@@ -241,9 +230,6 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 		}
 		normalized := bytes.ReplaceAll(current, []byte(`team="go-development"`), []byte(`team="builtin"`))
 		normalized = bytes.ReplaceAll(normalized, []byte(",team-guidance"), nil)
-		for _, role := range []string{"architect", "code-reviewer", "implementation-engineer", "unit-test-engineer", "integration-test-engineer"} {
-			normalized = bytes.ReplaceAll(normalized, []byte(`role="`+role+`"`), []byte(`role="go-`+role+`"`))
-		}
 		if !bytes.Equal(original, normalized) {
 			t.Fatalf("%s graph changed beyond team and guidance", w)
 		}
@@ -346,14 +332,14 @@ func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		installed, _, err := m.Install(t.Context(), source, "go-development", "1.2.0")
+		installed, _, err := m.Install(t.Context(), source, "go-development", "1.2.1")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !installed.Integrity || len(installed.Workflows) != 6 {
 			t.Fatal("incomplete installed release")
 		}
-		clone, err := m.Clone(t.Context(), source, "go-development", "1.2.0", "custom", "2.0.0")
+		clone, err := m.Clone(t.Context(), source, "go-development", "1.2.1", "custom", "2.0.0")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -361,7 +347,7 @@ func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
 			t.Fatal("clone lost origin")
 		}
 		err = m.WithCatalogue(t.Context(), func(a *teampackage.CatalogueAccess) error {
-			return a.WithSelected(t.Context(), source, "go-development", "1.2.0", func(got teampackage.Installed, sourceFS fs.FS) error {
+			return a.WithSelected(t.Context(), source, "go-development", "1.2.1", func(got teampackage.Installed, sourceFS fs.FS) error {
 				if !reflect.DeepEqual(got.Identity, installed.Identity) {
 					t.Fatal("selection lost installed identity")
 				}
@@ -420,7 +406,7 @@ func TestBadCatalogueHashPreservesInstalledRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := filepath.Join(root, "teams/teams.json")
-	installed, _, err := m.Install(t.Context(), source, "go-development", "1.2.0")
+	installed, _, err := m.Install(t.Context(), source, "go-development", "1.2.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +426,7 @@ func TestBadCatalogueHashPreservesInstalledRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, source, updated)
-	put(t, filepath.Join(root, "teams/go-development/v1.2.0", filepath.FromSlash(file)), []byte("bad bytes"))
+	put(t, filepath.Join(root, "teams/go-development/v1.2.1", filepath.FromSlash(file)), []byte("bad bytes"))
 	if _, _, err := m.Install(t.Context(), source, "go-development", "1.3.0"); err == nil || !strings.Contains(err.Error(), file) {
 		t.Fatalf("bad file/hash accepted: %v", err)
 	}
@@ -482,7 +468,7 @@ func TestPublicationFailureRestoresEntireBatch(t *testing.T) {
 	}
 	outputs := map[string]map[string][]byte{
 		"internal/teamsource/bug/skills/team-guidance": {"SKILL.md": []byte("candidate")},
-		"teams/go-development/v1.2.0":                  {"candidate.md": []byte("candidate")},
+		"teams/go-development/v1.2.1":                  {"candidate.md": []byte("candidate")},
 	}
 	if err := publish(t.Context(), root, repo, outputs, []byte("new catalogue"), rename); err == nil || !strings.Contains(err.Error(), "injected publication") {
 		t.Fatal(err)

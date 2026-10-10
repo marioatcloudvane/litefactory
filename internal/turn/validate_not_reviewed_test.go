@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -187,5 +188,64 @@ func TestValidateSameCommitStartReplacesARunWithoutUsableReviews(t *testing.T) {
 	// With usable reviews, a repeated start is refused as before.
 	if dup, err := a.manual(t, 6003); err != nil || !strings.Contains(dup.Reason, "already been started") {
 		t.Fatalf("%+v %v", dup, err)
+	}
+}
+
+// #577: a run whose wait an earlier /validate start already claimed is ended by
+// the owner's next /validate; a wait claimed by a control command keeps the run.
+func TestValidateSameCommitStartEndsARunClaimedByAnEarlierStart(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		claim string
+		ends  bool
+	}{
+		{"claimed by a start", "/validate check the finished work", true},
+		{"claimed by a check", ValidateCheckCommand + " r1 story-001:AC-001 pass", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newAdoptFlow(t)
+			a.reviewers.run = deniedReview
+			if out, err := a.manual(t, 6001); err != nil {
+				t.Fatalf("%+v %v", out, err)
+			}
+			first := a.reached(t)
+			if first.Wait != "waiting" || first.Reviewers != 3 {
+				t.Fatalf("the first run waits for the owner after failed reviews: %+v", first)
+			}
+			old := a.entries(t)[0].InstanceID
+			wait, err := a.f.db.GetGraphOwnerWait(t.Context(), old)
+			mustProgress(t, err)
+			delivery, err := a.f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+			mustProgress(t, err)
+			ref := a.f.session.TaskRef
+			_, err = a.f.db.ClaimGraphOwnerReply(t.Context(), store.GraphOwnerReply{InstanceID: old, OwnerID: validateOwnerID, AuthorID: validateOwnerID, CommentID: delivery.CommentID + 1, QuestionCommentID: delivery.CommentID, TaskRef: ref, SourceRef: ref, Mode: "validate", Workflow: "validate", DeliveryKey: wait.DeliveryKey, Body: tc.claim, At: time.Now()})
+			mustProgress(t, err)
+
+			a.reviewers.run = nil
+			out, err := a.manual(t, delivery.CommentID+2)
+			if err != nil {
+				t.Fatalf("%+v %v", out, err)
+			}
+			prior, err := a.f.db.GetGraphInstance(t.Context(), old)
+			mustProgress(t, err)
+			wait, err = a.f.db.GetGraphOwnerWait(t.Context(), old)
+			mustProgress(t, err)
+			if !tc.ends {
+				if prior.Status != store.GraphRunning || wait.State != "claimed" || !strings.Contains(out.Reason, "already been started") {
+					t.Fatalf("a control-command claim keeps the run: %s %s %q", prior.Status, wait.State, out.Reason)
+				}
+				return
+			}
+			if prior.Status != store.GraphCancelled || wait.State != "cancelled" {
+				t.Fatalf("the claimed run is cancelled with its wait: %s %s", prior.Status, wait.State)
+			}
+			got := a.reached(t)
+			if got.Wait != "waiting" || got.Commit != validateHeadA || got.FullCommands != 3 || got.Reviewers != 6 {
+				t.Fatalf("a fresh run on the same commit reuses the suite and reviews again: %+v", got)
+			}
+			if fresh := a.entries(t)[0].InstanceID; fresh == old {
+				t.Fatal("a new instance")
+			}
+		})
 	}
 }

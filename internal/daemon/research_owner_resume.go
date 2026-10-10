@@ -13,10 +13,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.Trigger) error {
-	return d.claimGraphReply(ctx, t, trigger, "research")
-}
-
 // claimGraphReply claims an owner reply for the admitted mode's parked question.
 func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) error {
 	// Replaying an already allocated input performs report recovery only. It

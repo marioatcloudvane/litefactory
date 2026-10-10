@@ -42,18 +42,31 @@ func RenderConversation(c Conversation) string {
 		if c.Repair.Failure != "" || c.Repair.State == "stopped" || c.Repair.State == "needs_review" || c.Repair.State == "failed" {
 			outcome = "failed"
 		} else if c.Repair.State == "recovered" || c.Repair.State == "completed" {
-			outcome = "worked"
+			outcome = "repaired"
 		}
 		fmt.Fprintf(&body, "Overall: %s\n", outcome)
 		if c.Repair.Failure != "" {
 			fmt.Fprintf(&body, "Unresolved: %s\n", c.Repair.Failure)
 		}
+		if c.Diagnosis != nil && c.Diagnosis.Repair != nil {
+			for _, note := range c.Diagnosis.Repair.Unresolved {
+				fmt.Fprintf(&body, "Note: %s\n", note)
+			}
+		}
 		for _, step := range c.RepairSteps {
 			recheck := "not completed"
 			if step.State == "verified" {
-				recheck = "passed: " + step.ObservedAfter
+				recheck = "passed"
 			}
-			fmt.Fprintf(&body, "Step %d: %s; backup: %s; recheck: %s\n", step.Number, step.State, step.BackupReference, recheck)
+			after := step.ObservedAfter
+			if after == "" {
+				after = step.After
+			}
+			backup := step.BackupReference
+			if backup == "" {
+				backup = "none"
+			}
+			fmt.Fprintf(&body, "Step %d %s %s: %s (%s → %s), recheck %s, backup %s\n", step.Number, step.Kind, step.Target, step.State, step.Before, after, recheck, backup)
 		}
 		if c.Restart != nil {
 			fmt.Fprintf(&body, "Restart: %s\n%s\n", c.Restart.State, c.Restart.Report)

@@ -72,7 +72,7 @@ Stop when another hour of reading would not change those answers, and return `do
 The owner reads your questions and your architecture, so make both easy to follow.
 
  - Lead with the answer. One short paragraph saying how the story fits the system and what it reuses, then what is still open when anything is.
- - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options.
+ - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options. However, you must always provide all options to the user so that the user can judge. A question without options is not allowed
  - Write each decision with its area, the decision and the reason, so the owner can challenge the reason and not only the outcome.
  - Keep the architecture technology-neutral in its reasoning. Name concrete technology only where an applicable guidance skill or an existing decision requires it.
  - Do not claim anything is approved, tested or published. Say what you decided and what you assumed.

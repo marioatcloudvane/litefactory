@@ -310,7 +310,7 @@ func TestRenderValidateReportOverview(t *testing.T) {
 	if strings.Count(out, lightGreen)+strings.Count(out, lightYellow)+strings.Count(out, lightRed) != 3 {
 		t.Errorf("one header light and one per row:\n%s", out)
 	}
-	if strings.Contains(out, ValidateCheckCommand) || strings.Contains(out, ValidateFindingCommand) || nextLines(out) != 1 || !strings.Contains(out, "Next: Work through the sub-issues above") {
+	if strings.Contains(out, ValidateCheckCommand) || strings.Contains(out, ValidateFindingCommand) || nextLines(out) != 1 || !strings.Contains(out, "Next: `"+ValidateShipCommand+" 0123456789ab -- <what you checked by hand>`") {
 		t.Errorf("no per-item command, one Next line:\n%s", out)
 	}
 	if !strings.Contains(out, "stale revision given") {
@@ -347,7 +347,8 @@ func TestRenderValidateReportNotReviewed(t *testing.T) {
 	}
 }
 
-// #571 BC-004: the delivery commands in turn, never /validate-ship.
+// #571 BC-004, #573: while delivery is unfinished and nothing blocks, the one
+// next step is /validate-ship, which continues at the first undone step.
 func TestRenderValidateReportDeliveryNextStep(t *testing.T) {
 	head := strings.Repeat("e", 40)
 	st := twoStories()
@@ -356,17 +357,21 @@ func TestRenderValidateReportDeliveryNextStep(t *testing.T) {
 	if !st.Ready {
 		t.Fatalf("ready: %v", st.Open)
 	}
-	steps := []string{"`" + ValidatePushCommand + " 0123456789ab`", "`" + ValidateMergeCommand + " 0123456789ab 42 " + head + "`", "`" + ValidateCloseCommand + " 0123456789ab 10 11 12`"}
-	for i, want := range steps {
+	ship := "`" + ValidateShipCommand + " 0123456789ab -- <what you checked by hand>`"
+	for i := range 4 {
+		want := ship
 		switch i {
 		case 1:
 			st.Effects.Push = vsEffect(1, store.EffectPush, "", store.EffectSucceeded, nil)
 			st.Effects.PR = vsEffect(2, store.EffectPR, "", store.EffectSucceeded, map[string]any{"number": 42, "head": head})
 		case 2:
 			st.Effects.Merge = vsEffect(3, store.EffectMerge, "", store.EffectSucceeded, nil)
+		case 3:
+			st.Effects.Close = vsEffect(4, store.EffectClose, "", store.EffectSucceeded, nil)
+			want = "Nothing. Delivery is complete."
 		}
 		out := renderValidateReport(st, twoTargets, "")
-		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.Contains(out, "\nNext: "+want+"\n") || strings.Contains(out, "/validate-ship") {
+		if !strings.HasPrefix(out, lightGreen) || nextLines(out) != 1 || !strings.Contains(out, "\nNext: "+want+"\n") {
 			t.Errorf("step %d wants %s:\n%s", i, want, out)
 		}
 	}

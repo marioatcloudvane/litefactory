@@ -287,8 +287,8 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (operation st
 	if err != nil {
 		return fail(err)
 	}
-	if final == nil || final.Repair == nil || len(final.Repair.Unresolved) > 0 {
-		return fail(errors.New("doctor repair final result retains unresolved findings"))
+	if final == nil || final.Repair == nil {
+		return fail(errors.New("doctor repair final result is missing its repair summary"))
 	}
 
 	effectUnlock, err := s.repairEffectLock(ctx, request.Target)

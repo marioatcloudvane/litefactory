@@ -53,24 +53,16 @@ type ResearchInvocation struct {
 	Observe     func(agent.Request)
 }
 
-// ResearchAgentActivity prepares a reserved attempt using existing host delivery
-// and helper setup. Prepare must not start a subprocess or publish an effect.
-type ResearchAgentActivity = AgentActivity
-
-// AgentActivity runs one attempt under an explicit admitted mode policy.
+// AgentActivity prepares a reserved attempt using existing host delivery and
+// helper setup and runs it under an explicit admitted mode policy. Prepare must
+// not start a subprocess or publish an effect.
 type AgentActivity struct {
 	Policy  WorkflowPolicy
 	Prepare func(context.Context, Options, ActivityRequest) (ResearchInvocation, error)
 }
 
-// RegisterResearchAgent declares one successful private result outcome. ask/done
-// are retained response values for subsequent control activities to inspect.
-func RegisterResearchAgent(specs *graphexec.Registry, activities *ActivityRegistry, handler ResearchAgentActivity) error {
-	handler.Policy = ResearchWorkflowPolicy()
-	return RegisterAgent(specs, activities, handler)
-}
-
-// RegisterAgent installs the shared invocation activity under an admitted mode policy.
+// RegisterAgent declares one successful private result outcome. ask/done
+// are retained response values for subsequent control activities to inspect. It installs the shared invocation activity under an admitted mode policy.
 func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, handler AgentActivity) error {
 	if specs == nil || activities == nil || handler.Prepare == nil {
 		return errors.New("research agent registration requires registries and preparation")

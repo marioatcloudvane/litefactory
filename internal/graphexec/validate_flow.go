@@ -190,8 +190,11 @@ func ValidateFlowGraph(p *Profile) error {
 			c.edge(n, "done", action(ValidateAskAction), "must reach the owner wait")
 		case ValidateAskAction:
 			c.ask(n)
-		case ValidateIssueAction, ValidatePushAction, ValidateMergeAction:
+		case ValidateIssueAction:
 			c.edge(n, "done", action(ValidateReportAction), "must report")
+		case ValidatePushAction, ValidateMergeAction:
+			// A /validate-ship carries on from resolve; any other command waits.
+			c.edge(n, "done", func(t Node) bool { return t.Action == ValidateReportAction || t.Action == ValidateResolveAction }, "must report or return to the owner resolution")
 		case ValidateCloseAction:
 			c.closeStep(n)
 		}

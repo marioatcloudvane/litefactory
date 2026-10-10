@@ -263,3 +263,195 @@ func testDigest(seed string) string {
 	}
 	return string(out)
 }
+
+// A deploy that stops the daemon during a worker launch leaves the worker
+// instance failed with its attempt still running. After a restart the attempt
+// is closed and the story is offered again as new work, which admits a
+// successor instance instead of being refused forever.
+func TestImplementStoryRelaunchesAfterARestartInterruptedItsLaunch(t *testing.T) {
+	f := newImplementDaemonFixture(t)
+	if err := f.d.graphImplementStories(t.Context(), f.byRepo, map[int64]*candidate{}, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+	db := f.d.db
+	row := f.row(t, "story-001")
+	pin, err := db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement/implement.dot", Digest: testDigest("a"), TeamSnapshotDigest: testDigest("b")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.AdmitResearchPath(t.Context(), row.WorkerSession, "graph"); err != nil {
+		t.Fatal(err)
+	}
+	launch := store.WorkflowLaunch{Mode: "implement", SessionID: row.WorkerSession, TriggerID: implementWorkID(row, 0), DefinitionID: pin.ID, Start: "budget", ContentDigest: testDigest("c"), TopologyDigest: testDigest("d"), Files: []byte(`{"role":"eA=="}`)}
+	first, err := db.AdmitWorkflowLaunch(t.Context(), launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: first.Instance.ID, Node: "budget", Limit: 8, StartedAt: implementDaemonClock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SetGraphInstanceStatus(t.Context(), first.Instance.ID, store.GraphFailed, time.Time{}, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+
+	f.d.instanceID = "replacement"
+	f.d.now = func() time.Time { return implementDaemonClock.Add(time.Hour) }
+	f.d.log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	if _, err = f.d.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := db.GetGraphNodeAttempt(t.Context(), attempt.ID); err != nil || got.Status != store.GraphCancelled {
+		t.Fatalf("startup left the orphaned attempt open: %+v %v", got, err)
+	}
+
+	f.byRepo[f.repo.ID].candidates = nil
+	if err = f.d.graphImplementStories(t.Context(), f.byRepo, map[int64]*candidate{}, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+	offered := false
+	for _, c := range f.byRepo[f.repo.ID].candidates {
+		offered = offered || c.session.ID == row.WorkerSession
+	}
+	if !offered {
+		t.Fatal("the interrupted story is not offered again")
+	}
+	instanceID, ok, err := f.d.implementWorkable(t.Context(), f.row(t, "story-001"))
+	if err != nil || !ok || instanceID != first.Instance.ID {
+		t.Fatalf("retry does not follow the failed instance: %d %v %v", instanceID, ok, err)
+	}
+	retry := implementWorkID(f.row(t, "story-001"), instanceID)
+	if retry == launch.TriggerID {
+		t.Fatal("the retry reuses the spent work identity")
+	}
+	if attempted, err := db.ScheduleAttempted(t.Context(), row.WorkerSession, retry); err != nil || attempted {
+		t.Fatalf("the retry identity is already spent: %v %v", attempted, err)
+	}
+	launch.TriggerID = retry
+	successor, err := db.AdmitWorkflowLaunch(t.Context(), launch)
+	if err != nil || successor.PredecessorID != first.Instance.ID || successor.Instance.ID == first.Instance.ID {
+		t.Fatalf("the relaunch was refused: %+v %v", successor, err)
+	}
+}
+
+// failImplementSchedule records the story work under id as a launch that failed
+// before any worker instance started.
+func failImplementSchedule(t *testing.T, f *implementDaemonFixture, session, id int64) {
+	t.Helper()
+	stored, _, err := f.d.db.CreateOrGetSchedule(t.Context(), store.CreateScheduleParams{SessionID: session, SourceCommentID: id, OwnerHandle: "owner", Payload: implementWorkPayload, DueAt: implementDaemonClock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := f.d.db.ReserveSchedule(t.Context(), stored.ID, implementDaemonClock); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if _, err := f.d.db.FinishSchedule(t.Context(), stored.ID, store.ScheduleFailed, 0, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func offeredImplementStory(t *testing.T, f *implementDaemonFixture, session int64) bool {
+	t.Helper()
+	f.byRepo[f.repo.ID].candidates = nil
+	if err := f.d.graphImplementStories(t.Context(), f.byRepo, map[int64]*candidate{}, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range f.byRepo[f.repo.ID].candidates {
+		if c.session.ID == session {
+			return true
+		}
+	}
+	return false
+}
+
+func implementWorkerTask(t *testing.T, f *implementDaemonFixture, session int64) *task {
+	t.Helper()
+	s, err := f.d.db.GetSession(t.Context(), session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &task{session: s, tickAt: implementDaemonClock}
+}
+
+// A relaunch whose schedule failed before admitting a successor instance (a
+// refused launch, or one orphaned by a restart) moves the story to fresh work
+// instead of leaving it Implementing with nothing running.
+func TestImplementStoryRelaunchesAfterItsRetryLaunchFailed(t *testing.T) {
+	for _, withInstance := range []bool{true, false} {
+		f := newImplementDaemonFixture(t)
+		if err := f.d.graphImplementStories(t.Context(), f.byRepo, map[int64]*candidate{}, implementDaemonClock); err != nil {
+			t.Fatal(err)
+		}
+		row := f.row(t, "story-001")
+		var instanceID int64
+		if withInstance {
+			pin, err := f.d.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement/implement.dot", Digest: testDigest("a"), TeamSnapshotDigest: testDigest("b")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			instance, err := f.d.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: row.WorkerSession, DefinitionID: pin.ID, CurrentNode: "budget", StartedAt: row.StateAt.Add(time.Second), NextDueAt: implementDaemonClock})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = f.d.db.SetGraphInstanceStatus(t.Context(), instance.ID, store.GraphFailed, time.Time{}, implementDaemonClock); err != nil {
+				t.Fatal(err)
+			}
+			instanceID = instance.ID
+		}
+		spent := implementWorkID(row, instanceID)
+		failImplementSchedule(t, f, row.WorkerSession, spent)
+		if !offeredImplementStory(t, f, row.WorkerSession) {
+			t.Fatalf("instance=%v: the story whose launch failed is not offered again", withInstance)
+		}
+		id, ok, err := f.d.implementWorkFor(t.Context(), implementWorkerTask(t, f, row.WorkerSession))
+		if err != nil || !ok || id == spent {
+			t.Fatalf("instance=%v: relaunch identity %d ok=%v (%v), spent %d", withInstance, id, ok, err, spent)
+		}
+		if attempted, err := f.d.db.ScheduleAttempted(t.Context(), row.WorkerSession, id); err != nil || attempted {
+			t.Fatalf("instance=%v: the relaunch identity is already spent: %v %v", withInstance, attempted, err)
+		}
+	}
+}
+
+// Failed instances and refused launches share the infrastructure failure
+// limit; reaching it parks the story with a reason for the owner to resume.
+func TestImplementStoryParksAfterRefusedLaunchesReachTheLimit(t *testing.T) {
+	f := newImplementDaemonFixture(t)
+	if err := f.d.graphImplementStories(t.Context(), f.byRepo, map[int64]*candidate{}, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+	row := f.row(t, "story-001")
+	for retry := range maxImplementInstanceFailures {
+		failImplementSchedule(t, f, row.WorkerSession, implementRetryWorkID(row, 0, retry))
+	}
+	if offeredImplementStory(t, f, row.WorkerSession) {
+		t.Fatal("a story at the failure limit is still offered")
+	}
+	parked := f.row(t, row.Key)
+	if parked.State != store.ImplementParked || parked.ParkOrigin != store.ImplementOriginWorker || parked.Reason == "" {
+		t.Fatalf("failure limit must park visibly: %+v", parked)
+	}
+}
+
+// A launch in flight under the current identity is not stepped past.
+func TestImplementStoryIsNotRelaunchedWhileItsLaunchIsInFlight(t *testing.T) {
+	f := newImplementDaemonFixture(t)
+	if err := f.d.graphImplementStories(t.Context(), f.byRepo, map[int64]*candidate{}, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+	row := f.row(t, "story-001")
+	stored, _, err := f.d.db.CreateOrGetSchedule(t.Context(), store.CreateScheduleParams{SessionID: row.WorkerSession, SourceCommentID: implementWorkID(row, 0), OwnerHandle: "owner", Payload: implementWorkPayload, DueAt: implementDaemonClock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := f.d.db.ReserveSchedule(t.Context(), stored.ID, implementDaemonClock); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if offeredImplementStory(t, f, row.WorkerSession) {
+		t.Fatal("a story whose launch is in flight is offered again")
+	}
+	id, ok, err := f.d.implementWorkFor(t.Context(), implementWorkerTask(t, f, row.WorkerSession))
+	if err != nil || !ok || id != implementWorkID(row, 0) {
+		t.Fatalf("in-flight identity %d ok=%v (%v)", id, ok, err)
+	}
+}
