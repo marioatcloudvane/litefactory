@@ -56,6 +56,22 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		return prepareTypedPlanSubmission(c, opts, prep)
 	}
 	prep.submissionOptions = &SubmissionSessionOptions{DB: opts.DB, Progress: opts.StoryProgress, Paths: opts.Paths, RunID: prep.run.ID, Worktree: prep.worktree.Path(), Bundle: prep.promptInput.ApprovedStories, Validation: prep.promptInput.Validation}
+	if prep.stackSetup {
+		if err := prep.request.Validate(); err != nil {
+			return result, err
+		}
+		if err := agent.VerifyRequestDelivery(ctx, prep.request); err != nil {
+			return result, err
+		}
+		attrs := map[string]string{"lf_access": "write", "lf_agent_markdown": "implementation-engineer"}
+		setupRequest := prep.request
+		// The legacy delivery role is independent from the explicitly admitted
+		// writable engineering permission that governs this setup command.
+		setupRequest.Delivery = nil
+		if _, err := runStackSetup(ctx, opts, setupRequest, attrs); err != nil {
+			return result, err
+		}
+	}
 	started, err := opts.DB.StartRun(ctx, prep.run.ID)
 	if err != nil {
 		return result, err
@@ -255,6 +271,8 @@ func runClaude(
 		return nil, fmt.Errorf("assemble the cold prompt for run %d of task %s: %w",
 			prep.run.Ordinal, prep.ref, err)
 	}
+
+	prompt += prep.stackGuidance
 
 	// The preparation is updated rather than shadowed: the metadata document is
 	// built from it after this returns, and it has to record the prompt that was

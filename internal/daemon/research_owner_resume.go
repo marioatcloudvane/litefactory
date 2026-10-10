@@ -3,17 +3,15 @@ package daemon
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
-
-func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.Trigger) error {
-	return d.claimGraphReply(ctx, t, trigger, "research")
-}
 
 // claimGraphReply claims an owner reply for the admitted mode's parked question.
 func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) error {
@@ -113,22 +111,20 @@ func AdmitBugOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID i
 
 // recoverGraphReply is a fallback for a cancelled scheduling intent, after
 // command and admission checks. Published waits retain their normal handlers.
-func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command, mode string) (handled bool, err error) {
+// The target is the session's latest instance whatever workflow the reply's
+// mode resolves to, so a Validate stopped under an Implement-labelled parent
+// resumes too. Stopped work that cannot resume is answered with the reason.
+func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (handled bool, err error) {
 	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.filter.Identities().OwnerUserID || store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) {
 		return false, nil
 	}
 	if consumed, e := d.consumed(ctx, t.session.ID, trigger.CommentID); e != nil || consumed {
 		return consumed, e
 	}
-	admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
-	if errors.Is(err, store.ErrNotFound) {
+	if _, err = d.db.GetTaskWorkflowAdmission(ctx, t.session.ID); errors.Is(err, store.ErrNotFound) {
 		return false, nil
-	}
-	if err != nil {
+	} else if err != nil {
 		return false, err
-	}
-	if admission.Workflow != graphReplyWorkflow(mode) {
-		return false, nil
 	}
 	acquired, err := d.db.AcquireSessionLock(ctx, t.session.ID, d.instanceID)
 	if err != nil || !acquired {
@@ -137,10 +133,7 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 	defer func() {
 		err = errors.Join(err, d.db.ReleaseSessionLock(context.WithoutCancel(ctx), t.session.ID, d.instanceID))
 	}()
-	instance, err := d.db.LatestWorkflowInstance(ctx, t.session.ID, mode)
-	if admission.Workflow == "bug" {
-		instance, err = d.db.LatestStandaloneBugInstance(ctx, t.session.ID)
-	}
+	instance, err := d.db.LatestSessionGraphInstance(ctx, t.session.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
@@ -161,13 +154,27 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 	if err != nil {
 		return false, err
 	}
-	if dispatch.Node != instance.CurrentNode || dispatch.Status != "cancelled" || dispatch.AllocatedRunID != 0 || !instance.NextDueAt.IsZero() {
+	if dispatch.Node != instance.CurrentNode || dispatch.Status != "cancelled" || dispatch.AllocatedRunID != 0 {
 		return false, nil
+	}
+	if !instance.NextDueAt.IsZero() {
+		return true, d.refuseGraphResume(ctx, t, trigger, instance.CurrentNode, "it is already scheduled to continue")
 	}
 	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.session.IssueNumber)
 	if err != nil || issue.State != github.StateOpen {
 		return true, err
 	}
 	_, err = d.db.ParkGraphInstanceForReply(ctx, instance.ID, instance.CurrentNode, t.tickAt.UTC(), trigger.CommentID)
+	if refusal := (*store.GraphReplyResumeRefusal)(nil); errors.As(err, &refusal) {
+		return true, d.refuseGraphResume(ctx, t, trigger, instance.CurrentNode, refusal.Reason)
+	}
 	return true, err
+}
+
+// refuseGraphResume answers and consumes a reply that could not resume the
+// work stopped at node, naming the reason.
+func (d *Daemon) refuseGraphResume(ctx context.Context, t *task, trigger turn.Trigger, node, reason string) error {
+	t.log.InfoContext(ctx, "owner reply could not resume stopped work; refusing it with a reply", slog.String("node", node), slog.String("reason", reason))
+	_, err := d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: trigger.CommentID, Refusal: report.ReplyGraphResumeRefused, ResumeNode: node, ResumeReason: reason})
+	return err
 }

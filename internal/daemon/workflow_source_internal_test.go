@@ -85,6 +85,8 @@ func TestRepositoryWorkflowSourceEditableSelectionAcrossSixWorkflows(t *testing.
 		mapping.WriteString(string(v.workflow) + ": " + string(v.workflow) + "/" + string(v.workflow) + ".dot\n")
 	}
 	write("team.config", []byte(mapping.String()))
+	write(config.StackProfilePath, []byte(`{"version":1,"guidance":[{"id":"fixture-stack","skill":"research/skills/fixture-stack/SKILL.md"}]}`))
+	write("research/skills/fixture-stack/SKILL.md", []byte("---\nname: fixture-stack\ndescription: Synthetic retained team fixture guidance\n---\nAdvice.\n"))
 	receipt, err := json.Marshal(struct {
 		Schema  int                `json:"schema"`
 		Kind    string             `json:"kind"`

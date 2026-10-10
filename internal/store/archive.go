@@ -49,6 +49,10 @@ type ArchiveOwner struct {
 	// a failure to read; the owner is then kept.
 	ArchivePending       bool
 	ArchivePendingReason string
+	// UndeletableReason is set when the family holds rows the archive cannot
+	// delete (legacy Bug history, doctor references); even a closed issue's
+	// family is then kept. A read failure also sets it.
+	UndeletableReason string
 	// ArchivableRows counts rows of archived tables; 0 means nothing to do.
 	ArchivableRows int64
 }
@@ -69,18 +73,32 @@ var archivePendingChecks = []archivePendingCheck{
 	{"bug_history_retained", `SELECT EXISTS(SELECT 1 FROM bug_tasks WHERE session_id IN ` + inFS + `)`},
 	{"mcp_creation_open", `SELECT EXISTS(SELECT 1 FROM mcp_creation_intents WHERE id IN ` + subIntents + ` AND expires_ns>:now) OR EXISTS(SELECT 1 FROM mcp_creation_operations WHERE id IN ` + subOps + ` AND state IN ('reserved','dispatched','uncertain')) OR EXISTS(SELECT 1 FROM creation_owner_publications WHERE intent_id IN ` + subIntents + ` AND state IN ('dispatched','uncertain')) OR EXISTS(SELECT 1 FROM mcp_creation_presentations WHERE (session_id IN ` + inFS + ` OR run_id IN ` + inFR + `) AND presented=0) OR EXISTS(SELECT 1 FROM mcp_creation_current c JOIN mcp_creation_proposals p ON p.hash=c.proposal_hash WHERE c.source_task IN ` + inFT + ` AND p.retained_ns>:proposal_floor)`},
 	{"plan_effect_unsettled", `SELECT EXISTS(SELECT 1 FROM plan_story_candidates c WHERE c.parent IN ` + inFT + ` AND COALESCE((SELECT outcome FROM plan_story_effects e WHERE e.parent=c.parent AND e.request_id=c.request_id ORDER BY e.id DESC LIMIT 1),'pending') IN ('pending','uncertain'))`},
-	{"doctor_reference", `SELECT EXISTS(SELECT 1 FROM doctor_conversations WHERE task_ref IN ` + inFT + `) OR EXISTS(SELECT 1 FROM doctor_inbox WHERE task_ref IN ` + inFT + `) OR EXISTS(SELECT 1 FROM doctor_repairs WHERE task_ref IN ` + inFT + `) OR EXISTS(SELECT 1 FROM doctor_repair_holds WHERE task_ref IN ` + inFT + `) OR EXISTS(SELECT 1 FROM doctor_local_presentations WHERE task_ref IN ` + inFT + `)`},
+	{"doctor_reference", `SELECT EXISTS(SELECT 1 FROM doctor_conversations WHERE task_ref IN ` + inFT + `) OR EXISTS(SELECT 1 FROM doctor_inbox WHERE task_ref IN ` + inFT + `) OR EXISTS(SELECT 1 FROM doctor_repairs WHERE task_ref IN ` + inFT + `) OR EXISTS(SELECT 1 FROM doctor_repair_holds WHERE task_ref IN ` + inFT + `) OR EXISTS(SELECT 1 FROM doctor_local_presentations WHERE task_ref IN ` + inFT + `) OR EXISTS(SELECT 1 FROM doctor_conversations WHERE current_result_id IN ` + subResults + `) OR EXISTS(SELECT 1 FROM application_result_attempts WHERE doctor_attempt_id IS NOT NULL AND result_id IN ` + subResults + `) OR EXISTS(SELECT 1 FROM application_result_requests WHERE doctor_attempt_id IS NOT NULL AND result_id IN ` + subResults + `) OR EXISTS(SELECT 1 FROM application_result_revisions WHERE doctor_attempt_id IS NOT NULL AND result_id IN ` + subResults + `)`},
 }
 
 func archivePendingArgs(f ArchiveFamily, now time.Time) []any {
 	return append(archiveNamed(f), sql.Named("now", now.UnixNano()), sql.Named("proposal_floor", now.Add(-MCPCreationApprovalTTL).UnixNano()))
 }
 
+// archiveUndeletable names the pending checks that keep even a closed issue's
+// family: their rows cannot be deleted without a migration, so writing an
+// archive file would only end in a failed delete.
+var archiveUndeletable = map[string]bool{"bug_history_retained": true, "doctor_reference": true}
+
 // archivePendingReason returns the first unfinished condition, "" when the
 // family is settled, and an error when any check cannot be read.
 func archivePendingReason(ctx context.Context, q archiveQuerier, f ArchiveFamily, now time.Time) (string, error) {
+	return archiveCheckReason(ctx, q, f, now, false)
+}
+
+// archiveCheckReason runs the pending checks, only the undeletable ones when
+// undeletableOnly is set, and returns the first open reason.
+func archiveCheckReason(ctx context.Context, q archiveQuerier, f ArchiveFamily, now time.Time, undeletableOnly bool) (string, error) {
 	args := archivePendingArgs(f, now)
 	for _, c := range archivePendingChecks {
+		if undeletableOnly && !archiveUndeletable[c.reason] {
+			continue
+		}
 		var open bool
 		if err := q.QueryRowContext(ctx, archiveCTE+c.query, args...).Scan(&open); err != nil {
 			return "read_error:" + c.reason, fmt.Errorf("check %s: %w", c.reason, err)
@@ -126,6 +144,10 @@ func (db *DB) GetArchiveOwner(ctx context.Context, id int64, now time.Time) (Arc
 	}
 	if reason != "" {
 		out.ArchivePending, out.ArchivePendingReason = true, reason
+	}
+	out.UndeletableReason, err = archiveCheckReason(ctx, db.sql, out.Family, now, true)
+	if err != nil && ctx.Err() != nil {
+		return out, ctx.Err()
 	}
 	// Counted even when something is pending: a closed issue is archived
 	// despite pending bookkeeping, and zero rows would wrongly mean "nothing".

@@ -19,7 +19,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 	retainCommentBrief(t, f, source, candidate, scope)
 	forge := newFakeForge(t)
 	reporter := newReporter(t, f, forge, stubRenderer{err: errors.New("not rendered yet")})
-	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, "")
+	_, key, err := reporter.ReportWorkflowCandidate(t.Context(), source, "question", "question", candidate, scope, "", ResearchWorkflowPolicy())
 	if err == nil || key == "" {
 		t.Fatal("expected retained unpublished question")
 	}
@@ -47,7 +47,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 		t.Fatal("unpublished question authorized reply")
 	}
 	reporter = newReporter(t, f, forge, nil)
-	posted, err := reporter.RecoverResearchComment(t.Context(), key, scope)
+	posted, err := reporter.RecoverWorkflowComment(t.Context(), key, scope, ResearchWorkflowPolicy())
 	mustProgress(t, err)
 	reply.QuestionCommentID = posted.CommentID
 	reply.CommentID = posted.CommentID + 1

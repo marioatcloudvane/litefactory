@@ -10,34 +10,45 @@ import (
 )
 
 func (d *Daemon) recoverDoctorRepairs(ctx context.Context) error {
-	if d.doctor.service == nil || d.doctor.service.RestartRoute == nil {
+	if d.doctor.service == nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	targets, err := d.db.DoctorRepairRecoveryTargets(ctx)
+	operations, err := d.db.DoctorRepairRecoveryOperations(ctx)
 	if err != nil {
 		return err
 	}
 	var failures []error
-	for _, target := range targets {
-		ref, err := naming.ParseRef(target)
+	for _, operation := range operations {
+		ref, err := naming.ParseRef(operation.TaskRef)
 		if err != nil {
 			failures = append(failures, err)
 			continue
 		}
-		operation, err := d.doctor.service.RecoverRepair(ctx, ref)
+		if operation.State == "restart_pending" {
+			operation, err = d.doctor.service.RecoverRepair(ctx, ref)
+		}
 		if err != nil {
 			failures = append(failures, err)
 			continue
 		}
-		if operation.State != "recovered" {
+		if operation.State != "recovered" && operation.State != "completed" && operation.State != "failed" {
 			continue
 		}
-		conversation, err := d.doctor.service.ReadConversation(ctx, ref)
+		steps, err := d.db.DoctorRepairSteps(ctx, operation.ID)
 		if err != nil {
 			failures = append(failures, err)
 			continue
+		}
+		conversation := doctor.Conversation{Repair: &operation, RepairSteps: steps}
+		if operation.State == "recovered" {
+			restart, readErr := d.db.ReadDoctorRestart(ctx, operation.ID)
+			if readErr != nil {
+				failures = append(failures, readErr)
+				continue
+			}
+			conversation.Restart = &restart
 		}
 		safe, err := d.doctor.service.Redactor.Apply(ctx, doctor.RenderConversation(conversation), 262144)
 		if err != nil {

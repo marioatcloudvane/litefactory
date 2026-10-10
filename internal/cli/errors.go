@@ -20,10 +20,6 @@ const (
 	ExitPrecondition = 3
 )
 
-// ErrNotImplemented is returned by commands that are declared in the dispatch
-// table but whose behaviour has not landed yet.
-var ErrNotImplemented = errors.New("not implemented yet")
-
 // UsageError marks an error as caused by the command line rather than by the
 // work the command was asked to do. It exits with [ExitUsage] and prints the
 // usage text for cmd (or the top-level usage when cmd is nil).

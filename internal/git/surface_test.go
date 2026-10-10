@@ -26,6 +26,9 @@ func TestCloneMethodSetIsTheAllowlist(t *testing.T) {
 		// The S-6 command allowlist.
 		"ConfigGet",
 		"Fetch",
+		// Stack admission reads one bounded regular override blob at an exact
+		// commit. It writes no index, worktree, object or ref.
+		"ReadStackOverrides",
 		"RemoteURL",
 		"RevParse",
 		"ShowRef",

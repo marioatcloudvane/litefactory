@@ -14,7 +14,9 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // These fixtures prove factory selection and retained-byte checks offline.
@@ -119,7 +121,7 @@ func TestRegisteredWorkflowResumePreservesCorruptSavedBundle(t *testing.T) {
 			opts, req, def := deliveryFixture()
 			opts.DB, opts.Paths, opts.Logger = f.db, f.paths, f.opts.Logger
 			req.SessionID, req.Mode, req.Workflow = f.session.ID, policy.Mode, policy.Workflow
-			segment, d, err := PrepareWorkflowDelivery(t.Context(), opts, req, def, "first", f.session, testRef(t), "retained-session", policy)
+			segment, d, err := prepareWorkflowDeliveryForTest(t.Context(), opts, req, def, "first", f.session, testRef(t), "retained-session", policy)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -135,7 +137,7 @@ func TestRegisteredWorkflowResumePreservesCorruptSavedBundle(t *testing.T) {
 				if automatic {
 					req.Continuation = &store.Continuation{SegmentID: segment.ID}
 				}
-				_, replacement, err := PrepareWorkflowDelivery(context.Background(), opts, req, def, "first", f.session, testRef(t), "retained-session", policy)
+				_, replacement, err := prepareWorkflowDeliveryForTest(context.Background(), opts, req, def, "first", f.session, testRef(t), "retained-session", policy)
 				if err == nil || replacement != nil {
 					t.Fatalf("automatic=%v resumed corrupt bundle: %v", automatic, err)
 				}
@@ -311,4 +313,14 @@ func TestWorkflowColdRetryRechecksTamperedDelivery(t *testing.T) {
 			t.Errorf("retry refusal report omits %q: %s", want, posts[1].body)
 		}
 	}
+}
+
+// prepareWorkflowDeliveryForTest plans the captured delivery and selects its
+// provider segment through the same two steps live code uses.
+func prepareWorkflowDeliveryForTest(ctx context.Context, opts Options, req Request, definition *teamsource.WorkflowDefinition, node string, session store.Session, ref naming.Ref, firstRef string, policy WorkflowPolicy) (store.Segment, *agent.Delivery, error) {
+	p, err := planWorkflowDelivery(opts, req, definition, node, policy)
+	if err != nil {
+		return store.Segment{}, nil, err
+	}
+	return prepareDeliverySegment(ctx, opts, req, session, ref, firstRef, p)
 }

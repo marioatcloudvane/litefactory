@@ -381,3 +381,240 @@ func TestImplementHandoffNextStepLineFollowsTheSetting(t *testing.T) {
 		t.Fatalf("the shown command parses as /validate: %+v", c)
 	}
 }
+
+// claimOwnerReply claims the waiting instance's owner wait with one comment,
+// as the daemon's tick does before it hands the comment to Execute.
+func (a *adoptFlow) claimOwnerReply(t *testing.T, instanceID int64, body string) int64 {
+	t.Helper()
+	wait, err := a.f.db.GetGraphOwnerWait(t.Context(), instanceID)
+	if err != nil || wait.State != "waiting" {
+		t.Fatalf("no open owner wait: %+v %v", wait, err)
+	}
+	delivery, err := a.f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+	mustProgress(t, err)
+	comment := delivery.CommentID + 1
+	_, err = a.f.db.ClaimGraphOwnerReply(t.Context(), store.GraphOwnerReply{InstanceID: instanceID, OwnerID: validateOwnerID, AuthorID: validateOwnerID, CommentID: comment, QuestionCommentID: delivery.CommentID, TaskRef: a.f.session.TaskRef, SourceRef: a.f.session.TaskRef, Mode: "validate", Workflow: "validate", DeliveryKey: wait.DeliveryKey, Body: body, At: time.Now()})
+	mustProgress(t, err)
+	return comment
+}
+
+// waitingValidate runs a manual start to the owner wait and returns the
+// instance and its current report revision.
+func (a *adoptFlow) waitingValidate(t *testing.T) (store.GraphInstance, string) {
+	t.Helper()
+	if out, err := a.manual(t, 6001); err != nil {
+		t.Fatalf("%+v %v", out, err)
+	}
+	inst, err := a.f.db.LatestWorkflowInstance(t.Context(), a.f.session.ID, "validate")
+	mustProgress(t, err)
+	if got := a.reached(t); got.Wait != "waiting" || got.Instances != 1 {
+		t.Fatalf("the run rests at the owner wait: %+v", got)
+	}
+	st, err := LoadValidateState(t.Context(), a.f.opts, captureValidate(t).Profile, inst.ID)
+	mustProgress(t, err)
+	if st.Revision == "" {
+		t.Fatal("the report has a revision")
+	}
+	return inst, st.Revision
+}
+
+// visits counts the instance's attempts at one node.
+func (a *adoptFlow) visits(t *testing.T, instanceID int64, node string) int {
+	t.Helper()
+	attempts, err := a.f.db.ListGraphNodeAttempts(t.Context(), instanceID)
+	mustProgress(t, err)
+	n := 0
+	for _, at := range attempts {
+		if at.Node == node {
+			n++
+		}
+	}
+	return n
+}
+
+// #591 c-ship-tick: an owner /validate-ship claimed as the reply to a waiting
+// Validate instance continues that same instance through the real Execute to
+// the push step; it is never a plain agent run.
+func TestValidateShipReplyContinuesTheWaitingInstanceToThePush(t *testing.T) {
+	a := newAdoptFlow(t)
+	inst, rev := a.waitingValidate(t)
+	body := ValidateShipCommand + " " + rev + " -- opened the page and clicked through it"
+	resolved := a.visits(t, inst.ID, "owner_resolve")
+	comment := a.claimOwnerReply(t, inst.ID, body)
+	binds := a.binds
+
+	out, err := Execute(t.Context(), a.f.opts, a.request(comment, validateOwnerID, body))
+	if err != nil {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if !out.ResearchGraph || a.binds != binds+1 {
+		t.Fatalf("the ship took the legacy path: %+v binds=%d", out, a.binds)
+	}
+	latest, err := a.f.db.LatestWorkflowInstance(t.Context(), a.f.session.ID, "validate")
+	mustProgress(t, err)
+	if latest.ID != inst.ID || len(a.entries(t)) != 1 {
+		t.Fatalf("the same instance continues, no successor: %+v (was %d) %+v", latest, inst.ID, a.entries(t))
+	}
+	if pred, _, err := a.f.db.WorkflowPredecessor(t.Context(), latest.ID); err != nil || pred != 0 {
+		t.Fatalf("no successor link: %d %v", pred, err)
+	}
+	if a.visits(t, inst.ID, "owner_resolve") <= resolved || a.visits(t, inst.ID, "owner_push") == 0 {
+		t.Fatalf("the ship went through the resolve step to the push: node %s", latest.CurrentNode)
+	}
+	if out.Run.ID > 0 {
+		graph, err := a.f.db.HasWorkflowGraphRun(t.Context(), out.Run.ID, "validate")
+		if err != nil || !graph {
+			t.Fatalf("the run for the comment is a graph run: %+v %v %v", out.Run, graph, err)
+		}
+	}
+}
+
+// #591 c-no-plain-run: every other owner control claimed as the reply goes to
+// the waiting instance's resolve step, never to a plain agent run.
+func TestValidateControlRepliesContinueTheWaitingInstance(t *testing.T) {
+	for _, name := range []string{ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand} {
+		t.Run(name, func(t *testing.T) {
+			a := newAdoptFlow(t)
+			inst, rev := a.waitingValidate(t)
+			body := map[string]string{
+				ValidateCheckCommand:   ValidateCheckCommand + " " + rev + " story-001:AC-001 pass -- looked fine",
+				ValidateFindingCommand: ValidateFindingCommand + " " + rev + " story-001:code defer",
+				ValidatePushCommand:    ValidatePushCommand + " " + rev,
+				ValidateMergeCommand:   ValidateMergeCommand + " " + rev + " 601 " + validateHeadA,
+				ValidateCloseCommand:   ValidateCloseCommand + " " + rev + " 201",
+			}[name]
+			resolved := a.visits(t, inst.ID, "owner_resolve")
+			comment := a.claimOwnerReply(t, inst.ID, body)
+			binds := a.binds
+			out, err := Execute(t.Context(), a.f.opts, a.request(comment, validateOwnerID, body))
+			if err != nil {
+				t.Fatalf("%+v %v", out, err)
+			}
+			if !out.ResearchGraph || a.binds != binds+1 || a.visits(t, inst.ID, "owner_resolve") <= resolved {
+				t.Fatalf("the control took the legacy path: %+v binds=%d", out, a.binds)
+			}
+			latest, err := a.f.db.LatestWorkflowInstance(t.Context(), a.f.session.ID, "validate")
+			mustProgress(t, err)
+			if latest.ID != inst.ID {
+				t.Fatalf("the same instance continues: %d, was %d", latest.ID, inst.ID)
+			}
+			if wait, err := a.f.db.GetGraphOwnerWait(t.Context(), inst.ID); err != nil || wait.State == "claimed" && wait.ReplyID == comment {
+				t.Fatalf("the claimed reply was consumed: %+v %v", wait, err)
+			}
+		})
+	}
+}
+
+// #591 c-unclaimed-control: a control that holds no owner-wait claim is
+// refused with a notice and starts nothing.
+func TestValidateUnclaimedControlIsRefusedAndStartsNothing(t *testing.T) {
+	a := newAdoptFlow(t)
+	inst, rev := a.waitingValidate(t)
+	binds, resolved := a.binds, a.visits(t, inst.ID, "owner_resolve")
+	body := ValidateShipCommand + " " + rev + " -- checked"
+	out, err := Execute(t.Context(), a.f.opts, a.request(99001, validateOwnerID, body))
+	if err != nil {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if out.ResearchGraph || out.Disposition != DispositionPrepareFailed || !strings.Contains(out.Reason, "No Validate run is waiting") || a.binds != binds {
+		t.Fatalf("an unclaimed control is refused: %+v binds=%d", out, a.binds)
+	}
+	after, err := a.f.db.GetGraphInstance(t.Context(), inst.ID)
+	mustProgress(t, err)
+	if after.Status != inst.Status || after.CurrentNode != inst.CurrentNode || a.visits(t, inst.ID, "owner_resolve") != resolved {
+		t.Fatalf("the instance is unchanged: %+v was %+v", after, inst)
+	}
+	if wait, err := a.f.db.GetGraphOwnerWait(t.Context(), inst.ID); err != nil || wait.State != "waiting" || wait.ReplyID != 0 {
+		t.Fatalf("the wait stays open: %+v %v", wait, err)
+	}
+
+	// Without any Validate instance the control is refused the same way.
+	v := newValidateAdmissionFixture(t)
+	v.allMerged(t)
+	out, handled, err := v.admit(t, v.request(6202, validateOwnerID, body))
+	if !handled || err != nil || !strings.Contains(out.Reason, "No Validate run is waiting") || v.binds != 0 || v.validateInstances(t) != 0 {
+		t.Fatalf("no Validate run: handled=%v err=%v out=%+v", handled, err, out)
+	}
+}
+
+// #602: an owner /validate on a newer commit ends a run on an older commit that
+// only waits for the owner and starts a successor on the new commit.
+func TestValidateNewHeadSupersedesARunWaitingForTheOwner(t *testing.T) {
+	a := newAdoptFlow(t)
+	old, _ := a.waitingValidate(t)
+	a.f.opts.Validate.Bind = func(context.Context, Options, Request, store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
+		a.binds++
+		return ValidateSuiteBindings{}, ValidateFlowBindings{}, errValidateStop
+	}
+	a.head = validateHeadB
+	if out, handled, err := a.admit(t, a.request(6101, validateOwnerID, "/validate newer")); !handled || !errors.Is(err, errValidateStop) {
+		t.Fatalf("handled=%v err=%v out=%+v", handled, err, out)
+	}
+	after, err := a.f.db.GetGraphInstance(t.Context(), old.ID)
+	mustProgress(t, err)
+	if after.Status != store.GraphCancelled {
+		t.Fatalf("the waiting run is cancelled: %+v", after)
+	}
+	if wait, err := a.f.db.GetGraphOwnerWait(t.Context(), old.ID); err != nil || wait.State != "cancelled" {
+		t.Fatalf("the owner wait is cancelled: %+v %v", wait, err)
+	}
+	trace, err := a.f.db.ListGraphTransitions(t.Context(), old.ID)
+	mustProgress(t, err)
+	reason := false
+	for _, tr := range trace {
+		reason = reason || tr.OnOutcome == "superseded by a newer commit"
+	}
+	if !reason {
+		t.Fatalf("the trace names the reason: %+v", trace)
+	}
+	var fresh store.ValidateEntry
+	for _, e := range a.entries(t) {
+		if e.State == store.ValidateEntryAdmitted && e.Commit == validateHeadB {
+			fresh = e
+		}
+	}
+	if fresh.InstanceID == 0 || fresh.InstanceID == old.ID {
+		t.Fatalf("a new run is admitted on the new commit: %+v", a.entries(t))
+	}
+	if pred, _, err := a.f.db.WorkflowPredecessor(t.Context(), fresh.InstanceID); err != nil || pred != old.ID {
+		t.Fatalf("the successor links its predecessor: %d %v", pred, err)
+	}
+}
+
+// #602: a run on an older commit that is executing still refuses a start on a
+// newer commit and is left untouched.
+func TestValidateNewHeadIsRefusedWhileTheOlderRunExecutes(t *testing.T) {
+	a := newAdoptFlow(t)
+	old, _ := a.waitingValidate(t)
+	// The owner's reply was taken and its step is running.
+	a.claimOwnerReply(t, old.ID, ValidateCheckCommand+" r story-001:AC-001 pass -- looked fine")
+	wait, err := a.f.db.GetGraphOwnerWait(t.Context(), old.ID)
+	mustProgress(t, err)
+	cur, err := a.f.db.GetGraphInstance(t.Context(), old.ID)
+	mustProgress(t, err)
+	node := wait.OriginNode
+	if node == "" {
+		node = cur.CurrentNode
+	}
+	_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old.ID, Node: node, Limit: 64, StartedAt: time.Now()})
+	mustProgress(t, err)
+	binds := a.binds
+	a.head = validateHeadB
+	out, handled, err := a.admit(t, a.request(6102, validateOwnerID, "/validate newer"))
+	if !handled || err != nil || !strings.Contains(out.Reason, "still going") || a.binds != binds {
+		t.Fatalf("handled=%v err=%v out=%+v binds=%d", handled, err, out, a.binds)
+	}
+	after, err := a.f.db.GetGraphInstance(t.Context(), old.ID)
+	mustProgress(t, err)
+	if after.Status != store.GraphRunning {
+		t.Fatalf("the executing run is untouched: %+v", after)
+	}
+	if after, err := a.f.db.GetGraphOwnerWait(t.Context(), old.ID); err != nil || after.State != "allocated" {
+		t.Fatalf("the owner wait is untouched: %+v %v", after, err)
+	}
+	for _, e := range a.entries(t) {
+		if e.Commit == validateHeadB && e.InstanceID > 0 {
+			t.Fatalf("no run is admitted on the new commit: %+v", e)
+		}
+	}
+}

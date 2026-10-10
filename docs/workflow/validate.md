@@ -78,11 +78,17 @@ After the outcome, the graph hands the run to the owner. The flow is declared in
 outcome -> owner_resolve
 owner_resolve -> wait | stale:  owner_report
                  create_issue:  owner_issue -> owner_report
-                 push:          owner_push  -> owner_report
-                 merge:         owner_merge -> owner_report
+                 push:          owner_push  -> owner_resolve
+                 merge:         owner_merge -> owner_resolve
                  close:         owner_close -> closed: delivered | open: owner_report
 owner_report -> owner_ask -> waiting
 ```
+
+Push and merge return to `owner_resolve`. Without a new owner comment it returns
+`wait` (and the run reports and waits) after any individual command, so one
+confirmation never implies the next; only the explicit `/validate-ship` carries on
+to the next delivery step (push, then merge, then close) until a step fails or
+delivery ends.
 
 Validate succeeds (the `delivered` terminal) only after the merge and the close
 both succeeded. The loop is bounded by the `lf_limit` of `owner_resolve`; when it
@@ -111,6 +117,16 @@ Exact grammar, one line, each naming the current report revision:
 | `/validate-push <rev>` | push the tested commit and find or create the PR into the base |
 | `/validate-merge <rev> <pr> <head sha>` | merge only at that head |
 | `/validate-close <rev> <issue>...` | close the parent and accepted story issues |
+| `/validate-ship <rev> -- <evidence>` | the normal case in one command: record every criterion awaiting an owner check as passed with the evidence, defer every open optional finding, then push and open the PR, merge it at the recorded PR number and head, and close the parent and story issues |
+
+`/validate-ship` is refused with one notice naming what blocks, and records
+nothing, when the suite did not pass, a reviewer has no usable result, the run is
+not assessed, a failed criterion or blocking finding is open, or an issue the owner
+chose is not created yet. A failed or uncertain step stops the ship at that step;
+repeating `/validate-ship` (with the current revision) continues at the first undone
+step and never repeats a finished one. When nothing blocks and delivery is
+unfinished, the report's next step is `/validate-ship`; the individual commands stay
+for exceptions.
 
 A non-owner, malformed or stale command changes nothing; the reply shows the
 current commands. Defer is allowed only for optional (advisory) findings. A repair

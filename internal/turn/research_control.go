@@ -11,25 +11,17 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// ResearchControlActivity owns the immutable profile and factory context used
+// ControlActivity owns the immutable profile and factory context used
 // to revalidate retained application results. Neither is supplied by node JSON.
-type ResearchControlActivity = ControlActivity
-
-// ControlActivity evaluates retained source responses under an admitted mode policy.
+// It evaluates retained source responses under an admitted mode policy.
 type ControlActivity struct {
 	Policy  WorkflowPolicy
 	Profile *graphexec.Profile
 	Context func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error)
 }
 
-// RegisterResearchControl registers both closed control actions. Durable limits
-// are enforced by ExecuteNodeAction's existing atomic attempt reservation.
-func RegisterResearchControl(specs *graphexec.Registry, activities *ActivityRegistry, handler ResearchControlActivity) error {
-	handler.Policy = ResearchWorkflowPolicy()
-	return RegisterControl(specs, activities, handler)
-}
-
-// RegisterControl installs shared loop and branch activities with validated control policy.
+// RegisterControl registers both closed control actions. Durable limits
+// are enforced by ExecuteNodeAction's existing atomic attempt reservation. It installs shared loop and branch activities with validated control policy.
 func RegisterControl(specs *graphexec.Registry, activities *ActivityRegistry, handler ControlActivity) error {
 	if specs == nil || activities == nil || handler.Profile == nil || handler.Context == nil {
 		return errors.New("research control requires registries, pinned profile and result context")

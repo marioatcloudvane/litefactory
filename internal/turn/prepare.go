@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/codex"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -23,6 +25,8 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
+	stackGuidance  string
+	stackSetup     bool
 	mcpRuntime     *MCPRuntime
 	stoppedRepairs []func(context.Context) error
 
@@ -221,6 +225,9 @@ func prepare(
 	if err != nil {
 		return nil, failuref(err, "the head of %s could not be read", branch)
 	}
+	if err := validateFreshStackRevision(ctx, clone, req, shaBefore); err != nil {
+		return nil, err
+	}
 	var deliveryPlan *deliveryPlan
 	if req.researchDefinition != nil {
 		policy := ResearchWorkflowPolicy()
@@ -319,7 +326,21 @@ func prepare(
 		segment.ResumeToken = req.Continuation.Context.ResumeIdentity
 	}
 
+	if req.researchDefinition == nil {
+		definition, err := prepareStandaloneStack(ctx, opts, req, previous, resume)
+		if err != nil {
+			return nil, err
+		}
+		req.standaloneDefinition = definition
+		if definition != nil && !resume && definition.StackRevision != shaBefore {
+			return nil, errors.New("stack.revision: worktree differs from admitted revision")
+		}
+	}
 	run, err := allocateRun(ctx, opts, req, session, segment, ref)
+	if err != nil {
+		return nil, err
+	}
+	stackCaptureDigest, err := retainStandaloneStack(run, req.standaloneDefinition)
 	if err != nil {
 		return nil, err
 	}
@@ -469,11 +490,35 @@ func prepare(
 		}
 	}
 
+	var retainedStackGuidance string
+	if req.standaloneDefinition != nil {
+		guidance, err := standaloneStackGuidance(req.standaloneDefinition)
+		if err != nil {
+			return nil, err
+		}
+		prompt += guidance
+		retainedStackGuidance = guidance
+		stackReq := agent.Request{StackProfile: req.standaloneDefinition.StackProfile, Mode: req.mode(), Workflow: req.Workflow, WorktreePath: worktree.Path()}
+		if len(stackReq.StackProfile.Effective.Setup) > 0 && req.mode() == "implement" && !standaloneStackSetupAllowed(req) {
+			return nil, errors.New("stack.setup: explicit writable engineering permission required")
+		}
+		if err := validateStackCommandInputs(opts, stackReq); err != nil {
+			return nil, err
+		}
+	}
 	path := agent.PathCold
 	if resume {
 		path = agent.PathResume
 	}
 
+	if stackCaptureDigest != "" {
+		initial := agent.Request{StackCaptureDigest: stackCaptureDigest, Ref: ref, RunOrdinal: run.Ordinal, SegmentOrdinal: segment.Ordinal, Mode: req.mode(), Path: path, Session: agent.SessionRef{Ref: segment.SessionRef}}
+		meta := harness.NewMeta(initial, prompt, nil)
+		meta.SessionID = session.ID
+		if err := harness.WriteMeta(metaPath, meta); err != nil {
+			return nil, err
+		}
+	}
 	// Permissions carries no vendor-named field crossing this boundary
 	// (AC-5.2). The daemon resolves a mode profile before dispatch and its
 	// payload is narrowed into harness.ToolSurface here and
@@ -508,6 +553,8 @@ func prepare(
 		slog.Int("prompt_bytes", len(prompt)))
 
 	return &preparation{
+		stackGuidance:    retainedStackGuidance,
+		stackSetup:       req.standaloneDefinition != nil && standaloneStackSetupAllowed(req),
 		researchInstance: req.researchInstance,
 		nodeWrite:        req.nodeWrite,
 		resultPass:       req.resultPass,
@@ -526,6 +573,8 @@ func prepare(
 		promptInput:      promptInput,
 		sync:             sync,
 		request: agent.Request{
+			StackProfile:       admittedRequestStackProfile(req),
+			StackCaptureDigest: stackCaptureDigest,
 			RetainedValidation: promptInput.Validation != nil,
 			Delivery:           delivery,
 			PlanProposalPath:   promptInput.PlanProposalPath,
@@ -1697,8 +1746,23 @@ func requestPermissions(req Request) agent.Permissions {
 	if len(req.Tools) > 0 || req.ToolProfile != "" {
 		return agent.Permissions{
 			Profile: req.ToolProfile,
-			Payload: harness.ToolSurface{Tools: req.Tools, AllowedTools: req.AllowedTools},
+			Payload: harness.ToolSurface{
+				Tools: req.Tools, AllowedTools: req.AllowedTools,
+				// A validate surface holding Bash is a reviewer's read-only
+				// shell: the runner refuses everything AllowedTools does not name.
+				ReadOnlyShell: req.ToolProfile == "validate" && slices.Contains(req.Tools, "Bash"),
+			},
 		}
 	}
 	return agent.Permissions{}
+}
+
+func admittedRequestStackProfile(req Request) *config.ResolvedStackProfile {
+	if req.standaloneDefinition != nil {
+		return req.standaloneDefinition.StackProfile
+	}
+	if req.researchDefinition == nil {
+		return nil
+	}
+	return req.researchDefinition.StackProfile
 }

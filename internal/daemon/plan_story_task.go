@@ -53,10 +53,10 @@ func storyWorkID(state planbrief.PlanState, key string) (int64, bool) {
 	return 0, false
 }
 
-// parentWorkID names the work a Plan parent has in the saved state: posting the
+// parentWorkIDWithScope names the work a Plan parent has in the saved state: posting the
 // assembled review once every story has all three approvals.
-func parentWorkID(state planbrief.PlanState) (int64, bool) {
-	if ref, due := state.AssemblyDue(planbrief.TaskOwnerScope()); due {
+func parentWorkIDWithScope(state planbrief.PlanState, scope planbrief.ContentScope) (int64, bool) {
+	if ref, due := state.AssemblyDue(scope); due {
 		return planWorkID("assemble", ref), true
 	}
 	return 0, false
@@ -104,7 +104,11 @@ func (d *Daemon) planWorkFor(ctx context.Context, t *task) (int64, bool, error) 
 	if err != nil {
 		return 0, false, err
 	}
-	id, ok := parentWorkID(state)
+	scope, err := d.planContentScope(ctx, t)
+	if err != nil {
+		return 0, false, err
+	}
+	id, ok := parentWorkIDWithScope(state, scope)
 	return id, ok, nil
 }
 

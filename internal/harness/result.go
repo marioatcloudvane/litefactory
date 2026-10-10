@@ -59,6 +59,12 @@ type ToolSurface struct {
 	// therefore defence in depth, not the boundary: nothing is granted by a
 	// rule here that Tools does not already allow.
 	AllowedTools []string
+
+	// ReadOnlyShell marks a Validate reviewer surface that holds Bash limited
+	// to [config.ValidateReviewerShellRules]. Such a run is started with
+	// --permission-mode dontAsk, so AllowedTools becomes the boundary: any
+	// command or tool it does not name is refused.
+	ReadOnlyShell bool
 }
 
 // toolSurface narrows req's opaque permissions payload into this package's

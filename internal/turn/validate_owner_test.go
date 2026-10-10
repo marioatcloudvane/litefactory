@@ -405,3 +405,179 @@ func TestOwnerLoopLimitStopsTheRunAndApprovesNothing(t *testing.T) {
 		t.Fatalf("%s", inst.Status)
 	}
 }
+
+// records counts every verdict, choice and effect of the run, history included.
+func (o *ownerFixture) records() int {
+	o.t.Helper()
+	commit := o.state().Commit
+	verdicts, err := o.db.ListValidateVerdicts(o.t.Context(), o.instance.ID, commit, true)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	choices, err := o.db.ListValidateChoices(o.t.Context(), o.instance.ID, commit, true)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	effects, err := o.db.ListValidateEffects(o.t.Context(), o.instance.ID)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	return len(verdicts) + len(choices) + len(effects)
+}
+
+func (o *ownerFixture) ship() string {
+	return o.command(ValidateShipCommand, "-- opened the page and clicked through it")
+}
+
+// #573 c-refuse: a blocked /validate-ship is refused with one notice naming the
+// blocker and records nothing.
+func TestOwnerShipIsRefusedWhenSomethingBlocksAndChangesNothing(t *testing.T) {
+	blockingReview := func(req ValidateReviewRequest) (*agentresult.Result, error) {
+		res, _ := mixedReview(req)
+		for si := range res.Payload.Validate.Stories {
+			for i := range res.Payload.Validate.Stories[si].Criteria {
+				if res.Payload.Validate.Stories[si].Criteria[i].Name == "AC-002" {
+					res.Payload.Validate.Stories[si].Criteria[i].Status = "unmet"
+				}
+			}
+		}
+		return res, nil
+	}
+	cases := map[string]struct {
+		setup   func(o *ownerFixture)
+		body    func(o *ownerFixture) string
+		move    bool
+		outcome string
+		want    string
+	}{
+		"a failed criterion": {setup: func(o *ownerFixture) {
+			o.mixed()
+			o.say(o.command(ValidateCheckCommand, "story-002:AC-002", "fail", "-- the page is broken"))
+		}, want: "Blocking finding `story-002:AC-002`"},
+		"an open blocking finding": {setup: func(o *ownerFixture) {
+			o.reviewers.run = blockingReview
+			o.toOwner()
+		}, want: "Blocking finding `story-002:AC-002`"},
+		"a reviewer without a usable result": {setup: func(o *ownerFixture) {
+			o.reviewers.run = deniedReview
+			o.toOwner()
+		}, want: "reviewer has no usable result"},
+		"a failed suite": {setup: func(o *ownerFixture) {
+			o.suiteExit = func(string) int { return 1 }
+			o.toOwner()
+		}, want: "The suite did not pass"},
+		"a stale revision": {setup: func(o *ownerFixture) { o.mixed() },
+			body: func(*ownerFixture) string { return "/validate-ship 000000000000 -- checked" }, outcome: "stale", want: "current report revision"},
+		"a moved head": {setup: func(o *ownerFixture) { o.mixed() }, move: true, outcome: "stale", want: "branch head is now"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			o := newOwnerFixture(t)
+			c.setup(o)
+			rev, before := o.state().Revision, o.records()
+			body := o.ship()
+			if c.body != nil {
+				body = c.body(o)
+			}
+			o.reply(o.owner, body)
+			if c.move {
+				o.write("app/extra.go", "package app\n")
+				if _, err := o.wt.Commit(t.Context(), gitCommitOptions()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			nodes := o.toOwner()
+			if !strings.Contains(o.notice(), c.want) {
+				t.Fatalf("notice %q does not name %q", o.notice(), c.want)
+			}
+			if c.outcome == "" && !strings.Contains(o.notice(), "/validate-ship is refused") {
+				t.Fatalf("notice %q", o.notice())
+			}
+			if o.records() != before || o.state().Revision != rev {
+				t.Fatal("a refused ship recorded something")
+			}
+			if visits(nodes, "owner_push")+visits(nodes, "owner_merge")+visits(nodes, "owner_close") != 0 || len(o.forge.pushes)+len(o.forge.prCreates)+len(o.forge.merges)+len(o.forge.issueCloses) != 0 {
+				t.Fatalf("a refused ship acted: %s", joinNodes(nodes))
+			}
+		})
+	}
+}
+
+// #573 c-ship: from a clean, assessed report one /validate-ship records the open
+// check as passed, defers the optional finding and delivers.
+func TestOwnerShipDeliversFromOneReply(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.mixed()
+	if !strings.Contains(o.forge.bodies("**Validate report**")[0].Body, "Next: `"+ValidateShipCommand+" "+o.state().Revision) {
+		t.Fatal("the report names /validate-ship as the next step")
+	}
+	commit := o.state().Commit
+	o.reply(o.owner, o.ship())
+	nodes := o.toOwner()
+	if o.final() != "delivered" {
+		t.Fatalf("final %s path %s notice %q", o.final(), joinNodes(nodes), o.notice())
+	}
+	st := o.state()
+	f, _ := st.finding("story-002:AC-002")
+	if f.State != findingOwnerPassed || f.Verdict == nil || f.Verdict.Evidence != "opened the page and clicked through it" {
+		t.Fatalf("criterion %+v", f)
+	}
+	if f, _ = st.finding("story-002:code"); f.Choice == nil || f.Choice.Choice != store.ChoiceDefer {
+		t.Fatalf("finding %+v", f)
+	}
+	for _, e := range []*store.ValidateEffect{st.Effects.Push, st.Effects.PR, st.Effects.Merge, st.Effects.Close} {
+		if !effectDone(e) {
+			t.Fatalf("effect %+v", e)
+		}
+	}
+	if len(o.forge.pushes) != 1 || len(o.forge.prCreates) != 1 || strings.Join(o.forge.merges, ",") != "601@"+commit || strings.Join(o.forge.issueCloses, ",") != "520,497" {
+		t.Fatalf("pushes %v prs %v merges %v closes %v", o.forge.pushes, o.forge.prCreates, o.forge.merges, o.forge.issueCloses)
+	}
+	if visits(nodes, "owner_ask") != 0 {
+		t.Fatalf("the ship did not wait for the owner in between: %s", joinNodes(nodes))
+	}
+}
+
+// #573 c-resume: after a failed merge a second /validate-ship continues at the
+// merge without pushing or opening the pull request again.
+func TestOwnerShipResumesAtTheFailedStep(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.mixed()
+	commit := o.state().Commit
+	o.forge.mergeErr = errors.New("not mergeable")
+	o.say(o.ship())
+	if o.final() == "delivered" || o.effect(store.EffectMerge, "601@"+commit).State != store.EffectFailed || len(o.forge.issueCloses) != 0 {
+		t.Fatalf("final %s", o.final())
+	}
+	if !strings.Contains(o.notice(), "stopped at merge") {
+		t.Fatalf("notice %q", o.notice())
+	}
+	if !strings.Contains(o.forge.bodies("**Validate report**")[0].Body, ValidateShipCommand) {
+		t.Fatal("the report offers /validate-ship again")
+	}
+	o.forge.mergeErr = nil
+	pushes, prs := len(o.forge.pushes), len(o.forge.prCreates)
+	o.reply(o.owner, o.ship())
+	nodes := o.toOwner()
+	if o.final() != "delivered" || len(o.forge.pushes) != pushes || len(o.forge.prCreates) != prs || visits(nodes, "owner_push") != 0 {
+		t.Fatalf("final %s path %s pushes %v prs %v", o.final(), joinNodes(nodes), o.forge.pushes, o.forge.prCreates)
+	}
+	if len(o.forge.merges) != 2 || strings.Join(o.forge.issueCloses, ",") != "520,497" {
+		t.Fatalf("merges %v closes %v", o.forge.merges, o.forge.issueCloses)
+	}
+}
+
+// #573 c-push-only: an individual /validate-push re-enters resolve after the
+// push and waits; it never continues to the merge.
+func TestOwnerIndividualPushStillStopsAfterThePush(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.readyToPush()
+	o.reply(o.owner, o.command(ValidatePushCommand))
+	nodes := o.toOwner()
+	if !effectDone(o.state().Effects.Push) || !effectDone(o.state().Effects.PR) || o.state().Effects.Merge != nil || len(o.forge.merges) != 0 {
+		t.Fatalf("push only: %+v", o.state().Effects)
+	}
+	if !strings.Contains(joinNodes(nodes), "owner_push>owner_resolve>owner_report>owner_ask") {
+		t.Fatalf("path %s", joinNodes(nodes))
+	}
+}

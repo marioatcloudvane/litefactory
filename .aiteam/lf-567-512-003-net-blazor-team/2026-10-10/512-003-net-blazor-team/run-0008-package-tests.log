@@ -1,0 +1,6 @@
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	19.818s
+ok  	github.com/cloudvane/litefactory/internal/teampackage	3.197s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	(cached)
+ok  	github.com/cloudvane/litefactory/internal/config	3.964s
+ok  	github.com/cloudvane/litefactory/internal/bugchecks	(cached)
+?   	github.com/cloudvane/litefactory/cmd/teamrelease	[no test files]

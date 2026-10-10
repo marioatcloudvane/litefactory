@@ -215,8 +215,15 @@ func admitValidateExecution(ctx context.Context, opts Options, req Request, resu
 		out, err := rt.resumeDispatch(ctx)
 		return out, true, err
 	}
-	// Only the /validate instruction command starts Validate. Owner controls
-	// and replies inside a running Validate belong to its own owner steps.
+	// An owner control command continues the waiting Validate instance whose
+	// owner wait the daemon claimed with this very comment; it never runs as a
+	// plain agent.
+	if req.Command.Kind == KindValidateControl {
+		out, err := rt.continueOwner(ctx)
+		return out, true, err
+	}
+	// Only the /validate instruction command starts Validate. Owner replies
+	// inside a running Validate belong to its own owner steps.
 	if req.Command.Kind != KindSpike || req.Command.Name != "/validate" {
 		return result, false, nil
 	}
@@ -299,7 +306,15 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		}
 		// A run that ended without finishing is started anew only by an explicit
 		// owner command; the factory's own start never invents that authority.
-		if auto || (inst.Status != store.GraphFailed && inst.Status != store.GraphCancelled) {
+		ended := inst.Status == store.GraphFailed || inst.Status == store.GraphCancelled
+		if !auto && !ended {
+			// A run waiting for the owner whose reviews did not happen is ended by
+			// the owner's /validate, so the reviews run again on the same commit.
+			if ended, err = rt.endUnreviewed(ctx, existing, now); err != nil {
+				return rt.result, err
+			}
+		}
+		if auto || !ended {
 			return rt.alreadyStarted(ctx, existing)
 		}
 		reopen = true
@@ -331,6 +346,18 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 	// still going: two runs would move the same branch.
 	if prior, err := opts.DB.LatestWorkflowInstance(ctx, rt.session.ID, string(agent.ModeValidate)); err == nil && prior.Status == store.GraphRunning {
 		if e, err := rt.entryOf(ctx, prior.ID); err == nil && e.Commit != head {
+			// An owner /validate on a newer commit ends a run on an older
+			// commit that only waits for the owner; a run that is executing
+			// keeps refusing.
+			superseded := false
+			if !auto {
+				if superseded, err = rt.supersedeWaiting(ctx, prior.ID, now); err != nil {
+					return rt.result, err
+				}
+			}
+			if superseded {
+				return rt.launch(ctx, now)
+			}
 			text := fmt.Sprintf("Validate was not started. A Validate run on commit %s is still going. Wait for it to finish, then send /validate again.", shortSHA(e.Commit))
 			if err := opts.DB.RefuseValidateEntry(ctx, rt.entry.ID, text, now); err != nil {
 				return rt.result, err
@@ -341,6 +368,83 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		return rt.result, err
 	}
 	return rt.launch(ctx, now)
+}
+
+// endUnreviewed cancels a run on this commit that waits for the owner after a
+// passed suite while at least one reviewer has no usable result. A new run on
+// the same commit then reuses the passed suite and only the reviews run again.
+// Any other run is left alone and false is returned.
+func (rt *validateRuntimeState) endUnreviewed(ctx context.Context, entry store.ValidateEntry, now time.Time) (bool, error) {
+	db := rt.opts.DB
+	wait, err := db.GetGraphOwnerWait(ctx, entry.InstanceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	claimedReply, open := openOwnerWait(wait)
+	if !open {
+		return false, nil
+	}
+	outcome, err := db.GetValidateOutcome(ctx, entry.InstanceID, entry.Commit)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if outcome.Outcome != store.ValidateAssessed {
+		return false, nil
+	}
+	var stories []ValidateJoinedStory
+	if err := json.Unmarshal(outcome.Assessment, &stories); err != nil {
+		return false, fmt.Errorf("the stored assessment is unreadable: %w", err)
+	}
+	unreviewed := false
+	for _, s := range stories {
+		unreviewed = unreviewed || len(s.Unresolved) > 0
+	}
+	if !unreviewed {
+		return false, nil
+	}
+	gate, err := ValidateEntryGate(ctx, db, rt.session)
+	if err != nil || !gate.Open {
+		return false, err
+	}
+	return db.CancelIdleGraphOwnerWait(ctx, entry.InstanceID, claimedReply, "the owner started Validate again to repeat the reviews", now)
+}
+
+// openOwnerWait reports whether an owner wait still counts as open. A wait
+// claimed by a /validate start comment can never be applied, so it counts as
+// open and its claiming reply is returned; any other claim keeps the run.
+func openOwnerWait(wait store.GraphOwnerWait) (int64, bool) {
+	switch {
+	case wait.State == "waiting":
+		return 0, true
+	case wait.State == "claimed" && ParseCommand(wait.ReplyBody).Name == "/validate":
+		return wait.ReplyID, true
+	default:
+		return 0, false
+	}
+}
+
+// supersedeWaiting cancels a run on an older commit that is idle at its owner
+// wait. It returns false when the run has no open owner wait or is executing.
+func (rt *validateRuntimeState) supersedeWaiting(ctx context.Context, instanceID int64, now time.Time) (bool, error) {
+	db := rt.opts.DB
+	wait, err := db.GetGraphOwnerWait(ctx, instanceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	claimedReply, open := openOwnerWait(wait)
+	if !open {
+		return false, nil
+	}
+	return db.CancelIdleGraphOwnerWait(ctx, instanceID, claimedReply, "superseded by a newer commit", now)
 }
 
 // replayedEntry finds the admitted entry this very trigger launched.
@@ -425,6 +529,72 @@ func shortSHA(s string) string {
 	return s
 }
 
+// continueOwner hands an owner control comment to the running Validate
+// instance whose owner wait it holds, so the instance's own resolve step
+// interprets it. A control that holds no claim is refused and starts nothing.
+func (rt *validateRuntimeState) continueOwner(ctx context.Context) (Result, error) {
+	opts, req := rt.opts, rt.req
+	instance, err := opts.DB.LatestWorkflowInstance(ctx, req.SessionID, string(agent.ModeValidate))
+	if errors.Is(err, store.ErrNotFound) {
+		return rt.refuse(ctx, validateNoWaitText)
+	}
+	if err != nil {
+		return rt.result, err
+	}
+	if instance.Status != store.GraphRunning {
+		return rt.refuse(ctx, validateNoWaitText)
+	}
+	held := false
+	if wait, err := opts.DB.GetGraphOwnerWait(ctx, instance.ID); err == nil {
+		held = wait.State == "claimed" && wait.ReplyID == req.Trigger.CommentID
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return rt.result, err
+	}
+	if !held {
+		// The same comment replayed after it already continued this instance.
+		if held, err = opts.DB.ValidateLaunchedBy(ctx, req.SessionID, req.Trigger.CommentID, instance.ID); err != nil {
+			return rt.result, err
+		}
+	}
+	if !held {
+		return rt.refuse(ctx, validateNoWaitText)
+	}
+	entry, err := rt.entryOf(ctx, instance.ID)
+	if err != nil {
+		return rt.result, err
+	}
+	rt.entry = entry
+	pin, err := opts.DB.GetGraphDefinition(ctx, instance.DefinitionID)
+	if err != nil {
+		return rt.result, err
+	}
+	definition, err := capturedValidate(ctx, opts, req)
+	if err != nil {
+		return rt.result, err
+	}
+	if definition.Profile.Digest != pin.Digest {
+		return rt.result, errors.New("retained validate graph does not match the waiting instance; the owner reply cannot continue it")
+	}
+	topology, err := graphexec.SemanticDigest(definition.Profile)
+	if err != nil {
+		return rt.result, err
+	}
+	files, err := json.Marshal(definition.Files)
+	if err != nil {
+		return rt.result, err
+	}
+	admitted, err := opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeValidate), SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: instance.DefinitionID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body})
+	if err != nil {
+		return rt.result, err
+	}
+	if admitted.Instance.ID != instance.ID || admitted.PredecessorID != 0 {
+		return rt.result, errors.New("the owner reply must continue the waiting Validate instance, not start another")
+	}
+	return rt.execute(ctx, definition, admitted)
+}
+
+const validateNoWaitText = "No Validate run is waiting for this command, so nothing was recorded."
+
 // resumeDispatch enters the graph at the instance's current node with the
 // definition it was admitted under. Nothing here is a fresh admission.
 func (rt *validateRuntimeState) resumeDispatch(ctx context.Context) (Result, error) {
@@ -479,6 +649,7 @@ func (rt *validateRuntimeState) execute(ctx context.Context, definition *teamsou
 		if err != nil {
 			return err
 		}
+		suite.StackProfile = definition.StackProfile
 		flow.Profile = profile
 		if flow.Scope == nil {
 			// A repair result is judged in the same trusted scope the shared

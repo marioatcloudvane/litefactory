@@ -53,24 +53,16 @@ type ResearchInvocation struct {
 	Observe     func(agent.Request)
 }
 
-// ResearchAgentActivity prepares a reserved attempt using existing host delivery
-// and helper setup. Prepare must not start a subprocess or publish an effect.
-type ResearchAgentActivity = AgentActivity
-
-// AgentActivity runs one attempt under an explicit admitted mode policy.
+// AgentActivity prepares a reserved attempt using existing host delivery and
+// helper setup and runs it under an explicit admitted mode policy. Prepare must
+// not start a subprocess or publish an effect.
 type AgentActivity struct {
 	Policy  WorkflowPolicy
 	Prepare func(context.Context, Options, ActivityRequest) (ResearchInvocation, error)
 }
 
-// RegisterResearchAgent declares one successful private result outcome. ask/done
-// are retained response values for subsequent control activities to inspect.
-func RegisterResearchAgent(specs *graphexec.Registry, activities *ActivityRegistry, handler ResearchAgentActivity) error {
-	handler.Policy = ResearchWorkflowPolicy()
-	return RegisterAgent(specs, activities, handler)
-}
-
-// RegisterAgent installs the shared invocation activity under an admitted mode policy.
+// RegisterAgent declares one successful private result outcome. ask/done
+// are retained response values for subsequent control activities to inspect. It installs the shared invocation activity under an admitted mode policy.
 func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, handler AgentActivity) error {
 	if specs == nil || activities == nil || handler.Prepare == nil {
 		return errors.New("research agent registration requires registries and preparation")
@@ -172,6 +164,16 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	if !ok || runner == nil {
 		return out, errors.New("research runner unavailable")
 	}
+	if err := validateStackCommandInputs(opts, req); err != nil {
+		return out, err
+	}
+	if stackEngineeringRequest(req, a.Attrs) {
+		guidance, err := stackEngineeringGuidance(req)
+		if err != nil {
+			return out, err
+		}
+		req.Prompt += guidance
+	}
 	if invocation.Observe != nil {
 		invocation.Observe(req)
 	}
@@ -188,10 +190,21 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 		runCtx, cancel = context.WithTimeout(ctx, agentBudgetClock(budget))
 		defer cancel()
 	}
+	if _, err := runStackSetup(runCtx, opts, req, a.Attrs); err != nil {
+		return out, err
+	}
 	result, runErr := RunResearchMetered(runCtx, opts.DB, invocation.Kind, req, runner)
 	if errors.Is(runErr, agent.ErrSessionNotResumable) && invocation.ColdRequest != nil && runCtx.Err() == nil {
 		cold := *invocation.ColdRequest
 		cold.Invocation, cold.Graph = req.Invocation, req.Graph
+		cold.StackProfile = req.StackProfile
+		if stackEngineeringRequest(req, a.Attrs) {
+			guidance, err := stackEngineeringGuidance(req)
+			if err != nil {
+				return out, err
+			}
+			cold.Prompt += guidance
+		}
 		cold.Path = agent.PathColdAfterResumeRefused
 		if invocation.Observe != nil {
 			invocation.Observe(cold)

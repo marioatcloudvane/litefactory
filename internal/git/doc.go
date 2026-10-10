@@ -10,7 +10,10 @@
 //   - [Clone] is the registered clone. Its method set is the S-6 allowlist and
 //     nothing else: [Clone.Fetch], [Clone.WorktreeAdd], [Clone.WorktreeList],
 //     [Clone.WorktreeRemove], [Clone.RevParse], [Clone.RemoteURL],
-//     [Clone.ConfigGet] and [Clone.ShowRef]. There is no Commit, Checkout,
+//     [Clone.ConfigGet], [Clone.ShowRef] and [Clone.ReadStackOverrides]. The
+//     stack override read observes one bounded regular blob at an exact commit
+//     using rev-parse, ls-tree and cat-file; it writes no repository content.
+//     There is no Commit, Checkout,
 //     Switch, Stash, Reset, Merge or Pull method, so writing to the registered
 //     clone is a compile error rather than a code-review comment.
 //   - [Worktree] holds the mutating half of git. It has no exported
