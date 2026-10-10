@@ -79,8 +79,16 @@ func TestPlanPackageClosureAndDigest(t *testing.T) {
 		t.Fatalf("closure: %d roles for %d agent nodes", len(definition.Nodes), agents)
 	}
 	fixture := planPackageFixture(t)
-	if len(fixture) != len(definition.Files) {
-		t.Fatal("embedded resource outside captured closure")
+	for name := range fixture {
+		if strings.HasPrefix(name, "skills/plan-go-guidance/") || strings.HasPrefix(name, "skills/plan-agent-setup-guidance/") {
+			if _, captured := definition.Files[name]; captured {
+				t.Fatal("unselected stack guidance leaked into neutral graph capture", name)
+			}
+			continue
+		}
+		if _, captured := definition.Files[name]; !captured {
+			t.Fatal("required embedded resource outside graph closure", name)
+		}
 	}
 	var keys []string
 	for name, raw := range definition.Files {
@@ -119,7 +127,7 @@ func TestPlanPackageRejectsInvalidClosure(t *testing.T) {
 	}{
 		{"missing role", func(f fstest.MapFS) { delete(f, "plan-story.md") }},
 		{"missing shared result", func(f fstest.MapFS) { delete(f, "skills/plan-evidence/node-result.md") }},
-		{"missing optional guidance", func(f fstest.MapFS) { delete(f, "skills/plan-go-guidance/SKILL.md") }},
+		{"missing required technical skill", func(f fstest.MapFS) { delete(f, "skills/plan-technical-shaping/SKILL.md") }},
 		{"resource traversal", func(f fstest.MapFS) {
 			f["skills/plan-evidence/SKILL.md"].Data = bytes.ReplaceAll(f["skills/plan-evidence/SKILL.md"].Data, []byte("projection.md"), []byte("../../escape.md"))
 		}},
@@ -325,5 +333,14 @@ func TestPlanCaptureLeavesTheResearchClosureUnchanged(t *testing.T) {
 		if strings.HasPrefix(path, "skills/plan-") || strings.HasPrefix(path, "plan-") {
 			t.Errorf("Plan contract leaked into Research: %s", path)
 		}
+	}
+}
+
+func TestNeutralPlanGraphDoesNotRequireUnselectedStackGuidance(t *testing.T) {
+	fixture := planPackageFixture(t)
+	delete(fixture, "skills/plan-go-guidance/SKILL.md")
+	delete(fixture, "skills/plan-agent-setup-guidance/SKILL.md")
+	if _, err := CaptureWorkflow(t.Context(), fixture, "plan.dot", "go-development", agent.ModePlan, planPackageRegistry(t)); err != nil {
+		t.Fatal(err)
 	}
 }

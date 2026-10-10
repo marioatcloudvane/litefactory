@@ -67,6 +67,13 @@ var shippedDOT = map[string]bool{
 	"../../teams/go-development/v1/research/research.dot":   true,
 	"../../teams/go-development/v1/spike/spike.dot":         true,
 	"../../teams/go-development/v1/validate/validate.dot":   true,
+	// The consolidated pre-profile release remains immutable historical evidence.
+	"../../teams/go-development/v1.1.1/bug/bug.dot":             true,
+	"../../teams/go-development/v1.1.1/implement/implement.dot": true,
+	"../../teams/go-development/v1.1.1/plan/plan.dot":           true,
+	"../../teams/go-development/v1.1.1/research/research.dot":   true,
+	"../../teams/go-development/v1.1.1/spike/spike.dot":         true,
+	"../../teams/go-development/v1.1.1/validate/validate.dot":   true,
 }
 
 func TestGraphShippedDOTScope(t *testing.T) {

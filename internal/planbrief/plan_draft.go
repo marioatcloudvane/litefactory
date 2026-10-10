@@ -114,7 +114,7 @@ func (d PlanDraft) Validate(stage string, scope ContentScope) error {
 	}
 	seen := map[string]bool{}
 	for _, g := range d.Guidance {
-		if !slices.Contains([]string{"go", "agent-setup"}, g) || seen[g] {
+		if !slices.Contains(guidanceScope(scope), g) || seen[g] {
 			faults = append(faults, errors.New("invalid or duplicate selected guidance"))
 		}
 		seen[g] = true

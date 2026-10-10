@@ -52,6 +52,16 @@ func teamFiles(t *testing.T, modes ...string) map[string][]byte {
 		mapping.WriteString(mode + ": " + mode + "/" + mode + ".dot\n")
 	}
 	files["team.config"] = []byte(mapping.String())
+	if len(modes) == 0 {
+		t.Fatal("team fixture requires a workflow")
+	}
+	skillPath := modes[0] + "/skills/fixture-stack/SKILL.md"
+	profile, err := json.Marshal(map[string]any{"version": 1, "guidance": []config.StackGuidance{{ID: "fixture-stack", Skill: skillPath}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files[config.StackProfilePath] = profile
+	files[skillPath] = []byte("---\nname: fixture-stack\ndescription: Synthetic team fixture guidance\n---\nAdvice.\n")
 	return files
 }
 func cliRelease(files map[string][]byte, ver string) teampackage.Release {
