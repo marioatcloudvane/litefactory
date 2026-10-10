@@ -1,7 +1,6 @@
 package turn
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -11,24 +10,10 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/render"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
-
-// PrepareResearchDelivery captures a single graph node's effective delivery and
-// selects its provider segment before allocating the run. Different logical
-// nodes always rotate; an unchanged same-node delivery can reuse its segment.
-// The caller must carry saved findings and authorized replies as bounded,
-// untrusted request data, and bind the actual run to the returned segment.
-func PrepareResearchDelivery(ctx context.Context, opts Options, req Request, definition *teamsource.ResearchDefinition, node string, session store.Session, ref naming.Ref, firstRef string) (store.Segment, *agent.Delivery, error) {
-	p, err := planResearchDelivery(opts, req, definition, node)
-	if err != nil {
-		return store.Segment{}, nil, err
-	}
-	return prepareDeliverySegment(ctx, opts, req, session, ref, firstRef, p)
-}
 
 func planResearchDelivery(opts Options, req Request, definition *teamsource.ResearchDefinition, nodeName string) (*deliveryPlan, error) {
 	return planWorkflowDelivery(opts, req, definition, nodeName, ResearchWorkflowPolicy())
@@ -132,13 +117,4 @@ func skillNamesBinding(skills []string) string {
 	}
 	sort.Strings(names)
 	return "\n\nSkills for this node: " + strings.Join(names, ", ") + ". In anything you write for the owner, refer to a skill by its name, never by a file path or link on this machine; local paths are not published.\n"
-}
-
-// PrepareWorkflowDelivery selects the captured role and provider segment under the admitted policy.
-func PrepareWorkflowDelivery(ctx context.Context, opts Options, req Request, definition *teamsource.WorkflowDefinition, node string, session store.Session, ref naming.Ref, firstRef string, policy WorkflowPolicy) (store.Segment, *agent.Delivery, error) {
-	p, err := planWorkflowDelivery(opts, req, definition, node, policy)
-	if err != nil {
-		return store.Segment{}, nil, err
-	}
-	return prepareDeliverySegment(ctx, opts, req, session, ref, firstRef, p)
 }
