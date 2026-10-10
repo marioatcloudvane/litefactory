@@ -2,6 +2,296 @@
   "schema": 1,
   "releases": [
     {
+      "name": ".NET Blazor",
+      "slug": "dotnet-web",
+      "version": "1.0.0",
+      "description": ".NET 10 Blazor workflows and retained stack guidance.",
+      "tags": [
+        "dotnet",
+        "blazor"
+      ],
+      "download": "dotnet-web/v1.0.0",
+      "files": [
+        {
+          "path": "GENERATED.md",
+          "sha256": "873428b3f83bf7c09bf75c97dbc51b277797a5c95a20893188eed847214eb803"
+        },
+        {
+          "path": "bug/bug-analyst.md",
+          "sha256": "909823053a1c63dd1a0d4ae9fb036e913fbdb54187da19e053eb42264c066026"
+        },
+        {
+          "path": "bug/bug-fixer.md",
+          "sha256": "3fc81396821bf1898527b2d1ec6d9a9134fb5aa636046c3a12e0028a2c55cd74"
+        },
+        {
+          "path": "bug/bug.dot",
+          "sha256": "1377ee31aedc17f1c7779cac85ee2fddb96c7fc48f7c9db8743c8aba26c53bf7"
+        },
+        {
+          "path": "bug/skills/bug-analysis-result/SKILL.md",
+          "sha256": "ce8d92f5e7cc817daa4f018e2732a562deefed1cf1b7f699fac9be66dc39aabb"
+        },
+        {
+          "path": "bug/skills/bug-analysis-result/result.md",
+          "sha256": "2a1a033fe541f1946d9f6aab4d4e6d240a48fd1fa919ff1539778b604c7e20de"
+        },
+        {
+          "path": "bug/skills/bug-repair-result/SKILL.md",
+          "sha256": "e9e91db98a6be256f8dae557ce7cfec89ea8c707eddc9198d08568d243f776eb"
+        },
+        {
+          "path": "bug/skills/bug-repair-result/result.md",
+          "sha256": "3cbd79fb916909ccfa5fc1cbb340662ba3d70f214d55c938bef7faa4a795071b"
+        },
+        {
+          "path": "bug/skills/team-guidance/SKILL.md",
+          "sha256": "65f73db10c336d08459cda7a6d032a61c6f19122c8e6fed24ece11db448eebb2"
+        },
+        {
+          "path": "bug/skills/team-guidance/engineering.md",
+          "sha256": "0c41f6256557a0b0979c46dfb17a7549382016fd98e194e1c60b84d7c3e49579"
+        },
+        {
+          "path": "bug/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "implement/implement.dot",
+          "sha256": "229389ed54c6ee649366056de9aacc7ac3ca4c6cd5a34898213587d237f06970"
+        },
+        {
+          "path": "implement/skills/implement-result/SKILL.md",
+          "sha256": "62b9dcac040cc901ec1afb8e13942744b640b1d57cc29ded6aec5d4b2ec0ecee"
+        },
+        {
+          "path": "implement/skills/implement-result/node-result.md",
+          "sha256": "a126164c44621fa3c0a4696aee49de6a277bc43d9cbb732fff364cb2085a7c2f"
+        },
+        {
+          "path": "implement/skills/team-guidance/SKILL.md",
+          "sha256": "65f73db10c336d08459cda7a6d032a61c6f19122c8e6fed24ece11db448eebb2"
+        },
+        {
+          "path": "implement/skills/team-guidance/engineering.md",
+          "sha256": "0c41f6256557a0b0979c46dfb17a7549382016fd98e194e1c60b84d7c3e49579"
+        },
+        {
+          "path": "implement/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "implement/story-worker.md",
+          "sha256": "f81b37ac632e010ae6974a5dc1d13d3962535333d935de73d5850f950331821d"
+        },
+        {
+          "path": "plan/plan-acceptance.md",
+          "sha256": "ee4e0112dede28851b273e58ede8618f1dc772c012baf79b7f1d0f0d2ebdab85"
+        },
+        {
+          "path": "plan/plan-set.md",
+          "sha256": "853f0000384429df218b4aea787856db5b1fec4a93abfc834bb7b20f682347c8"
+        },
+        {
+          "path": "plan/plan-story.md",
+          "sha256": "eb741fb8a72bfda2772eb17991118bc5c83160693ca42ebd278859428bb21ae2"
+        },
+        {
+          "path": "plan/plan-technical.md",
+          "sha256": "c5058fcbf07cbfcd464182fe5aab28fcec064c1dd1158a4d513e25a6394e202b"
+        },
+        {
+          "path": "plan/plan.dot",
+          "sha256": "9c2b7414bbcb5e8b62842d6419cf9450b3fea0258139191fb46a7b8080f0d1b5"
+        },
+        {
+          "path": "plan/skills/blazor-guidance/SKILL.md",
+          "sha256": "b9ad8683f514f98ab50c965e148c33032ba473c34e4edb59b441632db646c88b"
+        },
+        {
+          "path": "plan/skills/blazor-guidance/compatibility.md",
+          "sha256": "1f14069b7bff481cc13500334435b9dbe85330f01c9297dca0c5a3e795a11cdc"
+        },
+        {
+          "path": "plan/skills/blazor-guidance/practices.md",
+          "sha256": "fcbce3d116f1c875c5006f15253d6e2bac0918704e6e4f3d67c94a33f694f61a"
+        },
+        {
+          "path": "plan/skills/blazor-guidance/recipes.md",
+          "sha256": "858c4561abc1efd0938d052f9752bbf897d24f9bcf328935966f54569036c75c"
+        },
+        {
+          "path": "plan/skills/plan-acceptance-shaping/SKILL.md",
+          "sha256": "09773b63aec00e6e0138738685fe954b20df1cfb52e4f38e83bc74d248804077"
+        },
+        {
+          "path": "plan/skills/plan-agent-setup-guidance/SKILL.md",
+          "sha256": "c4b8ac1eff5fee2a0bb77e6a779f6936e5958abb0c77b0d2c6b22b80fed8a6b1"
+        },
+        {
+          "path": "plan/skills/plan-evidence/SKILL.md",
+          "sha256": "39866d68b32e5b998e735302c3af447336e5406f6d57430a10b881efbf85254d"
+        },
+        {
+          "path": "plan/skills/plan-evidence/node-result.md",
+          "sha256": "ea7d56ae7a3da9f6788597cc82906ee8951e0df342b95d4bdb1f5764986f363a"
+        },
+        {
+          "path": "plan/skills/plan-evidence/projection.md",
+          "sha256": "ad35476da207ae35130d0a7265c71019975067b79ea130c8459a84cdb9e469d8"
+        },
+        {
+          "path": "plan/skills/plan-story-set/SKILL.md",
+          "sha256": "425f0b03498b4f6d78344b7a0d4ada32ce2bddd55957eb1f9562fd398707a8f1"
+        },
+        {
+          "path": "plan/skills/plan-story-shaping/SKILL.md",
+          "sha256": "fe5fc8ac8d0fe5e116d4d221132f6cc1ca2a39b2b51d213e92dd2691bba8675d"
+        },
+        {
+          "path": "plan/skills/plan-technical-shaping/SKILL.md",
+          "sha256": "d0c245c2ee81d2ecd5ba682de1c13b9cfd91daa12fd40e9aa4ec3595fa68ccd8"
+        },
+        {
+          "path": "plan/skills/team-guidance/SKILL.md",
+          "sha256": "65f73db10c336d08459cda7a6d032a61c6f19122c8e6fed24ece11db448eebb2"
+        },
+        {
+          "path": "plan/skills/team-guidance/engineering.md",
+          "sha256": "0c41f6256557a0b0979c46dfb17a7549382016fd98e194e1c60b84d7c3e49579"
+        },
+        {
+          "path": "plan/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "research/research.dot",
+          "sha256": "f1f7e3906d2fb38a322d02897b2f506c9516c743552aee923b038694a368175f"
+        },
+        {
+          "path": "research/research.md",
+          "sha256": "3d61b234f92f807438f5ae6f51107c9d34530bab10dbd65e17e54da4e04c2b76"
+        },
+        {
+          "path": "research/shaping.md",
+          "sha256": "ccf210b768b2ec48e636ce4452164b112160f9844b936f508dc576485bce0b1f"
+        },
+        {
+          "path": "research/skills/research-evidence/SKILL.md",
+          "sha256": "bf90961a8b1e01df99039071d1baaa7552f8f17175073df8afd0382b17650ff9"
+        },
+        {
+          "path": "research/skills/research-evidence/evidence.md",
+          "sha256": "6a60ccc8c1dbdf69ee1988c5e850e383d4070637301fd8084449b8e05c57780f"
+        },
+        {
+          "path": "research/skills/research-evidence/node-result.md",
+          "sha256": "a6b148a4ad0c92e9e25350200fd90d3182d7de8c14e7398c0568fbda3b30bcac"
+        },
+        {
+          "path": "research/skills/team-guidance/SKILL.md",
+          "sha256": "65f73db10c336d08459cda7a6d032a61c6f19122c8e6fed24ece11db448eebb2"
+        },
+        {
+          "path": "research/skills/team-guidance/engineering.md",
+          "sha256": "0c41f6256557a0b0979c46dfb17a7549382016fd98e194e1c60b84d7c3e49579"
+        },
+        {
+          "path": "research/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "spike/skills/spike-result/SKILL.md",
+          "sha256": "e5bf45567a3e415e474b8178deafb6e0b678efa5e5ddbd778bb9f7a6a18c1ebd"
+        },
+        {
+          "path": "spike/skills/spike-result/node-result.md",
+          "sha256": "e2b842997e085e2bf2435cfe6a6393de4e5a56f44ce0c3e9fd0ed1bd67d7dcd8"
+        },
+        {
+          "path": "spike/skills/team-guidance/SKILL.md",
+          "sha256": "65f73db10c336d08459cda7a6d032a61c6f19122c8e6fed24ece11db448eebb2"
+        },
+        {
+          "path": "spike/skills/team-guidance/engineering.md",
+          "sha256": "0c41f6256557a0b0979c46dfb17a7549382016fd98e194e1c60b84d7c3e49579"
+        },
+        {
+          "path": "spike/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "spike/spike-fixer.md",
+          "sha256": "f22ac0ce163417ce16ccda9abde2be6f550560744aa1dceece11db200697d11c"
+        },
+        {
+          "path": "spike/spike-investigator.md",
+          "sha256": "c7d223d73d281ee53804c19533a9ea6e1a4310091ea585ddd1e13267b6d1dca5"
+        },
+        {
+          "path": "spike/spike.dot",
+          "sha256": "055148cc6f4537856ce5a4209c4a18819b9b14059d099067239c6d83056dca69"
+        },
+        {
+          "path": "stack-profile.json",
+          "sha256": "e1e58e3940cc091076d69ca4e4163e89ee8e15c50636b56a01f456cd4a3986f2"
+        },
+        {
+          "path": "team.config",
+          "sha256": "b16c875d208c77742c72ea48caeaf42950b4fbb0b13fb62d93724b8ad48aec67"
+        },
+        {
+          "path": "validate/skills/team-guidance/SKILL.md",
+          "sha256": "65f73db10c336d08459cda7a6d032a61c6f19122c8e6fed24ece11db448eebb2"
+        },
+        {
+          "path": "validate/skills/team-guidance/engineering.md",
+          "sha256": "0c41f6256557a0b0979c46dfb17a7549382016fd98e194e1c60b84d7c3e49579"
+        },
+        {
+          "path": "validate/skills/team-guidance/workflow.md",
+          "sha256": "4c2c632779ae07b2effefcd9f1d6b40f53442434debb832886db7c434daa8be7"
+        },
+        {
+          "path": "validate/skills/validate-repair-report/SKILL.md",
+          "sha256": "57c6cb0e7d6e26ff5dbb6f183a9dc30d02b5df57a1c58fc0607258f77b8acae8"
+        },
+        {
+          "path": "validate/skills/validate-repair-report/node-result.md",
+          "sha256": "665f9aebf75b8bafd5fbac5fd21b6bffc894bcb57cf3a1f89bbb6c7a9cef65c2"
+        },
+        {
+          "path": "validate/skills/validate-review/SKILL.md",
+          "sha256": "008b01ac5fbeacba0aea8bb9109cfb53755a810ccfee0e394800babaa78896dd"
+        },
+        {
+          "path": "validate/skills/validate-review/node-result.md",
+          "sha256": "77ba705ce46d89426979a68d1095bb108e1599b7643fb7fa7cdee81b383dd638"
+        },
+        {
+          "path": "validate/validate-acceptance.md",
+          "sha256": "1d39c797ba72472d47861cd2a32f05a99068b10229dd4b3be70383b92069e29b"
+        },
+        {
+          "path": "validate/validate-architecture.md",
+          "sha256": "1ee5491cdbb335b624d56c928fabefe142682136faecd0a8f6ed18648007c6e5"
+        },
+        {
+          "path": "validate/validate-code.md",
+          "sha256": "c431d819f7801ddf862915b9cb4f29819fbfe6fb8e90810cc8e56aef5a9ca55f"
+        },
+        {
+          "path": "validate/validate-repair.md",
+          "sha256": "0d2d290ca0c4568011894b0f0d62ebdb2c9081368beaf20ddd1a50f1f3d80f99"
+        },
+        {
+          "path": "validate/validate.dot",
+          "sha256": "eb192b05d231ec38c1201be41638e9dae27d7fff87ff8e5d7f766b6f546bb62b"
+        }
+      ],
+      "checksum": "77ab4169216a7e27a150f5b0826a679e68dcfe9b4b7889a3b21f27c97935c7d9"
+    },
+    {
       "name": "Go development",
       "slug": "go-development",
       "version": "1.1.1",
