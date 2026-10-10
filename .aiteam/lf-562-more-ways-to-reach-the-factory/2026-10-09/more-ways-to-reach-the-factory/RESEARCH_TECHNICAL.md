@@ -77,3 +77,24 @@ _No source reference was recorded for this finding._
 Discord interaction callbacks must occur within 3 seconds and tokens last 15 minutes; Gateway callbacks still use HTTP. API limits require honoring bucket/global state and Retry-After. Inference: acknowledge/defer separately from work completion, persist destination and delivery state, and use bot-authorized messages for results beyond token lifetime. Sources checked 2026-10-09: https://docs.discord.com/developers/interactions/receiving-and-responding and https://docs.discord.com/developers/topics/rate-limits.
 
 _No source reference was recorded for this finding._
+
+## f11
+
+Existing meter supports factory, repository and task summaries with mode, coding-agent and model filters; its report distinguishes measured totals, known subtotals, frozen USD estimates and missing coverage.
+
+Evidence:
+
+- `internal/cli/cmd_meter.go:28`
+- `internal/report/meter.go:23`
+
+## f12
+
+Owner reply expands the first release to project questions, in-progress information, status notifications, meter reporting and chat-created issues; it settles owner-only access and channel-owned history with minimal factory storage.
+
+_No source reference was recorded for this finding._
+
+## f13
+
+Official Discord message documentation requires history-read permissions and restricts arbitrary message content by intent; shaping uses bot-authored accepted-turn records and explicit commands instead of a passive message reader. Source checked 2026-10-10: https://github.com/discord/discord-api-docs/blob/main/developers/resources/message.mdx
+
+_No source reference was recorded for this finding._
