@@ -227,7 +227,6 @@ func (s TypedStory) Validate(scope ContentScope) error {
 		faults = append(faults, errors.New("tasks: requires at least one task"))
 	}
 	graph := map[string][]string{}
-	roles := contentSet(scope.Roles)
 	for i, t := range s.Tasks {
 		if !proposalKey.MatchString(t.ID) {
 			faults = append(faults, fmt.Errorf("tasks[%d].id: invalid ID", i))
@@ -236,7 +235,7 @@ func (s TypedStory) Validate(scope ContentScope) error {
 			faults = append(faults, fmt.Errorf("tasks[%d].id: duplicate", i))
 		}
 		graph[t.ID] = t.DependsOn
-		if !roles[t.OwnerRole] {
+		if !scopeAdmitsRole(scope, t.OwnerRole) {
 			faults = append(faults, fmt.Errorf("tasks[%d].owner_role: unknown role", i))
 		}
 		seen := map[string]bool{}
@@ -257,6 +256,18 @@ func (s TypedStory) Validate(scope ContentScope) error {
 		seen[ref] = true
 	}
 	return errors.Join(faults...)
+}
+
+// scopeAdmitsRole reports whether a stored task owner belongs to the scope. A
+// release scope also admits go-<role> for its <role>: the Go team renamed its
+// task owners when it gained a stack profile, and stories drafted before that
+// keep their stored names. The historical scope stays exact.
+func scopeAdmitsRole(scope ContentScope, role string) bool {
+	if slices.Contains(scope.Roles, role) {
+		return true
+	}
+	neutral, aliased := strings.CutPrefix(role, "go-")
+	return aliased && scope.Guidance != nil && slices.Contains(scope.Roles, neutral)
 }
 
 func contentSet(values []string) map[string]bool {

@@ -153,11 +153,11 @@ func (p *StoryProgress) recoverySession(ctx context.Context, recovery store.Subm
 		}
 		story := agent.ApprovedStory{Key: r.Key, IssueID: r.IssueID, IssueNumber: r.IssueNumber, ParentID: r.ParentID, Revision: r.Hash, Body: r.Body, Title: r.Title}
 		s.stories[r.Key] = story
-		criteria, err := storyCriterionIDs(ctx, p.db, binding.Parent, binding.Generation, r.Key, r.Hash, r.Body)
+		criteria, required, err := storyCriteria(ctx, p.db, binding.Parent, binding.Generation, r.Key, r.Hash, r.Body)
 		if err != nil {
 			return nil, err
 		}
-		source := agent.ContributionStory{Revision: r.Hash, Criteria: criteria, ExecutionRequired: slices.Clone(criteria), Checks: map[string]agent.RetainedContributionCheck{}}
+		source := agent.ContributionStory{Revision: r.Hash, Criteria: criteria, ExecutionRequired: required, Checks: map[string]agent.RetainedContributionCheck{}}
 		if binding.Stage == "validate" {
 			event, err := p.db.EngineeringEvidence(ctx, binding.Parent, binding.Generation, r.Key)
 			if err == nil {
