@@ -277,18 +277,22 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	return true, s.retry(ctx, r, at, d.RetryAfter)
 }
 func (s *Service) retry(ctx context.Context, r store.ChatReply, at time.Time, hint time.Duration) error {
+	return s.db.RetryChatReply(ctx, r, retryAt(r, at, hint), at)
+}
+
+func retryAt(r store.ChatReply, at time.Time, hint time.Duration) time.Time {
 	wait := min(time.Second<<min(max(r.Attempts-1, 0), 10), 15*time.Minute)
 	wait = max(wait, min(max(hint, 0), time.Hour))
 	next := at.Add(wait)
 	if deadline := r.CreatedAt.Add(24 * time.Hour); deadline.Before(next) {
 		next = deadline
 	}
-	return s.db.RetryChatReply(ctx, r, next, at)
+	return next
 }
 
 // Purge removes finished reply state after the retention window.
 func (s *Service) Purge(ctx context.Context, at time.Time) error {
-	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at))
+	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at))
 }
 func (s *Service) help(_ context.Context, _ Message, _ time.Time) (string, error) {
 	return "/" + strings.Join(s.Commands(), ", /"), nil

@@ -240,7 +240,7 @@ type outgoing struct {
 }
 
 // Deliver edits the original response while its token is live, then uses a
-// stable enforced nonce for channel fallback. Nonce deduplication is short-lived;
+// stable enforced nonce for channel fallback or a target without a handle. Nonce deduplication is short-lived;
 // uncertain sends retried after restart or a long delay can produce duplicates.
 func (a *Adapter) Deliver(ctx context.Context, t messaging.Target, text string) messaging.Delivery {
 	body, err := a.redactor.Apply(ctx, text, max(4096, len(text)+redact.Margin))
@@ -255,6 +255,9 @@ func (a *Adapter) Deliver(ctx context.Context, t messaging.Target, text string) 
 	}
 	a.mu.Lock()
 	h, ok := a.handles[t.Handle]
+	if t.Handle == "" {
+		ok = false
+	}
 	if ok && !a.options.Now().Before(h.expires) {
 		delete(a.handles, t.Handle)
 		ok = false

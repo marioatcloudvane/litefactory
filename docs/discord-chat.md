@@ -87,3 +87,19 @@ prices and accounting settings cannot be changed through chat. A report that
 exceeds existing snapshot limits asks you to narrow the project, task or time
 filter. Confirm these results in your real server as the owner walkthrough;
 the automated fake Discord test does not establish real-server readability.
+
+To receive task status notices, set `chat.discord.notice_channel_id` to one of
+`channel_ids`. Leave it empty to disable notices. Each event goes to that one
+channel: run start, a change to a different graph stage, owner question,
+completion, failure or stop. Messages name and link to the task; questions link
+to the issue comment and show a shortened question. Answer on the issue as usual.
+Final notices include available per-run usage and estimated costs.
+
+On first enable, existing history is skipped. Unfinished runs and unpublished
+questions are revisited when they finish or are published. Events already more
+than 24 hours old when first observed are skipped and logged. Notices use the
+same approved best-effort channel-post delivery as command replies, with stable
+enforced nonces, growing retry waits and rate-limit hints, for up to 24 hours.
+The nonce window limitation described above also applies to notices. Confirmed
+and failed notices lose their text and are purged 24 hours later; only source
+read positions and unresolved record references remain.
