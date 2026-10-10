@@ -225,7 +225,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 - **STYLE-7** — Before editing a package, agents MUST read its `doc.go` specification.
 - **STYLE-8** — The factory-supplied `- Mode: X` header MUST remain authoritative. Canonical team guidance in `internal/teamsource/shared/team-guidance/litefactory.md` MUST agree with the prompt header in `internal/harness/prompt.go`. Agent guidance MUST NOT classify, change or dispatch modes. The graph and factory own routing.
-- **STYLE-9** — Loops validating or writing independent items MUST aggregate every item’s failure with `errors.Join`/`joinSorted`, as in CFG-5 and SEC-12; one failure MUST NOT hide unrelated records.
+- **STYLE-9** — Loops validating or writing independent items MUST aggregate every item’s failure with `errors.Join`/`joinSorted`, as in CFG-5; one failure MUST NOT hide unrelated records.
 
 - **STYLE-10** — `agent.RunResult.Succeeded()` (live subprocess) and
   `store.Run.Succeeded()` (persisted row, `internal/store/runs.go`) MUST NOT be
@@ -276,10 +276,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
 | `daemon/record_test.go` | Concurrency and acceptance-identifier invariants |
 | `turn/execute_test.go` (three new tests) | the running write is visible for the whole dispatch window; a refusal touches no session state and clears no failure (CONC-7) |
-| `team/write_test.go` | batch validation, atomic write, symlink refusal, owned-path checks (SEC-12–15) |
-| `team/marker_test.go` | root-file hash covers only the marker span (SEC-16) |
-| `cli/cmd_team_status_test.go` | Domain versus precondition exits (STYLE-6) |
-| `cli/cmd_team_update_test.go` | Independent outcomes aggregate (STYLE-9) |
+| `cli/cmd_team_binding_test.go` | Domain versus precondition exits for team link/unlink (STYLE-6) |
 | `turn/harvest_test.go`, `turn/subissues_test.go`, `turn/plan_retry_transport_test.go` | Success-only save, publication failure and transport exclusion (CONC-8) |
 | `harness/prompt_previous_failed_test.go` | Untrusted failure-reason framing (SEC-19) |
 | `report/report_test.go` | One worktree location per failure (STYLE-11) |
