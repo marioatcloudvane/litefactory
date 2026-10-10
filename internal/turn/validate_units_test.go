@@ -191,7 +191,7 @@ func TestValidateRespondMapsTheRepairReportAndReviews(t *testing.T) {
 }
 
 func TestValidateReviewScopeRequiresPassedExecutedProofForEveryCriterion(t *testing.T) {
-	stories := []ValidateStory{{Key: "s1", Revision: strings.Repeat("ab", 32), Criteria: []string{"AC-001"}}}
+	stories := []ValidateStory{{Key: "s1", Revision: strings.Repeat("ab", 32), Criteria: []string{"AC-001"}, ExecutionRequired: []string{"AC-001"}}}
 	scope := validateReviewScope("code", stories, "commit-x", strings.Repeat("cd", 32), []ValidateEvidence{{ID: "suite-1-0", State: store.SuitePassed}, {ID: "suite-1-1", State: store.SuiteFailed}, {ID: "suite-1-2", State: store.SuiteBlocked}})
 	s := scope.Stories["s1"]
 	if scope.ReviewRole != "code" || !s.SnapshotRetained || s.SnapshotID != "commit-x" || !reflect.DeepEqual(s.ExecutionRequired, []string{"AC-001"}) {
@@ -208,6 +208,52 @@ func TestValidateReviewScopeRequiresPassedExecutedProofForEveryCriterion(t *test
 	}
 }
 
+// A (Manual) criterion may be judged by reading; an (Auto) one still needs a
+// passing executed check, and any check a (Manual) finding cites still counts.
+func TestValidateReviewScopeLetsManualCriteriaBeJudgedByReading(t *testing.T) {
+	stories := []ValidateStory{{Key: "s1", Revision: strings.Repeat("ab", 32), Criteria: []string{"AC-001", "AC-002"}, ExecutionRequired: []string{"AC-002"}}}
+	ctx := validateReviewScope(agent.ReviewRoleAcceptance, stories, "commit-x", strings.Repeat("cd", 32), []ValidateEvidence{{ID: "suite-1-0", State: store.SuitePassed}, {ID: "suite-1-1", State: store.SuiteFailed}})
+	scope := agent.ContributionScope{ContractVersion: agent.SubmissionContractVersion, WorkflowVersion: ctx.WorkflowVersion, Stage: "validate", ReviewRole: ctx.ReviewRole, Stories: ctx.Stories}
+	finding := func(name, status string, checks ...string) agent.ContributionFinding {
+		return agent.ContributionFinding{Name: name, Status: status, Classification: "blocking", Evidence: []agent.EvidenceExplanation{{CheckIDs: append([]string{}, checks...), Summary: "internal/x.go:12 implements the behavior."}}}
+	}
+	parse := func(manual, auto agent.ContributionFinding) agent.ContributionDiagnostics {
+		t.Helper()
+		c := agent.Contribution{Stage: "validate", Story: "s1", Outcome: "assessed", Assessment: &agent.AssessmentContribution{SnapshotID: "commit-x", Criteria: []agent.ContributionFinding{manual, auto}, Reviews: []agent.ContributionFinding{finding("plan", "satisfied")}}}
+		data, err := json.Marshal(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, d := agent.ParseContribution(data, scope)
+		return d
+	}
+	has := func(d agent.ContributionDiagnostics, path, code string) bool {
+		for _, item := range d.Diagnostics {
+			if item.Path == path && item.Code == code {
+				return true
+			}
+		}
+		return false
+	}
+	for _, status := range []string{"satisfied", "unmet"} {
+		if d := parse(finding("AC-001", status), finding("AC-002", "satisfied", "suite-1-0")); !d.Valid || len(d.Diagnostics) != 0 {
+			t.Errorf("manual %s by reading refused: %+v", status, d)
+		}
+	}
+	if d := parse(finding("AC-001", "satisfied"), finding("AC-002", "satisfied")); d.Valid || !has(d, "$.assessment.criteria[1].evidence", "missing_execution") {
+		t.Errorf("auto satisfied without a check: %+v", d)
+	}
+	if d := parse(finding("AC-001", "satisfied"), finding("AC-002", "satisfied", "suite-1-1")); d.Valid || !has(d, "$.assessment.criteria[1].evidence[0].check_ids[0]", "unproven") {
+		t.Errorf("auto satisfied by a failed check: %+v", d)
+	}
+	if d := parse(finding("AC-001", "satisfied", "suite-9-9"), finding("AC-002", "satisfied", "suite-1-0")); d.Valid || !has(d, "$.assessment.criteria[0].evidence[0].check_ids[0]", "attribution") {
+		t.Errorf("manual cited an unknown check: %+v", d)
+	}
+	if d := parse(finding("AC-001", "satisfied", "suite-1-1"), finding("AC-002", "satisfied", "suite-1-0")); d.Valid || !has(d, "$.assessment.criteria[0].evidence[0].check_ids[0]", "unproven") {
+		t.Errorf("manual cited a failed check: %+v", d)
+	}
+}
+
 func TestRepairOutcomeOfMapsEverySettledState(t *testing.T) {
 	want := map[string]string{store.RepairKept: "kept", store.RepairTooBig: "too_big", store.RepairHandback: "handback", store.RepairBlocked: "blocked", store.RepairTimedOut: "unfinished", store.RepairInterrupted: "unfinished", store.RepairUnusable: "unfinished"}
 	for state, outcome := range want {
@@ -217,5 +263,25 @@ func TestRepairOutcomeOfMapsEverySettledState(t *testing.T) {
 	}
 	if _, ok := repairOutcomeOf(store.RepairRound{State: store.RepairRunning}); ok {
 		t.Error("a running round has no outcome yet")
+	}
+}
+
+// A (Manual) criterion the acceptance reviewer satisfied by reading counts as
+// satisfied in the report and leaves no owner check behind.
+func TestRenderValidateReportCountsReviewerSatisfiedManualCriterion(t *testing.T) {
+	st := twoStories()
+	for i := range st.Findings {
+		if st.Findings[i].ID == "b:AC-002" {
+			st.Findings[i].State, st.Findings[i].Status = findingSatisfied, "satisfied"
+		}
+	}
+	st.computeReadiness()
+	out := renderValidateReport(st, twoTargets, "")
+	row := rowOf(t, out, "b")
+	if !strings.Contains(row, "2 of 2 satisfied") || strings.Contains(row, findingAwaitingCheck) || strings.Contains(out, ValidateCheckCommand) {
+		t.Errorf("reviewer-satisfied criterion not counted as satisfied:\n%s", out)
+	}
+	if checks, _ := ownerItemCounts(st, st.Findings); checks != 0 {
+		t.Errorf("owner checks %d", checks)
 	}
 }
