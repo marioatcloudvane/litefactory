@@ -320,7 +320,11 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	defer cancel()
 	//nolint:gosec // binary/args are configuration; issue text is delivered on stdin.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, codexEnv(r.environ), strings.NewReader(req.Prompt)
+	stackEnv, err := req.StackEnvironment(codexEnv(r.environ))
+	if err != nil {
+		return nil, err
+	}
+	cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, stackEnv, strings.NewReader(req.Prompt)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {

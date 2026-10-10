@@ -71,7 +71,12 @@ func newRetirementExecFixture(t *testing.T) *retirementExecFixture {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := int(x.calls.Add(1))
-		if r.URL.Path != "/repos/acme/api/issues/213" {
+		issue := 213
+		switch r.URL.Path {
+		case "/repos/acme/api/issues/213":
+		case "/repos/acme/api/issues/255":
+			issue = 255 // a managed story with its own checkout
+		default:
 			t.Errorf("wrong closure URL %s", r.URL)
 		}
 		if r.Header.Get("If-None-Match") != "" {
@@ -84,7 +89,7 @@ func newRetirementExecFixture(t *testing.T) *retirementExecFixture {
 		w.Header().Set("ETag", `"closed-v1"`)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		_, _ = fmt.Fprintf(w, `{"id":2130,"number":213,"state":%q,"state_reason":"not_planned","url":"https://api.github.com/repos/acme/api/issues/213"}`, state)
+		_, _ = fmt.Fprintf(w, `{"id":%d,"number":%d,"state":%q,"state_reason":"not_planned","url":"https://api.github.com/repos/acme/api/issues/%d"}`, issue*10, issue, state, issue)
 	}))
 	t.Cleanup(server.Close)
 	client, err := github.New(github.Options{APIBase: server.URL, Token: secrets.NewToken("fixture"), HTTPClient: server.Client()})
@@ -484,6 +489,107 @@ func TestRetirementExecutionRealSharedChild(t *testing.T) {
 	retirementAction(t, e, "worktree", "kept")
 	if x.calls.Load() != 0 {
 		t.Fatal("shared child or active family reached closure reads")
+	}
+}
+
+// #600: graph-era runs finish as succeeded or failed and are never reported.
+// Finished runs alone must not keep a closed owner; real open work still does,
+// and is logged as pending_effects rather than active_or_uncertain_owner.
+func TestRetirementExecutionRealFinishedRunsAndPendingEffects(t *testing.T) {
+	finish := func(t *testing.T, x *retirementExecFixture) {
+		t.Helper()
+		segment, err := x.f.db.GetOrCreateSegment(t.Context(), x.session.ID, 1, "s", store.AgentClaude)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, status := range []store.RunStatus{store.RunSucceeded, store.RunFailed} {
+			run, err := x.f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: x.session.ID, SegmentID: segment.ID, Mode: "plan", Agent: store.AgentClaude, TriggerCommentID: int64(100 + i), LogPath: func(int) string { return "/logs/run.jsonl" }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := x.f.db.FinishRun(t.Context(), run.ID, store.RunOutcome{Status: status, FinishedAt: x.session.CreatedAt.Add(time.Minute)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	t.Run("finished_runs_only", func(t *testing.T) {
+		x := newRetirementExecFixture(t)
+		finish(t, x)
+		e, err := x.execute(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		retirementAction(t, e, "worktree", "removed")
+		retirementAction(t, e, "local_branch", "removed")
+		retirementAction(t, e, "remote_branch", "removed")
+	})
+	t.Run("undelivered_report", func(t *testing.T) {
+		x := newRetirementExecFixture(t)
+		finish(t, x)
+		if _, err := x.f.db.EnsureReportDelivery(t.Context(), store.ReportDelivery{Key: "undelivered", Version: 1, SessionID: x.session.ID, TriggerID: 100, Task: x.session.TaskRef, Destination: x.session.TaskRef, TriggerNamespace: "comment", Purpose: "reply", BotUserID: 99, Body: "report", Marker: "marker"}); err != nil {
+			t.Fatal(err)
+		}
+		e, err := x.execute(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		retirementAction(t, e, "worktree", "kept")
+		for _, d := range e.Decisions {
+			if d.Reason != "pending_effects" {
+				t.Fatalf("pending owner kept as %+v, want pending_effects", d)
+			}
+		}
+	})
+}
+
+// #600: stories now get their own branch and worktree. A closed story with
+// its own checkout is retired as its own owner.
+func TestRetirementExecutionRealOwnStoryCheckout(t *testing.T) {
+	x := newRetirementExecFixture(t)
+	if err := x.f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: x.session.TaskRef, Generation: 1, State: "planning"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := x.f.db.PutManagedStory(t.Context(), store.ManagedStory{ParentTask: x.session.TaskRef, Generation: 1, Key: "US-001", IssueNumber: 255, IssueID: 2550, BodyHash: "frozen", State: "planning"}); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := x.f.db.GetRepo(t.Context(), x.session.RepoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	story, err := x.f.db.GetOrCreateSession(t.Context(), repo, 255)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if story, err = x.f.db.FreezeSessionSlug(t.Context(), story.ID, "story", "lf/255-story"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(filepath.Dir(x.path), "task-255")
+	if err := x.f.db.SetSessionWorktree(t.Context(), story.ID, path); err != nil {
+		t.Fatal(err)
+	}
+	x.repo.Git("worktree", "add", "-b", story.Branch, path, "main")
+	x.repo.Git("push", "origin", story.Branch)
+	boundary, err := x.f.db.RetirementBoundary(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owners, err := x.f.db.ListRetirementOwners(t.Context(), 0, boundary, 100)
+	if err != nil || len(owners) != 2 || owners[1].Session.ID != story.ID || !owners[1].Canonical {
+		t.Fatalf("story with its own checkout is not an owner: %+v %v", owners, err)
+	}
+	var e daemon.RetirementEvaluation
+	gittest.AssertUnchanged(t, x.repo.Dir, func() { e, err = x.daemon(t).ExecuteRetirement(t.Context(), "story", story.ID, x.now) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	retirementAction(t, e, "worktree", "removed")
+	retirementAction(t, e, "local_branch", "removed")
+	retirementAction(t, e, "remote_branch", "removed")
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("story worktree still present: %v", err)
+	}
+	if _, err := os.Stat(x.path); err != nil {
+		t.Fatalf("parent worktree touched by the story's retirement: %v", err)
 	}
 }
 
