@@ -77,7 +77,19 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if route == "legacy" {
 		return result, false, nil
 	}
-	r := &planGraphRuntime{opts: o, req: req, result: result, scope: planbrief.TaskOwnerScope(), parentRef: result.Ref, parentNumber: req.Issue.Number}
+	specs, err := PlanSpecs()
+	if err != nil {
+		return result, true, err
+	}
+	definition, err := capturedWorkflow(ctx, o, req, agent.WorkflowPlan, specs)
+	if err != nil {
+		return result, true, err
+	}
+	scope, err := PlanContentScope(definition)
+	if err != nil {
+		return result, true, err
+	}
+	r := &planGraphRuntime{opts: o, req: req, result: result, scope: scope, definition: definition, parentRef: result.Ref, parentNumber: req.Issue.Number}
 	if err = r.bindStoryTask(ctx); err != nil {
 		return result, true, err
 	}
@@ -131,15 +143,6 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if err = r.selectStory(ctx); err != nil {
 		return result, true, err
 	}
-	specs, err := PlanSpecs()
-	if err != nil {
-		return result, true, err
-	}
-	definition, err := capturedWorkflow(ctx, o, req, agent.WorkflowPlan, specs)
-	if err != nil {
-		return result, true, err
-	}
-	r.definition = definition
 	if r.stage == "" {
 		if store.IsGraphTrigger(req.Trigger.CommentID) {
 			return result, true, errors.New("saved Plan dispatch no longer matches eligible work")
@@ -762,5 +765,32 @@ func (r *planGraphRuntime) storyForge() (PlanStoryForge, error) {
 // scope its result is validated against, so the agent never has to ask the
 // owner for them.
 func planOwnerRolesBinding(scope planbrief.ContentScope) string {
-	return "Authorized task owner roles (assign every task to one of these): " + strings.Join(scope.Roles, ", ") + ".\n"
+	binding := "Authorized task owner roles (assign every task to one of these): " + strings.Join(scope.Roles, ", ") + ".\n"
+	if scope.Guidance != nil {
+		binding += "Admitted stack guidance IDs (select only applicable entries): " + strings.Join(scope.Guidance, ", ") + ".\n"
+	}
+	return binding
+}
+
+// PlanContentScope uses only retained release declarations. Historical captures
+// retain their old owner IDs and guidance contracts without rewriting identities.
+func PlanContentScope(definition *teamsource.WorkflowDefinition) (planbrief.ContentScope, error) {
+	if definition == nil {
+		return planbrief.ContentScope{}, errors.New("plan scope: missing admitted definition")
+	}
+	if definition.StackProfile == nil {
+		return planbrief.TaskOwnerScope(), nil
+	}
+	roles, err := teamsource.TaskOwnerRoles(definition)
+	if err != nil {
+		return planbrief.ContentScope{}, err
+	}
+	if len(roles) == 0 {
+		return planbrief.ContentScope{}, errors.New("plan scope: release declares no task owners")
+	}
+	guidance := []string{}
+	for _, selected := range definition.StackProfile.Effective.Guidance {
+		guidance = append(guidance, selected.ID)
+	}
+	return planbrief.ReleaseScope(roles, guidance), nil
 }

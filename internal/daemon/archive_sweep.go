@@ -232,6 +232,9 @@ func (d *Daemon) finishArchivePass(ctx context.Context, s store.ArchiveSweep, no
 
 func (d *Daemon) logArchiveVisit(ctx context.Context, sweep, taskRef string, v ArchiveVisit, err error) {
 	attrs := []any{slog.String("sweep", sweep), slog.String("task_ref", taskRef), slog.String("outcome", v.Outcome), slog.String("reason", v.Reason), slog.Any("rows", v.Rows), slog.Int64("bytes_uncompressed", v.BytesUncompressed), slog.Int64("bytes_compressed", v.BytesCompressed), slog.String("file", filepath.Base(v.File))}
+	if err != nil {
+		attrs = append(attrs, slog.String("error", err.Error()))
+	}
 	if err != nil && v.Outcome == "" {
 		d.log.ErrorContext(ctx, "archive owner incomplete", attrs...)
 		return
@@ -263,8 +266,10 @@ func archiveActiveReason(owner store.ArchiveOwner) string {
 // archiveSettledReason returns why the owner must be kept, or "" when settled.
 func archiveSettledReason(owner store.ArchiveOwner) string {
 	switch {
-	case !owner.Canonical || owner.Active || owner.Pending:
+	case !owner.Canonical || owner.Active:
 		return "active_or_uncertain_owner"
+	case owner.Pending:
+		return "pending_effects"
 	case owner.ArchivePending:
 		return owner.ArchivePendingReason
 	}
@@ -350,6 +355,11 @@ func (d *Daemon) archiveOwner(ctx context.Context, ownerID int64, now time.Time,
 			return kept(pendingReason)
 		}
 		return kept("issue_not_confirmed_closed")
+	}
+	// Rows the delete cannot remove keep the family even when closed, so no
+	// archive file is written for a delete that must fail.
+	if owner.UndeletableReason != "" {
+		return kept(owner.UndeletableReason)
 	}
 	owner.Family.IssueClosed = true
 	return d.archiveFamily(ctx, owner, now)

@@ -15,10 +15,7 @@
 // graph wait; the owner's reply re-enters the resolve step. Every remote effect
 // (follow-up issue, push with pull request, merge, close) is its own step and is
 // reached only from the owner's own command, so one confirmation never implies
-// the next, except the explicit /validate-ship: push and merge return to the
-// resolve step, which carries a ship command on push -> merge -> close until a
-// step fails or delivery ends, and returns to the owner wait after any other
-// command. The run succeeds only after the close step has closed the accepted
+// the next. The run succeeds only after the close step has closed the accepted
 // issues, and the resolve loop is bounded by its lf_limit.
 //
 // The repair bound is two rounds. Every round is counted from the moment it
@@ -106,8 +103,8 @@ digraph validate {
  owner_resolve -> owner_merge        [lf_on="merge"];
  owner_resolve -> owner_close        [lf_on="close"];
  owner_issue -> owner_report       [lf_on="done"];
- owner_push -> owner_resolve      [lf_on="done"];
- owner_merge -> owner_resolve      [lf_on="done"];
+ owner_push -> owner_report       [lf_on="done"];
+ owner_merge -> owner_report       [lf_on="done"];
  owner_close -> delivered    [lf_on="closed"];
  owner_close -> owner_report       [lf_on="open"];
  owner_report -> owner_ask          [lf_on="done"];

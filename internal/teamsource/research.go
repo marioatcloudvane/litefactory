@@ -36,12 +36,19 @@ type ResearchNode struct {
 // team catalogs. Digest includes DOT formatting as well as effective resources;
 // topology identity is a separate concern at the launch boundary.
 type ResearchDefinition struct {
-	Origin  WorkflowOrigin
-	Profile *graphexec.Profile
-	Nodes   map[string]ResearchNode
-	Files   map[string][]byte
-	Hashes  map[string]string
-	Digest  string
+	StackProfile  *config.ResolvedStackProfile
+	StackRevision string
+	// StackFresh marks a newly resolved admission, never a retained replay.
+	StackFresh bool
+	// StackPackageFiles is fresh-admission input; selected retained resources
+	// live in Files and never need current disk during resume or fallback.
+	StackPackageFiles map[string][]byte
+	Origin            WorkflowOrigin
+	Profile           *graphexec.Profile
+	Nodes             map[string]ResearchNode
+	Files             map[string][]byte
+	Hashes            map[string]string
+	Digest            string
 }
 
 // CaptureResearch selects only the application's embedded Research package.
@@ -57,13 +64,14 @@ func CaptureResearch(ctx context.Context, registry graphexec.Registry) (*Researc
 }
 
 type researchReader struct {
-	ctx    context.Context
-	source fs.FS
-	files  map[string][]byte
-	total  int
-	states map[string]int
-	native map[string]string
-	skills []string
+	ctx      context.Context
+	source   fs.FS
+	files    map[string][]byte
+	total    int
+	maxFiles int // Zero preserves the historical reader's byte-only bounds.
+	states   map[string]int
+	native   map[string]string
+	skills   []string
 }
 
 func (r *researchReader) read(name string) ([]byte, error) {
@@ -75,6 +83,9 @@ func (r *researchReader) read(name string) ([]byte, error) {
 	}
 	if raw, ok := r.files[name]; ok {
 		return raw, nil
+	}
+	if r.maxFiles > 0 && len(r.files) >= r.maxFiles {
+		return nil, errors.New("captured resource count exceeds bounds")
 	}
 	file, err := r.source.Open(name)
 	if err != nil {
@@ -169,6 +180,9 @@ func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamN
 		faults = append(faults, errors.New("research definition has no resolved agent nodes"))
 	}
 	if err := errors.Join(faults...); err != nil {
+		return nil, err
+	}
+	if err := restoreStackProfile(ctx, source, result); err != nil {
 		return nil, err
 	}
 	keys := make([]string, 0, len(result.Files))

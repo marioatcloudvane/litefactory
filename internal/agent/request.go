@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
@@ -50,6 +51,11 @@ func (p RunPath) Resuming() bool { return p == PathResume }
 // Request is one coding-agent-tool run: which task, which run number, where,
 // and what to say.
 type Request struct {
+	// StackProfile is the admitted retained configuration shared by every consumer.
+	StackProfile *config.ResolvedStackProfile
+	// StackCaptureDigest links ordinary run metadata to its retained workflow artifact.
+	StackCaptureDigest string
+
 	Invocation InvocationKind
 	Graph      *GraphInvocation
 
@@ -142,6 +148,12 @@ type Request struct {
 // an implementation MAY check more (internal/harness re-checks Permissions
 // against its own configured ceiling, for one).
 func (req Request) Validate() error {
+	if req.StackProfile != nil {
+		if err := req.StackProfile.ValidateRetained(); err != nil {
+			return invalidRequest("stack-profile: retained configuration is invalid")
+		}
+	}
+
 	if err := req.ValidateBugAnalyst(); err != nil {
 		return err
 	}
@@ -211,4 +223,31 @@ func (req Request) Validate() error {
 		return invalidRequest("submission root %q must be absolute", req.SubmissionRoot)
 	}
 	return nil
+}
+
+// StackEnvironment applies only admitted non-secret settings to the provider's
+// own environment. Authentication and factory-owned variables stay protected.
+func (req Request) StackEnvironment(base []string) ([]string, error) {
+	if req.StackProfile == nil {
+		return base, nil
+	}
+	if err := req.StackProfile.ValidateRetained(); err != nil {
+		return nil, invalidRequest("stack-profile: retained configuration is invalid")
+	}
+	out := append([]string(nil), base...)
+	for _, entry := range req.StackProfile.Effective.Environment {
+		if err := config.ValidateStackEnvironment(entry); err != nil {
+			return nil, invalidRequest("stack-profile.environment: setting is invalid")
+		}
+		prefix := entry.Name + "="
+		filtered := out[:0]
+		for _, value := range out {
+			if !strings.HasPrefix(value, prefix) {
+				filtered = append(filtered, value)
+			}
+		}
+		out = filtered
+		out = append(out, prefix+entry.Value)
+	}
+	return out, nil
 }
