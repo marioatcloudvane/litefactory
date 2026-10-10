@@ -1,0 +1,2 @@
+gofmt -l on all four added test files: no output; exit 0.
+git diff --check: no output; exit 0.

@@ -111,7 +111,7 @@ func registerSpikeEffects(specs *graphexec.Registry, activities *ActivityRegistr
 	for name, handler := range map[string]ActivityHandler{
 		SpikeNoteAction:  SpikeNoteActivity{Profile: profile, Context: scope, Destinations: destinations},
 		SpikeGateAction:  SpikeGateActivity{Profile: profile, Context: scope, Worktree: env.Worktree},
-		SpikeCheckAction: SpikeCheckActivity{Profile: profile, Context: scope, Destinations: destinations, Worktree: env.Worktree},
+		SpikeCheckAction: SpikeCheckActivity{StackProfile: env.StackProfile, Profile: profile, Context: scope, Destinations: destinations, Worktree: env.Worktree},
 		SpikeIssueAction: SpikeIssueActivity{Profile: profile, Context: scope, Ref: env.Ref},
 	} {
 		if err := activities.Register(name, handler); err != nil {

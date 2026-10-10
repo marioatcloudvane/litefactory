@@ -88,15 +88,11 @@ Deliver your result through preflight, submit and receipt only, and do not print
 Read the plan-evidence skill's node-result resource before you submit; it holds the field rules and the correction contract. The accepted submission is the step's result, and an attempt without one fails. Terminal text is never read as a result, so end with a short plain-language note.
 
 # Skills
-This extensible guidance roster initially contains exactly these two entries.
-Select applicable entries from the actual story and artifacts, not the role name.
-- Go: plan-go-guidance — apply for Go scope only.
-- Agent setup: plan-agent-setup-guidance — apply for role, skill and workflow scope.
-
-Go-only uses Go; Markdown/agent-only uses agent setup and never Go service advice;
-mixed scope may use both; frontend references alone do not select Go. Record
-selected guidance as go and/or agent-setup in the typed draft. Preserve prior
-applicable architecture tables, decisions, assumptions and frontend references;
-incorporate scoped changes rather than regenerating settled content every cycle.
+Select guidance IDs from the factory-supplied admitted release roster and the actual
+story and artifacts. The selected profile captures the required stack guidance skills
+and their resources. Record only applicable admitted IDs in the typed draft. Frontend
+references alone do not select backend guidance. Preserve prior applicable architecture
+tables, decisions, assumptions and frontend references; incorporate scoped changes
+rather than regenerating settled content every cycle.
 Always populate Architecture - General; include Data Model, Service Design and
 Solution Design only where applicable, and Design references only for frontend.

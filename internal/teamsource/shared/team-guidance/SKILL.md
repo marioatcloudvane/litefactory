@@ -8,11 +8,11 @@ resources:
   - architecture-scanner.md
   - asking.md
   - environment-safety.md
-  - go-architect.md
-  - go-code-reviewer.md
-  - go-implementation-engineer.md
-  - go-integration-test-engineer.md
-  - go-unit-test-engineer.md
+  - architect.md
+  - code-reviewer.md
+  - implementation-engineer.md
+  - integration-test-engineer.md
+  - unit-test-engineer.md
   - litefactory.md
   - planning-responsibilities.md
   - platform-constraints.md

@@ -38,7 +38,7 @@ func canonicalTemp(t *testing.T) string {
 	return root
 }
 func fixtureRelease(ver string) (Release, map[string][]byte) {
-	files := map[string][]byte{"team.config": []byte("research: research/flow.dot\n"), "research/flow.dot": []byte("verified graph data\n")}
+	files := map[string][]byte{"team.config": []byte("research: research/flow.dot\n"), "research/flow.dot": []byte("verified graph data\n"), config.StackProfilePath: []byte(`{"version":1,"guidance":[{"id":"fixture","skill":"research/skills/fixture/SKILL.md"}]}`), "research/skills/fixture/SKILL.md": []byte("---\nname: fixture\ndescription: Fixture guidance\n---\nRetained advice.\n")}
 	r := Release{Name: "Example", Slug: "example", Version: ver, Description: "fixture", Tags: []string{}, Download: "example/" + ver}
 	for p, raw := range files {
 		sum := sha256.Sum256(raw)

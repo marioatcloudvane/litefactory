@@ -649,6 +649,7 @@ func (rt *validateRuntimeState) execute(ctx context.Context, definition *teamsou
 		if err != nil {
 			return err
 		}
+		suite.StackProfile = definition.StackProfile
 		flow.Profile = profile
 		if flow.Scope == nil {
 			// A repair result is judged in the same trusted scope the shared
