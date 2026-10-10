@@ -32,6 +32,7 @@ type chatRuntime struct {
 	service   *messaging.Service
 	adapter   *discord.Adapter
 	heartbeat chan struct{}
+	collector *messaging.NoticeCollector
 }
 
 func prepareChat(ctx context.Context, cfg *config.Config, resolver secrets.Resolver) (*ChatOptions, error) {
@@ -81,6 +82,9 @@ func (d *Daemon) initChat(o *ChatOptions) error {
 	}
 	s.EnableAsk(&answers)
 	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: make(chan struct{}, 1)}
+	if o.Settings.NoticeChannelID != "" {
+		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect}
+	}
 	return nil
 }
 func (d *Daemon) chatWake() {
@@ -122,6 +126,21 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 		for {
 			if ctx.Err() != nil {
 				return
+			}
+			if d.chat.collector != nil {
+				if err := d.chat.collector.Collect(ctx, time.Now()); err != nil {
+					d.log.WarnContext(ctx, "chat notice collection failed; retrying on the next pass")
+				}
+				for range 32 {
+					more, err := d.chat.service.NoticeStep(ctx, time.Now())
+					if err != nil {
+						d.log.WarnContext(ctx, "chat notice processing failed; durable work will be retried")
+						break
+					}
+					if !more {
+						break
+					}
+				}
 			}
 			for range 32 {
 				more, err := d.chat.service.Step(ctx, time.Now())

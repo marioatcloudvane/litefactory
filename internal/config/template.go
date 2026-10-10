@@ -27,6 +27,7 @@ func DefaultFileContents() []byte {
 #     token_keychain: {service: litefactory-discord, account: bot}
 #     # token_env: DISCORD_BOT_TOKEN  # alternative to token_keychain
 #     owner_id: "123456789"
+#     notice_channel_id: "" # Optional task notices; must be an allowed channel
 #     channel_ids: ["123456789"]
 #
 # Unknown keys and literal credentials are startup errors. Credentials are
