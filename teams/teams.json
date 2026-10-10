@@ -4,12 +4,12 @@
     {
       "name": "Go development",
       "slug": "go-development",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "description": "Go development team: workflows, retained specialist guidance and scoped litefactory rules for Go repositories.",
       "tags": [
         "go"
       ],
-      "download": "go-development/v1.2.0",
+      "download": "go-development/v1.2.1",
       "files": [
         {
           "path": "GENERATED.md",
@@ -245,11 +245,11 @@
         },
         {
           "path": "plan/plan-story.md",
-          "sha256": "9b7fdfe8d4e72d40b96026270f63fe2bcd3fa790411bedcecfe9966523e040ec"
+          "sha256": "a1f17b29a90206961eb0e207c34a4f10953c5f7ed9d2edf8e45fb2bced96a47d"
         },
         {
           "path": "plan/plan-technical.md",
-          "sha256": "1f3e8a1404ddf561173c2d820078aba75a7ae248aee434446ba99e30b22effa4"
+          "sha256": "f6f19d073d29163f248b167410afaafa82c42c6929a9682740fad80f34b439f7"
         },
         {
           "path": "plan/plan.dot",
@@ -728,7 +728,7 @@
           "sha256": "25249ffd852e5e18ddcda88da68058d489cbfc140048518bff4b51ea4334b82d"
         }
       ],
-      "checksum": "7c090ffa31d3ea139acc7ce716846bf9f6b8e3e8aba16f6cae47504ca8525264"
+      "checksum": "b7eb58f78ce4b80e25d86894fb8584ae9a0aa7e80d78f667ba0860a152642e48"
     }
   ]
 }
