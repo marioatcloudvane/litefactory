@@ -119,6 +119,20 @@ func (db *DB) ScheduleAttempted(ctx context.Context, sessionID, sourceID int64) 
 	return attempted, nil
 }
 
+// ScheduleStatusBySource reads the status of the schedule a session recorded
+// under a source identity, and whether one exists.
+func (db *DB) ScheduleStatusBySource(ctx context.Context, sessionID, sourceID int64) (ScheduleStatus, bool, error) {
+	var status string
+	err := db.sql.QueryRowContext(ctx, `SELECT status FROM schedules WHERE session_id = ? AND source_comment_id = ? AND ordinal = 1`, sessionID, sourceID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("store: read schedule status: %w", err)
+	}
+	return ScheduleStatus(status), true, nil
+}
+
 // GetSchedule reads a schedule by its stable ID.
 func (db *DB) GetSchedule(ctx context.Context, id int64) (Schedule, error) {
 	s, err := scanSchedule(db.sql.QueryRowContext(ctx, `SELECT `+scheduleColumns+` FROM schedules WHERE id = ?`, id))
