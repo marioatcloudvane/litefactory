@@ -232,6 +232,7 @@ func TestGraphPreparationRetryReusesRunBeforeStart(t *testing.T) {
 		t.Fatal("preparation launched agent")
 		return nil, nil
 	}))
+	f.opts.WorkflowSource = nil // This test covers allocation reuse before graph admission.
 	graph := f.graphRequest(graphTestDOT, nil)
 	d, err := f.db.ParkGraphInstance(t.Context(), graph.InstanceID, "work", graph.At, graph.At)
 	if err != nil {

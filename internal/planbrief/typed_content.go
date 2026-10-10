@@ -106,16 +106,31 @@ type DependencyContent struct {
 type ContentScope struct {
 	Roles     []string
 	IssueRefs []string
+	// Guidance is nil only for historical content; a nonnil roster is release-scoped.
+	Guidance []string
 }
 
-// taskOwnerRoles lists the built-in Implement specialists that may own planned
+// taskOwnerRoles lists the historical Go Implement specialists that may own planned
 // tasks. The orchestrator sequences work and owns no task.
 var taskOwnerRoles = []string{"go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}
 
-// TaskOwnerScope is the content scope planned stories are drafted, validated
-// and rendered against: the task owner roles and no issue references.
+// TaskOwnerScope is the explicit historical content scope. New releases use
+// ReleaseScope with their admitted roles and selected guidance.
 func TaskOwnerScope() ContentScope {
 	return ContentScope{Roles: slices.Clone(taskOwnerRoles), IssueRefs: []string{}}
+}
+
+// ReleaseScope retains closed rosters supplied by the admitted team release.
+// Empty guidance explicitly admits no stack guidance; it never falls back to Go.
+func ReleaseScope(roles, guidance []string) ContentScope {
+	return ContentScope{Roles: slices.Clone(roles), IssueRefs: []string{}, Guidance: append([]string{}, guidance...)}
+}
+
+func guidanceScope(scope ContentScope) []string {
+	if scope.Guidance == nil {
+		return []string{"go", "agent-setup"}
+	}
+	return scope.Guidance
 }
 
 var canonicalCriterion = regexp.MustCompile(`^AC-(?:00[1-9]|0[1-9][0-9]|[1-9][0-9]{2,5})$`)
@@ -212,7 +227,6 @@ func (s TypedStory) Validate(scope ContentScope) error {
 		faults = append(faults, errors.New("tasks: requires at least one task"))
 	}
 	graph := map[string][]string{}
-	roles := contentSet(scope.Roles)
 	for i, t := range s.Tasks {
 		if !proposalKey.MatchString(t.ID) {
 			faults = append(faults, fmt.Errorf("tasks[%d].id: invalid ID", i))
@@ -221,7 +235,7 @@ func (s TypedStory) Validate(scope ContentScope) error {
 			faults = append(faults, fmt.Errorf("tasks[%d].id: duplicate", i))
 		}
 		graph[t.ID] = t.DependsOn
-		if !roles[t.OwnerRole] {
+		if !scopeAdmitsRole(scope, t.OwnerRole) {
 			faults = append(faults, fmt.Errorf("tasks[%d].owner_role: unknown role", i))
 		}
 		seen := map[string]bool{}
@@ -242,6 +256,18 @@ func (s TypedStory) Validate(scope ContentScope) error {
 		seen[ref] = true
 	}
 	return errors.Join(faults...)
+}
+
+// scopeAdmitsRole reports whether a stored task owner belongs to the scope. A
+// release scope also admits go-<role> for its <role>: the Go team renamed its
+// task owners when it gained a stack profile, and stories drafted before that
+// keep their stored names. The historical scope stays exact.
+func scopeAdmitsRole(scope ContentScope, role string) bool {
+	if slices.Contains(scope.Roles, role) {
+		return true
+	}
+	neutral, aliased := strings.CutPrefix(role, "go-")
+	return aliased && scope.Guidance != nil && slices.Contains(scope.Roles, neutral)
 }
 
 func contentSet(values []string) map[string]bool {

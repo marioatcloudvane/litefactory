@@ -39,6 +39,7 @@ const metaFileMode = 0o600
 // distinguishable in the JSON — a run that never emitted a result event has an
 // unknown cost, not a cost of zero.
 type Meta struct {
+	StackCaptureDigest string `json:"stack_capture_digest,omitempty"`
 	// Delivery records the retained, credential-free native instruction bundle.
 	Delivery *agent.Delivery `json:"delivery,omitempty"`
 	// RunOrdinal matches the NNNN stem of this file and the runs row.
@@ -138,19 +139,20 @@ type Meta struct {
 func NewMeta(req Request, prompt string, result *RunResult) Meta {
 	ts := toolSurface(req)
 	meta := Meta{
-		RunOrdinal:     req.RunOrdinal,
-		TaskRef:        req.Ref.String(),
-		SegmentOrdinal: req.SegmentOrdinal,
-		Resumed:        req.Path.Resuming(),
-		Mode:           req.Mode,
-		Prompt:         prompt,
-		WorktreePath:   req.WorktreePath,
-		Outcome:        OutcomeAbandoned.String(),
-		ExitCode:       SignalExitCode,
-		Tools:          []string{},
-		ToolsRequested: append([]string{}, ts.Tools...),
-		ToolProfile:    req.Permissions.Profile,
-		FilesTouched:   []string{},
+		StackCaptureDigest: req.StackCaptureDigest,
+		RunOrdinal:         req.RunOrdinal,
+		TaskRef:            req.Ref.String(),
+		SegmentOrdinal:     req.SegmentOrdinal,
+		Resumed:            req.Path.Resuming(),
+		Mode:               req.Mode,
+		Prompt:             prompt,
+		WorktreePath:       req.WorktreePath,
+		Outcome:            OutcomeAbandoned.String(),
+		ExitCode:           SignalExitCode,
+		Tools:              []string{},
+		ToolsRequested:     append([]string{}, ts.Tools...),
+		ToolProfile:        req.Permissions.Profile,
+		FilesTouched:       []string{},
 	}
 	if req.Delivery != nil {
 		delivery := req.Delivery.Clone()

@@ -270,11 +270,11 @@ func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 		if r.State == "completed" || r.EngineeringComplete {
 			continue
 		}
-		criteria, err := storyCriterionIDs(ctx, h.opts.DB, h.session.TaskRef, h.feature.Generation, r.Key, r.Hash, r.Body)
+		criteria, required, err := storyCriteria(ctx, h.opts.DB, h.session.TaskRef, h.feature.Generation, r.Key, r.Hash, r.Body)
 		if err != nil {
 			return nil, fmt.Errorf("criteria of %s: %w", r.Key, err)
 		}
-		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, Text: r.Body})
+		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, ExecutionRequired: required, Text: r.Body})
 	}
 	if len(out) == 0 {
 		return nil, errors.New("no approved story is under review")

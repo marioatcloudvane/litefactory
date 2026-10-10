@@ -164,6 +164,16 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	if !ok || runner == nil {
 		return out, errors.New("research runner unavailable")
 	}
+	if err := validateStackCommandInputs(opts, req); err != nil {
+		return out, err
+	}
+	if stackEngineeringRequest(req, a.Attrs) {
+		guidance, err := stackEngineeringGuidance(req)
+		if err != nil {
+			return out, err
+		}
+		req.Prompt += guidance
+	}
 	if invocation.Observe != nil {
 		invocation.Observe(req)
 	}
@@ -180,10 +190,21 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 		runCtx, cancel = context.WithTimeout(ctx, agentBudgetClock(budget))
 		defer cancel()
 	}
+	if _, err := runStackSetup(runCtx, opts, req, a.Attrs); err != nil {
+		return out, err
+	}
 	result, runErr := RunResearchMetered(runCtx, opts.DB, invocation.Kind, req, runner)
 	if errors.Is(runErr, agent.ErrSessionNotResumable) && invocation.ColdRequest != nil && runCtx.Err() == nil {
 		cold := *invocation.ColdRequest
 		cold.Invocation, cold.Graph = req.Invocation, req.Graph
+		cold.StackProfile = req.StackProfile
+		if stackEngineeringRequest(req, a.Attrs) {
+			guidance, err := stackEngineeringGuidance(req)
+			if err != nil {
+				return out, err
+			}
+			cold.Prompt += guidance
+		}
 		cold.Path = agent.PathColdAfterResumeRefused
 		if invocation.Observe != nil {
 			invocation.Observe(cold)

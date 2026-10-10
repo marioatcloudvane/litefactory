@@ -16,16 +16,21 @@ const (
 	retirementActivitySQL = `SELECT COUNT(*),MAX(finished_at),EXISTS(SELECT 1 FROM runs WHERE session_id IN (SELECT id FROM family) AND (finished_at IS NULL OR status IN ('running','prelaunch'))) OR EXISTS(SELECT 1 FROM family WHERE (COALESCE(lock_owner,'')<>'' AND id<>?) OR state='running') FROM runs WHERE session_id IN (SELECT id FROM family)`
 	retirementPendingSQL  = `SELECT
  EXISTS(SELECT 1 FROM automatic_continuations WHERE session_id IN (SELECT id FROM family) AND status IN ('pending','reserved','running'))
- OR EXISTS(SELECT 1 FROM runs WHERE session_id IN (SELECT id FROM family) AND status IN ('succeeded','failed'))
  OR EXISTS(SELECT 1 FROM conflict_proposals WHERE session_id IN (SELECT id FROM family) AND status='pending')
  OR EXISTS(SELECT 1 FROM report_deliveries WHERE session_id IN (SELECT id FROM family) AND completed=0)
  OR EXISTS(SELECT 1 FROM delivery_proposals WHERE parent_task IN (SELECT task_ref FROM family) AND superseded=0 AND closed=0)
  OR EXISTS(SELECT 1 FROM story_publications WHERE parent_task IN (SELECT task_ref FROM family) AND delivered=0)
  OR EXISTS(SELECT 1 FROM story_revision_operations WHERE parent_task IN (SELECT task_ref FROM family) AND delivered=0)`
+	// retirementSharedStorySQL selects the managed story relation of the outer
+	// sessions row when that story shares its parent's checkout: no branch of
+	// its own, the parent's branch, or the parent's worktree. A story with its
+	// own branch and worktree is its own retirement owner.
+	retirementSharedStorySQL = `SELECT 1 FROM managed_stories m JOIN sessions p ON p.task_ref=m.parent_task WHERE p.repo_id=sessions.repo_id AND m.issue_number=sessions.issue_number AND (COALESCE(sessions.branch,'')='' OR sessions.branch=p.branch OR (COALESCE(sessions.worktree_path,'')<>'' AND sessions.worktree_path=p.worktree_path))`
 )
 
 // RetirementOwner is a registered canonical resource owner, independent of forge
-// polling. Child stories share the parent's checkout and are never owners here.
+// polling. Child stories that share the parent's checkout are never owners here;
+// a story with its own branch and worktree owns them itself.
 type RetirementOwner struct {
 	ObservationError error
 	Session          Session
@@ -53,7 +58,7 @@ func (db *DB) ListRetirementOwners(ctx context.Context, afterID, throughID int64
 	if limit < 1 || limit > 100 {
 		return nil, fmt.Errorf("retirement page size must be between 1 and 100")
 	}
-	rows, err := db.sql.QueryContext(ctx, `SELECT sessions.id FROM sessions WHERE sessions.id>? AND sessions.id<=? AND NOT EXISTS (SELECT 1 FROM managed_stories m JOIN sessions p ON p.task_ref=m.parent_task WHERE p.repo_id=sessions.repo_id AND m.issue_number=sessions.issue_number) ORDER BY sessions.id LIMIT ?`, afterID, throughID, limit)
+	rows, err := db.sql.QueryContext(ctx, `SELECT sessions.id FROM sessions WHERE sessions.id>? AND sessions.id<=? AND NOT EXISTS (`+retirementSharedStorySQL+`) ORDER BY sessions.id LIMIT ?`, afterID, throughID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +100,7 @@ func (db *DB) GetRetirementOwner(ctx context.Context, id int64) (RetirementOwner
 	if err != nil {
 		return owner, err
 	}
-	err = db.sql.QueryRowContext(ctx, `SELECT NOT EXISTS(SELECT 1 FROM managed_stories m JOIN sessions p ON p.task_ref=m.parent_task WHERE p.repo_id=? AND m.issue_number=?) AND NOT EXISTS(SELECT 1 FROM sessions s WHERE s.id<>? AND s.repo_id=? AND NOT EXISTS(SELECT 1 FROM managed_stories child WHERE child.parent_task=? AND child.issue_number=s.issue_number) AND ((s.branch IS NOT NULL AND s.branch<>'' AND s.branch=?) OR (s.worktree_path IS NOT NULL AND s.worktree_path<>'' AND s.worktree_path=?)))`, owner.Session.RepoID, owner.Session.IssueNumber, id, owner.Session.RepoID, owner.Session.TaskRef, owner.Session.Branch, owner.Session.WorktreePath).Scan(&owner.Canonical)
+	err = db.sql.QueryRowContext(ctx, `SELECT NOT EXISTS(SELECT 1 FROM sessions WHERE sessions.id=? AND EXISTS(`+retirementSharedStorySQL+`)) AND NOT EXISTS(SELECT 1 FROM sessions s WHERE s.id<>? AND s.repo_id=? AND NOT EXISTS(SELECT 1 FROM managed_stories child WHERE child.parent_task=? AND child.issue_number=s.issue_number) AND ((s.branch IS NOT NULL AND s.branch<>'' AND s.branch=?) OR (s.worktree_path IS NOT NULL AND s.worktree_path<>'' AND s.worktree_path=?)))`, id, id, owner.Session.RepoID, owner.Session.TaskRef, owner.Session.Branch, owner.Session.WorktreePath).Scan(&owner.Canonical)
 	if err != nil {
 		return owner, err
 	}

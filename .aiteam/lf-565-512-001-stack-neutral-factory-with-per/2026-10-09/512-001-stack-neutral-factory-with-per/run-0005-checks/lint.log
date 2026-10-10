@@ -1,0 +1,52 @@
+golangci-lint v2.13.1 (installed)
+internal/daemon/stack_profile_source_test.go:96:2: Error return value is not checked (errcheck)
+	decoded["origin"].(map[string]any)["slug"] = "go-development"
+	^
+internal/daemon/stack_profile_source_test.go:97:2: Error return value is not checked (errcheck)
+	decoded["origin"].(map[string]any)["version"] = "1.1.1"
+	^
+internal/agent/request.go:249:9: appendAssign: append result not assigned to the same slice (gocritic)
+		out = append(filtered, prefix+entry.Value)
+		      ^
+internal/turn/stack_commands.go:84:16: G304: Potential file inclusion via variable (gosec)
+		file, err := os.OpenFile(evidencePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		             ^
+internal/turn/standalone_stack.go:131:12: G304: Potential file inclusion via variable (gosec)
+	f, err := os.Open(name)
+	          ^
+internal/turn/standalone_stack.go:159:12: G304: Potential file inclusion via variable (gosec)
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	          ^
+internal/turn/stack_standalone_test.go:34:6: variable copy has same name as predeclared identifier (predeclared)
+					copy := *req.StackProfile
+					^
+internal/daemon/plan_scope.go:39:35: ST1005: error strings should not be capitalized (staticcheck)
+	return planbrief.ContentScope{}, errors.New("Plan scope: linked release resolver is required")
+	                                 ^
+internal/teamrelease/release.go:198:19: QF1001: could apply De Morgan's law (staticcheck)
+	if err != nil && !(legacy && errors.Is(err, fs.ErrNotExist)) {
+	                 ^
+internal/teamsource/role_scope.go:51:7: QF1001: could apply De Morgan's law (staticcheck)
+			if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			   ^
+internal/turn/plan_graph.go:779:36: ST1005: error strings should not be capitalized (staticcheck)
+		return planbrief.ContentScope{}, errors.New("Plan scope: missing admitted definition")
+		                                 ^
+internal/turn/plan_graph.go:789:36: ST1005: error strings should not be capitalized (staticcheck)
+		return planbrief.ContentScope{}, errors.New("Plan scope: release declares no task owners")
+		                                 ^
+internal/turn/standalone_stack.go:49:77: prepareStandaloneStack - session is unused (unparam)
+func prepareStandaloneStack(ctx context.Context, opts Options, req Request, session store.Session, previous store.Run, resume bool) (*teamsource.WorkflowDefinition, error) {
+                                                                            ^
+internal/daemon/plan_story_task.go:58:6: func parentWorkID is unused (unused)
+func parentWorkID(state planbrief.PlanState) (int64, bool) {
+     ^
+14 issues:
+* errcheck: 2
+* gocritic: 1
+* gosec: 3
+* predeclared: 1
+* staticcheck: 5
+* unparam: 1
+* unused: 1
+make: *** [lint] Error 1

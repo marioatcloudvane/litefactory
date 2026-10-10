@@ -346,6 +346,18 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 	// still going: two runs would move the same branch.
 	if prior, err := opts.DB.LatestWorkflowInstance(ctx, rt.session.ID, string(agent.ModeValidate)); err == nil && prior.Status == store.GraphRunning {
 		if e, err := rt.entryOf(ctx, prior.ID); err == nil && e.Commit != head {
+			// An owner /validate on a newer commit ends a run on an older
+			// commit that only waits for the owner; a run that is executing
+			// keeps refusing.
+			superseded := false
+			if !auto {
+				if superseded, err = rt.supersedeWaiting(ctx, prior.ID, now); err != nil {
+					return rt.result, err
+				}
+			}
+			if superseded {
+				return rt.launch(ctx, now)
+			}
 			text := fmt.Sprintf("Validate was not started. A Validate run on commit %s is still going. Wait for it to finish, then send /validate again.", shortSHA(e.Commit))
 			if err := opts.DB.RefuseValidateEntry(ctx, rt.entry.ID, text, now); err != nil {
 				return rt.result, err
@@ -371,14 +383,8 @@ func (rt *validateRuntimeState) endUnreviewed(ctx context.Context, entry store.V
 	if err != nil {
 		return false, err
 	}
-	// A wait claimed by a /validate start comment can never be applied, so it
-	// counts as open; any other claim keeps the run.
-	var claimedReply int64
-	switch {
-	case wait.State == "waiting":
-	case wait.State == "claimed" && ParseCommand(wait.ReplyBody).Name == "/validate":
-		claimedReply = wait.ReplyID
-	default:
+	claimedReply, open := openOwnerWait(wait)
+	if !open {
 		return false, nil
 	}
 	outcome, err := db.GetValidateOutcome(ctx, entry.InstanceID, entry.Commit)
@@ -407,6 +413,38 @@ func (rt *validateRuntimeState) endUnreviewed(ctx context.Context, entry store.V
 		return false, err
 	}
 	return db.CancelIdleGraphOwnerWait(ctx, entry.InstanceID, claimedReply, "the owner started Validate again to repeat the reviews", now)
+}
+
+// openOwnerWait reports whether an owner wait still counts as open. A wait
+// claimed by a /validate start comment can never be applied, so it counts as
+// open and its claiming reply is returned; any other claim keeps the run.
+func openOwnerWait(wait store.GraphOwnerWait) (int64, bool) {
+	switch {
+	case wait.State == "waiting":
+		return 0, true
+	case wait.State == "claimed" && ParseCommand(wait.ReplyBody).Name == "/validate":
+		return wait.ReplyID, true
+	default:
+		return 0, false
+	}
+}
+
+// supersedeWaiting cancels a run on an older commit that is idle at its owner
+// wait. It returns false when the run has no open owner wait or is executing.
+func (rt *validateRuntimeState) supersedeWaiting(ctx context.Context, instanceID int64, now time.Time) (bool, error) {
+	db := rt.opts.DB
+	wait, err := db.GetGraphOwnerWait(ctx, instanceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	claimedReply, open := openOwnerWait(wait)
+	if !open {
+		return false, nil
+	}
+	return db.CancelIdleGraphOwnerWait(ctx, instanceID, claimedReply, "superseded by a newer commit", now)
 }
 
 // replayedEntry finds the admitted entry this very trigger launched.
@@ -611,6 +649,7 @@ func (rt *validateRuntimeState) execute(ctx context.Context, definition *teamsou
 		if err != nil {
 			return err
 		}
+		suite.StackProfile = definition.StackProfile
 		flow.Profile = profile
 		if flow.Scope == nil {
 			// A repair result is judged in the same trusted scope the shared

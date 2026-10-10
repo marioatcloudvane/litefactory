@@ -51,10 +51,11 @@ type ValidateSuiteRunner func(ctx context.Context, worktree string, command conf
 
 // ValidateSuiteBindings carries what the suite activity needs.
 type ValidateSuiteBindings struct {
-	DB      *store.DB
-	LockDir string
-	Repo    ValidateSuiteRepo
-	Bind    ValidateSuiteBind
+	StackProfile *config.ResolvedStackProfile
+	DB           *store.DB
+	LockDir      string
+	Repo         ValidateSuiteRepo
+	Bind         ValidateSuiteBind
 	// Run overrides the configured check sandbox; nil uses it.
 	Run ValidateSuiteRunner
 	// Stopped overrides the process-stopped probe; nil uses bugchecks.ProcessStopped.
@@ -236,7 +237,10 @@ func (h ValidateSuiteActivity) runner(opts Options) (ValidateSuiteRunner, string
 	if opts.MCP == nil {
 		return nil, "the check sandbox is not configured"
 	}
-	isolation := opts.MCP.BugChecksIsolation
+	isolation, err := opts.MCP.BugChecksIsolation.WithStackProfile(h.b.StackProfile)
+	if err != nil {
+		return nil, "stack.environment: retained configuration is invalid"
+	}
 	if err := isolation.Validate(); err != nil {
 		return nil, "the check sandbox is unavailable: " + err.Error()
 	}
@@ -304,6 +308,10 @@ func (h ValidateSuiteActivity) run(ctx context.Context, opts Options, req Activi
 
 	state, why := store.SuitePassed, ""
 	for i, command := range commands {
+		command, err := pinnedStackCommand(b.StackProfile, command)
+		if err != nil {
+			return blocked(err.Error())
+		}
 		started := func(r bugchecks.CommandResult) error {
 			return b.DB.ClaimSuiteCommand(ctx, store.SuiteCommand{RunID: run.ID, Position: i, Argv: command.Argv, StartedAt: r.Started, ProcessIdentity: r.ProcessIdentity})
 		}

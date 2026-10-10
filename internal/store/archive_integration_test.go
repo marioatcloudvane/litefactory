@@ -145,10 +145,11 @@ func TestArchiveIntegrationCompactOnEmptyWorkIsHarmless(t *testing.T) {
 	}
 }
 
-// A closed issue whose bookkeeping is still pending (here a finished run that
-// was never reported) was kept by the sweep forever; #385, #406, #430 and #453
-// held about 235 MB this way. Once the forge confirms the issue closed, only
-// active work blocks the delete; the archive file keeps every row.
+// A closed issue whose bookkeeping is still pending (here an undelivered
+// report) was kept by the sweep forever; #385, #406, #430 and #453 held about
+// 235 MB this way. Once the forge confirms the issue closed, only active work
+// blocks the delete; the archive file keeps every row. A finished run alone is
+// no longer pending bookkeeping (#600).
 func TestArchiveIntegrationClosedIssueIgnoresPendingBookkeeping(t *testing.T) {
 	db := newTestDB(t)
 	f := archiveITSeed(t, db)
@@ -161,6 +162,9 @@ func TestArchiveIntegrationClosedIssueIgnoresPendingBookkeeping(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.FinishRun(t.Context(), run.ID, RunOutcome{Status: RunSucceeded}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.EnsureReportDelivery(t.Context(), ReportDelivery{Key: "pending-report", Version: 1, SessionID: f.SessionID, TriggerID: 100, Task: f.TaskRef, Destination: f.TaskRef, TriggerNamespace: "comment", Purpose: "reply", BotUserID: 99, Body: "report", Marker: "marker"}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
