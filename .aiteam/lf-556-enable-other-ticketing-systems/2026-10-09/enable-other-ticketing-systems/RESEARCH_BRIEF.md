@@ -14,6 +14,8 @@ Decouple ticket management from the repository behind an interface, move project
 - **D-6** — Linear uses webhooks plus fallback polling, default 60 minutes, minimum 1 (owner answer to Q-2).
 - **D-7** — GitHub provider settings move from config.yaml to the database as a connection; config.yaml holds no provider or project knowledge (owner answer to Q-4).
 - **D-8** — Build order: define interface, wrap GitHub as first adapter, then add Linear. Adapter is chosen per project at runtime.
+- **D-9** — Connection secrets stay in the keychain or an environment variable; the database stores only a reference name (owner answer to Q-3).
+- **D-10** — Schema approved: a connection table plus projects referencing a code connection and a ticket connection (owner answer to Q-5).
 
 
 ## Assumptions
@@ -24,23 +26,6 @@ Decouple ticket management from the repository behind an interface, move project
 - **A-4** — The projects record is today's repos table, extended; config values stay as defaults for new projects. Rests on F-3.
 - **A-5** — The poll interval stays one global setting; no per-project override. A poll interval setting and webhook listener already exist in config (F-4).
 - **A-6** — Missing Linear labels are created on first connection check.
-
-
-## Open questions
-
-### Q-3 — How should connection secrets (API tokens, webhook secrets) be stored?
-
-_Asked of: Technical Questions_
-
-- **keychain-ref** — The database stores only a name; the token sits in the keychain or an environment variable. Same as GitHub today, least new code. Recommended.  *(recommended)*
-- **db-encrypted** — Tokens stored encrypted in the database, with the encryption key in the keychain. Portable and self-contained, but adds key handling and a lost-key problem.
-
-### Q-5 — Do you approve the connection and project schema as proposed?
-
-_Asked of: Technical Questions_
-
-- **approve** — Yes: connections table plus projects referencing a code connection and a ticket connection. Recommended.  *(recommended)*
-- **flat** — Simpler: no connections table; credentials are fields on each project. Less reuse, repeats tokens.
 
 ## Research documents
 
