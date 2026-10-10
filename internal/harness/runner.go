@@ -218,6 +218,12 @@ const stderrTailBytes = 64 << 10
 // flag; it must never be set here.
 const PermissionMode = "auto"
 
+// ReadOnlyShellPermissionMode is the --permission-mode of a run whose surface
+// is a Validate reviewer's read-only shell ([ToolSurface.ReadOnlyShell]).
+// dontAsk refuses every action --allowedTools does not pre-approve, which is
+// what makes the fixed read-only Bash rules a boundary rather than a fast path.
+const ReadOnlyShellPermissionMode = "dontAsk"
+
 // runLogFileMode is 0600 and runArtefactDirMode is 0700, matching S-1: the run
 // log is unredacted and may contain anything claude read.
 const (
@@ -454,8 +460,17 @@ func (r *Runner) validateRequest(req agent.Request) error {
 			return fmt.Errorf("%w: Validate requires explicit read-only tools", ErrInvalidRequest)
 		}
 		for _, tool := range ts.Tools {
+			if tool == "Bash" && ts.ReadOnlyShell && !req.RetainedValidation {
+				continue
+			}
 			if tool != "Read" && tool != "Glob" && tool != "Grep" && (tool != "Task" || req.RetainedValidation) {
 				return fmt.Errorf("%w: Validate cannot grant %s", ErrInvalidRequest, tool)
+			}
+		}
+		shellRules := config.ValidateReviewerShellRules()
+		for _, rule := range ts.AllowedTools {
+			if config.ClaudeToolName(rule) == "Bash" && (!ts.ReadOnlyShell || !slices.Contains(shellRules, rule)) {
+				return fmt.Errorf("%w: Validate cannot grant %s", ErrInvalidRequest, rule)
 			}
 		}
 	}
@@ -660,6 +675,12 @@ func (r *Runner) args(req agent.Request) []string {
 			allowedTools = append(allowedTools, "mcp__"+mcpServerName+"__"+name)
 		}
 	}
+	// A Validate reviewer's read-only shell refuses everything --allowedTools
+	// does not name; every other run keeps PermissionMode.
+	permissionMode := PermissionMode
+	if toolSurface(req).ReadOnlyShell {
+		permissionMode = ReadOnlyShellPermissionMode
+	}
 	model := r.model
 	if req.Delivery != nil && req.Delivery.MainRole != "" {
 		model = req.Delivery.MainModel
@@ -677,7 +698,7 @@ func (r *Runner) args(req agent.Request) []string {
 		// together: the settings document supplies the deny rules and this
 		// says how everything they do not name is decided. See PermissionMode
 		// for why the value is a constant rather than configuration.
-		"--permission-mode", PermissionMode,
+		"--permission-mode", permissionMode,
 		// Unconditional, so that the model a run used is a property of this
 		// argv and readable in the recorded command line, rather than of
 		// whatever the CLI defaults to. It sets the top-level session only:

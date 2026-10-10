@@ -3,11 +3,13 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
@@ -243,5 +245,174 @@ func TestDoctorFieldGuideAndPromptDescribeLiveSourcesOnly(t *testing.T) {
 		if strings.Contains(prompt, obsolete) {
 			t.Errorf("obsolete diagnosis material %s", obsolete)
 		}
+	}
+}
+
+// proposalProviderFixture finds its repair targets only through the live
+// database_query tool, then proposes typed repairs for them (#578).
+type proposalProviderFixture struct {
+	t       *testing.T
+	receipt string
+}
+
+func (p *proposalProviderFixture) DoctorIsolation(context.Context) (string, error) {
+	return "fake provider only", nil
+}
+
+func (p *proposalProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorRequest) (agent.DoctorRunResult, error) {
+	p.t.Helper()
+	if err := r.Validate(); err != nil {
+		return agent.DoctorRunResult{}, err
+	}
+	client := submission.Client{DescriptorPath: r.MCPLaunch.DescriptorPath()}
+	query := func(sql string) string {
+		payload, err := json.Marshal(map[string]string{"sql": sql})
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		got, err := client.Call(ctx, "database_query", payload)
+		if err != nil || got.Error != "" {
+			p.t.Fatalf("live query: %+v %v", got, err)
+		}
+		var out store.DoctorQueryResult
+		if err := json.Unmarshal(got.Result, &out); err != nil || len(out.Rows) != 1 || len(out.Rows[0]) != 1 {
+			p.t.Fatalf("query rows: %s %v", got.Result, err)
+		}
+		value, ok := out.Rows[0][0].(string)
+		if !ok {
+			p.t.Fatalf("query value: %s", got.Result)
+		}
+		return value
+	}
+	graph := query(`SELECT CAST(g.id AS TEXT) FROM graph_instances g JOIN sessions s ON s.id=g.session_id WHERE s.task_ref='github:acme/api#406' AND g.status='running'`)
+	comment := query(`SELECT CAST(c.forge_comment_id AS TEXT) FROM comments c JOIN sessions s ON s.id=c.session_id WHERE s.task_ref='github:acme/api#406'`)
+	watermark := query(`SELECT CAST(w.last_comment_id AS TEXT) FROM watermarks w JOIN sessions s ON s.id=w.session_id WHERE s.task_ref='github:acme/api#406'`)
+	step := func(n int, kind, target, before, after string) RepairStep {
+		return RepairStep{Action: &store.DoctorRepairAction{Kind: kind, Before: before, After: after}, Number: n, Target: target, Precondition: "Row still holds the observed state", Change: "Apply the typed repair", Reason: "The instance is stuck", Reversibility: "Retained in the repair journal", Rollback: "Restore from the journal backup"}
+	}
+	diagnosis := Diagnosis{Findings: []Finding{{Explanation: "A Validate instance is still running and an owner comment sits above the watermark.", Evidence: []string{"database:graph_instances id=" + graph, "database:comments forge_comment_id=" + comment}, Uncertainty: "Fake provider; no process inspection."}}, CoverageGaps: []string{"Process state not inspected by the fake provider"}}
+	preflight := func(d Diagnosis) ResultDiagnostics {
+		raw, err := json.Marshal(ResultInput{Diagnosis: d})
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		pre, err := client.Call(ctx, "communication_preflight", raw)
+		if err != nil || pre.Error != "" {
+			p.t.Fatalf("preflight: %+v %v", pre, err)
+		}
+		var check ResultDiagnostics
+		if err := json.Unmarshal(pre.Result, &check); err != nil {
+			p.t.Fatal(err)
+		}
+		return check
+	}
+	unknown := diagnosis
+	unknown.Proposal = []RepairStep{step(1, "release_instance", "graph:999999", "running", "failed")}
+	if check := preflight(unknown); check.Valid || len(check.Errors) != 1 || !strings.Contains(check.Errors[0], "unresolved target") {
+		p.t.Fatalf("nonexistent target accepted: %+v", check)
+	}
+	diagnosis.Proposal = []RepairStep{step(1, "release_instance", "graph:"+graph, "running", "failed"), step(2, "consume_comment", "comment:"+comment, watermark, comment)}
+	if check := preflight(diagnosis); !check.Valid {
+		p.t.Fatalf("live proposal rejected: %+v", check)
+	}
+	raw, err := json.Marshal(ResultInput{Diagnosis: diagnosis})
+	if err != nil {
+		return agent.DoctorRunResult{}, err
+	}
+	submit, err := client.Call(ctx, "communication_submit", raw)
+	if err != nil || submit.Error != "" {
+		p.t.Fatalf("submit: %+v %v", submit, err)
+	}
+	receiptInput, err := json.Marshal(map[string]string{"request_id": submit.RequestID})
+	if err != nil {
+		return agent.DoctorRunResult{}, err
+	}
+	receipt, err := client.Call(ctx, "communication_receipt", receiptInput)
+	if err != nil || receipt.Error != "" {
+		p.t.Fatalf("receipt: %+v %v", receipt, err)
+	}
+	p.receipt = string(receipt.Result)
+	return agent.DoctorRunResult{ObservedModel: r.Model, ProviderVersion: "fake-only"}, nil
+}
+
+func TestDoctorLiveDiagnosisProposesRepairForQueriedTargets(t *testing.T) {
+	s := doctorIOService(t)
+	root, err := os.MkdirTemp("/tmp", "lf578-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Error(err)
+		}
+	}()
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Paths = config.NewPaths(root)
+	repo, err := s.DB.UpsertRepo(t.Context(), store.Repo{Forge: "github", Owner: "acme", Name: "api", Path: filepath.Join(root, "clone"), WorktreeRoot: filepath.Join(root, "worktrees"), BaseBranch: "main", RemoteURL: "git@github.com:acme/api.git"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.DB.GetOrCreateSession(t.Context(), repo, 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.SetSessionWorktree(t.Context(), session.ID, filepath.Join(root, "worktrees", "406")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DB.GetOrCreateSegment(t.Context(), session.ID, 1, "fixture-session", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	definition, err := s.DB.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "core", Mode: "validate", ProfileVersion: 1, Path: "core/validate.dot", Digest: strings.Repeat("a", 64), CreatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := s.DB.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "validate", StartedAt: now, NextDueAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = s.DB.BootstrapWatermark(t.Context(), session.ID, 6084334000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DB.RecordComment(t.Context(), store.Comment{SessionID: session.ID, ForgeCommentID: 6084334752, AuthorHandle: "owner", Body: "/approve", CreatedAt: now, Classification: store.ClassificationInstruction}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(s.Paths.LogsDir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.Paths.DaemonLogPath(), []byte("{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	provider := &proposalProviderFixture{t: t}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Runner = &Adapters{Paths: s.Paths, Executable: executable, Providers: map[string]agent.DoctorRunner{"claude": provider}}
+	s.Comments = &commentsFixture{}
+	target, err := Target("acme/api", 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Diagnose(t.Context(), DiagnoseRequest{Target: target, Instructions: "Release the stuck Validate instance", SourceID: "live-proposal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(provider.receipt, `"accepted"`) {
+		t.Fatalf("receipt not accepted: %s", provider.receipt)
+	}
+	if len(got.Attempts) != 1 || got.Attempts[0].State != "completed" || got.ProposalID == 0 || len(got.CurrentProposal) != 2 {
+		t.Fatalf("proposal not adopted: %+v", got)
+	}
+	release, consume := got.CurrentProposal[0], got.CurrentProposal[1]
+	if release.Target != fmt.Sprintf("graph:%d", instance.ID) || release.Action.Kind != "release_instance" || consume.Target != "comment:6084334752" || consume.Action.Kind != "consume_comment" || consume.Action.Before != "6084334000" || consume.Action.After != "6084334752" {
+		t.Fatalf("adopted proposal: %+v", got.CurrentProposal)
+	}
+	var saved PathManifest
+	if err := json.Unmarshal([]byte(got.Attempts[0].Evidence), &saved); err != nil || !saved.Live {
+		t.Fatalf("stored evidence is no longer the path manifest: %s %v", got.Attempts[0].Evidence, err)
 	}
 }

@@ -525,11 +525,11 @@ func DefaultToolProfiles() ToolProfiles {
 	}
 	researchTools := append(slices.Clone(artifactTools), "Edit", "WebSearch", "WebFetch")
 	researchAllowed := append(slices.Clone(artifactAllowed), "Edit", "WebSearch", "WebFetch")
-	// Claude's --allowedTools is additive to ambient permissions, so Bash
-	// cannot be made read-only with command qualifiers. Codex Validate retains
-	// shell verification through its independently enforced read-only sandbox.
-	readTools := []string{"Read", "Glob", "Grep", "Task"}
-	readAllowed := []string{"Read", "Glob", "Grep"}
+	// Claude Validate gets Bash only with the fixed read-only reviewer rules;
+	// a reviewer holding it runs in a permission mode that refuses everything
+	// else. Codex Validate keeps its independently enforced read-only sandbox.
+	readTools := []string{"Read", "Glob", "Grep", "Task", "Bash"}
+	readAllowed := append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
 	profile := func(tools, allowed []string, sandbox string, attachments bool) ToolProfile {
 		return ToolProfile{
 			Claude:      &ToolProfileClaude{Tools: slices.Clone(tools), AllowedTools: slices.Clone(allowed)},

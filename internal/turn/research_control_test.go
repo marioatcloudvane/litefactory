@@ -39,10 +39,10 @@ loop -> work [on=true];loop -> reportbrief [on=false];work -> check [on=success]
 			}
 			req := GraphNodeRequest{Profile: p, InstanceID: instance.ID, At: at}
 			var specs graphexec.Registry
-			h := ResearchControlActivity{Profile: p, Context: func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error) {
+			h := ControlActivity{Policy: ResearchWorkflowPolicy(), Profile: p, Context: func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error) {
 				return agentresult.Context{SchemaVersion: 1, WorkflowVersion: 2, Mode: "research", QuestionsAllowed: true}, nil
 			}}
-			if err := RegisterResearchControl(&specs, &req.Activities, h); err != nil {
+			if err := RegisterControl(&specs, &req.Activities, h); err != nil {
 				t.Fatal(err)
 			}
 			first, err := ExecuteNodeAction(t.Context(), Options{DB: db}, req)

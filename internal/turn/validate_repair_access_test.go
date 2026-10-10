@@ -112,3 +112,44 @@ func TestSpikeWriteAccessKeepsTheSpikeFixerSurface(t *testing.T) {
 		t.Fatalf("Spike fixer surface: %+v %v", req.Tools, err)
 	}
 }
+
+// A Claude reviewer whose validate profile grants Bash keeps it, limited to the
+// fixed read-only reviewer rules, and its surface asks for the read-only shell
+// permission mode. Extra rules and editing tools in the profile are dropped.
+func TestValidateReviewerGetsOnlyTheReadOnlyShell(t *testing.T) {
+	policy := ValidateWorkflowPolicy()
+	reviewer := graphexec.Node{Name: "reviewer", Action: "lf_agent", Attrs: map[string]string{graphexec.AccessAttribute: ValidateReviewAccess}}
+	shell := config.ValidateReviewerShellRules()
+	req := Request{
+		Agent: agent.Kind(store.AgentClaude), ToolProfile: "validate",
+		Tools:        []string{"Read", "Glob", "Grep", "Task", "Bash", "Edit", "Write", "MultiEdit"},
+		AllowedTools: append([]string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Bash(go test:*)", "Bash(git commit:*)"}, shell...),
+	}
+	got, err := applyNodeAccess(policy, reviewer, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.Tools, []string{"Read", "Glob", "Grep", "Bash"}) {
+		t.Fatalf("reviewer tools = %v", got.Tools)
+	}
+	if want := append([]string{"Read", "Glob", "Grep"}, shell...); !slices.Equal(got.AllowedTools, want) {
+		t.Fatalf("reviewer allowed tools = %v, want %v", got.AllowedTools, want)
+	}
+	surface, ok := requestPermissions(got).Payload.(harness.ToolSurface)
+	if !ok || !surface.ReadOnlyShell {
+		t.Fatalf("reviewer surface is not a read-only shell: %+v", surface)
+	}
+
+	// Other read nodes keep no shell, even when their profile grants Bash.
+	for _, profile := range []string{"research", config.SpikeInvestigatorProfile, "bug-analyst"} {
+		other := req
+		other.ToolProfile = profile
+		got, err := applyNodeAccess(policy, reviewer, other)
+		if err != nil || !slices.Equal(got.Tools, []string{"Read", "Glob", "Grep"}) || !slices.Equal(got.AllowedTools, []string{"Read", "Glob", "Grep"}) {
+			t.Fatalf("%s read node: %+v %v", profile, got, err)
+		}
+		if surface, _ := requestPermissions(got).Payload.(harness.ToolSurface); surface.ReadOnlyShell {
+			t.Fatalf("%s read node marked as read-only shell", profile)
+		}
+	}
+}

@@ -272,19 +272,84 @@ func TestDoctorTypedRowsRequirePresentedOwnerApproval(t *testing.T) {
 	}
 }
 
+func TestDoctorTypedReleaseCancelsClaimedWaitAndUnallocatedDispatch(t *testing.T) {
+	db, instance, _ := closureWaitFixture(t, "validate", "claimed")
+	ctx := t.Context()
+	session, err := db.GetSession(ctx, instance.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.sql.ExecContext(ctx, `UPDATE sessions SET state='running' WHERE id=?`, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := db.sql.ExecContext(ctx, `INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at) VALUES(?,?,?,?,'pending',?)`, instance.ID, session.ID, instance.CurrentNode, FormatTime(graphTestTime()), FormatTime(graphTestTime()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := typedRowApproval(t, db, session, "release_instance", fmt.Sprintf("graph:%d", instance.ID), "running", "failed")
+	step, err := db.ApplyDoctorTypedRows(ctx, op.ID, 1, "release_instance")
+	if err != nil || step.State != "verified" || step.BackupReference == "" {
+		t.Fatal(step, err)
+	}
+	var status, waitState, dispatchStatus, reason string
+	var finished *string
+	if err = db.sql.QueryRowContext(ctx, `SELECT status FROM graph_instances WHERE id=?`, instance.ID).Scan(&status); err != nil || status != "failed" {
+		t.Fatal(status, err)
+	}
+	if err = db.sql.QueryRowContext(ctx, `SELECT state FROM graph_owner_waits WHERE delivery_key='question'`).Scan(&waitState); err != nil || waitState != "cancelled" {
+		t.Fatal(waitState, err)
+	}
+	if err = db.sql.QueryRowContext(ctx, `SELECT status,finished_at,cancellation_reason FROM graph_dispatches WHERE id=?`, dispatchID).Scan(&dispatchStatus, &finished, &reason); err != nil || dispatchStatus != "cancelled" || finished == nil || reason == "" {
+		t.Fatal(dispatchStatus, finished, reason, err)
+	}
+	var backup []byte
+	if err = db.sql.QueryRowContext(ctx, `SELECT backup FROM doctor_repair_steps WHERE repair_id=? AND number=1`, op.ID).Scan(&backup); err != nil {
+		t.Fatal(err)
+	}
+	var saved struct {
+		Status     string `json:"status"`
+		OwnerWaits []struct {
+			DeliveryKey string `json:"delivery_key"`
+			State       string `json:"state"`
+		} `json:"owner_waits"`
+		Dispatches []struct {
+			ID     int64  `json:"id"`
+			Status string `json:"status"`
+		} `json:"dispatches"`
+	}
+	if err = json.Unmarshal(backup, &saved); err != nil || saved.Status != "running" || len(saved.OwnerWaits) != 1 || saved.OwnerWaits[0].DeliveryKey != "question" || saved.OwnerWaits[0].State != "claimed" || len(saved.Dispatches) != 1 || saved.Dispatches[0].ID != dispatchID || saved.Dispatches[0].Status != "pending" {
+		t.Fatalf("backup %s: %v", backup, err)
+	}
+}
+
 func TestDoctorTypedReleaseRefusesLiveAttemptOrWorker(t *testing.T) {
-	for _, live := range []string{"attempt", "worker"} {
+	for _, live := range []string{"attempt", "run", "lock"} {
 		t.Run(live, func(t *testing.T) {
-			db := newTestDB(t)
-			instance := graphTestInstance(t, db)
+			var db *DB
+			var instance GraphInstance
+			if live == "attempt" {
+				db = newTestDB(t)
+				instance = graphTestInstance(t, db)
+				graphTestAttempt(t, db, instance, 3)
+			} else {
+				db, instance, _ = closureWaitFixture(t, "validate", "claimed")
+			}
 			session, err := db.GetSession(t.Context(), instance.SessionID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if live == "attempt" {
-				graphTestAttempt(t, db, instance, 3)
-			} else {
-				if _, err = db.sql.ExecContext(t.Context(), `UPDATE sessions SET state='running' WHERE id=?`, session.ID); err != nil {
+			switch live {
+			case "run":
+				run := testRun(t, db, session.ID, 1)
+				if _, err = db.sql.ExecContext(t.Context(), `UPDATE runs SET status='running' WHERE id=?`, run.ID); err != nil {
+					t.Fatal(err)
+				}
+			case "lock":
+				if _, err = db.sql.ExecContext(t.Context(), `UPDATE sessions SET lock_owner='live-turn' WHERE id=?`, session.ID); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -295,6 +360,12 @@ func TestDoctorTypedReleaseRefusesLiveAttemptOrWorker(t *testing.T) {
 			var status string
 			if err = db.sql.QueryRowContext(t.Context(), `SELECT status FROM graph_instances WHERE id=?`, instance.ID).Scan(&status); err != nil || status != "running" {
 				t.Fatal(status, err)
+			}
+			if live != "attempt" {
+				var waitState string
+				if err = db.sql.QueryRowContext(t.Context(), `SELECT state FROM graph_owner_waits WHERE delivery_key='question'`).Scan(&waitState); err != nil || waitState != "claimed" {
+					t.Fatal(waitState, err)
+				}
 			}
 			steps, err := db.DoctorRepairSteps(t.Context(), op.ID)
 			if err != nil || steps[0].State != "pending" || steps[0].BackupReference != "" {

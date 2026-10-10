@@ -505,23 +505,37 @@ func validateBugRoleProfile(c *Config, name string, profile ToolProfile) []error
 	return errs
 }
 
-// validateClaudeValidateProfile makes Validate read-only by construction.
+// ValidateReviewerShellRules is the fixed list of read-only Bash permission
+// rules a Claude Validate reviewer may hold. The validate profile may grant
+// Bash only together with rules from this list, and a reviewer run that holds
+// Bash is started with a permission mode that refuses every command and tool
+// --allowedTools does not name, so the list is the reviewer's shell boundary.
+// Each call returns a fresh slice.
+func ValidateReviewerShellRules() []string {
+	return []string{
+		"Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git ls-tree:*)",
+		"Bash(git grep:*)", "Bash(git status:*)", "Bash(git rev-parse:*)",
+		"Bash(cat:*)", "Bash(head:*)", "Bash(ls:*)", "Bash(wc:*)", "Bash(rg:*)",
+	}
+}
+
+// validateClaudeValidateProfile keeps Validate read-only by construction.
 // Claude has no filesystem sandbox equivalent to Codex's read-only mode, and
-// --allowedTools is additive to ambient permissions. Consequently no Bash
-// qualifier is a load-bearing restriction: once Bash is in --tools, an
-// operator's personal settings may approve mutating commands. Claude Validate
-// therefore cannot run shell verification safely; Codex Validate can do so
-// inside its separately enforced read-only sandbox.
+// under the default permission mode --allowedTools is additive and not a
+// boundary. Bash is therefore accepted only with rules from
+// [ValidateReviewerShellRules]; a reviewer run holding it is started in a
+// permission mode that refuses everything those rules do not name. Edits,
+// other Bash rules and a bare Bash rule stay rejected.
 func validateClaudeValidateProfile(stanza *ToolProfileClaude) []error {
-	readOnlyTools := toolSet([]string{"Read", "Glob", "Grep", "Task"})
-	readOnlyRules := toolSet([]string{"Read", "Glob", "Grep"})
+	readOnlyTools := toolSet([]string{"Read", "Glob", "Grep", "Task", "Bash"})
+	readOnlyRules := toolSet(append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...))
 
 	var errs []error
 	toolsKey := profileToolsKey("validate")
 	for i, raw := range stanza.Tools {
 		tool := strings.TrimSpace(raw)
 		if toolNameRE.MatchString(tool) && !readOnlyTools[tool] {
-			errs = append(errs, fmt.Errorf("%s[%d]: %q is not permitted in the read-only validate profile; use only Read, Glob, Grep, or Task (Claude Validate cannot safely grant Bash because ambient permissions are additive)", toolsKey, i, tool))
+			errs = append(errs, fmt.Errorf("%s[%d]: %q is not permitted in the read-only validate profile; use only Read, Glob, Grep, Task, or Bash limited to the fixed read-only reviewer rules", toolsKey, i, tool))
 		}
 	}
 
@@ -529,7 +543,7 @@ func validateClaudeValidateProfile(stanza *ToolProfileClaude) []error {
 	for i, raw := range stanza.AllowedTools {
 		rule := strings.TrimSpace(raw)
 		if toolRuleRE.MatchString(rule) && !readOnlyRules[rule] {
-			errs = append(errs, fmt.Errorf("%s[%d]: %q is not a read-only validate permission; use only Read, Glob, or Grep (Claude Validate cannot safely grant Bash because ambient permissions are additive)", allowedKey, i, rule))
+			errs = append(errs, fmt.Errorf("%s[%d]: %q is not a read-only validate permission; use only Read, Glob, Grep, or one of %s", allowedKey, i, rule, strings.Join(ValidateReviewerShellRules(), ", ")))
 		}
 	}
 	return errs

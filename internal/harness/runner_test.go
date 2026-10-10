@@ -1666,3 +1666,62 @@ func TestArgsAddSkillToolOnlyForDeliveredSkills(t *testing.T) {
 		t.Fatalf("argv without delivery changed:\n%v\n%v", before, after)
 	}
 }
+
+// A Validate reviewer's read-only shell runs in dontAsk, so anything outside
+// --allowedTools is refused; every other run keeps PermissionMode.
+func TestArgsReadOnlyShellUsesDontAsk(t *testing.T) {
+	t.Parallel()
+	flag := func(args []string, name string) string {
+		for i, a := range args {
+			if a == name && i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+		return ""
+	}
+	runner := &Runner{tools: []string{"Read"}, allowedTools: []string{"Read"}}
+	shell := config.ValidateReviewerShellRules()
+	surface := ToolSurface{Tools: []string{"Read", "Glob", "Grep", "Bash"}, AllowedTools: append([]string{"Read", "Glob", "Grep"}, shell...), ReadOnlyShell: true}
+	req := agent.Request{Mode: "validate", Permissions: agent.Permissions{Profile: "validate", Payload: surface},
+		Delivery: &agent.Delivery{Root: t.TempDir(), Roles: []string{"reviewer"}, Skills: []string{"validate-review"}}}
+	args := runner.args(req)
+	if got := flag(args, "--permission-mode"); got != "dontAsk" {
+		t.Fatalf("--permission-mode = %q, want dontAsk", got)
+	}
+	tools := strings.Split(flag(args, "--tools"), ",")
+	if !slices.Contains(tools, "Bash") || slices.Contains(tools, "Edit") || slices.Contains(tools, "Write") || slices.Contains(tools, "MultiEdit") {
+		t.Fatalf("--tools = %v", tools)
+	}
+	if want := strings.Join(append(append([]string{"Read", "Glob", "Grep"}, shell...), "Skill"), ","); flag(args, "--allowedTools") != want {
+		t.Fatalf("--allowedTools = %q, want %q", flag(args, "--allowedTools"), want)
+	}
+
+	normal := req
+	normal.Permissions.Payload = ToolSurface{Tools: []string{"Read", "Glob", "Grep"}, AllowedTools: []string{"Read", "Glob", "Grep"}}
+	if got := flag(runner.args(normal), "--permission-mode"); got != PermissionMode {
+		t.Fatalf("normal --permission-mode = %q, want %q", got, PermissionMode)
+	}
+}
+
+// The runner refuses a Validate shell that is not the read-only reviewer shell.
+func TestValidateRequestBoundsTheReviewerShell(t *testing.T) {
+	r := &Runner{}
+	shell := config.ValidateReviewerShellRules()
+	check := func(surface ToolSurface) error {
+		return r.validateRequest(agent.Request{Mode: "validate", Permissions: agent.Permissions{Profile: "validate", Payload: surface}})
+	}
+	ok := ToolSurface{Tools: []string{"Read", "Glob", "Grep", "Bash"}, AllowedTools: append([]string{"Read"}, shell...), ReadOnlyShell: true}
+	if err := check(ok); err != nil && strings.Contains(err.Error(), "Validate cannot grant") {
+		t.Fatalf("read-only reviewer shell refused: %v", err)
+	}
+	for name, surface := range map[string]ToolSurface{
+		"Bash without read-only shell": {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash(git diff:*)"}},
+		"rule outside the list":        {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash(go test:*)"}, ReadOnlyShell: true},
+		"bare Bash rule":               {Tools: []string{"Read", "Bash"}, AllowedTools: []string{"Read", "Bash"}, ReadOnlyShell: true},
+		"editing tool":                 {Tools: []string{"Read", "Bash", "Edit"}, AllowedTools: []string{"Read"}, ReadOnlyShell: true},
+	} {
+		if err := check(surface); err == nil || !strings.Contains(err.Error(), "Validate cannot grant") {
+			t.Errorf("%s: accepted: %v", name, err)
+		}
+	}
+}

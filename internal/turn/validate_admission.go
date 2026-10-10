@@ -299,7 +299,15 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		}
 		// A run that ended without finishing is started anew only by an explicit
 		// owner command; the factory's own start never invents that authority.
-		if auto || (inst.Status != store.GraphFailed && inst.Status != store.GraphCancelled) {
+		ended := inst.Status == store.GraphFailed || inst.Status == store.GraphCancelled
+		if !auto && !ended {
+			// A run waiting for the owner whose reviews did not happen is ended by
+			// the owner's /validate, so the reviews run again on the same commit.
+			if ended, err = rt.endUnreviewed(ctx, existing, now); err != nil {
+				return rt.result, err
+			}
+		}
+		if auto || !ended {
 			return rt.alreadyStarted(ctx, existing)
 		}
 		reopen = true
@@ -341,6 +349,57 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		return rt.result, err
 	}
 	return rt.launch(ctx, now)
+}
+
+// endUnreviewed cancels a run on this commit that waits for the owner after a
+// passed suite while at least one reviewer has no usable result. A new run on
+// the same commit then reuses the passed suite and only the reviews run again.
+// Any other run is left alone and false is returned.
+func (rt *validateRuntimeState) endUnreviewed(ctx context.Context, entry store.ValidateEntry, now time.Time) (bool, error) {
+	db := rt.opts.DB
+	wait, err := db.GetGraphOwnerWait(ctx, entry.InstanceID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	// A wait claimed by a /validate start comment can never be applied, so it
+	// counts as open; any other claim keeps the run.
+	var claimedReply int64
+	switch {
+	case wait.State == "waiting":
+	case wait.State == "claimed" && ParseCommand(wait.ReplyBody).Name == "/validate":
+		claimedReply = wait.ReplyID
+	default:
+		return false, nil
+	}
+	outcome, err := db.GetValidateOutcome(ctx, entry.InstanceID, entry.Commit)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if outcome.Outcome != store.ValidateAssessed {
+		return false, nil
+	}
+	var stories []ValidateJoinedStory
+	if err := json.Unmarshal(outcome.Assessment, &stories); err != nil {
+		return false, fmt.Errorf("the stored assessment is unreadable: %w", err)
+	}
+	unreviewed := false
+	for _, s := range stories {
+		unreviewed = unreviewed || len(s.Unresolved) > 0
+	}
+	if !unreviewed {
+		return false, nil
+	}
+	gate, err := ValidateEntryGate(ctx, db, rt.session)
+	if err != nil || !gate.Open {
+		return false, err
+	}
+	return db.CancelIdleGraphOwnerWait(ctx, entry.InstanceID, claimedReply, "the owner started Validate again to repeat the reviews", now)
 }
 
 // replayedEntry finds the admitted entry this very trigger launched.
