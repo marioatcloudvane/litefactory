@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
+	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
@@ -80,6 +81,8 @@ func (d *Daemon) initChat(o *ChatOptions) error {
 		answers.History = a
 	}
 	s.EnableAsk(&answers)
+	writer, _ := d.forge.(ChatIssueForge)
+	s.EnableFeatures(&feature.Drafter{Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
 	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: make(chan struct{}, 1)}
 	return nil
 }

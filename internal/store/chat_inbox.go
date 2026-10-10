@@ -53,9 +53,15 @@ func (db *DB) AdmitChatReply(ctx context.Context, r ChatReply) (bool, error) {
 	}
 	state := "pending"
 	question, project := "", ""
-	if r.Command == "ask" {
+	if r.Command == "ask" || r.Command == "draft" || r.Command == "confirm" {
 		question, project = r.Arguments["question"], r.Arguments["project"]
-		if len(question) <= 8192 && len(project) <= 256 && question != "" {
+		if r.Command == "draft" {
+			question = r.Arguments["note"]
+		}
+		if r.Command == "confirm" {
+			question = r.Arguments["code"]
+		}
+		if r.ReplyText == "" && len(question) <= 8192 && len(project) <= 256 && (question != "" || r.Command == "draft") {
 			state = "answering"
 		} else {
 			question, project = "", ""
@@ -64,7 +70,7 @@ func (db *DB) AdmitChatReply(ctx context.Context, r ChatReply) (bool, error) {
 				r.ReplyText = "Please give a question up to 8192 bytes and a project up to 256 bytes."
 			}
 		}
-		// Ask text has its own temporary columns, never a generic argument archive.
+		// Chat model inputs and confirm codes use temporary columns, never a generic argument archive.
 		r.Arguments = nil
 	}
 	arguments, err := json.Marshal(r.Arguments)

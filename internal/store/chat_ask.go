@@ -11,7 +11,7 @@ import (
 // RecoverChatAnswers is called only by the owning daemon at startup. Completed
 // delivery text is untouched; abandoned generation is rerun with fresh facts.
 func (db *DB) RecoverChatAnswers(ctx context.Context, transport string, at time.Time) error {
-	_, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET next_attempt_at=? WHERE transport=? AND (state='answering' OR (state='sent' AND command='ask' AND reply_text=''))`, FormatTime(at), transport)
+	_, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET next_attempt_at=? WHERE transport=? AND (state='answering' OR (state='sent' AND command IN ('ask','draft','confirm') AND reply_text=''))`, FormatTime(at), transport)
 	return err
 }
 
@@ -19,7 +19,7 @@ func (db *DB) RecoverChatAnswers(ctx context.Context, transport string, at time.
 // text is never reused after a crash during generation; only completed replies
 // are saved. An exhausted row is left for the caller to give a failure reply.
 func (db *DB) BeginChatAnswer(ctx context.Context, r ChatReply, repoID int64, at time.Time) (ChatReply, error) {
-	if r.Command != "ask" || r.AnswerAttempts >= 2 {
+	if (r.Command != "ask" && r.Command != "draft" && r.Command != "confirm") || r.AnswerAttempts >= 2 {
 		return r, errors.New("chat answer attempts exhausted")
 	}
 	var repository any

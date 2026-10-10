@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -102,6 +103,7 @@ type Handler func(context.Context, Message, time.Time) (string, error)
 
 // Service owns one transport. A single daemon sender calls Step.
 type Service struct {
+	stepMu sync.Mutex
 	// Protect sanitizes generated text before persistence and delivery.
 	Protect func(context.Context, string) (string, error)
 	// Logger records terminal failures without remote response bodies.
@@ -116,6 +118,8 @@ type Service struct {
 	commands         map[string]Handler
 	definitions      map[string]CommandDefinition
 	ask              *ask.Service
+	drafter          *feature.Drafter
+	confirmer        FeatureConfirmer
 }
 
 // New copies admission rules and registers help, health and status.
@@ -199,6 +203,15 @@ func (s *Service) Admit(ctx context.Context, m Message, at time.Time) (allowed, 
 		r.ReplyText = ask.TurnPrefix(m.Arguments["question"], m.Arguments["project"]) + "Please give a question up to 8192 bytes and an optional project up to 256 bytes."
 		r.Arguments = nil
 	}
+
+	if m.Command == "draft" && (len(m.Arguments["note"]) > 2000 || len(m.Arguments["project"]) > 256 || !validArguments(m.Arguments, []string{"note", "project"})) {
+		r.ReplyText = "Please give a note up to 2000 bytes and optional project up to 256 bytes."
+		r.Arguments = nil
+	}
+	if m.Command == "confirm" && (len(m.Arguments["code"]) != 8 || !validArguments(m.Arguments, []string{"code"})) {
+		r.ReplyText = "Please give the 8-character preview code with /confirm."
+		r.Arguments = nil
+	}
 	inserted, err = s.db.AdmitChatReply(ctx, r)
 	return true, inserted, err
 }
@@ -206,6 +219,8 @@ func (s *Service) Admit(ctx context.Context, m Message, at time.Time) (allowed, 
 // Step performs one due delivery without sleeping. Ambiguous sends are retried
 // best effort; the adapter's deduplication window is not a permanent guarantee.
 func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
+	s.stepMu.Lock()
+	defer s.stepMu.Unlock()
 	r, err := s.db.ClaimChatReply(ctx, s.transport, at)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -213,7 +228,7 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if r.Command == "ask" {
+	if r.Command == "ask" || r.Command == "draft" || r.Command == "confirm" {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
 		defer cancel()
@@ -227,6 +242,11 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		h := s.commands[r.Command]
 		s.mu.RUnlock()
 		switch {
+		case r.Command == "draft" || r.Command == "confirm":
+			r, text, err = s.featureReply(ctx, r, at)
+			if err != nil {
+				return true, err
+			}
 		case r.Command == "ask":
 			r, text, err = s.answer(ctx, r, at)
 			if err != nil {
@@ -268,7 +288,7 @@ func (s *Service) retry(ctx context.Context, r store.ChatReply, at time.Time, hi
 
 // Purge removes finished reply state after the retention window.
 func (s *Service) Purge(ctx context.Context, at time.Time) error {
-	return s.db.PurgeChatReplies(ctx, at)
+	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at))
 }
 func (s *Service) help(_ context.Context, _ Message, _ time.Time) (string, error) {
 	return "/" + strings.Join(s.Commands(), ", /"), nil
