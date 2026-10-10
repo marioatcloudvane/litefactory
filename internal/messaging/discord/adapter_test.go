@@ -132,7 +132,7 @@ func TestOwnerCommands(t *testing.T) {
 			t.Fatalf("reply: %+v %v", r, err)
 		}
 	}
-	if len(sent) != 4 || sent[0] != "/health, /help, /status" || !strings.Contains(sent[1], "Running: true") || !strings.Contains(sent[2], "Polling:") || sent[3] != "unknown command, try /help" {
+	if len(sent) != 4 || sent[0] != "/health, /help, /meter, /prices, /status" || !strings.Contains(sent[1], "Running: true") || !strings.Contains(sent[2], "Polling:") || sent[3] != "unknown command, try /help" {
 		t.Fatalf("answers: %v", sent)
 	}
 	for _, who := range []struct{ channel, owner string }{{"4", "2"}, {"3", "4"}} {

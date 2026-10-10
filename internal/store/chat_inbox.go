@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -10,21 +11,25 @@ import (
 // ChatReply contains only the durable command and delivery state, never tokens.
 type ChatReply struct {
 	Transport, MessageID, ChannelRef, Command, State, ReplyText string
+	Arguments                                                   map[string]string
 	Attempts                                                    int
 	NextAttemptAt, CreatedAt, FinishedAt, LastErrorAt           time.Time
 }
 
-const chatColumns = `transport,message_id,channel_ref,command,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at`
+const chatColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at`
 
 func scanChat(row scanner) (ChatReply, error) {
 	var r ChatReply
-	var next, created string
+	var next, created, arguments string
 	var finished, last sql.NullString
-	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last)
+	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &arguments, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
 	if err != nil {
+		return r, err
+	}
+	if err := json.Unmarshal([]byte(arguments), &r.Arguments); err != nil {
 		return r, err
 	}
 	for _, f := range []struct {
@@ -43,7 +48,11 @@ func (db *DB) AdmitChatReply(ctx context.Context, r ChatReply) (bool, error) {
 	if r.Transport == "" || r.MessageID == "" || r.ChannelRef == "" || r.Command == "" || r.CreatedAt.IsZero() {
 		return false, errors.New("invalid chat admission")
 	}
-	result, err := db.sql.ExecContext(ctx, `INSERT INTO chat_inbox(transport,message_id,channel_ref,command,state,next_attempt_at,created_at) VALUES(?,?,?,?,'pending',?,?) ON CONFLICT(transport,message_id) DO NOTHING`, r.Transport, r.MessageID, r.ChannelRef, r.Command, FormatTime(r.CreatedAt), FormatTime(r.CreatedAt))
+	arguments, err := json.Marshal(r.Arguments)
+	if err != nil {
+		return false, err
+	}
+	result, err := db.sql.ExecContext(ctx, `INSERT INTO chat_inbox(transport,message_id,channel_ref,command,arguments,state,next_attempt_at,created_at) VALUES(?,?,?,?,?,'pending',?,?) ON CONFLICT(transport,message_id) DO NOTHING`, r.Transport, r.MessageID, r.ChannelRef, r.Command, string(arguments), FormatTime(r.CreatedAt), FormatTime(r.CreatedAt))
 	if err != nil {
 		return false, err
 	}
@@ -88,7 +97,7 @@ func (db *DB) FinishChatReply(ctx context.Context, r ChatReply, failed bool, at 
 		state = "failed"
 		last = FormatTime(at)
 	}
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?,reply_text='',finished_at=?,last_error_at=? WHERE transport=? AND message_id=? AND state='sent' AND attempts=?`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?,reply_text='',arguments='{}',finished_at=?,last_error_at=? WHERE transport=? AND message_id=? AND state='sent' AND attempts=?`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
 	return chatAffected(result, err)
 }
 

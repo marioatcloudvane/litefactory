@@ -63,7 +63,7 @@ func (d *Daemon) initChat(o *ChatOptions) error {
 	s.Logger = d.log
 	sanitizer := redact.New(redact.Options{Logger: d.log, Token: o.Token})
 	s.Protect = func(ctx context.Context, text string) (string, error) {
-		body, err := sanitizer.Apply(ctx, text, 1900)
+		body, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
 		return body.String(), err
 	}
 	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: make(chan struct{}, 1)}
@@ -95,7 +95,7 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 			if registered {
 				return
 			}
-			if err := d.chat.adapter.Register(ctx); err != nil {
+			if err := d.chat.adapter.Register(ctx, d.chat.service.Declarations()...); err != nil {
 				d.log.WarnContext(ctx, "chat commands could not be registered; retrying on a later heartbeat")
 			} else {
 				registered = true
