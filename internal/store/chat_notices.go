@@ -315,12 +315,16 @@ type ChatNotice struct {
 	TaskRef string
 }
 
+// noticeColumns fills the command-only ChatReply fields with neutral values so
+// notices share scanChat without carrying the inbox's command state.
+const noticeColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,'','',0,0`
+
 // ClaimChatNotice uses the same lease and attempt fence as command replies.
 func (db *DB) ClaimChatNotice(ctx context.Context, transport string, at time.Time) (ChatReply, error) {
 	var r ChatReply
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+chatColumns+` FROM chat_notices WHERE transport=? AND state IN ('pending','sent') AND next_attempt_at<=? ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at)))
+		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+noticeColumns+` FROM chat_notices WHERE transport=? AND state IN ('pending','sent') AND next_attempt_at<=? ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at)))
 		if err != nil {
 			return err
 		}
@@ -335,7 +339,7 @@ func (db *DB) ClaimChatNotice(ctx context.Context, transport string, at time.Tim
 
 // ReadChatNotice exposes delivery state for operational inspection.
 func (db *DB) ReadChatNotice(ctx context.Context, transport, key string) (ChatReply, error) {
-	return scanChat(db.sql.QueryRowContext(ctx, `SELECT `+chatColumns+` FROM chat_notices WHERE transport=? AND message_id=?`, transport, key))
+	return scanChat(db.sql.QueryRowContext(ctx, `SELECT `+noticeColumns+` FROM chat_notices WHERE transport=? AND message_id=?`, transport, key))
 }
 
 // FinishChatNotice clears text on either terminal outcome.
