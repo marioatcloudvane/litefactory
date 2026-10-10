@@ -6,10 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path"
+	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
@@ -55,6 +60,11 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 	if definition.Origin.Kind != "local" && definition.Origin.Kind != "fetched" {
 		return fail(errors.New("fresh workflow requires local or fetched installed provenance"))
 	}
+	if definition.StackProfile != nil {
+		if err := admitStackProfile(ctx, o, session, repo, definition); err != nil {
+			return fail(err)
+		}
+	}
 	if err := store.ValidateWorkflowProvenance(store.WorkflowProvenance(definition.Origin)); err != nil {
 		return fail(err)
 	}
@@ -66,6 +76,7 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 		return fail(errors.New("installed workflow bytes or identity do not match capture"))
 	}
 	verified.Origin = definition.Origin
+	verified.StackFresh = definition.StackProfile != nil
 	definition = verified
 	total := len(definition.Origin.TeamConfig)
 	for _, raw := range definition.Files {
@@ -133,9 +144,65 @@ func restoreWorkflow(ctx context.Context, db *store.DB, saved store.WorkflowCapt
 		return fail(errors.New("retained bytes, digests or contract do not match admission"))
 	}
 	definition.Origin = teamsource.WorkflowOrigin(saved.Provenance)
+	if definition.StackProfile != nil {
+		if err := validateStackHost(definition.StackProfile.Effective.Requirements); err != nil {
+			return fail(err)
+		}
+	}
 	// Equivalent-topology launches retain the foundation graph identity.
 	definition.Profile.Digest = pin.Digest
 	return definition, nil
+}
+
+func admitStackProfile(ctx context.Context, o Options, session store.Session, repo store.Repo, definition *teamsource.WorkflowDefinition) error {
+	if o.Git == nil {
+		return errors.New("stack.revision: repository reader unavailable")
+	}
+	clone, err := o.Git.Open(ctx, repo.Path)
+	if err != nil {
+		return errors.New("stack.revision: repository cannot be opened")
+	}
+	ref := o.remote() + "/" + repo.BaseBranch
+	if session.Branch != "" {
+		if _, err := clone.RevParse(ctx, "refs/heads/"+session.Branch, git.RevParseOptions{}); err == nil {
+			ref = "refs/heads/" + session.Branch
+		}
+	}
+	revision, err := clone.RevParse(ctx, ref, git.RevParseOptions{})
+	if err != nil {
+		return errors.New("stack.revision: admitted repository revision unavailable")
+	}
+	override, err := clone.ReadStackOverrides(ctx, revision)
+	if err != nil {
+		return err
+	}
+	resolved, err := config.ResolveStackProfile(definition.StackProfile.BaseBytes, override)
+	if err != nil {
+		return err
+	}
+	if err := validateStackHost(resolved.Effective.Requirements); err != nil {
+		return err
+	}
+	guidance, err := teamsource.CaptureStackGuidance(ctx, teamsource.RetainedFiles(definition.StackPackageFiles), resolved.Effective)
+	if err != nil {
+		return err
+	}
+	return teamsource.AttachStackProfile(ctx, definition, resolved, revision, guidance)
+}
+
+func validateStackHost(requirements config.StackRequirements) error {
+	if len(requirements.OS) != 0 && !slices.Contains(requirements.OS, runtime.GOOS) {
+		return errors.New("stack.requirements.os: incompatible host")
+	}
+	if len(requirements.Arch) != 0 && !slices.Contains(requirements.Arch, runtime.GOARCH) {
+		return errors.New("stack.requirements.arch: incompatible host")
+	}
+	for i, name := range requirements.Executables {
+		if _, err := config.ResolveExecutable("stack.requirements", name, os.Getenv("PATH")); err != nil {
+			return fmt.Errorf("stack.requirements.executables[%d]: required host executable unavailable", i)
+		}
+	}
+	return nil
 }
 
 // ValidateTeamWorkflows validates every map entry against factory registries.

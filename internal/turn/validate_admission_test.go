@@ -536,3 +536,85 @@ func TestValidateUnclaimedControlIsRefusedAndStartsNothing(t *testing.T) {
 		t.Fatalf("no Validate run: handled=%v err=%v out=%+v", handled, err, out)
 	}
 }
+
+// #602: an owner /validate on a newer commit ends a run on an older commit that
+// only waits for the owner and starts a successor on the new commit.
+func TestValidateNewHeadSupersedesARunWaitingForTheOwner(t *testing.T) {
+	a := newAdoptFlow(t)
+	old, _ := a.waitingValidate(t)
+	a.f.opts.Validate.Bind = func(context.Context, Options, Request, store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
+		a.binds++
+		return ValidateSuiteBindings{}, ValidateFlowBindings{}, errValidateStop
+	}
+	a.head = validateHeadB
+	if out, handled, err := a.admit(t, a.request(6101, validateOwnerID, "/validate newer")); !handled || !errors.Is(err, errValidateStop) {
+		t.Fatalf("handled=%v err=%v out=%+v", handled, err, out)
+	}
+	after, err := a.f.db.GetGraphInstance(t.Context(), old.ID)
+	mustProgress(t, err)
+	if after.Status != store.GraphCancelled {
+		t.Fatalf("the waiting run is cancelled: %+v", after)
+	}
+	if wait, err := a.f.db.GetGraphOwnerWait(t.Context(), old.ID); err != nil || wait.State != "cancelled" {
+		t.Fatalf("the owner wait is cancelled: %+v %v", wait, err)
+	}
+	trace, err := a.f.db.ListGraphTransitions(t.Context(), old.ID)
+	mustProgress(t, err)
+	reason := false
+	for _, tr := range trace {
+		reason = reason || tr.OnOutcome == "superseded by a newer commit"
+	}
+	if !reason {
+		t.Fatalf("the trace names the reason: %+v", trace)
+	}
+	var fresh store.ValidateEntry
+	for _, e := range a.entries(t) {
+		if e.State == store.ValidateEntryAdmitted && e.Commit == validateHeadB {
+			fresh = e
+		}
+	}
+	if fresh.InstanceID == 0 || fresh.InstanceID == old.ID {
+		t.Fatalf("a new run is admitted on the new commit: %+v", a.entries(t))
+	}
+	if pred, _, err := a.f.db.WorkflowPredecessor(t.Context(), fresh.InstanceID); err != nil || pred != old.ID {
+		t.Fatalf("the successor links its predecessor: %d %v", pred, err)
+	}
+}
+
+// #602: a run on an older commit that is executing still refuses a start on a
+// newer commit and is left untouched.
+func TestValidateNewHeadIsRefusedWhileTheOlderRunExecutes(t *testing.T) {
+	a := newAdoptFlow(t)
+	old, _ := a.waitingValidate(t)
+	// The owner's reply was taken and its step is running.
+	a.claimOwnerReply(t, old.ID, ValidateCheckCommand+" r story-001:AC-001 pass -- looked fine")
+	wait, err := a.f.db.GetGraphOwnerWait(t.Context(), old.ID)
+	mustProgress(t, err)
+	cur, err := a.f.db.GetGraphInstance(t.Context(), old.ID)
+	mustProgress(t, err)
+	node := wait.OriginNode
+	if node == "" {
+		node = cur.CurrentNode
+	}
+	_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old.ID, Node: node, Limit: 64, StartedAt: time.Now()})
+	mustProgress(t, err)
+	binds := a.binds
+	a.head = validateHeadB
+	out, handled, err := a.admit(t, a.request(6102, validateOwnerID, "/validate newer"))
+	if !handled || err != nil || !strings.Contains(out.Reason, "still going") || a.binds != binds {
+		t.Fatalf("handled=%v err=%v out=%+v binds=%d", handled, err, out, a.binds)
+	}
+	after, err := a.f.db.GetGraphInstance(t.Context(), old.ID)
+	mustProgress(t, err)
+	if after.Status != store.GraphRunning {
+		t.Fatalf("the executing run is untouched: %+v", after)
+	}
+	if after, err := a.f.db.GetGraphOwnerWait(t.Context(), old.ID); err != nil || after.State != "allocated" {
+		t.Fatalf("the owner wait is untouched: %+v %v", after, err)
+	}
+	for _, e := range a.entries(t) {
+		if e.Commit == validateHeadB && e.InstanceID > 0 {
+			t.Fatalf("no run is admitted on the new commit: %+v", e)
+		}
+	}
+}

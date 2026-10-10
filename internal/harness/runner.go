@@ -794,7 +794,11 @@ func (r *Runner) exec(
 	// environment.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	cmd.Dir = req.WorktreePath
-	cmd.Env = buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir)
+	stackEnv, err := req.StackEnvironment(buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir))
+	if err != nil {
+		return nil, err
+	}
+	cmd.Env = stackEnv
 	// The prompt goes on stdin (AC-3.12): out of ps, and past the ~1 MB macOS
 	// ARG_MAX ceiling that a large issue body would otherwise hit as E2BIG.
 	cmd.Stdin = strings.NewReader(req.Prompt)

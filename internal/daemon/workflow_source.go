@@ -78,6 +78,30 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 				}
 				sum := sha256.Sum256(teamConfig)
 				definition.Origin = teamsource.WorkflowOrigin{Kind: binding.Kind, Source: binding.Source, Slug: binding.Slug, Version: binding.Version, ReleaseDigest: binding.ReleaseDigest, GraphPath: graph, GraphFile: path.Base(graph), Team: profile.Team, TeamConfig: slices.Clone(teamConfig), ConfigDigest: hex.EncodeToString(sum[:])}
+				base, e := fs.ReadFile(source, config.StackProfilePath)
+				legacy := teampackage.IsLegacyProfileless(entry.Identity)
+				if entry.Editable {
+					legacy = entry.Origin != nil && teampackage.IsLegacyProfileless(teampackage.Identity{Slug: entry.Origin.Slug, Version: entry.Origin.Version})
+				}
+				if errors.Is(e, fs.ErrNotExist) && legacy {
+					return nil
+				}
+				if e != nil {
+					return errors.New("stack.profile: required captured profile unavailable")
+				}
+				resolved, e := config.ResolveStackProfile(base, nil)
+				if e != nil {
+					return e
+				}
+				definition.StackProfile = &resolved
+				captured, ok := source.(teamsource.RetainedFiles)
+				if !ok {
+					return errors.New("stack.capture: expected owned package snapshot")
+				}
+				definition.StackPackageFiles = make(map[string][]byte, len(captured))
+				for name, raw := range captured {
+					definition.StackPackageFiles[name] = slices.Clone(raw)
+				}
 				return nil
 			})
 		})

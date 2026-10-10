@@ -111,6 +111,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, err)
 	}
 	errs = append(errs, c.Webhook.validate()...)
+	errs = append(errs, c.validateChat()...)
 	s := &c.Settings
 	if s.PollIntervalMinutes < MinPollIntervalMinutes || s.PollIntervalMinutes > MaxPollIntervalMinutes {
 		errs = append(errs, fmt.Errorf("settings.poll_interval_minutes: %d is out of range; must be between %d and %d",
