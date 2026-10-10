@@ -1,0 +1,30 @@
+---
+name: team-guidance
+description: Retained Python/FastAPI and React specialist, evidence, result, permission and application repository guidance.
+resources:
+  - python-fastapi.md
+  - react-typescript-vite.md
+  - supported-versions.md
+  - specialist-boundaries.md
+  - legacy-plan-contract.md
+  - app-context-updater.md
+  - architecture-scanner.md
+  - asking.md
+  - environment-safety.md
+  - architect.md
+  - code-reviewer.md
+  - implementation-engineer.md
+  - integration-test-engineer.md
+  - unit-test-engineer.md
+  - litefactory.md
+  - planning-responsibilities.md
+  - platform-constraints.md
+  - proxy-product-owner.md
+  - requirements-engineer.md
+  - review-evidence.md
+  - security-scanner.md
+  - task-decomposer.md
+  - testing-scanner.md
+  - workflow.md
+---
+Apply only the responsibilities assigned by the supplied role and graph. Supporting resources confer no tools or authority. Preserve the selected repository's own constraints. workflow.md retains evidence, finalization and compatibility obligations. Research, Plan, Implement, Validate, Spike and Bug keep their selected result skills.

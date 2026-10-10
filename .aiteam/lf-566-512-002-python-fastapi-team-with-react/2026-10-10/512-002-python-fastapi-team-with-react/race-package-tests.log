@@ -1,0 +1,9 @@
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	18.346s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	2.705s
+ok  	github.com/cloudvane/litefactory/internal/bugchecks	1.968s
+ok  	github.com/cloudvane/litefactory/internal/teampackage	5.757s
+ok  	github.com/cloudvane/litefactory/internal/rights	5.385s
+ok  	github.com/cloudvane/litefactory/internal/harness	62.322s
+ok  	github.com/cloudvane/litefactory/internal/codex	58.180s
+?   	github.com/cloudvane/litefactory/cmd/teamrelease	[no test files]
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	3.320s
