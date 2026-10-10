@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -10,21 +11,28 @@ import (
 // ChatReply contains only the durable command and delivery state, never tokens.
 type ChatReply struct {
 	Transport, MessageID, ChannelRef, Command, State, ReplyText, TargetRef string
+	Arguments                                                              map[string]string
+	Question, ProjectOption                                                string
+	ResolvedRepoID                                                         int64
+	AnswerAttempts                                                         int
 	Attempts                                                               int
 	NextAttemptAt, CreatedAt, FinishedAt, LastErrorAt                      time.Time
 }
 
-const chatColumns = `transport,message_id,channel_ref,command,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,target_ref`
+const chatColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,question,project_option,COALESCE(resolved_repo_id,0),answer_attempts,target_ref`
 
 func scanChat(row scanner) (ChatReply, error) {
 	var r ChatReply
-	var next, created string
+	var next, created, arguments string
 	var finished, last sql.NullString
-	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last, &r.TargetRef)
+	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &arguments, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last, &r.Question, &r.ProjectOption, &r.ResolvedRepoID, &r.AnswerAttempts, &r.TargetRef)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
 	if err != nil {
+		return r, err
+	}
+	if err := json.Unmarshal([]byte(arguments), &r.Arguments); err != nil {
 		return r, err
 	}
 	for _, f := range []struct {
@@ -43,7 +51,27 @@ func (db *DB) AdmitChatReply(ctx context.Context, r ChatReply) (bool, error) {
 	if r.Transport == "" || r.MessageID == "" || r.ChannelRef == "" || r.Command == "" || r.CreatedAt.IsZero() {
 		return false, errors.New("invalid chat admission")
 	}
-	result, err := db.sql.ExecContext(ctx, `INSERT INTO chat_inbox(transport,message_id,channel_ref,command,state,next_attempt_at,created_at) VALUES(?,?,?,?,'pending',?,?) ON CONFLICT(transport,message_id) DO NOTHING`, r.Transport, r.MessageID, r.ChannelRef, r.Command, FormatTime(r.CreatedAt), FormatTime(r.CreatedAt))
+	state := "pending"
+	question, project := "", ""
+	if r.Command == "ask" {
+		question, project = r.Arguments["question"], r.Arguments["project"]
+		if len(question) <= 8192 && len(project) <= 256 && question != "" {
+			state = "answering"
+		} else {
+			question, project = "", ""
+			r.Arguments = nil
+			if r.ReplyText == "" {
+				r.ReplyText = "Please give a question up to 8192 bytes and a project up to 256 bytes."
+			}
+		}
+		// Ask text has its own temporary columns, never a generic argument archive.
+		r.Arguments = nil
+	}
+	arguments, err := json.Marshal(r.Arguments)
+	if err != nil {
+		return false, err
+	}
+	result, err := db.sql.ExecContext(ctx, `INSERT INTO chat_inbox(transport,message_id,channel_ref,command,arguments,state,next_attempt_at,created_at,question,project_option,reply_text) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(transport,message_id) DO NOTHING`, r.Transport, r.MessageID, r.ChannelRef, r.Command, string(arguments), state, FormatTime(r.CreatedAt), FormatTime(r.CreatedAt), question, project, r.ReplyText)
 	if err != nil {
 		return false, err
 	}
@@ -61,7 +89,7 @@ func (db *DB) ClaimChatReply(ctx context.Context, transport string, at time.Time
 	var r ChatReply
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+chatColumns+` FROM chat_inbox WHERE transport=? AND state IN ('pending','sent') AND next_attempt_at<=? ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at)))
+		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+chatColumns+` FROM chat_inbox WHERE transport=? AND state IN ('answering','pending','sent') AND next_attempt_at<=? ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at)))
 		if err != nil {
 			return err
 		}
@@ -88,7 +116,7 @@ func (db *DB) FinishChatReply(ctx context.Context, r ChatReply, failed bool, at 
 		state = "failed"
 		last = FormatTime(at)
 	}
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?,reply_text='',target_ref='',finished_at=?,last_error_at=? WHERE transport=? AND message_id=? AND state='sent' AND attempts=?`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?,reply_text='',target_ref='',arguments='{}',question='',project_option='',resolved_repo_id=NULL,finished_at=?,last_error_at=? WHERE transport=? AND message_id=? AND state='sent' AND attempts=?`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
 	return chatAffected(result, err)
 }
 

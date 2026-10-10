@@ -36,6 +36,15 @@ func RunRepairProcess(ctx context.Context, binary string, args, env []string, re
 	return runScopedDoctorProcess(ctx, binary, args, env, request.Invocation, timeout, observe)
 }
 
+// RunChatProcess shares bounded provider I/O for a response-only request. The
+// provider adapter owns the verified gate and explicit no-tools launch flags.
+func RunChatProcess(ctx context.Context, binary string, args, env []string, request agent.ChatRequest, timeout time.Duration, observe func([]byte)) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	return runScopedDoctorProcess(ctx, binary, args, env, agent.DoctorRequest{Prompt: request.Prompt, WorkingDirectory: request.WorkingDirectory}, timeout, observe)
+}
+
 func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) error {
 	if timeout <= 0 {
 		return errors.New("doctor provider timeout must be positive")

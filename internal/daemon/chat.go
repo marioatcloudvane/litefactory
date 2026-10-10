@@ -11,6 +11,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/messaging"
+	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -19,8 +20,11 @@ import (
 // ChatOptions supplies immutable resolved chat settings. Only daemon wiring
 // imports the adapter; the service and store know no Discord types.
 type ChatOptions struct {
-	Settings config.DiscordChat
-	Token    secrets.Token
+	// Answers supplies read-only context and response-only model wiring.
+	Diagnoser ChatDiagnoser
+	Answers   *ask.Service
+	Settings  config.DiscordChat
+	Token     secrets.Token
 	// APIURL and Client allow daemon tests to use a local fake API.
 	APIURL string
 	Client *http.Client
@@ -29,6 +33,11 @@ type chatRuntime struct {
 	service   *messaging.Service
 	adapter   *discord.Adapter
 	heartbeat chan struct{}
+	collector *messaging.NoticeCollector
+	diagnoser ChatDiagnoser
+	redactor  *redact.Redactor
+	mu        sync.Mutex
+	notes     map[string]string
 }
 
 func prepareChat(ctx context.Context, cfg *config.Config, resolver secrets.Resolver) (*ChatOptions, error) {
@@ -63,10 +72,25 @@ func (d *Daemon) initChat(o *ChatOptions) error {
 	s.Logger = d.log
 	sanitizer := redact.New(redact.Options{Logger: d.log, Token: o.Token})
 	s.Protect = func(ctx context.Context, text string) (string, error) {
-		body, err := sanitizer.Apply(ctx, text, 1900)
+		body, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
 		return body.String(), err
 	}
-	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: make(chan struct{}, 1)}
+	answers := ask.Service{Repositories: d.db, Collector: ask.Collector{Factory: ask.StoreReader{Reader: d.db}}, Redactor: sanitizer}
+	if o.Answers != nil {
+		answers = *o.Answers
+	}
+	if answers.Redactor == nil {
+		answers.Redactor = sanitizer
+	}
+	if answers.History == nil {
+		answers.History = a
+	}
+	s.EnableAsk(&answers)
+	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: make(chan struct{}, 1), diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}
+	s.EnableResearch(chatResearch{d}, chatResearch{d})
+	if o.Settings.NoticeChannelID != "" {
+		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect}
+	}
 	return nil
 }
 func (d *Daemon) chatWake() {
@@ -88,6 +112,13 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		if err := d.db.RecoverChatAnswers(ctx, "discord", time.Now()); err != nil {
+			d.log.WarnContext(ctx, "chat answer recovery failed; waiting rows retain their leases")
+		}
+		if err := d.db.RecoverChatDiagnoses(ctx, "discord", time.Now()); err != nil {
+			d.log.WarnContext(ctx, "chat diagnosis recovery failed")
+		}
+		d.dispatchChatDiagnosis(ctx, time.Now())
 		timer := time.NewTicker(time.Second)
 		defer timer.Stop()
 		registered := false
@@ -95,7 +126,7 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 			if registered {
 				return
 			}
-			if err := d.chat.adapter.Register(ctx); err != nil {
+			if err := d.chat.adapter.Register(ctx, d.chat.service.Declarations()...); err != nil {
 				d.log.WarnContext(ctx, "chat commands could not be registered; retrying on a later heartbeat")
 			} else {
 				registered = true
@@ -105,6 +136,24 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 		for {
 			if ctx.Err() != nil {
 				return
+			}
+			if err := d.chatResearchNotes(ctx); err != nil {
+				d.log.WarnContext(ctx, "chat answer note remains pending")
+			}
+			if d.chat.collector != nil {
+				if err := d.chat.collector.Collect(ctx, time.Now()); err != nil {
+					d.log.WarnContext(ctx, "chat notice collection failed; retrying on the next pass")
+				}
+				for range 32 {
+					more, err := d.chat.service.NoticeStep(ctx, time.Now())
+					if err != nil {
+						d.log.WarnContext(ctx, "chat notice processing failed; durable work will be retried")
+						break
+					}
+					if !more {
+						break
+					}
+				}
 			}
 			for range 32 {
 				more, err := d.chat.service.Step(ctx, time.Now())
@@ -123,7 +172,9 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 			case <-ctx.Done():
 				return
 			case <-d.chat.service.Wake():
+				d.dispatchChatDiagnosis(ctx, time.Now())
 			case <-d.chat.heartbeat:
+				d.dispatchChatDiagnosis(ctx, time.Now())
 				tryRegister()
 			case <-timer.C:
 			}

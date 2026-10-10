@@ -130,3 +130,11 @@ func validateIssue(issue int) error {
 	}
 	return nil
 }
+
+// IssueURL returns the supported forge's task link. Unknown forges have no link.
+func (r Ref) IssueURL() string {
+	if r.Forge != ForgeGitHub {
+		return ""
+	}
+	return fmt.Sprintf("https://github.com/%s/%s/issues/%d", r.Owner, r.Repo, r.Issue)
+}

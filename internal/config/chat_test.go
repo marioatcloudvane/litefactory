@@ -25,6 +25,9 @@ func TestChatSettings(t *testing.T) {
 	for _, tt := range []struct{ name, body, want string }{
 		{"absent", "", ""},
 		{"enabled", chatYAML(), ""},
+		{"notices enabled", chatYAML() + "    notice_channel_id: \"3\"\n", ""},
+		{"notices outside allowed channels", chatYAML() + "    notice_channel_id: \"4\"\n", "notice_channel_id must be one of the allowed channel_ids"},
+		{"invalid notice channel", chatYAML() + "    notice_channel_id: name\n", "notice_channel_id must be one of the allowed channel_ids"},
 		{"unknown key", chatYAML() + "    typo: true\n", `unknown key "typo"`},
 		{"listener off", strings.Replace(chatYAML(), `listen: "127.0.0.1:8787"`, `listen: ""`, 1), "webhook listener"},
 		{"not HTTPS", strings.Replace(chatYAML(), "https://factory.example", "http://factory.example", 1), "public HTTPS"},

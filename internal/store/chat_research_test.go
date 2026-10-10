@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func chatResearchFixture(t *testing.T) (*DB, GraphOwnerReply) {
@@ -151,6 +152,12 @@ func TestChatResearchMigrationPreservesExistingRows(t *testing.T) {
 	}
 	for _, query := range []string{
 		string(oldInbox),
+		`CREATE TABLE repos(id INTEGER PRIMARY KEY)`,
+		`ALTER TABLE chat_inbox ADD COLUMN arguments TEXT NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE chat_inbox ADD COLUMN question TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE chat_inbox ADD COLUMN project_option TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE chat_inbox ADD COLUMN resolved_repo_id INTEGER`,
+		`ALTER TABLE chat_inbox ADD COLUMN answer_attempts INTEGER NOT NULL DEFAULT 0`,
 		`CREATE TABLE graph_owner_waits(delivery_key TEXT PRIMARY KEY,state TEXT NOT NULL)`,
 		`INSERT INTO graph_owner_waits VALUES('old-wait','claimed')`,
 		`INSERT INTO chat_inbox(transport,message_id,channel_ref,command,state,attempts,next_attempt_at,reply_text,created_at) VALUES('discord','1','2','health','pending',3,'2026-10-10T00:00:00.000Z','retained reply','2026-10-10T00:00:00.000Z')`,
@@ -159,7 +166,7 @@ func TestChatResearchMigrationPreservesExistingRows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	body, err := migrationFS.ReadFile("migrations/20261010180342000_chat_research.sql")
+	body, err := migrationFS.ReadFile("migrations/20261010211952115_chat_research.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,5 +197,49 @@ func TestChatResearchMigrationPreservesExistingRows(t *testing.T) {
 	r, err = db.ReadChatReply(t.Context(), "discord", "1")
 	if err != nil || r.TargetRef != "" || r.ReplyText != "" {
 		t.Fatalf("confirmed row retained content: %+v %v", r, err)
+	}
+}
+
+func TestResearchMigrationPreservesPendingProjectQuestion(t *testing.T) {
+	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "project-question.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prior []migration
+	for _, m := range migrations {
+		if !strings.Contains(m.name, "_chat_research.sql") {
+			prior = append(prior, m)
+		}
+	}
+	if err = db.migrateAll(t.Context(), prior); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := db.UpsertRepo(t.Context(), Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app", BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.AdmitChatReply(t.Context(), ChatReply{Transport: "discord", MessageID: "1", ChannelRef: "2", Command: "ask", CreatedAt: time.Now().UTC(), Arguments: map[string]string{"question": "What work is open?", "project": "acme/app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.sql.ExecContext(t.Context(), `UPDATE chat_inbox SET resolved_repo_id=?,answer_attempts=1`, repo.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r, err := db.ReadChatReply(t.Context(), "discord", "1")
+	if err != nil || r.State != "answering" || r.Question != "What work is open?" || r.ProjectOption != "acme/app" || r.ResolvedRepoID != repo.ID || r.AnswerAttempts != 1 || r.TargetRef != "" {
+		t.Fatalf("pending project question lost: %+v %v", r, err)
 	}
 }
