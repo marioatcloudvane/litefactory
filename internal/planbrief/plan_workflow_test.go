@@ -239,6 +239,39 @@ func TestPlanWorkflow_CompleteAndReadiness(t *testing.T) {
 	}
 }
 
+func TestPlanWorkflow_MixedGoAndNeutralOwnersAssemble(t *testing.T) {
+	scope := planbrief.ReleaseScope([]string{"implementation-engineer", "unit-test-engineer", "integration-test-engineer"}, []string{"agent-setup"})
+	s := planbrief.PlanState{SharedRevision: "shared-1"}
+	for key, owner := range map[string]string{"a": "go-implementation-engineer", "b": "implementation-engineer", "c": "go-unit-test-engineer"} {
+		d := draftFixture("acceptance")
+		d.Key = key
+		d.Tasks[0].OwnerRole = owner
+		if err := s.PutCandidate(d, "story", key+"-candidate"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range s.Stories {
+		approveWorkflowStory(t, &s, i, int64(10+10*i))
+	}
+	if err := s.ValidateComplete(scope); err != nil {
+		t.Fatal("mixed owners incomplete:", err)
+	}
+	if ref, due := s.AssemblyDue(scope); !due || ref == "" {
+		t.Fatal("assembled review not due")
+	}
+	drafts := make([]planbrief.PlanDraft, 0, len(s.Stories))
+	for _, item := range s.Stories {
+		drafts = append(drafts, item.Draft)
+	}
+	if _, err := planbrief.CompletePlanDrafts("summary", drafts, scope); err != nil {
+		t.Fatal("finalize rejected mixed owners:", err)
+	}
+	s.Stories[0].Draft.Tasks[0].OwnerRole = "go-frontend-engineer"
+	if err := s.ValidateComplete(scope); err == nil || !strings.Contains(err.Error(), "authorized role") {
+		t.Fatal("unknown go- owner accepted:", err)
+	}
+}
+
 func TestPlanWorkflow_Retirement(t *testing.T) {
 	s := workflowFixture(t, "a", "b")
 	if err := s.OpenPlanWait("a", "retire-review", "retire", 100); err != nil {

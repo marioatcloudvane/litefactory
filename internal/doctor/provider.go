@@ -8,7 +8,8 @@ import (
 )
 
 // Invocation is mode-free and contains only prepared context and private scratch.
-// Provider credentials and original evidence paths are never fields of this value.
+// Provider credentials are never fields of this value; the prompt contains paths
+// for live reads rather than pre-read source contents.
 type Invocation struct {
 	ID               string
 	Provider         string

@@ -22,8 +22,8 @@ func canonicalConfig(t *testing.T) *Config {
 func TestValidateProfileIsExactlyReadOnly(t *testing.T) {
 	cfg := canonicalConfig(t)
 	profile := cfg.ToolProfiles.Permissions["validate"]
-	wantTools := []string{"Read", "Glob", "Grep", "Task"}
-	wantAllowed := []string{"Read", "Glob", "Grep"}
+	wantTools := []string{"Read", "Glob", "Grep", "Task", "Bash"}
+	wantAllowed := append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
 	if !reflect.DeepEqual(profile.Claude.Tools, wantTools) {
 		t.Fatalf("Claude Validate tools = %v, want %v", profile.Claude.Tools, wantTools)
 	}
@@ -41,10 +41,14 @@ func TestValidateProfileRejectsMutatingAuthority(t *testing.T) {
 		mutate func(*ToolProfile)
 		want   []string
 	}{
-		{"Claude Bash surface", func(p *ToolProfile) { p.Claude.Tools = []string{"Read", "Glob", "Grep", "Task", "Bash"} }, []string{`permissions["validate"].claude.tools`, `"Bash"`, "read-only"}},
+		{"Claude MultiEdit surface", func(p *ToolProfile) { p.Claude.Tools = []string{"Read", "Glob", "Grep", "Task", "Bash", "MultiEdit"} }, []string{`permissions["validate"].claude.tools`, `"MultiEdit"`, "read-only"}},
 		{"Claude Edit surface", func(p *ToolProfile) { p.Claude.Tools = []string{"Read", "Glob", "Grep", "Task", "Edit"} }, []string{`permissions["validate"].claude.tools`, `"Edit"`, "read-only"}},
 		{"Claude Write surface", func(p *ToolProfile) { p.Claude.Tools = []string{"Read", "Glob", "Grep", "Task", "Write"} }, []string{`permissions["validate"].claude.tools`, `"Write"`, "read-only"}},
-		{"Claude shell permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(git status:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(git status:*)", "read-only"}},
+		{"Claude bare Bash permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash"} }, []string{`permissions["validate"].claude.allowed_tools`, `"Bash"`, "read-only"}},
+		{"Claude test permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(go test:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(go test:*)", "read-only"}},
+		{"Claude git write permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Bash(git commit:*)"} }, []string{`permissions["validate"].claude.allowed_tools`, "Bash(git commit:*)", "read-only"}},
+		{"Claude Edit permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Edit"} }, []string{`permissions["validate"].claude.allowed_tools`, `"Edit"`, "read-only"}},
+		{"Claude Write permission", func(p *ToolProfile) { p.Claude.AllowedTools = []string{"Read", "Write"} }, []string{`permissions["validate"].claude.allowed_tools`, `"Write"`, "read-only"}},
 		{"Codex workspace write", func(p *ToolProfile) { p.Codex.Sandbox = "workspace-write" }, []string{`permissions["validate"].codex.sandbox`, "read-only"}},
 	}
 	for _, tt := range tests {
@@ -63,6 +67,22 @@ func TestValidateProfileRejectsMutatingAuthority(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestValidateProfileAcceptsReadOnlyReviewerShell(t *testing.T) {
+	cfg := canonicalConfig(t)
+	profile := cfg.ToolProfiles.Permissions["validate"]
+	profile.Claude.Tools = []string{"Read", "Glob", "Grep", "Bash"}
+	profile.Claude.AllowedTools = append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
+	cfg.ToolProfiles.Permissions["validate"] = profile
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("read-only reviewer shell rejected: %v", err)
+	}
+	for _, want := range []string{"Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(rg:*)"} {
+		if !slices.Contains(ValidateReviewerShellRules(), want) {
+			t.Errorf("reviewer shell rules lack %q", want)
+		}
 	}
 }
 
@@ -88,8 +108,13 @@ func TestCanonicalPermissionMatrix(t *testing.T) {
 	}
 	validate := cfg.ToolProfiles.Permissions["validate"]
 	for _, tool := range validate.Claude.Tools {
-		if tool == "Bash" || tool == "Write" || tool == "Edit" {
+		if tool == "Write" || tool == "Edit" || tool == "MultiEdit" {
 			t.Errorf("validate exposes mutating Claude tool %q", tool)
+		}
+	}
+	for _, rule := range validate.Claude.AllowedTools {
+		if ClaudeToolName(rule) == "Bash" && !slices.Contains(ValidateReviewerShellRules(), rule) {
+			t.Errorf("validate grants Bash rule %q outside the read-only reviewer list", rule)
 		}
 	}
 	if validate.Codex.Sandbox != "read-only" {

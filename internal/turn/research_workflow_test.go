@@ -258,9 +258,9 @@ func TestResearchCurrentInstructionsRotatePersistedSession(t *testing.T) {
 	mustProgress(t, err)
 	firstRef, err := naming.SessionRef(ref, store.FirstSegmentOrdinal)
 	mustProgress(t, err)
-	first, delivery, err := PrepareResearchDelivery(t.Context(), f.opts, req, definition, "investigate", f.session, ref, firstRef)
+	first, delivery, err := prepareWorkflowDeliveryForTest(t.Context(), f.opts, req, definition, "investigate", f.session, ref, firstRef, ResearchWorkflowPolicy())
 	mustProgress(t, err)
-	same, _, err := PrepareResearchDelivery(t.Context(), f.opts, req, definition, "investigate", f.session, ref, firstRef)
+	same, _, err := prepareWorkflowDeliveryForTest(t.Context(), f.opts, req, definition, "investigate", f.session, ref, firstRef, ResearchWorkflowPolicy())
 	mustProgress(t, err)
 	if first.ID != same.ID {
 		t.Fatal("unchanged instructions rotated provider session")
@@ -268,7 +268,7 @@ func TestResearchCurrentInstructionsRotatePersistedSession(t *testing.T) {
 	node := definition.Nodes["investigate"]
 	node.Role.Body += "\nCurrent shipped instruction update."
 	definition.Nodes["investigate"] = node
-	changed, newDelivery, err := PrepareResearchDelivery(t.Context(), f.opts, req, definition, "investigate", f.session, ref, firstRef)
+	changed, newDelivery, err := prepareWorkflowDeliveryForTest(t.Context(), f.opts, req, definition, "investigate", f.session, ref, firstRef, ResearchWorkflowPolicy())
 	mustProgress(t, err)
 	if changed.ID == first.ID || changed.SessionRef == first.SessionRef || changed.Ordinal != first.Ordinal+1 || newDelivery.Root == delivery.Root {
 		t.Fatalf("changed instructions reused old session/bundle: %+v %+v", first, changed)

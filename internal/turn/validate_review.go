@@ -357,8 +357,8 @@ func validateReviewAttempt(instance int64, role, commit string) string {
 }
 
 // validateReviewScope builds the trusted context a reviewer's result is judged
-// against: required coverage for its role, every criterion as needing executed
-// proof, and the suite commands of the commit as the only citable checks. A
+// against: required coverage for its role, the criteria whose frozen text
+// needs executed proof (all but explicit (Manual) ones), and the suite commands of the commit as the only citable checks. A
 // check proves only when it passed.
 func validateReviewScope(role string, stories []ValidateStory, snapshot, digest string, evidence []ValidateEvidence) agentresult.Context {
 	scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(agent.ModeValidate), WorkflowVersion: store.WorkflowSeparated, ReviewRole: role, Stories: map[string]agent.ContributionStory{}}
@@ -372,7 +372,7 @@ func validateReviewScope(role string, stories []ValidateStory, snapshot, digest 
 		}
 		scope.Stories[s.Key] = agent.ContributionStory{
 			Revision: s.Revision, SnapshotID: snapshot, ImplementationDigest: digest, SnapshotRetained: true,
-			Criteria: append([]string(nil), s.Criteria...), ExecutionRequired: append([]string(nil), s.Criteria...), Checks: checks,
+			Criteria: append([]string(nil), s.Criteria...), ExecutionRequired: append([]string(nil), s.ExecutionRequired...), Checks: checks,
 		}
 	}
 	return scope

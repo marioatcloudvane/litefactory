@@ -23,12 +23,22 @@ func (s *Service) ReconcileRepair(ctx context.Context, ref naming.Ref) (operatio
 	if err != nil {
 		return operation, err
 	}
-	if operation.State == "restart_pending" || operation.State == "recovered" {
+	if operation.State == "restart_pending" || operation.State == "recovered" || operation.State == "completed" || operation.State == "failed" {
 		return operation, nil
 	}
 	steps, err := s.DB.DoctorRepairSteps(ctx, operation.ID)
 	if err != nil {
 		return operation, err
+	}
+	typed := len(steps) > 0
+	for _, step := range steps {
+		typed = typed && store.DoctorRepairToolKind(step.Kind)
+	}
+	if typed {
+		if err = s.DB.SettleDoctorTypedRepair(ctx, operation.ID, false, "Interrupted repair retained without replay; unfinished effects require owner review"); err != nil {
+			return operation, err
+		}
+		return s.DB.ReadDoctorRepair(ctx, ref.String())
 	}
 	for _, step := range steps {
 		if (step.Kind != "session_file" && step.Kind != "worktree_file") || (step.State != "write_intent" && step.State != "uncertain") {

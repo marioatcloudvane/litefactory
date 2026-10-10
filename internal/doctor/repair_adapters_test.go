@@ -7,10 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
@@ -120,5 +123,108 @@ func TestDoctorRepairAdapterRetainsFailedUsageAndBrokerScope(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("failed repair usage missing from shared ledger")
+	}
+}
+
+// deadlineRepairEffects records the context deadline the broker gives sync_branch.
+type deadlineRepairEffects struct {
+	remaining time.Duration
+	calls     int
+}
+
+func (e *deadlineRepairEffects) Execute(ctx context.Context, _ naming.Ref, _ store.DoctorRepair, step store.DoctorRepairStep, _ string) (store.DoctorRepairStep, error) {
+	e.calls++
+	if deadline, ok := ctx.Deadline(); ok {
+		e.remaining = time.Until(deadline)
+	}
+	return step, errors.New("controlled effect stop")
+}
+func (e *deadlineRepairEffects) Verify(context.Context, naming.Ref, store.DoctorRepairStep) error {
+	return nil
+}
+
+// syncBranchRepairProvider calls sync_branch through the live repair broker.
+type syncBranchRepairProvider struct{}
+
+func (p *syncBranchRepairProvider) DoctorRepairIsolation(context.Context) (string, error) {
+	return "controlled fixture; not authentic provider isolation", nil
+}
+func (p *syncBranchRepairProvider) RunDoctorRepair(ctx context.Context, request agent.RepairRequest) (agent.DoctorRunResult, error) {
+	// The controlled effect fails, which fences the repair and cancels the
+	// run, so the reply itself may be lost; only the effect's deadline matters.
+	_, _ = submission.Call(ctx, request.Invocation.MCPLaunch.DescriptorPath(), "tools/call", json.RawMessage(`{"name":"sync_branch","arguments":{"step":1}}`))
+	return agent.DoctorRunResult{}, errors.New("controlled provider stop")
+}
+
+func TestDoctorRepairBrokerGivesSyncBranchTenMinuteBudget(t *testing.T) {
+	s := doctorIOService(t)
+	ctx := t.Context()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Paths = config.NewPaths(filepath.Join(base, "factory"))
+	repo, err := s.DB.UpsertRepo(ctx, store.Repo{Path: filepath.Join(base, "repo"), Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: filepath.Join(base, "trees")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.DB.GetOrCreateSession(ctx, repo, 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := "lf/406-case"
+	if _, err = s.DB.FreezeSessionSlug(ctx, session.ID, "case", branch); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := Target("acme/api", 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, baseHead := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	evidence := store.DoctorEvidence{TaskRef: ref.String(), Records: []store.DoctorEvidenceRecord{{Kind: "branch", ID: branch, State: head, Identity: baseHead}}}
+	c, err := s.DB.BeginDoctorAttempt(ctx, ref.String(), store.DoctorAttempt{ID: "sync-proposer", SourceID: "sync-source", OwnerText: "Diagnose", PromptVersion: PromptVersion, GuideVersion: GuideVersion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, _ := json.Marshal(evidence)
+	if err = s.DB.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "sync-proposer", Provider: "claude", ConfiguredModel: "fixture", Evidence: string(captured)}); err != nil {
+		t.Fatal(err)
+	}
+	results, err := BindResults(ctx, s.DB, "sync-proposer", evidence, s.Redactor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "Branch needs synchronization.", Uncertainty: "Local refs only.", Evidence: []string{"branch:" + branch}}}, Proposal: []RepairStep{{Number: 1, Target: "branch:" + branch, Precondition: "Captured head", Change: "Merge captured base", Reason: "Restore synchronization", Reversibility: "Backed up head", Rollback: "Restore head", Action: &store.DoctorRepairAction{Kind: "sync_branch", Before: head, After: baseHead}}}}}
+	retainLegacyRepairDiagnosis(t, results, "sync-proposal", input)
+	pid, _, err := s.DB.DoctorProposalReference(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.PresentDoctorProposal(ctx, ref.String(), "sync-presentation", pid); err != nil {
+		t.Fatal(err)
+	}
+	transportRoot, err := os.MkdirTemp("/tmp", "lf-repair-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(transportRoot); err != nil {
+			t.Error(err)
+		}
+	})
+	transportRoot, err = filepath.EvalSymlinks(transportRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effects := &deadlineRepairEffects{}
+	s.RepairEffects = effects
+	s.RepairRunner = &RepairAdapters{Providers: map[string]agent.DoctorRepairRunner{"claude": &syncBranchRepairProvider{}}, Paths: config.NewPaths(transportRoot), Executable: filepath.Join(t.TempDir(), "factory")}
+	s.RepairEnvironment = repairFixtureEnvironment{}
+	s.RestartRoute = &repairFixtureRestart{}
+	if _, err = s.Apply(ctx, ApplyRequest{Target: ref, SourceID: "sync-apply", Principal: "local-owner", PresentationID: "sync-presentation"}); err == nil {
+		t.Fatal("controlled stop reported success")
+	}
+	if effects.calls != 1 || effects.remaining <= 9*time.Minute || effects.remaining > submission.RepairToolTimeout {
+		t.Fatalf("sync_branch calls %d with %v left", effects.calls, effects.remaining)
 	}
 }

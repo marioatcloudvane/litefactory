@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/resultservice"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -30,6 +31,7 @@ type ResultDiagnostics struct {
 // ResultService binds communication preflight/submit/receipt to one doctor attempt.
 // It reuses the application result ledger and its immutable replay semantics.
 type ResultService struct {
+	comments CommentReader
 	repairID string
 	db       *store.DB
 	binding  store.ResultBinding
@@ -48,6 +50,19 @@ func BindResults(ctx context.Context, db *store.DB, id string, e store.DoctorEvi
 	}
 	if b.Task != e.TaskRef {
 		return nil, errors.New("doctor result evidence identity mismatch")
+	}
+	if e.Live {
+		// Live manifests carry no typed records; resolve proposal targets from
+		// the issue's current store rows, keeping the manifest's own gaps.
+		ref, err := naming.ParseRef(e.TaskRef)
+		if err != nil {
+			return nil, err
+		}
+		snapshot, err := db.ReadDoctorEvidence(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		e.Records = snapshot.Records
 	}
 	e.Records = append([]store.DoctorEvidenceRecord(nil), e.Records...)
 	e.Gaps = append([]string(nil), e.Gaps...)
@@ -102,6 +117,13 @@ func (s *ResultService) prepare(ctx context.Context, data []byte) (ResultInput, 
 	// factory-owned handles. Applying a truncating redactor to JSON can corrupt it.
 	for i := range input.Diagnosis.Findings {
 		f := &input.Diagnosis.Findings[i]
+		if s.evidence.Live {
+			for j := range f.Evidence {
+				if err := s.clean(ctx, &f.Evidence[j]); err != nil {
+					return input, nil, err
+				}
+			}
+		}
 		for _, p := range []*string{&f.Explanation, &f.Uncertainty} {
 			if err := s.clean(ctx, p); err != nil {
 				return input, nil, err
@@ -222,7 +244,7 @@ func (s *ResultService) adopt(ctx context.Context, requestID string, recovered b
 	if err != nil {
 		return err
 	}
-	if err := ValidateDiagnosis(d, s.evidence); err != nil {
+	if err := validateRetainedDiagnosis(d, s.evidence); err != nil {
 		return err
 	}
 	var proposal []byte

@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
+
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -23,10 +25,10 @@ import (
 )
 
 // PromptVersion identifies the fixed diagnosis authority.
-const PromptVersion = "doctor-diagnosis-v1"
+const PromptVersion = "doctor-diagnosis-v2"
 
 // GuideVersion identifies the separately maintained factory guide.
-const GuideVersion = "doctor-field-guide-v1"
+const GuideVersion = "doctor-field-guide-v2"
 
 // ErrIsolationUnavailable refuses unverified adapters without a weaker fallback.
 var ErrIsolationUnavailable = errors.New("doctor provider isolation is not verified; diagnosis unavailable; input retained")
@@ -37,6 +39,7 @@ type Service struct {
 	RestartRoute      RestartRoute
 	RepairEnvironment RepairEnvironment
 	RepairRunner      RepairRunner
+	RepairEffects     RepairEffects
 	mu                sync.Mutex
 	active            map[string]activeInvocation
 	DB                *store.DB
@@ -44,6 +47,7 @@ type Service struct {
 	Config            *config.Config
 	Redactor          *redact.Redactor
 	Runner            Runner
+	Comments          CommentReader
 }
 
 // DiagnoseRequest carries a trusted explicit target and the owner's instruction.
@@ -118,19 +122,16 @@ func (s *Service) Diagnose(ctx context.Context, r DiagnoseRequest) (out Conversa
 		saved, readErr := s.ReadConversation(cleanup, r.Target)
 		return saved, &safeFailure{cause: errors.Join(cause, redactionErr, finishErr, readErr), message: reason}
 	}
-	evidence, e := s.DB.ReadDoctorEvidence(ctx, r.Target)
+	manifest, preferred, e := s.pathManifest(ctx, r.Target)
 	if e != nil {
 		return failure(e)
 	}
-	s.collectLocal(ctx, r.Target, &evidence)
-	if e = s.sanitizeEvidence(ctx, &evidence); e != nil {
-		return failure(e)
-	}
-	provider, model, _, isolationErr, e := s.selectProvider(ctx, config.Kind(evidence.Provider))
+	provider, model, isolation, isolationErr, e := s.selectProvider(ctx, config.Kind(preferred))
 	if e != nil {
 		return failure(e)
 	}
-	encoded, e := json.Marshal(evidence)
+	manifest.SandboxProfile, manifest.Isolation = agent.DoctorSandboxVersion, isolation
+	encoded, e := json.Marshal(manifest)
 	if e != nil {
 		return failure(e)
 	}
@@ -147,7 +148,7 @@ func (s *Service) Diagnose(ctx context.Context, r DiagnoseRequest) (out Conversa
 	if isolationErr != nil {
 		return failure(isolationErr)
 	}
-	return s.invoke(ctx, r, c, id, string(provider), model, evidence, body.String(), failure)
+	return s.invoke(ctx, r, c, id, string(provider), model, manifest, body.String(), failure)
 }
 
 // selectProvider tries the issue's own agent first, then every configured
@@ -239,7 +240,7 @@ func (s *Service) ReadConversation(ctx context.Context, ref naming.Ref) (Convers
 	if err != nil {
 		return out, err
 	}
-	out = Conversation{ProposalID: proposalID, Conversation: c, Attempts: attempts, Diagnosis: diagnosis, CurrentProposal: proposal, HistoryWindow: "Latest 30 attempts in this generation; earlier history remains retained", ApplyAvailable: false}
+	out = Conversation{ProposalID: proposalID, Conversation: c, Attempts: attempts, Diagnosis: diagnosis, CurrentProposal: proposal, HistoryWindow: "Latest 30 attempts in this generation; earlier history remains retained", ApplyAvailable: s.CheckRepairCapability(ctx, ref) == nil}
 	repair, repairErr := s.DB.ReadDoctorRepair(ctx, ref.String())
 	if repairErr != nil && !errors.Is(repairErr, store.ErrNotFound) {
 		return out, repairErr

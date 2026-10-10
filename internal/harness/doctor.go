@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ import (
 // doctorIsolation names the controls every diagnosis launch carries. It is
 // recorded with the attempt; the observed binary version comes from the
 // provider's own init event.
-const doctorIsolation = "claude: --tools \"\" (no native tools), --restricted, strict litefactory-only MCP, --setting-sources \"\", --disable-slash-commands, private config dir holding only the credentials link, scratch working directory"
+const doctorIsolation = "claude: doctor-read-only-shell-v1; Bash only, required OS sandbox, scratch-only writes, no shell network or credentials, GIT_OPTIONAL_LOCKS=0; exact five-tool broker; isolated settings and private credential home"
 
 // DoctorIsolation is open for diagnosis (owner-approved in #430). The tool
 // ceiling is enforced by the launch arguments below, not by --bare: bare mode
@@ -77,8 +78,12 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	}
 	env := providerprocess.DoctorEnvironment(r.environ, home)
 	env = append(env, "CLAUDE_CONFIG_DIR="+home)
-	// Operators who authenticate by API key opt in exactly as for workflow runs.
-	if r.forwardEnv {
+	if operation == "" {
+		env = append(env, "GIT_OPTIONAL_LOCKS=0", "CLAUDE_CODE_TMPDIR="+request.WorkingDirectory, "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1")
+	}
+	// Repair retains its existing auth handling. Diagnosis carries no API token;
+	// subscription credentials are read by the provider outside the shell sandbox.
+	if r.forwardEnv && operation != "" {
 		for _, entry := range r.environ {
 			if strings.HasPrefix(entry, "ANTHROPIC_API_KEY=") {
 				env = append(env, entry)
@@ -131,7 +136,7 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 			}
 		}
 	}
-	err = runScopedDoctorProcess(ctx, r.binary.Path, args, env, request, operation, r.timeout, observe)
+	err = runScopedDoctorProcess(ctx, r.binary.Path, args, env, request, operation, r.timeout, observe, r.logger)
 	if err == nil && (!terminal || failed) {
 		err = errors.New("doctor provider did not report a successful terminal result")
 	}
@@ -151,9 +156,38 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 	for i := range allowed {
 		allowed[i] = "mcp__litefactory__" + allowed[i]
 	}
-	// An explicit empty --tools value removes every native tool; omission would
-	// restore the provider default. MCP tools are separately enumerated exactly.
+	// Diagnosis exposes only Bash; repair's explicit empty --tools removes every
+	// native tool. Omission would restore the provider default. MCP stays exact.
 	// No --bare: it disables OAuth. The private config dir and empty setting
 	// sources already keep hooks, plugins, memory and CLAUDE.md out.
-	return []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-session-persistence", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--allowedTools", strings.Join(allowed, ","), "--model", request.Model}, nil
+	tools := ""
+	args := []string{}
+	if operation == "" {
+		tools = "Bash"
+		allowed = append(allowed, "Bash")
+		settings, err := doctorSandboxSettings(request, filepath.Dir(mcpPath))
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "--settings", settings)
+	}
+	return append(args, "-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-session-persistence", "--no-chrome", "--setting-sources", "", "--tools", tools, "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--allowedTools", strings.Join(allowed, ","), "--model", request.Model), nil
+}
+
+func doctorSandboxSettings(request agent.DoctorRequest, privateHome string) (string, error) {
+	if err := request.Sandbox.Validate(request.WorkingDirectory); err != nil {
+		return "", err
+	}
+	denied := append([]string(nil), request.Sandbox.DeniedReadPaths...)
+	denied = append(denied, privateHome)
+	// Claude may choose a short system-temp fallback when the private override
+	// is long. Deny that default explicitly rather than granting another root.
+	uid := fmt.Sprint(os.Getuid())
+	settings := map[string]any{"sandbox": map[string]any{
+		"enabled": true, "failIfUnavailable": true, "allowUnsandboxedCommands": false, "autoAllowBashIfSandboxed": true, "excludedCommands": []string{},
+		"filesystem": map[string]any{"allowWrite": []string{request.WorkingDirectory}, "denyWrite": []string{"/tmp/claude-" + uid, "/private/tmp/claude-" + uid}, "denyRead": denied, "allowRead": request.Sandbox.ReadableRoots},
+		"network":    map[string]any{"allowedDomains": []string{}, "deniedDomains": []string{"*"}, "allowAllUnixSockets": false, "allowUnixSockets": []string{}, "allowLocalBinding": false},
+	}}
+	data, err := json.Marshal(settings)
+	return string(data), err
 }

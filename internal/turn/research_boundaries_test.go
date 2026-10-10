@@ -190,7 +190,7 @@ func TestResearchAgentRealStorePrivateRetention(t *testing.T) {
 				}
 				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: raw}, nil
 			})
-			handler := ResearchAgentActivity{Prepare: func(context.Context, Options, ActivityRequest) (ResearchInvocation, error) {
+			handler := AgentActivity{Policy: ResearchWorkflowPolicy(), Prepare: func(context.Context, Options, ActivityRequest) (ResearchInvocation, error) {
 				ordinal := run.Ordinal
 				if variant == "provider mismatch" {
 					ordinal++
@@ -199,7 +199,7 @@ func TestResearchAgentRealStorePrivateRetention(t *testing.T) {
 			}}
 			req := GraphNodeRequest{Profile: profile, InstanceID: instance.ID, RunID: run.ID, At: at}
 			var registry graphexec.Registry
-			if err := RegisterResearchAgent(&registry, &req.Activities, handler); err != nil {
+			if err := RegisterAgent(&registry, &req.Activities, handler); err != nil {
 				t.Fatal(err)
 			}
 			result, executeErr := ExecuteNodeAction(t.Context(), Options{DB: db, Runners: runnerSet(runner)}, req)

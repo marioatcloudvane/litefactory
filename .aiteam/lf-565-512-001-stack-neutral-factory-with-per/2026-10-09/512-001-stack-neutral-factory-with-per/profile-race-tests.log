@@ -1,0 +1,10 @@
+ok  	github.com/cloudvane/litefactory/internal/config	5.702s
+ok  	github.com/cloudvane/litefactory/internal/bugchecks	1.512s
+ok  	github.com/cloudvane/litefactory/internal/codex	65.389s
+ok  	github.com/cloudvane/litefactory/internal/doctor	32.388s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	3.249s
+ok  	github.com/cloudvane/litefactory/internal/harness	71.531s
+ok  	github.com/cloudvane/litefactory/internal/teampackage	5.269s
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	18.540s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	3.049s
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.470s

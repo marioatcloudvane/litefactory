@@ -254,6 +254,9 @@ func strictJSON(raw []byte, dst any) error {
 	return d.Decode(dst)
 }
 
+// DecodeCatalogue validates a bounded, strict versioned release catalogue.
+func DecodeCatalogue(raw []byte) (Catalogue, error) { return parseCatalogue(raw) }
+
 func parseCatalogue(raw []byte) (Catalogue, error) {
 	var c Catalogue
 	if len(raw) > MaxCatalogueBytes {

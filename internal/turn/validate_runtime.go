@@ -270,11 +270,11 @@ func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 		if r.State == "completed" || r.EngineeringComplete {
 			continue
 		}
-		criteria, err := storyCriterionIDs(ctx, h.opts.DB, h.session.TaskRef, h.feature.Generation, r.Key, r.Hash, r.Body)
+		criteria, required, err := storyCriteria(ctx, h.opts.DB, h.session.TaskRef, h.feature.Generation, r.Key, r.Hash, r.Body)
 		if err != nil {
 			return nil, fmt.Errorf("criteria of %s: %w", r.Key, err)
 		}
-		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, Text: r.Body})
+		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, ExecutionRequired: required, Text: r.Body})
 	}
 	if len(out) == 0 {
 		return nil, errors.New("no approved story is under review")
@@ -285,7 +285,7 @@ func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 // target names the delivery: the feature branch onto the base branch, the
 // parent issue and the story issues a close completes.
 func (h *validateHost) target() ValidateDeliveryTarget {
-	t := ValidateDeliveryTarget{Repo: github.Repo{Owner: h.repo.Owner, Name: h.repo.Name}, Branch: h.session.Branch, Base: h.repo.BaseBranch, BotID: h.opts.MCP.BotID, Parent: ValidateIssueRef{Number: h.session.IssueNumber}}
+	t := ValidateDeliveryTarget{Repo: github.Repo{Owner: h.repo.Owner, Name: h.repo.Name}, Branch: h.session.Branch, Base: h.repo.BaseBranch, BotID: h.opts.MCP.BotID, Parent: ValidateIssueRef{Number: h.session.IssueNumber}, Generation: h.feature.Generation}
 	for _, r := range h.revisions {
 		if t.Parent.ID == 0 {
 			t.Parent.ID = r.ParentID
@@ -293,7 +293,7 @@ func (h *validateHost) target() ValidateDeliveryTarget {
 		if r.State == "completed" || r.EngineeringComplete {
 			continue
 		}
-		t.Stories = append(t.Stories, ValidateIssueRef{Number: r.IssueNumber, ID: r.IssueID})
+		t.Stories = append(t.Stories, ValidateIssueRef{Number: r.IssueNumber, ID: r.IssueID, Key: r.Key, Title: r.Title, Revision: r.Hash, Body: r.Body})
 	}
 	return t
 }

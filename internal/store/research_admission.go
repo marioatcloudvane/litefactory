@@ -170,14 +170,16 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 			if e = tx.QueryRowContext(ctx, `SELECT topology_digest FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1`, prior.ID).Scan(&topology); e != nil {
 				return fmt.Errorf("workflow instance lacks retained launch provenance: %w", e)
 			}
-			var active int
-			if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running')`, prior.ID).Scan(&active); e != nil {
-				return e
-			}
-			if active > 0 {
-				return graphInvariant("workflow invocation already active")
-			}
 			if prior.Status == GraphRunning {
+				// Open attempts of a finished instance are orphans of an
+				// interrupted process; they never block a successor.
+				var active int
+				if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running')`, prior.ID).Scan(&active); e != nil {
+					return e
+				}
+				if active > 0 {
+					return graphInvariant("workflow invocation already active")
+				}
 				var state, reply string
 				var replyID int64
 				e = tx.QueryRowContext(ctx, `SELECT state,COALESCE(reply_id,0),COALESCE(reply_body,'') FROM graph_owner_waits WHERE instance_id=? AND state IN ('waiting','claimed') ORDER BY rowid DESC LIMIT 1`, prior.ID).Scan(&state, &replyID, &reply)

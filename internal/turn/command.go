@@ -76,7 +76,7 @@ const (
 	KindPlanControl
 
 	// KindValidateControl is one of [ValidateControlCommands]: the owner's
-	// verdict, finding choice, push, merge or close confirmation for a Validate
+	// verdict, finding choice, push, merge, close or ship confirmation for a Validate
 	// run. Like a Plan control it starts a turn only for a session that has a
 	// Validate graph; everywhere else it is answered as an unknown command. Text
 	// is the whole trimmed body, because the Validate resolve step matches the
@@ -250,7 +250,7 @@ func ParseCommand(body string) Command {
 		return Command{Kind: KindConfirm, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case PlanControlCommands[0], PlanControlCommands[1], PlanControlCommands[2]:
 		return Command{Kind: KindPlanControl, Name: name, Text: strings.TrimSpace(body), Tagged: tagged}
-	case ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand:
+	case ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand:
 		return Command{Kind: KindValidateControl, Name: name, Text: strings.TrimSpace(body), Tagged: tagged}
 	default:
 		return Command{Kind: KindUnknown, Name: name, Tagged: tagged}

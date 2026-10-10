@@ -1,0 +1,25 @@
+{
+  "race-repair": [
+    "go",
+    "test",
+    "-race",
+    "-timeout=0",
+    "-count=1",
+    "-json",
+    "./internal/agent",
+    "./internal/config",
+    "./internal/graphexec",
+    "./internal/git",
+    "./internal/teampackage",
+    "./internal/teamrelease",
+    "./internal/teamsource"
+  ],
+  "cli-repair": [
+    "go",
+    "test",
+    "-timeout=0",
+    "-count=1",
+    "-json",
+    "./internal/cli"
+  ]
+}

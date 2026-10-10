@@ -32,6 +32,67 @@ func implementWorkID(row store.ImplementStory, instanceID int64) int64 {
 		strconv.FormatInt(row.StateAt.UnixNano(), 10), strconv.FormatInt(instanceID, 10))
 }
 
+// implementRetryWorkID is the identity of the retry-th relaunch of the same
+// story work after earlier launches failed before any worker instance started.
+// Retry 0 is implementWorkID itself, so existing schedules keep their identity.
+func implementRetryWorkID(row store.ImplementStory, instanceID int64, retry int) int64 {
+	if retry == 0 {
+		return implementWorkID(row, instanceID)
+	}
+	return planWorkID("implement", row.Parent, strconv.FormatInt(row.Generation, 10), row.Key,
+		strconv.FormatInt(row.StateAt.UnixNano(), 10), strconv.FormatInt(instanceID, 10),
+		"retry", strconv.Itoa(retry))
+}
+
+// implementWork reports the identity of the worker run a running story is owed
+// now. A launch whose schedule failed before any worker instance started leaves
+// nothing behind that changes implementWorkID, so each such refused launch moves
+// the work to the next retry identity. Refused launches count toward the same
+// failure limit as failed instances, and a story that reaches it is parked. A
+// schedule still pending, running or finished otherwise stops the walk, so work
+// in flight is never started twice. A story parked here is parked at the
+// instant the tick began.
+func (d *Daemon) implementWork(ctx context.Context, row store.ImplementStory, at time.Time) (int64, bool, error) {
+	instanceID, ok, err := d.implementWorkable(ctx, row)
+	if err != nil || !ok {
+		return 0, false, err
+	}
+	if row.WorkerSession == 0 {
+		return implementWorkID(row, instanceID), true, nil
+	}
+	failed := 0
+	if instanceID != 0 {
+		if failed, err = d.db.CountFailedImplementInstances(ctx, row.WorkerSession, row.StateAt); err != nil {
+			return 0, false, err
+		}
+	}
+	for refused := 0; ; refused++ {
+		if failed+refused >= maxImplementInstanceFailures {
+			reason := row.LastFailure
+			if reason == "" {
+				reason = fmt.Sprintf("The worker launch was refused %d times before any worker instance started.", refused)
+			}
+			_, err := d.db.TransitionImplementStory(ctx, store.ImplementTransition{
+				Parent: row.Parent, Generation: row.Generation, Key: row.Key,
+				From: store.ImplementRunning, To: store.ImplementParked,
+				ExpectedRevision: row.Revision, Reason: reason, At: at.UTC(),
+			})
+			if errors.Is(err, store.ErrImplementConflict) {
+				err = nil // Another discovery or owner transition already moved it.
+			}
+			return 0, false, err
+		}
+		id := implementRetryWorkID(row, instanceID, refused)
+		status, found, err := d.db.ScheduleStatusBySource(ctx, row.WorkerSession, id)
+		if err != nil {
+			return 0, false, err
+		}
+		if !found || status != store.ScheduleFailed {
+			return id, true, nil
+		}
+	}
+}
+
 // implementWorkable reports whether a running story is owed a worker run now, and
 // the identity of the worker instance that run would follow. A worker instance
 // still running rests for its own dispatch, which continues a repair; only a
@@ -88,11 +149,7 @@ func (d *Daemon) implementWorkFor(ctx context.Context, t *task) (int64, bool, er
 	if err != nil {
 		return 0, false, err
 	}
-	instanceID, ok, err := d.implementWorkable(ctx, row)
-	if err != nil || !ok {
-		return 0, false, err
-	}
-	return implementWorkID(row, instanceID), true, nil
+	return d.implementWork(ctx, row, t.tickAt)
 }
 
 // startImplementWork runs the story work a task owes, after its comments. The work
@@ -187,14 +244,14 @@ func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*re
 			}
 			row.WorkerSession = session.ID
 		}
-		instanceID, ok, err := d.implementWorkable(ctx, row)
+		id, ok, err := d.implementWork(ctx, row, now)
 		if err != nil {
 			return err
 		}
 		if !ok {
 			continue
 		}
-		attempted, err := d.db.ScheduleAttempted(ctx, session.ID, implementWorkID(row, instanceID))
+		attempted, err := d.db.ScheduleAttempted(ctx, session.ID, id)
 		if err != nil {
 			return err
 		}

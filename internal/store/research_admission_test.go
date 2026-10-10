@@ -107,3 +107,37 @@ func TestResearchAdmissionRefusesUncertainPredecessorPublication(t *testing.T) {
 		t.Fatalf("cancellation erased publication debt: %v", err)
 	}
 }
+
+// An open attempt blocks a successor only while its instance runs; one left on
+// a finished instance by an interrupted process does not.
+func TestWorkflowAdmissionIgnoresOpenAttemptsOfFinishedInstances(t *testing.T) {
+	db := newTestDB(t)
+	session := testSession(t, db, 587)
+	if _, err := db.AdmitResearchPath(t.Context(), session.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
+	definition, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), CreatedAt: graphTestTime()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch := WorkflowLaunch{Mode: "implement", SessionID: session.ID, TriggerID: 10, DefinitionID: definition.ID, Start: "budget", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte(`{"role":"eA=="}`)}
+	first, err := db.AdmitWorkflowLaunch(t.Context(), launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: first.Instance.ID, Node: "budget", Limit: 8, StartedAt: graphTestTime()}); err != nil {
+		t.Fatal(err)
+	}
+	launch.TriggerID++
+	if _, err = db.AdmitWorkflowLaunch(t.Context(), launch); err == nil || !strings.Contains(err.Error(), "workflow invocation already active") {
+		t.Fatalf("a running instance with an open attempt must refuse: %v", err)
+	}
+	if err = db.SetGraphInstanceStatus(t.Context(), first.Instance.ID, GraphFailed, time.Time{}, graphTestTime()); err != nil {
+		t.Fatal(err)
+	}
+	launch.TriggerID++
+	successor, err := db.AdmitWorkflowLaunch(t.Context(), launch)
+	if err != nil || successor.Instance.ID == first.Instance.ID || successor.PredecessorID != first.Instance.ID || successor.Instance.Status != GraphRunning {
+		t.Fatalf("failed instance with an orphaned attempt blocked its successor: %+v %v", successor, err)
+	}
+}

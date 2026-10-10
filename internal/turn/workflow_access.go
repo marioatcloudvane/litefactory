@@ -39,9 +39,17 @@ func applyNodeAccess(policy WorkflowPolicy, node graphexec.Node, req Request) (R
 		if err != nil {
 			return req, fmt.Errorf("node %q read access: %w", node.Name, err)
 		}
+		// A Validate reviewer keeps Bash when its resolved profile grants it,
+		// limited to the fixed read-only reviewer rules. Every other read node
+		// stays shell-free.
+		var shellRules []string
+		if req.ToolProfile == "validate" && slices.Contains(req.Tools, "Bash") {
+			tools = append(tools, "Bash")
+			shellRules = config.ValidateReviewerShellRules()
+		}
 		allowed := make([]string, 0, len(req.AllowedTools))
 		for _, tool := range req.AllowedTools {
-			if slices.Contains(readOnlyClaudeTools, tool) {
+			if slices.Contains(readOnlyClaudeTools, tool) || slices.Contains(shellRules, tool) {
 				allowed = append(allowed, tool)
 			}
 		}

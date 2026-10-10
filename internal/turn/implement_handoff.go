@@ -171,11 +171,7 @@ func implementValidateNextStep(autoStart bool) string {
 
 type implementHandoffCounts struct{ merged, parked, waiting int }
 
-// renderImplementHandoff preserves every approved story in plan order.
-func renderImplementHandoff(a ImplementAuthority, rows []store.ImplementStory) (string, implementHandoffCounts) {
-	return renderImplementHandoffProgress(a, rows, nil)
-}
-
+// renderImplementHandoffProgress preserves every approved story in plan order.
 func renderImplementHandoffProgress(a ImplementAuthority, rows []store.ImplementStory, progress []store.ImplementProgressReport) (string, implementHandoffCounts) {
 	return renderImplementHandoffNotes(a, rows, progress, nil)
 }

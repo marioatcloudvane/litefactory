@@ -74,26 +74,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **SEC-11** — `redact.Redactor.Apply` holds the only `recover()` in the
   tree: a panic mid-redaction becomes an error so the post aborts and the
   watermark does not advance (AC-4.9). A second `recover()` MUST NOT be added.
-- **SEC-12 [enforced]** — `internal/team`'s write entry points MUST
-  aggregate every validation fault via `errors.Join`/`joinSorted` rather than
-  fail-fast (mirrors CFG-5); a batch `Add` call MUST write nothing if any
-  render is invalid.
-- **SEC-13 [enforced]** — `team.Add` MUST write via temp-file-then-rename,
-  MUST NOT call `Chmod` (ties SEC-10), and MUST save its lockfile last.
-- **SEC-14 [enforced]** — `team.Add` MUST `Lstat` (never `Stat`) and refuse a
-  symlinked path component before each write, so a swap cannot redirect
-  writes outside the repo.
-- **SEC-15 [enforced]** — A `RenderedFile.Path` MUST match the Owned Path
-  `team.Add` re-derives from `(harness, agentKey)`; a renderer's claimed
-  path is never trusted.
-- **SEC-16 [enforced]** — A root-file record's `RenderedHash` MUST hash only
-  the marker span (`markerSpanHash`), never the whole file, so it cannot
-  misfire on unrelated edits.
-- **SEC-17 [enforced]** — Shared-agent `AgentRender.Teams` assembled in `teamsource.RenderTeam` MUST union `team.ExistingTeams(root, harness, agentKey)` before marker composition; replacing the list loses other teams’ attribution.
-
-- **SEC-18** — `internal/team` MUST NOT import `internal/render` or
-  `internal/teamsource`, preserving the `cli → teamsource → (team, render)`
-  direction.
+- **SEC-12 to SEC-18 (retired)** — These rules protected the removed `internal/team` installer (`team.Add`, `Classify`, `Decode`, `ExistingTeams`, `teamsource.RenderTeam`). That package no longer exists; machine-level installs are handled by `internal/teampackage`. They are not carried over as rules.
 - **SEC-19** — Agent-authored `PromptInput.PreviousReason` MUST NOT enter resumed prompts raw. `writePreviousFailedNote` MUST apply `capText`/`neutraliseNoteTags` and `<note>` framing so prior failures cannot become prompt structure.
 
 ---
@@ -221,7 +202,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **CONC-21 [enforced]** — Canonical modes MUST persist through runs, reports and journal retirement. Owner commands MAY replace one valid label; ambiguous labels MUST refuse. Transitions MUST record intent before effects, confirm canonical state before execution and preserve conflicting owner edits. Admitted retries MUST retain mode/tools; completion MUST NOT reapply labels. Managed authorization and frozen scope MUST remain authoritative; agents MAY recommend owner transitions.
 - **CONC-22 [enforced]** — An authorized managed Plan iteration MUST invalidate prior readiness before fallible setup. Every subprocess attempt MUST receive a fresh outcome binding. Legacy discussion MUST save identity-bound working context, publish no stories and remain unready. Only a factory-admitted graph Plan MAY publish incomplete draft sub-issues through `lf_plan_story` while remaining unready; such publication MUST retain stable identity, immutable candidate/effect correlation, expected revisions and factory-bound parent/story authority, and MUST NOT satisfy complete/frozen implementation contracts. Graph stage promotion MUST require authenticated owner approval of the exact current candidate and upstream/shared-decision references; retirement MUST require exact owner confirmation and not-planned semantics. Completion MUST require the persisted content/submission contract's validation (legacy full-body proposal v1 or typed contribution v2), publication, link-only index replacement and save before readiness. Failed or discussion iterations MUST NOT restore stale readiness. Reserved transport MUST never enter commits.
 - **CONC-23** — Research and Plan MUST permit material asynchronous questions by default, with explicit current no-question instructions taking precedence. Legacy infer MUST retain opt-in semantics; other modes MUST NOT gain permission. Current/previous policy MUST use the same derivation, and cold/resumed/fallback prompts MUST preserve effective mode, tools, task context and current question rules. Every subprocess MUST finish one final report without waiting. Identity-bound unfinished context MUST be reusable across dates without completed markers; ambiguous or foreign context MUST NOT be reused.
-- **CONC-24 [enforced]** — Every mode and graph-node application result MUST use the shared communication route (`communication_preflight`, `communication_submit`, `communication_receipt` and the shared result service, `turn.AgentResultService`). Terminal text MUST NOT be a source of application data or of effect inputs, and no missing result falls back to it. Terminal-envelope parsing MAY only check completion and consistency against the retained accepted result; a terminal-only result and one that differs from the retained result MUST each fail with their own cause before anything is retained or any effect follows, whatever decoder a policy names. A nominal decoder MUST NOT satisfy this rule. Today it is enforced for Research and graph Plan by `WorkflowPolicy.Admit` (well-formedness, a closed `RegisteredWorkflowPolicies` registry) and the runtime guard `AgentActivity.acceptRetained`. It MUST apply from introduction to the planned Bug workflow and to graph Implement, Validate and Spike: each MUST register a policy, be admitted, and be covered by the registry-wide guard tests before dispatch, and MUST NOT ship a private result protocol or a terminal-parsing path. Declared compatibility routes are preserved until supported adoption and are not retired by this rule: legacy Plan (v1 full-body proposals), submission-v1 scopes, and unmanaged Implement and Validate remain until a supported owner upgrade. Graph Plan remains held back for new sessions (they select the legacy route) until the owner-run tryout and a separately approved lift; sessions already on graph Plan keep their route.
+- **CONC-24 [enforced]** — Every mode and graph-node application result MUST use the shared communication route (`communication_preflight`, `communication_submit`, `communication_receipt` and the shared result service, `turn.AgentResultService`). Terminal text MUST NOT be a source of application data or of effect inputs, and no missing result falls back to it. Terminal-envelope parsing MAY only check completion and consistency against the retained accepted result; a terminal-only result and one that differs from the retained result MUST each fail with their own cause before anything is retained or any effect follows, whatever decoder a policy names. A nominal decoder MUST NOT satisfy this rule. Today it is enforced for Research and graph Plan by `WorkflowPolicy.Admit` (well-formedness, a closed `RegisteredWorkflowPolicies` registry) and the runtime guard `AgentActivity.acceptRetained`. It MUST apply from introduction to the planned Bug workflow and to graph Implement, Validate and Spike: each MUST register a policy, be admitted, and be covered by the registry-wide guard tests before dispatch, and MUST NOT ship a private result protocol or a terminal-parsing path. Declared compatibility routes are preserved until supported adoption and are not retired by this rule: legacy Plan (v1 full-body proposals), submission-v1 scopes, and unmanaged Implement and Validate remain until a supported owner upgrade. New Plan sessions are admitted to graph Plan (`store.AdmitPlanPath`); sessions already admitted keep their saved route, including legacy Plan v1, until a supported owner upgrade.
 
 ## 5. Style and code shape (`STYLE`)
 
@@ -244,7 +225,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 - **STYLE-7** — Before editing a package, agents MUST read its `doc.go` specification.
 - **STYLE-8** — The factory-supplied `- Mode: X` header MUST remain authoritative. Canonical team guidance in `internal/teamsource/shared/team-guidance/litefactory.md` MUST agree with the prompt header in `internal/harness/prompt.go`. Agent guidance MUST NOT classify, change or dispatch modes. The graph and factory own routing.
-- **STYLE-9** — Loops validating or writing independent items MUST aggregate every item’s failure with `errors.Join`/`joinSorted`, as in CFG-5 and SEC-12; one failure MUST NOT hide unrelated records.
+- **STYLE-9** — Loops validating or writing independent items MUST aggregate every item’s failure with `errors.Join`/`joinSorted`, as in CFG-5; one failure MUST NOT hide unrelated records.
 
 - **STYLE-10** — `agent.RunResult.Succeeded()` (live subprocess) and
   `store.Run.Succeeded()` (persisted row, `internal/store/runs.go`) MUST NOT be
@@ -295,11 +276,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
 | `daemon/record_test.go` | Concurrency and acceptance-identifier invariants |
 | `turn/execute_test.go` (three new tests) | the running write is visible for the whole dispatch window; a refusal touches no session state and clears no failure (CONC-7) |
-| `team/write_test.go` | batch validation, atomic write, symlink refusal, owned-path checks (SEC-12–15) |
-| `team/marker_test.go` | root-file hash covers only the marker span (SEC-16) |
-| `teamsource/render_test.go` | Shared-agent team membership union (SEC-17) |
-| `cli/cmd_team_status_test.go` | Domain versus precondition exits (STYLE-6) |
-| `cli/cmd_team_update_test.go` | Independent outcomes aggregate (STYLE-9) |
+| `cli/cmd_team_binding_test.go` | Domain versus precondition exits for team link/unlink (STYLE-6) |
 | `turn/harvest_test.go`, `turn/subissues_test.go`, `turn/plan_retry_transport_test.go` | Success-only save, publication failure and transport exclusion (CONC-8) |
 | `harness/prompt_previous_failed_test.go` | Untrusted failure-reason framing (SEC-19) |
 | `report/report_test.go` | One worktree location per failure (STYLE-11) |
