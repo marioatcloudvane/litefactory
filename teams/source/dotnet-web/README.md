@@ -1,33 +1,34 @@
-# dotnet-web source candidate
+# dotnet-web canonical source
 
-This unfinished source is not registered or released. Do not install or advertise it.
-The profile currently contains only a fail-closed repository preflight recipe.
-Its sentinel arguments require explicit repository overrides; no solution is discovered
-or chosen automatically. The SDK pin is intentionally unset until verified against
-release-time Microsoft metadata. No .NET application execution is claimed.
+This source consumes the shared profile, neutral-role and multi-source generator
+contracts. It adds no factory runtime branch. Edit this source, not distribution
+files. Generate and check with:
 
-## Two solutions to the predecessor findings
+```
+go run ./cmd/teamrelease -source teams/source/dotnet-web
+go run ./cmd/teamrelease -source teams/source/dotnet-web -check
+```
 
-The team-owned solution uses bounded shell argv in the existing profile contract.
-A preflight recipe takes an exact SDK, repository-relative build target, explicit
-test project, runner declaration and locked-restore declaration. Run it before any
-restore/build/format/test recipe. Retain its bytes with the effective profile;
-repository overrides replace complete recipes, never global factory settings.
-Complete this candidate by validating actual test-project metadata and runner
-selection, constructing locked/unlocked restore and runner-specific test commands,
-and testing every refusal with recording executors. A shell process starting is
-preflight evidence, not a restore/build/test start. Overrides must retain equivalent
-refusal behavior. Do not install SDKs, workloads or tools automatically.
+The six workflow graphs preserve existing topology, positive bounds, result
+contracts and human gates. Stack guidance and compatibility are captured through
+the linked profile. See the bundled Blazor recipe resource for explicit repository
+inputs and permitted overrides. Defaults refuse unset targets rather than guessing.
+Exact team selection uses the existing team link interface and installed release.
+This package establishes release/profile contracts, not live application evidence.
 
-The shared-contract alternative belongs to the prerequisite, outside this story:
-add neutral version-probe assertions and explicit required repository input paths,
-then validate them before the affected command batch. Capture those declarations
-with the effective profile and exercise incompatible host versions, absent targets,
-missing tests and changed overrides with recording executors. This would let teams
-supply values without their own preflight recipes. It is a proposal, not implemented
-shared capability or approval to widen this story.
+## Unresolved shared Validate constraint
 
-Remaining: six neutral workflow/resource mappings, complete recipes and their
-failure tests, verified SDK/runtime/tool compatibility pins, Blazor guidance,
-immutable generation and catalogue entry, exact-selection/capture tests, complete
-affected-package tests, formatting/lint and retained engineering evidence.
+This candidate is not ready to complete the story. The inherited Validate graph
+requires a suite and a write-access repair step. Shared validation rejects removing
+that step or making it read-only. The story requires read-only Validate and forbids
+changing shared workflow approval/permission boundaries. Preserve the existing
+graph until that conflict is resolved; do not present the package checks as proving
+that read-only requirement.
+
+The preferred solution is a separately authorized prerequisite change providing
+a Validate graph/registry that reviews retained Implement checks without suite or
+repair execution, while preserving owner gates and outcomes. Then regenerate this
+unpublished candidate and verify all six workflows against that shared contract.
+The alternative is a factory-approved scope reconciliation stating that only the
+Validate review agents are read-only and that the existing suite/repair stages stay.
+That changes the frozen criterion and must not be inferred by this story worker.
