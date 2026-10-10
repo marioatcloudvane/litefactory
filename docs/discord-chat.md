@@ -40,3 +40,30 @@ accepted a send, followed by a restart or delayed retry, can produce a duplicate
 There is no guarantee of exactly one visible reply in those uncertain cases.
 Confirmed and failed replies lose their answer text; terminal records are purged
 24 hours later. No chat history or interaction tokens are stored.
+
+## Meter walkthrough
+
+As the configured owner in an allowed channel, run `/meter` for the whole factory,
+then `/meter project:OWNER/REPO` for a registered project and
+`/meter project:OWNER/REPO task:ISSUE` for one task. If the same project name is
+registered on more than one forge, use `project:github:OWNER/REPO`.
+
+Try a time window, for example
+`/meter project:OWNER/REPO from:2026-10-01 to:2026-10-10`. Dates mean UTC midnight;
+from includes that instant and to excludes it. Full RFC3339 times work too.
+Optional mode, agent and model arguments narrow the existing report further.
+
+Run `/meter project:OWNER/REPO details:true` and copy the next-page command from
+the reply footer. Each command returns one page and reads the report again. To
+keep the time window fixed while paging, set `to` to the footer's as-of time.
+Check that the estimate label, collection and pricing status, known token
+subtotals, price revisions and overhead exclusion are readable. Partial or
+unpriced usage must say that the total is unknown.
+
+Run `/prices`, then `/prices agent:codex` and `/prices agent:codex model:MODEL`
+to inspect the existing price catalogue. Long catalogues offer the same next-page
+command; `/prices page:2` reads the catalogue again. These commands only read reports;
+prices and accounting settings cannot be changed through chat. A report that
+exceeds existing snapshot limits asks you to narrow the project, task or time
+filter. Confirm these results in your real server as the owner walkthrough;
+the automated fake Discord test does not establish real-server readability.
