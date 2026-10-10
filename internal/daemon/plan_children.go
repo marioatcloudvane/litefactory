@@ -72,7 +72,10 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		// A story still drafting has only the short body the factory wrote, which
 		// is not a draft an owner edit could be read against.
 		if available && draft.Candidate != "" && turn.PlanIssueRevision(child.Title, child.Body) != draft.Revision {
-			scope := planbrief.TaskOwnerScope()
+			scope, err := d.planContentScope(ctx, t)
+			if err != nil {
+				return false, err
+			}
 			if err = turn.ReconcilePlanChildEdit(ctx, d.db, t.ref.String(), t.issue.Number, t.issue.ID, child, scope); err != nil {
 				if !errors.Is(err, turn.ErrPlanChildEdit) {
 					return false, err

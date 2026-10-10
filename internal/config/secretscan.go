@@ -33,6 +33,7 @@ type SecretClass string
 
 // The credential shapes recognised in configuration values (S-7).
 const (
+	ClassDiscordToken  SecretClass = "Discord token"
 	ClassGitHubToken   SecretClass = "github token"
 	ClassAWSAccessKey  SecretClass = "aws access key id"
 	ClassBearerToken   SecretClass = "bearer token"
@@ -71,6 +72,7 @@ type secretPattern struct {
 // secretPatterns is ordered so that the reported class is deterministic when a
 // value could match more than one shape.
 var secretPatterns = []secretPattern{
+	{ClassDiscordToken, regexp.MustCompile(`(?:mfa\.[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{20,})`)},
 	{ClassGitHubToken, regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}`)},
 	{ClassPrivateKey, regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)},
 	{ClassAWSAccessKey, regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)},

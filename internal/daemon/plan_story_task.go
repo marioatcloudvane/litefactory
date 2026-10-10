@@ -53,10 +53,10 @@ func storyWorkID(state planbrief.PlanState, key string) (int64, bool) {
 	return 0, false
 }
 
-// parentWorkID names the work a Plan parent has in the saved state: posting the
+// parentWorkIDWithScope names the work a Plan parent has in the saved state: posting the
 // assembled review once every story has all three approvals.
-func parentWorkID(state planbrief.PlanState) (int64, bool) {
-	if ref, due := state.AssemblyDue(planbrief.TaskOwnerScope()); due {
+func parentWorkIDWithScope(state planbrief.PlanState, scope planbrief.ContentScope) (int64, bool) {
+	if ref, due := state.AssemblyDue(scope); due {
 		return planWorkID("assemble", ref), true
 	}
 	return 0, false
@@ -104,8 +104,46 @@ func (d *Daemon) planWorkFor(ctx context.Context, t *task) (int64, bool, error) 
 	if err != nil {
 		return 0, false, err
 	}
-	id, ok := parentWorkID(state)
+	scope, err := d.planContentScope(ctx, t)
+	if err != nil {
+		return 0, false, err
+	}
+	id, ok := parentWorkIDWithScope(state, scope)
+	if !ok {
+		if err := assemblyBlocked(state, scope); err != nil {
+			d.log.WarnContext(ctx, "plan assembly blocked", slog.String("task", t.ref.String()), slog.Any("error", err))
+		}
+	}
 	return id, ok, nil
+}
+
+// assemblyBlocked returns why the assembled review cannot be posted although
+// every active story has a current approval for each stage and nothing left to settle.
+// It is nil while any story still awaits work or approval.
+func assemblyBlocked(state planbrief.PlanState, scope planbrief.ContentScope) error {
+	active := 0
+	for _, item := range state.Stories {
+		if item.Blocked() {
+			return nil
+		}
+		if !item.Active() {
+			continue
+		}
+		active++
+		if item.Hold != "" || item.Wait != nil || (item.Effect != "" && item.Effect != "applied") || len(item.Draft.Questions) > 0 {
+			return nil
+		}
+		for _, stage := range []string{"story", "technical", "acceptance"} {
+			ref, err := state.ReviewRevision(item.Key, stage)
+			if current := err == nil && ref != "" && item.Approvals[stage] == ref; !current {
+				return nil
+			}
+		}
+	}
+	if active == 0 {
+		return nil
+	}
+	return state.ValidateComplete(scope)
 }
 
 // startPlanWork runs the Plan work a task owes, after its comments: the next

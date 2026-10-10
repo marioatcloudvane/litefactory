@@ -1,0 +1,148 @@
+{
+  "engineering": "passed",
+  "acceptance": "pending Validate",
+  "subagents": 3,
+  "package_suites": {
+    "github.com/cloudvane/litefactory/cmd/teamrelease": {
+      "outcome": "skip",
+      "elapsed": 0.003,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/cmd/litefactory": {
+      "outcome": "pass",
+      "elapsed": 1.6720000000000002,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/graphexec": {
+      "outcome": "pass",
+      "elapsed": 2.539,
+      "log": "race-repair.log"
+    },
+    "github.com/cloudvane/litefactory/internal/agent": {
+      "outcome": "pass",
+      "elapsed": 4.853,
+      "log": "race-repair.log"
+    },
+    "github.com/cloudvane/litefactory/internal/bugchecks": {
+      "outcome": "pass",
+      "elapsed": 4.875,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/meter": {
+      "outcome": "pass",
+      "elapsed": 5.245,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/agentresult": {
+      "outcome": "pass",
+      "elapsed": 5.767,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/planbrief": {
+      "outcome": "pass",
+      "elapsed": 5.19,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/providerprocess": {
+      "outcome": "pass",
+      "elapsed": 4.836,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/submission": {
+      "outcome": "pass",
+      "elapsed": 5.05,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/repos": {
+      "outcome": "pass",
+      "elapsed": 5.947,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/teampackage": {
+      "outcome": "pass",
+      "elapsed": 8.968,
+      "log": "guidance-bounds.log"
+    },
+    "github.com/cloudvane/litefactory/internal/teamsource": {
+      "outcome": "pass",
+      "elapsed": 4.467,
+      "log": "guidance-bounds.log"
+    },
+    "github.com/cloudvane/litefactory/internal/rights": {
+      "outcome": "pass",
+      "elapsed": 10.76,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/report": {
+      "outcome": "pass",
+      "elapsed": 15.084,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/teamrelease": {
+      "outcome": "pass",
+      "elapsed": 56.417,
+      "log": "guidance-bounds.log"
+    },
+    "github.com/cloudvane/litefactory/internal/doctor": {
+      "outcome": "pass",
+      "elapsed": 46.334,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/git": {
+      "outcome": "pass",
+      "elapsed": 70.083,
+      "log": "race-repair.log"
+    },
+    "github.com/cloudvane/litefactory/internal/codex": {
+      "outcome": "pass",
+      "elapsed": 80.008,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/harness": {
+      "outcome": "pass",
+      "elapsed": 85.389,
+      "log": "race-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/cli": {
+      "outcome": "pass",
+      "elapsed": 42.215,
+      "log": "final-workflows.log"
+    },
+    "github.com/cloudvane/litefactory/internal/store": {
+      "outcome": "pass",
+      "elapsed": 70.67,
+      "log": "sql-packages.log"
+    },
+    "github.com/cloudvane/litefactory/internal/daemon": {
+      "outcome": "pass",
+      "elapsed": 135.56,
+      "log": "final-workflows.log"
+    },
+    "github.com/cloudvane/litefactory/internal/turn": {
+      "outcome": "pass",
+      "elapsed": 530.433,
+      "log": "final-workflows.log"
+    },
+    "github.com/cloudvane/litefactory/internal/config": {
+      "outcome": "pass",
+      "elapsed": 10.175,
+      "log": "race-repair.log"
+    }
+  },
+  "host_restricted_stack_test_skips": [
+    "TestStackCommandsRetainFailureAndEffectiveEnvironment/setup",
+    "TestStackCommandsRetainFailureAndEffectiveEnvironment/checks",
+    "TestStackCommandsCancelledRemainFailed"
+  ],
+  "checks": {
+    "build": "passed",
+    "lint": "passed: zero findings",
+    "formatting": "passed",
+    "whitespace": "passed",
+    "release_check": "passed",
+    "historical_catalogue_and_bytes": "unchanged"
+  },
+  "implementation_manifest_sha256": "32c4c8a1e5258acdf792705c895572a1ecdc69e49879c01a51256d9a2a0cdc28",
+  "full_repository_suite": "not run; reserved for Validate",
+  "remote_effects": "no commit, push or publication performed"
+}

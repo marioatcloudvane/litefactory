@@ -114,7 +114,7 @@ func (d PlanDraft) Validate(stage string, scope ContentScope) error {
 	}
 	seen := map[string]bool{}
 	for _, g := range d.Guidance {
-		if !slices.Contains([]string{"go", "agent-setup"}, g) || seen[g] {
+		if !slices.Contains(guidanceScope(scope), g) || seen[g] {
 			faults = append(faults, errors.New("invalid or duplicate selected guidance"))
 		}
 		seen[g] = true
@@ -186,9 +186,8 @@ func (d PlanDraft) validateCompletion(scope ContentScope) []error {
 		ids[c.ID] = true
 	}
 	graph := map[string][]string{}
-	roles := contentSet(scope.Roles)
 	for _, t := range d.Tasks {
-		if !proposalKey.MatchString(t.ID) || !roles[t.OwnerRole] || strings.TrimSpace(t.Description) == "" || len(t.CriterionIDs) == 0 {
+		if !proposalKey.MatchString(t.ID) || !scopeAdmitsRole(scope, t.OwnerRole) || strings.TrimSpace(t.Description) == "" || len(t.CriterionIDs) == 0 {
 			faults = append(faults, errors.New("task requires ID, description, authorized role and criterion links"))
 		}
 		if _, ok := graph[t.ID]; ok {

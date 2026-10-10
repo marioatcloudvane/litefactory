@@ -35,6 +35,7 @@ const (
 //	blocked  anything that stops it measuring or running: no baseline, no
 //	         change, unusable claim, git or recipe problem, sandbox or timeout
 type SpikeCheckActivity struct {
+	StackProfile *config.ResolvedStackProfile
 	Profile      *graphexec.Profile
 	Context      func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error)
 	Destinations func() (string, string, error)
@@ -253,7 +254,10 @@ func (h SpikeCheckActivity) Execute(ctx context.Context, opts Options, req Activ
 		if opts.MCP == nil {
 			return blocked("the check sandbox is not configured")
 		}
-		isolation := opts.MCP.BugChecksIsolation
+		isolation, err := opts.MCP.BugChecksIsolation.WithStackProfile(h.StackProfile)
+		if err != nil {
+			return blocked("stack.environment: retained configuration is invalid")
+		}
 		if err := isolation.Validate(); err != nil {
 			return blocked("the check sandbox is unavailable: " + err.Error())
 		}
@@ -268,6 +272,10 @@ func (h SpikeCheckActivity) Execute(ctx context.Context, opts Options, req Activ
 		}
 		record.Phases = append(record.Phases, name)
 		for _, command := range phase.Commands {
+			command, err := pinnedStackCommand(h.StackProfile, command)
+			if err != nil {
+				return blocked(err.Error())
+			}
 			result := run(ctx, worktree.Path(), command)
 			record.Commands = append(record.Commands, spikeCheckCommandOf(name, command, result))
 			switch result.Outcome {

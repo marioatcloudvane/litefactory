@@ -1,0 +1,11 @@
+{
+  "previous_catalogue_entries_preserved": true,
+  "historical_release_changes": [],
+  "release_identity": {
+    "slug": "python-fastapi",
+    "version": "1.0.0",
+    "checksum": "b798d62ba207bc6e91959dd30a43ddc6e366fae972cd80dafa7d50d2678675a1"
+  },
+  "inventory_count": 201,
+  "inventory_hashes_match": true
+}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"slices"
 
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
@@ -81,6 +82,20 @@ func (a *CatalogueAccess) withSelected(ctx context.Context, source, slug, versio
 	if !maps.Equal(copiedMap, entry.Workflows) {
 		return errors.New("team.config changed during capture")
 	}
+	profile, err := captureStackProfile(files, entry)
+	if err != nil {
+		return err
+	}
+	if profile != nil {
+		if slices.Contains(profile.OverrideFields, "guidance") {
+			if err := captureOverrideInventory(ctx, root, files, entry); err != nil {
+				return err
+			}
+		}
+		if _, err := teamsource.CaptureStackGuidance(ctx, files, *profile); err != nil {
+			return fmt.Errorf("%w: stack-profile.guidance: %w", ErrInvalidPackage, err)
+		}
+	}
 	mapped := entry.Workflows
 	if workflow != "" {
 		mapped = map[string]string{}
@@ -148,4 +163,66 @@ func (f *stablePackageFiles) verify() error {
 		}
 	}
 	return nil
+}
+
+// IsLegacyProfileless identifies the historical Go releases whose original
+// inventories predate stack profiles. No other team or version inherits Go.
+func IsLegacyProfileless(identity Identity) bool {
+	return identity.Slug == "go-development" && (identity.Version == "1.0.0" || identity.Version == "1.1.1")
+}
+
+func captureStackProfile(files fs.FS, entry Installed) (*config.StackProfile, error) {
+	raw, err := fs.ReadFile(files, config.StackProfilePath)
+	if err != nil {
+		legacy := IsLegacyProfileless(entry.Identity)
+		if entry.Editable {
+			legacy = entry.Origin != nil && IsLegacyProfileless(Identity{Slug: entry.Origin.Slug, Version: entry.Origin.Version})
+		}
+		if errors.Is(err, fs.ErrNotExist) && legacy {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%w: stack-profile: required profile unavailable", ErrInvalidPackage)
+	}
+	profile, err := config.DecodeStackProfile(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: stack-profile: %w", ErrInvalidPackage, err)
+	}
+	return &profile, nil
+}
+
+// Permitted guidance overrides are resolved after repository bytes are admitted.
+// Retain the complete verified inventory so that resolution never reopens disk.
+func captureOverrideInventory(ctx context.Context, root *os.Root, files *stablePackageFiles, entry Installed) error {
+	if !entry.Editable {
+		for _, file := range entry.Release.Files {
+			if _, err := fs.ReadFile(files, file.Path); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	count := 0
+	return fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if name == "." {
+			return nil
+		}
+		count++
+		if !safePath(name) || count > MaxFiles {
+			return errors.New("stack-profile.guidance: local inventory exceeds bounds or contains an unsafe path")
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return errors.New("stack-profile.guidance: local inventory contains an unsafe file")
+		}
+		_, err = fs.ReadFile(files, name)
+		return err
+	})
 }
