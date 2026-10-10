@@ -37,3 +37,45 @@ _No source reference was recorded for this finding._
 No Linear or Jira code exists. Repo-wide search found nothing.
 
 _No source reference was recorded for this finding._
+
+## F-7
+
+Existing ticket operations include PostComment, EditComment, CreateIssue, UpdateIssue, SetStoryState, RetirePlanStory and CloseDeliveredParent; the earlier interface list omitted them. Evidence: internal/github/comments.go, issues.go, managed_issues.go, story_state.go, plan_retirement.go and delivery.go.
+
+_No source reference was recorded for this finding._
+
+## F-8
+
+Sessions identify tickets by repo_id plus integer issue_number and build task references from code forge/owner/repository; owner replies compare numeric GitHub author IDs. Evidence: internal/store/sessions.go and internal/daemon/research_owner_resume.go.
+
+_No source reference was recorded for this finding._
+
+## F-9
+
+Webhook configuration includes listen and public_url, hook records are per repository, and polling is validated within 1–180 minutes. Evidence: internal/config/webhook.go, internal/store/repo_webhooks.go and internal/config/validate.go.
+
+_No source reference was recorded for this finding._
+
+## F-10
+
+Linear documentation describes team-specific statuses, a reserved Duplicate status and additional Triage; the prior five-type explanation was inaccurate. Source: https://linear.app/docs/configuring-workflows
+
+_No source reference was recorded for this finding._
+
+## F-11
+
+Linear sub-issues support parent relationships, do not inherit labels, and team-level automation can automatically close parents or children. Source: https://linear.app/docs/parent-and-sub-issues
+
+_No source reference was recorded for this finding._
+
+## F-12
+
+Linear webhooks support issues/comments and workspace or team scope, require admin management rights and HMAC raw-body signature/timestamp verification; API keys can be restricted by permission and team. Sources: https://linear.app/developers/webhooks and https://linear.app/docs/api-and-webhooks
+
+_No source reference was recorded for this finding._
+
+## F-13
+
+Linear has a public GraphQL endpoint and API-key authentication; no authenticated workspace check or live mutation was performed. Source: https://linear.app/developers/graphql
+
+_No source reference was recorded for this finding._
