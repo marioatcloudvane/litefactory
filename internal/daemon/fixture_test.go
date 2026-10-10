@@ -1159,6 +1159,7 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	}
 	if overrides.Webhook != nil {
 		opts.Webhook = overrides.Webhook
+		opts.Chat = overrides.Chat
 	}
 	if overrides.ShutdownGrace != 0 {
 		opts.ShutdownGrace = overrides.ShutdownGrace
