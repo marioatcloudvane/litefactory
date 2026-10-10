@@ -1,0 +1,11 @@
+{
+  "name": "Swift iOS",
+  "slug": "swift-ios",
+  "version": "1.0.0",
+  "description": "Swift iOS workflows and guidance; offline package validation, with live macOS execution deferred.",
+  "tags": [
+    "swift",
+    "ios"
+  ],
+  "download": "swift-ios/v1.0.0"
+}
