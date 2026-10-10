@@ -689,3 +689,145 @@ func TestImplementWorkerPublishesFullRetainedOwnerQuestion(t *testing.T) {
 		t.Fatal("reading status posted another comment")
 	}
 }
+
+const implementConflictBlockedJSON = `{"version":1,"response":"blocked","result":{"outcome":"blocked","comment":"The merge could not be resolved.","reason":"The conflict in shared.go needs a decision on which handler wins.","payload":{"implement":{"stories":[]}}}}`
+
+// seedStoryParentConflict gives the worker's story branch and its parent's
+// branch two different edits of shared.go and returns the parent's tip.
+func seedStoryParentConflict(t *testing.T, f *fixture) string {
+	t.Helper()
+	ctx := t.Context()
+	f.opts.AutoSyncBase = true
+	f.opts.BlockRunOnConflict = true
+
+	f.repo.Git("checkout", "--quiet", "--detach")
+	f.repo.WriteFile("shared.go", "package api // story\n")
+	f.repo.Commit("story edits shared.go")
+	f.repo.Git("push", "--quiet", "origin", "HEAD:refs/heads/"+testBranch)
+	f.repo.Git("checkout", "--quiet", "-")
+	_, err := f.db.FreezeSessionSlug(ctx, f.session.ID, testSlug, testBranch)
+	mustProgress(t, err)
+
+	parent := f.otherSession(900)
+	const parentBranch = "lf/900-feature"
+	_, err = f.db.FreezeSessionSlug(ctx, parent.ID, "feature", parentBranch)
+	mustProgress(t, err)
+	f.repo.Git("checkout", "--quiet", "-b", parentBranch)
+	f.repo.WriteFile("shared.go", "package api // merged sibling\n")
+	f.repo.Commit("merge a sibling story")
+	f.repo.Git("push", "--quiet", "origin", parentBranch)
+	tip := f.repo.Git("rev-parse", "HEAD")
+	f.repo.Git("checkout", "--quiet", "-")
+	return tip
+}
+
+// A story whose branch conflicts with its parent's branch is not refused: the
+// worker starts on the started merge, resolves it, and the save concludes it.
+func TestImplementWorkerResolvesAConflictWithItsParentsBranch(t *testing.T) {
+	var prompt, mergeHead string
+	var f *fixture
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompt = req.Prompt
+		mergeHead = f.repo.GitIn(req.WorktreePath, "rev-parse", "MERGE_HEAD")
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // story and merged sibling\n"), 0o600))
+		submitLiveResult(t, req, implementCompletedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	parentTip := seedStoryParentConflict(t, f)
+
+	out, err := Execute(t.Context(), f.opts, req)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("the conflicted story ran instead of being refused: %+v %v", out, err)
+	}
+	if mergeHead != parentTip {
+		t.Fatalf("MERGE_HEAD = %q, want the parent's tip %s", mergeHead, parentTip)
+	}
+	for _, want := range []string{"## Merge conflict to resolve", `"lf/900-feature"`, `- "shared.go"`, "Do not commit"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the worker prompt lacks %q", want)
+		}
+	}
+	if row := implementWorkerRow(t, f); row.State != store.ImplementDone {
+		t.Fatalf("the resolved story is done: %+v", row)
+	}
+	remote := strings.Fields(f.repo.Git("ls-remote", "origin", "refs/heads/"+testBranch))
+	if len(remote) != 2 {
+		t.Fatalf("story branch missing on origin: %v", remote)
+	}
+	f.repo.Git("fetch", "--quiet", "origin")
+	parents := strings.Fields(f.repo.Git("rev-list", "--parents", "-n", "1", remote[0]))
+	if len(parents) != 3 || parents[2] != parentTip {
+		t.Fatalf("the story head is not a merge of the parent's tip: %v", parents)
+	}
+	if got := f.repo.Git("show", remote[0]+":shared.go"); got != "package api // story and merged sibling" {
+		t.Fatalf("shared.go = %q", got)
+	}
+}
+
+// A worker that cannot resolve the conflict parks the story naming the file;
+// the owner's restart starts the worker again on the merge still in progress,
+// with the reply as guidance, instead of failing the turn.
+func TestImplementWorkerUnresolvedConflictParksAndTheOwnerRestartRuns(t *testing.T) {
+	var prompts []string
+	var f *fixture
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompts = append(prompts, req.Prompt)
+		if len(prompts) == 1 {
+			submitLiveResult(t, req, implementConflictBlockedJSON)
+		} else {
+			mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // the story's handler wins\n"), 0o600))
+			submitLiveResult(t, req, implementCompletedJSON)
+		}
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	parentTip := seedStoryParentConflict(t, f)
+
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	row := implementWorkerRow(t, f)
+	if row.State != store.ImplementParked || row.ParkOrigin != store.ImplementOriginWorker || !strings.Contains(row.Reason, "shared.go") {
+		t.Fatalf("the unresolved conflict parks the story naming the file: %+v", row)
+	}
+	sess, err := f.db.GetSessionByTaskRef(t.Context(), f.session.TaskRef)
+	mustProgress(t, err)
+	if got := f.repo.GitIn(sess.WorktreePath, "rev-parse", "MERGE_HEAD"); got != parentTip {
+		t.Fatalf("the unresolved merge stays in progress, uncommitted: MERGE_HEAD=%q", got)
+	}
+	if status := f.repo.GitIn(sess.WorktreePath, "status", "--porcelain"); !strings.Contains(status, "shared.go") {
+		t.Fatalf("the conflict stays in the worktree: %q", status)
+	}
+
+	// The owner's reply resumes it (as resumeStories does) and ready restarts it.
+	const reply = "story-001: keep the story's handler."
+	row, err = f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: implementTaskParent, Generation: 1, Key: "story-001", From: store.ImplementParked, To: store.ImplementWaiting, ExpectedRevision: row.Revision, Guidance: reply, At: implementClock})
+	mustProgress(t, err)
+	_, err = f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: implementTaskParent, Generation: 1, Key: "story-001", From: store.ImplementWaiting, To: store.ImplementRunning, ExpectedRevision: row.Revision, At: implementClock})
+	mustProgress(t, err)
+	mustProgress(t, f.db.SetImplementWorkerSession(t.Context(), implementTaskParent, 1, "story-001", f.session.ID, implementClock))
+
+	restart := req
+	restart.Trigger.CommentID, restart.Trigger.Body = req.Trigger.CommentID+1000, "Start the story worker."
+	out, err := Execute(t.Context(), f.opts, restart)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("the restarted worker ran instead of failing the turn: %+v %v", out, err)
+	}
+	if len(prompts) != 2 {
+		t.Fatalf("the worker ran twice: %d", len(prompts))
+	}
+	for _, want := range []string{"## Merge conflict to resolve", `- "shared.go"`, "keep the story's handler"} {
+		if !strings.Contains(prompts[1], want) {
+			t.Errorf("the restarted worker prompt lacks %q", want)
+		}
+	}
+	if row := implementWorkerRow(t, f); row.State != store.ImplementDone || row.LastFailure != "" {
+		t.Fatalf("the restarted story is done: %+v", row)
+	}
+	if parents := strings.Fields(f.repo.GitIn(sess.WorktreePath, "rev-list", "--parents", "-n", "1", "HEAD")); len(parents) != 3 || parents[2] != parentTip {
+		t.Fatalf("the restarted worker's save concluded the merge: %v", parents)
+	}
+}
