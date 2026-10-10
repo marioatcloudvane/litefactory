@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -114,6 +115,7 @@ type Service struct {
 	mu               sync.RWMutex
 	commands         map[string]Handler
 	definitions      map[string]CommandDefinition
+	ask              *ask.Service
 }
 
 // New copies admission rules and registers help, health and status.
@@ -192,7 +194,12 @@ func (s *Service) Admit(ctx context.Context, m Message, at time.Time) (allowed, 
 	if m.Transport != s.transport || !s.channels[m.Channel] || m.Sender != s.owner {
 		return false, false, nil
 	}
-	inserted, err = s.db.AdmitChatReply(ctx, store.ChatReply{Transport: m.Transport, MessageID: m.ID, ChannelRef: m.Channel, Command: m.Command, Arguments: m.Arguments, CreatedAt: at})
+	r := store.ChatReply{Transport: m.Transport, MessageID: m.ID, ChannelRef: m.Channel, Command: m.Command, Arguments: m.Arguments, CreatedAt: at}
+	if m.Command == "ask" && (strings.TrimSpace(m.Arguments["question"]) == "" || len(m.Arguments["question"]) > 8192 || len(m.Arguments["project"]) > 256 || !validArguments(m.Arguments, []string{"question", "project"})) {
+		r.ReplyText = ask.TurnPrefix(m.Arguments["question"], m.Arguments["project"]) + "Please give a question up to 8192 bytes and an optional project up to 256 bytes."
+		r.Arguments = nil
+	}
+	inserted, err = s.db.AdmitChatReply(ctx, r)
 	return true, inserted, err
 }
 
@@ -206,6 +213,11 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if r.Command == "ask" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+	}
 	if !at.Before(r.CreatedAt.Add(24 * time.Hour)) {
 		return true, s.finish(ctx, r, true, at)
 	}
@@ -214,9 +226,15 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		s.mu.RLock()
 		h := s.commands[r.Command]
 		s.mu.RUnlock()
-		if h == nil {
+		switch {
+		case r.Command == "ask":
+			r, text, err = s.answer(ctx, r, at)
+			if err != nil {
+				return true, err
+			}
+		case h == nil:
 			text = "unknown command, try /help"
-		} else {
+		default:
 			text, err = h(ctx, Message{Transport: r.Transport, ID: r.MessageID, Channel: r.ChannelRef, Command: r.Command, Arguments: r.Arguments}, at)
 			if err != nil {
 				return true, s.retry(ctx, r, at, 0)
