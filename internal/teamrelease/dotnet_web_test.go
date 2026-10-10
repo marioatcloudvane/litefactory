@@ -20,11 +20,16 @@ import (
 )
 
 const dotnetSource = "teams/source/dotnet-web"
-const dotnetRelease = "../../teams/dotnet-web/v1.0.0"
+
+// dotnetRelease is the published directory of the current dotnet-web release.
+func dotnetRelease(t *testing.T) string {
+	t.Helper()
+	return "../../teams/dotnet-web/v" + sourceVersion(t, "../../"+dotnetSource)
+}
 
 func dotnetProfile(t *testing.T) config.ResolvedStackProfile {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(dotnetRelease, config.StackProfilePath))
+	raw, err := os.ReadFile(filepath.Join(dotnetRelease(t), config.StackProfilePath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +57,9 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, filepath.Join(root, "teams"))) {
 		t.Fatal("regeneration changed catalogue or historical release bytes")
 	}
-	// Rebuild this team's unpublished fixture from source, retaining every other release.
+	// Rebuild this team's current release from source, retaining every other release
+	// (including this team's history).
+	version := sourceVersion(t, filepath.Join(root, dotnetSource))
 	raw, err := os.ReadFile(filepath.Join(root, "teams/teams.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +70,7 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 	}
 	releases := catalogue.Releases[:0]
 	for _, release := range catalogue.Releases {
-		if release.Slug != "dotnet-web" {
+		if release.Slug != "dotnet-web" || release.Version != version {
 			releases = append(releases, release)
 		}
 	}
@@ -73,7 +80,7 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(root, "teams/teams.json"), raw)
-	if err := os.RemoveAll(filepath.Join(root, "teams/dotnet-web")); err != nil {
+	if err := os.RemoveAll(filepath.Join(root, "teams/dotnet-web", "v"+version)); err != nil {
 		t.Fatal(err)
 	}
 	if err := GenerateSources(t.Context(), root, false, []string{dotnetSource}); err != nil {
@@ -87,11 +94,11 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, _, err := m.Install(t.Context(), filepath.Join(root, "teams/teams.json"), "dotnet-web", "1.0.0")
+	installed, _, err := m.Install(t.Context(), filepath.Join(root, "teams/teams.json"), "dotnet-web", version)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if installed.Identity.Slug != "dotnet-web" || installed.Identity.Version != "1.0.0" || len(installed.Workflows) != 6 {
+	if installed.Identity.Slug != "dotnet-web" || installed.Identity.Version != version || len(installed.Workflows) != 6 {
 		t.Fatal("exact identity or six workflows missing")
 	}
 	for _, path := range []string{"team.config", "stack-profile.json", "plan/skills/blazor-guidance/compatibility.md", "plan/skills/blazor-guidance/practices.md"} {
@@ -121,7 +128,7 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 
 func TestDotnetWebCapturedGuidanceAndProviderReplay(t *testing.T) {
 	p := dotnetProfile(t)
-	source := os.DirFS(dotnetRelease)
+	source := os.DirFS(dotnetRelease(t))
 	guidance, err := teamsource.CaptureStackGuidance(t.Context(), source, p.Effective)
 	if err != nil {
 		t.Fatal(err)
@@ -198,11 +205,11 @@ func TestDotnetWebCapturedGuidanceAndProviderReplay(t *testing.T) {
 
 func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 	p := dotnetProfile(t)
-	matrix, err := os.ReadFile(filepath.Join(dotnetRelease, "plan/skills/blazor-guidance/compatibility.md"))
+	matrix, err := os.ReadFile(filepath.Join(dotnetRelease(t), "plan/skills/blazor-guidance/compatibility.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	practices, err := os.ReadFile(filepath.Join(dotnetRelease, "plan/skills/blazor-guidance/practices.md"))
+	practices, err := os.ReadFile(filepath.Join(dotnetRelease(t), "plan/skills/blazor-guidance/practices.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +233,7 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		released, err := os.ReadFile(filepath.Join(dotnetRelease, mode, mode+".dot"))
+		released, err := os.ReadFile(filepath.Join(dotnetRelease(t), mode, mode+".dot"))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -26,6 +26,12 @@ func swiftFixture(t *testing.T) string {
 	return root
 }
 
+// swiftRelease is the published directory of the current swift-ios release.
+func swiftRelease(t *testing.T) string {
+	t.Helper()
+	return "../../teams/swift-ios/v" + sourceVersion(t, "../teamsource/swift-ios")
+}
+
 // These tests prove offline package contracts, never live Apple execution.
 func TestSwiftIOSReleaseSelectionAndReproducibility(t *testing.T) {
 	t.Parallel()
@@ -62,8 +68,9 @@ func TestSwiftIOSReleaseSelectionAndReproducibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, _, err := manager.Install(t.Context(), filepath.Join(root, "teams/teams.json"), "swift-ios", "1.0.0")
-	if err != nil || installed.Identity.Slug != "swift-ios" || installed.Identity.Version != "1.0.0" {
+	version := sourceVersion(t, "../teamsource/swift-ios")
+	installed, _, err := manager.Install(t.Context(), filepath.Join(root, "teams/teams.json"), "swift-ios", version)
+	if err != nil || installed.Identity.Slug != "swift-ios" || installed.Identity.Version != version {
 		t.Fatal("exact Swift selection failed", err)
 	}
 	all := snapshot(t, filepath.Join(root, "teams"))
@@ -73,19 +80,19 @@ func TestSwiftIOSReleaseSelectionAndReproducibility(t *testing.T) {
 	if !reflect.DeepEqual(all, snapshot(t, filepath.Join(root, "teams"))) {
 		t.Fatal("check mode wrote files")
 	}
-	put(t, filepath.Join(root, "teams/swift-ios/v1.0.0/stack-profile.json"), []byte(`{"version":99}`))
+	put(t, filepath.Join(root, "teams/swift-ios/v"+version+"/stack-profile.json"), []byte(`{"version":99}`))
 	manager, err = teampackage.New(teampackage.Options{Paths: config.NewPaths(canonicalTemp(t)), Validate: turn.ValidateTeamWorkflows})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := manager.Install(t.Context(), filepath.Join(root, "teams/teams.json"), "swift-ios", "1.0.0"); err == nil {
+	if _, _, err := manager.Install(t.Context(), filepath.Join(root, "teams/teams.json"), "swift-ios", version); err == nil {
 		t.Fatal("checksum corruption accepted")
 	}
 }
 
 func TestSwiftIOSProfileGuidanceAndMissingInputs(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile("../../teams/swift-ios/v1.0.0/stack-profile.json")
+	raw, err := os.ReadFile(swiftRelease(t) + "/stack-profile.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +103,7 @@ func TestSwiftIOSProfileGuidanceAndMissingInputs(t *testing.T) {
 	if !reflect.DeepEqual(p.Effective.Requirements.OS, []string{"darwin"}) || len(p.Effective.Checks) != 2 || len(p.Effective.Setup) != 1 {
 		t.Fatal("missing Swift host or recipes")
 	}
-	doc, err := os.ReadFile("../../teams/swift-ios/v1.0.0/plan/skills/swift-ios-guidance/compatibility.md")
+	doc, err := os.ReadFile(swiftRelease(t) + "/plan/skills/swift-ios-guidance/compatibility.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +193,7 @@ func TestSwiftIOSInvalidSourceRejected(t *testing.T) {
 
 func TestSwiftIOSToolchainPreflightWithOfflineHostFacts(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile("../../teams/swift-ios/v1.0.0/stack-profile.json")
+	raw, err := os.ReadFile(swiftRelease(t) + "/stack-profile.json")
 	if err != nil {
 		t.Fatal(err)
 	}

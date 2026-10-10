@@ -80,17 +80,18 @@ func TestPythonFastAPIReleasePreservesHistoryAndClosure(t *testing.T) {
 	if !reflect.DeepEqual(after, snapshot(t, filepath.Join(root, "teams"))) {
 		t.Fatal("check mode wrote release")
 	}
+	current := "python-fastapi/v" + sourceVersion(t, "../teamsource/python-fastapi") + "/"
 	for _, w := range workflows {
 		original, err := os.ReadFile(filepath.Join("../teamsource", w, w+".dot"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(after["python-fastapi/v1.0.0/"+w+"/"+w+".dot"], bytes.ReplaceAll(original, []byte(`team="go-development"`), []byte(`team="python-fastapi"`))) {
+		if !bytes.Equal(after[current+w+"/"+w+".dot"], bytes.ReplaceAll(original, []byte(`team="go-development"`), []byte(`team="python-fastapi"`))) {
 			t.Fatal("workflow contract changed", w)
 		}
 	}
 	for _, name := range []string{"team.config", "stack-profile.json", "plan/skills/plan-python-fastapi-guidance/backend.md", "plan/skills/plan-python-fastapi-guidance/frontend.md", "implement/skills/team-guidance/supported-versions.md"} {
-		if len(after["python-fastapi/v1.0.0/"+name]) == 0 {
+		if len(after[current+name]) == 0 {
 			t.Fatal("missing packaged resource", name)
 		}
 	}
@@ -106,13 +107,14 @@ func TestPythonFastAPICaptureForBothProvidersAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalogue := filepath.Join(root, "teams/teams.json")
-	installed, _, err := manager.Install(t.Context(), catalogue, "python-fastapi", "1.0.0")
+	version := sourceVersion(t, "../teamsource/python-fastapi")
+	installed, _, err := manager.Install(t.Context(), catalogue, "python-fastapi", version)
 	if err != nil {
 		t.Fatal(err)
 	}
 	retained := teamsource.RetainedFiles{}
 	err = manager.WithCatalogue(t.Context(), func(access *teampackage.CatalogueAccess) error {
-		return access.WithSelected(t.Context(), catalogue, "python-fastapi", "1.0.0", func(selected teampackage.Installed, files fs.FS) error {
+		return access.WithSelected(t.Context(), catalogue, "python-fastapi", version, func(selected teampackage.Installed, files fs.FS) error {
 			if !reflect.DeepEqual(selected.Identity, installed.Identity) || !selected.Integrity || len(selected.Workflows) != 6 {
 				t.Fatal("exact linked selection lost release identity or integrity")
 			}
