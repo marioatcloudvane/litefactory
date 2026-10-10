@@ -4,54 +4,60 @@ _Technical detail behind [the brief](RESEARCH_BRIEF.md). Findings carry the sour
 
 ## F1
 
-The daemon treats only the owner as an instruction source. The identity package resolves the owner from gh and checks bot != owner so the daemon never reads its own comments as instructions. A bot-signed babysitter comment cannot start a run. Source: internal/identity/doc.go; internal/daemon/tick.go comment handling.
+The daemon treats only the owner as an instruction source; identity checks bot != owner. Bot comments cannot drive a run, so steering needs a daemon-internal path. Source: internal/identity/doc.go; internal/daemon/tick.go.
 
 _No source reference was recorded for this finding._
 
 ## F2
 
-Bug approval requires the authenticated owner. AdmitGraphBugOwnerReply accepts only the exact approve-bug analysis command with a revision; store.GraphOwnerReply validation requires AuthorID == OwnerID. docs say only factory-authenticated exact owner approval authorizes repair. A babysitter approval needs a new daemon path. Source: internal/turn/bug_conversation.go; internal/store/graph_owner_waits.go:74; docs/workflow/bug-runtime.md.
+Bug approval needs the authenticated owner: the stored reply must have author equal to owner. A babysitter approval needs a new delegated path. Source: internal/turn/bug_conversation.go; internal/store/graph_owner_waits.go; docs/workflow/bug-runtime.md.
 
 _No source reference was recorded for this finding._
 
 ## F3
 
-Bug workflow shape: one graph with an owner conversation using a read-only flagship analyst, approval, one fixer, then factory finalization (push, PR, merge, issue close). Stopped origins resume on an ordinary owner reply as guidance; guidance grants no approval. Source: docs/workflow/bug-runtime.md; internal/turn/bug_analysis_policy.go.
+internal/rights covers only tagged graph actions and has no delegated-actor concept. #495 closed. Source: internal/rights/doc.go.
 
 _No source reference was recorded for this finding._
 
 ## F4
 
-Only /approve-bug is routed as a Bug control command; other commands fall through to normal handling. A /babysit command does not exist. Source: internal/daemon/bug_commands.go.
+Doctor (#529, now closed) exists: a saved conversation, isolated read tools, typed repair with holds, and provider selection that tries the issue's agent then every configured agent at flagship. It is issue-scoped, started from the CLI. Source: internal/doctor/service.go; internal/doctor/read_tools.go; internal/cli/cmd_doctor.go.
 
 _No source reference was recorded for this finding._
 
 ## F5
 
-No babysit code exists: a case-insensitive repo-wide search for babysit found nothing.
+No messaging or Discord code is in main. #562 has three stories stopped (including Discord delivery guarantees). Source: repo search; gh issue 562 comments.
 
 _No source reference was recorded for this finding._
 
 ## F6
 
-Tiers flagship, balanced and fast map to models per vendor. Agents are an ordered config list; the first is the default. No hook for using the other agent was found. Source: internal/config/tier.go; internal/config/config.go.
+The neutral ticket protocol (#556, #609) is open and unmerged. The code is GitHub-specific today. Source: gh issues; internal/github.
 
 _No source reference was recorded for this finding._
 
 ## F7
 
-internal/rights covers only actions tagged lf_rights and answers whether a person may take an action. No delegated-actor or bot-actor concept was found. Issue #495 is closed; #529 is open. Source: internal/rights/doc.go; gh issue state.
+No babysit code exists anywhere in the repository.
 
 _No source reference was recorded for this finding._
 
 ## F8
 
-Only a run-count limit exists: settings.max_concurrent_runs, default 3. No CPU or load measure was found. Source: internal/config/config.go.
+Only a run-count limit exists (max concurrent runs, default 3); no load measure. Source: internal/config/config.go.
 
 _No source reference was recorded for this finding._
 
 ## F9
 
-TestMCPServer_SizeBounds is a real test in internal/mcpadapter. Known-flake detection would need a list or a rerun policy. Source: internal/mcpadapter/server_test.go:380.
+The daemon can be woken by hints (the webhook sink) and by wake sources in the tick, so event-driven wake-ups have a precedent. Source: internal/webhook/doc.go; internal/daemon/daemon.go.
+
+_No source reference was recorded for this finding._
+
+## F10
+
+Observed in the owner's learnings: the worst failures were changes to the running system (deploy during worker launch #587, team relink mid-Plan #562). Source: issue direction comment of 2026-10-10.
 
 _No source reference was recorded for this finding._
