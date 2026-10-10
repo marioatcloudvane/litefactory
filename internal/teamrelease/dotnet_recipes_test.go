@@ -7,7 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/cloudvane/litefactory/internal/testutil"
 )
 
 // This shim records bounded recipes offline. It is not a .NET application build.
@@ -96,7 +97,9 @@ esac
 			if mtp == "" {
 				mtp = "false"
 			}
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			// A hang bound only: the recipe preflight forks several processes and the
+			// full suite loads the host, so a short limit kills runs mid-check.
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.Wait)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 			cmd.Dir = dir
