@@ -1,6 +1,7 @@
 # Discord factory commands
 
-Discord chat is optional and read only. Enable the existing webhook listener and
+Discord chat is optional. Commands read factory state, except `/answer`, which
+supplies an answer to an existing Research question. Enable the existing webhook listener and
 set its public HTTPS GitHub endpoint (for example,
 `https://your-factory-address/litefactory/webhook`). Keep that endpoint unchanged
 when adding the Discord route. Your tunnel or proxy must forward both paths to
@@ -40,6 +41,33 @@ accepted a send, followed by a restart or delayed retry, can produce a duplicate
 There is no guarantee of exactly one visible reply in those uncertain cases.
 Confirmed and failed replies lose their answer text; terminal records are purged
 24 hours later. No chat history or interaction tokens are stored.
+
+## Issue diagnosis and Research answers
+
+Run `/diagnose project:OWNER/REPO issue:NUMBER` to explain a stuck issue. A unique
+repository name also works; the issue number must be positive. An optional `note`
+adds context. Diagnosis waits for the existing doctor slot and returns findings,
+coverage gaps and open questions. It never applies repairs or posts to the issue.
+Interrupted diagnoses get one restart retry. Optional notes stay in memory and
+are omitted after a restart.
+
+Run `/question project:OWNER/REPO issue:NUMBER` on a task waiting for a Research
+answer. Copy its 12-character token into
+`/answer project:OWNER/REPO issue:NUMBER revision:TOKEN text:YOUR_ANSWER`.
+Only published Research questions accept answers. Reviews and approvals must be
+answered on the issue. An old token or a closed issue is refused; the current
+question and token are shown when available. Answers are limited to 65536 bytes,
+redacted, and applied once. Long observations and questions are marked as
+shortened to fit Discord; the revision token is always preserved, and the full
+question remains on the issue. The existing run continues through its normal
+dispatch and the answer is copied once to the issue as a factory note. Chat
+cannot start, approve, stop or repair work.
+
+For the real-server walkthrough, diagnose a stuck issue and check the reply.
+Then show and answer a waiting Research question, check that the run continues
+and the issue contains the note, and repeat the answer. The repeat should say
+`already answered`. Raw answer text is kept only in memory until admission to the
+wait; an interrupted, unrecorded answer must be sent again by the owner.
 
 ## Project questions
 

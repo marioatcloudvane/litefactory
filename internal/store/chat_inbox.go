@@ -10,22 +10,22 @@ import (
 
 // ChatReply contains only the durable command and delivery state, never tokens.
 type ChatReply struct {
-	Transport, MessageID, ChannelRef, Command, State, ReplyText string
-	Arguments                                                   map[string]string
-	Question, ProjectOption                                     string
-	ResolvedRepoID                                              int64
-	AnswerAttempts                                              int
-	Attempts                                                    int
-	NextAttemptAt, CreatedAt, FinishedAt, LastErrorAt           time.Time
+	Transport, MessageID, ChannelRef, Command, State, ReplyText, TargetRef string
+	Arguments                                                              map[string]string
+	Question, ProjectOption                                                string
+	ResolvedRepoID                                                         int64
+	AnswerAttempts                                                         int
+	Attempts                                                               int
+	NextAttemptAt, CreatedAt, FinishedAt, LastErrorAt                      time.Time
 }
 
-const chatColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,question,project_option,COALESCE(resolved_repo_id,0),answer_attempts`
+const chatColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,question,project_option,COALESCE(resolved_repo_id,0),answer_attempts,target_ref`
 
 func scanChat(row scanner) (ChatReply, error) {
 	var r ChatReply
 	var next, created, arguments string
 	var finished, last sql.NullString
-	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &arguments, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last, &r.Question, &r.ProjectOption, &r.ResolvedRepoID, &r.AnswerAttempts)
+	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &arguments, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last, &r.Question, &r.ProjectOption, &r.ResolvedRepoID, &r.AnswerAttempts, &r.TargetRef)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -122,7 +122,7 @@ func (db *DB) FinishChatReply(ctx context.Context, r ChatReply, failed bool, at 
 		state = "failed"
 		last = FormatTime(at)
 	}
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?,reply_text='',arguments='{}',question='',project_option='',resolved_repo_id=NULL,finished_at=?,last_error_at=? WHERE transport=? AND message_id=? AND state='sent' AND attempts=?`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?,reply_text='',target_ref='',arguments='{}',question='',project_option='',resolved_repo_id=NULL,finished_at=?,last_error_at=? WHERE transport=? AND message_id=? AND state='sent' AND attempts=?`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
 	return chatAffected(result, err)
 }
 

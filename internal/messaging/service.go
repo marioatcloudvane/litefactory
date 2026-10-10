@@ -118,13 +118,16 @@ type Service struct {
 	commands         map[string]Handler
 	definitions      map[string]CommandDefinition
 	ask              *ask.Service
+	diagnosis        Diagnosis
+	research         ResearchAnswers
+	privateOptions   map[string]map[string]string
 	drafter          *feature.Drafter
 	confirmer        FeatureConfirmer
 }
 
 // New copies admission rules and registers help, health and status.
 func New(db *store.DB, transport, owner string, channels []string, sender Transport, status StatusReader) *Service {
-	s := &Service{db: db, transport: transport, owner: owner, channels: make(map[string]bool), sender: sender, status: status, wake: make(chan struct{}, 1), commands: make(map[string]Handler), definitions: make(map[string]CommandDefinition)}
+	s := &Service{db: db, transport: transport, owner: owner, channels: make(map[string]bool), sender: sender, status: status, wake: make(chan struct{}, 1), commands: make(map[string]Handler), definitions: make(map[string]CommandDefinition), privateOptions: make(map[string]map[string]string)}
 	for _, c := range channels {
 		s.channels[c] = true
 	}
@@ -203,6 +206,25 @@ func (s *Service) Admit(ctx context.Context, m Message, at time.Time) (allowed, 
 		r.ReplyText = ask.TurnPrefix(m.Arguments["question"], m.Arguments["project"]) + "Please give a question up to 8192 bytes and an optional project up to 256 bytes."
 		r.Arguments = nil
 	}
+	if m.Command == "answer" || m.Command == "diagnose" {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		r.Arguments = make(map[string]string)
+		for k, v := range m.Arguments {
+			if k == "project" || k == "issue" || (m.Command == "answer" && k == "revision") {
+				r.Arguments[k] = v
+			}
+		}
+		inserted, err = s.db.AdmitChatReply(ctx, r)
+		if inserted && err == nil {
+			options := make(map[string]string)
+			for k, v := range m.Arguments {
+				options[k] = v
+			}
+			s.privateOptions[m.Transport+":"+m.ID] = options
+		}
+		return true, inserted, err
+	}
 
 	if m.Command == "draft" && (len(m.Arguments["note"]) > 2000 || len(m.Arguments["project"]) > 256 || !validArguments(m.Arguments, []string{"note", "project"})) {
 		r.ReplyText = "Please give a note up to 2000 bytes and optional project up to 256 bytes."
@@ -234,6 +256,9 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		defer cancel()
 	}
 	if !at.Before(r.CreatedAt.Add(24 * time.Hour)) {
+		s.mu.Lock()
+		delete(s.privateOptions, r.Transport+":"+r.MessageID)
+		s.mu.Unlock()
 		return true, s.finish(ctx, r, true, at)
 	}
 	text := r.ReplyText
@@ -255,7 +280,16 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		case h == nil:
 			text = "unknown command, try /help"
 		default:
+			s.mu.Lock()
+			if options, ok := s.privateOptions[r.Transport+":"+r.MessageID]; ok {
+				r.Arguments = options
+				delete(s.privateOptions, r.Transport+":"+r.MessageID)
+			}
+			s.mu.Unlock()
 			text, err = h(ctx, Message{Transport: r.Transport, ID: r.MessageID, Channel: r.ChannelRef, Command: r.Command, Arguments: r.Arguments}, at)
+			if errors.Is(err, errDeferredDiagnosis) {
+				return true, nil
+			}
 			if err != nil {
 				return true, s.retry(ctx, r, at, 0)
 			}

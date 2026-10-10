@@ -48,6 +48,15 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 		return nil
 	}
 	if wait.State == "claimed" {
+		if wait.ReplySource == "chat" && store.IsGraphTrigger(trigger.CommentID) {
+			dispatch, e := d.db.LatestGraphDispatch(ctx, instance.ID)
+			if e != nil {
+				return e
+			}
+			if dispatch.TriggerID() == trigger.CommentID && dispatch.InstanceID == wait.InstanceID && dispatch.SessionID == t.session.ID {
+				return nil
+			}
+		}
 		if wait.ReplyID == trigger.CommentID && wait.ReplyBody == trigger.Body && wait.ReplyAuthorID == trigger.AuthorID && trigger.AuthorID == d.filter.Identities().OwnerUserID {
 			return nil
 		}

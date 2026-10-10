@@ -26,7 +26,7 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 	}
 	var prior []migration
 	for _, m := range migrations {
-		if strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") {
+		if strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") || strings.Contains(m.name, "_chat_research.sql") {
 			continue
 		}
 		prior = append(prior, m)

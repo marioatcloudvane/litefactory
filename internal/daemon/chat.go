@@ -22,9 +22,10 @@ import (
 // imports the adapter; the service and store know no Discord types.
 type ChatOptions struct {
 	// Answers supplies read-only context and response-only model wiring.
-	Answers  *ask.Service
-	Settings config.DiscordChat
-	Token    secrets.Token
+	Diagnoser ChatDiagnoser
+	Answers   *ask.Service
+	Settings  config.DiscordChat
+	Token     secrets.Token
 	// APIURL and Client allow daemon tests to use a local fake API.
 	APIURL string
 	Client *http.Client
@@ -34,6 +35,10 @@ type chatRuntime struct {
 	adapter   *discord.Adapter
 	heartbeat chan struct{}
 	collector *messaging.NoticeCollector
+	diagnoser ChatDiagnoser
+	redactor  *redact.Redactor
+	mu        sync.Mutex
+	notes     map[string]string
 }
 
 func prepareChat(ctx context.Context, cfg *config.Config, resolver secrets.Resolver) (*ChatOptions, error) {
@@ -84,7 +89,8 @@ func (d *Daemon) initChat(o *ChatOptions) error {
 	s.EnableAsk(&answers)
 	writer, _ := d.forge.(ChatIssueForge)
 	s.EnableFeatures(&feature.Drafter{Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
-	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: make(chan struct{}, 1)}
+	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: make(chan struct{}, 1), diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}
+	s.EnableResearch(chatResearch{d}, chatResearch{d})
 	if o.Settings.NoticeChannelID != "" {
 		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect}
 	}
@@ -112,6 +118,10 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 		if err := d.db.RecoverChatAnswers(ctx, "discord", time.Now()); err != nil {
 			d.log.WarnContext(ctx, "chat answer recovery failed; waiting rows retain their leases")
 		}
+		if err := d.db.RecoverChatDiagnoses(ctx, "discord", time.Now()); err != nil {
+			d.log.WarnContext(ctx, "chat diagnosis recovery failed")
+		}
+		d.dispatchChatDiagnosis(ctx, time.Now())
 		timer := time.NewTicker(time.Second)
 		defer timer.Stop()
 		registered := false
@@ -129,6 +139,9 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 		for {
 			if ctx.Err() != nil {
 				return
+			}
+			if err := d.chatResearchNotes(ctx); err != nil {
+				d.log.WarnContext(ctx, "chat answer note remains pending")
 			}
 			if d.chat.collector != nil {
 				if err := d.chat.collector.Collect(ctx, time.Now()); err != nil {
@@ -162,7 +175,9 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 			case <-ctx.Done():
 				return
 			case <-d.chat.service.Wake():
+				d.dispatchChatDiagnosis(ctx, time.Now())
 			case <-d.chat.heartbeat:
+				d.dispatchChatDiagnosis(ctx, time.Now())
 				tryRegister()
 			case <-timer.C:
 			}

@@ -190,6 +190,10 @@ func (a *Adapter) Handler(intake Intake) http.Handler {
 			writeCallback(w, callback{Type: 4, Data: &replyData{Content: "no access", Flags: 64}})
 			return
 		}
+		if !inserted && in.Data.Name == "answer" {
+			writeCallback(w, callback{Type: 4, Data: &replyData{Content: "already answered", Flags: 64}})
+			return
+		}
 		if inserted {
 			for id, h := range a.handles {
 				if !now.Before(h.expires) {

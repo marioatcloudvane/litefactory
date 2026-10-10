@@ -1,0 +1,10 @@
+2026/10/10 23:30:18 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen908441886/001/litefactory.db
+--- FAIL: TestNoticeLeaseFenceAndRetention (0.98s)
+    chat_notices_test.go:79: sql: expected 16 destination arguments in Scan, not 17
+2026/10/10 23:33:35 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants3487180164/001/litefactory.db
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	213.743s
+ok  	github.com/cloudvane/litefactory/internal/turn	1479.145s
+ok  	github.com/cloudvane/litefactory/internal/daemon	398.869s
+ok  	github.com/cloudvane/litefactory/internal/cli	97.077s
+FAIL
