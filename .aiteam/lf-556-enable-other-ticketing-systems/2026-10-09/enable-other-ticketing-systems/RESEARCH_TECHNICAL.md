@@ -34,7 +34,7 @@ _No source reference was recorded for this finding._
 
 ## F-6
 
-No Linear or Jira code exists. Repo-wide search found nothing.
+The earlier repository search located no Linear or Jira integration; this is a bounded search observation rather than proof that no related code exists.
 
 _No source reference was recorded for this finding._
 
@@ -77,5 +77,11 @@ _No source reference was recorded for this finding._
 ## F-13
 
 Linear has a public GraphQL endpoint and API-key authentication; no authenticated workspace check or live mutation was performed. Source: https://linear.app/developers/graphql
+
+_No source reference was recorded for this finding._
+
+## F-14
+
+Existing factory identities distinguish the authenticated human OwnerUserID from BotUserID, use handles for display and reject owner/bot identity equality. Evidence: internal/turn/classify.go:102-126; owner replies are admitted by numeric actor-ID comparison in internal/daemon/research_owner_resume.go.
 
 _No source reference was recorded for this finding._
