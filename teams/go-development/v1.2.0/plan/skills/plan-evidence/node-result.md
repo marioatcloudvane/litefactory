@@ -113,7 +113,7 @@ data_model:[{entity,definition,constraints}],
 service_design:[{component,responsibility,access}],
 solution_design:[{element,contract,rationale}]}; only general is mandatory when
 populated. Optional inapplicable arrays may be absent. Design is an array of
-frontend references, not invented designs. Guidance values are go and agent-setup.
+frontend references, not invented designs. Guidance values come from the factory-supplied admitted release roster.
 
 ## Sections and stage restrictions
 

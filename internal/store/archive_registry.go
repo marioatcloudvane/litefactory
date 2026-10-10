@@ -144,8 +144,6 @@ var archiveRegistry = []ArchiveTable{
 	archived("validate_reviews", `instance_id IN `+subInst),
 	archived("validate_repair_rounds", `instance_id IN `+subInst),
 	archived("graph_attempt_timeouts", `node_attempt_id IN `+subNodeAt),
-	archived("suite_commands", `run_id IN (SELECT id FROM suite_runs WHERE instance_id IN `+subInst+`)`),
-	archived("suite_runs", `instance_id IN `+subInst),
 	archived("implement_stories", byParent),
 	archived("validate_entries", bySession),
 	archived("research_successors", `(instance_id IN `+subInst+` OR predecessor_id IN `+subInst+`)`),
@@ -223,9 +221,13 @@ var archiveRetained = map[string]ArchiveClass{
 	"story_refinement_acks": ArchiveClassSkeleton, "story_discovery": ArchiveClassSkeleton,
 	"story_discovery_pending": ArchiveClassSkeleton, "story_discovery_rotation": ArchiveClassSkeleton,
 	"segment_deliveries": ArchiveClassSkeleton,
+	// Finished suite runs and commands have no-delete triggers; they keep only
+	// the instance id and need no graph_instances row.
+	"suite_runs": ArchiveClassSkeleton, "suite_commands": ArchiveClassSkeleton,
 	// Not keyed by one task family. The doctor journal has delete triggers and
 	// holds; a family with doctor references is kept by the pending check.
 	"repos": ArchiveClassGlobal, "identities": ArchiveClassGlobal, "poll_cursor": ArchiveClassGlobal, "repo_poll_cursors": ArchiveClassGlobal, "repo_webhooks": ArchiveClassGlobal,
+	"chat_inbox":             ArchiveClassGlobal,
 	"daemon_listener_status": ArchiveClassGlobal, "repo_discovery_status": ArchiveClassGlobal,
 	"repository_team_bindings": ArchiveClassGlobal,
 	"schema_migrations":        ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,

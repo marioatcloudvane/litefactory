@@ -85,7 +85,15 @@ func newArchiveITFixture(t *testing.T) *archiveITFixture {
 	if err = x.db.PutManagedStory(t.Context(), store.ManagedStory{ParentTask: x.parent.TaskRef, Generation: 1, Key: "US-001", IssueNumber: 255, IssueID: 2550, BodyHash: "h", State: "planning"}); err != nil {
 		t.Fatal(err)
 	}
-	x.child = x.session(t, 255)
+	// The child story shares the parent's checkout, so it belongs to the
+	// parent's family rather than being its own owner.
+	x.child, err = x.db.GetOrCreateSession(t.Context(), x.repo, 255)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x.child, err = x.db.FreezeSessionSlug(t.Context(), x.child.ID, "archive", x.parent.Branch); err != nil {
+		t.Fatal(err)
+	}
 	x.other = x.session(t, 300)
 	x.d = &Daemon{db: x.db, instanceID: "archive-it", log: slog.New(slog.NewJSONHandler(&x.logs, nil)),
 		retirement: RetirementExecutionOptions{CloneGate: newCloneGate(), LockDir: x.lock, RetainDays: 14},
@@ -919,4 +927,152 @@ func archiveITAs[T any](t *testing.T, v any) T {
 		t.Fatalf("value %v is %T, want %T", v, v, out)
 	}
 	return out
+}
+
+// archiveITFinishedRuns gives the session one succeeded and one failed run,
+// which graph-era work leaves behind and never moves to reported (#600).
+func archiveITFinishedRuns(t *testing.T, db *store.DB, sessionID int64, at time.Time) {
+	t.Helper()
+	segment, err := db.GetOrCreateSegment(t.Context(), sessionID, 1, "s", store.AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, status := range []store.RunStatus{store.RunSucceeded, store.RunFailed} {
+		run, err := db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: sessionID, SegmentID: segment.ID, Mode: "plan", Agent: store.AgentClaude, TriggerCommentID: int64(700 + i), LogPath: func(int) string { return "/logs/run.jsonl" }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.FinishRun(t.Context(), run.ID, store.RunOutcome{Status: status, FinishedAt: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// #600: finished runs alone no longer hold a closed family in the forget step.
+func TestArchiveIntegrationForgetIgnoresFinishedRuns(t *testing.T) {
+	f := newPlanForgetFixture(t)
+	if err := os.RemoveAll(f.taskDir()); err != nil {
+		t.Fatal(err)
+	}
+	archiveITFinishedRuns(t, f.db, f.parent.ID, f.now.Add(-30*24*time.Hour))
+	if v := f.pass(t); v["outcome"] != ArchiveOutcomeForgotten {
+		t.Fatalf("visit %v, want forgotten despite finished runs", v)
+	}
+}
+
+// #600: finished suite rows cannot be deleted (their triggers forbid it), so
+// they are retained with the skeleton and no longer fail the family delete.
+func TestArchiveIntegrationSuiteRowsRetained(t *testing.T) {
+	x := newArchiveITFixture(t)
+	x.seed(t)
+	def, err := x.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "validate", ProfileVersion: 1, Path: "validate/validate.dot", Digest: strings.Repeat("a", 64), CreatedAt: x.now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := x.now.Add(-time.Hour).Format(time.RFC3339)
+	x.exec(t, `INSERT INTO graph_instances(id,session_id,definition_id,status,current_node,started_at,finished_at) VALUES(900,?,?,'succeeded','done',?,?)`, x.parent.ID, def.ID, at, at)
+	x.exec(t, `INSERT INTO suite_runs(id,instance_id,node,attempt,commit_sha,state,started_at,finished_at) VALUES(1,900,'suite',1,?,'passed',?,?)`, strings.Repeat("b", 40), at, at)
+	x.exec(t, `INSERT INTO suite_commands(run_id,position,argv,state,exit_code,started_at,finished_at) VALUES(1,0,'["make"]','failed',2,?,?)`, at, at)
+	if problems, err := x.db.ArchiveRegistryProblems(t.Context()); err != nil || len(problems) != 0 {
+		t.Fatalf("registry problems %v %v", problems, err)
+	}
+	if errs := x.runPass(t, x.now); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if v := x.lastVisit(t, x.parent.TaskRef); v["outcome"] != ArchiveOutcomeArchived {
+		t.Fatalf("visit %v, want archived", v)
+	}
+	if n := x.count(t, `SELECT COUNT(*) FROM graph_instances WHERE id=900`); n != 0 {
+		t.Fatalf("graph instance not archived: %d", n)
+	}
+	if n := x.count(t, `SELECT (SELECT COUNT(*) FROM suite_runs)+(SELECT COUNT(*) FROM suite_commands)`); n != 2 {
+		t.Fatalf("suite rows %d, want both retained", n)
+	}
+}
+
+// #600: a closed family holding rows the archive cannot delete is kept with a
+// truthful reason, and no archive file is written for a delete that must fail.
+func TestArchiveIntegrationUndeletableFamilyKeptWithoutFile(t *testing.T) {
+	for _, tc := range []struct {
+		name, reason string
+		seed         func(t *testing.T, x *archiveITFixture)
+	}{
+		{"legacy_bug_history", "bug_history_retained", func(t *testing.T, x *archiveITFixture) {
+			// Legacy history predates the read-only triggers; seed it as such.
+			if _, err := x.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: x.parent.ID, Version: 1, Family: "standalone", Workflow: "bug"}); err != nil {
+				t.Fatal(err)
+			}
+			x.exec(t, `DROP TRIGGER archive_bug_tasks_insert`)
+			x.exec(t, `INSERT INTO bug_tasks(session_id,repository,issue_id,issue_number,owner_id,revision) VALUES(?,'acme/api',2130,213,42,1)`, x.parent.ID)
+			x.exec(t, `CREATE TRIGGER archive_bug_tasks_insert BEFORE INSERT ON bug_tasks BEGIN SELECT RAISE(ABORT, 'legacy Bug history is read-only'); END`)
+		}},
+		{"doctor_current_result", "doctor_reference", func(t *testing.T, x *archiveITFixture) {
+			x.exec(t, `INSERT INTO application_results(id,task,mode,work_context,context_hash,schema_version,workflow_version,submission_version) VALUES(77,?,'research','{}','h',1,1,2)`, x.parent.TaskRef)
+			at := x.now.Format(time.RFC3339)
+			x.exec(t, `INSERT INTO doctor_conversations(task_ref,generation,state,created_at,updated_at,current_result_id) VALUES('github:acme/elsewhere#1',1,'stopped',?,?,77)`, at, at)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			x := newArchiveITFixture(t)
+			x.seed(t)
+			tc.seed(t, x)
+			archiveITFinishedRuns(t, x.db, x.parent.ID, x.now.Add(-time.Hour))
+			before := x.liveRows(t)
+			if errs := x.runPass(t, x.now); len(errs) != 0 {
+				t.Fatal(errs)
+			}
+			if v := x.lastVisit(t, x.parent.TaskRef); v["outcome"] != ArchiveOutcomeKept || v["reason"] != tc.reason {
+				t.Fatalf("visit %v, want kept/%s", v, tc.reason)
+			}
+			if len(x.files(t)) != 0 || len(x.partials(t)) != 0 {
+				t.Fatalf("archive file written for an undeletable family: %v", x.files(t))
+			}
+			archiveITRowsEqual(t, x.liveRows(t), before)
+		})
+	}
+}
+
+func TestArchiveSettledReasonNamesPendingEffects(t *testing.T) {
+	owner := func(canonical, active, pending bool) store.ArchiveOwner {
+		return store.ArchiveOwner{RetirementOwner: store.RetirementOwner{Canonical: canonical, Active: active, Pending: pending}}
+	}
+	for _, tc := range []struct {
+		name  string
+		owner store.ArchiveOwner
+		want  string
+	}{
+		{"pending", owner(true, false, true), "pending_effects"},
+		{"settled", owner(true, false, false), ""},
+		{"active", owner(true, true, true), "active_or_uncertain_owner"},
+		{"not_canonical", owner(false, false, true), "active_or_uncertain_owner"},
+	} {
+		if got := archiveSettledReason(tc.owner); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// #600: delete failures were logged without their cause.
+func TestLogArchiveVisitIncludesError(t *testing.T) {
+	var buf bytes.Buffer
+	d := &Daemon{log: slog.New(slog.NewJSONHandler(&buf, nil))}
+	d.logArchiveVisit(t.Context(), "s", "github:acme/api#1", ArchiveVisit{Outcome: ArchiveOutcomeDeferred, Reason: "delete_failed"}, errors.New("delete bug_events: legacy Bug history is read-only"))
+	d.logArchiveVisit(t.Context(), "s", "github:acme/api#2", ArchiveVisit{Outcome: ArchiveOutcomeArchived}, nil)
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("lines %q", lines)
+	}
+	var failed, ok map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &failed); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &ok); err != nil {
+		t.Fatal(err)
+	}
+	if failed["reason"] != "delete_failed" || failed["error"] != "delete bug_events: legacy Bug history is read-only" {
+		t.Fatalf("delete_failed visit without its error: %v", failed)
+	}
+	if _, has := ok["error"]; has {
+		t.Fatalf("visit without error logs one: %v", ok)
+	}
 }
