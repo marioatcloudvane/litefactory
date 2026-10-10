@@ -15,13 +15,14 @@ type Chat struct {
 
 // DiscordChat configures a read-only chat adapter and references its credential.
 type DiscordChat struct {
-	Enabled       bool     `yaml:"enabled"`
-	ApplicationID string   `yaml:"application_id"`
-	PublicKey     string   `yaml:"public_key"`
-	TokenKeychain Keychain `yaml:"token_keychain"`
-	TokenEnv      string   `yaml:"token_env"`
-	OwnerID       string   `yaml:"owner_id"`
-	ChannelIDs    []string `yaml:"channel_ids"`
+	Enabled         bool     `yaml:"enabled"`
+	ApplicationID   string   `yaml:"application_id"`
+	PublicKey       string   `yaml:"public_key"`
+	TokenKeychain   Keychain `yaml:"token_keychain"`
+	TokenEnv        string   `yaml:"token_env"`
+	OwnerID         string   `yaml:"owner_id"`
+	ChannelIDs      []string `yaml:"channel_ids"`
+	NoticeChannelID string   `yaml:"notice_channel_id"`
 }
 
 var chatID = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
@@ -52,6 +53,9 @@ func (c *Config) validateChat() []error {
 			break
 		}
 		seen[id] = true
+	}
+	if d.NoticeChannelID != "" && (!chatID.MatchString(d.NoticeChannelID) || !seen[d.NoticeChannelID]) {
+		errs = append(errs, fmt.Errorf("chat.discord.notice_channel_id must be one of the allowed channel_ids"))
 	}
 	kc := d.TokenKeychain.Service != "" || d.TokenKeychain.Account != ""
 	if kc == (d.TokenEnv != "") {
