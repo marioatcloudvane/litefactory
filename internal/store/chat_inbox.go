@@ -9,18 +9,18 @@ import (
 
 // ChatReply contains only the durable command and delivery state, never tokens.
 type ChatReply struct {
-	Transport, MessageID, ChannelRef, Command, State, ReplyText string
-	Attempts                                                    int
-	NextAttemptAt, CreatedAt, FinishedAt, LastErrorAt           time.Time
+	Transport, MessageID, ChannelRef, Command, State, ReplyText, TargetRef string
+	Attempts                                                               int
+	NextAttemptAt, CreatedAt, FinishedAt, LastErrorAt                      time.Time
 }
 
-const chatColumns = `transport,message_id,channel_ref,command,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at`
+const chatColumns = `transport,message_id,channel_ref,command,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,target_ref`
 
 func scanChat(row scanner) (ChatReply, error) {
 	var r ChatReply
 	var next, created string
 	var finished, last sql.NullString
-	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last)
+	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last, &r.TargetRef)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -88,7 +88,7 @@ func (db *DB) FinishChatReply(ctx context.Context, r ChatReply, failed bool, at 
 		state = "failed"
 		last = FormatTime(at)
 	}
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?,reply_text='',finished_at=?,last_error_at=? WHERE transport=? AND message_id=? AND state='sent' AND attempts=?`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?,reply_text='',target_ref='',finished_at=?,last_error_at=? WHERE transport=? AND message_id=? AND state='sent' AND attempts=?`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
 	return chatAffected(result, err)
 }
 
