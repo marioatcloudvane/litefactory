@@ -96,8 +96,37 @@ func TestGraphShippedDOTScope(t *testing.T) {
 	for name := range shippedDOT {
 		allowed[name] = true
 	}
-	for _, workflow := range []string{"research", "plan", "implement", "validate", "spike", "bug"} {
+	workflows := []string{"research", "plan", "implement", "validate", "spike", "bug"}
+	for _, workflow := range workflows {
 		allowed["../../teams/"+release.Download+"/"+workflow+"/"+workflow+".dot"] = true
+	}
+	// Every release the catalogue ships carries the same six workflows, and each
+	// stack team keeps its editable source in its own directory. Only these
+	// exact paths are admitted; no general graph namespace.
+	rawCatalogue, err := os.ReadFile("../../teams/teams.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalogue struct {
+		Releases []struct {
+			Slug     string `json:"slug"`
+			Download string `json:"download"`
+		} `json:"releases"`
+	}
+	if err := json.Unmarshal(rawCatalogue, &catalogue); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range catalogue.Releases {
+		if !fs.ValidPath(r.Download) || !fs.ValidPath(r.Slug) || strings.Contains(r.Slug, "/") {
+			t.Fatalf("unsafe catalogue release %q %q", r.Slug, r.Download)
+		}
+		for _, workflow := range workflows {
+			allowed["../../teams/"+r.Download+"/"+workflow+"/"+workflow+".dot"] = true
+			if r.Slug != "go-development" {
+				allowed["../../internal/teamsource/"+r.Slug+"/"+workflow+"/"+workflow+".dot"] = true
+				allowed["../../teams/source/"+r.Slug+"/"+workflow+"/"+workflow+".dot"] = true
+			}
+		}
 	}
 	err = filepath.WalkDir(filepath.Join("..", ".."), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
