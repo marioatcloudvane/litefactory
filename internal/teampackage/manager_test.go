@@ -136,12 +136,12 @@ func snapshot(t *testing.T, root string) map[string][]byte {
 }
 func TestInstallSelectUpdateConflictAndOffline(t *testing.T) {
 	t.Parallel()
-	f, server := newFixture(t, "1.0.0", "1.2.0", "2.0.0-rc.1")
+	f, server := newFixture(t, "1.0.0", "1.2.1", "2.0.0-rc.1")
 	p := config.NewPaths(canonicalTemp(t))
 	m := fixtureManager(t, p, server)
 	source := server.URL + "/teams/teams.json"
 	latest := installFixture(t, m, source, "")
-	if latest.Identity.Version != "1.2.0" || !latest.Integrity {
+	if latest.Identity.Version != "1.2.1" || !latest.Integrity {
 		t.Fatalf("selected %+v", latest)
 	}
 	old := installFixture(t, m, source, "1.0.0")
@@ -198,7 +198,7 @@ func TestInstallSelectUpdateConflictAndOffline(t *testing.T) {
 	if removed, err := m.Remove(t.Context(), "", "example", "1.0.0"); err != nil || !removed {
 		t.Fatalf("remove=%v %v", removed, err)
 	}
-	if _, err := m.Inspect(t.Context(), source, "example", "1.2.0"); err != nil {
+	if _, err := m.Inspect(t.Context(), source, "example", "1.2.1"); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
