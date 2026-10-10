@@ -215,8 +215,15 @@ func admitValidateExecution(ctx context.Context, opts Options, req Request, resu
 		out, err := rt.resumeDispatch(ctx)
 		return out, true, err
 	}
-	// Only the /validate instruction command starts Validate. Owner controls
-	// and replies inside a running Validate belong to its own owner steps.
+	// An owner control command continues the waiting Validate instance whose
+	// owner wait the daemon claimed with this very comment; it never runs as a
+	// plain agent.
+	if req.Command.Kind == KindValidateControl {
+		out, err := rt.continueOwner(ctx)
+		return out, true, err
+	}
+	// Only the /validate instruction command starts Validate. Owner replies
+	// inside a running Validate belong to its own owner steps.
 	if req.Command.Kind != KindSpike || req.Command.Name != "/validate" {
 		return result, false, nil
 	}
@@ -483,6 +490,72 @@ func shortSHA(s string) string {
 	}
 	return s
 }
+
+// continueOwner hands an owner control comment to the running Validate
+// instance whose owner wait it holds, so the instance's own resolve step
+// interprets it. A control that holds no claim is refused and starts nothing.
+func (rt *validateRuntimeState) continueOwner(ctx context.Context) (Result, error) {
+	opts, req := rt.opts, rt.req
+	instance, err := opts.DB.LatestWorkflowInstance(ctx, req.SessionID, string(agent.ModeValidate))
+	if errors.Is(err, store.ErrNotFound) {
+		return rt.refuse(ctx, validateNoWaitText)
+	}
+	if err != nil {
+		return rt.result, err
+	}
+	if instance.Status != store.GraphRunning {
+		return rt.refuse(ctx, validateNoWaitText)
+	}
+	held := false
+	if wait, err := opts.DB.GetGraphOwnerWait(ctx, instance.ID); err == nil {
+		held = wait.State == "claimed" && wait.ReplyID == req.Trigger.CommentID
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return rt.result, err
+	}
+	if !held {
+		// The same comment replayed after it already continued this instance.
+		if held, err = opts.DB.ValidateLaunchedBy(ctx, req.SessionID, req.Trigger.CommentID, instance.ID); err != nil {
+			return rt.result, err
+		}
+	}
+	if !held {
+		return rt.refuse(ctx, validateNoWaitText)
+	}
+	entry, err := rt.entryOf(ctx, instance.ID)
+	if err != nil {
+		return rt.result, err
+	}
+	rt.entry = entry
+	pin, err := opts.DB.GetGraphDefinition(ctx, instance.DefinitionID)
+	if err != nil {
+		return rt.result, err
+	}
+	definition, err := capturedValidate(ctx, opts, req)
+	if err != nil {
+		return rt.result, err
+	}
+	if definition.Profile.Digest != pin.Digest {
+		return rt.result, errors.New("retained validate graph does not match the waiting instance; the owner reply cannot continue it")
+	}
+	topology, err := graphexec.SemanticDigest(definition.Profile)
+	if err != nil {
+		return rt.result, err
+	}
+	files, err := json.Marshal(definition.Files)
+	if err != nil {
+		return rt.result, err
+	}
+	admitted, err := opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeValidate), SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: instance.DefinitionID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: req.Trigger.Body})
+	if err != nil {
+		return rt.result, err
+	}
+	if admitted.Instance.ID != instance.ID || admitted.PredecessorID != 0 {
+		return rt.result, errors.New("the owner reply must continue the waiting Validate instance, not start another")
+	}
+	return rt.execute(ctx, definition, admitted)
+}
+
+const validateNoWaitText = "No Validate run is waiting for this command, so nothing was recorded."
 
 // resumeDispatch enters the graph at the instance's current node with the
 // definition it was admitted under. Nothing here is a fresh admission.
