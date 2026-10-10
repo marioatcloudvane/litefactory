@@ -18,14 +18,16 @@ func TestReleaseScopeAdmitsNeutralOwnerAndSelectedNonGoGuidance(t *testing.T) {
 	if err := d.Validate("acceptance", scope); err != nil {
 		t.Fatal("selected release contracts rejected", err)
 	}
-	for _, change := range []string{"legacy owner", "unselected Go", "foreign guidance", "missing proof"} {
+	for _, change := range []string{"foreign Go owner", "other owner", "unselected Go", "foreign guidance", "missing proof"} {
 		t.Run(change, func(t *testing.T) {
 			next := draftFixture("acceptance")
 			next.Tasks[0].OwnerRole = "implementation-engineer"
 			next.Guidance = []string{"synthetic-stack"}
 			switch change {
-			case "legacy owner":
-				next.Tasks[0].OwnerRole = "go-implementation-engineer"
+			case "foreign Go owner":
+				next.Tasks[0].OwnerRole = "go-frontend-engineer"
+			case "other owner":
+				next.Tasks[0].OwnerRole = "other-engineer"
 			case "unselected Go":
 				next.Guidance = []string{"go"}
 			case "foreign guidance":
@@ -37,6 +39,36 @@ func TestReleaseScopeAdmitsNeutralOwnerAndSelectedNonGoGuidance(t *testing.T) {
 				t.Fatal("out-of-scope contract accepted")
 			}
 		})
+	}
+}
+func TestReleaseScopeAdmitsGoPrefixedOwnerOfItsNeutralRole(t *testing.T) {
+	scope := planbrief.ReleaseScope([]string{"implementation-engineer", "unit-test-engineer"}, []string{"agent-setup"})
+	d := draftFixture("acceptance")
+	d.Tasks[0].OwnerRole = "go-implementation-engineer"
+	if err := d.Validate("acceptance", scope); err != nil {
+		t.Fatal("stored go- owner of a release role rejected:", err)
+	}
+	plan, err := planbrief.CompletePlanDrafts("summary", []planbrief.PlanDraft{d}, scope)
+	if err != nil {
+		t.Fatal("typed handoff rejected the stored go- owner:", err)
+	}
+	if got := plan.Stories[0].Tasks[0].OwnerRole; got != "go-implementation-engineer" {
+		t.Fatalf("stored owner rewritten to %q", got)
+	}
+	for _, owner := range []string{"go-integration-test-engineer", "go-", "go-go-implementation-engineer", "rust-implementation-engineer"} {
+		next := draftFixture("acceptance")
+		next.Tasks[0].OwnerRole = owner
+		if err := next.Validate("acceptance", scope); err == nil {
+			t.Fatalf("owner %q outside the release accepted", owner)
+		}
+	}
+}
+func TestHistoricalScopeRefusesNeutralOwner(t *testing.T) {
+	d := draftFixture("acceptance")
+	d.Tasks[0].OwnerRole = "implementation-engineer"
+	d.Guidance = []string{"go", "agent-setup"}
+	if err := d.Validate("acceptance", planbrief.TaskOwnerScope()); err == nil {
+		t.Fatal("historical scope accepted a neutral owner")
 	}
 }
 func TestReleaseScopeRetainsExplicitLegacyContract(t *testing.T) {

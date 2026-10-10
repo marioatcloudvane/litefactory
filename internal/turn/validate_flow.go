@@ -93,6 +93,9 @@ type ValidateStory struct {
 	Title    string
 	Revision string
 	Criteria []string
+	// ExecutionRequired are the criteria whose frozen text needs an executed
+	// passing check; a (Manual) criterion may be judged by reading.
+	ExecutionRequired []string
 	// Text is the approved story revision itself: its criteria and plan.
 	Text string
 }
