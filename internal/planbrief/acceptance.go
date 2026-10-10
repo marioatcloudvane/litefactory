@@ -15,15 +15,34 @@ var acceptanceTableRule = regexp.MustCompile(`^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)
 // after a list/checklist prefix. Markdown table rows require AC identifiers.
 // Ambiguous constructs fail closed rather than silently losing obligations.
 func AcceptanceCriteria(body string) ([]string, error) {
+	names, _, err := acceptanceCriteria(body)
+	return names, err
+}
+
+// AcceptanceCriteriaText names each criterion exactly as AcceptanceCriteria
+// does and also returns the text of the line it was read from, in the same
+// order, so a caller can read markers that are not part of the name.
+func AcceptanceCriteriaText(body string) (names, texts []string, err error) {
+	return acceptanceCriteria(body)
+}
+
+// RequiresExecution reports whether a frozen criterion needs an executed
+// passing check before it can be satisfied. Only an explicit (Manual) marker
+// exempts it; unmarked criteria and criteria marked (Auto) fail closed.
+func RequiresExecution(text string) bool {
+	return !strings.Contains(text, "(Manual)") || strings.Contains(text, "(Auto)")
+}
+
+func acceptanceCriteria(body string) ([]string, []string, error) {
 	lines := strings.Split(body, "\n")
 	active, found, fenced := false, false, false
-	var names []string
+	var names, texts []string
 	seen := map[string]bool{}
 	for i, line := range lines {
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
 			if active {
-				return nil, fmt.Errorf("acceptance criteria cannot contain fenced blocks")
+				return nil, nil, fmt.Errorf("acceptance criteria cannot contain fenced blocks")
 			}
 			fenced = !fenced
 			continue
@@ -35,7 +54,7 @@ func AcceptanceCriteria(body string) ([]string, error) {
 			active = strings.EqualFold(strings.TrimSpace(t[3:]), "acceptance criteria")
 			if active {
 				if found {
-					return nil, fmt.Errorf("duplicate acceptance criteria section")
+					return nil, nil, fmt.Errorf("duplicate acceptance criteria section")
 				}
 				found = true
 			}
@@ -54,7 +73,7 @@ func AcceptanceCriteria(body string) ([]string, error) {
 			}
 			cells := strings.Split(strings.Trim(t, "|"), "|")
 			if len(cells) < 2 {
-				return nil, fmt.Errorf("invalid acceptance criteria table")
+				return nil, nil, fmt.Errorf("invalid acceptance criteria table")
 			}
 			t = strings.TrimSpace(cells[0])
 		} else {
@@ -65,25 +84,26 @@ func AcceptanceCriteria(body string) ([]string, error) {
 		}
 		t = strings.TrimSpace(t)
 		if t == "" || t == "-" || t == "*" || t == "+" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, ">") || strings.HasPrefix(t, "<") {
-			return nil, fmt.Errorf("unsupported acceptance criterion")
+			return nil, nil, fmt.Errorf("unsupported acceptance criterion")
 		}
 		// Formatting around an identifier is presentation, not part of its name.
 		idText := strings.TrimLeft(t, "*`_")
 		name := acceptanceID.FindString(idText)
 		if name == "" {
 			if table {
-				return nil, fmt.Errorf("acceptance table rows require AC identifiers")
+				return nil, nil, fmt.Errorf("acceptance table rows require AC identifiers")
 			}
 			name = t
 		}
 		if seen[name] {
-			return nil, fmt.Errorf("duplicate acceptance criterion %s", name)
+			return nil, nil, fmt.Errorf("duplicate acceptance criterion %s", name)
 		}
 		seen[name] = true
 		names = append(names, name)
+		texts = append(texts, strings.TrimSpace(line))
 	}
 	if len(names) == 0 {
-		return nil, fmt.Errorf("acceptance criteria have no named obligations")
+		return nil, nil, fmt.Errorf("acceptance criteria have no named obligations")
 	}
-	return names, nil
+	return names, texts, nil
 }

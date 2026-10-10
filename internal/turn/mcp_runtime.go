@@ -198,11 +198,11 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 			if _, exists := contextValue.Stories[story.Key]; exists {
 				continue
 			}
-			criteria, err := storyCriterionIDs(ctx, runtime.Authority.db, session.binding.Parent, session.binding.Generation, story.Key, story.Revision, story.Body)
+			criteria, required, err := storyCriteria(ctx, runtime.Authority.db, session.binding.Parent, session.binding.Generation, story.Key, story.Revision, story.Body)
 			if err != nil {
 				return nil, nil, err
 			}
-			contextValue.Stories[story.Key] = agent.ContributionStory{Revision: story.Revision, Criteria: criteria, ExecutionRequired: slices.Clone(criteria), Checks: map[string]agent.RetainedContributionCheck{}}
+			contextValue.Stories[story.Key] = agent.ContributionStory{Revision: story.Revision, Criteria: criteria, ExecutionRequired: required, Checks: map[string]agent.RetainedContributionCheck{}}
 		}
 	}
 	var service *AgentResultService
