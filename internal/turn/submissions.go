@@ -129,13 +129,13 @@ func StartSubmissionSession(ctx context.Context, o SubmissionSessionOptions) (*S
 		return nil, nil
 	}
 	for _, story := range selected {
-		criteria, err := storyCriterionIDs(ctx, o.DB, parent, generation, story.Key, story.Revision, story.Body)
+		criteria, required, err := storyCriteria(ctx, o.DB, parent, generation, story.Key, story.Revision, story.Body)
 		if err != nil {
 			return nil, err
 		}
 		s.stories[story.Key] = story
 		s.binding.Stories = append(s.binding.Stories, store.SubmissionStoryBinding{Story: story.Key, IssueID: story.IssueID, Revision: story.Revision})
-		s.scope.Stories[story.Key] = agent.ContributionStory{Revision: story.Revision, Criteria: criteria, ExecutionRequired: slices.Clone(criteria), Checks: map[string]agent.RetainedContributionCheck{}}
+		s.scope.Stories[story.Key] = agent.ContributionStory{Revision: story.Revision, Criteria: criteria, ExecutionRequired: required, Checks: map[string]agent.RetainedContributionCheck{}}
 	}
 	if o.Validation != nil {
 		for _, v := range o.Validation.Stories {
