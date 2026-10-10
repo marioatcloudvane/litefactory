@@ -11,6 +11,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/messaging"
+	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -19,6 +20,8 @@ import (
 // ChatOptions supplies immutable resolved chat settings. Only daemon wiring
 // imports the adapter; the service and store know no Discord types.
 type ChatOptions struct {
+	// Answers supplies read-only context and response-only model wiring.
+	Answers  *ask.Service
 	Settings config.DiscordChat
 	Token    secrets.Token
 	// APIURL and Client allow daemon tests to use a local fake API.
@@ -66,6 +69,17 @@ func (d *Daemon) initChat(o *ChatOptions) error {
 		body, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
 		return body.String(), err
 	}
+	answers := ask.Service{Repositories: d.db, Collector: ask.Collector{Factory: ask.StoreReader{Reader: d.db}}, Redactor: sanitizer}
+	if o.Answers != nil {
+		answers = *o.Answers
+	}
+	if answers.Redactor == nil {
+		answers.Redactor = sanitizer
+	}
+	if answers.History == nil {
+		answers.History = a
+	}
+	s.EnableAsk(&answers)
 	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: make(chan struct{}, 1)}
 	return nil
 }
@@ -88,6 +102,9 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		if err := d.db.RecoverChatAnswers(ctx, "discord", time.Now()); err != nil {
+			d.log.WarnContext(ctx, "chat answer recovery failed; waiting rows retain their leases")
+		}
 		timer := time.NewTicker(time.Second)
 		defer timer.Stop()
 		registered := false

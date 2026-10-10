@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -98,7 +99,7 @@ func RenderAnswer(ctx context.Context, answer Answer, bundle Bundle, options Ren
 	}
 	// Single-line quoting prevents a question from supplying a forged marker.
 	question := strings.Join(strings.Fields(options.Question), " ")
-	prefix := "> " + runeExcerpt(question, 160) + "\n> Project: " + runeExcerpt(bundle.Project, 100) + "\n[lf:ask:v1]\n"
+	prefix := TurnPrefix(question, bundle.Project)
 	notes := "\nAs of " + bundle.CapturedAt.UTC().Format("2006-01-02T15:04:05Z") + "."
 	if options.InheritedProject {
 		notes += "\nProject carried over from the newest /ask turn."
@@ -186,15 +187,20 @@ func RenderAnswer(ctx context.Context, answer Answer, bundle Bundle, options Ren
 	return safe, nil
 }
 
-func runeCount(s string) int { return utf8.RuneCountInString(s) }
+func runeCount(s string) int { return len(utf16.Encode([]rune(s))) }
 
 func runeExcerpt(s string, limit int) string {
 	runes := []rune(s)
-	if len(runes) <= limit {
+	if runeCount(s) <= limit {
 		return s
 	}
 	if limit < 1 {
 		return ""
 	}
-	return string(runes[:limit-1]) + "…"
+	units, end := 0, 0
+	for end < len(runes) && units+utf16.RuneLen(runes[end]) <= limit-1 {
+		units += utf16.RuneLen(runes[end])
+		end++
+	}
+	return string(runes[:end]) + "…"
 }

@@ -22,7 +22,7 @@ chat:
 
 Store the bot token in the referenced keychain item or environment variable; never
 put it in settings. Give the bot permission to send messages in the allowed
-channels. Set the Interactions Endpoint URL in the Discord developer portal to
+channels, plus Read Message History for `/ask` follow-ups. Set the Interactions Endpoint URL in the Discord developer portal to
 `https://your-factory-address/litefactory/discord`. The GitHub webhook URL stays
 unchanged. Restart the daemon after changing settings. Command registration is
 retried on later heartbeats if Discord is unavailable.
@@ -40,6 +40,26 @@ accepted a send, followed by a restart or delayed retry, can produce a duplicate
 There is no guarantee of exactly one visible reply in those uncertain cases.
 Confirmed and failed replies lose their answer text; terminal records are purged
 24 hours later. No chat history or interaction tokens are stored.
+
+## Project questions
+
+Run `/ask question:What work is open? project:OWNER/REPO` for a registered
+repository. A unique repository name also works. A follow-up `/ask` without a
+project uses the newest marked bot answer in the same channel or thread and says
+so. Unknown or ambiguous projects get the registered project list without a model
+call. Questions are limited to 8192 bytes.
+
+Answers use fresh open issues and current factory task metadata. Each point cites
+a checked fact and the reply gives an as-of time; omissions and unavailable
+history are shown. Only the latest 20 bot-authored `/ask` turns (up to 32 KiB) are
+used. Ordinary messages are not included. Asking cannot create or change work.
+The configured providers use the doctor's isolation gate, with all tools disabled
+and the balanced model tier. If none is verified, answers are unavailable.
+Temporary question and project text is cleared after confirmed or failed delivery.
+
+For a real-server check, ask about open work, then ask a follow-up without naming
+the project. Check source links and the project carry-over notice. Ask about an
+unknown project and check that the registered project list appears.
 
 ## Meter walkthrough
 
