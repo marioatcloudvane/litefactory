@@ -96,7 +96,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		}
 	}
 	if policy.RegisterEffects != nil {
-		env := WorkflowEnv{Ref: result.Ref, Worktree: func() (*git.Worktree, error) {
+		env := WorkflowEnv{StackProfile: definition.StackProfile, Ref: result.Ref, Worktree: func() (*git.Worktree, error) {
 			if w.prep == nil || w.prep.worktree == nil {
 				return nil, errors.New("scoped activity requires admitted session")
 			}

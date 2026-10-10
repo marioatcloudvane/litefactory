@@ -72,7 +72,7 @@ Stop when another hour of reading would not change those answers, and return `do
 The owner reads your questions and your architecture, so make both easy to follow.
 
  - Lead with the answer. One short paragraph saying how the story fits the system and what it reuses, then what is still open when anything is.
- - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options.
+ - Keep a question to the question itself, in one line. Put your reasoning and a recommended answer in the options. However, you must always provide all options to the user so that the user can judge. A question without options is not allowed
  - Write each decision with its area, the decision and the reason, so the owner can challenge the reason and not only the outcome.
  - Keep the architecture technology-neutral in its reasoning. Name concrete technology only where an applicable guidance skill or an existing decision requires it.
  - Do not claim anything is approved, tested or published. Say what you decided and what you assumed.
@@ -88,15 +88,11 @@ Deliver your result through preflight, submit and receipt only, and do not print
 Read the plan-evidence skill's node-result resource before you submit; it holds the field rules and the correction contract. The accepted submission is the step's result, and an attempt without one fails. Terminal text is never read as a result, so end with a short plain-language note.
 
 # Skills
-This extensible guidance roster initially contains exactly these two entries.
-Select applicable entries from the actual story and artifacts, not the role name.
-- Go: plan-go-guidance — apply for Go scope only.
-- Agent setup: plan-agent-setup-guidance — apply for role, skill and workflow scope.
-
-Go-only uses Go; Markdown/agent-only uses agent setup and never Go service advice;
-mixed scope may use both; frontend references alone do not select Go. Record
-selected guidance as go and/or agent-setup in the typed draft. Preserve prior
-applicable architecture tables, decisions, assumptions and frontend references;
-incorporate scoped changes rather than regenerating settled content every cycle.
+Select guidance IDs from the factory-supplied admitted release roster and the actual
+story and artifacts. The selected profile captures the required stack guidance skills
+and their resources. Record only applicable admitted IDs in the typed draft. Frontend
+references alone do not select backend guidance. Preserve prior applicable architecture
+tables, decisions, assumptions and frontend references; incorporate scoped changes
+rather than regenerating settled content every cycle.
 Always populate Architecture - General; include Data Model, Service Design and
 Solution Design only where applicable, and Design references only for frontend.

@@ -1,0 +1,2 @@
+candidate workflows: validate/validate.dot: validate repair agent repair_agent must declare lf_access=write
+exit status 1
