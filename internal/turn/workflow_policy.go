@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -125,8 +126,9 @@ type ParkDecision struct {
 // WorkflowEnv is the trusted run context a mode's scoped activities are built
 // with: the task they belong to and the worktree the run holds.
 type WorkflowEnv struct {
-	Ref      naming.Ref
-	Worktree func() (*git.Worktree, error)
+	StackProfile *config.ResolvedStackProfile
+	Ref          naming.Ref
+	Worktree     func() (*git.Worktree, error)
 	// Save commits and pushes whatever the run's worktree holds, as the end of a
 	// run does, and reports what became of it. It is for a mode whose graph
 	// decides, mid-run, that the work is to be saved. It records that the run has

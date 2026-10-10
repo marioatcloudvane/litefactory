@@ -93,7 +93,13 @@ func runStoryContractUpgrade(ctx context.Context, env *Env, parent string, apply
 	if err != nil {
 		return err
 	}
-	scope := planbrief.TaskOwnerScope()
+	scope, retained, err := turn.RetainedPlanContentScope(ctx, db, ref.String())
+	if err != nil {
+		return err
+	}
+	if !retained {
+		scope = planbrief.TaskOwnerScope()
+	} // This command upgrades explicit historical contracts.
 	o := turn.StoryContractUpgradeOptions{DB: db, Forge: forge, Renderer: renderer, Parent: ref, OwnerID: ids.OwnerUserID, Scope: scope, LockDir: filepath.Dir(paths.DBPath())}
 	p, err := turn.PreviewStoryContractUpgrade(ctx, o)
 	if err != nil {

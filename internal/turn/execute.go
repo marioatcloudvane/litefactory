@@ -356,9 +356,10 @@ type Request struct {
 	bugAdmitted    bool
 	// graphBugPreparation defers synchronization until the exact agent allocation
 	// can retain preservation intent. Only the simplified factory sets it.
-	graphBugPreparation bool
-	researchDefinition  *teamsource.ResearchDefinition
-	researchNode        string
+	graphBugPreparation  bool
+	researchDefinition   *teamsource.ResearchDefinition
+	standaloneDefinition *teamsource.WorkflowDefinition
+	researchNode         string
 	// researchInstance scopes this run's application result to one graph
 	// instance. A result is identified by task, mode and work context, so
 	// without this every run on a task shares one result and every run after

@@ -380,6 +380,15 @@ func (m *Manager) install(ctx context.Context, source string, r Release) (Instal
 	if err != nil {
 		return Installed{}, false, err
 	}
+	profile, err := captureStackProfile(os.DirFS(content), Installed{Identity: Identity{Slug: r.Slug, Version: r.Version}})
+	if err != nil {
+		return Installed{}, false, err
+	}
+	if profile != nil {
+		if _, err := teamsource.CaptureStackGuidance(ctx, os.DirFS(content), *profile); err != nil {
+			return Installed{}, false, fmt.Errorf("%w: stack-profile.guidance: %w", ErrInvalidPackage, err)
+		}
+	}
 	if err := m.validate(ctx, os.DirFS(content), workflows); err != nil {
 		return Installed{}, false, fmt.Errorf("%w: %w", ErrIncompatibleWorkflow, err)
 	}
