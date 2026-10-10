@@ -227,7 +227,8 @@ var archiveRetained = map[string]ArchiveClass{
 	// Not keyed by one task family. The doctor journal has delete triggers and
 	// holds; a family with doctor references is kept by the pending check.
 	"repos": ArchiveClassGlobal, "identities": ArchiveClassGlobal, "poll_cursor": ArchiveClassGlobal, "repo_poll_cursors": ArchiveClassGlobal, "repo_webhooks": ArchiveClassGlobal,
-	"chat_inbox": ArchiveClassGlobal,
+	"chat_issue_previews": ArchiveClassGlobal,
+	"chat_inbox":          ArchiveClassGlobal,
 	// Chat delivery state follows its own short retention; source positions
 	// must survive task archival so enabling notices never replays history.
 	"chat_notices":           ArchiveClassGlobal,
