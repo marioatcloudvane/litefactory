@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "guidance": [
+    {
+      "id": "blazor",
+      "skill": "plan/skills/blazor-guidance/SKILL.md"
+    },
+    {
+      "id": "agent-setup",
+      "skill": "plan/skills/plan-agent-setup-guidance/SKILL.md"
+    }
+  ],
+  "requirements": {
+    "os": [
+      "darwin",
+      "linux"
+    ],
+    "arch": [
+      "arm64",
+      "amd64"
+    ],
+    "executables": [
+      "dotnet",
+      "sh"
+    ]
+  },
+  "checks": [
+    {
+      "name": "repository-preflight",
+      "argv": [
+        "sh",
+        "-c",
+        "set -eu\nsdk=\"$1\"\ntarget=\"$2\"\ntests=\"$3\"\nrunner=\"$4\"\nlocked=\"$5\"\n[ \"$target\" != __REQUIRED_TARGET__ ] && [ \"$tests\" != __REQUIRED_TEST_PROJECT__ ] || { echo 'dotnet-web: configure explicit solution/project and test project in repository recipe overrides' >&2; exit 2; }\nfor path in \"$target\" \"$tests\"; do\n case \"$path\" in /*|../*|*/../*|*/..|-*) echo 'dotnet-web: targets must be repository-relative paths' >&2; exit 2;; esac\n [ -f \"$path\" ] || { echo \"dotnet-web: missing target: $path\" >&2; exit 2; }\ndone\ncase \"$runner\" in VSTest|Microsoft.Testing.Platform) ;; *) echo 'dotnet-web: unsupported test runner declaration' >&2; exit 2;; esac\ncase \"$locked\" in true|false) ;; *) echo 'dotnet-web: locked restore must be true or false' >&2; exit 2;; esac\nactual=$(dotnet --version) || { echo 'dotnet-web: prepare the declared SDK; no host installation is performed' >&2; exit 2; }\n[ \"$actual\" = \"$sdk\" ] || { echo \"dotnet-web: selected SDK $actual differs from declared SDK $sdk; inspect global.json and installed SDKs\" >&2; exit 2; }\n",
+        "dotnet-web",
+        "__REQUIRED_SDK_PIN__",
+        "__REQUIRED_TARGET__",
+        "__REQUIRED_TEST_PROJECT__",
+        "VSTest",
+        "false"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 30
+    }
+  ],
+  "setup": [],
+  "environment": [
+    {
+      "name": "DOTNET_NOLOGO",
+      "value": "1"
+    },
+    {
+      "name": "DOTNET_CLI_TELEMETRY_OPTOUT",
+      "value": "1"
+    }
+  ],
+  "override_fields": [
+    "checks",
+    "setup"
+  ],
+  "required_fields": [
+    "checks"
+  ]
+}
