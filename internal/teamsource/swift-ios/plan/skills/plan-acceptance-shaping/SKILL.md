@@ -5,7 +5,9 @@ requires: [plan-evidence]
 ---
 # Acceptance shaping
 Use stable explicit criterion IDs and observable requirements. Attach a future
-proof_method to each criterion. Build complete task-to-criterion links using only
+proof_method to each criterion. Criteria are human-check guidance (Manual);
+at most one per story is (Auto), the end-to-end test of its main path.
+Keep three to five criteria per story; merge overlapping checks. Build complete task-to-criterion links using only
 authorized owner roles; validate tasks and dependencies. Keep proposed completion
 obligations distinct from actual executed evidence: no predicted check is a pass.
 Preserve the approved intent, applicable general/data/service/solution tables,
