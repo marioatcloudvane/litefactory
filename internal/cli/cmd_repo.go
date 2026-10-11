@@ -175,8 +175,7 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 
 	// A webhook problem never undoes or fails the registration above: the repo
 	// keeps working on polling.
-	reg, setupFailure := newWebhookRegistrar(ctx, env, rt)
-	writeRepoAddWebhook(env.Stdout, env.Stderr, stored, ensureWebhook(ctx, reg, setupFailure, rt, stored))
+	writeRepoAddWebhook(env.Stdout, env.Stderr, stored, ensureWebhook(ctx, env, rt, stored))
 	return nil
 }
 

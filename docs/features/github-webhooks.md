@@ -14,6 +14,11 @@ network was down) is picked up by the next poll. A webhook delivery is only a
 wake-up call: it never carries instructions that litefactory trusts, because the
 daemon always re-reads the issue from GitHub.
 
+Delivery and recovery use the project's configured ticket connection. Matching
+repository names or ticket numbers on another GitHub API origin do not select
+that project's work. Saved sessions retain their original source when a
+connection changes.
+
 ## 2. Quick start
 
 1. Pick how GitHub reaches your Mac: a reverse proxy (Option A, recommended) or
@@ -97,14 +102,54 @@ create webhooks. For tokens:
 - Classic token: the `admin:repo_hook` scope.
 - Fine-grained token: the repository permission Webhooks, read and write.
 
-litefactory stores each repository's secret in the macOS Keychain under service
-`litefactory-webhook` and account `<owner>/<name>`. To create a hook by hand,
-read that secret from the Keychain and enter it as the hook's secret. Use
+litefactory stores signing secrets in the macOS Keychain under service
+`litefactory-webhook`. Qualified subscriptions use account
+`subscription/<subscription-id>`; imported legacy subscriptions retain their
+proven `<owner>/<name>` account. New subscription callbacks include an opaque
+`?subscription=<subscription-id>` selector. Preserve that query when forwarding
+the callback. The selector chooses the configured source; the signature still
+provides authentication. Legacy callbacks remain supported only when their
+verified source is unambiguous. To create a hook by hand, use the owned
+subscription's callback and signing secret. Use
 content type `application/json` and the events `issues`, `issue_comment` and
-`sub_issues`, with the payload URL set to your `webhook.public_url`.
+`sub_issues`.
 
 Without `webhook.public_url`, registration is skipped and the repository keeps
 working on polling alone.
+
+### Inspect and manage a subscription
+
+Use the registered project ID to avoid ambiguous repository shortcuts:
+
+```
+litefactory repo webhook list <project-id>
+litefactory repo webhook status <project-id> <subscription-id>
+litefactory repo webhook create --expected-revision=0 <project-id>
+litefactory repo webhook repair --expected-revision=<revision> <project-id> <subscription-id>
+litefactory repo webhook update --expected-revision=<revision> --callback=https://new.example.com/litefactory/webhook <project-id> <subscription-id>
+litefactory repo webhook disable --expected-revision=<revision> <project-id> <subscription-id>
+```
+
+Read the current revision from status before a mutation. An outdated revision is
+rejected; inspect again before retrying. Update accepts `--events` with a comma
+separated selection of `issues`, `issue_comment` and `sub_issues`, and
+`--enabled=false` or `--enabled=true` to set the desired notification state.
+Repair preserves an explicit disable.
+After a credential edit, compatibility repair and repository registration also
+preserve a retained disable for the same verified source. Use explicit creation
+for the new connection version if you intend to enable its webhook.
+
+Status separates the desired state from the last observed remote state. It also
+shows the source version, hook ID, check time, last valid delivery, completed
+recovery coverage and enrollment boundary. A pending, failed or uncertain remote
+operation is not proof that GitHub accepted the change. Signing secrets are not
+printed, and GitHub cannot return a stored secret for equality verification.
+
+If a creation response is lost, repair first searches for the exact owned
+callback and configuration. Ambiguous or incomplete evidence leaves the operation
+unresolved rather than creating another hook or changing an unrelated hook.
+Subscription changes are trusted local operator operations; ticket comments and
+agents cannot manage them.
 
 ## 7. Polling without webhooks
 
@@ -116,6 +161,26 @@ Webhooks are recommended. If you cannot use them, set a shorter poll interval.
   regardless of webhook deliveries.
 - Every repository is checked once when the daemon starts.
 - The old `poll_interval_seconds` key is refused (see section 9).
+
+Recovery progress and pending ticket observations are saved in the database.
+A poll advances completed coverage only after both ticket changes and reply
+changes have been handed off durably. Interrupted or incomplete pages are
+retried from retained progress after restart. Overlapping polls, repeated
+deliveries and reconciliation all use the existing session consumption and
+confirmed-report records, so observing an already consumed reply does not run
+its instruction again. An interrupted first ticket instruction also remains
+pending until processing finishes or the usual admission rules skip it.
+
+Routine GitHub discovery overlaps the last completed coverage by five minutes.
+Paced reconciliation also revisits enrolled tickets and replies to recover
+updates that appeared late in GitHub's index. Replies and unchanged ticket bodies
+from before enrollment stay historical; eligible replies received during an
+outage remain eligible when the ticket is first discovered later. Recovery
+requires the provider to retain the change and access to become available again.
+
+Disabling a webhook subscription prevents its notifications from admitting new
+work. Polling and saved work continue; webhook disable does not disable
+the project's ticket connection.
 
 ## 8. Troubleshooting
 

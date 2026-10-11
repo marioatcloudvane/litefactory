@@ -240,7 +240,12 @@ var archiveRetained = map[string]ArchiveClass{
 	"project_connection_versions": ArchiveClassGlobal, "project_connections": ArchiveClassGlobal,
 	"project_ticket_bindings": ArchiveClassGlobal, "project_connection_observations": ArchiveClassGlobal,
 	"project_connection_imports": ArchiveClassGlobal,
-	"schema_migrations":          ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
+	// Subscription ownership and source recovery survive individual task archival.
+	// Pending signals can precede session admission; generations never reset.
+	"ticket_subscriptions": ArchiveClassGlobal, "ticket_subscription_operations": ArchiveClassGlobal,
+	"ticket_recovery_positions": ArchiveClassGlobal, "pending_ticket_observations": ArchiveClassGlobal,
+	"ticket_observation_generations": ArchiveClassGlobal,
+	"schema_migrations":              ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
 	"retirement_sweep": ArchiveClassGlobal, "archive_sweep": ArchiveClassGlobal,
 	planArchiveGrantsTable: ArchiveClassGlobal,
 	// Rights are keyed by repository, never archived or deleted.

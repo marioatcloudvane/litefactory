@@ -604,7 +604,12 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		if now == nil {
 			now = time.Now
 		}
-		daemon.webhook.refresh(ctx, registered, now())
+		if daemon.connections != nil {
+			daemon.importLegacyWebhookSubscriptions(ctx, now())
+			daemon.webhook.refreshSubscriptions(ctx, daemon.db, now())
+		} else {
+			daemon.webhook.refresh(ctx, registered, now())
+		}
 	}
 	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
 	daemon.doctorHostOptions = s.DoctorHost
