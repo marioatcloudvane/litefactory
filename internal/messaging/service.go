@@ -49,10 +49,13 @@ type CommandDefinition struct {
 // Target identifies a reply; Handle is opaque and credentials remain in the adapter.
 type Target struct{ Transport, MessageID, Channel, Handle string }
 
-// Delivery describes confirmation or permanent/temporary failure.
+// Delivery describes confirmation or permanent/temporary failure. Route and
+// Status describe the last transport call for logging only.
 type Delivery struct {
 	Confirmed, Permanent bool
 	RetryAfter           time.Duration
+	Route                string
+	Status               int
 }
 
 // Transport supplies delivery and its outcome without service-specific types.
@@ -305,10 +308,20 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		}
 	}
 	d := s.sender.Deliver(ctx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID}, text)
-	if d.Confirmed || d.Permanent {
-		return true, s.finish(ctx, r, !d.Confirmed, at)
+	outcome, level := "retry", slog.LevelInfo
+	switch {
+	case d.Confirmed:
+		outcome, err = "confirmed", s.db.FinishChatReply(ctx, r, false, at)
+	case d.Permanent:
+		outcome, level, err = "failed", slog.LevelWarn, s.db.FinishChatReply(ctx, r, true, at)
+	default:
+		err = s.retry(ctx, r, at, d.RetryAfter)
 	}
-	return true, s.retry(ctx, r, at, d.RetryAfter)
+	// One line per delivery attempt; the reply text is never logged.
+	if s.Logger != nil {
+		s.Logger.Log(ctx, level, "chat reply delivery", slog.String("transport", r.Transport), slog.String("message_id", r.MessageID), slog.String("command", r.Command), slog.String("outcome", outcome), slog.String("route", d.Route), slog.Int("status", d.Status))
+	}
+	return true, err
 }
 func (s *Service) retry(ctx context.Context, r store.ChatReply, at time.Time, hint time.Duration) error {
 	return s.db.RetryChatReply(ctx, r, retryAt(r, at, hint), at)

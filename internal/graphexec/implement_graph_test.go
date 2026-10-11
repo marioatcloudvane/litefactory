@@ -79,16 +79,55 @@ func TestImplementGraphValidates(t *testing.T) {
 	}
 }
 
+// implementReportDoneDOT is the graph that reports completion on the parent:
+// any_parked false reaches report_done, which ends at finished.
+func implementReportDoneDOT(t *testing.T) string {
+	t.Helper()
+	dot := strings.Replace(implementTestDOT, ` any_parked -> finished [lf_on="false"];`, ` any_parked -> report_done [lf_on="false"];
+ report_done -> finished [lf_on="published"];`, 1)
+	dot = strings.Replace(dot, ` budget [lf_action=`, ` report_done [lf_action="lf_implement_report_done", lf_outcomes="published", lf_source="merge", lf_limit="16"];
+ budget [lf_action=`, 1)
+	if dot == implementTestDOT {
+		t.Fatal("the report_done graph changed nothing")
+	}
+	return dot
+}
+
+func TestImplementGraphValidatesWithAndWithoutTheCompletionReply(t *testing.T) {
+	if err := validateImplementDOT(t, implementTestDOT); err != nil {
+		t.Fatalf("a graph without report_done (released teams, running instances): %v", err)
+	}
+	dot := implementReportDoneDOT(t)
+	if err := validateImplementDOT(t, dot); err != nil {
+		t.Fatalf("a graph with report_done: %v", err)
+	}
+	for name, tc := range map[string]struct{ old, new, want string }{
+		"the reply names no merge step": {`lf_outcomes="published", lf_source="merge", lf_limit="16"];
+ budget`, `lf_outcomes="published", lf_source="ready", lf_limit="16"];
+ budget`, "must name the merge step"},
+		"the reply does not end": {` report_done -> finished [lf_on="published"];`, ` report_done -> merge [lf_on="published"];`, "must end at a terminal"},
+	} {
+		broken := strings.Replace(dot, tc.old, tc.new, 1)
+		if broken == dot {
+			t.Fatalf("%s: the mutation changed nothing", name)
+		}
+		if err := validateImplementDOT(t, broken); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want it to mention %q", name, err, tc.want)
+		}
+	}
+}
+
 func TestImplementSpecsOfTheWorkerAndTheBatchedQuestion(t *testing.T) {
 	want := map[string][]string{
-		ImplementSelectAction:    {"coordinator", "worker"},
-		ImplementBudgetAction:    {"run", "park"},
-		ImplementResultAction:    {"completed", "stopped"},
-		ImplementStoryDoneAction: {"done", "retry"},
-		ImplementParkAction:      {"parked"},
-		ImplementAwaitAction:     {"go"},
-		ImplementAnyParkedAction: {"true", "false"},
-		ImplementAskAction:       {"published"},
+		ImplementSelectAction:     {"coordinator", "worker"},
+		ImplementBudgetAction:     {"run", "park"},
+		ImplementResultAction:     {"completed", "stopped"},
+		ImplementStoryDoneAction:  {"done", "retry"},
+		ImplementParkAction:       {"parked"},
+		ImplementAwaitAction:      {"go"},
+		ImplementAnyParkedAction:  {"true", "false"},
+		ImplementAskAction:        {"published"},
+		ImplementReportDoneAction: {"published"},
 	}
 	got := map[string][]string{}
 	for _, spec := range ImplementSpecs() {
