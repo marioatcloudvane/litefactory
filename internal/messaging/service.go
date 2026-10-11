@@ -1,4 +1,4 @@
-// Package messaging admits read-only commands and manages transport-neutral replies.
+// Package messaging admits enabled owner commands and manages transport-neutral replies.
 package messaging
 
 import (
@@ -45,6 +45,9 @@ type Argument struct {
 type CommandDefinition struct {
 	Name, Description string
 	Arguments         []Argument
+	// NaturalLanguage and Effect opt into suggestion routing, never execution.
+	NaturalLanguage bool
+	Effect          CommandEffect
 }
 
 // Target identifies a reply; Handle is opaque and credentials remain in the adapter.
@@ -139,9 +142,9 @@ func New(db *store.DB, transport, owner string, channels []string, sender Transp
 	for _, c := range channels {
 		s.channels[c] = true
 	}
-	s.RegisterCommand(CommandDefinition{Name: "help", Description: "List factory commands"}, s.help)
-	s.RegisterCommand(CommandDefinition{Name: "health", Description: "Read factory health"}, s.health)
-	s.RegisterCommand(CommandDefinition{Name: "status", Description: "Read factory status"}, s.summary)
+	s.RegisterCommand(CommandDefinition{Name: "help", NaturalLanguage: true, Effect: ReadEffect, Description: "List factory commands"}, s.help)
+	s.RegisterCommand(CommandDefinition{Name: "health", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory health"}, s.health)
+	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory status"}, s.summary)
 	s.registerMeter()
 	return s
 }
