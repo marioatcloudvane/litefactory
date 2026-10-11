@@ -1,0 +1,18 @@
+ok  	github.com/cloudvane/litefactory/internal/doctor	160.363s
+--- FAIL: TestNoticeCollectionEnableStaleAndRetry (11.35s)
+    notices_test.go:196: one source blocked another: sql: expected 16 destination arguments in Scan, not 17
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/messaging	43.256s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	4.270s
+--- FAIL: TestTaskNoticeJourney (3.60s)
+    notices_endtoend_test.go:116: sql: expected 16 destination arguments in Scan, not 17
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/messaging/discord	20.590s
+ok  	github.com/cloudvane/litefactory/internal/meterview	6.212s
+ok  	github.com/cloudvane/litefactory/internal/repos	7.029s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	26.798s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	151.086s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	31.137s
+FAIL

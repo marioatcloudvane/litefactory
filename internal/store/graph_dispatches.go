@@ -78,7 +78,7 @@ func (db *DB) ParkGraphInstanceAfter(ctx context.Context, instanceID int64, node
 // parking. The caller holds task ownership and freshly observes an open issue.
 // Replayed replies cannot revive a later stop, even after a process interruption.
 func (db *DB) ParkGraphInstanceForReply(ctx context.Context, instanceID int64, node string, at time.Time, replyID int64) (GraphDispatch, error) {
-	if replyID <= 0 || IsGraphTrigger(replyID) || IsAutomaticTrigger(replyID) || IsScheduleTrigger(replyID) {
+	if replyID <= 0 || IsPrivateTrigger(replyID) {
 		return GraphDispatch{}, graphInvariant("recovery requires an owner comment")
 	}
 	return db.parkGraphInstance(ctx, instanceID, node, at, at, 0, replyID, 0)
