@@ -92,3 +92,12 @@ Evidence:
 
 - `internal/messaging/discord/adapter.go:1`
 - `internal/messaging/discord/adapter.go:158`
+
+## f11
+
+Agent roles are markdown files with frontmatter (name, description, tier, task) in a team package, run by lf_agent nodes in per-workflow graphs. The package has six workflows today; none is for chat.
+
+Evidence:
+
+- `teams/dotnet-web/v1.0.4/research/shaping.md:1`
+- `teams/dotnet-web/v1.0.4/research/research.dot:14`
