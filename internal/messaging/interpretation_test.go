@@ -1,0 +1,86 @@
+package messaging
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+)
+
+func interpretationRequest() InterpretationRequest {
+	return InterpretationRequest{Turns: []DialogueTurn{{SourceID: "123", Text: "draft hello"}}, Commands: []CommandDefinition{{Name: "draft", NaturalLanguage: true, Effect: ChangeEffect, Arguments: []Argument{{Name: "note", Type: TextArgument, Required: true}}}}}
+}
+
+func TestDecodeInterpretationBindsExactOwnerBytes(t *testing.T) {
+	r := interpretationRequest()
+	raw := []byte(`{"version":1,"kind":"propose","command":"draft","arguments":[{"name":"note","source_id":"123","start":6,"end":11}]}`)
+	result, inv, err := DecodeInterpretation(raw, r)
+	if err != nil || result.Kind != "propose" || inv.Arguments["note"] != "hello" {
+		t.Fatalf("result=%+v invocation=%+v error=%v", result, inv, err)
+	}
+}
+
+func TestDecodeInterpretationRejectsAmbiguity(t *testing.T) {
+	valid := `{"version":1,"kind":"propose","command":"draft","arguments":[{"name":"note","source_id":"123","start":6,"end":11}]}`
+	cases := []string{
+		strings.Replace(valid, `"version":1`, `"version":1,"version":1`, 1),
+		strings.Replace(valid, `"start":6`, `"start":6,"start":6`, 1),
+		strings.Replace(valid, `"start":6,`, "", 1),
+		strings.Replace(valid, `"end":11`, `"end":99`, 1),
+		strings.Replace(valid, `"source_id":"123"`, `"source_id":"invented"`, 1),
+		strings.Replace(valid, `"note"`, `"unknown"`, 1),
+		strings.Replace(valid, `"draft"`, `"repair"`, 1),
+		strings.Replace(valid, `"arguments":[`, `"arguments":null,"extra":[`, 1),
+		valid + ` {}`, `{"version":1,"kind":"confirm"}`, `{"version":1,"kind":"ignore","question":"yes"}`,
+		`{"version":1,"kind":"clarify","question":null}`, strings.Repeat(" ", interpretationLimit+1),
+	}
+	for i, raw := range cases {
+		if _, _, err := DecodeInterpretation([]byte(raw), interpretationRequest()); err == nil {
+			t.Errorf("case %d accepted", i)
+		}
+	}
+	r := interpretationRequest()
+	r.Turns[0].Text = "> draft hello"
+	quoted := strings.Replace(strings.Replace(valid, `"start":6`, `"start":8`, 1), `"end":11`, `"end":13`, 1)
+	if _, _, err := DecodeInterpretation([]byte(quoted), r); err == nil {
+		t.Error("quoted source accepted")
+	}
+}
+
+type interpretationProvider struct {
+	calls    int
+	deadline bool
+	prompt   string
+	err      error
+}
+
+func (p *interpretationProvider) Present(ctx context.Context, repo int64, identity, phase, prompt string) ([]byte, error) {
+	p.calls++
+	p.prompt = prompt
+	deadline, ok := ctx.Deadline()
+	p.deadline = ok && time.Until(deadline) <= 30*time.Second
+	if repo != 0 || phase != "generation" || !strings.HasPrefix(identity, "interpretation-") {
+		return nil, errors.New("bad ownership")
+	}
+	return []byte(`{"version":1,"kind":"ignore"}`), p.err
+}
+func TestNativeInterpreterBoundedProviderCall(t *testing.T) {
+	p := &interpretationProvider{}
+	n := &NativeInterpreter{Model: p}
+	if _, err := n.Interpret(context.Background(), interpretationRequest()); err != nil {
+		t.Fatal(err)
+	}
+	if p.calls != 1 || !p.deadline || !strings.Contains(p.prompt, "no tools or execution authority") {
+		t.Fatalf("provider=%+v", p)
+	}
+	p.err = errors.New("provider unavailable")
+	if _, err := n.Interpret(context.Background(), interpretationRequest()); err == nil {
+		t.Error("provider failure hidden")
+	}
+	r := interpretationRequest()
+	r.Turns[0].Text = strings.Repeat("x", 32769)
+	if _, err := n.Interpret(context.Background(), r); err == nil || p.calls != 2 {
+		t.Error("oversized request reached provider")
+	}
+}

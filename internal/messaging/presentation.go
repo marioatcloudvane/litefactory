@@ -67,6 +67,11 @@ func (s *Service) present(ctx context.Context, r store.ChatReply, text string) (
 			status = presentation.Uncertain
 		}
 		outcome = presentation.FromSource(text, status, language)
+		if r.Command == "natural" {
+			// Entire dialogue prompts are protected; narration cannot change
+			// canonical arguments, question wording or confirmation grammar.
+			outcome.Protected = []presentation.Protected{{Handle: "dialogue", Kind: presentation.ExactValue, Source: presentation.Source{Start: 0, End: len(text), Value: text}}}
+		}
 		if err := outcome.Validate(); err != nil {
 			return r, err
 		}

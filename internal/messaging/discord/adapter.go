@@ -273,14 +273,14 @@ func (a *Adapter) deliver(ctx context.Context, t messaging.Target, text string, 
 	if err != nil {
 		return messaging.Delivery{}
 	}
-	if attachment != nil && text != body.String() {
+	if (attachment != nil || t.Protected) && text != body.String() {
 		return messaging.Delivery{Permanent: true}
 	}
 	text = body.String()
 	// Redaction must preserve the page footer. Check Discord's UTF-16 budget
 	// after substitution and send a short failure reply rather than cut a page.
 	if len(utf16.Encode([]rune(text))) > a.ReplyLimit() {
-		if attachment != nil {
+		if attachment != nil || t.Protected {
 			return messaging.Delivery{Permanent: true}
 		}
 		text = "report unavailable"
@@ -379,7 +379,14 @@ func (a *Adapter) callContent(ctx context.Context, method, path string, payload 
 	defer res.Body.Close()
 	response, readErr := io.ReadAll(io.LimitReader(res.Body, maxBody))
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
-		return messaging.Delivery{Confirmed: readErr == nil}, res.StatusCode
+		d := messaging.Delivery{Confirmed: readErr == nil}
+		var message struct {
+			ID string `json:"id"`
+		}
+		if readErr == nil && json.Unmarshal(response, &message) == nil && numeric(message.ID) {
+			d.PromptID = message.ID
+		}
+		return d, res.StatusCode
 	}
 	if res.StatusCode == http.StatusTooManyRequests {
 		wait := parseRetry(res.Header.Get("Retry-After"), a.options.Now())

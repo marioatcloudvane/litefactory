@@ -15,7 +15,7 @@ var meterArgumentNames = []string{"project", "task", "mode", "agent", "model", "
 var priceArgumentNames = []string{"agent", "model", "page"}
 
 func (s *Service) registerMeter() {
-	s.RegisterCommand(CommandDefinition{Name: "meter", Description: "Read usage, cost estimates and coverage", Arguments: []Argument{
+	s.RegisterCommand(CommandDefinition{Name: "meter", NaturalLanguage: true, Effect: ReadEffect, Description: "Read usage, cost estimates and coverage", Arguments: []Argument{
 		{Name: "project", Type: TextArgument, Description: "Registered owner/name or forge:owner/name"},
 		{Name: "task", Type: IntegerArgument, Description: "Positive issue number within the project"},
 		{Name: "mode", Type: TextArgument, Description: "research, plan, implement or spike"},
@@ -26,7 +26,7 @@ func (s *Service) registerMeter() {
 		{Name: "details", Type: BooleanArgument, Description: "Include invocation detail rows"},
 		{Name: "page", Type: IntegerArgument, Description: "Report page number, starting at 1"},
 	}}, s.meter)
-	s.RegisterCommand(CommandDefinition{Name: "prices", Description: "Read recorded price catalogue in USD per million tokens", Arguments: []Argument{
+	s.RegisterCommand(CommandDefinition{Name: "prices", NaturalLanguage: true, Effect: ReadEffect, Description: "Read recorded price catalogue in USD per million tokens", Arguments: []Argument{
 		{Name: "agent", Type: TextArgument, Description: "claude or codex"},
 		{Name: "model", Type: TextArgument, Description: "Model filter"},
 		{Name: "page", Type: IntegerArgument, Description: "Catalogue page number, starting at 1"},

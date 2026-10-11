@@ -1,4 +1,4 @@
-// Package messaging admits read-only commands and manages transport-neutral replies.
+// Package messaging admits enabled owner commands and manages transport-neutral replies.
 package messaging
 
 import (
@@ -45,19 +45,27 @@ type Argument struct {
 type CommandDefinition struct {
 	Name, Description string
 	Arguments         []Argument
+	// NaturalLanguage and Effect opt into suggestion routing, never execution.
+	NaturalLanguage bool
+	Effect          CommandEffect
 }
 
 // Target identifies a reply; Handle is opaque and credentials remain in the adapter.
-type Target struct{ Transport, MessageID, Channel, Handle string }
+type Target struct {
+	Transport, MessageID, Channel, Handle string
+	Protected                             bool
+}
 
 // Delivery describes confirmation or permanent/temporary failure. Route and
 // Status describe the last transport call for logging only.
 type Delivery struct {
 	Confirmed, Permanent bool
-	AttachmentRejected   bool
-	RetryAfter           time.Duration
-	Route                string
-	Status               int
+	// PromptID is the platform message identity, returned only on known delivery.
+	PromptID           string
+	AttachmentRejected bool
+	RetryAfter         time.Duration
+	Route              string
+	Status             int
 }
 
 // Transport supplies delivery and its outcome without service-specific types.
@@ -131,6 +139,7 @@ type Service struct {
 	privateOptions   map[string]map[string]string
 	drafter          *feature.Drafter
 	confirmer        FeatureConfirmer
+	interpreter      Interpreter
 }
 
 // New copies admission rules and registers help, health and status.
@@ -139,9 +148,9 @@ func New(db *store.DB, transport, owner string, channels []string, sender Transp
 	for _, c := range channels {
 		s.channels[c] = true
 	}
-	s.RegisterCommand(CommandDefinition{Name: "help", Description: "List factory commands"}, s.help)
-	s.RegisterCommand(CommandDefinition{Name: "health", Description: "Read factory health"}, s.health)
-	s.RegisterCommand(CommandDefinition{Name: "status", Description: "Read factory status"}, s.summary)
+	s.RegisterCommand(CommandDefinition{Name: "help", NaturalLanguage: true, Effect: ReadEffect, Description: "List factory commands"}, s.help)
+	s.RegisterCommand(CommandDefinition{Name: "health", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory health"}, s.health)
+	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory status"}, s.summary)
 	s.registerMeter()
 	return s
 }
@@ -274,6 +283,7 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	originalReply := r.ReplyText
 	if r.Command == "ask" || r.Command == "draft" || r.Command == "confirm" {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
@@ -283,9 +293,21 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		s.mu.Lock()
 		delete(s.privateOptions, r.Transport+":"+r.MessageID)
 		s.mu.Unlock()
+		r.OutcomeStatus = string(presentation.Uncertain)
+		if err = s.finishNaturalOutcome(ctx, r, "The request expired. Check the target for any prior effect before requesting it again.", at); err != nil {
+			return true, err
+		}
 		return true, s.finish(ctx, r, true, at)
 	}
+	if _, err = s.prepareNaturalExecution(ctx, &r, at); err != nil {
+		return true, err
+	}
 	text := r.ReplyText
+	if text != "" && text != originalReply {
+		if err = s.db.SaveChatReply(ctx, r, text); err != nil {
+			return true, err
+		}
+	}
 	if text == "" {
 		s.mu.RLock()
 		h := s.commands[r.Command]
@@ -334,6 +356,9 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 			return true, err
 		}
 	}
+	if err = s.finishNaturalOutcome(ctx, r, text, at); err != nil {
+		return true, err
+	}
 	if r.PresentationState == "pending" {
 		r, err = s.db.ReadChatReply(ctx, r.Transport, r.MessageID)
 		if err != nil {
@@ -345,7 +370,7 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		}
 		text = r.ReplyText
 	}
-	target := Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID}
+	target := Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID, Protected: r.Command == "natural"}
 	var d Delivery
 	if _, ok := s.sender.(ReplyTransport); !ok && r.ReplyAttachment != "" {
 		raw, e := inlineRaw(r)
@@ -377,6 +402,17 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	outcome, level := "retry", slog.LevelInfo
 	switch {
 	case d.Confirmed:
+		if r.Command == "natural" && d.PromptID != "" {
+			proposal, lookupErr := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.ChannelRef)
+			if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) {
+				return true, lookupErr
+			}
+			if lookupErr == nil && proposal.State == "awaiting_confirmation" && r.MessageID == "nl:"+proposal.SourceID {
+				if err = s.db.BindNaturalPrompt(ctx, proposal, d.PromptID); err != nil {
+					return true, err
+				}
+			}
+		}
 		outcome, err = "confirmed", s.db.FinishChatReply(ctx, r, false, at)
 	case d.Permanent:
 		outcome, level, err = "failed", slog.LevelWarn, s.db.FinishChatReply(ctx, r, true, at)
@@ -405,7 +441,7 @@ func retryAt(r store.ChatReply, at time.Time, hint time.Duration) time.Time {
 
 // Purge removes finished reply state after the retention window.
 func (s *Service) Purge(ctx context.Context, at time.Time) error {
-	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at))
+	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at), s.db.PurgeNaturalChat(ctx, at))
 }
 func (s *Service) help(ctx context.Context, _ Message, _ time.Time) (string, error) {
 	return assessed(ctx, "/"+strings.Join(s.Commands(), ", /"), presentation.Success)
