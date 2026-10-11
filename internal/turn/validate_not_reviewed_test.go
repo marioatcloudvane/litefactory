@@ -1,14 +1,20 @@
 package turn
 
 import (
+	"context"
 	"errors"
+	"io/fs"
+	"os"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 const deniedReason = "Read access to the checkout was denied"
@@ -184,11 +190,136 @@ func TestValidateSameCommitStartReplacesARunWithoutUsableReviews(t *testing.T) {
 	if pred, _, err := a.f.db.WorkflowPredecessor(t.Context(), fresh); err != nil || pred != old {
 		t.Fatalf("the fresh run links the ended one: %d %v", pred, err)
 	}
+}
 
-	// With usable reviews, a repeated start is refused as before.
-	if dup, err := a.manual(t, 6003); err != nil || !strings.Contains(dup.Reason, "already been started") {
-		t.Fatalf("%+v %v", dup, err)
+// #621: a run whose reviews were all usable, with a blocking finding among
+// them, is also replaced by the owner's /validate on the same commit. The new
+// run is captured from the currently linked team release, reuses the passed
+// suite and runs the reviews again.
+func TestValidateSameCommitStartReplacesARunWithUsableReviews(t *testing.T) {
+	a := newAdoptFlow(t)
+	a.reviewers.run = mixedReview
+	if out, err := a.manual(t, 6001); err != nil {
+		t.Fatalf("%+v %v", out, err)
 	}
+	first := a.reached(t)
+	if first.Wait != "waiting" || first.FullCommands != 3 || first.Reviewers != 3 || first.Outcome != store.ValidateAssessed {
+		t.Fatalf("the first run waits for the owner after usable reviews: %+v", first)
+	}
+	old := a.entries(t)[0].InstanceID
+	oldDigest := validateCaptureDigest(t, a, 6001, old)
+
+	// The factory's own start never ends it.
+	if out, err := a.auto(t); err != nil || !strings.Contains(out.Reason, "already been started") {
+		t.Fatalf("%+v %v", out, err)
+	}
+	// A newer team release is linked before the owner starts Validate again.
+	a.f.opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		return fixtureInstalled(captureValidateVariant(ctx, t, specs))
+	}
+	out, err := a.manual(t, 6002)
+	if err != nil {
+		t.Fatalf("%+v %v", out, err)
+	}
+	prior, err := a.f.db.GetGraphInstance(t.Context(), old)
+	mustProgress(t, err)
+	wait, err := a.f.db.GetGraphOwnerWait(t.Context(), old)
+	mustProgress(t, err)
+	if prior.Status != store.GraphCancelled || wait.State != "cancelled" {
+		t.Fatalf("the waiting run is cancelled with its wait: %s %s", prior.Status, wait.State)
+	}
+	got := a.reached(t)
+	if got.Entries != 1 || got.Wait != "waiting" || got.Outcome != store.ValidateAssessed || got.Commit != validateHeadA {
+		t.Fatalf("a fresh run on the same commit: %+v", got)
+	}
+	if got.FullCommands != 3 {
+		t.Fatalf("the passed suite is reused, not run again: %d commands", got.FullCommands)
+	}
+	if got.Reviewers != 6 {
+		t.Fatalf("the reviews run again: %d reviewer starts", got.Reviewers)
+	}
+	entry := a.entries(t)[0]
+	fresh := entry.InstanceID
+	if fresh == old || entry.State != store.ValidateEntryAdmitted {
+		t.Fatalf("a new admitted instance: %+v", entry)
+	}
+	if pred, _, err := a.f.db.WorkflowPredecessor(t.Context(), fresh); err != nil || pred != old {
+		t.Fatalf("the fresh run links the ended one: %d %v", pred, err)
+	}
+	if digest := validateCaptureDigest(t, a, 6002, fresh); digest == oldDigest {
+		t.Fatalf("the fresh run is captured from the newly linked release: %s", digest)
+	}
+}
+
+// #621: while a node of the waiting run is in progress, the owner's /validate
+// on the same commit is refused as before and changes nothing.
+func TestValidateSameCommitStartIsRefusedWhileTheRunExecutes(t *testing.T) {
+	a := newAdoptFlow(t)
+	a.reviewers.run = mixedReview
+	old, _ := a.waitingValidate(t)
+	// An earlier start comment took the wait and the waiting node runs again.
+	a.claimOwnerReply(t, old.ID, "/validate check the finished work")
+	wait, err := a.f.db.GetGraphOwnerWait(t.Context(), old.ID)
+	mustProgress(t, err)
+	cur, err := a.f.db.GetGraphInstance(t.Context(), old.ID)
+	mustProgress(t, err)
+	node := wait.OriginNode
+	if node == "" {
+		node = cur.CurrentNode
+	}
+	_, err = a.f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: old.ID, Node: node, Limit: 64, StartedAt: time.Now()})
+	mustProgress(t, err)
+	before := a.entries(t)
+	binds := a.binds
+	out, err := a.manual(t, 6002)
+	if err != nil || !strings.Contains(out.Reason, "already been started") || a.binds != binds {
+		t.Fatalf("%+v %v binds=%d", out, err, a.binds)
+	}
+	after, err := a.f.db.GetGraphInstance(t.Context(), old.ID)
+	mustProgress(t, err)
+	if after.Status != store.GraphRunning {
+		t.Fatalf("the executing run is untouched: %+v", after)
+	}
+	latest, err := a.f.db.LatestWorkflowInstance(t.Context(), a.f.session.ID, "validate")
+	mustProgress(t, err)
+	if latest.ID != old.ID {
+		t.Fatalf("no new instance: %d", latest.ID)
+	}
+	if entries := a.entries(t); len(entries) != len(before) || entries[0].InstanceID != old.ID {
+		t.Fatalf("no new entry: %+v", entries)
+	}
+}
+
+// validateCaptureDigest is the content digest of the team release captured
+// for the instance the trigger comment started.
+func validateCaptureDigest(t *testing.T, a *adoptFlow, trigger, instanceID int64) string {
+	t.Helper()
+	c, err := a.f.db.WorkflowCaptureForAdmission(t.Context(), a.f.session.ID, trigger, "validate")
+	mustProgress(t, err)
+	if c.InstanceID != instanceID || c.ContentDigest == "" {
+		t.Fatalf("the capture belongs to instance %d: %+v", instanceID, c)
+	}
+	return c.ContentDigest
+}
+
+// captureValidateVariant captures the shipped Validate package with changed
+// reviewer guidance, as a newer linked release would carry.
+func captureValidateVariant(ctx context.Context, t *testing.T, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+	t.Helper()
+	root := os.DirFS("../teamsource/validate")
+	files := fstest.MapFS{}
+	mustProgress(t, fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		raw, err := fs.ReadFile(root, p)
+		if p == "validate-code.md" {
+			raw = append(raw, []byte("\nA newer release.\n")...)
+		}
+		files[p] = &fstest.MapFile{Data: raw}
+		return err
+	}))
+	return teamsource.CaptureWorkflow(ctx, files, "validate.dot", "go-development", agent.ModeValidate, specs)
 }
 
 // #577: a run whose wait an earlier /validate start already claimed is ended by

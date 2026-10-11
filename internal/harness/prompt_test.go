@@ -512,3 +512,25 @@ func TestResumedPromptIsValidatedToo(t *testing.T) {
 		t.Fatalf("error = %v, want ErrInvalidPrompt", err)
 	}
 }
+
+// A story worker given a started feature-branch merge sees the conflicting
+// files and the instruction to resolve them, not the deferral text.
+func TestBuildPromptStoryMergeConflict(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		in := testPromptInput()
+		in.Resume = resume
+		in.DeferredSync = DeferredSyncContext{
+			Deferred: true, Branch: "lf/597-story", Base: "origin/lf/562-feature", Behind: 13, Ahead: 2,
+			FeatureBranch: "lf/562-feature", Conflicts: []string{"internal/store/chat_inbox.go"},
+		}
+		prompt := buildPrompt(t, in)
+		for _, want := range []string{"## Merge conflict to resolve", `"lf/562-feature"`, `"lf/597-story"`, `- "internal/store/chat_inbox.go"`, "Do not commit", "answer blocked and name the conflicting files"} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("resume=%v: prompt lacks %q:\n%s", resume, want, prompt)
+			}
+		}
+		if strings.Contains(prompt, "Base synchronization deferred") {
+			t.Errorf("resume=%v: prompt also renders the deferral section", resume)
+		}
+	}
+}

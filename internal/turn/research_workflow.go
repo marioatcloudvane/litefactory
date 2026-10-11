@@ -236,6 +236,18 @@ type researchWorkflow struct {
 // is to be saved. It saves with the process result of the agent that ran, and
 // never for an abandoned run, whose context is cancelled and whose work stays in
 // the worktree for the next run.
+// keepsStoryMerge reports that the run was given a feature-branch merge to
+// resolve and that merge is still in progress. Only a completed worker answer,
+// saved by the story's done step, concludes it; any other ending leaves the
+// conflict uncommitted in the worktree for the next run of the story.
+func (w *researchWorkflow) keepsStoryMerge(ctx context.Context) bool {
+	if w.prep.promptInput.DeferredSync.FeatureBranch == "" {
+		return false
+	}
+	_, err := w.prep.worktree.RevParse(ctx, "MERGE_HEAD", git.RevParseOptions{})
+	return err == nil
+}
+
 func (w *researchWorkflow) saveNow(ctx context.Context) (Result, error) {
 	if w.prep == nil || w.process == nil {
 		return Result{}, errors.New("saving requires an admitted run and its process result")
@@ -537,7 +549,7 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 	if ownerStopped {
 		out.Reason = store.ReasonOwnerStop
 	}
-	if !w.saved && w.process != nil && (ownerStopped || (!w.req.graphBugPreparation && cause == nil && w.process.Succeeded())) && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
+	if !w.saved && w.process != nil && !w.keepsStoryMerge(bookkeeping) && (ownerStopped || (!w.req.graphBugPreparation && cause == nil && w.process.Succeeded())) && (w.req.Workflow != agent.WorkflowBug || w.prep.request.Permissions.Profile != "bug-analyst") {
 		out = save(bookkeeping, w.opts, w.prep, out, w.process, w.opts.Logger)
 		if w.req.Workflow == agent.WorkflowBug || ownerStopped {
 			commit := out.SHAAfter

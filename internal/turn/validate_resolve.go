@@ -20,6 +20,10 @@ import (
 //	wait          nothing to act on (no reply yet, a refused command, or a
 //	              recorded verdict or choice)
 //	create_issue  the owner chose an issue for a finding
+//	repair        the owner chose repair, and every blocking finding of the
+//	              tested commit now has a choice: one repair round starts for
+//	              all findings chosen for repair (only when the graph declares
+//	              the outcome; otherwise the choice waits as before)
 //	push          the owner confirmed push
 //	merge         the owner confirmed merge
 //	close         the owner confirmed close
@@ -36,9 +40,11 @@ type ValidateResolveActivity struct{ b ValidateFlowBindings }
 
 // Execute resolves one entry of the step.
 func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
-	if _, err := loadValidateStep(ctx, opts, req, h.b.Profile, graphexec.ValidateResolveAction); err != nil {
+	step, err := loadValidateStep(ctx, opts, req, h.b.Profile, graphexec.ValidateResolveAction)
+	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
+	repairs := slices.Contains(step.node.Outcomes, "repair")
 	if !h.b.Delivery.ready() {
 		return ActivityResult{Diagnostic: "validate owner steps lack delivery bindings"}, errors.New("validate owner steps lack delivery bindings")
 	}
@@ -84,7 +90,7 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 	}
 	// A reply this run already acted on (a restart replays the step) goes to the
 	// same step again. Every step recovers on its own, so nothing is done twice.
-	if outcome, ok := replayedValidateReply(ctx, opts, st, wait.ReplyID); ok {
+	if outcome, ok := replayedValidateReply(ctx, opts, st, wait.ReplyID, repairs); ok {
 		if isValidateShipReply(wait.ReplyBody) {
 			// A ship reply may have recorded its checks and choices without
 			// reaching its first step: carry on from what is recorded.
@@ -138,6 +144,15 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		}
 		if _, err := opts.DB.PutValidateChoice(ctx, store.ValidateChoice{InstanceID: req.InstanceID, Commit: st.Commit, Finding: f.ID, Choice: cmd.Choice, IssueKind: cmd.IssueKind, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, CreatedAt: now}); err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, err
+		}
+		if cmd.Choice == store.ChoiceRepair && repairs {
+			after, err := LoadValidateState(ctx, opts, h.b.Profile, req.InstanceID)
+			if err != nil {
+				return ActivityResult{Diagnostic: err.Error()}, err
+			}
+			if after.ownerRepairReady() {
+				return h.accept(ctx, opts, req, after, now, "repair", "repair chosen")
+			}
 		}
 		if cmd.Choice != store.ChoiceIssue {
 			return h.accept(ctx, opts, req, st, now, "wait", "choice recorded")
@@ -355,9 +370,31 @@ func validateResolveResult(outcome, what string, st ValidateState) (ActivityResu
 	return validateJSONResult(outcome, map[string]any{"outcome": outcome, "detail": what, "commit": st.Commit, "revision": st.Revision, "ready": st.Ready})
 }
 
+// ownerRepairReady says a repair round may start for the owner's choices: at
+// least one finding is chosen for repair and every blocking finding has a
+// choice. Pending owner checks do not hold the round back, because a kept repair
+// is a new snapshot on which the checks are asked again.
+func (s ValidateState) ownerRepairReady() bool {
+	chosen := false
+	for _, f := range s.Findings {
+		if !f.needsChoice() {
+			continue
+		}
+		if f.Choice == nil {
+			if f.Blocking {
+				return false
+			}
+			continue
+		}
+		chosen = chosen || f.Choice.Choice == store.ChoiceRepair
+	}
+	return chosen
+}
+
 // replayedValidateReply finds what an owner reply already did: the step that
-// carries its confirmation on, or wait when it only recorded a verdict or choice.
-func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, commentID int64) (string, bool) {
+// carries its confirmation on, repair when it was the repair choice that
+// started a round, or wait when it only recorded a verdict or choice.
+func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, commentID int64, repairs bool) (string, bool) {
 	effects, err := opts.DB.ListValidateEffects(ctx, st.InstanceID)
 	if err == nil {
 		for _, e := range effects {
@@ -377,6 +414,9 @@ func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, 
 		}
 	}
 	for _, f := range st.Findings {
+		if f.Choice != nil && f.Choice.CommentID == commentID && f.Choice.Choice == store.ChoiceRepair && repairs && st.ownerRepairReady() {
+			return "repair", true
+		}
 		if f.Choice != nil && f.Choice.CommentID == commentID || f.Verdict != nil && f.Verdict.CommentID == commentID {
 			return "wait", true
 		}

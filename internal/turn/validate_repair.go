@@ -60,8 +60,14 @@ func (h ValidateRepairBudgetActivity) Execute(ctx context.Context, opts Options,
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
 	if suite.Output.Outcome != store.SuiteFailed {
-		err := fmt.Errorf("a repair round starts only on a failed suite, not %q", suite.Output.Outcome)
-		return ActivityResult{Diagnostic: err.Error()}, err
+		chosen, err := ownerRepairChosen(ctx, opts, instance, suite.Output)
+		if err != nil {
+			return ActivityResult{Diagnostic: err.Error()}, err
+		}
+		if !chosen {
+			err := fmt.Errorf("a repair round starts only on a failed suite or on findings the owner chose to repair, not on a %q suite", suite.Output.Outcome)
+			return ActivityResult{Diagnostic: err.Error()}, err
+		}
 	}
 	// The round starts from exactly the tested commit and a clean tree.
 	if err := worktree.ResetHard(ctx, suite.Output.Commit, session); err != nil {
@@ -75,6 +81,19 @@ func (h ValidateRepairBudgetActivity) Execute(ctx context.Context, opts Options,
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
 	return validateJSONResult("run", map[string]any{"round": round.Round, "pre_commit": round.PreCommit, "rounds_used": round.Round, "bound": bound})
+}
+
+// ownerRepairChosen says the owner chose repair for at least one finding of a
+// passed suite's tested commit.
+func ownerRepairChosen(ctx context.Context, opts Options, instance int64, suite validateSuiteOutput) (bool, error) {
+	if suite.Outcome != store.SuitePassed {
+		return false, nil
+	}
+	choices, err := opts.DB.ListValidateChoices(ctx, instance, suite.Commit, false)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(choices, func(c store.ValidateChoice) bool { return c.Choice == store.ChoiceRepair }), nil
 }
 
 func (h ValidateRepairBudgetActivity) open() (*git.Worktree, string, error) {
