@@ -247,7 +247,11 @@ type outgoing struct {
 	Nonce           string          `json:"nonce,omitempty"`
 	EnforceNonce    bool            `json:"enforce_nonce,omitempty"`
 	AllowedMentions allowedMentions `json:"allowed_mentions"`
+	Flags           int             `json:"flags,omitempty"`
 }
+
+// suppressEmbeds is Discord's SUPPRESS_EMBEDS message flag.
+const suppressEmbeds = 1 << 2
 
 // Deliver edits the original response while its token is live, retrying a 404
 // edit until the handle expires, then uses a stable enforced nonce for channel
@@ -300,6 +304,9 @@ func (a *Adapter) deliver(ctx context.Context, t messaging.Target, text string, 
 	}
 	a.mu.Unlock()
 	p := outgoing{Content: text, AllowedMentions: allowedMentions{Parse: []string{}}}
+	if t.Notice {
+		p.Flags = suppressEmbeds
+	}
 	var edit messaging.Delivery
 	if ok {
 		d, status := a.callContent(ctx, http.MethodPatch, "/webhooks/"+a.options.ApplicationID+"/"+url.PathEscape(h.token)+"/messages/@original", p, false, attachment)

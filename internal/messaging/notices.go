@@ -76,8 +76,17 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 		published := r.State == "waiting" && r.Published
 		e.Key = "wait:" + r.Key + "@" + store.FormatTime(r.At) + "@" + r.TaskRef
 		e.Kind = "waiting for you"
-		e.Asked = r.Kind
-		if r.Kind == "question" {
+		// Asked names the wait in plain words. A review-ready Bug analysis is
+		// read on GitHub; its full text never enters the notice.
+		switch r.StopCause {
+		case "diagnosis_review":
+			e.Asked = "Bug analysis ready for your approval"
+		case "diagnosis_question":
+			e.Asked = "Bug analysis question"
+		default:
+			e.Asked = noticeAsked(r.Workflow, r.Kind)
+		}
+		if r.Kind == "question" && r.StopCause != "diagnosis_review" {
 			e.Question, err = noticeQuestion(r.Candidate, r.StopReason)
 			if err != nil {
 				return nil, err
@@ -142,30 +151,61 @@ func noticeQuestion(candidate []byte, reason string) (string, error) {
 	return "Owner input requested.", nil
 }
 
-// NoticeText budgets the question separately so task and comment links survive
-// even a long owner question. The budget counts UTF-16 units used by chat APIs.
+// NoticeText keeps a notice to a few lines: what happened and to which issue,
+// one link, and at most one short sentence of an owner question. Details are
+// read on the forge. The budget counts UTF-16 units used by chat APIs.
 func NoticeText(e NoticeEvent) string {
 	issue := fmt.Sprintf("#%d", e.Task.Issue)
 	if e.Title != "" {
 		issue += " " + e.Title
 	}
-	header := fmt.Sprintf("%s: %s (%s)\n%s", e.Kind, issue, e.Workflow, e.Task.IssueURL())
+	header := fmt.Sprintf("%s: %s (%s)", e.Kind, issue, e.Workflow)
+	if e.Asked != "" {
+		header += " — " + e.Asked
+	}
+	if e.Usage != nil && (e.Kind == "completed" || e.Kind == "failed" || e.Kind == "stopped") {
+		if cost := noticeUsage(e.Usage); cost != "" {
+			header += " — " + cost
+		}
+	}
+	link := e.Task.IssueURL()
+	if e.QuestionLink != "" {
+		link = e.QuestionLink
+	}
+	header += "\n" + link
 	if e.From != "" {
 		header += fmt.Sprintf("\nMode: %s → %s", e.From, e.To)
 	}
-	if e.Asked != "" {
-		header += "\nAsked: " + e.Asked
-	}
-	if e.QuestionLink != "" {
-		header += "\n" + e.QuestionLink
-	}
-	if e.Question != "" {
-		header += "\n" + noticeLimit(e.Question, max(0, 1900-noticeUnits(header)-1))
-	}
-	if e.Usage != nil && (e.Kind == "completed" || e.Kind == "failed" || e.Kind == "stopped") {
-		header += "\n" + noticeUsage(e.Usage)
+	if q := noticeSentence(e.Question); q != "" {
+		header += "\n" + noticeLimit(q, min(noticeQuestionLimit, max(0, 1900-noticeUnits(header)-1)))
 	}
 	return noticeLimit(header, 1900)
+}
+
+// noticeQuestionLimit caps the one sentence of a question a notice shows.
+const noticeQuestionLimit = 160
+
+// noticeAsked names a generic wait, for example "Research question".
+func noticeAsked(workflow, kind string) string {
+	if workflow == "" {
+		return kind
+	}
+	return strings.ToUpper(workflow[:1]) + workflow[1:] + " " + kind
+}
+
+// noticeSentence keeps the first line of the text, cut after its first
+// sentence.
+func noticeSentence(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	for i := 0; i+1 < len(s); i++ {
+		if (s[i] == '.' || s[i] == '?' || s[i] == '!') && s[i+1] == ' ' {
+			return s[:i+1]
+		}
+	}
+	return s
 }
 func noticeUnits(s string) int { return len(utf16.Encode([]rune(s))) }
 func noticeLimit(s string, limit int) string {
@@ -191,20 +231,21 @@ func noticeLimit(s string, limit int) string {
 	b.WriteRune('…')
 	return b.String()
 }
+
+// noticeUsage is one short cost phrase, or nothing when no cost is known.
 func noticeUsage(s *report.MeterSummary) string {
-	value := func(n *int64) string {
-		if n == nil {
-			return "unknown"
-		}
-		return fmt.Sprint(*n)
+	prefix, value := "about", s.EstimatedUSD
+	if value == nil {
+		prefix, value = "at least about", s.PricedSubtotalUSD
 	}
-	text := fmt.Sprintf("Usage: input %s, output %s, cache read %s, cache write %s tokens. Collection: %s; pricing: %s.", value(s.KnownTokens.InputUncached), value(s.KnownTokens.Output), value(s.KnownTokens.CacheRead), value(s.KnownTokens.CacheWrite), s.CollectionStatus, s.PricingStatus)
-	if s.EstimatedUSD != nil {
-		text += " Estimated cost: $" + *s.EstimatedUSD + " USD."
-	} else if s.PricedSubtotalUSD != nil {
-		text += " Estimated priced subtotal: $" + *s.PricedSubtotalUSD + " USD."
+	if value == nil {
+		return ""
 	}
-	return text
+	usd, err := strconv.ParseFloat(*value, 64)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s $%.2f", prefix, usd)
 }
 
 // NoticeCollector reads existing tables only and writes chat-owned state. It
@@ -374,7 +415,7 @@ func (s *Service) NoticeStep(ctx context.Context, at time.Time) (bool, error) {
 	}
 	failed := !at.Before(r.CreatedAt.Add(24 * time.Hour))
 	if !failed {
-		d := s.sender.Deliver(ctx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef}, r.ReplyText)
+		d := s.sender.Deliver(ctx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Notice: true}, r.ReplyText)
 		if !d.Confirmed && !d.Permanent {
 			if s.Logger != nil {
 				s.Logger.WarnContext(ctx, "chat notice delivery failed; retrying", slog.String("event_key", r.MessageID))
