@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -220,5 +221,106 @@ func TestNaturalExpiredQueueClearsTextRetainsIdentity(t *testing.T) {
 	var count int
 	if err = db.sql.QueryRowContext(ctx, `SELECT count(*) FROM chat_natural_messages WHERE channel_ref='2' AND source_id='300'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("identity retention: %d %v", count, err)
+	}
+}
+
+func TestNaturalScanLargeIntervalCompletes(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	if err := db.ActivateNaturalScan(ctx, "2", "100"); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := db.ReadNaturalScan(ctx, "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Three partial commits of 400 newest-first messages stage 1200 rows (IDs 101..1300).
+	high := 1300
+	for batch := 0; batch < 3; batch++ {
+		var messages []NaturalMessage
+		top := high - batch*400
+		for id := top; id > top-400; id-- {
+			messages = append(messages, NaturalMessage{ChannelRef: "2", SourceID: strconv.Itoa(id), OwnerID: "1", Text: "request", CreatedAt: at})
+		}
+		next := NaturalScan{ChannelRef: "2", Cursor: "100", HighWater: "1300", Before: strconv.Itoa(top - 399)}
+		if err = db.StageNaturalScan(ctx, expected, next, messages, false); err != nil {
+			t.Fatalf("batch %d: %v", batch, err)
+		}
+		expected = next
+	}
+	if err = db.StageNaturalScan(ctx, expected, expected, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	scan, err := db.ReadNaturalScan(ctx, "2")
+	if err != nil || scan.Cursor != "1300" || scan.HighWater != "" || scan.Before != "" {
+		t.Fatalf("scan not completed: %+v %v", scan, err)
+	}
+	want := 101
+	for {
+		pending, e := db.PendingNaturalMessages(ctx, "2", 100)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if len(pending) == 0 {
+			break
+		}
+		for _, m := range pending {
+			if m.SourceID != strconv.Itoa(want) {
+				t.Fatalf("release order: got %s want %d", m.SourceID, want)
+			}
+			if e = db.FinishNaturalMessage(ctx, "2", m.SourceID, at); e != nil {
+				t.Fatal(e)
+			}
+			want++
+		}
+	}
+	if want != 1301 {
+		t.Fatalf("released %d messages, want 1200", want-101)
+	}
+}
+
+func TestNaturalScanPendingBackpressureRecovers(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	if err := db.ActivateNaturalScan(ctx, "2", "100"); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := db.ReadNaturalScan(ctx, "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Release exactly 1000 pending messages (IDs 101..1100).
+	for _, size := range []int{400, 400, 200} {
+		top := 1100
+		if expected.Before != "" {
+			top, _ = strconv.Atoi(expected.Before)
+			top--
+		}
+		var messages []NaturalMessage
+		for id := top; id > top-size; id-- {
+			messages = append(messages, NaturalMessage{ChannelRef: "2", SourceID: strconv.Itoa(id), OwnerID: "1", Text: "request", CreatedAt: at})
+		}
+		next := NaturalScan{ChannelRef: "2", Cursor: "100", HighWater: "1100", Before: strconv.Itoa(top - size + 1)}
+		if err = db.StageNaturalScan(ctx, expected, next, messages, size == 200); err != nil {
+			t.Fatal(err)
+		}
+		expected = next
+	}
+	expected, err = db.ReadNaturalScan(ctx, "2")
+	if err != nil || expected.Cursor != "1100" {
+		t.Fatalf("release incomplete: %+v %v", expected, err)
+	}
+	next := NaturalScan{ChannelRef: "2", Cursor: "1100", HighWater: "1101", Before: "1101"}
+	extra := []NaturalMessage{{ChannelRef: "2", SourceID: "1101", OwnerID: "1", Text: "request", CreatedAt: at}}
+	if err = db.StageNaturalScan(ctx, expected, next, extra, false); err == nil || err.Error() != "natural intake backpressure" {
+		t.Fatalf("pending limit not enforced: %v", err)
+	}
+	if err = db.FinishNaturalMessage(ctx, "2", "101", at); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.StageNaturalScan(ctx, expected, next, extra, false); err != nil {
+		t.Fatalf("backpressure did not recover: %v", err)
 	}
 }

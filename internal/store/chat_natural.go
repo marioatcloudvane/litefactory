@@ -37,14 +37,15 @@ func (db *DB) ActivateNaturalScan(ctx context.Context, channel, boundary string)
 }
 
 // StageNaturalScan atomically saves progress and releases a completed interval oldest first.
-// expected fences concurrent collectors. At most 1000 admitted texts remain queued per channel.
+// expected fences concurrent collectors. At most 1000 released, unprocessed texts remain pending
+// per channel; the interval in progress stays staged until complete, bounded by the admission window.
 func (db *DB) StageNaturalScan(ctx context.Context, expected, next NaturalScan, messages []NaturalMessage, complete bool) error {
 	if expected.ChannelRef != next.ChannelRef || next.HighWater == "" || len(messages) > 400 {
 		return errors.New("invalid natural scan")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error {
 		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM chat_natural_messages WHERE channel_ref=? AND state!='finished'`, next.ChannelRef).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM chat_natural_messages WHERE channel_ref=? AND state='pending'`, next.ChannelRef).Scan(&count); err != nil {
 			return err
 		}
 		if count+len(messages) > 1000 {
