@@ -52,8 +52,8 @@ does not verify GitHub, credentials or agent execution. Keep the chosen director
 on PATH in the terminal used for setup, or use the absolute executable path.
 This is a source-build recipe, not a package-manager or binary-release promise.
 
-Continue with [GitHub setup](github-setup.md), then the
-[first-run journey](README.md).
+Continue in order: [GitHub setup](github-setup.md), then optionally
+[Discord](../discord.md), then your [first Research run](README.md#request-your-first-research-run).
 
 ## Upgrade an existing installation
 

@@ -1,5 +1,9 @@
 # Stack profile schema
 
+[Documentation](README.md) · [Teams](cli/teams.md)
+
+A stack profile tells the factory what a team's technology needs: which guidance to give the planners, which programs must exist on the host, which setup and check commands to use, and a few safe environment settings. A team package ships one, and a repository can override parts of it. This page is the schema for maintainers and team authors.
+
 The version 1 profile is captured from the selected team release at workflow
 admission. Claude, Codex, engineering recipes and setup use the same resolved
 settings. Repository overrides are read from the admitted Git commit, so dirty
@@ -113,13 +117,7 @@ All candidates are validated before publication. Existing exact versions are
 immutable; use a new version for changed content. Catalogue entries for other
 releases and historical download bytes are preserved.
 
-The new Go release is `go-development@1.2.0`. Its profile retains the supported
-Go engineering recipe and declares Go and agent-setup Plan guidance. New role
-IDs name functions such as `implementation-engineer`, `unit-test-engineer` and
-`integration-test-engineer`. A captured role resource explicitly declares
-`task_owner: true` in its header to authorize future Plan task ownership. Plan
-guidance IDs come from the selected effective profile; submitted content cannot
-create either owner or guidance authority.
+The Go team (`go-development`, currently version 1.2.8) ships a profile that declares Go and agent-setup Plan guidance, requires the `go` executable and runs `make check` as its engineering check. The Python/FastAPI and Swift/iOS teams ship their own profiles with host requirements and setup commands. Role IDs name functions such as `implementation-engineer`, `unit-test-engineer` and `integration-test-engineer`. A captured role resource must declare `task_owner: true` in its header to be allowed to own Plan tasks. Plan guidance IDs come from the selected effective profile; submitted content cannot create either owner or guidance authority.
 
 Fetched teams must match their installed immutable inventory. Editable local
 teams retain local provenance and are captured again at fresh admission; their
@@ -136,8 +134,7 @@ versions require a profile and never inherit Go defaults.
 Declared setup runs only for writable Implement engineering work, through the
 existing operator command isolation and retained command evidence. Engineering
 checks remain within the existing check evidence contract; profile defaults
-do not replace pinned Bug/Spike recipes. Validate consumes retained evidence
-and does not execute profile setup. Host requirements are checked before agent
+do not replace the repository's pinned recipe in `.litefactory/bug-checks.yaml` that Validate and Spike run (see [Bug checks](bug-checks.md)). Validate does not execute profile setup. Host requirements are checked before agent
 launch and never install software. Provider fallback and resumed workflow
 attempts use retained profile, override and guidance bytes; fresh admission
 reads the newly selected configuration.

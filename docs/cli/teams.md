@@ -1,54 +1,58 @@
 # Teams
 
-Teams supply the mode-specific agent roster and supporting skills. Install them once in the operator's central catalog under `$LF_HOME/teams`, then associate repositories using `repo add --team`. Management works outside a Git checkout and does not populate the registered clone's instruction directories.
+A team is a versioned package of agent instructions (roles and skills) for the workflow modes. Teams are installed once per machine, under `$LF_HOME/teams`, and then linked to the repositories that should use them. The commands work from any folder and do not put files into a registered clone.
 
-## Install and inspect
+Without a link, a repository uses the built-in workflows. Teams are not required.
 
-Prerequisites: a configured [team source](../configuration/config-yaml.md), network access for HTTPS downloads and any configured credential reference. Local imports must be independent packages outside registered repositories and worktree storage.
-
-```sh
-litefactory team add TEAM --source SOURCE_ALIAS
-litefactory team show TEAM
-litefactory team validate TEAM --mode implement
-litefactory repo add /absolute/path/to/clone --team TEAM
-```
-
-`team add` reports the installed team and catalog directory. `list`, `show` and `validate` inspect installed definitions, mode rosters, tiers, byte counts and digests; `--json` exposes deterministic structured detail. Inspection validates captures and reports missing or invalid resources. `--mode` accepts `research`, `plan`, `implement`, `validate` or `spike`.
-
-A source is a configured alias, HTTPS index URL or explicit `./`, `../` or absolute package path. Bare names always mean aliases, even if a local directory has the same name. An omitted source uses `teams.default_source` when configured, otherwise `teams.index_url`. Local imports reject remote version/digest pins.
-
-## Versions, updates and drift
-
-Without `--version`, remote installs follow the stable-release policy; `--version 1.2.3` selects an exact semantic version. `--sha256 DIGEST` adds an expected manifest digest. Installation records the source URL, alias, content version and manifest digest. Retargeting an alias later does not redirect an installed team's recorded origin.
+## Install and look at teams
 
 ```sh
-litefactory team status TEAM
-litefactory team status TEAM --refresh
-litefactory team update TEAM
+litefactory team install NAME
+litefactory team list
+litefactory team inspect NAME VERSION
 ```
 
-Ordinary status uses retained observations; `--refresh` checks upstream without installing. Output distinguishes local drift and upstream freshness, including installed/candidate/latest-stable versions and last successful observation. Missing or failed freshness is not proof that the installed version is current. Drift can produce exit code `3` after the findings are printed.
+`team install` downloads the team from the catalogue, checks it, and installs it. Leave out the version to get the highest stable one. It says `Already installed` if you have it. `team list` shows what is installed, from local files only. `team inspect` checks one installed version and shows its folder, checksum and workflows.
 
-Update uses recorded origins; omit `TEAM` to update installed teams. Exact versions remain pinned. To change a version, name one team and use `--version`; replace its digest with `--sha256`, or explicitly remove that digest with `--clear-pin`. Both digest operations require `--version`; they cannot be combined. Switching source requires both `--source` and `--switch-source` on a named installed team.
+The catalogue address is `settings.team_source` in `config.yaml`. Its default is the standard catalogue. It must be an HTTPS address or an absolute file path (see [config.yaml](../configuration/config-yaml.md)). Use `--source` to pick a different catalogue for one command. Where a team name and version exist in more than one source, add `--source` so the command knows which one you mean.
 
-States include `in-sync`, `upstream-updated`, `locally-modified`, `conflict` and `missing`. Inspect and preserve local edits before using `--force`: it permits replacing modified/conflicting installed sources. It does not grant access or bypass package validation. Catalog changes during acquisition are refused and require a fresh attempt. See the [complete flag reference](command-reference.md#teams).
-
-## Operator-global overrides
-
-Overrides replace an agent source centrally, not per repository. Use `shared:ID` for a shared agent or `team:TEAM:AGENT` for a team-owned one; select IDs shown by inspection.
+## Update
 
 ```sh
-litefactory team manage team:TEAM:AGENT set source=/absolute/independent/agent.md
-litefactory team manage team:TEAM:AGENT show
-litefactory team manage team:TEAM:AGENT unset
+litefactory team update NAME
 ```
 
-`set` requires `source=PATH`; `show` and `unset` reject it. Output identifies the effective path and origin; `--json` is available. Overrides preserve a base definition, and upstream updates retain the override while refreshing that base. Invalid source metadata, paths inside registered clone/worktree storage and unknown scopes fail explicitly.
+This installs the newest stable version from the same catalogue if it is newer than the one you have. Older versions stay installed next to it, so repositories linked to them are not changed. Linked repositories keep their link until you link them to the new version.
+
+## Make your own version
+
+```sh
+litefactory team clone NAME VERSION NEW-NAME NEW-VERSION
+```
+
+`team clone` copies an installed team into an editable local team named `NEW-NAME` at `NEW-VERSION`. It prints the folder to edit. Local teams live in the `local` source, are not downloaded again, and cannot be updated. Use `--source local` to name them in other commands.
+
+## Link a team to a repository
+
+```sh
+litefactory team link NAME VERSION --repo /absolute/path/to/clone
+litefactory team unlink --repo /absolute/path/to/clone
+```
+
+The repository must already be [registered](repositories.md). Without `--repo`, the command uses the repository in your current folder. `team link` replaces any earlier link. `team unlink` returns the repository to the built-in workflows. Both are safe to repeat.
+
+## Remove
+
+```sh
+litefactory team remove NAME VERSION
+```
+
+A team version that is still linked to a repository is not removed; the command lists the repositories. Unlink them first.
 
 ## What a run receives
 
-The factory captures the installed team's selected mode and renders an immutable per-run instruction bundle with source hashes and provenance. Startup and runs do not automatically fetch team updates. Retained bundles are verified before reuse; edited or missing bytes fail instead of silently loading newer sources. Changed mode or instruction identity rotates the conversation segment. Automatic quota recovery refuses a changed instruction bundle and requires manual continuation.
+When a run starts, litefactory reads the team linked to the repository. Starting the daemon or a run does not download team updates. See [coding agents](../configuration/coding-agents.md), [MCP](../guides/mcp.md) and [recovery](../operations/recovery.md).
 
-These are implemented delivery paths, not a claim of authentic current-host verification for #274/#296. See [coding agents](../configuration/coding-agents.md), [MCP](../guides/mcp.md) and [recovery](../operations/recovery.md).
+Every flag and exit code is in the [command reference](command-reference.md#teams).
 
-[CLI index](README.md) · [Repositories](repositories.md)
+[CLI index](README.md) · [Repositories](repositories.md) · [Documentation index](../README.md)

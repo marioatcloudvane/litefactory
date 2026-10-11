@@ -1,29 +1,41 @@
 # Validation and delivery
 
-Use this journey for a separated workflow with frozen managed stories. Engineering, acceptance, publication and readiness are independent results.
+[Documentation](../README.md) · [Using the factory](README.md)
+
+Validate checks the finished work and helps you ship it. Building, checking, pushing, merging and closing are separate results, and each remote step needs your own command.
 
 ```text
-/validate Assess the completed stories against their retained evidence.
+/validate Check the finished stories against their acceptance criteria.
 ```
 
-Expect criterion findings and code/architecture/plan review findings based on retained evidence. Validate is read-only: missing execution or an authentic observation stays unverified. It does not run replacement tests. Implement owns fixes and fresh checks; a successful engineering checkpoint alone neither accepts nor closes the child.
+Validate also starts by itself after Implement has merged every story if `validate.auto_start` is on (it is off by default; see the [configuration reference](../configuration/config-yaml.md)).
 
-The factory records acceptance, reports it, projects criteria and confirms child closure. Pending projection or remote effects stay pending. Previously accepted snapshots remain historical facts; new requirements do not automatically reopen accepted work.
+## What Validate does
 
-The numeric owner can make a reasoned exception with `/waive <generation> <selectors> -- <reason>`. Review the [exact selector reference](issue-command-reference.md) first. Waivers retain failed/unverified findings and their scope; they do not fabricate test success or authorize a merge.
+1. **Suite.** It runs the repository's full test phase on one exact commit. The commands come from `.litefactory/bug-checks.yaml` in that commit (see [Bug checks](../bug-checks.md)). With no valid recipe the suite is blocked, not passed.
+2. **Repair.** If the suite fails, one agent may try a small fix, at most two rounds. The factory measures what it really changed. A small change is kept as a new commit and the suite runs again. A change that is too big, or one that touches packages, dependencies, schema, public API, tests or acceptance criteria, is not kept.
+3. **Review.** Three read-only reviewers look at the final commit: acceptance criteria, code, and architecture. A criterion counts as satisfied only when a passed suite command of that commit backs it. Anything that cannot be proven stays unverified.
+4. **Report.** You get one report comment, updated in place, with a short revision code. It shows the suite, repair rounds, reviews, manual checks, findings and the exact next commands.
 
-A proposed follow-up needs separate exact-content approval with `/followup <generation> <proposal-sha256> linked` or `attach`. Linked work remains a separate issue; attaching makes it a child and can block readiness until closed. Neither action waives the source requirement. Unknown creation results require receipt/reconciliation, not blind recreation.
+The run ends as assessed, handed back to Implement with what must change, or blocked with the reason. It never says "approved" by itself. Details: [Validate](../workflow/validate.md).
 
-After required acceptance and engineering/save obligations are satisfied and attached children are closed or explicitly excepted, request `/deliver <generation>`. The factory evaluates readiness and prepares a concrete PR/head proposal. Review it before using the reported command:
+## Your commands
 
-```text
-/merge <generation> <proposal-digest> <PR-number> <head-SHA> main
-```
+Every command names the current report revision and must be the whole comment. The report shows the exact text. In short:
 
-Use the exact returned values. Approval is bound to that PR, current head and `main`; a changed head needs a fresh delivery proposal and approval. Parent closure follows confirmed successful integration, never a receipt or an uncertain merge response. A readiness exception does not fake a save or integration.
+- `/validate-check` records your manual verdict on a criterion nobody could verify.
+- `/validate-finding` chooses to repair a finding, defer it, or turn it into a new bug or story issue.
+- `/validate-push`, `/validate-merge` and `/validate-close` push the tested commit and open the pull request, merge it at the exact head, and close the parent and story issues.
+- `/validate-ship` does the whole normal case in one command: it records your evidence for the open manual checks, defers the optional findings, pushes, merges and closes. It is refused, and records nothing, if the suite did not pass, a review has no usable result, a failed criterion or blocking finding is open, or an issue you chose is not created yet.
 
-Legacy scopes retain their older combined completion route; these separated acceptance controls do not silently upgrade them. If blocked, inspect whether the missing item is engineering evidence, assessment, child state, save, PR state or remote confirmation before choosing the next action.
+Exact syntax: [owner commands](owner-commands.md#validate-controls).
 
-See [workflow](workflow.md), [command reference](issue-command-reference.md), [owner-exception details](../workflow/owner-exceptions.md) and [recovery](../operations/recovery.md).
+A stale, malformed or non-owner command changes nothing, and the reply shows the current commands. A repair or issue choice does not clear a blocking finding; only a new tested commit does. If a push, merge or close fails or is uncertain, nothing is retried by itself: repeat the command with the current revision and it continues at the first undone step. The factory checks the real state of the branch and pull request first, so nothing is done twice. Validate counts as delivered only after the merge and the close both succeeded.
 
-[Using the factory](README.md)
+## Older managed features
+
+Features admitted before the graph workflows keep their own controls: `/deliver <generation>` prepares a pull request proposal, `/merge <generation> <digest> <PR> <head-SHA> main` approves that exact PR and head, `/followup <generation> <sha256> linked|attach` approves a follow-up issue and `/waive <generation> <selectors> -- <reason>` records a reasoned exception. A waiver keeps the failed or unverified finding visible; it does not fake a passing test or approve a merge. Their syntax is in [owner commands](owner-commands.md#scheduling-conflicts-and-delivery).
+
+## If you are blocked
+
+Work out which part is missing: the suite, a review, a manual check, an open finding, the push, the pull request or the remote confirmation. The report names it. Then see [workflow](workflow.md), [Validate](../workflow/validate.md) and [recovery](../operations/recovery.md).
