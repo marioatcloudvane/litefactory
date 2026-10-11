@@ -189,3 +189,83 @@ func manifestDelivery(t *testing.T, delivery *agent.Delivery) {
 	raw := mustRead(t, filepath.Join(delivery.Root, "main-instructions.md"))
 	delivery.RenderedFiles = map[string]string{"main-instructions.md": fmt.Sprintf("%x", sha256.Sum256(raw))}
 }
+
+// Codex registers no skill outside its own skill roots, so the main-role
+// developer instructions must name each delivered skill's bundle path.
+func TestMainRoleDeveloperInstructionsNameDeliveredSkillPaths(t *testing.T) {
+	t.Parallel()
+	const guidance = "Never search the worktree or repository for SKILL.md copies"
+	for _, tc := range []struct {
+		name   string
+		skills []string
+	}{
+		{"two skills", []string{"plugin/skills/team-guidance/SKILL.md", "plugin/skills/implement-result/SKILL.md"}},
+		{"no skills", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runner, _ := fakeRunner(t, `printf '%s\000' "$@" > exact-argv
+printf '%s\n' '{"type":"turn.completed"}'`)
+			req := request(t, agent.PathCold)
+			req.Mode = "implement"
+			req.Delivery = &agent.Delivery{Root: t.TempDir(), Identity: strings.Repeat("a", 64), MainRole: "worker", MainModel: "worker", Roles: []string{"worker"}, Skills: tc.skills, RequiredSkills: tc.skills}
+			const body = "Selected main role\n"
+			if err := os.WriteFile(filepath.Join(req.Delivery.Root, "main-instructions.md"), []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			manifestDelivery(t, req.Delivery)
+			if result, err := runner.Run(t.Context(), req); err != nil || result == nil || !result.Succeeded() {
+				t.Fatalf("launch failed: result=%+v error=%v", result, err)
+			}
+			var instructions string
+			for _, arg := range strings.Split(string(mustRead(t, filepath.Join(req.WorktreePath, "exact-argv"))), "\x00") {
+				if value, ok := strings.CutPrefix(arg, "developer_instructions="); ok {
+					if err := json.Unmarshal([]byte(value), &instructions); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if len(tc.skills) == 0 {
+				if instructions != body {
+					t.Fatalf("instructions without skills changed: %q", instructions)
+				}
+				return
+			}
+			if !strings.HasPrefix(instructions, body) || !strings.Contains(instructions, guidance) {
+				t.Fatalf("missing skill guidance: %q", instructions)
+			}
+			for _, skill := range tc.skills {
+				path := filepath.Join(req.Delivery.Root, skill)
+				name := filepath.Base(filepath.Dir(path))
+				if !strings.Contains(instructions, "- "+name+": "+path+"\n") {
+					t.Errorf("missing %s path %s in %q", name, path, instructions)
+				}
+			}
+			if got := strings.Count(instructions, "SKILL.md"); got != len(tc.skills)+1 {
+				t.Errorf("want only delivered SKILL.md paths, got %d mentions: %q", got, instructions)
+			}
+			if strings.Index(instructions, "implement-result") > strings.Index(instructions, "- team-guidance") {
+				t.Errorf("skills not sorted: %q", instructions)
+			}
+			if strings.Contains(instructions, "teams/") {
+				t.Errorf("teams/ path offered: %q", instructions)
+			}
+		})
+	}
+}
+
+// The 64 KiB limit applies to the instructions combined with skill paths.
+func TestMainRoleCombinedInstructionsRespectLimit(t *testing.T) {
+	t.Parallel()
+	bundle := t.TempDir()
+	body := strings.Repeat("x", mainInstructionLimit-len("developer_instructions=")-2-100)
+	if err := os.WriteFile(filepath.Join(bundle, "main-instructions.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mainInstructionOverride(bundle, nil); err != nil {
+		t.Fatalf("within limit refused: %v", err)
+	}
+	if _, err := mainInstructionOverride(bundle, []string{"plugin/skills/team-guidance/SKILL.md"}); err == nil {
+		t.Fatal("over-limit combined instructions accepted")
+	}
+}
