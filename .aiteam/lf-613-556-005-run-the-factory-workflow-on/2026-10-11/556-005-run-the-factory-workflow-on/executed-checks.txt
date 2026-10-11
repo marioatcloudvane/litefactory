@@ -36,3 +36,6 @@ All changed packages now have complete passing runs. Importer release-contract c
 No acceptance review, commit, push, merge, deployment or real-provider publication was performed.
 
 Application result submitted as incomplete; accepted input receipt request_id: 682c27167d3c6a1b53dfb4c58832100c. Matching receipt read. Engineering, acceptance and publication remain pending.
+
+Attempt 2: clean worktree at saved implementation. Three read-only subagent checks found no new story-owned gap. Complete importer rerun: go test -race ./internal/teamrelease failed in 139.967s on TestCanonicalMigrationAndGraphContracts, validate graph changed beyond team and guidance. Both graph inputs remain unchanged. No source changes or remote effects.
+Attempt 2 incomplete application input accepted; matching receipt read, request_id b2eea463ad5b685c3cc869fb646520d2. Engineering, acceptance and publication remain pending.
