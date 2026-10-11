@@ -26,7 +26,7 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 	}
 	var prior []migration
 	for _, m := range migrations {
-		if strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") || strings.Contains(m.name, "_chat_research.sql") {
+		if strings.HasPrefix(m.name, "chat_presentation") || strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") || strings.Contains(m.name, "_chat_research.sql") {
 			continue
 		}
 		prior = append(prior, m)
@@ -50,7 +50,11 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range []MeterAttempt{legacy, diagnosis} {
+	chat, err := db.StartChatMeterAttempt(t.Context(), session.RepoID, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range []MeterAttempt{legacy, diagnosis, chat} {
 		if err := db.PutMeterInvocation(t.Context(), MeterInvocation{AttemptID: a.ID, ID: "root", SourceID: "s", SourceInvocationID: "root", Status: "complete"}); err != nil {
 			t.Fatal(err)
 		}
@@ -59,15 +63,16 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 		}
 	}
 	at := time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)
-	if _, err := db.AdmitChatReply(t.Context(), ChatReply{Transport: "test", MessageID: "old", ChannelRef: "channel", Command: "help", CreatedAt: at}); err != nil {
+	// Seed the old schema directly: today's accessor requires forward columns.
+	if _, err := db.sql.ExecContext(t.Context(), `INSERT INTO chat_inbox(transport,message_id,channel_ref,command,state,next_attempt_at,created_at,reply_text) VALUES('test','old','channel','help','pending',?,?,'legacy raw reply')`, FormatTime(at), FormatTime(at)); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range []MeterAttempt{legacy, diagnosis} {
+	for _, a := range []MeterAttempt{legacy, diagnosis, chat} {
 		stored, err := db.GetMeterAttempt(t.Context(), a.ID)
-		if err != nil || stored.RunID != a.RunID || stored.DoctorAttemptID != a.DoctorAttemptID {
+		if err != nil || stored.RunID != a.RunID || stored.DoctorAttemptID != a.DoctorAttemptID || stored.ChatRepoID != a.ChatRepoID {
 			t.Fatalf("lost attempt owner: %+v %v", stored, err)
 		}
 		var quantity int64
@@ -76,7 +81,7 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 		}
 	}
 	row, err := db.ReadChatReply(t.Context(), "test", "old")
-	if err != nil || row.State != "pending" || row.Question != "" {
+	if err != nil || row.State != "pending" || row.Question != "" || row.PresentationState != "" || row.PresentationOutcome != "" || row.ReplyText != "legacy raw reply" {
 		t.Fatalf("lost old inbox: %+v %v", row, err)
 	}
 }

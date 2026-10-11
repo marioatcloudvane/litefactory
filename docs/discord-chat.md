@@ -22,8 +22,8 @@ chat:
 ```
 
 Store the bot token in the referenced keychain item or environment variable; never
-put it in settings. Give the bot permission to send messages in the allowed
-channels, plus Read Message History for `/ask` follow-ups. Set the Interactions Endpoint URL in the Discord developer portal to
+put it in settings. Give the bot Send Messages and Attach Files permissions in the allowed
+channels, plus Read Message History for `/ask` follow-ups and reply language selection. Set the Interactions Endpoint URL in the Discord developer portal to
 `https://your-factory-address/litefactory/discord`. The GitHub webhook URL stays
 unchanged. Restart the daemon after changing settings. Command registration is
 retried on later heartbeats if Discord is unavailable. If the bot token cannot be
@@ -78,8 +78,7 @@ wait; an interrupted, unrecorded answer must be sent again by the owner.
 Run `/ask question:What work is open? project:OWNER/REPO` for a registered
 repository. A unique repository name also works. A follow-up `/ask` without a
 project uses the newest marked bot answer in the same channel or thread and says
-so. Unknown or ambiguous projects get the registered project list without a model
-call. Questions are limited to 8192 bytes.
+so. Unknown or ambiguous projects get the registered project list without generating a project answer. Questions are limited to 8192 bytes.
 
 Answers use fresh open issues and current factory task metadata. Each point cites
 a checked fact and the reply gives an as-of time; omissions and unavailable
@@ -135,3 +134,24 @@ enforced nonces, growing retry waits and rate-limit hints, for up to 24 hours.
 The nonce window limitation described above also applies to notices. Confirmed
 and failed notices lose their text and are purged 24 hours later; only source
 read positions and unresolved record references remain.
+
+## Reading command replies
+
+Command replies use a short explanation checked against the completed result.
+Exact values, links, revision codes, command examples and paging commands stay
+unchanged. The same reply includes `raw-details.txt` with the original redacted
+result. For `/meter` and `/prices`, these details are the page you requested.
+
+Replies follow the language of your current `/ask` question, or the latest
+marked `/ask` turn in the same channel or thread. When the language or history
+cannot be determined, they use English. Earlier answers are not given to the
+reply narrator.
+
+If narration is unavailable, times out or fails its checks, the reply is marked
+as raw and still includes the original details. If Discord definitely rejects
+the attachment, the saved raw page is retried inline. Delivery retries reuse the
+saved result; they do not repeat a completed command or completed narration.
+
+Authentication and malformed interaction responses remain immediate. Duplicate
+`/answer` acknowledgements use a small raw reply without applying the answer
+again. Automated status notices keep their existing wording.
