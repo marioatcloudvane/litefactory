@@ -41,3 +41,9 @@ Attempt 2: clean worktree at saved implementation. Three read-only subagent chec
 Attempt 2 incomplete application input accepted; matching receipt read, request_id b2eea463ad5b685c3cc869fb646520d2. Engineering, acceptance and publication remain pending.
 
 Attempt 3: git diff 8c11a3c HEAD -- internal teams is empty; clean worktree. Three subagents confirm no pending task or changed owned files. No repeated tests, code edits or remote effects. Existing complete importer failure remains applicable. Incomplete input accepted and matching receipt read: e9296d4f766836c733f1703c5d8bb702. Engineering, acceptance and publication pending.
+
+Owner-authorized final continuation: known base-branch importer failure is disclosed and is not a blocker; owner says fixed on main in #641. No source changes. Three parallel subagents confirmed no remaining task.
+Complete race package run: linear, github, projectconnection, secrets, ticket, webhook, webhookreg passed.
+Complete store passed 568.290s; daemon passed 624.566s. Initial CLI synthetic provider timeout failed; complete CLI rerun passed 106.560s. Initial turn short-budget timing test failed; complete turn rerun passed 1339.937s. Existing environment-dependent process-observation skip retained in log.
+Scoped lint across all eleven changed packages passed: 0 issues. gofmt check clean; git diff --check passed. Prior successful build and importer runs apply to unchanged code. No acceptance or real-provider remote effects claimed.
+Completed application input accepted, matching receipt read: 7f2e389dbb0ecd8b6d92a5ff199635a3. Engineering, acceptance and publication remain pending; receipt is acknowledgment only.
