@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"unicode/utf8"
@@ -18,7 +20,24 @@ import (
 // authentication, provider session storage and ordinary project discovery.
 const mainInstructionLimit = 64 << 10
 
-func mainInstructionOverride(bundle string) (string, error) {
+// skillPathGuidance names each delivered skill with its absolute bundle path.
+// Codex only registers skills found under its own skill roots, so the
+// skills.config override alone does not offer bundle skills; without paths the
+// worker would search the worktree and could follow stale release copies.
+func skillPathGuidance(bundle string, skills []string) string {
+	if len(skills) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		path := filepath.Join(bundle, skill)
+		lines = append(lines, "- "+filepath.Base(filepath.Dir(path))+": "+path)
+	}
+	slices.Sort(lines)
+	return "\n\n# Skill files\n\nThe skills selected for this run are these files. When a named skill applies, read its file here. Never search the worktree or repository for SKILL.md copies (for example copies under a teams directory); they are not this run's skills. In anything written for the owner, keep referring to a skill by its name only, never by its path.\n\n" + strings.Join(lines, "\n") + "\n"
+}
+
+func mainInstructionOverride(bundle string, skills []string) (string, error) {
 	root, err := os.OpenRoot(bundle)
 	if err != nil {
 		return "", fmt.Errorf("open retained main instructions: %w", err)
@@ -55,7 +74,7 @@ func mainInstructionOverride(bundle string) (string, error) {
 	}
 	// JSON escaping is valid for the TOML basic string consumed by -c. In
 	// contrast, Go's strconv.Quote may emit unsupported TOML \x escapes.
-	encoded, err := json.Marshal(string(raw))
+	encoded, err := json.Marshal(string(raw) + skillPathGuidance(bundle, skills))
 	if err != nil {
 		return "", fmt.Errorf("encode retained main instructions: %w", err)
 	}

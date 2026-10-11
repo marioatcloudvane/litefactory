@@ -296,7 +296,8 @@ func TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim(t *testing.T) {
 
 // A restart during a worker launch can leave an attempt open on an instance
 // that already failed. Startup recovery cancels it with a reason; an attempt of
-// a still-running instance keeps failing itself and its instance.
+// a still-running instance is failed, and its Implement instance is cancelled
+// so the daemon interruption does not count as an infrastructure failure.
 func TestReconcileWorkflowGraphsCancelsAttemptsOfFinishedInstances(t *testing.T) {
 	db := newTestDB(t)
 	def, err := db.CreateGraphDefinition(t.Context(), GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), CreatedAt: graphTestTime()})
@@ -325,7 +326,7 @@ func TestReconcileWorkflowGraphsCancelsAttemptsOfFinishedInstances(t *testing.T)
 		attempt               GraphNodeAttempt
 		instance              int64
 		attemptWant, instWant string
-	}{{orphan, failed.ID, GraphCancelled, GraphFailed}, {interrupted, running.ID, GraphFailed, GraphFailed}} {
+	}{{orphan, failed.ID, GraphCancelled, GraphFailed}, {interrupted, running.ID, GraphFailed, GraphCancelled}} {
 		got, err := db.GetGraphNodeAttempt(t.Context(), c.attempt.ID)
 		if err != nil || got.Status != c.attemptWant || got.FinishedAt.IsZero() {
 			t.Fatalf("attempt %d: %+v %v, want %s", c.attempt.ID, got, err, c.attemptWant)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 )
@@ -417,5 +418,145 @@ func TestDoctorSyncDeadlineDuringPushKeepsPushedHead(t *testing.T) {
 	}
 	if e != nil || !result.Rechecked || result.Head != remote {
 		t.Fatalf("sync after accepted push %+v %v", result, e)
+	}
+}
+
+// behindDoctorSyncWorktree pushes a story commit to origin's task branch and
+// resets the task worktree to its earlier head, as story merges pushed from
+// scratch worktrees leave it. It returns the stale local and remote heads.
+func behindDoctorSyncWorktree(t *testing.T, repo *gittest.Repo, w *git.Worktree) (string, string) {
+	t.Helper()
+	local, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	commitInSyncDir(t, repo, w.Path(), "story.txt", "story merge")
+	repo.GitIn(w.Path(), "push", "--quiet", "origin", w.Branch())
+	remote := repo.GitIn(w.Path(), "rev-parse", "refs/remotes/origin/"+w.Branch())
+	repo.GitIn(w.Path(), "reset", "--quiet", "--hard", local)
+	if remote == local {
+		t.Fatal("remote task head did not advance")
+	}
+	return local, remote
+}
+
+func TestDoctorSyncFastForwardsBehindOnlyWorktree(t *testing.T) {
+	repo := gittest.New(t)
+	w := newSyncWorktree(t, repo, 648, "doctor behind")
+	_, remote := behindDoctorSyncWorktree(t, repo, w)
+	advanceSyncBase(t, repo, 1)
+	base, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	result, e := SyncDoctorBranch(t.Context(), DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: remote, Base: "origin/" + gittest.DefaultBranch, BaseHead: base, Author: syncTestAuthor, RecordBackup: func(_ context.Context, h string) error {
+		if h != remote {
+			t.Fatal("wrong backup")
+		}
+		return nil
+	}})
+	if e != nil || !result.Rechecked {
+		t.Fatalf("sync %+v %v", result, e)
+	}
+	if head := repo.GitIn(w.Path(), "rev-parse", "HEAD"); head != result.Head {
+		t.Fatalf("worktree head %s differs from result %s", head, result.Head)
+	}
+	if remoteHead := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remoteHead != result.Head {
+		t.Fatalf("remote head %s differs from result %s", remoteHead, result.Head)
+	}
+	for _, ancestor := range []string{remote, base} {
+		repo.GitIn(w.Path(), "merge-base", "--is-ancestor", ancestor, result.Head)
+	}
+}
+
+func TestDoctorSyncBehindRefusalsPreserveHeads(t *testing.T) {
+	for _, kind := range []string{"dirty", "diverged"} {
+		t.Run(kind, func(t *testing.T) {
+			repo := gittest.New(t)
+			w := newSyncWorktree(t, repo, 648, "doctor behind refusal")
+			_, remote := behindDoctorSyncWorktree(t, repo, w)
+			switch kind {
+			case "dirty":
+				if e := os.WriteFile(filepath.Join(w.Path(), "retained"), []byte("keep"), 0600); e != nil {
+					t.Fatal(e)
+				}
+			case "diverged":
+				commitInSyncDir(t, repo, w.Path(), "local.txt", "local only")
+			}
+			local := repo.GitIn(w.Path(), "rev-parse", "HEAD")
+			advanceSyncBase(t, repo, 1)
+			base, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+			if e != nil {
+				t.Fatal(e)
+			}
+			backups := 0
+			_, e = SyncDoctorBranch(t.Context(), DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: remote, Base: "origin/" + gittest.DefaultBranch, BaseHead: base, Author: syncTestAuthor, RecordBackup: func(context.Context, string) error { backups++; return nil }})
+			if e == nil || backups != 0 {
+				t.Fatalf("expected refusal before backup: %v backups %d", e, backups)
+			}
+			if head := repo.GitIn(w.Path(), "rev-parse", "HEAD"); head != local {
+				t.Fatalf("local head changed to %s", head)
+			}
+			if remoteHead := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remoteHead != remote {
+				t.Fatalf("remote head changed to %s", remoteHead)
+			}
+		})
+	}
+}
+
+// TestDoctorSyncBaseMovedAfterApproval covers origin/<base> changing between
+// proposal and apply: a forward move still merges the pinned BaseHead, while
+// a rewrite that drops the approved BaseHead is refused unchanged.
+func TestDoctorSyncBaseMovedAfterApproval(t *testing.T) {
+	for _, rewritten := range []bool{false, true} {
+		t.Run(map[bool]string{false: "advanced", true: "rewritten"}[rewritten], func(t *testing.T) {
+			repo := gittest.New(t)
+			w := newSyncWorktree(t, repo, 685, "doctor base moved")
+			before, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+			if e != nil {
+				t.Fatal(e)
+			}
+			advanceSyncBase(t, repo, 1)
+			approved, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if rewritten {
+				repo.Git("reset", "--quiet", "--hard", before)
+				commitInSyncDir(t, repo, repo.Dir, "rewritten.txt", "rewritten base")
+				repo.Git("push", "--quiet", "--force", "origin", gittest.DefaultBranch)
+			} else {
+				commitInSyncDir(t, repo, repo.Dir, "later.txt", "later base")
+				repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+			}
+			repo.Git("fetch", "--quiet", "origin")
+			current, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+			if e != nil || current == approved {
+				t.Fatalf("base did not move: %s %v", current, e)
+			}
+			result, e := SyncDoctorBranch(t.Context(), DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: before, Base: "origin/" + gittest.DefaultBranch, BaseHead: approved, Author: syncTestAuthor, RecordBackup: func(context.Context, string) error { return nil }})
+			after, x := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+			if x != nil {
+				t.Fatal(x)
+			}
+			if rewritten {
+				if !errors.Is(e, doctor.ErrRepairBaseRewritten) || result.Rechecked || after != before {
+					t.Fatalf("rewritten base accepted %+v %v head %s", result, e, after)
+				}
+				return
+			}
+			if e != nil || !result.Rechecked || result.Head != after || result.BaseHead != approved {
+				t.Fatalf("forward base refused %+v %v", result, e)
+			}
+			if ok, x := w.IsAncestor(t.Context(), approved, after); x != nil || !ok {
+				t.Fatalf("merged head lacks approved base %v %v", ok, x)
+			}
+			if ok, x := w.IsAncestor(t.Context(), current, after); x != nil || ok {
+				t.Fatalf("merge retargeted to newer base %v %v", ok, x)
+			}
+			if remoteHead := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remoteHead != after {
+				t.Fatalf("remote head %s differs from rechecked head %s", remoteHead, after)
+			}
+		})
 	}
 }

@@ -70,6 +70,7 @@
                   "payload.plan.storyset",
                   "payload.implement.stories",
                   "payload.implement.aggregate_checks",
+                  "payload.implement.deviations",
                   "payload.validate.stories",
                   "payload.spike.request",
                   "payload.spike.work_done",

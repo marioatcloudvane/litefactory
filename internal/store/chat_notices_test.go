@@ -200,3 +200,190 @@ func TestNoticePositionFindsRecycledGraphIDs(t *testing.T) {
 		t.Fatalf("recycled record replayed: %+v %v", rows, err)
 	}
 }
+
+func TestNoticeRunStartsReadPreviousMode(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 675)
+	segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{}
+	previous := ""
+	for i, mode := range []string{"research", "plan", "implement", "implement"} {
+		run, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: mode, Agent: AgentClaude, TriggerCommentID: int64(100 + i), LogPath: func(n int) string { return "/logs/" + strconv.Itoa(n) + ".jsonl" }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[strconv.FormatInt(run.ID, 10)] = previous
+		previous = mode
+	}
+	// A prelaunch allocation never crossed the execution boundary: not a previous run.
+	if _, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "validate", Agent: AgentClaude, TriggerCommentID: 200, Prelaunch: true, LogPath: func(n int) string { return "/logs/" + strconv.Itoa(n) + ".jsonl" }}); err != nil {
+		t.Fatal(err)
+	}
+	last, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "validate", Agent: AgentClaude, TriggerCommentID: 201, LogPath: func(n int) string { return "/logs/" + strconv.Itoa(n) + ".jsonl" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want[strconv.FormatInt(last.ID, 10)] = "implement"
+	for id, previous := range want {
+		n, _ := strconv.ParseInt(id, 10, 64)
+		r, err := db.readNoticeRecord(ctx, "run_starts", n)
+		if err != nil || r.PreviousMode != previous {
+			t.Fatalf("run %s previous=%q want %q err=%v", id, r.PreviousMode, previous, err)
+		}
+	}
+}
+
+func TestNoticeOwnerWaitsReadStateAndPublication(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 675)
+	at := graphTestTime()
+	definition, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "notices", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait := func(key, kind string, comment int64) int64 {
+		t.Helper()
+		instance, err := db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "build", StartedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "build", StartedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.FinishGraphNodeAttempt(ctx, attempt.ID, GraphSucceeded, kind, at); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.RetainGraphComment(ctx, GraphCommentIntent{Key: key, InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "build", Kind: kind, Candidate: []byte(`{"questions":[{"text":"Which release?"}]}`)}); err != nil {
+			t.Fatal(err)
+		}
+		if comment > 0 {
+			if _, err := db.EnsureReportDelivery(ctx, ReportDelivery{Key: key, SessionID: session.ID, Task: session.TaskRef, Destination: "acme/repo#675", TriggerNamespace: "issue-comment", Purpose: "implement-" + kind, BotUserID: 99, Body: kind, Marker: "marker-" + key}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.MarkReportDeliverySent(ctx, key); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ConfirmReportDelivery(ctx, key, comment); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.CompleteReportDelivery(ctx, key); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var id int64
+		if err := db.sql.QueryRowContext(ctx, `SELECT rowid FROM graph_owner_waits WHERE delivery_key=?`, key).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	read := func(id int64) NoticeRecord {
+		t.Helper()
+		r, err := db.readNoticeRecord(ctx, "owner_waits", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	for _, tc := range []struct {
+		key, kind string
+		comment   int64
+	}{{"question", "question", 91}, {"review", "review", 92}} {
+		r := read(wait(tc.key, tc.kind, tc.comment))
+		if r.Ignore || !r.Ready || !r.Published || r.State != "waiting" || r.Kind != tc.kind || r.CommentID != tc.comment {
+			t.Fatalf("%s published wait=%+v", tc.kind, r)
+		}
+	}
+	// An unpublished wait stays pending until it is published or stops waiting.
+	for _, state := range []string{"cancelled", "allocated"} {
+		id := wait("unpublished-"+state, "question", 0)
+		if r := read(id); r.Ready || r.Published || r.State != "waiting" {
+			t.Fatalf("undelivered wait=%+v", r)
+		}
+		if _, err := db.sql.ExecContext(ctx, `UPDATE graph_owner_waits SET state=? WHERE rowid=?`, state, id); err != nil {
+			t.Fatal(err)
+		}
+		if r := read(id); !r.Ready || r.Published || r.State != state {
+			t.Fatalf("%s wait=%+v", state, r)
+		}
+	}
+}
+
+func TestNoticeRunFinishesIgnoreBugRunsThatLeadToAWait(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 693)
+	segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := graphTestTime()
+	definitions := map[string]GraphDefinition{}
+	for _, workflow := range []string{"bug", "research"} {
+		mode := workflow
+		if workflow == "bug" {
+			mode = "" // Bug definitions bind a workflow, not a mode.
+		}
+		definitions[workflow], err = db.CreateGraphDefinition(ctx, GraphDefinition{Team: "notices", Mode: mode, Workflow: workflow, ProfileVersion: 1, Path: workflow + ".dot", Digest: strings.Repeat("b", 64), CreatedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	zero := int64(0)
+	trigger := int64(300)
+	finish := func(workflow, node, outcome string, status RunStatus) NoticeRecord {
+		t.Helper()
+		trigger++
+		run, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: workflow, Agent: AgentClaude, TriggerCommentID: trigger, StartedAt: at, LogPath: func(n int) string { return "/logs/" + strconv.Itoa(n) + ".jsonl" }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		instance, err := db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definitions[workflow].ID, CurrentNode: node, StartedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: node, RunID: run.ID, StartedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.FinishGraphNodeAttempt(ctx, attempt.ID, GraphSucceeded, outcome, at); err != nil {
+			t.Fatal(err)
+		}
+		result := RunOutcome{Status: status, ExitCode: &zero, FinishedAt: at.Add(time.Second)}
+		if status == RunFailed {
+			result.Error = "controlled failure"
+		}
+		if _, err := db.FinishRun(ctx, run.ID, result); err != nil {
+			t.Fatal(err)
+		}
+		r, err := db.readNoticeRecord(ctx, "run_finishes", run.ID)
+		if err != nil || !r.Ready {
+			t.Fatalf("record=%+v err=%v", r, err)
+		}
+		return r
+	}
+	for _, tc := range []struct {
+		workflow, node, outcome string
+		status                  RunStatus
+		ignore                  bool
+	}{
+		{"bug", "analyst", "done", RunSucceeded, true},
+		{"bug", "analyst", "ask", RunSucceeded, true},
+		{"bug", "fixer", "reshape", RunSucceeded, true},
+		{"bug", "analyst", "done", RunFailed, false},
+		{"bug", "fixer", "succeeded", RunSucceeded, false},
+		{"research", "research", "done", RunSucceeded, false},
+	} {
+		if r := finish(tc.workflow, tc.node, tc.outcome, tc.status); r.Ignore != tc.ignore {
+			t.Errorf("%s %s %s %s ignore=%v want %v", tc.workflow, tc.node, tc.outcome, tc.status, r.Ignore, tc.ignore)
+		}
+	}
+}

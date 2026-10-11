@@ -512,3 +512,49 @@ func TestGitValidateSuiteReadsRecipeFromCommitAndRemovesWorktree(t *testing.T) {
 		t.Fatalf("scratch worktree still exists: %v", err)
 	}
 }
+
+// A full disk is the host's failure: a suite command that exits 1 with
+// "no space left on device" is recorded blocked, never failed, while an
+// ordinary exit 1 still fails.
+func TestValidateSuiteNoSpaceLeftIsBlocked(t *testing.T) {
+	for _, tc := range []struct {
+		name, output string
+		want         string
+	}{
+		{"enospc", "TempDir: mkdir /tmp/x: no space left on device", store.SuiteBlocked},
+		{"ordinary", "FAIL: TestSomething", store.SuiteFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			launcher := filepath.Join(root, "sandbox")
+			if err := os.WriteFile(launcher, []byte("#!/bin/sh\necho '"+tc.output+"'\nexit 1\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			worktree := filepath.Join(root, "worktree")
+			if err := os.Mkdir(worktree, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			isolation := bugchecks.Isolation{Binary: launcher, PATH: "/usr/bin:/bin", Home: root, Revision: "operator-v1"}
+			f := newSuiteFixture(t)
+			f.b.Run = func(ctx context.Context, _ string, _ config.BugCheckCommand, started func(bugchecks.CommandResult) error) bugchecks.CommandResult {
+				return isolation.Run(ctx, worktree, config.BugCheckCommand{Argv: []string{"/bin/echo", "test"}, TimeoutSeconds: 10}, started)
+			}
+			if _, _, err := f.exec(1); err != nil {
+				t.Fatal(err)
+			}
+			run, err := f.db.LatestSuiteRun(t.Context(), 1, suiteCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.State == store.SuiteBlocked && strings.Contains(run.Reason, "retain command identity: operation not permitted") {
+				t.Skip("host refuses process identity observation required by isolated command executor")
+			}
+			if run.State != tc.want {
+				t.Fatalf("suite state %s (%s), want %s", run.State, run.Reason, tc.want)
+			}
+		})
+	}
+}

@@ -53,7 +53,7 @@ func (rt *implementRuntime) bind(ctx context.Context, opts Options, _ ActivityRe
 			unfinished[r.Key] = true
 		}
 	}
-	authority := ImplementAuthority{Parent: rt.parentRef, Generation: int64(feature.Generation), IntegrationBranch: session.Branch}
+	authority := ImplementAuthority{Parent: rt.parentRef, Generation: int64(feature.Generation), IntegrationBranch: session.Branch, BaseBranch: repo.BaseBranch}
 	for _, r := range revisions {
 		if !unfinished[r.Key] {
 			continue

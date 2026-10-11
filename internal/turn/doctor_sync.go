@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 )
 
@@ -79,6 +80,9 @@ func prepareDoctorSync(ctx context.Context, o DoctorSyncOptions) (git.MergePrevi
 		return git.MergePreview{}, nil, err
 	}
 	defer release()
+	if err = fastForwardDoctorSync(ctx, o); err != nil {
+		return git.MergePreview{}, nil, err
+	}
 	if err = checkDoctorSyncInputs(ctx, o); err != nil {
 		return git.MergePreview{}, nil, err
 	}
@@ -97,6 +101,36 @@ func prepareDoctorSync(ctx context.Context, o DoctorSyncOptions) (git.MergePrevi
 		return preview, nil, err
 	}
 	return preview, snapshots, nil
+}
+
+// fastForwardDoctorSync advances a clean task branch that is only behind the
+// approved head, such as after story merges pushed from scratch worktrees.
+// A diverged or dirty worktree is refused unchanged. Called under the clone gate.
+func fastForwardDoctorSync(ctx context.Context, o DoctorSyncOptions) error {
+	w := o.Worktree
+	head, err := w.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if err != nil || head == o.BeforeHead {
+		return err
+	}
+	if w.Branch() != o.Branch {
+		return errors.New("task branch differs from approved branch")
+	}
+	actual, err := w.RevParse(ctx, "HEAD", git.RevParseOptions{AbbrevRef: true})
+	if err != nil {
+		return err
+	}
+	if actual != o.Branch {
+		return errors.New("checked-out branch differs from approved branch")
+	}
+	divergence, err := w.Divergence(ctx, o.BeforeHead)
+	if err != nil {
+		return err
+	}
+	if divergence.Ahead != 0 {
+		return errors.New("task branch has local commits absent from the approved head")
+	}
+	_, err = w.MergeBase(ctx, o.BeforeHead, git.MergeOptions{Author: o.Author, FastForwardOnly: true})
+	return err
 }
 
 // checkDoctorSyncInputs is called only while the caller holds the clone gate.
@@ -120,8 +154,19 @@ func checkDoctorSyncInputs(ctx context.Context, o DoctorSyncOptions) error {
 	if err != nil {
 		return err
 	}
-	if head != o.BeforeHead || base != o.BaseHead {
-		return errors.New("branch synchronization inputs drifted")
+	if head != o.BeforeHead {
+		return doctor.ErrRepairBeforeHeadChanged
+	}
+	// The merge targets the pinned BaseHead, so a base that only moved forward
+	// is harmless; a rewritten base no longer contains the approved head.
+	if base != o.BaseHead {
+		forward, e := w.IsAncestor(ctx, o.BaseHead, base)
+		if e != nil {
+			return e
+		}
+		if !forward {
+			return doctor.ErrRepairBaseRewritten
+		}
 	}
 	changes, err := w.Status(ctx)
 	if err != nil {

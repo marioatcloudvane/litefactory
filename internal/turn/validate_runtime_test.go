@@ -319,3 +319,108 @@ func TestValidateStoriesCarryTheOwnerGuidanceOfTheImplementLedger(t *testing.T) 
 		t.Fatalf("the review scope ignores owner guidance:\n%+v\n%+v", with, without)
 	}
 }
+
+// TestValidateStoriesCarryTheDeviationsOfTheWorkersCompletedAnswer drives a
+// completed worker answer with deviations through worker_result and checks that
+// they replace an earlier list on the story's ledger row and reach the Validate
+// reviewer input next to owner_guidance, while a story without deviations
+// carries none and a completed answer without deviations clears the list.
+func TestValidateStoriesCarryTheDeviationsOfTheWorkersCompletedAnswer(t *testing.T) {
+	deviations := []string{
+		"Chose best-effort delivery with a nonce because Discord dedups only for minutes (health/health.go:1).",
+		"Kept the existing route name so callers keep working (health/routes.go:7).",
+	}
+	answer := `{"version":1,"response":"completed","result":{"outcome":"completed","comment":"The health endpoint is built and its tests pass.","payload":{"implement":{"stories":[],"deviations":["` + deviations[0] + `","` + deviations[1] + `"]}}}}`
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "health.go"), []byte("package health\n"), 0o600))
+		submitLiveResult(t, req, answer)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	ctx := t.Context()
+	mustProgress(t, f.db.SetImplementDeviations(ctx, implementTaskParent, 1, "story-001", "a stale decision of an earlier answer", implementClock))
+	out, err := Execute(ctx, f.opts, req)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("%+v %v", out, err)
+	}
+	row := implementWorkerRow(t, f)
+	if row.State != store.ImplementDone || row.Deviations != strings.Join(deviations, "\n") {
+		t.Fatalf("the completed answer's deviations replace the earlier list: %+v", row)
+	}
+
+	session, err := f.db.GetSession(ctx, f.session.ID)
+	mustProgress(t, err)
+	session.TaskRef = implementTaskParent
+	feature, err := f.db.GetManagedFeature(ctx, implementTaskParent)
+	mustProgress(t, err)
+	revisions, err := f.db.ListApprovedStoryRevisions(ctx, implementTaskParent, feature.Generation)
+	mustProgress(t, err)
+	if len(revisions) != 1 {
+		t.Fatalf("one approved story: %+v", revisions)
+	}
+	// The fixture's story text declares no criteria; give both stories some, and
+	// a second story without a ledger row.
+	body := "Body\n\n## Acceptance criteria\n\n- AC-001: the endpoint answers\n- AC-002: the answer names the build\n"
+	revisions[0].Body = body
+	other := revisions[0]
+	other.Key = "story-002"
+	revisions = append(revisions, other)
+	h := &validateHost{opts: f.opts, session: session, feature: feature, revisions: revisions}
+	stories, err := h.stories(ctx)
+	mustProgress(t, err)
+	byKey := map[string]ValidateStory{}
+	for _, s := range stories {
+		byKey[s.Key] = s
+	}
+	if got := byKey["story-001"]; !reflect.DeepEqual(got.Deviations, deviations) || got.OwnerGuidance != "" {
+		t.Fatalf("the story carries its worker's deviations: %+v", got)
+	}
+	if got := byKey["story-002"]; got.Deviations != nil {
+		t.Fatalf("a story without deviations carries none: %+v", got)
+	}
+
+	prompt, err := validateReviewPrompt(ValidateReviewRequest{Role: "acceptance", Commit: strings.Repeat("a", 40), SnapshotID: "snap", Stories: stories})
+	mustProgress(t, err)
+	if !strings.Contains(prompt, "A story's deviations are decisions the worker made where the plan was silent: judge each against the story's intent and approved decisions") {
+		t.Fatalf("the prompt tells reviewers how to judge deviations:\n%s", prompt)
+	}
+	start, end := strings.Index(prompt, "<validate-review>"), strings.Index(prompt, "</validate-review>")
+	var raw struct {
+		Stories []map[string]any `json:"stories"`
+	}
+	mustProgress(t, json.Unmarshal([]byte(prompt[start+len("<validate-review>"):end]), &raw))
+	for _, s := range raw.Stories {
+		got, has := s["deviations"]
+		switch s["Key"] {
+		case "story-001":
+			if !reflect.DeepEqual(got, []any{deviations[0], deviations[1]}) {
+				t.Fatalf("story-001's reviewer input holds its deviations: %+v", s)
+			}
+		default:
+			if has {
+				t.Fatalf("a story without deviations serializes as before: %+v", s)
+			}
+		}
+	}
+}
+
+// TestImplementWorkerCompletedWithoutDeviationsClearsAnEarlierList checks that
+// a re-completed story never keeps the deviations of an earlier answer.
+func TestImplementWorkerCompletedWithoutDeviationsClearsAnEarlierList(t *testing.T) {
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "health.go"), []byte("package health\n"), 0o600))
+		submitLiveResult(t, req, implementCompletedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	mustProgress(t, f.db.SetImplementDeviations(t.Context(), implementTaskParent, 1, "story-001", "a stale decision", implementClock))
+	out, err := Execute(t.Context(), f.opts, req)
+	if err != nil || !out.Succeeded() {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if row := implementWorkerRow(t, f); row.State != store.ImplementDone || row.Deviations != "" {
+		t.Fatalf("the earlier list is cleared: %+v", row)
+	}
+}

@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/git"
 )
 
 // US-002 AC-007: operator-visible decisions retain structured evidence without
@@ -91,5 +93,46 @@ func TestLogRetirement_ObservationWithoutResources(t *testing.T) {
 	}
 	if record["msg"] != "retirement observation" || record["issue_state"] != "open" || record["level"] != "INFO" {
 		t.Fatalf("observation = %v", record)
+	}
+}
+
+// Observation failures name the failing Git step from structured fields only.
+func TestLogRetirement_ObservationErrorStep(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		err  error
+		want map[string]any
+	}{
+		{name: "git", err: fmt.Errorf("observe: %w", &git.CommandError{Args: []string{"ls-remote", "--refs", "--", "origin"}, ExitCode: 128, Stderr: "fatal: https://token-secret@example.test raw-private-file-content"}), want: map[string]any{"git_step": "ls-remote", "git_exit_code": float64(128), "git_timed_out": false}},
+		{name: "worktree", err: &git.CommandError{Args: []string{"worktree", "list", "--porcelain"}, ExitCode: -1, TimedOut: true}, want: map[string]any{"git_step": "worktree list", "git_exit_code": float64(-1), "git_timed_out": true}},
+		{name: "non_git", err: errors.New("https://token-secret@example.test raw-private-file-content"), want: map[string]any{"git_step": "non_git"}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			owner, opts, gitObservation := retirementUnitFixture()
+			e := daemon.RetirementEvaluation{Owner: owner, ObservedAt: opts.Now, IssueState: "closed", Git: gitObservation, Error: tt.err}
+			var buf bytes.Buffer
+			daemon.LogRetirement(context.Background(), slog.New(slog.NewJSONHandler(&buf, nil)), "sweep-42", "revalidate", false, e)
+			if strings.Contains(buf.String(), "token-secret") || strings.Contains(buf.String(), "raw-private-file-content") {
+				t.Fatalf("sensitive raw error logged: %s", buf.String())
+			}
+			var record map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &record); err != nil {
+				t.Fatal(err)
+			}
+			if record["level"] != "WARN" || record["msg"] != "retirement observation" {
+				t.Fatalf("record = %v", record)
+			}
+			for key, value := range tt.want {
+				if record[key] != value {
+					t.Errorf("%s = %#v, want %#v", key, record[key], value)
+				}
+			}
+			if _, ok := record["git_exit_code"]; tt.name == "non_git" && ok {
+				t.Errorf("non-git error has exit code: %v", record)
+			}
+		})
 	}
 }

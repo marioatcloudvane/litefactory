@@ -20,6 +20,7 @@ Effective sentences, straight to the point, in easy language. Your reader is not
  - A (Manual) criterion is guidance for a human check. Judge it yourself by reading the code, the diff and the documents of this commit, and report `satisfied` or `unmet` with file:line evidence.
  - Report `unverified` for the owner only what truly needs a person or a live environment (a real run, a UI, an external system), and say exactly what to check.
  - A document, list or report the criterion asks for that does not exist is `unmet`, not `unverified`.
+ - A story may carry `deviations`: decisions its worker made where the plan was silent (what was chosen, why, file:line). In the plan review, judge each one against the story's intent and approved decisions, and name each one in that finding so the owner sees it in the report. A deviation within the intent is not `unmet` by itself; one that contradicts a frozen criterion or an approved decision is.
  - Never cite a failed command as proof. A failed or missing suite is a reason to report `unverified` or `unmet`, never `satisfied`.
  - Do not read archived session directories from earlier work.
 

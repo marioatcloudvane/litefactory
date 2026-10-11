@@ -22,8 +22,8 @@ chat:
 ```
 
 Store the bot token in the referenced keychain item or environment variable; never
-put it in settings. Give the bot permission to send messages in the allowed
-channels, plus Read Message History for `/ask` follow-ups. Set the Interactions Endpoint URL in the Discord developer portal to
+put it in settings. Give the bot Send Messages and Attach Files permissions in the allowed
+channels, plus Read Message History for `/ask` follow-ups and reply language selection. Set the Interactions Endpoint URL in the Discord developer portal to
 `https://your-factory-address/litefactory/discord`. The GitHub webhook URL stays
 unchanged. Restart the daemon after changing settings. Command registration is
 retried on later heartbeats if Discord is unavailable. If the bot token cannot be
@@ -78,8 +78,7 @@ wait; an interrupted, unrecorded answer must be sent again by the owner.
 Run `/ask question:What work is open? project:OWNER/REPO` for a registered
 repository. A unique repository name also works. A follow-up `/ask` without a
 project uses the newest marked bot answer in the same channel or thread and says
-so. Unknown or ambiguous projects get the registered project list without a model
-call. Questions are limited to 8192 bytes.
+so. Unknown or ambiguous projects get the registered project list without generating a project answer. Questions are limited to 8192 bytes.
 
 Answers use fresh open issues and current factory task metadata. Each point cites
 a checked fact and the reply gives an as-of time; omissions and unavailable
@@ -122,16 +121,44 @@ the automated fake Discord test does not establish real-server readability.
 
 To receive task status notices, set `chat.discord.notice_channel_id` to one of
 `channel_ids`. Leave it empty to disable notices. Each event goes to that one
-channel: run start, a change to a different graph stage, owner question,
-completion, failure or stop. Messages name and link to the task; questions link
-to the issue comment and show a shortened question. Answer on the issue as usual.
-Final notices include available per-run usage and estimated costs.
+channel: a task starting work or moving to a different mode (for example
+Research → Plan), a published owner question or review ("waiting for you"),
+completion, failure or stop. Steps between graph nodes inside one mode post
+nothing, and a further run in the same mode, such as a run recovered after a
+daemon restart, does not post another start. Messages name the issue number
+and title, read live from GitHub (only the number when the title cannot be
+read), and link to the issue. A "waiting for you" notice says what is asked
+(question or review) and links to the issue comment; for a question it also
+shows a shortened question. It is sent once per wait, and only while the wait
+is still open. Answer on the issue as usual. Final notices include available
+per-run usage and estimated costs.
 
 On first enable, existing history is skipped. Unfinished runs and unpublished
-questions are revisited when they finish or are published. Events already more
+questions and reviews are revisited when they finish or are published. Events already more
 than 24 hours old when first observed are skipped and logged. Notices use the
 same approved best-effort channel-post delivery as command replies, with stable
 enforced nonces, growing retry waits and rate-limit hints, for up to 24 hours.
 The nonce window limitation described above also applies to notices. Confirmed
 and failed notices lose their text and are purged 24 hours later; only source
 read positions and unresolved record references remain.
+
+## Reading command replies
+
+Command replies use a short explanation checked against the completed result.
+Exact values, links, revision codes, command examples and paging commands stay
+unchanged. The same reply includes `raw-details.txt` with the original redacted
+result. For `/meter` and `/prices`, these details are the page you requested.
+
+Replies follow the language of your current `/ask` question, or the latest
+marked `/ask` turn in the same channel or thread. When the language or history
+cannot be determined, they use English. Earlier answers are not given to the
+reply narrator.
+
+If narration is unavailable, times out or fails its checks, the reply is marked
+as raw and still includes the original details. If Discord definitely rejects
+the attachment, the saved raw page is retried inline. Delivery retries reuse the
+saved result; they do not repeat a completed command or completed narration.
+
+Authentication and malformed interaction responses remain immediate. Duplicate
+`/answer` acknowledgements use a small raw reply without applying the answer
+again. Automated status notices keep their existing wording.

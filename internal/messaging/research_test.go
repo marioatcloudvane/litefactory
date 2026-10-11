@@ -140,3 +140,43 @@ func TestDiagnosisSummaryKeepsEverySection(t *testing.T) {
 		t.Fatalf("summary: %q", text)
 	}
 }
+
+// TestQuestionOutcomeStatus checks that /question keeps the status assessed
+// for the current research question: refusal when none is open.
+func TestQuestionOutcomeStatus(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		question messaging.Question
+		want     string
+	}{
+		{"no open question", messaging.Question{Reason: "there is no open research question"}, "refusal"},
+		{"open question", messaging.Question{Text: "Which boundary?", Token: "123456789abc"}, "success"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			db := database(t)
+			ctx, at := t.Context(), time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+			repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app", BaseBranch: "main"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = db.GetOrCreateSession(ctx, repo, 1); err != nil {
+				t.Fatal(err)
+			}
+			// An unconfirmed delivery keeps the row and its outcome status.
+			send := &sender{}
+			s := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
+			ports := &researchPorts{question: tc.question}
+			s.EnableResearch(ports, ports)
+			if _, _, err = s.Admit(ctx, messaging.Message{Transport: "test", ID: "q", Channel: "channel", Sender: "owner", Command: "question", Arguments: map[string]string{"project": "acme/app", "issue": "1"}}, at); err != nil {
+				t.Fatal(err)
+			}
+			step(t, s, at, true)
+			r, err := db.ReadChatReply(ctx, "test", "q")
+			if err != nil || r.OutcomeStatus != tc.want {
+				t.Fatalf("outcome status: %q %v; want %q (texts %v)", r.OutcomeStatus, err, tc.want, send.texts)
+			}
+		})
+	}
+}

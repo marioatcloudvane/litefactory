@@ -39,6 +39,10 @@ const (
 	// value is already trustworthy when the sweep lands.
 	MinWorktreeRetainDays = 1
 	MaxWorktreeRetainDays = 3650
+	// MinMinFreeDiskGB and MaxMinFreeDiskGB bound the low-disk guard; 0
+	// disables it.
+	MinMinFreeDiskGB = 0
+	MaxMinFreeDiskGB = 10000
 	// MinDeployBackupKeep and MaxDeployBackupKeep bound how many newest
 	// pre-deploy database backups the daily housekeeping keeps.
 	MinDeployBackupKeep = 1
@@ -124,6 +128,10 @@ func (c *Config) Validate() error {
 	if s.WorktreeRetainDays < MinWorktreeRetainDays || s.WorktreeRetainDays > MaxWorktreeRetainDays {
 		errs = append(errs, fmt.Errorf("settings.worktree_retain_days: %d is out of range; must be between %d and %d",
 			s.WorktreeRetainDays, MinWorktreeRetainDays, MaxWorktreeRetainDays))
+	}
+	if s.MinFreeDiskGB < MinMinFreeDiskGB || s.MinFreeDiskGB > MaxMinFreeDiskGB {
+		errs = append(errs, fmt.Errorf("settings.min_free_disk_gb: %d is out of range; must be between %d and %d",
+			s.MinFreeDiskGB, MinMinFreeDiskGB, MaxMinFreeDiskGB))
 	}
 	if s.DeployBackupKeep < MinDeployBackupKeep || s.DeployBackupKeep > MaxDeployBackupKeep {
 		errs = append(errs, fmt.Errorf("settings.deploy_backup_keep: %d is out of range; must be between %d and %d",

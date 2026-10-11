@@ -52,6 +52,12 @@ func (db *DB) ChatIssuePreviewForMessage(ctx context.Context, transport, message
 	return scanPreview(db.sql.QueryRowContext(ctx, `SELECT `+previewColumns+` FROM chat_issue_previews WHERE transport=? AND source_message_id=?`, transport, message))
 }
 
+// ChatIssuePreviewByCode reads the retained preview without claiming or creating
+// it, allowing reply usage to retain the actual repository owner.
+func (db *DB) ChatIssuePreviewByCode(ctx context.Context, transport, channel, code string) (ChatIssuePreview, error) {
+	return scanPreview(db.sql.QueryRowContext(ctx, `SELECT `+previewColumns+` FROM chat_issue_previews WHERE transport=? AND channel_ref=? AND code=?`, transport, channel, code))
+}
+
 // SaveChatIssuePreview replaces the draft atomically. A live creating claim
 // cannot be superseded while its external operation may still be running.
 func (db *DB) SaveChatIssuePreview(ctx context.Context, p ChatIssuePreview) error {

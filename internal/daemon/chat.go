@@ -23,10 +23,12 @@ import (
 // imports the adapter; the service and store know no Discord types.
 type ChatOptions struct {
 	// Answers supplies read-only context and response-only model wiring.
-	Diagnoser ChatDiagnoser
-	Answers   *ask.Service
-	Settings  config.DiscordChat
-	Token     secrets.Token
+	Diagnoser   ChatDiagnoser
+	Answers     *ask.Service
+	ReplyModel  messaging.ReplyModel
+	Interpreter messaging.Interpreter
+	Settings    config.DiscordChat
+	Token       secrets.Token
 	// Resolve, when set, resolves the bot token again. A Token that is empty at
 	// startup leaves chat unavailable, and the chat goroutine calls Resolve on
 	// later heartbeats until it succeeds.
@@ -46,6 +48,7 @@ type chatRuntime struct {
 	redactor  *redact.Redactor
 	mu        sync.Mutex
 	notes     map[string]string
+	intake    *messaging.Intake
 }
 
 func prepareChat(ctx context.Context, cfg *config.Config, resolver secrets.Resolver) (*ChatOptions, error) {
@@ -127,16 +130,26 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	if answers.Redactor == nil {
 		answers.Redactor = sanitizer
 	}
+	history := messaging.AskHistory{DB: d.db, Transport: "discord"}
 	if answers.History == nil {
-		answers.History = a
+		answers.History = history
 	}
 	s.EnableAsk(&answers)
+	s.EnablePresentation(o.ReplyModel, history)
+	interpreter := o.Interpreter
+	if interpreter == nil && o.ReplyModel != nil {
+		interpreter = &messaging.NativeInterpreter{Model: o.ReplyModel}
+	}
+	s.EnableNatural(interpreter)
 	writer, _ := d.forge.(ChatIssueForge)
 	s.EnableFeatures(&feature.Drafter{Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
 	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: d.chatBeat, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}
+	if interpreter != nil {
+		d.chat.intake = &messaging.Intake{DB: d.db, Reader: a, Owner: o.Settings.OwnerID, Channels: append([]string(nil), o.Settings.ChannelIDs...), Transport: "discord", Protect: s.Protect}
+	}
 	s.EnableResearch(chatResearch{d}, chatResearch{d})
 	if o.Settings.NoticeChannelID != "" {
-		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect}
+		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect, Issues: d.forge}
 	}
 	handler := a.Handler(s)
 	d.chatHandler.Store(&handler)
@@ -189,6 +202,7 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 		if d.chat == nil && !d.awaitChatToken(ctx) {
 			return
 		}
+		d.startNaturalIntake(ctx, wg, d.chat.intake)
 		if err := d.db.RecoverChatAnswers(ctx, "discord", time.Now()); err != nil {
 			d.log.WarnContext(ctx, "chat answer recovery failed; waiting rows retain their leases")
 		}
@@ -204,7 +218,7 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			}
 			if err := d.chat.adapter.Register(ctx, d.chat.service.Declarations()...); err != nil {
-				d.log.WarnContext(ctx, "chat commands could not be registered; retrying on a later heartbeat")
+				d.log.WarnContext(ctx, "chat commands could not be registered; retrying on a later heartbeat", slog.Any("error", err))
 			} else {
 				registered = true
 			}
@@ -230,6 +244,16 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 					if !more {
 						break
 					}
+				}
+			}
+			for range 32 {
+				more, err := d.chat.service.NaturalStep(ctx, time.Now())
+				if err != nil {
+					d.log.WarnContext(ctx, "ordinary message processing failed; retained work will be retried")
+					break
+				}
+				if !more {
+					break
 				}
 			}
 			for range 32 {

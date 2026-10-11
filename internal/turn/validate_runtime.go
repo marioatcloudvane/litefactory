@@ -289,8 +289,13 @@ func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 	if err != nil {
 		return nil, fmt.Errorf("implement ledger: %w", err)
 	}
-	guidance, question := map[string]string{}, map[string]string{}
+	guidance, question, deviations := map[string]string{}, map[string]string{}, map[string][]string{}
 	for _, row := range rows {
+		for _, line := range strings.Split(row.Deviations, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				deviations[row.Key] = append(deviations[row.Key], line)
+			}
+		}
 		if g := strings.TrimSpace(row.Guidance); g != "" {
 			guidance[row.Key] = g
 			question[row.Key] = strings.TrimSpace(row.GuidanceQuestion)
@@ -305,7 +310,7 @@ func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 		if err != nil {
 			return nil, fmt.Errorf("criteria of %s: %w", r.Key, err)
 		}
-		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, ExecutionRequired: required, Text: r.Body, OwnerGuidance: guidance[r.Key], OwnerQuestion: question[r.Key]})
+		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, ExecutionRequired: required, Text: r.Body, OwnerGuidance: guidance[r.Key], OwnerQuestion: question[r.Key], Deviations: deviations[r.Key]})
 	}
 	if len(out) == 0 {
 		return nil, errors.New("no approved story is under review")
@@ -569,5 +574,5 @@ func validateReviewPrompt(vr ValidateReviewRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Factory invocation: Validate %s review of commit %s. The working directory is a read-only checkout of exactly that commit; read it with your file tools or read-only shell commands, never run tests or builds. Report one entry under stories for every story below, with the snapshot ID exactly as given, and cite only the check IDs of the evidence list; only a passed command proves a finding. A story's owner_guidance is the owner's decision recorded during Implement, and its owner_question, when present, is the worker's question that owner_guidance answers: judge that story's criteria and reviews, and those of any story relying on the same behavior, against its frozen text as amended by that decision, cite the decision in the finding's evidence, and never fail a criterion or classify a finding as blocking only because it differs from the frozen text in the way the owner approved.\n<validate-review>%s</validate-review>\n", vr.Role, vr.Commit, data), nil
+	return fmt.Sprintf("Factory invocation: Validate %s review of commit %s. The working directory is a read-only checkout of exactly that commit; read it with your file tools or read-only shell commands, never run tests or builds. Report one entry under stories for every story below, with the snapshot ID exactly as given, and cite only the check IDs of the evidence list; only a passed command proves a finding. A story's owner_guidance is the owner's decision recorded during Implement, and its owner_question, when present, is the worker's question that owner_guidance answers: judge that story's criteria and reviews, and those of any story relying on the same behavior, against its frozen text as amended by that decision, cite the decision in the finding's evidence, and never fail a criterion or classify a finding as blocking only because it differs from the frozen text in the way the owner approved. A story's deviations are decisions the worker made where the plan was silent: judge each against the story's intent and approved decisions and name it in the plan review's finding.\n<validate-review>%s</validate-review>\n", vr.Role, vr.Commit, data), nil
 }

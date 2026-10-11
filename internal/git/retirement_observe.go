@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,7 +161,10 @@ func ObserveRetirement(ctx context.Context, c *Clone, path, branch, base string)
 			o.WorktreeReason = "submodule_content_unverified"
 			continue
 		}
-		o.Dirty = out != ""
+		o.Dirty, probeErr = retirementLocalWork(path, out)
+		if probeErr != nil {
+			return o, probeErr
+		}
 		o.WorktreeSafe = true
 		if o.Dirty {
 			o.WorktreeReason = "local_files"
@@ -206,4 +210,75 @@ func retirementAncestor(ctx context.Context, c *Clone, tip, base string) (bool, 
 		return false, nil
 	}
 	return false, err
+}
+
+// retirementGeneratedIgnored are factory-written, git-ignored paths that never
+// hold owner work, so they do not keep a worktree from retirement.
+var retirementGeneratedIgnored = []string{
+	".litefactory/validation-logs",
+	"teams/source/.litefactory",
+}
+
+// retirementLocalWork reports whether `git status --porcelain -z` output holds
+// local work. Tracked, staged, untracked and ordinary ignored entries count.
+// An ignored entry does not count when it is factory-generated or a directory
+// containing no non-directory entries.
+func retirementLocalWork(root, status string) (bool, error) {
+	entries := strings.Split(status, "\x00")
+	for i := 0; i < len(entries); i++ {
+		entry := entries[i]
+		if entry == "" {
+			continue
+		}
+		if len(entry) < 4 {
+			return true, nil
+		}
+		code, name := entry[:2], entry[3:]
+		if code[0] == 'R' || code[0] == 'C' {
+			// Renames and copies carry their source as the next -z field.
+			i++
+		}
+		if code != "!!" {
+			return true, nil
+		}
+		ignorable, err := retirementIgnorable(root, name)
+		if err != nil {
+			return true, err
+		}
+		if !ignorable {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func retirementIgnorable(root, name string) (bool, error) {
+	clean := strings.TrimSuffix(name, "/")
+	for _, generated := range retirementGeneratedIgnored {
+		if clean == generated || strings.HasPrefix(clean, generated+"/") {
+			return true, nil
+		}
+	}
+	dir := filepath.Join(root, filepath.FromSlash(clean))
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, nil
+	}
+	errHasContent := errors.New("directory has content")
+	err = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !d.IsDir() {
+			return errHasContent
+		}
+		return nil
+	})
+	if errors.Is(err, errHasContent) {
+		return false, nil
+	}
+	return err == nil, err
 }

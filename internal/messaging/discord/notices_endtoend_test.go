@@ -1,6 +1,7 @@
 package discord_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -22,6 +24,12 @@ import (
 // TestTaskNoticeJourney drives durable factory records through the collector,
 // real outbox and adapter. The fake API accepts a post but loses its response;
 // a reopened database retries the same nonce without adding a second post.
+type titledIssues struct{}
+
+func (titledIssues) GetIssue(_ context.Context, _ github.Repo, n int) (github.Issue, error) {
+	return github.Issue{Number: n, Title: "Pick a release"}, nil
+}
+
 func TestTaskNoticeJourney(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -57,6 +65,7 @@ func TestTaskNoticeJourney(t *testing.T) {
 			Content  string `json:"content"`
 			Nonce    string `json:"nonce"`
 			Enforce  bool   `json:"enforce_nonce"`
+			Flags    int    `json:"flags"`
 			Mentions struct {
 				Parse []string `json:"parse"`
 			} `json:"allowed_mentions"`
@@ -68,6 +77,9 @@ func TestTaskNoticeJourney(t *testing.T) {
 		}
 		if body.Nonce == "" || !body.Enforce || len(body.Mentions.Parse) != 0 {
 			t.Error("nonce or mention policy missing")
+		}
+		if body.Flags&4 == 0 {
+			t.Error("notice post does not suppress embeds")
 		}
 		mu.Lock()
 		defer mu.Unlock()
@@ -83,7 +95,8 @@ func TestTaskNoticeJourney(t *testing.T) {
 	}))
 	defer api.Close()
 	adapter := discord.New(discord.Options{ApplicationID: "1", Token: secrets.NewToken("notice-test-token"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
-	collector := &messaging.NoticeCollector{DB: db, Transport: "discord"}
+	issues := titledIssues{}
+	collector := &messaging.NoticeCollector{DB: db, Transport: "discord", Issues: issues}
 	must(collector.Collect(ctx, at)) // Off means even positions are absent.
 	if _, _, err := db.ListNoticeRecords(ctx, "discord", "run_starts", at); err == nil {
 		t.Fatal("disabled notices wrote a position")
@@ -94,9 +107,10 @@ func TestTaskNoticeJourney(t *testing.T) {
 	must(err)
 	seg, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", "codex")
 	must(err)
+	mode := "plan"
 	allocate := func(trigger int64) store.Run {
 		t.Helper()
-		r, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: seg.ID, Mode: "implement", Agent: "codex", TriggerCommentID: trigger, StartedAt: at, LogPath: func(n int) string { return fmt.Sprintf("/logs/%d.jsonl", n) }})
+		r, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: seg.ID, Mode: mode, Agent: "codex", TriggerCommentID: trigger, StartedAt: at, LogPath: func(n int) string { return fmt.Sprintf("/logs/%d.jsonl", n) }})
 		must(err)
 		return r
 	}
@@ -109,6 +123,8 @@ func TestTaskNoticeJourney(t *testing.T) {
 	if _, err := db.ReadChatNotice(ctx, "discord", fmt.Sprintf("run:%d:start", history.ID)); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("history was posted: %v", err)
 	}
+	// One mode change, then two further runs in the same mode: one start.
+	mode = "implement"
 	runs := []store.Run{allocate(2), allocate(3), allocate(4)}
 	must(collector.Collect(ctx, at))
 	service := messaging.New(db, "discord", "2", []string{"3"}, adapter, nil)
@@ -121,7 +137,7 @@ func TestTaskNoticeJourney(t *testing.T) {
 	must(db.Close())
 	db, err = store.Open(ctx, path)
 	must(err)
-	collector = &messaging.NoticeCollector{DB: db, Transport: "discord", Channel: "3"}
+	collector = &messaging.NoticeCollector{DB: db, Transport: "discord", Channel: "3", Issues: issues}
 	service = messaging.New(db, "discord", "2", []string{"3"}, adapter, nil)
 	must(collector.Collect(ctx, at.Add(time.Second)))
 	// Add measured usage to only the successful run.
@@ -147,7 +163,8 @@ func TestTaskNoticeJourney(t *testing.T) {
 	must(err)
 	instance, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "build", StartedAt: at})
 	must(err)
-	transition, err := db.RecordGraphTransition(ctx, store.GraphTransition{InstanceID: instance.ID, FromNode: "build", ToNode: "save", OnOutcome: "done", At: at})
+	// Internal graph node moves within the mode post nothing.
+	_, err = db.RecordGraphTransition(ctx, store.GraphTransition{InstanceID: instance.ID, FromNode: "build", ToNode: "save", OnOutcome: "done", At: at})
 	must(err)
 	_, err = db.RecordGraphTransition(ctx, store.GraphTransition{InstanceID: instance.ID, FromNode: "build", ToNode: "build", OnOutcome: "retry", At: at})
 	must(err)
@@ -167,6 +184,21 @@ func TestTaskNoticeJourney(t *testing.T) {
 	must(err)
 	_, err = db.CompleteReportDelivery(ctx, "owner-question")
 	must(err)
+	// A published review wait in another graph instance asks for a review.
+	reviewing, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "review", StartedAt: at})
+	must(err)
+	reviewed, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: reviewing.ID, Node: "review", StartedAt: at})
+	must(err)
+	must(db.FinishGraphNodeAttempt(ctx, reviewed.ID, store.GraphSucceeded, "review", at.Add(time.Second)))
+	must(db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "owner-review", InstanceID: reviewing.ID, SourceAttemptID: reviewed.ID, Node: "review", Kind: "review", Candidate: []byte(`{"outcome":"completed"}`)}))
+	_, err = db.EnsureReportDelivery(ctx, store.ReportDelivery{Key: "owner-review", SessionID: session.ID, Task: session.TaskRef, Destination: "acme/repo#596", TriggerNamespace: "issue-comment", Purpose: "implement-review", BotUserID: 99, Body: "Review", Marker: "marker-review"})
+	must(err)
+	_, err = db.MarkReportDeliverySent(ctx, "owner-review")
+	must(err)
+	_, err = db.ConfirmReportDelivery(ctx, "owner-review", 92)
+	must(err)
+	_, err = db.CompleteReportDelivery(ctx, "owner-review")
+	must(err)
 	must(collector.Collect(ctx, at.Add(2*time.Second)))
 	must(collector.Collect(ctx, at.Add(2*time.Second)))
 	for range 32 {
@@ -184,16 +216,22 @@ func TestTaskNoticeJourney(t *testing.T) {
 			t.Errorf("missing kind: %s", text)
 		}
 		counts[kind]++
-		if !strings.Contains(text, session.TaskRef) || !strings.Contains(text, "https://github.com/acme/repo/issues/596") {
-			t.Errorf("missing task link: %s", text)
+		if !strings.HasPrefix(text, kind+": #596 Pick a release (implement)") || strings.Contains(text, "github:") || !strings.Contains(text, "https://github.com/acme/repo/issues/596") {
+			t.Errorf("missing issue title or link: %s", text)
 		}
-		if kind == "question" && (!strings.Contains(text, "Which release should I target?") || !strings.Contains(text, "#issuecomment-91") || strings.Contains(text, "report prose")) {
+		if strings.Contains(text, "— Implement question") && (!strings.Contains(text, "Which release should I target?") || !strings.Contains(text, "#issuecomment-91") || strings.Contains(text, "report prose")) {
 			t.Errorf("question text: %s", text)
 		}
-		if kind == "completed" && !strings.Contains(text, "Estimated cost:") {
+		if strings.Contains(text, "— Implement review") && !strings.Contains(text, "#issuecomment-92") {
+			t.Errorf("review text: %s", text)
+		}
+		if kind == "started" && !strings.Contains(text, "Mode: plan → implement") {
+			t.Errorf("mode change missing: %s", text)
+		}
+		if kind == "completed" && !strings.Contains(text, "about $") {
 			t.Errorf("usage estimate missing: %s", text)
 		}
-		if (kind == "failed" || kind == "stopped") && strings.Contains(text, "Usage:") {
+		if (kind == "failed" || kind == "stopped") && (strings.Contains(text, "about $") || strings.Contains(text, "tokens")) {
 			t.Errorf("invented usage: %s", text)
 		}
 	}
@@ -204,7 +242,7 @@ func TestTaskNoticeJourney(t *testing.T) {
 		}
 	}
 	mu.Unlock()
-	for kind, want := range map[string]int{"started": 3, "stage changed": 1, "question": 1, "completed": 1, "failed": 1, "stopped": 1} {
+	for kind, want := range map[string]int{"started": 1, "stage changed": 0, "waiting for you": 2, "completed": 1, "failed": 1, "stopped": 1} {
 		if counts[kind] != want {
 			t.Errorf("%s=%d want %d", kind, counts[kind], want)
 		}
@@ -212,9 +250,14 @@ func TestTaskNoticeJourney(t *testing.T) {
 	if retried != 1 {
 		t.Errorf("retried nonce count=%d want 1", retried)
 	}
-	keys := []string{fmt.Sprintf("transition:%d@%s@%s", transition.ID, store.FormatTime(at), session.TaskRef), "wait:owner-question@" + store.FormatTime(at.Add(time.Second)) + "@" + session.TaskRef}
+	keys := []string{"wait:owner-question@" + store.FormatTime(at.Add(time.Second)) + "@" + session.TaskRef, fmt.Sprintf("run:%d:start", runs[0].ID)}
 	for _, r := range runs {
-		keys = append(keys, fmt.Sprintf("run:%d:start", r.ID), fmt.Sprintf("run:%d:finish", r.ID))
+		keys = append(keys, fmt.Sprintf("run:%d:finish", r.ID))
+	}
+	for _, r := range runs[1:] {
+		if _, err := db.ReadChatNotice(ctx, "discord", fmt.Sprintf("run:%d:start", r.ID)); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("same-mode run %d started again: %v", r.ID, err)
+		}
 	}
 	for _, key := range keys {
 		row, err := db.ReadChatNotice(ctx, "discord", key)

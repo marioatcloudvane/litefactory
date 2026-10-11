@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -342,5 +343,117 @@ func TestDeferredEdit(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestRefusedEditLogged checks that a refused interaction edit reports its
+// HTTP status and Discord's JSON error code and message on the delivery line,
+// without the interaction token or the webhook path.
+func TestRefusedEditLogged(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name, body, route, outcome, message string
+		edit, status, code                  int
+	}{
+		{"401 falls back", `{"message": "Invalid Webhook Token", "code": 50027}`, "channel", "confirmed", "Invalid Webhook Token", 401, 200, 50027},
+		{"404 retries", `{"message": "Unknown Webhook", "code": 10015}`, "edit", "retry", "Unknown Webhook", 404, 404, 10015},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+			public, private, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			db, err := store.Open(ctx, filepath.Join(t.TempDir(), "chat.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := db.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			if err := db.Migrate(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.ReplaceHealthSnapshot(ctx, store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at.Add(-time.Second)}, nil); err != nil {
+				t.Fatal(err)
+			}
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodPatch {
+					w.WriteHeader(test.edit)
+					_, _ = io.WriteString(w, test.body)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, `{"id":"77"}`)
+			}))
+			defer api.Close()
+			adapter := discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("bot-secret"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
+			service := messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
+			var logs bytes.Buffer
+			service.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+			w := signed(t, adapter.Handler(service), private, at, body("10", "3", "2", "health"))
+			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":5`) {
+				t.Fatalf("ack: %d %s", w.Code, w.Body)
+			}
+			logs.Reset()
+			if more, err := service.Step(ctx, at); err != nil || !more {
+				t.Fatalf("step: %t %v", more, err)
+			}
+			lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+			if len(lines) != 1 {
+				t.Fatalf("log lines: %q", logs.String())
+			}
+			var record struct {
+				Msg, Outcome, Route string
+				Status              int
+				EditStatus          int    `json:"edit_status"`
+				EditCode            int    `json:"edit_code"`
+				EditMessage         string `json:"edit_message"`
+			}
+			if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+				t.Fatal(err)
+			}
+			if record.Msg != "chat reply delivery" || record.Route != test.route || record.Status != test.status || record.Outcome != test.outcome || record.EditStatus != test.edit || record.EditCode != test.code || record.EditMessage != test.message {
+				t.Fatalf("log: %s", lines[0])
+			}
+			if strings.Contains(logs.String(), "interaction-secret") || strings.Contains(logs.String(), "/webhooks/") {
+				t.Fatalf("log carries token or URL: %s", logs.String())
+			}
+		})
+	}
+}
+
+func TestRegisterRefusalCarriesReason(t *testing.T) {
+	t.Parallel()
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/applications/1/commands" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"code": 50035, "message": "Invalid Form Body", "errors": {"0": {"options": {}}}}`)
+	}))
+	defer api.Close()
+	adapter := discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("bot-secret"), APIURL: api.URL, Client: api.Client()})
+	err = adapter.Register(t.Context(), messaging.CommandDefinition{Name: "question", Description: "Show the current research question", Arguments: []messaging.Argument{{Name: "issue", Type: messaging.IntegerArgument, Required: true, Description: "Positive issue number"}}})
+	if err == nil {
+		t.Fatal("refused registration returned no error")
+	}
+	for _, want := range []string{"400", "50035", "Invalid Form Body"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "bot-secret") {
+		t.Errorf("error leaks the token: %q", err)
 	}
 }

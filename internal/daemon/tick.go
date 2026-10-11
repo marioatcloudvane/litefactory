@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/bugchecks"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -278,23 +279,32 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	for _, repo := range repos {
 		reposByID[repo.ID] = repo
 	}
-	if err := d.dispatchContinuations(ctx, reposByID, startedAt, &result); err != nil {
-		return result, err
-	}
-	if err := d.dispatchSchedules(ctx, reposByID, startedAt, &result); err != nil {
-		result.Duration = d.now().Sub(startedAt)
-		return result, err
+	// Below the free-disk threshold no run starts this tick, exactly as with a
+	// full pool: owed work stays pending and starts on a later tick.
+	lowDisk := d.lowDisk(ctx)
+	if !lowDisk {
+		if err := d.dispatchContinuations(ctx, reposByID, startedAt, &result); err != nil {
+			return result, err
+		}
+		if err := d.dispatchSchedules(ctx, reposByID, startedAt, &result); err != nil {
+			result.Duration = d.now().Sub(startedAt)
+			return result, err
+		}
 	}
 	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
 		return result, d.observe(ctx, startedAt, err)
 	}
-	d.dispatch(ctx, queues, startedAt, &result)
-	// Owed graph work goes last. An owner is waiting on a comment; nobody is
-	// waiting on a stage the factory owes itself, and a session claimed by
-	// discovery above keeps its dispatch pending for the next tick rather than
-	// competing for the same worker.
-	if err := d.dispatchGraphSteps(ctx, reposByID, startedAt, &result); err != nil {
-		return result, err
+	if lowDisk {
+		d.deferRest(ctx, queues, &result)
+	} else {
+		d.dispatch(ctx, queues, startedAt, &result)
+		// Owed graph work goes last. An owner is waiting on a comment; nobody is
+		// waiting on a stage the factory owes itself, and a session claimed by
+		// discovery above keeps its dispatch pending for the next tick rather than
+		// competing for the same worker.
+		if err := d.dispatchGraphSteps(ctx, reposByID, startedAt, &result); err != nil {
+			return result, err
+		}
 	}
 	result.InFlight = d.inflight.size()
 	result.Scheduled, err = d.db.CountPendingSchedules(ctx)
@@ -3037,4 +3047,30 @@ func providerRateLimited(err error) bool {
 	var codeRate *github.RateLimitError
 	var ticketRate *ticket.RateLimitError
 	return errors.As(err, &codeRate) || errors.As(err, &ticketRate)
+}
+
+// lowDisk reports whether free space on the daemon volume is below the
+// configured threshold and logs the shortage. An unreadable volume does not
+// hold work: the guard prevents a full disk, it does not gate on probes.
+func (d *Daemon) lowDisk(ctx context.Context) bool {
+	if d.minFreeDiskBytes == 0 || d.diskPath == "" {
+		return false
+	}
+	read := d.freeDiskBytes
+	if read == nil {
+		read = bugchecks.FreeDiskBytes
+	}
+	free, err := read(d.diskPath)
+	if err != nil {
+		d.log.WarnContext(ctx, "free disk space unreadable; dispatch continues", slog.String("path", d.diskPath), slog.Any("error", err))
+		return false
+	}
+	if free >= d.minFreeDiskBytes {
+		return false
+	}
+	d.log.WarnContext(ctx, "free disk space below threshold; no run starts until space is freed",
+		slog.String("path", d.diskPath),
+		slog.Uint64("free_bytes", free),
+		slog.Uint64("required_bytes", d.minFreeDiskBytes))
+	return true
 }

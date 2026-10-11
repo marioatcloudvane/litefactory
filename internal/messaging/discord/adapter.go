@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,8 +18,10 @@ import (
 	"sync"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/messaging"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
@@ -26,6 +29,9 @@ import (
 // Path is the interactions route beside the GitHub webhook route.
 const Path = "/litefactory/discord"
 const maxBody = 64 << 10
+
+// maxErrorMessage caps Discord's error message before it is logged.
+const maxErrorMessage = 200
 
 // Intake is the neutral admission and sender wake contract.
 type Intake interface {
@@ -191,7 +197,7 @@ func (a *Adapter) Handler(intake Intake) http.Handler {
 			return
 		}
 		if !inserted && in.Data.Name == "answer" {
-			writeCallback(w, callback{Type: 4, Data: &replyData{Content: "already answered", Flags: 64}})
+			writeCallback(w, callback{Type: 4, Data: &replyData{Content: "This /answer command was already received.\n\nRaw result.", Flags: 64}})
 			return
 		}
 		if inserted {
@@ -241,21 +247,50 @@ type outgoing struct {
 	Nonce           string          `json:"nonce,omitempty"`
 	EnforceNonce    bool            `json:"enforce_nonce,omitempty"`
 	AllowedMentions allowedMentions `json:"allowed_mentions"`
+	Flags           int             `json:"flags,omitempty"`
 }
+
+// suppressEmbeds is Discord's SUPPRESS_EMBEDS message flag.
+const suppressEmbeds = 1 << 2
 
 // Deliver edits the original response while its token is live, retrying a 404
 // edit until the handle expires, then uses a stable enforced nonce for channel
 // fallback after a 401, expiry or a target without a handle. Nonce deduplication is short-lived;
 // uncertain sends retried after restart or a long delay can produce duplicates.
 func (a *Adapter) Deliver(ctx context.Context, t messaging.Target, text string) messaging.Delivery {
+	return a.deliver(ctx, t, text, nil)
+}
+
+// DeliverReply preserves text and raw details in the same edit or channel send.
+func (a *Adapter) DeliverReply(ctx context.Context, t messaging.Target, payload presentation.Payload) messaging.Delivery {
+	if payload.Attachment == nil {
+		return a.Deliver(ctx, t, payload.Content)
+	}
+	if payload.Attachment.Name != presentation.RawFilename || len(payload.Attachment.Content) > presentation.MaxRawBytes {
+		return messaging.Delivery{Permanent: true}
+	}
+	raw, err := a.redactor.Apply(ctx, payload.Attachment.Content, max(4096, len(payload.Attachment.Content)+redact.Margin))
+	if err != nil || raw.String() != payload.Attachment.Content {
+		return messaging.Delivery{Permanent: true}
+	}
+	return a.deliver(ctx, t, payload.Content, payload.Attachment)
+}
+
+func (a *Adapter) deliver(ctx context.Context, t messaging.Target, text string, attachment *presentation.Attachment) messaging.Delivery {
 	body, err := a.redactor.Apply(ctx, text, max(4096, len(text)+redact.Margin))
 	if err != nil {
 		return messaging.Delivery{}
+	}
+	if (attachment != nil || t.Protected) && text != body.String() {
+		return messaging.Delivery{Permanent: true}
 	}
 	text = body.String()
 	// Redaction must preserve the page footer. Check Discord's UTF-16 budget
 	// after substitution and send a short failure reply rather than cut a page.
 	if len(utf16.Encode([]rune(text))) > a.ReplyLimit() {
+		if attachment != nil || t.Protected {
+			return messaging.Delivery{Permanent: true}
+		}
 		text = "report unavailable"
 	}
 	a.mu.Lock()
@@ -269,43 +304,89 @@ func (a *Adapter) Deliver(ctx context.Context, t messaging.Target, text string) 
 	}
 	a.mu.Unlock()
 	p := outgoing{Content: text, AllowedMentions: allowedMentions{Parse: []string{}}}
+	if t.Notice {
+		p.Flags = suppressEmbeds
+	}
+	var edit messaging.Delivery
 	if ok {
-		d, status := a.call(ctx, http.MethodPatch, "/webhooks/"+a.options.ApplicationID+"/"+url.PathEscape(h.token)+"/messages/@original", p, false)
+		d, status := a.callContent(ctx, http.MethodPatch, "/webhooks/"+a.options.ApplicationID+"/"+url.PathEscape(h.token)+"/messages/@original", p, false, attachment)
 		d.Route, d.Status = "edit", status
+		if status != 0 && (status < 200 || status >= 300) {
+			d.EditStatus = status
+		}
 		// Discord can answer 404 while it is still registering the deferred
 		// response. A live handle retries the edit; only expiry falls back.
 		if status == http.StatusNotFound {
-			return messaging.Delivery{Route: "edit", Status: status}
+			return messaging.Delivery{Route: "edit", Status: status, EditStatus: status, EditCode: d.EditCode, EditMessage: d.EditMessage}
 		}
 		if status != http.StatusUnauthorized {
-			if d.Confirmed || d.Permanent {
+			if d.Confirmed || (d.Permanent && !d.AttachmentRejected) {
 				a.forget(t.Handle)
 			}
 			return d
 		}
 		a.forget(t.Handle)
+		edit = d
 	}
 	if !numeric(t.Channel) {
-		return messaging.Delivery{Permanent: true, Route: "channel"}
+		return messaging.Delivery{Permanent: true, Route: "channel", EditStatus: edit.EditStatus, EditCode: edit.EditCode, EditMessage: edit.EditMessage}
 	}
 	hash := sha256.Sum256([]byte(t.Transport + ":" + t.MessageID))
 	p.Nonce = hex.EncodeToString(hash[:12])
 	p.EnforceNonce = true
-	d, status := a.call(ctx, http.MethodPost, "/channels/"+t.Channel+"/messages", p, true)
+	d, status := a.callContent(ctx, http.MethodPost, "/channels/"+t.Channel+"/messages", p, true, attachment)
 	d.Route, d.Status = "channel", status
+	// Only a refused edit is reported; the channel's own error body is not.
+	d.EditStatus, d.EditCode, d.EditMessage = edit.EditStatus, edit.EditCode, edit.EditMessage
 	return d
 }
 func (a *Adapter) forget(id string) { a.mu.Lock(); delete(a.handles, id); a.mu.Unlock() }
 func (a *Adapter) call(ctx context.Context, method, path string, payload interface{}, bot bool) (messaging.Delivery, int) {
+	return a.callContent(ctx, method, path, payload, bot, nil)
+}
+func (a *Adapter) callContent(ctx context.Context, method, path string, payload interface{}, bot bool, attachment *presentation.Attachment) (messaging.Delivery, int) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return messaging.Delivery{Permanent: true}, 0
+	}
+	contentType := "application/json"
+	if attachment != nil {
+		// Attachment ID 0 binds the file to this one message operation.
+		var object map[string]any
+		if err := json.Unmarshal(body, &object); err != nil {
+			return messaging.Delivery{Permanent: true}, 0
+		}
+		object["attachments"] = []map[string]any{{"id": 0, "filename": attachment.Name}}
+		body, err = json.Marshal(object)
+		if err != nil {
+			return messaging.Delivery{Permanent: true}, 0
+		}
+		var buffer bytes.Buffer
+		writer := multipart.NewWriter(&buffer)
+		field, err := writer.CreateFormField("payload_json")
+		if err != nil {
+			return messaging.Delivery{Permanent: true}, 0
+		}
+		if _, err = field.Write(body); err != nil {
+			return messaging.Delivery{Permanent: true}, 0
+		}
+		file, err := writer.CreateFormFile("files[0]", attachment.Name)
+		if err != nil {
+			return messaging.Delivery{Permanent: true}, 0
+		}
+		if _, err = io.WriteString(file, attachment.Content); err != nil {
+			return messaging.Delivery{Permanent: true}, 0
+		}
+		if err = writer.Close(); err != nil {
+			return messaging.Delivery{Permanent: true}, 0
+		}
+		body, contentType = buffer.Bytes(), writer.FormDataContentType()
 	}
 	req, err := http.NewRequestWithContext(ctx, method, a.options.APIURL+path, bytes.NewReader(body))
 	if err != nil {
 		return messaging.Delivery{Permanent: true}, 0
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	if bot {
 		req.Header.Set("Authorization", "Bot "+a.options.Token.Reveal())
 	}
@@ -316,8 +397,51 @@ func (a *Adapter) call(ctx context.Context, method, path string, payload interfa
 	defer res.Body.Close()
 	response, readErr := io.ReadAll(io.LimitReader(res.Body, maxBody))
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
-		return messaging.Delivery{Confirmed: readErr == nil}, res.StatusCode
+		d := messaging.Delivery{Confirmed: readErr == nil}
+		var message struct {
+			ID string `json:"id"`
+		}
+		if readErr == nil && json.Unmarshal(response, &message) == nil && numeric(message.ID) {
+			d.PromptID = message.ID
+		}
+		return d, res.StatusCode
 	}
+	code, message := a.errorDetail(ctx, response)
+	d := a.refusal(res, response, attachment)
+	d.EditCode, d.EditMessage = code, message
+	return d, res.StatusCode
+}
+
+// errorDetail decodes only code and message from Discord's JSON error body.
+// The message is capped and redacted; no URL, token or other field is kept.
+func (a *Adapter) errorDetail(ctx context.Context, response []byte) (int, string) {
+	var detail struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(response, &detail) != nil {
+		return 0, ""
+	}
+	message := detail.Message
+	if len(message) > maxErrorMessage {
+		cut := maxErrorMessage
+		for cut > 0 && !utf8.RuneStart(message[cut]) {
+			cut--
+		}
+		message = message[:cut]
+	}
+	if message != "" {
+		body, err := a.redactor.Apply(ctx, message, len(message)+redact.Margin)
+		if err != nil {
+			message = ""
+		} else {
+			message = body.String()
+		}
+	}
+	return detail.Code, message
+}
+
+func (a *Adapter) refusal(res *http.Response, response []byte, attachment *presentation.Attachment) messaging.Delivery {
 	if res.StatusCode == http.StatusTooManyRequests {
 		wait := parseRetry(res.Header.Get("Retry-After"), a.options.Now())
 		var rate struct {
@@ -326,9 +450,18 @@ func (a *Adapter) call(ctx context.Context, method, path string, payload interfa
 		if json.Unmarshal(response, &rate) == nil && rate.RetryAfter > 0 {
 			wait = max(wait, time.Duration(min(rate.RetryAfter, 3600)*float64(time.Second)))
 		}
-		return messaging.Delivery{RetryAfter: wait}, res.StatusCode
+		return messaging.Delivery{RetryAfter: wait}
 	}
-	return messaging.Delivery{Permanent: res.StatusCode >= 400 && res.StatusCode < 500 && res.StatusCode != http.StatusRequestTimeout}, res.StatusCode
+	if attachment != nil && (res.StatusCode == http.StatusBadRequest || res.StatusCode == http.StatusRequestEntityTooLarge) {
+		var rejection struct {
+			Code   int                        `json:"code"`
+			Errors map[string]json.RawMessage `json:"errors"`
+		}
+		if res.StatusCode == http.StatusRequestEntityTooLarge || (json.Unmarshal(response, &rejection) == nil && (rejection.Errors["attachments"] != nil || rejection.Errors["files"] != nil || rejection.Code == 40005)) {
+			return messaging.Delivery{AttachmentRejected: true}
+		}
+	}
+	return messaging.Delivery{Permanent: res.StatusCode >= 400 && res.StatusCode < 500 && res.StatusCode != http.StatusRequestTimeout}
 }
 func parseRetry(value string, at time.Time) time.Duration {
 	if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds > 0 {
@@ -383,7 +516,7 @@ func (a *Adapter) Register(ctx context.Context, definitions ...messaging.Command
 	}
 	d, status := a.call(ctx, http.MethodPut, "/applications/"+a.options.ApplicationID+"/commands", commands, true)
 	if !d.Confirmed {
-		return fmt.Errorf("discord command registration failed (HTTP %d)", status)
+		return fmt.Errorf("discord command registration failed (HTTP %d, code %d: %s)", status, d.EditCode, d.EditMessage)
 	}
 	return nil
 }
