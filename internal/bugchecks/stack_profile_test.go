@@ -42,7 +42,7 @@ func TestStackCommandsRetainFailureAndEffectiveEnvironment(t *testing.T) {
 			if results[0].Outcome == "blocked" && strings.Contains(results[0].Reason, "retain command identity: operation not permitted") {
 				t.Skip("host refuses process identity observation required by isolated command executor")
 			}
-			if results[0].Exit == nil || *results[0].Exit != 17 || !strings.Contains(results[0].Output, "CI=1") {
+			if results[0].Exit == nil || *results[0].Exit != 17 || !strings.Contains(results[0].Output, "CI=[REDACTED]") {
 				t.Fatal("failure or resolved environment lost", results)
 			}
 			if len(observations) != 2 || observations[1].Outcome == "passed" {
