@@ -386,9 +386,11 @@ func TestImplementMergeParksWithAPlainReason(t *testing.T) {
 		setup  func(*implementFixture)
 		reason string
 		pushed bool
+		state  string
 	}{
-		"conflict":       {func(f *implementFixture) { f.repo.mergeErr = fmt.Errorf("x: %w", git.ErrMergeConflict) }, "conflicts", false},
-		"missing branch": {func(f *implementFixture) { f.repo.mergeErr = fmt.Errorf("x: %w", git.ErrRevisionNotFound) }, "branch was not found", false},
+		// A content conflict goes back to the story worker to resolve.
+		"conflict":       {func(f *implementFixture) { f.repo.mergeErr = fmt.Errorf("x: %w", git.ErrMergeConflict) }, "conflicts", false, store.ImplementWaiting},
+		"missing branch": {func(f *implementFixture) { f.repo.mergeErr = fmt.Errorf("x: %w", git.ErrRevisionNotFound) }, "branch was not found", false, store.ImplementParked},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -400,7 +402,11 @@ func TestImplementMergeParksWithAPlainReason(t *testing.T) {
 			if err != nil || res.Outcome != "parked" || !strings.Contains(out.Reason, tc.reason) {
 				t.Fatalf("%s %+v %v", res.Outcome, out, err)
 			}
-			if row := f.row("story-001"); row.State != store.ImplementParked || !strings.Contains(row.Reason, tc.reason) {
+			row := f.row("story-001")
+			if row.State != tc.state {
+				t.Fatalf("row = %+v, want %s", row, tc.state)
+			}
+			if tc.state == store.ImplementParked && !strings.Contains(row.Reason, tc.reason) {
 				t.Fatalf("row = %+v", row)
 			}
 			if len(f.repo.pushes) != 0 || f.forge.posts != 0 || f.repo.closed != 1 {

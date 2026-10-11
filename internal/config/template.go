@@ -18,6 +18,17 @@ func DefaultFileContents() []byte {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `# litefactory configuration.
+# Optional read-only Discord chat (requires webhook.listen and public HTTPS URL):
+# chat:
+#   discord:
+#     enabled: true
+#     application_id: "123456789"
+#     public_key: "<64 hex characters from the Discord developer portal>"
+#     token_keychain: {service: litefactory-discord, account: bot}
+#     # token_env: DISCORD_BOT_TOKEN  # alternative to token_keychain
+#     owner_id: "123456789"
+#     notice_channel_id: "" # Optional task notices; must be an allowed channel
+#     channel_ids: ["123456789"]
 #
 # Unknown keys and literal credentials are startup errors. Credentials are
 # references only: token_keychain names a Keychain item; token_env, shown as

@@ -27,7 +27,7 @@ var ErrGraphReplyPredatesQuestion = errors.New("store: owner comment predates th
 type GraphOwnerWait struct {
 	DeliveryKey                 string
 	InstanceID, SourceAttemptID int64
-	State                       string
+	State, ReplySource          string
 	OriginNode                  string
 	AllowRunless                bool
 	ReplyID                     int64
@@ -38,12 +38,12 @@ type GraphOwnerWait struct {
 	AllowanceAttemptID          int64
 }
 
-const graphWaitColumns = `delivery_key,instance_id,COALESCE(source_attempt_id,0),state,COALESCE(reply_id,0),COALESCE(reply_body,''),COALESCE(reply_author_id,0),claimed_at,COALESCE(continuation_attempt_id,0),COALESCE(origin_node,''),allow_runless,COALESCE(allowance_attempt_id,0)`
+const graphWaitColumns = `delivery_key,instance_id,COALESCE(source_attempt_id,0),state,COALESCE(reply_id,0),COALESCE(reply_body,''),COALESCE(reply_author_id,0),claimed_at,COALESCE(continuation_attempt_id,0),COALESCE(origin_node,''),allow_runless,COALESCE(allowance_attempt_id,0),reply_source`
 
 func scanGraphOwnerWait(row scanner) (GraphOwnerWait, error) {
 	var out GraphOwnerWait
 	var at sql.NullString
-	err := row.Scan(&out.DeliveryKey, &out.InstanceID, &out.SourceAttemptID, &out.State, &out.ReplyID, &out.ReplyBody, &out.ReplyAuthorID, &at, &out.ContinuationAttemptID, &out.OriginNode, &out.AllowRunless, &out.AllowanceAttemptID)
+	err := row.Scan(&out.DeliveryKey, &out.InstanceID, &out.SourceAttemptID, &out.State, &out.ReplyID, &out.ReplyBody, &out.ReplyAuthorID, &at, &out.ContinuationAttemptID, &out.OriginNode, &out.AllowRunless, &out.AllowanceAttemptID, &out.ReplySource)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, ErrNotFound
 	}
@@ -71,8 +71,19 @@ type GraphOwnerReply struct {
 // It neither starts a process nor consumes the claim: allocation does that in the
 // same transaction as StartGraphNodeAttempt. Replayed events are refused.
 func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out GraphOwnerWait, err error) {
+	return db.claimGraphOwnerReply(ctx, in, false)
+}
+
+func (db *DB) claimGraphOwnerReply(ctx context.Context, in GraphOwnerReply, chat bool) (out GraphOwnerWait, err error) {
 	if in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || (in.QuestionCommentID < 1 && in.Workflow != "bug") || (strings.TrimSpace(in.Mode) == "" && in.Workflow != "bug") || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
 		return out, graphInvariant("invalid authenticated graph reply")
+	}
+	if chat {
+		if in.Mode != "research" || in.Workflow != "research" || !IsChatTrigger(in.CommentID) {
+			return out, graphInvariant("chat may answer only Research questions")
+		}
+	} else if IsPrivateTrigger(in.CommentID) {
+		return out, graphInvariant("forge reply cannot use a private identity")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		wait, e := scanGraphOwnerWait(tx.QueryRowContext(ctx, `SELECT `+graphWaitColumns+` FROM graph_owner_waits WHERE delivery_key=? AND instance_id=?`, in.DeliveryKey, in.InstanceID))
@@ -113,15 +124,37 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 		// The wait is open and its question is published and completed, but this
 		// comment is not newer than that question: it was written before the
 		// question existed and can never answer it.
-		if !ownerStop && in.CommentID <= question {
+		if !chat && !ownerStop && in.CommentID <= question {
 			return ErrGraphReplyPredatesQuestion
 		}
-		_, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=? WHERE delivery_key=?`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), in.DeliveryKey)
+		if chat {
+			var ordinal int64
+			if e = tx.QueryRowContext(ctx, `SELECT rowid FROM graph_owner_waits WHERE delivery_key=?`, wait.DeliveryKey).Scan(&ordinal); e != nil {
+				return e
+			}
+			in.CommentID = chatTriggerBase + ordinal
+			if !IsChatTrigger(in.CommentID) {
+				return graphInvariant("chat reply identity exhausted")
+			}
+			if e = validateChatResearchWaitTx(ctx, tx, wait); e != nil {
+				return e
+			}
+		}
+		source := "forge"
+		if chat {
+			source = "chat"
+		}
+		_, e = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='claimed',reply_id=?,reply_body=?,reply_author_id=?,claimed_at=?,reply_source=? WHERE delivery_key=?`, in.CommentID, in.Body, in.AuthorID, FormatTime(in.At), source, in.DeliveryKey)
 		if e != nil {
 			return e
 		}
 		if e = setGraphInstanceTx(ctx, tx, in.InstanceID, node, GraphRunning, in.At, time.Time{}); e != nil {
 			return e
+		}
+		if chat {
+			if e = parkChatResearchReplyTx(ctx, tx, wait.InstanceID, node, in.At); e != nil {
+				return e
+			}
 		}
 		out, e = scanGraphOwnerWait(tx.QueryRowContext(ctx, `SELECT `+graphWaitColumns+` FROM graph_owner_waits WHERE delivery_key=?`, in.DeliveryKey))
 		return e

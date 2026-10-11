@@ -1,6 +1,8 @@
 package turn
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -78,6 +80,9 @@ func TestValidateGraphRefusesAWeakenedFlow(t *testing.T) {
 		"an unknown forbidden kind": {func(s string) string {
 			return strings.Replace(s, `package,dependency,schema,api,tests,criteria`, `package,dependency,schema,api,tests,magic`, 1)
 		}, "lf_forbid"},
+		"a repair choice that skips the repair budget": {func(s string) string {
+			return strings.Replace(s, `owner_resolve -> repair_budget      [lf_on="repair"]`, `owner_resolve -> owner_report       [lf_on="repair"]`, 1)
+		}, "must start a repair round"},
 		"a wrong reviewer set": {func(s string) string {
 			return strings.Replace(s, `validate-acceptance,validate-code,validate-architecture`, `validate-code,validate-acceptance,validate-architecture`, 1)
 		}, "lf_roles"},
@@ -117,5 +122,34 @@ func TestAgentBudgetAttributeIsValidatedAndBounded(t *testing.T) {
 	// The generic agent action admits the attribute for every workflow.
 	if _, ok := graphexec.AgentAttributes()[graphexec.BudgetAttribute]; !ok {
 		t.Error("the agent action does not declare lf_budget")
+	}
+}
+
+// #617: the repair outcome of the resolve step is optional, so a graph without
+// it, such as the released team packages, still validates.
+func TestValidateGraphWithoutTheRepairOutcomeStillValidates(t *testing.T) {
+	err := checkValidateDot(t, func(s string) string {
+		s = strings.Replace(s, `,stale,repair"`, `,stale"`, 1)
+		return strings.Replace(s, ` owner_resolve -> repair_budget      [lf_on="repair"];`+"\n", "", 1)
+	})
+	if err != nil {
+		t.Fatalf("a graph without the repair outcome is refused: %v", err)
+	}
+	specs, err := ValidateFlowSpecs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, release := range []string{"go-development/v1.2.3", "python-fastapi/v1.0.2", "swift-ios/v1.0.2", "dotnet-web/v1.0.2"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "teams", release, "validate", "validate.dot"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile, err := graphexec.ParseProfile(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", release, err)
+		}
+		if err := graphexec.Validate(profile, specs); err != nil {
+			t.Errorf("released %s no longer validates: %v", release, err)
+		}
 	}
 }
