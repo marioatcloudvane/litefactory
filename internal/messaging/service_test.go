@@ -1,8 +1,11 @@
 package messaging_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -213,5 +216,51 @@ func TestReplyProtectionPrecedesPersistence(t *testing.T) {
 	}
 	if row.ReplyText != "state contains [redacted]" || send.texts[0] != row.ReplyText {
 		t.Fatalf("unprotected reply: %+v %v", row, send.texts)
+	}
+}
+
+// TestDeliveryLogLine checks one log record per delivery attempt with the
+// command, outcome, route and status, and never the reply text.
+func TestDeliveryLogLine(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		outcome messaging.Delivery
+		want    string
+	}{
+		{messaging.Delivery{Confirmed: true, Route: "edit", Status: 200}, "confirmed"},
+		{messaging.Delivery{Route: "edit", Status: 500}, "retry"},
+		{messaging.Delivery{Permanent: true, Route: "channel", Status: 403}, "failed"},
+	} {
+		t.Run(test.want, func(t *testing.T) {
+			t.Parallel()
+			db := database(t)
+			at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+			send := &sender{outcome: test.outcome}
+			s := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
+			var logs bytes.Buffer
+			s.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+			if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "test", ID: "one", Channel: "channel", Sender: "owner", Command: "help"}, at); err != nil {
+				t.Fatal(err)
+			}
+			step(t, s, at, true)
+			lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+			if len(lines) != 1 {
+				t.Fatalf("log lines: %q", logs.String())
+			}
+			var record struct {
+				Transport, Command, Outcome, Route string
+				ID                                 string `json:"message_id"`
+				Status                             int
+			}
+			if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+				t.Fatal(err)
+			}
+			if record.Transport != "test" || record.ID != "one" || record.Command != "help" || record.Outcome != test.want || record.Route != test.outcome.Route || record.Status != test.outcome.Status {
+				t.Fatalf("log: %s", lines[0])
+			}
+			if strings.Contains(lines[0], send.texts[0]) {
+				t.Fatalf("log carries reply text: %s", lines[0])
+			}
+		})
 	}
 }
