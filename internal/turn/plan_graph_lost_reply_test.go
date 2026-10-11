@@ -266,7 +266,7 @@ func TestGraphPlanLostReply_UncertainRecoveryStaysUncertain(t *testing.T) {
 	// Nothing was recorded, so recovery finds nothing and says so: no receipt, no
 	// result, and no success claimed.
 	lookup := l.call("receipt", []byte(`{"request_id":"`+id+`"}`))
-	if lookup.Error == "" || len(lookup.Result) != 0 {
+	if got := decodeReceipt(t, lookup); got.Validation.Valid || got.Receipt != nil || got.Snapshot != nil || len(got.Validation.Diagnostics.Diagnostics) != 1 || got.Validation.Diagnostics.Diagnostics[0].Code != "not_recorded" {
 		t.Fatalf("recovery claimed an outcome that was never recorded: %+v", lookup)
 	}
 	if got := l.revisions(); len(got) != 0 {

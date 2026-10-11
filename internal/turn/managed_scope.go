@@ -257,7 +257,24 @@ func deliverScopeNotice(ctx context.Context, o Options, ref naming.Ref, f store.
 	if bot.UserID <= 0 {
 		return fmt.Errorf("scope announcement requires verified bot identity")
 	}
-	n := report.StoryScopeNotice{Parent: ref, Generation: f.Generation, Key: s.Key, Digest: s.BodyHash, Planning: planning}
+	parent, err := forge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
+	if err != nil {
+		return err
+	}
+	if hasTicketNoticeGuard(forge) {
+		child, err := forge.GetIssue(ctx, github.RepoFromRef(ref), s.IssueNumber)
+		if err != nil {
+			return err
+		}
+		relationship, err := forge.GetParentIssue(ctx, github.RepoFromRef(ref), s.IssueNumber)
+		if err != nil {
+			return err
+		}
+		if child.ID != s.IssueID || child.Number != s.IssueNumber || parent.ID < 1 || relationship.ID != parent.ID || relationship.Number != ref.Issue {
+			return fmt.Errorf("scope notice target or relationship changed")
+		}
+	}
+	n := report.StoryScopeNotice{Parent: ref, ParentURL: parent.HTMLURL, Generation: f.Generation, Key: s.Key, Digest: s.BodyHash, Planning: planning}
 	body, err := renderer.RenderStoryScope(ctx, n)
 	if err != nil {
 		return err
@@ -268,13 +285,13 @@ func deliverScopeNotice(ctx context.Context, o Options, ref naming.Ref, f store.
 	}
 	found := false
 	for _, c := range comments {
-		if c.Author.ID == bot.UserID && strings.Contains(c.Body, n.Marker()) && c.Body == body.String() {
+		if !hasTicketNoticeGuard(forge) && c.Author.ID == bot.UserID && strings.Contains(c.Body, n.Marker()) && c.Body == body.String() {
 			found = true
 			break
 		}
 	}
 	if !found {
-		if _, err := forge.PostComment(ctx, github.RepoFromRef(ref), s.IssueNumber, body); err != nil {
+		if _, err := postTicketNotice(ctx, forge, n.Marker(), ref.String(), bot.UserID, github.RepoFromRef(ref), s.IssueNumber, body); err != nil {
 			return err
 		}
 	}

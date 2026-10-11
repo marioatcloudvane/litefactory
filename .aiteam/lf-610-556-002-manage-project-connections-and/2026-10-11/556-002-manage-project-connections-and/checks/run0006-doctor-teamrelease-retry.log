@@ -1,0 +1,6 @@
+ok  	github.com/cloudvane/litefactory/internal/doctor	386.043s
+--- FAIL: TestCanonicalMigrationAndGraphContracts (2.50s)
+    release_test.go:267: validate graph changed beyond team and guidance
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamrelease	207.133s
+FAIL

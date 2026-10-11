@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // PlanStoryForge is the existing redacted forge boundary plus not-planned closure.
@@ -64,6 +66,7 @@ type PlanStoryReceipt struct {
 type PlanStoryActivity struct {
 	DB       *store.DB
 	Forge    PlanStoryForge
+	Bot      ticket.Identity
 	Redactor *redact.Redactor
 	LockDir  string
 	Bind     func(context.Context, Options, ActivityRequest) (PlanStoryAuthority, graphexec.PlanStoryRequest, error)
@@ -432,7 +435,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			if _, err = record("update", "uncertain", "update intent retained; remote API has no atomic compare-and-swap"); err != nil {
 				return receipt, err
 			}
-			if _, err = h.Forge.UpdateIssue(ctx, a.Repo, d.IssueNumber, safeTitle, safeBody); err != nil {
+			if _, err = h.updatePlanStoryContent(ctx, a.Repo, d.IssueNumber, priorRevision, safeTitle, safeBody); err != nil {
 				return remoteFailure("update", err)
 			}
 		}
@@ -453,6 +456,21 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		return record("verify", "uncertain", "parent changed during mutation")
 	}
 	if r.Operation != "retire" && len(safeParts) > 0 {
+		bot := h.Bot
+		if contextual, ok := h.Forge.(interface {
+			BotIdentityFor(context.Context, github.Repo, int) (ticket.Identity, error)
+		}); ok {
+			var e error
+			bot, e = contextual.BotIdentityFor(ctx, a.Repo, a.ParentNumber)
+			if e != nil {
+				return receipt, e
+			}
+		} else if configured, ok := h.Forge.(interface{ BotIdentity() ticket.Identity }); ok {
+			bot = configured.BotIdentity()
+			if err := bot.Validate(); err != nil {
+				return receipt, err
+			}
+		}
 		comments, listErr := h.Forge.ListCommentsAfter(ctx, a.Repo, d.IssueNumber, 0)
 		if listErr != nil {
 			return remoteFailure("parts", listErr)
@@ -461,7 +479,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			marker := planPartMarker(a, d.Key, r, i+1, len(safeParts))
 			posted := false
 			for _, c := range comments {
-				if strings.HasPrefix(c.Body, marker+"\n") {
+				if strings.HasPrefix(c.Body, marker+"\n") && c.Body == part.String() && (bot == (ticket.Identity{}) || strconv.FormatInt(c.Author.ID, 10) == bot.RemoteID) {
 					posted = true
 					break
 				}
@@ -469,9 +487,26 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			if posted {
 				continue
 			}
-			if _, postErr := h.Forge.PostComment(ctx, a.Repo, d.IssueNumber, part); postErr != nil {
-				return remoteFailure("parts", postErr)
+
+			phase := fmt.Sprintf("parts-%d", i+1)
+			intent, intentErr := h.DB.HasPlanStoryMutation(ctx, a.Parent, r.RequestID, phase)
+			if intentErr != nil {
+				return receipt, intentErr
 			}
+			if intent {
+				return record(phase, "uncertain", "original part dispatch remains unconfirmed; no duplicate send")
+			}
+			if _, intentErr = record(phase, "uncertain", "part dispatch intent retained before publication"); intentErr != nil {
+				return receipt, intentErr
+			}
+			postedReply, postErr := h.Forge.PostComment(ctx, a.Repo, d.IssueNumber, part)
+			if postErr != nil {
+				return remoteFailure(phase, postErr)
+			}
+			if postedReply.ID < 1 || postedReply.Body != part.String() || (bot != (ticket.Identity{}) && strconv.FormatInt(postedReply.Author.ID, 10) != bot.RemoteID) {
+				return record(phase, "uncertain", "part receipt did not confirm prepared bytes and bot identity")
+			}
+
 		}
 	}
 	d.Candidate = r.Candidate
@@ -533,4 +568,15 @@ func lockPlanStory(ctx context.Context, interval, limit time.Duration, acquire f
 			return nil, err
 		}
 	}
+}
+
+// Legacy fixtures keep their existing boundary; production binds through the
+// neutral bridge, which refreshes the original expected Plan revision.
+func (h *PlanStoryActivity) updatePlanStoryContent(ctx context.Context, repo github.Repo, number int, expected string, title, body redact.Body) (github.Issue, error) {
+	if guarded, ok := h.Forge.(interface {
+		UpdateIssueExpected(context.Context, github.Repo, int, string, redact.Body, redact.Body) (github.Issue, error)
+	}); ok {
+		return guarded.UpdateIssueExpected(ctx, repo, number, expected, title, body)
+	}
+	return h.Forge.UpdateIssue(ctx, repo, number, title, body)
 }

@@ -83,6 +83,9 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// VerifyExecutionConnection verifies the pinned remote identity and actor before code effects.
+	VerifyExecutionConnection func(context.Context, store.Session) error
+
 	// WorkflowSource copies the current linked package under catalogue coordination.
 	WorkflowSource WorkflowSourceResolver
 	// ResearchDriver is the application-owned DOT execution path. An explicit

@@ -17,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -185,6 +186,11 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Connections selects saved project and execution versions; nil supports legacy callers.
+	Connections *projectconnection.Factory
+
+	// Tickets qualifies authenticated legacy ingress before authority decisions.
+	Tickets TicketIngress
 	// Doctor is the independent diagnostic service; nil disables dispatch.
 	Doctor *doctor.Service
 
@@ -404,12 +410,14 @@ type Daemon struct {
 	archive      ArchiveOptions
 	housekeeping *Housekeeping
 
-	db        *store.DB
-	forge     Forge
-	filter    Classifier
-	turn      Executor
-	reporter  Reporter
-	proposals ProposalGenerator
+	connections *projectconnection.Factory
+	db          *store.DB
+	forge       Forge
+	filter      Classifier
+	tickets     TicketIngress
+	turn        Executor
+	reporter    Reporter
+	proposals   ProposalGenerator
 	// confirmer and conflictProposalTTL are US-12's confirmation-dispatch
 	// dependencies; see [Options.Confirmer] and [Options.ConflictProposalTTL].
 	confirmer           ConfirmApplier
@@ -518,6 +526,8 @@ func New(opts Options) (*Daemon, error) {
 		bug:                      opts.Bug,
 		forge:                    opts.Forge,
 		filter:                   opts.Filter,
+		tickets:                  opts.Tickets,
+		connections:              opts.Connections,
 		turn:                     opts.Turn,
 		reporter:                 opts.Reporter,
 		diagnosticRedactor:       opts.DiagnosticRedactor,

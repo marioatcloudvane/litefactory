@@ -27,7 +27,7 @@ func (d *Daemon) inheritParentAgent(ctx context.Context, t *task) error {
 	if err != nil {
 		return fmt.Errorf("story parent: %w", err)
 	}
-	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, ref.Issue)
+	issue, err := d.readIssue(ctx, t.forgeRepo, ref.Issue)
 	if err != nil {
 		return fmt.Errorf("read the story's parent: %w", err)
 	}
@@ -36,7 +36,7 @@ func (d *Daemon) inheritParentAgent(ctx context.Context, t *task) error {
 		return nil
 	}
 	label := agentLabel(issue.Labels)
-	labels, ok := d.forge.(labelForge)
+	labels, ok := d.ticketLabels()
 	if !ok {
 		return errors.New("story agent labels unavailable")
 	}

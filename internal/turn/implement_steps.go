@@ -408,13 +408,16 @@ func (l implementRepoLoader) Begin(ctx context.Context, integrationBranch string
 	if err != nil {
 		return nil, err
 	}
-	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
+	repo, err := executionRepository(ctx, opts.DB, session)
 	if err != nil {
 		return nil, err
 	}
 	clone, err := opts.Git.Open(ctx, repo.Path)
 	if err != nil {
 		return nil, fmt.Errorf("open the registered clone at %s: %w", repo.Path, err)
+	}
+	if err := verifyExecutionClone(ctx, opts, session, clone); err != nil {
+		return nil, err
 	}
 	author, err := resolveAuthor(ctx, opts, clone)
 	if err != nil {
@@ -425,7 +428,9 @@ func (l implementRepoLoader) Begin(ctx context.Context, integrationBranch string
 	if err != nil {
 		return nil, err
 	}
-	return gatedScratch{ImplementScratch: scratch, gate: opts.CloneGate, clone: repo.Path}, nil
+	return gatedScratch{ImplementScratch: scratch, gate: opts.CloneGate, clone: repo.Path, verify: func(ctx context.Context) error {
+		return verifyExecutionClone(ctx, opts, session, clone)
+	}}, nil
 }
 
 // beginImplementScratch builds the scratch tree under the clone gate, since it
@@ -443,8 +448,9 @@ func beginImplementScratch(ctx context.Context, gate CloneGate, clone string, re
 // removed, since both change refs of the shared clone.
 type gatedScratch struct {
 	ImplementScratch
-	gate  CloneGate
-	clone string
+	gate   CloneGate
+	clone  string
+	verify func(context.Context) error
 }
 
 func (s gatedScratch) Publish(ctx context.Context, integrationBranch, expectedHead string) error {
@@ -453,6 +459,11 @@ func (s gatedScratch) Publish(ctx context.Context, integrationBranch, expectedHe
 		return err
 	}
 	defer release()
+	if s.verify != nil {
+		if err := s.verify(ctx); err != nil {
+			return err
+		}
+	}
 	return s.ImplementScratch.Publish(ctx, integrationBranch, expectedHead)
 }
 

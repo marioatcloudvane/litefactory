@@ -29,7 +29,7 @@ func (d *Daemon) admitWorkflow(ctx context.Context, t *task, trigger turn.Trigge
 		return agent.WorkflowBug, "", nil
 	}
 	if errors.Is(err, store.ErrNotFound) {
-		issue, readErr := d.forge.GetIssue(ctx, t.forgeRepo, t.issue.Number)
+		issue, readErr := d.readIssue(ctx, t.forgeRepo, t.issue.Number)
 		if readErr != nil {
 			return "", "", fmt.Errorf("read workflow admission labels: %w", readErr)
 		}

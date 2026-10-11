@@ -336,7 +336,7 @@ func (p *StoryProgress) postExceptionNotice(ctx context.Context, c OwnerExceptio
 	}
 	var commentID int64
 	for _, comment := range comments {
-		if comment.Author.ID == p.botID && exactProgressMarker(comment.Body, n.Marker()) {
+		if !hasTicketNoticeGuard(p.forge) && comment.Author.ID == p.botID && exactProgressMarker(comment.Body, n.Marker()) {
 			commentID = comment.ID
 			break
 		}
@@ -346,7 +346,7 @@ func (p *StoryProgress) postExceptionNotice(ctx context.Context, c OwnerExceptio
 		if err != nil {
 			return err
 		}
-		comment, err := p.forge.PostComment(ctx, repo, ref.Issue, body)
+		comment, err := postTicketNotice(ctx, p.forge, n.Marker(), c.Parent, p.botID, repo, ref.Issue, body)
 		if err != nil {
 			return err
 		}

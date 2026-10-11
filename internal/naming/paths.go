@@ -90,8 +90,11 @@ func RunsDir(home string, ref Ref) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(clean, logsDirName, runsDirName,
-		ref.Forge, ref.Owner, ref.Repo, strconv.Itoa(ref.Issue)), nil
+	segment := strconv.Itoa(ref.Issue)
+	if ref.Qualification != "" {
+		segment += "-" + ref.Qualification
+	}
+	return filepath.Join(clean, logsDirName, runsDirName, ref.Forge, ref.Owner, ref.Repo, segment), nil
 }
 
 // RunLogPath returns the raw Claude Code event stream for one run:

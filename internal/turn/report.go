@@ -604,6 +604,13 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 
 	intent := r.deliveryIntent(ref, destination, rep.SessionID, rep.CommentID, rep.RunID, "run-report")
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
+		if refinement != nil {
+			var err error
+			rep.Run.SourceParentURL, rep.Run.SourceReplyURL, err = reportSourceLinks(ctx, r.forge, ref, refinement.ChildNumber, refinement.CommentID)
+			if err != nil {
+				return redact.Body{}, err
+			}
+		}
 		if err := r.attachRecoveryReport(ctx, &rep); err != nil {
 			return redact.Body{}, err
 		}
@@ -673,7 +680,16 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	}
 	intent := r.deliveryIntent(req.Ref, destination, req.SessionID, req.CommentID, 0, purpose)
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
+		var parentURL, replyURL string
+		if sourceStory > 0 {
+			var err error
+			parentURL, replyURL, err = reportSourceLinks(ctx, r.forge, req.Ref, sourceStory, sourceComment)
+			if err != nil {
+				return redact.Body{}, err
+			}
+		}
 		return r.renderer.RenderReply(ctx, report.Reply{
+			SourceParentURL: parentURL, SourceReplyURL: replyURL,
 			Ref:                      req.Ref,
 			SourceStoryIssue:         sourceStory,
 			SourceCommentID:          sourceComment,
@@ -754,6 +770,11 @@ func (r *Reporter) post(ctx context.Context, ref naming.Ref, body redact.Body, _
 	if err != nil {
 
 		return github.Comment{}, fmt.Errorf("post the comment on task %s: %w", ref, err)
+	}
+	if verified, qualified := verifiedCommentDestination(ctx, r.forge, comment, ref); qualified {
+		if !verified || comment.Author.ID != r.botUserID || comment.Body != body.String() {
+			return github.Comment{}, fmt.Errorf("post the comment on task %s: %w", ref, ErrReportReceiptUncertain)
+		}
 	}
 	if comment.ID == 0 {
 		// Defensive: a comment id of zero cannot be recorded as

@@ -11,6 +11,7 @@ import (
 // StoryProgressNotice contains the factory identities and scoped outcome to report.
 type StoryProgressNotice struct {
 	Parent                                              naming.Ref
+	ParentURL                                           string
 	Generation                                          int
 	RunID, EffectID                                     int64
 	Sequence                                            int
@@ -65,7 +66,14 @@ func (r *Reporter) RenderStoryProgress(ctx context.Context, n StoryProgressNotic
 	// Indented lines keep arbitrary evidence inside a code block; it cannot add a
 	// forged marker at column zero or impersonate the surrounding factory prose.
 	detail := strings.ReplaceAll(strings.ReplaceAll(n.Detail, "\r", ""), "\n", "\n    ")
-	body := fmt.Sprintf("Story %s — %s\n\nParent: https://github.com/%s/%s/issues/%d.\n\n    %s\n\n%s", n.Story, state, n.Parent.Owner, n.Parent.Repo, n.Parent.Issue, detail, n.Marker())
+	parent := fmt.Sprintf("https://github.com/%s/%s/issues/%d", n.Parent.Owner, n.Parent.Repo, n.Parent.Issue)
+	if n.ParentURL != "" {
+		if !ticketBrowserURL(n.ParentURL) {
+			return redact.Body{}, fmt.Errorf("report: invalid parent browser link")
+		}
+		parent = n.ParentURL
+	}
+	body := fmt.Sprintf("Story %s — %s\n\nParent: %s.\n\n    %s\n\n%s", n.Story, state, parent, detail, n.Marker())
 	out, err := r.redactor.Apply(ctx, body, r.limit)
 	if err != nil {
 		return redact.Body{}, err
