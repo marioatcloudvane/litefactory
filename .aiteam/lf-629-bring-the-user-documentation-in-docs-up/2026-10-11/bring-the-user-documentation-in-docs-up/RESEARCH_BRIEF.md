@@ -16,6 +16,48 @@ Evaluate every user-facing file under docs/ against the current code (stale, cha
 - **a2** — docs/workflow/* and docs/features/doctor-* are in scope as user-facing, but workflow/ pages may be internal design; treat them as keep-or-move candidates, not deletions, until the owner decides.
 - **a3** — Linear (#556) is not documented; reserve a provider-neutral place (e.g. a 'trackers' or 'integrations' section) so it can slot in later.
 
+
+## Open questions
+
+### q1 — Should the docs cover a GitHub App, given the code appears to support only a token?
+
+_Asked of: Product Owner Questions_
+
+- **a** — Document token plus bot account only; add an App only if it is built later.  *(recommended)*
+- **b** — Document the App as 'planned' next to the token.
+- **c** — Stop and check with a developer whether an App path exists.
+
+### q2 — What happens to the design-level pages under docs/workflow/ and the operator-only release runbook?
+
+_Asked of: Product Owner Questions_
+
+- **a** — Keep user-facing ones (validate, spike, bug runtime, plan, research) as guides; move design-level material and the release runbook to docs/internal/, not linked from the manual.  *(recommended)*
+- **b** — Keep everything in the manual, lightly edited.
+- **c** — Delete the design-level pages.
+
+### q3 — Should the five retired Bug stub pages be deleted?
+
+_Asked of: Product Owner Questions_
+
+- **a** — Delete them; bug-runtime and bug-checks cover Bug.  *(recommended)*
+- **b** — Keep them as redirect notes.
+
+### q4 — How deep should the Discord walkthrough go, given the chat walkthrough says it was never run against live Discord?
+
+_Asked of: Product Owner Questions_
+
+- **a** — Full portal-to-test-command guide, with an explicit 'not yet verified live' note on unverified steps.  *(recommended)*
+- **b** — Full guide, and the implementer verifies it against a real Discord server first.
+- **c** — Config and commands only; skip the developer-portal steps.
+
+### q5 — How should the work be delivered?
+
+_Asked of: Technical Questions_
+
+- **a** — Eight stories as proposed, merging the Linear placeholder into the index story and finishing with a link and accuracy check against the code.  *(recommended)*
+- **b** — One PR with all pages.
+- **c** — Four larger stories: structure and index, setup guides, references, workflows and operations.
+
 ## Research documents
 
 - Technical findings: [RESEARCH&#95;TECHNICAL&#46;md](RESEARCH_TECHNICAL.md)
