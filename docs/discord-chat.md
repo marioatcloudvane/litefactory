@@ -26,7 +26,11 @@ put it in settings. Give the bot permission to send messages in the allowed
 channels, plus Read Message History for `/ask` follow-ups. Set the Interactions Endpoint URL in the Discord developer portal to
 `https://your-factory-address/litefactory/discord`. The GitHub webhook URL stays
 unchanged. Restart the daemon after changing settings. Command registration is
-retried on later heartbeats if Discord is unavailable.
+retried on later heartbeats if Discord is unavailable. If the bot token cannot be
+resolved, the daemon still starts with chat unavailable: it logs an error naming
+`chat.discord.token_keychain` or `chat.discord.token_env`, `daemon status` shows
+the reason on its `chat` line, and the token is resolved again on later
+heartbeats, so storing it later starts chat without a restart.
 
 Run `/help`, `/health` and `/status` as the configured owner in an allowed channel.
 Each should show one answer. Another user or a command from another channel should

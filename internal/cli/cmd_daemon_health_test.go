@@ -109,6 +109,28 @@ func TestPrintDaemonHealthListenerOffAndNoSnapshot(t *testing.T) {
 	}
 }
 
+func TestPrintDaemonHealthChatStatus(t *testing.T) {
+	t.Parallel()
+	snap, now := healthFixture()
+	var out bytes.Buffer
+	if err := printDaemonHealth(&out, snap, true, now); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "chat") {
+		t.Errorf("a chat line was printed with chat off:\n%s", out.String())
+	}
+	for _, status := range []string{"unavailable: bot token (chat.discord.token_keychain) could not be resolved; retrying on later heartbeats", "available"} {
+		snap.Listener.ChatStatus = status
+		out.Reset()
+		if err := printDaemonHealth(&out, snap, true, now); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), "\nchat ") || !strings.Contains(out.String(), status) {
+			t.Errorf("output lacks a chat line with %q:\n%s", status, out.String())
+		}
+	}
+}
+
 func TestDaemonNextPollOwed(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
