@@ -136,17 +136,32 @@ func (rt *implementRuntime) budget(ctx context.Context, opts Options, _ Activity
 	return implementResult(outcome, map[string]any{"attempts": row.Attempts, "max": store.MaxImplementAttempts})
 }
 
-// workerResult reads the worker's accepted answer: completed is saved, blocked
-// or incomplete parks. The answer is read back from the retained submission,
-// never from what the agent printed.
+// workerResult reports the worker's accepted answer as the outcome: completed,
+// incomplete or blocked when the node declares it, otherwise stopped, which a
+// released graph parks. An incomplete answer counts as a failed attempt with the
+// worker's own reason, so the next attempt receives it. The answer is read back
+// from the retained submission, never from what the agent printed.
 func (rt *implementRuntime) workerResult(ctx context.Context, opts Options, a ActivityRequest) (ActivityResult, error) {
 	node, err := rt.retainedAnswer(ctx, opts, a)
 	if err != nil {
 		return ActivityResult{}, err
 	}
 	outcome := "stopped"
-	if node.Response == agentresult.ImplementResponseCompleted {
+	if declared, ok := rt.definition.Profile.Node(a.Node); ok && slices.Contains(declared.Outcomes, node.Response) {
+		outcome = node.Response
+	} else if node.Response == agentresult.ImplementResponseCompleted {
 		outcome = "completed"
+	}
+	if outcome == agentresult.ImplementResponseIncomplete {
+		row, err := rt.workerRow(ctx, opts)
+		if err != nil {
+			return ActivityResult{}, err
+		}
+		reason := "The worker stopped with an incomplete answer: " + clipText(strings.Join(strings.Fields(node.Result.Reason), " "), 400)
+		if _, err := opts.DB.RecordImplementFailure(ctx, row.Parent, row.Generation, row.Key, reason, rt.now()); err != nil {
+			return ActivityResult{}, err
+		}
+		rt.refreshStatus(ctx, opts)
 	}
 	return implementResult(outcome, map[string]any{"response": node.Response})
 }

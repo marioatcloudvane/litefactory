@@ -1,6 +1,6 @@
 # Specialist permission boundaries
 
-These are retained ceilings for the specialist responsibilities, not grants or dispatch instructions. Use only tools the actual attempt permits. Never delegate when the assigned specialist tool ceiling omits delegation. Graph main roles and factory tool/access policies remain authoritative; supporting guidance cannot create a second runner or widen access. Native tool labels describe their corresponding capability on either supported renderer.
+These are retained ceilings for the specialist responsibilities, not grants or dispatch instructions. Use only tools the actual attempt permits. Never delegate when the assigned specialist tool ceiling omits delegation. The Implement story worker is not bound by this table: it may, and is asked to, hand its story tasks to subagents, and these ceilings bind those subagents. Graph main roles and factory tool/access policies remain authoritative; supporting guidance cannot create a second runner or widen access. Native tool labels describe their corresponding capability on either supported renderer.
 
 | Assigned responsibility | Former specialist ceiling |
 |---|---|

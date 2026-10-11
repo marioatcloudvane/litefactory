@@ -1,6 +1,7 @@
 package graphexec
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -121,7 +122,7 @@ func TestImplementSpecsOfTheWorkerAndTheBatchedQuestion(t *testing.T) {
 	want := map[string][]string{
 		ImplementSelectAction:     {"coordinator", "worker"},
 		ImplementBudgetAction:     {"run", "park"},
-		ImplementResultAction:     {"completed", "stopped"},
+		ImplementResultAction:     {"completed", "incomplete", "blocked", "stopped"},
 		ImplementStoryDoneAction:  {"done", "retry"},
 		ImplementParkAction:       {"parked"},
 		ImplementAwaitAction:      {"go"},
@@ -222,5 +223,71 @@ func TestImplementControlPolicyIsTheWorkersOutcomes(t *testing.T) {
 	policy := ImplementControlPolicy()
 	if policy.Mode != agent.ModeImplement || !slices.Equal(policy.Responses, []string{"completed", "incomplete", "blocked"}) {
 		t.Fatalf("%+v", policy)
+	}
+}
+
+// implementRetryDOT is the current graph shape: an incomplete answer goes back to
+// the budget for another attempt, a blocked answer parks at once.
+func implementRetryDOT(t *testing.T) string {
+	t.Helper()
+	dot := strings.Replace(implementTestDOT, `lf_outcomes="completed,stopped"`, `lf_outcomes="completed,incomplete,blocked"`, 1)
+	dot = strings.Replace(dot, ` worker_result -> park_story [lf_on="stopped"];`, ` worker_result -> budget [lf_on="incomplete"];
+ worker_result -> park_story [lf_on="blocked"];`, 1)
+	if dot == implementTestDOT {
+		t.Fatal("the retry graph changed nothing")
+	}
+	return dot
+}
+
+func TestImplementResultCheckerAcceptsBothShapesAndRefusesWrongRouting(t *testing.T) {
+	if err := validateImplementDOT(t, implementTestDOT); err != nil {
+		t.Fatalf("completed,stopped (released graphs): %v", err)
+	}
+	dot := implementRetryDOT(t)
+	if err := validateImplementDOT(t, dot); err != nil {
+		t.Fatalf("completed,incomplete,blocked: %v", err)
+	}
+	for name, tc := range map[string]struct{ old, new, want string }{
+		"incomplete parks": {
+			` worker_result -> budget [lf_on="incomplete"];`, ` worker_result -> park_story [lf_on="incomplete"];`, "outcome incomplete must reach the budget decision",
+		},
+		"blocked retries": {
+			` worker_result -> park_story [lf_on="blocked"];`, ` worker_result -> budget [lf_on="blocked"];`, "outcome blocked must park the story",
+		},
+		"incomplete without blocked": {
+			`lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,incomplete"`, "no single edge for outcome blocked",
+		},
+		"blocked without incomplete": {
+			`lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,blocked"`, "no single edge for outcome incomplete",
+		},
+		"neither shape": {
+			`lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed"`, "must declare stopped, or incomplete and blocked",
+		},
+		"both shapes": {
+			`lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,incomplete,blocked,stopped"`, "declares stopped together with",
+		},
+	} {
+		broken := strings.Replace(dot, tc.old, tc.new, 1)
+		if broken == dot {
+			t.Fatalf("%s: the mutation changed nothing", name)
+		}
+		if err := validateImplementDOT(t, broken); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want it to mention %q", name, err, tc.want)
+		}
+	}
+}
+
+// TestReleasedImplementGraphWithStoppedStillValidates keeps the released 1.2.5
+// graph, which parks a stopped answer, valid for running instances pinned to it.
+func TestReleasedImplementGraphWithStoppedStillValidates(t *testing.T) {
+	raw, err := os.ReadFile("../../teams/go-development/v1.2.5/implement/implement.dot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `lf_outcomes="completed,stopped"`) {
+		t.Fatal("the released graph no longer declares stopped")
+	}
+	if err := validateImplementDOT(t, string(raw)); err != nil {
+		t.Fatal(err)
 	}
 }

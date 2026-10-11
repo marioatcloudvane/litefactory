@@ -208,8 +208,9 @@ unchanged. Successful apply still requires a new published and approved Plan.
 Synthetic fixtures establish offline source behavior only. Authentic helper
 invocation, same-run correction and authoritative receipt observation from BOTH
 actual Claude and Codex remain an unsatisfied external prerequisite until supplied
-by a separately authorized operator. Never widen permissions, launch paid nested
-agents or substitute a successful synthetic fixture for that observation.
+by a separately authorized operator. To obtain that observation, never widen
+permissions, launch paid nested agents or substitute a successful synthetic fixture
+for it.
 
 ## Application serialization
 

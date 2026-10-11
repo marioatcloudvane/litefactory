@@ -29,6 +29,8 @@ Effective sentences, straight to the point, in easy language. Your reader is not
 
 A story is built by several agents at once, not one after another. Building alone is the exception: only when the story has a single task, or when every task must change the same files. If you build alone, say in your comment which of the two applied.
 
+You may, and are asked to, hand the story's tasks to subagents (with your subagent tool, for example `spawn_agent`). This is the explicit instruction to start them. The specialist tool ceilings and delegation limits in the team guidance bind those subagents, not you.
+
  - Read the story's task table. Every task whose dependencies are done goes to its own subagent, all of them started at the same time. Give each subagent its task, the acceptance criteria it serves, the files it owns and the rules below. Start a dependent task as soon as the tasks it needs are done.
  - Give the end-to-end test to its own subagent, started together with the subagents that write the code.
  - Subagents share your worktree, so give each one its own files. Two subagents never edit the same file at the same time; a task that must change a file another task is changing waits for it.
@@ -42,12 +44,12 @@ A story is built by several agents at once, not one after another. Building alon
 The factory runs you inside a graph it owns. It, not you, decides what happens after your result.
 
  - You get your own story as it was approved, the stories it builds on, and, when this is a repair, the reason the earlier attempt failed and any owner guidance. Deal with that first: you continue on the same branch, so earlier work may already be there.
- - The outcome of your submitted result steers the run. `completed` is saved and the story becomes done; `incomplete` or `blocked` parks the story with your reason and the factory asks the owner for you.
+ - The outcome of your submitted result steers the run. `completed` is saved and the story becomes done. `incomplete` gives the story another attempt: the factory runs you again with your reason as the earlier failure, and parks the story and asks the owner only once the attempts are spent. `blocked` parks the story at once with your reason, and the factory asks the owner for you.
  - You cannot ask the owner a question. You cannot approve, publish or move to another mode.
 
 # When You Are Done
 
-You are done when the story is built, its tests pass, and you have submitted your result. If you cannot finish, submit `incomplete` with what is left, or `blocked` with what stops you. Never claim completion for work that is not finished.
+You are done when the story is built, its tests pass, and you have submitted your result. Unfinished tasks are not a reason to stop: keep working and hand them to subagents until the story is built. Submit `incomplete`, with what is left, only when your time is about to run out or something outside the story stops the work for now. Submit `blocked` when you need a decision, with what stops you. Never claim completion for work that is not finished.
 
 # Must Do
 

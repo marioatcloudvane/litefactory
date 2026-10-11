@@ -14,13 +14,16 @@
 // Worker (story sub-issue). The repair budget is counted in the story ledger:
 // the first attempt and two repairs. One write-access agent writes the code and
 // its tailored unit tests and runs them. Only an accepted completed answer is
-// saved (committed and pushed), and only then is the story done. A blocked or
-// incomplete answer parks the story at once with the agent's own reason. A failed
-// attempt, a failed save or an exhausted budget go to the budget decision.
+// saved (committed and pushed), and only then is the story done. A blocked
+// answer parks the story at once with the agent's own reason. An incomplete
+// answer, a failed attempt or a failed save counts one attempt and goes back to
+// the budget decision; the next attempt receives the reason. An exhausted budget
+// parks the story with the last worker's own reason.
 //
 // This file is the only place the flow lives. Go supplies steps and never picks
 // the next step. Every node has a positive lf_limit; the limits on the coordinator
-// loop are sized for the largest story set plus owner resumes.
+// loop are sized for the largest story set plus owner resumes, and the worker
+// limits hold the three attempts plus the final park.
 digraph implement {
  graph [team="python-fastapi", mode="implement", profile_version="1", start="select_path"];
 
@@ -39,7 +42,7 @@ digraph implement {
  // ---- Worker -----------------------------------------------------------------------
  budget        [lf_action="lf_implement_budget", lf_outcomes="run,park", lf_limit="8"];
  worker_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="story-worker", lf_skills="implement-result,team-guidance", lf_limit="3"];
- worker_result [lf_action="lf_implement_result", lf_outcomes="completed,stopped", lf_source="worker_agent", lf_limit="3"];
+ worker_result [lf_action="lf_implement_result", lf_outcomes="completed,incomplete,blocked", lf_source="worker_agent", lf_limit="3"];
  story_done    [lf_action="lf_implement_story_done", lf_outcomes="done,retry", lf_limit="3"];
  park_story    [lf_action="lf_implement_park", lf_outcomes="parked", lf_limit="4"];
 
@@ -71,14 +74,15 @@ digraph implement {
  ask_owner  -> waiting    [lf_on="published"];
  report_done -> finished  [lf_on="published"];
 
- // Worker: budget, then the agent. Completed is saved; blocked or incomplete parks
- // at once. A failed attempt or a failed save goes back to the budget.
+ // Worker: budget, then the agent. Completed is saved; blocked parks at once. An
+ // incomplete answer, a failed attempt or a failed save goes back to the budget.
  budget        -> worker_agent  [lf_on="run"];
  budget        -> park_story    [lf_on="park"];
  worker_agent  -> worker_result [lf_on="success"];
  worker_agent  -> budget        [lf_on="failed"];
  worker_result -> story_done    [lf_on="completed"];
- worker_result -> park_story    [lf_on="stopped"];
+ worker_result -> budget        [lf_on="incomplete"];
+ worker_result -> park_story    [lf_on="blocked"];
  story_done    -> worker_done   [lf_on="done"];
  story_done    -> budget        [lf_on="retry"];
  park_story    -> worker_parked [lf_on="parked"];
