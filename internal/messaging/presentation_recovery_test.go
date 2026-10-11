@@ -127,7 +127,7 @@ func TestProviderDeadlineFailureSelectsFixedRawReply(t *testing.T) {
 	if err = json.Unmarshal([]byte(row.PresentationOutcome), &source); err != nil {
 		t.Fatal(err)
 	}
-	if model.calls != 1 || row.PresentationCheck || row.PresentationState != "raw_fallback" || row.ReplyAttachment != source.RawText || !strings.Contains(row.ReplyText, "Raw result.") {
+	if model.calls != 1 || row.PresentationCheck || row.PresentationState != "raw_fallback" || row.ReplyAttachment != source.RawText || row.ReplyText != presentation.FallbackNotice {
 		t.Fatalf("deadline lost result: %+v", row)
 	}
 }
@@ -231,5 +231,35 @@ func TestAttachmentRejectionPersistsInlineFallback(t *testing.T) {
 	}
 	if effects != 1 || model.calls != 2 || send.richCalls != 1 || send.texts[len(send.texts)-1] != row.ReplyText {
 		t.Fatal("fallback repeated effects or narration")
+	}
+}
+
+func TestNaturalDialogueShownOnceAndNaturalReadNarrated(t *testing.T) {
+	db := database(t)
+	at := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
+	model := &replyModel{}
+	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{Confirmed: true}}}
+	s := messaging.New(db, "discord", "2", []string{"3"}, send, messaging.FactoryStatus{DB: db})
+	s.EnablePresentation(model, nil)
+	const dialogue = "Proposal: /approve-plan acme/app#12 revision 3.\nReply yes to this message, or send: confirm 0123abcd"
+	if _, err := db.AdmitChatReply(t.Context(), store.ChatReply{Transport: "discord", MessageID: "nl:7", ChannelRef: "3", Command: "natural", ReplyText: dialogue, CreatedAt: at, PresentationState: "pending", OutcomeStatus: "success"}); err != nil {
+		t.Fatal(err)
+	}
+	if more, err := s.Step(t.Context(), at); err != nil || !more {
+		t.Fatalf("natural reply: %t %v", more, err)
+	}
+	if model.calls != 0 || send.richCalls != 0 || len(send.texts) != 1 || send.texts[0] != dialogue {
+		t.Fatalf("dialogue not shown exactly once: calls=%d rich=%d %q", model.calls, send.richCalls, send.texts)
+	}
+	// A read command requested in natural language is narrated like the
+	// slash command, with its raw text only in the attachment.
+	if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "discord", ID: "nl-read:8", Channel: "3", Sender: "2", Command: "health"}, at); err != nil {
+		t.Fatal(err)
+	}
+	if more, err := s.Step(t.Context(), at); err != nil || !more {
+		t.Fatalf("natural read: %t %v", more, err)
+	}
+	if model.calls != 2 || send.richCalls != 1 || send.texts[1] != "Here is the result." {
+		t.Fatalf("natural read not narrated: calls=%d rich=%d %q", model.calls, send.richCalls, send.texts)
 	}
 }

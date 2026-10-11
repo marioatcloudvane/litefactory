@@ -170,13 +170,9 @@ func TestPlainLanguageReplyJourney(t *testing.T) {
 	if err = json.Unmarshal([]byte(row.PresentationOutcome), &outcome); err != nil {
 		t.Fatal(err)
 	}
-	if outcome.LanguageHint() != "German" || !strings.HasPrefix(row.ReplyText, "Hier ist der aktuelle Zustand.") || row.ReplyAttachment != outcome.RawText {
+	// The visible content is the narration only; the raw result is attached once.
+	if outcome.LanguageHint() != "German" || row.ReplyText != "Hier ist der aktuelle Zustand." || row.ReplyAttachment != outcome.RawText {
 		t.Fatalf("source changed: %+v", row)
-	}
-	for _, field := range outcome.Protected {
-		if !strings.Contains(row.ReplyText, field.Source.Value) {
-			t.Fatalf("protected value lost: %q", field.Source.Value)
-		}
 	}
 	if len(provider.requests) != 2 || provider.requests[0].Usage.AttemptID == provider.requests[1].Usage.AttemptID {
 		t.Fatal("generation and check share usage")
@@ -216,6 +212,9 @@ func TestPlainLanguageReplyJourney(t *testing.T) {
 	}
 	if first.Content != second.Content || second.Nonce == "" || !second.Enforce || len(second.Allowed.Parse) != 0 {
 		t.Error("retry changed payload or mention policy")
+	}
+	if first.Content != "Hier ist der aktuelle Zustand." || strings.Contains(first.Content, "Raw result.") || strings.Contains(first.Content, outcome.RawText) {
+		t.Errorf("visible content repeats raw text: %q", first.Content)
 	}
 	mu.Unlock()
 	row, err = db.ReadChatReply(ctx, "discord", "100")
