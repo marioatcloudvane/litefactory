@@ -234,6 +234,17 @@ func (db *DB) readNoticeRecord(ctx context.Context, source string, id int64) (No
 		} else {
 			r.At = r.Run.FinishedAt
 			r.Ready = !r.At.IsZero()
+			// A successful Bug analysis or fixer reshape only leads to an owner
+			// wait, which posts its own notice. The node attempt's outcome is
+			// recorded before the run settles.
+			if r.Ready && r.Run.Succeeded() {
+				var waits bool
+				err = db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.run_id=? AND COALESCE(NULLIF(d.workflow,''),d.mode)='bug' AND a.outcome IN ('ask','done','reshape'))`, id).Scan(&waits)
+				if err != nil {
+					return r, err
+				}
+				r.Ignore = waits
+			}
 		}
 	case "transitions":
 		err = db.sql.QueryRowContext(ctx, `SELECT s.task_ref,COALESCE(NULLIF(d.workflow,''),d.mode),t.from_node,t.to_node,t.at FROM graph_transitions t JOIN graph_instances i ON i.id=t.instance_id JOIN graph_definitions d ON d.id=i.definition_id JOIN sessions s ON s.id=i.session_id WHERE t.id=?`, id).Scan(&r.TaskRef, &r.Workflow, &r.From, &r.To, &at)

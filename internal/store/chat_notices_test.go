@@ -315,3 +315,75 @@ func TestNoticeOwnerWaitsReadStateAndPublication(t *testing.T) {
 		}
 	}
 }
+
+func TestNoticeRunFinishesIgnoreBugRunsThatLeadToAWait(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 693)
+	segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := graphTestTime()
+	definitions := map[string]GraphDefinition{}
+	for _, workflow := range []string{"bug", "research"} {
+		mode := workflow
+		if workflow == "bug" {
+			mode = "" // Bug definitions bind a workflow, not a mode.
+		}
+		definitions[workflow], err = db.CreateGraphDefinition(ctx, GraphDefinition{Team: "notices", Mode: mode, Workflow: workflow, ProfileVersion: 1, Path: workflow + ".dot", Digest: strings.Repeat("b", 64), CreatedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	zero := int64(0)
+	trigger := int64(300)
+	finish := func(workflow, node, outcome string, status RunStatus) NoticeRecord {
+		t.Helper()
+		trigger++
+		run, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: workflow, Agent: AgentClaude, TriggerCommentID: trigger, StartedAt: at, LogPath: func(n int) string { return "/logs/" + strconv.Itoa(n) + ".jsonl" }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		instance, err := db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definitions[workflow].ID, CurrentNode: node, StartedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: node, RunID: run.ID, StartedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.FinishGraphNodeAttempt(ctx, attempt.ID, GraphSucceeded, outcome, at); err != nil {
+			t.Fatal(err)
+		}
+		result := RunOutcome{Status: status, ExitCode: &zero, FinishedAt: at.Add(time.Second)}
+		if status == RunFailed {
+			result.Error = "controlled failure"
+		}
+		if _, err := db.FinishRun(ctx, run.ID, result); err != nil {
+			t.Fatal(err)
+		}
+		r, err := db.readNoticeRecord(ctx, "run_finishes", run.ID)
+		if err != nil || !r.Ready {
+			t.Fatalf("record=%+v err=%v", r, err)
+		}
+		return r
+	}
+	for _, tc := range []struct {
+		workflow, node, outcome string
+		status                  RunStatus
+		ignore                  bool
+	}{
+		{"bug", "analyst", "done", RunSucceeded, true},
+		{"bug", "analyst", "ask", RunSucceeded, true},
+		{"bug", "fixer", "reshape", RunSucceeded, true},
+		{"bug", "analyst", "done", RunFailed, false},
+		{"bug", "fixer", "succeeded", RunSucceeded, false},
+		{"research", "research", "done", RunSucceeded, false},
+	} {
+		if r := finish(tc.workflow, tc.node, tc.outcome, tc.status); r.Ignore != tc.ignore {
+			t.Errorf("%s %s %s %s ignore=%v want %v", tc.workflow, tc.node, tc.outcome, tc.status, r.Ignore, tc.ignore)
+		}
+	}
+}
