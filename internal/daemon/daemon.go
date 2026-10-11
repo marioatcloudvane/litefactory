@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -440,6 +442,15 @@ type Daemon struct {
 	lock         *Lock
 	now          func() time.Time
 	ticks        <-chan time.Time
+
+	// chatBeat, chatWait, chatHandler and chatStatus carry chat that may be
+	// built after start: chatBeat is set in New when chat is configured,
+	// chatWait while the bot token is unresolved. chatHandler and chatStatus
+	// are read by the webhook server and the health publisher.
+	chatBeat    chan struct{}
+	chatWait    *chatPending
+	chatHandler atomic.Pointer[http.Handler]
+	chatStatus  atomic.Pointer[string]
 
 	discovery          discoveryBudget
 	backoff            backoff
