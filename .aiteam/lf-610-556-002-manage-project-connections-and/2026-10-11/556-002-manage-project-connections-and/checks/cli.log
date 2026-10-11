@@ -1,0 +1,24 @@
+--- FAIL: TestStoryContractUpgrade_CLIBoundary (5.73s)
+    --- FAIL: TestStoryContractUpgrade_CLIBoundary/default_preview (1.27s)
+        cmd_story_contract_boundary_test.go:186: exit=1 stdout=github:owner/repo#1: content/submission contract 1 -> 2; generation 1 -> 2; preview
+            US-001 #2 observed= expected= target=
+            Conflict: US-001: store: not found
+             stderr=litefactory: upgrade remains pending: US-001: store: not found
+    --- FAIL: TestStoryContractUpgrade_CLIBoundary/explicit_preview (0.98s)
+        cmd_story_contract_boundary_test.go:186: exit=1 stdout=github:owner/repo#1: content/submission contract 1 -> 2; generation 1 -> 2; preview
+            US-001 #2 observed= expected= target=
+            Conflict: US-001: store: not found
+             stderr=litefactory: upgrade remains pending: US-001: store: not found
+    --- FAIL: TestStoryContractUpgrade_CLIBoundary/explicit_apply (1.01s)
+        cmd_story_contract_boundary_test.go:186: exit=1 stdout=github:owner/repo#1: content/submission contract 1 -> 2; generation 1 -> 2; preview
+            US-001 #2 observed= expected= target=
+            Conflict: US-001: store: not found
+             stderr=litefactory: upgrade remains pending: US-001: store: not found
+--- FAIL: TestCommandsAreWellFormed (0.00s)
+    router_test.go:255: command "repo connection list" has positional "role" that its usage "repo connection list <project-id> [code|ticket]" does not mention
+    router_test.go:255: command "repo connection set" has positional "role" that its usage "repo connection set <project-id> [code|ticket]" does not mention
+    router_test.go:255: command "repo connection disable" has positional "role" that its usage "repo connection disable <project-id> [code|ticket]" does not mention
+    router_test.go:255: command "repo connection check" has positional "role" that its usage "repo connection check <project-id> [code|ticket]" does not mention
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/cli	274.931s
+FAIL

@@ -27,12 +27,18 @@ type Ref struct {
 	// Issue is the issue number. Always positive; never truncated or
 	// abbreviated anywhere in this package.
 	Issue int
+	// Qualification separates colliding aliases from different ticket instances.
+	Qualification string
 }
 
 // String renders the canonical task ref. It does not validate: call
 // [Ref.Validate] first if the components came from outside the database.
 func (r Ref) String() string {
-	return fmt.Sprintf("%s:%s/%s#%d", r.Forge, r.Owner, r.Repo, r.Issue)
+	alias := fmt.Sprintf("%s:%s/%s#%d", r.Forge, r.Owner, r.Repo, r.Issue)
+	if r.Qualification != "" {
+		alias += "~" + r.Qualification
+	}
+	return alias
 }
 
 // Validate checks that every component is present, is usable as a single
@@ -51,6 +57,16 @@ func (r Ref) Validate() error {
 	}
 	if err := validateRefComponent("repository", r.Repo); err != nil {
 		return err
+	}
+	if r.Qualification != "" {
+		if len(r.Qualification) != 16 {
+			return fmt.Errorf("%w: invalid qualification", ErrInvalidRef)
+		}
+		for _, c := range r.Qualification {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+				return fmt.Errorf("%w: invalid qualification", ErrInvalidRef)
+			}
+		}
 	}
 	return validateIssue(r.Issue)
 }
@@ -77,12 +93,16 @@ func ParseRef(s string) (Ref, error) {
 		return malformed()
 	}
 
+	number, qualification, qualified := strings.Cut(number, "~")
+	if qualified && qualification == "" {
+		return malformed()
+	}
 	issue, err := strconv.Atoi(number)
 	if err != nil || strconv.Itoa(issue) != number {
 		return Ref{}, fmt.Errorf("%w: %q has a non-canonical issue number %q", ErrInvalidRef, s, number)
 	}
 
-	ref := Ref{Forge: forge, Owner: owner, Repo: repo, Issue: issue}
+	ref := Ref{Forge: forge, Owner: owner, Repo: repo, Issue: issue, Qualification: qualification}
 	if err := ref.Validate(); err != nil {
 		return Ref{}, err
 	}

@@ -130,3 +130,23 @@ func (db *DB) ResolveTicketEffect(ctx context.Context, key string, ref ticket.Re
 	}
 	return bound, nil
 }
+
+// ListTicketEffectsForAddress reads every retained effect for an address across
+// origins. Reconciliation must reject conflicting qualified evidence rather
+// than selecting current configuration. Owning ledger bytes remain untouched.
+func (db *DB) ListTicketEffectsForAddress(ctx context.Context, container, key string) ([]TicketEffect, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+ticketEffectColumns+` FROM ticket_effect_identities WHERE container=? AND locator_key=? ORDER BY effect_key`, container, key)
+	if err != nil {
+		return nil, fmt.Errorf("store: list ticket effect identity evidence: %w", err)
+	}
+	defer rows.Close()
+	var out []TicketEffect
+	for rows.Next() {
+		e, err := scanTicketEffect(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

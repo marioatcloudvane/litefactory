@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/schedule"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -494,12 +496,28 @@ func (d *Daemon) discover(
 			continue
 		}
 
+		ctx := ctx
 		forgeRepo := github.Repo{Owner: repo.Owner, Name: repo.Name}
+		connectionEnabled := true
+		if d.connections != nil {
+			ctx = projectContext(ctx, repo.ID)
+			v, e := d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
+			if e != nil {
+				repoLog.WarnContext(ctx, "project ticket connection unavailable", slog.Any("error", e))
+				continue
+			}
+			owner, name, _ := strings.Cut(v.Destination, "/")
+			forgeRepo = github.Repo{Owner: owner, Name: name}
+			connectionEnabled = v.Enabled
+			if state, e := d.db.GetProjectImportState(ctx, repo.ID); e == nil && state.Status == "conflict" {
+				connectionEnabled = false
+			}
+		}
 		q := &repoQueue{repo: repo, forgeRepo: forgeRepo, log: repoLog}
 		queues = append(queues, q)
 		byRepo[repo.ID] = q
 
-		if !due[repo.ID] {
+		if !due[repo.ID] || !connectionEnabled {
 			continue
 		}
 		q.listing = true
@@ -665,8 +683,14 @@ func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen 
 // path re-checks the same thing in [Daemon.materialise], where the session
 // already exists and the only question left is whether to run.
 func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*candidate, error) {
-	if _, err := d.db.ManagedParentForChild(ctx, q.repo.ID, issue.Number); err == nil {
-		return nil, nil
+	if parent, err := d.db.ManagedParentForChild(ctx, q.repo.ID, issue.Number); err == nil {
+		same, e := d.sameTicketSource(ctx, q.repo.ID, parent)
+		if e != nil {
+			return nil, e
+		}
+		if same {
+			return nil, nil
+		}
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
@@ -681,7 +705,40 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 		return nil, nil
 	}
 
-	session, err := d.db.GetOrCreateSession(ctx, q.repo, issue.Number)
+	var session store.Session
+	var err error
+	if d.connections == nil {
+		session, err = d.db.GetOrCreateSession(ctx, q.repo, issue.Number)
+	} else {
+		ctx = projectContext(ctx, q.repo.ID)
+		v, e := d.db.CurrentConnection(ctx, q.repo.ID, store.TicketConnection)
+		if e != nil {
+			return nil, e
+		}
+		// The issue was observed before this current-version read. An edit
+		// between discovery and admission must not qualify old input with the
+		// replacement origin, even if both sources reuse the same numeric ID.
+		observedPath, sameOrigin := strings.CutPrefix(issue.APIURL, string(v.Origin)+"/repos/")
+		observedParts := strings.SplitN(observedPath, "/", 3)
+		owner, name, _ := strings.Cut(v.Destination, "/")
+		if q.forgeRepo.String() != v.Destination || !sameOrigin || len(observedParts) != 3 ||
+			!strings.EqualFold(observedParts[0], owner) || !strings.EqualFold(observedParts[1], name) ||
+			observedParts[2] != "issues/"+strconv.Itoa(issue.Number) {
+			return nil, store.ErrConnectionConflict
+		}
+		ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: strconv.FormatInt(issue.ID, 10)}, Locator: locatorAt(v.Origin, q.forgeRepo, issue.Number)}
+		binding, e := d.db.GetTicketBinding(ctx, ref.Identity)
+		if errors.Is(e, store.ErrNotFound) {
+			_, e = d.db.AddTicketBinding(ctx, store.TicketBinding{RepoID: q.repo.ID, ConnectionVersionID: v.ID, Ref: ref, Enabled: true, Provenance: "discovery"})
+		} else if e == nil && (binding.RepoID != q.repo.ID || !binding.Enabled) {
+			e = store.ErrBindingConflict
+		}
+		if e != nil {
+			return nil, e
+		}
+		session, err = AdmitProjectTicket(ctx, d.db, d.connections, q.repo, ref)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("find the task for %s#%d: %w", q.forgeRepo, issue.Number, err)
 	}
@@ -722,6 +779,13 @@ func (d *Daemon) markPlanChild(ctx context.Context, q *repoQueue, number int) er
 	}
 	if err != nil {
 		return err
+	}
+	same, e := d.sameTicketSource(ctx, q.repo.ID, parent)
+	if e != nil {
+		return e
+	}
+	if !same {
+		return nil
 	}
 	session, err := d.db.GetSessionByTaskRef(ctx, parent)
 	if errors.Is(err, store.ErrNotFound) {
@@ -919,6 +983,14 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 	if err != nil {
 		return false, err
 	}
+	same, sourceErr := d.sameTicketSource(ctx, q.repo.ID, parent)
+	if sourceErr != nil {
+		return false, sourceErr
+	}
+	if !same {
+		return false, nil
+	}
+
 	session, err := d.db.GetSessionByTaskRef(ctx, parent)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -1285,6 +1357,21 @@ func (d *Daemon) deferRest(ctx context.Context, queues []*repoQueue, result *Tic
 // construction stay where a test can count them, and no worker has to work out
 // its own identity before it can log.
 func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time) (*task, error) {
+	if d.connections != nil {
+		ctx = sessionContext(ctx, c.session.ID)
+		snapshot, e := d.db.GetExecutionSnapshot(ctx, c.session.ID)
+		if e != nil {
+			return nil, e
+		}
+		c.repo = snapshot.CodeTarget
+		binding, e := d.db.GetSessionTicket(ctx, c.session.ID)
+		if e != nil {
+			return nil, e
+		}
+		owner, name, _ := strings.Cut(binding.Locator.Container, "/")
+		c.forgeRepo = github.Repo{Owner: owner, Name: name}
+	}
+
 	issue := c.issue
 	if !c.resolved {
 		// Lazily, and only now that a slot is held: see [Daemon.offer] for why
@@ -1375,6 +1462,9 @@ func (d *Daemon) taskComments(ctx context.Context, t *task, after int64) ([]gith
 // comment list is exhausted, a comment was left unconsumed, or the context is
 // done.
 func (d *Daemon) work(ctx context.Context, t *task) {
+	if d.connections != nil {
+		ctx = sessionContext(ctx, t.session.ID)
+	}
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
@@ -1856,7 +1946,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 
 	// A graph Plan story issue that is a task of its own has its owner comments
 	// answered here, where they were written.
-	if story, owned, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
+	if story, owned, err := d.graphPlanStoryForTask(ctx, t); err != nil {
 		return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
 	} else if owned {
 		return d.handlePlanStoryComment(ctx, t, c, story, log)
@@ -1864,7 +1954,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	// Any other graph Plan story issue belongs to its parent, whose worker reads
 	// the issue's comments as Plan input. Acting here as well would answer the
 	// same reply twice, or start a second run beside the Plan revision.
-	if parent, err := d.db.GraphPlanParentForChild(ctx, t.repo.ID, t.issue.Number); !errors.Is(err, store.ErrNotFound) {
+	if parent, err := d.graphPlanParentForTask(ctx, t); !errors.Is(err, store.ErrNotFound) {
 		if err != nil {
 			return d.leave(ctx, t, log, "could not read retained Plan story membership", err)
 		}
@@ -2168,7 +2258,7 @@ func (d *Daemon) run(
 		t.implementing = true
 	} else if t.scheduled != nil && t.scheduled.Payload == planWorkPayload {
 		t.refining = true
-	} else if _, owned, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
+	} else if _, owned, err := d.graphPlanStoryForTask(ctx, t); err != nil {
 		return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
 	} else if owned {
 		t.refining = true
@@ -2423,7 +2513,7 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		}
 		// Handled, or answered with a published failure the owner can reply to:
 		// either way this reply is done and the story's next reply is a new one.
-		if _, task, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
+		if _, task, err := d.graphPlanStoryForTask(ctx, t); err != nil {
 			return err
 		} else if task {
 			if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {

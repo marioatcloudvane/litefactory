@@ -11,6 +11,13 @@ import (
 
 // SourceLinks returns provider-observed display links for an exact source reply.
 func (b *TicketWorkflowBridge) SourceLinks(ctx context.Context, ref naming.Ref, child int, replyID int64) (string, string, error) {
+	selected, selectionErr := b.selected(ctx, github.RepoFromRef(ref), ref.Issue, 0)
+	if selectionErr != nil {
+		return "", "", selectionErr
+	}
+	if selected != b {
+		return selected.SourceLinks(ctx, ref, child, replyID)
+	}
 	parent, err := b.Publication.destination(ctx, github.RepoFromRef(ref), ref.Issue)
 	if err != nil {
 		return "", "", err

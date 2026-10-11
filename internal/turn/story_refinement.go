@@ -142,9 +142,7 @@ func (r *Reporter) AcknowledgeStoryRefinement(ctx context.Context, ref naming.Re
 		if comment.Author.ID != r.botUserID || !strings.Contains(comment.Body, marker) {
 			continue
 		}
-		if verifier, qualified := r.forge.(interface {
-			VerifiedCommentDestination(github.Comment, naming.Ref) bool
-		}); qualified && !verifier.VerifiedCommentDestination(comment, destination) {
+		if verified, qualified := verifiedCommentDestination(ctx, r.forge, comment, destination); qualified && !verified {
 			continue
 		}
 		if recovered != 0 || comment.ID < 1 || comment.Body != prepared.PreparedBody {

@@ -88,7 +88,7 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 	if h.ref, err = naming.ParseRef(h.session.TaskRef); err != nil {
 		return ValidateSuiteBindings{}, ValidateFlowBindings{}, err
 	}
-	if h.repo, err = opts.DB.GetRepo(ctx, h.session.RepoID); err != nil {
+	if h.repo, err = executionRepository(ctx, opts.DB, h.session); err != nil {
 		return ValidateSuiteBindings{}, ValidateFlowBindings{}, err
 	}
 	if h.clone, err = opts.Git.Open(ctx, h.repo.Path); err != nil {
@@ -201,9 +201,12 @@ func (h *validateHost) checkoutTaskWorktree(ctx context.Context) (*git.Worktree,
 		return nil, err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return nil, err
+	}
 	dir := h.session.WorktreePath
 	if dir == "" {
-		if dir, err = naming.WorktreePath(h.repo.WorktreeRoot, h.session.IssueNumber); err != nil {
+		if dir, err = naming.QualifiedWorktreePath(h.repo.WorktreeRoot, h.session.IssueNumber, h.session.TaskRef); err != nil {
 			return nil, err
 		}
 	}
@@ -261,6 +264,9 @@ func (h *validateHost) keepChange(ctx context.Context, summary string) (string, 
 		return "", err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return "", err
+	}
 	result, err := wt.Commit(ctx, git.CommitOptions{Summary: summary, Task: h.session.TaskRef, Mode: string(agent.ModeValidate), Run: ordinal, Author: author})
 	if err != nil {
 		return "", err
@@ -349,6 +355,9 @@ func (h *validateHost) publish(ctx context.Context, commit, expectedHead string)
 		return err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return err
+	}
 	return wt.PushHeadTo(ctx, h.opts.remote(), h.session.Branch, expectedHead)
 }
 

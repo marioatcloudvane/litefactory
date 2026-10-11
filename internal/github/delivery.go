@@ -47,7 +47,7 @@ func (c *Client) GetDeliveryHead(ctx context.Context, repo Repo, branch string) 
 		// code" error, so the 404 must be typed here for callers to see it.
 		var api *APIError
 		if !errors.As(err, &api) && resp != nil && resp.Response != nil && resp.StatusCode == http.StatusNotFound {
-			return "", &APIError{Method: requestMethod(resp.Response), URL: requestURL(resp.Response), StatusCode: http.StatusNotFound, Message: err.Error(), RequestID: resp.Header.Get("X-GitHub-Request-Id"), Err: ErrNotFound}
+			return "", c.sanitizeFailure(ctx, &APIError{Method: requestMethod(resp.Response), URL: requestURL(resp.Response), StatusCode: http.StatusNotFound, Message: err.Error(), RequestID: resp.Header.Get("X-GitHub-Request-Id"), Err: ErrNotFound})
 		}
 		return "", err
 	}

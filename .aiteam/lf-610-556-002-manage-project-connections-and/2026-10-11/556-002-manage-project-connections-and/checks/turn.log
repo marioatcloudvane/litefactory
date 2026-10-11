@@ -1,0 +1,5 @@
+--- FAIL: TestNeutralPlanBindingRejectsOriginAndExpectedContentChanges (0.26s)
+    plan_ticket_bridge_test.go:93: origin rebound: ticket: address: refused: ticket belongs to a different API instance
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	2753.965s
+FAIL

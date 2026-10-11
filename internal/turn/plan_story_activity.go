@@ -457,7 +457,15 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	}
 	if r.Operation != "retire" && len(safeParts) > 0 {
 		bot := h.Bot
-		if configured, ok := h.Forge.(interface{ BotIdentity() ticket.Identity }); ok {
+		if contextual, ok := h.Forge.(interface {
+			BotIdentityFor(context.Context, github.Repo, int) (ticket.Identity, error)
+		}); ok {
+			var e error
+			bot, e = contextual.BotIdentityFor(ctx, a.Repo, a.ParentNumber)
+			if e != nil {
+				return receipt, e
+			}
+		} else if configured, ok := h.Forge.(interface{ BotIdentity() ticket.Identity }); ok {
 			bot = configured.BotIdentity()
 			if err := bot.Validate(); err != nil {
 				return receipt, err

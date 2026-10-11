@@ -90,6 +90,16 @@ func bindLegacySessionOrigin(ctx context.Context, tx *sql.Tx, sessionID int64, o
 	if err != nil {
 		return SessionTicket{}, err
 	}
+	retained, readErr := scanSessionTicket(tx.QueryRowContext(ctx, `SELECT `+sessionTicketColumns+` FROM session_ticket_identities WHERE session_id=?`, sessionID))
+	if readErr == nil {
+		if retained.TaskRef != session.TaskRef || retained.Locator.Provider != ticket.GitHub || retained.Locator.Origin != origin {
+			return SessionTicket{}, ErrTicketIdentityConflict
+		}
+		return retained, nil
+	}
+	if !errors.Is(readErr, ErrNotFound) {
+		return SessionTicket{}, readErr
+	}
 	alias, ok := strings.CutPrefix(session.TaskRef, "github:")
 	if !ok {
 		return SessionTicket{}, ErrTicketIdentityConflict
@@ -131,8 +141,28 @@ func (db *DB) BindSessionTicket(ctx context.Context, sessionID int64, ref ticket
 	}
 	var binding SessionTicket
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		var sessionRepo int64
+		if err := tx.QueryRowContext(ctx, `SELECT repo_id FROM sessions WHERE id=?`, sessionID).Scan(&sessionRepo); err != nil {
+			return err
+		}
+		var hasProjectBindings bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_ticket_bindings')`).Scan(&hasProjectBindings); err != nil {
+			return err
+		}
+		if hasProjectBindings {
+			owned, err := getBinding(ctx, tx, ref.Identity)
+			if err == nil && (owned.RepoID != sessionRepo || owned.Ref != ref) {
+				return ErrBindingConflict
+			}
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				return err
+			}
+		}
 		var err error
-		binding, err = bindLegacySessionOrigin(ctx, tx, sessionID, ref.Identity.Origin)
+		binding, err = scanSessionTicket(tx.QueryRowContext(ctx, `SELECT `+sessionTicketColumns+` FROM session_ticket_identities WHERE session_id=?`, sessionID))
+		if errors.Is(err, ErrNotFound) {
+			binding, err = bindLegacySessionOrigin(ctx, tx, sessionID, ref.Identity.Origin)
+		}
 		if err != nil {
 			return err
 		}

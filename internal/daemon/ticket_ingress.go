@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -24,7 +25,20 @@ func (d *Daemon) qualifyReply(ctx context.Context, sessionID int64, c github.Com
 	if d.tickets == nil {
 		return nil, nil
 	}
+	ingress := d.tickets
 	origin := d.filter.Identities().TicketOrigin
+	if d.connections != nil {
+		mapping, e := d.db.GetSessionTicket(ctx, sessionID)
+		if e != nil {
+			return nil, e
+		}
+		parts := strings.Split(mapping.Locator.Container, "/")
+		selected, _, e := selectTicketConnection(ctx, d.db, d.connections, github.Repo{Owner: parts[0], Name: parts[1]}, 0, sessionID)
+		if e != nil {
+			return nil, e
+		}
+		ingress, origin = selected, selected.Origin()
+	}
 	if origin == "" {
 		return nil, errors.New("daemon: ticket origin is required for qualified ingress")
 	}
@@ -32,7 +46,7 @@ func (d *Daemon) qualifyReply(ctx context.Context, sessionID int64, c github.Com
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := d.tickets.Resolve(ctx, binding.Locator)
+	snapshot, err := ingress.Resolve(ctx, binding.Locator)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +58,7 @@ func (d *Daemon) qualifyReply(ctx context.Context, sessionID int64, c github.Com
 	if err != nil {
 		return nil, err
 	}
-	reply, err := d.tickets.QualifyReply(ref, c)
+	reply, err := ingress.QualifyReply(ref, c)
 	if err != nil {
 		return nil, err
 	}

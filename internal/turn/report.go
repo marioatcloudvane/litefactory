@@ -771,10 +771,8 @@ func (r *Reporter) post(ctx context.Context, ref naming.Ref, body redact.Body, _
 
 		return github.Comment{}, fmt.Errorf("post the comment on task %s: %w", ref, err)
 	}
-	if verifier, qualified := r.forge.(interface {
-		VerifiedCommentDestination(github.Comment, naming.Ref) bool
-	}); qualified {
-		if !verifier.VerifiedCommentDestination(comment, ref) || comment.Author.ID != r.botUserID || comment.Body != body.String() {
+	if verified, qualified := verifiedCommentDestination(ctx, r.forge, comment, ref); qualified {
+		if !verified || comment.Author.ID != r.botUserID || comment.Body != body.String() {
 			return github.Comment{}, fmt.Errorf("post the comment on task %s: %w", ref, ErrReportReceiptUncertain)
 		}
 	}

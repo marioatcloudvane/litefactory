@@ -48,6 +48,11 @@ func (d *Daemon) pollCommentPublication(ctx context.Context, e turnExecutor) err
 		p.comment = &rows[0]
 		p.commentPage = 1
 	}
+	run, err := d.db.GetRun(ctx, p.comment.Scope.RunID)
+	if err != nil {
+		return err
+	}
+	ctx = sessionContext(ctx, run.SessionID)
 	observed, next, err := e.opts.MCP.ObserveComment(ctx, *p.comment, p.commentPage)
 	if err != nil {
 		return err
@@ -79,6 +84,11 @@ func (d *Daemon) pollCreationPublication(ctx context.Context, e turnExecutor) er
 		p.creationPage = 1
 		p.creationState = "open"
 	}
+	run, err := d.db.GetRun(ctx, p.creation.Scope.RunID)
+	if err != nil {
+		return err
+	}
+	ctx = sessionContext(ctx, run.SessionID)
 	observed, next, err := e.opts.MCP.ObserveCreation(ctx, *p.creation, p.creationState, p.creationPage)
 	if err != nil {
 		return err

@@ -159,7 +159,7 @@ func prepare(
 		}
 	}
 
-	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
+	repo, err := executionRepository(ctx, opts.DB, session)
 	if err != nil {
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
 	}
@@ -167,6 +167,9 @@ func prepare(
 	clone, err := opts.Git.Open(ctx, repo.Path)
 	if err != nil {
 		return nil, failuref(err, "the registered clone at %s could not be opened", repo.Path)
+	}
+	if err := verifyExecutionClone(ctx, opts, session, clone); err != nil {
+		return nil, failuref(err, "original execution target is unavailable")
 	}
 	author, err := resolveAuthor(ctx, opts, clone)
 	if err != nil {
@@ -695,6 +698,9 @@ func prepareClone(
 	}
 	defer release()
 
+	if err := verifyExecutionClone(ctx, opts, session, clone); err != nil {
+		return session, "", nil, syncResult{}, nil, failuref(err, "original execution target changed")
+	}
 	if err := fetch(ctx, opts, clone, repo, logger); err != nil {
 		return session, "", nil, syncResult{}, nil, err
 	}
@@ -1582,7 +1588,7 @@ func freezeSlug(
 	if err := naming.ValidateSlug(slug); err != nil {
 		return session, "", failuref(err, "the feature slug %q is not usable", slug)
 	}
-	branch, err := naming.Branch(repo.FeaturePrefix, session.IssueNumber, slug)
+	branch, err := naming.QualifiedBranch(repo.FeaturePrefix, session.IssueNumber, slug, session.TaskRef)
 	if err != nil {
 		return session, "", failuref(err, "the branch for issue %d could not be derived", session.IssueNumber)
 	}
@@ -1623,7 +1629,7 @@ func ensureWorktree(
 	branch string,
 	logger *slog.Logger,
 ) (*git.Worktree, error) {
-	dir, err := naming.WorktreePath(repo.WorktreeRoot, session.IssueNumber)
+	dir, err := naming.QualifiedWorktreePath(repo.WorktreeRoot, session.IssueNumber, session.TaskRef)
 	if err != nil {
 		return nil, failuref(err, "the worktree path for issue %d could not be derived", session.IssueNumber)
 	}
