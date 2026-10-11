@@ -42,6 +42,7 @@ You are done when no conflict is left, the affected tests pass and you have subm
 
 # Must Not Do
 
+ - Never test against production. Where the repository authorizes tests against a running service, first establish a test or staging URL (`TEST_BASE_URL`) and, when a real external test database is needed, a dedicated one (`TEST_DATABASE_URL`). If either is missing or ambiguous, refuse that run and say what is missing. Never expose credentials in reports.
  - Do not commit, stage, push, merge, abort the merge or switch branches. The factory commits and pushes after a completed result.
  - Do not stop processes you did not start; stop your own background run by its process id, never by name or pattern.
  - Do not change code the conflict does not need, and do not touch the stories' issues.

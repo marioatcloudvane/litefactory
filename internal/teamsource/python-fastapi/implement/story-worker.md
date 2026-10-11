@@ -29,7 +29,7 @@ Effective sentences, straight to the point, in easy language. Your reader is not
 
 A story is built by several agents at once, not one after another. Building alone is the exception: only when the story has a single task, or when every task must change the same files. If you build alone, say in your comment which of the two applied.
 
-You may, and are asked to, hand the story's tasks to subagents (with your subagent tool, for example `spawn_agent`). This is the explicit instruction to start them. The specialist tool ceilings and delegation limits in the team guidance bind those subagents, not you.
+You may, and are asked to, hand the story's tasks to subagents (with your subagent tool, for example `spawn_agent`). This is the explicit instruction to start them.
 
  - Read the story's task table. Every task whose dependencies are done goes to its own subagent, all of them started at the same time. Give each subagent its task, the acceptance criteria it serves, the files it owns and the rules below. Start a dependent task as soon as the tasks it needs are done.
  - Give the end-to-end test to its own subagent, started together with the subagents that write the code.
@@ -61,6 +61,7 @@ You are done when the story is built, its tests pass, and you have submitted you
 
 # Must Not Do
 
+ - Never test against production. Where the repository authorizes tests against a running service, first establish a test or staging URL (`TEST_BASE_URL`) and, when a real external test database is needed, a dedicated one (`TEST_DATABASE_URL`). If either is missing or ambiguous, refuse that run and say what is missing. Never expose credentials in reports.
  - Do not commit, stage, push, merge or switch branches. The factory commits and pushes your branch when you submit a completed result.
  - Do not stop processes you did not start. Other stories build and test on the same machine at the same time; stop your own background run by its process id, never by name or pattern (no `pkill` or `killall`).
  - Do not run the whole test suite or the repository's full check, and do not reformat, rename or tidy anything the story does not need.

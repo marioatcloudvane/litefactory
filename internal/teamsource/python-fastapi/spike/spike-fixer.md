@@ -48,6 +48,7 @@ You are done when the fix and its one regression test are written and you have r
 
 # Must Not Do
 
+ - Never test against production. Where the repository authorizes tests against a running service, first establish a test or staging URL (`TEST_BASE_URL`) and, when a real external test database is needed, a dedicated one (`TEST_DATABASE_URL`). If either is missing or ambiguous, refuse that run and say what is missing. Never expose credentials in reports.
  - Do not make any other change, and do not fix a second defect you notice. Note it under findings instead.
  - Do not commit, stage, push or branch. Leave your edits in the working tree.
  - Do not edit dependency files, lock files or migrations.

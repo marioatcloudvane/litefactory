@@ -6,7 +6,12 @@ requires: [plan-evidence]
 # Technical shaping
 Start from exact approved intent and prior decisions. Check reuse, architecture
 fit, interfaces, permissions, entities/relationships, invariants, dependencies and
-failure behavior. Record decisions/rationales and assumptions. Populate typed
+failure behavior. When the story relies on an external system's guarantee (API
+semantics, delivery, ordering, idempotency, deduplication, rate limits), check it
+against the provider's documentation or the research evidence and record the
+decision and its limits in general. If the platform cannot give what the intent
+needs, ask the owner with options; never leave it for Implement. Record
+decisions/rationales and assumptions. Populate typed
 general for every architecture review. Data model is for actual entity/relationship
 scope; service design for layering, service/repository/database access and
 decomposition; solution design for collaboration, interfaces and abstractions,

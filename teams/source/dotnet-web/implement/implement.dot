@@ -47,15 +47,15 @@ digraph implement {
 
  // ---- Base sync ------------------------------------------------------------------
  sync_start          [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"];
- sync_start_resolve  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="sync-resolver", lf_skills="implement-result,team-guidance", lf_limit="3"];
+ sync_start_resolve  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="sync-resolver", lf_skills="implement-result,dotnet-web-engineering", lf_limit="3"];
  sync_start_resolved [lf_action="lf_implement_resolved", lf_outcomes="resolved,blocked,retry", lf_source="sync_start_resolve", lf_limit="3"];
  sync_done           [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"];
- sync_done_resolve   [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="sync-resolver", lf_skills="implement-result,team-guidance", lf_limit="3"];
+ sync_done_resolve   [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="sync-resolver", lf_skills="implement-result,dotnet-web-engineering", lf_limit="3"];
  sync_done_resolved  [lf_action="lf_implement_resolved", lf_outcomes="resolved,blocked,retry", lf_source="sync_done_resolve", lf_limit="3"];
 
  // ---- Worker -----------------------------------------------------------------------
  budget        [lf_action="lf_implement_budget", lf_outcomes="run,park", lf_limit="8"];
- worker_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="story-worker", lf_skills="implement-result,team-guidance", lf_limit="3"];
+ worker_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="story-worker", lf_skills="implement-result,dotnet-web-engineering", lf_limit="3"];
  worker_result [lf_action="lf_implement_result", lf_outcomes="completed,incomplete,blocked", lf_source="worker_agent", lf_limit="3"];
  story_done    [lf_action="lf_implement_story_done", lf_outcomes="done,retry", lf_limit="3"];
  park_story    [lf_action="lf_implement_park", lf_outcomes="parked", lf_limit="4"];

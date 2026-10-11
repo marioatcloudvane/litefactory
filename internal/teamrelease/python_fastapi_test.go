@@ -24,9 +24,6 @@ func pythonFixture(t *testing.T) string {
 	t.Helper()
 	root := fixture(t)
 	for name, raw := range snapshot(t, "../teamsource/python-fastapi") {
-		if strings.Contains(name, "/skills/team-guidance/") {
-			continue
-		}
 		put(t, filepath.Join(root, pythonSource, filepath.FromSlash(name)), raw)
 	}
 	return root
@@ -86,11 +83,13 @@ func TestPythonFastAPIReleasePreservesHistoryAndClosure(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(after[current+w+"/"+w+".dot"], bytes.ReplaceAll(original, []byte(`team="go-development"`), []byte(`team="python-fastapi"`))) {
+		want := bytes.ReplaceAll(original, []byte(`team="go-development"`), []byte(`team="python-fastapi"`))
+		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",python-fastapi-stack"))
+		if !bytes.Equal(after[current+w+"/"+w+".dot"], want) {
 			t.Fatal("workflow contract changed", w)
 		}
 	}
-	for _, name := range []string{"team.config", "stack-profile.json", "plan/skills/plan-python-fastapi-guidance/backend.md", "plan/skills/plan-python-fastapi-guidance/frontend.md", "implement/skills/team-guidance/supported-versions.md"} {
+	for _, name := range []string{"team.config", "stack-profile.json", "plan/skills/plan-python-fastapi-guidance/backend.md", "plan/skills/plan-python-fastapi-guidance/frontend.md", "implement/skills/python-fastapi-stack/supported-versions.md", "bug/skills/python-fastapi-stack/python-fastapi.md", "validate/skills/python-fastapi-stack/react-typescript-vite.md"} {
 		if len(after[current+name]) == 0 {
 			t.Fatal("missing packaged resource", name)
 		}
@@ -231,7 +230,7 @@ func TestPythonFastAPIProfileAndGuidanceBoundaries(t *testing.T) {
 			t.Fatal("missing stack guidance", topic)
 		}
 	}
-	for name, raw := range snapshot(t, "../teamsource/python-fastapi/shared/team-guidance") {
+	for name, raw := range snapshot(t, "../teamsource/python-fastapi/implement/skills/python-fastapi-stack") {
 		for _, bad := range []string{"go test", "gofmt", "golangci-lint", "multiple Go modules", "aws-sdk-go", "All SQL lives"} {
 			if bytes.Contains(raw, []byte(bad)) {
 				t.Fatal("inherited application instruction", name, bad)
@@ -331,7 +330,7 @@ func TestPythonFastAPIVersionDocumentationMatchesRecipes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := os.ReadFile("../teamsource/python-fastapi/shared/team-guidance/supported-versions.md")
+	other, err := os.ReadFile("../teamsource/python-fastapi/implement/skills/python-fastapi-stack/supported-versions.md")
 	if err != nil {
 		t.Fatal(err)
 	}

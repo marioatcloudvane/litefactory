@@ -1,2 +1,0 @@
-# Application context responsibility
-Read the existing repository context before work. Retain a concise map of backend/frontend boundaries, Python and Node package manifests, test and build commands, OpenAPI interface and existing authentication/persistence/deployment conventions. Record supported pins from the captured profile. Context is a lookup reference, not session history. Do not overwrite project constraints or add infrastructure policies.

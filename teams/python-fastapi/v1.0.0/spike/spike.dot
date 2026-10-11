@@ -20,7 +20,7 @@ digraph spike {
 
  // ---- Investigate (read-only) ------------------------------------------------
  probe_loop        [lf_action="lf_loop", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="2", lf_source="probe_agent"];
- probe_agent       [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="spike-investigator", lf_skills="spike-result,team-guidance", lf_access="read", lf_limit="2"];
+ probe_agent       [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="spike-investigator", lf_skills="spike-result", lf_access="read", lf_limit="2"];
  probe_wants_owner [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="2", lf_source="probe_agent"];
  note_asking       [lf_action="lf_spike_note", lf_status="asking", lf_outcomes="success,failed", lf_source="probe_agent", lf_limit="1"];
  ask_owner         [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_source="probe_agent", lf_limit="1"];
@@ -29,7 +29,7 @@ digraph spike {
  size_gate         [lf_action="lf_spike_gate", lf_max_files="3", lf_forbid="package,dependency,schema,api", lf_outcomes="none,small,too_big,blocked", lf_source="probe_agent", lf_limit="1"];
 
  // ---- Make and check one small fix (write) ------------------------------------
- fix_agent                [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="spike-fixer", lf_skills="spike-result,team-guidance", lf_access="write", lf_limit="1"];
+ fix_agent                [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="spike-fixer", lf_skills="spike-result", lf_access="write", lf_limit="1"];
  fix_wants_owner    [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="1", lf_source="fix_agent"];
  fix_check            [lf_action="lf_spike_check", lf_max_files="3", lf_forbid="package,dependency,schema,api", lf_phases="focused,full", lf_outcomes="passed,failed,too_big,blocked", lf_source="fix_agent", lf_limit="2"];
  note_fixed           [lf_action="lf_spike_note", lf_status="fixed", lf_outcomes="success,failed", lf_source="fix_agent", lf_limit="1"];
