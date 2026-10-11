@@ -1,5 +1,7 @@
 # Recovery
 
+[Documentation](../README.md) · [Operations](README.md)
+
 First distinguish an interrupted coding attempt from a missing GitHub report. Inspect the recorded run before asking the factory to repeat work:
 
 ```sh
@@ -25,7 +27,7 @@ For manual continuation after the provider limit lifts, the owner can comment:
 Continue the interrupted request in the existing conversation. Check retained work before repeating changes.
 ```
 
-This starts ordinary work in the selected mode and supersedes pending automatic recovery when admitted. Use an explicit mode command only when you intend to change modes; see [workflow](../guides/workflow.md) and [issue controls](../guides/issue-command-reference.md).
+This starts ordinary work in the selected mode and supersedes pending automatic recovery when admitted. Use an explicit mode command only when you intend to change modes; see [workflow](../guides/workflow.md) and [owner commands](../guides/owner-commands.md).
 
 ## Retained edits and missing reports
 
@@ -35,4 +37,4 @@ Retained dirty work is not automatically discarded. Eligible subsequent turns ca
 
 When a run has ended but its report is missing, check app logs for report delivery or authentication errors. Restore access and let the factory reconcile its pending report work. If a remote request timed out, inspect the actual issue/PR and retained receipts before repeating it; an uncertain response is not proof of failure or success. Do not manually edit the runtime database or create replacement checkpoint identities to evade reconciliation.
 
-[Operations](README.md) · [Troubleshooting](troubleshooting.md) · [Scheduling](../guides/scheduling.md) · [Usage recovery](usage-and-costs.md)
+[Operations](README.md) · [Troubleshooting](troubleshooting.md) · [Scheduling](../guides/scheduling.md) · [Usage and costs](../meter.md)

@@ -7,20 +7,55 @@ available for your own work.
 
 Work has five explicit modes: **Research**, **Plan**, **Implement**, **Validate**
 and **Spike**. You select the next mode; a successful run does not advance it
-for you. Managed plans use GitHub child stories and frozen requirements.
-Engineering completion, acceptance and delivery to the base branch are separate
-steps.
+for you. Engineering completion, acceptance and delivery to the base branch are
+separate steps. New to the terminology? Read the [glossary](glossary.md).
 
-| Category | Start here |
-| --- | --- |
-| [Getting started](getting-started/README.md) | Install, connect GitHub and request your first Research run. |
-| [Using the factory](guides/README.md) | Direct issue work, use MCP and attachments, schedule requests, resolve conflicts and deliver accepted work. |
-| [Using the CLI](cli/README.md) | Manage repositories and teams; look up terminal commands. |
-| [Configuration](configuration/README.md) | Edit `config.yaml`, choose coding agents and understand permissions. |
-| [Operations](operations/README.md) | Run the daemon, inspect logs and usage, recover work and clean up. |
+## Getting started
 
-The factory also supports central specialist teams, asynchronous questions,
-reviewed conflict proposals, optional quota recovery and usage reporting. Their
-guides explain prerequisites, supported controls and evidence limits.
+- [Getting started](getting-started/README.md): the path from nothing to a first Research run.
+- [Installation](getting-started/installation.md)
+- [GitHub setup](getting-started/github-setup.md): token, identities, repositories and webhooks.
+- [Discord setup and use](discord.md): optional chat with the factory.
 
-New to the terminology? Read the [glossary](glossary.md).
+## Using the factory
+
+- [Guides overview](guides/README.md)
+- [Working with issues](guides/working-with-issues.md)
+- [Workflow](guides/workflow.md)
+- [Validation and delivery](guides/validation-and-delivery.md)
+- [Scheduling](guides/scheduling.md)
+- [Attachments](guides/attachments.md)
+- [Sync and conflicts](guides/sync-and-conflicts.md)
+- [MCP](guides/mcp.md)
+- [Research](workflow/research-graph.md)
+- [Plan and Implement](workflow/plan-graph.md)
+- [Validate](workflow/validate.md)
+- [Spike](workflow/spike.md)
+- [Bug](workflow/bug-runtime.md) and [bug checks](bug-checks.md)
+- [Repositories](cli/repositories.md) and [teams](cli/teams.md) (how-to)
+
+## Reference
+
+- [Owner commands](guides/owner-commands.md): every issue comment the factory accepts.
+- [CLI reference](cli/command-reference.md) ([CLI overview](cli/README.md))
+- [Configuration overview](configuration/README.md) and [config.yaml reference](configuration/config-yaml.md)
+- [Coding agents](configuration/coding-agents.md)
+- [Permissions](configuration/permissions.md)
+- [Glossary](glossary.md)
+
+## Operations
+
+- [Operations overview](operations/README.md)
+- [Running the daemon](operations/running-the-daemon.md)
+- [Troubleshooting](operations/troubleshooting.md)
+- [Doctor](operations/doctor.md)
+- [Recovery](operations/recovery.md)
+- [Cleanup](operations/cleanup.md)
+- [Usage and costs (meter)](meter.md)
+- [Codex initialization troubleshooting](codex-initialization-troubleshooting.md)
+
+## Maintainers
+
+- [Release runbook](release-runbook.md)
+- [Stack profiles](stack-profiles.md)
+- [Agent evidence capture](agent-evidence-capture.md)
