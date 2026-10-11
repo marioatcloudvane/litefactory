@@ -466,7 +466,9 @@ func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCo
 		return fail(errors.New("check exit status unavailable"))
 	case *out.Exit == 0 && err == nil:
 		out.Outcome = "passed"
-	case *out.Exit == 1:
+	case *out.Exit >= 1 && *out.Exit <= 125:
+		// Any ordinary non-zero exit is a test failure (make reports 2).
+		// 126, 127 and 128+N (shell "killed by signal N") stay blocked.
 		out.Outcome = "failed"
 		out.Reason = "project check reported test failure"
 	default:

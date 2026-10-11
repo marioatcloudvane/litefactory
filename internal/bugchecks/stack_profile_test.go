@@ -51,6 +51,31 @@ func TestStackCommandsRetainFailureAndEffectiveEnvironment(t *testing.T) {
 		})
 	}
 }
+func TestCheckExitStatusClassification(t *testing.T) {
+	for _, tc := range []struct {
+		exit    string
+		outcome string
+		reason  string
+	}{
+		{"1", "failed", "project check reported test failure"},
+		{"2", "failed", "project check reported test failure"},
+		{"125", "failed", "project check reported test failure"},
+		{"126", "blocked", "check infrastructure failure or signal"},
+		{"127", "blocked", "check infrastructure failure or signal"},
+		{"137", "blocked", "check infrastructure failure or signal"},
+	} {
+		t.Run("exit"+tc.exit, func(t *testing.T) {
+			isolation, worktree, _ := stackCommandFixture(t, "exit "+tc.exit+"\n")
+			got := isolation.Run(t.Context(), worktree, config.BugCheckCommand{Argv: []string{"/bin/echo", "test"}, TimeoutSeconds: 10}, func(CommandResult) error { return nil })
+			if got.Outcome == "blocked" && strings.Contains(got.Reason, "retain command identity: operation not permitted") {
+				t.Skip("host refuses process identity observation required by isolated command executor")
+			}
+			if got.Outcome != tc.outcome || got.Reason != tc.reason {
+				t.Fatalf("exit %s classified %q %q", tc.exit, got.Outcome, got.Reason)
+			}
+		})
+	}
+}
 func TestStackCommandsCancelledRemainFailed(t *testing.T) {
 	isolation, worktree, p := stackCommandFixture(t, "sleep 30\n")
 	ctx, cancel := context.WithCancel(t.Context())
