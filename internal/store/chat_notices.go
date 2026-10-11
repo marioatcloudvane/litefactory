@@ -317,7 +317,7 @@ type ChatNotice struct {
 
 // noticeColumns fills the command-only ChatReply fields with neutral values so
 // notices share scanChat without carrying the inbox's command state.
-const noticeColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,'','',0,0,''`
+const noticeColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,'','',0,0,'','','',0,0,'',''`
 
 // ClaimChatNotice uses the same lease and attempt fence as command replies.
 func (db *DB) ClaimChatNotice(ctx context.Context, transport string, at time.Time) (ChatReply, error) {

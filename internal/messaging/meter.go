@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/meterview"
 )
 
@@ -73,28 +74,34 @@ func meterRequest(args map[string]string) (meterview.Request, int, error) {
 func (s *Service) meter(ctx context.Context, m Message, at time.Time) (string, error) {
 	request, page, err := meterRequest(m.Arguments)
 	if err != nil {
-		return "usage: /meter — " + err.Error(), nil
+		return assessed(ctx, "usage: /meter — "+err.Error(), presentation.Refusal)
 	}
 	// Deferred delivery owns bounded reporting work; admission never queries usage.
 	bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	view, err := meterview.Read(bounded, s.db, request)
 	if err != nil {
-		return s.reportError(ctx, "meter", err), nil
+		return assessed(ctx, s.reportError(ctx, "meter", err), presentation.ReportableError)
+	}
+	if repoID, resolveErr := meterview.ResolveProject(ctx, s.db, request.Project); resolveErr == nil {
+		presentation.AssessRepository(ctx, repoID)
 	}
 	summary, err := s.protectReportLines(bounded, view.SummaryLines())
 	if err != nil {
-		return s.reportError(ctx, "meter", err), nil
+		return assessed(ctx, s.reportError(ctx, "meter", err), presentation.ReportableError)
 	}
 	rows, err := s.protectReportLines(bounded, append(view.GroupLines(), view.DetailLines()...))
 	if err != nil {
-		return s.reportError(ctx, "meter", err), nil
+		return assessed(ctx, s.reportError(ctx, "meter", err), presentation.ReportableError)
 	}
 	pages, err := buildPages(summary, rows, s.ReplyLimit(), at, func(n int) string { return nextCommand("meter", m.Arguments, meterArgumentNames, n) })
 	if err != nil {
-		return tooLargeReply, nil
+		return assessed(ctx, tooLargeReply, presentation.Refusal)
 	}
-	return pageReply(pages, page), nil
+	if page > len(pages) {
+		return assessed(ctx, pageReply(pages, page), presentation.Refusal)
+	}
+	return assessed(ctx, pageReply(pages, page), presentation.Success)
 }
 
 const tooLargeReply = "report too large, narrow the filter; try a project, task or from/to time filter"
@@ -120,27 +127,30 @@ func (s *Service) reportError(ctx context.Context, command string, err error) st
 
 func (s *Service) prices(ctx context.Context, m Message, at time.Time) (string, error) {
 	if !validArguments(m.Arguments, priceArgumentNames) {
-		return "usage: /prices — unknown argument", nil
+		return assessed(ctx, "usage: /prices — unknown argument", presentation.Refusal)
 	}
 	page, err := requestedPage(m.Arguments)
 	if err != nil {
-		return "usage: /prices — " + err.Error(), nil
+		return assessed(ctx, "usage: /prices — "+err.Error(), presentation.Refusal)
 	}
 	bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	catalogue, err := meterview.Prices(bounded, s.db, m.Arguments["agent"], m.Arguments["model"])
 	if err != nil {
-		return s.reportError(ctx, "prices", err), nil
+		return assessed(ctx, s.reportError(ctx, "prices", err), presentation.ReportableError)
 	}
 	lines, err := s.protectReportLines(bounded, meterview.PriceLines(catalogue))
 	if err != nil {
-		return s.reportError(ctx, "prices", err), nil
+		return assessed(ctx, s.reportError(ctx, "prices", err), presentation.ReportableError)
 	}
 	pages, err := buildPages(lines[:1], lines[1:], s.ReplyLimit(), at, func(n int) string { return nextCommand("prices", m.Arguments, priceArgumentNames, n) })
 	if err != nil {
-		return "report too large, narrow the filter; try agent or model", nil
+		return assessed(ctx, "report too large, narrow the filter; try agent or model", presentation.Refusal)
 	}
-	return pageReply(pages, page), nil
+	if page > len(pages) {
+		return assessed(ctx, pageReply(pages, page), presentation.Refusal)
+	}
+	return assessed(ctx, pageReply(pages, page), presentation.Success)
 }
 
 // Protect before pagination so redaction expansion cannot displace page footers.

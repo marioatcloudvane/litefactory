@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -24,6 +25,7 @@ func (s *Service) EnableFeatures(drafter *feature.Drafter, confirmer FeatureConf
 }
 
 func (s *Service) featureReply(ctx context.Context, r store.ChatReply, at time.Time) (store.ChatReply, string, error) {
+	r.OutcomeStatus = string(presentation.Uncertain)
 	if r.AnswerAttempts >= 2 {
 		return r, "Could not complete this request. Please send a new command.", nil
 	}
@@ -33,7 +35,11 @@ func (s *Service) featureReply(ctx context.Context, r store.ChatReply, at time.T
 	}
 	work, cancel := context.WithTimeout(ctx, 5*time.Minute-20*time.Second)
 	defer cancel()
+	work, assessment := presentation.WithAssessment(work)
 	text := "Feature issues unavailable right now."
+	if (r.Command == "draft" && s.drafter == nil) || (r.Command == "confirm" && s.confirmer == nil) {
+		assessment.Status = presentation.ReportableError
+	}
 	if r.Command == "draft" && s.drafter != nil {
 		var repoID int64
 		project := r.ProjectOption
@@ -54,12 +60,19 @@ func (s *Service) featureReply(ctx context.Context, r store.ChatReply, at time.T
 			err = s.db.ResolveChatProject(work, r, repoID)
 		}
 	} else if r.Command == "confirm" && s.confirmer != nil {
+		if preview, e := s.db.ChatIssuePreviewByCode(work, r.Transport, r.ChannelRef, r.Question); e == nil {
+			if e = s.db.ResolveChatProject(work, r, preview.RepoID); e != nil {
+				return r, "", e
+			}
+		}
 		text, err = s.confirmer.Confirm(work, r.Transport, r.ChannelRef, r.MessageID, r.Question, at)
 	}
 	if ctx.Err() != nil {
 		return r, "", ctx.Err()
 	}
+	r.OutcomeStatus = string(assessment.Status)
 	if err != nil || work.Err() != nil {
+		r.OutcomeStatus = string(presentation.Uncertain)
 		text = "Could not complete the request. Send /confirm again to check creation, or /draft for a new preview."
 	}
 	if s.Protect != nil {
