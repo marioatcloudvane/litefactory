@@ -509,7 +509,7 @@ func (a *Adapter) Register(ctx context.Context, definitions ...messaging.Command
 	}
 	d, status := a.call(ctx, http.MethodPut, "/applications/"+a.options.ApplicationID+"/commands", commands, true)
 	if !d.Confirmed {
-		return fmt.Errorf("discord command registration failed (HTTP %d)", status)
+		return fmt.Errorf("discord command registration failed (HTTP %d, code %d: %s)", status, d.EditCode, d.EditMessage)
 	}
 	return nil
 }

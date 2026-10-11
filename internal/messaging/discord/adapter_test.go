@@ -427,3 +427,33 @@ func TestRefusedEditLogged(t *testing.T) {
 		})
 	}
 }
+
+func TestRegisterRefusalCarriesReason(t *testing.T) {
+	t.Parallel()
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/applications/1/commands" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"code": 50035, "message": "Invalid Form Body", "errors": {"0": {"options": {}}}}`)
+	}))
+	defer api.Close()
+	adapter := discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("bot-secret"), APIURL: api.URL, Client: api.Client()})
+	err = adapter.Register(t.Context(), messaging.CommandDefinition{Name: "question", Description: "Show the current research question", Arguments: []messaging.Argument{{Name: "issue", Type: messaging.IntegerArgument, Required: true, Description: "Positive issue number"}}})
+	if err == nil {
+		t.Fatal("refused registration returned no error")
+	}
+	for _, want := range []string{"400", "50035", "Invalid Form Body"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "bot-secret") {
+		t.Errorf("error leaks the token: %q", err)
+	}
+}
