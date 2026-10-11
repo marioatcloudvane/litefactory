@@ -259,20 +259,26 @@ func TestValidateRestartMidSuiteNeedsOneOwnerStartAndNeverTwoLiveRuns(t *testing
 	if again, err := a.manual(t, 6001); err != nil || !strings.Contains(again.Reason, "stopped before it finished") {
 		t.Fatalf("%+v %v", again, err)
 	}
-	// The owner's new /validate starts the run anew, once; a duplicate repeats nothing.
+	interrupted := a.entries(t)[0].InstanceID
+	// The owner's new /validate starts the run anew, once.
 	if out, err := a.manual(t, 6002); err != nil {
 		t.Fatalf("%+v %v", out, err)
 	}
-	dup, err := a.manual(t, 6003)
-	if err != nil || !strings.Contains(dup.Reason, "already been started") {
+	restarted := a.entries(t)[0].InstanceID
+	// #621: a further /validate replaces the run that now only waits for the
+	// owner; it never leaves two live runs.
+	if dup, err := a.manual(t, 6003); err != nil || strings.Contains(dup.Reason, "already been started") {
 		t.Fatalf("%+v %v", dup, err)
 	}
+	if prior, err := a.f.db.GetGraphInstance(t.Context(), restarted); err != nil || prior.Status != store.GraphCancelled {
+		t.Fatalf("the earlier waiting run is cancelled: %+v %v", prior, err)
+	}
 	got := a.reached(t)
-	if got.Entries != 1 || got.Instances != 1 || got.Wait != "waiting" || got.Outcome == "" || got.Reviewers != 3 {
+	if got.Entries != 1 || got.Instances != 1 || got.Wait != "waiting" || got.Outcome == "" || got.Reviewers != 6 || got.FullCommands != 5 {
 		t.Fatalf("one entry, finished through the owner wait: %+v", got)
 	}
 	live := 0
-	for _, id := range []int64{a.entries(t)[0].InstanceID} {
+	for _, id := range []int64{interrupted, restarted, a.entries(t)[0].InstanceID} {
 		inst, err := a.f.db.GetGraphInstance(t.Context(), id)
 		mustProgress(t, err)
 		if inst.Status == store.GraphRunning {
