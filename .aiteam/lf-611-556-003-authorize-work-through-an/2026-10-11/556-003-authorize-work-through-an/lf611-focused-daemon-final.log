@@ -1,0 +1,50 @@
+=== RUN   TestDoctorProjectApproverAdmission
+=== RUN   TestDoctorProjectApproverAdmission/approver_diagnosis
+=== RUN   TestDoctorProjectApproverAdmission/approver_stop
+=== RUN   TestDoctorProjectApproverAdmission/code_owner_cannot_direct_diagnosis
+=== RUN   TestDoctorProjectApproverAdmission/other_project_actor
+=== RUN   TestDoctorProjectApproverAdmission/publisher
+=== RUN   TestDoctorProjectApproverAdmission/preactivation_reply
+=== RUN   TestDoctorProjectApproverAdmission/self_marker
+=== RUN   TestDoctorProjectApproverAdmission/foreign_source_origin
+=== RUN   TestDoctorProjectApproverAdmission/approver_cannot_approve_code_repair
+=== RUN   TestDoctorProjectApproverAdmission/code_owner_retains_apply
+--- PASS: TestDoctorProjectApproverAdmission (0.88s)
+    --- PASS: TestDoctorProjectApproverAdmission/approver_diagnosis (0.10s)
+    --- PASS: TestDoctorProjectApproverAdmission/approver_stop (0.08s)
+    --- PASS: TestDoctorProjectApproverAdmission/code_owner_cannot_direct_diagnosis (0.08s)
+    --- PASS: TestDoctorProjectApproverAdmission/other_project_actor (0.07s)
+    --- PASS: TestDoctorProjectApproverAdmission/publisher (0.08s)
+    --- PASS: TestDoctorProjectApproverAdmission/preactivation_reply (0.07s)
+    --- PASS: TestDoctorProjectApproverAdmission/self_marker (0.11s)
+    --- PASS: TestDoctorProjectApproverAdmission/foreign_source_origin (0.12s)
+    --- PASS: TestDoctorProjectApproverAdmission/approver_cannot_approve_code_repair (0.08s)
+    --- PASS: TestDoctorProjectApproverAdmission/code_owner_retains_apply (0.08s)
+=== RUN   TestDoctorPriorityUsesConfiguredProjectApprover
+    doctor_project_authority_internal_test.go:225: priority diagnosis admitted from qualified project approver 42 into github:team/tickets#406
+--- PASS: TestDoctorPriorityUsesConfiguredProjectApprover (0.08s)
+=== RUN   TestDoctorProjectPublicationPinsOriginalSource
+--- PASS: TestDoctorProjectPublicationPinsOriginalSource (0.12s)
+=== RUN   TestDoctorSavedSourceRejectsChangedPublisher
+--- PASS: TestDoctorSavedSourceRejectsChangedPublisher (0.08s)
+=== RUN   TestProjectApproverWorkflowEndToEnd
+    project_approver_e2e_internal_test.go:261: verified operator appointment, fresh instruction, exact story approval and restart preserved; code owner, ticket creator and assignee have no appointment authority
+--- PASS: TestProjectApproverWorkflowEndToEnd (0.17s)
+=== RUN   TestProjectCodeAuthorityWithoutTicketAppointment
+=== RUN   TestProjectCodeAuthorityWithoutTicketAppointment/code_owner
+=== RUN   TestProjectCodeAuthorityWithoutTicketAppointment/other_human
+=== RUN   TestProjectCodeAuthorityWithoutTicketAppointment/publisher
+=== RUN   TestProjectCodeAuthorityWithoutTicketAppointment/bot_identity
+=== RUN   TestProjectCodeAuthorityWithoutTicketAppointment/self_marker
+--- PASS: TestProjectCodeAuthorityWithoutTicketAppointment (0.12s)
+    --- PASS: TestProjectCodeAuthorityWithoutTicketAppointment/code_owner (0.00s)
+    --- PASS: TestProjectCodeAuthorityWithoutTicketAppointment/other_human (0.00s)
+    --- PASS: TestProjectCodeAuthorityWithoutTicketAppointment/publisher (0.00s)
+    --- PASS: TestProjectCodeAuthorityWithoutTicketAppointment/bot_identity (0.00s)
+    --- PASS: TestProjectCodeAuthorityWithoutTicketAppointment/self_marker (0.00s)
+=== RUN   TestProjectDiscoveryRetainsBacklogAndQualifiedWorkspace
+--- PASS: TestProjectDiscoveryRetainsBacklogAndQualifiedWorkspace (0.10s)
+=== RUN   TestTickReturnsWithoutWaitingForADispatchedRun
+--- PASS: TestTickReturnsWithoutWaitingForADispatchedRun (0.22s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	3.456s

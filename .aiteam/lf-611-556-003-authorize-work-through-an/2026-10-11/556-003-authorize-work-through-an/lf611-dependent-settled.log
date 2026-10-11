@@ -1,0 +1,23 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.487s
+--- FAIL: TestDoctorLiveDiagnosisProposesRepairForQueriedTargets (13.89s)
+    live_diagnosis_io_test.go:279: query rows: {"valid":false,"error":"database query timed out or was cancelled"} <nil>
+--- FAIL: TestDoctorBrokerReadToolsExactCatalogAndRedactedQuery (16.15s)
+    read_tools_io_test.go:94: query disclosure: {"valid":false,"error":"database query timed out or was cancelled"} database query timed out or was cancelled
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/doctor	219.727s
+ok  	github.com/cloudvane/litefactory/internal/github	9.786s
+ok  	github.com/cloudvane/litefactory/internal/messaging	74.664s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	16.342s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	8.606s
+ok  	github.com/cloudvane/litefactory/internal/meterview	10.040s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	39.140s
+ok  	github.com/cloudvane/litefactory/internal/repos	22.252s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	49.320s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+--- FAIL: TestCanonicalMigrationAndGraphContracts (1.68s)
+    release_test.go:267: validate graph changed beyond team and guidance
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamrelease	208.132s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	50.737s
+FAIL

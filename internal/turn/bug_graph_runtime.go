@@ -83,6 +83,8 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 			}
 			return store.WorkflowAdmission{}, e
 		}
+	}
+	if e == nil && instance.Status == store.GraphRunning {
 		if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 			wait, e := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
 			if e != nil {
@@ -115,7 +117,7 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 		}
 		return retainedAdmission(ctx, r.opts.DB, req, instance, "bug"), nil
 	}
-	if !errors.Is(e, store.ErrNotFound) {
+	if e != nil && !errors.Is(e, store.ErrNotFound) {
 		return store.WorkflowAdmission{}, e
 	}
 	if store.IsGraphTrigger(req.Trigger.CommentID) {
@@ -142,6 +144,17 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {
 	local := *r
 	r = &local
+	if r.opts.ProjectApprovers {
+		var err error
+		r.opts, err = bindProjectApprover(ctx, r.opts, req.SessionID)
+		if err != nil {
+			return result, err
+		}
+		r.cfg.OwnerID, err = ticketOwnerID(ctx, r.opts)
+		if err != nil {
+			return result, err
+		}
+	}
 	result.ResearchGraph = true
 	admission, e := r.graphAdmission(ctx, req)
 	if e != nil {

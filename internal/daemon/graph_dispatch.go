@@ -196,7 +196,7 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		return
 	}
 	t.validating = validating
-	trigger, command := graphStepRequest(dispatch, d.filter.Identities().OwnerHandle)
+	trigger, command := graphStepRequest(dispatch, d.ticketIdentities(ctx).OwnerHandle)
 	previousTrigger := t.commentUnderWay
 	t.commentUnderWay = trigger.CommentID
 	err := d.run(ctx, t, trigger, command, t.log)

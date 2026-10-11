@@ -1317,18 +1317,12 @@ func (f *fixture) issueWithLabels(title string, labels ...string) {
 	})
 }
 
-// assignedIssue registers an issue with the given body, assigned to the owner:
-// the shape that runs its body as a first instruction (AC-2.16b).
-//
-// The author is the *stranger*, on purpose. The gate is assignment and not
-// authorship — assigning an issue to yourself is the act of instruction, and
-// anyone at all may open one — so the harder of the two cases is the default
-// here, and a body test cannot pass by accident because the owner happened to
-// write it. Where authorship is the point, [fixture.assignedIssueBy] says so.
+// assignedIssue registers an approver-authored issue assigned to the approver.
+// Authorship authorizes the initial body; assignment remains metadata.
 func (f *fixture) assignedIssue(title, body string) {
 	f.t.Helper()
 
-	f.assignedIssueBy(stranger(), title, body)
+	f.assignedIssueBy(owner(), title, body)
 }
 
 // assignedIssueBy is [fixture.assignedIssue] with the issue's author spelled

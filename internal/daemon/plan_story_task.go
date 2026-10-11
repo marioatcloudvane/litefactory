@@ -161,7 +161,7 @@ func (d *Daemon) startPlanWork(ctx context.Context, t *task) error {
 		return err
 	}
 	stored, _, err := d.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{
-		SessionID: t.session.ID, SourceCommentID: id, OwnerHandle: d.filter.Identities().OwnerHandle,
+		SessionID: t.session.ID, SourceCommentID: id, OwnerHandle: d.ticketIdentities(ctx).OwnerHandle,
 		Payload: planWorkPayload, DueAt: t.tickAt.UTC(),
 	})
 	if err != nil {
@@ -263,7 +263,7 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 // and retirement follow the same exact rules as ever; a reply the rules refuse is
 // explained on this issue and consumed.
 func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.Comment, story store.GraphPlanStory, log *slog.Logger) error {
-	ids := d.filter.Identities()
+	ids := d.ticketIdentities(ctx)
 	if c.Author.ID != ids.OwnerUserID || turn.HasMarker(c.Body) {
 		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, only the owner's plain comments are Plan input")
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
@@ -301,7 +301,11 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 		reply.Stage, reply.Candidate, reply.WaitID = wait.Stage, wait.Candidate, wait.ID
 	}
 
-	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID, PlanReply: reply}
+	trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
+	if triggerErr != nil {
+		return triggerErr
+	}
+	trigger.PlanReply = reply
 	err = d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
 	var refusal *turn.PlanReplyRefusal
 	if errors.As(err, &refusal) {

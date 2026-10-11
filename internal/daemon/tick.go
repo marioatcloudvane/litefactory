@@ -226,6 +226,13 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(ctx, startedAt, err)
 	}
+	if d.connections != nil {
+		for _, project := range repos {
+			if err := d.db.RecoverConsumedProjectAuthorityClaims(ctx, project.ID); err != nil {
+				return result, d.observe(ctx, startedAt, err)
+			}
+		}
+	}
 
 	d.researchReminders(ctx, startedAt)
 
@@ -1321,7 +1328,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 
 	// The dispatch point uses the daemon's long-lived context. runWorker owns
 	// the shared pool and in-flight lifetime through terminal diagnostics.
-	go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
+	go d.runTicketPollingWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
 
 	result.Dispatched++
 	return offerDispatched
@@ -1690,20 +1697,27 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 // the body reaches the model as the instruction itself and as the issue note.
 // Nothing validates Trigger.Body.
 //
-// Author is the *issue* author's handle, which is not necessarily the owner —
-// the gate is assignment, not authorship. That is safe precisely because the
-// prompt keeps the `opened by X` attribution: a run started from a stranger's
-// body still tells the model who wrote what it was handed.
+// Author is the verified project approver who authored this body. Assignment
+// grants no authority; the provider creation time must satisfy activation.
 //
 // # No 👀
 //
 // There is no comment to react to, and reacting to the issue would be an eighth
 // forge endpoint for a cosmetic gain. AC-2.17 stays comment-only.
 func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Comment) error {
+	if d.connections != nil {
+		appointment, err := d.db.CurrentApprover(ctx, t.session.RepoID)
+		if err != nil {
+			return err
+		}
+		if appointment.RequireFresh && !t.issue.CreatedAt.After(appointment.ActivatedAt) {
+			return nil
+		}
+	}
 	var refusal string
 	switch {
-	case !t.issue.AssignedTo(d.filter.Identities().OwnerUserID):
-		refusal = "it is not assigned to the owner"
+	case t.issue.Author.ID != d.ticketIdentities(ctx).OwnerUserID || t.issue.Author.IsBot || turn.HasMarker(t.issue.Body):
+		refusal = "its author is not the verified ticket approver"
 	case strings.TrimSpace(t.issue.Body) == "":
 		refusal = "its body is empty"
 	case len(comments) != 0:
@@ -1749,7 +1763,15 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 	log.InfoContext(ctx, "running the issue body as the task's first instruction",
 		slog.String("command", command.Name),
 		slog.String("kind", command.Kind.String()))
-	trigger := turn.Trigger{CommentID: 0, Body: "", Author: t.issue.Author.Login}
+	trigger := turn.Trigger{CommentID: 0, Body: "", Author: t.issue.Author.Login, AuthorID: t.issue.Author.ID, CreatedAt: t.issue.CreatedAt}
+	if d.connections != nil {
+		mapping, err := d.db.GetSessionTicket(ctx, t.session.ID)
+		if err != nil {
+			return err
+		}
+		trigger.Actor = ticket.Identity{Provider: mapping.Locator.Provider, Origin: mapping.Locator.Origin, RemoteID: strconv.FormatInt(t.issue.Author.ID, 10)}
+		trigger.Source = ticket.Identity{Provider: mapping.Locator.Provider, Origin: mapping.Locator.Origin, RemoteID: mapping.RemoteID}
+	}
 	return d.run(ctx, t, trigger, command, log)
 }
 
@@ -1906,6 +1928,7 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 // on a later tick — including a rate limit, which arms the backoff where it was
 // met and then leaves by that same door. See [Daemon.leave].
 func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) error {
+	ctx = sessionContext(ctx, t.session.ID)
 	qualifiedReply, err := d.qualifyReply(ctx, t.session.ID, c)
 	if err != nil {
 		return err
@@ -1926,6 +1949,38 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),
 		slog.String("author", c.Author.Login))
+	commandForCode := turn.ParseCommand(c.Body)
+	if isCodeAuthorityControl(commandForCode.Name) {
+		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
+			if recordErr := d.recordCodeObservation(ctx, t.session.ID, c, qualifiedReply, false); recordErr != nil {
+				return recordErr
+			}
+			_, consumeErr := d.reporter.Consume(ctx, t.session.ID, c.ID)
+			return consumeErr
+		}
+		if err := d.recordCodeObservation(ctx, t.session.ID, c, qualifiedReply, true); err != nil {
+			return err
+		}
+		if d.connections != nil {
+			claim, err := d.claimCodeControl(ctx, t.session.ID, c)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if err := d.db.CompleteProjectAuthority(context.WithoutCancel(ctx), claim.ID); err != nil {
+					log.ErrorContext(ctx, "release code authority claim", "error", err)
+				}
+			}()
+		}
+		if commandForCode.Name == "/deliver" || commandForCode.Name == "/merge" {
+			return d.handleDelivery(ctx, t, c, log)
+		}
+		trigger, err := d.projectTrigger(ctx, t.session.ID, c)
+		if err != nil {
+			return err
+		}
+		return d.run(ctx, t, trigger, commandForCode, log)
+	}
 	// The self-filter runs first and matches on numeric ids, never handles
 	// (D-I, AC-2.14). Everything is recorded, including litefactory's own
 	// comments: a dropped comment that left no trace cannot be told from one
@@ -1934,6 +1989,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	if err != nil {
 		return fmt.Errorf("classify comment %d on task %s: %w", c.ID, t.ref, err)
 	}
+
 	if !admission.Triggers() {
 		// litefactory's own comment, or a third party's: recorded and tagged,
 		// nothing runs, the comment is consumed (AC-2.14, AC-2.15).
@@ -1992,7 +2048,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		if err == nil && admission.Workflow == string(agent.WorkflowBug) {
 			// The runtime authenticates and parses the exact original body against
 			// its published wait. This only routes an existing task's control.
-			trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+			trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
+			if triggerErr != nil {
+				return triggerErr
+			}
 			return d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
 		}
 	}
@@ -2048,7 +2107,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, it is not a command that starts a run")
 		return d.reply(ctx, t, c, command, log)
 	}
-	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
+	if triggerErr != nil {
+		return triggerErr
+	}
 	return d.run(ctx, t, trigger, command, log)
 }
 
@@ -2071,7 +2133,10 @@ func (d *Daemon) handlePlanControl(
 	if route != "graph" {
 		return d.reply(ctx, t, c, turn.Command{Kind: turn.KindUnknown, Name: command.Name, Tagged: command.Tagged}, log)
 	}
-	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
+	if triggerErr != nil {
+		return triggerErr
+	}
 	return d.run(ctx, t, trigger, command, log)
 }
 
@@ -2095,7 +2160,10 @@ func (d *Daemon) handleValidateControl(
 	if !graph {
 		return d.reply(ctx, t, c, turn.Command{Kind: turn.KindUnknown, Name: command.Name, Tagged: command.Tagged}, log)
 	}
-	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
+	if triggerErr != nil {
+		return triggerErr
+	}
 	return d.run(ctx, t, trigger, command, log)
 }
 
@@ -2237,6 +2305,7 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
+	ctx = sessionContext(ctx, t.session.ID)
 	if d.bug != nil {
 		if err := d.bug.CheckExistingAdmission(ctx, t.session.ID); err != nil {
 			return d.leave(ctx, t, log, "unsupported pinned Bug work preserved", err)
@@ -2498,7 +2567,7 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		// consumption would skip unrelated parent comments whose globally
 		// allocated IDs are lower.
 		reply := trigger.PlanReply
-		if mode != agent.ModePlan || reply.ID != trigger.CommentID || reply.ActorID != trigger.AuthorID || reply.OwnerID != d.filter.Identities().OwnerUserID {
+		if mode != agent.ModePlan || reply.ID != trigger.CommentID || reply.ActorID != trigger.AuthorID || reply.OwnerID != d.ticketIdentities(ctx).OwnerUserID {
 			return errors.New("plan child completion correlation mismatch")
 		}
 		route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
