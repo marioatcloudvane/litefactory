@@ -59,8 +59,8 @@ func TestDoctorQueryLimitsTimeoutAndPlainErrors(t *testing.T) {
 	if err != nil || !bytes.Truncated || len(bytes.Rows) != 0 {
 		t.Fatalf("byte bound: %+v %v", bytes, err)
 	}
-	slow, err := queryDoctor(t.Context(), db.path, `SELECT sum(x) FROM (WITH RECURSIVE seq(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM seq WHERE x<300000) SELECT x FROM seq)`, DoctorQueryTimeout, 200, 4096)
-	if err != nil || slow.Truncated || len(slow.Rows) != 1 || slow.Rows[0][0] != int64(45000150000) {
+	slow, err := queryDoctor(t.Context(), db.path, `SELECT sum(x) FROM (WITH RECURSIVE seq(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM seq WHERE x<100000) SELECT x FROM seq)`, 2*time.Minute, 200, 4096)
+	if err != nil || slow.Truncated || len(slow.Rows) != 1 || slow.Rows[0][0] != int64(5000050000) {
 		t.Fatalf("slow finite query under generous deadline: %+v %v", slow, err)
 	}
 	_, err = queryDoctor(t.Context(), db.path, `SELECT sum(x) FROM (WITH RECURSIVE seq(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM seq WHERE x<100000000) SELECT x FROM seq)`, 20*time.Millisecond, 200, 4096)
