@@ -3,11 +3,12 @@ package turn
 import (
 	"context"
 	"errors"
+	"strings"
+	"testing"
+
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
-	"strings"
-	"testing"
 )
 
 func TestNeutralPlanCreationRetainsPartialAndUncertainEffects(t *testing.T) {
@@ -88,9 +89,20 @@ func TestNeutralPlanBindingRejectsOriginAndExpectedContentChanges(t *testing.T) 
 	if f.patches != 0 {
 		t.Fatal("conflicting content dispatched")
 	}
+	originalKey := planDestination(bridge.locator(a.Repo, a.ParentNumber))
+	originalBinding, err := h.DB.GetTicketEffect(t.Context(), originalKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bridge.Tickets = foreignPlanOrigin{tickets}
-	if _, err = bridge.GetIssue(t.Context(), a.Repo, a.ParentNumber); !errors.Is(err, store.ErrTicketIdentityConflict) {
+	_, err = bridge.GetIssue(t.Context(), a.Repo, a.ParentNumber)
+	var failure *ticket.Failure
+	if !errors.As(err, &failure) || failure.Kind != ticket.Refused || failure.Operation != "address" {
 		t.Fatalf("origin rebound: %v", err)
+	}
+	afterBinding, err := h.DB.GetTicketEffect(t.Context(), originalKey)
+	if err != nil || afterBinding != originalBinding {
+		t.Fatalf("foreign origin changed historical metadata: %+v %v", afterBinding, err)
 	}
 }
 

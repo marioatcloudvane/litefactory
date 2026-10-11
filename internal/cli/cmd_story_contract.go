@@ -10,13 +10,16 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -66,38 +69,11 @@ func runStoryContractUpgrade(ctx context.Context, env *Env, parent string, apply
 	if err != nil {
 		return Preconditionf("configured numeric owner and bot identities required: %v", err)
 	}
-	_, err = db.GetRepoBySlug(ctx, store.ForgeGitHub, ref.Owner, ref.Repo)
-	if err != nil {
-		return fmt.Errorf("upgrade repository must be registered: %w", err)
-	}
-	tokenRef, configured := secrets.ReferenceFrom(cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
-	if !configured {
-		return Preconditionf("configured bot credential required")
-	}
-	token, err := (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, tokenRef)
+	ctx, ticketWorkflow, sharedRedactor, err := storyContractTicketWorkflow(ctx, env, db, *cfg, ref, ids.BotUserID)
 	if err != nil {
 		return err
 	}
-	forge, err := github.New(github.Options{APIBase: cfg.Providers.GitHub.APIBase, Token: token, Logger: env.Logger, UserAgent: initUserAgent(env)})
-	if err != nil {
-		return err
-	}
-	bot, err := forge.AuthenticatedUser(ctx)
-	if err != nil {
-		return err
-	}
-	if bot.ID != ids.BotUserID {
-		return Preconditionf("configured credential does not match the stored numeric bot identity")
-	}
-	tickets, err := github.NewTickets(forge)
-	if err != nil {
-		return err
-	}
-	ticketWorkflow, err := turn.NewGitHubTicketWorkflow(db, tickets, ids.BotUserID)
-	if err != nil {
-		return err
-	}
-	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{}), Limit: planbrief.MaxStoryBodyBytes})
+	renderer, err := report.New(report.Options{Redactor: sharedRedactor, Limit: planbrief.MaxStoryBodyBytes})
 	if err != nil {
 		return err
 	}
@@ -138,4 +114,80 @@ func runStoryContractUpgrade(ctx context.Context, env *Env, parent string, apply
 	}
 	_, err = fmt.Fprintln(env.Stdout, "Upgrade recorded. The next published and approved Plan is required before engineering; workflow and historical acceptance are unchanged.")
 	return err
+}
+
+// storyContractTicketWorkflow keeps every managed-child operation in the
+// parent's retained execution context. Preview never imports or admits work.
+func storyContractTicketWorkflow(ctx context.Context, env *Env, db *store.DB, cfg config.Config, ref naming.Ref, botID int64) (context.Context, *turn.TicketWorkflowBridge, *redact.Redactor, error) {
+	sharedRedactor := redact.New(redact.Options{Logger: env.Logger})
+	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: sharedRedactor, ExpectedActorID: botID})
+	parent, err := db.GetSessionByTaskRef(ctx, ref.String())
+	if err == nil {
+		if _, err := db.GetExecutionSnapshot(ctx, parent.ID); err != nil {
+			return ctx, nil, nil, Preconditionf("parent execution connection must be reconciled before upgrade: %v", err)
+		}
+		ctx = turn.ExecutionContext(ctx, parent.ID)
+		selector := daemon.ProjectTicketSelector(db, factory)
+		adapter, actorID, err := selector(ctx, github.RepoFromRef(ref), ref.Issue, parent.ID)
+		if err != nil {
+			return ctx, nil, nil, err
+		}
+		workflow, err := turn.NewRoutedGitHubTicketWorkflow(db, adapter, actorID, selector)
+		return ctx, workflow, sharedRedactor, err
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return ctx, nil, nil, err
+	}
+	// Historical upgrade-only cohorts can predate session admission. Their
+	// legacy bridge is valid only without competing saved execution/settings.
+	repo, err := db.GetRepoBySlug(ctx, store.ForgeGitHub, ref.Owner, ref.Repo)
+	if err != nil {
+		return ctx, nil, nil, fmt.Errorf("upgrade repository must be registered: %w", err)
+	}
+	sessions, err := db.ListRepoSessions(ctx, repo.ID)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	if len(sessions) != 0 {
+		return ctx, nil, nil, Preconditionf("parent execution connection required when the project has saved work")
+	}
+	connections, err := db.ListConnections(ctx, repo.ID)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	origin, err := ticket.CanonicalOrigin(cfg.Providers.GitHub.APIBase)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	for _, v := range connections {
+		if v.Provenance != "legacy" || !v.Enabled || v.Destination != repo.Slug() || v.Origin != origin || v.CredentialService != cfg.Providers.GitHub.TokenKeychain.Service || v.CredentialAccount != cfg.Providers.GitHub.TokenKeychain.Account || v.CredentialEnv != cfg.Providers.GitHub.TokenEnv {
+			return ctx, nil, nil, Preconditionf("parent execution connection required when project connections have changed")
+		}
+	}
+	tokenRef, configured := secrets.ReferenceFrom(cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
+	if !configured {
+		return ctx, nil, nil, Preconditionf("configured bot credential required")
+	}
+	token, err := (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, tokenRef)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	sharedRedactor.AddToken(token)
+	forge, err := github.New(github.Options{APIBase: cfg.Providers.GitHub.APIBase, Token: token, Logger: env.Logger, UserAgent: initUserAgent(env)})
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	bot, err := forge.AuthenticatedUser(ctx)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	if bot.ID != botID {
+		return ctx, nil, nil, Preconditionf("configured credential does not match the stored numeric bot identity")
+	}
+	adapter, err := github.NewTickets(forge)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	workflow, err := turn.NewGitHubTicketWorkflow(db, adapter, botID)
+	return ctx, workflow, sharedRedactor, err
 }

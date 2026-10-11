@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -167,6 +168,9 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 		return err
 	}
 
+	if err := projectconnection.SeedRegistration(ctx, rt.db, stored, *rt.cfg); err != nil {
+		return err
+	}
 	writeRegistration(env.Stdout, registration, existed)
 
 	// A webhook problem never undoes or fails the registration above: the repo
@@ -215,10 +219,10 @@ func runRepoList(ctx context.Context, env *Env) (err error) {
 	}
 
 	tw := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(tw, "PATH\tREMOTE\tBASE\tWORKTREES\tLAST FETCH\n")
+	fmt.Fprintf(tw, "ID\tPATH\tREMOTE\tBASE\tWORKTREES\tLAST FETCH\n")
 	for _, repo := range list {
-		fmt.Fprintf(tw, "%s\t%s:%s\t%s\t%s\t%s\n",
-			repo.Path, repo.Forge, repo.Slug(), repo.BaseBranch,
+		fmt.Fprintf(tw, "%d\t%s\t%s:%s\t%s\t%s\t%s\n",
+			repo.ID, repo.Path, repo.Forge, repo.Slug(), repo.BaseBranch,
 			repo.WorktreeRoot, repoFetchTime(repo.LastFetchAt))
 	}
 	return tw.Flush()

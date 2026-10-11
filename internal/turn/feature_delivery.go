@@ -136,7 +136,10 @@ func (p *StoryProgress) ApplyDelivery(ctx context.Context, c DeliveryControl) (e
 	if parent.ID != q.ParentID || parent.Number != ref.Issue {
 		return fmt.Errorf("delivery parent identity changed")
 	}
-	gateway := p.code
+	gateway, err := p.deliveryGateway(ctx, q.Parent)
+	if err != nil {
+		return err
+	}
 	ok := gateway != nil
 	if !ok {
 		return fmt.Errorf("delivery forge unavailable")
@@ -383,7 +386,10 @@ func (p *StoryProgress) prepareDelivery(ctx context.Context, parent string, expl
 		key := agent.StoryDigest([]byte(parent + ready.String()))
 		return p.deliveryNotice(ctx, parent, key, "readiness", summary)
 	}
-	gateway := p.code
+	gateway, err := p.deliveryGateway(ctx, parent)
+	if err != nil {
+		return err
+	}
 	ok := gateway != nil
 	if !ok {
 		return fmt.Errorf("delivery forge unavailable")
@@ -502,7 +508,10 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 			err = errors.Join(err, saveErr, noticeErr)
 		}
 	}()
-	gateway := p.code
+	gateway, err := p.deliveryGateway(ctx, q.Parent)
+	if err != nil {
+		return err
+	}
 	ok := gateway != nil
 	if !ok {
 		return fmt.Errorf("delivery forge unavailable")
@@ -757,6 +766,17 @@ func (p *StoryProgress) deliveryCodeRepository(ctx context.Context, parent strin
 	if err != nil {
 		return github.Repo{}, err
 	}
+	snapshot, err := p.db.GetExecutionSnapshot(ctx, session.ID)
+	if err == nil {
+		repo := github.Repo{Owner: snapshot.CodeTarget.Owner, Name: snapshot.CodeTarget.Name}
+		if snapshot.CodeTarget.Forge != "github" {
+			return github.Repo{}, fmt.Errorf("retained code provider is unsupported")
+		}
+		return repo, repo.Validate()
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return github.Repo{}, err
+	}
 	registered, err := p.db.GetRepo(ctx, session.RepoID)
 	if err != nil {
 		return github.Repo{}, err
@@ -770,4 +790,17 @@ func (p *StoryProgress) deliveryCodeRepository(ctx context.Context, parent strin
 		return github.Repo{}, fmt.Errorf("registered code repository conflicts with retained delivery identity")
 	}
 	return repo, repo.Validate()
+}
+
+// deliveryGateway scopes publication to the original parent's retained code actor.
+func (p *StoryProgress) deliveryGateway(ctx context.Context, parent string) (CodeDelivery, error) {
+	gateway := p.code
+	if scoped, ok := gateway.(interface{ ForSession(int64) CodeDelivery }); ok {
+		session, err := p.db.GetSessionByTaskRef(ctx, parent)
+		if err != nil {
+			return nil, err
+		}
+		return scoped.ForSession(session.ID), nil
+	}
+	return gateway, nil
 }

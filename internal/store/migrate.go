@@ -120,6 +120,9 @@ func (db *DB) appliedVersions(ctx context.Context) (map[int]bool, error) {
 }
 
 func (db *DB) applyMigration(ctx context.Context, m migration) error {
+	if strings.HasPrefix(m.sql, "-- litefactory:rebuild-sessions\n") {
+		return db.applySessionRebuild(ctx, m)
+	}
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		if m.version == 79 {
 			if err := preservePreArchiveBugHistory(ctx, tx, m.sql); err != nil {
@@ -237,4 +240,70 @@ func preservePreArchiveBugHistory(ctx context.Context, tx *sql.Tx, body string) 
 		}
 	}
 	return nil
+}
+
+// applySessionRebuild implements SQLite's documented table-rebuild procedure
+// on an exclusively held connection. Foreign keys are restored on every exit;
+// validation occurs before committing, so history cannot be cascaded away.
+func (db *DB) applySessionRebuild(ctx context.Context, m migration) (err error) {
+	conn, err := db.sql.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, conn.Close()) }()
+	defer func() {
+		_, restoreErr := conn.ExecContext(context.WithoutCancel(ctx), `PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON`)
+		err = errors.Join(err, restoreErr)
+	}()
+	if _, err = conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON`); err != nil {
+		return err
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, tx.Rollback())
+		}
+	}()
+	rows, err := tx.QueryContext(ctx, `SELECT sql FROM sqlite_master WHERE tbl_name='sessions' AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name`)
+	if err != nil {
+		return err
+	}
+	var retainedSchema []string
+	for rows.Next() {
+		var statement string
+		if err := rows.Scan(&statement); err != nil {
+			return errors.Join(err, rows.Close())
+		}
+		retainedSchema = append(retainedSchema, statement)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, m.sql); err != nil {
+		return fmt.Errorf("rebuild sessions: %w", err)
+	}
+	for _, statement := range retainedSchema {
+		if _, err = tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("restore session index or trigger: %w", err)
+		}
+	}
+	rows, err = tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return err
+	}
+	invalid := rows.Next()
+	err = errors.Join(rows.Err(), rows.Close())
+	if err != nil {
+		return err
+	}
+	if invalid {
+		return errors.New("store: session rebuild violates retained foreign keys")
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,applied_at) VALUES(?,?,?)`, m.version, m.name, FormatTime(nowUTC())); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

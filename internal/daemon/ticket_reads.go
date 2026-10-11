@@ -51,27 +51,35 @@ func legacyTicketSnapshot(s ticket.Snapshot) (github.Issue, error) {
 	return out, nil
 }
 
-func (d *Daemon) ticketLocator(repo github.Repo, number int) ticket.Locator {
-	return ticket.Locator{Provider: ticket.GitHub, Origin: d.filter.Identities().TicketOrigin, Container: repo.String(), Key: strconv.Itoa(number)}
+func locatorAt(origin ticket.Origin, repo github.Repo, number int) ticket.Locator {
+	return ticket.Locator{Provider: ticket.GitHub, Origin: origin, Container: repo.String(), Key: strconv.Itoa(number)}
 }
 func (d *Daemon) readIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
-	if d.tickets == nil {
+	ingress, origin, selectionErr := d.connectionIngress(ctx, repo, number)
+	if selectionErr != nil {
+		return github.Issue{}, selectionErr
+	}
+	if ingress == nil {
 		return d.forge.GetIssue(ctx, repo, number)
 	}
 	s, err := d.resolvedTicket(ctx, repo, number)
 	if err != nil {
 		return github.Issue{}, err
 	}
-	if s.Ref.Locator != d.ticketLocator(repo, number) {
+	if s.Ref.Locator != locatorAt(origin, repo, number) {
 		return github.Issue{}, fmt.Errorf("daemon: resolved ticket destination differs")
 	}
 	return legacyTicketSnapshot(s)
 }
 func (d *Daemon) discoverIssues(ctx context.Context, repo github.Repo, since time.Time) ([]github.Issue, error) {
-	if d.tickets == nil {
+	ingress, origin, selectionErr := d.connectionIngress(ctx, repo, 0)
+	if selectionErr != nil {
+		return nil, selectionErr
+	}
+	if ingress == nil {
 		return d.forge.ListIssues(ctx, repo, since)
 	}
-	adapter, ok := d.tickets.(ticketDiscovery)
+	adapter, ok := ingress.(ticketDiscovery)
 	if !ok {
 		return nil, fmt.Errorf("daemon: ticket discovery contract is required")
 	}
@@ -81,7 +89,7 @@ func (d *Daemon) discoverIssues(ctx context.Context, repo github.Repo, since tim
 	}
 	out := make([]github.Issue, 0, len(snapshots))
 	for _, s := range snapshots {
-		if s.Ref.Locator.Origin != d.filter.Identities().TicketOrigin || s.Ref.Locator.Container != repo.String() {
+		if s.Ref.Locator.Origin != origin || s.Ref.Locator.Container != repo.String() {
 			return nil, fmt.Errorf("daemon: discovered ticket destination differs")
 		}
 		i, err := legacyTicketSnapshot(s)
@@ -93,10 +101,14 @@ func (d *Daemon) discoverIssues(ctx context.Context, repo github.Repo, since tim
 	return out, nil
 }
 func (d *Daemon) readComments(ctx context.Context, repo github.Repo, number int, after int64) ([]github.Comment, error) {
-	if d.tickets == nil {
+	ingress, _, selectionErr := d.connectionIngress(ctx, repo, number)
+	if selectionErr != nil {
+		return nil, selectionErr
+	}
+	if ingress == nil {
 		return d.forge.ListCommentsAfter(ctx, repo, number, after)
 	}
-	adapter, ok := d.tickets.(ticketDiscovery)
+	adapter, ok := ingress.(ticketDiscovery)
 	if !ok {
 		return nil, fmt.Errorf("daemon: ticket reply contract is required")
 	}
@@ -131,10 +143,14 @@ func (d *Daemon) readComments(ctx context.Context, repo github.Repo, number int,
 }
 
 func (d *Daemon) bindObservedIssue(ctx context.Context, sessionID int64, repo github.Repo, issue github.Issue) error {
-	if d.tickets == nil {
+	ingress, origin, selectionErr := d.connectionIngress(ctx, repo, issue.Number)
+	if selectionErr != nil {
+		return selectionErr
+	}
+	if ingress == nil {
 		return nil
 	}
-	locator := d.ticketLocator(repo, issue.Number)
+	locator := locatorAt(origin, repo, issue.Number)
 	_, err := d.db.BindLegacySessionOrigin(ctx, sessionID, locator.Origin)
 	if err != nil {
 		return err
@@ -149,10 +165,14 @@ type ticketCommentDiscovery interface {
 }
 
 func (d *Daemon) discoverCommented(ctx context.Context, repo github.Repo, since time.Time) ([]int, error) {
-	if d.tickets == nil {
+	ingress, origin, selectionErr := d.connectionIngress(ctx, repo, 0)
+	if selectionErr != nil {
+		return nil, selectionErr
+	}
+	if ingress == nil {
 		return d.forge.ListCommentedIssues(ctx, repo, since)
 	}
-	adapter, ok := d.tickets.(ticketCommentDiscovery)
+	adapter, ok := ingress.(ticketCommentDiscovery)
 	if !ok {
 		return nil, fmt.Errorf("daemon: commented ticket discovery contract is required")
 	}
@@ -165,7 +185,7 @@ func (d *Daemon) discoverCommented(ctx context.Context, repo github.Repo, since 
 		if err := l.Validate(); err != nil {
 			return nil, err
 		}
-		expected := d.ticketLocator(repo, 1)
+		expected := locatorAt(origin, repo, 1)
 		if l.Provider != expected.Provider || l.Origin != expected.Origin || l.Container != expected.Container {
 			return nil, fmt.Errorf("daemon: commented ticket destination differs")
 		}
@@ -179,14 +199,18 @@ func (d *Daemon) discoverCommented(ctx context.Context, repo github.Repo, since 
 }
 
 func (d *Daemon) resolvedTicket(ctx context.Context, repo github.Repo, number int) (ticket.Snapshot, error) {
-	snapshot, err := d.tickets.Resolve(ctx, d.ticketLocator(repo, number))
+	ingress, origin, selectionErr := d.connectionIngress(ctx, repo, number)
+	if selectionErr != nil {
+		return ticket.Snapshot{}, selectionErr
+	}
+	snapshot, err := ingress.Resolve(ctx, locatorAt(origin, repo, number))
 	if err != nil {
 		return ticket.Snapshot{}, err
 	}
-	if snapshot.Ref.Locator != d.ticketLocator(repo, number) {
+	if snapshot.Ref.Locator != locatorAt(origin, repo, number) {
 		return ticket.Snapshot{}, fmt.Errorf("daemon: resolved ticket destination differs")
 	}
-	session, err := d.db.FindSessionByIssue(ctx, number, repo.Owner, repo.Name)
+	session, err := d.db.GetSessionByTicketLocator(ctx, snapshot.Ref.Locator)
 	if errors.Is(err, store.ErrNotFound) {
 		return snapshot, nil
 	}

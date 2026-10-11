@@ -67,6 +67,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"AddSubIssue",        // POST /repos/{o}/{r}/issues/{n}/sub_issues
 		"UserByLogin",        // GET  /users/{login}, numeric ID for rights grants
 		"AuthenticatedUser",  // GET  /user
+		"InspectRepository",  // GET destination identity and read-only access evidence
 		"CreateIssue",        // POST /repos/{o}/{r}/issues
 		"EditComment",        // PATCH /repos/{o}/{r}/issues/comments/{id}, body of a comment litefactory posted
 		// FetchAsset is not a gogithub.Client endpoint call at all — it is a

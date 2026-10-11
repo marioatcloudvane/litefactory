@@ -225,6 +225,11 @@ func (p *StoryProgress) poll(ctx context.Context) error {
 }
 
 func (p *StoryProgress) pollParent(ctx context.Context, parent string, finishID int64, reason string) (err error) {
+	if session, e := p.db.GetSessionByTaskRef(ctx, parent); e == nil {
+		ctx = ExecutionContext(ctx, session.ID)
+	} else if !errors.Is(e, store.ErrNotFound) {
+		return e
+	}
 	release, err := p.db.LockStoryProgress(ctx, parent, p.lockDir)
 	if err != nil {
 		return err

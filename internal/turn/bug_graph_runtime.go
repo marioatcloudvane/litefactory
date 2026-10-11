@@ -357,7 +357,7 @@ func (r *BugRuntime) resolveGraphDelivery(ctx context.Context, _ Options, a Acti
 	if e != nil {
 		return GraphDeliveryBinding{}, e
 	}
-	repo, e := r.opts.DB.GetRepo(ctx, s.RepoID)
+	repo, e := executionRepository(ctx, r.opts.DB, s)
 	if e != nil {
 		return GraphDeliveryBinding{}, e
 	}
@@ -368,7 +368,7 @@ func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a Activit
 	if e != nil {
 		return "", e
 	}
-	repo, e := r.opts.DB.GetRepo(ctx, s.RepoID)
+	repo, e := executionRepository(ctx, r.opts.DB, s)
 	if e != nil {
 		return "", e
 	}
@@ -379,6 +379,9 @@ func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a Activit
 	defer release()
 	clone, e := r.opts.Git.Open(ctx, repo.Path)
 	if e != nil {
+		return "", e
+	}
+	if e := verifyExecutionClone(ctx, r.opts, s, clone); e != nil {
 		return "", e
 	}
 	result, e := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: s.WorktreePath, Branch: s.Branch, BaseBranch: repo.BaseBranch})
@@ -405,7 +408,7 @@ func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a Activit
 	if e != nil {
 		return e
 	}
-	repo, e := r.opts.DB.GetRepo(ctx, s.RepoID)
+	repo, e := executionRepository(ctx, r.opts.DB, s)
 	if e != nil {
 		return e
 	}
@@ -416,6 +419,9 @@ func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a Activit
 	defer release()
 	clone, e := r.opts.Git.Open(ctx, repo.Path)
 	if e != nil {
+		return e
+	}
+	if e := verifyExecutionClone(ctx, r.opts, s, clone); e != nil {
 		return e
 	}
 	result, e := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: s.WorktreePath, Branch: s.Branch, BaseBranch: repo.BaseBranch})

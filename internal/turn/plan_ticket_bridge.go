@@ -64,7 +64,10 @@ func (b *TicketPlanBridge) bind(ctx context.Context, s ticket.Snapshot) (ticket.
 	if err := bindKnownTicketSession(ctx, b.DB, s); err != nil {
 		return ticket.Snapshot{}, err
 	}
-	key := planDestination(s.Ref.Locator)
+	key, err := ticketMetadataKey(ctx, b.DB, planDestination(s.Ref.Locator), s.Ref.Locator)
+	if err != nil {
+		return ticket.Snapshot{}, err
+	}
 	if _, err := b.DB.BindTicketEffect(ctx, key, s.Ref.Locator, ticket.Identity{}); err != nil {
 		return ticket.Snapshot{}, err
 	}
@@ -81,7 +84,11 @@ func (b *TicketPlanBridge) read(ctx context.Context, repo github.Repo, number in
 	if _, err := retainedTicketSession(ctx, b.DB, locator); err != nil {
 		return ticket.Snapshot{}, err
 	}
-	binding, err := b.DB.BindTicketEffect(ctx, planDestination(locator), locator, ticket.Identity{})
+	key, err := ticketMetadataKey(ctx, b.DB, planDestination(locator), locator)
+	if err != nil {
+		return ticket.Snapshot{}, err
+	}
+	binding, err := b.DB.BindTicketEffect(ctx, key, locator, ticket.Identity{})
 	if err != nil {
 		return ticket.Snapshot{}, err
 	}

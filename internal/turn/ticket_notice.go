@@ -35,6 +35,13 @@ func postTicketNotice(ctx context.Context, forge ticketNoticePoster, marker, par
 
 // PostNotice keeps auxiliary workflow publications on their recorded ticket.
 func (b *TicketWorkflowBridge) PostNotice(ctx context.Context, marker, parent string, botID int64, repo github.Repo, number int, body redact.Body) (github.Comment, error) {
+	selected, selectionErr := b.selected(ctx, repo, number, 0)
+	if selectionErr != nil {
+		return github.Comment{}, selectionErr
+	}
+	if selected != b {
+		return selected.PostNotice(ctx, marker, parent, botID, repo, number, body)
+	}
 	if botID == 0 {
 		var err error
 		botID, err = strconv.ParseInt(b.Bot.RemoteID, 10, 64)

@@ -32,13 +32,13 @@ func TestSessionRefIsPinned(t *testing.T) {
 	}{
 		{
 			name:    "the M0 segment",
-			ref:     Ref{ForgeGitHub, "acme", "acme-api", 123},
+			ref:     Ref{ForgeGitHub, "acme", "acme-api", 123, ""},
 			segment: 1,
 			want:    "d3ece914-438d-584f-a110-fa6b77f31645",
 		},
 		{
 			name:    "a later segment of the same task",
-			ref:     Ref{ForgeGitHub, "acme", "acme-api", 123},
+			ref:     Ref{ForgeGitHub, "acme", "acme-api", 123, ""},
 			segment: 2,
 			want:    "967e4bc4-b7a3-5999-9e03-0abb088f2471",
 		},
@@ -66,10 +66,10 @@ func TestSessionRefShape(t *testing.T) {
 	t.Parallel()
 
 	refs := []Ref{
-		{ForgeGitHub, "acme", "acme-api", 1},
-		{ForgeGitHub, "Acme-Corp", "acme.github.io", 9999},
-		{ForgeGitHub, "a", "b", 1234567890},
-		{ForgeGitHub, "x_y", "z-1.2", 7},
+		{ForgeGitHub, "acme", "acme-api", 1, ""},
+		{ForgeGitHub, "Acme-Corp", "acme.github.io", 9999, ""},
+		{ForgeGitHub, "a", "b", 1234567890, ""},
+		{ForgeGitHub, "x_y", "z-1.2", 7, ""},
 	}
 
 	seen := make(map[string]string)
@@ -97,7 +97,7 @@ func TestSessionRefShape(t *testing.T) {
 func TestSessionRefIsDeterministic(t *testing.T) {
 	t.Parallel()
 
-	ref := Ref{ForgeGitHub, "acme", "acme-api", 123}
+	ref := Ref{ForgeGitHub, "acme", "acme-api", 123, ""}
 	first, err := SessionRef(ref, 1)
 	if err != nil {
 		t.Fatalf("SessionRef: %v", err)
@@ -124,13 +124,13 @@ func TestSessionRefRejectsBadInput(t *testing.T) {
 	}{
 		{
 			name:    "zero segment",
-			ref:     Ref{ForgeGitHub, "acme", "acme-api", 123},
+			ref:     Ref{ForgeGitHub, "acme", "acme-api", 123, ""},
 			segment: 0,
 			wantErr: ErrInvalidOrdinal,
 		},
 		{
 			name:    "negative segment",
-			ref:     Ref{ForgeGitHub, "acme", "acme-api", 123},
+			ref:     Ref{ForgeGitHub, "acme", "acme-api", 123, ""},
 			segment: -1,
 			wantErr: ErrInvalidOrdinal,
 		},
@@ -142,7 +142,7 @@ func TestSessionRefRejectsBadInput(t *testing.T) {
 		},
 		{
 			name:    "zero issue",
-			ref:     Ref{ForgeGitHub, "acme", "acme-api", 0},
+			ref:     Ref{ForgeGitHub, "acme", "acme-api", 0, ""},
 			segment: 1,
 			wantErr: ErrInvalidRef,
 		},
@@ -170,7 +170,7 @@ func TestSessionRefRejectsBadInput(t *testing.T) {
 func TestValidClaudeSessionID(t *testing.T) {
 	t.Parallel()
 
-	derived, err := SessionRef(Ref{ForgeGitHub, "acme", "acme-api", 123}, 1)
+	derived, err := SessionRef(Ref{ForgeGitHub, "acme", "acme-api", 123, ""}, 1)
 	if err != nil {
 		t.Fatalf("SessionRef: %v", err)
 	}

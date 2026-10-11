@@ -1,0 +1,11 @@
+--- FAIL: TestArchiveIntegrationSuiteRowsRetained (3.08s)
+    archive_integration_test.go:977: registry problems [project_connection_imports is not classified project_connection_observations is not classified project_connection_versions is not classified project_connections is not classified project_ticket_bindings is not classified session_execution_snapshots is not classified] <nil>
+    archive_integration_test.go:74: archive logs:
+--- FAIL: TestOpenSharedResultAuthorityIndependentOfNativeAutoStart (1.04s)
+    --- FAIL: TestOpenSharedResultAuthorityIndependentOfNativeAutoStart/disabled (0.54s)
+        fixture_test.go:286: unexpected request: GET /user
+    --- FAIL: TestOpenSharedResultAuthorityIndependentOfNativeAutoStart/enabled (0.50s)
+        fixture_test.go:286: unexpected request: GET /user
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/daemon	861.732s
+FAIL

@@ -100,9 +100,12 @@ func (b *TicketPublicationBridge) destination(ctx context.Context, repo github.R
 	if err != nil {
 		return ticket.Snapshot{}, err
 	}
-	// Origin is deliberately not in the key: changing configuration cannot make
-	// retained destination metadata disappear under another key.
-	return b.resolve(ctx, "ticket-destination:github:"+locator.Container+"#"+locator.Key, locator, ticket.Identity{})
+	legacy := "ticket-destination:github:" + locator.Container + "#" + locator.Key
+	key, err := ticketMetadataKey(ctx, b.db, legacy, locator)
+	if err != nil {
+		return ticket.Snapshot{}, err
+	}
+	return b.resolve(ctx, key, locator, ticket.Identity{})
 }
 
 // BindPublication records the exact effect destination and qualified bot before
@@ -275,6 +278,25 @@ func bindPublicationDestination(ctx context.Context, forge interface{}, key stri
 func publicationReplyKey(container, remoteID string) string {
 	return "publication-reply:github:" + container + "#" + remoteID
 }
+
+// replyKey preserves historical keys while distinguishing equal numeric reply
+// IDs observed at another API origin. This is additive identity metadata, not
+// an owning publication ledger or its prepared bytes.
+func (b *TicketPublicationBridge) replyKey(ctx context.Context, container, remoteID string) (string, error) {
+	key := publicationReplyKey(container, remoteID)
+	existing, err := b.db.GetTicketEffect(ctx, key)
+	if errors.Is(err, store.ErrNotFound) {
+		return key, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if existing.Locator.Origin == b.origin {
+		return key, nil
+	}
+	return naming.QualifiedTaskRef(key, ticket.Identity{Provider: ticket.GitHub, Origin: b.origin, RemoteID: remoteID}), nil
+}
+
 func (b *TicketPublicationBridge) rememberReply(ctx context.Context, reply ticket.Reply) error {
 	if _, err := legacyPublicationReply(reply, reply.Ticket); err != nil {
 		return err
@@ -283,11 +305,23 @@ func (b *TicketPublicationBridge) rememberReply(ctx context.Context, reply ticke
 	if actor.RemoteID == "" {
 		actor = ticket.Identity{}
 	}
-	key := publicationReplyKey(reply.Ticket.Locator.Container, reply.Identity.RemoteID)
-	if _, err := b.db.BindTicketEffect(ctx, key, reply.Ticket.Locator, actor); err != nil {
+	key, err := b.replyKey(ctx, reply.Ticket.Locator.Container, reply.Identity.RemoteID)
+	if err != nil {
 		return err
 	}
-	_, err := b.db.ResolveTicketEffect(ctx, key, reply.Ticket)
+	if _, err := b.db.BindTicketEffect(ctx, key, reply.Ticket.Locator, actor); err != nil {
+		// Another origin can claim the legacy key between the read and bind.
+		// Retain its record and retry only under our qualified metadata key.
+		updated, keyErr := b.replyKey(ctx, reply.Ticket.Locator.Container, reply.Identity.RemoteID)
+		if keyErr != nil || updated == key {
+			return err
+		}
+		key = updated
+		if _, retryErr := b.db.BindTicketEffect(ctx, key, reply.Ticket.Locator, actor); retryErr != nil {
+			return retryErr
+		}
+	}
+	_, err = b.db.ResolveTicketEffect(ctx, key, reply.Ticket)
 	return err
 }
 func (b *TicketPublicationBridge) retainedReply(ctx context.Context, repo github.Repo, id int64) (ticket.Reply, error) {
@@ -298,7 +332,11 @@ func (b *TicketPublicationBridge) retainedReply(ctx context.Context, repo github
 		return ticket.Reply{}, errors.New("invalid publication reply ID")
 	}
 	remoteID := strconv.FormatInt(id, 10)
-	bound, err := b.db.GetTicketEffect(ctx, publicationReplyKey(repo.Owner+"/"+repo.Name, remoteID))
+	key, err := b.replyKey(ctx, repo.Owner+"/"+repo.Name, remoteID)
+	if err != nil {
+		return ticket.Reply{}, err
+	}
+	bound, err := b.db.GetTicketEffect(ctx, key)
 	if err != nil {
 		return ticket.Reply{}, err
 	}

@@ -17,6 +17,7 @@ import (
 // compatibility boundary. It contains no code repository or merge capability.
 // Consumers continue to declare only their own narrow operation interfaces.
 type TicketWorkflowBridge struct {
+	selector TicketConnectionSelector
 	*TicketPlanBridge
 	Publication *TicketPublicationBridge
 	Mutations   interface {
@@ -31,46 +32,87 @@ func (b *TicketWorkflowBridge) BaseURL() string { return string(b.Tickets.Origin
 
 // GetIssue delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) GetIssue(ctx context.Context, r github.Repo, n int) (github.Issue, error) {
-	return b.Publication.GetIssue(ctx, r, n)
+	selected, err := b.selected(ctx, r, n, 0)
+	if err != nil {
+		return github.Issue{}, err
+	}
+	return selected.Publication.GetIssue(ctx, r, n)
 }
 
 // PostComment delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) PostComment(ctx context.Context, r github.Repo, n int, body redact.Body) (github.Comment, error) {
-	return b.Publication.PostComment(ctx, r, n, body)
+	selected, err := b.selected(ctx, r, n, 0)
+	if err != nil {
+		return github.Comment{}, err
+	}
+	return selected.Publication.PostComment(ctx, r, n, body)
 }
 
 // ListCommentsAfter delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) ListCommentsAfter(ctx context.Context, r github.Repo, n int, id int64) ([]github.Comment, error) {
-	return b.Publication.ListCommentsAfter(ctx, r, n, id)
+	selected, err := b.selected(ctx, r, n, 0)
+	if err != nil {
+		return nil, err
+	}
+	return selected.Publication.ListCommentsAfter(ctx, r, n, id)
 }
 
 // ListCommentsPage delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) ListCommentsPage(ctx context.Context, r github.Repo, n, p, l int) (github.CommentPage, error) {
-	return b.Publication.ListCommentsPage(ctx, r, n, p, l)
+	selected, err := b.selected(ctx, r, n, 0)
+	if err != nil {
+		return github.CommentPage{}, err
+	}
+	return selected.Publication.ListCommentsPage(ctx, r, n, p, l)
 }
 
 // EditComment delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) EditComment(ctx context.Context, r github.Repo, id int64, body redact.Body) error {
-	return b.Publication.EditComment(ctx, r, id, body)
+	selected, err := b.selected(ctx, r, 0, 0)
+	if err != nil {
+		return err
+	}
+	return selected.Publication.EditComment(ctx, r, id, body)
 }
 
 // AddCommentReaction delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) AddCommentReaction(ctx context.Context, r github.Repo, id int64, c github.ReactionContent) error {
-	return b.Publication.AddCommentReaction(ctx, r, id, string(c))
+	selected, err := b.selected(ctx, r, 0, 0)
+	if err != nil {
+		return err
+	}
+	return selected.Publication.AddCommentReaction(ctx, r, id, string(c))
 }
 
 // BindPublication delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) BindPublication(ctx context.Context, key string, session int64, ref naming.Ref, bot int64) error {
-	return b.Publication.BindPublication(ctx, key, session, ref, bot)
+	selected, err := b.selected(ctx, github.RepoFromRef(ref), ref.Issue, session)
+	if err != nil {
+		return err
+	}
+	if bot != selected.ActorID() {
+		return errors.New("publication actor differs from retained connection")
+	}
+	return selected.Publication.BindPublication(ctx, key, session, ref, bot)
 }
 
 // VerifiedCommentDestination delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) VerifiedCommentDestination(c github.Comment, ref naming.Ref) bool {
-	return b.Publication.VerifiedCommentDestination(c, ref)
+	if b.selector == nil {
+		return b.Publication.VerifiedCommentDestination(c, ref)
+	}
+	return false // Routed receipts require the caller's retained context.
 }
 
 // AddIssueLabel delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) AddIssueLabel(ctx context.Context, r github.Repo, n int, label string) error {
+	selected, err := b.selected(ctx, r, n, 0)
+	if err != nil {
+		return err
+	}
+	if selected != b {
+		return selected.AddIssueLabel(ctx, r, n, label)
+	}
 	s, err := b.read(ctx, r, n)
 	if err != nil {
 		return err
@@ -80,6 +122,13 @@ func (b *TicketWorkflowBridge) AddIssueLabel(ctx context.Context, r github.Repo,
 
 // RemoveIssueLabel delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) RemoveIssueLabel(ctx context.Context, r github.Repo, n int, label string) error {
+	selected, err := b.selected(ctx, r, n, 0)
+	if err != nil {
+		return err
+	}
+	if selected != b {
+		return selected.RemoveIssueLabel(ctx, r, n, label)
+	}
 	s, err := b.read(ctx, r, n)
 	if err != nil {
 		return err
@@ -89,6 +138,13 @@ func (b *TicketWorkflowBridge) RemoveIssueLabel(ctx context.Context, r github.Re
 
 // ListCommentedIssues delegates the retained workflow operation through qualified tickets.
 func (b *TicketWorkflowBridge) ListCommentedIssues(ctx context.Context, r github.Repo, since time.Time) ([]int, error) {
+	selected, err := b.selected(ctx, r, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	if selected != b {
+		return selected.ListCommentedIssues(ctx, r, since)
+	}
 	locators, err := b.Mutations.DiscoverCommented(ctx, r.String(), since)
 	if err != nil {
 		return nil, err
