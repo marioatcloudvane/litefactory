@@ -3,6 +3,7 @@ package graphexec
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 )
@@ -77,9 +78,11 @@ func ImplementBudgetSpec() ActionSpec {
 }
 
 // ImplementResultSpec declares the decision that reads the worker's accepted
-// answer: completed goes on to be saved, stopped (blocked or incomplete) parks.
+// answer: completed goes on to be saved, incomplete goes back to the budget for
+// another attempt, blocked parks. stopped stands for blocked or incomplete in
+// released graphs that do not declare the two separately; it parks.
 func ImplementResultSpec() ActionSpec {
-	return ActionSpec{Name: ImplementResultAction, Mode: agent.ModeImplement, Outcomes: []string{"completed", "stopped"}}
+	return ActionSpec{Name: ImplementResultAction, Mode: agent.ModeImplement, Outcomes: []string{"completed", "incomplete", "blocked", "stopped"}}
 }
 
 // ImplementStoryDoneSpec declares the step that commits and pushes the story
@@ -137,6 +140,8 @@ func ImplementSpecs() []ActionSpec {
 //     decision, so nothing but a completed answer marks a story done;
 //   - a failed attempt, a failed save and an exhausted budget route to the
 //     budget decision and the park step, so a failure never ends a story quietly;
+//   - the result decision either parks stopped (released graphs) or sends
+//     incomplete to the budget decision and parks blocked;
 //   - the batched question ends at a terminal, where the owner wait rests;
 //   - the completion reply, when a graph declares one, reads the merge step and
 //     ends at a terminal. A graph without it still validates.
@@ -230,7 +235,19 @@ func (c *implementCheck) result(n Node) {
 		c.fail("implement node %s lf_source %q must name the worker agent", n.Name, n.Attrs["lf_source"])
 	}
 	c.edge(n, "completed", func(t Node) bool { return t.Action == ImplementStoryDoneAction }, "must save the story")
-	c.edge(n, "stopped", func(t Node) bool { return t.Action == ImplementParkAction }, "must park the story")
+	park := func(t Node) bool { return t.Action == ImplementParkAction }
+	switch {
+	case slices.Contains(n.Outcomes, "stopped"):
+		if slices.Contains(n.Outcomes, "incomplete") || slices.Contains(n.Outcomes, "blocked") {
+			c.fail("implement node %s declares stopped together with incomplete or blocked", n.Name)
+		}
+		c.edge(n, "stopped", park, "must park the story")
+	case slices.Contains(n.Outcomes, "incomplete") || slices.Contains(n.Outcomes, "blocked"):
+		c.edge(n, "incomplete", func(t Node) bool { return t.Action == ImplementBudgetAction }, "must reach the budget decision")
+		c.edge(n, "blocked", park, "must park the story")
+	default:
+		c.fail("implement node %s must declare stopped, or incomplete and blocked", n.Name)
+	}
 }
 
 func (c *implementCheck) storyDone(n Node) {

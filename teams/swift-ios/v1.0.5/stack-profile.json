@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "guidance": [
+    {
+      "id": "swift-ios",
+      "skill": "plan/skills/swift-ios-guidance/SKILL.md"
+    },
+    {
+      "id": "agent-setup",
+      "skill": "plan/skills/plan-agent-setup-guidance/SKILL.md"
+    }
+  ],
+  "requirements": {
+    "os": [
+      "darwin"
+    ],
+    "arch": [
+      "arm64",
+      "amd64"
+    ],
+    "executables": [
+      "sh",
+      "xcodebuild",
+      "xcrun",
+      "xcode-select",
+      "uname",
+      "grep"
+    ]
+  },
+  "checks": [
+    {
+      "name": "simulator-build",
+      "argv": [
+        "sh",
+        "-c",
+        "set -eu\nfail() { printf '%s\\n' \"Swift iOS configuration: $*\" >&2; exit 2; }\n[ -n \"$1\" ] && [ -n \"$2\" ] || fail 'supply explicit -project/-workspace and repository-relative project/workspace path in .litefactory/stack.overrides.json'\n[ -n \"$3\" ] || fail 'supply the repository shared scheme in .litefactory/stack.overrides.json'\n[ -n \"$4\" ] || fail 'supply an explicit iOS 26.2 simulator destination in .litefactory/stack.overrides.json'\ncase \"$1:$2\" in -project:*.xcodeproj|-workspace:*.xcworkspace) ;; *) fail 'expected -project with .xcodeproj or -workspace with .xcworkspace';; esac\ncase \"$2\" in /*|../*|*/../*|*/..|..) fail 'project/workspace path must stay inside the repository';; esac\n[ -d \"$2\" ] || fail 'project/workspace directory is missing'\ncase \"$3\" in -*) fail 'shared scheme cannot begin with a dash';; esac\ncase \"$4\" in 'platform=iOS Simulator,'*'OS=26.2'*) ;; *) fail 'destination must select iOS Simulator and OS=26.2';; esac\nset -eu\nfail() { printf '%s\\n' \"Swift iOS configuration: $*\" >&2; exit 2; }\n[ \"$(uname -s)\" = Darwin ] || fail 'requires macOS 15.6\u201326.x'\ncase \"$(sw_vers -productVersion)\" in 15.[6-9]|15.[6-9].*|15.[1-9][0-9]*|26|26.*) ;; *) fail 'requires macOS 15.6\u201326.x';; esac\ndeveloper=$(xcode-select -p)\ncase \"$developer\" in */Xcode*.app/Contents/Developer) ;; *) fail 'requires full Xcode and matching selected developer directory';; esac\n[ \"$(xcrun --find xcodebuild)\" = \"$developer/usr/bin/xcodebuild\" ] || fail 'selected developer directory does not match xcrun xcodebuild'\ncase \"$(xcodebuild -version)\" in 'Xcode 26.3\n'*) ;; *) fail 'requires Xcode 26.3';; esac\ncase \"$(xcrun swift --version)\" in *'Swift version 6.2.3 ('*) ;; *) fail 'requires Swift compiler 6.2.3';; esac\n[ \"$(xcrun --sdk iphonesimulator --show-sdk-version)\" = 26.2 ] || fail 'requires iOS 26.2 simulator SDK'\n[ \"$(xcrun --sdk iphoneos --show-sdk-version)\" = 26.2 ] || fail 'requires iOS 26.2 device SDK'\nxcrun simctl list runtimes | grep 'iOS 26.2 ' | grep -v 'unavailable' >/dev/null || fail 'operator must prepare the iOS 26.2 simulator runtime'\nexec xcodebuild \"$1\" \"$2\" -scheme \"$3\" -destination \"$4\" -sdk iphonesimulator -derivedDataPath .litefactory/swift-ios/DerivedData CODE_SIGNING_ALLOWED=NO SWIFT_VERSION=6 build\n",
+        "swift-ios",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3600
+    },
+    {
+      "name": "simulator-test",
+      "argv": [
+        "sh",
+        "-c",
+        "set -eu\nfail() { printf '%s\\n' \"Swift iOS configuration: $*\" >&2; exit 2; }\n[ -n \"$1\" ] && [ -n \"$2\" ] || fail 'supply explicit -project/-workspace and repository-relative project/workspace path in .litefactory/stack.overrides.json'\n[ -n \"$3\" ] || fail 'supply the repository shared scheme in .litefactory/stack.overrides.json'\n[ -n \"$4\" ] || fail 'supply an explicit iOS 26.2 simulator destination in .litefactory/stack.overrides.json'\ncase \"$1:$2\" in -project:*.xcodeproj|-workspace:*.xcworkspace) ;; *) fail 'expected -project with .xcodeproj or -workspace with .xcworkspace';; esac\ncase \"$2\" in /*|../*|*/../*|*/..|..) fail 'project/workspace path must stay inside the repository';; esac\n[ -d \"$2\" ] || fail 'project/workspace directory is missing'\ncase \"$3\" in -*) fail 'shared scheme cannot begin with a dash';; esac\ncase \"$4\" in 'platform=iOS Simulator,'*'OS=26.2'*) ;; *) fail 'destination must select iOS Simulator and OS=26.2';; esac\nset -eu\nfail() { printf '%s\\n' \"Swift iOS configuration: $*\" >&2; exit 2; }\n[ \"$(uname -s)\" = Darwin ] || fail 'requires macOS 15.6\u201326.x'\ncase \"$(sw_vers -productVersion)\" in 15.[6-9]|15.[6-9].*|15.[1-9][0-9]*|26|26.*) ;; *) fail 'requires macOS 15.6\u201326.x';; esac\ndeveloper=$(xcode-select -p)\ncase \"$developer\" in */Xcode*.app/Contents/Developer) ;; *) fail 'requires full Xcode and matching selected developer directory';; esac\n[ \"$(xcrun --find xcodebuild)\" = \"$developer/usr/bin/xcodebuild\" ] || fail 'selected developer directory does not match xcrun xcodebuild'\ncase \"$(xcodebuild -version)\" in 'Xcode 26.3\n'*) ;; *) fail 'requires Xcode 26.3';; esac\ncase \"$(xcrun swift --version)\" in *'Swift version 6.2.3 ('*) ;; *) fail 'requires Swift compiler 6.2.3';; esac\n[ \"$(xcrun --sdk iphonesimulator --show-sdk-version)\" = 26.2 ] || fail 'requires iOS 26.2 simulator SDK'\n[ \"$(xcrun --sdk iphoneos --show-sdk-version)\" = 26.2 ] || fail 'requires iOS 26.2 device SDK'\nxcrun simctl list runtimes | grep 'iOS 26.2 ' | grep -v 'unavailable' >/dev/null || fail 'operator must prepare the iOS 26.2 simulator runtime'\nexec xcodebuild \"$1\" \"$2\" -scheme \"$3\" -destination \"$4\" -sdk iphonesimulator -derivedDataPath .litefactory/swift-ios/DerivedData CODE_SIGNING_ALLOWED=NO SWIFT_VERSION=6 test\n",
+        "swift-ios",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3600
+    }
+  ],
+  "setup": [
+    {
+      "name": "toolchain-preflight",
+      "argv": [
+        "sh",
+        "-c",
+        "set -eu\nfail() { printf '%s\\n' \"Swift iOS configuration: $*\" >&2; exit 2; }\n[ \"$(uname -s)\" = Darwin ] || fail 'requires macOS 15.6\u201326.x'\ncase \"$(sw_vers -productVersion)\" in 15.[6-9]|15.[6-9].*|15.[1-9][0-9]*|26|26.*) ;; *) fail 'requires macOS 15.6\u201326.x';; esac\ndeveloper=$(xcode-select -p)\ncase \"$developer\" in */Xcode*.app/Contents/Developer) ;; *) fail 'requires full Xcode and matching selected developer directory';; esac\n[ \"$(xcrun --find xcodebuild)\" = \"$developer/usr/bin/xcodebuild\" ] || fail 'selected developer directory does not match xcrun xcodebuild'\ncase \"$(xcodebuild -version)\" in 'Xcode 26.3\n'*) ;; *) fail 'requires Xcode 26.3';; esac\ncase \"$(xcrun swift --version)\" in *'Swift version 6.2.3 ('*) ;; *) fail 'requires Swift compiler 6.2.3';; esac\n[ \"$(xcrun --sdk iphonesimulator --show-sdk-version)\" = 26.2 ] || fail 'requires iOS 26.2 simulator SDK'\n[ \"$(xcrun --sdk iphoneos --show-sdk-version)\" = 26.2 ] || fail 'requires iOS 26.2 device SDK'\nxcrun simctl list runtimes | grep 'iOS 26.2 ' | grep -v 'unavailable' >/dev/null || fail 'operator must prepare the iOS 26.2 simulator runtime'\n"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 120
+    }
+  ],
+  "environment": [],
+  "override_fields": [
+    "checks"
+  ],
+  "required_fields": [
+    "checks",
+    "setup"
+  ]
+}

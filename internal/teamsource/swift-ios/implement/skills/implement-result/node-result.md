@@ -23,15 +23,18 @@ The story is built and its unit tests pass. No questions and no reason.
 
 # incomplete
 
-Part of the story is not done. Say what is left in plain language. The story is
-parked and the owner is asked.
+Part of the story is not done, and your time is about to run out or something
+outside the story stops the work for now. Unfinished tasks alone are not a reason
+to stop. Say what is left in plain language. The factory runs another attempt
+with your reason, and parks the story and asks the owner only once the attempts
+are spent.
 
 ```json
 {
   "result": {
     "outcome": "incomplete",
     "comment": "Say what is built and what is not.",
-    "reason": "Say plainly what is left to do and why you stopped.",
+    "reason": "Say plainly what is left to do and what stopped the work.",
     "payload": {
       "implement": {
         "stories": []
@@ -44,7 +47,7 @@ parked and the owner is asked.
 # blocked
 
 Something outside your story stops you, and you need a decision. Say what and what
-you need. The story is parked and the owner is asked.
+you need. The story is parked at once and the owner is asked.
 
 ```json
 {
