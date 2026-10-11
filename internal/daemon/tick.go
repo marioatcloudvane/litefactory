@@ -420,8 +420,10 @@ func (d *Daemon) finishListings(ctx context.Context, queues []*repoQueue, starte
 		if !q.finished {
 			continue
 		}
-		if err := d.db.SetRepoPollCursor(ctx, q.repo.ID, startedAt); err != nil {
-			return err
+		if d.connections == nil {
+			if err := d.db.SetRepoPollCursor(ctx, q.repo.ID, startedAt); err != nil {
+				return err
+			}
 		}
 		d.schedule.ListingFinished(q.repo.ID, finishedAt)
 	}
@@ -517,7 +519,42 @@ func (d *Daemon) discover(
 		queues = append(queues, q)
 		byRepo[repo.ID] = q
 
+		if d.connections != nil && d.schedule.Due(repo.ID, now) {
+			if err := d.recoverRetainedSessions(ctx, q); err != nil {
+				return nil, err
+			}
+		}
 		if !due[repo.ID] || !connectionEnabled {
+			if due[repo.ID] && !connectionEnabled {
+				q.finished = true
+			}
+			continue
+		}
+		if d.connections != nil {
+			q.listing = true
+			if err := d.discoveryProbe(ctx, forgeRepo); err != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				if errors.Is(err, ErrDiscoveryDeferred) {
+					deferred = true
+				}
+				repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
+				continue
+			}
+			finished, err := d.recoverSource(ctx, q, now)
+			if errors.Is(err, ErrDiscoveryDeferred) {
+				deferred = true
+				continue
+			}
+			if err != nil {
+				repoLog.WarnContext(ctx, "ticket recovery remains pending", slog.Any("error", err))
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				continue
+			}
+			q.finished = finished
 			continue
 		}
 		q.listing = true
@@ -578,6 +615,9 @@ func (d *Daemon) discover(
 	}
 
 	if err := d.webhookHints(ctx, byRepo, seen, result); err != nil {
+		return nil, err
+	}
+	if err := d.drainTicketObservations(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
 	if err := d.graphPlanParents(ctx, byRepo, seen); err != nil {
@@ -805,6 +845,7 @@ func (d *Daemon) markPlanChild(ctx context.Context, q *repoQueue, number int) er
 // been fetched yet: a session reached only through the backlog has no
 // [github.Issue] until [Daemon.materialise] reads one for it.
 type candidate struct {
+	observations []store.PendingTicketObservation
 	// sources are ordered discovery evidence, not proof of actionable work.
 	sources   []string
 	repo      store.Repo
@@ -1013,6 +1054,8 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 // owned by that worker, including sequential refinement copies. Nothing is
 // shared with another worker, so no lock is needed.
 type task struct {
+	observations []store.PendingTicketObservation
+	enrollmentAt time.Time
 	// workerLog holds immutable admission context for worker lifetime events.
 	workerLog *slog.Logger
 	worker    *workerState
@@ -1417,6 +1460,13 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 				c.forgeRepo, c.session.IssueNumber, err)
 		}
 	}
+	if issue.State == "closed" {
+		for _, observation := range c.observations {
+			if err := d.db.ClearPendingTicketObservation(ctx, observation.ConnectionVersionID, observation.TicketID, observation.Generation); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if issue.State != github.StateOpen {
 		c.log.DebugContext(ctx, "a task that still needs a poll is no longer open; nothing runs",
 			slog.String("state", issue.State))
@@ -1424,15 +1474,16 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 	}
 
 	return &task{
-		repo:      c.repo,
-		forgeRepo: c.forgeRepo,
-		issue:     issue,
-		session:   c.session,
-		ref:       c.ref,
-		log:       c.log,
-		tickAt:    tickAt,
-		hinted:    slices.Contains(c.sources, "webhook"),
-		workerLog: c.log.With(slog.Any("dispatch_sources", slices.Clone(c.sources)), slog.Time("tick_at", tickAt)),
+		observations: slices.Clone(c.observations),
+		repo:         c.repo,
+		forgeRepo:    c.forgeRepo,
+		issue:        issue,
+		session:      c.session,
+		ref:          c.ref,
+		log:          c.log,
+		tickAt:       tickAt,
+		hinted:       slices.Contains(c.sources, "webhook"),
+		workerLog:    c.log.With(slog.Any("dispatch_sources", slices.Clone(c.sources)), slog.Time("tick_at", tickAt)),
 	}, nil
 }
 
@@ -1482,6 +1533,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		return
 	}
 	if handledPlan {
+		d.clearTicketObservations(ctx, t)
 		return
 	}
 
@@ -1507,8 +1559,24 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	}
 
 	var deferred bool
-	if !exists {
+	bodyPending := false
+	if exists && d.connections != nil {
+		bodyPending, err = d.db.TicketBodyPending(ctx, t.session.ID)
+		if err != nil {
+			d.stopped(ctx, t, "could not read first ticket instruction recovery", err)
+			return
+		}
+	}
+	if !exists || bodyPending {
 		err = d.bootstrap(ctx, t)
+		if err == nil && d.connections != nil {
+			initialized, _, readErr := d.db.GetWatermark(ctx, t.session.ID)
+			if readErr != nil {
+				err = readErr
+			} else {
+				deferred, err = d.drain(ctx, t, initialized.LastCommentID)
+			}
+		}
 	} else {
 		deferred, err = d.drain(ctx, t, watermark.LastCommentID)
 	}
@@ -1621,14 +1689,37 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		return fmt.Errorf("list the existing comments of task %s: %w", t.ref, err)
 	}
 
+	var enrollment time.Time
+	if d.connections != nil {
+		snapshot, err := d.db.GetExecutionSnapshot(ctx, t.session.ID)
+		if err != nil {
+			return err
+		}
+		position, err := d.db.GetTicketRecoveryPosition(ctx, snapshot.TicketVersionID)
+		if err != nil {
+			return err
+		}
+		enrollment = position.EnrollmentAt
+		t.enrollmentAt = enrollment
+	}
 	var highest int64
 	for _, c := range comments {
+		if !enrollment.IsZero() && c.CreatedAt.IsZero() {
+			return fmt.Errorf("daemon: enrolled reply has no creation time")
+		}
+		if !enrollment.IsZero() && !c.CreatedAt.Before(enrollment) {
+			break
+		}
 		if c.ID > highest {
 			highest = c.ID
 		}
 	}
 
-	watermark, created, err := d.db.BootstrapWatermark(ctx, t.session.ID, highest)
+	bootstrapWatermark := d.db.BootstrapWatermark
+	if d.connections != nil {
+		bootstrapWatermark = d.db.BootstrapTicketWatermark
+	}
+	watermark, created, err := bootstrapWatermark(ctx, t.session.ID, highest)
 	if err != nil {
 		return fmt.Errorf("bootstrap the watermark of task %s: %w", t.ref, err)
 	}
@@ -1640,7 +1731,19 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 
 	// Only now, with the watermark planted and logged. See [Daemon.runIssueBody]
 	// for why that order is the whole of "exactly once".
-	return d.runIssueBody(ctx, t, comments)
+	if err := d.runIssueBody(ctx, t, comments); err != nil {
+		return err
+	}
+	if d.connections != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if t.worker != nil && (t.worker.status == workerDeferred || t.worker.status == workerFailed) {
+			return &recoveryPending{}
+		}
+		return d.db.CompleteTicketBody(ctx, t.session.ID)
+	}
+	return nil
 }
 
 // runIssueBody runs the issue body as the task's first instruction, when the
@@ -1670,13 +1773,10 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 //
 // # Watermark first, then run
 //
-// [Daemon.bootstrap] plants the watermark before calling this, and that
-// ordering is what makes "fires exactly once" a property of the control flow
-// rather than of a check: the next tick finds a watermark and takes
-// [Daemon.drain], so this function is unreachable a second time. A crash
-// between the two leaves a `running` row that startup reconciliation reports as
-// abandoned (AC-2.21) — which is the failure mode to prefer over a body that
-// silently runs twice.
+// Qualified bootstrap plants a durable body-pending flag with the watermark.
+// An interruption before run allocation resumes here; existing trigger ownership
+// handles an allocated run. Successful processing or an intentional refusal
+// clears the flag. Already initialized legacy sessions retain their history.
 //
 // # The trigger
 //
@@ -1702,6 +1802,8 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Comment) error {
 	var refusal string
 	switch {
+	case !t.enrollmentAt.IsZero() && t.issue.UpdatedAt.Before(t.enrollmentAt):
+		refusal = "its retained body predates ticket source enrollment"
 	case !t.issue.AssignedTo(d.filter.Identities().OwnerUserID):
 		refusal = "it is not assigned to the owner"
 	case strings.TrimSpace(t.issue.Body) == "":
@@ -1890,6 +1992,7 @@ func (d *Daemon) markBacklog(ctx context.Context, log *slog.Logger, sessionID in
 // failed is not re-runnable by any mechanism this flag could reach, and leaving
 // it standing would buy the next tick a listing that finds nothing.
 func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
+	d.clearTicketObservations(ctx, t)
 	if err := d.db.ClearSessionNeedsPoll(ctx, t.session.ID); err != nil {
 		t.recordWorkerError(err)
 		t.log.WarnContext(ctx, "could not clear this task's backlog flag after a clean drain; "+

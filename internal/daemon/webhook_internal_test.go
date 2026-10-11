@@ -12,7 +12,7 @@ import (
 func TestHintSetCollapsesDuplicatesAndBoundsItself(t *testing.T) {
 	s := newHintSet(3)
 	for range 10 {
-		s.add(hintKey{1, 5})
+		s.add(hintKey{repoID: 1, number: 5})
 	}
 	if got := s.pending(); len(got) != 1 {
 		t.Fatalf("pending = %v, want one", got)
@@ -21,10 +21,10 @@ func TestHintSetCollapsesDuplicatesAndBoundsItself(t *testing.T) {
 		t.Error("duplicates raised overflow")
 	}
 
-	s.add(hintKey{1, 6})
-	s.add(hintKey{1, 7})
-	s.add(hintKey{1, 8}) // beyond the bound: dropped
-	if got := s.pending(); len(got) != 3 || got[2] != (hintKey{1, 7}) {
+	s.add(hintKey{repoID: 1, number: 6})
+	s.add(hintKey{repoID: 1, number: 7})
+	s.add(hintKey{repoID: 1, number: 8}) // beyond the bound: dropped
+	if got := s.pending(); len(got) != 3 || got[2] != (hintKey{repoID: 1, number: 7}) {
 		t.Fatalf("pending = %v, want the first three in order", got)
 	}
 	if !s.takeOverflow() {
@@ -34,8 +34,8 @@ func TestHintSetCollapsesDuplicatesAndBoundsItself(t *testing.T) {
 		t.Error("overflow reported twice")
 	}
 
-	s.resolve(hintKey{1, 6})
-	s.resolve(hintKey{9, 9}) // unknown: no-op
+	s.resolve(hintKey{repoID: 1, number: 6})
+	s.resolve(hintKey{repoID: 9, number: 9}) // unknown: no-op
 	if got := s.pending(); len(got) != 2 {
 		t.Errorf("pending = %v after resolve", got)
 	}
@@ -43,7 +43,7 @@ func TestHintSetCollapsesDuplicatesAndBoundsItself(t *testing.T) {
 
 func TestHintSetDropsAHintThatKeepsFailingAndAsksForAListing(t *testing.T) {
 	s := newHintSet(10)
-	k := hintKey{1, 5}
+	k := hintKey{repoID: 1, number: 5}
 	s.add(k)
 	for i := 1; i < maxHintAttempts; i++ {
 		if s.failed(k) {
@@ -103,7 +103,7 @@ func hintFixture(t *testing.T) (*discoveryHTTPFixture, map[int64]*repoQueue, hin
 		t.Fatal(err)
 	}
 	f.d.webhook = &webhookRuntime{hints: newHintSet(10)}
-	key := hintKey{repo.ID, 7}
+	key := hintKey{repoID: repo.ID, number: 7}
 	f.d.webhook.hints.add(key)
 	byRepo := map[int64]*repoQueue{repo.ID: {repo: repo, forgeRepo: github.Repo{Owner: "acme", Name: "hinted"}, log: f.d.log, listing: true}}
 	return f, byRepo, key

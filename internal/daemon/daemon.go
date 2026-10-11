@@ -480,8 +480,9 @@ type Daemon struct {
 	// are not, and they deliberately have no mutex: they are read and written
 	// only by [Daemon.dispatch], on the Tick goroutine, which is never
 	// concurrent with itself, and no worker can reach them.
-	lastRepoID        int64
-	repoSessionCursor map[int64]int64
+	lastRepoID               int64
+	repoSessionCursor        map[int64]int64
+	pendingObservationCursor map[int64]int
 }
 
 // New builds a daemon from its dependencies.
