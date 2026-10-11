@@ -62,6 +62,9 @@ type ImplementStory struct {
 	LastFailure string
 	// Guidance is the owner's reply a resumed story is given.
 	Guidance string
+	// GuidanceQuestion is the park reason (the worker's question) that
+	// Guidance answered, kept when the story is resumed.
+	GuidanceQuestion string
 }
 
 // MaxImplementAttempts is the failed attempts a story may record: the first
@@ -114,7 +117,7 @@ func validImplementMove(from, to string) bool {
 	return false
 }
 
-const implementColumns = `parent,generation,story_key,position,branch,state,reason,merge_commit,revision,created_at,updated_at,state_at,attempts,park_origin,worker_session,last_failure,guidance`
+const implementColumns = `parent,generation,story_key,position,branch,state,reason,merge_commit,revision,created_at,updated_at,state_at,attempts,park_origin,worker_session,last_failure,guidance,guidance_question`
 
 // EnsureImplementStories adds a waiting row for every seed the ledger does not
 // hold yet and leaves existing rows untouched, so it is safe to repeat.
@@ -209,7 +212,7 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 			set = ",park_origin=?"
 			extra = []any{ImplementOriginMerge}
 		case in.To == ImplementWaiting && in.From == ImplementParked:
-			set = ",park_origin='',attempts=0,last_failure='',worker_session=0,guidance=?"
+			set = ",park_origin='',attempts=0,last_failure='',worker_session=0,guidance=?,guidance_question=reason"
 			extra = []any{in.Guidance}
 		case in.To == ImplementRunning:
 			set = ",worker_session=0"
@@ -253,7 +256,7 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 func scanImplementStory(row scanner) (ImplementStory, error) {
 	var s ImplementStory
 	var created, updated, stateAt string
-	if err := row.Scan(&s.Parent, &s.Generation, &s.Key, &s.Position, &s.Branch, &s.State, &s.Reason, &s.MergeCommit, &s.Revision, &created, &updated, &stateAt, &s.Attempts, &s.ParkOrigin, &s.WorkerSession, &s.LastFailure, &s.Guidance); err != nil {
+	if err := row.Scan(&s.Parent, &s.Generation, &s.Key, &s.Position, &s.Branch, &s.State, &s.Reason, &s.MergeCommit, &s.Revision, &created, &updated, &stateAt, &s.Attempts, &s.ParkOrigin, &s.WorkerSession, &s.LastFailure, &s.Guidance, &s.GuidanceQuestion); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ImplementStory{}, ErrNotFound
 		}
