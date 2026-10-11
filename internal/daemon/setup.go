@@ -23,6 +23,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/repos"
@@ -303,6 +304,20 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		webhookOpts = &WebhookOptions{Listener: ln, Secrets: s.WebhookSecrets}
 	}
 
+	chatOpts, chatErr := prepareChat(ctx, s.Config, s.WebhookSecrets)
+	if chatErr != nil {
+		return nil, Startup{}, errors.Join(chatErr, lock.Close())
+	}
+	if chatOpts != nil {
+		providers := make(map[string]ask.ChatRunner)
+		for kind, runner := range runners {
+			if native, ok := runner.(ask.ChatRunner); ok {
+				providers[string(kind)] = native
+			}
+		}
+		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: client}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})}
+	}
+
 	// Built once and reused for both NewExecutor and NewConfirmApplier
 	// (US-12): the ordinary turn and the agentless apply turn share every
 	// dependency, and building turn.Options twice would be two chances for
@@ -519,6 +534,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Interval:          interval,
 		DiscoveryInterval: discoveryInterval,
 		Webhook:           webhookOpts,
+		Chat:              chatOpts,
 		// Nothing spends the slots yet; carrying the value from here means the
 		// pool, when it lands, reads a number that has been clamped three times.
 		MaxConcurrentRuns: maxRuns,

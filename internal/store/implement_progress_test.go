@@ -378,3 +378,30 @@ func TestImplementProgressReceiptSurvivesCompaction(t *testing.T) {
 		t.Fatalf("compacted receipt %+v", receipt)
 	}
 }
+
+func TestResumeKeepsTheWorkerQuestionNextToTheGuidance(t *testing.T) {
+	db := newTestDB(t)
+	runningStory(t, db, "a")
+	const question = "exactly one visible reply cannot be guaranteed"
+	parked, err := move(t, db, "a", ImplementRunning, ImplementParked, 2, func(in *ImplementTransition) { in.Reason = question })
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := move(t, db, "a", ImplementParked, ImplementWaiting, parked.Revision, func(in *ImplementTransition) { in.Guidance = "Approval for option 2!" })
+	if err != nil || row.Reason != "" || row.Guidance != "Approval for option 2!" || row.GuidanceQuestion != question {
+		t.Fatalf("resume keeps the question: %+v %v", row, err)
+	}
+	for _, step := range [][2]string{{ImplementWaiting, ImplementRunning}, {ImplementRunning, ImplementDone}, {ImplementDone, ImplementMerged}} {
+		row, err = move(t, db, "a", step[0], step[1], row.Revision, func(in *ImplementTransition) {
+			if step[1] == ImplementMerged {
+				in.MergeCommit = "abc"
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if row.State != ImplementMerged || row.Guidance != "Approval for option 2!" || row.GuidanceQuestion != question || row.Reason != "" {
+		t.Fatalf("a merged story keeps question and guidance: %+v", row)
+	}
+}

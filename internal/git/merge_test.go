@@ -643,3 +643,64 @@ func TestWorktreeMergeBaseNeverTouchesOrigin(t *testing.T) {
 			gittest.DefaultBranch, originBefore, originAfter)
 	}
 }
+
+// TestWorktreeStartMergeLeavesConflictForResolution: StartMerge leaves a
+// conflicted merge in progress, reports its conflicting paths again on a
+// second call without restarting it, and a later Commit concludes it as a
+// merge commit on top of the base tip.
+func TestWorktreeStartMergeLeavesConflictForResolution(t *testing.T) {
+	t.Parallel()
+
+	repo := gittest.New(t)
+	worktree, dir := newTaskWorktree(t, repo, 42, "Start a conflicted merge")
+	base := "origin/" + gittest.DefaultBranch
+	conflictOnSharedFile(t, repo, dir)
+	baseTip, err := worktree.RevParse(t.Context(), base, git.RevParseOptions{})
+	if err != nil {
+		t.Fatalf("RevParse base: %v", err)
+	}
+
+	conflicts, err := worktree.StartMerge(t.Context(), base)
+	if err != nil {
+		t.Fatalf("StartMerge: %v", err)
+	}
+	if !slices.Equal(conflicts, []string{"README.md"}) {
+		t.Fatalf("conflicts = %v, want [README.md]", conflicts)
+	}
+	mergeHead, err := worktree.RevParse(t.Context(), "MERGE_HEAD", git.RevParseOptions{})
+	if err != nil || mergeHead != baseTip {
+		t.Fatalf("MERGE_HEAD = %q, %v; want %s", mergeHead, err, baseTip)
+	}
+	again, err := worktree.StartMerge(t.Context(), base)
+	if err != nil || !slices.Equal(again, conflicts) {
+		t.Fatalf("second StartMerge = %v, %v; want the same conflicts", again, err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# fixture\nbranch change\nbase change\n"), 0o600); err != nil {
+		t.Fatalf("resolve README.md: %v", err)
+	}
+	result, err := worktree.Commit(t.Context(), commitOptions("Resolve the merge.", 1))
+	if err != nil || !result.Committed {
+		t.Fatalf("Commit = %+v, %v", result, err)
+	}
+	parents := strings.Fields(repo.GitIn(dir, "rev-list", "--parents", "-n", "1", "HEAD"))
+	if len(parents) != 3 || parents[2] != baseTip {
+		t.Fatalf("HEAD parents = %v, want a merge commit with second parent %s", parents, baseTip)
+	}
+}
+
+// TestWorktreeStartMergeRefusesDirtyWorktree: without a merge in progress,
+// uncommitted work is never mixed into a new merge.
+func TestWorktreeStartMergeRefusesDirtyWorktree(t *testing.T) {
+	t.Parallel()
+
+	repo := gittest.New(t)
+	worktree, dir := newTaskWorktree(t, repo, 42, "Dirty start merge")
+	conflictOnSharedFile(t, repo, dir)
+	if err := os.WriteFile(filepath.Join(dir, "scratch.txt"), []byte("wip\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worktree.StartMerge(t.Context(), "origin/"+gittest.DefaultBranch); !errors.Is(err, git.ErrWorktreeUncommittedChanges) {
+		t.Fatalf("StartMerge error = %v, want ErrWorktreeUncommittedChanges", err)
+	}
+}

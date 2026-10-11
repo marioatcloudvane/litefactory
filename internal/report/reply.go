@@ -909,6 +909,7 @@ func (r Reply) body() string {
 	case ReplyGraphOwnerWaitRefused:
 		b.WriteString("This comment could not be used because the workflow is already handling another reply or question, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
+		b.WriteString("A question that is already answered cannot accept another answer. ")
 		b.WriteString("If it still applies, please post it again after the workflow has posted its next update.")
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")

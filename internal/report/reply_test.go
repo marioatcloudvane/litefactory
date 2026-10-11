@@ -80,7 +80,7 @@ func TestRenderReplyGraphOwnerWaitRefused(t *testing.T) {
 		t.Fatalf("RenderReply: %v", err)
 	}
 	text := body.String()
-	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "already handling another reply or question") || !strings.Contains(text, "nothing was run") {
+	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "already handling another reply or question") || !strings.Contains(text, "already answered") || !strings.Contains(text, "nothing was run") {
 		t.Fatalf("reply:\n%s", text)
 	}
 	kind := report.ReplyGraphOwnerWaitRefused
