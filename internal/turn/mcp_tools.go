@@ -113,7 +113,8 @@ func (d *ToolDispatcher) Handler(ctx context.Context, q submission.Request) (jso
 		}
 		result, err := d.service.Submit(live, q.RequestID, call.Arguments)
 		if err != nil {
-			return nil, err
+			_, lookupErr := d.service.Receipt(live, d.guard.Binding().RunID, q.RequestID)
+			return resultFailure(call.Name, q.RequestID, d.guard.Binding(), err, lookupErr)
 		}
 		return json.Marshal(result)
 	case "communication_receipt":
@@ -128,7 +129,7 @@ func (d *ToolDispatcher) Handler(ctx context.Context, q submission.Request) (jso
 		}
 		result, err := d.service.Receipt(live, d.guard.Binding().RunID, lookup.RequestID)
 		if err != nil {
-			return nil, err
+			return resultFailure(call.Name, lookup.RequestID, d.guard.Binding(), err, err)
 		}
 		return json.Marshal(result)
 	}
