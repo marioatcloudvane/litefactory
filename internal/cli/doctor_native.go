@@ -11,8 +11,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
-	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -31,16 +31,8 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 	advisors := make(map[string]turn.ConflictAdvisor)
 	cfg := service.Config
 	environ := os.Environ()
-	// Missing forge credentials leave an explicit tool coverage error; they must
-	// not discard owner input or prevent diagnosis from inspecting local sources.
-	ref, configured := secrets.ReferenceFrom(cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
-	if configured {
-		if token, resolveErr := (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, ref); resolveErr == nil {
-			service.Redactor = redact.New(redact.Options{Logger: env.Logger, Token: token, Environ: environ})
-			if client, clientErr := github.New(github.Options{APIBase: cfg.Providers.GitHub.APIBase, Token: token, Logger: env.Logger, UserAgent: initUserAgent(env)}); clientErr == nil {
-				service.Comments = client
-			}
-		}
+	if err := configureDoctorTicketWorkflow(ctx, service, env, environ); err != nil {
+		return err
 	}
 	if cfg.Agents.Claude != nil {
 		model, _ := cfg.Tiers.ResolveModel(config.Kind("claude"), config.TierFlagship)
@@ -72,6 +64,94 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 		service.RepairEffects = effects
 	}
 	return nil
+}
+
+// A missing legacy credential must not hide a usable retained project client.
+// The routed bridge selects the original execution version for every effect.
+func configureDoctorTicketWorkflow(ctx context.Context, service *doctor.Service, env *Env, environ []string) error {
+	ctx, cancel := context.WithTimeout(ctx, projectconnection.DefaultTimeout)
+	defer cancel()
+	cfg := service.Config
+	service.Redactor = redact.New(redact.Options{Logger: env.Logger, Environ: environ})
+	bot, err := service.DB.GetIdentity(ctx, store.ForgeGitHub, store.RoleBot)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil // Local diagnosis remains available without forge coverage.
+	}
+	if err != nil {
+		return err
+	}
+	ref, configured := secrets.ReferenceFrom(cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
+	var token secrets.Token
+	if configured {
+		token, _ = (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, ref)
+		service.Redactor.AddToken(token)
+	}
+	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: service.Redactor, ExpectedActorID: bot.UserID, LegacyReference: ref, LegacyToken: token})
+	if err := projectconnection.Initialize(ctx, service.DB, *cfg, factory); err != nil {
+		return err
+	}
+	clients, err := doctorBootstrapClients(ctx, service.DB, factory)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil // The read tools report unavailable remote coverage.
+	}
+	if err != nil {
+		return err
+	}
+	selector := daemon.ProjectTicketSelector(service.DB, factory)
+	workflow, err := turn.NewRoutedGitHubTicketWorkflow(service.DB, clients.Tickets, clients.Actor.ID, selector)
+	if err != nil {
+		return err
+	}
+	service.Comments = workflow
+	return nil
+}
+
+// Bootstrap metadata is only used to construct the bridge. Its selector still
+// requires the retained session context before any remote operation.
+func doctorBootstrapClients(ctx context.Context, db *store.DB, factory *projectconnection.Factory) (*projectconnection.Clients, error) {
+	projects, err := db.ListRepos(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, project := range projects {
+		sessions, err := db.ListRepoSessions(ctx, project.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, session := range sessions {
+			snapshot, err := db.GetExecutionSnapshot(ctx, session.ID)
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			version, err := db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if clients, err := factory.Clients(ctx, version, snapshot.ActorID); err == nil {
+				return clients, nil
+			}
+		}
+		version, err := db.CurrentConnection(ctx, project.ID, store.TicketConnection)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !version.Enabled {
+			continue
+		}
+		if clients, err := factory.Clients(ctx, version, 0); err == nil {
+			return clients, nil
+		}
+	}
+	return nil, store.ErrNotFound
 }
 
 func configureDoctorHost(service *doctor.Service) (func() error, error) {

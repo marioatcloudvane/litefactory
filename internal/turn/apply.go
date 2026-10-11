@@ -283,7 +283,7 @@ func ExecuteApplyResolution(ctx context.Context, opts Options, req ApplyRequest)
 		return ApplyResult{}, fmt.Errorf("task %s has no frozen branch to apply a confirmed resolution on", ref)
 	}
 
-	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
+	repo, err := executionRepository(ctx, opts.DB, session)
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("read the repository of task %s: %w", ref, err)
 	}

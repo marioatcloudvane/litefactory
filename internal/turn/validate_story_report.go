@@ -43,8 +43,8 @@ func (b ValidateFlowBindings) refreshValidateStories(ctx context.Context, opts O
 		if i < 0 {
 			continue
 		}
-		if b.Delivery.Forge != nil {
-			if err := tickValidateStory(ctx, opts, b.Delivery.Forge, task, target, s, st, st.Stories[i]); err != nil {
+		if b.Delivery.tickets() != nil {
+			if err := tickValidateStory(ctx, opts, b.Delivery.tickets(), task, target, s, st, st.Stories[i]); err != nil {
 				faults = append(faults, fmt.Errorf("story %s (#%d): %w", s.Key, s.Number, err))
 				continue
 			}
@@ -60,7 +60,7 @@ func (b ValidateFlowBindings) refreshValidateStories(ctx context.Context, opts O
 // tickValidateStory ticks every satisfied or owner-passed criterion in the
 // story body and leaves the others unticked, against the frozen approved body,
 // then reads the body back to confirm.
-func tickValidateStory(ctx context.Context, opts Options, forge ValidateForge, task naming.Ref, target ValidateDeliveryTarget, s ValidateIssueRef, st ValidateState, joined ValidateJoinedStory) error {
+func tickValidateStory(ctx context.Context, opts Options, forge ValidateTickets, task naming.Ref, target ValidateDeliveryTarget, s ValidateIssueRef, st ValidateState, joined ValidateJoinedStory) error {
 	if s.Body == "" || slices.Contains(joined.Unresolved, agent.ReviewRoleAcceptance) {
 		return nil
 	}

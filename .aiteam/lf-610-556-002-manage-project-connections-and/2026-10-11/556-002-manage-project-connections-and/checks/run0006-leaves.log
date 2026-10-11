@@ -1,0 +1,4 @@
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	15.052s
+ok  	github.com/cloudvane/litefactory/internal/github	7.902s
+ok  	github.com/cloudvane/litefactory/internal/redact	4.836s
+ok  	github.com/cloudvane/litefactory/internal/naming	3.895s

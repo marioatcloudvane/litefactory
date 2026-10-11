@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
@@ -32,10 +33,11 @@ type Options struct {
 
 // Redactor applies the S-7 pattern table to outbound bodies.
 //
-// It is immutable after construction and safe for concurrent use: the literal
-// table and the compiled patterns are read-only, and every pass works on
+// It is safe for concurrent use, including credential registration: the literal
+// table is protected during registration and application; every pass works on
 // per-call state.
 type Redactor struct {
+	mu       sync.RWMutex
 	log      *slog.Logger
 	literals []literal
 
@@ -59,12 +61,12 @@ type literal struct {
 
 // New builds a Redactor.
 //
-// The literal table is snapshotted here. The bot token is resolved once at
+// The literal table starts here; AddToken registers connection credentials safely. The bot token is resolved once at
 // process start and held for the process lifetime, and the daemon's
 // environment does not change under it, so there is no reason to re-scan on
 // every comment.
 //
-// This is the one place in this package that calls [secrets.Token.Reveal]. The
+// Credential registration calls [secrets.Token.Reveal]. The
 // revealed value goes into the literal table and nowhere else — it is never
 // logged, never returned, and never reachable through an exported method.
 func New(opts Options) *Redactor {
@@ -79,13 +81,12 @@ func New(opts Options) *Redactor {
 	}
 
 	literals := make([]literal, 0, 8)
-	if !opts.Token.Empty() {
-		literals = append(literals, literal{class: ClassBotToken, value: opts.Token.Reveal()})
-	}
+
 	literals = append(literals, secretishEnvValues(environ)...)
 
 	r := &Redactor{log: log, literals: dedupeLiterals(literals)}
 	r.pass = r.redact
+	r.AddToken(opts.Token)
 	return r
 }
 
@@ -176,6 +177,10 @@ func dedupeLiterals(in []literal) []literal {
 // here or the whole package is decoration.
 // -----------------------------------------------------------------------------
 func (r *Redactor) Apply(ctx context.Context, text string, limit int) (body Body, err error) {
+	if r != nil {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+	}
 	// A zero Redactor knows no literals and has no logger. Refuse before the
 	// deferred recover is installed, so a nil logger cannot turn the
 	// fail-closed path into a second panic.
@@ -296,4 +301,15 @@ func (r *Redactor) residual(text string) (Class, bool) {
 		}
 	}
 	return ClassInvalid, false
+}
+
+// AddToken retains every resolved connection credential, including rotated values,
+// so later publications cannot expose another connection's token.
+func (r *Redactor) AddToken(token secrets.Token) {
+	if r == nil || token.Empty() {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.literals = dedupeLiterals(append([]literal{{class: ClassBotToken, value: token.Reveal()}}, r.literals...))
 }

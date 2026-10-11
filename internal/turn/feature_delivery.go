@@ -15,14 +15,14 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-type deliveryForge interface {
-	ListSubIssues(context.Context, github.Repo, int) ([]github.Issue, error)
+// CodeDelivery contains only repository/branch/PR integration operations.
+// Ticket adapters cannot select a code repository or acquire merge authority.
+type CodeDelivery interface {
 	GetDeliveryHead(context.Context, github.Repo, string) (string, error)
 	ListDeliveryPRs(context.Context, github.Repo, string) ([]github.DeliveryPR, error)
 	GetDeliveryPR(context.Context, github.Repo, int) (github.DeliveryPR, error)
 	CreateDeliveryPR(context.Context, github.Repo, string, string, redact.Body, redact.Body) (github.DeliveryPR, error)
 	MergeDeliveryPR(context.Context, github.Repo, int, string) error
-	CloseDeliveredParent(context.Context, github.Repo, int, int64) error
 }
 type deliveryRenderer interface {
 	RenderDeliveryContent(context.Context, string, string) (redact.Body, redact.Body, error)
@@ -125,15 +125,29 @@ func (p *StoryProgress) ApplyDelivery(ctx context.Context, c DeliveryControl) (e
 	if q.Parent != c.Parent || q.Generation != r.Generation || q.PRNumber != r.PRNumber || q.Head != r.Head || q.Target != r.Target || !q.Proposed || q.Superseded {
 		return p.deliveryRefusal(ctx, c, "Delivery approval does not match the active proposed PR/head/main.")
 	}
-	gateway, ok := p.forge.(deliveryForge)
-	if !ok {
-		return fmt.Errorf("delivery forge unavailable")
-	}
 	ref, err := naming.ParseRef(q.Parent)
 	if err != nil {
 		return err
 	}
-	repo := github.RepoFromRef(ref)
+	parent, err := p.forge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
+	if err != nil {
+		return err
+	}
+	if parent.ID != q.ParentID || parent.Number != ref.Issue {
+		return fmt.Errorf("delivery parent identity changed")
+	}
+	gateway, err := p.deliveryGateway(ctx, q.Parent)
+	if err != nil {
+		return err
+	}
+	ok := gateway != nil
+	if !ok {
+		return fmt.Errorf("delivery forge unavailable")
+	}
+	repo, err := p.deliveryCodeRepository(ctx, q.Parent)
+	if err != nil {
+		return err
+	}
 	pr, err := gateway.GetDeliveryPR(ctx, repo, q.PRNumber)
 	if err != nil {
 		return err
@@ -327,7 +341,7 @@ func (p *StoryProgress) pollDelivery(ctx context.Context, parent string) (err er
 	}
 	// Installed adapters without this optional capability continue to process
 	// acceptance; explicit delivery reports the unavailable service.
-	if _, ok := p.forge.(deliveryForge); !ok {
+	if p.code == nil {
 		return nil
 	}
 	s, err := p.db.GetSessionByTaskRef(ctx, parent)
@@ -372,7 +386,11 @@ func (p *StoryProgress) prepareDelivery(ctx context.Context, parent string, expl
 		key := agent.StoryDigest([]byte(parent + ready.String()))
 		return p.deliveryNotice(ctx, parent, key, "readiness", summary)
 	}
-	gateway, ok := p.forge.(deliveryForge)
+	gateway, err := p.deliveryGateway(ctx, parent)
+	if err != nil {
+		return err
+	}
+	ok := gateway != nil
 	if !ok {
 		return fmt.Errorf("delivery forge unavailable")
 	}
@@ -395,8 +413,12 @@ func (p *StoryProgress) prepareDelivery(ctx context.Context, parent string, expl
 	if err != nil {
 		return err
 	}
-	repo := github.RepoFromRef(ref)
-	remote, err := p.forge.GetIssue(ctx, repo, ref.Issue)
+	ticketRepo := github.RepoFromRef(ref)
+	repo, err := p.deliveryCodeRepository(ctx, parent)
+	if err != nil {
+		return err
+	}
+	remote, err := p.forge.GetIssue(ctx, ticketRepo, ref.Issue)
 	if err != nil {
 		return err
 	}
@@ -456,7 +478,7 @@ func (p *StoryProgress) deliveryNotice(ctx context.Context, parent, key, stage, 
 		return err
 	}
 	for _, c := range comments {
-		if c.Author.ID == p.botID && exactProgressMarker(c.Body, marker) {
+		if !hasTicketNoticeGuard(p.forge) && c.Author.ID == p.botID && exactProgressMarker(c.Body, marker) {
 			return nil
 		}
 	}
@@ -464,7 +486,7 @@ func (p *StoryProgress) deliveryNotice(ctx context.Context, parent, key, stage, 
 	if err != nil {
 		return err
 	}
-	c, err := p.forge.PostComment(ctx, repo, ref.Issue, body)
+	c, err := postTicketNotice(ctx, p.forge, marker, parent, p.botID, repo, ref.Issue, body)
 	if err != nil {
 		return err
 	}
@@ -486,7 +508,11 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 			err = errors.Join(err, saveErr, noticeErr)
 		}
 	}()
-	gateway, ok := p.forge.(deliveryForge)
+	gateway, err := p.deliveryGateway(ctx, q.Parent)
+	if err != nil {
+		return err
+	}
+	ok := gateway != nil
 	if !ok {
 		return fmt.Errorf("delivery forge unavailable")
 	}
@@ -498,7 +524,18 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 	if err != nil {
 		return err
 	}
-	repo := github.RepoFromRef(ref)
+	ticketRepo := github.RepoFromRef(ref)
+	parent, err := p.forge.GetIssue(ctx, ticketRepo, ref.Issue)
+	if err != nil {
+		return err
+	}
+	if parent.ID != q.ParentID || parent.Number != ref.Issue {
+		return fmt.Errorf("delivery parent identity changed")
+	}
+	repo, err := p.deliveryCodeRepository(ctx, q.Parent)
+	if err != nil {
+		return err
+	}
 	feature, err := p.db.GetManagedFeature(ctx, q.Parent)
 	if err != nil {
 		return err
@@ -679,7 +716,7 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 	if err = p.db.SaveDeliveryEffects(ctx, *q); err != nil {
 		return err
 	}
-	parent, err := p.forge.GetIssue(ctx, repo, ref.Issue)
+	parent, err = p.forge.GetIssue(ctx, ticketRepo, ref.Issue)
 	if err != nil {
 		return err
 	}
@@ -691,11 +728,17 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 		if err = p.db.SaveDeliveryEffects(ctx, *q); err != nil {
 			return err
 		}
-		if err = gateway.CloseDeliveredParent(ctx, repo, ref.Issue, q.ParentID); err != nil {
+		closer, ok := p.forge.(interface {
+			CloseDeliveredParent(context.Context, github.Repo, int, int64) error
+		})
+		if !ok {
+			return fmt.Errorf("ticket closure unavailable")
+		}
+		if err = closer.CloseDeliveredParent(ctx, ticketRepo, ref.Issue, q.ParentID); err != nil {
 			return err
 		}
 	}
-	parent, err = p.forge.GetIssue(ctx, repo, ref.Issue)
+	parent, err = p.forge.GetIssue(ctx, ticketRepo, ref.Issue)
 	if err != nil {
 		return err
 	}
@@ -713,4 +756,51 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 	q.Reported = true
 	q.Diagnostic = ""
 	return p.db.SaveDeliveryEffects(ctx, *q)
+}
+
+// deliveryCodeRepository reads the registered clone independently of ticket
+// coordinates. Historical delivery proposals have no repository column, so a
+// contradictory registration cannot silently retarget their saved PR effects.
+func (p *StoryProgress) deliveryCodeRepository(ctx context.Context, parent string) (github.Repo, error) {
+	session, err := p.db.GetSessionByTaskRef(ctx, parent)
+	if err != nil {
+		return github.Repo{}, err
+	}
+	snapshot, err := p.db.GetExecutionSnapshot(ctx, session.ID)
+	if err == nil {
+		repo := github.Repo{Owner: snapshot.CodeTarget.Owner, Name: snapshot.CodeTarget.Name}
+		if snapshot.CodeTarget.Forge != "github" {
+			return github.Repo{}, fmt.Errorf("retained code provider is unsupported")
+		}
+		return repo, repo.Validate()
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return github.Repo{}, err
+	}
+	registered, err := p.db.GetRepo(ctx, session.RepoID)
+	if err != nil {
+		return github.Repo{}, err
+	}
+	ref, err := naming.ParseRef(parent)
+	if err != nil {
+		return github.Repo{}, err
+	}
+	repo := github.Repo{Owner: registered.Owner, Name: registered.Name}
+	if registered.Forge != "github" || !strings.EqualFold(repo.String(), ref.Owner+"/"+ref.Repo) {
+		return github.Repo{}, fmt.Errorf("registered code repository conflicts with retained delivery identity")
+	}
+	return repo, repo.Validate()
+}
+
+// deliveryGateway scopes publication to the original parent's retained code actor.
+func (p *StoryProgress) deliveryGateway(ctx context.Context, parent string) (CodeDelivery, error) {
+	gateway := p.code
+	if scoped, ok := gateway.(interface{ ForSession(int64) CodeDelivery }); ok {
+		session, err := p.db.GetSessionByTaskRef(ctx, parent)
+		if err != nil {
+			return nil, err
+		}
+		return scoped.ForSession(session.ID), nil
+	}
+	return gateway, nil
 }

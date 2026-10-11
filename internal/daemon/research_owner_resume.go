@@ -169,7 +169,7 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 	if !instance.NextDueAt.IsZero() {
 		return true, d.refuseGraphResume(ctx, t, trigger, instance.CurrentNode, "it is already scheduled to continue")
 	}
-	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.session.IssueNumber)
+	issue, err := d.readIssue(ctx, t.forgeRepo, t.session.IssueNumber)
 	if err != nil || issue.State != github.StateOpen {
 		return true, err
 	}

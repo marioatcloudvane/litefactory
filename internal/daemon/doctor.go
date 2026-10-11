@@ -151,7 +151,7 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 		if c.Author.ID != ids.OwnerUserID || c.Author.ID == ids.BotUserID || c.Author.IsBot {
 			continue
 		}
-		issue, err := doctorCall(ctx, d, func(ctx context.Context) (github.Issue, error) { return d.forge.GetIssue(ctx, fr, entry.IssueNumber) })
+		issue, err := doctorCall(ctx, d, func(ctx context.Context) (github.Issue, error) { return d.readIssue(ctx, fr, entry.IssueNumber) })
 		if err != nil {
 			return err
 		}

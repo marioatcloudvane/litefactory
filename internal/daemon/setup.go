@@ -24,11 +24,13 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 	"github.com/cloudvane/litefactory/internal/webhook"
 )
@@ -38,8 +40,17 @@ import (
 // The credential arrives already resolved. That is D-D: under launchd,
 // /usr/bin/security can raise an allow-access dialog nobody can see, so the
 // token is read exactly once, by the command, and held for the process
-// lifetime. Nothing below re-resolves it, and there is no path here that could.
+// lifetime. Saved project versions resolve their own external references once
+// when loaded; refresh explicitly verifies the same retained actor.
 type Setup struct {
+	// ConnectionSecrets resolves project-specific external credential references.
+	ConnectionSecrets secrets.Resolver
+	// ProjectStartup binds a fallback startup credential to its saved origin.
+	ProjectStartup  bool
+	BootstrapOrigin ticket.Origin
+	// Launchd limits project credentials to the keychain for background operation.
+	Launchd bool
+
 	// DoctorHost installs factory-owned local lifecycle control; nil keeps it unavailable.
 	DoctorHost *DoctorHostOptions
 	// Paths is the resolved $LF_HOME layout. Required.
@@ -209,8 +220,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// set built above rather than resolved a second time.
 	claude, _ := runners[agent.Kind(store.AgentClaude)].(*harness.Runner)
 
+	bootstrapOrigin := s.Config.Providers.GitHub.APIBase
+	legacyToken := s.Token
+	if s.ProjectStartup {
+		bootstrapOrigin = string(s.BootstrapOrigin)
+		legacyToken = secrets.Token{}
+	}
 	client, err := github.New(github.Options{
-		APIBase:   s.Config.Providers.GitHub.APIBase,
+		APIBase:   bootstrapOrigin,
 		Token:     s.Token,
 		Logger:    s.Logger,
 		UserAgent: s.UserAgent,
@@ -220,6 +237,27 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 
 	identities, err := turn.LoadIdentities(ctx, s.DB, store.ForgeGitHub)
+	if err != nil {
+		return nil, Startup{}, err
+	}
+	identities.TicketOrigin, err = ticket.CanonicalOrigin(s.Config.Providers.GitHub.APIBase)
+	if err != nil {
+		return nil, Startup{}, err
+	}
+	ticketIngress, err := github.NewTickets(client)
+	if err != nil {
+		return nil, Startup{}, err
+	}
+	sharedRedactor := redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})
+	legacyRef, _ := secrets.ReferenceFrom(s.Config.Providers.GitHub.TokenKeychain.Service, s.Config.Providers.GitHub.TokenKeychain.Account, s.Config.Providers.GitHub.TokenEnv)
+	connections := projectconnection.NewFactory(projectconnection.Options{Resolver: s.ConnectionSecrets, Logger: s.Logger, UserAgent: s.UserAgent, Redactor: sharedRedactor, ExpectedActorID: identities.BotUserID, Launchd: s.Launchd, LegacyReference: legacyRef, LegacyToken: legacyToken})
+	if err := projectconnection.Initialize(ctx, s.DB, *s.Config, connections); err != nil {
+		return nil, Startup{}, err
+	}
+	selector := func(ctx context.Context, repo github.Repo, number int, sessionID int64) (*github.Tickets, int64, error) {
+		return selectTicketConnection(ctx, s.DB, connections, repo, number, sessionID)
+	}
+	ticketWorkflow, err := turn.NewRoutedGitHubTicketWorkflow(s.DB, ticketIngress, identities.BotUserID, selector)
 	if err != nil {
 		return nil, Startup{}, err
 	}
@@ -235,7 +273,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		hostRoots = append(hostRoots, home)
 	}
 	renderer, err := report.New(report.Options{
-		Redactor:  redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}),
+		Redactor:  sharedRedactor,
 		Limit:     github.CommentSizeLimit,
 		Logger:    s.Logger,
 		HostRoots: hostRoots,
@@ -247,7 +285,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		BotUserID:    identities.BotUserID,
 		StoryLockDir: s.Paths.StoryProgressLocksDir(),
 		DB:           s.DB,
-		Forge:        client,
+		Forge:        ticketWorkflow,
 		Renderer:     renderer,
 		Logger:       s.Logger,
 	})
@@ -315,7 +353,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 				providers[string(kind)] = native
 			}
 		}
-		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: client}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})}
+		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
 	}
 
 	// Built once and reused for both NewExecutor and NewConfirmApplier
@@ -323,7 +361,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// dependency, and building turn.Options twice would be two chances for
 	// the two to drift.
 	conflictProposalTTL := time.Duration(s.Config.Settings.ConflictProposalTTLHours) * time.Hour
-	storyProgress, err := turn.NewStoryProgress(s.DB, client, renderer, identities.BotUserID, s.Paths.StoryProgressLocksDir())
+	codeDelivery := NewProjectCodeDelivery(s.DB, connections, gitBinary)
+	storyProgress, err := turn.NewStoryProgress(s.DB, ticketWorkflow, renderer, identities.BotUserID, s.Paths.StoryProgressLocksDir(), codeDelivery)
 	if err != nil {
 		return nil, Startup{}, err
 	}
@@ -353,7 +392,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		if err != nil {
 			return nil, Startup{}, errors.Join(err, lock.Close())
 		}
-		mcpRuntime = &turn.MCPRuntime{Authority: authority, Paths: s.Paths, Executable: executable, Now: now, Issues: client, DisableMCP: !s.Config.Settings.MCPAutoStart, Comments: client, Creation: client, CreationAuthorizer: creationAuthorizer, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}), BotID: identities.BotUserID}
+		mcpRuntime = &turn.MCPRuntime{Authority: authority, Paths: s.Paths, Executable: executable, Now: now, Issues: ticketWorkflow, DisableMCP: !s.Config.Settings.MCPAutoStart, Comments: ticketWorkflow, Creation: ticketWorkflow, CreationAuthorizer: creationAuthorizer, Redactor: sharedRedactor, BotID: identities.BotUserID}
 	}
 	sharedCloneGate := newCloneGate()
 	workflowSource, err := repositoryWorkflowSource(s.Paths, s.DB)
@@ -361,6 +400,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	turnOpts := turn.Options{
+		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {
+			snapshot, e := s.DB.GetExecutionSnapshot(ctx, session.ID)
+			if e != nil {
+				return e
+			}
+			_, e = codeDelivery.selectClient(sessionContext(ctx, session.ID), github.Repo{Owner: snapshot.CodeTarget.Owner, Name: snapshot.CodeTarget.Name}, false)
+			return e
+		},
 		WorkflowSource:           workflowSource,
 		ResearchDriver:           turn.ExecuteResearchWorkflow,
 		ResearchReporter:         reporter,
@@ -383,7 +430,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// closing CR-B-001): the same forge client and the same renderer
 		// already built above for posting the run's own report, reused rather
 		// than built twice.
-		SubIssueCreator:   client,
+		SubIssueCreator:   ticketWorkflow,
 		SubIssueRenderer:  renderer,
 		ConflictPreviewer: renderer,
 		// Attachment ingestion (US-3). The same forge client again: it
@@ -449,7 +496,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// Spike checks retain the configured operator sandbox.
 	mcpRuntime.BugChecksIsolation = isolation
 	bugRuntime, err := turn.NewGraphBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
-		Forge: client, OwnerID: identities.OwnerUserID,
+		Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID,
 		Permissions: bugRolePermissions(toolProfiles, toolCeiling), Isolation: isolation,
 	})
 	if err != nil {
@@ -460,7 +507,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// from the daemon's own pool, which exists only once the daemon is built
 	// below, so the slots are bound to it then.
 	validateSlots := &runSlots{}
-	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Forge: client, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(toolProfiles, toolCeiling)})
+	validateRuntime, err := turn.NewValidateRuntime(ctx, turnOpts, turn.ValidateRuntimeConfig{Code: codeDelivery, Tickets: ticketWorkflow, OwnerID: identities.OwnerUserID, Slots: validateSlots, Permissions: bugRolePermissions(toolProfiles, toolCeiling)})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
@@ -480,7 +527,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	mcpRuntime.ImplementStatus = status
 	daemon, err := New(Options{
-		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})},
+		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
 		Bug:        bugRuntime,
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
@@ -501,22 +548,24 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		ValidateHead: func(ctx context.Context, session store.Session) (string, error) {
 			return turn.IntegrationHead(ctx, turnOpts, session)
 		},
-		DB:     s.DB,
-		Forge:  client,
-		Filter: filter,
+		DB:          s.DB,
+		Connections: connections,
+		Forge:       ticketWorkflow,
+		Filter:      filter,
+		Tickets:     ticketIngress,
 		// Schedule proposals are a separate, tool-free advisory call. They
 		// deliberately do not travel through turn.Execute, so no run is
 		// allocated and no worktree is created before owner acceptance.
 		ProposalGenerator: newProposalGenerator(defaultAgent, runners),
-		Turn:              NewExecutor(turnOpts),
+		Turn:              NewExecutor(turnOpts, connections),
 		// US-12's agentless apply turn: the daemon's confirmation dispatch
 		// reaches turn.ExecuteApplyResolution only through this seam, never
 		// directly, so a fake in a dependency-light test can stand in for it
 		// without a git clone and a claude binary.
-		Confirmer:           NewConfirmApplier(turnOpts),
+		Confirmer:           NewConfirmApplier(turnOpts, connections),
 		ConflictProposalTTL: conflictProposalTTL,
 		Reporter:            reporter,
-		DiagnosticRedactor:  redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}),
+		DiagnosticRedactor:  sharedRedactor,
 		// The same two keys the harness was built from above, so the profile a
 		// label selects and the ceiling that bounds it are one decision made in
 		// one place — internal/config resolved the ceiling before it validated
@@ -570,7 +619,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}
 	}
 	daemon.doctor.service.Runner = &doctor.Adapters{Providers: diagnosisProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
-	daemon.doctor.service.Comments = client
+	daemon.doctor.service.Comments = ticketWorkflow
 	daemon.doctor.service.RepairRunner = &doctor.RepairAdapters{Providers: repairProviders, Paths: s.Paths, Executable: mcpRuntime.Executable}
 	advisors := make(map[string]turn.ConflictAdvisor)
 	for kind, runner := range runners {
@@ -578,7 +627,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			advisors[string(kind)] = advisor
 		}
 	}
-	daemon.doctor.service.RepairEffects = &FactoryDoctorRepairEffects{DB: s.DB, Git: gitBinary, CloneGate: sharedCloneGate, Author: turnOpts.Author, Advisors: advisors, Comments: client, BotID: identities.BotUserID, Redactor: daemon.doctor.service.Redactor}
+	daemon.doctor.service.RepairEffects = &FactoryDoctorRepairEffects{DB: s.DB, Git: gitBinary, CloneGate: sharedCloneGate, Author: turnOpts.Author, Advisors: advisors, Comments: ticketWorkflow, BotID: identities.BotUserID, Redactor: daemon.doctor.service.Redactor}
 	daemon.doctor.service.RepairEnvironment = &DoctorRepairEnvironment{DB: s.DB, Paths: s.Paths, Live: daemon}
 
 	if s.DoctorHost != nil {

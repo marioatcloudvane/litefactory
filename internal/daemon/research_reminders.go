@@ -71,11 +71,11 @@ func (d *Daemon) researchReminder(ctx context.Context, reporter researchReminder
 		return err
 	}
 	repo := github.RepoFromRef(ref)
-	issue, err := d.forge.GetIssue(ctx, repo, ref.Issue)
+	issue, err := d.readIssue(ctx, repo, ref.Issue)
 	if err != nil {
 		return err
 	}
-	comments, err := d.forge.ListCommentsAfter(ctx, repo, ref.Issue, 0)
+	comments, err := d.readComments(ctx, repo, ref.Issue, 0)
 	if err != nil {
 		return err
 	}

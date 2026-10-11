@@ -55,22 +55,22 @@ func TestRefValidate(t *testing.T) {
 		ok   bool
 	}{
 		{name: "valid", ref: valid, ok: true},
-		{name: "underscored owner", ref: Ref{ForgeGitHub, "a_c_me", "api", 1}, ok: true},
-		{name: "missing forge", ref: Ref{"", "acme", "api", 1}},
-		{name: "missing owner", ref: Ref{ForgeGitHub, "", "api", 1}},
-		{name: "missing repository", ref: Ref{ForgeGitHub, "acme", "", 1}},
-		{name: "zero issue", ref: Ref{ForgeGitHub, "acme", "api", 0}},
-		{name: "negative issue", ref: Ref{ForgeGitHub, "acme", "api", -3}},
+		{name: "underscored owner", ref: Ref{ForgeGitHub, "a_c_me", "api", 1, ""}, ok: true},
+		{name: "missing forge", ref: Ref{"", "acme", "api", 1, ""}},
+		{name: "missing owner", ref: Ref{ForgeGitHub, "", "api", 1, ""}},
+		{name: "missing repository", ref: Ref{ForgeGitHub, "acme", "", 1, ""}},
+		{name: "zero issue", ref: Ref{ForgeGitHub, "acme", "api", 0, ""}},
+		{name: "negative issue", ref: Ref{ForgeGitHub, "acme", "api", -3, ""}},
 		// These are the rows that matter: forge, owner and repo are
 		// interpolated into a run log path, so a separator or a dot component
 		// would write outside the run directory.
-		{name: "owner escaping upwards", ref: Ref{ForgeGitHub, "..", "api", 1}},
-		{name: "owner with a slash", ref: Ref{ForgeGitHub, "acme/evil", "api", 1}},
-		{name: "repository with a backslash", ref: Ref{ForgeGitHub, "acme", `api\evil`, 1}},
-		{name: "repository as the current directory", ref: Ref{ForgeGitHub, "acme", ".", 1}},
-		{name: "forge with a separator", ref: Ref{"git/hub", "acme", "api", 1}},
-		{name: "owner with a NUL byte", ref: Ref{ForgeGitHub, "ac\x00me", "api", 1}},
-		{name: "owner with a newline", ref: Ref{ForgeGitHub, "acme\n", "api", 1}},
+		{name: "owner escaping upwards", ref: Ref{ForgeGitHub, "..", "api", 1, ""}},
+		{name: "owner with a slash", ref: Ref{ForgeGitHub, "acme/evil", "api", 1, ""}},
+		{name: "repository with a backslash", ref: Ref{ForgeGitHub, "acme", `api\evil`, 1, ""}},
+		{name: "repository as the current directory", ref: Ref{ForgeGitHub, "acme", ".", 1, ""}},
+		{name: "forge with a separator", ref: Ref{"git/hub", "acme", "api", 1, ""}},
+		{name: "owner with a NUL byte", ref: Ref{ForgeGitHub, "ac\x00me", "api", 1, ""}},
+		{name: "owner with a newline", ref: Ref{ForgeGitHub, "acme\n", "api", 1, ""}},
 	}
 
 	for _, tt := range tests {

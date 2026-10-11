@@ -231,7 +231,7 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 		if !ok {
 			continue
 		}
-		session, err := d.db.GetOrCreateSession(ctx, q.repo, story.IssueNumber)
+		session, err := d.managedChildSession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
 		if err != nil {
 			return fmt.Errorf("find the task of story %s: %w", story.Key, err)
 		}
