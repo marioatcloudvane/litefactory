@@ -88,10 +88,12 @@
 // finding its own earlier work through the marker each body carries. Resuming
 // beats sleeping here because it survives the process being killed.
 //
-// # Identity is numeric
+// # Identity is qualified
 //
-// Every actor this package returns carries both a numeric id and a login, and
-// callers must compare the id (D-I). Logins are renameable, and a fine-grained
+// Legacy SDK values carry a numeric id and login. Tickets qualifies that id
+// with the provider and configured API origin; authority compares all three.
+// Workflow compatibility bridges retain numeric ledgers without dropping their
+// durable qualified destinations. Logins are renameable, and a fine-grained
 // PAT on a machine *user* account reports type "User" rather than "Bot", so
 // neither the handle string nor the forge's bot flag is a sound identity check.
 // The logins are for display.

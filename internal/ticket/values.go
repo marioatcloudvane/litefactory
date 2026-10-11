@@ -63,3 +63,11 @@ type ReplyPage struct {
 	Next     Cursor
 	Complete bool
 }
+
+// SnapshotPage retains a bounded provider observation, including entries
+// excluded from the ticket projection (such as GitHub pull requests).
+type SnapshotPage struct {
+	Tickets  []Snapshot
+	NextPage int
+	More     bool
+}

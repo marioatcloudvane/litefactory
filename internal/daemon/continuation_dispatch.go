@@ -103,7 +103,7 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 	cancel := func(reason string) (bool, error) {
 		return false, d.db.CancelContinuation(ctx, c.ID, reason+"; resume manually", t.tickAt)
 	}
-	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.session.IssueNumber)
+	issue, err := d.readIssue(ctx, t.forgeRepo, t.session.IssueNumber)
 	if err != nil {
 		return false, err
 	}
@@ -141,7 +141,7 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 	if identity == "" || identity != c.Context.ResumeIdentity {
 		return cancel("conversation identity unavailable or changed")
 	}
-	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, issue.Number, c.Context.OwnerCommentID)
+	comments, err := d.readComments(ctx, t.forgeRepo, issue.Number, c.Context.OwnerCommentID)
 	if err != nil {
 		return false, err
 	}

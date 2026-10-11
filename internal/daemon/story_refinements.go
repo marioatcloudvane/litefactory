@@ -123,7 +123,7 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	r := pending[0]
 	// Recheck the current direct relationship and numeric identity at execution;
 	// admission is not a capability that survives detachment or replacement.
-	child, err := d.forge.GetIssue(ctx, t.forgeRepo, r.ChildNumber)
+	child, err := d.readIssue(ctx, t.forgeRepo, r.ChildNumber)
 	if err != nil {
 		return true, err
 	}
@@ -165,7 +165,7 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	if err := ack.AcknowledgeStoryRefinement(ctx, t.ref, t.session.ID, r.CommentID); err != nil {
 		return true, err
 	}
-	if err := d.forge.AddCommentReaction(ctx, t.forgeRepo, r.CommentID, github.ReactionEyes); err != nil {
+	if err := d.reactToComment(ctx, t.forgeRepo, r.ChildNumber, r.CommentID, github.ReactionEyes); err != nil {
 		return true, err
 	}
 	copyTask := *t

@@ -35,7 +35,13 @@ type BugCloseForge interface {
 	CloseDeliveredParent(context.Context, github.Repo, int, int64) error
 }
 
-// BugRuntimeForge combines the narrow factory delivery gateways.
+// BugCodeForge keeps repository and integration operations separate from tickets.
+type BugCodeForge interface {
+	BugPRForge
+	BugMergeForge
+}
+
+// BugRuntimeForge is the explicit legacy combined dependency.
 type BugRuntimeForge interface {
 	BugPRForge
 	BugMergeForge
@@ -45,6 +51,8 @@ type BugRuntimeForge interface {
 // BugRuntimeConfig supplies operator-selected identity, permissions and isolation.
 type BugRuntimeConfig struct {
 	Forge       BugRuntimeForge
+	Code        BugCodeForge
+	Tickets     BugCloseForge
 	Permissions func(agent.Kind, string) (BugRolePermissions, error)
 	Isolation   bugchecks.Isolation
 	OwnerID     int64
@@ -79,7 +87,7 @@ func (r *BugRuntime) identity(ctx context.Context, session int64) (store.BugIden
 	if e != nil {
 		return store.BugIdentity{}, e
 	}
-	issue, e := r.cfg.Forge.GetIssue(ctx, github.Repo{Owner: ref.Owner, Name: ref.Repo}, s.IssueNumber)
+	issue, e := r.cfg.Tickets.GetIssue(ctx, github.Repo{Owner: ref.Owner, Name: ref.Repo}, s.IssueNumber)
 	if e != nil {
 		return store.BugIdentity{}, e
 	}

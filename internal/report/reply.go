@@ -438,12 +438,13 @@ func (k ReplyKind) RefusesSync() bool {
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
 // carry the lf:reply marker and no run ordinal because no run happened.
 type Reply struct {
-	CreationAcceptance *CreationAcceptance
-	CreationRejection  *CreationRejection
-	Creation           *CreationReply
-	SourceGeneration   int
-	SourceStoryIssue   int
-	SourceCommentID    int64
+	CreationAcceptance              *CreationAcceptance
+	CreationRejection               *CreationRejection
+	Creation                        *CreationReply
+	SourceGeneration                int
+	SourceStoryIssue                int
+	SourceCommentID                 int64
+	SourceParentURL, SourceReplyURL string
 	// Ref is the task the comment was on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -796,7 +797,7 @@ func (r Reply) body() string {
 	if r.Kind == ReplyStoryPlanning {
 		b.WriteString(StoryAcknowledgementMarker(r.Ref, r.SourceGeneration, r.SourceStoryIssue, r.SourceCommentID))
 	}
-	b.WriteString(storySource(r.Ref, r.SourceStoryIssue, r.SourceCommentID))
+	b.WriteString(storySource(r.Ref, r.SourceStoryIssue, r.SourceCommentID, r.SourceParentURL, r.SourceReplyURL))
 	b.WriteString(sectionGap)
 
 	span, named := commandSpan(r.Command)

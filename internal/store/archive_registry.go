@@ -212,8 +212,8 @@ var archiveRetained = map[string]ArchiveClass{
 	// The family skeleton and the per-task structure that identifies it.
 	"sessions": ArchiveClassSkeleton, "segments": ArchiveClassSkeleton, "runs": ArchiveClassSkeleton,
 	"watermarks": ArchiveClassSkeleton, "retirement_intents": ArchiveClassSkeleton,
-	"session_ticket_identities": ArchiveClassSkeleton,
-	"managed_features":          ArchiveClassSkeleton, "managed_stories": ArchiveClassSkeleton,
+	"session_ticket_identities": ArchiveClassSkeleton, "ticket_effect_identities": ArchiveClassSkeleton,
+	"managed_features": ArchiveClassSkeleton, "managed_stories": ArchiveClassSkeleton,
 	"managed_parent_closures": ArchiveClassSkeleton, "approved_story_revisions": ArchiveClassSkeleton,
 	"story_publications": ArchiveClassSkeleton, "story_revision_operations": ArchiveClassSkeleton,
 	"story_scope_notices": ArchiveClassSkeleton, "story_contract_upgrades": ArchiveClassSkeleton,

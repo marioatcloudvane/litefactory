@@ -345,11 +345,11 @@ func discoveryKey(repo github.Repo, operation string, number int) string {
 	return fmt.Sprintf("%s/%s/%d", repo, operation, number)
 }
 func (d *Daemon) discoveryIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
-	return discoveryCall(ctx, d, discoveryKey(repo, "issue", number), 1, func(ctx context.Context) (github.Issue, error) { return d.forge.GetIssue(ctx, repo, number) })
+	return discoveryCall(ctx, d, discoveryKey(repo, "issue", number), 1, func(ctx context.Context) (github.Issue, error) { return d.readIssue(ctx, repo, number) })
 }
 func (d *Daemon) discoveryComments(ctx context.Context, repo github.Repo, number int, after int64) ([]github.Comment, error) {
 	return discoveryCall(ctx, d, discoveryKey(repo, "comments", number), discoveryListBound, func(ctx context.Context) ([]github.Comment, error) {
-		return d.forge.ListCommentsAfter(ctx, repo, number, after)
+		return d.readComments(ctx, repo, number, after)
 	})
 }
 func (d *Daemon) discoveryProbe(ctx context.Context, repo github.Repo) error {
@@ -358,7 +358,7 @@ func (d *Daemon) discoveryProbe(ctx context.Context, repo github.Repo) error {
 		return nil
 	}
 	defer r.finish()
-	_, err = d.forge.GetIssue(github.WithRequestObserver(github.WithoutConditionalCache(ctx), r.observe), repo, 1)
+	_, err = d.readIssue(github.WithRequestObserver(github.WithoutConditionalCache(ctx), r.observe), repo, 1)
 	if errors.Is(err, github.ErrNotFound) || errors.Is(err, github.ErrInvalidArgument) {
 		return nil
 	}

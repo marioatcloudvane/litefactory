@@ -1,0 +1,2434 @@
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/satisfied
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/unmet_criterion
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/unverified_criterion
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/criterion_cannot_become_advisory
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/blocking_review
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/advisory_review
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/waived_unmet_criterion
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/waived_missing_proof
+=== RUN   TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/waived_review
+--- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived (0.00s)
+    --- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/satisfied (0.00s)
+    --- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/unmet_criterion (0.00s)
+    --- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/unverified_criterion (0.00s)
+    --- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/criterion_cannot_become_advisory (0.00s)
+    --- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/blocking_review (0.00s)
+    --- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/advisory_review (0.00s)
+    --- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/waived_unmet_criterion (0.00s)
+    --- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/waived_missing_proof (0.00s)
+    --- PASS: TestAcceptanceFindingsDistinguishBlockingAndAdvisoryAndWaived/waived_review (0.00s)
+=== RUN   TestApprovalIsAtomicAndExcludesPendingRefinements
+--- PASS: TestApprovalIsAtomicAndExcludesPendingRefinements (0.57s)
+=== RUN   TestReplanPreservesCompletedAndOldApprovedScope
+--- PASS: TestReplanPreservesCompletedAndOldApprovedScope (0.67s)
+=== RUN   TestDB_ListArchivedRunArtefacts
+=== PAUSE TestDB_ListArchivedRunArtefacts
+=== RUN   TestDB_ForgetArchivedFamily
+=== PAUSE TestDB_ForgetArchivedFamily
+=== RUN   TestPlaceholders
+=== PAUSE TestPlaceholders
+=== RUN   TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase
+--- PASS: TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase (1.01s)
+=== RUN   TestArchiveIntegrationDeleteRequiresExactDigest
+--- PASS: TestArchiveIntegrationDeleteRequiresExactDigest (2.89s)
+=== RUN   TestArchiveIntegrationSweepStateRoundTripsAndRejectsInvalid
+--- PASS: TestArchiveIntegrationSweepStateRoundTripsAndRejectsInvalid (0.12s)
+=== RUN   TestArchiveIntegrationCompactOnEmptyWorkIsHarmless
+--- PASS: TestArchiveIntegrationCompactOnEmptyWorkIsHarmless (0.53s)
+=== RUN   TestArchiveIntegrationClosedIssueIgnoresPendingBookkeeping
+--- PASS: TestArchiveIntegrationClosedIssueIgnoresPendingBookkeeping (0.73s)
+=== RUN   TestArchivePlanIntegrationForgetRefusesWhilePlanRowsRemain
+--- PASS: TestArchivePlanIntegrationForgetRefusesWhilePlanRowsRemain (0.24s)
+=== RUN   TestArchivePlanIntegrationStaleGrantsPurgedOnOpen
+2026/10/11 14:03:30 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen3110741306/001/litefactory.db
+--- PASS: TestArchivePlanIntegrationStaleGrantsPurgedOnOpen (0.33s)
+=== RUN   TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted
+=== PAUSE TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted
+=== RUN   TestPlanArchiveTriggers_GrantIsPerParent
+=== PAUSE TestPlanArchiveTriggers_GrantIsPerParent
+=== RUN   TestPlanArchiveTriggers_UpdateStillRefusedWithGrant
+=== PAUSE TestPlanArchiveTriggers_UpdateStillRefusedWithGrant
+=== RUN   TestDB_DeleteArchivedFamily_PlanRows
+=== PAUSE TestDB_DeleteArchivedFamily_PlanRows
+=== RUN   TestWritePlanArchiveGrants_GrantsEmptyAfterRollback
+=== PAUSE TestWritePlanArchiveGrants_GrantsEmptyAfterRollback
+=== RUN   TestWritePlanArchiveGrants_Operations
+=== PAUSE TestWritePlanArchiveGrants_Operations
+=== RUN   TestOpen_ClearsLeftoverPlanArchiveGrants
+=== PAUSE TestOpen_ClearsLeftoverPlanArchiveGrants
+=== RUN   TestOpen_UnmigratedDatabaseToleratesMissingGrantTable
+=== PAUSE TestOpen_UnmigratedDatabaseToleratesMissingGrantTable
+=== RUN   TestArchiveRegistryProblems_MigratedDatabaseIsClean
+=== PAUSE TestArchiveRegistryProblems_MigratedDatabaseIsClean
+=== RUN   TestArchiveRegistry_ReturnsCopyWithEveryClass
+=== PAUSE TestArchiveRegistry_ReturnsCopyWithEveryClass
+=== RUN   TestDB_GetArchiveOwner
+=== PAUSE TestDB_GetArchiveOwner
+=== RUN   TestDB_GetArchiveOwner_UnknownSessionReturnsError
+=== PAUSE TestDB_GetArchiveOwner_UnknownSessionReturnsError
+=== RUN   TestDB_GetArchiveOwner_CancelledContextReturnsError
+=== PAUSE TestDB_GetArchiveOwner_CancelledContextReturnsError
+=== RUN   TestDB_ArchiveSweep_RoundTrip
+=== PAUSE TestDB_ArchiveSweep_RoundTrip
+=== RUN   TestDB_SaveArchiveSweep_RejectsInvalid
+=== PAUSE TestDB_SaveArchiveSweep_RejectsInvalid
+=== RUN   TestDB_DeleteArchivedFamily
+=== PAUSE TestDB_DeleteArchivedFamily
+=== RUN   TestBugArchivePreservesHistoryAndRefusesAllWrites
+--- PASS: TestBugArchivePreservesHistoryAndRefusesAllWrites (7.87s)
+=== RUN   TestBugArchivePre0079PopulatedPreservationRefusal
+--- PASS: TestBugArchivePre0079PopulatedPreservationRefusal (0.46s)
+=== RUN   TestBugArchiveMigrationFailureRollsBack
+--- PASS: TestBugArchiveMigrationFailureRollsBack (4.99s)
+=== RUN   TestBugArchiveFreshAndEmptyOlderUpgrades
+=== RUN   TestBugArchiveFreshAndEmptyOlderUpgrades/0
+=== RUN   TestBugArchiveFreshAndEmptyOlderUpgrades/78
+=== RUN   TestBugArchiveFreshAndEmptyOlderUpgrades/95
+--- PASS: TestBugArchiveFreshAndEmptyOlderUpgrades (11.82s)
+    --- PASS: TestBugArchiveFreshAndEmptyOlderUpgrades/0 (3.76s)
+    --- PASS: TestBugArchiveFreshAndEmptyOlderUpgrades/78 (3.89s)
+    --- PASS: TestBugArchiveFreshAndEmptyOlderUpgrades/95 (4.17s)
+=== RUN   TestBugArchiveUnsupportedLegacyOrphanRemainsUntouched
+--- PASS: TestBugArchiveUnsupportedLegacyOrphanRemainsUntouched (0.24s)
+=== RUN   TestBugArchiveCleanupKeepsTerminalHistoricalFamily
+--- PASS: TestBugArchiveCleanupKeepsTerminalHistoricalFamily (4.99s)
+=== RUN   TestChatMigrationPreservesExistingInboxAndLedger
+--- PASS: TestChatMigrationPreservesExistingInboxAndLedger (4.38s)
+=== RUN   TestChatMeterKnownAndUnknownCostAndReadOnlyTasks
+--- PASS: TestChatMeterKnownAndUnknownCostAndReadOnlyTasks (0.12s)
+=== RUN   TestChatDiagnosisBusyAndRestartAllowance
+--- PASS: TestChatDiagnosisBusyAndRestartAllowance (0.18s)
+=== RUN   TestChatIssuePreviewClaimsAndRetention
+--- PASS: TestChatIssuePreviewClaimsAndRetention (0.14s)
+=== RUN   TestNoticeAdmissionRollbackAndReplay
+=== PAUSE TestNoticeAdmissionRollbackAndReplay
+=== RUN   TestNoticeLeaseFenceAndRetention
+=== PAUSE TestNoticeLeaseFenceAndRetention
+=== RUN   TestNoticeQuestionUsesReferencedDiagnosis
+=== PAUSE TestNoticeQuestionUsesReferencedDiagnosis
+=== RUN   TestNoticePositionFindsRecycledGraphIDs
+=== PAUSE TestNoticePositionFindsRecycledGraphIDs
+=== RUN   TestChatResearchClaimAndForgeRace
+=== PAUSE TestChatResearchClaimAndForgeRace
+=== RUN   TestChatResearchClaimRefusalsAreAtomic
+=== PAUSE TestChatResearchClaimRefusalsAreAtomic
+=== RUN   TestForgeClaimRefusesChatIdentity
+=== PAUSE TestForgeClaimRefusesChatIdentity
+=== RUN   TestChatResearchMigrationPreservesExistingRows
+=== PAUSE TestChatResearchMigrationPreservesExistingRows
+=== RUN   TestResearchMigrationPreservesPendingProjectQuestion
+--- PASS: TestResearchMigrationPreservesPendingProjectQuestion (4.03s)
+=== RUN   TestCommentReservationCrossConnectionAndReopen
+--- PASS: TestCommentReservationCrossConnectionAndReopen (0.24s)
+=== RUN   TestConflictProposalInputsRoundTrip
+=== RUN   TestConflictProposalInputsRoundTrip/historical
+=== PAUSE TestConflictProposalInputsRoundTrip/historical
+=== RUN   TestConflictProposalInputsRoundTrip/base-absent-task
+=== PAUSE TestConflictProposalInputsRoundTrip/base-absent-task
+=== RUN   TestConflictProposalInputsRoundTrip/task-present
+=== PAUSE TestConflictProposalInputsRoundTrip/task-present
+=== CONT  TestConflictProposalInputsRoundTrip/historical
+=== CONT  TestConflictProposalInputsRoundTrip/task-present
+=== CONT  TestConflictProposalInputsRoundTrip/base-absent-task
+--- PASS: TestConflictProposalInputsRoundTrip (0.00s)
+    --- PASS: TestConflictProposalInputsRoundTrip/base-absent-task (0.30s)
+    --- PASS: TestConflictProposalInputsRoundTrip/task-present (0.30s)
+    --- PASS: TestConflictProposalInputsRoundTrip/historical (0.30s)
+=== RUN   TestConflictProposalReplayAndFiles
+=== PAUSE TestConflictProposalReplayAndFiles
+=== RUN   TestConflictProposalSupersedesEarlierPending
+=== PAUSE TestConflictProposalSupersedesEarlierPending
+=== RUN   TestConflictProposalTTLExpiry
+=== PAUSE TestConflictProposalTTLExpiry
+=== RUN   TestConflictProposalRejectsTooManyFiles
+=== PAUSE TestConflictProposalRejectsTooManyFiles
+=== RUN   TestMarkConflictProposalAppliedRecordsEveryField
+=== PAUSE TestMarkConflictProposalAppliedRecordsEveryField
+=== RUN   TestMarkConflictProposalAppliedRefusesASecondApplication
+=== PAUSE TestMarkConflictProposalAppliedRefusesASecondApplication
+=== RUN   TestSupersedeConflictProposalMarksAPendingProposalStale
+=== PAUSE TestSupersedeConflictProposalMarksAPendingProposalStale
+=== RUN   TestSupersedeConflictProposalRefusesAnAlreadyDecidedProposal
+=== PAUSE TestSupersedeConflictProposalRefusesAnAlreadyDecidedProposal
+=== RUN   TestConflictProposalsSchemaHasNoContentColumn
+=== PAUSE TestConflictProposalsSchemaHasNoContentColumn
+=== RUN   TestRegionProposalRoundTripIsolationAndLegacy
+=== PAUSE TestRegionProposalRoundTripIsolationAndLegacy
+=== RUN   TestRecoveryChainRestartFaultMatrix
+=== RUN   TestRecoveryChainRestartFaultMatrix/pending_intent_survives_report_loss
+=== RUN   TestRecoveryChainRestartFaultMatrix/reservation_without_run_requeues
+=== RUN   TestRecoveryChainRestartFaultMatrix/allocated_abandoned_run_never_requeues
+=== RUN   TestRecoveryChainRestartFaultMatrix/verified_quota_retains_next_intent
+--- PASS: TestRecoveryChainRestartFaultMatrix (1.27s)
+    --- PASS: TestRecoveryChainRestartFaultMatrix/pending_intent_survives_report_loss (0.26s)
+    --- PASS: TestRecoveryChainRestartFaultMatrix/reservation_without_run_requeues (0.45s)
+    --- PASS: TestRecoveryChainRestartFaultMatrix/allocated_abandoned_run_never_requeues (0.26s)
+    --- PASS: TestRecoveryChainRestartFaultMatrix/verified_quota_retains_next_intent (0.30s)
+=== RUN   TestRecoveryChainThreeActualInvocations
+--- PASS: TestRecoveryChainThreeActualInvocations (0.33s)
+=== RUN   TestRecoveryChainTerminalSettlement
+=== RUN   TestRecoveryChainTerminalSettlement/semantic_success
+=== RUN   TestRecoveryChainTerminalSettlement/failure
+=== RUN   TestRecoveryChainTerminalSettlement/cancelled
+=== RUN   TestRecoveryChainTerminalSettlement/exit_zero_quota_without_reset_or_identity
+--- PASS: TestRecoveryChainTerminalSettlement (0.65s)
+    --- PASS: TestRecoveryChainTerminalSettlement/semantic_success (0.15s)
+    --- PASS: TestRecoveryChainTerminalSettlement/failure (0.14s)
+    --- PASS: TestRecoveryChainTerminalSettlement/cancelled (0.15s)
+    --- PASS: TestRecoveryChainTerminalSettlement/exit_zero_quota_without_reset_or_identity (0.21s)
+=== RUN   TestRecoveryChainMultipleOriginalPrerequisites
+--- PASS: TestRecoveryChainMultipleOriginalPrerequisites (0.28s)
+=== RUN   TestContinuationCompletionIsAtomicAndIdempotent
+=== RUN   TestContinuationCompletionIsAtomicAndIdempotent/1970-01-01_01:00:00_+0100_CET
+=== RUN   TestContinuationCompletionIsAtomicAndIdempotent/1970-01-01_01:00:42_+0100_CET
+=== RUN   TestContinuationCompletionIsAtomicAndIdempotent/146138514283-06-19_09:46:43_+0200_CEST
+--- PASS: TestContinuationCompletionIsAtomicAndIdempotent (0.33s)
+    --- PASS: TestContinuationCompletionIsAtomicAndIdempotent/1970-01-01_01:00:00_+0100_CET (0.14s)
+    --- PASS: TestContinuationCompletionIsAtomicAndIdempotent/1970-01-01_01:00:42_+0100_CET (0.10s)
+    --- PASS: TestContinuationCompletionIsAtomicAndIdempotent/146138514283-06-19_09:46:43_+0200_CEST (0.09s)
+=== RUN   TestContinuationRestartPreservesIntentAndIndependentReportDiscovery
+--- PASS: TestContinuationRestartPreservesIntentAndIndependentReportDiscovery (0.22s)
+=== RUN   TestContinuationPreservesScheduledPrerequisiteAndManualUniqueness
+--- PASS: TestContinuationPreservesScheduledPrerequisiteAndManualUniqueness (0.10s)
+=== RUN   TestCreationPublicationDBDispatchAndMonotonicFacts
+--- PASS: TestCreationPublicationDBDispatchAndMonotonicFacts (0.24s)
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/owner
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/repository
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/task
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/comment
+--- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay (0.11s)
+    --- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/owner (0.00s)
+    --- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/repository (0.00s)
+    --- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/task (0.00s)
+    --- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/comment (0.00s)
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/owner
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/repository
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/task
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/comment
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/task
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/comment
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/owner
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/repository
+--- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding (0.20s)
+    --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded (0.10s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/owner (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/repository (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/task (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/comment (0.00s)
+    --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired (0.10s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/task (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/comment (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/owner (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/repository (0.00s)
+=== RUN   TestHealthSnapshotRoundTripAndReplace
+=== PAUSE TestHealthSnapshotRoundTripAndReplace
+=== RUN   TestHealthSnapshotReplaceIsAtomic
+=== PAUSE TestHealthSnapshotReplaceIsAtomic
+=== RUN   TestHealthSnapshotRowsFollowRepoDeletion
+=== PAUSE TestHealthSnapshotRowsFollowRepoDeletion
+=== RUN   TestHealthSnapshotCarriesHeartbeatAndPauseFacts
+=== PAUSE TestHealthSnapshotCarriesHeartbeatAndPauseFacts
+=== RUN   TestDoctorDiscoveryReopenReplaysPartiallyAdmittedPage
+--- PASS: TestDoctorDiscoveryReopenReplaysPartiallyAdmittedPage (0.12s)
+=== RUN   TestDoctorConsumeBackupPrecedesRemoteReply
+--- PASS: TestDoctorConsumeBackupPrecedesRemoteReply (0.10s)
+=== RUN   TestDoctorInboxOrderingStopAndReplay
+--- PASS: TestDoctorInboxOrderingStopAndReplay (0.08s)
+=== RUN   TestDoctorPresentationRequiresAllConfirmedParts
+--- PASS: TestDoctorPresentationRequiresAllConfirmedParts (0.09s)
+=== RUN   TestDoctorScanFixedWindowAndActivation
+--- PASS: TestDoctorScanFixedWindowAndActivation (0.10s)
+=== RUN   TestDoctorMigrationPreservesWorkflowDelivery
+--- PASS: TestDoctorMigrationPreservesWorkflowDelivery (4.31s)
+=== RUN   TestDoctorHistoryReopenStopAndResultReceipts
+--- PASS: TestDoctorHistoryReopenStopAndResultReceipts (0.19s)
+=== RUN   TestDoctorOrphanRecoveryPreservesWorkflowAndOtherIssue
+--- PASS: TestDoctorOrphanRecoveryPreservesWorkflowAndOtherIssue (0.12s)
+=== RUN   TestDoctorSchemaCheckNeverInitializesDatabase
+--- PASS: TestDoctorSchemaCheckNeverInitializesDatabase (0.01s)
+=== RUN   TestDoctorResultOwnershipConstraintsRejectMissingAndMixedOwners
+=== RUN   TestDoctorResultOwnershipConstraintsRejectMissingAndMixedOwners/missing
+=== RUN   TestDoctorResultOwnershipConstraintsRejectMissingAndMixedOwners/mixed
+--- PASS: TestDoctorResultOwnershipConstraintsRejectMissingAndMixedOwners (0.12s)
+    --- PASS: TestDoctorResultOwnershipConstraintsRejectMissingAndMixedOwners/missing (0.00s)
+    --- PASS: TestDoctorResultOwnershipConstraintsRejectMissingAndMixedOwners/mixed (0.00s)
+=== RUN   TestDoctorQuerySelectAndWriteBarriers
+--- PASS: TestDoctorQuerySelectAndWriteBarriers (0.01s)
+=== RUN   TestDoctorQueryLimitsTimeoutAndPlainErrors
+--- PASS: TestDoctorQueryLimitsTimeoutAndPlainErrors (0.04s)
+=== RUN   TestDoctorQueryBusyAndIndependentReadOnlyConnection
+--- PASS: TestDoctorQueryBusyAndIndependentReadOnlyConnection (0.12s)
+=== RUN   TestDoctorRepairRunLockAndStartupExclusion
+--- PASS: TestDoctorRepairRunLockAndStartupExclusion (0.12s)
+=== RUN   TestDoctorRepairCatalogRejectsForgedTransitions
+--- PASS: TestDoctorRepairCatalogRejectsForgedTransitions (0.12s)
+=== RUN   TestDoctorRepairGraphCancellationPreservesHistory
+--- PASS: TestDoctorRepairGraphCancellationPreservesHistory (0.12s)
+=== RUN   TestDoctorRepairGitHubApprovalIsAtomicAndCannotRebind
+--- PASS: TestDoctorRepairGitHubApprovalIsAtomicAndCannotRebind (0.13s)
+=== RUN   TestDoctorRepairConfirmedReportDoesNotConsumeSource
+--- PASS: TestDoctorRepairConfirmedReportDoesNotConsumeSource (0.17s)
+=== RUN   TestDoctorRepairApprovalBackupsHoldAndRestartIdentity
+--- PASS: TestDoctorRepairApprovalBackupsHoldAndRestartIdentity (0.13s)
+=== RUN   TestDoctorRepairStopRetainsPartialHoldAndRejectsFurtherWrites
+=== RUN   TestDoctorRepairStopRetainsPartialHoldAndRejectsFurtherWrites/false
+=== RUN   TestDoctorRepairStopRetainsPartialHoldAndRejectsFurtherWrites/true
+--- PASS: TestDoctorRepairStopRetainsPartialHoldAndRejectsFurtherWrites (0.50s)
+    --- PASS: TestDoctorRepairStopRetainsPartialHoldAndRejectsFurtherWrites/false (0.29s)
+    --- PASS: TestDoctorRepairStopRetainsPartialHoldAndRejectsFurtherWrites/true (0.21s)
+=== RUN   TestDoctorRepairOutcomeReopenCompletesWithoutWorkflowCursorEffects
+--- PASS: TestDoctorRepairOutcomeReopenCompletesWithoutWorkflowCursorEffects (0.21s)
+=== RUN   TestDoctorToolReceiptSharesLedgerWithoutAdoptingResult
+--- PASS: TestDoctorToolReceiptSharesLedgerWithoutAdoptingResult (0.16s)
+=== RUN   TestDoctorTypedRepairCatalog
+=== PAUSE TestDoctorTypedRepairCatalog
+=== RUN   TestDoctorTypedRepairMigrationRetainsLegacyJournal
+=== PAUSE TestDoctorTypedRepairMigrationRetainsLegacyJournal
+=== RUN   TestDoctorTypedEvidenceIncludesOnlyIssueOwnedLedger
+--- PASS: TestDoctorTypedEvidenceIncludesOnlyIssueOwnedLedger (0.13s)
+=== RUN   TestDoctorTypedEvidenceManagedChildKeepsLegacyProjection
+--- PASS: TestDoctorTypedEvidenceManagedChildKeepsLegacyProjection (0.19s)
+=== RUN   TestDoctorTypedSettlementMigrationPreservesApprovedRows
+--- PASS: TestDoctorTypedSettlementMigrationPreservesApprovedRows (5.13s)
+=== RUN   TestDoctorTypedOutcomeDebtAndDeduplication
+=== RUN   TestDoctorTypedOutcomeDebtAndDeduplication/true
+=== RUN   TestDoctorTypedOutcomeDebtAndDeduplication/false
+--- PASS: TestDoctorTypedOutcomeDebtAndDeduplication (0.24s)
+    --- PASS: TestDoctorTypedOutcomeDebtAndDeduplication/true (0.10s)
+    --- PASS: TestDoctorTypedOutcomeDebtAndDeduplication/false (0.14s)
+=== RUN   TestDoctorTypedScheduleAtomicBackupAndRecheck
+=== RUN   TestDoctorTypedScheduleAtomicBackupAndRecheck/requeue_schedulerunning
+=== RUN   TestDoctorTypedScheduleAtomicBackupAndRecheck/cancel_schedulepending
+=== RUN   TestDoctorTypedScheduleAtomicBackupAndRecheck/cancel_schedulerunning
+--- PASS: TestDoctorTypedScheduleAtomicBackupAndRecheck (0.48s)
+    --- PASS: TestDoctorTypedScheduleAtomicBackupAndRecheck/requeue_schedulerunning (0.12s)
+    --- PASS: TestDoctorTypedScheduleAtomicBackupAndRecheck/cancel_schedulepending (0.22s)
+    --- PASS: TestDoctorTypedScheduleAtomicBackupAndRecheck/cancel_schedulerunning (0.13s)
+=== RUN   TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched
+=== RUN   TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched/wrong-kind
+=== RUN   TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched/unknown-step
+=== RUN   TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched/no-drain
+=== RUN   TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched/drift
+--- PASS: TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched (0.50s)
+    --- PASS: TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched/wrong-kind (0.14s)
+    --- PASS: TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched/unknown-step (0.15s)
+    --- PASS: TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched/no-drain (0.11s)
+    --- PASS: TestDoctorTypedRowsRefusalLeavesJournalAndTargetUntouched/drift (0.10s)
+=== RUN   TestDoctorTypedReleaseRetainsHistory
+--- PASS: TestDoctorTypedReleaseRetainsHistory (0.20s)
+=== RUN   TestDoctorTypedScheduleCannotCrossTask
+--- PASS: TestDoctorTypedScheduleCannotCrossTask (0.13s)
+=== RUN   TestDoctorTypedStoryTransitionsRetainBackup
+=== RUN   TestDoctorTypedStoryTransitionsRetainBackup/resume_story
+=== RUN   TestDoctorTypedStoryTransitionsRetainBackup/park_story
+--- PASS: TestDoctorTypedStoryTransitionsRetainBackup (0.34s)
+    --- PASS: TestDoctorTypedStoryTransitionsRetainBackup/resume_story (0.16s)
+    --- PASS: TestDoctorTypedStoryTransitionsRetainBackup/park_story (0.18s)
+=== RUN   TestDoctorTypedCommentCannotConsumeWithoutReplyAdapter
+--- PASS: TestDoctorTypedCommentCannotConsumeWithoutReplyAdapter (0.14s)
+=== RUN   TestDoctorTypedRowsRequirePresentedOwnerApproval
+=== RUN   TestDoctorTypedRowsRequirePresentedOwnerApproval/local-owner
+=== RUN   TestDoctorTypedRowsRequirePresentedOwnerApproval/third-party
+--- PASS: TestDoctorTypedRowsRequirePresentedOwnerApproval (0.21s)
+    --- PASS: TestDoctorTypedRowsRequirePresentedOwnerApproval/local-owner (0.11s)
+    --- PASS: TestDoctorTypedRowsRequirePresentedOwnerApproval/third-party (0.11s)
+=== RUN   TestDoctorTypedReleaseCancelsClaimedWaitAndUnallocatedDispatch
+--- PASS: TestDoctorTypedReleaseCancelsClaimedWaitAndUnallocatedDispatch (0.13s)
+=== RUN   TestDoctorTypedReleaseRefusesLiveAttemptOrWorker
+=== RUN   TestDoctorTypedReleaseRefusesLiveAttemptOrWorker/attempt
+=== RUN   TestDoctorTypedReleaseRefusesLiveAttemptOrWorker/run
+=== RUN   TestDoctorTypedReleaseRefusesLiveAttemptOrWorker/lock
+--- PASS: TestDoctorTypedReleaseRefusesLiveAttemptOrWorker (0.39s)
+    --- PASS: TestDoctorTypedReleaseRefusesLiveAttemptOrWorker/attempt (0.14s)
+    --- PASS: TestDoctorTypedReleaseRefusesLiveAttemptOrWorker/run (0.15s)
+    --- PASS: TestDoctorTypedReleaseRefusesLiveAttemptOrWorker/lock (0.11s)
+=== RUN   TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup
+=== RUN   TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup/confirmed
+=== RUN   TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup/missing
+=== RUN   TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup/unconfirmed
+=== RUN   TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup/foreign
+--- PASS: TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup (0.46s)
+    --- PASS: TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup/confirmed (0.11s)
+    --- PASS: TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup/missing (0.11s)
+    --- PASS: TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup/unconfirmed (0.11s)
+    --- PASS: TestDoctorTypedConsumeUsesConfirmedReplyAndPreservesBackup/foreign (0.13s)
+=== RUN   TestDoctorTypedRowsRespectOrderingAndRetainEarlierBackup
+=== RUN   TestDoctorTypedRowsRespectOrderingAndRetainEarlierBackup/first-refused
+=== RUN   TestDoctorTypedRowsRespectOrderingAndRetainEarlierBackup/second-refused
+--- PASS: TestDoctorTypedRowsRespectOrderingAndRetainEarlierBackup (0.28s)
+    --- PASS: TestDoctorTypedRowsRespectOrderingAndRetainEarlierBackup/first-refused (0.17s)
+    --- PASS: TestDoctorTypedRowsRespectOrderingAndRetainEarlierBackup/second-refused (0.11s)
+=== RUN   TestDoctorTypedSettlementReleasesHoldAndRetainsBackup
+=== RUN   TestDoctorTypedSettlementReleasesHoldAndRetainsBackup/true
+=== RUN   TestDoctorTypedSettlementReleasesHoldAndRetainsBackup/false
+--- PASS: TestDoctorTypedSettlementReleasesHoldAndRetainsBackup (0.26s)
+    --- PASS: TestDoctorTypedSettlementReleasesHoldAndRetainsBackup/true (0.13s)
+    --- PASS: TestDoctorTypedSettlementReleasesHoldAndRetainsBackup/false (0.13s)
+=== RUN   TestDoctorTypedSettlementRejectsUnverifiedSuccess
+--- PASS: TestDoctorTypedSettlementRejectsUnverifiedSuccess (0.12s)
+=== RUN   TestDoctorStopIntentBackupAndJoinedSettlement
+--- PASS: TestDoctorStopIntentBackupAndJoinedSettlement (0.13s)
+=== RUN   TestDoctorStopJoinedGraphAndSessionSettlement
+--- PASS: TestDoctorStopJoinedGraphAndSessionSettlement (0.17s)
+=== RUN   TestDoctorStopRefusesWrongKindAndBeforeDrift
+=== RUN   TestDoctorStopRefusesWrongKindAndBeforeDrift/kind
+=== RUN   TestDoctorStopRefusesWrongKindAndBeforeDrift/drift
+--- PASS: TestDoctorStopRefusesWrongKindAndBeforeDrift (0.30s)
+    --- PASS: TestDoctorStopRefusesWrongKindAndBeforeDrift/kind (0.19s)
+    --- PASS: TestDoctorStopRefusesWrongKindAndBeforeDrift/drift (0.11s)
+=== RUN   TestDoctorTypedRowVerificationRereadsSettledState
+--- PASS: TestDoctorTypedRowVerificationRereadsSettledState (0.12s)
+=== RUN   TestEngineeringMigrationPinsExistingFeaturesThroughRestartAndReplan
+--- PASS: TestEngineeringMigrationPinsExistingFeaturesThroughRestartAndReplan (3.75s)
+=== RUN   TestEngineeringNewApprovalPinsVersionAndReplanRetainsIt
+--- PASS: TestEngineeringNewApprovalPinsVersionAndReplanRetainsIt (0.11s)
+=== RUN   TestFamilyLedgerConcurrentReopenAndIsolation
+--- PASS: TestFamilyLedgerConcurrentReopenAndIsolation (0.16s)
+=== RUN   TestRetainGraphCommentAcceptsReviewKind
+--- PASS: TestRetainGraphCommentAcceptsReviewKind (0.10s)
+=== RUN   TestGraphDiagnosisPersistentApprovalAndAtomicConsumption
+--- PASS: TestGraphDiagnosisPersistentApprovalAndAtomicConsumption (0.23s)
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/mixed_changes
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/stale_revision
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/unauthorized
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/foreign
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/wrong_task
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/stale_question
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/old_reply
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/free_text
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/unpublished
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/rollback
+=== RUN   TestGraphDiagnosisApprovalNegativeInputsAndRollback/guidance
+--- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback (1.53s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/mixed_changes (0.13s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/stale_revision (0.13s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/unauthorized (0.15s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/foreign (0.15s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/wrong_task (0.13s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/stale_question (0.15s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/old_reply (0.13s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/free_text (0.12s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/unpublished (0.15s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/rollback (0.13s)
+    --- PASS: TestGraphDiagnosisApprovalNegativeInputsAndRollback/guidance (0.16s)
+=== RUN   TestGraphDiagnosisReshapeSuspendsApprovalAndPreservesHistory
+--- PASS: TestGraphDiagnosisReshapeSuspendsApprovalAndPreservesHistory (0.24s)
+=== RUN   TestGraphTriggerDispatchRoundTrips
+=== PAUSE TestGraphTriggerDispatchRoundTrips
+=== RUN   TestParkGraphInstanceAfterChainsStages
+=== PAUSE TestParkGraphInstanceAfterChainsStages
+=== RUN   TestGraphTriggerBandIsDisjoint
+=== PAUSE TestGraphTriggerBandIsDisjoint
+=== RUN   TestGraphDispatchLifecycle
+=== PAUSE TestGraphDispatchLifecycle
+=== RUN   TestParkRefusesADisagreeingNode
+=== PAUSE TestParkRefusesADisagreeingNode
+=== RUN   TestGraphDispatchGivesUpAfterRepeatedFailures
+=== PAUSE TestGraphDispatchGivesUpAfterRepeatedFailures
+=== RUN   TestGraphDispatchRetryDelayGrows
+=== PAUSE TestGraphDispatchRetryDelayGrows
+=== RUN   TestGraphDispatchStopOutcomeIsOnlyActualExhaustion
+=== PAUSE TestGraphDispatchStopOutcomeIsOnlyActualExhaustion
+=== RUN   TestGraphReplyRecoveryAtomicallyConsumesInput
+=== PAUSE TestGraphReplyRecoveryAtomicallyConsumesInput
+=== RUN   TestGraphFailureReportedRequiresACompletedDeliveryForTheRun
+--- PASS: TestGraphFailureReportedRequiresACompletedDeliveryForTheRun (0.11s)
+=== RUN   TestResearchLatestAttemptAndLimitsSurviveRestart
+--- PASS: TestResearchLatestAttemptAndLimitsSurviveRestart (0.15s)
+=== RUN   TestResearchSuccessfulContinuationRetainsAttemptBudget
+--- PASS: TestResearchSuccessfulContinuationRetainsAttemptBudget (0.15s)
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage
+=== RUN   TestClaimGraphOwnerReply_PredatingCommentHasItsOwnSentinel
+--- PASS: TestClaimGraphOwnerReply_PredatingCommentHasItsOwnSentinel (0.10s)
+=== RUN   TestClaimGraphOwnerReply_IncompleteQuestionKeepsGenericInvariant
+--- PASS: TestClaimGraphOwnerReply_IncompleteQuestionKeepsGenericInvariant (0.09s)
+=== RUN   TestGraphSchemaMigration
+--- PASS: TestGraphSchemaMigration (0.10s)
+=== RUN   TestGraphDefinitionPinsAndPaths
+=== RUN   TestGraphDefinitionPinsAndPaths/#00
+=== RUN   TestGraphDefinitionPinsAndPaths//core/implement.dot
+=== RUN   TestGraphDefinitionPinsAndPaths/C:/core/implement.dot
+=== RUN   TestGraphDefinitionPinsAndPaths/C:implement.dot
+=== RUN   TestGraphDefinitionPinsAndPaths/core\implement.dot
+=== RUN   TestGraphDefinitionPinsAndPaths/./core.dot
+=== RUN   TestGraphDefinitionPinsAndPaths/core/../x.dot
+=== RUN   TestGraphDefinitionPinsAndPaths/core/./x.dot
+=== RUN   TestGraphDefinitionPinsAndPaths/core//x.dot
+--- PASS: TestGraphDefinitionPinsAndPaths (0.14s)
+    --- PASS: TestGraphDefinitionPinsAndPaths/#00 (0.00s)
+    --- PASS: TestGraphDefinitionPinsAndPaths//core/implement.dot (0.00s)
+    --- PASS: TestGraphDefinitionPinsAndPaths/C:/core/implement.dot (0.00s)
+    --- PASS: TestGraphDefinitionPinsAndPaths/C:implement.dot (0.00s)
+    --- PASS: TestGraphDefinitionPinsAndPaths/core\implement.dot (0.00s)
+    --- PASS: TestGraphDefinitionPinsAndPaths/./core.dot (0.00s)
+    --- PASS: TestGraphDefinitionPinsAndPaths/core/../x.dot (0.00s)
+    --- PASS: TestGraphDefinitionPinsAndPaths/core/./x.dot (0.00s)
+    --- PASS: TestGraphDefinitionPinsAndPaths/core//x.dot (0.00s)
+=== RUN   TestGraphAttemptsInvariants
+--- PASS: TestGraphAttemptsInvariants (0.10s)
+=== RUN   TestGraphCompletionAtomicityAndTrace
+=== RUN   TestGraphCompletionAtomicityAndTrace/output
+=== RUN   TestGraphCompletionAtomicityAndTrace/instance
+=== RUN   TestGraphCompletionAtomicityAndTrace/transition
+--- PASS: TestGraphCompletionAtomicityAndTrace (0.11s)
+    --- PASS: TestGraphCompletionAtomicityAndTrace/output (0.00s)
+    --- PASS: TestGraphCompletionAtomicityAndTrace/instance (0.00s)
+    --- PASS: TestGraphCompletionAtomicityAndTrace/transition (0.00s)
+=== RUN   TestGraphFailedCompletionKeepsNode
+--- PASS: TestGraphFailedCompletionKeepsNode (0.15s)
+=== RUN   TestGraphDueSelection
+--- PASS: TestGraphDueSelection (0.10s)
+=== RUN   TestGraphAttemptDurability
+--- PASS: TestGraphAttemptDurability (0.19s)
+=== RUN   TestGraphSchemaRejectsInvalidRows
+=== RUN   TestGraphSchemaRejectsInvalidRows/unknown_instance_status
+=== RUN   TestGraphSchemaRejectsInvalidRows/terminal_without_finish
+=== RUN   TestGraphSchemaRejectsInvalidRows/invalid_profile_version
+=== RUN   TestGraphSchemaRejectsInvalidRows/nonpositive_attempt
+=== RUN   TestGraphSchemaRejectsInvalidRows/running_outcome
+=== RUN   TestGraphSchemaRejectsInvalidRows/unknown_attempt_status
+=== RUN   TestGraphSchemaRejectsInvalidRows/invalid_attempt_FK
+=== RUN   TestGraphSchemaRejectsInvalidRows/invalid_run_FK
+=== RUN   TestGraphSchemaRejectsInvalidRows/invalid_definition_FK
+--- PASS: TestGraphSchemaRejectsInvalidRows (0.13s)
+    --- PASS: TestGraphSchemaRejectsInvalidRows/unknown_instance_status (0.00s)
+    --- PASS: TestGraphSchemaRejectsInvalidRows/terminal_without_finish (0.00s)
+    --- PASS: TestGraphSchemaRejectsInvalidRows/invalid_profile_version (0.00s)
+    --- PASS: TestGraphSchemaRejectsInvalidRows/nonpositive_attempt (0.00s)
+    --- PASS: TestGraphSchemaRejectsInvalidRows/running_outcome (0.00s)
+    --- PASS: TestGraphSchemaRejectsInvalidRows/unknown_attempt_status (0.00s)
+    --- PASS: TestGraphSchemaRejectsInvalidRows/invalid_attempt_FK (0.00s)
+    --- PASS: TestGraphSchemaRejectsInvalidRows/invalid_run_FK (0.00s)
+    --- PASS: TestGraphSchemaRejectsInvalidRows/invalid_definition_FK (0.00s)
+=== RUN   TestGraphDirectAppendAccessors
+--- PASS: TestGraphDirectAppendAccessors (0.11s)
+=== RUN   TestGraphResultOutputsExcludeFactoryRecords
+--- PASS: TestGraphResultOutputsExcludeFactoryRecords (0.14s)
+=== RUN   TestClosedIssueOwnerWaitCancellation
+=== RUN   TestClosedIssueOwnerWaitCancellation/research/waiting
+=== RUN   TestClosedIssueOwnerWaitCancellation/research/claimed
+=== RUN   TestClosedIssueOwnerWaitCancellation/plan/waiting
+=== RUN   TestClosedIssueOwnerWaitCancellation/plan/claimed
+=== RUN   TestClosedIssueOwnerWaitCancellation/implement/waiting
+=== RUN   TestClosedIssueOwnerWaitCancellation/implement/claimed
+=== RUN   TestClosedIssueOwnerWaitCancellation/validate/waiting
+=== RUN   TestClosedIssueOwnerWaitCancellation/validate/claimed
+=== RUN   TestClosedIssueOwnerWaitCancellation/spike/waiting
+=== RUN   TestClosedIssueOwnerWaitCancellation/spike/claimed
+=== RUN   TestClosedIssueOwnerWaitCancellation/bug/waiting
+=== RUN   TestClosedIssueOwnerWaitCancellation/bug/claimed
+--- PASS: TestClosedIssueOwnerWaitCancellation (1.41s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/research/waiting (0.13s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/research/claimed (0.11s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/plan/waiting (0.12s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/plan/claimed (0.11s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/implement/waiting (0.12s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/implement/claimed (0.11s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/validate/waiting (0.12s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/validate/claimed (0.11s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/spike/waiting (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/spike/claimed (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/bug/waiting (0.15s)
+    --- PASS: TestClosedIssueOwnerWaitCancellation/bug/claimed (0.12s)
+=== RUN   TestClosedIssueOwnerWaitRollback
+--- PASS: TestClosedIssueOwnerWaitRollback (0.15s)
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/research/pending
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/research/running
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/research/terminal
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/research/allocated
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/spike/pending
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/spike/running
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/spike/terminal
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/spike/allocated
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/validate/pending
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/validate/running
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/validate/terminal
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/validate/allocated
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/bug/pending
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/bug/running
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/bug/terminal
+=== RUN   TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/bug/allocated
+--- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory (1.93s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/research/pending (0.13s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/research/running (0.11s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/research/terminal (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/research/allocated (0.11s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/spike/pending (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/spike/running (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/spike/terminal (0.09s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/spike/allocated (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/validate/pending (0.12s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/validate/running (0.14s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/validate/terminal (0.19s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/validate/allocated (0.15s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/bug/pending (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/bug/running (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/bug/terminal (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitProtectedAttemptsAndHistory/bug/allocated (0.20s)
+=== RUN   TestClosedIssueRunlessOwnerWait
+--- PASS: TestClosedIssueRunlessOwnerWait (0.11s)
+=== RUN   TestClosedIssueOwnerWaitProtectsRunsAndAllocatedDispatch
+=== RUN   TestClosedIssueOwnerWaitProtectsRunsAndAllocatedDispatch/prelaunch
+=== RUN   TestClosedIssueOwnerWaitProtectsRunsAndAllocatedDispatch/running
+=== RUN   TestClosedIssueOwnerWaitProtectsRunsAndAllocatedDispatch/allocated_dispatch
+--- PASS: TestClosedIssueOwnerWaitProtectsRunsAndAllocatedDispatch (0.34s)
+    --- PASS: TestClosedIssueOwnerWaitProtectsRunsAndAllocatedDispatch/prelaunch (0.12s)
+    --- PASS: TestClosedIssueOwnerWaitProtectsRunsAndAllocatedDispatch/running (0.10s)
+    --- PASS: TestClosedIssueOwnerWaitProtectsRunsAndAllocatedDispatch/allocated_dispatch (0.13s)
+=== RUN   TestClosedIssueOwnerWaitDoctorHold
+--- PASS: TestClosedIssueOwnerWaitDoctorHold (0.11s)
+=== RUN   TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim
+=== RUN   TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/open_wait
+=== RUN   TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/open_wait_with_a_named_reply
+=== RUN   TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/claimed_without_a_named_reply
+=== RUN   TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/claimed_by_another_reply
+=== RUN   TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/claimed_by_the_named_reply
+--- PASS: TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim (0.72s)
+    --- PASS: TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/open_wait (0.15s)
+    --- PASS: TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/open_wait_with_a_named_reply (0.27s)
+    --- PASS: TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/claimed_without_a_named_reply (0.12s)
+    --- PASS: TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/claimed_by_another_reply (0.09s)
+    --- PASS: TestCancelIdleGraphOwnerWaitAcceptsOnlyTheNamedClaim/claimed_by_the_named_reply (0.09s)
+=== RUN   TestReconcileWorkflowGraphsCancelsAttemptsOfFinishedInstances
+--- PASS: TestReconcileWorkflowGraphsCancelsAttemptsOfFinishedInstances (0.10s)
+=== RUN   TestGraphStopPersistentSourceLessClaimAndBound
+--- PASS: TestGraphStopPersistentSourceLessClaimAndBound (0.19s)
+=== RUN   TestGraphStopPersistentCompletionRollback
+--- PASS: TestGraphStopPersistentCompletionRollback (0.21s)
+=== RUN   TestImplementProgressSequenceValidationAndReceipt
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/missing
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/kind
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/zero
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/blank
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/utf8
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/bytes
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/first
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/replay
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/conflict-text
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/conflict-kind
+=== RUN   TestImplementProgressSequenceValidationAndReceipt/stale
+--- PASS: TestImplementProgressSequenceValidationAndReceipt (0.12s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/missing (0.01s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/kind (0.00s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/zero (0.00s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/blank (0.00s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/utf8 (0.00s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/bytes (0.00s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/first (0.00s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/replay (0.00s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/conflict-text (0.00s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/conflict-kind (0.00s)
+    --- PASS: TestImplementProgressSequenceValidationAndReceipt/stale (0.01s)
+=== RUN   TestImplementProgressAtomicFailureAndLostReply
+--- PASS: TestImplementProgressAtomicFailureAndLostReply (0.13s)
+=== RUN   TestImplementProgressAuthority
+=== RUN   TestImplementProgressAuthority/replaced
+=== RUN   TestImplementProgressAuthority/wrong-session
+=== RUN   TestImplementProgressAuthority/parked
+=== RUN   TestImplementProgressAuthority/revoked
+--- PASS: TestImplementProgressAuthority (0.42s)
+    --- PASS: TestImplementProgressAuthority/replaced (0.09s)
+    --- PASS: TestImplementProgressAuthority/wrong-session (0.11s)
+    --- PASS: TestImplementProgressAuthority/parked (0.10s)
+    --- PASS: TestImplementProgressAuthority/revoked (0.12s)
+=== RUN   TestImplementProgressBudgetAndConcurrentRetry
+--- PASS: TestImplementProgressBudgetAndConcurrentRetry (0.14s)
+=== RUN   TestImplementProgressLatestRestartAndAdvisoryOnly
+--- PASS: TestImplementProgressLatestRestartAndAdvisoryOnly (0.17s)
+=== RUN   TestImplementProgressMembershipWithRetainedGeneration
+--- PASS: TestImplementProgressMembershipWithRetainedGeneration (0.10s)
+=== RUN   TestImplementProgressReceiptSurvivesCompaction
+--- PASS: TestImplementProgressReceiptSurvivesCompaction (0.34s)
+=== RUN   TestResumeKeepsTheWorkerQuestionNextToTheGuidance
+--- PASS: TestResumeKeepsTheWorkerQuestionNextToTheGuidance (0.10s)
+=== RUN   TestEnsureImplementStoriesIsIdempotentAndKeepsPlanOrder
+--- PASS: TestEnsureImplementStoriesIsIdempotentAndKeepsPlanOrder (0.12s)
+=== RUN   TestTransitionImplementStoryLifecycle
+--- PASS: TestTransitionImplementStoryLifecycle (0.09s)
+=== RUN   TestTransitionImplementStoryRefusesBadMoves
+--- PASS: TestTransitionImplementStoryRefusesBadMoves (0.10s)
+=== RUN   TestTransitionImplementStoryCompareAndSet
+--- PASS: TestTransitionImplementStoryCompareAndSet (0.10s)
+=== RUN   TestTransitionImplementStoryEnforcesRunningCap
+--- PASS: TestTransitionImplementStoryEnforcesRunningCap (0.10s)
+=== RUN   TestEnsureImplementStoriesRefusesInvalidInput
+--- PASS: TestEnsureImplementStoriesRefusesInvalidInput (0.05s)
+=== RUN   TestRecordImplementFailureCountsUpToTheBudgetOnly
+--- PASS: TestRecordImplementFailureCountsUpToTheBudgetOnly (0.14s)
+=== RUN   TestRecordImplementFailureOnlyForARunningStory
+--- PASS: TestRecordImplementFailureOnlyForARunningStory (0.19s)
+=== RUN   TestWorkerParksAndOwnerResumeResetsTheStory
+--- PASS: TestWorkerParksAndOwnerResumeResetsTheStory (0.12s)
+=== RUN   TestMergeParkRecordsItsOrigin
+--- PASS: TestMergeParkRecordsItsOrigin (0.14s)
+=== RUN   TestSetImplementWorkerSessionIsForRunningStoriesAndKeepsRevision
+--- PASS: TestSetImplementWorkerSessionIsForRunningStoriesAndKeepsRevision (0.14s)
+=== RUN   TestListImplementStoriesNeedingWorkerSkipsLiveSessionsAndOtherStates
+--- PASS: TestListImplementStoriesNeedingWorkerSkipsLiveSessionsAndOtherStates (0.13s)
+=== RUN   TestCountFailedImplementInstancesCountsOnlyFailedImplementRunsSince
+--- PASS: TestCountFailedImplementInstancesCountsOnlyFailedImplementRunsSince (0.20s)
+=== RUN   TestWakeGraphInstanceLeavesExactlyOneOpenDispatch
+--- PASS: TestWakeGraphInstanceLeavesExactlyOneOpenDispatch (0.11s)
+=== RUN   TestWakeGraphInstanceCreatesTheDispatchOfARestingInstance
+--- PASS: TestWakeGraphInstanceCreatesTheDispatchOfARestingInstance (0.10s)
+=== RUN   TestNextFreshGraphDispatchWaitsForItsDueTime
+--- PASS: TestNextFreshGraphDispatchWaitsForItsDueTime (0.12s)
+=== RUN   TestFailImplementWorkerInstanceRetainsCauseAtomically
+--- PASS: TestFailImplementWorkerInstanceRetainsCauseAtomically (0.13s)
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/active
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/receipt
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/revision
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/status
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/replay
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/duplicate_submit
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/discovery_guard
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/preflight
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/historical_reader
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/revision
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/status
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/replay
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/duplicate_submit
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/discovery_guard
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/preflight
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/historical_reader
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/receipt
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/duplicate_submit
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/discovery_guard
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/preflight
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/historical_reader
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/receipt
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/revision
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/status
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/replay
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/preflight
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/historical_reader
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/receipt
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/revision
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/status
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/replay
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/duplicate_submit
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/discovery_guard
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/revision
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/status
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/replay
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/duplicate_submit
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/discovery_guard
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/preflight
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/historical_reader
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/receipt
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/revision
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/status
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/replay
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/duplicate_submit
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/discovery_guard
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/preflight
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/historical_reader
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/receipt
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/receipt
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/revision
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/status
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/replay
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/duplicate_submit
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/discovery_guard
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/preflight
+=== RUN   TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/historical_reader
+--- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority (0.78s)
+    --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/active (0.13s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/receipt (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/revision (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/status (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/replay (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/duplicate_submit (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/discovery_guard (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/preflight (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/active/historical_reader (0.00s)
+    --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced (0.11s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/revision (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/status (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/replay (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/duplicate_submit (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/discovery_guard (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/preflight (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/historical_reader (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/replaced/receipt (0.00s)
+    --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled (0.11s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/duplicate_submit (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/discovery_guard (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/preflight (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/historical_reader (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/receipt (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/revision (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/status (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/cancelled/replay (0.00s)
+    --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed (0.12s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/preflight (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/historical_reader (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/receipt (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/revision (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/status (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/replay (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/duplicate_submit (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/closed/discovery_guard (0.00s)
+    --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired (0.11s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/revision (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/status (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/replay (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/duplicate_submit (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/discovery_guard (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/preflight (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/historical_reader (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/expired/receipt (0.00s)
+    --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart (0.10s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/revision (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/status (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/replay (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/duplicate_submit (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/discovery_guard (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/preflight (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/historical_reader (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/restart/receipt (0.00s)
+    --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended (0.11s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/receipt (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/revision (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/status (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/replay (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/duplicate_submit (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/discovery_guard (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/preflight (0.00s)
+        --- PASS: TestMCPLease_AllResultOperationsRefuseDeadAuthority/ended/historical_reader (0.00s)
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors/task
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors/mode
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors/scope
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors/run
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors/attempt
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors/result
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors/permission
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors/instance
+=== RUN   TestMCPLease_ExactExpiryAndImmutableSelectors/expiry
+--- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors (0.10s)
+    --- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors/task (0.00s)
+    --- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors/mode (0.00s)
+    --- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors/scope (0.00s)
+    --- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors/run (0.00s)
+    --- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors/attempt (0.00s)
+    --- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors/result (0.00s)
+    --- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors/permission (0.00s)
+    --- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors/instance (0.00s)
+    --- PASS: TestMCPLease_ExactExpiryAndImmutableSelectors/expiry (0.00s)
+=== RUN   TestCreationPresentation_RetainWritesOneRowAndDerivesSession
+=== PAUSE TestCreationPresentation_RetainWritesOneRowAndDerivesSession
+=== RUN   TestCreationPresentation_SupersessionReplacesRowAndBumpsRevision
+=== PAUSE TestCreationPresentation_SupersessionReplacesRowAndBumpsRevision
+=== RUN   TestCreationPresentation_IdenticalRetentionLeavesEverythingUnchanged
+=== PAUSE TestCreationPresentation_IdenticalRetentionLeavesEverythingUnchanged
+=== RUN   TestCreationPresentation_RefusalsWriteNothing
+=== PAUSE TestCreationPresentation_RefusalsWriteNothing
+=== RUN   TestCreationPresentation_PresentedRunRefusesAnotherProposal
+=== PAUSE TestCreationPresentation_PresentedRunRefusesAnotherProposal
+=== RUN   TestCreationPresentation_PendingBindAndMarkLifecycle
+=== PAUSE TestCreationPresentation_PendingBindAndMarkLifecycle
+=== RUN   TestCreationPresentation_ExistingRetainProposalUnchanged
+=== PAUSE TestCreationPresentation_ExistingRetainProposalUnchanged
+=== RUN   TestCreationPresentation_MigrationShape
+=== PAUSE TestCreationPresentation_MigrationShape
+=== RUN   TestRetainedCreationProposalReturnsExactRetainedBytes
+=== PAUSE TestRetainedCreationProposalReturnsExactRetainedBytes
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/bot
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/missing_comment
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/edited_before_intake
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/nonowner
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/wrong_repo
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/wrong_source
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/absent_proposal
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/before_proposal
+=== RUN   TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/future
+--- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay (0.10s)
+    --- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/bot (0.00s)
+    --- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/missing_comment (0.00s)
+    --- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/edited_before_intake (0.00s)
+    --- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/nonowner (0.00s)
+    --- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/wrong_repo (0.00s)
+    --- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/wrong_source (0.00s)
+    --- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/absent_proposal (0.00s)
+    --- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/before_proposal (0.00s)
+    --- PASS: TestMCPCreationDB_ApprovalProvenanceAndImmutableReplay/future (0.00s)
+=== RUN   TestMCPCreationDB_ReopenRetainsOperationWithoutAuthority
+--- PASS: TestMCPCreationDB_ReopenRetainsOperationWithoutAuthority (0.21s)
+=== RUN   TestMeterPriceCatalogImmutableAndAtomic
+--- PASS: TestMeterPriceCatalogImmutableAndAtomic (0.10s)
+=== RUN   TestMeterValuationSnapshotAndPin
+--- PASS: TestMeterValuationSnapshotAndPin (0.11s)
+=== RUN   TestMeterConcurrentCatalogEdits
+--- PASS: TestMeterConcurrentCatalogEdits (0.11s)
+=== RUN   TestMeterDiagnosticDedupBeforeBound
+--- PASS: TestMeterDiagnosticDedupBeforeBound (0.00s)
+=== RUN   TestMeterRejectsMalformedFrozenValuations
+=== RUN   TestMeterRejectsMalformedFrozenValuations/missing_dimension
+=== RUN   TestMeterRejectsMalformedFrozenValuations/wrong_quantity
+=== RUN   TestMeterRejectsMalformedFrozenValuations/invalid_status
+=== RUN   TestMeterRejectsMalformedFrozenValuations/oversize_amount
+=== RUN   TestMeterRejectsMalformedFrozenValuations/wrong_amount
+--- PASS: TestMeterRejectsMalformedFrozenValuations (0.66s)
+    --- PASS: TestMeterRejectsMalformedFrozenValuations/missing_dimension (0.14s)
+    --- PASS: TestMeterRejectsMalformedFrozenValuations/wrong_quantity (0.18s)
+    --- PASS: TestMeterRejectsMalformedFrozenValuations/invalid_status (0.10s)
+    --- PASS: TestMeterRejectsMalformedFrozenValuations/oversize_amount (0.11s)
+    --- PASS: TestMeterRejectsMalformedFrozenValuations/wrong_amount (0.13s)
+=== RUN   TestMeterRecoveryHistoricalPreviewApplyReplay
+--- PASS: TestMeterRecoveryHistoricalPreviewApplyReplay (0.59s)
+=== RUN   TestMeterRecoveryRollbackAndConflicts
+=== RUN   TestMeterRecoveryRollbackAndConflicts/interruption
+=== RUN   TestMeterRecoveryRollbackAndConflicts/stale_ledger
+=== RUN   TestMeterRecoveryRollbackAndConflicts/overlap
+=== RUN   TestMeterRecoveryRollbackAndConflicts/active
+=== RUN   TestMeterRecoveryRollbackAndConflicts/ambiguous_existing
+=== RUN   TestMeterRecoveryRollbackAndConflicts/foreign_response
+--- PASS: TestMeterRecoveryRollbackAndConflicts (1.43s)
+    --- PASS: TestMeterRecoveryRollbackAndConflicts/interruption (0.36s)
+    --- PASS: TestMeterRecoveryRollbackAndConflicts/stale_ledger (0.20s)
+    --- PASS: TestMeterRecoveryRollbackAndConflicts/overlap (0.20s)
+    --- PASS: TestMeterRecoveryRollbackAndConflicts/active (0.23s)
+    --- PASS: TestMeterRecoveryRollbackAndConflicts/ambiguous_existing (0.22s)
+    --- PASS: TestMeterRecoveryRollbackAndConflicts/foreign_response (0.21s)
+=== RUN   TestMeterRecoverySourceRevalidation
+=== RUN   TestMeterRecoverySourceRevalidation/modified
+=== RUN   TestMeterRecoverySourceRevalidation/replaced
+=== RUN   TestMeterRecoverySourceRevalidation/missing
+=== RUN   TestMeterRecoverySourceRevalidation/symlink
+--- PASS: TestMeterRecoverySourceRevalidation (0.73s)
+    --- PASS: TestMeterRecoverySourceRevalidation/modified (0.21s)
+    --- PASS: TestMeterRecoverySourceRevalidation/replaced (0.20s)
+    --- PASS: TestMeterRecoverySourceRevalidation/missing (0.18s)
+    --- PASS: TestMeterRecoverySourceRevalidation/symlink (0.15s)
+=== RUN   TestMeterRecoveryInvalidSelectorsReadOnly
+--- PASS: TestMeterRecoveryInvalidSelectorsReadOnly (0.16s)
+=== RUN   TestMeterRefusalDurableSeparateFallback
+--- PASS: TestMeterRefusalDurableSeparateFallback (0.29s)
+=== RUN   TestMeterRefusalMigrationPreservesUnknownHistory
+--- PASS: TestMeterRefusalMigrationPreservesUnknownHistory (3.68s)
+=== RUN   TestMeterReplayAndSnapshot
+--- PASS: TestMeterReplayAndSnapshot (0.12s)
+=== RUN   TestMeterAtomicRollbackAndConstraints
+--- PASS: TestMeterAtomicRollbackAndConstraints (0.14s)
+=== RUN   TestMeterAttemptAndFinalization
+--- PASS: TestMeterAttemptAndFinalization (0.10s)
+=== RUN   TestMeterSnapshotLimitsAndCancellation
+--- PASS: TestMeterSnapshotLimitsAndCancellation (0.17s)
+=== RUN   TestMeterSnapshotExactTimeBounds
+--- PASS: TestMeterSnapshotExactTimeBounds (0.13s)
+=== RUN   TestMeterOutOfOrderAndCrossAttempt
+--- PASS: TestMeterOutOfOrderAndCrossAttempt (0.10s)
+=== RUN   TestMeterCheckpointAndRollback
+--- PASS: TestMeterCheckpointAndRollback (0.10s)
+=== RUN   TestMeterConcurrentAttempts
+--- PASS: TestMeterConcurrentAttempts (0.12s)
+=== RUN   TestMeterQueryIndexes
+--- PASS: TestMeterQueryIndexes (0.23s)
+=== RUN   TestMeterDiagnosticUnionAndProvenance
+--- PASS: TestMeterDiagnosticUnionAndProvenance (0.13s)
+=== RUN   TestMeterPopulatedMigrationAndReopenReplay
+--- PASS: TestMeterPopulatedMigrationAndReopenReplay (3.86s)
+=== RUN   TestMeterJoinedQueryWithRealisticCardinality
+--- PASS: TestMeterJoinedQueryWithRealisticCardinality (0.24s)
+=== RUN   TestMeterFilteredIdentityCollisionAndCancelledCollection
+--- PASS: TestMeterFilteredIdentityCollisionAndCancelledCollection (0.11s)
+=== RUN   TestMigrateFromTemplateMatchesRealMigrations
+--- PASS: TestMigrateFromTemplateMatchesRealMigrations (3.74s)
+=== RUN   TestMigrateFromTemplateLeavesNonEmptyDatabases
+--- PASS: TestMigrateFromTemplateLeavesNonEmptyDatabases (0.01s)
+=== RUN   TestMigration0003RenamesSessionRefWithoutChangingItsConstraints
+=== PAUSE TestMigration0003RenamesSessionRefWithoutChangingItsConstraints
+=== RUN   TestMigration0010AddsRunSyncColumnsWithSafeDefaults
+=== PAUSE TestMigration0010AddsRunSyncColumnsWithSafeDefaults
+=== RUN   TestMigration0003BackfillsAgentAndLeavesResumeTokenNull
+=== PAUSE TestMigration0003BackfillsAgentAndLeavesResumeTokenNull
+=== RUN   TestValidateMigrationFS
+=== PAUSE TestValidateMigrationFS
+=== RUN   TestTimestampMigrationsApplyIndependentAndLateVersions
+=== PAUSE TestTimestampMigrationsApplyIndependentAndLateVersions
+=== RUN   TestModeTransitionRefinementRetirementUsesIndependentCompletion
+=== RUN   TestModeTransitionRefinementRetirementUsesIndependentCompletion/pending
+=== RUN   TestModeTransitionRefinementRetirementUsesIndependentCompletion/consumed
+--- PASS: TestModeTransitionRefinementRetirementUsesIndependentCompletion (0.18s)
+    --- PASS: TestModeTransitionRefinementRetirementUsesIndependentCompletion/pending (0.09s)
+    --- PASS: TestModeTransitionRefinementRetirementUsesIndependentCompletion/consumed (0.09s)
+=== RUN   TestModeSelectionIsStableAndCleanupIsRecoverable
+=== PAUSE TestModeSelectionIsStableAndCleanupIsRecoverable
+=== RUN   TestModeRetirementPreservesUnfinishedBootstrapTrigger
+=== RUN   TestModeRetirementPreservesUnfinishedBootstrapTrigger/unconsumed
+=== RUN   TestModeRetirementPreservesUnfinishedBootstrapTrigger/explicitly-completed
+--- PASS: TestModeRetirementPreservesUnfinishedBootstrapTrigger (0.21s)
+    --- PASS: TestModeRetirementPreservesUnfinishedBootstrapTrigger/unconsumed (0.11s)
+    --- PASS: TestModeRetirementPreservesUnfinishedBootstrapTrigger/explicitly-completed (0.10s)
+=== RUN   TestModeRetirementEmptyJournal
+=== PAUSE TestModeRetirementEmptyJournal
+=== RUN   TestPlanWorkflowStore_StorySetSurvivesSaveAndRestartReads
+=== PAUSE TestPlanWorkflowStore_StorySetSurvivesSaveAndRestartReads
+=== RUN   TestAdmitPlanPath_NewSessionsGetGraphAndRoutesAreFrozen
+=== PAUSE TestAdmitPlanPath_NewSessionsGetGraphAndRoutesAreFrozen
+=== RUN   TestPlanOrdinalPersistenceAndIsolation
+--- PASS: TestPlanOrdinalPersistenceAndIsolation (0.47s)
+=== RUN   TestPlanCandidateIntentImmutableAndPendingExclusive
+--- PASS: TestPlanCandidateIntentImmutableAndPendingExclusive (0.08s)
+=== RUN   TestPlanWorkflowStore_AdmissionBackfillAndIsolation
+--- PASS: TestPlanWorkflowStore_AdmissionBackfillAndIsolation (2.90s)
+=== RUN   TestPlanWorkflowStore_CASHistoryAndRestart
+--- PASS: TestPlanWorkflowStore_CASHistoryAndRestart (0.15s)
+=== RUN   TestPlanWorkflowStore_OwnerEditCASAndUncertainty
+=== RUN   TestPlanWorkflowStore_OwnerEditCASAndUncertainty/applied
+=== RUN   TestPlanWorkflowStore_OwnerEditCASAndUncertainty/stale
+=== RUN   TestPlanWorkflowStore_OwnerEditCASAndUncertainty/uncertain
+=== RUN   TestPlanWorkflowStore_OwnerEditCASAndUncertainty/changed_replay
+--- PASS: TestPlanWorkflowStore_OwnerEditCASAndUncertainty (0.50s)
+    --- PASS: TestPlanWorkflowStore_OwnerEditCASAndUncertainty/applied (0.09s)
+    --- PASS: TestPlanWorkflowStore_OwnerEditCASAndUncertainty/stale (0.08s)
+    --- PASS: TestPlanWorkflowStore_OwnerEditCASAndUncertainty/uncertain (0.19s)
+    --- PASS: TestPlanWorkflowStore_OwnerEditCASAndUncertainty/changed_replay (0.14s)
+=== RUN   TestPlanWorkflowStore_ExplicitAdmissionIsImmutable
+--- PASS: TestPlanWorkflowStore_ExplicitAdmissionIsImmutable (0.09s)
+=== RUN   TestPlanWorkflowStore_LoadsSavedStateFromBeforeTheSharedRoute
+--- PASS: TestPlanWorkflowStore_LoadsSavedStateFromBeforeTheSharedRoute (0.08s)
+=== RUN   TestPrelaunchAllocationAndExclusiveRestart
+--- PASS: TestPrelaunchAllocationAndExclusiveRestart (0.14s)
+=== RUN   TestReadinessRefusalRemainsTypedAndAtomic
+--- PASS: TestReadinessRefusalRemainsTypedAndAtomic (0.10s)
+=== RUN   TestPrelaunchScheduledAndAutomaticReservationsSurviveRestart
+=== RUN   TestPrelaunchScheduledAndAutomaticReservationsSurviveRestart/schedule
+=== RUN   TestPrelaunchScheduledAndAutomaticReservationsSurviveRestart/automatic
+--- PASS: TestPrelaunchScheduledAndAutomaticReservationsSurviveRestart (0.31s)
+    --- PASS: TestPrelaunchScheduledAndAutomaticReservationsSurviveRestart/schedule (0.15s)
+    --- PASS: TestPrelaunchScheduledAndAutomaticReservationsSurviveRestart/automatic (0.16s)
+=== RUN   TestCancelledSessionRunningWritePreservesPrelaunch
+--- PASS: TestCancelledSessionRunningWritePreservesPrelaunch (0.11s)
+=== RUN   TestReadinessRefusesPendingRefinementWithReadyFlag
+--- PASS: TestReadinessRefusesPendingRefinementWithReadyFlag (0.09s)
+=== RUN   TestGraphLaunchBindingAndDurableRequeueRefusal
+=== RUN   TestGraphLaunchBindingAndDurableRequeueRefusal/prelaunch
+=== RUN   TestGraphLaunchBindingAndDurableRequeueRefusal/direct
+--- PASS: TestGraphLaunchBindingAndDurableRequeueRefusal (0.33s)
+    --- PASS: TestGraphLaunchBindingAndDurableRequeueRefusal/prelaunch (0.16s)
+    --- PASS: TestGraphLaunchBindingAndDurableRequeueRefusal/direct (0.17s)
+=== RUN   TestGraphStartBindingFailureRollsBack
+=== RUN   TestGraphStartBindingFailureRollsBack/missing
+=== RUN   TestGraphStartBindingFailureRollsBack/pending
+=== RUN   TestGraphStartBindingFailureRollsBack/running
+=== RUN   TestGraphStartBindingFailureRollsBack/finished
+=== RUN   TestGraphStartBindingFailureRollsBack/cancelled
+=== RUN   TestGraphStartBindingFailureRollsBack/bound
+=== RUN   TestGraphStartBindingFailureRollsBack/foreign-session
+--- PASS: TestGraphStartBindingFailureRollsBack (0.74s)
+    --- PASS: TestGraphStartBindingFailureRollsBack/missing (0.11s)
+    --- PASS: TestGraphStartBindingFailureRollsBack/pending (0.09s)
+    --- PASS: TestGraphStartBindingFailureRollsBack/running (0.11s)
+    --- PASS: TestGraphStartBindingFailureRollsBack/finished (0.12s)
+    --- PASS: TestGraphStartBindingFailureRollsBack/cancelled (0.11s)
+    --- PASS: TestGraphStartBindingFailureRollsBack/bound (0.10s)
+    --- PASS: TestGraphStartBindingFailureRollsBack/foreign-session (0.11s)
+=== RUN   TestGraphPrelaunchRetryExhaustionNeverStarts
+--- PASS: TestGraphPrelaunchRetryExhaustionNeverStarts (0.10s)
+=== RUN   TestRepoPollCursorIsForwardOnly
+=== PAUSE TestRepoPollCursorIsForwardOnly
+=== RUN   TestRepoPollCursorsAreIndependent
+=== PAUSE TestRepoPollCursorsAreIndependent
+=== RUN   TestRepoPollCursorMigrationSeedsEveryExistingRepoFromTheGlobalCursor
+=== PAUSE TestRepoPollCursorMigrationSeedsEveryExistingRepoFromTheGlobalCursor
+=== RUN   TestRepoPollCursorMigrationWithoutAGlobalCursorSeedsNothing
+=== PAUSE TestRepoPollCursorMigrationWithoutAGlobalCursorSeedsNothing
+=== RUN   TestRepoTeamRetirementPreservesRepositoryAndGraphHistory
+--- PASS: TestRepoTeamRetirementPreservesRepositoryAndGraphHistory (3.52s)
+=== RUN   TestRepoTeamRetirementRollsBackOnDependentView
+--- PASS: TestRepoTeamRetirementRollsBackOnDependentView (1.93s)
+=== RUN   TestRepoWebhookRoundTrip
+=== PAUSE TestRepoWebhookRoundTrip
+=== RUN   TestRepoWebhookRefusesABadHookID
+=== PAUSE TestRepoWebhookRefusesABadHookID
+=== RUN   TestReportDeliveryJournalTransitionsAndAtomicCompletion
+--- PASS: TestReportDeliveryJournalTransitionsAndAtomicCompletion (0.12s)
+=== RUN   TestReportDeliveryMigrationPreservesLegacyProvenance
+--- PASS: TestReportDeliveryMigrationPreservesLegacyProvenance (3.46s)
+=== RUN   TestReportDeliveryRunlessSyntheticAndRefinementAccounting
+=== RUN   TestReportDeliveryRunlessSyntheticAndRefinementAccounting/comment
+=== RUN   TestReportDeliveryRunlessSyntheticAndRefinementAccounting/schedule
+=== RUN   TestReportDeliveryRunlessSyntheticAndRefinementAccounting/automatic
+=== RUN   TestReportDeliveryRunlessSyntheticAndRefinementAccounting/refinement
+--- PASS: TestReportDeliveryRunlessSyntheticAndRefinementAccounting (0.47s)
+    --- PASS: TestReportDeliveryRunlessSyntheticAndRefinementAccounting/comment (0.13s)
+    --- PASS: TestReportDeliveryRunlessSyntheticAndRefinementAccounting/schedule (0.12s)
+    --- PASS: TestReportDeliveryRunlessSyntheticAndRefinementAccounting/automatic (0.10s)
+    --- PASS: TestReportDeliveryRunlessSyntheticAndRefinementAccounting/refinement (0.11s)
+=== RUN   TestReportRecoveryMigrationRestartAndResolution
+--- PASS: TestReportRecoveryMigrationRestartAndResolution (3.70s)
+=== RUN   TestReportRecoverySourceIsolationAndFailedWrites
+--- PASS: TestReportRecoverySourceIsolationAndFailedWrites (0.13s)
+=== RUN   TestReportRecoveryRetainsStoppedRunAndSourceOnlyDebt
+--- PASS: TestReportRecoveryRetainsStoppedRunAndSourceOnlyDebt (0.11s)
+=== RUN   TestDeleteReportRecoveryIsIdempotentAndKeyScoped
+--- PASS: TestDeleteReportRecoveryIsIdempotentAndKeyScoped (0.11s)
+=== RUN   TestRepositoryTeamBindingLifecycle
+=== PAUSE TestRepositoryTeamBindingLifecycle
+=== RUN   TestRepositoryTeamUsesExactIdentityAndCorruption
+=== PAUSE TestRepositoryTeamUsesExactIdentityAndCorruption
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities
+=== PAUSE TestRepositoryTeamBindingRejectsInvalidIdentities
+=== RUN   TestResearchAdmissionImmutablePathAndDefinitionBoundaries
+--- PASS: TestResearchAdmissionImmutablePathAndDefinitionBoundaries (0.12s)
+=== RUN   TestResearchAdmissionRefusesUncertainPredecessorPublication
+--- PASS: TestResearchAdmissionRefusesUncertainPredecessorPublication (0.11s)
+=== RUN   TestWorkflowAdmissionIgnoresOpenAttemptsOfFinishedInstances
+--- PASS: TestWorkflowAdmissionIgnoresOpenAttemptsOfFinishedInstances (0.12s)
+=== RUN   TestRecoverResearchDispatchPreservesHistoryAndBudget
+--- PASS: TestRecoverResearchDispatchPreservesHistoryAndBudget (0.12s)
+=== RUN   TestResearchCompatibleGraphKeepsParkedInstance
+--- PASS: TestResearchCompatibleGraphKeepsParkedInstance (0.11s)
+=== RUN   TestRecoverResearchDispatchDefersUnsettledWork
+=== RUN   TestRecoverResearchDispatchDefersUnsettledWork/running_attempt
+=== RUN   TestRecoverResearchDispatchDefersUnsettledWork/pending_comment
+--- PASS: TestRecoverResearchDispatchDefersUnsettledWork (0.26s)
+    --- PASS: TestRecoverResearchDispatchDefersUnsettledWork/running_attempt (0.14s)
+    --- PASS: TestRecoverResearchDispatchDefersUnsettledWork/pending_comment (0.12s)
+=== RUN   TestResultAggregate_ImmutableReopenAndSourceIsolation
+--- PASS: TestResultAggregate_ImmutableReopenAndSourceIsolation (0.16s)
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/context
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/parent
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/result
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/run
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/attempt
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/set
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/revision
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/missing_revision
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/digest
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/check_digest
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/check_run
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/check_attempt
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/story_kind
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/unexecuted_pass
+--- PASS: TestResultAggregate_RejectsWrongBindingAndScope (1.69s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/context (0.16s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/parent (0.14s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/result (0.11s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/run (0.11s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/attempt (0.12s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/set (0.13s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/revision (0.12s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/missing_revision (0.12s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/digest (0.11s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/check_digest (0.11s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/check_run (0.11s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/check_attempt (0.12s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/story_kind (0.11s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/unexecuted_pass (0.12s)
+=== RUN   TestResultAggregate_RejectsStoryRelabellingAndAtomicCheckConflict
+--- PASS: TestResultAggregate_RejectsStoryRelabellingAndAtomicCheckConflict (0.15s)
+=== RUN   TestResultBinding_AllModesAndContextContinuation
+=== RUN   TestResultBinding_AllModesAndContextContinuation/research
+=== PAUSE TestResultBinding_AllModesAndContextContinuation/research
+=== RUN   TestResultBinding_AllModesAndContextContinuation/plan
+=== PAUSE TestResultBinding_AllModesAndContextContinuation/plan
+=== RUN   TestResultBinding_AllModesAndContextContinuation/implement
+=== PAUSE TestResultBinding_AllModesAndContextContinuation/implement
+=== RUN   TestResultBinding_AllModesAndContextContinuation/validate
+=== PAUSE TestResultBinding_AllModesAndContextContinuation/validate
+=== RUN   TestResultBinding_AllModesAndContextContinuation/spike
+=== PAUSE TestResultBinding_AllModesAndContextContinuation/spike
+=== CONT  TestResultBinding_AllModesAndContextContinuation/research
+=== CONT  TestResultBinding_AllModesAndContextContinuation/validate
+=== CONT  TestResultBinding_AllModesAndContextContinuation/implement
+=== CONT  TestResultBinding_AllModesAndContextContinuation/spike
+=== CONT  TestResultBinding_AllModesAndContextContinuation/plan
+--- PASS: TestResultBinding_AllModesAndContextContinuation (0.00s)
+    --- PASS: TestResultBinding_AllModesAndContextContinuation/research (0.38s)
+    --- PASS: TestResultBinding_AllModesAndContextContinuation/spike (0.44s)
+    --- PASS: TestResultBinding_AllModesAndContextContinuation/validate (0.44s)
+    --- PASS: TestResultBinding_AllModesAndContextContinuation/implement (0.44s)
+    --- PASS: TestResultBinding_AllModesAndContextContinuation/plan (0.16s)
+=== RUN   TestResultBinding_ModeTaskAndVersionIsolation
+=== RUN   TestResultBinding_ModeTaskAndVersionIsolation/mode
+=== RUN   TestResultBinding_ModeTaskAndVersionIsolation/task
+=== RUN   TestResultBinding_ModeTaskAndVersionIsolation/run
+=== RUN   TestResultBinding_ModeTaskAndVersionIsolation/schema
+=== RUN   TestResultBinding_ModeTaskAndVersionIsolation/workflow
+=== RUN   TestResultBinding_ModeTaskAndVersionIsolation/submission
+--- PASS: TestResultBinding_ModeTaskAndVersionIsolation (0.13s)
+    --- PASS: TestResultBinding_ModeTaskAndVersionIsolation/mode (0.00s)
+    --- PASS: TestResultBinding_ModeTaskAndVersionIsolation/task (0.00s)
+    --- PASS: TestResultBinding_ModeTaskAndVersionIsolation/run (0.00s)
+    --- PASS: TestResultBinding_ModeTaskAndVersionIsolation/schema (0.00s)
+    --- PASS: TestResultBinding_ModeTaskAndVersionIsolation/workflow (0.00s)
+    --- PASS: TestResultBinding_ModeTaskAndVersionIsolation/submission (0.00s)
+=== RUN   TestResultRecord_ConcurrentCASAndRollback
+--- PASS: TestResultRecord_ConcurrentCASAndRollback (0.14s)
+=== RUN   TestResultRequestReferences_OrderedBoundedAndScoped
+--- PASS: TestResultRequestReferences_OrderedBoundedAndScoped (0.29s)
+=== RUN   TestResultHistory_ReopenReplayCollisionAndObservations
+--- PASS: TestResultHistory_ReopenReplayCollisionAndObservations (0.20s)
+=== RUN   TestResultRecord_RejectionAndV2Isolation
+--- PASS: TestResultRecord_RejectionAndV2Isolation (0.13s)
+=== RUN   TestRetirementRealOwnerInventory
+--- PASS: TestRetirementRealOwnerInventory (0.13s)
+=== RUN   TestRetirementOwnStoryCheckoutIsOwner
+--- PASS: TestRetirementOwnStoryCheckoutIsOwner (0.13s)
+=== RUN   TestRightsGrantRevokeKeepsRowAndWritesHistory
+--- PASS: TestRightsGrantRevokeKeepsRowAndWritesHistory (0.12s)
+=== RUN   TestRightsRefusals
+--- PASS: TestRightsRefusals (0.10s)
+=== RUN   TestRightsTablesRefuseEdits
+--- PASS: TestRightsTablesRefuseEdits (0.14s)
+=== RUN   TestReviewerAssignRemoveReplace
+--- PASS: TestReviewerAssignRemoveReplace (0.11s)
+=== RUN   TestRun_Succeeded
+=== PAUSE TestRun_Succeeded
+=== RUN   TestScheduleReplayAndLifecycle
+=== PAUSE TestScheduleReplayAndLifecycle
+=== RUN   TestSchedulePrerequisitesAreIssueScopedAndFailuresBlock
+=== PAUSE TestSchedulePrerequisitesAreIssueScopedAndFailuresBlock
+=== RUN   TestAcceptScheduleProposalIsAtomicAndReplaySafe
+=== PAUSE TestAcceptScheduleProposalIsAtomicAndReplaySafe
+=== RUN   TestReconcileOrphansRecoversScheduleReservations
+=== PAUSE TestReconcileOrphansRecoversScheduleReservations
+=== RUN   TestSessionTicketBindingPreservesLegacySessionAndConsumption
+=== PAUSE TestSessionTicketBindingPreservesLegacySessionAndConsumption
+=== RUN   TestSessionTicketBindingRefusesConflictsAtomically
+=== PAUSE TestSessionTicketBindingRefusesConflictsAtomically
+=== RUN   TestSessionTicketOriginSurvivesReopenAndCannotRebind
+=== PAUSE TestSessionTicketOriginSurvivesReopenAndCannotRebind
+=== RUN   TestSpikePathFreshSessionIsGraphAndSticky
+--- PASS: TestSpikePathFreshSessionIsGraphAndSticky (0.11s)
+=== RUN   TestSpikePathLegacyHistoryIsRefusedWithoutRewriting
+--- PASS: TestSpikePathLegacyHistoryIsRefusedWithoutRewriting (0.12s)
+=== RUN   TestSpikePathKnownGraphHistoryStaysGraph
+--- PASS: TestSpikePathKnownGraphHistoryStaysGraph (0.13s)
+=== RUN   TestSpikePathConflictingProvenanceIsRefused
+--- PASS: TestSpikePathConflictingProvenanceIsRefused (0.13s)
+=== RUN   TestSpikePathCrossModeLegacyRouteIsRefused
+--- PASS: TestSpikePathCrossModeLegacyRouteIsRefused (0.10s)
+=== RUN   TestSpikeRecordsAreKeyedByInstanceNodeAndKind
+--- PASS: TestSpikeRecordsAreKeyedByInstanceNodeAndKind (0.11s)
+=== RUN   TestForeignKeysAreEnforced
+=== PAUSE TestForeignKeysAreEnforced
+=== RUN   TestOpenRejectsAMissingDirectory
+=== PAUSE TestOpenRejectsAMissingDirectory
+=== RUN   TestMigrateIsIdempotent
+=== PAUSE TestMigrateIsIdempotent
+=== RUN   TestPollCursorTableHoldsOneRow
+=== PAUSE TestPollCursorTableHoldsOneRow
+=== RUN   TestTimeRoundTripsAndSortsLexicographically
+=== PAUSE TestTimeRoundTripsAndSortsLexicographically
+=== RUN   TestUpsertIdentityRefreshesWithoutDuplicating
+=== PAUSE TestUpsertIdentityRefreshesWithoutDuplicating
+=== RUN   TestUpsertRepoIsIdempotentOnPath
+=== PAUSE TestUpsertRepoIsIdempotentOnPath
+=== RUN   TestGetOrCreateSessionIsStable
+=== PAUSE TestGetOrCreateSessionIsStable
+=== RUN   TestFreezeSessionSlugKeepsTheFirstValue
+=== PAUSE TestFreezeSessionSlugKeepsTheFirstValue
+=== RUN   TestSessionWorktreeAndState
+=== PAUSE TestSessionWorktreeAndState
+=== RUN   TestSessionLockIsAtomic
+=== PAUSE TestSessionLockIsAtomic
+=== RUN   TestAcquireSessionLockOnAMissingSession
+=== PAUSE TestAcquireSessionLockOnAMissingSession
+=== RUN   TestSessionNeedsPollRoundTrips
+=== PAUSE TestSessionNeedsPollRoundTrips
+=== RUN   TestListBacklogSessionsIsCrossRepo
+=== PAUSE TestListBacklogSessionsIsCrossRepo
+=== RUN   TestNeedsPollSurvivesAReMigration
+=== PAUSE TestNeedsPollSurvivesAReMigration
+=== RUN   TestBootstrapWatermarkDoesNotConsumeComments
+=== PAUSE TestBootstrapWatermarkDoesNotConsumeComments
+=== RUN   TestAdvanceWatermarkNeverRewinds
+=== PAUSE TestAdvanceWatermarkNeverRewinds
+=== RUN   TestRecordCommentIsIdempotentAndTagsThirdParties
+=== PAUSE TestRecordCommentIsIdempotentAndTagsThirdParties
+=== RUN   TestNextCommentTagCountsNumerically
+=== PAUSE TestNextCommentTagCountsNumerically
+=== RUN   TestPollCursorSurvivesAReopen
+=== PAUSE TestPollCursorSurvivesAReopen
+=== RUN   TestGetOrCreateSegmentReusesTheConversation
+=== PAUSE TestGetOrCreateSegmentReusesTheConversation
+=== RUN   TestGetOrCreateSegmentRequiresAgentKind
+=== PAUSE TestGetOrCreateSegmentRequiresAgentKind
+=== RUN   TestSetSegmentResumeTokenNeverOverwritesANonEmptyToken
+=== PAUSE TestSetSegmentResumeTokenNeverOverwritesANonEmptyToken
+=== RUN   TestSetSegmentResumeTokenRejectsBadInput
+=== PAUSE TestSetSegmentResumeTokenRejectsBadInput
+=== RUN   TestSetSegmentAgentSwitchesInPlaceTransactionally
+=== PAUSE TestSetSegmentAgentSwitchesInPlaceTransactionally
+=== RUN   TestSetSegmentAgentRejectsBadInput
+=== PAUSE TestSetSegmentAgentRejectsBadInput
+=== RUN   TestAllocateRunAssignsOrdinalsAndRefusesReplay
+=== PAUSE TestAllocateRunAssignsOrdinalsAndRefusesReplay
+=== RUN   TestAllocateRunTakesTheIssueBodyAsTriggerZero
+=== PAUSE TestAllocateRunTakesTheIssueBodyAsTriggerZero
+=== RUN   TestFinishRunComputesDuration
+=== PAUSE TestFinishRunComputesDuration
+=== RUN   TestFinishRunRecordsAKillWithAReason
+=== PAUSE TestFinishRunRecordsAKillWithAReason
+=== RUN   TestRecordRunSyncRoundTripsEveryOutcome
+=== PAUSE TestRecordRunSyncRoundTripsEveryOutcome
+=== RUN   TestRecordRunSyncRefusesACommitShaOutsideSynced
+=== PAUSE TestRecordRunSyncRefusesACommitShaOutsideSynced
+=== RUN   TestRecordRunSyncOnAMissingRunReportsNotFound
+=== PAUSE TestRecordRunSyncOnAMissingRunReportsNotFound
+=== RUN   TestCompleteRunReportIsOneTransaction
+=== PAUSE TestCompleteRunReportIsOneTransaction
+=== RUN   TestWithTxRollsBackEveryWrite
+=== PAUSE TestWithTxRollsBackEveryWrite
+=== RUN   TestReconcileOrphans
+=== PAUSE TestReconcileOrphans
+=== RUN   TestFindSessionByIssueReportsAmbiguity
+=== PAUSE TestFindSessionByIssueReportsAmbiguity
+=== RUN   TestConcurrentAccessorsDoNotDeadlock
+=== PAUSE TestConcurrentAccessorsDoNotDeadlock
+=== RUN   TestContractUpgradeAtomicGenerationPreservesHistoryAndLocksAdmission
+=== PAUSE TestContractUpgradeAtomicGenerationPreservesHistoryAndLocksAdmission
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/active_run
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/frozen
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/mixed_contract
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/wrong_generation
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/partial_cohort
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/legacy_effect
+--- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope (0.71s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/active_run (0.12s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/frozen (0.13s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/mixed_contract (0.09s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/wrong_generation (0.10s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/partial_cohort (0.12s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/legacy_effect (0.14s)
+=== RUN   TestListStoryProgressRunsForParentScopesToOwningParent
+=== PAUSE TestListStoryProgressRunsForParentScopesToOwningParent
+=== RUN   TestListPendingSubmissionsForAttemptScopesToOneRunAttempt
+=== PAUSE TestListPendingSubmissionsForAttemptScopesToOneRunAttempt
+=== RUN   TestStoryReconciliationProjectionLookupIsRevisionAndGenerationBound
+=== PAUSE TestStoryReconciliationProjectionLookupIsRevisionAndGenerationBound
+=== RUN   TestStoryReconciliationRetirementSurvivesReplanAndRestart
+=== PAUSE TestStoryReconciliationRetirementSurvivesReplanAndRestart
+=== RUN   TestStoryRefinementACKClaimsOnceAndPreservesPreparedBytes
+=== PAUSE TestStoryRefinementACKClaimsOnceAndPreservesPreparedBytes
+=== RUN   TestStoryRefinementACKMigrationPreservesLegacyConfirmedReceipt
+--- PASS: TestStoryRefinementACKMigrationPreservesLegacyConfirmedReceipt (3.38s)
+=== RUN   TestRefinementReportDoesNotConsumeParentComment
+=== PAUSE TestRefinementReportDoesNotConsumeParentComment
+=== RUN   TestRefinementAdmissionInvalidatesReadinessOnlyOnce
+=== PAUSE TestRefinementAdmissionInvalidatesReadinessOnlyOnce
+=== RUN   TestListDeliveryParentsOmitsClosedReadyFeatures
+=== PAUSE TestListDeliveryParentsOmitsClosedReadyFeatures
+=== RUN   TestListGraphPlanSessionsOmitsClosedParents
+=== PAUSE TestListGraphPlanSessionsOmitsClosedParents
+=== RUN   TestGraphPlanParentForChildAndDiscoveryOwed
+=== PAUSE TestGraphPlanParentForChildAndDiscoveryOwed
+=== RUN   TestMigration0047FreshDatabaseScopesChecksBySnapshot
+=== PAUSE TestMigration0047FreshDatabaseScopesChecksBySnapshot
+=== RUN   TestMigration0047PreservesPopulatedEvidenceAndIsIdempotent
+=== PAUSE TestMigration0047PreservesPopulatedEvidenceAndIsIdempotent
+=== RUN   TestSubmissionCheckScopedBySnapshotReference
+=== PAUSE TestSubmissionCheckScopedBySnapshotReference
+=== RUN   TestSubmissionMigrationPreservesLegacyVersions
+=== PAUSE TestSubmissionMigrationPreservesLegacyVersions
+=== RUN   TestSubmissionContractAndProjectionImmutability
+=== PAUSE TestSubmissionContractAndProjectionImmutability
+=== RUN   TestSubmissionConcurrentAllocationAndIdempotency
+=== PAUSE TestSubmissionConcurrentAllocationAndIdempotency
+=== RUN   TestSubmissionStaleAuthorityAndRollback
+=== PAUSE TestSubmissionStaleAuthorityAndRollback
+=== RUN   TestSubmissionReceiptRecoveryKeepsIndependentStates
+=== PAUSE TestSubmissionReceiptRecoveryKeepsIndependentStates
+=== RUN   TestSubmissionRetainsImmutableReferencedEvidence
+=== PAUSE TestSubmissionRetainsImmutableReferencedEvidence
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts
+=== RUN   TestSubmissionRestartRetainsDiagnosticsAndPendingEffects
+=== PAUSE TestSubmissionRestartRetainsDiagnosticsAndPendingEffects
+=== RUN   TestSubmissionRollsBackCounterAndBudgetAfterInsertFailure
+=== PAUSE TestSubmissionRollsBackCounterAndBudgetAfterInsertFailure
+=== RUN   TestSubmissionRunBudgetRejectsOverflowAtomically
+=== PAUSE TestSubmissionRunBudgetRejectsOverflowAtomically
+=== RUN   TestSubmissionAssessmentMarkerIsFollowupMaterialized
+=== PAUSE TestSubmissionAssessmentMarkerIsFollowupMaterialized
+=== RUN   TestSubmissionAssessmentKeepsExistingV1FollowupDebt
+=== PAUSE TestSubmissionAssessmentKeepsExistingV1FollowupDebt
+=== RUN   TestSubmissionMarkerFollowupMigrationBackfills
+=== PAUSE TestSubmissionMarkerFollowupMigrationBackfills
+=== RUN   TestFollowupListsExcludeSubmissionMarkerRows
+=== PAUSE TestFollowupListsExcludeSubmissionMarkerRows
+=== RUN   TestSubmissionAttemptReplacementRevokesOldAuthority
+=== PAUSE TestSubmissionAttemptReplacementRevokesOldAuthority
+=== RUN   TestSuiteRunLifecycleAndLookup
+--- PASS: TestSuiteRunLifecycleAndLookup (0.09s)
+=== RUN   TestSuiteFinishedRunIsImmutable
+--- PASS: TestSuiteFinishedRunIsImmutable (0.08s)
+=== RUN   TestSuiteCommandClaimThenFinish
+--- PASS: TestSuiteCommandClaimThenFinish (0.08s)
+=== RUN   TestSuiteCommandRefusesUnconfirmedPassAndOversizedTail
+--- PASS: TestSuiteCommandRefusesUnconfirmedPassAndOversizedTail (0.07s)
+=== RUN   TestSuiteInterruptMarksRunAndCommands
+--- PASS: TestSuiteInterruptMarksRunAndCommands (0.08s)
+=== RUN   TestLockSuiteIsExclusivePerHome
+--- PASS: TestLockSuiteIsExclusivePerHome (0.04s)
+=== RUN   TestReconcileWorkflowGraphsCoversValidate
+--- PASS: TestReconcileWorkflowGraphsCoversValidate (0.09s)
+=== RUN   TestRunSyncObservationsRoundTripAndHistoricalDefault
+=== PAUSE TestRunSyncObservationsRoundTripAndHistoricalDefault
+=== RUN   TestTaskSyncMigrationPreservesExistingBaseOnlyRun
+=== PAUSE TestTaskSyncMigrationPreservesExistingBaseOnlyRun
+=== RUN   TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions
+=== PAUSE TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions
+=== RUN   TestQualifiedReplyRequiresResolvedSessionBinding
+=== PAUSE TestQualifiedReplyRequiresResolvedSessionBinding
+=== RUN   TestTicketEffectBindingRetainsDestinationAndActorAcrossConflicts
+=== PAUSE TestTicketEffectBindingRetainsDestinationAndActorAcrossConflicts
+=== RUN   TestTicketEffectOriginIsFrozenBeforeResolution
+=== PAUSE TestTicketEffectOriginIsFrozenBeforeResolution
+=== RUN   TestTicketNoticeDispatchPreservesPreparedBytesAndReceipt
+--- PASS: TestTicketNoticeDispatchPreservesPreparedBytesAndReceipt (0.09s)
+=== RUN   TestValidateReportKeepsItsCommentID
+--- PASS: TestValidateReportKeepsItsCommentID (0.10s)
+=== RUN   TestValidateVerdictReplacementKeepsHistory
+--- PASS: TestValidateVerdictReplacementKeepsHistory (0.08s)
+=== RUN   TestValidateVerdictRefusesInvalidInput
+--- PASS: TestValidateVerdictRefusesInvalidInput (0.04s)
+=== RUN   TestValidateVerdictAndChoiceCannotBeEditedInPlace
+--- PASS: TestValidateVerdictAndChoiceCannotBeEditedInPlace (0.08s)
+=== RUN   TestValidateChoiceReplacementAndIssueKind
+--- PASS: TestValidateChoiceReplacementAndIssueKind (0.11s)
+=== RUN   TestBeginValidateEffectCreatesIntentOnce
+--- PASS: TestBeginValidateEffectCreatesIntentOnce (0.09s)
+=== RUN   TestFailedEffectRetriesOnlyWithNewerConfirmation
+--- PASS: TestFailedEffectRetriesOnlyWithNewerConfirmation (0.14s)
+=== RUN   TestSucceededEffectIsImmutable
+--- PASS: TestSucceededEffectIsImmutable (0.08s)
+=== RUN   TestArchiveRegistryCoversValidateDeliveryTables
+--- PASS: TestArchiveRegistryCoversValidateDeliveryTables (0.00s)
+=== RUN   TestValidateEntryIsUniquePerParentAndCommit
+--- PASS: TestValidateEntryIsUniquePerParentAndCommit (0.11s)
+=== RUN   TestValidateEntryRefusalIsRecordedAndReopened
+--- PASS: TestValidateEntryRefusalIsRecordedAndReopened (0.07s)
+=== RUN   TestValidateEntryAdmissionNamesOneInstanceForGood
+--- PASS: TestValidateEntryAdmissionNamesOneInstanceForGood (0.10s)
+=== RUN   TestValidateEntryRejectsBadInput
+--- PASS: TestValidateEntryRejectsBadInput (0.09s)
+=== RUN   TestValidateEntryReopenOnlyAfterTheInstanceEndedWithoutFinishing
+--- PASS: TestValidateEntryReopenOnlyAfterTheInstanceEndedWithoutFinishing (0.08s)
+=== RUN   TestRepairRoundsAreCountedAndBounded
+--- PASS: TestRepairRoundsAreCountedAndBounded (0.11s)
+=== RUN   TestFinishedRepairRoundIsImmutable
+--- PASS: TestFinishedRepairRoundIsImmutable (0.10s)
+=== RUN   TestAttemptTimeoutIsRecordedOnce
+--- PASS: TestAttemptTimeoutIsRecordedOnce (0.10s)
+=== RUN   TestReviewRowsAreUniquePerRoleAndCommit
+--- PASS: TestReviewRowsAreUniquePerRoleAndCommit (0.08s)
+=== RUN   TestValidateOutcomeIsRecordedOncePerCommit
+--- PASS: TestValidateOutcomeIsRecordedOncePerCommit (0.08s)
+=== RUN   TestLatestKeptRepairCommitIsTheCommitTheSuiteRunsOnAfterARepair
+--- PASS: TestLatestKeptRepairCommitIsTheCommitTheSuiteRunsOnAfterARepair (0.10s)
+=== RUN   TestValidationAssessmentRetainsExactReplayAndRejectsReplacement
+--- PASS: TestValidationAssessmentRetainsExactReplayAndRejectsReplacement (0.07s)
+=== RUN   TestWorkflowBoundaryCompetingAdmissionReopen
+--- PASS: TestWorkflowBoundaryCompetingAdmissionReopen (0.14s)
+=== RUN   TestWorkflowBoundaryPriorEvidence
+=== RUN   TestWorkflowBoundaryPriorEvidence/discovered
+=== RUN   TestWorkflowBoundaryPriorEvidence/run
+=== RUN   TestWorkflowBoundaryPriorEvidence/selection
+=== RUN   TestWorkflowBoundaryPriorEvidence/graph
+=== RUN   TestWorkflowBoundaryPriorEvidence/feature
+--- PASS: TestWorkflowBoundaryPriorEvidence (0.47s)
+    --- PASS: TestWorkflowBoundaryPriorEvidence/discovered (0.08s)
+    --- PASS: TestWorkflowBoundaryPriorEvidence/run (0.09s)
+    --- PASS: TestWorkflowBoundaryPriorEvidence/selection (0.13s)
+    --- PASS: TestWorkflowBoundaryPriorEvidence/graph (0.08s)
+    --- PASS: TestWorkflowBoundaryPriorEvidence/feature (0.08s)
+=== RUN   TestWorkflowBoundaryCancellationAndWriteFailure
+--- PASS: TestWorkflowBoundaryCancellationAndWriteFailure (0.08s)
+=== RUN   TestWorkflowBoundaryAmbiguousPriorEvidenceStops
+--- PASS: TestWorkflowBoundaryAmbiguousPriorEvidenceStops (0.08s)
+=== RUN   TestWorkflowBoundaryWorktreeCleanupRetainsAdmission
+--- PASS: TestWorkflowBoundaryWorktreeCleanupRetainsAdmission (1.64s)
+=== RUN   TestWorkflowCaptureExactReferencesAndImmutableProvenance
+--- PASS: TestWorkflowCaptureExactReferencesAndImmutableProvenance (0.10s)
+=== RUN   TestWorkflowCaptureBoundsCorruptionAndHistoricalReadability
+--- PASS: TestWorkflowCaptureBoundsCorruptionAndHistoricalReadability (0.14s)
+=== RUN   TestWorkflowCaptureHistoricalAdmissionRequiresUniqueEvidence
+=== RUN   TestWorkflowCaptureHistoricalAdmissionRequiresUniqueEvidence/0
+=== RUN   TestWorkflowCaptureHistoricalAdmissionRequiresUniqueEvidence/1
+=== RUN   TestWorkflowCaptureHistoricalAdmissionRequiresUniqueEvidence/2
+--- PASS: TestWorkflowCaptureHistoricalAdmissionRequiresUniqueEvidence (0.36s)
+    --- PASS: TestWorkflowCaptureHistoricalAdmissionRequiresUniqueEvidence/0 (0.13s)
+    --- PASS: TestWorkflowCaptureHistoricalAdmissionRequiresUniqueEvidence/1 (0.13s)
+    --- PASS: TestWorkflowCaptureHistoricalAdmissionRequiresUniqueEvidence/2 (0.10s)
+=== RUN   TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption
+=== RUN   TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/retention
+=== RUN   TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/outcome-report-gap
+=== RUN   TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/before-dispatch
+=== RUN   TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/receipt
+=== RUN   TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/consumption
+--- PASS: TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption (1.82s)
+    --- PASS: TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/retention (0.49s)
+    --- PASS: TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/outcome-report-gap (0.24s)
+    --- PASS: TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/before-dispatch (0.28s)
+    --- PASS: TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/receipt (0.30s)
+    --- PASS: TestCreationRejectionFaultIO_RetainDispatchReceiptConsumption/consumption (0.50s)
+=== RUN   TestDoctorRowRepairCatalogBoundaries
+=== PAUSE TestDoctorRowRepairCatalogBoundaries
+=== RUN   TestImplementStatusLockIsIndependentAndSerializesAliases
+--- PASS: TestImplementStatusLockIsIndependentAndSerializesAliases (0.01s)
+=== RUN   TestReportDeliveryHTTPAndSQLiteFailureWindows
+=== RUN   TestReportDeliveryHTTPAndSQLiteFailureWindows/intent
+=== RUN   TestReportDeliveryHTTPAndSQLiteFailureWindows/dispatch-boundary
+=== RUN   TestReportDeliveryHTTPAndSQLiteFailureWindows/receipt
+=== RUN   TestReportDeliveryHTTPAndSQLiteFailureWindows/completion-deleted-confirmed
+=== RUN   TestReportDeliveryHTTPAndSQLiteFailureWindows/lost-response-empty-lookup
+=== RUN   TestReportDeliveryHTTPAndSQLiteFailureWindows/lost-response-failed-lookup
+--- PASS: TestReportDeliveryHTTPAndSQLiteFailureWindows (1.50s)
+    --- PASS: TestReportDeliveryHTTPAndSQLiteFailureWindows/intent (0.25s)
+    --- PASS: TestReportDeliveryHTTPAndSQLiteFailureWindows/dispatch-boundary (0.25s)
+    --- PASS: TestReportDeliveryHTTPAndSQLiteFailureWindows/receipt (0.28s)
+    --- PASS: TestReportDeliveryHTTPAndSQLiteFailureWindows/completion-deleted-confirmed (0.36s)
+    --- PASS: TestReportDeliveryHTTPAndSQLiteFailureWindows/lost-response-empty-lookup (0.19s)
+    --- PASS: TestReportDeliveryHTTPAndSQLiteFailureWindows/lost-response-failed-lookup (0.18s)
+=== RUN   TestCreationAcceptanceHTTPAndSQLiteFailureWindows
+=== RUN   TestCreationAcceptanceHTTPAndSQLiteFailureWindows/intent
+=== RUN   TestCreationAcceptanceHTTPAndSQLiteFailureWindows/dispatch-boundary
+=== RUN   TestCreationAcceptanceHTTPAndSQLiteFailureWindows/receipt
+=== RUN   TestCreationAcceptanceHTTPAndSQLiteFailureWindows/completion-deleted-confirmed
+=== RUN   TestCreationAcceptanceHTTPAndSQLiteFailureWindows/lost-response-empty-lookup
+=== RUN   TestCreationAcceptanceHTTPAndSQLiteFailureWindows/lost-response-failed-lookup
+--- PASS: TestCreationAcceptanceHTTPAndSQLiteFailureWindows (1.45s)
+    --- PASS: TestCreationAcceptanceHTTPAndSQLiteFailureWindows/intent (0.24s)
+    --- PASS: TestCreationAcceptanceHTTPAndSQLiteFailureWindows/dispatch-boundary (0.21s)
+    --- PASS: TestCreationAcceptanceHTTPAndSQLiteFailureWindows/receipt (0.27s)
+    --- PASS: TestCreationAcceptanceHTTPAndSQLiteFailureWindows/completion-deleted-confirmed (0.37s)
+    --- PASS: TestCreationAcceptanceHTTPAndSQLiteFailureWindows/lost-response-empty-lookup (0.18s)
+    --- PASS: TestCreationAcceptanceHTTPAndSQLiteFailureWindows/lost-response-failed-lookup (0.18s)
+=== RUN   TestRunLifecycleStorageBoundaries
+=== RUN   TestRunLifecycleStorageBoundaries/session-running
+=== RUN   TestRunLifecycleStorageBoundaries/terminal-result
+=== RUN   TestRunLifecycleStorageBoundaries/resume-token
+--- PASS: TestRunLifecycleStorageBoundaries (8.49s)
+    --- PASS: TestRunLifecycleStorageBoundaries/session-running (3.36s)
+    --- PASS: TestRunLifecycleStorageBoundaries/terminal-result (2.48s)
+    --- PASS: TestRunLifecycleStorageBoundaries/resume-token (2.64s)
+=== RUN   TestStoryProgressLockSharedAliasesAndRelease
+--- PASS: TestStoryProgressLockSharedAliasesAndRelease (0.01s)
+=== CONT  TestDB_ListArchivedRunArtefacts
+=== CONT  TestScheduleReplayAndLifecycle
+=== CONT  TestWithTxRollsBackEveryWrite
+=== CONT  TestDoctorTypedRepairCatalog
+--- PASS: TestDoctorTypedRepairCatalog (0.00s)
+=== CONT  TestRun_Succeeded
+=== RUN   TestRun_Succeeded/succeeded,_no_error
+=== PAUSE TestRun_Succeeded/succeeded,_no_error
+=== RUN   TestRun_Succeeded/succeeded,_error_somehow_set
+=== PAUSE TestRun_Succeeded/succeeded,_error_somehow_set
+=== RUN   TestRun_Succeeded/reported,_empty_error
+=== PAUSE TestRun_Succeeded/reported,_empty_error
+=== RUN   TestRun_Succeeded/reported,_non-empty_error
+=== PAUSE TestRun_Succeeded/reported,_non-empty_error
+=== RUN   TestRun_Succeeded/failed,_no_error
+=== PAUSE TestRun_Succeeded/failed,_no_error
+=== RUN   TestRun_Succeeded/failed,_with_error
+=== PAUSE TestRun_Succeeded/failed,_with_error
+=== RUN   TestRun_Succeeded/running,_no_error
+=== PAUSE TestRun_Succeeded/running,_no_error
+=== RUN   TestRun_Succeeded/running,_error_somehow_set
+=== PAUSE TestRun_Succeeded/running,_error_somehow_set
+=== RUN   TestRun_Succeeded/unrecognised_status
+=== PAUSE TestRun_Succeeded/unrecognised_status
+=== CONT  TestNeedsPollSurvivesAReMigration
+--- PASS: TestNeedsPollSurvivesAReMigration (0.39s)
+=== CONT  TestCompleteRunReportIsOneTransaction
+--- PASS: TestWithTxRollsBackEveryWrite (0.41s)
+=== CONT  TestRecordRunSyncOnAMissingRunReportsNotFound
+--- PASS: TestScheduleReplayAndLifecycle (0.45s)
+=== CONT  TestRecordRunSyncRefusesACommitShaOutsideSynced
+=== RUN   TestDB_ListArchivedRunArtefacts/family_with_child_story/returns_finished_runs_at_or_before_date
+=== RUN   TestDB_ListArchivedRunArtefacts/later_archive_date/includes_later_finished_run_but_never_unfinished
+=== RUN   TestDB_ListArchivedRunArtefacts/early_archive_date/returns_none_but_found
+=== RUN   TestDB_ListArchivedRunArtefacts/unknown_task_ref/returns_found_false
+=== RUN   TestDB_ListArchivedRunArtefacts/child_session_without_managed_story_parent/is_own_family_only
+=== RUN   TestDB_ListArchivedRunArtefacts/cancelled_context/returns_error
+--- PASS: TestDB_ListArchivedRunArtefacts (0.64s)
+    --- PASS: TestDB_ListArchivedRunArtefacts/family_with_child_story/returns_finished_runs_at_or_before_date (0.00s)
+    --- PASS: TestDB_ListArchivedRunArtefacts/later_archive_date/includes_later_finished_run_but_never_unfinished (0.00s)
+    --- PASS: TestDB_ListArchivedRunArtefacts/early_archive_date/returns_none_but_found (0.00s)
+    --- PASS: TestDB_ListArchivedRunArtefacts/unknown_task_ref/returns_found_false (0.00s)
+    --- PASS: TestDB_ListArchivedRunArtefacts/child_session_without_managed_story_parent/is_own_family_only (0.00s)
+    --- PASS: TestDB_ListArchivedRunArtefacts/cancelled_context/returns_error (0.00s)
+=== CONT  TestRun_Succeeded/succeeded,_no_error
+=== CONT  TestRepositoryTeamBindingRejectsInvalidIdentities
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities/missing_repository
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities/unsafe_slug
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities/version_alias
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities/leading_zero
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities/credential_source
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities/query_source
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities/uppercase_digest
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities/local_digest
+=== RUN   TestRepositoryTeamBindingRejectsInvalidIdentities/unknown_kind
+--- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities (0.00s)
+    --- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities/missing_repository (0.00s)
+    --- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities/unsafe_slug (0.00s)
+    --- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities/version_alias (0.00s)
+    --- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities/leading_zero (0.00s)
+    --- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities/credential_source (0.00s)
+    --- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities/query_source (0.00s)
+    --- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities/uppercase_digest (0.00s)
+    --- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities/local_digest (0.00s)
+    --- PASS: TestRepositoryTeamBindingRejectsInvalidIdentities/unknown_kind (0.00s)
+=== CONT  TestRepositoryTeamUsesExactIdentityAndCorruption
+--- PASS: TestCompleteRunReportIsOneTransaction (0.57s)
+=== CONT  TestRepositoryTeamBindingLifecycle
+--- PASS: TestRecordRunSyncRefusesACommitShaOutsideSynced (0.55s)
+=== CONT  TestRepoWebhookRefusesABadHookID
+--- PASS: TestRepositoryTeamUsesExactIdentityAndCorruption (0.48s)
+=== CONT  TestRepoWebhookRoundTrip
+--- PASS: TestRecordRunSyncOnAMissingRunReportsNotFound (0.71s)
+=== CONT  TestRepoPollCursorMigrationWithoutAGlobalCursorSeedsNothing
+--- PASS: TestRepoWebhookRefusesABadHookID (0.38s)
+=== CONT  TestRepoPollCursorMigrationSeedsEveryExistingRepoFromTheGlobalCursor
+--- PASS: TestRepositoryTeamBindingLifecycle (0.51s)
+=== CONT  TestRepoPollCursorsAreIndependent
+--- PASS: TestRepoWebhookRoundTrip (0.63s)
+=== CONT  TestRecordRunSyncRoundTripsEveryOutcome
+--- PASS: TestRepoPollCursorsAreIndependent (0.30s)
+=== CONT  TestRepoPollCursorIsForwardOnly
+--- PASS: TestRepoPollCursorIsForwardOnly (0.42s)
+=== CONT  TestAdmitPlanPath_NewSessionsGetGraphAndRoutesAreFrozen
+--- PASS: TestRecordRunSyncRoundTripsEveryOutcome (0.60s)
+=== CONT  TestFinishRunRecordsAKillWithAReason
+--- PASS: TestAdmitPlanPath_NewSessionsGetGraphAndRoutesAreFrozen (0.51s)
+=== CONT  TestPlanWorkflowStore_StorySetSurvivesSaveAndRestartReads
+--- PASS: TestFinishRunRecordsAKillWithAReason (0.52s)
+=== CONT  TestModeRetirementEmptyJournal
+--- PASS: TestPlanWorkflowStore_StorySetSurvivesSaveAndRestartReads (0.32s)
+=== CONT  TestFinishRunComputesDuration
+--- PASS: TestModeRetirementEmptyJournal (0.53s)
+=== CONT  TestModeSelectionIsStableAndCleanupIsRecoverable
+--- PASS: TestFinishRunComputesDuration (0.53s)
+=== CONT  TestTimestampMigrationsApplyIndependentAndLateVersions
+=== RUN   TestTimestampMigrationsApplyIndependentAndLateVersions/empty
+=== RUN   TestTimestampMigrationsApplyIndependentAndLateVersions/legacy
+=== RUN   TestTimestampMigrationsApplyIndependentAndLateVersions/higher_timestamp
+--- PASS: TestTimestampMigrationsApplyIndependentAndLateVersions (0.10s)
+    --- PASS: TestTimestampMigrationsApplyIndependentAndLateVersions/empty (0.02s)
+    --- PASS: TestTimestampMigrationsApplyIndependentAndLateVersions/legacy (0.05s)
+    --- PASS: TestTimestampMigrationsApplyIndependentAndLateVersions/higher_timestamp (0.02s)
+=== CONT  TestAllocateRunTakesTheIssueBodyAsTriggerZero
+--- PASS: TestModeSelectionIsStableAndCleanupIsRecoverable (0.38s)
+=== CONT  TestValidateMigrationFS
+=== RUN   TestValidateMigrationFS/mixed
+=== RUN   TestValidateMigrationFS/duplicate
+=== RUN   TestValidateMigrationFS/numeric_identity
+=== RUN   TestValidateMigrationFS/parse
+=== RUN   TestValidateMigrationFS/empty
+--- PASS: TestValidateMigrationFS (0.00s)
+    --- PASS: TestValidateMigrationFS/mixed (0.00s)
+    --- PASS: TestValidateMigrationFS/duplicate (0.00s)
+    --- PASS: TestValidateMigrationFS/numeric_identity (0.00s)
+    --- PASS: TestValidateMigrationFS/parse (0.00s)
+    --- PASS: TestValidateMigrationFS/empty (0.00s)
+=== CONT  TestAllocateRunAssignsOrdinalsAndRefusesReplay
+--- PASS: TestAllocateRunTakesTheIssueBodyAsTriggerZero (0.65s)
+=== CONT  TestMigration0003BackfillsAgentAndLeavesResumeTokenNull
+--- PASS: TestAllocateRunAssignsOrdinalsAndRefusesReplay (0.56s)
+=== CONT  TestMigration0010AddsRunSyncColumnsWithSafeDefaults
+--- PASS: TestRepoPollCursorMigrationWithoutAGlobalCursorSeedsNothing (19.33s)
+=== CONT  TestSetSegmentAgentRejectsBadInput
+--- PASS: TestSetSegmentAgentRejectsBadInput (0.35s)
+=== CONT  TestMigration0003RenamesSessionRefWithoutChangingItsConstraints
+--- PASS: TestRepoPollCursorMigrationSeedsEveryExistingRepoFromTheGlobalCursor (19.68s)
+=== CONT  TestSetSegmentAgentSwitchesInPlaceTransactionally
+--- PASS: TestSetSegmentAgentSwitchesInPlaceTransactionally (0.34s)
+=== CONT  TestSetSegmentResumeTokenRejectsBadInput
+--- PASS: TestSetSegmentResumeTokenRejectsBadInput (0.34s)
+=== CONT  TestRetainedCreationProposalReturnsExactRetainedBytes
+--- PASS: TestRetainedCreationProposalReturnsExactRetainedBytes (0.34s)
+=== CONT  TestCreationPresentation_MigrationShape
+--- PASS: TestCreationPresentation_MigrationShape (0.29s)
+=== CONT  TestSetSegmentResumeTokenNeverOverwritesANonEmptyToken
+--- PASS: TestMigration0010AddsRunSyncColumnsWithSafeDefaults (18.20s)
+=== CONT  TestGetOrCreateSegmentRequiresAgentKind
+--- PASS: TestMigration0003BackfillsAgentAndLeavesResumeTokenNull (18.24s)
+=== CONT  TestCreationPresentation_ExistingRetainProposalUnchanged
+--- PASS: TestSetSegmentResumeTokenNeverOverwritesANonEmptyToken (0.27s)
+=== CONT  TestGetOrCreateSegmentReusesTheConversation
+--- PASS: TestGetOrCreateSegmentRequiresAgentKind (0.31s)
+=== CONT  TestCreationPresentation_PendingBindAndMarkLifecycle
+--- PASS: TestCreationPresentation_ExistingRetainProposalUnchanged (0.32s)
+=== CONT  TestPollCursorSurvivesAReopen
+--- PASS: TestGetOrCreateSegmentReusesTheConversation (0.31s)
+=== CONT  TestCreationPresentation_PresentedRunRefusesAnotherProposal
+--- PASS: TestCreationPresentation_PendingBindAndMarkLifecycle (0.38s)
+=== CONT  TestNextCommentTagCountsNumerically
+--- PASS: TestCreationPresentation_PresentedRunRefusesAnotherProposal (0.36s)
+=== CONT  TestCreationPresentation_RefusalsWriteNothing
+=== RUN   TestCreationPresentation_RefusalsWriteNothing/run_belongs_to_another_session
+=== PAUSE TestCreationPresentation_RefusalsWriteNothing/run_belongs_to_another_session
+=== RUN   TestCreationPresentation_RefusalsWriteNothing/run_does_not_exist
+=== PAUSE TestCreationPresentation_RefusalsWriteNothing/run_does_not_exist
+=== RUN   TestCreationPresentation_RefusalsWriteNothing/no_run_id
+=== PAUSE TestCreationPresentation_RefusalsWriteNothing/no_run_id
+=== RUN   TestCreationPresentation_RefusalsWriteNothing/invalid_proposal
+=== PAUSE TestCreationPresentation_RefusalsWriteNothing/invalid_proposal
+=== RUN   TestCreationPresentation_RefusalsWriteNothing/proposal_for_an_unregistered_repository
+=== PAUSE TestCreationPresentation_RefusalsWriteNothing/proposal_for_an_unregistered_repository
+=== CONT  TestRecordCommentIsIdempotentAndTagsThirdParties
+--- PASS: TestPollCursorSurvivesAReopen (0.55s)
+=== CONT  TestCreationPresentation_IdenticalRetentionLeavesEverythingUnchanged
+--- PASS: TestNextCommentTagCountsNumerically (0.33s)
+=== CONT  TestAdvanceWatermarkNeverRewinds
+--- PASS: TestRecordCommentIsIdempotentAndTagsThirdParties (0.33s)
+=== CONT  TestCreationPresentation_SupersessionReplacesRowAndBumpsRevision
+--- PASS: TestCreationPresentation_IdenticalRetentionLeavesEverythingUnchanged (0.35s)
+=== CONT  TestBootstrapWatermarkDoesNotConsumeComments
+--- PASS: TestAdvanceWatermarkNeverRewinds (0.31s)
+=== CONT  TestCreationPresentation_RetainWritesOneRowAndDerivesSession
+--- PASS: TestCreationPresentation_SupersessionReplacesRowAndBumpsRevision (0.36s)
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_owner
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_owner
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/non-owner_author
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/non-owner_author
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_reply_identity
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_reply_identity
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_question_identity
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_question_identity
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_mode
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_mode
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_task
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_task
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/unrelated_source
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/unrelated_source
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_publication_correlation
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_publication_correlation
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/empty_reply
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/empty_reply
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/whitespace_reply
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/whitespace_reply
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/oversized_reply
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/oversized_reply
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/byte_limit_rather_than_rune_count
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/byte_limit_rather_than_rune_count
+=== RUN   TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_event_time
+=== PAUSE TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_event_time
+=== CONT  TestGraphReplyRecoveryAtomicallyConsumesInput
+--- PASS: TestBootstrapWatermarkDoesNotConsumeComments (0.33s)
+=== CONT  TestGraphDispatchStopOutcomeIsOnlyActualExhaustion
+--- PASS: TestCreationPresentation_RetainWritesOneRowAndDerivesSession (0.32s)
+=== CONT  TestGraphDispatchRetryDelayGrows
+--- PASS: TestGraphDispatchRetryDelayGrows (0.00s)
+=== CONT  TestGraphDispatchGivesUpAfterRepeatedFailures
+--- PASS: TestGraphReplyRecoveryAtomicallyConsumesInput (0.35s)
+=== CONT  TestSubmissionConcurrentAllocationAndIdempotency
+--- PASS: TestGraphDispatchStopOutcomeIsOnlyActualExhaustion (0.36s)
+=== CONT  TestDoctorRowRepairCatalogBoundaries
+=== RUN   TestDoctorRowRepairCatalogBoundaries/poll_flag/reset
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/poll_flag/reset
+=== RUN   TestDoctorRowRepairCatalogBoundaries/poll_flag/set
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/poll_flag/set
+=== RUN   TestDoctorRowRepairCatalogBoundaries/poll_flag/invalid_value
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/poll_flag/invalid_value
+=== RUN   TestDoctorRowRepairCatalogBoundaries/unchanged_state/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/unchanged_state/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/run_interruption/retains_failure
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/run_interruption/retains_failure
+=== RUN   TestDoctorRowRepairCatalogBoundaries/completed_run/cannot_rewrite_history
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/completed_run/cannot_rewrite_history
+=== RUN   TestDoctorRowRepairCatalogBoundaries/session_lock/release_recorded_owner
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/session_lock/release_recorded_owner
+=== RUN   TestDoctorRowRepairCatalogBoundaries/session_lock/no_ownership_transfer
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/session_lock/no_ownership_transfer
+=== RUN   TestDoctorRowRepairCatalogBoundaries/confirmed_report/acknowledge
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/confirmed_report/acknowledge
+=== RUN   TestDoctorRowRepairCatalogBoundaries/uncertain_report/no_forged_acknowledgment
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/uncertain_report/no_forged_acknowledgment
+=== RUN   TestDoctorRowRepairCatalogBoundaries/watermark/rewind_zero
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/watermark/rewind_zero
+=== RUN   TestDoctorRowRepairCatalogBoundaries/watermark/no_negative_position
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/watermark/no_negative_position
+=== RUN   TestDoctorRowRepairCatalogBoundaries/watermark/no_nonnumeric_position
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/watermark/no_nonnumeric_position
+=== RUN   TestDoctorRowRepairCatalogBoundaries/watermark/no_overflowing_position
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/watermark/no_overflowing_position
+=== RUN   TestDoctorRowRepairCatalogBoundaries/dispatch/cancel_reserved
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/dispatch/cancel_reserved
+=== RUN   TestDoctorRowRepairCatalogBoundaries/dispatch/preserve_completed
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/dispatch/preserve_completed
+=== RUN   TestDoctorRowRepairCatalogBoundaries/wait/cancel_allocated
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/wait/cancel_allocated
+=== RUN   TestDoctorRowRepairCatalogBoundaries/wait/preserve_answered
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/wait/preserve_answered
+=== RUN   TestDoctorRowRepairCatalogBoundaries/attempt/cancel_pending
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/attempt/cancel_pending
+=== RUN   TestDoctorRowRepairCatalogBoundaries/graph/record_failure
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/graph/record_failure
+=== RUN   TestDoctorRowRepairCatalogBoundaries/unknown_operation/no_arbitrary_SQL
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/unknown_operation/no_arbitrary_SQL
+=== RUN   TestDoctorRowRepairCatalogBoundaries/wrong_row_kind/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/wrong_row_kind/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/missing_separator/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/missing_separator/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/empty_row_key/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/empty_row_key/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/negative_row_key/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/negative_row_key/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/zero_row_key/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/zero_row_key/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/ambiguous_numeric_alias/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/ambiguous_numeric_alias/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/foreign_path_key/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/foreign_path_key/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/SQL-looking_key/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/SQL-looking_key/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/empty_report_key/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/empty_report_key/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/report_key_whitespace/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/report_key_whitespace/refused
+=== RUN   TestDoctorRowRepairCatalogBoundaries/opaque_wait_key/accepted
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/opaque_wait_key/accepted
+=== RUN   TestDoctorRowRepairCatalogBoundaries/oversized_target/refused
+=== PAUSE TestDoctorRowRepairCatalogBoundaries/oversized_target/refused
+=== CONT  TestParkRefusesADisagreeingNode
+--- PASS: TestGraphDispatchGivesUpAfterRepeatedFailures (0.32s)
+=== CONT  TestGraphDispatchLifecycle
+--- PASS: TestParkRefusesADisagreeingNode (0.31s)
+=== CONT  TestGraphTriggerBandIsDisjoint
+--- PASS: TestGraphTriggerBandIsDisjoint (0.00s)
+=== CONT  TestTicketEffectOriginIsFrozenBeforeResolution
+--- PASS: TestGraphDispatchLifecycle (0.31s)
+=== CONT  TestParkGraphInstanceAfterChainsStages
+--- PASS: TestSubmissionConcurrentAllocationAndIdempotency (0.47s)
+=== CONT  TestGraphTriggerDispatchRoundTrips
+--- PASS: TestGraphTriggerDispatchRoundTrips (0.00s)
+=== CONT  TestDoctorTypedRepairMigrationRetainsLegacyJournal
+--- PASS: TestTicketEffectOriginIsFrozenBeforeResolution (0.34s)
+=== CONT  TestTicketEffectBindingRetainsDestinationAndActorAcrossConflicts
+--- PASS: TestParkGraphInstanceAfterChainsStages (0.39s)
+=== CONT  TestQualifiedReplyRequiresResolvedSessionBinding
+--- PASS: TestTicketEffectBindingRetainsDestinationAndActorAcrossConflicts (0.31s)
+=== CONT  TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions
+--- PASS: TestQualifiedReplyRequiresResolvedSessionBinding (0.33s)
+=== CONT  TestTaskSyncMigrationPreservesExistingBaseOnlyRun
+=== RUN   TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions/reply_origin
+=== RUN   TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions/actor_origin
+=== RUN   TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions/ticket_identity
+=== RUN   TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions/retained_author
+--- PASS: TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions (0.32s)
+    --- PASS: TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions/reply_origin (0.00s)
+    --- PASS: TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions/actor_origin (0.00s)
+    --- PASS: TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions/ticket_identity (0.00s)
+    --- PASS: TestQualifiedReplyPreservesLegacyReplayAndRejectsIdentityCollisions/retained_author (0.00s)
+=== CONT  TestRunSyncObservationsRoundTripAndHistoricalDefault
+=== RUN   TestRunSyncObservationsRoundTripAndHistoricalDefault/absent
+=== RUN   TestRunSyncObservationsRoundTripAndHistoricalDefault/up_to_date
+=== RUN   TestRunSyncObservationsRoundTripAndHistoricalDefault/synced
+=== RUN   TestRunSyncObservationsRoundTripAndHistoricalDefault/blocked
+=== RUN   TestRunSyncObservationsRoundTripAndHistoricalDefault/skipped
+=== RUN   TestRunSyncObservationsRoundTripAndHistoricalDefault/failed
+--- PASS: TestRunSyncObservationsRoundTripAndHistoricalDefault (0.36s)
+    --- PASS: TestRunSyncObservationsRoundTripAndHistoricalDefault/absent (0.01s)
+    --- PASS: TestRunSyncObservationsRoundTripAndHistoricalDefault/up_to_date (0.00s)
+    --- PASS: TestRunSyncObservationsRoundTripAndHistoricalDefault/synced (0.00s)
+    --- PASS: TestRunSyncObservationsRoundTripAndHistoricalDefault/blocked (0.00s)
+    --- PASS: TestRunSyncObservationsRoundTripAndHistoricalDefault/skipped (0.00s)
+    --- PASS: TestRunSyncObservationsRoundTripAndHistoricalDefault/failed (0.00s)
+=== CONT  TestSubmissionAttemptReplacementRevokesOldAuthority
+--- PASS: TestSubmissionAttemptReplacementRevokesOldAuthority (0.36s)
+=== CONT  TestFollowupListsExcludeSubmissionMarkerRows
+--- PASS: TestFollowupListsExcludeSubmissionMarkerRows (0.32s)
+=== CONT  TestSubmissionMarkerFollowupMigrationBackfills
+--- PASS: TestSubmissionMarkerFollowupMigrationBackfills (0.40s)
+=== CONT  TestSubmissionAssessmentKeepsExistingV1FollowupDebt
+--- PASS: TestSubmissionAssessmentKeepsExistingV1FollowupDebt (0.36s)
+=== CONT  TestSubmissionAssessmentMarkerIsFollowupMaterialized
+--- PASS: TestSubmissionAssessmentMarkerIsFollowupMaterialized (0.38s)
+=== CONT  TestSubmissionRunBudgetRejectsOverflowAtomically
+=== RUN   TestSubmissionRunBudgetRejectsOverflowAtomically/request
+=== PAUSE TestSubmissionRunBudgetRejectsOverflowAtomically/request
+=== RUN   TestSubmissionRunBudgetRejectsOverflowAtomically/snapshot
+=== PAUSE TestSubmissionRunBudgetRejectsOverflowAtomically/snapshot
+=== RUN   TestSubmissionRunBudgetRejectsOverflowAtomically/check
+=== PAUSE TestSubmissionRunBudgetRejectsOverflowAtomically/check
+=== CONT  TestSubmissionRollsBackCounterAndBudgetAfterInsertFailure
+--- PASS: TestSubmissionRollsBackCounterAndBudgetAfterInsertFailure (0.45s)
+=== CONT  TestSubmissionRestartRetainsDiagnosticsAndPendingEffects
+--- PASS: TestSubmissionRestartRetainsDiagnosticsAndPendingEffects (0.79s)
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts/traversal
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts/traversal
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts/absolute
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts/absolute
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts/transport
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts/transport
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts/digest
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts/digest
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts/deletion
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts/deletion
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts/parent
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts/parent
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts/generation
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts/generation
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts/attempt
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts/attempt
+=== RUN   TestSubmissionRejectsUnsafeSnapshotFacts/revision
+=== PAUSE TestSubmissionRejectsUnsafeSnapshotFacts/revision
+=== CONT  TestSubmissionRetainsImmutableReferencedEvidence
+--- PASS: TestSubmissionRetainsImmutableReferencedEvidence (0.64s)
+=== CONT  TestSubmissionReceiptRecoveryKeepsIndependentStates
+--- PASS: TestSubmissionReceiptRecoveryKeepsIndependentStates (0.39s)
+=== CONT  TestSubmissionStaleAuthorityAndRollback
+=== RUN   TestSubmissionStaleAuthorityAndRollback/attempt
+=== PAUSE TestSubmissionStaleAuthorityAndRollback/attempt
+=== RUN   TestSubmissionStaleAuthorityAndRollback/revision
+=== PAUSE TestSubmissionStaleAuthorityAndRollback/revision
+=== RUN   TestSubmissionStaleAuthorityAndRollback/generation
+=== PAUSE TestSubmissionStaleAuthorityAndRollback/generation
+=== RUN   TestSubmissionStaleAuthorityAndRollback/run
+=== PAUSE TestSubmissionStaleAuthorityAndRollback/run
+=== RUN   TestSubmissionStaleAuthorityAndRollback/story
+=== PAUSE TestSubmissionStaleAuthorityAndRollback/story
+=== CONT  TestNoticeQuestionUsesReferencedDiagnosis
+--- PASS: TestNoticeQuestionUsesReferencedDiagnosis (0.40s)
+=== CONT  TestHealthSnapshotCarriesHeartbeatAndPauseFacts
+--- PASS: TestHealthSnapshotCarriesHeartbeatAndPauseFacts (0.32s)
+=== CONT  TestHealthSnapshotRowsFollowRepoDeletion
+--- PASS: TestHealthSnapshotRowsFollowRepoDeletion (0.34s)
+=== CONT  TestHealthSnapshotReplaceIsAtomic
+--- PASS: TestHealthSnapshotReplaceIsAtomic (0.34s)
+=== CONT  TestHealthSnapshotRoundTripAndReplace
+--- PASS: TestHealthSnapshotRoundTripAndReplace (0.32s)
+=== CONT  TestRegionProposalRoundTripIsolationAndLegacy
+--- PASS: TestRegionProposalRoundTripIsolationAndLegacy (0.36s)
+=== CONT  TestConflictProposalsSchemaHasNoContentColumn
+--- PASS: TestConflictProposalsSchemaHasNoContentColumn (0.40s)
+=== CONT  TestSupersedeConflictProposalRefusesAnAlreadyDecidedProposal
+--- PASS: TestSupersedeConflictProposalRefusesAnAlreadyDecidedProposal (0.38s)
+=== CONT  TestSupersedeConflictProposalMarksAPendingProposalStale
+--- PASS: TestSupersedeConflictProposalMarksAPendingProposalStale (0.43s)
+=== CONT  TestMarkConflictProposalAppliedRefusesASecondApplication
+--- PASS: TestMarkConflictProposalAppliedRefusesASecondApplication (0.44s)
+=== CONT  TestMarkConflictProposalAppliedRecordsEveryField
+--- PASS: TestMarkConflictProposalAppliedRecordsEveryField (0.44s)
+=== CONT  TestConflictProposalRejectsTooManyFiles
+--- PASS: TestConflictProposalRejectsTooManyFiles (0.42s)
+=== CONT  TestConflictProposalTTLExpiry
+--- PASS: TestConflictProposalTTLExpiry (0.41s)
+=== CONT  TestConflictProposalSupersedesEarlierPending
+--- PASS: TestConflictProposalSupersedesEarlierPending (0.43s)
+=== CONT  TestConflictProposalReplayAndFiles
+--- PASS: TestConflictProposalReplayAndFiles (0.41s)
+=== CONT  TestChatResearchMigrationPreservesExistingRows
+--- PASS: TestChatResearchMigrationPreservesExistingRows (0.03s)
+=== CONT  TestForgeClaimRefusesChatIdentity
+--- PASS: TestForgeClaimRefusesChatIdentity (0.00s)
+=== CONT  TestChatResearchClaimRefusalsAreAtomic
+=== RUN   TestChatResearchClaimRefusalsAreAtomic/unpublished
+=== PAUSE TestChatResearchClaimRefusalsAreAtomic/unpublished
+=== RUN   TestChatResearchClaimRefusalsAreAtomic/review
+=== PAUSE TestChatResearchClaimRefusalsAreAtomic/review
+=== RUN   TestChatResearchClaimRefusalsAreAtomic/done
+=== PAUSE TestChatResearchClaimRefusalsAreAtomic/done
+=== RUN   TestChatResearchClaimRefusalsAreAtomic/ended
+=== PAUSE TestChatResearchClaimRefusalsAreAtomic/ended
+=== RUN   TestChatResearchClaimRefusalsAreAtomic/superseded
+=== PAUSE TestChatResearchClaimRefusalsAreAtomic/superseded
+=== RUN   TestChatResearchClaimRefusalsAreAtomic/wrong_mode
+=== PAUSE TestChatResearchClaimRefusalsAreAtomic/wrong_mode
+=== RUN   TestChatResearchClaimRefusalsAreAtomic/oversized
+=== PAUSE TestChatResearchClaimRefusalsAreAtomic/oversized
+=== RUN   TestChatResearchClaimRefusalsAreAtomic/storage_failure
+=== PAUSE TestChatResearchClaimRefusalsAreAtomic/storage_failure
+=== CONT  TestChatResearchClaimAndForgeRace
+--- PASS: TestChatResearchClaimAndForgeRace (0.43s)
+=== CONT  TestNoticePositionFindsRecycledGraphIDs
+--- PASS: TestMigration0003RenamesSessionRefWithoutChangingItsConstraints (15.99s)
+=== CONT  TestRun_Succeeded/failed,_with_error
+=== CONT  TestRun_Succeeded/unrecognised_status
+=== CONT  TestRun_Succeeded/running,_error_somehow_set
+=== CONT  TestRun_Succeeded/running,_no_error
+=== CONT  TestRun_Succeeded/reported,_non-empty_error
+=== CONT  TestRun_Succeeded/failed,_no_error
+=== CONT  TestArchiveRegistryProblems_MigratedDatabaseIsClean
+--- PASS: TestNoticePositionFindsRecycledGraphIDs (0.41s)
+=== CONT  TestNoticeLeaseFenceAndRetention
+--- PASS: TestNoticeLeaseFenceAndRetention (0.46s)
+=== CONT  TestNoticeAdmissionRollbackAndReplay
+--- PASS: TestArchiveRegistryProblems_MigratedDatabaseIsClean (0.71s)
+=== CONT  TestDB_DeleteArchivedFamily
+=== RUN   TestDB_DeleteArchivedFamily/matching_digest/deletes_family_rows_only
+=== PAUSE TestDB_DeleteArchivedFamily/matching_digest/deletes_family_rows_only
+=== RUN   TestDB_DeleteArchivedFamily/digest_mismatch/rolls_back_and_deletes_nothing
+=== PAUSE TestDB_DeleteArchivedFamily/digest_mismatch/rolls_back_and_deletes_nothing
+=== RUN   TestDB_DeleteArchivedFamily/extra_live_row/count_mismatch
+=== PAUSE TestDB_DeleteArchivedFamily/extra_live_row/count_mismatch
+=== RUN   TestDB_DeleteArchivedFamily/no_longer_settled/returns_not_settled_and_keeps_rows
+=== PAUSE TestDB_DeleteArchivedFamily/no_longer_settled/returns_not_settled_and_keeps_rows
+=== CONT  TestDB_SaveArchiveSweep_RejectsInvalid
+=== RUN   TestDB_SaveArchiveSweep_RejectsInvalid/no_id
+=== PAUSE TestDB_SaveArchiveSweep_RejectsInvalid/no_id
+=== RUN   TestDB_SaveArchiveSweep_RejectsInvalid/no_start
+=== PAUSE TestDB_SaveArchiveSweep_RejectsInvalid/no_start
+=== RUN   TestDB_SaveArchiveSweep_RejectsInvalid/negative_cursor
+=== PAUSE TestDB_SaveArchiveSweep_RejectsInvalid/negative_cursor
+=== RUN   TestDB_SaveArchiveSweep_RejectsInvalid/boundary_before_cursor
+=== PAUSE TestDB_SaveArchiveSweep_RejectsInvalid/boundary_before_cursor
+=== CONT  TestDB_ArchiveSweep_RoundTrip
+--- PASS: TestNoticeAdmissionRollbackAndReplay (0.32s)
+=== CONT  TestDB_GetArchiveOwner_CancelledContextReturnsError
+--- PASS: TestDB_ArchiveSweep_RoundTrip (0.34s)
+=== CONT  TestDB_GetArchiveOwner_UnknownSessionReturnsError
+--- PASS: TestDB_GetArchiveOwner_CancelledContextReturnsError (0.32s)
+=== CONT  TestDB_GetArchiveOwner
+=== RUN   TestDB_GetArchiveOwner/settled_with_rows/counts_archivable_rows
+=== PAUSE TestDB_GetArchiveOwner/settled_with_rows/counts_archivable_rows
+=== RUN   TestDB_GetArchiveOwner/settled_without_rows/nothing_to_archive
+=== PAUSE TestDB_GetArchiveOwner/settled_without_rows/nothing_to_archive
+=== RUN   TestDB_GetArchiveOwner/unknown_retirement_intent/pending
+=== PAUSE TestDB_GetArchiveOwner/unknown_retirement_intent/pending
+=== CONT  TestArchiveRegistry_ReturnsCopyWithEveryClass
+--- PASS: TestArchiveRegistry_ReturnsCopyWithEveryClass (0.00s)
+=== CONT  TestRefinementReportDoesNotConsumeParentComment
+--- PASS: TestDB_GetArchiveOwner_UnknownSessionReturnsError (0.48s)
+=== CONT  TestSubmissionContractAndProjectionImmutability
+--- PASS: TestRefinementReportDoesNotConsumeParentComment (0.63s)
+=== CONT  TestSubmissionMigrationPreservesLegacyVersions
+--- PASS: TestSubmissionContractAndProjectionImmutability (0.59s)
+=== CONT  TestSubmissionCheckScopedBySnapshotReference
+--- PASS: TestSubmissionCheckScopedBySnapshotReference (0.54s)
+=== CONT  TestMigration0047PreservesPopulatedEvidenceAndIsIdempotent
+--- PASS: TestDoctorTypedRepairMigrationRetainsLegacyJournal (17.85s)
+=== CONT  TestMigration0047FreshDatabaseScopesChecksBySnapshot
+--- PASS: TestMigration0047FreshDatabaseScopesChecksBySnapshot (0.44s)
+=== CONT  TestGraphPlanParentForChildAndDiscoveryOwed
+--- PASS: TestTaskSyncMigrationPreservesExistingBaseOnlyRun (17.90s)
+=== CONT  TestListGraphPlanSessionsOmitsClosedParents
+--- PASS: TestGraphPlanParentForChildAndDiscoveryOwed (0.42s)
+=== CONT  TestListDeliveryParentsOmitsClosedReadyFeatures
+--- PASS: TestListGraphPlanSessionsOmitsClosedParents (0.40s)
+=== CONT  TestRefinementAdmissionInvalidatesReadinessOnlyOnce
+--- PASS: TestListDeliveryParentsOmitsClosedReadyFeatures (0.33s)
+=== CONT  TestListStoryProgressRunsForParentScopesToOwningParent
+--- PASS: TestRefinementAdmissionInvalidatesReadinessOnlyOnce (0.43s)
+=== CONT  TestStoryRefinementACKClaimsOnceAndPreservesPreparedBytes
+--- PASS: TestListStoryProgressRunsForParentScopesToOwningParent (0.52s)
+=== CONT  TestStoryReconciliationRetirementSurvivesReplanAndRestart
+--- PASS: TestStoryRefinementACKClaimsOnceAndPreservesPreparedBytes (0.36s)
+=== CONT  TestStoryReconciliationProjectionLookupIsRevisionAndGenerationBound
+--- PASS: TestStoryReconciliationProjectionLookupIsRevisionAndGenerationBound (0.41s)
+=== CONT  TestListPendingSubmissionsForAttemptScopesToOneRunAttempt
+--- PASS: TestStoryReconciliationRetirementSurvivesReplanAndRestart (0.65s)
+=== CONT  TestRun_Succeeded/reported,_empty_error
+=== CONT  TestDB_DeleteArchivedFamily_PlanRows
+=== RUN   TestDB_DeleteArchivedFamily_PlanRows/settled_plan_history/deleted_and_grant_table_empty_after_commit
+=== PAUSE TestDB_DeleteArchivedFamily_PlanRows/settled_plan_history/deleted_and_grant_table_empty_after_commit
+=== RUN   TestDB_DeleteArchivedFamily_PlanRows/delete_does_not_touch_another_parent's_plan_history
+=== PAUSE TestDB_DeleteArchivedFamily_PlanRows/delete_does_not_touch_another_parent's_plan_history
+=== RUN   TestDB_DeleteArchivedFamily_PlanRows/no_effect_recorded/keeps_owner_and_plan_rows
+=== PAUSE TestDB_DeleteArchivedFamily_PlanRows/no_effect_recorded/keeps_owner_and_plan_rows
+=== RUN   TestDB_DeleteArchivedFamily_PlanRows/pending/keeps_owner_and_plan_rows
+=== PAUSE TestDB_DeleteArchivedFamily_PlanRows/pending/keeps_owner_and_plan_rows
+=== RUN   TestDB_DeleteArchivedFamily_PlanRows/uncertain/keeps_owner_and_plan_rows
+=== PAUSE TestDB_DeleteArchivedFamily_PlanRows/uncertain/keeps_owner_and_plan_rows
+=== RUN   TestDB_DeleteArchivedFamily_PlanRows/latest_effect_applied_after_uncertain/is_settled
+=== PAUSE TestDB_DeleteArchivedFamily_PlanRows/latest_effect_applied_after_uncertain/is_settled
+=== CONT  TestOpen_UnmigratedDatabaseToleratesMissingGrantTable
+--- PASS: TestOpen_UnmigratedDatabaseToleratesMissingGrantTable (0.01s)
+=== CONT  TestOpen_ClearsLeftoverPlanArchiveGrants
+--- PASS: TestListPendingSubmissionsForAttemptScopesToOneRunAttempt (0.44s)
+=== CONT  TestWritePlanArchiveGrants_Operations
+2026/10/11 14:06:40 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants602327779/001/litefactory.db
+--- PASS: TestOpen_ClearsLeftoverPlanArchiveGrants (0.72s)
+=== CONT  TestWritePlanArchiveGrants_GrantsEmptyAfterRollback
+--- PASS: TestWritePlanArchiveGrants_Operations (0.34s)
+=== CONT  TestTimeRoundTripsAndSortsLexicographically
+--- PASS: TestTimeRoundTripsAndSortsLexicographically (0.00s)
+=== CONT  TestListBacklogSessionsIsCrossRepo
+--- PASS: TestWritePlanArchiveGrants_GrantsEmptyAfterRollback (0.37s)
+=== CONT  TestSessionNeedsPollRoundTrips
+--- PASS: TestListBacklogSessionsIsCrossRepo (0.34s)
+=== CONT  TestAcquireSessionLockOnAMissingSession
+--- PASS: TestAcquireSessionLockOnAMissingSession (0.43s)
+=== CONT  TestSessionLockIsAtomic
+--- PASS: TestSessionNeedsPollRoundTrips (0.44s)
+=== CONT  TestSessionWorktreeAndState
+--- PASS: TestSessionWorktreeAndState (0.42s)
+=== CONT  TestFreezeSessionSlugKeepsTheFirstValue
+--- PASS: TestSessionLockIsAtomic (0.45s)
+=== CONT  TestGetOrCreateSessionIsStable
+--- PASS: TestGetOrCreateSessionIsStable (0.35s)
+=== CONT  TestUpsertRepoIsIdempotentOnPath
+--- PASS: TestFreezeSessionSlugKeepsTheFirstValue (0.42s)
+=== CONT  TestUpsertIdentityRefreshesWithoutDuplicating
+--- PASS: TestUpsertRepoIsIdempotentOnPath (0.36s)
+=== CONT  TestRun_Succeeded/succeeded,_error_somehow_set
+--- PASS: TestRun_Succeeded (0.00s)
+    --- PASS: TestRun_Succeeded/succeeded,_no_error (0.00s)
+    --- PASS: TestRun_Succeeded/failed,_with_error (0.00s)
+    --- PASS: TestRun_Succeeded/unrecognised_status (0.00s)
+    --- PASS: TestRun_Succeeded/running,_error_somehow_set (0.00s)
+    --- PASS: TestRun_Succeeded/running,_no_error (0.00s)
+    --- PASS: TestRun_Succeeded/reported,_non-empty_error (0.00s)
+    --- PASS: TestRun_Succeeded/failed,_no_error (0.00s)
+    --- PASS: TestRun_Succeeded/reported,_empty_error (0.00s)
+    --- PASS: TestRun_Succeeded/succeeded,_error_somehow_set (0.00s)
+=== CONT  TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted
+=== RUN   TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_effects/delete_aborts_and_row_stays
+=== PAUSE TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_effects/delete_aborts_and_row_stays
+=== RUN   TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_authorities/delete_aborts_and_row_stays
+=== PAUSE TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_authorities/delete_aborts_and_row_stays
+=== RUN   TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_workflow_history/delete_aborts_and_row_stays
+=== PAUSE TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_workflow_history/delete_aborts_and_row_stays
+=== RUN   TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_owner_edits/delete_aborts_and_row_stays
+=== PAUSE TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_owner_edits/delete_aborts_and_row_stays
+=== RUN   TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_candidates/delete_aborts_and_row_stays
+=== PAUSE TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_candidates/delete_aborts_and_row_stays
+=== RUN   TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_drafts/delete_aborts_and_row_stays
+=== PAUSE TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_drafts/delete_aborts_and_row_stays
+=== CONT  TestPlanArchiveTriggers_UpdateStillRefusedWithGrant
+=== RUN   TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_candidates/update_refused
+=== PAUSE TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_candidates/update_refused
+=== RUN   TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_effects/update_refused
+=== PAUSE TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_effects/update_refused
+=== RUN   TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_drafts/update_refused
+=== PAUSE TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_drafts/update_refused
+=== RUN   TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_workflow_history/update_refused
+=== PAUSE TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_workflow_history/update_refused
+=== RUN   TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_owner_edits/update_refused
+=== PAUSE TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_owner_edits/update_refused
+=== RUN   TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_authorities/update_refused
+=== PAUSE TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_authorities/update_refused
+=== CONT  TestPlanArchiveTriggers_GrantIsPerParent
+=== RUN   TestPlanArchiveTriggers_GrantIsPerParent/plan_story_effects/grant_for_A_opens_A_only
+=== PAUSE TestPlanArchiveTriggers_GrantIsPerParent/plan_story_effects/grant_for_A_opens_A_only
+=== RUN   TestPlanArchiveTriggers_GrantIsPerParent/plan_story_authorities/grant_for_A_opens_A_only
+=== PAUSE TestPlanArchiveTriggers_GrantIsPerParent/plan_story_authorities/grant_for_A_opens_A_only
+=== RUN   TestPlanArchiveTriggers_GrantIsPerParent/plan_workflow_history/grant_for_A_opens_A_only
+=== PAUSE TestPlanArchiveTriggers_GrantIsPerParent/plan_workflow_history/grant_for_A_opens_A_only
+=== RUN   TestPlanArchiveTriggers_GrantIsPerParent/plan_story_owner_edits/grant_for_A_opens_A_only
+=== PAUSE TestPlanArchiveTriggers_GrantIsPerParent/plan_story_owner_edits/grant_for_A_opens_A_only
+=== RUN   TestPlanArchiveTriggers_GrantIsPerParent/plan_story_candidates/grant_for_A_opens_A_only
+=== PAUSE TestPlanArchiveTriggers_GrantIsPerParent/plan_story_candidates/grant_for_A_opens_A_only
+=== RUN   TestPlanArchiveTriggers_GrantIsPerParent/plan_story_drafts/grant_for_A_opens_A_only
+=== PAUSE TestPlanArchiveTriggers_GrantIsPerParent/plan_story_drafts/grant_for_A_opens_A_only
+=== CONT  TestSessionTicketOriginSurvivesReopenAndCannotRebind
+--- PASS: TestUpsertIdentityRefreshesWithoutDuplicating (0.34s)
+=== CONT  TestPollCursorTableHoldsOneRow
+--- PASS: TestPollCursorTableHoldsOneRow (0.40s)
+=== CONT  TestMigrateIsIdempotent
+--- PASS: TestSessionTicketOriginSurvivesReopenAndCannotRebind (0.82s)
+=== CONT  TestOpenRejectsAMissingDirectory
+--- PASS: TestOpenRejectsAMissingDirectory (0.00s)
+=== CONT  TestForeignKeysAreEnforced
+--- PASS: TestMigrateIsIdempotent (0.51s)
+=== CONT  TestReconcileOrphansRecoversScheduleReservations
+--- PASS: TestForeignKeysAreEnforced (0.39s)
+=== CONT  TestSessionTicketBindingRefusesConflictsAtomically
+--- PASS: TestReconcileOrphansRecoversScheduleReservations (0.39s)
+=== CONT  TestSessionTicketBindingPreservesLegacySessionAndConsumption
+=== RUN   TestSessionTicketBindingRefusesConflictsAtomically/remote_ID
+=== RUN   TestSessionTicketBindingRefusesConflictsAtomically/origin
+=== RUN   TestSessionTicketBindingRefusesConflictsAtomically/container
+=== RUN   TestSessionTicketBindingRefusesConflictsAtomically/number
+--- PASS: TestSessionTicketBindingRefusesConflictsAtomically (0.41s)
+    --- PASS: TestSessionTicketBindingRefusesConflictsAtomically/remote_ID (0.00s)
+    --- PASS: TestSessionTicketBindingRefusesConflictsAtomically/origin (0.00s)
+    --- PASS: TestSessionTicketBindingRefusesConflictsAtomically/container (0.00s)
+    --- PASS: TestSessionTicketBindingRefusesConflictsAtomically/number (0.00s)
+=== CONT  TestConcurrentAccessorsDoNotDeadlock
+--- PASS: TestSessionTicketBindingPreservesLegacySessionAndConsumption (0.38s)
+=== CONT  TestContractUpgradeAtomicGenerationPreservesHistoryAndLocksAdmission
+--- PASS: TestContractUpgradeAtomicGenerationPreservesHistoryAndLocksAdmission (0.42s)
+=== CONT  TestPlaceholders
+--- PASS: TestPlaceholders (0.00s)
+=== CONT  TestFindSessionByIssueReportsAmbiguity
+--- PASS: TestConcurrentAccessorsDoNotDeadlock (0.60s)
+=== CONT  TestDB_ForgetArchivedFamily
+=== RUN   TestDB_ForgetArchivedFamily/nothing_left/deletes_skeleton_and_returns_counts
+=== PAUSE TestDB_ForgetArchivedFamily/nothing_left/deletes_skeleton_and_returns_counts
+=== RUN   TestDB_ForgetArchivedFamily/archived_rows_left/returns_rows_left_and_keeps_skeleton
+=== PAUSE TestDB_ForgetArchivedFamily/archived_rows_left/returns_rows_left_and_keeps_skeleton
+=== RUN   TestDB_ForgetArchivedFamily/plan_rows_left/returns_rows_left
+=== PAUSE TestDB_ForgetArchivedFamily/plan_rows_left/returns_rows_left
+=== RUN   TestDB_ForgetArchivedFamily/pending_plan_effect/returns_not_settled
+=== PAUSE TestDB_ForgetArchivedFamily/pending_plan_effect/returns_not_settled
+=== RUN   TestDB_ForgetArchivedFamily/unsettled_retirement_intent/returns_not_settled
+=== PAUSE TestDB_ForgetArchivedFamily/unsettled_retirement_intent/returns_not_settled
+=== RUN   TestDB_ForgetArchivedFamily/unknown_session/returns_not_found
+=== PAUSE TestDB_ForgetArchivedFamily/unknown_session/returns_not_found
+=== CONT  TestAcceptScheduleProposalIsAtomicAndReplaySafe
+--- PASS: TestFindSessionByIssueReportsAmbiguity (0.37s)
+=== CONT  TestReconcileOrphans
+--- PASS: TestAcceptScheduleProposalIsAtomicAndReplaySafe (0.42s)
+=== CONT  TestSchedulePrerequisitesAreIssueScopedAndFailuresBlock
+--- PASS: TestReconcileOrphans (0.50s)
+=== CONT  TestCreationPresentation_RefusalsWriteNothing/run_belongs_to_another_session
+--- PASS: TestSchedulePrerequisitesAreIssueScopedAndFailuresBlock (0.47s)
+=== CONT  TestCreationPresentation_RefusalsWriteNothing/invalid_proposal
+=== CONT  TestCreationPresentation_RefusalsWriteNothing/proposal_for_an_unregistered_repository
+=== CONT  TestCreationPresentation_RefusalsWriteNothing/no_run_id
+=== CONT  TestCreationPresentation_RefusalsWriteNothing/run_does_not_exist
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_owner
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_event_time
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/byte_limit_rather_than_rune_count
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/oversized_reply
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/whitespace_reply
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/empty_reply
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_publication_correlation
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/unrelated_source
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_task
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_mode
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_question_identity
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_reply_identity
+=== CONT  TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/non-owner_author
+--- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_owner (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_event_time (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/byte_limit_rather_than_rune_count (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/oversized_reply (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/whitespace_reply (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/empty_reply (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_publication_correlation (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/unrelated_source (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_task (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_mode (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_question_identity (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/missing_reply_identity (0.00s)
+    --- PASS: TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage/non-owner_author (0.00s)
+=== CONT  TestDoctorRowRepairCatalogBoundaries/poll_flag/reset
+=== CONT  TestDoctorRowRepairCatalogBoundaries/wait/preserve_answered
+=== CONT  TestDoctorRowRepairCatalogBoundaries/oversized_target/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/opaque_wait_key/accepted
+=== CONT  TestDoctorRowRepairCatalogBoundaries/report_key_whitespace/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/empty_report_key/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/SQL-looking_key/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/foreign_path_key/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/ambiguous_numeric_alias/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/zero_row_key/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/negative_row_key/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/empty_row_key/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/missing_separator/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/wrong_row_kind/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/unknown_operation/no_arbitrary_SQL
+=== CONT  TestDoctorRowRepairCatalogBoundaries/graph/record_failure
+=== CONT  TestDoctorRowRepairCatalogBoundaries/attempt/cancel_pending
+=== CONT  TestDoctorRowRepairCatalogBoundaries/uncertain_report/no_forged_acknowledgment
+=== CONT  TestDoctorRowRepairCatalogBoundaries/wait/cancel_allocated
+=== CONT  TestDoctorRowRepairCatalogBoundaries/dispatch/preserve_completed
+=== CONT  TestDoctorRowRepairCatalogBoundaries/dispatch/cancel_reserved
+=== CONT  TestDoctorRowRepairCatalogBoundaries/watermark/no_overflowing_position
+=== CONT  TestDoctorRowRepairCatalogBoundaries/watermark/no_nonnumeric_position
+=== CONT  TestDoctorRowRepairCatalogBoundaries/watermark/no_negative_position
+=== CONT  TestDoctorRowRepairCatalogBoundaries/watermark/rewind_zero
+=== CONT  TestDoctorRowRepairCatalogBoundaries/completed_run/cannot_rewrite_history
+=== CONT  TestDoctorRowRepairCatalogBoundaries/confirmed_report/acknowledge
+=== CONT  TestDoctorRowRepairCatalogBoundaries/session_lock/no_ownership_transfer
+=== CONT  TestDoctorRowRepairCatalogBoundaries/session_lock/release_recorded_owner
+=== CONT  TestDoctorRowRepairCatalogBoundaries/unchanged_state/refused
+=== CONT  TestDoctorRowRepairCatalogBoundaries/run_interruption/retains_failure
+=== CONT  TestDoctorRowRepairCatalogBoundaries/poll_flag/invalid_value
+=== CONT  TestDoctorRowRepairCatalogBoundaries/poll_flag/set
+--- PASS: TestDoctorRowRepairCatalogBoundaries (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/poll_flag/reset (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/wait/preserve_answered (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/oversized_target/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/opaque_wait_key/accepted (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/report_key_whitespace/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/empty_report_key/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/SQL-looking_key/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/foreign_path_key/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/ambiguous_numeric_alias/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/zero_row_key/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/negative_row_key/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/empty_row_key/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/missing_separator/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/wrong_row_kind/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/unknown_operation/no_arbitrary_SQL (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/graph/record_failure (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/attempt/cancel_pending (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/uncertain_report/no_forged_acknowledgment (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/wait/cancel_allocated (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/dispatch/preserve_completed (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/dispatch/cancel_reserved (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/watermark/no_overflowing_position (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/watermark/no_nonnumeric_position (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/watermark/no_negative_position (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/watermark/rewind_zero (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/completed_run/cannot_rewrite_history (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/confirmed_report/acknowledge (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/session_lock/no_ownership_transfer (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/session_lock/release_recorded_owner (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/unchanged_state/refused (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/run_interruption/retains_failure (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/poll_flag/invalid_value (0.00s)
+    --- PASS: TestDoctorRowRepairCatalogBoundaries/poll_flag/set (0.00s)
+=== CONT  TestSubmissionRunBudgetRejectsOverflowAtomically/request
+=== CONT  TestSubmissionRunBudgetRejectsOverflowAtomically/check
+--- PASS: TestCreationPresentation_RefusalsWriteNothing (0.00s)
+    --- PASS: TestCreationPresentation_RefusalsWriteNothing/run_belongs_to_another_session (0.42s)
+    --- PASS: TestCreationPresentation_RefusalsWriteNothing/invalid_proposal (0.40s)
+    --- PASS: TestCreationPresentation_RefusalsWriteNothing/proposal_for_an_unregistered_repository (0.43s)
+    --- PASS: TestCreationPresentation_RefusalsWriteNothing/no_run_id (0.45s)
+    --- PASS: TestCreationPresentation_RefusalsWriteNothing/run_does_not_exist (0.47s)
+=== CONT  TestSubmissionRunBudgetRejectsOverflowAtomically/snapshot
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts/traversal
+--- PASS: TestSubmissionRunBudgetRejectsOverflowAtomically (0.00s)
+    --- PASS: TestSubmissionRunBudgetRejectsOverflowAtomically/request (0.50s)
+    --- PASS: TestSubmissionRunBudgetRejectsOverflowAtomically/check (0.56s)
+    --- PASS: TestSubmissionRunBudgetRejectsOverflowAtomically/snapshot (0.45s)
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts/parent
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts/revision
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts/attempt
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts/generation
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts/digest
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts/deletion
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts/transport
+=== CONT  TestSubmissionRejectsUnsafeSnapshotFacts/absolute
+=== CONT  TestSubmissionStaleAuthorityAndRollback/attempt
+--- PASS: TestSubmissionRejectsUnsafeSnapshotFacts (0.00s)
+    --- PASS: TestSubmissionRejectsUnsafeSnapshotFacts/parent (0.51s)
+    --- PASS: TestSubmissionRejectsUnsafeSnapshotFacts/traversal (0.56s)
+    --- PASS: TestSubmissionRejectsUnsafeSnapshotFacts/attempt (0.37s)
+    --- PASS: TestSubmissionRejectsUnsafeSnapshotFacts/revision (0.53s)
+    --- PASS: TestSubmissionRejectsUnsafeSnapshotFacts/generation (0.81s)
+    --- PASS: TestSubmissionRejectsUnsafeSnapshotFacts/digest (0.71s)
+    --- PASS: TestSubmissionRejectsUnsafeSnapshotFacts/transport (0.40s)
+    --- PASS: TestSubmissionRejectsUnsafeSnapshotFacts/deletion (0.44s)
+    --- PASS: TestSubmissionRejectsUnsafeSnapshotFacts/absolute (0.42s)
+=== CONT  TestSubmissionStaleAuthorityAndRollback/run
+=== CONT  TestSubmissionStaleAuthorityAndRollback/story
+=== CONT  TestSubmissionStaleAuthorityAndRollback/generation
+=== CONT  TestSubmissionStaleAuthorityAndRollback/revision
+=== CONT  TestChatResearchClaimRefusalsAreAtomic/unpublished
+--- PASS: TestSubmissionStaleAuthorityAndRollback (0.00s)
+    --- PASS: TestSubmissionStaleAuthorityAndRollback/attempt (0.42s)
+    --- PASS: TestSubmissionStaleAuthorityAndRollback/run (0.44s)
+    --- PASS: TestSubmissionStaleAuthorityAndRollback/story (0.43s)
+    --- PASS: TestSubmissionStaleAuthorityAndRollback/generation (0.41s)
+    --- PASS: TestSubmissionStaleAuthorityAndRollback/revision (0.43s)
+=== CONT  TestChatResearchClaimRefusalsAreAtomic/superseded
+=== CONT  TestChatResearchClaimRefusalsAreAtomic/storage_failure
+=== CONT  TestChatResearchClaimRefusalsAreAtomic/oversized
+=== CONT  TestChatResearchClaimRefusalsAreAtomic/wrong_mode
+=== CONT  TestChatResearchClaimRefusalsAreAtomic/done
+=== CONT  TestChatResearchClaimRefusalsAreAtomic/ended
+=== CONT  TestChatResearchClaimRefusalsAreAtomic/review
+=== CONT  TestDB_DeleteArchivedFamily/matching_digest/deletes_family_rows_only
+=== CONT  TestDB_SaveArchiveSweep_RejectsInvalid/no_id
+--- PASS: TestChatResearchClaimRefusalsAreAtomic (0.00s)
+    --- PASS: TestChatResearchClaimRefusalsAreAtomic/unpublished (0.41s)
+    --- PASS: TestChatResearchClaimRefusalsAreAtomic/superseded (0.43s)
+    --- PASS: TestChatResearchClaimRefusalsAreAtomic/storage_failure (0.43s)
+    --- PASS: TestChatResearchClaimRefusalsAreAtomic/oversized (0.45s)
+    --- PASS: TestChatResearchClaimRefusalsAreAtomic/wrong_mode (0.50s)
+    --- PASS: TestChatResearchClaimRefusalsAreAtomic/done (0.44s)
+    --- PASS: TestChatResearchClaimRefusalsAreAtomic/ended (0.61s)
+    --- PASS: TestChatResearchClaimRefusalsAreAtomic/review (0.64s)
+--- PASS: TestSubmissionMigrationPreservesLegacyVersions (19.42s)
+=== CONT  TestDB_DeleteArchivedFamily/no_longer_settled/returns_not_settled_and_keeps_rows
+=== CONT  TestDB_DeleteArchivedFamily/extra_live_row/count_mismatch
+=== CONT  TestDB_DeleteArchivedFamily/digest_mismatch/rolls_back_and_deletes_nothing
+--- PASS: TestMigration0047PreservesPopulatedEvidenceAndIsIdempotent (19.60s)
+=== CONT  TestDB_SaveArchiveSweep_RejectsInvalid/boundary_before_cursor
+=== CONT  TestDB_SaveArchiveSweep_RejectsInvalid/negative_cursor
+=== CONT  TestDB_SaveArchiveSweep_RejectsInvalid/no_start
+=== CONT  TestDB_GetArchiveOwner/settled_with_rows/counts_archivable_rows
+--- PASS: TestDB_SaveArchiveSweep_RejectsInvalid (0.00s)
+    --- PASS: TestDB_SaveArchiveSweep_RejectsInvalid/no_id (0.84s)
+    --- PASS: TestDB_SaveArchiveSweep_RejectsInvalid/boundary_before_cursor (0.37s)
+    --- PASS: TestDB_SaveArchiveSweep_RejectsInvalid/no_start (0.32s)
+    --- PASS: TestDB_SaveArchiveSweep_RejectsInvalid/negative_cursor (0.38s)
+=== CONT  TestDB_GetArchiveOwner/unknown_retirement_intent/pending
+=== CONT  TestDB_GetArchiveOwner/settled_without_rows/nothing_to_archive
+--- PASS: TestDB_DeleteArchivedFamily (0.00s)
+    --- PASS: TestDB_DeleteArchivedFamily/no_longer_settled/returns_not_settled_and_keeps_rows (0.87s)
+    --- PASS: TestDB_DeleteArchivedFamily/matching_digest/deletes_family_rows_only (1.43s)
+    --- PASS: TestDB_DeleteArchivedFamily/extra_live_row/count_mismatch (0.92s)
+    --- PASS: TestDB_DeleteArchivedFamily/digest_mismatch/rolls_back_and_deletes_nothing (0.87s)
+=== CONT  TestDB_DeleteArchivedFamily_PlanRows/settled_plan_history/deleted_and_grant_table_empty_after_commit
+=== CONT  TestDB_DeleteArchivedFamily_PlanRows/pending/keeps_owner_and_plan_rows
+=== CONT  TestDB_DeleteArchivedFamily_PlanRows/latest_effect_applied_after_uncertain/is_settled
+--- PASS: TestDB_GetArchiveOwner (0.00s)
+    --- PASS: TestDB_GetArchiveOwner/unknown_retirement_intent/pending (0.52s)
+    --- PASS: TestDB_GetArchiveOwner/settled_with_rows/counts_archivable_rows (0.69s)
+    --- PASS: TestDB_GetArchiveOwner/settled_without_rows/nothing_to_archive (0.66s)
+=== CONT  TestDB_DeleteArchivedFamily_PlanRows/uncertain/keeps_owner_and_plan_rows
+=== CONT  TestDB_DeleteArchivedFamily_PlanRows/no_effect_recorded/keeps_owner_and_plan_rows
+=== CONT  TestDB_DeleteArchivedFamily_PlanRows/delete_does_not_touch_another_parent's_plan_history
+=== CONT  TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_effects/delete_aborts_and_row_stays
+=== CONT  TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_candidates/update_refused
+=== CONT  TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_drafts/delete_aborts_and_row_stays
+=== CONT  TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_candidates/delete_aborts_and_row_stays
+=== CONT  TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_owner_edits/delete_aborts_and_row_stays
+=== CONT  TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_workflow_history/delete_aborts_and_row_stays
+=== CONT  TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_authorities/delete_aborts_and_row_stays
+--- PASS: TestDB_DeleteArchivedFamily_PlanRows (0.00s)
+    --- PASS: TestDB_DeleteArchivedFamily_PlanRows/settled_plan_history/deleted_and_grant_table_empty_after_commit (1.25s)
+    --- PASS: TestDB_DeleteArchivedFamily_PlanRows/latest_effect_applied_after_uncertain/is_settled (0.67s)
+    --- PASS: TestDB_DeleteArchivedFamily_PlanRows/pending/keeps_owner_and_plan_rows (0.91s)
+    --- PASS: TestDB_DeleteArchivedFamily_PlanRows/uncertain/keeps_owner_and_plan_rows (0.84s)
+    --- PASS: TestDB_DeleteArchivedFamily_PlanRows/no_effect_recorded/keeps_owner_and_plan_rows (0.76s)
+    --- PASS: TestDB_DeleteArchivedFamily_PlanRows/delete_does_not_touch_another_parent's_plan_history (0.99s)
+=== CONT  TestPlanArchiveTriggers_GrantIsPerParent/plan_story_effects/grant_for_A_opens_A_only
+=== CONT  TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_authorities/update_refused
+=== CONT  TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_owner_edits/update_refused
+--- PASS: TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted (0.00s)
+    --- PASS: TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_effects/delete_aborts_and_row_stays (0.32s)
+    --- PASS: TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_drafts/delete_aborts_and_row_stays (0.36s)
+    --- PASS: TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_candidates/delete_aborts_and_row_stays (0.32s)
+    --- PASS: TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_owner_edits/delete_aborts_and_row_stays (0.32s)
+    --- PASS: TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_workflow_history/delete_aborts_and_row_stays (0.32s)
+    --- PASS: TestPlanArchiveTriggers_DeleteWithoutGrantIsAborted/plan_story_authorities/delete_aborts_and_row_stays (0.29s)
+=== CONT  TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_workflow_history/update_refused
+=== CONT  TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_drafts/update_refused
+=== CONT  TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_effects/update_refused
+=== CONT  TestPlanArchiveTriggers_GrantIsPerParent/plan_story_owner_edits/grant_for_A_opens_A_only
+=== CONT  TestPlanArchiveTriggers_GrantIsPerParent/plan_story_drafts/grant_for_A_opens_A_only
+=== CONT  TestPlanArchiveTriggers_GrantIsPerParent/plan_story_candidates/grant_for_A_opens_A_only
+--- PASS: TestPlanArchiveTriggers_UpdateStillRefusedWithGrant (0.00s)
+    --- PASS: TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_candidates/update_refused (0.36s)
+    --- PASS: TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_authorities/update_refused (0.27s)
+    --- PASS: TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_owner_edits/update_refused (0.36s)
+    --- PASS: TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_workflow_history/update_refused (0.32s)
+    --- PASS: TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_drafts/update_refused (0.31s)
+    --- PASS: TestPlanArchiveTriggers_UpdateStillRefusedWithGrant/plan_story_effects/update_refused (0.28s)
+=== CONT  TestPlanArchiveTriggers_GrantIsPerParent/plan_story_authorities/grant_for_A_opens_A_only
+=== CONT  TestPlanArchiveTriggers_GrantIsPerParent/plan_workflow_history/grant_for_A_opens_A_only
+=== CONT  TestDB_ForgetArchivedFamily/nothing_left/deletes_skeleton_and_returns_counts
+=== CONT  TestDB_ForgetArchivedFamily/pending_plan_effect/returns_not_settled
+=== CONT  TestDB_ForgetArchivedFamily/unknown_session/returns_not_found
+--- PASS: TestPlanArchiveTriggers_GrantIsPerParent (0.00s)
+    --- PASS: TestPlanArchiveTriggers_GrantIsPerParent/plan_story_effects/grant_for_A_opens_A_only (0.28s)
+    --- PASS: TestPlanArchiveTriggers_GrantIsPerParent/plan_story_drafts/grant_for_A_opens_A_only (0.30s)
+    --- PASS: TestPlanArchiveTriggers_GrantIsPerParent/plan_story_owner_edits/grant_for_A_opens_A_only (0.36s)
+    --- PASS: TestPlanArchiveTriggers_GrantIsPerParent/plan_story_authorities/grant_for_A_opens_A_only (0.33s)
+    --- PASS: TestPlanArchiveTriggers_GrantIsPerParent/plan_story_candidates/grant_for_A_opens_A_only (0.35s)
+    --- PASS: TestPlanArchiveTriggers_GrantIsPerParent/plan_workflow_history/grant_for_A_opens_A_only (0.32s)
+=== CONT  TestDB_ForgetArchivedFamily/unsettled_retirement_intent/returns_not_settled
+=== CONT  TestDB_ForgetArchivedFamily/plan_rows_left/returns_rows_left
+=== CONT  TestDB_ForgetArchivedFamily/archived_rows_left/returns_rows_left_and_keeps_skeleton
+--- PASS: TestDB_ForgetArchivedFamily (0.00s)
+    --- PASS: TestDB_ForgetArchivedFamily/pending_plan_effect/returns_not_settled (0.37s)
+    --- PASS: TestDB_ForgetArchivedFamily/nothing_left/deletes_skeleton_and_returns_counts (0.52s)
+    --- PASS: TestDB_ForgetArchivedFamily/unknown_session/returns_not_found (0.45s)
+    --- PASS: TestDB_ForgetArchivedFamily/unsettled_retirement_intent/returns_not_settled (0.29s)
+    --- PASS: TestDB_ForgetArchivedFamily/plan_rows_left/returns_rows_left (0.27s)
+    --- PASS: TestDB_ForgetArchivedFamily/archived_rows_left/returns_rows_left_and_keeps_skeleton (0.23s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/store	217.508s

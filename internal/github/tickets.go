@@ -161,6 +161,52 @@ func (a *Tickets) Discover(ctx context.Context, container string, since time.Tim
 	return out, nil
 }
 
+// DiscoverCommented returns unresolved locators from the existing bounded
+// comment-lag discovery. Every destination still requires Resolve before use.
+func (a *Tickets) DiscoverCommented(ctx context.Context, container string, since time.Time) ([]ticket.Locator, error) {
+	locator := ticket.Locator{Provider: ticket.GitHub, Origin: a.origin, Container: container, Key: "1"}
+	repo, _, err := a.address(locator)
+	if err != nil {
+		return nil, err
+	}
+	numbers, err := a.client.ListCommentedIssues(ctx, repo, since)
+	if err != nil {
+		return nil, ticketError("discover commented", err, false)
+	}
+	out := make([]ticket.Locator, 0, len(numbers))
+	for _, number := range numbers {
+		if number < 1 {
+			return nil, ticketError("discover commented", ErrInvalidArgument, false)
+		}
+		item := locator
+		item.Key = strconv.Itoa(number)
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+// Followups includes closed tickets for uncertain creation reconciliation.
+func (a *Tickets) Followups(ctx context.Context, container string) ([]ticket.Snapshot, error) {
+	locator := ticket.Locator{Provider: ticket.GitHub, Origin: a.origin, Container: container, Key: "1"}
+	repo, _, err := a.address(locator)
+	if err != nil {
+		return nil, err
+	}
+	issues, err := a.client.ListFollowupIssues(ctx, repo)
+	if err != nil {
+		return nil, ticketError("followups", err, false)
+	}
+	out := make([]ticket.Snapshot, 0, len(issues))
+	for _, issue := range issues {
+		snapshot, err := a.snapshot(repo, issue)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, snapshot)
+	}
+	return out, nil
+}
+
 // ReplyCursor preserves the legacy numeric watermark without making
 // opaque neutral reply IDs orderable. The cursor is bound to its exact ticket.
 func ReplyCursor(ref ticket.Ref, afterID int64) (ticket.Cursor, error) {
@@ -586,4 +632,46 @@ func (a *Tickets) QualifyReply(ref ticket.Ref, observed Comment) (ticket.Reply, 
 		return ticket.Reply{}, &ticket.Failure{Kind: ticket.Conflict, Operation: "qualify reply", Cause: err}
 	}
 	return reply, nil
+}
+
+// IssuesPage projects exactly one bounded issue page without following links.
+func (a *Tickets) IssuesPage(ctx context.Context, container, state string, page, limit int) (ticket.SnapshotPage, error) {
+	repo, _, err := a.address(ticket.Locator{Provider: ticket.GitHub, Origin: a.origin, Container: container, Key: "1"})
+	if err != nil {
+		return ticket.SnapshotPage{}, err
+	}
+	observed, err := a.client.ListIssuesPage(ctx, repo, state, page, limit)
+	if err != nil {
+		return ticket.SnapshotPage{}, ticketError("issue page", err, false)
+	}
+	out := ticket.SnapshotPage{Tickets: []ticket.Snapshot{}, NextPage: observed.NextPage, More: observed.NextPage > 0}
+	for _, item := range observed.Items {
+		snapshot, err := a.snapshot(repo, item)
+		if err != nil {
+			return ticket.SnapshotPage{}, err
+		}
+		out.Tickets = append(out.Tickets, snapshot)
+	}
+	return out, nil
+}
+
+// OpenContext preserves the existing bounded newest-updated context read.
+func (a *Tickets) OpenContext(ctx context.Context, container string, limit int) (ticket.SnapshotPage, error) {
+	repo, _, err := a.address(ticket.Locator{Provider: ticket.GitHub, Origin: a.origin, Container: container, Key: "1"})
+	if err != nil {
+		return ticket.SnapshotPage{}, err
+	}
+	issues, more, err := a.client.ReadOpenIssues(ctx, repo, limit)
+	if err != nil {
+		return ticket.SnapshotPage{}, ticketError("open context", err, false)
+	}
+	out := ticket.SnapshotPage{Tickets: []ticket.Snapshot{}, More: more}
+	for _, item := range issues {
+		snapshot, err := a.snapshot(repo, item)
+		if err != nil {
+			return ticket.SnapshotPage{}, err
+		}
+		out.Tickets = append(out.Tickets, snapshot)
+	}
+	return out, nil
 }
