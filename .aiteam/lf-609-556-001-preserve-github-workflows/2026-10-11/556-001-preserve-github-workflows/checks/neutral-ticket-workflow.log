@@ -1,0 +1,10 @@
+=== RUN   TestNeutralTicketWorkflow
+=== RUN   TestNeutralTicketWorkflow/confirmed
+    ticket_workflow_internal_test.go:338: owner implement command, qualified story creation/attachment/completion and report receipt 900 confirmed; lost-response restart=false; exactly one publication
+=== RUN   TestNeutralTicketWorkflow/lost_receipt_restart
+    ticket_workflow_internal_test.go:338: owner implement command, qualified story creation/attachment/completion and report receipt 900 confirmed; lost-response restart=true; exactly one publication
+--- PASS: TestNeutralTicketWorkflow (0.46s)
+    --- PASS: TestNeutralTicketWorkflow/confirmed (0.23s)
+    --- PASS: TestNeutralTicketWorkflow/lost_receipt_restart (0.23s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	2.174s

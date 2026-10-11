@@ -91,6 +91,14 @@ func (w *webhookCLI) serve(rw http.ResponseWriter, r *http.Request) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rw.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/user" {
+		_, _ = io.WriteString(rw, `{"id":2,"login":"bot"}`)
+		return
+	}
+	if r.URL.Path == "/repos/acme/does-not-exist" {
+		_, _ = io.WriteString(rw, `{"id":101,"full_name":"acme/does-not-exist","has_issues":true}`)
+		return
+	}
 	if w.status != 0 {
 		rw.WriteHeader(w.status)
 		_, _ = io.WriteString(rw, `{"message":"Resource not accessible"}`)
@@ -303,5 +311,134 @@ func TestRepoWebhookArguments(t *testing.T) {
 	}
 	if code := w.run("repo", "webhook", "acme/unregistered"); code != ExitPrecondition {
 		t.Errorf("unregistered repo: exit %d, want %d", code, ExitPrecondition)
+	}
+}
+
+func TestRepoWebhookDisableSavesIntentBeforeProviderFailure(t *testing.T) {
+	w := newWebhookCLI(t, webhookTestPublicURL)
+	repo := newRepoFixture(t)
+	if code := w.run("repo", "add", repo.Dir); code != ExitOK {
+		t.Fatalf("add exit %d: %s", code, w.stderr)
+	}
+	db, err := store.Open(t.Context(), w.paths.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptions, err := db.ListTicketSubscriptions(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subscriptions) != 1 {
+		t.Fatalf("subscriptions=%v", subscriptions)
+	}
+	initial := subscriptions[0]
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w.status = 403
+	if code := w.run("repo", "webhook", "disable", "--expected-revision=1", "1", initial.ID); code != ExitFailure {
+		t.Fatalf("disable exit %d: %s", code, w.stderr)
+	}
+	db, err = store.Open(t.Context(), w.paths.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	saved, err := db.GetTicketSubscription(t.Context(), initial.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.DesiredEnabled || saved.Revision != 2 {
+		t.Fatalf("failed remote disable lost intent: %+v", saved)
+	}
+	if code := w.run("repo", "webhook", "status", "1", initial.ID); code != ExitOK {
+		t.Fatalf("status exit %d: %s", code, w.stderr)
+	}
+	for _, want := range []string{"desired-enabled=false", "revision 2", "source-version", "completed recovery", "polling remains active"} {
+		if !strings.Contains(w.stdout.String(), want) {
+			t.Errorf("status lacks %q: %s", want, w.stdout)
+		}
+	}
+}
+
+func TestRepoWebhookCredentialEditPreservesRetainedSourceDisable(t *testing.T) {
+	w := newWebhookCLI(t, webhookTestPublicURL)
+	repo := newRepoFixture(t)
+	if code := w.run("repo", "add", repo.Dir); code != ExitOK {
+		t.Fatalf("add exit %d: %s", code, w.stderr)
+	}
+	db, err := store.Open(t.Context(), w.paths.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptions, err := db.ListTicketSubscriptions(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subscriptions) != 1 {
+		t.Fatalf("subscriptions=%v", subscriptions)
+	}
+	disabled := subscriptions[0]
+	disabled.DesiredEnabled = false
+	disabled, err = db.PutTicketSubscription(t.Context(), disabled, disabled.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := db.CurrentConnection(t.Context(), disabled.RepoID, store.TicketConnection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.mu.Lock()
+	w.items["litefactory/replacement-ticket-token"] = "new-ticket-token"
+	w.mu.Unlock()
+	version.CredentialAccount = "replacement-ticket-token"
+	edited, err := db.SetConnection(t.Context(), version, version.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited.ID == disabled.ConnectionVersionID {
+		t.Fatal("credential edit did not create a new version")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"repo", "webhook", "acme/does-not-exist"}, {"repo", "add", repo.Dir}} {
+		code := w.run(args...)
+		if code != ExitOK && code != ExitFailure {
+			t.Fatalf("%v exit %d: %s", args, code, w.stderr)
+		}
+		if !strings.Contains(w.stdout.String(), "skipped: webhook is explicitly disabled for this ticket source") {
+			t.Fatalf("retained disable was not reported: %s", w.stdout)
+		}
+	}
+	if w.posts != 1 || w.patches != 0 {
+		t.Fatalf("credential edit created or enabled another hook: posts=%d patches=%d", w.posts, w.patches)
+	}
+	db, err = store.Open(t.Context(), w.paths.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if e := db.Close(); e != nil {
+			t.Error(e)
+		}
+	}()
+	retained, err := db.GetTicketSubscription(t.Context(), disabled.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.DesiredEnabled || retained.ConnectionVersionID != disabled.ConnectionVersionID || retained.Revision != disabled.Revision {
+		t.Fatalf("retained subscription was changed: %+v", retained)
+	}
+	subscriptions, err = db.ListTicketSubscriptions(t.Context(), disabled.RepoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subscriptions) != 1 {
+		t.Fatalf("credential edit created a second subscription: %+v", subscriptions)
 	}
 }

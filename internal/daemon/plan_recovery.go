@@ -68,5 +68,5 @@ func (d *Daemon) recoverPlanStories(ctx context.Context, t *task) error {
 		return err
 	}
 	h := turn.PlanStoryActivity{DB: d.db, Forge: forge, Redactor: runtime.Redactor, LockDir: runtime.Paths.StoryProgressLocksDir()}
-	return h.Reconcile(ctx, turn.PlanStoryAuthority{Parent: t.ref.String(), Repo: github.Repo{Owner: t.ref.Owner, Name: t.ref.Repo}, ParentNumber: t.issue.Number, ParentID: t.issue.ID, OwnerID: d.filter.Identities().OwnerUserID, ContentScope: scope}, 8)
+	return h.Reconcile(ctx, turn.PlanStoryAuthority{Parent: t.ref.String(), Repo: github.Repo{Owner: t.ref.Owner, Name: t.ref.Repo}, ParentNumber: t.issue.Number, ParentID: t.issue.ID, OwnerID: d.ticketIdentities(ctx).OwnerUserID, ContentScope: scope}, 8)
 }

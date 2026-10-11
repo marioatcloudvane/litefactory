@@ -1,0 +1,7 @@
+golangci-lint v2.13.1 (installed)
+internal/cli/project_connections_e2e_test.go:226:16: Error return value is not checked (errcheck)
+	issue, err := service.Comments.(*turn.TicketWorkflowBridge).GetIssue(t.Context(), github.Repo{Owner: "acme", Name: "tasks"}, 42)
+	              ^
+1 issues:
+* errcheck: 1
+make: *** [lint] Error 1

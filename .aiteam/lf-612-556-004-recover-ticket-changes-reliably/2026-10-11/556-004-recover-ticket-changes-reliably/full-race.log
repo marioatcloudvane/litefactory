@@ -1,0 +1,24 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.561s
+--- FAIL: TestDoctorLiveDiagnosisEndToEndRetainsOnlyManifest (11.87s)
+    adapters.go:68: missing live database row: {"valid":false,"error":"database query timed out or was cancelled"}
+--- FAIL: TestDoctorLiveDiagnosisProposesRepairForQueriedTargets (13.86s)
+    live_diagnosis_io_test.go:279: query rows: {"valid":false,"error":"database query timed out or was cancelled"} <nil>
+--- FAIL: TestDoctorBrokerReadToolsExactCatalogAndRedactedQuery (11.43s)
+    read_tools_io_test.go:94: query disclosure: {"valid":false,"error":"database query timed out or was cancelled"} database query timed out or was cancelled
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/doctor	190.228s
+ok  	github.com/cloudvane/litefactory/internal/github	12.780s
+ok  	github.com/cloudvane/litefactory/internal/messaging	86.164s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	10.680s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	6.025s
+ok  	github.com/cloudvane/litefactory/internal/meterview	16.094s
+ok  	github.com/cloudvane/litefactory/internal/naming	12.588s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	44.856s
+ok  	github.com/cloudvane/litefactory/internal/repos	10.223s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	55.658s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/ticket	11.918s
+ok  	github.com/cloudvane/litefactory/internal/webhook	22.958s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	54.716s
+FAIL

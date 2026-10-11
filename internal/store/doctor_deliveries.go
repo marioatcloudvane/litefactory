@@ -23,6 +23,14 @@ func (db *DB) EnsureDoctorDeliveries(ctx context.Context, c DoctorCommand, parts
 		if current.TaskRef != c.TaskRef || current.ResultBody != c.ResultBody || current.ProposalID != c.ProposalID {
 			return errors.New("doctor presentation identity drift")
 		}
+		var expectedPublisher int64
+		sourceErr := tx.QueryRowContext(ctx, `SELECT publisher_id FROM doctor_command_sources WHERE command_id=?`, c.ID).Scan(&expectedPublisher)
+		if sourceErr == nil && expectedPublisher != botID {
+			return ErrTicketIdentityConflict
+		}
+		if sourceErr != nil && !errors.Is(sourceErr, sql.ErrNoRows) {
+			return sourceErr
+		}
 		var count int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM doctor_presentations WHERE command_id=?`, c.ID).Scan(&count); err != nil {
 			return err

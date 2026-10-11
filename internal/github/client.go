@@ -11,6 +11,7 @@ import (
 
 	gogithub "github.com/google/go-github/v90/github"
 
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
 
@@ -39,6 +40,9 @@ const (
 
 // Options configures [New].
 type Options struct {
+	// Redactor sanitizes connection credentials from remote failure diagnostics.
+	// Nil retains the existing diagnostic behavior for legacy callers.
+	Redactor *redact.Redactor
 	// APIBase is the REST API root; empty means https://api.github.com, which
 	// is also config.DefaultAPIBase.
 	APIBase string
@@ -67,9 +71,8 @@ type Options struct {
 // Client talks to one GitHub API base as one identity.
 //
 // It is a concrete struct wrapping the SDK client, deliberately not an
-// interface: the Forge protocol is still LF-18's to extract from a second
-// working implementation, and adopting a dependency did not change that
-// (see the package documentation).
+// interface. Tickets supplies the neutral ticket adapter, while code delivery
+// continues to use this concrete client (see the package documentation).
 //
 // It is safe for concurrent use and it retries nothing: a [RateLimitError]
 // comes straight back to the caller with the delay GitHub asked for, and the
@@ -78,7 +81,8 @@ type Client struct {
 	// api is the SDK client. It is a field rather than an embedded type on
 	// purpose: embedding would promote the SDK's entire method set onto
 	// [Client], which is the surface the package guards.
-	api *gogithub.Client
+	api      *gogithub.Client
+	redactor *redact.Redactor
 	// base is the API root as this package was configured with it, without a
 	// trailing slash. The SDK keeps its own normalised copy (which must end in
 	// "/"); this one exists for [Client.BaseURL], whose output goes in a
@@ -115,6 +119,7 @@ func New(opts Options) (*Client, error) {
 
 	c := &Client{
 		base:      base,
+		redactor:  opts.Redactor,
 		log:       opts.Logger,
 		userAgent: opts.UserAgent,
 		now:       opts.Now,
@@ -225,7 +230,7 @@ func do[T any](ctx context.Context, c *Client, call func(context.Context) (T, *g
 
 	value, resp, err := call(ctx)
 	if err != nil {
-		return zero, resp, classify(resp, err, c.clock())
+		return zero, resp, c.sanitizeFailure(ctx, classify(resp, err, c.clock()))
 	}
 	return value, resp, nil
 }

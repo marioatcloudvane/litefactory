@@ -1,0 +1,7 @@
+2026/10/11 18:53:16 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen2237666093/001/litefactory.db
+--- FAIL: TestProjectMigrationPreservesPopulatedSessionHistory (2.61s)
+    project_migration_test.go:37: store: bootstrap watermark for session 1: SQL logic error: table watermarks has no column named ticket_body_pending (1)
+2026/10/11 18:56:02 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants1640386594/001/litefactory.db
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	206.347s
+FAIL

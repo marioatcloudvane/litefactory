@@ -215,7 +215,7 @@ func (p *StoryProgress) followupNotice(ctx context.Context, q store.FollowupProp
 		return err
 	}
 	for _, c := range comments {
-		if c.Author.ID == p.botID && exactProgressMarker(c.Body, marker) {
+		if !hasTicketNoticeGuard(p.forge) && c.Author.ID == p.botID && exactProgressMarker(c.Body, marker) {
 			return nil
 		}
 	}
@@ -223,7 +223,7 @@ func (p *StoryProgress) followupNotice(ctx context.Context, q store.FollowupProp
 	if err != nil {
 		return err
 	}
-	c, err := p.forge.PostComment(ctx, repo, ref.Issue, body)
+	c, err := postTicketNotice(ctx, p.forge, marker, q.Parent, p.botID, repo, ref.Issue, body)
 	if err != nil {
 		return err
 	}

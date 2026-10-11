@@ -503,58 +503,38 @@ func TestDeferredTaskDoesNotStallTheOthers(t *testing.T) {
 	}
 }
 
-// TestAnUnassignedIssueBodyStartsNothing is AC-2.16a, the surviving half of the
-// old blanket ban on issue bodies (AC-2.16, reversed in
-// `.aiteam/AC_AMENDMENTS.md`).
-//
-// The reversal turns on one field and one field only: an issue assigned to the
-// owner may have its body run. Everything else about the old rule stands, and
-// this is it — an unassigned issue starts nothing however its body is worded,
-// *including* a body the owner wrote himself. Authorship was never the
-// authorisation, because a body the owner typed into an issue he did not assign
-// to anyone is a note to himself and not an order.
-func TestAnUnassignedIssueBodyStartsNothing(t *testing.T) {
+// An unassigned issue authored by the approver may bootstrap exactly once.
+func TestAnUnassignedApproverIssueBodyRunsOnce(t *testing.T) {
 	f := newFixture(t)
 	f.plantCursor()
-	f.forge.addIssue(fakeIssue{
-		Number: testIssue,
-		Title:  "Please do this",
-		Body:   "/spike rewrite the authentication layer",
-		User:   owner(), // the owner's own words, and still not enough
-	})
-
-	f.settle() // first sight
-	// Touch the issue so it is listed a second time: a first sight and an
-	// ordinary sighting are different code paths, and the body must start
-	// nothing on either.
-	f.forge.addComment(testIssue, 141, stranger(), "bumping this")
+	f.forge.addIssue(fakeIssue{Number: testIssue, Title: "Please do this", Body: "/spike add a health endpoint", User: owner()})
 	f.settle()
-
-	if calls := f.turns.calls(); len(calls) != 0 {
-		t.Errorf("ran %d turns from an unassigned issue body, want none", len(calls))
-	}
-	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
-		t.Errorf("posted %d comments and %d reactions in answer to an unassigned issue body, want none",
-			len(posted), len(reacted))
-	}
-	if got := f.runs(); len(got) != 0 {
-		t.Errorf("recorded %d runs for an unassigned issue body, want none", len(got))
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
+		t.Fatalf("approver-authored unassigned body triggers %v, want [0]", got)
 	}
 }
 
-// TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction is AC-2.16b: the whole
-// of the new behaviour, in the shape it actually happens in — Mario opens an
-// issue, assigns it to himself, says what he wants in the body, and does not
-// have to repeat himself in a comment.
-//
-// The issue is opened here by a *stranger* (see [fixture.assignedIssue]),
-// because the gate is assignment and not authorship, and the trigger's author
-// is then asserted to be that stranger: the prompt's attribution is what makes
-// running someone else's words safe, so losing it would be the bug.
-//
-// "Exactly once" is asserted by ticking again, and it is a property of the
-// control flow rather than of a check — the second tick finds a watermark and
-// takes drain, which never looks at the body.
+// Assignment cannot authorize a body authored by a third party.
+func TestAnAssignedThirdPartyIssueBodyStartsNothing(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.assignedIssueBy(stranger(), "Third-party request", "/spike rewrite the authentication layer")
+	f.settle()
+	f.forge.addComment(testIssue, 141, stranger(), "bumping this")
+	f.settle()
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("third-party body ran %d turns", len(calls))
+	}
+	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
+		t.Fatalf("third-party body produced comments=%d reactions=%d", len(posted), len(reacted))
+	}
+	if got := f.runs(); len(got) != 0 {
+		t.Fatalf("third-party body recorded %d runs", len(got))
+	}
+}
+
+// An approver-authored body remains the first instruction and runs only once.
 func TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction(t *testing.T) {
 	f := newFixture(t)
 	f.plantCursor()
@@ -580,10 +560,8 @@ func TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction(t *testing.T) {
 		t.Errorf("trigger body is %q, want empty: there is no comment, and the body reaches the "+
 			"prompt as the instruction and as the issue note", req.Trigger.Body)
 	}
-	if req.Trigger.Author != strangerLogin {
-		t.Errorf("trigger author is %q, want %q — the issue's author, not the owner: the gate is "+
-			"assignment, and the attribution is what makes that safe",
-			req.Trigger.Author, strangerLogin)
+	if req.Trigger.Author != ownerLogin {
+		t.Errorf("trigger author is %q, want approver %q", req.Trigger.Author, ownerLogin)
 	}
 	if req.Command.Kind != turn.KindSpike {
 		t.Errorf("the body parsed to %s, want %s", req.Command.Kind, turn.KindSpike)
@@ -774,36 +752,14 @@ func TestAnIssueWithCommentsDoesNotFireItsBody(t *testing.T) {
 	}
 }
 
-// TestANonOwnerAssigneeDoesNotFireTheBody guards the direction the assignment
-// gate has to hold in: it is the *owner's* id that unlocks a body, matched
-// numerically (D-I), and not the mere fact of the issue being assigned to
-// somebody. An issue triaged onto a colleague is not an instruction to
-// litefactory.
-func TestANonOwnerAssigneeDoesNotFireTheBody(t *testing.T) {
+// Assigning a colleague cannot block a valid approver-authored body.
+func TestAnApproverIssueBodyRunsWithAnotherAssignee(t *testing.T) {
 	f := newFixture(t)
 	f.plantCursor()
-	f.forge.addIssue(fakeIssue{
-		Number:    testIssue,
-		Title:     "Add a /health endpoint",
-		Body:      "/spike add a health endpoint",
-		User:      owner(),
-		Assignees: []fakeUser{stranger()},
-	})
-
-	result := f.settle()
-
-	if result.Dispatched != 1 {
-		t.Fatalf("dispatched %d tasks, want 1", result.Dispatched)
-	}
-	if got := f.watermark(); got != 0 {
-		t.Fatalf("watermark is %d, want 0: the task is still created and watermarked", got)
-	}
-	if calls := f.turns.calls(); len(calls) != 0 {
-		t.Errorf("ran %d turns on an issue assigned to somebody else, want none\nlogs:\n%s",
-			len(calls), f.logs)
-	}
-	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
-		t.Errorf("posted %d comments and %d reactions, want none", len(posted), len(reacted))
+	f.forge.addIssue(fakeIssue{Number: testIssue, Title: "Add a health endpoint", Body: "/spike add a health endpoint", User: owner(), Assignees: []fakeUser{stranger()}})
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
+		t.Fatalf("approver body with another assignee triggers %v, want [0]", got)
 	}
 }
 

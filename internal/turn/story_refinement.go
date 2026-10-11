@@ -103,14 +103,36 @@ func (r *Reporter) AcknowledgeStoryRefinement(ctx context.Context, ref naming.Re
 	if err != nil || ack != 0 {
 		return err
 	}
-	body, err := r.renderer.RenderReply(ctx, report.Reply{Ref: ref, Kind: report.ReplyStoryPlanning, SourceGeneration: refinement.Generation, SourceStoryIssue: refinement.ChildNumber, SourceCommentID: commentID})
+	prepared, err := r.db.GetStoryRefinementACK(ctx, sessionID, commentID)
+	if errors.Is(err, store.ErrNotFound) {
+		parentURL, replyURL, linkErr := reportSourceLinks(ctx, r.forge, ref, refinement.ChildNumber, commentID)
+		if linkErr != nil {
+			return linkErr
+		}
+		body, renderErr := r.renderer.RenderReply(ctx, report.Reply{Ref: ref, SourceParentURL: parentURL, SourceReplyURL: replyURL, Kind: report.ReplyStoryPlanning, SourceGeneration: refinement.Generation, SourceStoryIssue: refinement.ChildNumber, SourceCommentID: commentID})
+		if renderErr != nil {
+			return renderErr
+		}
+		prepared, err = r.db.PrepareStoryRefinementACK(ctx, sessionID, commentID, body.String())
+	}
 	if err != nil {
 		return err
 	}
-	// The admitted row is the durable intent: every unacknowledged admission
-	// owes exactly this source/generation-bound operation. Recover before any
-	// retry so a lost response never posts another signed acknowledgement.
+	if prepared.AcknowledgementID != 0 {
+		return nil
+	}
+	// Prepared bytes and the dispatch fact belong to the existing ACK owner.
+	// Observe first; a lost response never grants another dispatch right.
 	marker := report.StoryAcknowledgementMarker(ref, refinement.Generation, refinement.ChildNumber, commentID)
+	if prepared.PreparedBody == "" {
+		return fmt.Errorf("%w: legacy story acknowledgement has unknown dispatch and no retained prepared bytes", ErrReportReceiptUncertain)
+	}
+	if !strings.Contains(prepared.PreparedBody, marker) {
+		return fmt.Errorf("%w: retained story acknowledgement marker missing", ErrReportReceiptUncertain)
+	}
+	if err := bindPublicationDestination(ctx, r.forge, fmt.Sprintf("story-ack:%s:%d:%d:%d", ref.String(), refinement.Generation, refinement.ChildNumber, commentID), sessionID, destination, r.botUserID); err != nil {
+		return err
+	}
 	comments, err := reader.ListCommentsAfter(ctx, github.RepoFromRef(ref), destination.Issue, 0)
 	if err != nil {
 		return err
@@ -120,13 +142,33 @@ func (r *Reporter) AcknowledgeStoryRefinement(ctx context.Context, ref naming.Re
 		if comment.Author.ID != r.botUserID || !strings.Contains(comment.Body, marker) {
 			continue
 		}
-		if recovered != 0 || comment.ID < 1 || comment.Body != body.String() {
+		if verified, qualified := verifiedCommentDestination(ctx, r.forge, comment, destination); qualified && !verified {
+			continue
+		}
+		if recovered != 0 || comment.ID < 1 || comment.Body != prepared.PreparedBody {
 			return fmt.Errorf("ambiguous story acknowledgement recovery")
 		}
 		recovered = comment.ID
 	}
 	if recovered != 0 {
 		return r.db.AcknowledgeStoryRefinement(ctx, sessionID, commentID, recovered)
+	}
+	if prepared.DispatchAttempted {
+		return fmt.Errorf("%w: story acknowledgement dispatch remains uncertain", ErrReportReceiptUncertain)
+	}
+	body, err := r.renderer.RenderReportDelivery(ctx, prepared.PreparedBody, "")
+	if err != nil {
+		return err
+	}
+	if body.String() != prepared.PreparedBody {
+		return fmt.Errorf("retained story acknowledgement no longer passes unchanged outbound redaction")
+	}
+	claimed, err := r.db.ClaimStoryRefinementACK(ctx, sessionID, commentID, prepared.PreparedBody)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return fmt.Errorf("%w: story acknowledgement dispatch already claimed", ErrReportReceiptUncertain)
 	}
 	posted, err := r.post(ctx, destination, body, r.log)
 	if err != nil {

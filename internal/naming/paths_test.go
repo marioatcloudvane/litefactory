@@ -178,14 +178,14 @@ func TestRunPathsRejectBadInput(t *testing.T) {
 		{
 			name:    "an owner that would escape the run directory",
 			home:    "/home",
-			ref:     Ref{ForgeGitHub, "..", "acme-api", 123},
+			ref:     Ref{ForgeGitHub, "..", "acme-api", 123, ""},
 			ordinal: 1,
 			wantErr: ErrInvalidRef,
 		},
 		{
 			name:    "an owner carrying a separator",
 			home:    "/home",
-			ref:     Ref{ForgeGitHub, "acme/../../etc", "acme-api", 123},
+			ref:     Ref{ForgeGitHub, "acme/../../etc", "acme-api", 123, ""},
 			ordinal: 1,
 			wantErr: ErrInvalidRef,
 		},

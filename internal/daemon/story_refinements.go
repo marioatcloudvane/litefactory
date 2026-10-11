@@ -123,7 +123,7 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	r := pending[0]
 	// Recheck the current direct relationship and numeric identity at execution;
 	// admission is not a capability that survives detachment or replacement.
-	child, err := d.forge.GetIssue(ctx, t.forgeRepo, r.ChildNumber)
+	child, err := d.readIssue(ctx, t.forgeRepo, r.ChildNumber)
 	if err != nil {
 		return true, err
 	}
@@ -165,13 +165,34 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	if err := ack.AcknowledgeStoryRefinement(ctx, t.ref, t.session.ID, r.CommentID); err != nil {
 		return true, err
 	}
-	if err := d.forge.AddCommentReaction(ctx, t.forgeRepo, r.CommentID, github.ReactionEyes); err != nil {
+	if err := d.reactToComment(ctx, t.forgeRepo, r.ChildNumber, r.CommentID, github.ReactionEyes); err != nil {
 		return true, err
 	}
 	copyTask := *t
 	copyTask.refining = true
 	command = turn.Command{Kind: turn.KindFreeText, Text: command.Text}
-	err = d.run(ctx, &copyTask, turn.Trigger{CommentID: r.CommentID, Body: r.Body, Author: r.ActorHandle}, command, t.log)
+	trigger := turn.Trigger{CommentID: r.CommentID, Body: r.Body, Author: r.ActorHandle, AuthorID: r.ActorID}
+	if d.connections != nil {
+		comments, e := d.readComments(ctx, t.forgeRepo, r.ChildNumber, r.CommentID-1)
+		if e != nil {
+			return true, e
+		}
+		found := false
+		for _, comment := range comments {
+			if comment.ID == r.CommentID && comment.Author.ID == r.ActorID && comment.Body == r.Body {
+				trigger, e = d.projectTrigger(ctx, t.session.ID, comment)
+				if e != nil {
+					return true, e
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return true, errors.New("saved refinement source cannot be verified; preserve it for correction")
+		}
+	}
+	err = d.run(ctx, &copyTask, trigger, command, t.log)
 	return true, err
 }
 
@@ -236,7 +257,7 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 		return err
 	}
 	slices.SortFunc(comments, func(a, b github.Comment) int { return cmp.Compare(a.ID, b.ID) })
-	ids := d.filter.Identities()
+	ids := d.ticketIdentities(ctx)
 	for _, c := range comments {
 		if c.ID <= after {
 			continue
@@ -245,7 +266,11 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 		if err != nil {
 			return err
 		}
-		if !routed && ids.OwnerUserID > 0 && c.Author.ID == ids.OwnerUserID && c.Author.ID != ids.BotUserID && !c.Author.IsBot && !turn.HasMarker(c.Body) {
+		eligible, authorityErr := d.eligibleProjectComment(ctx, t.session.ID, c)
+		if authorityErr != nil {
+			return authorityErr
+		}
+		if eligible && !routed && ids.OwnerUserID > 0 && c.Author.ID == ids.OwnerUserID && c.Author.ID != ids.BotUserID && !c.Author.IsBot && !turn.HasMarker(c.Body) {
 			if err := d.db.AdmitStoryRefinement(ctx, store.StoryRefinement{SessionID: t.session.ID, CommentID: c.ID, ChildNumber: s.IssueNumber, ChildID: s.IssueID, Generation: s.Generation, ActorID: c.Author.ID, ActorHandle: c.Author.Login, Body: c.Body}); err != nil {
 				return err
 			}

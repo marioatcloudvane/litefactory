@@ -489,7 +489,7 @@ func publishTypedParts(ctx context.Context, o PublicationOptions, issue github.I
 		marker := typedPartMarker(o.Parent, typed.Key, i+1, len(parts))
 		posted := false
 		for _, c := range comments {
-			if strings.Contains(c.Body, marker) {
+			if !hasTicketNoticeGuard(commenter) && strings.Contains(c.Body, marker) {
 				posted = true
 				break
 			}
@@ -502,7 +502,7 @@ func publishTypedParts(ctx context.Context, o PublicationOptions, issue github.I
 		if err != nil {
 			return fmt.Errorf("render part %d: %w", i+1, err)
 		}
-		if _, err := commenter.PostComment(ctx, repo, issue.Number, safe.Body); err != nil {
+		if _, err := postTicketNotice(ctx, commenter, marker, o.Parent.String(), o.BotID, repo, issue.Number, safe.Body); err != nil {
 			return fmt.Errorf("post part %d: %w", i+1, err)
 		}
 	}

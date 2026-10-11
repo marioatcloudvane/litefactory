@@ -128,7 +128,7 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 	fail := func(state string, err error) error {
 		return r.settle(ctx, e, state, map[string]any{}, "The follow-up issue was not confirmed: "+err.Error())
 	}
-	issues, err := r.b.Delivery.Forge.ListFollowupIssues(ctx, r.target.Repo)
+	issues, err := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.Repo)
 	if err != nil {
 		return fail(store.EffectUncertain, err)
 	}
@@ -146,10 +146,10 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 		if err != nil {
 			return fail(store.EffectFailed, err)
 		}
-		created, createErr := r.b.Delivery.Forge.CreateIssue(ctx, r.target.Repo, title, body)
+		created, createErr := r.b.Delivery.tickets().CreateIssue(ctx, r.target.Repo, title, body)
 		if createErr != nil {
 			// A lost reply may still have created it: look before saying it failed.
-			again, listErr := r.b.Delivery.Forge.ListFollowupIssues(ctx, r.target.Repo)
+			again, listErr := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.Repo)
 			if listErr != nil {
 				return fail(store.EffectUncertain, errors.Join(createErr, listErr))
 			}
@@ -271,7 +271,7 @@ func (h ValidatePushActivity) Execute(ctx context.Context, opts Options, req Act
 // push publishes the tested commit unless the remote branch already holds it.
 func (r *validateRemote) push(ctx context.Context, e store.ValidateEffect) error {
 	commit := r.st.Commit
-	remote, err := r.b.Delivery.Forge.GetDeliveryHead(ctx, r.target.Repo, r.target.Branch)
+	remote, err := r.b.Delivery.code().GetDeliveryHead(ctx, r.target.Repo, r.target.Branch)
 	if err != nil {
 		if !errors.Is(err, github.ErrNotFound) {
 			return r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The remote branch head could not be read: "+err.Error())
@@ -282,7 +282,7 @@ func (r *validateRemote) push(ctx context.Context, e store.ValidateEffect) error
 		return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Head: commit}, "")
 	}
 	pushErr := r.b.Delivery.Publish(ctx, commit, remote)
-	after, readErr := r.b.Delivery.Forge.GetDeliveryHead(ctx, r.target.Repo, r.target.Branch)
+	after, readErr := r.b.Delivery.code().GetDeliveryHead(ctx, r.target.Repo, r.target.Branch)
 	switch {
 	case readErr == nil && after == commit:
 		return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Head: commit}, "")
@@ -296,7 +296,7 @@ func (r *validateRemote) push(ctx context.Context, e store.ValidateEffect) error
 func (r *validateRemote) openPR(ctx context.Context, e store.ValidateEffect) error {
 	commit := r.st.Commit
 	find := func() (github.DeliveryPR, bool, error) {
-		prs, err := r.b.Delivery.Forge.ListDeliveryPRs(ctx, r.target.Repo, r.target.Branch)
+		prs, err := r.b.Delivery.code().ListDeliveryPRs(ctx, r.target.Repo, r.target.Branch)
 		if err != nil {
 			return github.DeliveryPR{}, false, err
 		}
@@ -328,7 +328,7 @@ func (r *validateRemote) openPR(ctx context.Context, e store.ValidateEffect) err
 		if err != nil {
 			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, err.Error())
 		}
-		created, createErr := r.b.Delivery.Forge.CreateDeliveryPR(ctx, r.target.Repo, r.target.Branch, r.target.Base, title, body)
+		created, createErr := r.b.Delivery.code().CreateDeliveryPR(ctx, r.target.Repo, r.target.Branch, r.target.Base, title, body)
 		if createErr != nil {
 			// A lost reply may still have created it: look before saying it failed.
 			if pr, found, err = find(); err != nil || !found {
@@ -367,7 +367,7 @@ func (h ValidateMergeActivity) Execute(ctx context.Context, opts Options, req Ac
 		return done(map[string]any{"acted": false})
 	}
 	// Replay checks the merged state first.
-	current, err := r.b.Delivery.Forge.GetDeliveryPR(ctx, r.target.Repo, pr.Number)
+	current, err := r.b.Delivery.code().GetDeliveryPR(ctx, r.target.Repo, pr.Number)
 	if err != nil {
 		return done(map[string]any{"acted": false}, r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The pull request could not be read: "+err.Error()))
 	}
@@ -382,9 +382,9 @@ func (h ValidateMergeActivity) Execute(ctx context.Context, opts Options, req Ac
 	if current.Head != pr.Head {
 		return done(map[string]any{"acted": false, "stale": true}, r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("Pull request #%d is at head %s, not the confirmed %s. Nothing was merged.", pr.Number, short(current.Head), short(pr.Head))))
 	}
-	if mergeErr := r.b.Delivery.Forge.MergeDeliveryPR(ctx, r.target.Repo, pr.Number, pr.Head); mergeErr != nil {
+	if mergeErr := r.b.Delivery.code().MergeDeliveryPR(ctx, r.target.Repo, pr.Number, pr.Head); mergeErr != nil {
 		// The merge may have happened despite the error: look before saying so.
-		again, getErr := r.b.Delivery.Forge.GetDeliveryPR(ctx, r.target.Repo, pr.Number)
+		again, getErr := r.b.Delivery.code().GetDeliveryPR(ctx, r.target.Repo, pr.Number)
 		if getErr != nil {
 			return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "Merging reported "+mergeErr.Error()+" and the result could not be read."))
 		}
@@ -392,7 +392,7 @@ func (h ValidateMergeActivity) Execute(ctx context.Context, opts Options, req Ac
 			return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectFailed, map[string]any{}, fmt.Sprintf("Merging pull request #%d failed: %s", pr.Number, mergeErr.Error())))
 		}
 		current = again
-	} else if current, err = r.b.Delivery.Forge.GetDeliveryPR(ctx, r.target.Repo, pr.Number); err != nil {
+	} else if current, err = r.b.Delivery.code().GetDeliveryPR(ctx, r.target.Repo, pr.Number); err != nil {
 		return done(map[string]any{"acted": true}, r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The merge was sent but the result could not be read: "+err.Error()))
 	}
 	if !current.Merged {
@@ -448,7 +448,7 @@ func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req Ac
 	}
 	var closed []int
 	var failures []string
-	forge := r.b.Delivery.Forge
+	forge := r.b.Delivery.tickets()
 	for _, s := range r.target.Stories {
 		if err := forge.SetStoryState(ctx, r.target.Repo, r.target.Parent.Number, r.target.Parent.ID, s.Number, s.ID, true); err != nil {
 			failures = append(failures, fmt.Sprintf("#%d: %s", s.Number, err.Error()))

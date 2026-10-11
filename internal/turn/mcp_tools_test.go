@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -27,6 +28,8 @@ type countedMCPService struct {
 	mu                         sync.Mutex
 	preflight, submit, receipt int
 	payloads                   [][]byte
+	// submitErr and receiptErr force a handler failure without touching storage.
+	submitErr, receiptErr error
 }
 
 func (s *countedMCPService) Preflight(ctx context.Context, data []byte) (ar.UpdateDiagnostics, error) {
@@ -40,13 +43,21 @@ func (s *countedMCPService) Submit(ctx context.Context, id string, data []byte) 
 	s.mu.Lock()
 	s.submit++
 	s.payloads = append(s.payloads, bytes.Clone(data))
+	forced := s.submitErr
 	s.mu.Unlock()
+	if forced != nil {
+		return AgentResultSubmission{}, forced
+	}
 	return s.AgentResultService.Submit(ctx, id, data)
 }
 func (s *countedMCPService) Receipt(ctx context.Context, run int64, id string) (AgentResultSubmission, error) {
 	s.mu.Lock()
 	s.receipt++
+	forced := s.receiptErr
 	s.mu.Unlock()
+	if forced != nil {
+		return AgentResultSubmission{}, forced
+	}
 	return s.AgentResultService.Receipt(ctx, run, id)
 }
 func (s *countedMCPService) counts() (int, int, int) {
@@ -437,5 +448,144 @@ func TestMCPTools_EditSelectorAndPermissionBinding(t *testing.T) {
 	revisions, err := db.ResultRevisionNumbers(t.Context(), service.Binding())
 	if err != nil || !reflect.DeepEqual(revisions, []int64{1, 2}) {
 		t.Fatalf("unauthorized selector changed snapshots: %v %v", revisions, err)
+	}
+}
+
+// lockedBuffer collects log output written from broker workers.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// captureSlog replaces the package-level logger; callers must not run in parallel.
+func captureSlog(t *testing.T) *lockedBuffer {
+	t.Helper()
+	out := &lockedBuffer{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(out, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return out
+}
+
+func requireNotRecorded(t *testing.T, r submission.Response) {
+	t.Helper()
+	got := mcpDecodeSubmission(t, r)
+	d := got.Validation.Diagnostics.Diagnostics
+	if got.Validation.Valid || got.Receipt != nil || len(d) != 1 || d[0].Code != "not_recorded" || !strings.Contains(d[0].Message, "call submit again") {
+		t.Fatalf("not a not_recorded answer: %s", r.Result)
+	}
+}
+
+// A handler failure is logged with its correlation and the real error, and a
+// failure after which a receipt may exist keeps the generic broker text.
+func TestMCPTools_FailedSubmitAndReceiptAreLogged(t *testing.T) {
+	logs := captureSlog(t)
+	db, _, o := agentResultFixture(t, "research")
+	service, err := BindAgentResultService(t.Context(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, _, _, counted := mcpToolFixture(t, db, service)
+	counted.mu.Lock()
+	counted.submitErr = errors.New("forced submit failure 7d1")
+	counted.receiptErr = errors.New("forced receipt failure 9c4")
+	counted.mu.Unlock()
+	submitted, err := client.Call(t.Context(), "communication_submit", resultCreate("research"))
+	if err != nil || !strings.Contains(submitted.Error, "query its receipt") {
+		t.Fatalf("submit=%+v %v", submitted, err)
+	}
+	receipt, err := client.Call(t.Context(), "communication_receipt", mcpReceiptArgs(t, submitted.RequestID))
+	if err != nil || !strings.Contains(receipt.Error, "query its receipt") {
+		t.Fatalf("receipt=%+v %v", receipt, err)
+	}
+	b := service.Binding()
+	for _, want := range []struct{ method, text string }{{"communication_submit", "forced submit failure 7d1"}, {"communication_receipt", "forced receipt failure 9c4"}} {
+		found := false
+		for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+			var entry struct {
+				Method    string `json:"method"`
+				RequestID string `json:"request_id"`
+				RunID     int64  `json:"run_id"`
+				Attempt   string `json:"attempt"`
+				Error     string `json:"error"`
+			}
+			if json.Unmarshal([]byte(line), &entry) == nil && entry.Method == want.method {
+				found = entry.RequestID == submitted.RequestID && entry.RunID == b.RunID && entry.Attempt == b.Attempt && entry.Error == want.text
+			}
+		}
+		if !found {
+			t.Fatalf("%s failure not logged with correlation: %s", want.method, logs.String())
+		}
+	}
+}
+
+// A submit that recorded nothing says so plainly, a receipt for it says the
+// same, and submitting again records the result.
+func TestMCPTools_UnrecordedSubmitAsksForResubmit(t *testing.T) {
+	db, _, o := agentResultFixture(t, "research")
+	service, err := BindAgentResultService(t.Context(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, _, _, counted := mcpToolFixture(t, db, service)
+	data := resultCreate("research")
+	counted.mu.Lock()
+	counted.submitErr = errors.New("forced failure before recording")
+	counted.mu.Unlock()
+	failed := mcpToolCall(t, client, "communication_submit", data)
+	requireNotRecorded(t, failed)
+	requireNotRecorded(t, mcpToolCall(t, client, "communication_receipt", mcpReceiptArgs(t, failed.RequestID)))
+	if revisions, err := db.ResultRevisionNumbers(t.Context(), service.Binding()); err != nil || len(revisions) != 0 {
+		t.Fatalf("failed submit recorded %v %v", revisions, err)
+	}
+	counted.mu.Lock()
+	counted.submitErr = nil
+	counted.mu.Unlock()
+	again := mcpToolCall(t, client, "communication_submit", data)
+	accepted := mcpDecodeSubmission(t, again)
+	if again.RequestID != failed.RequestID || accepted.Receipt == nil || accepted.Receipt.InputState != "accepted" || accepted.Receipt.AppliedRevision != 1 {
+		t.Fatalf("resubmit=%+v", accepted)
+	}
+	receipt := mcpDecodeSubmission(t, mcpToolCall(t, client, "communication_receipt", mcpReceiptArgs(t, again.RequestID)))
+	if receipt.Receipt == nil || receipt.Receipt.ID != accepted.Receipt.ID {
+		t.Fatalf("receipt=%+v", receipt)
+	}
+}
+
+// A promoted story's first draft with two dependency story keys is accepted
+// through the MCP submit path (issue #633: runs 1238 and 1472).
+func TestMCPTools_PromotedCreateWithTwoDependencies(t *testing.T) {
+	db, _, o := agentResultFixture(t, "plan")
+	binding := &ar.PlanGraphBinding{Story: "story-003", Stage: "story", Candidate: "plan-3-1", RequestID: "plan-request-3-1", Upstream: []string{}, SharedRevision: "initial", Promoted: true, PromotedDependencies: []string{"story-001", "story-002"}}
+	o.Resolve = func(context.Context) (ar.Context, error) {
+		return ar.Context{SchemaVersion: 1, WorkflowVersion: 2, Mode: "plan", QuestionsAllowed: true, PlanScope: planbrief.ContentScope{Roles: []string{"engineer"}}, PlanGraph: binding.Clone()}, nil
+	}
+	o.ReadTargets, o.EditTargets = planGraphResultTargets(), planGraphResultTargets()
+	service, err := BindAgentResultService(t.Context(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, _, _, _ := mcpToolFixture(t, db, service)
+	request := integrationCreateRequest("story-003")
+	request.Draft.Dependencies.StoryKeys = []string{"story-001", "story-002"}
+	data := submitBytes(t, integrationDone(request, "First draft"))
+	var pre ar.UpdateDiagnostics
+	if err := json.Unmarshal(mcpToolCall(t, client, "communication_preflight", data).Result, &pre); err != nil || !pre.Valid {
+		t.Fatalf("preflight=%+v %v", pre, err)
+	}
+	got := mcpDecodeSubmission(t, mcpToolCall(t, client, "communication_submit", data))
+	if !got.Validation.Valid || got.Receipt == nil || got.Receipt.InputState != "accepted" || got.Receipt.AppliedRevision != 1 {
+		t.Fatalf("two-dependency create refused: %+v", got)
 	}
 }

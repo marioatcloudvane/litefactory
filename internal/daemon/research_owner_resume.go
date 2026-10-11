@@ -15,6 +15,16 @@ import (
 
 // claimGraphReply claims an owner reply for the admitted mode's parked question.
 func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trigger, mode string) error {
+	var ownerID int64
+	if isCodeAuthorityControl(turn.ParseCommand(trigger.Body).Name) {
+		c := github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}, CreatedAt: trigger.CreatedAt}
+		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
+			return err
+		}
+		ownerID = d.filter.Identities().OwnerUserID
+	} else {
+		ownerID = d.ticketIdentities(ctx).OwnerUserID
+	}
 	// Replaying an already allocated input performs report recovery only. It
 	// cannot be reinterpreted as an answer to the question that input produced.
 	run, found, err := d.db.GetRunByTrigger(ctx, t.session.ID, trigger.CommentID)
@@ -57,7 +67,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 				return nil
 			}
 		}
-		if wait.ReplyID == trigger.CommentID && wait.ReplyBody == trigger.Body && wait.ReplyAuthorID == trigger.AuthorID && trigger.AuthorID == d.filter.Identities().OwnerUserID {
+		if wait.ReplyID == trigger.CommentID && wait.ReplyBody == trigger.Body && wait.ReplyAuthorID == trigger.AuthorID && trigger.AuthorID == ownerID {
 			return nil
 		}
 		return store.ErrGraphOwnerWait
@@ -65,7 +75,7 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 	if wait.State != "waiting" {
 		return nil
 	}
-	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, d.filter.Identities().OwnerUserID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
+	_, err = AdmitGraphOwnerReply(ctx, d.db, instance.ID, ownerID, t.session.TaskRef, t.ref.String(), mode, github.Comment{ID: trigger.CommentID, Body: trigger.Body, Author: github.User{ID: trigger.AuthorID, Login: trigger.Author}}, t.tickAt)
 	return err
 }
 
@@ -124,7 +134,7 @@ func AdmitBugOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID i
 // mode resolves to, so a Validate stopped under an Implement-labelled parent
 // resumes too. Stopped work that cannot resume is answered with the reason.
 func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (handled bool, err error) {
-	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.filter.Identities().OwnerUserID || store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) {
+	if trigger.PlanReply != nil || t.continuation != nil || command.Kind != turn.KindFreeText || command.Name != "" || trigger.CommentID <= 0 || trigger.AuthorID != d.ticketIdentities(ctx).OwnerUserID || store.IsGraphTrigger(trigger.CommentID) || store.IsAutomaticTrigger(trigger.CommentID) || store.IsScheduleTrigger(trigger.CommentID) {
 		return false, nil
 	}
 	if consumed, e := d.consumed(ctx, t.session.ID, trigger.CommentID); e != nil || consumed {
@@ -169,7 +179,7 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 	if !instance.NextDueAt.IsZero() {
 		return true, d.refuseGraphResume(ctx, t, trigger, instance.CurrentNode, "it is already scheduled to continue")
 	}
-	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.session.IssueNumber)
+	issue, err := d.readIssue(ctx, t.forgeRepo, t.session.IssueNumber)
 	if err != nil || issue.State != github.StateOpen {
 		return true, err
 	}

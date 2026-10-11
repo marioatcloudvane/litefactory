@@ -1,14 +1,14 @@
 // Package github is litefactory's client for the GitHub REST API.
 //
-// # Concrete, not abstract
+// # Ticket and code boundaries
 //
-// This package exports a concrete [Client] and concrete result structs. There
-// is no Forge interface and no capability descriptor: the second forge is
-// LF-18's problem, and its protocol will be *extracted* from this working
-// implementation rather than guessed at in advance. A file named forge.go in
-// M0 is a review blocker. Adopting an SDK did not change this — a dependency
-// is not an abstraction, and [Client] wraps go-github as a struct rather than
-// hiding it behind an interface nobody has a second implementation for.
+// [Client] remains the concrete authenticated SDK transport. [Tickets] adapts
+// its ticket operations to internal/ticket values without a second HTTP client
+// or credential path. Consumers declare their own narrow interfaces; repository,
+// branch, PR and merge operations remain on Client and confer no ticket authority.
+// The adapter binds origins from trusted client configuration, verifies immutable
+// destinations before mutation and retains original errors and uncertainty.
+// Existing numeric reply ordering belongs in this GitHub compatibility boundary.
 //
 // # The SDK
 //
@@ -88,10 +88,12 @@
 // finding its own earlier work through the marker each body carries. Resuming
 // beats sleeping here because it survives the process being killed.
 //
-// # Identity is numeric
+// # Identity is qualified
 //
-// Every actor this package returns carries both a numeric id and a login, and
-// callers must compare the id (D-I). Logins are renameable, and a fine-grained
+// Legacy SDK values carry a numeric id and login. Tickets qualifies that id
+// with the provider and configured API origin; authority compares all three.
+// Workflow compatibility bridges retain numeric ledgers without dropping their
+// durable qualified destinations. Logins are renameable, and a fine-grained
 // PAT on a machine *user* account reports type "User" rather than "Bot", so
 // neither the handle string nor the forge's bot flag is a sound identity check.
 // The logins are for display.

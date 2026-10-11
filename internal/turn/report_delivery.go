@@ -135,6 +135,7 @@ func (r *Reporter) deliver(ctx context.Context, intent store.ReportDelivery, ren
 }
 
 func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDelivery) (posted Posted, err error) {
+	ctx = ExecutionContext(ctx, delivery.SessionID)
 	defer func() {
 		if err != nil {
 			err = &DeliveryError{Key: delivery.Key, State: deliveryState(delivery), Cause: err}
@@ -157,6 +158,9 @@ func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDe
 	}
 	destination, err := naming.ParseRef(delivery.Destination)
 	if err != nil {
+		return Posted{}, err
+	}
+	if err := bindPublicationDestination(ctx, r.forge, "report:"+delivery.Key, delivery.SessionID, destination, delivery.BotUserID); err != nil {
 		return Posted{}, err
 	}
 	if delivery.PossiblySent {
@@ -272,6 +276,13 @@ func commentAtDestination(comment github.Comment, destination naming.Ref) bool {
 	parsed, err := url.Parse(comment.HTMLURL)
 	return err == nil && parsed.Scheme == "https" && parsed.Host == "github.com" && parsed.Path == "/"+destination.Owner+"/"+destination.Repo+"/issues/"+strconv.Itoa(destination.Issue) && parsed.Fragment == "issuecomment-"+strconv.FormatInt(comment.ID, 10)
 }
+func (r *Reporter) commentAtDestination(ctx context.Context, comment github.Comment, destination naming.Ref) bool {
+	if verified, qualified := verifiedCommentDestination(ctx, r.forge, comment, destination); qualified {
+		return verified
+	}
+	return commentAtDestination(comment, destination)
+}
+
 func (r *Reporter) recoverDelivery(ctx context.Context, delivery store.ReportDelivery, destination naming.Ref) (int64, error) {
 	comments, err := r.deliveryComments(ctx, destination)
 	if err != nil {
@@ -280,7 +291,7 @@ func (r *Reporter) recoverDelivery(ctx context.Context, delivery store.ReportDel
 	var lowest int64
 	conflict := false
 	for _, comment := range comments {
-		if comment.Author.ID != delivery.BotUserID || comment.ID <= 0 || !commentAtDestination(comment, destination) {
+		if comment.Author.ID != delivery.BotUserID || comment.ID <= 0 || !r.commentAtDestination(ctx, comment, destination) {
 			continue
 		}
 		if !strings.Contains(comment.Body, delivery.Marker) {
@@ -312,7 +323,7 @@ func (r *Reporter) legacyRunlessConflict(ctx context.Context, delivery store.Rep
 		return false, err
 	}
 	for _, comment := range comments {
-		if comment.Author.ID != delivery.BotUserID || !commentAtDestination(comment, destination) || strings.Contains(comment.Body, "<!-- lf:delivery v=1 key=") {
+		if comment.Author.ID != delivery.BotUserID || !r.commentAtDestination(ctx, comment, destination) || strings.Contains(comment.Body, "<!-- lf:delivery v=1 key=") {
 			continue
 		}
 		if strings.Contains(comment.Body, report.ReplyMarker(ref)) || strings.Contains(comment.Body, "<!-- lf:status task="+ref.String()+" ") {

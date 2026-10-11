@@ -103,7 +103,7 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 	cancel := func(reason string) (bool, error) {
 		return false, d.db.CancelContinuation(ctx, c.ID, reason+"; resume manually", t.tickAt)
 	}
-	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.session.IssueNumber)
+	issue, err := d.readIssue(ctx, t.forgeRepo, t.session.IssueNumber)
 	if err != nil {
 		return false, err
 	}
@@ -141,7 +141,7 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 	if identity == "" || identity != c.Context.ResumeIdentity {
 		return cancel("conversation identity unavailable or changed")
 	}
-	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, issue.Number, c.Context.OwnerCommentID)
+	comments, err := d.readComments(ctx, t.forgeRepo, issue.Number, c.Context.OwnerCommentID)
 	if err != nil {
 		return false, err
 	}
@@ -149,7 +149,11 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 		if comment.ID <= c.Context.OwnerCommentID {
 			continue
 		}
-		admission, err := d.filter.Admit(ctx, c.SessionID, comment)
+		qualifiedReply, err := d.qualifyReply(ctx, c.SessionID, comment)
+		if err != nil {
+			return false, err
+		}
+		admission, err := d.admitReply(ctx, c.SessionID, comment, qualifiedReply)
 		if err != nil {
 			return false, err
 		}
@@ -178,7 +182,7 @@ func (d *Daemon) runContinuation(ctx context.Context, t *task, c store.Continuat
 		}
 		return
 	}
-	trigger := turn.Trigger{CommentID: c.TriggerID(), Body: c.Context.Request, Author: d.filter.Identities().OwnerHandle}
+	trigger := turn.Trigger{CommentID: c.TriggerID(), Body: c.Context.Request, Author: d.ticketIdentities(ctx).OwnerHandle}
 	command := turn.Command{Kind: turn.KindFreeText, Text: c.Context.Request}
 	err = d.run(ctx, t, trigger, command, t.log)
 	if err != nil {

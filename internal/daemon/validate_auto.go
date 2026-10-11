@@ -110,7 +110,7 @@ func (d *Daemon) startValidateAuto(ctx context.Context, t *task) error {
 		return err
 	}
 	stored, _, err := d.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{
-		SessionID: t.session.ID, SourceCommentID: validateAutoID(t.session, head), OwnerHandle: d.filter.Identities().OwnerHandle,
+		SessionID: t.session.ID, SourceCommentID: validateAutoID(t.session, head), OwnerHandle: d.ticketIdentities(ctx).OwnerHandle,
 		Payload: turn.ValidateAutoPayload, DueAt: t.tickAt.UTC(),
 	})
 	if err != nil {

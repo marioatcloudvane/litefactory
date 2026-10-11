@@ -1,0 +1,32 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	3.021s
+ok  	github.com/cloudvane/litefactory/internal/agent	16.975s
+ok  	github.com/cloudvane/litefactory/internal/bugchecks	14.790s
+ok  	github.com/cloudvane/litefactory/internal/codex	168.533s
+--- FAIL: TestDoctorLiveDiagnosisProposesRepairForQueriedTargets (26.12s)
+    live_diagnosis_io_test.go:279: query rows: {"valid":false,"error":"database query timed out or was cancelled"} <nil>
+--- FAIL: TestDoctorBrokerReadToolsExactCatalogAndRedactedQuery (48.61s)
+    read_tools_io_test.go:94: query disclosure: {"valid":false,"error":"database query timed out or was cancelled"} database query timed out or was cancelled
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/doctor	255.975s
+ok  	github.com/cloudvane/litefactory/internal/github	9.400s
+ok  	github.com/cloudvane/litefactory/internal/harness	181.524s
+ok  	github.com/cloudvane/litefactory/internal/messaging	138.884s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	16.885s
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	125.079s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	15.315s
+ok  	github.com/cloudvane/litefactory/internal/meterview	11.664s
+ok  	github.com/cloudvane/litefactory/internal/naming	7.372s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	62.219s
+ok  	github.com/cloudvane/litefactory/internal/redact	9.814s
+ok  	github.com/cloudvane/litefactory/internal/report	137.320s
+ok  	github.com/cloudvane/litefactory/internal/repos	18.637s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	117.042s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/submission	10.165s
+--- FAIL: TestCanonicalMigrationAndGraphContracts (2.13s)
+    release_test.go:267: validate graph changed beyond team and guidance
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamrelease	240.937s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	91.449s
+FAIL
