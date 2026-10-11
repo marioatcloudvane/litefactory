@@ -243,8 +243,9 @@ type outgoing struct {
 	AllowedMentions allowedMentions `json:"allowed_mentions"`
 }
 
-// Deliver edits the original response while its token is live, then uses a
-// stable enforced nonce for channel fallback or a target without a handle. Nonce deduplication is short-lived;
+// Deliver edits the original response while its token is live, retrying a 404
+// edit until the handle expires, then uses a stable enforced nonce for channel
+// fallback after a 401, expiry or a target without a handle. Nonce deduplication is short-lived;
 // uncertain sends retried after restart or a long delay can produce duplicates.
 func (a *Adapter) Deliver(ctx context.Context, t messaging.Target, text string) messaging.Delivery {
 	body, err := a.redactor.Apply(ctx, text, max(4096, len(text)+redact.Margin))
@@ -270,7 +271,13 @@ func (a *Adapter) Deliver(ctx context.Context, t messaging.Target, text string) 
 	p := outgoing{Content: text, AllowedMentions: allowedMentions{Parse: []string{}}}
 	if ok {
 		d, status := a.call(ctx, http.MethodPatch, "/webhooks/"+a.options.ApplicationID+"/"+url.PathEscape(h.token)+"/messages/@original", p, false)
-		if status != http.StatusNotFound && status != http.StatusUnauthorized {
+		d.Route, d.Status = "edit", status
+		// Discord can answer 404 while it is still registering the deferred
+		// response. A live handle retries the edit; only expiry falls back.
+		if status == http.StatusNotFound {
+			return messaging.Delivery{Route: "edit", Status: status}
+		}
+		if status != http.StatusUnauthorized {
 			if d.Confirmed || d.Permanent {
 				a.forget(t.Handle)
 			}
@@ -279,12 +286,13 @@ func (a *Adapter) Deliver(ctx context.Context, t messaging.Target, text string) 
 		a.forget(t.Handle)
 	}
 	if !numeric(t.Channel) {
-		return messaging.Delivery{Permanent: true}
+		return messaging.Delivery{Permanent: true, Route: "channel"}
 	}
 	hash := sha256.Sum256([]byte(t.Transport + ":" + t.MessageID))
 	p.Nonce = hex.EncodeToString(hash[:12])
 	p.EnforceNonce = true
-	d, _ := a.call(ctx, http.MethodPost, "/channels/"+t.Channel+"/messages", p, true)
+	d, status := a.call(ctx, http.MethodPost, "/channels/"+t.Channel+"/messages", p, true)
+	d.Route, d.Status = "channel", status
 	return d
 }
 func (a *Adapter) forget(id string) { a.mu.Lock(); delete(a.handles, id); a.mu.Unlock() }
