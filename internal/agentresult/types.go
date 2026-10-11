@@ -287,7 +287,16 @@ type UserStory struct {
 type Implement struct {
 	Stories         []ImplementationStory          `json:"stories,omitempty"`
 	AggregateChecks *agent.EngineeringContribution `json:"aggregate_checks,omitempty"`
+	// Deviations are the decisions a story worker made where the plan was
+	// silent, one short line each: what was chosen, why, file:line.
+	Deviations []string `json:"deviations,omitempty"`
 }
+
+// Bounds of the deviations an Implement result may record.
+const (
+	MaxImplementDeviations     = 20
+	MaxImplementDeviationBytes = 500
+)
 
 // ImplementationStory reports work against an authorized frozen story.
 type ImplementationStory struct {

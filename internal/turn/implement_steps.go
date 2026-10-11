@@ -152,6 +152,11 @@ func (rt *implementRuntime) workerResult(ctx context.Context, opts Options, a Ac
 	} else if node.Response == agentresult.ImplementResponseCompleted {
 		outcome = "completed"
 	}
+	if outcome == agentresult.ImplementResponseCompleted {
+		if err := rt.keepDeviations(ctx, opts, node); err != nil {
+			return ActivityResult{}, err
+		}
+	}
 	if outcome == agentresult.ImplementResponseIncomplete {
 		row, err := rt.workerRow(ctx, opts)
 		if err != nil {
@@ -164,6 +169,28 @@ func (rt *implementRuntime) workerResult(ctx context.Context, opts Options, a Ac
 		rt.refreshStatus(ctx, opts)
 	}
 	return implementResult(outcome, map[string]any{"response": node.Response})
+}
+
+// keepDeviations stores the deviations of the accepted completed answer on the
+// story's ledger row, replacing any earlier list, so Validate's reviewers judge
+// them. A story that is no longer running kept those of the answer that moved it.
+func (rt *implementRuntime) keepDeviations(ctx context.Context, opts Options, node agentresult.ResearchNode) error {
+	if rt.worker == nil {
+		return errors.New("the step belongs to a story worker run")
+	}
+	var deviations []string
+	if p := node.Result.Payload.Implement; p != nil {
+		for _, d := range p.Deviations {
+			if d = strings.TrimSpace(d); d != "" {
+				deviations = append(deviations, d)
+			}
+		}
+	}
+	err := opts.DB.SetImplementDeviations(ctx, rt.worker.Parent, rt.worker.Generation, rt.worker.Key, strings.Join(deviations, "\n"), rt.now())
+	if errors.Is(err, store.ErrImplementConflict) {
+		return nil
+	}
+	return err
 }
 
 // retainedAnswer loads the retained accepted result of the worker attempt a node's
