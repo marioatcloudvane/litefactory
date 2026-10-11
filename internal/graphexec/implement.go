@@ -38,14 +38,15 @@ func ImplementHandoffSpec() ActionSpec {
 // the factory decisions around them. Each does one measurable thing and returns
 // an outcome; implement.dot, never Go, decides what follows it.
 const (
-	ImplementSelectAction    = "lf_implement_select"
-	ImplementBudgetAction    = "lf_implement_budget"
-	ImplementResultAction    = "lf_implement_result"
-	ImplementStoryDoneAction = "lf_implement_story_done"
-	ImplementParkAction      = "lf_implement_park"
-	ImplementAwaitAction     = "lf_implement_await"
-	ImplementAnyParkedAction = "lf_implement_any_parked"
-	ImplementAskAction       = "lf_implement_ask"
+	ImplementSelectAction     = "lf_implement_select"
+	ImplementBudgetAction     = "lf_implement_budget"
+	ImplementResultAction     = "lf_implement_result"
+	ImplementStoryDoneAction  = "lf_implement_story_done"
+	ImplementParkAction       = "lf_implement_park"
+	ImplementAwaitAction      = "lf_implement_await"
+	ImplementAnyParkedAction  = "lf_implement_any_parked"
+	ImplementAskAction        = "lf_implement_ask"
+	ImplementReportDoneAction = "lf_implement_report_done"
 )
 
 // ImplementAwaitNode names the node where the coordinator rests while stories
@@ -111,11 +112,18 @@ func ImplementAskSpec() ActionSpec {
 	return ActionSpec{Name: ImplementAskAction, Mode: agent.ModeImplement, Outcomes: []string{"published"}}
 }
 
+// ImplementReportDoneSpec declares the one completion reply on the parent once
+// every story of the generation is merged. Its lf_source names the merge step
+// whose attempt identifies the reply, so a replay posts nothing new.
+func ImplementReportDoneSpec() ActionSpec {
+	return ActionSpec{Name: ImplementReportDoneAction, Mode: agent.ModeImplement, Outcomes: []string{"published"}}
+}
+
 // ImplementSpecs lists every action of the Implement graph, the agent aside.
 func ImplementSpecs() []ActionSpec {
 	return []ActionSpec{
 		ImplementSelectSpec(), ImplementReadySpec(), ImplementMergeSpec(), ImplementHandoffSpec(), ImplementAwaitSpec(),
-		ImplementAnyParkedSpec(), ImplementAskSpec(), ImplementBudgetSpec(), ImplementResultSpec(), ImplementStoryDoneSpec(), ImplementParkSpec(),
+		ImplementAnyParkedSpec(), ImplementAskSpec(), ImplementReportDoneSpec(), ImplementBudgetSpec(), ImplementResultSpec(), ImplementStoryDoneSpec(), ImplementParkSpec(),
 	}
 }
 
@@ -129,7 +137,9 @@ func ImplementSpecs() []ActionSpec {
 //     decision, so nothing but a completed answer marks a story done;
 //   - a failed attempt, a failed save and an exhausted budget route to the
 //     budget decision and the park step, so a failure never ends a story quietly;
-//   - the batched question ends at a terminal, where the owner wait rests.
+//   - the batched question ends at a terminal, where the owner wait rests;
+//   - the completion reply, when a graph declares one, reads the merge step and
+//     ends at a terminal. A graph without it still validates.
 func ValidateImplementGraph(p *Profile) error {
 	if p == nil || p.Mode != agent.ModeImplement {
 		return errors.New("invalid Implement graph entry")
@@ -169,6 +179,8 @@ func ValidateImplementGraph(p *Profile) error {
 			c.edge(n, "park", func(t Node) bool { return t.Action == ImplementParkAction }, "must park the story")
 		case ImplementAskAction:
 			c.ask(n)
+		case ImplementReportDoneAction:
+			c.reportDone(n)
 		}
 	}
 	if agents != 1 {
@@ -233,4 +245,11 @@ func (c *implementCheck) ask(n Node) {
 		c.fail("implement node %s lf_source %q must name the merge step an owner reply resumes at", n.Name, n.Attrs["lf_source"])
 	}
 	c.edge(n, "published", func(t Node) bool { return t.Terminal }, "must end at a terminal owner wait")
+}
+
+func (c *implementCheck) reportDone(n Node) {
+	if source, ok := c.p.Node(n.Attrs["lf_source"]); !ok || source.Action != ImplementMergeAction {
+		c.fail("implement node %s lf_source %q must name the merge step", n.Name, n.Attrs["lf_source"])
+	}
+	c.edge(n, "published", func(t Node) bool { return t.Terminal }, "must end at a terminal")
 }

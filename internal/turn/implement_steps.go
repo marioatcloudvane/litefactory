@@ -69,7 +69,8 @@ func (rt *implementRuntime) registerEffects(specs *graphexec.Registry, activitie
 		steps = append(steps,
 			step{graphexec.ImplementAwaitSpec(), rt.await},
 			step{graphexec.ImplementAnyParkedSpec(), rt.anyParked},
-			step{graphexec.ImplementAskSpec(), rt.ask})
+			step{graphexec.ImplementAskSpec(), rt.ask},
+			step{graphexec.ImplementReportDoneSpec(), rt.reportDone})
 	} else {
 		steps = append(steps,
 			step{graphexec.ImplementBudgetSpec(), rt.budget},
