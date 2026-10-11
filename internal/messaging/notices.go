@@ -12,6 +12,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -20,14 +21,17 @@ import (
 // NoticeEvent is a transport-neutral projection of a durable factory event.
 type NoticeEvent struct {
 	Key, Kind, Workflow, From, To, Question, QuestionLink string
-	Task                                                  naming.Ref
-	RunID                                                 int64
-	At                                                    time.Time
-	Usage                                                 *report.MeterSummary
+	// Title is the issue title read live for the notice; Asked names what an
+	// owner wait asks for (question or review).
+	Title, Asked string
+	Task         naming.Ref
+	RunID        int64
+	At           time.Time
+	Usage        *report.MeterSummary
 }
 
 // NoticeEvents maps source facts to stable event identities. Graph node
-// transitions, same-mode follow-on runs and review waits are intentionally silent.
+// transitions and same-mode follow-on runs are intentionally silent.
 func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 	parked := source == "owner_waits" && r.StopOrigin != "" && r.StopCause != "diagnosis_question" && r.StopCause != "diagnosis_review"
 	if r.Ignore || (!r.Ready && !parked) {
@@ -64,11 +68,16 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 		// mode; they are factory internals, never owner notices.
 		return nil, nil
 	case "owner_waits":
+		// Only a published wait that still waits for the owner is announced.
+		published := r.State == "waiting" && r.Published
 		e.Key = "wait:" + r.Key + "@" + store.FormatTime(r.At) + "@" + r.TaskRef
-		e.Kind = "question"
-		e.Question, err = noticeQuestion(r.Candidate, r.StopReason)
-		if err != nil {
-			return nil, err
+		e.Kind = "waiting for you"
+		e.Asked = r.Kind
+		if r.Kind == "question" {
+			e.Question, err = noticeQuestion(r.Candidate, r.StopReason)
+			if err != nil {
+				return nil, err
+			}
 		}
 		e.QuestionLink = fmt.Sprintf("%s#issuecomment-%d", ref.IssueURL(), r.CommentID)
 		if parked {
@@ -82,10 +91,14 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 			stopped.Kind = "stopped"
 			stopped.Question = ""
 			stopped.QuestionLink = ""
-			if r.Ready {
+			stopped.Asked = ""
+			if published {
 				return []NoticeEvent{stopped, e}, nil
 			}
 			return []NoticeEvent{stopped}, nil
+		}
+		if !published {
+			return nil, nil
 		}
 	default:
 		return nil, errors.New("unknown notice source")
@@ -128,9 +141,16 @@ func noticeQuestion(candidate []byte, reason string) (string, error) {
 // NoticeText budgets the question separately so task and comment links survive
 // even a long owner question. The budget counts UTF-16 units used by chat APIs.
 func NoticeText(e NoticeEvent) string {
-	header := fmt.Sprintf("%s: %s (%s)\n%s", e.Kind, e.Task.String(), e.Workflow, e.Task.IssueURL())
+	issue := fmt.Sprintf("#%d", e.Task.Issue)
+	if e.Title != "" {
+		issue += " " + e.Title
+	}
+	header := fmt.Sprintf("%s: %s (%s)\n%s", e.Kind, issue, e.Workflow, e.Task.IssueURL())
 	if e.From != "" {
 		header += fmt.Sprintf("\nMode: %s → %s", e.From, e.To)
+	}
+	if e.Asked != "" {
+		header += "\nAsked: " + e.Asked
 	}
 	if e.QuestionLink != "" {
 		header += "\n" + e.QuestionLink
@@ -190,6 +210,13 @@ type NoticeCollector struct {
 	Transport, Channel string
 	Logger             *slog.Logger
 	Protect            func(context.Context, string) (string, error)
+	// Issues reads issue titles live; nil or a failed read posts without one.
+	Issues NoticeIssues
+}
+
+// NoticeIssues is the forge read notices use for issue titles.
+type NoticeIssues interface {
+	GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error)
 }
 
 // Collect does nothing when notices are off. Each source is independent: an
@@ -202,14 +229,15 @@ func (c *NoticeCollector) Collect(ctx context.Context, at time.Time) error {
 		return err
 	}
 	var errs []error
+	titles := make(map[string]string)
 	for _, source := range []string{"run_starts", "run_finishes", "transitions", "owner_waits"} {
-		if err := c.collectSource(ctx, source, at); err != nil {
+		if err := c.collectSource(ctx, source, at, titles); err != nil {
 			errs = append(errs, fmt.Errorf("collect %s: %w", source, err))
 		}
 	}
 	return errors.Join(errs...)
 }
-func (c *NoticeCollector) collectSource(ctx context.Context, source string, at time.Time) error {
+func (c *NoticeCollector) collectSource(ctx context.Context, source string, at time.Time, titles map[string]string) error {
 	before, records, err := c.DB.ListNoticeRecords(ctx, c.Transport, source, at)
 	if err != nil {
 		return err
@@ -266,6 +294,7 @@ func (c *NoticeCollector) collectSource(ctx context.Context, source string, at t
 					return err
 				}
 			}
+			event.Title = c.issueTitle(ctx, event.Task, titles)
 			text := NoticeText(event)
 			if c.Protect != nil {
 				text, err = c.Protect(ctx, text)
@@ -281,6 +310,28 @@ func (c *NoticeCollector) collectSource(ctx context.Context, source string, at t
 	}
 	return c.DB.AdmitNotices(ctx, c.Transport, before, after, notices)
 }
+
+// issueTitle reads each task's title once per Collect pass. A missing reader
+// or a failed read yields no title, and the notice still posts.
+func (c *NoticeCollector) issueTitle(ctx context.Context, ref naming.Ref, titles map[string]string) string {
+	if c.Issues == nil || ref.Forge != "github" {
+		return ""
+	}
+	key := ref.String()
+	if title, ok := titles[key]; ok {
+		return title
+	}
+	issue, err := c.Issues.GetIssue(ctx, github.Repo{Owner: ref.Owner, Name: ref.Repo}, ref.Issue)
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.WarnContext(ctx, "chat notice issue title unavailable", slog.String("task", key), slog.Any("error", err))
+		}
+		issue.Title = ""
+	}
+	titles[key] = issue.Title
+	return issue.Title
+}
+
 func (c *NoticeCollector) runUsage(ctx context.Context, runID int64) (summary *report.MeterSummary, err error) {
 	snapshot, err := c.DB.NewMeterSnapshot(ctx, store.MeterFilter{RunID: runID}, store.MeterSnapshotOptions{})
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -22,7 +23,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)
 	record := store.NoticeRecord{ID: 7, TaskRef: "github:acme/repo#1", Workflow: "implement", Ready: true, At: at, Run: store.Run{ID: 7, Status: store.RunReported, SemanticOutcome: "failed"}}
-	for _, tc := range []struct{ source, kind, key string }{{"run_starts", "started", "run:7:start"}, {"run_finishes", "failed", "run:7:finish"}, {"owner_waits", "question", "wait:question-key@" + store.FormatTime(at) + "@github:acme/repo#1"}} {
+	for _, tc := range []struct{ source, kind, key string }{{"run_starts", "started", "run:7:start"}, {"run_finishes", "failed", "run:7:finish"}, {"owner_waits", "waiting for you", "wait:question-key@" + store.FormatTime(at) + "@github:acme/repo#1"}} {
 		t.Run(tc.source, func(t *testing.T) {
 			r := record
 			r.From = "build"
@@ -30,6 +31,8 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 			r.Key = "question-key"
 			r.Kind = "question"
 			r.CommentID = 91
+			r.State = "waiting"
+			r.Published = true
 			r.Candidate = []byte(`{"questions":[{"text":"What scope?"}]}`)
 			events, err := messaging.NoticeEvents(tc.source, r)
 			if err != nil || len(events) != 1 {
@@ -40,13 +43,35 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 				t.Fatalf("event=%+v", e)
 			}
 			text := messaging.NoticeText(e)
-			if !strings.Contains(text, r.TaskRef) || !strings.Contains(text, "https://github.com/acme/repo/issues/1") {
+			if !strings.HasPrefix(text, tc.kind+": #1 (implement)\n") || strings.Contains(text, "github:") || !strings.Contains(text, "https://github.com/acme/repo/issues/1") {
 				t.Fatalf("text=%s", text)
 			}
-			if tc.source == "owner_waits" && (!strings.Contains(text, "What scope?") || !strings.Contains(text, "#issuecomment-91")) {
+			if tc.source == "owner_waits" && (!strings.Contains(text, "Asked: question") || !strings.Contains(text, "What scope?") || !strings.Contains(text, "#issuecomment-91")) {
 				t.Fatal(text)
 			}
 		})
+	}
+	// A published review wait asks for a review, without question text.
+	review := record
+	review.Key, review.Kind, review.CommentID, review.State, review.Published = "review-key", "review", 92, "waiting", true
+	review.Candidate = []byte(`{"outcome":"completed"}`)
+	events, err := messaging.NoticeEvents("owner_waits", review)
+	if err != nil || len(events) != 1 || events[0].Kind != "waiting for you" {
+		t.Fatalf("review wait=%+v err=%v", events, err)
+	}
+	if text := messaging.NoticeText(events[0]); !strings.Contains(text, "Asked: review") || !strings.Contains(text, "#issuecomment-92") {
+		t.Fatal(text)
+	}
+	// A wait that stopped waiting or is not yet published is never announced.
+	for _, w := range []struct {
+		state     string
+		published bool
+	}{{"allocated", true}, {"cancelled", true}, {"claimed", true}, {"waiting", false}, {"cancelled", false}} {
+		r := review
+		r.State, r.Published = w.state, w.published
+		if events, err := messaging.NoticeEvents("owner_waits", r); err != nil || len(events) != 0 {
+			t.Fatalf("%+v wait events=%+v err=%v", w, events, err)
+		}
 	}
 	// Graph node moves are internal to one mode: never a notice.
 	for _, nodes := range [][2]string{{"select_path", "budget"}, {"budget", "worker_agent"}, {"same", "same"}} {
@@ -65,7 +90,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	changed := record
 	changed.Workflow = "plan"
 	changed.PreviousMode = "research"
-	events, err := messaging.NoticeEvents("run_starts", changed)
+	events, err = messaging.NoticeEvents("run_starts", changed)
 	if err != nil || len(events) != 1 || events[0].Kind != "started" || !strings.Contains(messaging.NoticeText(events[0]), "Mode: research → plan") {
 		t.Fatalf("mode change start=%+v err=%v", events, err)
 	}
@@ -93,8 +118,10 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	}
 	parked.Run.ID = 0
 	parked.Ready = true
+	parked.State = "waiting"
+	parked.Published = true
 	events, err = messaging.NoticeEvents("owner_waits", parked)
-	if err != nil || len(events) != 2 || events[0].Key != "stop:park@"+store.FormatTime(at)+"@github:acme/repo#1" || events[1].Kind != "question" {
+	if err != nil || len(events) != 2 || events[0].Key != "stop:park@"+store.FormatTime(at)+"@github:acme/repo#1" || events[1].Kind != "waiting for you" || events[0].Asked != "" {
 		t.Fatalf("runless parked stop=%+v err=%v", events, err)
 	}
 	ref, _ := naming.ParseRef(record.TaskRef)
@@ -108,6 +135,10 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	}
 	text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "completed"})
 	if strings.Contains(text, "Usage:") {
+		t.Fatal(text)
+	}
+	text = messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "started", Workflow: "implement", Title: "Authorize work"})
+	if !strings.HasPrefix(text, "started: #1 Authorize work (implement)\nhttps://github.com/acme/repo/issues/1") {
 		t.Fatal(text)
 	}
 	text = messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "question", Question: strings.Repeat("😀", 3000), QuestionLink: ref.IssueURL() + "#issuecomment-91"})
@@ -126,6 +157,19 @@ func (f *noticeTransport) Deliver(_ context.Context, target messaging.Target, _ 
 	f.calls++
 	f.target = target
 	return f.delivery
+}
+
+type noticeIssues struct {
+	fail  bool
+	calls int
+}
+
+func (f *noticeIssues) GetIssue(_ context.Context, repo github.Repo, n int) (github.Issue, error) {
+	f.calls++
+	if f.fail {
+		return github.Issue{}, errors.New("controlled issue read failure")
+	}
+	return github.Issue{Number: n, Title: "Authorize work for " + repo.Owner + "/" + repo.Name}, nil
 }
 
 func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
@@ -201,6 +245,9 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 	if _, err := db.FinishRun(ctx, history.ID, store.RunOutcome{Status: store.RunSucceeded, ExitCode: &zero, FinishedAt: at}); err != nil {
 		t.Fatal(err)
 	}
+	// A failed title read still posts the notice with the issue number only.
+	issues := &noticeIssues{fail: true}
+	c.Issues = issues
 	c.Protect = func(_ context.Context, text string) (string, error) {
 		if strings.HasPrefix(text, "started:") {
 			return "", errors.New("controlled protection failure")
@@ -210,17 +257,24 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 	if err := c.Collect(ctx, at); err == nil {
 		t.Fatal("collector hid protection failure")
 	}
-	if _, err := db.ReadChatNotice(ctx, "test", fmt.Sprintf("run:%d:finish", history.ID)); err != nil {
+	finished, err := db.ReadChatNotice(ctx, "test", fmt.Sprintf("run:%d:finish", history.ID))
+	if err != nil {
 		t.Fatalf("one source blocked another: %v", err)
 	}
+	if !strings.HasPrefix(finished.ReplyText, "completed: #1 (implement)\n") {
+		t.Fatalf("untitled notice: %s", finished.ReplyText)
+	}
 	c.Protect = nil
+	issues.fail, issues.calls = false, 0
 	if err := c.Collect(ctx, at); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{fmt.Sprintf("run:%d:start", pre.ID), fmt.Sprintf("run:%d:finish", history.ID)} {
-		if _, err := db.ReadChatNotice(ctx, "test", key); err != nil {
-			t.Fatal(err)
-		}
+	started, err := db.ReadChatNotice(ctx, "test", fmt.Sprintf("run:%d:start", pre.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(started.ReplyText, "started: #1 Authorize work for acme/repo (validate)\n") || strings.Contains(started.ReplyText, "github:") || issues.calls != 1 {
+		t.Fatalf("titled notice: %s calls=%d", started.ReplyText, issues.calls)
 	}
 	sender := &noticeTransport{delivery: messaging.Delivery{RetryAfter: 10 * time.Second}}
 	service := messaging.New(db, "test", "owner", []string{"3"}, sender, nil)
