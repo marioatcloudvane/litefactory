@@ -75,7 +75,14 @@ func (db *DB) ReconcileWorkflowGraphs(ctx context.Context, mode string, at time.
 			if _, e = tx.ExecContext(ctx, `INSERT INTO graph_outputs(node_attempt_id,kind,payload,created_at) VALUES(?,'diagnostic',?,?)`, a.id, []byte(reason), finished); e != nil {
 				return e
 			}
-			if _, e = tx.ExecContext(ctx, `UPDATE graph_instances SET status='failed',next_due_at=NULL,finished_at=? WHERE id=? AND status='running'`, finished, a.instance); e != nil {
+			// An Implement worker interrupted by the daemon stopping is
+			// cancelled, not failed, so a restart does not count toward the
+			// story's infrastructure-failure limit.
+			instanceStatus := GraphFailed
+			if mode == "implement" {
+				instanceStatus = GraphCancelled
+			}
+			if _, e = tx.ExecContext(ctx, `UPDATE graph_instances SET status=?,next_due_at=NULL,finished_at=? WHERE id=? AND status='running'`, instanceStatus, finished, a.instance); e != nil {
 				return e
 			}
 			count++
