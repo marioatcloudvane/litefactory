@@ -77,14 +77,21 @@ func implementCompletion(context.Context, store.ResultBinding, agentresult.Resul
 	return agentresult.Diagnostics{Valid: true, Complete: true}
 }
 
-// validateImplementComment judges the one report an Implement graph publishes:
-// the batched question about parked stories.
+// validateImplementComment judges the two reports an Implement graph publishes:
+// the batched question about parked stories, and the final completion reply
+// once every story is merged.
 func validateImplementComment(_ store.GraphNodeAttempt, kind string, candidate agentresult.Result, scope agentresult.Context) error {
-	if kind != "question" {
+	if kind != "question" && kind != "final" {
 		return fmt.Errorf("the Implement graph publishes no %s comment", kind)
 	}
 	if scope.Mode != string(agent.ModeImplement) {
-		return errors.New("an Implement question belongs to an Implement invocation")
+		return errors.New("an Implement comment belongs to an Implement invocation")
+	}
+	if kind == "final" {
+		if candidate.Outcome != "completed" || len(candidate.Questions) != 0 || strings.TrimSpace(candidate.Comment) == "" {
+			return errors.New("an Implement completion reply is a completed result with a comment and no questions")
+		}
+		return nil
 	}
 	if candidate.Outcome != "incomplete" || len(candidate.Questions) == 0 || strings.TrimSpace(candidate.Reason) == "" || strings.TrimSpace(candidate.Comment) == "" {
 		return errors.New("an Implement question is an incomplete result with a comment, a reason and its questions")
@@ -99,8 +106,8 @@ func validateImplementComment(_ store.GraphNodeAttempt, kind string, candidate a
 	return nil
 }
 
-// renderImplementComment lays out the batched question for the owner: what
-// happened, one line per parked story, and how to answer.
+// renderImplementComment lays out a report for the owner: what happened, one
+// line per parked story when it asks, and the next step or how to answer.
 func renderImplementComment(candidate agentresult.Result, _ string, _ naming.Ref, _ string) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(candidate.Comment))
@@ -108,6 +115,9 @@ func renderImplementComment(candidate agentresult.Result, _ string, _ naming.Ref
 	for _, q := range candidate.Questions {
 		b.WriteString("- " + strings.TrimSpace(q.Text) + "\n")
 	}
-	b.WriteString("\n" + strings.TrimSpace(candidate.Reason))
+	if len(candidate.Questions) != 0 {
+		b.WriteString("\n")
+	}
+	b.WriteString(strings.TrimSpace(candidate.Reason))
 	return b.String()
 }
