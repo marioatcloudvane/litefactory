@@ -122,7 +122,7 @@ func TestImplementMergeGitGreenMergeLandsOnTheIntegrationBranchOnly(t *testing.T
 	}
 }
 
-func TestImplementMergeGitConflictParksAndTheNextDoneStoryStillMerges(t *testing.T) {
+func TestImplementMergeGitConflictRestartsTheStoryAndTheNextDoneStoryStillMerges(t *testing.T) {
 	g := newImplementGit(t, implementStories(3, nil)...)
 	g.pushStory("story-001", "shared.txt", "one\n")
 	g.pushStory("story-002", "shared.txt", "two\n")
@@ -146,11 +146,46 @@ func TestImplementMergeGitConflictParksAndTheNextDoneStoryStillMerges(t *testing
 	if res, out, err = g.merge(); err != nil || res.Outcome != "merged" || out.Story != "story-003" {
 		t.Fatalf("story-003: %s %+v %v", res.Outcome, out, err)
 	}
-	if row := g.row("story-002"); row.State != store.ImplementParked || row.Reason == "" {
-		t.Fatalf("story-002 row = %+v", row)
+	if row := g.row("story-002"); row.State != store.ImplementWaiting || row.Attempts != 0 || row.ParkOrigin != "" {
+		t.Fatalf("story-002 row = %+v, want waiting so its worker resolves the conflict", row)
 	}
 	if len(g.forge.bodies(12)) != 0 {
 		t.Fatal("a parked story gets no merged note")
+	}
+	if _, ready := g.ready(); len(ready.Started) != 1 || ready.Started[0].Key != "story-002" {
+		t.Fatalf("ready started %+v, want story-002 again", ready.Started)
+	}
+
+	// The worker's run: the factory starts the merge of the feature branch,
+	// the worker resolves the conflict, and the save concludes the merge.
+	featureTip := g.remoteFeature()
+	g.repo.Git("fetch", "--quiet", "origin")
+	worktree, err := g.clone.WorktreeAdd(t.Context(), filepath.Join(t.TempDir(), "story-002"), git.WorktreeAddOptions{Branch: "lf/story-002"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicts, err := worktree.StartMerge(t.Context(), "origin/"+implementFeature)
+	if err != nil || len(conflicts) != 1 || conflicts[0] != "shared.txt" {
+		t.Fatalf("StartMerge = %v, %v", conflicts, err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree.Path(), "shared.txt"), []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worktree.Commit(t.Context(), git.CommitOptions{Summary: "Resolve the conflict.", Task: "github:acme/widgets#12", Mode: "implement", Run: 1, Author: git.Author{Name: "Test", Email: "test@example.invalid"}}); err != nil {
+		t.Fatal(err)
+	}
+	if parents := strings.Fields(g.repo.GitIn(worktree.Path(), "rev-list", "--parents", "-n", "1", "HEAD")); len(parents) != 3 || parents[2] != featureTip {
+		t.Fatalf("story-002 head parents = %v, want a merge of %s", parents, featureTip)
+	}
+	if err := worktree.Push(t.Context(), "origin"); err != nil {
+		t.Fatal(err)
+	}
+	g.drive("story-002", store.ImplementDone, implementClock)
+	if res, out, err = g.merge(); err != nil || res.Outcome != "merged" || out.Story != "story-002" {
+		t.Fatalf("story-002 after resolution: %s %+v %v", res.Outcome, out, err)
+	}
+	if got := g.remoteFile("shared.txt"); got != "one\ntwo" {
+		t.Fatalf("shared.txt on the integration branch = %q", got)
 	}
 }
 

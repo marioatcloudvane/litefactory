@@ -114,6 +114,9 @@ func (d *Daemon) collectHealth(ctx context.Context) (store.ListenerStatus, []sto
 		listener.Listening = true
 		listener.ListenAddress = d.webhook.ln.Addr().String()
 	}
+	if status := d.chatStatus.Load(); status != nil {
+		listener.ChatStatus = *status
+	}
 	rows := make([]store.RepoDiscoveryStatus, 0, len(repos))
 	for _, repo := range repos {
 		if repo.Forge != store.ForgeGitHub {
@@ -161,8 +164,8 @@ func healthSignature(l store.ListenerStatus, rows []store.RepoDiscoveryStatus) s
 		}
 		return t.UTC().Format(time.RFC3339Nano)
 	}
-	fmt.Fprintf(&b, "%q %t %s %t %q %s %s %d", l.ListenAddress, l.Listening, at(l.DaemonStartedAt),
-		l.DiscoveryPaused, l.PauseReason, at(l.PausedSince), at(l.ExpectedResumeAt), l.RunsInFlight)
+	fmt.Fprintf(&b, "%q %t %s %t %q %s %s %d %q", l.ListenAddress, l.Listening, at(l.DaemonStartedAt),
+		l.DiscoveryPaused, l.PauseReason, at(l.PausedSince), at(l.ExpectedResumeAt), l.RunsInFlight, l.ChatStatus)
 	for _, r := range rows {
 		fmt.Fprintf(&b, "|%d %s %s %s %t %t %s", r.RepoID, at(r.LastDeliveryAt), at(r.LastPollFinishedAt),
 			at(r.NextPollDueAt), r.PollOwed, r.SecretPresent, r.WebhookMode)

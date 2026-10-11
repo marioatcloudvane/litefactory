@@ -33,7 +33,9 @@ const (
 )
 
 // ValidateResolveOutcomes are the outcomes of resolving the owner's reply.
-var ValidateResolveOutcomes = []string{"wait", "create_issue", "push", "merge", "close", "stale"}
+// The repair outcome is optional in a graph: profiles released before it keep
+// validating without it.
+var ValidateResolveOutcomes = []string{"wait", "create_issue", "push", "merge", "close", "stale", "repair"}
 
 // ValidateMaxRepairRounds is the most repair rounds any Validate graph may
 // declare. The graph declares the bound it uses, at or below this.
@@ -302,7 +304,9 @@ func (c *flowCheck) outcome(n Node) {
 }
 
 // resolve checks that each remote effect is reached only through its own step
-// from the resolution, and that a waiting or stale reply reports again.
+// from the resolution, and that a waiting or stale reply reports again. A
+// declared repair outcome must start a repair round; a graph released without
+// it still validates.
 func (c *flowCheck) resolve(n Node) {
 	c.named(n, "lf_suite", ValidateSuiteAction)
 	c.edge(n, "wait", action(ValidateReportAction), "must report")
@@ -311,6 +315,9 @@ func (c *flowCheck) resolve(n Node) {
 	c.edge(n, "push", action(ValidatePushAction), "must push")
 	c.edge(n, "merge", action(ValidateMergeAction), "must merge")
 	c.edge(n, "close", action(ValidateCloseAction), "must close")
+	if slices.Contains(n.Outcomes, "repair") {
+		c.edge(n, "repair", action(ValidateRepairBudgetAction), "must start a repair round")
+	}
 }
 
 func (c *flowCheck) ask(n Node) {

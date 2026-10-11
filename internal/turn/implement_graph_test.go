@@ -454,6 +454,47 @@ func TestImplementCommentContractRefusesAnythingButTheBatchedQuestion(t *testing
 	}
 }
 
+func TestImplementCompletionReplyIsAFinalCommentWithTheNextStep(t *testing.T) {
+	scope := ImplementWorkflowPolicy().baseContext(true)
+	rows := []store.ImplementStory{
+		{Key: "story-001", MergeCommit: "aaa111", StateAt: implementClock.Add(2 * time.Minute)},
+		{Key: "story-002", MergeCommit: "bbb222", StateAt: implementClock.Add(time.Minute)},
+	}
+	candidate := implementCompletionCandidate(rows, "lf/9-feature", false)
+	if err := validateImplementComment(store.GraphNodeAttempt{}, "final", candidate, scope); err != nil {
+		t.Fatal(err)
+	}
+	text := renderImplementComment(candidate, "", naming.Ref{}, "")
+	for _, want := range []string{"all 2 stories are merged into `lf/9-feature`, now at commit `aaa111`", "**story-001**: merged as `aaa111`", "**story-002**: merged as `bbb222`", ValidateStartCommand} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the completion reply does not say %q:\n%s", want, text)
+		}
+	}
+	if strings.Index(text, "story-001") > strings.Index(text, "story-002") {
+		t.Errorf("stories are listed in ledger order:\n%s", text)
+	}
+	auto := implementCompletionCandidate(rows[:1], "lf/9-feature", true)
+	if !strings.Contains(auto.Comment, "all 1 story is merged") || !strings.Contains(auto.Reason, "start automatically") || strings.Contains(auto.Reason, ValidateStartCommand) {
+		t.Fatalf("auto-start wording: %+v", auto)
+	}
+	for name, mutate := range map[string]func(*agentresult.Result){
+		"incomplete": func(r *agentresult.Result) { r.Outcome = "incomplete" },
+		"no comment": func(r *agentresult.Result) { r.Comment = " " },
+		"a question": func(r *agentresult.Result) {
+			r.Questions = []agentresult.Question{{ID: "q1", Audience: "business", Text: "?"}}
+		},
+	} {
+		c := candidate
+		mutate(&c)
+		if err := validateImplementComment(store.GraphNodeAttempt{}, "final", c, scope); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if err := validateImplementComment(store.GraphNodeAttempt{}, "question", candidate, scope); err == nil {
+		t.Error("a completion reply is not a question")
+	}
+}
+
 func TestImplementRespondMapsTheAcceptedOutcome(t *testing.T) {
 	for _, tc := range []struct {
 		r       agentresult.Result

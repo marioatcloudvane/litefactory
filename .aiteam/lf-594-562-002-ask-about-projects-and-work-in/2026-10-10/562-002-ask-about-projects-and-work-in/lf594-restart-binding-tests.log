@@ -1,0 +1,3 @@
+ok  	github.com/cloudvane/litefactory/internal/messaging	44.358s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	2.884s
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	21.832s

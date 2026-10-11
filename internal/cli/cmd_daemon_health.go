@@ -60,6 +60,9 @@ func printDaemonHealth(w io.Writer, snap store.HealthSnapshot, running bool, now
 	default:
 		fmt.Fprintf(tw, "webhook listener\t%s%s (not bound)\n", l.ListenAddress, webhook.Path)
 	}
+	if l.ChatStatus != "" {
+		fmt.Fprintf(tw, "chat\t%s\n", l.ChatStatus)
+	}
 	written := l.WrittenAt.UTC().Format(time.RFC3339)
 	if running {
 		fmt.Fprintf(tw, "snapshot written\t%s\n", written)

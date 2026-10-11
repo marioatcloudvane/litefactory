@@ -581,3 +581,222 @@ func TestOwnerIndividualPushStillStopsAfterThePush(t *testing.T) {
 		t.Fatalf("path %s", joinNodes(nodes))
 	}
 }
+
+// blockingReview leaves AC-002 unmet with the reviewer's file:line text and,
+// when code is set, reports the code review as a blocking, unmet finding.
+func blockingReview(code bool) func(ValidateReviewRequest) (*agentresult.Result, error) {
+	return func(req ValidateReviewRequest) (*agentresult.Result, error) {
+		res := goodReview(req)
+		for si := range res.Payload.Validate.Stories {
+			s := &res.Payload.Validate.Stories[si]
+			for i := range s.Criteria {
+				if s.Criteria[i].Name == "AC-002" {
+					s.Criteria[i].Status = "unmet"
+					s.Criteria[i].Evidence = []agent.EvidenceExplanation{{Summary: "app/app.go:3 Total returns 9; AC-002 needs 10.", CheckIDs: []string{}}}
+				}
+			}
+			for i := range s.Reviews {
+				if code && s.Reviews[i].Name == "code" {
+					s.Reviews[i].Status, s.Reviews[i].Classification = "unmet", "blocking"
+					s.Reviews[i].Evidence = []agent.EvidenceExplanation{{Summary: "app/app.go:3 the golden-output test is missing.", CheckIDs: []string{}}}
+				}
+			}
+		}
+		return res, nil
+	}
+}
+
+// resolveOutcomes lists the outcomes of the resolve step, in order.
+func (o *ownerFixture) resolveOutcomes() []string {
+	o.t.Helper()
+	attempts, err := o.db.ListGraphNodeAttempts(o.t.Context(), o.instance.ID)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	var out []string
+	for _, a := range attempts {
+		if a.Node == "owner_resolve" {
+			out = append(out, a.Outcome)
+		}
+	}
+	return out
+}
+
+func (o *ownerFixture) rounds() []store.RepairRound {
+	o.t.Helper()
+	rounds, err := o.db.ListRepairRounds(o.t.Context(), o.instance.ID)
+	if err != nil {
+		o.t.Fatal(err)
+	}
+	return rounds
+}
+
+// handoffAgent records the repair handoff and runs the given repair.
+func (o *ownerFixture) handoffAgent(handoffs *[]string, repair func(f *flowFixture) agentresult.ValidateRepair) {
+	o.agent = func(_ int, f *flowFixture) (agentresult.ValidateRepair, ActivityResult) {
+		text, err := validateRepairHandoff(f.t.Context(), f.db, f.instance.ID, 0, f.profile, WorkflowPolicy{}, agentresult.Context{})
+		if err != nil {
+			f.t.Fatalf("handoff: %v", err)
+		}
+		*handoffs = append(*handoffs, text)
+		return repair(f), ActivityResult{}
+	}
+}
+
+// #617: a repair choice starts a repair agent on the chosen finding; a kept
+// change is a new commit that the suite and the reviewers test again.
+func TestOwnerRepairChoiceStartsARepairAndTestsTheKeptCommit(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.reviewers.run = blockingReview(false)
+	o.toOwner()
+	base := o.state().Commit
+	var handoffs []string
+	o.handoffAgent(&handoffs, func(f *flowFixture) agentresult.ValidateRepair {
+		f.write("app/app.go", "package app\n\nfunc Total() int { return 10 }\n")
+		return repaired("app/app.go")
+	})
+	nodes := o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
+	if !strings.Contains(joinNodes(nodes), "owner_resolve>repair_budget>repair_agent>repair_check>suite>review>outcome>owner_resolve>owner_report>owner_ask") {
+		t.Fatalf("path %s", joinNodes(nodes))
+	}
+	if got := o.resolveOutcomes(); len(got) < 2 || got[len(got)-2] != "repair" || got[len(got)-1] != "wait" {
+		t.Fatalf("resolve outcomes %v", got)
+	}
+	if len(handoffs) != 1 {
+		t.Fatalf("handoffs %d", len(handoffs))
+	}
+	for _, want := range []string{"finding: story-002:AC-002", "story: story-002", "criterion: AC-002", "app/app.go:3 Total returns 9", "untrusted data"} {
+		if !strings.Contains(handoffs[0], want) {
+			t.Fatalf("handoff lacks %q:\n%s", want, handoffs[0])
+		}
+	}
+	rounds := o.rounds()
+	if len(rounds) != 1 || rounds[0].State != store.RepairKept || rounds[0].PreCommit != base || rounds[0].ResultCommit == base {
+		t.Fatalf("rounds %+v", rounds)
+	}
+	st := o.state()
+	if st.Commit != rounds[0].ResultCommit || st.Suite.Outcome != store.SuitePassed {
+		t.Fatalf("the suite did not run on the kept commit: %s %+v", st.Commit, st.Suite)
+	}
+	o.outcome(rounds[0].ResultCommit)
+	for _, role := range o.reviewers.started[len(o.reviewers.started)-3:] {
+		if role.Commit != rounds[0].ResultCommit {
+			t.Fatalf("a reviewer read %s, not the kept commit", role.Commit)
+		}
+	}
+	// The finding comes back on the new commit, without a choice yet.
+	if f, _ := st.finding("story-002:AC-002"); f.State != findingOpen || f.Choice != nil {
+		t.Fatalf("finding on the new commit %+v", f)
+	}
+}
+
+// #617: repairs chosen for several findings run together in one round, and a
+// pending owner check does not hold the round back.
+func TestOwnerRepairChoicesRunTogetherInOneRound(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.reviewers.run = blockingReview(true)
+	o.toOwner()
+	var handoffs []string
+	o.handoffAgent(&handoffs, func(f *flowFixture) agentresult.ValidateRepair {
+		f.write("app/app.go", "package app\n\nfunc Total() int { return 10 }\n")
+		return repaired("app/app.go")
+	})
+	nodes := o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
+	if visits(nodes, "repair_budget") != 0 || len(o.rounds()) != 0 || o.resolveOutcomes()[len(o.resolveOutcomes())-1] != "wait" {
+		t.Fatalf("the first choice must wait: %s", joinNodes(nodes))
+	}
+	nodes = o.say(o.command(ValidateFindingCommand, "story-002:code", "repair"))
+	if visits(nodes, "repair_agent") != 1 || len(o.rounds()) != 1 || len(handoffs) != 1 {
+		t.Fatalf("one round: %s rounds %d", joinNodes(nodes), len(o.rounds()))
+	}
+	for _, want := range []string{"finding: story-002:AC-002", "finding: story-002:code", "review: code", "golden-output test is missing"} {
+		if !strings.Contains(handoffs[0], want) {
+			t.Fatalf("handoff lacks %q:\n%s", want, handoffs[0])
+		}
+	}
+}
+
+func TestOwnerPendingCheckDoesNotHoldARepairBack(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.reviewers.run = func(req ValidateReviewRequest) (*agentresult.Result, error) {
+		res, _ := mixedReview(req)
+		for si := range res.Payload.Validate.Stories {
+			for i := range res.Payload.Validate.Stories[si].Reviews {
+				if r := &res.Payload.Validate.Stories[si].Reviews[i]; r.Name == "code" {
+					r.Classification = "blocking"
+				}
+			}
+		}
+		return res, nil
+	}
+	o.toOwner()
+	if f, _ := o.state().finding("story-002:AC-002"); f.State != findingAwaitingCheck {
+		t.Fatalf("%+v", f)
+	}
+	var handoffs []string
+	o.handoffAgent(&handoffs, func(f *flowFixture) agentresult.ValidateRepair {
+		f.write("app/app.go", "package app\n\nfunc Total() int { return 10 }\n")
+		return repaired("app/app.go")
+	})
+	nodes := o.say(o.command(ValidateFindingCommand, "story-002:code", "repair"))
+	if visits(nodes, "repair_agent") != 1 || len(o.rounds()) != 1 || strings.Contains(handoffs[0], "AC-002") {
+		t.Fatalf("path %s handoff %q", joinNodes(nodes), handoffs)
+	}
+}
+
+// #617: a repair that is too big, handed back or out of budget returns to the
+// owner report, which shows the round and its reason.
+func TestOwnerRejectedOrSpentRepairReturnsToTheReportWithItsReason(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.reviewers.run = blockingReview(false)
+	o.toOwner()
+	base := o.state().Commit
+	o.agent = func(round int, f *flowFixture) (agentresult.ValidateRepair, ActivityResult) {
+		if round == 1 {
+			for _, name := range []string{"a.go", "b.go", "c.go", "d.go"} {
+				f.write("app/"+name, "package app\n")
+			}
+			return repaired("app/a.go", "app/b.go", "app/c.go", "app/d.go"), ActivityResult{}
+		}
+		return handbackReport("the sum needs a new type"), ActivityResult{}
+	}
+	back := "repair_check>review>outcome>owner_resolve>owner_report>owner_ask"
+	report := func() string { return o.forge.bodies("**Validate report**")[0].Body }
+
+	nodes := o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
+	if !strings.Contains(joinNodes(nodes), back) || o.head() != base || !strings.Contains(report(), "round 1: too_big (4 files changed, at most 3 allowed)") {
+		t.Fatalf("too big: %s\n%s", joinNodes(nodes), report())
+	}
+	nodes = o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
+	if !strings.Contains(joinNodes(nodes), back) || o.head() != base || !strings.Contains(report(), "round 2: handback (the repair agent reported the fix as too large or uncertain)") {
+		t.Fatalf("handback: %s\n%s", joinNodes(nodes), report())
+	}
+	nodes = o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "repair"))
+	if !strings.Contains(joinNodes(nodes), "owner_resolve>repair_budget>review>outcome>owner_resolve>owner_report>owner_ask") || visits(nodes, "repair_agent") != 0 || len(o.rounds()) != 2 {
+		t.Fatalf("spent: %s", joinNodes(nodes))
+	}
+	if inst, _ := o.db.GetGraphInstance(t.Context(), o.instance.ID); inst.Status != store.GraphRunning || o.state().Commit != base {
+		t.Fatalf("the run must wait for the owner on the tested commit: %s", inst.Status)
+	}
+}
+
+// #617: an issue choice still only creates the issue; the repair chosen for
+// the last blocking finding then starts the round.
+func TestOwnerIssueChoiceStartsNoRepair(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.reviewers.run = blockingReview(true)
+	o.toOwner()
+	nodes := o.say(o.command(ValidateFindingCommand, "story-002:AC-002", "issue", "bug"))
+	if !strings.Contains(joinNodes(nodes), "owner_resolve>owner_issue>owner_report") || visits(nodes, "repair_budget") != 0 || len(o.rounds()) != 0 || len(o.forge.issues) != 1 {
+		t.Fatalf("issue: %s", joinNodes(nodes))
+	}
+	var handoffs []string
+	o.handoffAgent(&handoffs, func(f *flowFixture) agentresult.ValidateRepair {
+		f.write("app/app.go", "package app\n\nfunc Total() int { return 10 }\n")
+		return repaired("app/app.go")
+	})
+	nodes = o.say(o.command(ValidateFindingCommand, "story-002:code", "repair"))
+	if visits(nodes, "repair_agent") != 1 || strings.Contains(handoffs[0], "story-002:AC-002") || !strings.Contains(handoffs[0], "story-002:code") {
+		t.Fatalf("repair: %s %q", joinNodes(nodes), handoffs)
+	}
+}

@@ -46,6 +46,8 @@ import (
 // written zero value (poll_interval_seconds: 0) is distinguishable from an
 // absent key and is rejected instead of silently replaced.
 type Config struct {
+	// Chat holds optional transport settings.
+	Chat     *Chat    `yaml:"chat"`
 	Settings Settings `yaml:"settings"`
 	// Validate holds the factory-wide Validate controls.
 	ValidateMode ValidateSettings `yaml:"validate"`

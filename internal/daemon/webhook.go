@@ -274,7 +274,7 @@ func (d *Daemon) webhookServe(ctx context.Context, wg *sync.WaitGroup) error {
 	if err != nil {
 		return err
 	}
-	server := webhook.NewServer(d.webhook.ln, handler)
+	server := webhook.NewServer(d.webhook.ln, d.webhookRouter(handler))
 	d.log.InfoContext(ctx, "webhook listener serving", slog.String("addr", d.webhook.ln.Addr().String()), slog.String("path", webhook.Path))
 	wg.Add(2)
 	go func() {

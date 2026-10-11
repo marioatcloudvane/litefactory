@@ -34,6 +34,9 @@ type ListenerStatus struct {
 	ExpectedResumeAt time.Time
 	// RunsInFlight is how many turns the daemon had running when it last wrote.
 	RunsInFlight int
+	// ChatStatus is empty when chat is off, "available" once chat runs, and
+	// "unavailable: <reason>" while it cannot.
+	ChatStatus string
 }
 
 // RepoDiscoveryStatus is the published discovery health of one repository.
@@ -69,16 +72,17 @@ func (db *DB) ReplaceHealthSnapshot(ctx context.Context, listener ListenerStatus
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO daemon_listener_status (id, listen_address, listening, daemon_started_at, written_at,
-    last_heartbeat_started_at, discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight)
-VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    last_heartbeat_started_at, discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight, chat_status)
+VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET listen_address = excluded.listen_address, listening = excluded.listening,
     daemon_started_at = excluded.daemon_started_at, written_at = excluded.written_at,
     last_heartbeat_started_at = excluded.last_heartbeat_started_at, discovery_paused = excluded.discovery_paused,
     pause_reason = excluded.pause_reason, paused_since = excluded.paused_since,
-    expected_resume_at = excluded.expected_resume_at, runs_in_flight = excluded.runs_in_flight`,
+    expected_resume_at = excluded.expected_resume_at, runs_in_flight = excluded.runs_in_flight,
+    chat_status = excluded.chat_status`,
 			listener.ListenAddress, boolInt(listener.Listening), FormatTime(listener.DaemonStartedAt), FormatTime(listener.WrittenAt),
 			nullTime(listener.LastHeartbeatStartedAt), boolInt(listener.DiscoveryPaused), listener.PauseReason,
-			nullTime(listener.PausedSince), nullTime(listener.ExpectedResumeAt), listener.RunsInFlight); err != nil {
+			nullTime(listener.PausedSince), nullTime(listener.ExpectedResumeAt), listener.RunsInFlight, listener.ChatStatus); err != nil {
 			return fmt.Errorf("write listener status: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM repo_discovery_status`); err != nil {
@@ -111,10 +115,10 @@ func (db *DB) ReadHealthSnapshot(ctx context.Context) (HealthSnapshot, error) {
 	var beat, pausedSince, resumeAt sql.NullString
 	err := db.sql.QueryRowContext(ctx,
 		`SELECT listen_address, listening, daemon_started_at, written_at, last_heartbeat_started_at,
-       discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight
+       discovery_paused, pause_reason, paused_since, expected_resume_at, runs_in_flight, chat_status
 FROM daemon_listener_status WHERE id = 1`).
 		Scan(&snap.Listener.ListenAddress, &listening, &started, &written, &beat,
-			&paused, &snap.Listener.PauseReason, &pausedSince, &resumeAt, &snap.Listener.RunsInFlight)
+			&paused, &snap.Listener.PauseReason, &pausedSince, &resumeAt, &snap.Listener.RunsInFlight, &snap.Listener.ChatStatus)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return HealthSnapshot{}, nil

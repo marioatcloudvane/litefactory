@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -302,6 +304,8 @@ type Options struct {
 	// listener and lets them wake a scoped pass. Nil leaves the daemon on its
 	// heartbeat and poll alone.
 	Webhook *WebhookOptions
+	// Chat enables the read-only messaging service.
+	Chat *ChatOptions
 
 	// MaxConcurrentRuns is how many runs may be in flight at the same instant,
 	// daemon-wide across every repository (D2). Zero means
@@ -432,11 +436,21 @@ type Daemon struct {
 	digest       digest
 	fates        commentFates
 	webhook      *webhookRuntime
+	chat         *chatRuntime
 	grace        time.Duration
 	log          *slog.Logger
 	lock         *Lock
 	now          func() time.Time
 	ticks        <-chan time.Time
+
+	// chatBeat, chatWait, chatHandler and chatStatus carry chat that may be
+	// built after start: chatBeat is set in New when chat is configured,
+	// chatWait while the bot token is unresolved. chatHandler and chatStatus
+	// are read by the webhook server and the health publisher.
+	chatBeat    chan struct{}
+	chatWait    *chatPending
+	chatHandler atomic.Pointer[http.Handler]
+	chatStatus  atomic.Pointer[string]
 
 	discovery          discoveryBudget
 	backoff            backoff
@@ -543,6 +557,9 @@ func New(opts Options) (*Daemon, error) {
 	if opts.Webhook != nil {
 		d.webhook = newWebhookRuntime(*opts.Webhook, opts.Logger)
 		d.webhook.schedule = d.schedule
+	}
+	if err := d.initChat(opts.Chat); err != nil {
+		return nil, err
 	}
 	return d, nil
 }
@@ -857,6 +874,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 
+	d.chatServe(webCtx, &serving)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -943,6 +961,7 @@ func (d *Daemon) beat(ctx context.Context, source string) bool {
 		// now would only produce a run to abandon.
 		return false
 	}
+	d.chatWake()
 	if _, err := d.Tick(withWakeSource(ctx, source)); err != nil {
 		if isRecoveryPending(err) {
 			return true

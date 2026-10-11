@@ -19,6 +19,7 @@ repair check -> kept:       suite (on the new commit)
                 unfinished: repair budget
                 blocked:    review
 review -> outcome -> assessed | handed_back | blocked
+owner resolve -> repair: repair budget (owner-chosen findings)
 ```
 
 A finished suite result for the commit is reused as it is. The suite runs again
@@ -42,6 +43,23 @@ before the round, with the limits the graph declares (`lf_max_files` and
 acceptance criteria). A change inside the limits is committed by the factory. A
 change over them is retained as a diff, the worktree is reset and the flow goes to
 review and then a handback.
+
+### Repairs the owner chooses
+
+When the suite passed and the reviewers raised findings, the owner can answer
+`/validate-finding <rev> <finding id> repair`. The choice is recorded; once every
+blocking finding of the tested commit has a choice, that reply makes the resolve
+step return `repair`, and one round starts for all findings chosen for repair.
+Pending owner checks do not hold the round back: a kept repair is a new commit, and
+the checks are asked again on it. The round uses the same budget, agent and check
+steps and the same two-round bound as a failed suite. The agent's task lists each
+chosen finding: its id, story, criterion or review name, the reviewer's text and
+check ids. A kept change is a new commit, so the suite and the reviewers run again
+on it and each finding clears or comes back. A change that is too big, a handback,
+a blocked or unfinished round and a spent budget go back through review and
+outcome (reused on the unchanged commit) to the owner report, which lists each
+round with its reason. Graphs released without the `repair` outcome keep the old
+flow: the choice is recorded and the run waits.
 
 ## Review
 
@@ -130,7 +148,8 @@ for exceptions.
 
 A non-owner, malformed or stale command changes nothing; the reply shows the
 current commands. Defer is allowed only for optional (advisory) findings. A repair
-or issue choice never clears a blocking finding; only a new tested snapshot does.
+or issue choice never clears a blocking finding; only a new tested snapshot does,
+such as the commit a kept repair makes.
 Push is offered only when the suite passed, every criterion is satisfied or
 owner-passed, no blocking finding is open, every optional finding has a choice and
 no issue creation is pending, failed or uncertain.

@@ -175,7 +175,15 @@ type DeferredSyncContext struct {
 	Deferred      bool
 	Branch, Base  string
 	Behind, Ahead int
+	// FeatureBranch and Conflicts are set when the factory started merging a
+	// story's feature branch into the story branch and left the conflicting
+	// paths for the story worker to resolve.
+	FeatureBranch string
+	Conflicts     []string
 }
+
+// maxPromptConflicts bounds the conflicting paths a prompt lists.
+const maxPromptConflicts = 100
 
 // PromptInput is everything [BuildPrompt] needs. Every string field is copied
 // into the prompt; the ones documented as untrusted are neutralised and capped
@@ -474,7 +482,21 @@ func BuildPrompt(in PromptInput) (string, error) {
 		}
 	}
 
-	if sync := in.DeferredSync; sync.Deferred {
+	if sync := in.DeferredSync; sync.FeatureBranch != "" {
+		b.WriteString("\n## Merge conflict to resolve\n\n")
+		fmt.Fprintf(&b, "litefactory started merging feature branch %q into this story branch %q, and these files conflict:\n\n",
+			capText(sync.FeatureBranch, 256), capText(sync.Branch, 256))
+		for i, path := range sync.Conflicts {
+			if i == maxPromptConflicts {
+				fmt.Fprintf(&b, "- … and %d more\n", len(sync.Conflicts)-i)
+				break
+			}
+			fmt.Fprintf(&b, "- %q\n", capText(path, 512))
+		}
+		b.WriteString("\nResolve every conflict so both this story's intent and the intent of the stories already merged into the feature branch survive, " +
+			"remove all conflict markers, and run the story's checks. Do not commit: litefactory commits the merge when you answer completed. " +
+			"If you cannot resolve it, answer blocked and name the conflicting files.\n")
+	} else if sync.Deferred {
 		b.WriteString("\n## Base synchronization deferred\n\n")
 		fmt.Fprintf(&b, "litefactory preserved uncommitted changes for this run to inspect and finish. "+
 			"Synchronization of branch %q with base %q was deferred: %d commit(s) behind and %d ahead. "+
