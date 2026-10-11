@@ -188,8 +188,16 @@ func scanMeterPage(rows *sql.Rows) ([]MeterRow, error) {
 		if err != nil {
 			return nil, err
 		}
+		// A finished attempt's coverage is authoritative: invocation and
+		// measurement statuses are interim snapshots taken while collecting.
+		// An attempt that recorded no invocation observed nothing and stays
+		// worst-of, so it remains unknown.
+		statuses := []string{a, i, m}
+		if r.AttemptFinishedAt != "" && r.InvocationID != "" {
+			statuses = []string{a}
+		}
 		r.CollectionStatus = "complete"
-		for _, status := range []string{a, i, m} {
+		for _, status := range statuses {
 			if status != "complete" {
 				r.CollectionStatus = "partial"
 			}
