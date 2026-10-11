@@ -218,7 +218,7 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			}
 			if err := d.chat.adapter.Register(ctx, d.chat.service.Declarations()...); err != nil {
-				d.log.WarnContext(ctx, "chat commands could not be registered; retrying on a later heartbeat")
+				d.log.WarnContext(ctx, "chat commands could not be registered; retrying on a later heartbeat", slog.Any("error", err))
 			} else {
 				registered = true
 			}

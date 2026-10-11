@@ -54,10 +54,13 @@ var errDeferredDiagnosis = errors.New("messaging: deferred diagnosis")
 // EnableResearch installs explicit commands before the chat worker starts.
 func (s *Service) EnableResearch(diagnosis Diagnosis, answers ResearchAnswers) {
 	s.diagnosis, s.research = diagnosis, answers
-	base := []Argument{{Name: "project", Type: TextArgument, Description: "Managed owner/repo or unique repo; defaults to the only registered project"}, {Name: "issue", Type: IntegerArgument, Required: true, Description: "Positive issue number"}}
-	s.RegisterCommand(CommandDefinition{Name: "diagnose", NaturalLanguage: true, Effect: ChangeEffect, Description: "Explain what is wrong or stuck", Arguments: append(append([]Argument(nil), base...), Argument{Name: "note", Type: TextArgument, Description: "Optional diagnosis context"})}, s.diagnose)
-	s.RegisterCommand(CommandDefinition{Name: "question", NaturalLanguage: true, Effect: ReadEffect, Description: "Show the current research question", Arguments: base}, s.question)
-	s.RegisterCommand(CommandDefinition{Name: "answer", NaturalLanguage: true, Effect: ChangeEffect, Description: "Answer the current research question", Arguments: append(append([]Argument(nil), base...), Argument{Name: "revision", Type: TextArgument, Required: true, Description: "Current 12-character question token"}, Argument{Name: "text", Type: TextArgument, Required: true, Description: "Answer, up to 65536 bytes"})}, s.researchAnswer)
+	// Discord rejects a required option after an optional one, so the
+	// optional project follows every required option.
+	base := []Argument{{Name: "issue", Type: IntegerArgument, Required: true, Description: "Positive issue number"}}
+	project := Argument{Name: "project", Type: TextArgument, Description: "Managed owner/repo or unique repo; defaults to the only registered project"}
+	s.RegisterCommand(CommandDefinition{Name: "diagnose", NaturalLanguage: true, Effect: ChangeEffect, Description: "Explain what is wrong or stuck", Arguments: append(append([]Argument(nil), base...), project, Argument{Name: "note", Type: TextArgument, Description: "Optional diagnosis context"})}, s.diagnose)
+	s.RegisterCommand(CommandDefinition{Name: "question", NaturalLanguage: true, Effect: ReadEffect, Description: "Show the current research question", Arguments: append(append([]Argument(nil), base...), project)}, s.question)
+	s.RegisterCommand(CommandDefinition{Name: "answer", NaturalLanguage: true, Effect: ChangeEffect, Description: "Answer the current research question", Arguments: append(append([]Argument(nil), base...), Argument{Name: "revision", Type: TextArgument, Required: true, Description: "Current 12-character question token"}, Argument{Name: "text", Type: TextArgument, Required: true, Description: "Answer, up to 65536 bytes"}, project)}, s.researchAnswer)
 }
 
 func (s *Service) researchTarget(ctx context.Context, m Message, taskRequired bool) (string, string) {
