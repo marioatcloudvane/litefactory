@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -35,12 +34,13 @@ import (
 // sibling in internal/harness, whose name is obliged to describe the exact
 // shape of thing it proves does not exist.
 func TestNoAskRoundLimitAnywhereInInternal(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("could not resolve this file's own path")
+	// go test runs in the package directory: internal/turn -> internal/.
+	// The working directory is used instead of runtime.Caller because
+	// -trimpath makes the caller's file path module-relative.
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatalf("resolve internal/ root: %v", err)
 	}
-	// internal/turn/ask_purity_test.go -> internal/
-	root := filepath.Dir(filepath.Dir(thisFile))
 	if filepath.Base(root) != "internal" {
 		t.Fatalf("resolved root %q, want a directory named internal", root)
 	}
@@ -49,7 +49,7 @@ func TestNoAskRoundLimitAnywhereInInternal(t *testing.T) {
 		`(?i)ask(ing)?(round|rounds|cap|counter|limit|timeout|budget|quota)` +
 			`|(round|rounds|cap|counter|limit|timeout|budget|quota)(ing)?ask`)
 
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

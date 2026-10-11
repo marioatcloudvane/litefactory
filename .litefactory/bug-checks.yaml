@@ -2,22 +2,22 @@ version: 1
 phases:
   regression:
     commands:
-      - argv: [go, build, ./...]
+      - argv: [go, build, -trimpath, ./...]
         timeout_seconds: 900
       # -timeout=0: internal/turn alone runs 15-20 minutes, past go test's
       # default 10-minute per-package limit, which failed every check.
-      - argv: [go, test, -timeout=0, ./...]
+      - argv: [go, test, -trimpath, -timeout=0, ./...]
         timeout_seconds: 3600
         # A failure is rerun for just its failing tests, on the repair and
         # then on main: flaky and pre-existing failures are shown in the
         # review instead of failing the check.
         rerun:
           failures: go-test
-          argv: [go, test, -count=1, -timeout=0, -run, "{tests}", "{packages}"]
+          argv: [go, test, -trimpath, -count=1, -timeout=0, -run, "{tests}", "{packages}"]
           timeout_seconds: 1800
   focused:
     commands:
-      - argv: [go, vet, ./...]
+      - argv: [go, vet, -trimpath, ./...]
         timeout_seconds: 900
       - argv: [golangci-lint, run]
         timeout_seconds: 1200
@@ -30,5 +30,5 @@ phases:
         timeout_seconds: 86400
         rerun:
           failures: go-test
-          argv: [go, test, -race, -count=1, -timeout=0, -run, "{tests}", "{packages}"]
+          argv: [go, test, -trimpath, -race, -count=1, -timeout=0, -run, "{tests}", "{packages}"]
           timeout_seconds: 1800
