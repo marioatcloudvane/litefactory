@@ -553,7 +553,7 @@ func TestPlanGraphIntegration_LostReplyRecoveredByReceiptCompletesWithOneResultA
 // a further identical resend is a replay, not a second candidate.
 func TestPlanGraphIntegration_UncertainSubmitRetriedWithIdenticalBytesYieldsOneResult(t *testing.T) {
 	var lostID, retryID, replayID string
-	var lookupError string
+	var lookupResult submission.Response
 	var retried, replayed AgentResultSubmission
 	f, remote, base, _, _ := graphPlanAgentFixture(t, func(s planAgentStep) (*agent.RunResult, error) {
 		good := integrationDone(integrationCreateRequest(s.story), "Please review this candidate.")
@@ -573,7 +573,7 @@ func TestPlanGraphIntegration_UncertainSubmitRetriedWithIdenticalBytesYieldsOneR
 		if err != nil {
 			t.Fatalf("receipt lookup: %v", err)
 		}
-		lookupError = lookup.Error
+		lookupResult = lookup
 		// No receipt: resend identical bytes; the identity is kept.
 		var first submission.Response
 		first, retried = s.call("communication_submit", data)
@@ -586,8 +586,8 @@ func TestPlanGraphIntegration_UncertainSubmitRetriedWithIdenticalBytesYieldsOneR
 	if err != nil || out.Err != nil || !out.Succeeded() {
 		t.Fatalf("attempt did not complete: %v %v %s", err, out.Err, f.logs.String())
 	}
-	if lookupError == "" {
-		t.Fatal("recovery claimed an outcome that was never recorded")
+	if got := decodeReceipt(t, lookupResult); got.Validation.Valid || got.Receipt != nil || got.Snapshot != nil || len(got.Validation.Diagnostics.Diagnostics) != 1 || got.Validation.Diagnostics.Diagnostics[0].Code != "not_recorded" {
+		t.Fatalf("recovery claimed an outcome that was never recorded: %+v", lookupResult)
 	}
 	if retryID != lostID || replayID != lostID {
 		t.Fatalf("identical bytes changed identity: %q %q %q", lostID, retryID, replayID)
