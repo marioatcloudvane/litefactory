@@ -1,2 +1,0 @@
-# Interface testing responsibility
-Test the OpenAPI request/response boundary, validation failures, dependency lifetimes and typed frontend API mapping. Use controlled dependencies and recording adapters where appropriate. Keep package contract evidence separate from authentic application execution. Do not add a live application demonstration without scope. Execute complete affected components within existing permission ceilings and retain real outcomes. Validate cannot commission new checks.

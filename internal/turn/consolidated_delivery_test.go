@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -53,21 +54,30 @@ func TestConsolidatedWorkflowVerifiedLaunchDelivery(t *testing.T) {
 					if err := agent.VerifyRequestDelivery(t.Context(), request); err != nil {
 						t.Fatalf("%s/%s: %v", name, kind, err)
 					}
+					var skillFiles []string
 					for path, raw := range node.Files {
-						if strings.HasPrefix(path, "skills/team-guidance/") {
+						if strings.Contains(path, "team-guidance") {
+							t.Fatalf("%s/%s still delivers %s", name, kind, path)
+						}
+						if strings.HasPrefix(path, "skills/") {
+							skillFiles = append(skillFiles, path)
 							native := filepath.Join(delivery.Root, "plugin", filepath.FromSlash(path))
 							actual, err := os.ReadFile(native)
 							if err != nil || !bytes.Equal(raw, actual) {
-								t.Fatalf("%s/%s lost migrated resource %s: %v", name, kind, path, err)
+								t.Fatalf("%s/%s lost skill resource %s: %v", name, kind, path, err)
 							}
 						}
 					}
+					if len(skillFiles) == 0 {
+						t.Fatalf("%s/%s delivers no skill", name, kind)
+					}
+					slices.Sort(skillFiles)
 					if _, err := verifyDelivery(t.Context(), delivery.Root, p); err != nil {
 						t.Fatal(err)
 					}
-					// The prerequisite launch boundary must reject a changed migrated resource.
-					file := filepath.Join(delivery.Root, "plugin/skills/team-guidance/litefactory.md")
-					if err := os.WriteFile(file, []byte("changed migrated guidance"), 0600); err != nil {
+					// The prerequisite launch boundary must reject a changed skill resource.
+					file := filepath.Join(delivery.Root, "plugin", filepath.FromSlash(skillFiles[0]))
+					if err := os.WriteFile(file, []byte("changed skill resource"), 0600); err != nil {
 						t.Fatal(err)
 					}
 					if err := agent.VerifyRequestDelivery(t.Context(), request); err == nil {

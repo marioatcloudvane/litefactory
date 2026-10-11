@@ -29,7 +29,7 @@ Effective sentences, straight to the point, in easy language. Your reader is not
 
 A story is built by several agents at once, not one after another. Building alone is the exception: only when the story has a single task, or when every task must change the same files. If you build alone, say in your comment which of the two applied.
 
-You may, and are asked to, hand the story's tasks to subagents (with your subagent tool, for example `spawn_agent`). This is the explicit instruction to start them. The specialist tool ceilings and delegation limits in the team guidance bind those subagents, not you.
+You may, and are asked to, hand the story's tasks to subagents (with your subagent tool, for example `spawn_agent`). This is the explicit instruction to start them.
 
  - Read the story's task table. Every task whose dependencies are done goes to its own subagent, all of them started at the same time. Give each subagent its task, the acceptance criteria it serves, the files it owns and the rules below. Start a dependent task as soon as the tasks it needs are done.
  - Give the end-to-end test to its own subagent, started together with the subagents that write the code.

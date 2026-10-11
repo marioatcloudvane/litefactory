@@ -1,8 +1,11 @@
 package graphexec
 
 import (
+	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -280,18 +283,55 @@ func TestImplementResultCheckerAcceptsBothShapesAndRefusesWrongRouting(t *testin
 	}
 }
 
-// TestReleasedImplementGraphWithStoppedStillValidates keeps the released 1.2.5
-// graph, which parks a stopped answer, valid for running instances pinned to it.
+// stoppedImplementShape rewrites a released implement graph to the earlier
+// result shape (completed,stopped, with stopped parking the story) that running
+// instances captured from older releases still use.
+func stoppedImplementShape(t *testing.T, graph string) string {
+	t.Helper()
+	out := strings.Replace(graph, `lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,stopped"`, 1)
+	out = regexp.MustCompile(`(?m)^[ \t]*worker_result[ \t]*->[ \t]*budget[ \t]*\[lf_on="incomplete"\];\n`).ReplaceAllString(out, "")
+	out = regexp.MustCompile(`(worker_result[ \t]*->[ \t]*park_story[ \t]*)\[lf_on="blocked"\]`).ReplaceAllString(out, `${1}[lf_on="stopped"]`)
+	if !strings.Contains(out, `lf_outcomes="completed,stopped"`) || !strings.Contains(out, `[lf_on="stopped"]`) || strings.Contains(out, `[lf_on="incomplete"]`) {
+		t.Fatal("the released implement graph has no derivable stopped shape")
+	}
+	return out
+}
+
+// TestReleasedImplementGraphWithStoppedStillValidates keeps every implement graph
+// the catalogue ships valid, in its own result shape and in the earlier stopped
+// shape that running instances pinned to older releases still use. It reads
+// whatever releases teams/teams.json lists.
 func TestReleasedImplementGraphWithStoppedStillValidates(t *testing.T) {
-	raw, err := os.ReadFile("../../teams/go-development/v1.2.5/implement/implement.dot")
+	raw, err := os.ReadFile("../../teams/teams.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `lf_outcomes="completed,stopped"`) {
-		t.Fatal("the released graph no longer declares stopped")
+	var catalogue struct {
+		Releases []struct {
+			Download string `json:"download"`
+		} `json:"releases"`
 	}
-	if err := validateImplementDOT(t, string(raw)); err != nil {
-		t.Fatal(err)
+	if err := json.Unmarshal(raw, &catalogue); err != nil || len(catalogue.Releases) == 0 {
+		t.Fatalf("catalogue: %v", err)
+	}
+	for _, r := range catalogue.Releases {
+		if !fs.ValidPath(r.Download) {
+			t.Fatalf("unsafe catalogue download %q", r.Download)
+		}
+		graph, err := os.ReadFile(filepath.Join("../../teams", filepath.FromSlash(r.Download), "implement/implement.dot"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateImplementDOT(t, string(graph)); err != nil {
+			t.Errorf("%s: %v", r.Download, err)
+		}
+		shape := string(graph)
+		if !strings.Contains(shape, `lf_outcomes="completed,stopped"`) {
+			shape = stoppedImplementShape(t, shape)
+		}
+		if err := validateImplementDOT(t, shape); err != nil {
+			t.Errorf("%s stopped shape: %v", r.Download, err)
+		}
 	}
 }
 

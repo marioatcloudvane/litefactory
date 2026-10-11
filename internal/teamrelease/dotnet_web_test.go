@@ -237,7 +237,9 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web")), released) {
+		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
+		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))
+		if !bytes.Equal(want, released) {
 			t.Fatal("team selection changed shared graph gates", mode)
 		}
 	}

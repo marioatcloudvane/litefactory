@@ -2,6 +2,7 @@ package bugchecks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"reflect"
@@ -30,10 +31,7 @@ func (r *pythonRecipeRecorder) Run(_ context.Context, _ string, c config.BugChec
 }
 
 func TestReleasedPythonFastAPIRecipesUseSharedContainedChecks(t *testing.T) {
-	raw, err := os.ReadFile("../../teams/python-fastapi/v1.0.0/stack-profile.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := releasedPythonProfile(t)
 	p, err := config.ResolveStackProfile(raw, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -84,4 +82,25 @@ func TestReleasedPythonFastAPIRecipesUseSharedContainedChecks(t *testing.T) {
 	if effective.Network || !reflect.DeepEqual(effective.WritableRoots, isolation.WritableRoots) || !reflect.DeepEqual(effective.DenyRead, isolation.DenyRead) || effective.Binary != isolation.Binary || effective.PATH != isolation.PATH {
 		t.Fatal("release widened operator authority")
 	}
+}
+
+// releasedPythonProfile reads the stack profile of the python-fastapi release the
+// canonical source currently names, so the test follows the owner's releases.
+func releasedPythonProfile(t *testing.T) []byte {
+	t.Helper()
+	meta, err := os.ReadFile("../teamsource/python-fastapi/release.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var release struct {
+		Download string `json:"download"`
+	}
+	if err := json.Unmarshal(meta, &release); err != nil || !strings.HasPrefix(release.Download, "python-fastapi/") || strings.Contains(release.Download, "..") {
+		t.Fatalf("python-fastapi release metadata: %q %v", release.Download, err)
+	}
+	raw, err := os.ReadFile("../../teams/" + release.Download + "/stack-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

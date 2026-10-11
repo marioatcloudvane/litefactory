@@ -110,10 +110,11 @@ several teams into one catalogue, repeat `-source` with each canonical source
 root. Each source supplies its own `release.json`, `team.config`, workflows and
 package-root profile. `-check` verifies the generated result without publishing.
 All candidates are validated before publication. Existing exact versions are
-immutable; use a new version for changed content. Catalogue entries for other
-releases and historical download bytes are preserved.
+immutable. Only the owner chooses, generates and links a release; fixes and
+features change the canonical sources only. Catalogue entries for other releases
+and historical download bytes are preserved.
 
-The new Go release is `go-development@1.2.0`. Its profile retains the supported
+The current Go release is `go-development@1.0.0`. Its profile retains the supported
 Go engineering recipe and declares Go and agent-setup Plan guidance. New role
 IDs name functions such as `implementation-engineer`, `unit-test-engineer` and
 `integration-test-engineer`. A captured role resource explicitly declares
