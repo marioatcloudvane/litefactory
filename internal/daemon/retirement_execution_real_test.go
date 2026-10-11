@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -134,7 +135,7 @@ func retirementAction(t *testing.T, e daemon.RetirementEvaluation, kind, want st
 // AC-001/002/005/006: full executor uses real migrated SQLite, production Git
 // and HTTP client. All fixture resources and remote effects are temporary.
 func TestRetirementExecutionRealLifecycle(t *testing.T) {
-	for _, scenario := range []string{"merged_external", "abandoned_unmerged", "open_merged", "reopened_final", "unavailable_final", "ignored", "untracked", "unpushed", "missing_upstream", "missing_registration", "stale_registration", "remote_only", "owner_locked", "active", "stale_intent"} {
+	for _, scenario := range []string{"merged_external", "abandoned_unmerged", "open_merged", "reopened_final", "unavailable_final", "ignored", "untracked", "unpushed", "missing_upstream", "missing_registration", "stale_registration", "remote_only", "both_absent", "owner_locked", "active", "stale_intent"} {
 		t.Run(scenario, func(t *testing.T) {
 			x := newRetirementExecFixture(t)
 			work, local, remote := "removed", "removed", "removed"
@@ -195,6 +196,11 @@ func TestRetirementExecutionRealLifecycle(t *testing.T) {
 				x.repo.Git("worktree", "remove", x.path)
 				x.repo.Git("branch", "-D", x.session.Branch)
 				work, local = "already_absent", "already_absent"
+			case "both_absent":
+				x.repo.Git("worktree", "remove", x.path)
+				x.repo.Git("branch", "-D", x.session.Branch)
+				x.repo.Git("push", "origin", "--delete", x.session.Branch)
+				work, local, remote = "already_absent", "already_absent", "already_absent"
 			case "owner_locked":
 				ok, err := x.f.db.AcquireSessionLock(t.Context(), x.session.ID, "other")
 				if err != nil || !ok {
@@ -262,6 +268,8 @@ type retirementUncertainGit struct {
 	clone        *git.Clone
 	path, branch string
 	failConfirm  bool
+	confirmErr   error
+	beforeRemove func(kind string)
 	afterRemove  func()
 }
 
@@ -269,6 +277,9 @@ func (g *retirementUncertainGit) Observe(ctx context.Context) (git.RetirementObs
 	return git.ObserveRetirement(ctx, g.clone, g.path, g.branch, "main")
 }
 func (g *retirementUncertainGit) Remove(ctx context.Context, o git.RetirementObservation, kind string) error {
+	if g.beforeRemove != nil {
+		g.beforeRemove(kind)
+	}
 	err := git.GuardedRetirement(ctx, g.clone, o, "main", kind)
 	if err == nil && g.afterRemove != nil {
 		g.afterRemove()
@@ -276,6 +287,9 @@ func (g *retirementUncertainGit) Remove(ctx context.Context, o git.RetirementObs
 	return err
 }
 func (g *retirementUncertainGit) Absent(ctx context.Context, kind string) (bool, error) {
+	if g.confirmErr != nil {
+		return false, g.confirmErr
+	}
 	if g.failConfirm {
 		return false, errors.New("lost confirmation")
 	}
@@ -308,6 +322,59 @@ func TestRetirementExecutionRealUncertainRetry(t *testing.T) {
 	pending, err = x.f.db.PendingRetirementIntents(t.Context(), x.session.ID)
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("pending=%+v err=%v", pending, err)
+	}
+}
+
+// A remote branch deleted by someone else between the initial observation and
+// the deletion is confirmed absence, not a kept, failed or uncertain mutation.
+func TestRetirementExecutionRealRemoteGoneBeforeDelete(t *testing.T) {
+	x := newRetirementExecFixture(t)
+	ops := &retirementUncertainGit{clone: x.clone, path: x.path, branch: x.session.Branch, beforeRemove: func(kind string) {
+		if kind == "remote_branch" {
+			x.repo.Git("push", "origin", "--delete", x.session.Branch)
+		}
+	}}
+	x.options.OpenGit = func(context.Context, store.RetirementOwner) (daemon.RetirementGit, error) { return ops, nil }
+	e, err := x.execute(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retirementAction(t, e, "remote_branch", "removed")
+	for _, d := range e.Decisions {
+		if d.Kind == "remote_branch" && d.Reason != "confirmed_absence" {
+			t.Fatalf("remote reason %+v", d)
+		}
+	}
+	pending, err := x.f.db.PendingRetirementIntents(t.Context(), x.session.ID)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("pending=%+v err=%v", pending, err)
+	}
+	if out := x.repo.Git("ls-remote", "origin", "refs/heads/"+x.session.Branch); out != "" {
+		t.Fatalf("remote branch present: %s", out)
+	}
+}
+
+// A failing confirmation names its Git step on the incomplete ERROR line and
+// never logs the raw error text.
+func TestRetirementExecutionRealConfirmationFailureLogsStep(t *testing.T) {
+	x := newRetirementExecFixture(t)
+	ops := &retirementUncertainGit{clone: x.clone, path: x.path, branch: x.session.Branch, confirmErr: &git.CommandError{Args: []string{"ls-remote", "--refs", "--", "origin"}, ExitCode: 128, Stderr: "https://token-secret@example.test"}}
+	x.options.OpenGit = func(context.Context, store.RetirementOwner) (daemon.RetirementGit, error) { return ops, nil }
+	if _, err := x.execute(t); err == nil {
+		t.Fatal("failed confirmation claimed success")
+	}
+	logs := x.f.logs.String()
+	var line string
+	for _, l := range strings.Split(logs, "\n") {
+		if strings.Contains(l, `msg="retirement execution incomplete"`) {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "level=ERROR") || !strings.Contains(line, "git_step=ls-remote") || !strings.Contains(line, "git_exit_code=128") || !strings.Contains(line, "git_timed_out=false") {
+		t.Fatalf("incomplete line lacks git step: %q", line)
+	}
+	if strings.Contains(logs, "token-secret") {
+		t.Fatal("raw Git error logged")
 	}
 }
 

@@ -36,6 +36,11 @@ func GuardedRetirement(ctx context.Context, c *Clone, previous RetirementObserva
 		// Also reconciles an exact stale registered path without global prune.
 		return c.WorktreeRemove(ctx, current.Path, WorktreeRemoveOptions{})
 	case "local_branch":
+		// Observed absence (a successful probe that found no ref) is the goal
+		// state; the caller confirms it independently.
+		if current.LocalSHA == "" {
+			return nil
+		}
 		if current.LocalSHA != previous.LocalSHA || current.LocalSHA == "" || !current.LocalMerged || current.BranchInUse {
 			return ErrRetirementChanged
 		}
@@ -44,6 +49,9 @@ func GuardedRetirement(ctx context.Context, c *Clone, previous RetirementObserva
 		_, err = c.runner.run(ctx, readTimeout, "update-ref", "--no-deref", "-d", ref, previous.LocalSHA)
 		return err
 	case "remote_branch":
+		if current.RemoteSHA == "" {
+			return nil
+		}
 		if current.RemoteSHA != previous.RemoteSHA || current.RemoteSHA == "" || !current.RemoteMerged {
 			return ErrRetirementChanged
 		}
