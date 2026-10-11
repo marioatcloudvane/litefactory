@@ -1,0 +1,1 @@
+ALTER TABLE chat_inbox ADD COLUMN arguments TEXT NOT NULL DEFAULT '{}';
