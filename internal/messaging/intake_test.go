@@ -122,3 +122,58 @@ func TestNaturalIntakeFutureTimestampDoesNotAdvance(t *testing.T) {
 		t.Fatalf("future request lost: %+v %v", pending, err)
 	}
 }
+
+func TestNaturalIntakeLargeIntervalCompletes(t *testing.T) {
+	db := database(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	if err := db.ActivateNaturalScan(ctx, "2", "100"); err != nil {
+		t.Fatal(err)
+	}
+	// Twelve full pages of owner messages (IDs 101..1300) exceed the 1000 limit.
+	r := &intakeReader{pages: map[string]messaging.IntakePage{}}
+	for page := 0; page < 12; page++ {
+		high := 1300 - page*100
+		before := ""
+		if page > 0 {
+			before = fmt.Sprint(high + 1)
+		}
+		var messages []store.NaturalMessage
+		for id := high; id > high-100; id-- {
+			messages = append(messages, store.NaturalMessage{ChannelRef: "2", OwnerID: "3", SourceID: fmt.Sprint(id), Text: "hello", CreatedAt: at})
+		}
+		r.pages[before] = messaging.IntakePage{HighID: fmt.Sprint(high), LowID: fmt.Sprint(high - 99), Count: 100, Messages: messages}
+	}
+	intake := &messaging.Intake{DB: db, Reader: r, Owner: "3", Transport: "discord", Channels: []string{"2"}, Protect: func(_ context.Context, text string) (string, error) { return text, nil }}
+	for tick := 0; tick < 4; tick++ {
+		if err := intake.Poll(ctx, at); err != nil {
+			t.Fatalf("tick %d: %v", tick, err)
+		}
+	}
+	scan, err := db.ReadNaturalScan(ctx, "2")
+	if err != nil || scan.Cursor != "1300" || scan.HighWater != "" || scan.Before != "" {
+		t.Fatalf("scan not completed: %+v %v", scan, err)
+	}
+	want := 101
+	for {
+		pending, e := db.PendingNaturalMessages(ctx, "2", 100)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if len(pending) == 0 {
+			break
+		}
+		for _, m := range pending {
+			if m.SourceID != fmt.Sprint(want) {
+				t.Fatalf("release order: got %s want %d", m.SourceID, want)
+			}
+			if e = db.FinishNaturalMessage(ctx, "2", m.SourceID, at); e != nil {
+				t.Fatal(e)
+			}
+			want++
+		}
+	}
+	if want != 1301 {
+		t.Fatalf("released %d messages, want 1200", want-101)
+	}
+}
