@@ -91,6 +91,10 @@ func (r *Reporter) deliver(ctx context.Context, intent store.ReportDelivery, ren
 	if !errors.Is(err, store.ErrNotFound) {
 		return Posted{}, err
 	}
+	intent.BotUserID, err = retainedTicketPublisher(ctx, r.db, intent.SessionID, intent.BotUserID)
+	if err != nil {
+		return Posted{}, err
+	}
 	body, err := render()
 	if err != nil {
 		return Posted{}, err
@@ -217,7 +221,7 @@ func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDe
 		return r.dispatchDelivery(ctx, saved)
 	}
 	delivery.PossiblySent = true
-	comment, err := r.post(ctx, destination, body, r.log)
+	comment, err := r.postEffect(ctx, "report:"+delivery.Key, destination, body, r.log)
 	if err != nil {
 		return Posted{}, err
 	}
@@ -284,6 +288,20 @@ func (r *Reporter) commentAtDestination(ctx context.Context, comment github.Comm
 }
 
 func (r *Reporter) recoverDelivery(ctx context.Context, delivery store.ReportDelivery, destination naming.Ref) (int64, error) {
+	if correlated, ok := r.forge.(interface {
+		RecoverCommentEffect(context.Context, string, github.Repo, int, string) (github.Comment, bool, error)
+	}); ok {
+		comment, qualified, err := correlated.RecoverCommentEffect(ctx, "report:"+delivery.Key, github.RepoFromRef(destination), destination.Issue, delivery.Body)
+		if qualified {
+			if err != nil {
+				return 0, err
+			}
+			if comment.Author.ID != delivery.BotUserID || comment.Body != delivery.Body || !r.commentAtDestination(ctx, comment, destination) {
+				return 0, ErrReportReceiptUncertain
+			}
+			return comment.ID, nil
+		}
+	}
 	comments, err := r.deliveryComments(ctx, destination)
 	if err != nil {
 		return 0, err

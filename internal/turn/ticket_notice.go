@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"strconv"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -43,13 +42,9 @@ func (b *TicketWorkflowBridge) PostNotice(ctx context.Context, marker, parent st
 		return selected.PostNotice(ctx, marker, parent, botID, repo, number, body)
 	}
 	if botID == 0 {
-		var err error
-		botID, err = strconv.ParseInt(b.Bot.RemoteID, 10, 64)
-		if err != nil {
-			return github.Comment{}, err
-		}
+		botID = b.ActorID()
 	}
-	if strconv.FormatInt(botID, 10) != b.Bot.RemoteID || b.Bot.Provider != ticket.GitHub || b.Bot.Origin != b.Publication.origin {
+	if botID != b.ActorID() || b.Bot.Origin != b.Publication.origin {
 		return github.Comment{}, store.ErrTicketIdentityConflict
 	}
 	return b.Publication.PostNotice(ctx, marker, parent, botID, repo, number, body)
@@ -63,11 +58,14 @@ func (b *TicketPublicationBridge) PostNotice(ctx context.Context, marker, parent
 	}
 	digest := sha256.Sum256([]byte(parent + "\x00" + marker))
 	key := "notice:" + hex.EncodeToString(digest[:])
-	locator, err := b.locator(repo, number)
+	locator, err := b.locator(ctx, repo, number)
 	if err != nil {
 		return github.Comment{}, err
 	}
-	actor := ticket.Identity{Provider: ticket.GitHub, Origin: b.origin, RemoteID: strconv.FormatInt(botID, 10)}
+	actor, err := compatibilityIdentity(ctx, b.db, b.provider, b.origin, "actor", botID)
+	if err != nil {
+		return github.Comment{}, err
+	}
 	snapshot, err := b.resolve(ctx, key, locator, actor)
 	if err != nil {
 		return github.Comment{}, err
@@ -83,7 +81,7 @@ func (b *TicketPublicationBridge) PostNotice(ctx context.Context, marker, parent
 		if reply.Ticket.Locator != snapshot.Ref.Locator || !reply.Ticket.Equal(snapshot.Ref) || !reply.Author.Identity.Equal(actor) || reply.Body != debt.Body || !exactProgressMarker(reply.Body, marker) {
 			return uncertain(store.ErrTicketIdentityConflict)
 		}
-		out, e := legacyPublicationReply(reply, snapshot.Ref)
+		out, e := compatibilityReply(ctx, b.db, reply, snapshot.Ref)
 		if e != nil {
 			return uncertain(e)
 		}
@@ -96,11 +94,11 @@ func (b *TicketPublicationBridge) PostNotice(ctx context.Context, marker, parent
 		return out, nil
 	}
 
-	cursor, e := github.ReplyCursor(snapshot.Ref, 0)
+	cursor, e := compatibilityReplyCursor(ctx, b.db, snapshot.Ref, 0)
 	if e != nil {
 		return uncertain(e)
 	}
-	observed, e := b.tickets.RepliesAfter(ctx, snapshot.Ref, cursor)
+	observed, e := completeCompatibilityReplies(ctx, b.tickets, snapshot.Ref, cursor)
 	if e != nil {
 		return uncertain(e)
 	}
@@ -137,7 +135,7 @@ func (b *TicketPublicationBridge) PostNotice(ctx context.Context, marker, parent
 		return uncertain(errors.New("original notice dispatch is owned by another invocation"))
 	}
 
-	reply, e := b.tickets.PublishReply(ctx, snapshot.Ref, body)
+	reply, e := b.publishEffect(ctx, key, snapshot.Ref, body)
 	if e != nil {
 		return uncertain(e)
 	}

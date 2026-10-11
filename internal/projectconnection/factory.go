@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -30,6 +31,7 @@ const DefaultTimeout = 30 * time.Second
 
 // Options configures external credential resolution and the existing transport.
 type Options struct {
+	DB       *store.DB
 	Resolver secrets.Resolver
 	// LegacyReference and LegacyToken reuse the already resolved startup token
 	// only for matching imported legacy versions. Explicit settings always resolve.
@@ -46,10 +48,12 @@ type Options struct {
 
 // Clients contains separate protocol surfaces for one version and verified actor.
 type Clients struct {
-	Code     *github.Client
-	Tickets  *github.Tickets
-	Actor    github.User
-	Redactor *redact.Redactor
+	Linear    *linear.Client
+	Publisher ticket.Actor
+	Code      *github.Client
+	Tickets   TicketClient
+	Actor     github.User
+	Redactor  *redact.Redactor
 }
 
 type cacheKey struct{ version, actor int64 }
@@ -92,6 +96,9 @@ func (f *Factory) Refresh(ctx context.Context, v store.ConnectionVersion, expect
 }
 
 func (f *Factory) load(ctx context.Context, v store.ConnectionVersion, expectedActorID int64, refresh bool) (*Clients, error) {
+	if v.ID > 0 && v.Provider == ticket.Linear {
+		return f.loadLinear(ctx, v, expectedActorID, refresh)
+	}
 	if v.ID <= 0 || v.Provider != ticket.GitHub {
 		return nil, ErrInvalidConnection
 	}

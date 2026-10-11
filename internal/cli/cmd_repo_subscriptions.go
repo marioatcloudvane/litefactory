@@ -158,7 +158,7 @@ func runRepoSubscription(ctx context.Context, env *Env, cmd *Command, action str
 }
 
 func newProjectSubscriptions(ctx context.Context, env *Env, rt *repoRuntime, v store.ConnectionVersion) (webhookreg.Subscriptions, error) {
-	factory := projectconnection.NewFactory(projectconnection.Options{Logger: env.Logger, Resolver: secrets.Resolver{Keychain: env.Keychain}, UserAgent: initUserAgent(env)})
+	factory := projectconnection.NewFactory(projectconnection.Options{DB: rt.db, Logger: env.Logger, Resolver: secrets.Resolver{Keychain: env.Keychain}, UserAgent: initUserAgent(env)})
 	clients, err := factory.Clients(ctx, v, 0)
 	if err != nil {
 		return webhookreg.Subscriptions{}, err

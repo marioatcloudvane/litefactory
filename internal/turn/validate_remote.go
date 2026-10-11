@@ -146,7 +146,7 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 		if err != nil {
 			return fail(store.EffectFailed, err)
 		}
-		created, createErr := r.b.Delivery.tickets().CreateIssue(ctx, r.target.Repo, title, body)
+		created, createErr := createTicketEffect(ctx, r.b.Delivery.tickets(), "validate-issue:"+marker, r.target.Repo, 0, title, body)
 		if createErr != nil {
 			// A lost reply may still have created it: look before saying it failed.
 			again, listErr := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.Repo)

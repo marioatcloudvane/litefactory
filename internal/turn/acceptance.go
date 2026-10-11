@@ -109,6 +109,10 @@ func (p *StoryProgress) deliverAcceptance(ctx context.Context, parent string) er
 	return errors.Join(faults...)
 }
 func (p *StoryProgress) deliverAcceptanceOne(ctx context.Context, d store.AcceptanceDecision) error {
+	publisherID, publisherErr := p.ticketPublisherID(ctx, d.Parent)
+	if publisherErr != nil {
+		return publisherErr
+	}
 	forge, ok := p.forge.(acceptanceForge)
 	if !ok {
 		return fmt.Errorf("acceptance body gateway unavailable")
@@ -162,7 +166,7 @@ func (p *StoryProgress) deliverAcceptanceOne(ctx context.Context, d store.Accept
 			return err
 		}
 		for _, c := range comments {
-			if !hasTicketNoticeGuard(p.forge) && c.Author.ID == p.botID && exactProgressMarker(c.Body, n.Marker()) {
+			if !hasTicketNoticeGuard(p.forge) && c.Author.ID == publisherID && exactProgressMarker(c.Body, n.Marker()) {
 				d.CommentID = c.ID
 				break
 			}
@@ -172,11 +176,11 @@ func (p *StoryProgress) deliverAcceptanceOne(ctx context.Context, d store.Accept
 			if err != nil {
 				return err
 			}
-			c, err := postTicketNotice(ctx, p.forge, n.Marker(), d.Parent, p.botID, repo, d.IssueNumber, body)
+			c, err := postTicketNotice(ctx, p.forge, n.Marker(), d.Parent, publisherID, repo, d.IssueNumber, body)
 			if err != nil {
 				return err
 			}
-			if c.ID < 1 || c.Author.ID != p.botID {
+			if c.ID < 1 || c.Author.ID != publisherID {
 				return fmt.Errorf("acceptance comment provenance mismatch")
 			}
 			d.CommentID = c.ID

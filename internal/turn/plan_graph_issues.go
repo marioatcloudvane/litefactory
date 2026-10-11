@@ -106,7 +106,7 @@ func (r *planGraphRuntime) createStoryIssues(ctx context.Context) (err error) {
 				if err != nil {
 					return err
 				}
-				created, err := forge.CreateIssue(ctx, repo, safeTitle, safeBody)
+				created, err := createTicketEffect(ctx, forge, "plan-shell:"+parent+":"+key, repo, r.parentNumber, safeTitle, safeBody)
 				if err != nil {
 					return fmt.Errorf("create the issue of story %s: %w", key, err)
 				}

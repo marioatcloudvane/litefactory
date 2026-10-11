@@ -233,7 +233,7 @@ func consumeReportSource(ctx context.Context, tx *sql.Tx, sessionID, triggerID i
 // FindPendingReportDelivery permits source recovery before an executor can
 // reinterpret the trigger against changed readiness or task state.
 func (db *DB) FindPendingReportDelivery(ctx context.Context, sessionID, triggerID int64) (ReportDelivery, bool, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE session_id=? AND trigger_id=? AND completed=0 AND trigger_namespace NOT IN ('plan-observation','plan-reply','plan-notice','research-reminder') ORDER BY delivery_key LIMIT 2`, sessionID, triggerID)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE session_id=? AND trigger_id=? AND completed=0 AND trigger_namespace NOT IN ('plan-observation','plan-reply','plan-notice','research-reminder','code-pr-proposal') ORDER BY delivery_key LIMIT 2`, sessionID, triggerID)
 	if err != nil {
 		return ReportDelivery{}, false, err
 	}
@@ -259,7 +259,7 @@ func (db *DB) FindPendingReportDelivery(ctx context.Context, sessionID, triggerI
 
 // ListPendingReportDeliveries is durable recovery debt independent of watermarks.
 func (db *DB) ListPendingReportDeliveries(ctx context.Context) ([]ReportDelivery, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE completed=0 AND doctor_command_id IS NULL ORDER BY session_id,trigger_id,delivery_key`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+reportDeliveryColumns+` FROM report_deliveries WHERE completed=0 AND doctor_command_id IS NULL AND trigger_namespace<>'code-pr-proposal' ORDER BY session_id,trigger_id,delivery_key`)
 	if err != nil {
 		return nil, err
 	}

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -43,7 +42,7 @@ func (d *Daemon) managedChildSession(ctx context.Context, repo store.Repo, paren
 		return store.Session{}, err
 	}
 	owner, name, _ := strings.Cut(version.Destination, "/")
-	access, err := clients.Code.InspectRepository(checkCtx, github.Repo{Owner: owner, Name: name})
+	container, err := clients.Tickets.ContainerIdentity(checkCtx, version.Destination)
 	if err != nil {
 		return store.Session{}, err
 	}
@@ -51,16 +50,32 @@ func (d *Daemon) managedChildSession(ctx context.Context, repo store.Repo, paren
 	if remoteContainer == "" {
 		remoteContainer = version.RemoteID
 	}
-	if remoteContainer == "" || remoteContainer != strconv.FormatInt(access.ID, 10) || !strings.EqualFold(access.FullName, version.Destination) {
+	if remoteContainer == "" || remoteContainer != container.RemoteID {
 		return store.Session{}, errors.New("managed child original ticket container identity changed or unresolved")
 	}
-	observed, err := clients.Tickets.Resolve(checkCtx, ticket.Locator{Provider: version.Provider, Origin: version.Origin, Container: version.Destination, Key: strconv.Itoa(number)})
+	key := strconv.Itoa(number)
+	if version.Provider == ticket.Linear {
+		id, e := d.db.TicketIdentityForSlot(ctx, "issue", int64(number))
+		if e != nil {
+			return store.Session{}, e
+		}
+		key = id.RemoteID
+	}
+	observed, err := clients.Tickets.Resolve(checkCtx, ticket.Locator{Provider: version.Provider, Origin: version.Origin, Container: version.Destination, Key: key})
 	if err != nil {
 		return store.Session{}, err
 	}
-	if remoteID > 0 && observed.Ref.Identity.RemoteID != strconv.FormatInt(remoteID, 10) {
+	expectedID := strconv.FormatInt(remoteID, 10)
+	if remoteID > 0 && version.Provider == ticket.Linear {
+		id, e := d.db.TicketIdentityForSlot(ctx, "issue", remoteID)
+		if e != nil {
+			return store.Session{}, e
+		}
+		expectedID = id.RemoteID
+	}
+	if remoteID > 0 && observed.Ref.Identity.RemoteID != expectedID {
 		return store.Session{}, errors.New("managed child original ticket identity changed")
 	}
-	alias := naming.Ref{Forge: naming.ForgeGitHub, Owner: owner, Repo: name, Issue: number}.String()
+	alias := naming.Ref{Forge: string(version.Provider), Owner: owner, Repo: name, Issue: number}.String()
 	return d.db.AdmitManagedChild(ctx, parent.ID, observed.Ref, alias)
 }

@@ -55,6 +55,9 @@ func TestAuthenticatedUserOnAMachineAccountIsNotTypedAsABot(t *testing.T) {
 	if user.IsBot {
 		t.Error("IsBot = true for an account GitHub typed as User")
 	}
+	if !user.IsHuman {
+		t.Error("explicit User account type was not retained for authenticated control verification")
+	}
 	if user.ID != 777 {
 		t.Fatalf("ID = %d, want 777 — the id is the identity when the bot flag cannot be trusted", user.ID)
 	}

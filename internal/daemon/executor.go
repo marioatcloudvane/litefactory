@@ -58,7 +58,11 @@ func (e turnExecutor) Execute(ctx context.Context, req turn.Request) (turn.Resul
 		if err != nil {
 			return turn.Result{}, err
 		}
-		opts.AssetFetcher = clients.Code
+		if clients.Code != nil {
+			opts.AssetFetcher = clients.Code
+		} else {
+			opts.AssetFetcher = nil
+		}
 	}
 	return turn.Execute(ctx, opts, req)
 }

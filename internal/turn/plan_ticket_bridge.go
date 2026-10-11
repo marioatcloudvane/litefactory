@@ -49,7 +49,7 @@ func (b *TicketPlanBridge) locator(repo github.Repo, number int) ticket.Locator 
 	return ticket.Locator{Provider: ticket.GitHub, Origin: b.Tickets.Origin(), Container: repo.String(), Key: strconv.Itoa(number)}
 }
 func planDestination(l ticket.Locator) string {
-	return "plan-ticket:github:" + l.Container + "#" + l.Key
+	return "plan-ticket:" + string(l.Provider) + ":" + l.Container + "#" + l.Key
 }
 func (b *TicketPlanBridge) bind(ctx context.Context, s ticket.Snapshot) (ticket.Snapshot, error) {
 	if b.DB == nil || b.Tickets == nil {
@@ -58,7 +58,7 @@ func (b *TicketPlanBridge) bind(ctx context.Context, s ticket.Snapshot) (ticket.
 	if err := s.Ref.Validate(); err != nil {
 		return ticket.Snapshot{}, err
 	}
-	if s.Ref.Identity.Provider != ticket.GitHub || s.Ref.Identity.Origin != b.Tickets.Origin() {
+	if s.Ref.Identity.Provider != workflowProvider(b.Tickets) || s.Ref.Identity.Origin != b.Tickets.Origin() {
 		return ticket.Snapshot{}, store.ErrTicketIdentityConflict
 	}
 	if err := bindKnownTicketSession(ctx, b.DB, s); err != nil {
@@ -80,7 +80,10 @@ func (b *TicketPlanBridge) read(ctx context.Context, repo github.Repo, number in
 	if b.DB == nil || b.Tickets == nil {
 		return ticket.Snapshot{}, errors.New("plan ticket dependencies required")
 	}
-	locator := b.locator(repo, number)
+	locator, err := compatibilityLocator(ctx, b.DB, workflowProvider(b.Tickets), b.Tickets.Origin(), repo, number)
+	if err != nil {
+		return ticket.Snapshot{}, err
+	}
 	if _, err := retainedTicketSession(ctx, b.DB, locator); err != nil {
 		return ticket.Snapshot{}, err
 	}
@@ -162,7 +165,7 @@ func (b *TicketPlanBridge) GetIssue(ctx context.Context, r github.Repo, n int) (
 	if e != nil {
 		return github.Issue{}, e
 	}
-	return planLegacyIssue(s)
+	return compatibilityIssue(ctx, b.DB, s)
 }
 
 // GetParentIssue observes and binds the direct parent ticket.
@@ -179,7 +182,7 @@ func (b *TicketPlanBridge) GetParentIssue(ctx context.Context, r github.Repo, n 
 	if e != nil {
 		return github.Issue{}, e
 	}
-	return planLegacyIssue(p)
+	return compatibilityIssue(ctx, b.DB, p)
 }
 func (b *TicketPlanBridge) inventory(ctx context.Context, ss []ticket.Snapshot, e error) ([]github.Issue, error) {
 	if e != nil {
@@ -191,7 +194,7 @@ func (b *TicketPlanBridge) inventory(ctx context.Context, ss []ticket.Snapshot, 
 		if e != nil {
 			return nil, e
 		}
-		v, e := planLegacyIssue(s)
+		v, e := compatibilityIssue(ctx, b.DB, s)
 		if e != nil {
 			return nil, e
 		}
@@ -232,7 +235,7 @@ func (b *TicketPlanBridge) CreateIssue(ctx context.Context, r github.Repo, t, bo
 	if e != nil {
 		return github.Issue{}, e
 	}
-	return planLegacyIssue(s)
+	return compatibilityIssue(ctx, b.DB, s)
 }
 
 // UpdateIssue checks fresh content and verifies the update through readback.
@@ -245,7 +248,7 @@ func (b *TicketPlanBridge) UpdateIssue(ctx context.Context, r github.Repo, n int
 	if e != nil {
 		return github.Issue{}, e
 	}
-	return planLegacyIssue(s)
+	return compatibilityIssue(ctx, b.DB, s)
 }
 func (b *TicketPlanBridge) childID(ctx context.Context, r github.Repo, id int64) (ticket.Ref, error) {
 	ss, e := b.Tickets.Followups(ctx, r.String())
@@ -254,7 +257,11 @@ func (b *TicketPlanBridge) childID(ctx context.Context, r github.Repo, id int64)
 	}
 	var found *ticket.Snapshot
 	for i := range ss {
-		if ss[i].Ref.Identity.RemoteID == strconv.FormatInt(id, 10) {
+		candidate, slotErr := compatibilitySlot(ctx, b.DB, "issue", ss[i].Ref.Identity)
+		if slotErr != nil {
+			return ticket.Ref{}, slotErr
+		}
+		if candidate == id {
 			if found != nil {
 				return ticket.Ref{}, errors.New("ambiguous child identity")
 			}
@@ -287,11 +294,11 @@ func (b *TicketPlanBridge) ListCommentsAfter(ctx context.Context, r github.Repo,
 	if e != nil {
 		return nil, e
 	}
-	cursor, e := github.ReplyCursor(s.Ref, id)
+	cursor, e := compatibilityReplyCursor(ctx, b.DB, s.Ref, id)
 	if e != nil {
 		return nil, e
 	}
-	page, e := b.Tickets.RepliesAfter(ctx, s.Ref, cursor)
+	page, e := completeCompatibilityReplies(ctx, b.Tickets, s.Ref, cursor)
 	if e != nil {
 		return nil, e
 	}
@@ -300,34 +307,15 @@ func (b *TicketPlanBridge) ListCommentsAfter(ctx context.Context, r github.Repo,
 	}
 	out := make([]github.Comment, 0, len(page.Replies))
 	for _, reply := range page.Replies {
-		v, e := planLegacyReply(reply)
+		v, e := compatibilityReply(ctx, b.DB, reply, s.Ref)
 		if e != nil {
 			return nil, e
 		}
-		out = append(out, v)
+		if v.ID > id {
+			out = append(out, v)
+		}
 	}
 	return out, nil
-}
-func planLegacyReply(r ticket.Reply) (github.Comment, error) {
-	if err := r.Ticket.Validate(); err != nil {
-		return github.Comment{}, err
-	}
-	if err := r.Identity.Validate(); err != nil {
-		return github.Comment{}, err
-	}
-	if r.Identity.Provider != ticket.GitHub || r.Identity.Provider != r.Ticket.Identity.Provider || r.Identity.Origin != r.Ticket.Identity.Origin || r.Author.Identity.Provider != r.Identity.Provider || r.Author.Identity.Origin != r.Identity.Origin {
-		return github.Comment{}, store.ErrTicketIdentityConflict
-	}
-
-	id, e := strconv.ParseInt(r.Identity.RemoteID, 10, 64)
-	if e != nil || id < 1 {
-		return github.Comment{}, errors.New("invalid retained GitHub reply id")
-	}
-	a, e := planLegacyActor(r.Author)
-	if e != nil {
-		return github.Comment{}, e
-	}
-	return github.Comment{APIURL: string(r.Identity.Origin) + "/repos/" + r.Ticket.Locator.Container + "/issues/comments/" + r.Identity.RemoteID, IssueAPIURL: string(r.Identity.Origin) + "/repos/" + r.Ticket.Locator.Container + "/issues/" + r.Ticket.Locator.Key, ID: id, Author: a, Body: r.Body, HTMLURL: r.BrowserURL, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}, nil
 }
 
 // PostComment publishes only to the recorded immutable ticket.
@@ -340,7 +328,7 @@ func (b *TicketPlanBridge) PostComment(ctx context.Context, r github.Repo, n int
 	if e != nil {
 		return github.Comment{}, e
 	}
-	return planLegacyReply(reply)
+	return compatibilityReply(ctx, b.DB, reply, s.Ref)
 }
 func (b *TicketPlanBridge) relationship(ctx context.Context, r github.Repo, pn int, pid int64, cn int, cid int64) (ticket.Ref, ticket.Ref, error) {
 	p, e := b.read(ctx, r, pn)
@@ -351,7 +339,15 @@ func (b *TicketPlanBridge) relationship(ctx context.Context, r github.Repo, pn i
 	if e != nil {
 		return ticket.Ref{}, ticket.Ref{}, e
 	}
-	if p.Ref.Identity.RemoteID != strconv.FormatInt(pid, 10) || c.Ref.Identity.RemoteID != strconv.FormatInt(cid, 10) {
+	parentID, e := compatibilitySlot(ctx, b.DB, "issue", p.Ref.Identity)
+	if e != nil {
+		return ticket.Ref{}, ticket.Ref{}, e
+	}
+	childID, e := compatibilitySlot(ctx, b.DB, "issue", c.Ref.Identity)
+	if e != nil {
+		return ticket.Ref{}, ticket.Ref{}, e
+	}
+	if parentID != pid || childID != cid {
 		return ticket.Ref{}, ticket.Ref{}, errors.New("retained Plan relationship identity differs")
 	}
 	return p.Ref, c.Ref, nil
@@ -393,7 +389,7 @@ func (b *TicketPlanBridge) UpdateIssueExpected(ctx context.Context, r github.Rep
 	if err != nil {
 		return github.Issue{}, err
 	}
-	return planLegacyIssue(s)
+	return compatibilityIssue(ctx, b.DB, s)
 }
 
 // CloseDeliveredParent closes the exact recorded parent after caller integration checks.
@@ -402,7 +398,11 @@ func (b *TicketPlanBridge) CloseDeliveredParent(ctx context.Context, r github.Re
 	if err != nil {
 		return err
 	}
-	if s.Ref.Identity.RemoteID != strconv.FormatInt(id, 10) {
+	currentID, err := compatibilitySlot(ctx, b.DB, "issue", s.Ref.Identity)
+	if err != nil {
+		return err
+	}
+	if currentID != id {
 		return errors.New("delivered parent identity changed")
 	}
 	return b.Tickets.Close(ctx, s.Ref)

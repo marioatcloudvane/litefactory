@@ -3,7 +3,6 @@ package turn
 import (
 	"context"
 	"errors"
-	"strconv"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -16,12 +15,12 @@ import (
 // TicketConnectionSelector resolves a trusted project version or a retained
 // session snapshot. A zero number allows container and reply operations; the
 // factory uses retained context or rejects ambiguity rather than guessing.
-type TicketConnectionSelector func(context.Context, github.Repo, int, int64) (*github.Tickets, int64, error)
+type TicketConnectionSelector func(context.Context, github.Repo, int, int64) (WorkflowTickets, int64, error)
 
 // NewRoutedGitHubTicketWorkflow selects a separate immutable bridge per operation.
 // The default adapter supplies the contextless compatibility metadata. Every
 // remote operation requires selection; failures never use replacement settings.
-func NewRoutedGitHubTicketWorkflow(db *store.DB, defaults *github.Tickets, botID int64, selector TicketConnectionSelector) (*TicketWorkflowBridge, error) {
+func NewRoutedGitHubTicketWorkflow(db *store.DB, defaults WorkflowTickets, botID int64, selector TicketConnectionSelector) (*TicketWorkflowBridge, error) {
 	if selector == nil {
 		return nil, errors.New("ticket connection selector required")
 	}
@@ -44,7 +43,7 @@ func (b *TicketWorkflowBridge) selected(ctx context.Context, repo github.Repo, n
 	if adapter == nil || actorID < 1 {
 		return nil, errors.New("retained ticket connection unavailable")
 	}
-	selected, err := NewGitHubTicketWorkflow(b.DB, adapter, actorID)
+	selected, err := NewTicketWorkflow(ctx, b.DB, adapter, actorID)
 	if err != nil {
 		return nil, err
 	}
@@ -53,8 +52,7 @@ func (b *TicketWorkflowBridge) selected(ctx context.Context, repo github.Repo, n
 
 // ActorID exposes the verified actor as the existing numeric compatibility value.
 func (b *TicketWorkflowBridge) ActorID() int64 {
-	id, _ := strconv.ParseInt(b.Bot.RemoteID, 10, 64)
-	return id
+	return b.actorID
 }
 
 // BotIdentityFor qualifies the verified retained actor for contextual callers.
@@ -187,17 +185,25 @@ func (b *TicketWorkflowBridge) ReadOpenIssues(ctx context.Context, r github.Repo
 // caller's retained execution context before accepting its legacy URL fields.
 func (b *TicketWorkflowBridge) VerifiedCommentDestinationFor(ctx context.Context, c github.Comment, ref naming.Ref) bool {
 	if b.selector == nil {
-		return b.Publication.VerifiedCommentDestination(c, ref)
+		return b.Publication.verifiedCommentDestination(ctx, c, ref)
 	}
 	selected, err := b.selected(ctx, github.RepoFromRef(ref), ref.Issue, 0)
 	if err != nil || c.ID < 1 {
 		return false
 	}
 	retained, err := selected.Publication.retainedReply(ctx, github.RepoFromRef(ref), c.ID)
-	if err != nil || retained.Ticket.Locator.Key != strconv.Itoa(ref.Issue) || retained.Author.Identity.RemoteID != strconv.FormatInt(c.Author.ID, 10) {
+	if err != nil {
 		return false
 	}
-	return selected.Publication.VerifiedCommentDestination(c, ref)
+	locator, err := selected.Publication.locator(ctx, github.RepoFromRef(ref), ref.Issue)
+	if err != nil || retained.Ticket.Locator != locator {
+		return false
+	}
+	actor, err := compatibilityIdentity(ctx, b.DB, selected.Publication.provider, selected.Publication.origin, "actor", c.Author.ID)
+	if err != nil || !retained.Author.Identity.Equal(actor) {
+		return false
+	}
+	return selected.Publication.verifiedCommentDestination(ctx, c, ref)
 }
 
 func verifiedCommentDestination(ctx context.Context, forge any, c github.Comment, ref naming.Ref) (bool, bool) {

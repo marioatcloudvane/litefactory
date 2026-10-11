@@ -45,18 +45,22 @@ type ConnectionVersion struct {
 	Provenance                                                            string
 	ClonePath, RemoteURL, BaseBranch, FeaturePrefix, WorktreeRoot         string
 	CreatedAt                                                             time.Time
+	Linear                                                                LinearConfiguration
 }
 
-const connectionColumns = `id,repo_id,revision,role,provider,api_origin,destination,remote_id,credential_source,credential_service,credential_account,credential_env,enabled,provenance,clone_path,remote_url,base_branch,feature_prefix,worktree_root,created_at`
+const connectionColumns = `id,repo_id,revision,role,provider,api_origin,destination,remote_id,credential_source,credential_service,credential_account,credential_env,enabled,provenance,clone_path,remote_url,base_branch,feature_prefix,worktree_root,created_at,linear_configuration`
 
 func scanConnection(row scanner) (ConnectionVersion, error) {
 	var v ConnectionVersion
-	var created string
-	err := row.Scan(&v.ID, &v.RepoID, &v.Revision, &v.Role, &v.Provider, &v.Origin, &v.Destination, &v.RemoteID, &v.CredentialSource, &v.CredentialService, &v.CredentialAccount, &v.CredentialEnv, &v.Enabled, &v.Provenance, &v.ClonePath, &v.RemoteURL, &v.BaseBranch, &v.FeaturePrefix, &v.WorktreeRoot, &created)
+	var created, linear string
+	err := row.Scan(&v.ID, &v.RepoID, &v.Revision, &v.Role, &v.Provider, &v.Origin, &v.Destination, &v.RemoteID, &v.CredentialSource, &v.CredentialService, &v.CredentialAccount, &v.CredentialEnv, &v.Enabled, &v.Provenance, &v.ClonePath, &v.RemoteURL, &v.BaseBranch, &v.FeaturePrefix, &v.WorktreeRoot, &created, &linear)
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, ErrNotFound
 	}
 	if err != nil {
+		return v, err
+	}
+	if err = json.Unmarshal([]byte(linear), &v.Linear); err != nil {
 		return v, err
 	}
 	v.CreatedAt, err = ParseTime(created)
@@ -99,10 +103,13 @@ func (db *DB) ListConnections(ctx context.Context, repoID int64) ([]ConnectionVe
 var credentialName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func validateConnection(v ConnectionVersion) error {
-	if v.RepoID <= 0 || (v.Role != CodeConnection && v.Role != TicketConnection) || v.Provider != ticket.GitHub {
+	if v.RepoID <= 0 || (v.Role != CodeConnection && v.Role != TicketConnection) || (v.Provider != ticket.GitHub && (v.Provider != ticket.Provider("linear") || v.Role != TicketConnection)) {
 		return errors.New("store: invalid project connection role or provider")
 	}
 	if err := (ticket.Locator{Provider: v.Provider, Origin: v.Origin, Container: v.Destination, Key: "1"}).Validate(); err != nil {
+		return err
+	}
+	if err := validateLinearConnection(v); err != nil {
 		return err
 	}
 	parts := strings.Split(v.Destination, "/")
@@ -172,7 +179,11 @@ func retainConnection(ctx context.Context, tx *sql.Tx, v ConnectionVersion) (Con
 		return ConnectionVersion{}, err
 	}
 	v.CreatedAt = nowUTC()
-	return scanConnection(tx.QueryRowContext(ctx, `INSERT INTO project_connection_versions(repo_id,revision,role,provider,api_origin,destination,remote_id,credential_source,credential_service,credential_account,credential_env,enabled,provenance,clone_path,remote_url,base_branch,feature_prefix,worktree_root,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING `+connectionColumns, v.RepoID, v.Revision, v.Role, v.Provider, v.Origin, v.Destination, v.RemoteID, v.CredentialSource, v.CredentialService, v.CredentialAccount, v.CredentialEnv, v.Enabled, v.Provenance, v.ClonePath, v.RemoteURL, v.BaseBranch, v.FeaturePrefix, v.WorktreeRoot, FormatTime(v.CreatedAt)))
+	linear, err := json.Marshal(v.Linear)
+	if err != nil {
+		return v, err
+	}
+	return scanConnection(tx.QueryRowContext(ctx, `INSERT INTO project_connection_versions(repo_id,revision,role,provider,api_origin,destination,remote_id,credential_source,credential_service,credential_account,credential_env,enabled,provenance,clone_path,remote_url,base_branch,feature_prefix,worktree_root,created_at,linear_configuration) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING `+connectionColumns, v.RepoID, v.Revision, v.Role, v.Provider, v.Origin, v.Destination, v.RemoteID, v.CredentialSource, v.CredentialService, v.CredentialAccount, v.CredentialEnv, v.Enabled, v.Provenance, v.ClonePath, v.RemoteURL, v.BaseBranch, v.FeaturePrefix, v.WorktreeRoot, FormatTime(v.CreatedAt), string(linear)))
 }
 
 // RetainConnectionVersion saves historical evidence without changing current routing.

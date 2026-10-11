@@ -25,7 +25,7 @@ type qualifiedClassifier interface {
 }
 
 func (d *Daemon) qualifyReply(ctx context.Context, sessionID int64, c github.Comment) (*ticket.Reply, error) {
-	if d.tickets == nil {
+	if d.tickets == nil && d.connections == nil {
 		return nil, nil
 	}
 	ingress := d.tickets
@@ -45,7 +45,10 @@ func (d *Daemon) qualifyReply(ctx context.Context, sessionID int64, c github.Com
 	if origin == "" {
 		return nil, errors.New("daemon: ticket origin is required for qualified ingress")
 	}
-	binding, err := d.db.BindLegacySessionOrigin(ctx, sessionID, origin)
+	binding, err := d.db.GetSessionTicket(ctx, sessionID)
+	if ingressProvider(ingress) == ticket.GitHub {
+		binding, err = d.db.BindLegacySessionOrigin(ctx, sessionID, origin)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +138,9 @@ func (d *Daemon) projectTicketIdentities(ctx context.Context, sessionID int64) (
 		return turn.Identities{}, fmt.Errorf("%w: project approver origin differs from saved ticket", store.ErrApproverUnauthorized)
 	}
 	owner, err := strconv.ParseInt(appointment.Actor.RemoteID, 10, 64)
+	if appointment.Actor.Provider == ticket.Linear {
+		owner, err = d.db.LocalTicketSlot(ctx, "actor", appointment.Actor)
+	}
 	if err != nil || owner <= 0 {
 		return turn.Identities{}, errors.New("invalid project approver identity")
 	}
@@ -142,7 +148,13 @@ func (d *Daemon) projectTicketIdentities(ctx context.Context, sessionID int64) (
 	if err != nil {
 		return turn.Identities{}, err
 	}
-	ids := turn.Identities{OwnerUserID: owner, OwnerHandle: appointment.Handle, BotUserID: saved.ActorID, BotHandle: saved.ActorLogin, TicketOrigin: appointment.Actor.Origin}
+	ids := turn.Identities{OwnerUserID: owner, OwnerHandle: appointment.Handle, BotUserID: saved.ActorID, BotHandle: saved.ActorLogin, TicketOrigin: appointment.Actor.Origin, OwnerIdentity: appointment.Actor}
+	if appointment.Actor.Provider == ticket.Linear {
+		ids.BotIdentity, err = d.db.TicketIdentityForSlot(ctx, "actor", saved.ActorID)
+		if err != nil {
+			return turn.Identities{}, err
+		}
+	}
 	return ids, ids.Validate()
 }
 
@@ -187,6 +199,9 @@ func (d *Daemon) eligibleProjectComment(ctx context.Context, sessionID int64, c 
 		return false, nil
 	}
 	source := ticket.Identity{Provider: appointment.Actor.Provider, Origin: appointment.Actor.Origin, RemoteID: strconv.FormatInt(c.ID, 10)}
+	if c.QualifiedReply != nil {
+		source = c.QualifiedReply.Identity
+	}
 	claim, err := d.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: session.RepoID, AppointmentID: appointment.ID, Revision: appointment.Revision, Actor: appointment.Actor, Source: source, CreatedAt: c.CreatedAt, Kind: "child-instruction", Key: source.RemoteID})
 	if err != nil {
 		return false, err
@@ -202,6 +217,11 @@ func (d *Daemon) projectTrigger(ctx context.Context, sessionID int64, c github.C
 	mapping, err := d.db.GetSessionTicket(ctx, sessionID)
 	if err != nil {
 		return trigger, err
+	}
+	if c.QualifiedReply != nil {
+		trigger.Actor = c.QualifiedReply.Author.Identity
+		trigger.Source = c.QualifiedReply.Identity
+		return trigger, nil
 	}
 	trigger.Actor = ticket.Identity{Provider: mapping.Locator.Provider, Origin: mapping.Locator.Origin, RemoteID: strconv.FormatInt(c.Author.ID, 10)}
 	trigger.Source = ticket.Identity{Provider: mapping.Locator.Provider, Origin: mapping.Locator.Origin, RemoteID: strconv.FormatInt(c.ID, 10)}

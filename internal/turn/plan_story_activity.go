@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -321,18 +320,33 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			return receipt, intentErr
 		}
 		if createIntent {
-			issues, listErr := h.Forge.ListFollowupIssues(ctx, a.Repo)
-			if listErr != nil {
-				return remoteFailure("create", listErr)
-			}
 			var found *github.Issue
-			for i := range issues {
-				v := &issues[i]
-				if strings.HasPrefix(v.Body, planStoryMarker(a, d.Key)+"\n") && strings.Contains(v.Body, planRequestMarker(r)) {
-					if found != nil {
-						return record("create", "conflict", "duplicate remote request identities")
+			qualified := false
+			if recoverer, ok := h.Forge.(interface {
+				RecoverIssueEffect(context.Context, string, github.Repo, int, string, string) (github.Issue, bool, error)
+			}); ok {
+				issue, handled, recoverErr := recoverer.RecoverIssueEffect(ctx, "plan-create:"+a.Parent+":"+r.RequestID, a.Repo, a.ParentNumber, title, body)
+				if recoverErr != nil {
+					return remoteFailure("create", recoverErr)
+				}
+				qualified = handled
+				if handled {
+					found = &issue
+				}
+			}
+			if !qualified {
+				issues, listErr := h.Forge.ListFollowupIssues(ctx, a.Repo)
+				if listErr != nil {
+					return remoteFailure("create", listErr)
+				}
+				for i := range issues {
+					v := &issues[i]
+					if strings.HasPrefix(v.Body, planStoryMarker(a, d.Key)+"\n") && strings.Contains(v.Body, planRequestMarker(r)) {
+						if found != nil {
+							return record("create", "conflict", "duplicate remote request identities")
+						}
+						found = v
 					}
-					found = v
 				}
 			}
 			if found == nil {
@@ -346,7 +360,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			if _, err = record("create", "uncertain", "create intent recorded before remote mutation"); err != nil {
 				return receipt, err
 			}
-			created, createErr := h.Forge.CreateIssue(ctx, a.Repo, safeTitle, safeBody)
+			created, createErr := createTicketEffect(ctx, h.Forge, "plan-create:"+a.Parent+":"+r.RequestID, a.Repo, a.ParentNumber, safeTitle, safeBody)
 			if createErr != nil {
 				return remoteFailure("create", createErr)
 			}
@@ -479,7 +493,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			marker := planPartMarker(a, d.Key, r, i+1, len(safeParts))
 			posted := false
 			for _, c := range comments {
-				if strings.HasPrefix(c.Body, marker+"\n") && c.Body == part.String() && (bot == (ticket.Identity{}) || strconv.FormatInt(c.Author.ID, 10) == bot.RemoteID) {
+				if strings.HasPrefix(c.Body, marker+"\n") && c.Body == part.String() && (bot == (ticket.Identity{}) || commentAuthorMatches(c, bot)) {
 					posted = true
 					break
 				}
@@ -499,11 +513,11 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			if _, intentErr = record(phase, "uncertain", "part dispatch intent retained before publication"); intentErr != nil {
 				return receipt, intentErr
 			}
-			postedReply, postErr := h.Forge.PostComment(ctx, a.Repo, d.IssueNumber, part)
+			postedReply, postErr := postCommentEffect(ctx, h.Forge, "plan-part:"+a.Parent+":"+r.RequestID+":"+phase, a.Repo, d.IssueNumber, part)
 			if postErr != nil {
 				return remoteFailure(phase, postErr)
 			}
-			if postedReply.ID < 1 || postedReply.Body != part.String() || (bot != (ticket.Identity{}) && strconv.FormatInt(postedReply.Author.ID, 10) != bot.RemoteID) {
+			if postedReply.ID < 1 || postedReply.Body != part.String() || (bot != (ticket.Identity{}) && !commentAuthorMatches(postedReply, bot)) {
 				return record(phase, "uncertain", "part receipt did not confirm prepared bytes and bot identity")
 			}
 

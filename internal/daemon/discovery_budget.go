@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // ErrDiscoveryDeferred is local scheduling pressure, not a remote refusal.
@@ -358,6 +359,20 @@ func (d *Daemon) discoveryProbe(ctx context.Context, repo github.Repo) error {
 		return nil
 	}
 	defer r.finish()
+	ingress, _, selectionErr := d.connectionIngress(ctx, repo, 0)
+	if selectionErr != nil {
+		return selectionErr
+	}
+	if ingress != nil && ingressProvider(ingress) == ticket.Linear {
+		adapter, ok := ingress.(interface {
+			ContainerIdentity(context.Context, string) (ticket.Identity, error)
+		})
+		if !ok {
+			return fmt.Errorf("ticket container verification required")
+		}
+		_, e := adapter.ContainerIdentity(ctx, repo.String())
+		return e
+	}
 	_, err = d.readIssue(github.WithRequestObserver(github.WithoutConditionalCache(ctx), r.observe), repo, 1)
 	if errors.Is(err, github.ErrNotFound) || errors.Is(err, github.ErrInvalidArgument) {
 		return nil

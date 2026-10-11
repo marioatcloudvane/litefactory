@@ -1,0 +1,19 @@
+--- FAIL: TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase (2.21s)
+    archive_integration_test.go:54: problems [delivery_code_authorities is not classified delivery_control_sources is not classified delivery_pr_bindings is not classified retained delivery_pr_bindings references archived delivery_proposals ticket_effect_preparations is not classified ticket_local_slots is not classified] <nil>
+2026/10/11 23:02:42 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen3971612069/001/litefactory.db
+--- FAIL: TestProjectApproverPopulatedMigrationFreezesAuthenticatedHistory (11.96s)
+    project_approver_migration_test.go:37: SQL logic error: no such column: linear_configuration (1)
+--- FAIL: TestProjectApproverLegacyBodyRunCannotInventAuthor (7.16s)
+    project_approver_migration_test.go:146: SQL logic error: no such column: linear_configuration (1)
+--- FAIL: TestProjectApproverLegacyRunlessReportRequiresExactSource (9.55s)
+    --- FAIL: TestProjectApproverLegacyRunlessReportRequiresExactSource/0 (5.27s)
+        project_approver_migration_test.go:206: SQL logic error: no such column: linear_configuration (1)
+    --- FAIL: TestProjectApproverLegacyRunlessReportRequiresExactSource/456 (4.27s)
+        project_approver_migration_test.go:206: SQL logic error: no such column: linear_configuration (1)
+--- FAIL: TestArchiveRegistryProblems_MigratedDatabaseIsClean (1.67s)
+    archive_unit_test.go:59: registry problems: [delivery_code_authorities is not classified delivery_control_sources is not classified delivery_pr_bindings is not classified retained delivery_pr_bindings references archived delivery_proposals ticket_effect_preparations is not classified ticket_local_slots is not classified]
+2026/10/11 23:11:31 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants1352161071/001/litefactory.db
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	657.603s
+ok  	github.com/cloudvane/litefactory/internal/cli	268.177s
+FAIL

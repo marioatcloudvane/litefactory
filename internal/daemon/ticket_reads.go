@@ -66,10 +66,14 @@ func (d *Daemon) readIssue(ctx context.Context, repo github.Repo, number int) (g
 	if err != nil {
 		return github.Issue{}, err
 	}
-	if s.Ref.Locator != locatorAt(origin, repo, number) {
+	expected, e := d.ticketLocator(ctx, ingress, origin, repo, number)
+	if e != nil {
+		return github.Issue{}, e
+	}
+	if s.Ref.Locator != expected {
 		return github.Issue{}, fmt.Errorf("daemon: resolved ticket destination differs")
 	}
-	return legacyTicketSnapshot(s)
+	return d.legacySnapshot(ctx, s)
 }
 func (d *Daemon) discoverIssues(ctx context.Context, repo github.Repo, since time.Time) ([]github.Issue, error) {
 	ingress, origin, selectionErr := d.connectionIngress(ctx, repo, 0)
@@ -92,7 +96,7 @@ func (d *Daemon) discoverIssues(ctx context.Context, repo github.Repo, since tim
 		if s.Ref.Locator.Origin != origin || s.Ref.Locator.Container != repo.String() {
 			return nil, fmt.Errorf("daemon: discovered ticket destination differs")
 		}
-		i, err := legacyTicketSnapshot(s)
+		i, err := d.legacySnapshot(ctx, s)
 		if err != nil {
 			return nil, err
 		}
@@ -115,6 +119,29 @@ func (d *Daemon) readComments(ctx context.Context, repo github.Repo, number int,
 	s, err := d.resolvedTicket(ctx, repo, number)
 	if err != nil {
 		return nil, err
+	}
+	if s.Ref.Identity.Provider == ticket.Linear {
+		page, e := adapter.RepliesAfter(ctx, s.Ref, ticket.Cursor{})
+		if e != nil {
+			return nil, e
+		}
+		if !page.Complete {
+			return nil, fmt.Errorf("daemon: incomplete Linear reply traversal")
+		}
+		var out []github.Comment
+		for _, r := range page.Replies {
+			if r.Ticket != s.Ref {
+				return nil, store.ErrTicketIdentityConflict
+			}
+			c, e := d.legacyReply(ctx, r)
+			if e != nil {
+				return nil, e
+			}
+			if c.ID > after {
+				out = append(out, c)
+			}
+		}
+		return out, nil
 	}
 	cursor, err := github.ReplyCursor(s.Ref, after)
 	if err != nil {
@@ -150,12 +177,19 @@ func (d *Daemon) bindObservedIssue(ctx context.Context, sessionID int64, repo gi
 	if ingress == nil {
 		return nil
 	}
-	locator := locatorAt(origin, repo, issue.Number)
-	_, err := d.db.BindLegacySessionOrigin(ctx, sessionID, locator.Origin)
+	ref, e := d.bindingRef(ctx, ingress, origin, repo, issue)
+	if e != nil {
+		return e
+	}
+	locator := ref.Locator
+	var err error
+	if locator.Provider == ticket.GitHub {
+		_, err = d.db.BindLegacySessionOrigin(ctx, sessionID, locator.Origin)
+	}
 	if err != nil {
 		return err
 	}
-	ref := ticket.Ref{Locator: locator, Identity: ticket.Identity{Provider: locator.Provider, Origin: locator.Origin, RemoteID: strconv.FormatInt(issue.ID, 10)}}
+
 	_, err = d.db.BindSessionTicket(ctx, sessionID, ref)
 	return err
 }
@@ -186,10 +220,20 @@ func (d *Daemon) discoverCommented(ctx context.Context, repo github.Repo, since 
 			return nil, err
 		}
 		expected := locatorAt(origin, repo, 1)
+		expected.Provider = ingressProvider(ingress)
 		if l.Provider != expected.Provider || l.Origin != expected.Origin || l.Container != expected.Container {
 			return nil, fmt.Errorf("daemon: commented ticket destination differs")
 		}
 		n, err := strconv.Atoi(l.Key)
+		if l.Provider == ticket.Linear {
+			snapshot, e := ingress.Resolve(ctx, l)
+			if e != nil {
+				return nil, e
+			}
+			slot, e := d.db.LocalTicketSlot(ctx, "issue", snapshot.Ref.Identity)
+			n = int(slot)
+			err = e
+		}
 		if err != nil || n <= 0 {
 			return nil, fmt.Errorf("daemon: invalid legacy ticket number")
 		}
@@ -203,11 +247,15 @@ func (d *Daemon) resolvedTicket(ctx context.Context, repo github.Repo, number in
 	if selectionErr != nil {
 		return ticket.Snapshot{}, selectionErr
 	}
-	snapshot, err := ingress.Resolve(ctx, locatorAt(origin, repo, number))
+	locator, e := d.ticketLocator(ctx, ingress, origin, repo, number)
+	if e != nil {
+		return ticket.Snapshot{}, e
+	}
+	snapshot, err := ingress.Resolve(ctx, locator)
 	if err != nil {
 		return ticket.Snapshot{}, err
 	}
-	if snapshot.Ref.Locator != locatorAt(origin, repo, number) {
+	if snapshot.Ref.Locator != locator {
 		return ticket.Snapshot{}, fmt.Errorf("daemon: resolved ticket destination differs")
 	}
 	session, err := d.db.GetSessionByTicketLocator(ctx, snapshot.Ref.Locator)
@@ -217,7 +265,9 @@ func (d *Daemon) resolvedTicket(ctx context.Context, repo github.Repo, number in
 	if err != nil {
 		return ticket.Snapshot{}, err
 	}
-	_, err = d.db.BindLegacySessionOrigin(ctx, session.ID, snapshot.Ref.Identity.Origin)
+	if snapshot.Ref.Identity.Provider == ticket.GitHub {
+		_, err = d.db.BindLegacySessionOrigin(ctx, session.ID, snapshot.Ref.Identity.Origin)
+	}
 	if err != nil {
 		return ticket.Snapshot{}, err
 	}

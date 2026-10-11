@@ -13,6 +13,9 @@ type Provider string
 // GitHub is the GitHub ticket provider.
 const GitHub Provider = "github"
 
+// Linear is the Linear ticket provider.
+const Linear Provider = "linear"
+
 // Origin is a canonical API instance root, obtained from trusted configuration.
 // Enterprise API path prefixes are part of the origin.
 type Origin string

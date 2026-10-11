@@ -1,0 +1,7 @@
+ok  	github.com/cloudvane/litefactory/internal/linear	3.026s
+ok  	github.com/cloudvane/litefactory/internal/github	24.290s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	201.498s
+ok  	github.com/cloudvane/litefactory/internal/secrets	3.980s
+ok  	github.com/cloudvane/litefactory/internal/ticket	3.761s
+ok  	github.com/cloudvane/litefactory/internal/webhook	59.276s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	150.444s

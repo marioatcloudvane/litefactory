@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strconv"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -16,16 +15,18 @@ import (
 type ExecutionSnapshot struct {
 	SessionID, RepoID, BindingID, CodeVersionID, TicketVersionID int64
 	ActorID                                                      int64
+	CodeActorID                                                  int64
+	CodeActorLogin                                               string
 	CodeRemoteID, TicketRemoteID                                 string
 	ActorLogin, NamingSuffix                                     string
 	CodeTarget                                                   Repo
 }
 
-const snapshotColumns = `session_id,repo_id,binding_id,code_version_id,ticket_version_id,actor_id,actor_login,naming_suffix,code_remote_id,ticket_remote_id`
+const snapshotColumns = `session_id,repo_id,binding_id,code_version_id,ticket_version_id,actor_id,actor_login,naming_suffix,code_remote_id,ticket_remote_id,code_actor_id,code_actor_login`
 
 func scanSnapshot(row scanner) (ExecutionSnapshot, error) {
 	var s ExecutionSnapshot
-	err := row.Scan(&s.SessionID, &s.RepoID, &s.BindingID, &s.CodeVersionID, &s.TicketVersionID, &s.ActorID, &s.ActorLogin, &s.NamingSuffix, &s.CodeRemoteID, &s.TicketRemoteID)
+	err := row.Scan(&s.SessionID, &s.RepoID, &s.BindingID, &s.CodeVersionID, &s.TicketVersionID, &s.ActorID, &s.ActorLogin, &s.NamingSuffix, &s.CodeRemoteID, &s.TicketRemoteID, &s.CodeActorID, &s.CodeActorLogin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, ErrNotFound
 	}
@@ -111,7 +112,7 @@ func attachSnapshot(ctx context.Context, tx *sql.Tx, s ExecutionSnapshot) error 
 	}
 	old, err := scanSnapshot(tx.QueryRowContext(ctx, `SELECT `+snapshotColumns+` FROM session_execution_snapshots WHERE session_id=?`, s.SessionID))
 	if err == nil {
-		if old.SessionID != s.SessionID || old.RepoID != s.RepoID || old.BindingID != s.BindingID || old.CodeVersionID != s.CodeVersionID || old.TicketVersionID != s.TicketVersionID || old.ActorID != s.ActorID || old.ActorLogin != s.ActorLogin || old.NamingSuffix != s.NamingSuffix || old.CodeRemoteID != s.CodeRemoteID || old.TicketRemoteID != s.TicketRemoteID {
+		if old.SessionID != s.SessionID || old.RepoID != s.RepoID || old.BindingID != s.BindingID || old.CodeVersionID != s.CodeVersionID || old.TicketVersionID != s.TicketVersionID || old.ActorID != s.ActorID || old.ActorLogin != s.ActorLogin || old.NamingSuffix != s.NamingSuffix || old.CodeRemoteID != s.CodeRemoteID || old.TicketRemoteID != s.TicketRemoteID || old.CodeActorID != s.CodeActorID || old.CodeActorLogin != s.CodeActorLogin {
 			return ErrBindingConflict
 		}
 		return nil
@@ -134,7 +135,7 @@ func attachSnapshot(ctx context.Context, tx *sql.Tx, s ExecutionSnapshot) error 
 	default:
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO session_execution_snapshots(session_id,repo_id,binding_id,code_version_id,ticket_version_id,actor_id,actor_login,naming_suffix,created_at,code_remote_id,ticket_remote_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, s.SessionID, s.RepoID, s.BindingID, s.CodeVersionID, s.TicketVersionID, s.ActorID, s.ActorLogin, s.NamingSuffix, FormatTime(nowUTC()), s.CodeRemoteID, s.TicketRemoteID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO session_execution_snapshots(session_id,repo_id,binding_id,code_version_id,ticket_version_id,actor_id,actor_login,naming_suffix,created_at,code_remote_id,ticket_remote_id,code_actor_id,code_actor_login) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, s.SessionID, s.RepoID, s.BindingID, s.CodeVersionID, s.TicketVersionID, s.ActorID, s.ActorLogin, s.NamingSuffix, FormatTime(nowUTC()), s.CodeRemoteID, s.TicketRemoteID, s.CodeActorID, s.CodeActorLogin)
 	return err
 }
 
@@ -147,14 +148,30 @@ func (db *DB) AttachExecutionSnapshot(ctx context.Context, s ExecutionSnapshot) 
 // AdmitSession checks current revisions and enabled ownership in the same
 // transaction that creates the session and pins its execution context.
 func (db *DB) AdmitSession(ctx context.Context, repo Repo, ref ticket.Ref, codeRevision, ticketRevision, actorID int64, actorLogin, taskRef string, remoteIDs ...string) (Session, error) {
-	return db.admitSession(ctx, repo, ref, codeRevision, ticketRevision, actorID, actorLogin, taskRef, 0, remoteIDs...)
+	return db.admitSession(ctx, repo, ref, codeRevision, ticketRevision, actorID, actorLogin, taskRef, 0, PublishingActor{}, remoteIDs...)
 }
 
 // AdmitSessionWithApprover pins the observed authority revision in the session admission transaction.
 func (db *DB) AdmitSessionWithApprover(ctx context.Context, repo Repo, ref ticket.Ref, codeRevision, ticketRevision, actorID int64, actorLogin, taskRef string, authorityRevision int64, remoteIDs ...string) (Session, error) {
-	return db.admitSession(ctx, repo, ref, codeRevision, ticketRevision, actorID, actorLogin, taskRef, authorityRevision, remoteIDs...)
+	return db.admitSession(ctx, repo, ref, codeRevision, ticketRevision, actorID, actorLogin, taskRef, authorityRevision, PublishingActor{}, remoteIDs...)
 }
-func (db *DB) admitSession(ctx context.Context, repo Repo, ref ticket.Ref, codeRevision, ticketRevision, actorID int64, actorLogin, taskRef string, authorityRevision int64, remoteIDs ...string) (Session, error) {
+
+// PublishingActor is verified immutable publishing evidence, separate from ticket authority.
+type PublishingActor struct {
+	ID    int64
+	Login string
+}
+
+// AdmitSessionWithPublishers retains both publishers in the admission transaction,
+// so interruption cannot leave a Linear session dependent on a later credential.
+func (db *DB) AdmitSessionWithPublishers(ctx context.Context, repo Repo, ref ticket.Ref, codeRevision, ticketRevision int64, publisher, codePublisher PublishingActor, taskRef string, authorityRevision int64, remoteIDs ...string) (Session, error) {
+	if codePublisher.ID <= 0 || codePublisher.Login == "" {
+		return Session{}, errors.New("store: verified code publisher required")
+	}
+	return db.admitSession(ctx, repo, ref, codeRevision, ticketRevision, publisher.ID, publisher.Login, taskRef, authorityRevision, codePublisher, remoteIDs...)
+}
+
+func (db *DB) admitSession(ctx context.Context, repo Repo, ref ticket.Ref, codeRevision, ticketRevision, actorID int64, actorLogin, taskRef string, authorityRevision int64, codePublisher PublishingActor, remoteIDs ...string) (Session, error) {
 	if err := ref.Validate(); err != nil {
 		return Session{}, err
 	}
@@ -229,9 +246,9 @@ func (db *DB) admitSession(ctx context.Context, repo Repo, ref ticket.Ref, codeR
 		if binding.RepoID != repo.ID || binding.ConnectionVersionID != tickets.ID || binding.Ref != ref {
 			return ErrBindingConflict
 		}
-		number, err := strconv.Atoi(ref.Locator.Key)
-		if err != nil || number <= 0 {
-			return errors.New("store: invalid GitHub ticket number")
+		number, err := sessionIssueNumber(ctx, tx, ref)
+		if err != nil {
+			return err
 		}
 		var collision int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE (repo_id=? AND issue_number=?) OR task_ref=?`, repo.ID, number, taskRef).Scan(&collision); err != nil {
@@ -256,7 +273,14 @@ func (db *DB) admitSession(ctx context.Context, repo Repo, ref ticket.Ref, codeR
 		if len(remoteIDs) > 1 {
 			ticketRemoteID = remoteIDs[1]
 		}
-		return attachSnapshot(ctx, tx, ExecutionSnapshot{SessionID: out.ID, RepoID: repo.ID, BindingID: binding.ID, CodeVersionID: code.ID, TicketVersionID: tickets.ID, ActorID: actorID, ActorLogin: actorLogin, NamingSuffix: suffix, CodeRemoteID: codeRemoteID, TicketRemoteID: ticketRemoteID})
+		if err := attachSnapshot(ctx, tx, ExecutionSnapshot{SessionID: out.ID, RepoID: repo.ID, BindingID: binding.ID, CodeVersionID: code.ID, TicketVersionID: tickets.ID, ActorID: actorID, ActorLogin: actorLogin, NamingSuffix: suffix, CodeRemoteID: codeRemoteID, TicketRemoteID: ticketRemoteID, CodeActorID: codePublisher.ID, CodeActorLogin: codePublisher.Login}); err != nil {
+			return err
+		}
+		if codePublisher.ID > 0 {
+			_, err := db.ensureDeliveryCodeAuthority(ctx, tx, out.ID)
+			return err
+		}
+		return nil
 	})
 	return out, err
 }
@@ -354,9 +378,9 @@ func (db *DB) AdmitManagedChild(ctx context.Context, parentID int64, ref ticket.
 		if binding.RepoID != parent.RepoID || binding.Ref != ref {
 			return ErrBindingConflict
 		}
-		number, err := strconv.Atoi(ref.Locator.Key)
-		if err != nil || number <= 0 {
-			return errors.New("store: invalid GitHub child number")
+		number, err := sessionIssueNumber(ctx, tx, ref)
+		if err != nil {
+			return err
 		}
 		var collision int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE (repo_id=? AND issue_number=?) OR task_ref=?`, parent.RepoID, number, taskRef).Scan(&collision); err != nil {
@@ -374,7 +398,7 @@ func (db *DB) AdmitManagedChild(ctx context.Context, parentID int64, ref ticket.
 		if err != nil {
 			return err
 		}
-		return attachSnapshot(ctx, tx, ExecutionSnapshot{SessionID: out.ID, RepoID: parent.RepoID, BindingID: binding.ID, CodeVersionID: parent.CodeVersionID, TicketVersionID: parent.TicketVersionID, ActorID: parent.ActorID, ActorLogin: parent.ActorLogin, NamingSuffix: suffix, CodeRemoteID: parent.CodeRemoteID, TicketRemoteID: parent.TicketRemoteID})
+		return attachSnapshot(ctx, tx, ExecutionSnapshot{SessionID: out.ID, RepoID: parent.RepoID, BindingID: binding.ID, CodeVersionID: parent.CodeVersionID, TicketVersionID: parent.TicketVersionID, ActorID: parent.ActorID, ActorLogin: parent.ActorLogin, NamingSuffix: suffix, CodeRemoteID: parent.CodeRemoteID, TicketRemoteID: parent.TicketRemoteID, CodeActorID: parent.CodeActorID, CodeActorLogin: parent.CodeActorLogin})
 	})
 	return out, err
 }

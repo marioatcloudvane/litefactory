@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
@@ -17,8 +18,9 @@ import (
 )
 
 type connectionFlags struct {
-	revision                                  int64
-	origin, destination, credential, remoteID string
+	provider, workspace, team, project, authKind, modeLabels, states string
+	revision                                                         int64
+	origin, destination, credential, remoteID                        string
 }
 
 func newRepoConnectionCommand(action string) *Command {
@@ -32,9 +34,16 @@ func newRepoConnectionCommand(action string) *Command {
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
 		var f connectionFlags
+		fs.StringVar(&f.provider, "provider", "github", "ticket provider: github or linear")
+		fs.StringVar(&f.workspace, "workspace", "", "verified Linear workspace ID")
+		fs.StringVar(&f.team, "team", "", "verified Linear team ID")
+		fs.StringVar(&f.project, "project", "", "verified Linear project ID")
+		fs.StringVar(&f.authKind, "auth-kind", "api_key", "Linear authentication kind: api_key or oauth")
+		fs.StringVar(&f.modeLabels, "mode-labels", "", "JSON mapping from canonical mode names to Linear label IDs")
+		fs.StringVar(&f.states, "states", "", "JSON mapping: completed, retired and open to Linear state IDs")
 		fs.Int64Var(&f.revision, "revision", -1, "expected current revision (0 creates a missing connection)")
-		fs.StringVar(&f.origin, "origin", "", "canonical GitHub API root")
-		fs.StringVar(&f.destination, "destination", "", "repository owner/name")
+		fs.StringVar(&f.origin, "origin", "", "canonical provider API root")
+		fs.StringVar(&f.destination, "destination", "", "GitHub owner/name or Linear team/project")
 		fs.StringVar(&f.credential, "credential", "", "external reference env:NAME or keychain:SERVICE:ACCOUNT")
 		fs.StringVar(&f.remoteID, "remote-id", "", "verified immutable repository ID, when known")
 		return func(ctx context.Context, env *Env, args []string) error {
@@ -118,7 +127,15 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		if !ok || (github.Repo{Owner: owner, Name: name}).Validate() != nil {
 			return Usagef(cmd, "destination must be owner/name")
 		}
-		v := store.ConnectionVersion{RepoID: id, Role: role, Provider: ticket.GitHub, Origin: origin, Destination: f.destination, RemoteID: f.remoteID, Enabled: true, Provenance: "explicit"}
+		v := store.ConnectionVersion{RepoID: id, Role: role, Provider: ticket.Provider(f.provider), Origin: origin, Destination: f.destination, RemoteID: f.remoteID, Enabled: true, Provenance: "explicit"}
+		if v.Provider == ticket.Linear {
+			if role != store.TicketConnection || f.destination != f.team+"/"+f.project || f.workspace == "" || f.team == "" || f.project == "" {
+				return Usagef(cmd, "Linear requires ticket role and workspace/team/project IDs; destination must be team/project")
+			}
+			v.Linear = store.LinearConfiguration{WorkspaceID: f.workspace, TeamID: f.team, ProjectID: f.project, AuthKind: f.authKind, ModeLabelsJSON: f.modeLabels, LifecycleStatesJSON: f.states}
+		} else if v.Provider != ticket.GitHub {
+			return Usagef(cmd, "provider must be github or linear")
+		}
 		parts := strings.Split(f.credential, ":")
 		switch {
 		case len(parts) == 2 && parts[0] == "env":
@@ -137,6 +154,20 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 			v.BaseBranch = repo.BaseBranch
 			v.FeaturePrefix = repo.FeaturePrefix
 			v.WorktreeRoot = repo.WorktreeRoot
+		}
+		if v.Provider == ticket.Linear {
+			checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			factory := projectconnection.NewFactory(projectconnection.Options{DB: rt.db, Logger: env.Logger, Resolver: secrets.Resolver{Keychain: env.Keychain}})
+			candidate := v
+			candidate.ID = 1
+			clients, e := factory.Clients(checkCtx, candidate, 0)
+			if e != nil {
+				return Precondition(e)
+			}
+			if _, e = clients.Linear.Inspect(checkCtx); e != nil {
+				return Preconditionf("Linear configuration could not be verified; check workspace, team, project and mappings")
+			}
 		}
 		saved, e := rt.db.SetConnection(ctx, v, f.revision)
 		if e != nil {
@@ -161,7 +192,7 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		if e != nil {
 			return Precondition(e)
 		}
-		factory := projectconnection.NewFactory(projectconnection.Options{Logger: env.Logger, ExpectedActorID: identities.BotUserID, Resolver: secrets.Resolver{Keychain: env.Keychain}})
+		factory := projectconnection.NewFactory(projectconnection.Options{DB: rt.db, Logger: env.Logger, ExpectedActorID: identities.BotUserID, Resolver: secrets.Resolver{Keychain: env.Keychain}})
 		observation := factory.Check(ctx, v)
 		if e = rt.db.SaveConnectionObservation(ctx, observation); e != nil {
 			return Precondition(e)
@@ -179,6 +210,7 @@ func writeConnection(env *Env, v store.ConnectionVersion) error {
 }
 
 type bindingFlags struct {
+	key                 string
 	revision, id        int64
 	remoteID, container string
 	number              int
@@ -190,6 +222,7 @@ func newRepoBindingCommand(action string) *Command {
 		var f bindingFlags
 		fs.Int64Var(&f.revision, "revision", -1, "expected binding revision")
 		fs.Int64Var(&f.id, "binding", 0, "binding ID")
+		fs.StringVar(&f.key, "key", "", "opaque Linear issue ID or display key")
 		fs.StringVar(&f.remoteID, "remote-id", "", "immutable ticket ID")
 		fs.StringVar(&f.container, "container", "", "ticket repository owner/name (default: current ticket destination)")
 		fs.IntVar(&f.number, "number", 0, "display issue number")
@@ -249,10 +282,14 @@ func runRepoBinding(ctx context.Context, env *Env, cmd *Command, action string, 
 		f.container = v.Destination
 	}
 	owner, name, ok := strings.Cut(f.container, "/")
-	if !ok || (github.Repo{Owner: owner, Name: name}).Validate() != nil || f.number <= 0 || f.remoteID == "" {
+	if !ok || (github.Repo{Owner: owner, Name: name}).Validate() != nil || (v.Provider == ticket.GitHub && f.number <= 0) || (v.Provider == ticket.Linear && f.key == "") || f.remoteID == "" {
 		return Usagef(cmd, "valid --container, --number and --remote-id are required")
 	}
-	ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: f.remoteID}, Locator: ticket.Locator{Provider: v.Provider, Origin: v.Origin, Container: f.container, Key: strconv.Itoa(f.number)}}
+	key := strconv.Itoa(f.number)
+	if v.Provider == ticket.Linear {
+		key = f.key
+	}
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: f.remoteID}, Locator: ticket.Locator{Provider: v.Provider, Origin: v.Origin, Container: f.container, Key: key}}
 	proposed := store.TicketBinding{RepoID: id, ConnectionVersionID: v.ID, Ref: ref, Enabled: true, Provenance: "explicit"}
 	var b store.TicketBinding
 	switch action {

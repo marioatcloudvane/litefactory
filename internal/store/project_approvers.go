@@ -91,7 +91,7 @@ func validateApprover(a ApproverAppointment, c ConnectionVersion) error {
 		return err
 	}
 	id, err := strconv.ParseInt(a.Actor.RemoteID, 10, 64)
-	if a.Actor.Provider != ticket.GitHub || id <= 0 || err != nil {
+	if a.Actor.Provider == ticket.GitHub && (id <= 0 || err != nil) {
 		return errors.New("store: GitHub approver requires a positive immutable account ID")
 	}
 	if a.Actor.Provider != c.Provider || a.Actor.Origin != c.Origin {

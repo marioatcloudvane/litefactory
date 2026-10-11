@@ -85,7 +85,7 @@ func runRepoApprover(ctx context.Context, env *Env, cmd *Command, action string,
 	if err != nil {
 		return Precondition(err)
 	}
-	service.Factory = projectconnection.NewFactory(projectconnection.Options{Logger: env.Logger, ExpectedActorID: publisher.UserID, Resolver: secrets.Resolver{Keychain: env.Keychain}})
+	service.Factory = projectconnection.NewFactory(projectconnection.Options{DB: rt.db, Logger: env.Logger, ExpectedActorID: publisher.UserID, Resolver: secrets.Resolver{Keychain: env.Keychain}})
 	var appointment store.ApproverAppointment
 	switch action {
 	case "set", "replace":

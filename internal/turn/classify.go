@@ -100,6 +100,7 @@ const (
 // be a bug: GitHub lets an account be renamed, so a handle is a label with a
 // forwarding address, while the numeric id is the account (D-I).
 type Identities struct {
+	OwnerIdentity, BotIdentity ticket.Identity
 	// TicketOrigin qualifies legacy numeric identities from trusted configuration.
 	// Empty retains the public GitHub legacy default.
 	TicketOrigin ticket.Origin

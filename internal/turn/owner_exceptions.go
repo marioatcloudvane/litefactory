@@ -321,6 +321,10 @@ func (p *StoryProgress) reportException(ctx context.Context, c OwnerExceptionCon
 // postExceptionNotice posts one notice per stable marker and returns nil only
 // once the reply is confirmed; replay finds the marker and never posts twice.
 func (p *StoryProgress) postExceptionNotice(ctx context.Context, c OwnerExceptionControl, id int64, n report.OwnerExceptionNotice) error {
+	publisherID, publisherErr := p.ticketPublisherID(ctx, c.Parent)
+	if publisherErr != nil {
+		return publisherErr
+	}
 	renderer, ok := p.renderer.(exceptionRenderer)
 	if !ok {
 		return fmt.Errorf("exception renderer unavailable")
@@ -336,7 +340,7 @@ func (p *StoryProgress) postExceptionNotice(ctx context.Context, c OwnerExceptio
 	}
 	var commentID int64
 	for _, comment := range comments {
-		if !hasTicketNoticeGuard(p.forge) && comment.Author.ID == p.botID && exactProgressMarker(comment.Body, n.Marker()) {
+		if !hasTicketNoticeGuard(p.forge) && comment.Author.ID == publisherID && exactProgressMarker(comment.Body, n.Marker()) {
 			commentID = comment.ID
 			break
 		}
@@ -346,11 +350,11 @@ func (p *StoryProgress) postExceptionNotice(ctx context.Context, c OwnerExceptio
 		if err != nil {
 			return err
 		}
-		comment, err := postTicketNotice(ctx, p.forge, n.Marker(), c.Parent, p.botID, repo, ref.Issue, body)
+		comment, err := postTicketNotice(ctx, p.forge, n.Marker(), c.Parent, publisherID, repo, ref.Issue, body)
 		if err != nil {
 			return err
 		}
-		if comment.ID < 1 || comment.Author.ID != p.botID {
+		if comment.ID < 1 || comment.Author.ID != publisherID {
 			return fmt.Errorf("exception report provenance mismatch")
 		}
 		commentID = comment.ID

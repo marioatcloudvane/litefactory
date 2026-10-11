@@ -68,6 +68,17 @@ func (s ApproverService) Set(ctx context.Context, projectID int64, login string,
 	if err != nil {
 		return store.ApproverAppointment{}, err
 	}
+	if v.Provider == ticket.Linear {
+		actor, e := clients.Linear.ResolveActor(ctx, login)
+		if e != nil {
+			return store.ApproverAppointment{}, safeFailure(e)
+		}
+		a, e := verifiedLinearAppointment(v, actor, clients.Publisher)
+		if e != nil {
+			return a, e
+		}
+		return s.DB.SetApprover(ctx, a, expectedConnectionRevision, expectedAuthorityRevision)
+	}
 	user, err := clients.Code.UserByLogin(ctx, login)
 	if err != nil {
 		return store.ApproverAppointment{}, fmt.Errorf("verify ticket approver: %w", safeFailure(err))
@@ -98,6 +109,21 @@ func (s ApproverService) Refresh(ctx context.Context, projectID, expectedConnect
 	if old.Actor.Provider != v.Provider || old.Actor.Origin != v.Origin {
 		return store.ApproverAppointment{}, ErrInvalidConnection
 	}
+	if v.Provider == ticket.Linear {
+		actor, e := clients.Linear.ResolveActor(ctx, old.Actor.RemoteID)
+		if e != nil {
+			return store.ApproverAppointment{}, safeFailure(e)
+		}
+		a, e := verifiedLinearAppointment(v, actor, clients.Publisher)
+		if e != nil {
+			return a, e
+		}
+		if a.Actor != old.Actor {
+			return a, store.ErrApproverConflict
+		}
+		a.Provenance = old.Provenance
+		return s.DB.SetApprover(ctx, a, expectedConnectionRevision, expectedAuthorityRevision)
+	}
 	id, err := strconv.ParseInt(old.Actor.RemoteID, 10, 64)
 	if err != nil || id <= 0 {
 		return store.ApproverAppointment{}, ErrApproverNotHuman
@@ -125,7 +151,7 @@ func (s ApproverService) verificationClient(ctx context.Context, projectID, revi
 	if v.Revision != revision {
 		return v, nil, store.ErrConnectionConflict
 	}
-	if !v.Enabled || v.Provider != ticket.GitHub {
+	if !v.Enabled || (v.Provider != ticket.GitHub && v.Provider != ticket.Linear) {
 		return v, nil, ErrInvalidConnection
 	}
 	clients, err := s.Factory.Clients(ctx, v, 0)

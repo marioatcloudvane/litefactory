@@ -71,7 +71,7 @@ func TestTicketConnectionRoutingRetainsPublicationOriginAndBlocksSelectionFailur
 	originalTickets := adapter(original.URL)
 	replacementTickets := adapter(replacement.URL)
 	var blocked atomic.Bool
-	selector := func(_ context.Context, repo github.Repo, number int, session int64) (*github.Tickets, int64, error) {
+	selector := func(_ context.Context, repo github.Repo, number int, session int64) (WorkflowTickets, int64, error) {
 		if blocked.Load() {
 			return nil, 0, errors.New("original credential unavailable")
 		}

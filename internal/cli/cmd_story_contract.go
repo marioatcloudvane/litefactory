@@ -120,7 +120,7 @@ func runStoryContractUpgrade(ctx context.Context, env *Env, parent string, apply
 // parent's retained execution context. Preview never imports or admits work.
 func storyContractTicketWorkflow(ctx context.Context, env *Env, db *store.DB, cfg config.Config, ref naming.Ref, botID int64) (context.Context, *turn.TicketWorkflowBridge, *redact.Redactor, error) {
 	sharedRedactor := redact.New(redact.Options{Logger: env.Logger})
-	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: sharedRedactor, ExpectedActorID: botID})
+	factory := projectconnection.NewFactory(projectconnection.Options{DB: db, Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: sharedRedactor, ExpectedActorID: botID})
 	parent, err := db.GetSessionByTaskRef(ctx, ref.String())
 	if err == nil {
 		if _, err := db.GetExecutionSnapshot(ctx, parent.ID); err != nil {
@@ -188,6 +188,6 @@ func storyContractTicketWorkflow(ctx context.Context, env *Env, db *store.DB, cf
 	if err != nil {
 		return ctx, nil, nil, err
 	}
-	workflow, err := turn.NewGitHubTicketWorkflow(db, adapter, botID)
+	workflow, err := turn.NewTicketWorkflow(ctx, db, adapter, botID)
 	return ctx, workflow, sharedRedactor, err
 }

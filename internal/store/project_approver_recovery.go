@@ -46,10 +46,10 @@ func (db *DB) RecoverConsumedProjectAuthorityClaims(ctx context.Context, repoID 
 			return err
 		}
 		for _, c := range claims {
-			if c.Source.Provider != ticket.GitHub || c.Actor.Provider != ticket.GitHub || c.Actor.Origin != c.Source.Origin {
+			if c.Source.Provider != c.Actor.Provider || c.Actor.Origin != c.Source.Origin {
 				continue
 			}
-			if c.Kind == "doctor-instruction" {
+			if c.Kind == "doctor-instruction" && c.Source.Provider == ticket.GitHub {
 				sourceID, e := strconv.ParseInt(c.Source.RemoteID, 10, 64)
 				if e != nil || sourceID <= 0 || c.Key != c.Source.RemoteID {
 					continue
@@ -101,9 +101,9 @@ func (db *DB) RecoverConsumedProjectAuthorityClaims(ctx context.Context, repoID 
 				continue
 			}
 			var consumed int
-			sourceID, parseErr := strconv.ParseInt(c.Source.RemoteID, 10, 64)
-			if !body && parseErr == nil && sourceID > 0 && strconv.FormatInt(sourceID, 10) == c.Source.RemoteID {
-				actorID, e := strconv.ParseInt(c.Actor.RemoteID, 10, 64)
+			sourceID, parseErr := storedReplyID(ctx, tx, "comment", c.Source, false)
+			if !body && parseErr == nil && sourceID > 0 {
+				actorID, e := storedReplyID(ctx, tx, "actor", c.Actor, false)
 				if e != nil || actorID <= 0 {
 					continue
 				}

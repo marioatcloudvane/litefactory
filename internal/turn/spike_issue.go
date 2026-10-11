@@ -194,7 +194,7 @@ func (h SpikeIssueActivity) Execute(ctx context.Context, opts Options, req Activ
 	if err := put(spikeIssueIntent, "create intent recorded before the forge call"); err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
-	created, err := forge.CreateIssue(ctx, repo, safeTitle, safeBody)
+	created, err := createTicketEffect(ctx, forge, "spike-issue:"+record.Marker, repo, 0, safeTitle, safeBody)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ActivityResult{Diagnostic: ctx.Err().Error()}, ctx.Err()

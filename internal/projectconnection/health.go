@@ -10,6 +10,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // ObservationStore owns the atomic current-version check after network reads.
@@ -25,6 +26,9 @@ func (f *Factory) Check(ctx context.Context, v store.ConnectionVersion) store.Co
 		observation.Reason = "disabled"
 		observation.Remedy = "Enable a new connection version for future work."
 		return observation
+	}
+	if v.Provider == ticket.Linear {
+		return f.checkLinear(ctx, v)
 	}
 	ctx, cancel := context.WithTimeout(ctx, f.options.Timeout)
 	defer cancel()

@@ -1,6 +1,12 @@
 package ticket
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrInvalidCursor permits restarting a rejected read continuation from durable coverage.
+var ErrInvalidCursor = errors.New("ticket discovery cursor is invalid")
 
 // FailureKind distinguishes dispatch uncertainty from a confirmed refusal.
 type FailureKind string

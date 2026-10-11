@@ -53,6 +53,10 @@ func (r *Reporter) ReportCreationRejection(ctx context.Context, ref naming.Ref, 
 		return Posted{}, err
 	}
 	intent := r.deliveryIntent(ref, ref, sessionID, commentID, 0, "creation-rejection")
+	intent.BotUserID, err = retainedTicketPublisher(ctx, r.db, sessionID, intent.BotUserID)
+	if err != nil {
+		return Posted{}, err
+	}
 	body, err := r.renderer.RenderReply(ctx, report.Reply{Ref: ref, Kind: report.ReplyCreationRejected, CreationRejection: &report.CreationRejection{CommandKind: kind, Reason: reason}})
 	if err != nil {
 		return Posted{}, err

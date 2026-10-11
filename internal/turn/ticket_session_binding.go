@@ -13,6 +13,16 @@ import (
 // retainedTicketSession qualifies known history before any compatibility read.
 // An unknown destination need not create a task just to publish a linked effect.
 func retainedTicketSession(ctx context.Context, db *store.DB, l ticket.Locator) (int64, error) {
+	if l.Provider != ticket.GitHub {
+		session, err := db.GetSessionByTicketLocator(ctx, l)
+		if errors.Is(err, store.ErrNotFound) {
+			return 0, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		return session.ID, nil
+	}
 	parts := strings.Split(l.Container, "/")
 	number, err := strconv.Atoi(l.Key)
 	if l.Provider != ticket.GitHub || len(parts) != 2 || err != nil || number < 1 {

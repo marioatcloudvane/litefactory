@@ -27,12 +27,11 @@ const Redacted = "[redacted]"
 //     that gets serialised on its way into a file or an API call.
 //
 // Reading the real value takes an explicit [Token.Reveal] call, which is
-// greppable. There are exactly three legitimate callers: the GitHub client
-// building an Authorization header, internal/redact registering the literal
-// value to strip from outbound bodies, and tests.
+// greppable. Factory transport boundaries reveal credentials only to authorize
+// GitHub or Linear requests and configure webhook signing. internal/redact
+// registers the literal value for outbound hygiene; tests may inspect it.
 //
-// A token is resolved once at process start and held for the process
-// lifetime, and it is never passed to a subprocess through argv, where it
+// A token is resolved once per loaded immutable connection version, and it is never passed to a subprocess through argv, where it
 // would be visible in ps output to every user on the machine.
 type Token struct {
 	value string

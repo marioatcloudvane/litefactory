@@ -22,7 +22,7 @@ type User struct {
 	// IsBot is GitHub's own account type flag ("Bot"). It is one signal among
 	// three in the self-filter, never the only one.
 	IsBot bool
-	// IsHuman is asserted only by public account verification responses.
+	// IsHuman records the explicit User account type from verified API responses.
 	IsHuman bool
 }
 
@@ -49,6 +49,7 @@ func (c *Client) AuthenticatedUser(ctx context.Context) (User, error) {
 		return User{}, fmt.Errorf("github: resolve authenticated user: %w: response carried no id or login",
 			ErrUnexpectedStatus)
 	}
+	user.IsHuman = payload.GetType() == "User"
 	return user, nil
 }
 

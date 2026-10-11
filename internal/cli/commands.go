@@ -22,6 +22,7 @@ func Commands() []*Command {
 		newMCPServeCommand(),
 		newRepoAddCommand(),
 		newRepoListCommand(),
+		newRepoDeliveryCommand(),
 		newRepoApproverCommand("inspect"),
 		newRepoApproverCommand("set"),
 		newRepoApproverCommand("replace"),

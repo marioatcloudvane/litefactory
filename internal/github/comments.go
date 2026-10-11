@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -21,6 +22,8 @@ const CommentSizeLimit = 65536
 
 // Comment is an issue comment.
 type Comment struct {
+	// QualifiedReply retains opaque provider evidence at the legacy workflow boundary.
+	QualifiedReply *ticket.Reply
 	// APIURL and IssueAPIURL retain response provenance for the neutral adapter.
 	APIURL      string
 	IssueAPIURL string
@@ -359,12 +362,16 @@ func convertComment(payload *gogithub.IssueComment) Comment {
 	if payload == nil {
 		return Comment{}
 	}
+	author := convertUser(payload.User)
+	if payload.User != nil {
+		author.IsHuman = payload.User.GetType() == "User"
+	}
 	return Comment{
 		APIURL:      payload.GetURL(),
 		IssueAPIURL: payload.GetIssueURL(),
 		ID:          payload.GetID(),
 		Body:        payload.GetBody(),
-		Author:      convertUser(payload.User),
+		Author:      author,
 		HTMLURL:     payload.GetHTMLURL(),
 		CreatedAt:   payload.GetCreatedAt().UTC(),
 		UpdatedAt:   payload.GetUpdatedAt().UTC(),

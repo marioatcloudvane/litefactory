@@ -51,6 +51,9 @@ func ticketOwnerID(ctx context.Context, opts Options) (int64, error) {
 			return 0, store.ErrApproverMissing
 		}
 		id, err := strconv.ParseInt(opts.TicketApprover.Actor.RemoteID, 10, 64)
+		if opts.TicketApprover.Actor.Provider == ticket.Linear {
+			id, err = opts.DB.LocalTicketSlot(ctx, "actor", opts.TicketApprover.Actor)
+		}
 		if err != nil || id <= 0 {
 			return 0, store.ErrApproverUnauthorized
 		}
@@ -65,7 +68,12 @@ func claimTurnAuthority(ctx context.Context, opts Options, req Request) (store.A
 	if a == nil {
 		return store.AuthorityClaim{}, store.ErrApproverMissing
 	}
-	if req.Trigger.AuthorID <= 0 || strconv.FormatInt(req.Trigger.AuthorID, 10) != req.Trigger.Actor.RemoteID {
+	matches := strconv.FormatInt(req.Trigger.AuthorID, 10) == req.Trigger.Actor.RemoteID
+	if req.Trigger.Actor.Provider == ticket.Linear {
+		identity, e := opts.DB.TicketIdentityForSlot(ctx, "actor", req.Trigger.AuthorID)
+		matches = e == nil && identity.Equal(req.Trigger.Actor)
+	}
+	if req.Trigger.AuthorID <= 0 || !matches {
 		return store.AuthorityClaim{}, store.ErrApproverUnauthorized
 	}
 	return opts.DB.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: a.RepoID, AppointmentID: a.ID, Revision: a.Revision, Actor: req.Trigger.Actor, Source: req.Trigger.Source, CreatedAt: req.Trigger.CreatedAt, Kind: "turn", Key: strconv.FormatInt(req.SessionID, 10) + ":" + strconv.FormatInt(req.Trigger.CommentID, 10)})

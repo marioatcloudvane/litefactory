@@ -129,6 +129,9 @@ func TestCommentFields(t *testing.T) {
 	if comment.Author.ID != 99 || comment.Author.Login != "mario" {
 		t.Errorf("Author = %+v, want id 99 / mario", comment.Author)
 	}
+	if !comment.Author.IsHuman {
+		t.Error("comment author lost the explicit human account type")
+	}
 	if comment.HTMLURL == "" {
 		t.Error("HTMLURL is empty")
 	}

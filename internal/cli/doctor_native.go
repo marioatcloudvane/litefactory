@@ -86,7 +86,7 @@ func configureDoctorTicketWorkflow(ctx context.Context, service *doctor.Service,
 		token, _ = (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, ref)
 		service.Redactor.AddToken(token)
 	}
-	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: service.Redactor, ExpectedActorID: bot.UserID, LegacyReference: ref, LegacyToken: token})
+	factory := projectconnection.NewFactory(projectconnection.Options{DB: service.DB, Resolver: secrets.Resolver{Keychain: env.Keychain}, Logger: env.Logger, Redactor: service.Redactor, ExpectedActorID: bot.UserID, LegacyReference: ref, LegacyToken: token})
 	if err := projectconnection.Initialize(ctx, service.DB, *cfg, factory); err != nil {
 		return err
 	}

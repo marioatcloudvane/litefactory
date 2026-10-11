@@ -29,9 +29,11 @@ type PublicationTickets interface {
 // formats while translating their locators into recorded qualified tickets.
 // It is an explicit GitHub compatibility boundary, not a second transport.
 type TicketPublicationBridge struct {
-	db      *store.DB
-	tickets PublicationTickets
-	origin  ticket.Origin
+	db       *store.DB
+	tickets  PublicationTickets
+	origin   ticket.Origin
+	provider ticket.Provider
+	bot      ticket.Identity
 }
 
 // NewTicketPublicationBridge binds the trusted configured API origin. Legacy
@@ -44,11 +46,14 @@ func NewTicketPublicationBridge(db *store.DB, tickets PublicationTickets, origin
 	if err := (ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: "validation"}).Validate(); err != nil {
 		return nil, err
 	}
-	return &TicketPublicationBridge{db: db, tickets: tickets, origin: origin}, nil
+	return &TicketPublicationBridge{db: db, tickets: tickets, origin: origin, provider: workflowProvider(tickets)}, nil
 }
-func (b *TicketPublicationBridge) locator(repo github.Repo, number int) (ticket.Locator, error) {
+func (b *TicketPublicationBridge) locator(ctx context.Context, repo github.Repo, number int) (ticket.Locator, error) {
 	if err := repo.Validate(); err != nil {
 		return ticket.Locator{}, err
+	}
+	if b.provider != ticket.GitHub {
+		return compatibilityLocator(ctx, b.db, b.provider, b.origin, repo, number)
 	}
 	l := ticket.Locator{Provider: ticket.GitHub, Origin: b.origin, Container: repo.Owner + "/" + repo.Name, Key: strconv.Itoa(number)}
 	if number < 1 {
@@ -96,11 +101,11 @@ func (b *TicketPublicationBridge) resolve(ctx context.Context, key string, locat
 	return current, nil
 }
 func (b *TicketPublicationBridge) destination(ctx context.Context, repo github.Repo, number int) (ticket.Snapshot, error) {
-	locator, err := b.locator(repo, number)
+	locator, err := b.locator(ctx, repo, number)
 	if err != nil {
 		return ticket.Snapshot{}, err
 	}
-	legacy := "ticket-destination:github:" + locator.Container + "#" + locator.Key
+	legacy := "ticket-destination:" + string(b.provider) + ":" + locator.Container + "#" + locator.Key
 	key, err := ticketMetadataKey(ctx, b.db, legacy, locator)
 	if err != nil {
 		return ticket.Snapshot{}, err
@@ -114,11 +119,11 @@ func (b *TicketPublicationBridge) BindPublication(ctx context.Context, key strin
 	if botID < 1 {
 		return errors.New("publication requires qualified bot identity")
 	}
-	locator, err := b.locator(github.RepoFromRef(ref), ref.Issue)
+	locator, err := b.locator(ctx, github.RepoFromRef(ref), ref.Issue)
 	if err != nil {
 		return err
 	}
-	if sessionID > 0 {
+	if sessionID > 0 && b.provider == ticket.GitHub {
 		mapping, err := b.db.BindLegacySessionOrigin(ctx, sessionID, b.origin)
 		if err != nil {
 			return err
@@ -133,7 +138,10 @@ func (b *TicketPublicationBridge) BindPublication(ctx context.Context, key strin
 			}
 		}
 	}
-	actor := ticket.Identity{Provider: ticket.GitHub, Origin: b.origin, RemoteID: strconv.FormatInt(botID, 10)}
+	actor, err := compatibilityIdentity(ctx, b.db, b.provider, b.origin, "actor", botID)
+	if err != nil {
+		return err
+	}
 	_, err = b.resolve(ctx, key, locator, actor)
 	return err
 }
@@ -171,7 +179,7 @@ func (b *TicketPublicationBridge) PostComment(ctx context.Context, repo github.R
 	if err != nil {
 		return github.Comment{}, err
 	}
-	comment, err := legacyPublicationReply(reply, snapshot.Ref)
+	comment, err := compatibilityReply(ctx, b.db, reply, snapshot.Ref)
 	if err != nil {
 		return github.Comment{}, &ticket.Failure{Kind: ticket.Uncertain, Operation: "publication receipt", Cause: err}
 	}
@@ -192,7 +200,7 @@ func (b *TicketPublicationBridge) GetIssue(ctx context.Context, repo github.Repo
 			return github.Issue{}, store.ErrTicketIdentityConflict
 		}
 	}
-	return planLegacyIssue(s)
+	return compatibilityIssue(ctx, b.db, s)
 }
 
 // ListCommentsPage retains the original bounded reconciliation observation.
@@ -207,16 +215,20 @@ func (b *TicketPublicationBridge) ListCommentsPage(ctx context.Context, repo git
 	}
 	var out github.CommentPage
 	if !observed.Complete {
-		if !observed.Next.Ticket.Equal(s.Ref.Identity) || observed.Next.Kind != "github-comments-page/v1" {
+		if !observed.Next.Ticket.Equal(s.Ref.Identity) || (b.provider == ticket.GitHub && observed.Next.Kind != "github-comments-page/v1") {
 			return out, store.ErrTicketIdentityConflict
 		}
-		out.NextPage, err = strconv.Atoi(observed.Next.Value)
+		if b.provider != ticket.GitHub {
+			out.NextPage = page + 1
+		} else {
+			out.NextPage, err = strconv.Atoi(observed.Next.Value)
+		}
 		if err != nil || out.NextPage <= page {
 			return out, errors.New("invalid publication page cursor")
 		}
 	}
 	for _, reply := range observed.Replies {
-		c, err := legacyPublicationReply(reply, s.Ref)
+		c, err := compatibilityReply(ctx, b.db, reply, s.Ref)
 		if err != nil {
 			return github.CommentPage{}, err
 		}
@@ -237,7 +249,11 @@ func (b *TicketPublicationBridge) ListCommentsAfter(ctx context.Context, repo gi
 	if err != nil {
 		return nil, err
 	}
-	observed, err := b.tickets.RepliesAfter(ctx, s.Ref, ticket.Cursor{Ticket: s.Ref.Identity, Kind: "github-comments-after/v1", Value: strconv.FormatInt(after, 10)})
+	cursor, err := compatibilityReplyCursor(ctx, b.db, s.Ref, after)
+	if err != nil {
+		return nil, err
+	}
+	observed, err := completeCompatibilityReplies(ctx, b.tickets, s.Ref, cursor)
 	if err != nil {
 		return nil, err
 	}
@@ -246,14 +262,16 @@ func (b *TicketPublicationBridge) ListCommentsAfter(ctx context.Context, repo gi
 	}
 	var out []github.Comment
 	for _, reply := range observed.Replies {
-		c, err := legacyPublicationReply(reply, s.Ref)
+		c, err := compatibilityReply(ctx, b.db, reply, s.Ref)
 		if err != nil {
 			return nil, err
 		}
 		if err := b.rememberReply(ctx, reply); err != nil {
 			return nil, err
 		}
-		out = append(out, c)
+		if c.ID > after {
+			out = append(out, c)
+		}
 	}
 	return out, nil
 }
@@ -261,6 +279,25 @@ func (b *TicketPublicationBridge) ListCommentsAfter(ctx context.Context, repo gi
 // VerifiedCommentDestination uses trusted API membership, rather than assuming
 // a public GitHub browser URL, for compatibility consumers' receipt checks.
 func (b *TicketPublicationBridge) VerifiedCommentDestination(c github.Comment, ref naming.Ref) bool {
+	if b.provider != ticket.GitHub {
+		return false // Opaque local slots require the contextual receipt check.
+	}
+	return c.ID > 0 && c.IssueAPIURL == string(b.origin)+"/repos/"+ref.Owner+"/"+ref.Repo+"/issues/"+strconv.Itoa(ref.Issue) && c.APIURL == string(b.origin)+"/repos/"+ref.Owner+"/"+ref.Repo+"/issues/comments/"+strconv.FormatInt(c.ID, 10)
+}
+
+func (b *TicketPublicationBridge) verifiedCommentDestination(ctx context.Context, c github.Comment, ref naming.Ref) bool {
+	if b.provider != ticket.GitHub {
+		q := c.QualifiedReply
+		if c.ID <= 0 || q == nil || q.Ticket.Locator.Provider != b.provider || q.Ticket.Locator.Origin != b.origin || q.Ticket.Locator.Container != ref.Owner+"/"+ref.Repo {
+			return false
+		}
+		identity, err := b.db.TicketIdentityForSlot(ctx, "issue", int64(ref.Issue))
+		if err != nil || !identity.Equal(q.Ticket.Identity) {
+			return false
+		}
+		reply, err := b.db.TicketIdentityForSlot(ctx, "comment", c.ID)
+		return err == nil && reply.Equal(q.Identity)
+	}
 	return c.ID > 0 && c.IssueAPIURL == string(b.origin)+"/repos/"+ref.Owner+"/"+ref.Repo+"/issues/"+strconv.Itoa(ref.Issue) && c.APIURL == string(b.origin)+"/repos/"+ref.Owner+"/"+ref.Repo+"/issues/comments/"+strconv.FormatInt(c.ID, 10)
 }
 
@@ -284,6 +321,9 @@ func publicationReplyKey(container, remoteID string) string {
 // an owning publication ledger or its prepared bytes.
 func (b *TicketPublicationBridge) replyKey(ctx context.Context, container, remoteID string) (string, error) {
 	key := publicationReplyKey(container, remoteID)
+	if b.provider != ticket.GitHub {
+		key = "publication-reply:" + string(b.provider) + ":" + container + "#" + remoteID
+	}
 	existing, err := b.db.GetTicketEffect(ctx, key)
 	if errors.Is(err, store.ErrNotFound) {
 		return key, nil
@@ -291,14 +331,14 @@ func (b *TicketPublicationBridge) replyKey(ctx context.Context, container, remot
 	if err != nil {
 		return "", err
 	}
-	if existing.Locator.Origin == b.origin {
+	if existing.Locator.Origin == b.origin && existing.Locator.Provider == b.provider {
 		return key, nil
 	}
-	return naming.QualifiedTaskRef(key, ticket.Identity{Provider: ticket.GitHub, Origin: b.origin, RemoteID: remoteID}), nil
+	return naming.QualifiedTaskRef(key, ticket.Identity{Provider: b.provider, Origin: b.origin, RemoteID: remoteID}), nil
 }
 
 func (b *TicketPublicationBridge) rememberReply(ctx context.Context, reply ticket.Reply) error {
-	if _, err := legacyPublicationReply(reply, reply.Ticket); err != nil {
+	if _, err := compatibilityReply(ctx, b.db, reply, reply.Ticket); err != nil {
 		return err
 	}
 	actor := reply.Author.Identity
@@ -331,7 +371,11 @@ func (b *TicketPublicationBridge) retainedReply(ctx context.Context, repo github
 	if id < 1 {
 		return ticket.Reply{}, errors.New("invalid publication reply ID")
 	}
-	remoteID := strconv.FormatInt(id, 10)
+	identity, err := compatibilityIdentity(ctx, b.db, b.provider, b.origin, "comment", id)
+	if err != nil {
+		return ticket.Reply{}, err
+	}
+	remoteID := identity.RemoteID
 	key, err := b.replyKey(ctx, repo.Owner+"/"+repo.Name, remoteID)
 	if err != nil {
 		return ticket.Reply{}, err
@@ -340,14 +384,14 @@ func (b *TicketPublicationBridge) retainedReply(ctx context.Context, repo github
 	if err != nil {
 		return ticket.Reply{}, err
 	}
-	if bound.Locator.Provider != ticket.GitHub || bound.Locator.Origin != b.origin || bound.Locator.Container != repo.Owner+"/"+repo.Name {
+	if bound.Locator.Provider != b.provider || bound.Locator.Origin != b.origin || bound.Locator.Container != repo.Owner+"/"+repo.Name {
 		return ticket.Reply{}, store.ErrTicketIdentityConflict
 	}
 	ref, err := bound.Ref()
 	if err != nil {
 		return ticket.Reply{}, err
 	}
-	return ticket.Reply{Ticket: ref, Identity: ticket.Identity{Provider: ticket.GitHub, Origin: b.origin, RemoteID: remoteID}, Author: ticket.Actor{Identity: bound.Actor}}, nil
+	return ticket.Reply{Ticket: ref, Identity: ticket.Identity{Provider: b.provider, Origin: b.origin, RemoteID: remoteID}, Author: ticket.Actor{Identity: bound.Actor}}, nil
 }
 
 // EditComment requires an observed qualified receipt. An unknown historical

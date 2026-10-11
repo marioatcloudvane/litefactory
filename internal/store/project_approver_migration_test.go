@@ -32,10 +32,7 @@ func TestProjectApproverPopulatedMigrationFreezesAuthenticatedHistory(t *testing
 		t.Fatal(err)
 	}
 	repo := testRepo(t, db, "code-owner", "repo")
-	connection, err := db.SetConnection(t.Context(), connectionFixture(repo, TicketConnection), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	connection := legacyProjectApproverConnection(t, db, repo)
 	session, err := db.GetOrCreateSession(t.Context(), repo, 7)
 	if err != nil {
 		t.Fatal(err)
@@ -141,10 +138,7 @@ func TestProjectApproverLegacyBodyRunCannotInventAuthor(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := testRepo(t, db, "code-owner", "repo")
-	connection, err := db.SetConnection(t.Context(), connectionFixture(repo, TicketConnection), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	connection := legacyProjectApproverConnection(t, db, repo)
 	session, err := db.GetOrCreateSession(t.Context(), repo, 7)
 	if err != nil {
 		t.Fatal(err)
@@ -201,10 +195,7 @@ func TestProjectApproverLegacyRunlessReportRequiresExactSource(t *testing.T) {
 				t.Fatal(err)
 			}
 			repo := testRepo(t, db, "code-owner", "repo")
-			connection, err := db.SetConnection(t.Context(), connectionFixture(repo, TicketConnection), 0)
-			if err != nil {
-				t.Fatal(err)
-			}
+			connection := legacyProjectApproverConnection(t, db, repo)
 			session, err := db.GetOrCreateSession(t.Context(), repo, 7)
 			if err != nil {
 				t.Fatal(err)
@@ -232,4 +223,31 @@ func TestProjectApproverLegacyRunlessReportRequiresExactSource(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Populate exactly the pre-approver schema, without using current accessors
+// that require columns introduced by later migrations.
+func legacyProjectApproverConnection(t *testing.T, db *DB, repo Repo) ConnectionVersion {
+	t.Helper()
+	connection := connectionFixture(repo, TicketConnection)
+	connection.Revision = 1
+	connection.CreatedAt = nowUTC()
+	err := db.sql.QueryRowContext(t.Context(), `INSERT INTO project_connection_versions(
+	 repo_id,revision,role,provider,api_origin,destination,remote_id,
+	 credential_source,credential_service,credential_account,credential_env,
+	 enabled,provenance,clone_path,remote_url,base_branch,feature_prefix,worktree_root,created_at
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
+		connection.RepoID, connection.Revision, connection.Role, connection.Provider,
+		connection.Origin, connection.Destination, connection.RemoteID,
+		connection.CredentialSource, connection.CredentialService, connection.CredentialAccount, connection.CredentialEnv,
+		connection.Enabled, connection.Provenance, connection.ClonePath, connection.RemoteURL,
+		connection.BaseBranch, connection.FeaturePrefix, connection.WorktreeRoot, FormatTime(connection.CreatedAt),
+	).Scan(&connection.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.ExecContext(t.Context(), `INSERT INTO project_connections(repo_id,role,version_id) VALUES(?,?,?)`, connection.RepoID, connection.Role, connection.ID); err != nil {
+		t.Fatal(err)
+	}
+	return connection
 }
