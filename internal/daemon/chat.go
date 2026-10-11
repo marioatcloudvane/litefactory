@@ -130,11 +130,12 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	if answers.Redactor == nil {
 		answers.Redactor = sanitizer
 	}
+	history := messaging.AskHistory{DB: d.db, Transport: "discord"}
 	if answers.History == nil {
-		answers.History = a
+		answers.History = history
 	}
 	s.EnableAsk(&answers)
-	s.EnablePresentation(o.ReplyModel, a)
+	s.EnablePresentation(o.ReplyModel, history)
 	interpreter := o.Interpreter
 	if interpreter == nil && o.ReplyModel != nil {
 		interpreter = &messaging.NativeInterpreter{Model: o.ReplyModel}
@@ -148,7 +149,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	}
 	s.EnableResearch(chatResearch{d}, chatResearch{d})
 	if o.Settings.NoticeChannelID != "" {
-		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect}
+		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect, Issues: d.forge}
 	}
 	handler := a.Handler(s)
 	d.chatHandler.Store(&handler)

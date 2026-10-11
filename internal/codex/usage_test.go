@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -50,5 +51,15 @@ func TestUsageSyntheticMalformedDoesNotChangeOutcome(t *testing.T) {
 	}
 	if c.finish().Status == agent.CollectionComplete {
 		t.Fatal("unproven complete coverage")
+	}
+}
+
+func TestUsageFailedTurnIsNotComplete(t *testing.T) {
+	t.Parallel()
+	c := newUsageCollector(t.Context(), agent.Request{Usage: &agent.UsageCapture{AttemptID: "a", Sink: func(context.Context, agent.UsageEvent) error { return nil }}})
+	consumeUsage(strings.NewReader("{\"type\":\"thread.started\",\"thread_id\":\"r\"}\n{\"type\":\"turn.failed\"}\n"), io.Discard, c)
+	got := c.finish()
+	if got.Status == agent.CollectionComplete || !slices.Contains(got.Diagnostics, "failed_turn_usage_unavailable") {
+		t.Fatalf("coverage %+v", got)
 	}
 }

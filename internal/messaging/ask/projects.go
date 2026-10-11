@@ -32,6 +32,7 @@ type Resolution struct {
 // newest first and already filtered by the transport to its own ask turns.
 // The newest turn alone determines the inherited project, even if it no longer
 // exists; falling back to an older turn would silently change the target.
+// With no option and no history, the only registered project is the default.
 func ResolveProject(ctx context.Context, reader RepositoryReader, option string, history []Turn) (Resolution, error) {
 	if reader == nil {
 		return Resolution{}, errors.New("ask: repository reader is missing")
@@ -47,7 +48,8 @@ func ResolveProject(ctx context.Context, reader RepositoryReader, option string,
 	}
 	var matches []store.Repo
 	for _, repo := range repos {
-		if repo.Forge == "github" && option != "" && (option == repo.Slug() || (!strings.Contains(option, "/") && option == repo.Name)) {
+		// With nothing named or inherited, the only registered project is the default.
+		if repo.Forge == "github" && (option == "" && len(history) == 0 || option != "" && (option == repo.Slug() || (!strings.Contains(option, "/") && option == repo.Name))) {
 			matches = append(matches, repo)
 		}
 	}

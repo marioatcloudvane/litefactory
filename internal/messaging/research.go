@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -53,7 +54,7 @@ var errDeferredDiagnosis = errors.New("messaging: deferred diagnosis")
 // EnableResearch installs explicit commands before the chat worker starts.
 func (s *Service) EnableResearch(diagnosis Diagnosis, answers ResearchAnswers) {
 	s.diagnosis, s.research = diagnosis, answers
-	base := []Argument{{Name: "project", Type: TextArgument, Required: true, Description: "Managed owner/repo or unique repo"}, {Name: "issue", Type: IntegerArgument, Required: true, Description: "Positive issue number"}}
+	base := []Argument{{Name: "project", Type: TextArgument, Description: "Managed owner/repo or unique repo; defaults to the only registered project"}, {Name: "issue", Type: IntegerArgument, Required: true, Description: "Positive issue number"}}
 	s.RegisterCommand(CommandDefinition{Name: "diagnose", NaturalLanguage: true, Effect: ChangeEffect, Description: "Explain what is wrong or stuck", Arguments: append(append([]Argument(nil), base...), Argument{Name: "note", Type: TextArgument, Description: "Optional diagnosis context"})}, s.diagnose)
 	s.RegisterCommand(CommandDefinition{Name: "question", NaturalLanguage: true, Effect: ReadEffect, Description: "Show the current research question", Arguments: base}, s.question)
 	s.RegisterCommand(CommandDefinition{Name: "answer", NaturalLanguage: true, Effect: ChangeEffect, Description: "Answer the current research question", Arguments: append(append([]Argument(nil), base...), Argument{Name: "revision", Type: TextArgument, Required: true, Description: "Current 12-character question token"}, Argument{Name: "text", Type: TextArgument, Required: true, Description: "Answer, up to 65536 bytes"})}, s.researchAnswer)
@@ -64,14 +65,21 @@ func (s *Service) researchTarget(ctx context.Context, m Message, taskRequired bo
 	if err != nil || n < 1 {
 		return "", "issue must be a positive number"
 	}
-	if strings.TrimSpace(m.Arguments["project"]) == "" {
-		return "", "please name a project"
+	project := strings.TrimSpace(m.Arguments["project"])
+	if project == "" {
+		resolution, resolveErr := ask.ResolveProject(ctx, s.db, "", nil)
+		if resolveErr != nil {
+			return "", "project lookup failed; nothing was applied"
+		}
+		if resolution.Refusal != "" {
+			return "", resolution.Refusal
+		}
+		project = resolution.Repository.Slug()
 	}
 	repositories, err := s.db.ListRepos(ctx)
 	if err != nil {
 		return "", "project lookup failed; nothing was applied"
 	}
-	project := strings.TrimSpace(m.Arguments["project"])
 	var matches []string
 	for _, repo := range repositories {
 		if repo.Forge == store.ForgeGitHub && (project == repo.Slug() || (!strings.Contains(project, "/") && project == repo.Name)) {

@@ -3,6 +3,8 @@ package harness
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -66,5 +68,52 @@ func TestUsageSyntheticResumeCannotChargeHistory(t *testing.T) {
 	c.observe([]byte(`{"type":"assistant","message":{"id":"old","model":"m","usage":{"input_tokens":10,"output_tokens":3}}}`))
 	if len(observations) != 1 || observations[0].Scope != agent.UsageInclusive {
 		t.Fatalf("history could become additive: %+v", observations)
+	}
+}
+
+// completedClaudeStream is a synthetic completed run with one Agent subagent.
+// Its result summary matches the summed exclusive totals per model.
+const completedClaudeStream = `{"type":"system","subtype":"init","session_id":"session","claude_code_version":"fixture"}
+{"type":"assistant","session_id":"session","message":{"id":"m1","model":"root-model","content":[{"type":"tool_use","name":"Agent","id":"child"}],"usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":2,"cache_creation_input_tokens":1}}}
+{"type":"assistant","session_id":"session","parent_tool_use_id":"child","message":{"id":"m2","model":"child-model","usage":{"input_tokens":5,"output_tokens":2,"cache_read_input_tokens":2,"cache_creation_input_tokens":1}}}
+{"type":"user","session_id":"session","message":{"content":[{"type":"tool_result","tool_use_id":"child"}]}}
+{"type":"assistant","session_id":"session","message":{"id":"m3","model":"root-model","usage":{"input_tokens":4,"output_tokens":1,"cache_read_input_tokens":2,"cache_creation_input_tokens":1}}}
+{"type":"result","session_id":"session","subtype":"success","modelUsage":{"root-model":{"inputTokens":14,"outputTokens":4,"cacheReadInputTokens":4,"cacheCreationInputTokens":2},"child-model":{"inputTokens":5,"outputTokens":2,"cacheReadInputTokens":2,"cacheCreationInputTokens":1}}}`
+
+func TestUsageCompletedRunWithSubagentIsComplete(t *testing.T) {
+	t.Parallel()
+	var events []agent.UsageEvent
+	c := newUsageCollector(t.Context(), agent.Request{Session: agent.SessionRef{Ref: "session"}, Usage: &agent.UsageCapture{AttemptID: "a", Sink: func(_ context.Context, e agent.UsageEvent) error { events = append(events, e); return nil }}})
+	for line := range strings.SplitSeq(completedClaudeStream, "\n") {
+		c.observe([]byte(line))
+	}
+	got := c.finish()
+	if got.Status != agent.CollectionComplete || len(got.Diagnostics) != 0 {
+		t.Fatalf("coverage %+v", got)
+	}
+	var input, output int64
+	for _, e := range events {
+		if o := e.Observation; o != nil && o.Scope == agent.UsageExclusive {
+			input += *o.Tokens.InputUncached
+			output += *o.Tokens.Output
+		}
+	}
+	if input != 19 || output != 6 {
+		t.Fatalf("exclusive totals input=%d output=%d", input, output)
+	}
+}
+
+func TestUsageInterruptedRunIsNotComplete(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	c := newUsageCollector(ctx, agent.Request{Session: agent.SessionRef{Ref: "session"}, Usage: &agent.UsageCapture{AttemptID: "a", Sink: func(context.Context, agent.UsageEvent) error { return nil }}})
+	lines := strings.Split(completedClaudeStream, "\n")
+	for _, line := range lines[:len(lines)-1] {
+		c.observe([]byte(line))
+	}
+	cancel()
+	got := c.finish()
+	if got.Status == agent.CollectionComplete || !slices.Contains(got.Diagnostics, "missing_terminal_usage") || !slices.Contains(got.Diagnostics, "collection_cancelled") {
+		t.Fatalf("coverage %+v", got)
 	}
 }

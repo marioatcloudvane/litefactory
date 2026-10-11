@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -245,5 +246,50 @@ func TestFilesystemEvidenceCancelledDrain(t *testing.T) {
 	coverage := c.finish()
 	if !slices.Contains(coverage.Diagnostics, "collection_cancelled") {
 		t.Fatalf("real cancellation lost: %v", coverage.Diagnostics)
+	}
+}
+
+func TestFilesystemEvidenceCompletedRunWithSubagentIsComplete(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".codex", "sessions"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	c, got := filesystemEvidenceCollector(t, home)
+	rollout := func(id, parent, model, response string, input, cached, output int) string {
+		return fmt.Sprintf("{\"type\":\"session_meta\",\"payload\":{\"id\":%q,\"parent_thread_id\":%q,\"cli_version\":\"synthetic\"}}\n", id, parent) +
+			fmt.Sprintf("{\"type\":\"turn_context\",\"payload\":{\"model\":%q,\"turn_id\":\"turn\"}}\n", model) +
+			fmt.Sprintf("{\"type\":\"token_usage_record\",\"payload\":{\"thread_id\":%q,\"turn_id\":\"turn\",\"response_id\":%q,\"usage\":{\"input_tokens\":%d,\"cached_input_tokens\":%d,\"output_tokens\":%d}}}\n", id, response, input, cached, output) +
+			`{"type":"event_msg","payload":{"type":"task_complete"}}` + "\n"
+	}
+	filesystemEvidenceWrite(t, home, "root", rollout("root", "", "gpt-6-astra", "root-response", 20, 8, 3))
+	filesystemEvidenceWrite(t, home, "child", rollout("child", "root", "gpt-6-mini", "child-response", 10, 4, 2))
+	exec := `{"type":"thread.started","thread_id":"root"}
+{"type":"item.completed","item":{"type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"root","receiver_thread_ids":["child"]}}
+{"type":"turn.completed","usage":{"input_tokens":30,"cached_input_tokens":12,"output_tokens":5}}
+`
+	if state := consumeUsage(strings.NewReader(exec), io.Discard, c); !state.completed {
+		t.Fatalf("state=%+v", state)
+	}
+	coverage := c.finish()
+	if coverage.Status != agent.CollectionComplete || len(coverage.Diagnostics) != 0 {
+		t.Fatalf("coverage %+v", coverage)
+	}
+	models := map[string]string{}
+	var input, read, output int64
+	for _, o := range *got {
+		if o.Scope != agent.UsageExclusive {
+			continue
+		}
+		if o.ActualModel == nil {
+			t.Fatalf("unattributed exclusive usage: %+v", o)
+		}
+		models[o.InvocationID] = *o.ActualModel
+		input += *o.Tokens.InputUncached
+		read += *o.Tokens.CacheRead
+		output += *o.Tokens.Output
+	}
+	if models["root"] != "gpt-6-astra" || models["child"] != "gpt-6-mini" || input != 18 || read != 12 || output != 5 {
+		t.Fatalf("models=%v input=%d read=%d output=%d", models, input, read, output)
 	}
 }

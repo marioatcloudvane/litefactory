@@ -25,11 +25,18 @@ type NoticePosition struct {
 type NoticeRecord struct {
 	ID                                                                        int64
 	TaskRef, Workflow, From, To, Key, Kind, StopOrigin, StopCause, StopReason string
-	Run                                                                       Run
-	At                                                                        time.Time
-	Candidate                                                                 []byte
-	CommentID                                                                 int64
-	Ready, Ignore                                                             bool
+	// PreviousMode is the workflow or mode of the session's latest earlier
+	// launched run; only run_starts records read it.
+	PreviousMode string
+	// State is the owner wait's state and Published reports that its comment
+	// was delivered with a comment id; only owner_waits records read them.
+	State         string
+	Published     bool
+	Run           Run
+	At            time.Time
+	Candidate     []byte
+	CommentID     int64
+	Ready, Ignore bool
 }
 
 // The streams are independent; mutable lifecycle sources retain unresolved IDs.
@@ -216,6 +223,10 @@ func (db *DB) readNoticeRecord(ctx context.Context, source string, id int64) (No
 			return r, err
 		}
 		if source == "run_starts" {
+			err = db.sql.QueryRowContext(ctx, `SELECT COALESCE((SELECT COALESCE(NULLIF(p.workflow,''),p.mode) FROM runs p WHERE p.session_id=r.session_id AND p.id<r.id AND p.status<>'prelaunch' AND COALESCE(p.semantic_outcome,'')<>'refused' ORDER BY p.id DESC LIMIT 1),'') FROM runs r WHERE r.id=?`, id).Scan(&r.PreviousMode)
+			if err != nil {
+				return r, err
+			}
 			r.At = r.Run.StartedAt
 			r.Ready = r.Run.Status != RunPrelaunch
 			// Refused prelaunch allocations never crossed the execution boundary.
@@ -229,9 +240,12 @@ func (db *DB) readNoticeRecord(ctx context.Context, source string, id int64) (No
 		r.Ready = true
 	case "owner_waits":
 		var completed bool
-		err = db.sql.QueryRowContext(ctx, `SELECT s.task_ref,COALESCE(NULLIF(d.workflow,''),d.mode),w.delivery_key,c.kind,c.candidate,COALESCE(c.stop_origin,''),COALESCE(c.stop_cause,''),COALESCE(c.stop_reason,''),COALESCE(a.run_id,0),COALESCE(r.comment_id,0),COALESCE(r.completed,0),COALESCE(c.created_at,a.finished_at,i.started_at) FROM graph_owner_waits w JOIN graph_comment_intents c ON c.delivery_key=w.delivery_key JOIN graph_instances i ON i.id=w.instance_id JOIN graph_definitions d ON d.id=i.definition_id JOIN sessions s ON s.id=i.session_id LEFT JOIN graph_node_attempts a ON a.id=w.source_attempt_id LEFT JOIN report_deliveries r ON r.delivery_key=w.delivery_key WHERE w.rowid=?`, id).Scan(&r.TaskRef, &r.Workflow, &r.Key, &r.Kind, &r.Candidate, &r.StopOrigin, &r.StopCause, &r.StopReason, &r.Run.ID, &r.CommentID, &completed, &at)
-		r.Ignore = r.Kind != "question"
-		r.Ready = r.Ignore || (completed && r.CommentID > 0)
+		err = db.sql.QueryRowContext(ctx, `SELECT s.task_ref,COALESCE(NULLIF(d.workflow,''),d.mode),w.delivery_key,c.kind,c.candidate,COALESCE(c.stop_origin,''),COALESCE(c.stop_cause,''),COALESCE(c.stop_reason,''),COALESCE(a.run_id,0),COALESCE(r.comment_id,0),COALESCE(r.completed,0),w.state,COALESCE(c.created_at,a.finished_at,i.started_at) FROM graph_owner_waits w JOIN graph_comment_intents c ON c.delivery_key=w.delivery_key JOIN graph_instances i ON i.id=w.instance_id JOIN graph_definitions d ON d.id=i.definition_id JOIN sessions s ON s.id=i.session_id LEFT JOIN graph_node_attempts a ON a.id=w.source_attempt_id LEFT JOIN report_deliveries r ON r.delivery_key=w.delivery_key WHERE w.rowid=?`, id).Scan(&r.TaskRef, &r.Workflow, &r.Key, &r.Kind, &r.Candidate, &r.StopOrigin, &r.StopCause, &r.StopReason, &r.Run.ID, &r.CommentID, &completed, &r.State, &at)
+		// Question and review waits ask the owner for something. A wait is
+		// resolved once published, or once it stopped waiting unpublished.
+		r.Ignore = r.Kind != "question" && r.Kind != "review"
+		r.Published = completed && r.CommentID > 0
+		r.Ready = r.Ignore || r.Published || r.State != "waiting"
 	}
 	if err != nil {
 		return r, err

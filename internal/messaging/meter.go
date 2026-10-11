@@ -86,7 +86,18 @@ func (s *Service) meter(ctx context.Context, m Message, at time.Time) (string, e
 	if repoID, resolveErr := meterview.ResolveProject(ctx, s.db, request.Project); resolveErr == nil {
 		presentation.AssessRepository(ctx, repoID)
 	}
-	summary, err := s.protectReportLines(bounded, view.SummaryLines())
+	lines := view.SummaryLines()
+	if request.From != "" || request.To != "" {
+		from, to := request.From, request.To
+		if from == "" {
+			from = "beginning"
+		}
+		if to == "" {
+			to = "now"
+		}
+		lines = append([]string{"Time range: " + from + " – " + to}, lines...)
+	}
+	summary, err := s.protectReportLines(bounded, lines)
 	if err != nil {
 		return assessed(ctx, s.reportError(ctx, "meter", err), presentation.ReportableError)
 	}

@@ -121,13 +121,20 @@ the automated fake Discord test does not establish real-server readability.
 
 To receive task status notices, set `chat.discord.notice_channel_id` to one of
 `channel_ids`. Leave it empty to disable notices. Each event goes to that one
-channel: run start, a change to a different graph stage, owner question,
-completion, failure or stop. Messages name and link to the task; questions link
-to the issue comment and show a shortened question. Answer on the issue as usual.
-Final notices include available per-run usage and estimated costs.
+channel: a task starting work or moving to a different mode (for example
+Research → Plan), a published owner question or review ("waiting for you"),
+completion, failure or stop. Steps between graph nodes inside one mode post
+nothing, and a further run in the same mode, such as a run recovered after a
+daemon restart, does not post another start. Messages name the issue number
+and title, read live from GitHub (only the number when the title cannot be
+read), and link to the issue. A "waiting for you" notice says what is asked
+(question or review) and links to the issue comment; for a question it also
+shows a shortened question. It is sent once per wait, and only while the wait
+is still open. Answer on the issue as usual. Final notices include available
+per-run usage and estimated costs.
 
 On first enable, existing history is skipped. Unfinished runs and unpublished
-questions are revisited when they finish or are published. Events already more
+questions and reviews are revisited when they finish or are published. Events already more
 than 24 hours old when first observed are skipped and logged. Notices use the
 same approved best-effort channel-post delivery as command replies, with stable
 enforced nonces, growing retry waits and rate-limit hints, for up to 24 hours.
