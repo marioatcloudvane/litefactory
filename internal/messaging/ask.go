@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -20,6 +21,7 @@ func (s *Service) EnableAsk(service *ask.Service) {
 }
 
 func (s *Service) answer(ctx context.Context, r store.ChatReply, at time.Time) (store.ChatReply, string, error) {
+	r.OutcomeStatus = string(presentation.Success)
 	failure := "Could not answer now, try again."
 	var sanitizer *redact.Redactor
 	if s.ask != nil {
@@ -29,6 +31,7 @@ func (s *Service) answer(ctx context.Context, r store.ChatReply, at time.Time) (
 		sanitizer = redact.New(redact.Options{})
 	}
 	if r.AnswerAttempts >= 2 {
+		r.OutcomeStatus = string(presentation.ReportableError)
 		text, err := ask.RenderNotice(ctx, r.Question, r.ProjectOption, failure, sanitizer)
 		return r, text, err
 	}
@@ -43,6 +46,7 @@ func (s *Service) answer(ctx context.Context, r store.ChatReply, at time.Time) (
 	var text string
 	var repoID int64
 	if s.ask == nil {
+		r.OutcomeStatus = string(presentation.ReportableError)
 		text, err = ask.RenderNotice(answerCtx, r.Question, r.ProjectOption, "Answers unavailable right now.", sanitizer)
 	} else {
 		project := r.ProjectOption
@@ -56,6 +60,9 @@ func (s *Service) answer(ctx context.Context, r store.ChatReply, at time.Time) (
 		if err == nil {
 			prepared, prepareErr := s.ask.Prepare(answerCtx, r.Question, project, r.ChannelRef, at)
 			err = prepareErr
+			if prepared.Refusal != "" {
+				r.OutcomeStatus = string(presentation.Refusal)
+			}
 			if err == nil {
 				repoID = prepared.Repository.ID
 				if r.ResolvedRepoID > 0 && r.ProjectOption == "" {
@@ -75,10 +82,14 @@ func (s *Service) answer(ctx context.Context, r store.ChatReply, at time.Time) (
 		return r, "", ctx.Err()
 	}
 	if err != nil || answerCtx.Err() != nil {
+		r.OutcomeStatus = string(presentation.ReportableError)
 		text, err = ask.RenderNotice(ctx, r.Question, r.ProjectOption, failure, sanitizer)
 		if err != nil {
 			return r, "", err
 		}
+	}
+	if repoID == 0 && r.OutcomeStatus == string(presentation.Success) {
+		r.OutcomeStatus = string(presentation.Refusal)
 	}
 	// Apply the transport's configured credential redactor before fixing reply
 	// text durably, including the small interval before ordinary delivery Step.

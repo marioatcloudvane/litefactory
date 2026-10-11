@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -29,7 +30,7 @@ type Model interface {
 }
 
 // ErrUnavailable indicates that no configured provider has verified isolation.
-var ErrUnavailable = errors.New("ask answers unavailable")
+var ErrUnavailable = response.ErrUnavailable
 
 // Service combines read-only project context and a response-only model. It has
 // no inbox writer: delivery and restart fences remain in the messaging service.
