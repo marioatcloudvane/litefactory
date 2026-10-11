@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -293,5 +294,94 @@ func TestTypedApplyStopsAndJoinsBeforeDrain(t *testing.T) {
 	steps, err := s.DB.DoctorRepairSteps(t.Context(), op.ID)
 	if err != nil || steps[0].State != "verified" || steps[0].ObservedAfter != "failed" || steps[0].BackupReference == "" {
 		t.Fatal(steps, err)
+	}
+}
+
+// refusingSyncEffects refuses sync_branch with a fixed-category drift error.
+type refusingSyncEffects struct{ calls int }
+
+func (e *refusingSyncEffects) Execute(_ context.Context, _ naming.Ref, _ store.DoctorRepair, step store.DoctorRepairStep, _ string) (store.DoctorRepairStep, error) {
+	e.calls++
+	return step, fmt.Errorf("sync refused: %w", ErrRepairBaseRewritten)
+}
+func (*refusingSyncEffects) Verify(context.Context, naming.Ref, store.DoctorRepairStep) error {
+	return nil
+}
+
+// cancelledSyncRunner calls sync_branch and then ends the way a provider does
+// once the refusal cancelled its run.
+type cancelledSyncRunner struct{}
+
+func (cancelledSyncRunner) IsolationEvidence(context.Context, string) (string, error) {
+	return "scoped-only", nil
+}
+func (cancelledSyncRunner) RunRepair(ctx context.Context, _ Invocation, tools *RepairTools, _ *ResultService) (InvocationOutcome, error) {
+	_, err := tools.ApplyTyped(ctx, 1, "sync_branch")
+	if ctx.Err() != nil {
+		return InvocationOutcome{}, ctx.Err()
+	}
+	return InvocationOutcome{}, err
+}
+
+func TestTypedApplyRetainsToolRefusalReason(t *testing.T) {
+	s := doctorIOService(t)
+	ctx := t.Context()
+	repo, err := s.DB.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.DB.GetOrCreateSession(ctx, repo, 685)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := "lf/685-case"
+	if _, err = s.DB.FreezeSessionSlug(ctx, session.ID, "case", branch); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := naming.ParseRef(session.TaskRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, baseHead := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	evidence := store.DoctorEvidence{TaskRef: ref.String(), Records: []store.DoctorEvidenceRecord{{Kind: "branch", ID: branch, State: head, Identity: baseHead}}}
+	c, err := s.DB.BeginDoctorAttempt(ctx, ref.String(), store.DoctorAttempt{ID: "refusal-proposer", SourceID: "refusal-source", OwnerText: "Diagnose", PromptVersion: PromptVersion, GuideVersion: GuideVersion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "refusal-proposer", Provider: "claude", ConfiguredModel: "fixture", Evidence: string(captured)}); err != nil {
+		t.Fatal(err)
+	}
+	results, err := BindResults(ctx, s.DB, "refusal-proposer", evidence, s.Redactor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "Branch needs synchronization.", Uncertainty: "Local refs only.", Evidence: []string{"branch:" + branch}}}, Proposal: []RepairStep{{Number: 1, Target: "branch:" + branch, Precondition: "Captured head", Change: "Merge captured base", Reason: "Restore synchronization", Reversibility: "Backed up head", Rollback: "Restore head", Action: &store.DoctorRepairAction{Kind: "sync_branch", Before: head, After: baseHead}}}}}
+	retainLegacyRepairDiagnosis(t, results, "refusal-proposal", input)
+	pid, _, err := s.DB.DoctorProposalReference(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.PresentDoctorProposal(ctx, ref.String(), "refusal-presentation", pid); err != nil {
+		t.Fatal(err)
+	}
+	effects := &refusingSyncEffects{}
+	s.RepairEffects = effects
+	s.RepairRunner = cancelledSyncRunner{}
+	s.RepairEnvironment = repairFixtureEnvironment{}
+	operation, err := s.Apply(ctx, ApplyRequest{Target: ref, SourceID: "refusal-apply", Principal: "local-owner", PresentationID: "refusal-presentation"})
+	if err == nil || effects.calls != 1 {
+		t.Fatalf("refused sync accepted: calls %d err %v", effects.calls, err)
+	}
+	saved, err := s.DB.ReadDoctorRepair(ctx, ref.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ErrRepairBaseRewritten.Error()
+	if saved.State != "failed" || saved.Failure != want || operation.Failure != want || strings.Contains(saved.Failure, "context canceled") {
+		t.Fatalf("repair %s failure %q (returned %q), want %q", saved.State, saved.Failure, operation.Failure, want)
 	}
 }

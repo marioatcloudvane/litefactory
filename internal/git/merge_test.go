@@ -704,3 +704,37 @@ func TestWorktreeStartMergeRefusesDirtyWorktree(t *testing.T) {
 		t.Fatalf("StartMerge error = %v, want ErrWorktreeUncommittedChanges", err)
 	}
 }
+
+// TestWorktreeIsAncestor covers forward-moved, unrelated-side and unknown revisions.
+func TestWorktreeIsAncestor(t *testing.T) {
+	t.Parallel()
+
+	repo := gittest.New(t)
+	worktree, _ := newTaskWorktree(t, repo, 43, "Ancestry")
+	base := "origin/" + gittest.DefaultBranch
+	old, err := worktree.RevParse(t.Context(), base, git.RevParseOptions{})
+	if err != nil {
+		t.Fatalf("RevParse base: %v", err)
+	}
+	advanceBase(t, repo, 2)
+	newer, err := worktree.RevParse(t.Context(), base, git.RevParseOptions{})
+	if err != nil {
+		t.Fatalf("RevParse advanced base: %v", err)
+	}
+	for _, tc := range []struct {
+		name       string
+		a, d       string
+		want       bool
+		wantErrNil bool
+	}{
+		{"forward", old, newer, true, true},
+		{"self", newer, newer, true, true},
+		{"backward", newer, old, false, true},
+		{"unknown", strings.Repeat("e", 40), newer, false, false},
+	} {
+		got, err := worktree.IsAncestor(t.Context(), tc.a, tc.d)
+		if (err == nil) != tc.wantErrNil || got != tc.want {
+			t.Errorf("%s: IsAncestor = %v, %v; want %v, error nil %v", tc.name, got, err, tc.want, tc.wantErrNil)
+		}
+	}
+}

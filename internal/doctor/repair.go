@@ -18,6 +18,23 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
+// Fixed-category refusals a typed repair tool may report. Their text is
+// retained as the repair failure; any other tool error keeps a generic text.
+var (
+	ErrRepairBeforeHeadChanged = errors.New("inputs drifted: before-head changed")
+	ErrRepairBaseRewritten     = errors.New("inputs drifted: base rewritten")
+)
+
+// repairRefusalReason returns the fixed text to retain for a tool error.
+func repairRefusalReason(err error) string {
+	for _, known := range []error{ErrRepairBeforeHeadChanged, ErrRepairBaseRewritten} {
+		if errors.Is(err, known) {
+			return known.Error()
+		}
+	}
+	return "Approved repair tool failed or was refused; no further steps may run"
+}
+
 // RepairEnvironment is factory-owned process exclusion and restart capability.
 // No production environment is enabled until every writer and startup route is covered.
 type RepairEnvironment interface {
@@ -127,6 +144,11 @@ func (s *Service) Apply(ctx context.Context, request ApplyRequest) (operation st
 		}
 		var fenceErr error
 		if typed {
+			// A tool refusal fences first and cancels the run; keep its fixed
+			// reason instead of the resulting cancellation text.
+			if current, e := s.DB.ReadDoctorRepair(cleanup, request.Target.String()); e == nil && current.ID == operation.ID && current.Fenced && current.Failure != "" {
+				reason = current.Failure
+			}
 			fenceErr = s.DB.SettleDoctorTypedRepair(cleanup, operation.ID, false, reason)
 		} else {
 			fenceErr = s.stopRepair(cleanup, request.Target, reason)
@@ -402,7 +424,7 @@ func (t *RepairTools) ApplyTyped(ctx context.Context, number int, kind string) (
 		current, readErr := t.service.DB.ReadDoctorRepair(cleanup, t.target.String())
 		err = errors.Join(err, readErr)
 		if readErr == nil && current.ID == t.operation && !current.Fenced {
-			err = errors.Join(err, t.service.DB.StopDoctorRepair(cleanup, t.target.String(), "Approved repair tool failed or was refused; no further steps may run"))
+			err = errors.Join(err, t.service.DB.StopDoctorRepair(cleanup, t.target.String(), repairRefusalReason(err)))
 			t.service.mu.Lock()
 			active, ok := t.service.active[t.target.String()]
 			t.service.mu.Unlock()
