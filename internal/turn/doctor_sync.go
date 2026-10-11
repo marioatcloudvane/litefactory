@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 )
 
@@ -153,8 +154,19 @@ func checkDoctorSyncInputs(ctx context.Context, o DoctorSyncOptions) error {
 	if err != nil {
 		return err
 	}
-	if head != o.BeforeHead || base != o.BaseHead {
-		return errors.New("branch synchronization inputs drifted")
+	if head != o.BeforeHead {
+		return doctor.ErrRepairBeforeHeadChanged
+	}
+	// The merge targets the pinned BaseHead, so a base that only moved forward
+	// is harmless; a rewritten base no longer contains the approved head.
+	if base != o.BaseHead {
+		forward, e := w.IsAncestor(ctx, o.BaseHead, base)
+		if e != nil {
+			return e
+		}
+		if !forward {
+			return doctor.ErrRepairBaseRewritten
+		}
 	}
 	changes, err := w.Status(ctx)
 	if err != nil {

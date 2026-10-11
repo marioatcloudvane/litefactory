@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 )
@@ -498,6 +499,63 @@ func TestDoctorSyncBehindRefusalsPreserveHeads(t *testing.T) {
 			}
 			if remoteHead := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remoteHead != remote {
 				t.Fatalf("remote head changed to %s", remoteHead)
+			}
+		})
+	}
+}
+
+// TestDoctorSyncBaseMovedAfterApproval covers origin/<base> changing between
+// proposal and apply: a forward move still merges the pinned BaseHead, while
+// a rewrite that drops the approved BaseHead is refused unchanged.
+func TestDoctorSyncBaseMovedAfterApproval(t *testing.T) {
+	for _, rewritten := range []bool{false, true} {
+		t.Run(map[bool]string{false: "advanced", true: "rewritten"}[rewritten], func(t *testing.T) {
+			repo := gittest.New(t)
+			w := newSyncWorktree(t, repo, 685, "doctor base moved")
+			before, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+			if e != nil {
+				t.Fatal(e)
+			}
+			advanceSyncBase(t, repo, 1)
+			approved, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if rewritten {
+				repo.Git("reset", "--quiet", "--hard", before)
+				commitInSyncDir(t, repo, repo.Dir, "rewritten.txt", "rewritten base")
+				repo.Git("push", "--quiet", "--force", "origin", gittest.DefaultBranch)
+			} else {
+				commitInSyncDir(t, repo, repo.Dir, "later.txt", "later base")
+				repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+			}
+			repo.Git("fetch", "--quiet", "origin")
+			current, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+			if e != nil || current == approved {
+				t.Fatalf("base did not move: %s %v", current, e)
+			}
+			result, e := SyncDoctorBranch(t.Context(), DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: before, Base: "origin/" + gittest.DefaultBranch, BaseHead: approved, Author: syncTestAuthor, RecordBackup: func(context.Context, string) error { return nil }})
+			after, x := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+			if x != nil {
+				t.Fatal(x)
+			}
+			if rewritten {
+				if !errors.Is(e, doctor.ErrRepairBaseRewritten) || result.Rechecked || after != before {
+					t.Fatalf("rewritten base accepted %+v %v head %s", result, e, after)
+				}
+				return
+			}
+			if e != nil || !result.Rechecked || result.Head != after || result.BaseHead != approved {
+				t.Fatalf("forward base refused %+v %v", result, e)
+			}
+			if ok, x := w.IsAncestor(t.Context(), approved, after); x != nil || !ok {
+				t.Fatalf("merged head lacks approved base %v %v", ok, x)
+			}
+			if ok, x := w.IsAncestor(t.Context(), current, after); x != nil || ok {
+				t.Fatalf("merge retargeted to newer base %v %v", ok, x)
+			}
+			if remoteHead := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remoteHead != after {
+				t.Fatalf("remote head %s differs from rechecked head %s", remoteHead, after)
 			}
 		})
 	}
