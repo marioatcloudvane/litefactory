@@ -79,7 +79,7 @@ func (s *Service) collectLocal(ctx context.Context, ref naming.Ref, e *store.Doc
 		e.Gaps = append(e.Gaps, "Worktree git observation refused or unavailable")
 		return
 	}
-	s.collectBranchInputs(ctx, ref, sources, binary, observation.Head, e)
+	s.collectBranchInputs(ctx, ref, sources, binary, observation.BranchHead, e)
 	s.collectWorktreeFiles(ctx, ref, sources, observation.Status, e)
 	e.Records = append(e.Records, store.DoctorEvidenceRecord{CapturedAt: time.Now().UTC(), Kind: "worktree", ID: ref.String(), State: observation.Head, Content: observation.Unpushed + "\n" + observation.Status})
 }
