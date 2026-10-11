@@ -94,11 +94,41 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	if err != nil || len(events) != 1 || events[0].Kind != "started" || !strings.Contains(messaging.NoticeText(events[0]), "Mode: research → plan") {
 		t.Fatalf("mode change start=%+v err=%v", events, err)
 	}
+	// A run abandoned in process by a daemon shutdown is relaunched by
+	// recovery and is not announced as failed; real failures still are.
+	for _, f := range []struct {
+		status store.RunStatus
+		error  string
+		kinds  []string
+	}{
+		{store.RunFailed, "abandoned: the caller's run context ended before claude finished (daemon shutdown or cancellation)", nil},
+		{store.RunFailed, "claude exited with status 1", []string{"failed"}},
+		{store.RunFailed, "timed out after 30m0s; the process subtree was killed", []string{"failed"}},
+		{store.RunFailed, "abandoned", []string{"failed"}},
+		{store.RunSucceeded, "", []string{"completed"}},
+	} {
+		r := record
+		r.Run.Status, r.Run.Error, r.Run.SemanticOutcome = f.status, f.error, ""
+		events, err := messaging.NoticeEvents("run_finishes", r)
+		kinds := []string(nil)
+		for _, e := range events {
+			kinds = append(kinds, e.Kind)
+		}
+		if err != nil || strings.Join(kinds, ",") != strings.Join(f.kinds, ",") {
+			t.Fatalf("finish %q events=%+v err=%v", f.error, events, err)
+		}
+	}
 	record.Run.Status = store.RunFailed
 	record.Run.RecoveryReason = `owner-stop:{"run_id":7,"at":"2026-10-10T18:00:00Z"}`
 	events, err = messaging.NoticeEvents("run_finishes", record)
 	if err != nil || events[0].Kind != "stopped" {
 		t.Fatalf("stop=%+v err=%v", events, err)
+	}
+	abandonedStop := record
+	abandonedStop.Run.Error = "abandoned: the caller's run context ended before claude finished (daemon shutdown or cancellation)"
+	events, err = messaging.NoticeEvents("run_finishes", abandonedStop)
+	if err != nil || len(events) != 1 || events[0].Kind != "stopped" {
+		t.Fatalf("abandoned owner stop=%+v err=%v", events, err)
 	}
 	parked := record
 	parked.Ready = false
