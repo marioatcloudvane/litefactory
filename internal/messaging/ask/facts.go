@@ -45,6 +45,14 @@ type Task struct {
 	State       string
 	LatestRun   *store.Run
 	PlanStages  []string
+	OwnerWait   *OwnerWait
+}
+
+// OwnerWait is a published owner question or review still waiting for a reply.
+type OwnerWait struct {
+	Workflow, Kind, Node, Asked string
+	CommentID                   int64
+	Since                       time.Time
 }
 
 // FactoryReader builds a fresh bounded project projection. Incomplete reports
@@ -123,6 +131,21 @@ func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (
 	if err := ctx.Err(); err != nil {
 		return b, err
 	}
+	if taskErr == nil {
+		tasks = slices.Clone(tasks)
+		sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].IssueNumber < tasks[j].IssueNumber })
+		// Owner waits are workflow state and go before issue text so the
+		// bundle budget cannot crowd them out.
+		seenWaits := map[int]bool{}
+		for _, task := range tasks {
+			w := task.OwnerWait
+			if w == nil || task.IssueNumber < 1 || w.CommentID < 1 || seenWaits[task.IssueNumber] {
+				continue
+			}
+			seenWaits[task.IssueNumber] = true
+			add(fact(fmt.Sprintf("wait:%d", task.IssueNumber), "owner_wait", fmt.Sprintf("%s/issues/%d#issuecomment-%d", base, task.IssueNumber, w.CommentID), waitText(task.IssueNumber, *w, at)))
+		}
+	}
 	issues = slices.Clone(issues)
 	sort.SliceStable(issues, func(i, j int) bool {
 		if issues[i].UpdatedAt.Equal(issues[j].UpdatedAt) {
@@ -146,8 +169,6 @@ func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (
 		b.Gaps = append(b.Gaps, "Issue bodies were shortened (2 KiB body limit).")
 	}
 	if taskErr == nil {
-		tasks = slices.Clone(tasks)
-		sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].IssueNumber < tasks[j].IssueNumber })
 		seenTasks := map[int]bool{}
 		for _, task := range tasks {
 			if task.IssueNumber < 1 || seenTasks[task.IssueNumber] {
@@ -171,6 +192,23 @@ func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (
 		return Bundle{}, errors.New("ask: project metadata exceeds facts bundle limit")
 	}
 	return b, nil
+}
+
+func waitText(issue int, w OwnerWait, at time.Time) string {
+	text := fmt.Sprintf("#%d is waiting for the owner: %s %s at node %s.", issue, byteExcerpt(w.Workflow, 128), byteExcerpt(w.Kind, 64), byteExcerpt(w.Node, 128))
+	if w.Asked != "" {
+		text += "\nAsked: " + byteExcerpt(w.Asked, 1024)
+	}
+	text += "\nReply on the linked issue comment."
+	if !w.Since.IsZero() {
+		age := max(at.Sub(w.Since), 0)
+		ago := fmt.Sprintf("%d hours", int(age/time.Hour))
+		if age >= 48*time.Hour {
+			ago = fmt.Sprintf("%d days", int(age/(24*time.Hour)))
+		}
+		text += fmt.Sprintf("\nWaiting since %s (%s before capture).", w.Since.UTC().Format(time.RFC3339), ago)
+	}
+	return text
 }
 
 func encodedSize(b Bundle) int {
