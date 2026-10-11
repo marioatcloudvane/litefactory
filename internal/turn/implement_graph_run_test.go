@@ -15,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -349,6 +350,9 @@ func seedImplementParent(t *testing.T, f *fixture, stories ...store.ManagedStory
 	mustProgress(t, f.db.ActivateManagedScope(ctx, parent, 1))
 	_, err := f.db.FreezeSessionSlug(ctx, f.session.ID, "feature", "lf/123-feature")
 	mustProgress(t, err)
+	// The feature branch exists on the remote, as Plan leaves it: the
+	// coordinator's base sync brings main into it before any story starts.
+	f.repo.Git("push", "--quiet", "origin", "HEAD:refs/heads/lf/123-feature")
 	return parent
 }
 
@@ -1140,5 +1144,278 @@ func TestImplementWorkerPromptAsksToDelegateAndStatesTheTimeLimitOutsideTheNote(
 		if !strings.Contains(outside, want) {
 			t.Errorf("the worker prompt lacks %q outside the handoff note:\n%s", want, prompt)
 		}
+	}
+}
+
+// implementTrail lists node:outcome for every finished step of the parent's
+// latest Implement instance, in order.
+func implementTrail(t *testing.T, f *fixture) []string {
+	t.Helper()
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	mustProgress(t, err)
+	var trail []string
+	for _, a := range attempts {
+		trail = append(trail, a.Node+":"+a.Outcome)
+	}
+	return trail
+}
+
+func trailIndex(trail []string, step string) int {
+	for i, s := range trail {
+		if s == step {
+			return i
+		}
+	}
+	return -1
+}
+
+// advanceRemote commits one file on top of a remote branch and pushes it,
+// leaving the clone's checkout where it was. It returns the new tip.
+func advanceRemote(t *testing.T, f *fixture, branch, file, content string) string {
+	t.Helper()
+	f.repo.Git("fetch", "--quiet", "origin")
+	f.repo.Git("checkout", "--quiet", "--detach", "origin/"+branch)
+	f.repo.WriteFile(file, content)
+	f.repo.Commit("change " + file + " on " + branch)
+	f.repo.Git("push", "--quiet", "origin", "HEAD:refs/heads/"+branch)
+	tip := f.repo.Git("rev-parse", "HEAD")
+	f.repo.Git("checkout", "--quiet", gittest.DefaultBranch)
+	return tip
+}
+
+// remoteHolds reports whether the remote branch contains commit.
+func remoteHolds(t *testing.T, f *fixture, branch, commit string) bool {
+	t.Helper()
+	f.repo.Git("fetch", "--quiet", "origin")
+	return f.repo.Git("merge-base", commit, "origin/"+branch) == commit
+}
+
+// c1: with main ahead of the feature branch, the coordinator merges main into
+// the feature branch before ready starts any story.
+func TestImplementCoordinatorMergesMainBeforeTheFirstStoryStarts(t *testing.T) {
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("a clean base sync needs no agent")
+		return nil, nil
+	}))
+	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	fix := advanceRemote(t, f, gittest.DefaultBranch, "fix.txt", "fixed on main\n")
+	if remoteHolds(t, f, "lf/123-feature", fix) {
+		t.Fatal("the feature branch must start behind main")
+	}
+
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	trail := implementTrail(t, f)
+	synced, started := trailIndex(trail, "sync_start:synced"), trailIndex(trail, "ready:started")
+	if synced < 0 || started < 0 || synced > started {
+		t.Fatalf("main is merged before the first story starts: %v", trail)
+	}
+	if !remoteHolds(t, f, "lf/123-feature", fix) {
+		t.Fatal("the feature branch does not hold main's fix")
+	}
+	if rows := implementStatesOf(t, f, parent); rows["story-001"].State != store.ImplementRunning {
+		t.Fatalf("the story starts after the sync: %+v", rows)
+	}
+}
+
+// c2: main that moves while the stories build is merged again before the
+// completion reply.
+func TestImplementCoordinatorMergesMainAgainBeforeReportingDone(t *testing.T) {
+	f, forge, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("a clean base sync needs no agent")
+		return nil, nil
+	}))
+	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	if trail := implementTrail(t, f); trailIndex(trail, "sync_start:current") < 0 {
+		t.Fatalf("an up-to-date feature branch is current: %v", trail)
+	}
+
+	// While the story builds, main moves on; then the story is merged.
+	fix := advanceRemote(t, f, gittest.DefaultBranch, "fix.txt", "fixed on main\n")
+	for _, move := range [][2]string{{store.ImplementRunning, store.ImplementDone}, {store.ImplementDone, store.ImplementMerged}} {
+		row := implementStatesOf(t, f, parent)["story-001"]
+		in := store.ImplementTransition{Parent: parent, Generation: 1, Key: "story-001", From: move[0], To: move[1], ExpectedRevision: row.Revision, At: implementClock}
+		if move[1] == store.ImplementMerged {
+			in.MergeCommit = "1111111111aaaaaaaaaa"
+		}
+		_, err := f.db.TransitionImplementStory(t.Context(), in)
+		mustProgress(t, err)
+	}
+	mustProgress(t, wakeImplementParent(t.Context(), f.db, parent, time.Now()))
+	runOwedImplementStages(t, f, req)
+
+	trail := implementTrail(t, f)
+	synced, reported := trailIndex(trail, "sync_done:synced"), trailIndex(trail, "report_done:published")
+	if synced < 0 || reported < 0 || synced > reported {
+		t.Fatalf("main is merged again before the completion reply: %v", trail)
+	}
+	if !remoteHolds(t, f, "lf/123-feature", fix) {
+		t.Fatal("the reported branch does not hold main's fix")
+	}
+	if replies := implementCompletionReplies(forge); len(replies) != 1 {
+		t.Fatalf("one completion reply: %q", replies)
+	}
+}
+
+const syncResolvedJSON = `{"version":1,"response":"completed","result":{"outcome":"completed","comment":"Resolved the conflict in the shared handler; the package tests pass.","payload":{"implement":{"stories":[]}}}}`
+
+const syncResolverBlockedJSON = `{"version":1,"response":"blocked","result":{"outcome":"blocked","comment":"The conflict could not be resolved.","reason":"shared.go: main and the merged stories want two different handlers.","payload":{"implement":{"stories":[]}}}}`
+
+// seedMainFeatureConflict gives the feature branch and main two different edits
+// of shared.go and returns main's tip.
+func seedMainFeatureConflict(t *testing.T, f *fixture) string {
+	t.Helper()
+	f.opts.AutoSyncBase = true
+	f.opts.BlockRunOnConflict = true
+	advanceRemote(t, f, "lf/123-feature", "shared.go", "package api // merged stories\n")
+	return advanceRemote(t, f, gittest.DefaultBranch, "shared.go", "package api // main\n")
+}
+
+// c4/c6: a conflict with main goes to the resolver, which works on the merge in
+// the parent's worktree; the factory saves its completed answer and the same
+// sync runs again and finds main in.
+func TestImplementCoordinatorResolvesAConflictWithMainThroughTheResolver(t *testing.T) {
+	var prompt, mergeHead string
+	var f *fixture
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompt = req.Prompt
+		mergeHead = f.repo.GitIn(req.WorktreePath, "rev-parse", "MERGE_HEAD")
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
+		submitLiveResult(t, req, syncResolvedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	mainTip := seedMainFeatureConflict(t, f)
+
+	out, err := Execute(t.Context(), f.opts, req)
+	if err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	trail := implementTrail(t, f)
+	want := []string{"select_path:coordinator", "sync_start:conflict", "sync_start_resolve:success", "sync_start_resolved:resolved", "sync_start:current", "merge:none", "ready:started"}
+	for i, step := range want {
+		if i >= len(trail) || trail[i] != step {
+			t.Fatalf("trail = %v, want it to begin %v", trail, want)
+		}
+	}
+	if mergeHead != mainTip {
+		t.Fatalf("MERGE_HEAD = %q, want main's tip %s", mergeHead, mainTip)
+	}
+	for _, want := range []string{"## Merge conflict to resolve", `- "shared.go"`, "Do not commit"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the resolver prompt lacks %q", want)
+		}
+	}
+	if !remoteHolds(t, f, "lf/123-feature", mainTip) {
+		t.Fatal("the resolved merge was not pushed to the feature branch")
+	}
+	if got := f.repo.Git("show", "origin/lf/123-feature:shared.go"); got != "package api // main and merged stories" {
+		t.Fatalf("shared.go = %q", got)
+	}
+	if rows := implementStatesOf(t, f, parent); rows["story-001"].State != store.ImplementRunning {
+		t.Fatalf("the story starts once main is in: %+v", rows)
+	}
+}
+
+// c7: a resolver that cannot settle the conflict answers blocked; only then is
+// the owner asked, naming the files, and nothing is pushed.
+func TestImplementCoordinatorBlockedResolverAsksTheOwnerAndPushesNothing(t *testing.T) {
+	var f *fixture
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		submitLiveResult(t, req, syncResolverBlockedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledImplementFixture(t, runner)
+	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	mainTip := seedMainFeatureConflict(t, f)
+	f.repo.Git("fetch", "--quiet", "origin")
+	before := f.repo.Git("rev-parse", "origin/lf/123-feature")
+
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	trail := implementTrail(t, f)
+	if trailIndex(trail, "sync_start_resolved:blocked") < 0 || trailIndex(trail, "ready:started") >= 0 {
+		t.Fatalf("a blocked resolver stops before any story starts: %v", trail)
+	}
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	if instance.CurrentNode != "waiting" {
+		t.Fatalf("the coordinator rests at the owner wait: %+v", instance)
+	}
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	if err != nil || wait.State != "waiting" {
+		t.Fatalf("the owner has one open question: %+v %v", wait, err)
+	}
+	var questions []string
+	for _, post := range forge.all() {
+		if strings.Contains(post.body, "could not settle") {
+			questions = append(questions, post.body)
+		}
+	}
+	if len(questions) != 1 || !strings.Contains(questions[0], "shared.go") || !strings.Contains(questions[0], "two different handlers") {
+		t.Fatalf("one question names the conflicting file and the resolver's reason: %q", questions)
+	}
+	f.repo.Git("fetch", "--quiet", "origin")
+	if after := f.repo.Git("rev-parse", "origin/lf/123-feature"); after != before {
+		t.Fatalf("nothing is pushed: feature moved from %s to %s", before, after)
+	}
+	sess, err := f.db.GetSessionByTaskRef(t.Context(), parent)
+	mustProgress(t, err)
+	if got := f.repo.GitIn(sess.WorktreePath, "rev-parse", "MERGE_HEAD"); got != mainTip {
+		t.Fatalf("the unresolved merge stays in progress, uncommitted: MERGE_HEAD=%q", got)
+	}
+}
+
+// c6 at the end: main that conflicts once the stories are merged goes to the
+// final sync's resolver, and the completion reply follows the resolved merge.
+func TestImplementCoordinatorResolvesAConflictWithMainBeforeReportingDone(t *testing.T) {
+	resolves := 0
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		resolves++
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
+		submitLiveResult(t, req, syncResolvedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledImplementFixture(t, runner)
+	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	mainTip := seedMainFeatureConflict(t, f)
+	for _, move := range [][2]string{{store.ImplementRunning, store.ImplementDone}, {store.ImplementDone, store.ImplementMerged}} {
+		row := implementStatesOf(t, f, parent)["story-001"]
+		in := store.ImplementTransition{Parent: parent, Generation: 1, Key: "story-001", From: move[0], To: move[1], ExpectedRevision: row.Revision, At: implementClock}
+		if move[1] == store.ImplementMerged {
+			in.MergeCommit = "1111111111aaaaaaaaaa"
+		}
+		_, err := f.db.TransitionImplementStory(t.Context(), in)
+		mustProgress(t, err)
+	}
+	mustProgress(t, wakeImplementParent(t.Context(), f.db, parent, time.Now()))
+	runOwedImplementStages(t, f, req)
+
+	trail := implementTrail(t, f)
+	order := []string{"sync_done:conflict", "sync_done_resolve:success", "sync_done_resolved:resolved", "sync_done:current", "report_done:published"}
+	last := -1
+	for _, step := range order {
+		i := trailIndex(trail, step)
+		if i <= last {
+			t.Fatalf("trail = %v, want %v in order", trail, order)
+		}
+		last = i
+	}
+	if resolves != 1 || !remoteHolds(t, f, "lf/123-feature", mainTip) {
+		t.Fatalf("the resolver ran once (%d) and its merge reached the feature branch", resolves)
+	}
+	if replies := implementCompletionReplies(forge); len(replies) != 1 {
+		t.Fatalf("one completion reply: %q", replies)
 	}
 }
