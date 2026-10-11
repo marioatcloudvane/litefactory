@@ -165,7 +165,7 @@ func (d *Daemon) startImplementWork(ctx context.Context, t *task) error {
 		return err
 	}
 	stored, _, err := d.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{
-		SessionID: t.session.ID, SourceCommentID: id, OwnerHandle: d.filter.Identities().OwnerHandle,
+		SessionID: t.session.ID, SourceCommentID: id, OwnerHandle: d.ticketIdentities(ctx).OwnerHandle,
 		Payload: implementWorkPayload, DueAt: t.tickAt.UTC(),
 	})
 	if err != nil {

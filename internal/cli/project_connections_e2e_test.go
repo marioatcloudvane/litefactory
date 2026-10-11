@@ -64,6 +64,8 @@ func TestProjectConnectionsMainPath(t *testing.T) {
 		switch r.URL.Path {
 		case "/user":
 			response = map[string]any{"id": 99, "login": "factory-bot"}
+		case "/users/project-approver":
+			response = map[string]any{"id": 42, "login": "project-approver", "type": "User"}
 		case "/repos/acme/does-not-exist", "/repos/acme/tasks":
 			expected := codeToken
 			remoteID := 101
@@ -140,6 +142,11 @@ func TestProjectConnectionsMainPath(t *testing.T) {
 	}
 	ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: ticket.Origin(origin), RemoteID: "700"}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: ticket.Origin(origin), Container: "acme/tasks", Key: "42"}}
 	factory := projectconnection.NewFactory(projectconnection.Options{HTTPClient: server.Client(), ExpectedActorID: 99})
+	// New projects require an explicitly verified ticket approver before factory admission.
+	approvers := projectconnection.ApproverService{DB: db, Factory: factory}
+	if _, err := approvers.Set(t.Context(), project.ID, "project-approver", tickets.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
 	session, err := daemon.AdmitProjectTicket(t.Context(), db, factory, project, ref)
 	if err != nil {
 		t.Fatal(err)

@@ -1,0 +1,21 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	3.531s
+ok  	github.com/cloudvane/litefactory/internal/doctor	233.047s
+ok  	github.com/cloudvane/litefactory/internal/github	9.494s
+ok  	github.com/cloudvane/litefactory/internal/messaging	103.126s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	7.449s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	7.697s
+ok  	github.com/cloudvane/litefactory/internal/meterview	8.642s
+ok  	github.com/cloudvane/litefactory/internal/naming	10.967s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	46.721s
+ok  	github.com/cloudvane/litefactory/internal/repos	41.377s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	43.676s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+--- FAIL: TestCanonicalMigrationAndGraphContracts (2.57s)
+    release_test.go:267: validate graph changed beyond team and guidance
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamrelease	244.235s
+ok  	github.com/cloudvane/litefactory/internal/ticket	11.428s
+ok  	github.com/cloudvane/litefactory/internal/webhook	28.191s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	115.800s
+FAIL

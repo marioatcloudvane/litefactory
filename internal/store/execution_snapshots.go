@@ -147,6 +147,14 @@ func (db *DB) AttachExecutionSnapshot(ctx context.Context, s ExecutionSnapshot) 
 // AdmitSession checks current revisions and enabled ownership in the same
 // transaction that creates the session and pins its execution context.
 func (db *DB) AdmitSession(ctx context.Context, repo Repo, ref ticket.Ref, codeRevision, ticketRevision, actorID int64, actorLogin, taskRef string, remoteIDs ...string) (Session, error) {
+	return db.admitSession(ctx, repo, ref, codeRevision, ticketRevision, actorID, actorLogin, taskRef, 0, remoteIDs...)
+}
+
+// AdmitSessionWithApprover pins the observed authority revision in the session admission transaction.
+func (db *DB) AdmitSessionWithApprover(ctx context.Context, repo Repo, ref ticket.Ref, codeRevision, ticketRevision, actorID int64, actorLogin, taskRef string, authorityRevision int64, remoteIDs ...string) (Session, error) {
+	return db.admitSession(ctx, repo, ref, codeRevision, ticketRevision, actorID, actorLogin, taskRef, authorityRevision, remoteIDs...)
+}
+func (db *DB) admitSession(ctx context.Context, repo Repo, ref ticket.Ref, codeRevision, ticketRevision, actorID int64, actorLogin, taskRef string, authorityRevision int64, remoteIDs ...string) (Session, error) {
 	if err := ref.Validate(); err != nil {
 		return Session{}, err
 	}
@@ -155,6 +163,19 @@ func (db *DB) AdmitSession(ctx context.Context, repo Repo, ref ticket.Ref, codeR
 	}
 	var out Session
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if authorityRevision > 0 {
+			a, e := currentApprover(ctx, tx, repo.ID)
+			if e != nil {
+				return e
+			}
+			if a.Revision != authorityRevision {
+				return ErrApproverConflict
+			}
+			if a.Actor.Provider != ref.Identity.Provider || a.Actor.Origin != ref.Identity.Origin {
+				return ErrApproverUnauthorized
+			}
+		}
+
 		existing, err := scanSession(tx.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE id=(SELECT session_id FROM session_ticket_identities WHERE provider=? AND api_origin=? AND remote_id=?)`, ref.Identity.Provider, ref.Identity.Origin, ref.Identity.RemoteID))
 		if err == nil {
 			if existing.RepoID != repo.ID {

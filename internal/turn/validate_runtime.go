@@ -54,7 +54,12 @@ func NewValidateRuntime(ctx context.Context, opts Options, cfg ValidateRuntimeCo
 	}
 	owner := cfg.OwnerID
 	return &ValidateRuntime{
-		OwnerID: func(context.Context, Options) (int64, error) { return owner, nil },
+		OwnerID: func(ctx context.Context, o Options) (int64, error) {
+			if o.ProjectApprovers {
+				return ticketOwnerID(ctx, o)
+			}
+			return owner, nil
+		},
 		Bind: func(ctx context.Context, opts Options, req Request, entry store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
 			return bindValidate(ctx, opts, req, entry, cfg)
 		},

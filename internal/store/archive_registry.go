@@ -239,7 +239,12 @@ var archiveRetained = map[string]ArchiveClass{
 	"repository_team_bindings":    ArchiveClassGlobal,
 	"project_connection_versions": ArchiveClassGlobal, "project_connections": ArchiveClassGlobal,
 	"project_ticket_bindings": ArchiveClassGlobal, "project_connection_observations": ArchiveClassGlobal,
-	"project_connection_imports": ArchiveClassGlobal,
+	"project_connection_imports":    ArchiveClassGlobal,
+	"project_approver_appointments": ArchiveClassGlobal, "project_approvers": ArchiveClassGlobal,
+	"project_authority_claims": ArchiveClassGlobal, "project_approver_initialization": ArchiveClassGlobal,
+	"project_legacy_approver_eligibility": ArchiveClassGlobal, "project_legacy_approver_identities": ArchiveClassGlobal,
+	"project_legacy_authority_evidence": ArchiveClassGlobal,
+	"doctor_command_sources":            ArchiveClassGlobal,
 	// Subscription ownership and source recovery survive individual task archival.
 	// Pending signals can precede session admission; generations never reset.
 	"ticket_subscriptions": ArchiveClassGlobal, "ticket_subscription_operations": ArchiveClassGlobal,

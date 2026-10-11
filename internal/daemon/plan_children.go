@@ -37,7 +37,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 	if !ok {
 		return false, errors.New("plan child routing requires direct parent observation")
 	}
-	ids := d.filter.Identities()
+	ids := d.ticketIdentities(ctx)
 	for _, draft := range drafts {
 		if draft.IssueNumber < 1 {
 			continue
@@ -157,7 +157,11 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 				}
 				continue
 			}
-			if comment.Author.ID != ids.OwnerUserID || comment.Author.ID == ids.BotUserID || comment.Author.IsBot || turn.HasMarker(comment.Body) {
+			eligible, authorityErr := d.eligibleProjectComment(ctx, t.session.ID, comment)
+			if authorityErr != nil {
+				return false, authorityErr
+			}
+			if !eligible || comment.Author.ID != ids.OwnerUserID || comment.Author.ID == ids.BotUserID || comment.Author.IsBot || turn.HasMarker(comment.Body) {
 				if err = d.db.AdvanceStoryDiscovery(ctx, t.session.ID, draft.IssueNumber, comment.ID); err != nil {
 					return false, err
 				}
@@ -188,7 +192,11 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 				reply.Stage, reply.Candidate, reply.WaitID = wait.Stage, wait.Candidate, wait.ID
 			}
 
-			trigger := turn.Trigger{CommentID: comment.ID, Body: comment.Body, Author: comment.Author.Login, AuthorID: comment.Author.ID, PlanReply: reply}
+			trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, comment)
+			if triggerErr != nil {
+				return false, triggerErr
+			}
+			trigger.PlanReply = reply
 			if err = d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: comment.Body}, t.log); err != nil {
 				var refusal *turn.PlanReplyRefusal
 				if !errors.As(err, &refusal) {

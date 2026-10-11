@@ -82,3 +82,49 @@ receipts and prepared delivery contents retain their existing recovery rules.
 Local doctor operations also load retained project credentials when the former
 global credential is unavailable, including after current connections are
 disabled. Each remote operation still selects the original session destination.
+
+## Ticket approver
+
+The trusted local operator appoints one verified human account per project.
+The account may differ from the code owner, ticket creator and assignee. Handles
+select an account for verification; the saved GitHub ID and configured API origin
+establish its identity. The publishing account cannot be appointed.
+
+```sh
+litefactory repo approver inspect 1
+litefactory repo approver set 1 ticket-director --connection-revision 2 --revision 0
+litefactory repo approver refresh 1 --connection-revision 2 --revision 1
+litefactory repo approver replace 1 new-director --connection-revision 2 --revision 1
+```
+
+Inspect reports verification provenance, activation time, current revisions and
+outstanding work. Refresh looks up the same immutable account and preserves its
+authority revision and replay boundary. A stale revision or failed lookup leaves
+the current appointment and pending effects intact.
+
+Replacement requires an idle project: runs, queued work, open decisions, claimed
+replies and unresolved publications must settle through their existing controls.
+Replacement preserves historical actors and consumed sources. The replacement
+must write a new reply strictly after activation; editing an earlier reply does
+not authorize it. Missing or equal creation time requires a fresh reply.
+
+New projects require an explicit appointment. Existing projects can retain the
+migration-captured authenticated GitHub approver after verification against the
+known public GitHub origin. Ambiguous identity or conflicting historical actors
+block affected work and remain visible for correction. Initialization never
+replaces an explicit appointment or changes prepared publication bytes.
+
+Only the appointed approver's fresh ticket instructions and workflow approvals
+authorize ticket work. A third-party issue body remains context until that
+approver instructs work. Assignment cannot grant or suppress authority. Code
+owner delivery and exact pull request/head/target approvals retain their separate
+permissions, as do trusted local operations and the publishing credential.
+
+Remote Doctor diagnosis and stop instructions use the project approver and the
+same fresh-reply boundary. Doctor repair approval keeps its separate code
+authority. Queued Doctor instructions retain their original ticket connection
+and publisher, including when a result must be reconciled after a restart.
+
+When the ticket approver and code owner differ, acceptance checks and finding
+choices must be settled before the code owner's combined Validate shipping
+approval. The combined command cannot grant the code owner ticket authority.

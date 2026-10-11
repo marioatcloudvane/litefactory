@@ -182,7 +182,7 @@ func (d *Daemon) runContinuation(ctx context.Context, t *task, c store.Continuat
 		}
 		return
 	}
-	trigger := turn.Trigger{CommentID: c.TriggerID(), Body: c.Context.Request, Author: d.filter.Identities().OwnerHandle}
+	trigger := turn.Trigger{CommentID: c.TriggerID(), Body: c.Context.Request, Author: d.ticketIdentities(ctx).OwnerHandle}
 	command := turn.Command{Kind: turn.KindFreeText, Text: c.Context.Request}
 	err = d.run(ctx, t, trigger, command, t.log)
 	if err != nil {

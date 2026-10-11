@@ -57,6 +57,8 @@ func TestProjectDiscoveryRetainsBacklogAndQualifiedWorkspace(t *testing.T) {
 			switch r.URL.Path {
 			case "/user":
 				response = map[string]any{"id": 99, "login": "factory-bot"}
+			case "/users/owner":
+				response = map[string]any{"id": 42, "login": "owner", "type": "User"}
 			case "/repos/owner/code", "/repos/owner/replacement-code", "/repos/owner/tasks":
 				id := 101
 				if r.URL.Path == "/repos/owner/tasks" {
@@ -105,6 +107,11 @@ func TestProjectDiscoveryRetainsBacklogAndQualifiedWorkspace(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	d := &Daemon{db: db, connections: projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 99}), filter: filter, log: slog.New(slog.DiscardHandler)}
+	approvers := projectconnection.ApproverService{DB: db, Factory: d.connections}
+	appointment, err := approvers.Set(t.Context(), repo.ID, "owner", tickets.Revision, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	d.discovery.tick(now)
 	d.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 4999, Reset: now.Add(time.Hour), StatusCode: http.StatusOK})
 	q := &repoQueue{repo: repo, forgeRepo: github.Repo{Owner: "owner", Name: "tasks"}, log: d.log}
@@ -146,6 +153,11 @@ func TestProjectDiscoveryRetainsBacklogAndQualifiedWorkspace(t *testing.T) {
 	staleIdentity := ticket.Identity{Provider: ticket.GitHub, Origin: ticket.Origin(replacement.origin), RemoteID: "700"}
 	if _, err = db.GetTicketBinding(t.Context(), staleIdentity); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("stale observation created a replacement binding: %v", err)
+	}
+	// The new origin needs its own verified appointment; a bare account ID
+	// from the original instance cannot authorize its admissions.
+	if _, err := approvers.Set(t.Context(), repo.ID, "owner", replacementTickets.Revision, appointment.Revision); err != nil {
+		t.Fatal(err)
 	}
 	second := discover()
 	if first.session.ID == second.session.ID || first.session.TaskRef == second.session.TaskRef {

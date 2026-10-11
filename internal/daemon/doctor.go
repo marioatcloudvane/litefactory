@@ -16,6 +16,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 type doctorForge interface {
@@ -124,6 +126,25 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 		return nil
 	}
 	fr := github.Repo{Owner: repo.Owner, Name: repo.Name}
+	if d.connections != nil {
+		connection, err := d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
+		if err != nil {
+			return err
+		}
+		if !connection.Enabled {
+			return nil
+		}
+		clients, err := d.connections.Clients(ctx, connection, 0)
+		if err != nil {
+			return err
+		}
+		forge = clients.Code
+		owner, name, valid := strings.Cut(connection.Destination, "/")
+		if !valid {
+			return errors.New("doctor ticket destination is invalid")
+		}
+		fr = github.Repo{Owner: owner, Name: name}
+	}
 	since := scan.CompletedAt.Add(-time.Minute)
 	if since.Before(scan.ActivatedAt) {
 		since = scan.ActivatedAt
@@ -147,11 +168,12 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 		if _, ok := doctor.ParseCommand(c.Body); !ok {
 			continue
 		}
-		ids := d.filter.Identities()
-		if c.Author.ID != ids.OwnerUserID || c.Author.ID == ids.BotUserID || c.Author.IsBot {
+		if c.Author.ID <= 0 || c.Author.IsBot || turn.HasMarker(c.Body) {
 			continue
 		}
-		issue, err := doctorCall(ctx, d, func(ctx context.Context) (github.Issue, error) { return d.readIssue(ctx, fr, entry.IssueNumber) })
+		issue, err := doctorCall(ctx, d, func(ctx context.Context) (github.Issue, error) {
+			return d.readIssue(projectContext(ctx, repo.ID), fr, entry.IssueNumber)
+		})
 		if err != nil {
 			return err
 		}
@@ -176,16 +198,31 @@ func (d *Daemon) admitDoctor(ctx context.Context, repo store.Repo, issue github.
 	if !ok {
 		return false, nil
 	}
-	ids := d.filter.Identities()
-	if c.Author.ID != ids.OwnerUserID || c.Author.ID == ids.BotUserID || c.Author.IsBot {
+	if c.Author.ID <= 0 || c.Author.IsBot || turn.HasMarker(c.Body) {
 		return true, nil
 	}
 	if d.doctor.service == nil {
 		return true, errors.New("doctor service unavailable")
 	}
-	ref := naming.Ref{Forge: naming.ForgeGitHub, Owner: strings.ToLower(repo.Owner), Repo: strings.ToLower(repo.Name), Issue: issue.Number}
 	if issue.ID <= 0 || issue.Number <= 0 {
 		return true, errors.New("doctor issue identity unavailable")
+	}
+	ref, claim, source, err := d.admitDoctorAuthority(ctx, repo, issue, c, command.Operation)
+	if errors.Is(err, store.ErrApproverUnauthorized) || errors.Is(err, store.ErrApproverReplay) {
+		return true, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	if claim.ID != 0 {
+		defer func() {
+			if err := d.db.CompleteProjectAuthority(context.WithoutCancel(ctx), claim.ID); err != nil {
+				d.log.ErrorContext(ctx, "release doctor admission authority", "error", err)
+			}
+		}()
+	}
+	if source != nil {
+		ctx = context.WithValue(ctx, doctorSourceContextKey{}, *source)
 	}
 	safe, err := d.doctor.service.Redactor.Apply(ctx, command.Text, 32768)
 	if err != nil {
@@ -198,7 +235,7 @@ func (d *Daemon) admitDoctor(ctx context.Context, repo store.Repo, issue github.
 	if command.Operation == "apply" && d.doctor.service.CheckRepairCapability(ctx, ref) == nil {
 		repairApprovalID = rand.Text()
 	}
-	retained, err := d.db.AdmitDoctorCommand(ctx, store.DoctorCommand{RepairApprovalID: repairApprovalID, RepoID: repo.ID, TaskRef: ref.String(), IssueID: issue.ID, IssueNumber: issue.Number, CommentID: c.ID, ActorID: c.Author.ID, CreatedAt: c.CreatedAt, Operation: command.Operation, Instructions: safe.String()})
+	retained, err := d.db.AdmitDoctorCommand(ctx, store.DoctorCommand{Source: source, RepairApprovalID: repairApprovalID, RepoID: repo.ID, TaskRef: ref.String(), IssueID: issue.ID, IssueNumber: issue.Number, CommentID: c.ID, ActorID: c.Author.ID, CreatedAt: c.CreatedAt, Operation: command.Operation, Instructions: safe.String()})
 	if err != nil {
 		return true, err
 	}
@@ -208,6 +245,136 @@ func (d *Daemon) admitDoctor(ctx context.Context, repo store.Repo, issue github.
 		}
 	}
 	return true, nil
+}
+
+// admitDoctorAuthority binds priority and ordered intake to the actual ticket
+// source. A short durable claim serializes inbox admission with replacement.
+// Repair apply retains the separate code authority and requires a saved task.
+func (d *Daemon) admitDoctorAuthority(ctx context.Context, repo store.Repo, issue github.Issue, c github.Comment, operation string) (naming.Ref, store.AuthorityClaim, *store.DoctorCommandSource, error) {
+	ref := naming.Ref{Forge: naming.ForgeGitHub, Owner: strings.ToLower(repo.Owner), Repo: strings.ToLower(repo.Name), Issue: issue.Number}
+	if d.connections == nil {
+		ids := d.filter.Identities()
+		if c.Author.ID != ids.OwnerUserID || c.Author.ID == ids.BotUserID {
+			return ref, store.AuthorityClaim{}, nil, store.ErrApproverUnauthorized
+		}
+		return ref, store.AuthorityClaim{}, nil, nil
+	}
+	connection, err := d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
+	if err != nil {
+		return ref, store.AuthorityClaim{}, nil, err
+	}
+	locator := ticket.Locator{Provider: connection.Provider, Origin: connection.Origin, Container: connection.Destination, Key: strconv.Itoa(issue.Number)}
+	scope, _ := ctx.Value(connectionScopeKey{}).(connectionScope)
+	var session store.Session
+	var publisherID int64
+	if scope.sessionID != 0 {
+		session, err = d.db.GetSession(ctx, scope.sessionID)
+	} else {
+		session, err = d.db.GetSessionByTicketLocator(ctx, locator)
+	}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return ref, store.AuthorityClaim{}, nil, err
+	}
+	if err == nil {
+		if session.RepoID != repo.ID {
+			return ref, store.AuthorityClaim{}, nil, store.ErrTicketIdentityConflict
+		}
+		binding, readErr := d.db.GetSessionTicket(ctx, session.ID)
+		if readErr != nil {
+			return ref, store.AuthorityClaim{}, nil, readErr
+		}
+		if binding.RemoteID != strconv.FormatInt(issue.ID, 10) || binding.Locator.Key != strconv.Itoa(issue.Number) {
+			return ref, store.AuthorityClaim{}, nil, store.ErrTicketIdentityConflict
+		}
+		locator = binding.Locator
+		snapshot, readErr := d.db.GetExecutionSnapshot(ctx, session.ID)
+		if readErr != nil {
+			return ref, store.AuthorityClaim{}, nil, readErr
+		}
+		publisherID = snapshot.ActorID
+		connection, readErr = d.db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
+		if readErr != nil {
+			return ref, store.AuthorityClaim{}, nil, readErr
+		}
+		ref, readErr = naming.ParseRef(session.TaskRef)
+		if readErr != nil {
+			return ref, store.AuthorityClaim{}, nil, readErr
+		}
+	} else {
+		owner, name, valid := strings.Cut(locator.Container, "/")
+		if !valid {
+			return ref, store.AuthorityClaim{}, nil, errors.New("doctor ticket destination is invalid")
+		}
+		ref.Owner, ref.Repo = owner, name
+	}
+	clients, err := d.connections.Clients(ctx, connection, publisherID)
+	if err != nil {
+		return ref, store.AuthorityClaim{}, nil, err
+	}
+	if c.Author.ID == clients.Actor.ID {
+		return ref, store.AuthorityClaim{}, nil, store.ErrApproverUnauthorized
+	}
+	qualified, err := clients.Tickets.QualifyReply(ticket.Ref{Locator: locator, Identity: ticket.Identity{Provider: locator.Provider, Origin: locator.Origin, RemoteID: strconv.FormatInt(issue.ID, 10)}}, c)
+	if err != nil {
+		return ref, store.AuthorityClaim{}, nil, err
+	}
+	source := &store.DoctorCommandSource{ConnectionVersionID: connection.ID, PublisherID: clients.Actor.ID, Ticket: qualified.Ticket}
+	if operation == "apply" {
+		if session.ID == 0 {
+			return ref, store.AuthorityClaim{}, nil, store.ErrApproverUnauthorized
+		}
+		if err := d.authorizeCodeControl(ctx, session.ID, c); err != nil {
+			return ref, store.AuthorityClaim{}, nil, store.ErrApproverUnauthorized
+		}
+		claim, err := d.claimCodeControl(ctx, session.ID, c)
+		return ref, claim, source, err
+	}
+	appointment, err := d.db.CurrentApprover(ctx, repo.ID)
+	if err != nil {
+		return ref, store.AuthorityClaim{}, nil, err
+	}
+	claim, err := d.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: repo.ID, AppointmentID: appointment.ID, Revision: appointment.Revision, Actor: qualified.Author.Identity, Source: qualified.Identity, CreatedAt: qualified.CreatedAt, Kind: "doctor-instruction", Key: qualified.Identity.RemoteID})
+	return ref, claim, source, err
+}
+
+type doctorSourceContextKey struct{}
+
+func (d *Daemon) doctorCommandContext(ctx context.Context, commandID int64) (context.Context, error) {
+	if d.connections == nil {
+		return ctx, nil
+	}
+	source, err := d.db.GetDoctorCommandSource(ctx, commandID)
+	if errors.Is(err, store.ErrNotFound) {
+		return ctx, nil
+	}
+	if err != nil {
+		return ctx, err
+	}
+	if _, err := d.doctorSourceClient(ctx, source); err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, doctorSourceContextKey{}, source), nil
+}
+
+func (d *Daemon) doctorSourceClient(ctx context.Context, source store.DoctorCommandSource) (*github.Client, error) {
+	if source.ConnectionVersionID <= 0 || source.PublisherID <= 0 {
+		return nil, errors.New("doctor source lacks a verified publishing identity")
+	}
+	connection, err := d.db.GetConnectionVersion(ctx, source.ConnectionVersionID)
+	if err != nil {
+		return nil, err
+	}
+	if connection.Provider != source.Ticket.Identity.Provider || connection.Origin != source.Ticket.Identity.Origin || connection.Destination != source.Ticket.Locator.Container {
+		return nil, errors.New("doctor source differs from retained connection")
+	}
+	clients, err := d.connections.Clients(ctx, connection, source.PublisherID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := clients.Tickets.Read(ctx, source.Ticket); err != nil {
+		return nil, err
+	}
+	return clients.Code, nil
 }
 
 func (d *Daemon) doctorControls(ctx context.Context) error {
@@ -296,6 +463,10 @@ func (d *Daemon) dispatchDoctor(ctx context.Context) {
 	}()
 }
 func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
+	ctx, err := d.doctorCommandContext(ctx, c.ID)
+	if err != nil {
+		return err
+	}
 	ref, err := naming.ParseRef(c.TaskRef)
 	if err != nil {
 		return err
@@ -351,6 +522,11 @@ func (d *Daemon) recoverDoctor(ctx context.Context) error {
 	}
 	var failures []error
 	for _, c := range commands {
+		commandCtx, err := d.doctorCommandContext(ctx, c.ID)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
 		ref, err := naming.ParseRef(c.TaskRef)
 		if err != nil {
 			failures = append(failures, err)
@@ -358,11 +534,11 @@ func (d *Daemon) recoverDoctor(ctx context.Context) error {
 		}
 		if c.Operation == "apply" {
 			// A writing invocation is never replayed after process loss.
-			if _, reconcileErr := d.doctor.service.ReconcileRepair(ctx, ref); reconcileErr != nil {
+			if _, reconcileErr := d.doctor.service.ReconcileRepair(commandCtx, ref); reconcileErr != nil {
 				failures = append(failures, reconcileErr)
 				continue
 			}
-			conversation, readErr := d.doctor.service.ReadConversation(ctx, ref)
+			conversation, readErr := d.doctor.service.ReadConversation(commandCtx, ref)
 			if readErr != nil {
 				failures = append(failures, readErr)
 				continue
@@ -371,7 +547,7 @@ func (d *Daemon) recoverDoctor(ctx context.Context) error {
 			failures = append(failures, d.db.CompleteDoctorCommand(ctx, c.ID, body, conversation.Conversation.ID))
 			continue
 		}
-		conversation, err := d.doctor.service.RecoverSource(ctx, ref, c.SourceID())
+		conversation, err := d.doctor.service.RecoverSource(commandCtx, ref, c.SourceID())
 		if errors.Is(err, store.ErrDoctorBusy) {
 			continue
 		}
@@ -407,7 +583,17 @@ func (d *Daemon) publishDoctor(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := d.db.EnsureDoctorDeliveries(ctx, c, parts, d.filter.Identities().BotUserID); err != nil {
+		publisher := d.filter.Identities().BotUserID
+		if d.connections != nil {
+			source, err := d.db.GetDoctorCommandSource(ctx, c.ID)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+			if err == nil {
+				publisher = source.PublisherID
+			}
+		}
+		if err := d.db.EnsureDoctorDeliveries(ctx, c, parts, publisher); err != nil {
 			return err
 		}
 	}
@@ -423,6 +609,22 @@ func (d *Daemon) publishDoctor(ctx context.Context) error {
 	return errors.Join(failures...)
 }
 func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery store.ReportDelivery) error {
+	if d.connections != nil {
+		source, err := d.db.GetDoctorDeliverySource(ctx, delivery.Key)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		if err == nil {
+			if source.PublisherID != delivery.BotUserID {
+				return errors.New("doctor publisher differs from retained intent")
+			}
+			client, err := d.doctorSourceClient(ctx, source)
+			if err != nil {
+				return err
+			}
+			forge = client
+		}
+	}
 	ref, err := naming.ParseRef(delivery.Destination)
 	if err != nil {
 		return err

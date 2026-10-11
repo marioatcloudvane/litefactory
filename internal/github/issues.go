@@ -56,12 +56,8 @@ type Issue struct {
 	// — "opened by X" — and, on an issue whose body is run as its first
 	// instruction, the author of that trigger too (AC-2.16b).
 	//
-	// It is not the authorisation. Anyone can open an issue, so nothing is
-	// started on the strength of this field: what unlocks a body is
-	// [Issue.Assignees] containing the owner. That the two can differ is the
-	// point, and the attribution is why it is safe — a run started from a
-	// stranger's body still tells the model who wrote it. The blanket ban this
-	// comment used to cite (AC-2.16) is reversed in `.aiteam/AC_AMENDMENTS.md`.
+	// Initial body execution requires the verified project approver's authorship
+	// and a fresh provider creation time. Assignment is metadata only.
 	Author User
 	// Assignees is everyone the issue is assigned to, empty when it is
 	// assigned to nobody. It rides on the same payload as every other field

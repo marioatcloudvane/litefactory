@@ -254,6 +254,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err := projectconnection.Initialize(ctx, s.DB, *s.Config, connections); err != nil {
 		return nil, Startup{}, err
 	}
+	if err := projectconnection.InitializeApprovers(ctx, s.DB, connections); err != nil {
+		return nil, Startup{}, err
+	}
 	selector := func(ctx context.Context, repo github.Repo, number int, sessionID int64) (*github.Tickets, int64, error) {
 		return selectTicketConnection(ctx, s.DB, connections, repo, number, sessionID)
 	}
@@ -388,7 +391,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		if err != nil {
 			return nil, Startup{}, errors.Join(err, lock.Close())
 		}
-		creationAuthorizer, err := turn.NewCreationAuthorizer(turn.CreationAuthorizerOptions{Store: creationStore, Enabled: s.Config.Settings.AllowMCPStoryCreation, OwnerID: identities.OwnerUserID, BotID: identities.BotUserID})
+		creationAuthorizer, err := turn.NewCreationAuthorizer(turn.CreationAuthorizerOptions{DB: s.DB, ProjectApprovers: true, Store: creationStore, Enabled: s.Config.Settings.AllowMCPStoryCreation, OwnerID: identities.OwnerUserID, BotID: identities.BotUserID})
 		if err != nil {
 			return nil, Startup{}, errors.Join(err, lock.Close())
 		}
@@ -400,6 +403,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	turnOpts := turn.Options{
+		ProjectApprovers: true,
 		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {
 			snapshot, e := s.DB.GetExecutionSnapshot(ctx, session.ID)
 			if e != nil {

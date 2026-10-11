@@ -653,6 +653,21 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		return Reconciled{}, fmt.Errorf("reconcile what a previous daemon left behind: %w", err)
 	}
 
+	if d.connections != nil {
+		projects, e := d.db.ListRepos(ctx)
+		if e != nil {
+			return Reconciled{}, e
+		}
+		for _, project := range projects {
+			if e = d.db.RecoverProjectWorkerClaims(ctx, project.ID); e != nil {
+				return Reconciled{}, e
+			}
+			if e = d.db.RecoverConsumedProjectAuthorityClaims(ctx, project.ID); e != nil {
+				return Reconciled{}, e
+			}
+		}
+	}
+
 	if d.bug != nil {
 		// One Bug instance that cannot be reconciled (for example one captured
 		// before captures existed, or from an older Bug graph) must not keep

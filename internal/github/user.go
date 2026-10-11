@@ -22,6 +22,8 @@ type User struct {
 	// IsBot is GitHub's own account type flag ("Bot"). It is one signal among
 	// three in the self-filter, never the only one.
 	IsBot bool
+	// IsHuman is asserted only by public account verification responses.
+	IsHuman bool
 }
 
 // AuthenticatedUser resolves the identity behind the configured token
@@ -82,5 +84,25 @@ func (c *Client) UserByLogin(ctx context.Context, login string) (User, error) {
 	if user.ID == 0 || user.Login == "" {
 		return User{}, fmt.Errorf("github: resolve user %q: %w: response carried no id or login", login, ErrUnexpectedStatus)
 	}
+	user.IsHuman = payload.GetType() == "User"
+	return user, nil
+}
+
+// UserByID verifies a saved account without trusting a mutable login.
+func (c *Client) UserByID(ctx context.Context, id int64) (User, error) {
+	if id <= 0 {
+		return User{}, fmt.Errorf("github: resolve user: id must be positive")
+	}
+	payload, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.User, *gogithub.Response, error) {
+		return c.api.Users.GetByID(ctx, id)
+	})
+	if err != nil {
+		return User{}, fmt.Errorf("github: resolve user id %d: %w", id, err)
+	}
+	user := convertUser(payload)
+	if user.ID != id || user.Login == "" {
+		return User{}, fmt.Errorf("github: resolve user id %d: %w: response identity mismatch", id, ErrUnexpectedStatus)
+	}
+	user.IsHuman = payload.GetType() == "User"
 	return user, nil
 }

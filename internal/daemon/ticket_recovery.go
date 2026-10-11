@@ -348,7 +348,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		} else {
 			c, err = d.sight(readCtx, targetQueue, issue)
 			if err != nil {
-				if errors.Is(err, store.ErrBindingConflict) || errors.Is(err, store.ErrConnectionConflict) || errors.Is(err, store.ErrTicketIdentityConflict) || errors.Is(err, store.ErrConnectionDisabled) {
+				if errors.Is(err, store.ErrBindingConflict) || errors.Is(err, store.ErrConnectionConflict) || errors.Is(err, store.ErrTicketIdentityConflict) || errors.Is(err, store.ErrConnectionDisabled) || errors.Is(err, store.ErrApproverMissing) || errors.Is(err, store.ErrApproverConflict) || errors.Is(err, store.ErrApproverUnauthorized) {
 					q.log.WarnContext(ctx, "ticket observation cannot be admitted through its saved source", slog.Any("error", err))
 					continue
 				}

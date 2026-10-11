@@ -247,14 +247,8 @@ func (f *Filter) Identities() Identities { return f.identities }
 // litefactory's own output (AC-S0.1). See [HasMarker] for why that is the fix
 // and what it deliberately leaves unfixed.
 //
-// The parameter is a [github.Comment] and never an issue, and that is still
-// true now that an issue body can start a run (AC-2.16b): the body path does
-// not come through here at all. It has no comment to classify — no forge
-// comment id, nothing to record against the session, and no author whose id
-// decides anything, because what authorises a body is the issue's assignee and
-// not its writer. So there is deliberately still no overload taking a bare body
-// and an author, and [Filter.Admit]'s refusal of a zero comment id stands. See
-// `.aiteam/AC_AMENDMENTS.md`.
+// Issue bodies have no comment identity and are admitted separately by the
+// factory, using the project approver's authorship and activation boundary.
 func (f *Filter) Classify(c github.Comment) Verdict {
 	// Explicit legacy boundary: these observations come from the configured
 	// GitHub client. Neutral callers carry qualification in the reply itself.

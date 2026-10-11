@@ -152,7 +152,7 @@ func TestTicketRecoveryFirstSeenAfterOutageKeepsEnrolledReplies(t *testing.T) {
 	w.daemon = newRecoveryDaemon(t, w, origin, "first-seen-restarted", false)
 	w.settle()
 	if got := w.turns.triggers(); !slices.Equal(got, []int64{9}) {
-		t.Fatalf("first-sight instructions = %v, want eligible reply 9 only", got)
+		t.Fatalf("first-sight instructions = %v, want eligible reply 9 only\nlogs:\n%s", got, w.fixture.logs)
 	}
 	if got := w.watermark(); got != 9 {
 		t.Fatalf("first-sight consumption = %d, want 9", got)
@@ -438,6 +438,13 @@ func recoveryProvider(t *testing.T, f *fixture) ticket.Origin {
 	t.Helper()
 	var origin string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/users/"+ownerLogin {
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(owner()); err != nil {
+				t.Error(err)
+			}
+			return
+		}
 		response := httptest.NewRecorder()
 		f.forge.server.Config.Handler.ServeHTTP(response, r)
 		for key, values := range response.Header() {
@@ -498,6 +505,11 @@ func configureRecoverySource(t *testing.T, w *webhookFixture, origin ticket.Orig
 			source = version
 		}
 	}
+	// This registered test project appoints its independently verified account.
+	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: w.spy.lookup}, Logger: w.logger, ExpectedActorID: botID})
+	if _, err := (projectconnection.ApproverService{DB: w.db, Factory: factory}).Set(t.Context(), w.repo.ID, ownerLogin, source.Revision, 0); err != nil {
+		t.Fatalf("verify recovery project approver: %v", err)
+	}
 	_, err := w.db.PutTicketSubscription(t.Context(), store.TicketSubscription{
 		ID: recoverySelector, RepoID: w.repo.ID, ConnectionVersionID: source.ID,
 		Provider: ticket.GitHub, Origin: origin, Container: w.repo.Slug(), ContainerID: "1",
@@ -548,7 +560,7 @@ func newRecoveryDaemon(t *testing.T, w *webhookFixture, origin ticket.Origin, in
 	opts := daemon.Options{
 		DefaultAgent: agent.Kind(store.AgentClaude), ToolProfiles: config.DefaultToolProfiles().Permissions,
 		Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}},
-		DB: w.db, Forge: clients.Code, Filter: filter, Turn: w.turns, Reporter: reporter,
+		DB: w.db, Forge: clients.Code, Tickets: clients.Tickets, Filter: filter, Turn: w.turns, Reporter: reporter,
 		Connections: connections, InstanceID: instance, Interval: testInterval,
 		DiscoveryInterval: scheduleInterval, Ticks: w.ticks, Logger: w.logger,
 		Now: w.clock.Now, ShutdownGrace: 500 * time.Millisecond,
