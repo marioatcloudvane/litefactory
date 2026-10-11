@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/doctor"
@@ -278,4 +280,121 @@ func TestFactoryDoctorBranchFinishFailureKeepsPushedHead(t *testing.T) {
 	if local == head || local != remote {
 		t.Fatalf("local %s diverged from pushed %s (before %s)", local, remote, head)
 	}
+}
+
+// liveSyncRunner proposes sync_branch from the branch record in the live manifest.
+type liveSyncRunner struct{ t *testing.T }
+
+func (r *liveSyncRunner) IsolationEvidence(context.Context, string) (string, error) {
+	return "controlled-fixture-only", nil
+}
+func (r *liveSyncRunner) Run(ctx context.Context, inv doctor.Invocation, results *doctor.ResultService) (doctor.InvocationOutcome, error) {
+	i := strings.Index(inv.Prompt, "\n{\"")
+	var prepared doctor.PromptContext
+	if i < 0 || json.Unmarshal([]byte(inv.Prompt[i+1:]), &prepared) != nil {
+		r.t.Fatal("missing JSON context")
+	}
+	var record store.DoctorEvidenceRecord
+	for _, candidate := range prepared.Manifest.Records {
+		if candidate.Kind == "branch" {
+			record = candidate
+		}
+	}
+	target := "branch:" + record.ID
+	input := doctor.ResultInput{Diagnosis: doctor.Diagnosis{Findings: []doctor.Finding{{Explanation: "The feature branch is behind its base.", Evidence: []string{target}, Uncertainty: "Local refs only."}}, Proposal: []doctor.RepairStep{{Number: 1, Target: target, Precondition: "Captured head", Change: "Merge captured base", Reason: "Restore synchronization", Reversibility: "Backed up head", Rollback: "Restore head", Action: &store.DoctorRepairAction{Kind: "sync_branch", Before: record.State, After: record.Identity}}}}}
+	raw, e := json.Marshal(input)
+	if e != nil {
+		return doctor.InvocationOutcome{}, e
+	}
+	if _, e = results.Submit(ctx, "live-sync-result", raw); e != nil {
+		return doctor.InvocationOutcome{}, e
+	}
+	return doctor.InvocationOutcome{RequestID: "live-sync-result", ObservedModel: inv.ConfiguredModel}, nil
+}
+
+func TestFactoryDoctorLiveSyncBranchProposalAppliesAndPushes(t *testing.T) {
+	d, _, _ := doctorDaemonFixture(t)
+	ctx := t.Context()
+	fixture := gittest.New(t)
+	root, e := filepath.EvalSymlinks(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
+	repo, e := d.db.UpsertRepo(ctx, store.Repo{Path: fixture.Dir, Forge: "github", Owner: "fixture", Name: "repo", RemoteURL: fixture.Origin, BaseBranch: gittest.DefaultBranch, FeaturePrefix: "lf", WorktreeRoot: root})
+	if e != nil {
+		t.Fatal(e)
+	}
+	session, e := d.db.GetOrCreateSession(ctx, repo, 655)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if session, e = d.db.FreezeSessionSlug(ctx, session.ID, "sync", "lf/655-sync"); e != nil {
+		t.Fatal(e)
+	}
+	binary, e := git.Resolve(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	clone, e := binary.Open(ctx, fixture.Dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	tree, e := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: filepath.Join(repo.WorktreeRoot, "task-655"), Branch: session.Branch, BaseBranch: repo.BaseBranch})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = d.db.SetSessionWorktree(ctx, session.ID, tree.Worktree.Path()); e != nil {
+		t.Fatal(e)
+	}
+	dir := tree.Worktree.Path()
+	if e = os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature work\n"), 0o600); e != nil {
+		t.Fatal(e)
+	}
+	fixture.GitIn(dir, "add", "feature.txt")
+	fixture.GitIn(dir, "commit", "--quiet", "-m", "feature work")
+	fixture.GitIn(dir, "push", "--quiet", "origin", session.Branch)
+	head := fixture.GitIn(dir, "rev-parse", "HEAD")
+	fixture.WriteFile("base-only.txt", "base advanced\n")
+	baseHead := fixture.Commit("advance base")
+	fixture.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+	ref, e := naming.ParseRef(session.TaskRef)
+	if e != nil {
+		t.Fatal(e)
+	}
+	d.doctor.service.Runner = &liveSyncRunner{t: t}
+	got, e := d.doctor.service.Diagnose(ctx, doctor.DiagnoseRequest{Target: ref, Instructions: "Bring main into the feature branch", SourceID: "live-sync"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(got.CurrentProposal) != 1 || got.CurrentProposal[0].Action.Before != head || got.CurrentProposal[0].Action.After != baseHead {
+		t.Fatalf("live sync_branch proposal not adopted: %+v", got.CurrentProposal)
+	}
+	if e = d.db.PresentDoctorProposal(ctx, session.TaskRef, "live-sync-presentation", got.ProposalID); e != nil {
+		t.Fatal(e)
+	}
+	op, e := d.db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "live-sync-repair", SourceID: "owner-apply", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: "live-sync-presentation"})
+	if e != nil {
+		t.Fatalf("live sync_branch proposal not reservable: %v", e)
+	}
+	if e = d.db.AcknowledgeDoctorExclusion(ctx, op.ID, "factory"); e != nil {
+		t.Fatal(e)
+	}
+	steps, e := d.db.DoctorRepairSteps(ctx, op.ID)
+	if e != nil || len(steps) != 1 {
+		t.Fatalf("repair steps: %+v %v", steps, e)
+	}
+	adapter := FactoryDoctorRepairEffects{DB: d.db, Git: binary, CloneGate: newCloneGate(), Author: git.Author{Name: "Fixture", Email: "fixture@example.invalid"}}
+	result, e := adapter.Execute(ctx, ref, op, steps[0], "claude")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = adapter.Verify(ctx, ref, result); e != nil {
+		t.Fatal(e)
+	}
+	pushed := fixture.GitIn(fixture.Origin, "rev-parse", "refs/heads/"+session.Branch)
+	if pushed == head || pushed != result.ObservedAfter {
+		t.Fatalf("pushed %s, before %s, result %+v", pushed, head, result)
+	}
+	fixture.GitIn(fixture.Origin, "merge-base", "--is-ancestor", baseHead, pushed)
+	fixture.GitIn(fixture.Origin, "merge-base", "--is-ancestor", head, pushed)
 }
