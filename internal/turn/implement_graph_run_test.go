@@ -831,3 +831,161 @@ func TestImplementWorkerUnresolvedConflictParksAndTheOwnerRestartRuns(t *testing
 		t.Fatalf("the restarted worker's save concluded the merge: %v", parents)
 	}
 }
+
+// mergeImplementStories seeds the ledger of the fixture's parent and moves each
+// story to merged with its own merge commit, one minute apart in key order.
+func mergeImplementStories(t *testing.T, f *fixture, parent string, commits map[string]string, keys ...string) {
+	t.Helper()
+	ctx := t.Context()
+	var seeds []store.ImplementStorySeed
+	for i, key := range keys {
+		seeds = append(seeds, store.ImplementStorySeed{Key: key, Position: i, Branch: "lf/" + key})
+	}
+	mustProgress(t, f.db.EnsureImplementStories(ctx, parent, 1, seeds, implementClock))
+	for i, key := range keys {
+		at := implementClock.Add(time.Duration(i+1) * time.Minute)
+		for _, move := range [][2]string{{store.ImplementWaiting, store.ImplementRunning}, {store.ImplementRunning, store.ImplementDone}, {store.ImplementDone, store.ImplementMerged}} {
+			row, err := f.db.GetImplementStory(ctx, parent, 1, key)
+			mustProgress(t, err)
+			in := store.ImplementTransition{Parent: parent, Generation: 1, Key: key, From: move[0], To: move[1], ExpectedRevision: row.Revision, At: at}
+			if move[1] == store.ImplementMerged {
+				in.MergeCommit = commits[key]
+			}
+			_, err = f.db.TransitionImplementStory(ctx, in)
+			mustProgress(t, err)
+		}
+	}
+}
+
+func implementCompletionReplies(forge *fakeForge) []string {
+	var out []string
+	for _, post := range forge.all() {
+		if strings.Contains(post.body, "Implement is finished") {
+			out = append(out, post.body)
+		}
+	}
+	return out
+}
+
+// The last merge of a generation with nothing parked ends in one completion
+// reply on the parent; a replay of report_done posts nothing new (#624).
+func TestImplementCoordinatorReportsCompletionOnceWhenEveryStoryIsMerged(t *testing.T) {
+	f, forge, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("the coordinator never writes code")
+		return nil, nil
+	}))
+	parent := seedImplementParent(t, f,
+		store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
+		store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002})
+	commits := map[string]string{"story-001": "1111111111aaaaaaaaaa", "story-002": "2222222222bbbbbbbbbb"}
+	mergeImplementStories(t, f, parent, commits, "story-001", "story-002")
+
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	if instance.CurrentNode != "finished" {
+		t.Fatalf("the coordinator finishes after the completion reply: %+v", instance)
+	}
+	replies := implementCompletionReplies(forge)
+	if len(replies) != 1 {
+		t.Fatalf("exactly one completion reply, got %d: %q", len(replies), replies)
+	}
+	reply := replies[0]
+	for _, want := range []string{"story-001", "story-002", commits["story-001"], commits["story-002"], "lf/123-feature", "now at commit `" + commits["story-002"] + "`", ValidateStartCommand, "all 2 stories are merged"} {
+		if !strings.Contains(reply, want) {
+			t.Errorf("the completion reply does not say %q:\n%s", want, reply)
+		}
+	}
+	if strings.Contains(reply, "need your decision") {
+		t.Errorf("the completion reply is not a question:\n%s", reply)
+	}
+	t.Logf("sample completion reply:\n%s", reply)
+	if _, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID); err == nil {
+		t.Error("a completion reply opens no owner wait")
+	}
+
+	// A replay of the step, as after a restart, reads the same merge attempt and
+	// posts nothing new under the same delivery key.
+	attempt, err := f.db.LatestGraphNodeAttempt(t.Context(), instance.ID, "report_done")
+	mustProgress(t, err)
+	var first struct {
+		Posted      bool   `json:"posted"`
+		DeliveryKey string `json:"delivery_key"`
+	}
+	outputs, err := f.db.ListGraphOutputs(t.Context(), attempt.ID)
+	mustProgress(t, err)
+	if len(outputs) != 1 {
+		t.Fatalf("report_done records one output: %+v", outputs)
+	}
+	mustProgress(t, json.Unmarshal(outputs[0].Payload, &first))
+	if !first.Posted || first.DeliveryKey == "" {
+		t.Fatalf("report_done records its delivery: %s", outputs[0].Payload)
+	}
+	rt := &implementRuntime{opts: f.opts, req: req, parentRef: mustParseRef(t, parent), generation: 1}
+	before := len(forge.all())
+	res, err := rt.reportDone(t.Context(), f.opts, ActivityRequest{InstanceID: instance.ID, Node: "report_done", Attrs: map[string]string{"lf_source": "merge"}})
+	if err != nil || res.Outcome != "published" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	var again struct {
+		DeliveryKey string `json:"delivery_key"`
+	}
+	mustProgress(t, json.Unmarshal(res.Output, &again))
+	if again.DeliveryKey != first.DeliveryKey || len(forge.all()) != before || len(implementCompletionReplies(forge)) != 1 {
+		t.Fatalf("a replay posts again: key %q vs %q, posts %d vs %d", again.DeliveryKey, first.DeliveryKey, len(forge.all()), before)
+	}
+}
+
+// A generation with a parked story asks its question and posts no completion
+// reply; report_done itself posts nothing unless every story is merged.
+func TestImplementCompletionReplyIsNotPostedWhileAStoryIsParked(t *testing.T) {
+	f, forge, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("the coordinator never writes code")
+		return nil, nil
+	}))
+	parent := seedImplementParent(t, f,
+		store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
+		store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002})
+	mergeImplementStories(t, f, parent, map[string]string{"story-001": "1111111111aaaaaaaaaa"}, "story-001")
+	mustProgress(t, f.db.EnsureImplementStories(t.Context(), parent, 1, []store.ImplementStorySeed{{Key: "story-001", Position: 0, Branch: "lf/story-001"}, {Key: "story-002", Position: 1, Branch: "lf/story-002"}}, implementClock))
+	for _, move := range [][2]string{{store.ImplementWaiting, store.ImplementRunning}, {store.ImplementRunning, store.ImplementParked}} {
+		row, err := f.db.GetImplementStory(t.Context(), parent, 1, "story-002")
+		mustProgress(t, err)
+		in := store.ImplementTransition{Parent: parent, Generation: 1, Key: "story-002", From: move[0], To: move[1], ExpectedRevision: row.Revision, At: implementClock}
+		if move[1] == store.ImplementParked {
+			in.Reason = "The worker stopped with a blocked answer: story-002 needs a decision."
+		}
+		_, err = f.db.TransitionImplementStory(t.Context(), in)
+		mustProgress(t, err)
+	}
+	if out, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if got := implementCompletionReplies(forge); len(got) != 0 {
+		t.Fatalf("a parked story gets no completion reply: %q", got)
+	}
+	questions := 0
+	for _, post := range forge.all() {
+		if strings.Contains(post.body, "1 story is stopped and needs your decision") {
+			questions++
+		}
+	}
+	if questions != 1 {
+		t.Fatalf("the stopped-stories question is posted as before: %d", questions)
+	}
+	rt := &implementRuntime{opts: f.opts, req: req, parentRef: mustParseRef(t, parent), generation: 1}
+	before := len(forge.all())
+	res, err := rt.reportDone(t.Context(), f.opts, ActivityRequest{Node: "report_done", Attrs: map[string]string{"lf_source": "merge"}})
+	if err != nil || res.Outcome != "published" || !strings.Contains(string(res.Output), `"posted":false`) || len(forge.all()) != before {
+		t.Fatalf("report_done posts nothing while a story is parked: %+v %v", res, err)
+	}
+}
+
+func mustParseRef(t *testing.T, ref string) naming.Ref {
+	t.Helper()
+	parsed, err := naming.ParseRef(ref)
+	mustProgress(t, err)
+	return parsed
+}
