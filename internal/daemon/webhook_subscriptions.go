@@ -69,7 +69,7 @@ func (w *webhookRuntime) refreshSubscriptions(ctx context.Context, db *store.DB,
 		if state, err := db.GetProjectImportState(ctx, sub.RepoID); err == nil && state.Status == "conflict" {
 			continue
 		}
-		source := webhook.Source{RepoID: sub.RepoID, ConnectionVersionID: sub.ConnectionVersionID, Revision: sub.Revision, Selector: sub.ID, Provider: string(sub.Provider), Origin: string(sub.Origin), Container: sub.Container, ContainerID: sub.ContainerID}
+		source := webhook.Source{WorkspaceID: current.Linear.WorkspaceID, TeamID: current.Linear.TeamID, ProjectID: current.Linear.ProjectID, RepoID: sub.RepoID, ConnectionVersionID: sub.ConnectionVersionID, Revision: sub.Revision, Selector: sub.ID, Provider: string(sub.Provider), Origin: string(sub.Origin), Container: sub.Container, ContainerID: sub.ContainerID}
 		w.mu.RLock()
 		old := w.subscriptions[sub.ID]
 		w.mu.RUnlock()
@@ -130,6 +130,9 @@ func (w *webhookRuntime) refreshSubscriptions(ctx context.Context, db *store.DB,
 		w.mu.Unlock()
 		callback, err := url.Parse(sub.CallbackURL)
 		if err != nil || callback.Query().Get("subscription") != "" {
+			continue
+		}
+		if sub.Provider != ticket.GitHub {
 			continue
 		}
 		key := webhookKey(sub.Container, "")

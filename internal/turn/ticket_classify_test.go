@@ -36,3 +36,23 @@ func TestQualifiedClassificationRejectsOriginAndProviderCollisions(t *testing.T)
 		t.Fatalf("marker ordering changed: %+v", got)
 	}
 }
+
+func TestLinearClassificationUsesOpaqueAuthority(t *testing.T) {
+	t.Parallel()
+	owner := ticket.Identity{Provider: ticket.Linear, Origin: "https://api.linear.app", RemoteID: "opaque-human"}
+	bot := ticket.Identity{Provider: ticket.Linear, Origin: owner.Origin, RemoteID: "opaque-publisher"}
+	filter := &Filter{identities: Identities{OwnerUserID: 101, BotUserID: 102, OwnerIdentity: owner, BotIdentity: bot, TicketOrigin: owner.Origin}}
+	for _, tc := range []struct {
+		actor ticket.Identity
+		want  store.Classification
+	}{
+		{owner, store.ClassificationInstruction}, {bot, store.ClassificationSelf},
+		{ticket.Identity{Provider: ticket.GitHub, Origin: owner.Origin, RemoteID: owner.RemoteID}, store.ClassificationThirdParty},
+		{ticket.Identity{Provider: ticket.Linear, Origin: "https://other.example", RemoteID: owner.RemoteID}, store.ClassificationThirdParty},
+	} {
+		got := filter.ClassifyReply(ticket.Reply{Author: ticket.Actor{Identity: tc.actor, Handle: "same-name"}, Body: "/implement continue"})
+		if got.Classification != tc.want {
+			t.Fatalf("classification %s, want %s", got.Classification, tc.want)
+		}
+	}
+}

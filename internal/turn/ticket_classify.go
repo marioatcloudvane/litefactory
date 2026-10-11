@@ -17,6 +17,12 @@ type ticketReplyRecorder interface {
 }
 
 func (f *Filter) actorIdentity(id int64) ticket.Identity {
+	if id == f.identities.OwnerUserID && f.identities.OwnerIdentity.Validate() == nil {
+		return f.identities.OwnerIdentity
+	}
+	if id == f.identities.BotUserID && f.identities.BotIdentity.Validate() == nil {
+		return f.identities.BotIdentity
+	}
 	origin := f.identities.TicketOrigin
 	if origin == "" {
 		origin = "https://api.github.com"

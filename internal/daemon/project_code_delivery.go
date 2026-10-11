@@ -97,7 +97,11 @@ func (d *ProjectCodeDelivery) selectClient(ctx context.Context, repo github.Repo
 	if remoteID == "" {
 		return nil, errors.New("retained code destination has no verified remote identity")
 	}
-	clients, err := d.factory.Clients(ctx, version, selected.ActorID)
+	actor := selected.ActorID
+	if selected.CodeActorID > 0 {
+		actor = selected.CodeActorID
+	}
+	clients, err := d.factory.Clients(ctx, version, actor)
 	if err != nil {
 		return nil, err
 	}

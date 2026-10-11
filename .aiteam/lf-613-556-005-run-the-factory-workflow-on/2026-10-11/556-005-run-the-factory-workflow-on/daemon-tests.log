@@ -1,0 +1,8 @@
+# github.com/cloudvane/litefactory/internal/turn
+vet: internal/turn/acceptance.go:112:33: p.ticketPublisherID undefined (type *StoryProgress has no field or method ticketPublisherID)
+--- FAIL: TestArchiveIntegrationSuiteRowsRetained (0.76s)
+    archive_integration_test.go:977: registry problems [delivery_code_authorities is not classified delivery_control_sources is not classified delivery_pr_bindings is not classified retained delivery_pr_bindings references archived delivery_proposals ticket_effect_preparations is not classified ticket_local_slots is not classified] <nil>
+    archive_integration_test.go:74: archive logs:
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/daemon	687.083s
+FAIL

@@ -128,7 +128,7 @@ func (s *IssuePublicationService) HandleComment(ctx context.Context, requestID s
 		// rather than allowing a future retry to reclaim uncertain authority.
 		if err = s.db.CheckResultWriter(ctx, s.Binding()); err == nil {
 			var published github.Comment
-			published, err = s.forge.PostComment(ctx, s.repo, q.IssueNumber, body)
+			published, err = postCommentEffect(ctx, s.forge, "comment:"+hex.EncodeToString(digest[:]), s.repo, q.IssueNumber, body)
 			if err == nil {
 				if published.ID < 1 || published.Author.ID != s.botID || published.Body != op.Body {
 					err = errors.New("comment POST identity not confirmed")

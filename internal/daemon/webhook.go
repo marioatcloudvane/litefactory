@@ -51,6 +51,7 @@ type hintKey struct {
 	number                      int
 	versionID, revision         int64
 	selector                    string
+	ticketKey                   string
 	authSelector                string
 	authRevision, authVersionID int64
 }
@@ -414,6 +415,16 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 				d.webhook.hints.resolve(hint)
 				continue
 			}
+		}
+		if hint.ticketKey != "" {
+			if err := d.handoffOpaqueWebhook(readCtx, hint, q); err != nil {
+				q.log.WarnContext(ctx, "opaque webhook read deferred", slog.Any("error", err))
+				d.webhook.hints.failed(hint)
+				continue
+			}
+			d.webhook.hints.resolve(hint)
+			result.Hinted++
+			continue
 		}
 		// An owner's comment must not wait behind background discovery, so the
 		// hinted read takes the operational lane: a token and real quota left,

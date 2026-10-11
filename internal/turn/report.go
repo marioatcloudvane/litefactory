@@ -765,14 +765,18 @@ func (r *Reporter) Consume(ctx context.Context, sessionID, commentID int64) (sto
 // The repository and issue come from the task ref rather than from a separate
 // parameter, so a report cannot be posted onto an issue other than the one whose
 // marker it carries.
-func (r *Reporter) post(ctx context.Context, ref naming.Ref, body redact.Body, _ *slog.Logger) (github.Comment, error) {
-	comment, err := r.forge.PostComment(ctx, github.RepoFromRef(ref), ref.Issue, body)
+func (r *Reporter) postEffect(ctx context.Context, key string, ref naming.Ref, body redact.Body, _ *slog.Logger) (github.Comment, error) {
+	publisherID, err := retainedTicketPublisher(ctx, r.db, ExecutionSessionID(ctx), r.botUserID)
+	if err != nil {
+		return github.Comment{}, err
+	}
+	comment, err := postCommentEffect(ctx, r.forge, key, github.RepoFromRef(ref), ref.Issue, body)
 	if err != nil {
 
 		return github.Comment{}, fmt.Errorf("post the comment on task %s: %w", ref, err)
 	}
 	if verified, qualified := verifiedCommentDestination(ctx, r.forge, comment, ref); qualified {
-		if !verified || comment.Author.ID != r.botUserID || comment.Body != body.String() {
+		if !verified || comment.Author.ID != publisherID || comment.Body != body.String() {
 			return github.Comment{}, fmt.Errorf("post the comment on task %s: %w", ref, ErrReportReceiptUncertain)
 		}
 	}

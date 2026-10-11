@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"log/slog"
 	"strings"
 	"time"
@@ -23,6 +24,8 @@ const StateOpen = "open"
 
 // Issue is a GitHub issue. Pull requests never appear here — see [Client.ListIssues].
 type Issue struct {
+	// QualifiedSnapshot preserves the provider observation at compatibility boundaries.
+	QualifiedSnapshot *ticket.Snapshot
 	// APIURL binds individual observations to their repository and issue endpoint.
 	APIURL string
 	// ID is the issue's database id: the identifier GitHub mints for the

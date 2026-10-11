@@ -3,7 +3,6 @@ package turn
 import (
 	"context"
 	"errors"
-	"strconv"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -26,11 +25,11 @@ func (b *TicketWorkflowBridge) SourceLinks(ctx context.Context, ref naming.Ref, 
 	if err != nil {
 		return "", "", err
 	}
-	cursor, err := github.ReplyCursor(source.Ref, replyID-1)
+	cursor, err := compatibilityReplyCursor(ctx, b.DB, source.Ref, replyID-1)
 	if err != nil {
 		return "", "", err
 	}
-	comments, err := b.Publication.tickets.RepliesAfter(ctx, source.Ref, cursor)
+	comments, err := completeCompatibilityReplies(ctx, b.Publication.tickets, source.Ref, cursor)
 	if err != nil {
 		return "", "", err
 	}
@@ -38,7 +37,11 @@ func (b *TicketWorkflowBridge) SourceLinks(ctx context.Context, ref naming.Ref, 
 		return "", "", errors.New("incomplete source link observation")
 	}
 	for _, c := range comments.Replies {
-		if c.Identity.RemoteID == strconv.FormatInt(replyID, 10) && c.Ticket.Equal(source.Ref) {
+		id, slotErr := compatibilitySlot(ctx, b.DB, "comment", c.Identity)
+		if slotErr != nil {
+			return "", "", slotErr
+		}
+		if id == replyID && c.Ticket.Equal(source.Ref) {
 			return parent.BrowserURL, c.BrowserURL, nil
 		}
 	}

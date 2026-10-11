@@ -250,14 +250,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	sharedRedactor := redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})
 	legacyRef, _ := secrets.ReferenceFrom(s.Config.Providers.GitHub.TokenKeychain.Service, s.Config.Providers.GitHub.TokenKeychain.Account, s.Config.Providers.GitHub.TokenEnv)
-	connections := projectconnection.NewFactory(projectconnection.Options{Resolver: s.ConnectionSecrets, Logger: s.Logger, UserAgent: s.UserAgent, Redactor: sharedRedactor, ExpectedActorID: identities.BotUserID, Launchd: s.Launchd, LegacyReference: legacyRef, LegacyToken: legacyToken})
+	connections := projectconnection.NewFactory(projectconnection.Options{DB: s.DB, Resolver: s.ConnectionSecrets, Logger: s.Logger, UserAgent: s.UserAgent, Redactor: sharedRedactor, ExpectedActorID: identities.BotUserID, Launchd: s.Launchd, LegacyReference: legacyRef, LegacyToken: legacyToken})
 	if err := projectconnection.Initialize(ctx, s.DB, *s.Config, connections); err != nil {
 		return nil, Startup{}, err
 	}
 	if err := projectconnection.InitializeApprovers(ctx, s.DB, connections); err != nil {
 		return nil, Startup{}, err
 	}
-	selector := func(ctx context.Context, repo github.Repo, number int, sessionID int64) (*github.Tickets, int64, error) {
+	selector := func(ctx context.Context, repo github.Repo, number int, sessionID int64) (turn.WorkflowTickets, int64, error) {
 		return selectTicketConnection(ctx, s.DB, connections, repo, number, sessionID)
 	}
 	ticketWorkflow, err := turn.NewRoutedGitHubTicketWorkflow(s.DB, ticketIngress, identities.BotUserID, selector)

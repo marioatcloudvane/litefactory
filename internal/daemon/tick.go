@@ -181,8 +181,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	if err := d.pollPublications(ctx, startedAt); err != nil {
 		d.log.ErrorContext(ctx, "publication observation remains pending", slog.Any("error", err))
-		var rate *github.RateLimitError
-		if errors.As(err, &rate) {
+		if providerRateLimited(err) {
 			return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
 		}
 	}
@@ -190,10 +189,18 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	if progress, ok := d.turn.(interface{ PollStoryProgress(context.Context) error }); ok {
 		if err := progress.PollStoryProgress(ctx); err != nil {
 			d.log.ErrorContext(ctx, "story progress remains pending", slog.Any("error", err))
-			var rate *github.RateLimitError
-			if errors.As(err, &rate) {
+			if providerRateLimited(err) {
 				return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
 			}
+		}
+	}
+
+	// Code-host controls have their own sources and must be polled even when
+	// work-management replies come from Linear.
+	if err := d.PollCodeDeliveryControls(ctx); err != nil {
+		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
+		if providerRateLimited(err) {
+			return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
 		}
 	}
 
@@ -547,6 +554,9 @@ func (d *Daemon) discover(
 					deferred = true
 				}
 				repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
+				if providerRateLimited(err) {
+					return nil, d.observe(ctx, now, err)
+				}
 				continue
 			}
 			finished, err := d.recoverSource(ctx, q, now)
@@ -556,6 +566,9 @@ func (d *Daemon) discover(
 			}
 			if err != nil {
 				repoLog.WarnContext(ctx, "ticket recovery remains pending", slog.Any("error", err))
+				if providerRateLimited(err) {
+					return nil, d.observe(ctx, now, err)
+				}
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
 				}
@@ -768,12 +781,21 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 		observedPath, sameOrigin := strings.CutPrefix(issue.APIURL, string(v.Origin)+"/repos/")
 		observedParts := strings.SplitN(observedPath, "/", 3)
 		owner, name, _ := strings.Cut(v.Destination, "/")
-		if q.forgeRepo.String() != v.Destination || !sameOrigin || len(observedParts) != 3 ||
+		if v.Provider == ticket.GitHub && (q.forgeRepo.String() != v.Destination || !sameOrigin || len(observedParts) != 3 ||
 			!strings.EqualFold(observedParts[0], owner) || !strings.EqualFold(observedParts[1], name) ||
-			observedParts[2] != "issues/"+strconv.Itoa(issue.Number) {
+			observedParts[2] != "issues/"+strconv.Itoa(issue.Number)) {
 			return nil, store.ErrConnectionConflict
 		}
 		ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: strconv.FormatInt(issue.ID, 10)}, Locator: locatorAt(v.Origin, q.forgeRepo, issue.Number)}
+		if v.Provider == ticket.Linear {
+			if issue.QualifiedSnapshot == nil {
+				return nil, store.ErrTicketIdentityConflict
+			}
+			ref = issue.QualifiedSnapshot.Ref
+			if ref.Identity.Provider != v.Provider || ref.Identity.Origin != v.Origin || ref.Locator.Container != v.Destination {
+				return nil, store.ErrConnectionConflict
+			}
+		}
 		binding, e := d.db.GetTicketBinding(ctx, ref.Identity)
 		if errors.Is(e, store.ErrNotFound) {
 			_, e = d.db.AddTicketBinding(ctx, store.TicketBinding{RepoID: q.repo.ID, ConnectionVersionID: v.ID, Ref: ref, Enabled: true, Provenance: "discovery"})
@@ -1870,6 +1892,9 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 			return err
 		}
 		trigger.Actor = ticket.Identity{Provider: mapping.Locator.Provider, Origin: mapping.Locator.Origin, RemoteID: strconv.FormatInt(t.issue.Author.ID, 10)}
+		if t.issue.QualifiedSnapshot != nil {
+			trigger.Actor = t.issue.QualifiedSnapshot.Author.Identity
+		}
 		trigger.Source = ticket.Identity{Provider: mapping.Locator.Provider, Origin: mapping.Locator.Origin, RemoteID: mapping.RemoteID}
 	}
 	return d.run(ctx, t, trigger, command, log)
@@ -2965,6 +2990,16 @@ func (d *Daemon) observe(ctx context.Context, now time.Time, err error) error {
 // all refused at once arms one hold between them rather than doubling it per
 // refusal (AC-PAR-4.2).
 func (d *Daemon) rateLimited(ctx context.Context, log *slog.Logger, now time.Time, err error) {
+	var ticketRate *ticket.RateLimitError
+	if errors.As(err, &ticketRate) {
+		failures, delay, until := d.backoff.fail(now, ticketRate.RetryAfter)
+		log.WarnContext(ctx, "ticket provider quota exhausted; backing off with recovery positions unchanged",
+			slog.Int("consecutive_refusals", failures),
+			slog.String("retry_after", ticketRate.RetryAfter.String()),
+			slog.String("backoff", delay.String()),
+			slog.Time("resumes_at", until.UTC()))
+		return
+	}
 	var rateLimit *github.RateLimitError
 	if !errors.As(err, &rateLimit) {
 		return
@@ -2996,4 +3031,10 @@ func (d *Daemon) requirePlanDiscussionReported(ctx context.Context, result turn.
 		}
 	}
 	return errors.New("plan discussion has no confirmed answer, review or refusal; the comment stays pending")
+}
+
+func providerRateLimited(err error) bool {
+	var codeRate *github.RateLimitError
+	var ticketRate *ticket.RateLimitError
+	return errors.As(err, &codeRate) || errors.As(err, &ticketRate)
 }

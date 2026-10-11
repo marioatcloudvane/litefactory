@@ -531,6 +531,10 @@ func (p *StoryProgress) deliverParent(ctx context.Context, parent string) error 
 	return errors.Join(faults...)
 }
 func (p *StoryProgress) deliverOne(ctx context.Context, f store.StoryProgressEffect) error {
+	publisherID, publisherErr := p.ticketPublisherID(ctx, f.Parent)
+	if publisherErr != nil {
+		return publisherErr
+	}
 	ref, err := naming.ParseRef(f.Parent)
 	if err != nil {
 		return err
@@ -554,7 +558,7 @@ func (p *StoryProgress) deliverOne(ctx context.Context, f store.StoryProgressEff
 			return err
 		}
 		for _, c := range comments {
-			if !hasTicketNoticeGuard(p.forge) && c.Author.ID == p.botID && exactProgressMarker(c.Body, n.Marker()) {
+			if !hasTicketNoticeGuard(p.forge) && c.Author.ID == publisherID && exactProgressMarker(c.Body, n.Marker()) {
 				f.CommentID = c.ID
 				break
 			}
@@ -564,9 +568,12 @@ func (p *StoryProgress) deliverOne(ctx context.Context, f store.StoryProgressEff
 			if err != nil {
 				return err
 			}
-			posted, err := postTicketNotice(ctx, p.forge, n.Marker(), f.Parent, p.botID, repo, f.IssueNumber, body)
+			posted, err := postTicketNotice(ctx, p.forge, n.Marker(), f.Parent, publisherID, repo, f.IssueNumber, body)
 			if err != nil {
 				return err
+			}
+			if posted.ID < 1 || posted.Author.ID != publisherID {
+				return fmt.Errorf("progress report provenance mismatch")
 			}
 			f.CommentID = posted.ID
 		}

@@ -53,6 +53,7 @@ type Lookup interface {
 type Source struct {
 	RepoID, ConnectionVersionID, Revision              int64
 	Selector, Provider, Origin, Container, ContainerID string
+	WorkspaceID, TeamID, ProjectID                     string
 	Secret                                             []byte
 }
 
@@ -173,6 +174,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.reject(w, http.StatusBadRequest, "unreadable body")
+		return
+	}
+
+	if r.Header.Get("Linear-Signature") != "" || r.Header.Get("Linear-Event") != "" {
+		h.linear(w, r, body)
 		return
 	}
 

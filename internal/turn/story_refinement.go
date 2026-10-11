@@ -170,7 +170,7 @@ func (r *Reporter) AcknowledgeStoryRefinement(ctx context.Context, ref naming.Re
 	if !claimed {
 		return fmt.Errorf("%w: story acknowledgement dispatch already claimed", ErrReportReceiptUncertain)
 	}
-	posted, err := r.post(ctx, destination, body, r.log)
+	posted, err := r.postEffect(ctx, fmt.Sprintf("story-ack:%s:%d:%d:%d", ref.String(), refinement.Generation, refinement.ChildNumber, commentID), destination, body, r.log)
 	if err != nil {
 		return err
 	}

@@ -66,7 +66,7 @@ func (r Subscriptions) Create(ctx context.Context, v store.ConnectionVersion, co
 	query := u.Query()
 	query.Set("subscription", id)
 	u.RawQuery = query.Encode()
-	s := store.TicketSubscription{ID: id, RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: containerID, CallbackURL: u.String(), Events: slices.Clone(Events), SecretService: KeychainService, SecretAccount: "subscription/" + id, SecretVersion: "1", DesiredEnabled: true}
+	s := store.TicketSubscription{ID: id, RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: containerID, CallbackURL: u.String(), Events: subscriptionEvents(v.Provider), SecretService: KeychainService, SecretAccount: "subscription/" + id, SecretVersion: "1", DesiredEnabled: true}
 	s, err = r.Store.PutTicketSubscription(ctx, s, 0)
 	if err != nil {
 		return s, err
@@ -98,7 +98,7 @@ func (r Subscriptions) Update(ctx context.Context, id string, revision int64, en
 	if events != nil {
 		s.Events = slices.Clone(events)
 	}
-	if !validSubscriptionEvents(s.Events) {
+	if !validProviderSubscriptionEvents(s.Provider, s.Events) {
 		return s, errors.New("unsupported webhook event selection")
 	}
 	s, err = r.Store.PutTicketSubscription(ctx, s, revision)
@@ -106,6 +106,19 @@ func (r Subscriptions) Update(ctx context.Context, id string, revision int64, en
 		return s, err
 	}
 	return r.Repair(ctx, s.ID, s.Revision)
+}
+
+func subscriptionEvents(provider ticket.Provider) []string {
+	if provider == ticket.Linear {
+		return []string{"Issue", "Comment"}
+	}
+	return slices.Clone(Events)
+}
+func validProviderSubscriptionEvents(provider ticket.Provider, events []string) bool {
+	if provider == ticket.Linear {
+		return len(events) == 2 && slices.Contains(events, "Issue") && slices.Contains(events, "Comment")
+	}
+	return validSubscriptionEvents(events)
 }
 
 func validSubscriptionEvents(events []string) bool {

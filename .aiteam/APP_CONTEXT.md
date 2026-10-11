@@ -4,7 +4,7 @@
 [`APP_CONSTRAINTS.md`](APP_CONSTRAINTS.md).
 
 `litefactory` (module `github.com/cloudvane/litefactory`, **Go 1.26**) is a macOS
-daemon that polls GitHub issues and, when the owner comments, runs a headless
+daemon that polls configured GitHub or Linear tickets and, when the project approver replies, runs a headless
 configured Claude or Codex process inside a git worktree and reports back on the thread.
 
 Single Go module. Not a monorepo. Everything is under `internal/`, with
@@ -37,6 +37,8 @@ meter         → agent              pure normalization, reconciliation, capabil
 redact        →  secrets
 teampackage   →  config, teamsource   machine-level installed team versions (Manager Install/Update/Remove/List/Inspect, clone, content, per-clone selection)
 github        →  naming, redact, secrets, ticket
+linear        →  redact, secrets, ticket
+projectconnection → github, linear, redact, secrets, store, ticket
 codex         →  agent, config, meter, naming
 harness       →  agent, config, meter, naming
 report        →  agent, git, naming, redact
@@ -74,6 +76,7 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
 | call the GitHub API | `internal/github` | Concrete `*Client` backed by go-github/v90; the method inventory is pinned in `internal/github/surface_test.go`. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
 | represent a qualified ticket identity or bind a legacy session | `internal/ticket`; `store/session_tickets.go` | Origin comes from trusted configuration; immutable ticket ID stays separate from its locator and historical task ref. `github.Tickets` is the adapter; daemon discovery and admission use verified snapshots and replies |
+| call the Linear ticket API | `internal/linear`; `internal/projectconnection` | Bounded GraphQL, qualified workspace/team/project identities and versioned visible metadata; GitHub code delivery stays separate |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Pure rendering; failed-run `agent.RunResult.Diagnostic` is sanitized, literal and bounded |

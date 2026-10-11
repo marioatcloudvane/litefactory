@@ -93,6 +93,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("validation_assessments", byRunTask),
 	archived("owner_exceptions", byTask),
 	// Delivery.
+	archived("delivery_pr_bindings", bySession),
 	archived("delivery_proposals", byTask),
 	archived("delivery_readiness", byTask),
 	// Metering.
@@ -214,7 +215,9 @@ var archiveRetained = map[string]ArchiveClass{
 	"watermarks": ArchiveClassSkeleton, "retirement_intents": ArchiveClassSkeleton,
 	"session_ticket_identities": ArchiveClassSkeleton, "ticket_effect_identities": ArchiveClassSkeleton,
 	"session_execution_snapshots": ArchiveClassSkeleton,
-	"managed_features":            ArchiveClassSkeleton, "managed_stories": ArchiveClassSkeleton,
+	"ticket_effect_preparations":  ArchiveClassSkeleton,
+	"delivery_code_authorities":   ArchiveClassSkeleton, "delivery_control_sources": ArchiveClassSkeleton,
+	"managed_features": ArchiveClassSkeleton, "managed_stories": ArchiveClassSkeleton,
 	"managed_parent_closures": ArchiveClassSkeleton, "approved_story_revisions": ArchiveClassSkeleton,
 	"story_publications": ArchiveClassSkeleton, "story_revision_operations": ArchiveClassSkeleton,
 	"story_scope_notices": ArchiveClassSkeleton, "story_contract_upgrades": ArchiveClassSkeleton,
@@ -250,6 +253,7 @@ var archiveRetained = map[string]ArchiveClass{
 	"ticket_subscriptions": ArchiveClassGlobal, "ticket_subscription_operations": ArchiveClassGlobal,
 	"ticket_recovery_positions": ArchiveClassGlobal, "pending_ticket_observations": ArchiveClassGlobal,
 	"ticket_observation_generations": ArchiveClassGlobal,
+	"ticket_local_slots":             ArchiveClassGlobal,
 	"schema_migrations":              ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
 	"retirement_sweep": ArchiveClassGlobal, "archive_sweep": ArchiveClassGlobal,
 	planArchiveGrantsTable: ArchiveClassGlobal,

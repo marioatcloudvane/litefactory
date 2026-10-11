@@ -31,7 +31,9 @@ type deliveryRenderer interface {
 
 // DeliveryControl carries explicit authenticated owner input, never agent text.
 type DeliveryControl struct {
-	Parent                      string
+	Parent string
+	// SourceID selects separately retained CLI or PR evidence; empty preserves legacy controls.
+	SourceID                    string
 	CommentID, ActorID, OwnerID int64
 	Body                        string
 }
@@ -76,7 +78,31 @@ func ParseDelivery(body string) (DeliveryRequest, error) {
 // ApplyDelivery serializes approval with task execution/save through the existing
 // session lock, and with proposal recovery through the parent progress lock.
 func (p *StoryProgress) ApplyDelivery(ctx context.Context, c DeliveryControl) (err error) {
-	if c.OwnerID < 1 || c.ActorID != c.OwnerID || c.CommentID < 1 {
+	if c.SourceID != "" {
+		source, e := p.db.GetDeliveryControlSource(ctx, c.SourceID)
+		if e != nil {
+			return e
+		}
+		session, e := p.db.GetSession(ctx, source.SessionID)
+		if e != nil {
+			return e
+		}
+		authority, e := p.db.EnsureDeliveryCodeAuthority(ctx, source.SessionID)
+		if e != nil {
+			return e
+		}
+		if source.Completed {
+			return nil
+		}
+		if c.Parent != session.TaskRef || c.Body != source.Body || c.ActorID != source.ActorID || c.OwnerID != authority.OwnerID || c.CommentID != source.CommentID {
+			return fmt.Errorf("delivery source differs from retained GitHub authority")
+		}
+		defer func() {
+			if err == nil {
+				err = p.db.CompleteDeliveryControlSource(ctx, c.SourceID)
+			}
+		}()
+	} else if c.OwnerID < 1 || c.ActorID != c.OwnerID || c.CommentID < 1 {
 		return fmt.Errorf("delivery requires authenticated numeric owner comment")
 	}
 	p.mu.Lock()
@@ -122,6 +148,15 @@ func (p *StoryProgress) ApplyDelivery(ctx context.Context, c DeliveryControl) (e
 	if err != nil {
 		return err
 	}
+	if c.SourceID != "" {
+		source, e := p.db.GetDeliveryControlSource(ctx, c.SourceID)
+		if e != nil {
+			return e
+		}
+		if source.Kind != "github-pr-comment" || source.ProposalKey != q.Key {
+			return fmt.Errorf("merge requires the bound GitHub PR comment")
+		}
+	}
 	if q.Parent != c.Parent || q.Generation != r.Generation || q.PRNumber != r.PRNumber || q.Head != r.Head || q.Target != r.Target || !q.Proposed || q.Superseded {
 		return p.deliveryRefusal(ctx, c, "Delivery approval does not match the active proposed PR/head/main.")
 	}
@@ -164,7 +199,12 @@ func (p *StoryProgress) ApplyDelivery(ctx context.Context, c DeliveryControl) (e
 			return p.deliveryRefusal(ctx, c, "Task branch head changed; request /deliver for a new proposal and approval.")
 		}
 	}
-	if err = p.db.ApproveDelivery(ctx, q.Key, c.CommentID, c.ActorID); err != nil {
+	if c.SourceID != "" {
+		err = p.db.ApproveDeliverySource(ctx, q.Key, c.SourceID)
+	} else {
+		err = p.db.ApproveDelivery(ctx, q.Key, c.CommentID, c.ActorID)
+	}
+	if err != nil {
 		return err
 	}
 	q, err = p.db.GetDelivery(ctx, q.Key)
@@ -186,7 +226,11 @@ func (p *StoryProgress) lockDeliverySession(ctx context.Context, s store.Session
 	return release, true, nil
 }
 func (p *StoryProgress) deliveryRefusal(ctx context.Context, c DeliveryControl, detail string) error {
-	key := agent.StoryDigest([]byte(fmt.Sprintf("%s/%d", c.Parent, c.CommentID)))
+	identity := fmt.Sprintf("%s/%d", c.Parent, c.CommentID)
+	if c.SourceID != "" {
+		identity = c.Parent + "/" + c.SourceID
+	}
+	key := agent.StoryDigest([]byte(identity))
 	return p.deliveryNotice(ctx, c.Parent, key, "refused", fmt.Sprintf("Delivery control refused for comment %d: %s No merge approval was recorded. Submit a corrected explicit control.", c.CommentID, detail))
 }
 
@@ -463,6 +507,10 @@ func deliveryPRMatches(q store.DeliveryProposal, pr github.DeliveryPR, repo gith
 	return nil
 }
 func (p *StoryProgress) deliveryNotice(ctx context.Context, parent, key, stage, detail string) error {
+	publisherID, publisherErr := p.ticketPublisherID(ctx, parent)
+	if publisherErr != nil {
+		return publisherErr
+	}
 	renderer, ok := p.renderer.(deliveryRenderer)
 	if !ok {
 		return fmt.Errorf("delivery renderer unavailable")
@@ -478,7 +526,7 @@ func (p *StoryProgress) deliveryNotice(ctx context.Context, parent, key, stage, 
 		return err
 	}
 	for _, c := range comments {
-		if !hasTicketNoticeGuard(p.forge) && c.Author.ID == p.botID && exactProgressMarker(c.Body, marker) {
+		if !hasTicketNoticeGuard(p.forge) && c.Author.ID == publisherID && exactProgressMarker(c.Body, marker) {
 			return nil
 		}
 	}
@@ -486,11 +534,11 @@ func (p *StoryProgress) deliveryNotice(ctx context.Context, parent, key, stage, 
 	if err != nil {
 		return err
 	}
-	c, err := postTicketNotice(ctx, p.forge, marker, parent, p.botID, repo, ref.Issue, body)
+	c, err := postTicketNotice(ctx, p.forge, marker, parent, publisherID, repo, ref.Issue, body)
 	if err != nil {
 		return err
 	}
-	if c.ID < 1 || c.Author.ID != p.botID {
+	if c.ID < 1 || c.Author.ID != publisherID {
 		return fmt.Errorf("delivery report provenance mismatch")
 	}
 	return nil
@@ -543,6 +591,10 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 	if feature.Generation != q.Generation || feature.WorkflowVersion != store.WorkflowSeparated {
 		return fmt.Errorf("delivery generation/workflow changed")
 	}
+	publisherID, err := p.deliveryPublisherID(ctx, q.Parent)
+	if err != nil {
+		return err
+	}
 	var pr github.DeliveryPR
 	if q.PRNumber > 0 {
 		pr, err = gateway.GetDeliveryPR(ctx, repo, q.PRNumber)
@@ -589,7 +641,7 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 		}
 		matches := 0
 		for _, candidate := range prs {
-			if candidate.Branch != q.Branch || candidate.HeadRepo != repo.String() || candidate.CreatorID != p.botID {
+			if candidate.Branch != q.Branch || candidate.HeadRepo != repo.String() || candidate.CreatorID != publisherID {
 				continue
 			}
 			known := exactProgressMarker(candidate.Body, deliveryMarker(q.Key))
@@ -633,7 +685,7 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 				return err
 			}
 		}
-		if pr.CreatorID != p.botID {
+		if pr.CreatorID != publisherID {
 			return fmt.Errorf("delivery PR creator mismatch")
 		}
 		if err = deliveryPRMatches(*q, pr, repo); err != nil {
@@ -654,7 +706,7 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 	}
 	if !q.Proposed {
 		detail := fmt.Sprintf("Delivery proposal %s\n\nPR: https://github.com/%s/pull/%d (numeric ID %d)\n%s\n\nApprove this exact PR/head/main with `/merge %d %s %d %s main`. This separate approval authorizes integration and parent closure only after confirmed successful integration.", q.Key, repo.String(), q.PRNumber, q.PRID, q.Body, q.Generation, q.Key, q.PRNumber, q.Head)
-		if err = p.deliveryNotice(ctx, q.Parent, q.Key, "proposal", detail); err != nil {
+		if err = p.proposeDeliveryNotice(ctx, *q, detail); err != nil {
 			return err
 		}
 		q.Proposed = true

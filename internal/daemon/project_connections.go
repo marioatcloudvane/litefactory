@@ -73,7 +73,11 @@ func AdmitProjectTicket(ctx context.Context, db *store.DB, factory *projectconne
 	if observed.Ref != ref {
 		return store.Session{}, store.ErrTicketIdentityConflict
 	}
-	codeClients, err := factory.Clients(ctx, code, ticketClients.Actor.ID)
+	codeActor := ticketClients.Actor.ID
+	if tickets.Provider == ticket.Linear {
+		codeActor = 0
+	}
+	codeClients, err := factory.Clients(ctx, code, codeActor)
 	if err != nil {
 		return store.Session{}, err
 	}
@@ -86,11 +90,16 @@ func AdmitProjectTicket(ctx context.Context, db *store.DB, factory *projectconne
 		return store.Session{}, errors.New("original code repository identity changed")
 	}
 	number, err := strconv.Atoi(ref.Locator.Key)
+	if ref.Identity.Provider == ticket.Linear {
+		slot, e := db.LocalTicketSlot(ctx, "issue", ref.Identity)
+		number = int(slot)
+		err = e
+	}
 	if err != nil || number <= 0 {
 		return store.Session{}, errors.New("GitHub ticket number is invalid")
 	}
 	ticketOwner, ticketName, _ := strings.Cut(ref.Locator.Container, "/")
-	taskRef := naming.Ref{Forge: naming.ForgeGitHub, Owner: ticketOwner, Repo: ticketName, Issue: number}.String()
+	taskRef := naming.Ref{Forge: string(ref.Identity.Provider), Owner: ticketOwner, Repo: ticketName, Issue: number}.String()
 	// A qualified alias is allocated only when the historical alias belongs to
 	// another immutable ticket. Frozen historical paths are never renamed.
 	if prior, e := db.GetSessionByTaskRef(ctx, taskRef); e == nil {
@@ -105,18 +114,39 @@ func AdmitProjectTicket(ctx context.Context, db *store.DB, factory *projectconne
 		return store.Session{}, e
 	}
 	ticketOwnerForRead, ticketNameForRead, _ := strings.Cut(tickets.Destination, "/")
-	ticketAccess, err := ticketClients.Code.InspectRepository(ctx, github.Repo{Owner: ticketOwnerForRead, Name: ticketNameForRead})
+	var ticketAccess github.RepositoryAccess
+	if tickets.Provider == ticket.Linear {
+		identity, e := ticketClients.Tickets.ContainerIdentity(ctx, tickets.Destination)
+		if e != nil {
+			return store.Session{}, e
+		}
+		if identity.Provider != tickets.Provider || identity.Origin != tickets.Origin || identity.RemoteID != tickets.Linear.ProjectID || (tickets.RemoteID != "" && identity.RemoteID != tickets.RemoteID) {
+			return store.Session{}, store.ErrTicketIdentityConflict
+		}
+		ticketAccess.FullName = tickets.Destination
+	} else {
+		ticketAccess, err = ticketClients.Code.InspectRepository(ctx, github.Repo{Owner: ticketOwnerForRead, Name: ticketNameForRead})
+	}
 	if err != nil {
 		return store.Session{}, err
 	}
-	if !strings.EqualFold(ticketAccess.FullName, tickets.Destination) || (tickets.RemoteID != "" && tickets.RemoteID != strconv.FormatInt(ticketAccess.ID, 10)) {
+	if tickets.Provider == ticket.GitHub && (!strings.EqualFold(ticketAccess.FullName, tickets.Destination) || (tickets.RemoteID != "" && tickets.RemoteID != strconv.FormatInt(ticketAccess.ID, 10))) {
 		return store.Session{}, store.ErrTicketIdentityConflict
 	}
 	appointment, err := db.CurrentApprover(ctx, repo.ID)
 	if err != nil {
 		return store.Session{}, err
 	}
-	session, err := db.AdmitSessionWithApprover(ctx, repo, ref, code.Revision, tickets.Revision, ticketClients.Actor.ID, ticketClients.Actor.Login, taskRef, appointment.Revision, strconv.FormatInt(access.ID, 10), strconv.FormatInt(ticketAccess.ID, 10))
+	ticketRemote := strconv.FormatInt(ticketAccess.ID, 10)
+	if tickets.Provider == ticket.Linear {
+		ticketRemote = tickets.Linear.ProjectID
+	}
+	var session store.Session
+	if tickets.Provider == ticket.Linear {
+		session, err = db.AdmitSessionWithPublishers(ctx, repo, ref, code.Revision, tickets.Revision, store.PublishingActor{ID: ticketClients.Actor.ID, Login: ticketClients.Actor.Login}, store.PublishingActor{ID: codeClients.Actor.ID, Login: codeClients.Actor.Login}, taskRef, appointment.Revision, strconv.FormatInt(access.ID, 10), ticketRemote)
+	} else {
+		session, err = db.AdmitSessionWithApprover(ctx, repo, ref, code.Revision, tickets.Revision, ticketClients.Actor.ID, ticketClients.Actor.Login, taskRef, appointment.Revision, strconv.FormatInt(access.ID, 10), ticketRemote)
+	}
 	if err != nil {
 		return store.Session{}, fmt.Errorf("admit project ticket: %w", err)
 	}
@@ -135,7 +165,7 @@ func sessionContext(ctx context.Context, id int64) context.Context {
 
 // selectTicketConnection is shared by ingress, workflow effects and recovery.
 // A saved session wins over mutable current settings, even when disabled.
-func selectTicketConnection(ctx context.Context, db *store.DB, factory *projectconnection.Factory, repo github.Repo, number int, sessionID int64) (*github.Tickets, int64, error) {
+func selectTicketConnection(ctx context.Context, db *store.DB, factory *projectconnection.Factory, repo github.Repo, number int, sessionID int64) (projectconnection.TicketClient, int64, error) {
 	scope, _ := ctx.Value(connectionScopeKey{}).(connectionScope)
 	doctorSource, doctorBound := ctx.Value(doctorSourceContextKey{}).(store.DoctorCommandSource)
 	if scoped := turn.ExecutionSessionID(ctx); scoped > 0 {
@@ -262,12 +292,11 @@ func selectTicketConnection(ctx context.Context, db *store.DB, factory *projectc
 		if retainedRemote == "" {
 			return nil, 0, errors.New("original ticket container identity is unresolved")
 		}
-		owner, name, _ := strings.Cut(version.Destination, "/")
-		access, checkErr := clients.Code.InspectRepository(ctx, github.Repo{Owner: owner, Name: name})
+		identity, checkErr := clients.Tickets.ContainerIdentity(ctx, version.Destination)
 		if checkErr != nil {
 			return nil, 0, checkErr
 		}
-		if retainedRemote != strconv.FormatInt(access.ID, 10) || !strings.EqualFold(access.FullName, version.Destination) {
+		if retainedRemote != identity.RemoteID {
 			return nil, 0, errors.New("original ticket container identity changed")
 		}
 	}
@@ -294,7 +323,7 @@ func (d *Daemon) connectionIngress(ctx context.Context, repo github.Repo, number
 // ProjectTicketSelector binds local management and recovery to the same retained
 // execution selection used by daemon workers. No mutable replacement fallback exists.
 func ProjectTicketSelector(db *store.DB, factory *projectconnection.Factory) turn.TicketConnectionSelector {
-	return func(ctx context.Context, repo github.Repo, number int, sessionID int64) (*github.Tickets, int64, error) {
+	return func(ctx context.Context, repo github.Repo, number int, sessionID int64) (turn.WorkflowTickets, int64, error) {
 		return selectTicketConnection(ctx, db, factory, repo, number, sessionID)
 	}
 }

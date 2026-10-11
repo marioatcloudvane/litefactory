@@ -136,9 +136,6 @@ func (db *DB) BindSessionTicket(ctx context.Context, sessionID int64, ref ticket
 	if err := ref.Validate(); err != nil {
 		return SessionTicket{}, err
 	}
-	if ref.Identity.Provider != ticket.GitHub {
-		return SessionTicket{}, ErrTicketIdentityConflict
-	}
 	var binding SessionTicket
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		var sessionRepo int64

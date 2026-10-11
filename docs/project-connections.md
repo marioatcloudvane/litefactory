@@ -2,7 +2,7 @@
 
 A registered repository is the project identity. `repo add` still reads the
 local clone; project connections independently select the code repository and
-the ticket repository. Keep credentials in the existing keychain or environment
+the ticket destination. Keep credentials in the existing keychain or environment
 resolver. Connection records contain credential references, never token values.
 
 Use the project ID reported by repository management. Inspect the saved versions
@@ -87,7 +87,7 @@ disabled. Each remote operation still selects the original session destination.
 
 The trusted local operator appoints one verified human account per project.
 The account may differ from the code owner, ticket creator and assignee. Handles
-select an account for verification; the saved GitHub ID and configured API origin
+select a GitHub account for verification; Linear uses an explicit immutable user ID. The saved provider, account ID and configured API origin
 establish its identity. The publishing account cannot be appointed.
 
 ```sh
@@ -128,3 +128,90 @@ and publisher, including when a result must be reconciled after a restart.
 When the ticket approver and code owner differ, acceptance checks and finding
 choices must be settled before the code owner's combined Validate shipping
 approval. The combined command cannot grant the code owner ticket authority.
+
+## Linear tickets with GitHub code
+
+One project selects one ticket provider. Different GitHub and Linear projects
+can run together. This does not move or synchronize tickets or saved work.
+GitHub continues to host the registered clone, branches and pull requests.
+
+Configure the Linear connection through the existing operations. Use immutable
+workspace, team, project, label, state and human user IDs. The destination is
+`team-id/project-id`; display identifiers such as `ENG-42` are descriptive.
+The API root is `https://api.linear.app`. An API key uses `api_key`; OAuth uses
+`oauth`. Keep the credential in the existing external resolver. Background
+LaunchAgent connections require keychain references.
+
+```sh
+litefactory repo connection set 1 ticket --revision 1 --provider linear --origin https://api.linear.app --destination TEAM_ID/PROJECT_ID --workspace WORKSPACE_ID --team TEAM_ID --project PROJECT_ID --auth-kind api_key --credential keychain:litefactory-linear:publisher --mode-labels '{"plan":"PLAN_LABEL_ID","implement":"IMPLEMENT_LABEL_ID","validate":"VALIDATE_LABEL_ID"}' --states '{"open":"OPEN_STATE_ID","completed":"COMPLETED_STATE_ID","retired":"CANCELED_STATE_ID"}'
+litefactory repo connection check 1 ticket
+litefactory repo approver set 1 HUMAN_USER_ID --connection-revision 2 --revision 0
+litefactory repo binding add 1 --remote-id ISSUE_UUID --key ISSUE_UUID
+```
+
+Setup reads the publisher, selected workspace/team/project and mappings before
+saving. Each configured mode requires its explicit label mapping; unrelated
+labels survive mode changes. Completion and retirement require distinct states
+with completed and canceled semantics. Unsupported modes or stale mappings
+stop the affected operation. Inspection distinguishes ticket read access,
+unverified write access and webhook administration availability. Insufficient
+webhook administration leaves polling available.
+
+Linear's immutable IDs remain the stored identity and mutation destination.
+Durable local slots allow existing workflow ledgers and task naming to address
+opaque IDs internally; a slot is never a remote GitHub issue or comment ID.
+Saved sessions retain their original connection, team/project, publisher and
+qualified approver evidence. Connection edits govern new admission. Original
+access must remain available for owed effects; configuration replacement cannot
+redirect them.
+
+Factory metadata uses visible versioned fenced blocks on Linear. The adapter
+retains provider bytes separately and preserves unrelated text. Guarded reads
+and readback detect divergence but do not provide remote atomic compare-and-swap.
+Detected conflicts retain owed work. Issue and comment creation retain a UUID
+before dispatch and reconcile that exact object after uncertain responses;
+UUID correlation does not grant permission to resend.
+
+Subscriptions are factory-owned and team-scoped for Issue and Comment events.
+Incoming hints require a valid raw-body HMAC and recent signed timestamp, then
+an authoritative issue read checks workspace, team and project. A valid hint
+alone grants no work authority. Independent issue and comment streams, including
+thread replies, hand off bounded pages durably before coverage advances. Cursor
+failure restarts from completed coverage; overlap and paced reconciliation
+recover provider-retained changes. Disabling webhooks leaves polling active.
+
+Linear's [GraphQL schema](https://github.com/linear/linear/blob/master/packages/sdk/src/schema.graphql)
+and [webhook documentation](https://linear.app/developers/webhooks) define the
+provider operations and required webhook privilege.
+
+## GitHub code delivery for Linear work
+
+Admission retains the verified GitHub code owner, publisher and original code
+repository alongside the Linear session. Later configuration edits cannot replace
+that saved code authority. The retained GitHub code owner requests delivery
+independently of the Linear approver. Name the saved parent task and its approved generation, and provide an
+external credential reference for the human GitHub owner:
+
+```sh
+litefactory repo delivery request github:acme/code#42 --generation 1 --request-id release-42-generation-1 --credential keychain:litefactory-github:code-owner
+```
+
+Use the saved parent task shown by the factory, including its durable local slot
+for a Linear parent. The command verifies the human GitHub identity and original
+repository, then retains the request for daemon processing. Reuse the same
+request ID after interruption; a matching request is returned without another
+control effect. The publishing credential cannot stand in for the human owner.
+
+After the proposal is published, the owner posts the exact approval command on
+the bound GitHub pull request:
+
+```text
+/merge <generation> <proposal-digest> <PR-number> <head-SHA> main
+```
+
+The daemon recovers fresh comments on that enrolled PR through the saved code
+connection. The proposal, PR identity, repository, branch, head and main target
+must still match. Changed heads require a new proposal and approval. Linear
+comments and GitHub review approvals cannot authorize merging. Confirmed
+integration precedes Linear parent closure; interrupted Linear reporting or
+closure remains pending without another merge.

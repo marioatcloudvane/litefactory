@@ -18,6 +18,7 @@ import (
 // Consumers continue to declare only their own narrow operation interfaces.
 type TicketWorkflowBridge struct {
 	selector TicketConnectionSelector
+	actorID  int64
 	*TicketPlanBridge
 	Publication *TicketPublicationBridge
 	Mutations   interface {
@@ -151,12 +152,22 @@ func (b *TicketWorkflowBridge) ListCommentedIssues(ctx context.Context, r github
 	}
 	out := make([]int, 0, len(locators))
 	for _, l := range locators {
-		if l.Provider != ticket.GitHub || l.Origin != b.Tickets.Origin() || l.Container != r.String() {
+		if l.Provider != workflowProvider(b.Tickets) || l.Origin != b.Tickets.Origin() || l.Container != r.String() {
 			return nil, errors.New("comment discovery destination differs")
 		}
-		n, err := strconv.Atoi(l.Key)
+		var n int
+		if l.Provider == ticket.GitHub {
+			n, err = strconv.Atoi(l.Key)
+		} else {
+			snapshot, readErr := b.Tickets.Resolve(ctx, l)
+			if readErr != nil {
+				return nil, readErr
+			}
+			slot, slotErr := compatibilitySlot(ctx, b.DB, "issue", snapshot.Ref.Identity)
+			err, n = slotErr, int(slot)
+		}
 		if err != nil || n < 1 {
-			return nil, errors.New("invalid legacy ticket locator")
+			return nil, errors.New("invalid local ticket locator")
 		}
 		out = append(out, n)
 	}
@@ -165,7 +176,26 @@ func (b *TicketWorkflowBridge) ListCommentedIssues(ctx context.Context, r github
 
 // NewGitHubTicketWorkflow builds the only production compatibility boundary
 // from the existing authenticated ticket adapter, never from code delivery.
-func NewGitHubTicketWorkflow(db *store.DB, a *github.Tickets, botID int64) (*TicketWorkflowBridge, error) {
+func NewGitHubTicketWorkflow(db *store.DB, a WorkflowTickets, botID int64) (*TicketWorkflowBridge, error) {
+	if a == nil || workflowProvider(a) != ticket.GitHub {
+		return nil, errors.New("linear ticket workflow requires a scoped constructor")
+	}
+	return ticketWorkflow(db, a, botID, ticket.Identity{Provider: ticket.GitHub, Origin: a.Origin(), RemoteID: strconv.FormatInt(botID, 10)})
+}
+
+// NewTicketWorkflow resolves provider identity using the caller's cancellation scope.
+func NewTicketWorkflow(ctx context.Context, db *store.DB, a WorkflowTickets, botID int64) (*TicketWorkflowBridge, error) {
+	if db == nil || a == nil || botID < 1 {
+		return nil, errors.New("ticket workflow dependencies missing")
+	}
+	bot, err := compatibilityIdentity(ctx, db, workflowProvider(a), a.Origin(), "actor", botID)
+	if err != nil {
+		return nil, err
+	}
+	return ticketWorkflow(db, a, botID, bot)
+}
+
+func ticketWorkflow(db *store.DB, a WorkflowTickets, botID int64, bot ticket.Identity) (*TicketWorkflowBridge, error) {
 	if db == nil || a == nil || botID < 1 {
 		return nil, errors.New("ticket workflow dependencies missing")
 	}
@@ -173,5 +203,6 @@ func NewGitHubTicketWorkflow(db *store.DB, a *github.Tickets, botID int64) (*Tic
 	if err != nil {
 		return nil, err
 	}
-	return &TicketWorkflowBridge{TicketPlanBridge: &TicketPlanBridge{DB: db, Tickets: a, Bot: ticket.Identity{Provider: ticket.GitHub, Origin: a.Origin(), RemoteID: strconv.FormatInt(botID, 10)}}, Publication: publication, Mutations: a}, nil
+	publication.bot = bot
+	return &TicketWorkflowBridge{actorID: botID, TicketPlanBridge: &TicketPlanBridge{DB: db, Tickets: a, Bot: bot}, Publication: publication, Mutations: a}, nil
 }

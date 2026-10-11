@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
@@ -54,13 +55,13 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 	if err != nil {
 		return false, err
 	}
-	access, err := discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "recovery-container", 0), 1, func(ctx context.Context) (github.RepositoryAccess, error) {
-		return clients.Code.InspectRepository(ctx, q.forgeRepo)
+	container, err := discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "recovery-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
+		return clients.Tickets.ContainerIdentity(ctx, version.Destination)
 	})
 	if err != nil {
 		return false, err
 	}
-	if !strings.EqualFold(access.FullName, version.Destination) || (version.RemoteID != "" && version.RemoteID != strconv.FormatInt(access.ID, 10)) {
+	if container.Provider != version.Provider || container.Origin != version.Origin || (version.RemoteID != "" && version.RemoteID != container.RemoteID) {
 		return false, store.ErrTicketIdentityConflict
 	}
 	enrollment := version.CreatedAt
@@ -71,7 +72,7 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 	if err != nil {
 		return false, err
 	}
-	position, err = d.db.PinTicketRecoveryContainer(ctx, version.ID, position.Revision, strconv.FormatInt(access.ID, 10))
+	position, err = d.db.PinTicketRecoveryContainer(ctx, version.ID, position.Revision, container.RemoteID)
 	if err != nil {
 		return false, err
 	}
@@ -108,7 +109,7 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 			return adapter.ReplyChangesPage(ctx, version.Destination, since, cursor, recoveryPageSize)
 		})
 		if err != nil {
-			if errors.Is(err, github.ErrInvalidArgument) {
+			if errors.Is(err, github.ErrInvalidArgument) || errors.Is(err, ticket.ErrInvalidCursor) {
 				return false, d.restartRecovery(ctx, position)
 			}
 			return false, err
@@ -148,7 +149,7 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 			return adapter.ReconcilePage(ctx, version.Destination, cursor, recoveryPageSize)
 		})
 		if err != nil {
-			if errors.Is(err, github.ErrInvalidArgument) {
+			if errors.Is(err, github.ErrInvalidArgument) || errors.Is(err, ticket.ErrInvalidCursor) {
 				position.ReconcileCursor = ""
 				_, err = d.db.CommitTicketRecoveryPage(ctx, position, position.Revision, nil)
 				return false, err
@@ -180,14 +181,14 @@ func (d *Daemon) restartRecovery(ctx context.Context, p store.TicketRecoveryPosi
 	return err
 }
 
-func (d *Daemon) recoveryObservations(ctx context.Context, v store.ConnectionVersion, p store.TicketRecoveryPosition, page ticket.ChangePage, now time.Time, adapter *github.Tickets) ([]store.PendingTicketObservation, error) {
+func (d *Daemon) recoveryObservations(ctx context.Context, v store.ConnectionVersion, p store.TicketRecoveryPosition, page ticket.ChangePage, now time.Time, adapter projectconnection.TicketClient) ([]store.PendingTicketObservation, error) {
 	snapshots := append([]ticket.Snapshot(nil), page.Tickets...)
 	for _, locator := range page.Locators {
 		if locator.Provider != v.Provider || locator.Origin != v.Origin || locator.Container != v.Destination {
 			return nil, store.ErrTicketIdentityConflict
 		}
 		snapshot, err := discoveryCall(ctx, d, discoveryKey(githubRepo(v.Destination), "recovery-resolve", mustTicketNumber(locator.Key)), 1, func(ctx context.Context) (ticket.Snapshot, error) { return adapter.Resolve(ctx, locator) })
-		if errors.Is(err, github.ErrNotFound) || errors.Is(err, github.ErrInvalidArgument) {
+		if errors.Is(err, github.ErrNotFound) || (errors.Is(err, github.ErrInvalidArgument) || errors.Is(err, ticket.ErrInvalidCursor)) {
 			continue
 		}
 		if err != nil {
@@ -320,8 +321,16 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if container.Provider != observation.Provider || container.Origin != observation.Origin || container.RemoteID != observation.ContainerID {
 			continue
 		}
-		issue, err := discoveryCall(readCtx, d, discoveryKey(targetQueue.forgeRepo, "pending-ticket", mustTicketNumber(observation.TicketKey)), 1, func(ctx context.Context) (github.Issue, error) {
-			return d.readIssue(ctx, targetQueue.forgeRepo, mustTicketNumber(observation.TicketKey))
+		number := mustTicketNumber(observation.TicketKey)
+		if observation.Provider == ticket.Linear {
+			slot, e := d.db.LocalTicketSlot(readCtx, "issue", identity)
+			if e != nil {
+				return e
+			}
+			number = int(slot)
+		}
+		issue, err := discoveryCall(readCtx, d, discoveryKey(targetQueue.forgeRepo, "pending-ticket", number), 1, func(ctx context.Context) (github.Issue, error) {
+			return d.readIssue(ctx, targetQueue.forgeRepo, number)
 		})
 		if errors.Is(err, ErrDiscoveryDeferred) {
 			continue
@@ -333,7 +342,11 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			q.log.WarnContext(ctx, "pending ticket reread deferred", slog.Any("error", err))
 			continue
 		}
-		if strconv.FormatInt(issue.ID, 10) != observation.TicketID {
+		observedID := strconv.FormatInt(issue.ID, 10)
+		if issue.QualifiedSnapshot != nil {
+			observedID = issue.QualifiedSnapshot.Ref.Identity.RemoteID
+		}
+		if observedID != observation.TicketID {
 			continue
 		}
 		var c *candidate
@@ -418,6 +431,13 @@ func (d *Daemon) queueObservation(q *repoQueue, seen map[int64]*candidate, c *ca
 
 func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observation store.PendingTicketObservation) (*candidate, error) {
 	number := mustTicketNumber(observation.TicketKey)
+	if observation.Provider == ticket.Linear {
+		slot, e := d.db.LocalTicketSlot(ctx, "issue", ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID})
+		if e != nil {
+			return nil, e
+		}
+		number = int(slot)
+	}
 	parent, err := d.db.ManagedParentForChild(ctx, q.repo.ID, number)
 	if errors.Is(err, store.ErrNotFound) {
 		parent, err = d.db.GraphPlanParentForChild(ctx, q.repo.ID, number)
@@ -452,7 +472,15 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 		return nil, err
 	}
 	verified, err := discoveryCall(sessionContext(ctx, session.ID), d, discoveryKey(githubRepo(version.Destination), "recovery-child", number), 1, func(ctx context.Context) (ticket.Snapshot, error) {
-		return clients.Tickets.Resolve(ctx, locatorAt(version.Origin, githubRepo(version.Destination), number))
+		key := strconv.Itoa(number)
+		if version.Provider == ticket.Linear {
+			id, e := d.db.TicketIdentityForSlot(ctx, "issue", int64(number))
+			if e != nil {
+				return ticket.Snapshot{}, e
+			}
+			key = id.RemoteID
+		}
+		return clients.Tickets.Resolve(ctx, ticket.Locator{Provider: version.Provider, Origin: version.Origin, Container: version.Destination, Key: key})
 	})
 	if err != nil {
 		return nil, err
