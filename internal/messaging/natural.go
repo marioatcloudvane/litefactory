@@ -294,7 +294,19 @@ func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at ti
 
 func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time.Time) (string, error) {
 	args := p.Invocation.Arguments
-	if p.Invocation.Command == "ask" || p.Invocation.Command == "draft" || p.Invocation.Command == "diagnose" || p.Invocation.Command == "question" || p.Invocation.Command == "answer" || args["project"] != "" {
+	if p.Invocation.Command == "meter" {
+		now := at.In(time.Local)
+		if from, to, ok := relativeBound(args["from"], now); ok {
+			args["from"] = from
+			if to != "" && args["to"] == "" {
+				args["to"] = to
+			}
+		}
+		if to, _, ok := relativeBound(args["to"], now); ok {
+			args["to"] = to
+		}
+	}
+	if p.Invocation.Command == "ask" || p.Invocation.Command == "draft" || p.Invocation.Command == "diagnose" || p.Invocation.Command == "question" || p.Invocation.Command == "answer" || p.Invocation.Command == "meter" && args["task"] != "" || args["project"] != "" {
 		resolution, err := ask.ResolveProject(ctx, s.db, args["project"], nil)
 		if err != nil {
 			return "", err
@@ -361,6 +373,47 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 		p.Question = preview.Title + "\n" + preview.Body
 	}
 	return "", nil
+}
+
+// relativeBound turns a spanned relative time phrase into RFC3339 local-midnight
+// bounds of now's location. A closed period without "since" also returns its end;
+// unrecognised text is not ok and stays for meterview to reject.
+func relativeBound(phrase string, now time.Time) (string, string, bool) {
+	phrase = strings.ToLower(strings.TrimSpace(phrase))
+	since := strings.HasPrefix(phrase, "since ")
+	phrase = strings.TrimSpace(strings.TrimPrefix(phrase, "since "))
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	week := day.AddDate(0, 0, -(int(day.Weekday())+6)%7)
+	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	var from, to time.Time
+	switch phrase {
+	case "today":
+		from = day
+	case "yesterday":
+		from, to = day.AddDate(0, 0, -1), day
+	case "this week":
+		from = week
+	case "last week":
+		from, to = week.AddDate(0, 0, -7), week
+	case "this month":
+		from = month
+	case "last month":
+		from, to = month.AddDate(0, -1, 0), month
+	default:
+		found := false
+		for d := time.Sunday; d <= time.Saturday; d++ {
+			if phrase == strings.ToLower(d.String()) {
+				from, found = day.AddDate(0, 0, -(int(day.Weekday())-int(d)+7)%7), true
+			}
+		}
+		if !found {
+			return "", "", false
+		}
+	}
+	if since || to.IsZero() {
+		return from.Format(time.RFC3339), "", true
+	}
+	return from.Format(time.RFC3339), to.Format(time.RFC3339), true
 }
 
 func (s *Service) naturalProposal(p naturalPayload, code string) string {
