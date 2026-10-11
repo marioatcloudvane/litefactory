@@ -162,7 +162,7 @@ func (p *StoryProgress) deliverAcceptanceOne(ctx context.Context, d store.Accept
 			return err
 		}
 		for _, c := range comments {
-			if c.Author.ID == p.botID && exactProgressMarker(c.Body, n.Marker()) {
+			if !hasTicketNoticeGuard(p.forge) && c.Author.ID == p.botID && exactProgressMarker(c.Body, n.Marker()) {
 				d.CommentID = c.ID
 				break
 			}
@@ -172,7 +172,7 @@ func (p *StoryProgress) deliverAcceptanceOne(ctx context.Context, d store.Accept
 			if err != nil {
 				return err
 			}
-			c, err := p.forge.PostComment(ctx, repo, d.IssueNumber, body)
+			c, err := postTicketNotice(ctx, p.forge, n.Marker(), d.Parent, p.botID, repo, d.IssueNumber, body)
 			if err != nil {
 				return err
 			}

@@ -272,6 +272,11 @@ func TestRunCarriesNoForgeCoordinates(t *testing.T) {
 	rt := reflect.TypeOf(report.Run{})
 	for i := range rt.NumField() {
 		name := strings.ToLower(rt.Field(i).Name)
+		// Provider-returned ticket links are display values, not duplicate code
+		// repository coordinates. They cannot select a delivery repository.
+		if name == "sourceparenturl" || name == "sourcereplyurl" {
+			continue
+		}
 		for _, bad := range forbidden {
 			if strings.Contains(name, bad) {
 				t.Errorf("report.Run has a field named %q; the forge coordinates belong to Ref alone",

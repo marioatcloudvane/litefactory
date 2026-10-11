@@ -25,6 +25,8 @@ import (
 // the run-slot pool the reviewers take their slots from.
 type ValidateRuntimeConfig struct {
 	Forge   ValidateForge
+	Code    BugCodeForge
+	Tickets ValidateTickets
 	OwnerID int64
 	Slots   ValidateSlots
 	// Permissions resolves the operator's validate-repair grant for the one
@@ -35,7 +37,13 @@ type ValidateRuntimeConfig struct {
 // NewValidateRuntime builds the production host bindings of the Validate graph.
 // Every binding is derived from factory state for the one entry it is bound to.
 func NewValidateRuntime(ctx context.Context, opts Options, cfg ValidateRuntimeConfig) (*ValidateRuntime, error) {
-	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || cfg.Forge == nil || cfg.OwnerID < 1 || cfg.Slots == nil {
+	if cfg.Code == nil {
+		cfg.Code = cfg.Forge
+	}
+	if cfg.Tickets == nil {
+		cfg.Tickets = cfg.Forge
+	}
+	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || (cfg.Code == nil || cfg.Tickets == nil) || cfg.OwnerID < 1 || cfg.Slots == nil {
 		return nil, errors.New("graph Validate requires concrete source, result, owner, reporter, forge and run-slot bindings")
 	}
 	if err := ctx.Err(); err != nil {
@@ -119,7 +127,8 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 		Reviewers: &validateReviewers{host: h, definition: definition},
 		Slots:     cfg.Slots,
 		Delivery: ValidateDelivery{
-			Forge:    cfg.Forge,
+			Code:     cfg.Code,
+			Tickets:  cfg.Tickets,
 			Redactor: opts.MCP.Redactor,
 			Target: func(context.Context, Options, ActivityRequest) (ValidateDeliveryTarget, error) {
 				return h.target(), nil

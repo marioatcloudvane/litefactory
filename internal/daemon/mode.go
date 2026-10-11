@@ -149,7 +149,7 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 		if !errors.Is(err, store.ErrNotFound) {
 			return "", err
 		}
-		issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.issue.Number)
+		issue, err := d.readIssue(ctx, t.forgeRepo, t.issue.Number)
 		if err != nil {
 			return "", fmt.Errorf("read current mode selection: %w", err)
 		}
@@ -238,7 +238,7 @@ func (d *Daemon) confirmModeSelection(ctx context.Context, t *task, selection st
 	if selection.LabelApplied {
 		return nil
 	}
-	labels, ok := d.forge.(labelForge)
+	labels, ok := d.ticketLabels()
 	if !ok {
 		return fmt.Errorf("mode label transitions unavailable")
 	}
@@ -285,7 +285,7 @@ func (d *Daemon) confirmModeSelection(ctx context.Context, t *task, selection st
 }
 
 func (d *Daemon) currentModeLabel(ctx context.Context, t *task) (string, error) {
-	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.issue.Number)
+	issue, err := d.readIssue(ctx, t.forgeRepo, t.issue.Number)
 	if err != nil {
 		return "", fmt.Errorf("verify mode transition: %w", err)
 	}

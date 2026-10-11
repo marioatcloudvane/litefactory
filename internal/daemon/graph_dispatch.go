@@ -55,7 +55,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			slog.Int64("session_id", session.ID),
 			slog.Int64("graph_dispatch_id", dispatch.ID),
 			slog.String("graph_node", dispatch.Node))
-		issue, err := d.forge.GetIssue(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, session.IssueNumber)
+		issue, err := d.readIssue(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, session.IssueNumber)
 		if err != nil {
 			d.rateLimited(ctx, log, at, err)
 			log.ErrorContext(ctx, "graph step issue observation failed; deferring", slog.Any("error", err))
@@ -142,7 +142,7 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 			return
 		}
 		log := t.log.With(slog.Int64("graph_dispatch_id", dispatch.ID), slog.String("graph_node", dispatch.Node))
-		issue, err := d.forge.GetIssue(ctx, t.forgeRepo, session.IssueNumber)
+		issue, err := d.readIssue(ctx, t.forgeRepo, session.IssueNumber)
 		if err != nil {
 			d.rateLimited(ctx, log, t.tickAt, err)
 			log.ErrorContext(ctx, "graph step issue observation failed; leaving it to the tick", slog.Any("error", err))

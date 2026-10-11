@@ -79,7 +79,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		return false
 	}
 
-	issue, err := d.forge.GetIssue(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, session.IssueNumber)
+	issue, err := d.readIssue(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, session.IssueNumber)
 	if err != nil || issue.State != github.StateOpen {
 		d.pool.done()
 		d.inflight.leave(session.ID)

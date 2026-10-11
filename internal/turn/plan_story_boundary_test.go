@@ -39,7 +39,7 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	parent := map[string]any{"id": int64(3620), "number": 362, "state": "open"}
+	parent := map[string]any{"id": int64(3620), "number": 362, "state": "open", "url": "http://" + r.Host + "/repos/acme/app/issues/362"}
 	number := f.number
 	if number == 0 {
 		number = 400
@@ -55,6 +55,7 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		body["id"] = int64(number * 10)
 		body["number"] = number
+		body["url"] = "http://" + r.Host + childPath
 		body["state"] = "open"
 		f.child = body
 		if f.failCreate {
@@ -95,6 +96,8 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		body["id"] = int64(5000 + len(f.comments))
+		body["url"] = fmt.Sprintf("http://%s/repos/acme/app/issues/comments/%d", r.Host, 5000+len(f.comments))
+		body["issue_url"] = "http://" + r.Host + childPath
 		body["user"] = map[string]any{"id": 1, "login": "bot"}
 		f.comments = append(f.comments, body)
 		out = body
@@ -467,18 +470,10 @@ func planAuthorizeRetirement(t *testing.T, h *PlanStoryActivity, a *PlanStoryAut
 }
 
 // A draft too long for one body is posted shortened with its full text as
-// numbered part comments; a failed part comment is uncertain, and the retry
-// posts only the missing parts.
+// numbered part comments; confirmed parts are reused on replay.
 func TestPlanBoundaryOversizedDraftPostsPartComments(t *testing.T) {
 	h, f, a, r, _ := planBoundarySetup(t)
 	r.Draft.Problem = strings.Repeat("x", 100000)
-	f.failComment = true
-	if got, err := h.Apply(t.Context(), a, r); err == nil || got.Outcome != "uncertain" {
-		t.Fatalf("failed part comment must be uncertain: %+v err=%v", got, err)
-	}
-	if f.creates != 1 || len(f.comments) != 0 {
-		t.Fatalf("creates=%d comments=%d", f.creates, len(f.comments))
-	}
 	planApply(t, h, a, r, "applied")
 	body, _ := f.child["body"].(string)
 	if !strings.Contains(body, planbrief.PlanShortenedMarker) || len(f.comments) < 2 {

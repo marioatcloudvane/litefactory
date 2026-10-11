@@ -205,7 +205,7 @@ func (a chatResearch) Answer(ctx context.Context, ref, token, text string, at ti
 	if err != nil {
 		return messaging.Question{}, err
 	}
-	issue, err := d.forge.GetIssue(ctx, github.Repo{Owner: parsed.Owner, Name: parsed.Repo}, parsed.Issue)
+	issue, err := d.readIssue(ctx, github.Repo{Owner: parsed.Owner, Name: parsed.Repo}, parsed.Issue)
 	if err != nil {
 		return messaging.Question{}, err
 	}
@@ -297,7 +297,7 @@ func (d *Daemon) dispatchChatDiagnosis(ctx context.Context, at time.Time) {
 				if d.forge == nil {
 					e = errors.New("issue lookup unavailable")
 				} else {
-					_, e = d.forge.GetIssue(ctx, github.Repo{Owner: ref.Owner, Name: ref.Repo}, ref.Issue)
+					_, e = d.readIssue(ctx, github.Repo{Owner: ref.Owner, Name: ref.Repo}, ref.Issue)
 					if errors.Is(e, github.ErrNotFound) {
 						text = "issue was not found; no diagnosis ran"
 					}

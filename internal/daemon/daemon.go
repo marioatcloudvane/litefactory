@@ -185,6 +185,8 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Tickets qualifies authenticated legacy ingress before authority decisions.
+	Tickets TicketIngress
 	// Doctor is the independent diagnostic service; nil disables dispatch.
 	Doctor *doctor.Service
 
@@ -407,6 +409,7 @@ type Daemon struct {
 	db        *store.DB
 	forge     Forge
 	filter    Classifier
+	tickets   TicketIngress
 	turn      Executor
 	reporter  Reporter
 	proposals ProposalGenerator
@@ -518,6 +521,7 @@ func New(opts Options) (*Daemon, error) {
 		bug:                      opts.Bug,
 		forge:                    opts.Forge,
 		filter:                   opts.Filter,
+		tickets:                  opts.Tickets,
 		turn:                     opts.Turn,
 		reporter:                 opts.Reporter,
 		diagnosticRedactor:       opts.DiagnosticRedactor,
