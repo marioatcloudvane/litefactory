@@ -156,7 +156,7 @@ func (s *Service) renderQuestion(ctx context.Context, q Question) (string, error
 		fixed := replySize(questionText(Question{Text: " ", Token: q.Token, Reason: q.Reason}))
 		q.Text = shortenLine(q.Text, max(0, s.ReplyLimit()-fixed-128))
 	}
-	return assessed(ctx, questionText(q), presentation.Success)
+	return questionText(q), nil
 }
 
 func (s *Service) question(ctx context.Context, m Message, _ time.Time) (string, error) {

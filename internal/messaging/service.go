@@ -66,6 +66,11 @@ type Delivery struct {
 	RetryAfter         time.Duration
 	Route              string
 	Status             int
+	// EditStatus, EditCode and EditMessage describe a refused interaction
+	// edit: its HTTP status and Discord's redacted JSON error code and message.
+	EditStatus  int
+	EditCode    int
+	EditMessage string
 }
 
 // Transport supplies delivery and its outcome without service-specific types.
@@ -421,7 +426,11 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	}
 	// One line per delivery attempt; the reply text is never logged.
 	if s.Logger != nil {
-		s.Logger.Log(ctx, level, "chat reply delivery", slog.String("transport", r.Transport), slog.String("message_id", r.MessageID), slog.String("command", r.Command), slog.String("outcome", outcome), slog.String("route", d.Route), slog.Int("status", d.Status))
+		attrs := []any{slog.String("transport", r.Transport), slog.String("message_id", r.MessageID), slog.String("command", r.Command), slog.String("outcome", outcome), slog.String("route", d.Route), slog.Int("status", d.Status)}
+		if d.EditStatus != 0 {
+			attrs = append(attrs, slog.Int("edit_status", d.EditStatus), slog.Int("edit_code", d.EditCode), slog.String("edit_message", d.EditMessage))
+		}
+		s.Logger.Log(ctx, level, "chat reply delivery", attrs...)
 	}
 	return true, err
 }
