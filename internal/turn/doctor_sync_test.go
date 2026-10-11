@@ -419,3 +419,86 @@ func TestDoctorSyncDeadlineDuringPushKeepsPushedHead(t *testing.T) {
 		t.Fatalf("sync after accepted push %+v %v", result, e)
 	}
 }
+
+// behindDoctorSyncWorktree pushes a story commit to origin's task branch and
+// resets the task worktree to its earlier head, as story merges pushed from
+// scratch worktrees leave it. It returns the stale local and remote heads.
+func behindDoctorSyncWorktree(t *testing.T, repo *gittest.Repo, w *git.Worktree) (string, string) {
+	t.Helper()
+	local, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	commitInSyncDir(t, repo, w.Path(), "story.txt", "story merge")
+	repo.GitIn(w.Path(), "push", "--quiet", "origin", w.Branch())
+	remote := repo.GitIn(w.Path(), "rev-parse", "refs/remotes/origin/"+w.Branch())
+	repo.GitIn(w.Path(), "reset", "--quiet", "--hard", local)
+	if remote == local {
+		t.Fatal("remote task head did not advance")
+	}
+	return local, remote
+}
+
+func TestDoctorSyncFastForwardsBehindOnlyWorktree(t *testing.T) {
+	repo := gittest.New(t)
+	w := newSyncWorktree(t, repo, 648, "doctor behind")
+	_, remote := behindDoctorSyncWorktree(t, repo, w)
+	advanceSyncBase(t, repo, 1)
+	base, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	result, e := SyncDoctorBranch(t.Context(), DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: remote, Base: "origin/" + gittest.DefaultBranch, BaseHead: base, Author: syncTestAuthor, RecordBackup: func(_ context.Context, h string) error {
+		if h != remote {
+			t.Fatal("wrong backup")
+		}
+		return nil
+	}})
+	if e != nil || !result.Rechecked {
+		t.Fatalf("sync %+v %v", result, e)
+	}
+	if head := repo.GitIn(w.Path(), "rev-parse", "HEAD"); head != result.Head {
+		t.Fatalf("worktree head %s differs from result %s", head, result.Head)
+	}
+	if remoteHead := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remoteHead != result.Head {
+		t.Fatalf("remote head %s differs from result %s", remoteHead, result.Head)
+	}
+	for _, ancestor := range []string{remote, base} {
+		repo.GitIn(w.Path(), "merge-base", "--is-ancestor", ancestor, result.Head)
+	}
+}
+
+func TestDoctorSyncBehindRefusalsPreserveHeads(t *testing.T) {
+	for _, kind := range []string{"dirty", "diverged"} {
+		t.Run(kind, func(t *testing.T) {
+			repo := gittest.New(t)
+			w := newSyncWorktree(t, repo, 648, "doctor behind refusal")
+			_, remote := behindDoctorSyncWorktree(t, repo, w)
+			switch kind {
+			case "dirty":
+				if e := os.WriteFile(filepath.Join(w.Path(), "retained"), []byte("keep"), 0600); e != nil {
+					t.Fatal(e)
+				}
+			case "diverged":
+				commitInSyncDir(t, repo, w.Path(), "local.txt", "local only")
+			}
+			local := repo.GitIn(w.Path(), "rev-parse", "HEAD")
+			advanceSyncBase(t, repo, 1)
+			base, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+			if e != nil {
+				t.Fatal(e)
+			}
+			backups := 0
+			_, e = SyncDoctorBranch(t.Context(), DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: remote, Base: "origin/" + gittest.DefaultBranch, BaseHead: base, Author: syncTestAuthor, RecordBackup: func(context.Context, string) error { backups++; return nil }})
+			if e == nil || backups != 0 {
+				t.Fatalf("expected refusal before backup: %v backups %d", e, backups)
+			}
+			if head := repo.GitIn(w.Path(), "rev-parse", "HEAD"); head != local {
+				t.Fatalf("local head changed to %s", head)
+			}
+			if remoteHead := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remoteHead != remote {
+				t.Fatalf("remote head changed to %s", remoteHead)
+			}
+		})
+	}
+}
