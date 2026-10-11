@@ -200,3 +200,40 @@ func TestNoticePositionFindsRecycledGraphIDs(t *testing.T) {
 		t.Fatalf("recycled record replayed: %+v %v", rows, err)
 	}
 }
+
+func TestNoticeRunStartsReadPreviousMode(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 675)
+	segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{}
+	previous := ""
+	for i, mode := range []string{"research", "plan", "implement", "implement"} {
+		run, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: mode, Agent: AgentClaude, TriggerCommentID: int64(100 + i), LogPath: func(n int) string { return "/logs/" + strconv.Itoa(n) + ".jsonl" }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[strconv.FormatInt(run.ID, 10)] = previous
+		previous = mode
+	}
+	// A prelaunch allocation never crossed the execution boundary: not a previous run.
+	if _, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "validate", Agent: AgentClaude, TriggerCommentID: 200, Prelaunch: true, LogPath: func(n int) string { return "/logs/" + strconv.Itoa(n) + ".jsonl" }}); err != nil {
+		t.Fatal(err)
+	}
+	last, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "validate", Agent: AgentClaude, TriggerCommentID: 201, LogPath: func(n int) string { return "/logs/" + strconv.Itoa(n) + ".jsonl" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want[strconv.FormatInt(last.ID, 10)] = "implement"
+	for id, previous := range want {
+		n, _ := strconv.ParseInt(id, 10, 64)
+		r, err := db.readNoticeRecord(ctx, "run_starts", n)
+		if err != nil || r.PreviousMode != previous {
+			t.Fatalf("run %s previous=%q want %q err=%v", id, r.PreviousMode, previous, err)
+		}
+	}
+}

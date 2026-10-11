@@ -22,7 +22,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)
 	record := store.NoticeRecord{ID: 7, TaskRef: "github:acme/repo#1", Workflow: "implement", Ready: true, At: at, Run: store.Run{ID: 7, Status: store.RunReported, SemanticOutcome: "failed"}}
-	for _, tc := range []struct{ source, kind, key string }{{"run_starts", "started", "run:7:start"}, {"run_finishes", "failed", "run:7:finish"}, {"transitions", "stage changed", "transition:7@" + store.FormatTime(at) + "@github:acme/repo#1"}, {"owner_waits", "question", "wait:question-key@" + store.FormatTime(at) + "@github:acme/repo#1"}} {
+	for _, tc := range []struct{ source, kind, key string }{{"run_starts", "started", "run:7:start"}, {"run_finishes", "failed", "run:7:finish"}, {"owner_waits", "question", "wait:question-key@" + store.FormatTime(at) + "@github:acme/repo#1"}} {
 		t.Run(tc.source, func(t *testing.T) {
 			r := record
 			r.From = "build"
@@ -48,14 +48,30 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 			}
 		})
 	}
-	record.From = "same"
-	record.To = "same"
-	if events, err := messaging.NoticeEvents("transitions", record); err != nil || len(events) != 0 {
-		t.Fatalf("same-node events=%+v err=%v", events, err)
+	// Graph node moves are internal to one mode: never a notice.
+	for _, nodes := range [][2]string{{"select_path", "budget"}, {"budget", "worker_agent"}, {"same", "same"}} {
+		r := record
+		r.From, r.To = nodes[0], nodes[1]
+		if events, err := messaging.NoticeEvents("transitions", r); err != nil || len(events) != 0 {
+			t.Fatalf("node transition events=%+v err=%v", events, err)
+		}
+	}
+	// Same-mode follow-on runs, including recovered runs, do not start again.
+	continued := record
+	continued.PreviousMode = "implement"
+	if events, err := messaging.NoticeEvents("run_starts", continued); err != nil || len(events) != 0 {
+		t.Fatalf("same-mode start events=%+v err=%v", events, err)
+	}
+	changed := record
+	changed.Workflow = "plan"
+	changed.PreviousMode = "research"
+	events, err := messaging.NoticeEvents("run_starts", changed)
+	if err != nil || len(events) != 1 || events[0].Kind != "started" || !strings.Contains(messaging.NoticeText(events[0]), "Mode: research → plan") {
+		t.Fatalf("mode change start=%+v err=%v", events, err)
 	}
 	record.Run.Status = store.RunFailed
 	record.Run.RecoveryReason = `owner-stop:{"run_id":7,"at":"2026-10-10T18:00:00Z"}`
-	events, err := messaging.NoticeEvents("run_finishes", record)
+	events, err = messaging.NoticeEvents("run_finishes", record)
 	if err != nil || events[0].Kind != "stopped" {
 		t.Fatalf("stop=%+v err=%v", events, err)
 	}
@@ -140,9 +156,10 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 10, 10, 18, 0, 0, 0, time.UTC)
+	mode := "implement"
 	allocate := func(trigger int64, start time.Time, pre bool) store.Run {
 		t.Helper()
-		r, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: seg.ID, Mode: "implement", Agent: "codex", TriggerCommentID: trigger, StartedAt: start, Prelaunch: pre, LogPath: func(n int) string { return fmt.Sprintf("/logs/%d.jsonl", n) }})
+		r, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: seg.ID, Mode: mode, Agent: "codex", TriggerCommentID: trigger, StartedAt: start, Prelaunch: pre, LogPath: func(n int) string { return fmt.Sprintf("/logs/%d.jsonl", n) }})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -166,6 +183,7 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 		t.Fatalf("history sent: %v", err)
 	}
 	old := allocate(2, at.Add(-25*time.Hour), false)
+	mode = "validate" // A mode change after the earlier implement runs.
 	pre := allocate(3, at, true)
 	if err := c.Collect(ctx, at); err != nil {
 		t.Fatal(err)

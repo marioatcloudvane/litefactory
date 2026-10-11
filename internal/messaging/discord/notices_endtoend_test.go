@@ -94,9 +94,10 @@ func TestTaskNoticeJourney(t *testing.T) {
 	must(err)
 	seg, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", "codex")
 	must(err)
+	mode := "plan"
 	allocate := func(trigger int64) store.Run {
 		t.Helper()
-		r, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: seg.ID, Mode: "implement", Agent: "codex", TriggerCommentID: trigger, StartedAt: at, LogPath: func(n int) string { return fmt.Sprintf("/logs/%d.jsonl", n) }})
+		r, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: seg.ID, Mode: mode, Agent: "codex", TriggerCommentID: trigger, StartedAt: at, LogPath: func(n int) string { return fmt.Sprintf("/logs/%d.jsonl", n) }})
 		must(err)
 		return r
 	}
@@ -109,6 +110,8 @@ func TestTaskNoticeJourney(t *testing.T) {
 	if _, err := db.ReadChatNotice(ctx, "discord", fmt.Sprintf("run:%d:start", history.ID)); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("history was posted: %v", err)
 	}
+	// One mode change, then two further runs in the same mode: one start.
+	mode = "implement"
 	runs := []store.Run{allocate(2), allocate(3), allocate(4)}
 	must(collector.Collect(ctx, at))
 	service := messaging.New(db, "discord", "2", []string{"3"}, adapter, nil)
@@ -147,7 +150,8 @@ func TestTaskNoticeJourney(t *testing.T) {
 	must(err)
 	instance, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "build", StartedAt: at})
 	must(err)
-	transition, err := db.RecordGraphTransition(ctx, store.GraphTransition{InstanceID: instance.ID, FromNode: "build", ToNode: "save", OnOutcome: "done", At: at})
+	// Internal graph node moves within the mode post nothing.
+	_, err = db.RecordGraphTransition(ctx, store.GraphTransition{InstanceID: instance.ID, FromNode: "build", ToNode: "save", OnOutcome: "done", At: at})
 	must(err)
 	_, err = db.RecordGraphTransition(ctx, store.GraphTransition{InstanceID: instance.ID, FromNode: "build", ToNode: "build", OnOutcome: "retry", At: at})
 	must(err)
@@ -190,6 +194,9 @@ func TestTaskNoticeJourney(t *testing.T) {
 		if kind == "question" && (!strings.Contains(text, "Which release should I target?") || !strings.Contains(text, "#issuecomment-91") || strings.Contains(text, "report prose")) {
 			t.Errorf("question text: %s", text)
 		}
+		if kind == "started" && !strings.Contains(text, "Mode: plan → implement") {
+			t.Errorf("mode change missing: %s", text)
+		}
 		if kind == "completed" && !strings.Contains(text, "Estimated cost:") {
 			t.Errorf("usage estimate missing: %s", text)
 		}
@@ -204,7 +211,7 @@ func TestTaskNoticeJourney(t *testing.T) {
 		}
 	}
 	mu.Unlock()
-	for kind, want := range map[string]int{"started": 3, "stage changed": 1, "question": 1, "completed": 1, "failed": 1, "stopped": 1} {
+	for kind, want := range map[string]int{"started": 1, "stage changed": 0, "question": 1, "completed": 1, "failed": 1, "stopped": 1} {
 		if counts[kind] != want {
 			t.Errorf("%s=%d want %d", kind, counts[kind], want)
 		}
@@ -212,9 +219,14 @@ func TestTaskNoticeJourney(t *testing.T) {
 	if retried != 1 {
 		t.Errorf("retried nonce count=%d want 1", retried)
 	}
-	keys := []string{fmt.Sprintf("transition:%d@%s@%s", transition.ID, store.FormatTime(at), session.TaskRef), "wait:owner-question@" + store.FormatTime(at.Add(time.Second)) + "@" + session.TaskRef}
+	keys := []string{"wait:owner-question@" + store.FormatTime(at.Add(time.Second)) + "@" + session.TaskRef, fmt.Sprintf("run:%d:start", runs[0].ID)}
 	for _, r := range runs {
-		keys = append(keys, fmt.Sprintf("run:%d:start", r.ID), fmt.Sprintf("run:%d:finish", r.ID))
+		keys = append(keys, fmt.Sprintf("run:%d:finish", r.ID))
+	}
+	for _, r := range runs[1:] {
+		if _, err := db.ReadChatNotice(ctx, "discord", fmt.Sprintf("run:%d:start", r.ID)); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("same-mode run %d started again: %v", r.ID, err)
+		}
 	}
 	for _, key := range keys {
 		row, err := db.ReadChatNotice(ctx, "discord", key)

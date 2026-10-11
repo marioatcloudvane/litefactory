@@ -26,8 +26,8 @@ type NoticeEvent struct {
 	Usage                                                 *report.MeterSummary
 }
 
-// NoticeEvents maps source facts to stable event identities. Same-node
-// transitions and review waits are intentionally silent.
+// NoticeEvents maps source facts to stable event identities. Graph node
+// transitions, same-mode follow-on runs and review waits are intentionally silent.
 func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 	parked := source == "owner_waits" && r.StopOrigin != "" && r.StopCause != "diagnosis_question" && r.StopCause != "diagnosis_review"
 	if r.Ignore || (!r.Ready && !parked) {
@@ -40,8 +40,17 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 	e := NoticeEvent{Task: ref, Workflow: r.Workflow, RunID: r.Run.ID, At: r.At}
 	switch source {
 	case "run_starts":
+		// A further run in the same mode continues work already announced,
+		// including a run recovered after a daemon restart.
+		if r.PreviousMode != "" && r.PreviousMode == r.Workflow {
+			return nil, nil
+		}
 		e.Key = fmt.Sprintf("run:%d:start", r.ID)
 		e.Kind = "started"
+		if r.PreviousMode != "" {
+			e.From = r.PreviousMode
+			e.To = r.Workflow
+		}
 	case "run_finishes":
 		e.Key = fmt.Sprintf("run:%d:finish", r.ID)
 		e.Kind = "failed"
@@ -51,13 +60,9 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 			e.Kind = "completed"
 		}
 	case "transitions":
-		if r.From == r.To {
-			return nil, nil
-		}
-		e.Key = fmt.Sprintf("transition:%d@%s@%s", r.ID, store.FormatTime(r.At), r.TaskRef)
-		e.Kind = "stage changed"
-		e.From = r.From
-		e.To = r.To
+		// Graph node moves stay within one graph instance, and so within one
+		// mode; they are factory internals, never owner notices.
+		return nil, nil
 	case "owner_waits":
 		e.Key = "wait:" + r.Key + "@" + store.FormatTime(r.At) + "@" + r.TaskRef
 		e.Kind = "question"
@@ -125,7 +130,7 @@ func noticeQuestion(candidate []byte, reason string) (string, error) {
 func NoticeText(e NoticeEvent) string {
 	header := fmt.Sprintf("%s: %s (%s)\n%s", e.Kind, e.Task.String(), e.Workflow, e.Task.IssueURL())
 	if e.From != "" {
-		header += fmt.Sprintf("\nStage: %s → %s", e.From, e.To)
+		header += fmt.Sprintf("\nMode: %s → %s", e.From, e.To)
 	}
 	if e.QuestionLink != "" {
 		header += "\n" + e.QuestionLink

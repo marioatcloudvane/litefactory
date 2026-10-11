@@ -121,8 +121,11 @@ the automated fake Discord test does not establish real-server readability.
 
 To receive task status notices, set `chat.discord.notice_channel_id` to one of
 `channel_ids`. Leave it empty to disable notices. Each event goes to that one
-channel: run start, a change to a different graph stage, owner question,
-completion, failure or stop. Messages name and link to the task; questions link
+channel: a task starting work or moving to a different mode (for example
+Research → Plan), owner question, completion, failure or stop. Steps between
+graph nodes inside one mode post nothing, and a further run in the same mode,
+such as a run recovered after a daemon restart, does not post another start.
+Messages name and link to the task; questions link
 to the issue comment and show a shortened question. Answer on the issue as usual.
 Final notices include available per-run usage and estimated costs.
 

@@ -25,11 +25,14 @@ type NoticePosition struct {
 type NoticeRecord struct {
 	ID                                                                        int64
 	TaskRef, Workflow, From, To, Key, Kind, StopOrigin, StopCause, StopReason string
-	Run                                                                       Run
-	At                                                                        time.Time
-	Candidate                                                                 []byte
-	CommentID                                                                 int64
-	Ready, Ignore                                                             bool
+	// PreviousMode is the workflow or mode of the session's latest earlier
+	// launched run; only run_starts records read it.
+	PreviousMode  string
+	Run           Run
+	At            time.Time
+	Candidate     []byte
+	CommentID     int64
+	Ready, Ignore bool
 }
 
 // The streams are independent; mutable lifecycle sources retain unresolved IDs.
@@ -216,6 +219,10 @@ func (db *DB) readNoticeRecord(ctx context.Context, source string, id int64) (No
 			return r, err
 		}
 		if source == "run_starts" {
+			err = db.sql.QueryRowContext(ctx, `SELECT COALESCE((SELECT COALESCE(NULLIF(p.workflow,''),p.mode) FROM runs p WHERE p.session_id=r.session_id AND p.id<r.id AND p.status<>'prelaunch' AND COALESCE(p.semantic_outcome,'')<>'refused' ORDER BY p.id DESC LIMIT 1),'') FROM runs r WHERE r.id=?`, id).Scan(&r.PreviousMode)
+			if err != nil {
+				return r, err
+			}
 			r.At = r.Run.StartedAt
 			r.Ready = r.Run.Status != RunPrelaunch
 			// Refused prelaunch allocations never crossed the execution boundary.
