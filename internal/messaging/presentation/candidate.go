@@ -22,6 +22,9 @@ const (
 // Bare domains and alphabetic revision codes also belong in factory slots.
 var protectedProse = regexp.MustCompile(`(?i)(?:[\pL\pN-]+\.)+[\pL]{2,}|\b[a-f0-9]{8,}\b`)
 
+// numberToken is a maximal digit run including '.' or ',' between digits.
+var numberToken = regexp.MustCompile(`\pN+(?:[.,]\pN+)*`)
+
 // DecodeCandidate rejects duplicate, unknown and trailing fields. Source
 // validation remains necessary even for an otherwise well-formed candidate.
 func DecodeCandidate(raw []byte, outcome Outcome) (Candidate, error) {
@@ -34,7 +37,8 @@ func DecodeCandidate(raw []byte, outcome Outcome) (Candidate, error) {
 
 // Validate enforces claim references and mandatory caveat coverage. It does
 // not establish semantic support; the independent checker must do that next.
-// Numeric and token content belongs in protected slots, never rewritten prose.
+// A number in prose must be one the source prints with the same characters;
+// rounded, reformatted or invented numbers are rejected.
 func (c Candidate) Validate(o Outcome) error {
 	if err := o.Validate(); err != nil {
 		return err
@@ -50,6 +54,10 @@ func (c Candidate) Validate(o Outcome) error {
 	for _, field := range o.Protected {
 		protected[field.Handle] = true
 	}
+	sourceNumbers := make(map[string]bool)
+	for _, token := range numberToken.FindAllString(o.RawText, -1) {
+		sourceNumbers[token] = true
+	}
 	cited := make(map[string]bool)
 	var failures []error
 	for _, claim := range c.Claims {
@@ -57,8 +65,14 @@ func (c Candidate) Validate(o Outcome) error {
 			failures = append(failures, errors.New("presentation: invalid claim text"))
 		}
 		for _, r := range claim.Text {
-			if unicode.IsNumber(r) || unicode.IsControl(r) {
-				failures = append(failures, errors.New("presentation: protected value in claim text"))
+			if unicode.IsControl(r) {
+				failures = append(failures, errors.New("presentation: control character in claim text"))
+				break
+			}
+		}
+		for _, token := range numberToken.FindAllString(claim.Text, -1) {
+			if !sourceNumbers[token] {
+				failures = append(failures, errors.New("presentation: number not printed in source"))
 				break
 			}
 		}

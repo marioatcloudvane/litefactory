@@ -1,7 +1,6 @@
 package presentation
 
 import (
-	"errors"
 	"strings"
 	"unicode/utf16"
 )
@@ -9,9 +8,13 @@ import (
 // MessageLimit is Discord's visible message budget in UTF-16 units.
 const MessageLimit = 2000
 
+// FallbackNotice is the only visible text of a raw fallback. The raw result
+// itself is delivered once, in the same-message attachment.
+const FallbackNotice = "Couldn't phrase this one, raw result attached."
+
 // Render checks both deterministic validation and independent support before
-// assembling prose with untouched protected source fields. Any rejected or
-// oversized candidate selects the existing raw result, not truncated tokens.
+// showing the checked prose. The raw result is delivered only in the
+// attachment. Any rejected or oversized candidate selects the raw fallback.
 // The delivery caller must still recheck redaction before persisting a payload.
 func Render(o Outcome, candidate Candidate, check Check) (Payload, State, error) {
 	if err := o.Validate(); err != nil {
@@ -21,29 +24,11 @@ func Render(o Outcome, candidate Candidate, check Check) (Payload, State, error)
 		payload, err := Raw(o)
 		return payload, RawFallback, err
 	}
-	var prefixes, fixed, prose []string
-	for _, field := range o.Protected {
-		if field.Kind == AskPrefix {
-			prefixes = append(prefixes, field.Source.Value)
-		} else {
-			covered := false
-			for _, fact := range o.Facts {
-				covered = covered || (fact.Mandatory && fact.Source.Start <= field.Source.Start && fact.Source.End >= field.Source.End)
-			}
-			if !covered {
-				fixed = append(fixed, field.Source.Value)
-			}
-		}
-	}
-	for _, fact := range o.Facts {
-		if fact.Mandatory {
-			fixed = append(fixed, fact.Source.Value)
-		}
-	}
+	prose := make([]string, 0, len(candidate.Claims))
 	for _, claim := range candidate.Claims {
 		prose = append(prose, claim.Text)
 	}
-	content := strings.Join(append(append(prefixes, prose...), fixed...), "\n")
+	content := strings.Join(prose, "\n")
 	if messageSize(content) > MessageLimit {
 		payload, err := Raw(o)
 		return payload, RawFallback, err
@@ -52,25 +37,12 @@ func Render(o Outcome, candidate Candidate, check Check) (Payload, State, error)
 }
 
 // Raw keeps the original result available verbatim in the same-message
-// attachment. When an inline result fits, its bytes are also shown unchanged.
+// attachment and shows only a one-line notice.
 func Raw(o Outcome) (Payload, error) {
 	if err := o.Validate(); err != nil {
 		return Payload{}, err
 	}
-	content := o.RawText + "\n\nRaw result."
-	if messageSize(content) > MessageLimit {
-		var prefix string
-		for _, field := range o.Protected {
-			if field.Kind == AskPrefix {
-				prefix = field.Source.Value + "\n"
-			}
-		}
-		content = prefix + "Raw result attached."
-		if messageSize(content) > MessageLimit {
-			return Payload{}, errors.New("presentation: protected prefix exceeds message budget")
-		}
-	}
-	return Payload{Content: content, Attachment: &Attachment{Name: RawFilename, Content: o.RawText}}, nil
+	return Payload{Content: FallbackNotice, Attachment: &Attachment{Name: RawFilename, Content: o.RawText}}, nil
 }
 
 func messageSize(text string) int {

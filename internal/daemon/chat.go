@@ -130,11 +130,12 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	if answers.Redactor == nil {
 		answers.Redactor = sanitizer
 	}
+	history := messaging.AskHistory{DB: d.db, Transport: "discord"}
 	if answers.History == nil {
-		answers.History = a
+		answers.History = history
 	}
 	s.EnableAsk(&answers)
-	s.EnablePresentation(o.ReplyModel, a)
+	s.EnablePresentation(o.ReplyModel, history)
 	interpreter := o.Interpreter
 	if interpreter == nil && o.ReplyModel != nil {
 		interpreter = &messaging.NativeInterpreter{Model: o.ReplyModel}
