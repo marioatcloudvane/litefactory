@@ -36,6 +36,10 @@ type NativeModel struct {
 	Meter     MeterWriter
 }
 
+// Budget bounds one interpretation or narration call, including the five-second
+// usage cleanup reserve. It is a variable so tests can shorten it.
+var Budget = 60 * time.Second
+
 // ErrUnavailable means no response-only provider has verified isolation.
 var ErrUnavailable = errors.New("ask answers unavailable")
 
@@ -48,7 +52,7 @@ type PresentationMeter interface {
 func (m *NativeModel) Present(ctx context.Context, repoID int64, identity, phase, prompt string) ([]byte, error) {
 	// Reserve the existing five-second usage cleanup inside the caller's
 	// shared deadline, rather than extending narration beyond that deadline.
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(Budget)
 	if caller, ok := ctx.Deadline(); ok && caller.Before(deadline) {
 		deadline = caller
 	}

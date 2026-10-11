@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -208,13 +210,26 @@ func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at ti
 		return err
 	}
 	request := InterpretationRequest{Turns: p.Turns, Commands: s.NaturalCommands()}
-	work, cancel := context.WithTimeout(ctx, 30*time.Second)
+	work, cancel := context.WithTimeout(ctx, response.Budget)
 	defer cancel()
+	started := time.Now()
 	raw, modelErr := s.interpreter.Interpret(work, request)
 	interpretation, invocation, decodeErr := DecodeInterpretation(raw, request)
 	if modelErr != nil || decodeErr != nil || work.Err() != nil {
+		reason := "decode"
+		if work.Err() != nil {
+			reason = "timeout"
+		} else if modelErr != nil {
+			reason = "model_error"
+		}
+		if s.Logger != nil {
+			s.Logger.WarnContext(ctx, "natural interpretation fallback", slog.String("reason", reason), slog.Duration("elapsed", time.Since(started)), slog.String("source_id", m.SourceID))
+		}
 		if err = s.db.EndNaturalDialogue(ctx, d, "finished", at); err != nil {
 			return err
+		}
+		if reason == "timeout" {
+			return s.naturalReply(ctx, m, "The factory is busy, please try again in a minute. Nothing was applied.", presentation.Refusal, at)
 		}
 		return s.naturalReply(ctx, m, "I could not safely understand this request. Nothing was applied; please use /help or send one clear action and target.", presentation.Refusal, at)
 	}

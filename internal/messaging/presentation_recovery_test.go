@@ -1,14 +1,18 @@
 package messaging_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -261,5 +265,67 @@ func TestNaturalDialogueShownOnceAndNaturalReadNarrated(t *testing.T) {
 	}
 	if model.calls != 2 || send.richCalls != 1 || send.texts[1] != "Here is the result." {
 		t.Fatalf("natural read not narrated: calls=%d rich=%d %q", model.calls, send.richCalls, send.texts)
+	}
+}
+
+type failingModel struct{ remaining time.Duration }
+
+func (m *failingModel) Present(ctx context.Context, _ int64, _, _, _ string) ([]byte, error) {
+	deadline, _ := ctx.Deadline()
+	m.remaining = time.Until(deadline)
+	return nil, errors.New("provider failed")
+}
+
+func TestNarrationFallbackLogsReason(t *testing.T) {
+	db := database(t)
+	at := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
+	model := &failingModel{}
+	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{}}}
+	var logs bytes.Buffer
+	s := messaging.New(db, "discord", "2", []string{"3"}, send, messaging.FactoryStatus{DB: db})
+	s.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	s.EnablePresentation(model, nil)
+	if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "discord", ID: "100", Channel: "3", Sender: "2", Command: "health"}, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Step(t.Context(), at); err != nil {
+		t.Fatal(err)
+	}
+	if model.remaining <= 30*time.Second || model.remaining > response.Budget {
+		t.Fatalf("narration budget = %s, want more than 30s and at most %s", model.remaining, response.Budget)
+	}
+	row, err := db.ReadChatReply(t.Context(), "discord", "100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source presentation.Outcome
+	if err = json.Unmarshal([]byte(row.PresentationOutcome), &source); err != nil {
+		t.Fatal(err)
+	}
+	if row.PresentationState != "raw_fallback" || row.ReplyText != presentation.FallbackNotice || row.ReplyAttachment != source.RawText {
+		t.Fatalf("fallback content changed: %+v", row)
+	}
+	text := logs.String()
+	if strings.Count(text, "chat narration fallback") != 1 || !strings.Contains(text, "reason=model_error") || !strings.Contains(text, "command=health") || !strings.Contains(text, "elapsed=") {
+		t.Fatalf("narration fallback log = %q", text)
+	}
+}
+
+func TestNarrationSuccessLogsNothing(t *testing.T) {
+	db := database(t)
+	at := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
+	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{Confirmed: true}}}
+	var logs bytes.Buffer
+	s := messaging.New(db, "discord", "2", []string{"3"}, send, messaging.FactoryStatus{DB: db})
+	s.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	s.EnablePresentation(&replyModel{}, nil)
+	if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "discord", ID: "100", Channel: "3", Sender: "2", Command: "health"}, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Step(t.Context(), at); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(logs.String(), "chat narration fallback") {
+		t.Fatalf("successful narration logged a fallback: %q", logs.String())
 	}
 }
