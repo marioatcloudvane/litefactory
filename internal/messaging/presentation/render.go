@@ -26,7 +26,13 @@ func Render(o Outcome, candidate Candidate, check Check) (Payload, State, error)
 		if field.Kind == AskPrefix {
 			prefixes = append(prefixes, field.Source.Value)
 		} else {
-			fixed = append(fixed, field.Source.Value)
+			covered := false
+			for _, fact := range o.Facts {
+				covered = covered || (fact.Mandatory && fact.Source.Start <= field.Source.Start && fact.Source.End >= field.Source.End)
+			}
+			if !covered {
+				fixed = append(fixed, field.Source.Value)
+			}
 		}
 	}
 	for _, fact := range o.Facts {

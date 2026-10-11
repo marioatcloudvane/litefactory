@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -17,6 +18,9 @@ const (
 	MaxClaimBytes     = 512
 	MaxReferences     = 16
 )
+
+// Bare domains and alphabetic revision codes also belong in factory slots.
+var protectedProse = regexp.MustCompile(`(?i)(?:[\pL\pN-]+\.)+[\pL]{2,}|\b[a-f0-9]{8,}\b`)
 
 // DecodeCandidate rejects duplicate, unknown and trailing fields. Source
 // validation remains necessary even for an otherwise well-formed candidate.
@@ -49,7 +53,7 @@ func (c Candidate) Validate(o Outcome) error {
 	cited := make(map[string]bool)
 	var failures []error
 	for _, claim := range c.Claims {
-		if strings.TrimSpace(claim.Text) == "" || len(claim.Text) > MaxClaimBytes || !utf8.ValidString(claim.Text) || strings.ContainsAny(claim.Text, "\r\n/\\`<>[]@\x00") || strings.Contains(strings.ToLower(claim.Text), "www.") || strings.Contains(claim.Text, "://") {
+		if strings.TrimSpace(claim.Text) == "" || len(claim.Text) > MaxClaimBytes || !utf8.ValidString(claim.Text) || strings.ContainsAny(claim.Text, "\r\n/\\`<>[]@\x00") || strings.Contains(strings.ToLower(claim.Text), "www.") || strings.Contains(claim.Text, "://") || protectedProse.MatchString(claim.Text) {
 			failures = append(failures, errors.New("presentation: invalid claim text"))
 		}
 		for _, r := range claim.Text {

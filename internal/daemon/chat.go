@@ -23,10 +23,11 @@ import (
 // imports the adapter; the service and store know no Discord types.
 type ChatOptions struct {
 	// Answers supplies read-only context and response-only model wiring.
-	Diagnoser ChatDiagnoser
-	Answers   *ask.Service
-	Settings  config.DiscordChat
-	Token     secrets.Token
+	Diagnoser  ChatDiagnoser
+	Answers    *ask.Service
+	ReplyModel messaging.ReplyModel
+	Settings   config.DiscordChat
+	Token      secrets.Token
 	// Resolve, when set, resolves the bot token again. A Token that is empty at
 	// startup leaves chat unavailable, and the chat goroutine calls Resolve on
 	// later heartbeats until it succeeds.
@@ -131,6 +132,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		answers.History = a
 	}
 	s.EnableAsk(&answers)
+	s.EnablePresentation(o.ReplyModel, a)
 	writer, _ := d.forge.(ChatIssueForge)
 	s.EnableFeatures(&feature.Drafter{Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
 	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: d.chatBeat, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}

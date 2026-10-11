@@ -8,6 +8,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -33,34 +34,52 @@ type ChatIssueCreator struct {
 // Confirm claims a current code, reconciles its marker and records the outcome.
 func (c *ChatIssueCreator) Confirm(ctx context.Context, transport, channel, message, code string, at time.Time) (string, error) {
 	if c.DB == nil || c.Forge == nil || c.Redactor == nil || c.BotUserID < 1 {
+		presentation.Assess(ctx, presentation.ReportableError)
 		return "Issue creation unavailable right now.", nil
 	}
 	p, status, err := c.DB.ClaimChatIssuePreview(ctx, transport, channel, message, code, at)
 	if err != nil {
+		presentation.Assess(ctx, presentation.ReportableError)
 		return "Nothing was created; preview storage is unavailable.", err
 	}
 	switch status {
 	case "unknown":
+		presentation.Assess(ctx, presentation.Refusal)
 		return "No such preview in this channel. Ask for /draft.", nil
 	case "separate":
+		presentation.Assess(ctx, presentation.Refusal)
 		return "Confirm in a separate message with /confirm.", nil
 	case "created":
+		presentation.Assess(ctx, presentation.Success)
 		return "Feature issue: " + p.IssueLink, nil
 	case "superseded":
 		current, e := c.DB.LatestChatIssuePreview(ctx, transport, channel)
 		if errors.Is(e, store.ErrNotFound) {
+			presentation.Assess(ctx, presentation.Refusal)
 			return "That preview was replaced. Ask for /draft.", nil
 		}
 		if e != nil {
+			presentation.Assess(ctx, presentation.ReportableError)
 			return "", e
 		}
+		presentation.Assess(ctx, presentation.Refusal)
 		return "That preview was replaced. Current code: " + current.Code + ".", nil
 	case "expired":
+		presentation.Assess(ctx, presentation.Refusal)
 		return "That preview expired. Ask for a new /draft.", nil
 	case "busy", "repeat":
+		presentation.Assess(ctx, presentation.Uncertain)
 		return "Creation is being checked. Send a new /confirm later to check the outcome.", nil
 	}
 	finish := func(state string, issue github.Issue, text string) (string, error) {
+		assessment := presentation.Refusal
+		switch state {
+		case "created":
+			assessment = presentation.Success
+		case "uncertain":
+			assessment = presentation.Uncertain
+		}
+		presentation.Assess(ctx, assessment)
 		now := at
 		if c.Now != nil {
 			now = c.Now()
@@ -108,6 +127,7 @@ func (c *ChatIssueCreator) Confirm(ctx context.Context, transport, channel, mess
 		attemptAt = c.Now()
 	}
 	if err := c.DB.BeginChatIssueCreate(ctx, p, attemptAt); err != nil {
+		presentation.Assess(ctx, presentation.ReportableError)
 		return "Nothing was created; preview storage is unavailable.", err
 	}
 	created, err := c.Forge.CreateIssue(ctx, target, titleProtected, bodyProtected)

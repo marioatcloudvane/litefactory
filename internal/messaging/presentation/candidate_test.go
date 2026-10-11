@@ -26,6 +26,8 @@ func TestStrictCandidateAndIndependentCheck(t *testing.T) {
 		strings.Replace(valid, "current run count", "count of １３", 1),
 		strings.Replace(valid, "current run count", "current /meter result", 1),
 		strings.Replace(valid, "current run count", "https://example.com", 1),
+		strings.Replace(valid, "current run count", "example.com", 1),
+		strings.Replace(valid, "current run count", "abcdefabcdef", 1),
 		strings.Replace(valid, "current run count", "[ask marker]", 1),
 		strings.Repeat(" ", MaxCandidateBytes) + valid,
 	}
