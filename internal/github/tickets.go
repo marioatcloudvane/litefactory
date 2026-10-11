@@ -573,3 +573,17 @@ func (a *Tickets) React(ctx context.Context, reply ticket.Reply, reaction string
 	}
 	return ticketErrorOrNil("react", a.client.AddCommentReaction(ctx, repo, id, ReactionContent(reaction)))
 }
+
+// QualifyReply translates an observation from the existing authenticated GitHub
+// ingress. The ticket must already have been resolved; response URLs cannot
+// select an API instance or another ticket.
+func (a *Tickets) QualifyReply(ref ticket.Ref, observed Comment) (ticket.Reply, error) {
+	if err := ref.Validate(); err != nil {
+		return ticket.Reply{}, ticketError("qualify reply", err, false)
+	}
+	reply, err := a.reply(ref, observed)
+	if err != nil {
+		return ticket.Reply{}, &ticket.Failure{Kind: ticket.Conflict, Operation: "qualify reply", Cause: err}
+	}
+	return reply, nil
+}

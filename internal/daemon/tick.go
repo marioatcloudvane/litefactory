@@ -1810,6 +1810,10 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 // on a later tick — including a rate limit, which arms the backoff where it was
 // met and then leaves by that same door. See [Daemon.leave].
 func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) error {
+	qualifiedReply, err := d.qualifyReply(ctx, t.session.ID, c)
+	if err != nil {
+		return err
+	}
 	if held, e := d.doctorHeldSession(ctx, t.session.ID); e != nil {
 		return e
 	} else if held {
@@ -1830,7 +1834,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	// (D-I, AC-2.14). Everything is recorded, including litefactory's own
 	// comments: a dropped comment that left no trace cannot be told from one
 	// that was never fetched.
-	admission, err := d.filter.Admit(ctx, t.session.ID, c)
+	admission, err := d.admitReply(ctx, t.session.ID, c, qualifiedReply)
 	if err != nil {
 		return fmt.Errorf("classify comment %d on task %s: %w", c.ID, t.ref, err)
 	}

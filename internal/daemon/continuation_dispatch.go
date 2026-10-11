@@ -149,7 +149,11 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 		if comment.ID <= c.Context.OwnerCommentID {
 			continue
 		}
-		admission, err := d.filter.Admit(ctx, c.SessionID, comment)
+		qualifiedReply, err := d.qualifyReply(ctx, c.SessionID, comment)
+		if err != nil {
+			return false, err
+		}
+		admission, err := d.admitReply(ctx, c.SessionID, comment, qualifiedReply)
 		if err != nil {
 			return false, err
 		}

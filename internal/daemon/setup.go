@@ -29,6 +29,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 	"github.com/cloudvane/litefactory/internal/webhook"
 )
@@ -220,6 +221,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 
 	identities, err := turn.LoadIdentities(ctx, s.DB, store.ForgeGitHub)
+	if err != nil {
+		return nil, Startup{}, err
+	}
+	identities.TicketOrigin, err = ticket.CanonicalOrigin(client.BaseURL())
+	if err != nil {
+		return nil, Startup{}, err
+	}
+	ticketIngress, err := github.NewTickets(client)
 	if err != nil {
 		return nil, Startup{}, err
 	}
@@ -501,9 +510,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		ValidateHead: func(ctx context.Context, session store.Session) (string, error) {
 			return turn.IntegrationHead(ctx, turnOpts, session)
 		},
-		DB:     s.DB,
-		Forge:  client,
-		Filter: filter,
+		DB:      s.DB,
+		Forge:   client,
+		Filter:  filter,
+		Tickets: ticketIngress,
 		// Schedule proposals are a separate, tool-free advisory call. They
 		// deliberately do not travel through turn.Execute, so no run is
 		// allocated and no worktree is created before owner acceptance.
