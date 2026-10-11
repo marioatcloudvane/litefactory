@@ -396,6 +396,11 @@ func TestOpenBindsTheListenerLoadsSecretsOnceAndCloseFreesThePort(t *testing.T) 
 	f := newFixture(t)
 	dir := fakeClaude(t)
 	spy := &keychainSpy{secrets: map[string]string{testOwnerName + "/" + testRepoName: webhookTestSecret}}
+	// Importing an owner/name signing reference requires the recorded owned
+	// hook and its original unambiguous legacy connection.
+	if err := f.db.SetRepoWebhook(t.Context(), f.repo.ID, 42, "https://callback.invalid"+webhook.Path, f.clock.peek()); err != nil {
+		t.Fatal(err)
+	}
 
 	setup := f.setup(dir)
 	setup.Config.Webhook.Listen = "127.0.0.1:0"

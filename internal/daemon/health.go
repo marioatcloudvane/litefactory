@@ -136,7 +136,7 @@ func (d *Daemon) collectHealth(ctx context.Context) (store.ListenerStatus, []sto
 			WebhookMode:        webhookMode(listener.Listening, !snap.LastWebhook.IsZero(), registered),
 		}
 		if d.webhook != nil {
-			row.SecretPresent = d.webhook.hasSecret(webhookKey(repo.Owner, repo.Name))
+			row.SecretPresent = d.webhook.hasProjectSecret(repo.ID, webhookKey(repo.Owner, repo.Name))
 		}
 		rows = append(rows, row)
 	}

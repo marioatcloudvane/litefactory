@@ -1,0 +1,20 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	(cached)
+--- FAIL: TestDoctorLiveDiagnosisProposesRepairForQueriedTargets (8.11s)
+    live_diagnosis_io_test.go:279: query rows: {"valid":false,"error":"database query timed out or was cancelled"} <nil>
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/doctor	242.966s
+ok  	github.com/cloudvane/litefactory/internal/github	5.800s
+ok  	github.com/cloudvane/litefactory/internal/messaging	43.633s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	(cached)
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	(cached)
+ok  	github.com/cloudvane/litefactory/internal/meterview	(cached)
+ok  	github.com/cloudvane/litefactory/internal/naming	(cached)
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	(cached)
+ok  	github.com/cloudvane/litefactory/internal/repos	(cached)
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	(cached)
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/ticket	(cached)
+ok  	github.com/cloudvane/litefactory/internal/webhook	(cached)
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	(cached)
+FAIL

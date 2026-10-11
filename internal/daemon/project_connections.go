@@ -57,7 +57,7 @@ func AdmitProjectTicket(ctx context.Context, db *store.DB, factory *projectconne
 		return store.Session{}, err
 	}
 	if !code.Enabled || !tickets.Enabled {
-		return store.Session{}, errors.New("project connection is disabled")
+		return store.Session{}, store.ErrConnectionDisabled
 	}
 	if ref.Identity.Provider != tickets.Provider || ref.Identity.Origin != tickets.Origin || ref.Locator.Container != tickets.Destination {
 		return store.Session{}, store.ErrTicketIdentityConflict

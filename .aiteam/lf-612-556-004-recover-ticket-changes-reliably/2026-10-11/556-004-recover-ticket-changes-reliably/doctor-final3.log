@@ -1,0 +1,9 @@
+--- FAIL: TestDoctorLiveDiagnosisEndToEndRetainsOnlyManifest (15.81s)
+    adapters.go:68: missing live database row: {"valid":false,"error":"database query timed out or was cancelled"}
+--- FAIL: TestDoctorLiveDiagnosisProposesRepairForQueriedTargets (20.02s)
+    live_diagnosis_io_test.go:279: query rows: {"valid":false,"error":"database query timed out or was cancelled"} <nil>
+--- FAIL: TestDoctorBrokerReadToolsExactCatalogAndRedactedQuery (13.68s)
+    read_tools_io_test.go:94: query disclosure: {"valid":false,"error":"database query timed out or was cancelled"} database query timed out or was cancelled
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/doctor	341.605s
+FAIL
