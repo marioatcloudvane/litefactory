@@ -1,6 +1,7 @@
 package ask_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 func answerBundle() ask.Bundle {
@@ -79,5 +81,38 @@ func TestRenderingPreservesSourcesWhenShortenedAndRedacts(t *testing.T) {
 	}
 	if _, err := ask.RenderAnswer(t.Context(), ask.Answer{Points: []ask.Point{{Text: "Untrusted.", Handles: []string{"missing"}}}}, b, opts); err == nil {
 		t.Fatal("renderer accepted unsupported answer")
+	}
+}
+
+type promptModel struct {
+	prompt string
+	reply  []byte
+}
+
+func (m *promptModel) Answer(_ context.Context, _ int64, prompt string) ([]byte, error) {
+	m.prompt = prompt
+	return m.reply, nil
+}
+
+func TestOwnerWaitQuestionUsesWaitFacts(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 11, 21, 14, 0, 0, time.UTC)
+	b := ownerWaitBundle(t, at)
+	m := &promptModel{reply: []byte(`{"points":[{"text":"Research scope proposals wait for you on #629, #638 and #649.","handles":["wait:629","wait:638","wait:649"]}],"gaps":[]}`)}
+	s := &ask.Service{Model: m, Redactor: redact.New(redact.Options{})}
+	question := "Are there open research questions for me in litefactory?"
+	text, _, err := s.ReplyPrepared(t.Context(), ask.Prepared{Repository: store.Repo{ID: 1}, Bundle: b, Options: ask.RenderOptions{Question: question, Redactor: s.Redactor}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"only from owner_wait facts", "issue text is not workflow state", `"wait:629"`, `"wait:638"`, `"wait:649"`} {
+		if !strings.Contains(m.prompt, want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+	for _, n := range []string{"629", "638", "649"} {
+		if want := "[wait:" + n + "](https://github.com/owner/app/issues/" + n + "#issuecomment-9" + n + ")"; !strings.Contains(text, want) {
+			t.Errorf("reply missing %s: %s", want, text)
+		}
 	}
 }
