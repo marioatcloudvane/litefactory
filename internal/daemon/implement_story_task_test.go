@@ -334,6 +334,49 @@ func TestImplementStoryRelaunchesAfterARestartInterruptedItsLaunch(t *testing.T)
 	}
 }
 
+// A daemon restart that stops a running story worker cancels its instance
+// instead of failing it, so repeated deploys neither raise the story's attempt
+// count nor reach the infrastructure failure limit.
+func TestImplementStoryRestartsDoNotCountAsInfrastructureFailures(t *testing.T) {
+	f := newImplementDaemonFixture(t)
+	if err := f.d.graphImplementStories(t.Context(), f.byRepo, map[int64]*candidate{}, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+	db := f.d.db
+	row := f.row(t, "story-001")
+	pin, err := db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "implement", ProfileVersion: 1, Path: "implement/implement.dot", Digest: testDigest("a"), TeamSnapshotDigest: testDigest("b")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range maxImplementInstanceFailures {
+		started := row.StateAt.Add(time.Duration(i+1) * time.Minute)
+		instance, err := db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: row.WorkerSession, DefinitionID: pin.ID, CurrentNode: "budget", StartedAt: started, NextDueAt: started})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: instance.ID, Node: "budget", Limit: 8, StartedAt: started}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.ReconcileWorkflowGraphs(t.Context(), "implement", started.Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := db.GetGraphInstance(t.Context(), instance.ID); err != nil || got.Status != store.GraphCancelled {
+			t.Fatalf("restart %d: instance %+v %v, want cancelled", i+1, got, err)
+		}
+		id, ok, err := f.d.implementWorkable(t.Context(), f.row(t, row.Key))
+		if err != nil || !ok || id != instance.ID {
+			t.Fatalf("restart %d: workable id=%d ok=%v (%v), want %d", i+1, id, ok, err, instance.ID)
+		}
+		if !offeredImplementStory(t, f, row.WorkerSession) {
+			t.Fatalf("restart %d: the interrupted story is not offered again", i+1)
+		}
+		got := f.row(t, row.Key)
+		if got.State != store.ImplementRunning || got.Attempts != row.Attempts {
+			t.Fatalf("restart %d: story %+v, want running with %d attempts", i+1, got, row.Attempts)
+		}
+	}
+}
+
 // failImplementSchedule records the story work under id as a launch that failed
 // before any worker instance started.
 func failImplementSchedule(t *testing.T, f *implementDaemonFixture, session, id int64) {
