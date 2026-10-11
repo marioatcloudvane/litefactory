@@ -60,6 +60,10 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 		e.Kind = "failed"
 		if _, ok := r.Run.OwnerStop(); ok {
 			e.Kind = "stopped"
+		} else if strings.HasPrefix(r.Run.Error, "abandoned:") {
+			// The daemon abandoned the run in process, as on shutdown;
+			// recovery relaunches it silently, so it is not a failure.
+			return nil, nil
 		} else if r.Run.Succeeded() {
 			e.Kind = "completed"
 		}

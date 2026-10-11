@@ -41,7 +41,7 @@ func (p *presentationProvider) RunChat(ctx context.Context, request agent.ChatRe
 		return agent.ChatResult{}, err
 	}
 	deadline, ok := ctx.Deadline()
-	if !ok || time.Until(deadline) > 30*time.Second {
+	if !ok || time.Until(deadline) > response.Budget {
 		return agent.ChatResult{}, fmt.Errorf("presentation deadline missing")
 	}
 	files, err := os.ReadDir(request.WorkingDirectory)
