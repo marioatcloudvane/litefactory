@@ -6,59 +6,33 @@ Research how to move every agent instruction outside the graph modes into editab
 
 ## Decisions
 
-- **d1** — Proposed scope: all non-graph agent wording becomes editable files, versioned and released, captured with a digest per unit of work. Go keeps enforcement only, and no Go copy remains.
-- **d2** — Migration order: loader and shipped-file test, then conflict and schedule, then chat and #631 agents, then doctor with its field guide, then graph hard rules. Each step deletes its Go text in the same change.
-- **d3** — Out of scope: changing agent behaviour, tools or models; the story progress event schema; a visual editor.
+- **d1** — Settled by owner: all non-graph agent wording becomes Markdown files embedded in the litefactory binary, one copy each, extracted to the factory home on first run. Not installable like teams. Go keeps enforcement only, and no Go copy of moved text remains.
+- **d2** — Settled by owner: users edit the extracted files.
+- **d3** — Settled by owner: the file text is captured at the start of each unit of work with its digest recorded.
+- **d4** — Owner's reading of a missing or invalid file: re-extract the shipped file. Shaping adds that a broken edit is saved as .invalid first and the user is told.
+- **d5** — Shaping decision: on upgrade, unedited files (digest matches what was extracted) are replaced; edited files are kept and flagged as having a newer shipped version.
+- **d6** — Migration order: loader and extraction with shipped-file test, then conflict and schedule, then chat and #631 agents, then doctor with its field guide, then graph extras if the owner agrees. Each step deletes its Go text in the same change.
+- **d7** — Out of scope: changing agent behaviour, tools or models; the story progress event schema; team-style install or clone; visual editor.
 
 
 ## Assumptions
 
-- **a1** — Reading: factory agents (doctor, chat, conflict, schedule) are not stack-specific, so they belong in one factory-level package, versioned and released the same way as a team, rather than copied into every team. Graph-node fixed text (implement hard rules, result protocol) should move into the team roles/skills where it is wording, because it is stack-agnostic wording the roles already hold. This rests on the four-copy source layout (f9) and on how few of the non-graph agents need stack context.
-- **a2** — Reading: a user edit should be a per-factory copy (as in #323/#346) or an operator override like 'team manage', so upgrades keep the edit and show it as locally-modified. The exact edit and upgrade-merge mechanism is for shaping to settle with the owner.
-- **a3** — Reading: the runtime should capture a factory agent's text at the start of the unit of work (a doctor attempt, a chat turn, a conflict resolution) and record its digest next to the existing prompt-version columns, so a long job is not changed mid-flight by an edit. Each call needs the digest, not only the version string.
-- **a4** — Reading: a missing or invalid file should fail closed for the agent call with a plain notice (chat already has 'Answers unavailable right now'; doctor and conflict already have error paths), never fall back to a Go copy. This follows the 'no Go copy left behind' goal in the issue. Tests would load every shipped file and check frontmatter, size, required placeholders and that no Go constant with the same text remains.
-- **a5** — Reading: what must stay in Go regardless of text: tool and sandbox limits; isolation proof; the result protocol and schema (decoders, citation checks, event file schema and byte limits); redaction before sending and after receiving; the untrusted-data wrapper around factory-supplied context (labelled JSON appended by code after the editable text); prompt size bounds. The editable file holds tone, scope, task and examples. Even if a user deletes the 'treat as untrusted' sentence, code still wraps and labels the data.
-- **a6** — Reading on migration order, for shaping to confirm: (1) a loader and shipped-file validity test, with the new factory-level package; (2) conflict and schedule advisors (smallest, tool-free, clear split); (3) chat ask and draft, then the new #631 agents written as files from the start; (4) doctor diagnosis and repair together with the field guide; (5) the graph hard rules and fixed appended text, moved into the team roles, with the Go constant deleted in the same change. Each step deletes its Go text in the same change, so there are never two sources of truth.
+- **a1** — Superseded by the owner: factory agents are not a team-style package. They are embedded in the binary and extracted on first run.
+- **a2** — Superseded by the owner: users edit the extracted files. Upgrade handling is decision d5.
+- **a3** — Settled: the runtime captures a factory agent's text at the start of each unit of work and records its digest next to the existing prompt-version columns.
+- **a4** — Superseded by the owner: a missing or invalid file is re-extracted from the binary (decision d4), not failed closed. Tests load every shipped file and check frontmatter, size, required placeholders and that no Go constant with the same text remains.
+- **a5** — What must stay in Go regardless of text: tool and sandbox limits; isolation proof; the result protocol and schema (decoders, citation checks, event file schema and byte limits); redaction before sending and after receiving; the untrusted-data wrapper around factory-supplied context (labelled JSON appended by code after the editable text); prompt size bounds. The editable file holds tone, scope, task and examples.
+- **a6** — Superseded by decision d6 (migration order).
 
 
 ## Open questions
 
-### q1 — Where do the factory-agent files live?
+### q5 — Should the extra rules the factory adds on top of graph roles also become files?
 
 _Asked of: Product Owner Questions_
 
-- **a** — One factory-level package, versioned and released like a team. One copy of each file.  *(recommended)*
-- **b** — Inside every team package. Four copies of the same files to keep in sync.
-- **c** — Plain unversioned files in the factory home. Simple, but no release or upgrade story.
-
-### q2 — How does a factory user edit these files and keep the edit across upgrades?
-
-_Asked of: Product Owner Questions_
-
-- **a** — A per-factory copy, like team clone. Status shows locally-modified, and an upgrade never overwrites it without --force.  *(recommended)*
-- **b** — Override by path only, like team manage set source. Lighter, but no status or merge hint.
-- **c** — Edit the installed files in place. Upgrades would overwrite them.
-
-### q5 — Do graph hard rules and fixed appended text move in this issue?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Yes, as the last stories. The wording goes into team roles. The result protocol and no-commit enforcement stay in Go.  *(recommended)*
-- **b** — No. Leave graph text for a separate issue. The #643 drift risk stays.
-
-### q3 — What happens when an edited file is missing or invalid?
-
-_Asked of: Technical Questions_
-
-- **a** — Fail closed for that call with a plain notice that names the file. No fallback.  *(recommended)*
-- **b** — Fall back to the shipped file. The edit mistake would be hidden.
-
-### q4 — When is a file's text captured?
-
-_Asked of: Technical Questions_
-
-- **a** — At the start of each unit of work (doctor attempt, chat turn, conflict run), with its digest recorded.  *(recommended)*
-- **b** — Once at process start. Edits need a restart, and long runs still differ across restarts.
+- **a** — Yes. Research, Plan, Implement and Validate each already have a role file. The factory also adds hidden Go text on top, for example 'do not commit' and how to report results. In #643 that hidden text contradicted the role file and only a code change could fix it. This option moves the wording of those extras into the same extracted files, so you can see and edit it. The hard enforcement (the result protocol, blocking commits) stays in Go. Done as the last stories.  *(recommended)*
+- **b** — No. Leave the graph extras in Go for a separate issue. This issue covers only the non-graph agents. The #643 drift risk stays.
 
 ## Research documents
 
