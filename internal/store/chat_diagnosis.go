@@ -8,7 +8,13 @@ import (
 
 // DeferChatDiagnosis keeps only the canonical target until its summary is ready.
 func (db *DB) DeferChatDiagnosis(ctx context.Context, transport, id, target string, at time.Time) error {
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state='working',target_ref=?,arguments='{}',next_attempt_at=? WHERE transport=? AND message_id=? AND state='sent' AND command='diagnose'`, target, FormatTime(at), transport, id)
+	return db.DeferChatDiagnosisRepository(ctx, transport, id, target, at, 0)
+}
+
+// DeferChatDiagnosisRepository preserves genuine source ownership while the
+// asynchronous diagnosis runs; no database cursor crosses the provider call.
+func (db *DB) DeferChatDiagnosisRepository(ctx context.Context, transport, id, target string, at time.Time, repoID int64) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state='working',target_ref=?,arguments='{}',next_attempt_at=?,resolved_repo_id=NULLIF(?,0) WHERE transport=? AND message_id=? AND state='sent' AND command='diagnose'`, target, FormatTime(at), repoID, transport, id)
 	return chatAffected(result, err)
 }
 
@@ -46,7 +52,12 @@ func (db *DB) RequeueChatDiagnosisBusy(ctx context.Context, r ChatReply, at time
 
 // CompleteChatDiagnosis makes the final summary eligible for ordinary delivery.
 func (db *DB) CompleteChatDiagnosis(ctx context.Context, transport, id string, attempt int, text string, at time.Time) error {
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state='pending',reply_text=?,next_attempt_at=? WHERE transport=? AND message_id=? AND state='working' AND answer_attempts=?`, text, FormatTime(at), transport, id, attempt)
+	return db.CompleteChatDiagnosisResult(ctx, transport, id, attempt, text, at, "uncertain")
+}
+
+// CompleteChatDiagnosisResult retains the source-declared diagnostic status.
+func (db *DB) CompleteChatDiagnosisResult(ctx context.Context, transport, id string, attempt int, text string, at time.Time, status string) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state='pending',reply_text=?,next_attempt_at=?,outcome_status=? WHERE transport=? AND message_id=? AND state='working' AND answer_attempts=?`, text, FormatTime(at), status, transport, id, attempt)
 	return chatAffected(result, err)
 }
 

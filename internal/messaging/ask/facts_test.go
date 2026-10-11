@@ -158,3 +158,49 @@ func TestFactsLimitsCountEncodedMetadata(t *testing.T) {
 		t.Fatalf("did not keep freshest issue: %+v", b.Facts[2])
 	}
 }
+
+// ownerWaitBundle has published owner waits on #629, #638 and #649, an open
+// issue (#631) and a closed issue (#530) whose bodies have a research heading.
+func ownerWaitBundle(t *testing.T, at time.Time) ask.Bundle {
+	t.Helper()
+	w := newWaitStore(at.Add(-50*time.Hour), 629, 638, 649)
+	w.sessions = append(w.sessions, store.Session{ID: 631, IssueNumber: 631}, store.Session{ID: 530, IssueNumber: 530})
+	g := &forge{}
+	for _, n := range []int{629, 631, 638, 649} {
+		g.issues = append(g.issues, github.Issue{Number: n, State: "open", Title: "feature", Body: "## Research questions\n- What?", UpdatedAt: at})
+	}
+	g.issues = append(g.issues, github.Issue{Number: 530, State: "closed", Title: "done", Body: "## Research questions\n- Old?", UpdatedAt: at})
+	b, err := (ask.Collector{Factory: ask.StoreReader{Reader: w}, Issues: g}).Collect(t.Context(), store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestFactsListExactlyPublishedOwnerWaits(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 11, 21, 14, 0, 0, time.UTC)
+	b := ownerWaitBundle(t, at)
+	var waits []string
+	for _, f := range b.Facts {
+		if f.Kind != "owner_wait" {
+			continue
+		}
+		waits = append(waits, f.Handle)
+		var n int
+		if _, err := fmt.Sscanf(f.Handle, "wait:%d", &n); err != nil {
+			t.Fatalf("handle %q: %v", f.Handle, err)
+		}
+		if want := fmt.Sprintf("https://github.com/owner/app/issues/%d#issuecomment-%d", n, 9000+n); f.Link != want {
+			t.Errorf("link %s, want %s", f.Link, want)
+		}
+		for _, want := range []string{fmt.Sprintf("#%d", n), "research", "question", "scope", fmt.Sprintf("Approve scope key-%d?", n), "Reply on the linked issue comment", "2026-10-09T19:14:00Z", "2 days before capture"} {
+			if !strings.Contains(f.Text, want) {
+				t.Errorf("fact %s missing %q: %s", f.Handle, want, f.Text)
+			}
+		}
+	}
+	if strings.Join(waits, ",") != "wait:629,wait:638,wait:649" {
+		t.Fatalf("owner waits: %v in %+v", waits, b.Facts)
+	}
+}

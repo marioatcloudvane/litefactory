@@ -323,6 +323,16 @@ func (d *Daemon) runDoctor(ctx context.Context, c store.DoctorCommand) error {
 	if errors.Is(runErr, store.ErrDoctorBusy) {
 		return d.db.RequeueDoctorBusy(context.WithoutCancel(ctx), c.ID)
 	}
+	if runErr != nil {
+		attrs := []any{slog.Int64("command_id", c.ID), slog.String("task", c.TaskRef), slog.String("operation", c.Operation)}
+		if safeErr, redactErr := d.doctor.service.Redactor.Apply(context.WithoutCancel(ctx), runErr.Error(), 4096); redactErr == nil {
+			attrs = append(attrs, slog.String("error", safeErr.String()))
+		}
+		if n := len(conversation.Attempts); n > 0 {
+			attrs = append(attrs, slog.String("attempt_id", conversation.Attempts[n-1].ID), slog.String("provider", conversation.Attempts[n-1].Provider))
+		}
+		d.log.WarnContext(ctx, "doctor request failed", attrs...)
+	}
 	body := doctor.RenderConversation(conversation)
 	if runErr != nil {
 		body = "Doctor request did not complete: " + runErr.Error() + "\n\n" + body

@@ -55,8 +55,9 @@ func TestAskFailureAndAttemptRules(t *testing.T) {
 				t.Fatalf("wrong failure handling: %v calls=%d", send.texts, model.calls)
 			}
 			row, err := db.ReadChatReply(t.Context(), "test", "one")
-			if err != nil || row.Question != "" || row.ProjectOption != "" {
-				t.Fatalf("temporary fields retained: %+v %v", row, err)
+			// A delivered /ask turn keeps its question and project for local history.
+			if err != nil || row.State != "confirmed" || row.Question != "What is open?" || row.ProjectOption != "app" || len(row.Arguments) != 0 {
+				t.Fatalf("delivered ask turn not retained: %+v %v", row, err)
 			}
 			// Two abandoned attempts must never launch a third model call.
 			m.ID = "abandoned"

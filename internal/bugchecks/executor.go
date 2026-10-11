@@ -52,6 +52,23 @@ type Isolation struct {
 	// off, checks are fully offline.
 	Network  bool
 	Revision string
+	// MinFreeBytes refuses a launch while the worktree volume has less free
+	// space; 0 disables the guard. It is a host guard, not containment, so it
+	// stays out of the isolation revision.
+	MinFreeBytes uint64 `json:"-"`
+	// FreeBytes reads available bytes on a path's volume; nil uses
+	// [FreeDiskBytes].
+	FreeBytes func(path string) (uint64, error) `json:"-"`
+}
+
+// FreeDiskBytes reports the bytes available to an unprivileged user on the
+// volume holding path.
+func FreeDiskBytes(path string) (uint64, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return 0, err
+	}
+	return st.Bavail * uint64(st.Bsize), nil
 }
 
 // CommandResult retains process completion, output capture and cleanup observations.
@@ -343,6 +360,19 @@ func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCo
 	if err != nil {
 		return fail(err)
 	}
+	if p.MinFreeBytes > 0 {
+		freeBytes := p.FreeBytes
+		if freeBytes == nil {
+			freeBytes = FreeDiskBytes
+		}
+		free, diskErr := freeBytes(root)
+		if diskErr != nil {
+			return fail(fmt.Errorf("read free disk space: %w", diskErr))
+		}
+		if free < p.MinFreeBytes {
+			return fail(fmt.Errorf("insufficient free disk space: %d bytes free, %d required", free, p.MinFreeBytes))
+		}
+	}
 	executable, cwd, env, err := p.resolve(root, c)
 	if err != nil {
 		return fail(err)
@@ -466,6 +496,9 @@ func (p Isolation) Run(ctx context.Context, worktree string, c config.BugCheckCo
 		return fail(errors.New("check exit status unavailable"))
 	case *out.Exit == 0 && err == nil:
 		out.Outcome = "passed"
+	case *out.Exit >= 1 && *out.Exit <= 125 && strings.Contains(strings.ToLower(out.Output), "no space left on device"):
+		// A full disk is the host's failure, never the project's.
+		out.Reason = "check infrastructure failure: no space left on device"
 	case *out.Exit >= 1 && *out.Exit <= 125:
 		// Any ordinary non-zero exit is a test failure (make reports 2).
 		// 126, 127 and 128+N (shell "killed by signal N") stay blocked.

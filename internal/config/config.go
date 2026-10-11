@@ -102,15 +102,18 @@ type Settings struct {
 	TeamSource string `yaml:"team_source"`
 	// PollIntervalMinutes is the fallback discovery poll interval: how often
 	// the forge is listed when no webhook has asked for it sooner.
-	PollIntervalMinutes        int    `yaml:"poll_interval_minutes"`
-	MaxConcurrentRuns          int    `yaml:"max_concurrent_runs"`
-	DefaultBaseBranch          string `yaml:"default_base_branch"`
-	FeaturePrefix              string `yaml:"feature_prefix"`
-	WorktreeRoot               string `yaml:"worktree_root"`
-	WorktreeRetainDays         int    `yaml:"worktree_retain_days"`
-	DeployBackupKeep           int    `yaml:"deploy_backup_keep"`
-	LogRetainDays              int    `yaml:"log_retain_days"`
-	ArchiveRetainDays          int    `yaml:"archive_retain_days"`
+	PollIntervalMinutes int    `yaml:"poll_interval_minutes"`
+	MaxConcurrentRuns   int    `yaml:"max_concurrent_runs"`
+	DefaultBaseBranch   string `yaml:"default_base_branch"`
+	FeaturePrefix       string `yaml:"feature_prefix"`
+	WorktreeRoot        string `yaml:"worktree_root"`
+	WorktreeRetainDays  int    `yaml:"worktree_retain_days"`
+	DeployBackupKeep    int    `yaml:"deploy_backup_keep"`
+	LogRetainDays       int    `yaml:"log_retain_days"`
+	ArchiveRetainDays   int    `yaml:"archive_retain_days"`
+	// MinFreeDiskGB holds run dispatch and check launches while free disk
+	// space is below this many GB; 0 disables both guards.
+	MinFreeDiskGB              int    `yaml:"min_free_disk_gb"`
 	LogLevel                   string `yaml:"log_level"`
 	AttachmentMaxImageBytes    int64  `yaml:"attachment_max_image_bytes"`
 	AttachmentMaxDocumentBytes int64  `yaml:"attachment_max_document_bytes"`
@@ -464,6 +467,7 @@ func Defaults() Config {
 			DeployBackupKeep:           DefaultDeployBackupKeep,
 			LogRetainDays:              DefaultLogRetainDays,
 			ArchiveRetainDays:          DefaultArchiveRetainDays,
+			MinFreeDiskGB:              DefaultMinFreeDiskGB,
 			LogLevel:                   DefaultLogLevel,
 			AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,
 			AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
@@ -563,6 +567,7 @@ const (
 	DefaultDeployBackupKeep     = 5
 	DefaultLogRetainDays        = 30
 	DefaultArchiveRetainDays    = 30
+	DefaultMinFreeDiskGB        = 15
 	DefaultLogLevel             = "info"
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"
@@ -1099,4 +1104,12 @@ func validateBugYAML(n *yaml.Node, kind string) error {
 		return fmt.Errorf("bug recipe expects %s", kind)
 	}
 	return nil
+}
+
+// MinFreeDiskBytes is the free-space threshold in bytes; 0 disables the guard.
+func (s Settings) MinFreeDiskBytes() uint64 {
+	if s.MinFreeDiskGB <= 0 {
+		return 0
+	}
+	return uint64(s.MinFreeDiskGB) << 30
 }

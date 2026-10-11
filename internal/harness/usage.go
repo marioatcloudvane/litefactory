@@ -14,7 +14,7 @@ import (
 
 // usageCollector combines the process-owned stream with its associated session
 // transcripts. Configured models are never used as actual-model evidence.
-// Until external captures establish completeness, every total is qualified.
+// A run is complete only when usage was observed and no gap was diagnosed.
 type usageCollector struct {
 	ctx             context.Context
 	capture         agent.UsageCapture
@@ -66,7 +66,7 @@ func newUsageCaptureCollector(ctx context.Context, capture *agent.UsageCapture, 
 		return nil
 	}
 	collector := &usageCollector{ctx: ctx, capture: *capture, session: session,
-		coverage:    agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "stream-json", Diagnostics: []string{"capability_evidence_missing"}},
+		coverage:    agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "stream-json"},
 		invocations: make(map[string]string), messages: make(map[string]agent.TokenUsage), seen: make(map[string]bool), agents: make(map[string]string), measured: make(map[string]bool), completed: make(map[string]bool), totals: make(map[string]agent.TokenUsage), summaries: make(map[string]agent.TokenUsage)}
 	if resumed {
 		collector.resumed = true
@@ -363,6 +363,9 @@ func (c *usageCollector) finish() *agent.UsageCoverage {
 	}
 	if c.observed {
 		c.coverage.Status = agent.CollectionPartial
+		if len(c.coverage.Diagnostics) == 0 {
+			c.coverage.Status = agent.CollectionComplete
+		}
 	}
 	c.emit(agent.UsageEvent{Coverage: &c.coverage})
 	result := c.coverage.Clone()

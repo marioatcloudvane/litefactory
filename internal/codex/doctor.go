@@ -3,7 +3,10 @@ package codex
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -52,6 +55,9 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 		return agent.DoctorRunResult{}, err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(home)) }()
+	if err = r.linkDoctorAuth(home); err != nil {
+		return agent.DoctorRunResult{}, err
+	}
 	env := providerprocess.DoctorEnvironment(r.environ, home)
 	env = append(env, "CODEX_HOME="+home)
 	if operation == "" {
@@ -69,7 +75,43 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	if err == nil && (!state.completed || state.failed) {
 		err = errors.New("doctor provider did not report a successful terminal turn")
 	}
+	if err != nil && state.failureDetail != "" {
+		err = fmt.Errorf("doctor provider turn failed: %s: %w", boundedDoctorDetail(state.failureDetail), err)
+	}
 	return agent.DoctorRunResult{Usage: collector.finish()}, err
+}
+
+// linkDoctorAuth symlinks the operator's Codex auth.json into the private
+// home so subscription logins authenticate. A link, not a copy, keeps token
+// refreshes on the operator's file. A missing source is skipped.
+func (r *Runner) linkDoctorAuth(home string) error {
+	var target string
+	if codexHome := envValue(r.environ, "CODEX_HOME"); codexHome != "" {
+		target = filepath.Join(codexHome, "auth.json")
+	} else if userHome := envValue(r.environ, "HOME"); userHome != "" {
+		target = filepath.Join(userHome, ".codex", "auth.json")
+	} else {
+		return nil
+	}
+	switch _, err := os.Stat(target); {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("stat codex auth: %w", err)
+	}
+	if err := os.Symlink(target, filepath.Join(home, "auth.json")); err != nil {
+		return fmt.Errorf("link codex auth: %w", err)
+	}
+	return nil
+}
+
+func boundedDoctorDetail(detail string) string {
+	const limit = 512
+	detail = strings.TrimSpace(detail)
+	if len(detail) > limit {
+		detail = strings.ToValidUTF8(detail[:limit], "") + "…"
+	}
+	return detail
 }
 
 func (r *Runner) doctorArguments(request agent.DoctorRequest) ([]string, error) {

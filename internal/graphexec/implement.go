@@ -48,6 +48,7 @@ const (
 	ImplementAnyParkedAction  = "lf_implement_any_parked"
 	ImplementAskAction        = "lf_implement_ask"
 	ImplementReportDoneAction = "lf_implement_report_done"
+	ImplementResolvedAction   = "lf_implement_resolved"
 )
 
 // ImplementAwaitNode names the node where the coordinator rests while stories
@@ -122,11 +123,20 @@ func ImplementReportDoneSpec() ActionSpec {
 	return ActionSpec{Name: ImplementReportDoneAction, Mode: agent.ModeImplement, Outcomes: []string{"published"}}
 }
 
+// ImplementResolvedSpec declares the decision that reads the sync resolver's
+// accepted answer: resolved once a completed answer is committed and pushed to
+// the feature branch, blocked once the resolver's files are put to the owner,
+// retry when the save failed or the answer was incomplete.
+func ImplementResolvedSpec() ActionSpec {
+	return ActionSpec{Name: ImplementResolvedAction, Mode: agent.ModeImplement, Outcomes: []string{"resolved", "blocked", "retry"}}
+}
+
 // ImplementSpecs lists every action of the Implement graph, the agent aside.
 func ImplementSpecs() []ActionSpec {
 	return []ActionSpec{
 		ImplementSelectSpec(), ImplementReadySpec(), ImplementMergeSpec(), ImplementHandoffSpec(), ImplementAwaitSpec(),
 		ImplementAnyParkedSpec(), ImplementAskSpec(), ImplementReportDoneSpec(), ImplementBudgetSpec(), ImplementResultSpec(), ImplementStoryDoneSpec(), ImplementParkSpec(),
+		SyncBaseSpec(agent.ModeImplement), ImplementResolvedSpec(),
 	}
 }
 
@@ -135,7 +145,9 @@ func ImplementSpecs() []ActionSpec {
 //
 //   - the entry is the path selector, and every node has a positive, bounded
 //     lf_limit, which bounds every loop;
-//   - only the Implement actions and one worker agent appear;
+//   - only the Implement actions, lf_sync_base, one worker agent and any number
+//     of sync resolver agents appear. An agent whose success reaches
+//     lf_implement_resolved is a resolver; every other agent is the worker;
 //   - the worker's accepted answer reaches the save step only through the result
 //     decision, so nothing but a completed answer marks a story done;
 //   - a failed attempt, a failed save and an exhausted budget route to the
@@ -144,7 +156,12 @@ func ImplementSpecs() []ActionSpec {
 //     incomplete to the budget decision and parks blocked;
 //   - the batched question ends at a terminal, where the owner wait rests;
 //   - the completion reply, when a graph declares one, reads the merge step and
-//     ends at a terminal. A graph without it still validates.
+//     ends at a terminal. A graph without it still validates;
+//   - a base sync, when a graph declares one, hands a conflict to a resolver
+//     agent; the resolver's success reaches its own resolved decision and its
+//     failure returns to a base sync; the decision returns resolved and retry to
+//     a base sync and ends blocked at a terminal owner wait. A graph without a
+//     base sync (every released graph) still validates.
 func ValidateImplementGraph(p *Profile) error {
 	if p == nil || p.Mode != agent.ModeImplement {
 		return errors.New("invalid Implement graph entry")
@@ -173,6 +190,10 @@ func ValidateImplementGraph(p *Profile) error {
 		}
 		switch n.Action {
 		case "lf_agent":
+			if c.isResolver(n) {
+				c.resolver(n)
+				continue
+			}
 			agents++
 			c.worker(n)
 		case ImplementResultAction:
@@ -186,6 +207,10 @@ func ValidateImplementGraph(p *Profile) error {
 			c.ask(n)
 		case ImplementReportDoneAction:
 			c.reportDone(n)
+		case SyncBaseAction:
+			c.edge(n, "conflict", c.isResolver, "must hand the conflict to a resolver agent")
+		case ImplementResolvedAction:
+			c.resolved(n)
 		}
 	}
 	if agents != 1 {
@@ -269,4 +294,36 @@ func (c *implementCheck) reportDone(n Node) {
 		c.fail("implement node %s lf_source %q must name the merge step", n.Name, n.Attrs["lf_source"])
 	}
 	c.edge(n, "published", func(t Node) bool { return t.Terminal }, "must end at a terminal")
+}
+
+// isResolver reports whether n is a sync resolver agent: an agent whose success
+// reaches the resolved decision.
+func (c *implementCheck) isResolver(n Node) bool {
+	if n.Action != "lf_agent" {
+		return false
+	}
+	to, ok := Decide(c.p, n.Name, "success")
+	if !ok {
+		return false
+	}
+	target, ok := c.p.Node(to)
+	return ok && target.Action == ImplementResolvedAction
+}
+
+func (c *implementCheck) resolver(n Node) {
+	if _, _, err := ResearchReferences(n.Attrs); err != nil {
+		c.fail("implement resolver %s has no valid role: %v", n.Name, err)
+	}
+	c.edge(n, "success", func(t Node) bool { return t.Attrs["lf_source"] == n.Name }, "must reach its own resolved decision")
+	c.edge(n, "failed", func(t Node) bool { return t.Action == SyncBaseAction }, "must return to a base sync")
+}
+
+func (c *implementCheck) resolved(n Node) {
+	if source, ok := c.p.Node(n.Attrs["lf_source"]); !ok || !c.isResolver(source) {
+		c.fail("implement node %s lf_source %q must name the resolver agent whose success reaches it", n.Name, n.Attrs["lf_source"])
+	}
+	sync := func(t Node) bool { return t.Action == SyncBaseAction }
+	c.edge(n, "resolved", sync, "must return to a base sync")
+	c.edge(n, "retry", sync, "must return to a base sync")
+	c.edge(n, "blocked", func(t Node) bool { return t.Terminal }, "must end at a terminal owner wait")
 }

@@ -315,6 +315,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 				providers[string(kind)] = native
 			}
 		}
+		chatOpts.ReplyModel = &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}
 		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: client}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ})}
 	}
 
@@ -446,6 +447,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		digest := sha256.Sum256(encoded)
 		isolation.Revision = hex.EncodeToString(digest[:])
 	}
+	// Checks wait for disk space rather than fail on a full volume.
+	isolation.MinFreeBytes = s.Config.Settings.MinFreeDiskBytes()
 	// Spike checks retain the configured operator sandbox.
 	mcpRuntime.BugChecksIsolation = isolation
 	bugRuntime, err := turn.NewGraphBugRuntime(ctx, turnOpts, turn.BugRuntimeConfig{
@@ -494,6 +497,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			LogSink:          s.LogSink,
 		},
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
+		MinFreeDiskBytes:         s.Config.Settings.MinFreeDiskBytes(),
+		DiskPath:                 s.Paths.Home(),
 		// An automatic start needs the Validate graph's host bindings; without
 		// them the turn would take the legacy path, which must never be started
 		// by itself.

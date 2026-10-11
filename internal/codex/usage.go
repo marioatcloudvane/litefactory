@@ -36,7 +36,7 @@ func newUsageCaptureCollector(ctx context.Context, capture *agent.UsageCapture) 
 	if capture == nil {
 		return nil
 	}
-	return &usageCollector{ctx: ctx, capture: *capture, parents: make(map[string]string), coverage: agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "exec-jsonl", Diagnostics: []string{"capability_evidence_missing"}}}
+	return &usageCollector{ctx: ctx, capture: *capture, parents: make(map[string]string), coverage: agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "exec-jsonl"}}
 }
 func (c *usageCollector) diagnostic(code string) {
 	if !slices.Contains(c.coverage.Diagnostics, code) {
@@ -161,12 +161,14 @@ func (c *usageCollector) finish() *agent.UsageCoverage {
 	if cancelled {
 		c.diagnostic("collection_cancelled")
 	}
-	// After process exit, allow at most two seconds to drain already persisted
+	// After process exit, start new scans for at most two seconds to drain persisted
 	// records. This is bounded finalization, never a new provider execution.
 	drain, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 2*time.Second)
 	defer cancel()
 	previousContext := c.ctx
-	c.ctx = drain
+	// Each scan keeps its own two-second bound; the drain deadline only stops
+	// new scans, so it cannot cut a scan short and mark the source incomplete.
+	c.ctx = context.WithoutCancel(previousContext)
 	defer func() { c.ctx = previousContext }()
 	// Bound delayed child flush collection by the drain deadline. This timer
 	// belongs to finalization only, not subprocess retry scheduling.
@@ -199,6 +201,9 @@ func (c *usageCollector) finish() *agent.UsageCoverage {
 	}
 	if c.ctx.Err() != nil {
 		c.diagnostic("collection_cancelled")
+	}
+	if c.coverage.Status == agent.CollectionPartial && len(c.coverage.Diagnostics) == 0 {
+		c.coverage.Status = agent.CollectionComplete
 	}
 	c.emit(agent.UsageEvent{Coverage: &c.coverage})
 	coverage := c.coverage.Clone()

@@ -54,7 +54,7 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","claude_code_v
 	if _, err = os.Stat(credentials); err != nil {
 		t.Fatalf("scratch cleanup removed the operator's credentials: %v", err)
 	}
-	if result.ObservedModel != "observed-model" || result.ProviderVersion != "fixture-version" || result.Usage == nil || result.Usage.Status != agent.CollectionPartial {
+	if result.ObservedModel != "observed-model" || result.ProviderVersion != "fixture-version" || result.Usage == nil || result.Usage.Status != agent.CollectionComplete || len(result.Usage.Diagnostics) != 0 {
 		t.Fatalf("result: %+v", result)
 	}
 	observations := 0

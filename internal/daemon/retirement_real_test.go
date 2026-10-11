@@ -33,6 +33,10 @@ func TestRetirementRealPreservation(t *testing.T) {
 		{"staged", "kept", "kept", "kept", "local_files"},
 		{"untracked", "kept", "kept", "kept", "local_files"},
 		{"ignored", "kept", "kept", "kept", "local_files"},
+		{"ignored_dir_with_file", "kept", "kept", "kept", "local_files"},
+		{"empty_ignored_dir", "would_remove", "would_remove", "would_remove", ""},
+		{"generated_validation_logs", "would_remove", "would_remove", "would_remove", ""},
+		{"generated_and_tracked", "kept", "kept", "kept", "local_files"},
 		{"locked", "kept", "kept", "kept", "unsafe_worktree_identity"},
 		{"detached", "kept", "kept", "kept", "unsafe_worktree_identity"},
 		{"absent", "already_absent", "would_remove", "would_remove", ""},
@@ -82,6 +86,33 @@ func TestRetirementRealPreservation(t *testing.T) {
 					t.Fatal(err)
 				}
 				write("ignored.txt")
+			case "ignored_dir_with_file", "empty_ignored_dir", "generated_validation_logs", "generated_and_tracked":
+				exclude := "teams/source/.litefactory/\n/.litefactory/*\ncache/\n"
+				if err := os.WriteFile(filepath.Join(r.Dir, ".git", "info", "exclude"), []byte(exclude), 0600); err != nil {
+					t.Fatal(err)
+				}
+				mkdir := func(name string) {
+					t.Helper()
+					if err := os.MkdirAll(filepath.Join(path, name), 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				switch tc.name {
+				case "ignored_dir_with_file":
+					mkdir("cache")
+					write("cache/object")
+				case "empty_ignored_dir":
+					// The factory leaves this ignored directory empty.
+					mkdir("teams/source/.litefactory/nested")
+				case "generated_validation_logs":
+					mkdir(".litefactory/validation-logs")
+					write(".litefactory/validation-logs/x.log")
+				case "generated_and_tracked":
+					mkdir("teams/source/.litefactory")
+					mkdir(".litefactory/validation-logs")
+					write(".litefactory/validation-logs/x.log")
+					write("README.md")
+				}
 			case "locked":
 				r.Git("worktree", "lock", path)
 			case "detached":

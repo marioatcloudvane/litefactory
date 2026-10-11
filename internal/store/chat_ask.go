@@ -38,7 +38,7 @@ func (db *DB) BeginChatAnswer(ctx context.Context, r ChatReply, repoID int64, at
 
 // CompleteChatAnswer transitions a fenced answering row to ordinary delivery.
 func (db *DB) CompleteChatAnswer(ctx context.Context, r ChatReply, text string) error {
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state='sent',reply_text=? WHERE transport=? AND message_id=? AND state='answering' AND attempts=? AND answer_attempts=?`, text, r.Transport, r.MessageID, r.Attempts, r.AnswerAttempts)
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state='sent',reply_text=?,outcome_status=? WHERE transport=? AND message_id=? AND state='answering' AND attempts=? AND answer_attempts=?`, text, r.OutcomeStatus, r.Transport, r.MessageID, r.Attempts, r.AnswerAttempts)
 	return chatAffected(result, err)
 }
 

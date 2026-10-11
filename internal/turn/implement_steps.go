@@ -70,7 +70,8 @@ func (rt *implementRuntime) registerEffects(specs *graphexec.Registry, activitie
 			step{graphexec.ImplementAwaitSpec(), rt.await},
 			step{graphexec.ImplementAnyParkedSpec(), rt.anyParked},
 			step{graphexec.ImplementAskSpec(), rt.ask},
-			step{graphexec.ImplementReportDoneSpec(), rt.reportDone})
+			step{graphexec.ImplementReportDoneSpec(), rt.reportDone},
+			step{graphexec.ImplementResolvedSpec(), rt.resolved})
 	} else {
 		steps = append(steps,
 			step{graphexec.ImplementBudgetSpec(), rt.budget},
@@ -321,14 +322,19 @@ func implementAfterAgentFailure(ctx context.Context, opts Options, a ActivityReq
 		return out, errors.Join(cause, err)
 	}
 	row, err := opts.DB.ImplementStoryByWorkerSession(ctx, instance.SessionID)
-	if err != nil {
-		return out, errors.Join(cause, err)
-	}
 	detail := strings.TrimSpace(out.Diagnostic)
 	if detail == "" {
 		detail = cause.Error()
 	}
 	reason := "The attempt ended without an accepted answer: " + clipText(strings.Join(strings.Fields(detail), " "), 400)
+	if errors.Is(err, store.ErrNotFound) {
+		// A coordinator agent (the sync resolver) has no story: its failure is
+		// recorded on the attempt only and the graph returns to its base sync.
+		return ActivityResult{Outcome: "failed", Diagnostic: reason, ProcessResult: out.ProcessResult}, nil
+	}
+	if err != nil {
+		return out, errors.Join(cause, err)
+	}
 	if _, err := opts.DB.RecordImplementFailure(ctx, row.Parent, row.Generation, row.Key, reason, spikeNow(opts)); err != nil {
 		return out, errors.Join(cause, err)
 	}
@@ -340,8 +346,25 @@ func implementAfterAgentFailure(ctx context.Context, opts Options, a ActivityReq
 
 // implementResultOverride gives one worker attempt its trusted result context: the
 // one story it was given, judged once when the worker submits.
+//
+// A coordinator agent (the sync resolver) runs on the parent's session and has no
+// story: its context names none, and a completed answer needs none.
 func implementResultOverride(ctx context.Context, w *researchWorkflow, a ActivityRequest) (*resultOverride, error) {
 	row, err := w.opts.DB.ImplementStoryByWorkerSession(ctx, w.prep.session.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		if _, err := w.opts.DB.GetManagedFeature(ctx, w.prep.session.TaskRef); err != nil {
+			return nil, fmt.Errorf("find the managed feature of this coordinator agent: %w", err)
+		}
+		scope := agentresult.Context{
+			SchemaVersion: agentresult.SchemaVersion, Mode: string(agent.ModeImplement), WorkflowVersion: store.WorkflowSeparated,
+			CoordinatorRole: true,
+		}
+		return &resultOverride{
+			Resolve: func(context.Context) (agentresult.Context, error) { return cloneResultContext(scope), nil },
+			Targets: agentresult.EditTargets(string(agent.ModeImplement)),
+			Pass:    fmt.Sprintf("attempt-%d", a.NodeAttemptID),
+		}, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("find the story of this worker: %w", err)
 	}
@@ -359,6 +382,123 @@ func implementResultOverride(ctx context.Context, w *researchWorkflow, a Activit
 		Targets: agentresult.EditTargets(string(agent.ModeImplement)),
 		Pass:    fmt.Sprintf("attempt-%d", a.NodeAttemptID),
 	}, nil
+}
+
+// resolved reads the sync resolver's accepted answer, which the node's lf_source
+// names. A completed answer is saved: the run's worktree, the parent's, holds the
+// resolved merge, which is committed and pushed to the feature branch, and the
+// graph syncs again. A blocked answer is put to the owner as one question naming
+// the conflicting files, and nothing is pushed. An incomplete answer, or a save
+// that failed, is retried through the sync.
+//
+//	resolved  the resolution is committed and pushed
+//	blocked   the owner question is published
+//	retry     the save failed or the answer was incomplete
+func (rt *implementRuntime) resolved(ctx context.Context, opts Options, a ActivityRequest) (ActivityResult, error) {
+	if rt.worker != nil {
+		return ActivityResult{}, errors.New("the step belongs to the coordinator")
+	}
+	node, err := rt.retainedAnswer(ctx, opts, a)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	switch node.Response {
+	case agentresult.ImplementResponseCompleted:
+		if rt.save == nil {
+			return ActivityResult{}, errors.New("the run has no save step")
+		}
+		if _, saveErr := rt.save(ctx); saveErr != nil {
+			if ctx.Err() != nil {
+				return ActivityResult{}, saveErr
+			}
+			reason := "Saving the resolved merge failed: " + clipText(strings.Join(strings.Fields(saveErr.Error()), " "), 400)
+			return implementResult("retry", map[string]any{"response": node.Response, "reason": reason})
+		}
+		return implementResult("resolved", map[string]any{"response": node.Response})
+	case agentresult.ImplementResponseBlocked:
+		return rt.askResolver(ctx, opts, a, node)
+	}
+	return implementResult("retry", map[string]any{"response": node.Response, "reason": strings.TrimSpace(node.Result.Reason)})
+}
+
+// askResolver publishes the blocked resolver's answer as one owner question on
+// the parent: the conflicting files and the resolver's own reason. The wait rests
+// on the resolver's attempt, so the owner's reply runs the resolver again with the
+// reply as guidance.
+func (rt *implementRuntime) askResolver(ctx context.Context, opts Options, a ActivityRequest, node agentresult.ResearchNode) (ActivityResult, error) {
+	source, err := opts.DB.LatestGraphNodeAttempt(ctx, a.InstanceID, a.Attrs["lf_source"])
+	if err != nil {
+		return ActivityResult{}, fmt.Errorf("find the resolver the owner's reply resumes: %w", err)
+	}
+	if source.Status != store.GraphSucceeded {
+		return ActivityResult{}, errors.New("the resolver the owner's reply resumes has not finished")
+	}
+	sync, err := rt.lastSyncConflict(ctx, opts, a.InstanceID)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	files := "the files the resolver names below"
+	if len(sync.Conflicts) > 0 {
+		quoted := make([]string, len(sync.Conflicts))
+		for i, path := range sync.Conflicts {
+			quoted[i] = "`" + path + "`"
+		}
+		files = strings.Join(quoted, ", ")
+	}
+	base, branch := "the base branch", "the feature branch"
+	if sync.Base != "" {
+		base = "`" + sync.Base + "`"
+	}
+	if sync.Working != "" {
+		branch = "`" + sync.Working + "`"
+	}
+	candidate := agentresult.Result{
+		Outcome: "incomplete",
+		Comment: fmt.Sprintf("Bringing %s into %s stopped on a conflict the resolver could not settle. The feature branch is unchanged, and Implement waits for your decision.", base, branch),
+		Reason:  "Reply on this issue with how the conflict should be resolved. The resolver runs again with your reply as guidance.",
+		Payload: agentresult.Payload{Implement: &agentresult.Implement{}},
+		Questions: []agentresult.Question{{
+			ID: "q1", Audience: "technical",
+			Text: fmt.Sprintf("**Conflict in %s**: %s", files, sentence(node.Result.Reason)),
+		}},
+	}
+	policy := ImplementWorkflowPolicy()
+	posted, key, err := opts.ResearchReporter.ReportWorkflowCandidate(ctx, source, a.Node, "question", candidate, policy.baseContext(true), "", policy)
+	if err != nil {
+		return ActivityResult{Diagnostic: err.Error()}, err
+	}
+	return implementResult("blocked", struct {
+		DeliveryKey string   `json:"delivery_key"`
+		CommentID   int64    `json:"comment_id"`
+		Conflicts   []string `json:"conflicts,omitempty"`
+	}{key, posted.CommentID, sync.Conflicts})
+}
+
+// lastSyncConflict reads the output of the instance's latest base sync that
+// answered conflict. An instance with none returns an empty output.
+func (rt *implementRuntime) lastSyncConflict(ctx context.Context, opts Options, instanceID int64) (syncBaseOutput, error) {
+	attempts, err := opts.DB.ListGraphNodeAttempts(ctx, instanceID)
+	if err != nil {
+		return syncBaseOutput{}, err
+	}
+	for _, attempt := range slices.Backward(attempts) {
+		n, ok := rt.definition.Profile.Node(attempt.Node)
+		if !ok || n.Action != graphexec.SyncBaseAction || attempt.Status != store.GraphSucceeded || attempt.Outcome != "conflict" {
+			continue
+		}
+		outputs, err := opts.DB.ListGraphOutputs(ctx, attempt.ID)
+		if err != nil {
+			return syncBaseOutput{}, err
+		}
+		var out syncBaseOutput
+		for _, o := range outputs {
+			if o.Kind == store.GraphOutputJSON && json.Unmarshal(o.Payload, &out) == nil {
+				return out, nil
+			}
+		}
+		return syncBaseOutput{}, nil
+	}
+	return syncBaseOutput{}, nil
 }
 
 // implementStoryRevision reads the frozen revision of a ledger story.
