@@ -149,7 +149,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	}
 	s.EnableResearch(chatResearch{d}, chatResearch{d})
 	if o.Settings.NoticeChannelID != "" {
-		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect}
+		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect, Issues: d.forge}
 	}
 	handler := a.Handler(s)
 	d.chatHandler.Store(&handler)
