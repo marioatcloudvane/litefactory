@@ -227,8 +227,15 @@ var archiveRetained = map[string]ArchiveClass{
 	// Not keyed by one task family. The doctor journal has delete triggers and
 	// holds; a family with doctor references is kept by the pending check.
 	"repos": ArchiveClassGlobal, "identities": ArchiveClassGlobal, "poll_cursor": ArchiveClassGlobal, "repo_poll_cursors": ArchiveClassGlobal, "repo_webhooks": ArchiveClassGlobal,
-	"chat_issue_previews":      ArchiveClassGlobal,
-	"chat_inbox":               ArchiveClassGlobal,
+	"chat_issue_previews": ArchiveClassGlobal,
+	"chat_inbox":          ArchiveClassGlobal,
+	// Owner/channel dialogue and replay positions span task families. Their
+	// short text and terminal retention belongs to PurgeNaturalChat; cursors
+	// survive archival to prevent old channel requests from being replayed.
+	"chat_natural_dialogues":   ArchiveClassGlobal,
+	"chat_natural_executions":  ArchiveClassGlobal,
+	"chat_natural_messages":    ArchiveClassGlobal,
+	"chat_natural_scans":       ArchiveClassGlobal,
 	"chat_presentation_owners": ArchiveClassGlobal,
 	// Chat delivery state follows its own short retention; source positions
 	// must survive task archival so enabling notices never replays history.
