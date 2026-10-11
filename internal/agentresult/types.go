@@ -68,7 +68,12 @@ type Context struct {
 	ReviewRole string
 	// RepairRole is set only for the Validate repair node and enables the
 	// repair report; reviewers and every other node must not send one.
-	RepairRole          bool
+	RepairRole bool
+	// CoordinatorRole is set only for an Implement agent that runs on the
+	// parent's (coordinator's) session, such as the sync resolver. It works on
+	// the feature branch, not on a story, so its result names no story and a
+	// completed result needs no story scope.
+	CoordinatorRole     bool
 	PlanScope           planbrief.ContentScope
 	Stories             map[string]agent.ContributionStory
 	EngineeringComplete map[string]bool
