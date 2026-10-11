@@ -21,6 +21,13 @@
 // command. The run succeeds only after the close step has closed the accepted
 // issues, and the resolve loop is bounded by its lf_limit.
 //
+// The owner may choose repair for a finding. Once every blocking finding of the
+// tested commit has a choice, the repair reply starts one repair round for all
+// findings chosen for repair, through the same repair nodes and within the same
+// two-round bound as a failed suite. A kept repair is a new commit, so the suite
+// and the reviewers run again on it; a rejected or spent repair returns to the
+// owner report with its reason. Pending owner checks do not hold the round back.
+//
 // The repair bound is two rounds. Every round is counted from the moment it
 // starts, so a round that times out or is interrupted is used. The time budget
 // is in agent minutes and does not include the time the suite runs. The limits
@@ -50,12 +57,15 @@ digraph validate {
  review [lf_action="lf_validate_review", lf_outcomes="done,retry", lf_roles="validate-acceptance,validate-code,validate-architecture", lf_skills="validate-review,team-guidance", lf_suite="suite", lf_limit="32"];
 
  // ---- Join the findings and record the end -------------------------------------
- outcome [lf_action="lf_validate_outcome", lf_outcomes="assessed,handed_back,blocked", lf_suite="suite", lf_limit="2"];
+ // It is reached once for the first end and once more after each owner repair
+ // round and after a spent repair budget; on an unchanged commit it reuses the
+ // recorded end.
+ outcome [lf_action="lf_validate_outcome", lf_outcomes="assessed,handed_back,blocked", lf_suite="suite", lf_limit="4"];
 
  // ---- Owner resolution ----------------------------------------------------------
  // The loop limit is lf_limit on resolve. When it runs out the run stops and
  // nothing is approved, because every effect needs a command inside the loop.
- owner_resolve [lf_action="lf_validate_resolve", lf_outcomes="wait,create_issue,push,merge,close,stale", lf_suite="suite", lf_limit="24"];
+ owner_resolve [lf_action="lf_validate_resolve", lf_outcomes="wait,create_issue,push,merge,close,stale,repair", lf_suite="suite", lf_limit="24"];
  owner_report  [lf_action="lf_validate_report", lf_outcomes="done", lf_limit="64"];
  owner_ask     [lf_action="lf_validate_ask", lf_outcomes="published", lf_source="owner_resolve", lf_limit="32"];
  owner_issue   [lf_action="lf_validate_issue", lf_outcomes="done", lf_limit="24"];
@@ -102,6 +112,7 @@ digraph validate {
  owner_resolve -> owner_report       [lf_on="wait"];
  owner_resolve -> owner_report       [lf_on="stale"];
  owner_resolve -> owner_issue        [lf_on="create_issue"];
+ owner_resolve -> repair_budget      [lf_on="repair"];
  owner_resolve -> owner_push         [lf_on="push"];
  owner_resolve -> owner_merge        [lf_on="merge"];
  owner_resolve -> owner_close        [lf_on="close"];
