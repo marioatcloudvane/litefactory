@@ -6,13 +6,14 @@ Research how to move every agent instruction outside the graph modes into editab
 
 ## Decisions
 
-- **d1** — Settled by owner: all non-graph agent wording becomes Markdown files embedded in the litefactory binary, one copy each, extracted to the factory home on first run. Not installable like teams. Go keeps enforcement only, and no Go copy of moved text remains.
+- **d1** — Settled by owner: all non-graph agent wording becomes Markdown files embedded in the litefactory binary, one copy each, extracted to the factory home on first run. Not installable like teams. Program code keeps enforcement only, and no copy of moved text remains in code.
 - **d2** — Settled by owner: users edit the extracted files.
 - **d3** — Settled by owner: the file text is captured at the start of each unit of work with its digest recorded.
 - **d4** — Owner's reading of a missing or invalid file: re-extract the shipped file. Shaping adds that a broken edit is saved as .invalid first and the user is told.
 - **d5** — Shaping decision: on upgrade, unedited files (digest matches what was extracted) are replaced; edited files are kept and flagged as having a newer shipped version.
-- **d6** — Migration order: loader and extraction with shipped-file test, then conflict and schedule, then chat and #631 agents, then doctor with its field guide, then graph extras if the owner agrees. Each step deletes its Go text in the same change.
+- **d6** — Migration order: loader and extraction with shipped-file test, then conflict and schedule, then chat and #631 agents, then doctor with its field guide, then graph extras if the owner agrees. Each step deletes its text from code in the same change.
 - **d7** — Out of scope: changing agent behaviour, tools or models; the story progress event schema; team-style install or clone; visual editor.
+- **d8** — Clarified: 'Go' means the language litefactory is written in, not the projects it builds. The fixed text added to graph roles is stack-neutral (checked: no Go-specific commands in implement policy, result finalization or mode hints), so non-Go projects such as Python are unaffected.
 
 
 ## Assumptions
@@ -27,12 +28,12 @@ Research how to move every agent instruction outside the graph modes into editab
 
 ## Open questions
 
-### q5 — Should the extra rules the factory adds on top of graph roles also become files?
+### q5 — Should the extra rules the factory adds on top of graph roles also become editable files?
 
 _Asked of: Product Owner Questions_
 
-- **a** — Yes. Research, Plan, Implement and Validate each already have a role file. The factory also adds hidden Go text on top, for example 'do not commit' and how to report results. In #643 that hidden text contradicted the role file and only a code change could fix it. This option moves the wording of those extras into the same extracted files, so you can see and edit it. The hard enforcement (the result protocol, blocking commits) stays in Go. Done as the last stories.  *(recommended)*
-- **b** — No. Leave the graph extras in Go for a separate issue. This issue covers only the non-graph agents. The #643 drift risk stays.
+- **a** — Yes. The wording of these extras (for example 'do not commit', how to report results) moves into the extracted files. They are stack-neutral, so they work the same for Python, .NET or Go projects. Enforcement stays in litefactory's program code. Done as the last stories.  *(recommended)*
+- **b** — No. Leave the extras inside litefactory's program code for a separate issue. This issue covers only the non-graph agents. The #643 drift risk stays.
 
 ## Research documents
 
