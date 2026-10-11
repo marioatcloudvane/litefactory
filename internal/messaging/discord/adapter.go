@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
@@ -28,6 +29,9 @@ import (
 // Path is the interactions route beside the GitHub webhook route.
 const Path = "/litefactory/discord"
 const maxBody = 64 << 10
+
+// maxErrorMessage caps Discord's error message before it is logged.
+const maxErrorMessage = 200
 
 // Intake is the neutral admission and sender wake contract.
 type Intake interface {
@@ -296,13 +300,17 @@ func (a *Adapter) deliver(ctx context.Context, t messaging.Target, text string, 
 	}
 	a.mu.Unlock()
 	p := outgoing{Content: text, AllowedMentions: allowedMentions{Parse: []string{}}}
+	var edit messaging.Delivery
 	if ok {
 		d, status := a.callContent(ctx, http.MethodPatch, "/webhooks/"+a.options.ApplicationID+"/"+url.PathEscape(h.token)+"/messages/@original", p, false, attachment)
 		d.Route, d.Status = "edit", status
+		if status != 0 && (status < 200 || status >= 300) {
+			d.EditStatus = status
+		}
 		// Discord can answer 404 while it is still registering the deferred
 		// response. A live handle retries the edit; only expiry falls back.
 		if status == http.StatusNotFound {
-			return messaging.Delivery{Route: "edit", Status: status}
+			return messaging.Delivery{Route: "edit", Status: status, EditStatus: status, EditCode: d.EditCode, EditMessage: d.EditMessage}
 		}
 		if status != http.StatusUnauthorized {
 			if d.Confirmed || (d.Permanent && !d.AttachmentRejected) {
@@ -311,15 +319,18 @@ func (a *Adapter) deliver(ctx context.Context, t messaging.Target, text string, 
 			return d
 		}
 		a.forget(t.Handle)
+		edit = d
 	}
 	if !numeric(t.Channel) {
-		return messaging.Delivery{Permanent: true, Route: "channel"}
+		return messaging.Delivery{Permanent: true, Route: "channel", EditStatus: edit.EditStatus, EditCode: edit.EditCode, EditMessage: edit.EditMessage}
 	}
 	hash := sha256.Sum256([]byte(t.Transport + ":" + t.MessageID))
 	p.Nonce = hex.EncodeToString(hash[:12])
 	p.EnforceNonce = true
 	d, status := a.callContent(ctx, http.MethodPost, "/channels/"+t.Channel+"/messages", p, true, attachment)
 	d.Route, d.Status = "channel", status
+	// Only a refused edit is reported; the channel's own error body is not.
+	d.EditStatus, d.EditCode, d.EditMessage = edit.EditStatus, edit.EditCode, edit.EditMessage
 	return d
 }
 func (a *Adapter) forget(id string) { a.mu.Lock(); delete(a.handles, id); a.mu.Unlock() }
@@ -388,6 +399,42 @@ func (a *Adapter) callContent(ctx context.Context, method, path string, payload 
 		}
 		return d, res.StatusCode
 	}
+	code, message := a.errorDetail(ctx, response)
+	d := a.refusal(res, response, attachment)
+	d.EditCode, d.EditMessage = code, message
+	return d, res.StatusCode
+}
+
+// errorDetail decodes only code and message from Discord's JSON error body.
+// The message is capped and redacted; no URL, token or other field is kept.
+func (a *Adapter) errorDetail(ctx context.Context, response []byte) (int, string) {
+	var detail struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(response, &detail) != nil {
+		return 0, ""
+	}
+	message := detail.Message
+	if len(message) > maxErrorMessage {
+		cut := maxErrorMessage
+		for cut > 0 && !utf8.RuneStart(message[cut]) {
+			cut--
+		}
+		message = message[:cut]
+	}
+	if message != "" {
+		body, err := a.redactor.Apply(ctx, message, len(message)+redact.Margin)
+		if err != nil {
+			message = ""
+		} else {
+			message = body.String()
+		}
+	}
+	return detail.Code, message
+}
+
+func (a *Adapter) refusal(res *http.Response, response []byte, attachment *presentation.Attachment) messaging.Delivery {
 	if res.StatusCode == http.StatusTooManyRequests {
 		wait := parseRetry(res.Header.Get("Retry-After"), a.options.Now())
 		var rate struct {
@@ -396,7 +443,7 @@ func (a *Adapter) callContent(ctx context.Context, method, path string, payload 
 		if json.Unmarshal(response, &rate) == nil && rate.RetryAfter > 0 {
 			wait = max(wait, time.Duration(min(rate.RetryAfter, 3600)*float64(time.Second)))
 		}
-		return messaging.Delivery{RetryAfter: wait}, res.StatusCode
+		return messaging.Delivery{RetryAfter: wait}
 	}
 	if attachment != nil && (res.StatusCode == http.StatusBadRequest || res.StatusCode == http.StatusRequestEntityTooLarge) {
 		var rejection struct {
@@ -404,10 +451,10 @@ func (a *Adapter) callContent(ctx context.Context, method, path string, payload 
 			Errors map[string]json.RawMessage `json:"errors"`
 		}
 		if res.StatusCode == http.StatusRequestEntityTooLarge || (json.Unmarshal(response, &rejection) == nil && (rejection.Errors["attachments"] != nil || rejection.Errors["files"] != nil || rejection.Code == 40005)) {
-			return messaging.Delivery{AttachmentRejected: true}, res.StatusCode
+			return messaging.Delivery{AttachmentRejected: true}
 		}
 	}
-	return messaging.Delivery{Permanent: res.StatusCode >= 400 && res.StatusCode < 500 && res.StatusCode != http.StatusRequestTimeout}, res.StatusCode
+	return messaging.Delivery{Permanent: res.StatusCode >= 400 && res.StatusCode < 500 && res.StatusCode != http.StatusRequestTimeout}
 }
 func parseRetry(value string, at time.Time) time.Duration {
 	if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds > 0 {
