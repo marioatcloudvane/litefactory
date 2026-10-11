@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/meter"
+	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -35,18 +36,15 @@ func newMeterPricesListCommand() *Command {
 	}}
 }
 func writeMeterPrices(ctx context.Context, env *Env, db *store.DB, asJSON bool) error {
-	catalog, err := db.ListMeterPrices(ctx)
+	catalog, err := meterview.Prices(ctx, db, "", "")
 	if err != nil {
 		return err
 	}
 	if asJSON {
 		return json.NewEncoder(env.Stdout).Encode(catalog)
 	}
-	if _, err := fmt.Fprintf(env.Stdout, "Price revision %d — USD per million tokens\n", catalog.RevisionID); err != nil {
-		return err
-	}
-	for _, rate := range catalog.Rates {
-		if _, err := fmt.Fprintf(env.Stdout, "%s\t%s\t%s\t%s\n", rate.CodingAgent, rate.Model, rate.Dimension, rate.USDPerMillion); err != nil {
+	for _, line := range meterview.PriceLines(catalog) {
+		if _, err := fmt.Fprintln(env.Stdout, line); err != nil {
 			return err
 		}
 	}

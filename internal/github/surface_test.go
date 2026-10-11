@@ -83,6 +83,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"RetirePlanStory",            // PATCH verified direct child closed with not_planned reason
 		"SetStoryState",              // PATCH verified managed story state and reason
 		"UpdateIssue",                // PATCH …/issues/{n}, full title and body
+		"ReadOpenIssues",             // one bounded newest-updated page for chat answers
 		"GetIssue",                   // GET  /repos/{o}/{r}/issues/{n}
 		"ListCommentedIssues",        // GET  /repos/{o}/{r}/issues/comments?since=
 		"ListCommentsAfter",          // GET  /repos/{o}/{r}/issues/{n}/comments

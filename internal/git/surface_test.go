@@ -125,6 +125,11 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// without force, only while the remote still has the expected head.
 		// It pushes a commit that descends from that head and nothing else.
 		"PushHeadTo",
+		// Implement story conflict (#615): start merging the feature branch
+		// into a clean story branch with --no-commit and leave its conflicts
+		// for the story worker; it never aborts, and a later Commit concludes
+		// the merge.
+		"StartMerge",
 	}
 	slices.Sort(want)
 
