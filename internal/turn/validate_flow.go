@@ -102,6 +102,9 @@ type ValidateStory struct {
 	// ledger row when it was resumed, or empty. It amends how the frozen
 	// criteria are judged; it never changes Text, Revision or Criteria.
 	OwnerGuidance string `json:"owner_guidance,omitempty"`
+	// OwnerQuestion is the worker's question OwnerGuidance answered, kept on
+	// the ledger row at resume. It is set only together with OwnerGuidance.
+	OwnerQuestion string `json:"owner_question,omitempty"`
 }
 
 // ValidateFlowBindings supplies the trusted run context the Validate steps need.

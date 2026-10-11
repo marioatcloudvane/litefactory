@@ -223,10 +223,11 @@ func TestValidateStoriesCarryTheOwnerGuidanceOfTheImplementLedger(t *testing.T) 
 	ctx := t.Context()
 	mustProgress(t, f.db.EnsureImplementStories(ctx, parent, 1, []store.ImplementStorySeed{{Key: "story-001", Position: 0, Branch: "lf/201-a"}, {Key: "story-002", Position: 1, Branch: "lf/202-b"}}, implementClock))
 	const reply = "Approval for option 2! Continue with the implementation!"
+	const question = "exactly one visible reply cannot be guaranteed"
 	moves := map[string][]store.ImplementTransition{
 		"story-001": {
 			{From: store.ImplementWaiting, To: store.ImplementRunning},
-			{From: store.ImplementRunning, To: store.ImplementParked, Reason: "exactly one visible reply cannot be guaranteed"},
+			{From: store.ImplementRunning, To: store.ImplementParked, Reason: question},
 			{From: store.ImplementParked, To: store.ImplementWaiting, Guidance: reply},
 			{From: store.ImplementWaiting, To: store.ImplementRunning},
 			{From: store.ImplementRunning, To: store.ImplementDone},
@@ -263,12 +264,12 @@ func TestValidateStoriesCarryTheOwnerGuidanceOfTheImplementLedger(t *testing.T) 
 	for _, s := range stories {
 		byKey[s.Key] = s
 	}
-	if got := byKey["story-001"].OwnerGuidance; got != reply {
-		t.Fatalf("the resumed story carries the owner's reply: %q", got)
+	if got := byKey["story-001"]; got.OwnerGuidance != reply || got.OwnerQuestion != question {
+		t.Fatalf("the resumed story carries the worker's question and the owner's reply: %+v", got)
 	}
 	for _, key := range []string{"story-002", "story-003"} {
-		if got := byKey[key].OwnerGuidance; got != "" {
-			t.Fatalf("%s has no owner guidance: %q", key, got)
+		if got := byKey[key]; got.OwnerGuidance != "" || got.OwnerQuestion != "" {
+			t.Fatalf("%s has no owner guidance: %+v", key, got)
 		}
 	}
 	for _, r := range revisions {
@@ -281,6 +282,7 @@ func TestValidateStoriesCarryTheOwnerGuidanceOfTheImplementLedger(t *testing.T) 
 	prompt, err := validateReviewPrompt(ValidateReviewRequest{Role: "acceptance", Commit: strings.Repeat("a", 40), SnapshotID: "snap", Stories: stories})
 	mustProgress(t, err)
 	if !strings.Contains(prompt, "A story's owner_guidance is the owner's decision recorded during Implement") ||
+		!strings.Contains(prompt, "its owner_question, when present, is the worker's question that owner_guidance answers") ||
 		!strings.Contains(prompt, "as amended by that decision") || !strings.Contains(prompt, "cite the decision") ||
 		!strings.Contains(prompt, "never fail a criterion or classify a finding as blocking only because it differs from the frozen text in the way the owner approved") {
 		t.Fatalf("the prompt tells reviewers how to use owner guidance:\n%s", prompt)
@@ -292,13 +294,14 @@ func TestValidateStoriesCarryTheOwnerGuidanceOfTheImplementLedger(t *testing.T) 
 	mustProgress(t, json.Unmarshal([]byte(prompt[start+len("<validate-review>"):end]), &raw))
 	for _, s := range raw.Stories {
 		guidance, has := s["owner_guidance"]
+		asked, hasQuestion := s["owner_question"]
 		switch s["Key"] {
 		case "story-001":
-			if guidance != reply {
-				t.Fatalf("story-001's reviewer input holds the reply: %+v", s)
+			if guidance != reply || asked != question {
+				t.Fatalf("story-001's reviewer input holds the question and the reply: %+v", s)
 			}
 		default:
-			if has {
+			if has || hasQuestion {
 				t.Fatalf("a story without guidance serializes as before: %+v", s)
 			}
 		}
@@ -307,7 +310,7 @@ func TestValidateStoriesCarryTheOwnerGuidanceOfTheImplementLedger(t *testing.T) 
 	// The owner guidance changes nothing a reviewer's result is judged against.
 	plain := append([]ValidateStory(nil), stories...)
 	for i := range plain {
-		plain[i].OwnerGuidance = ""
+		plain[i].OwnerGuidance, plain[i].OwnerQuestion = "", ""
 	}
 	evidence := []ValidateEvidence{{ID: "suite-1-0", State: store.SuitePassed}}
 	with := validateReviewScope("acceptance", stories, "snap", strings.Repeat("cd", 32), evidence)
