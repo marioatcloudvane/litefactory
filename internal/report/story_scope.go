@@ -14,6 +14,7 @@ import (
 // prose cannot inject instructions into the bot's scope announcement.
 type StoryScopeNotice struct {
 	Parent      naming.Ref
+	ParentURL   string
 	Generation  int
 	Key, Digest string
 	Planning    bool
@@ -40,6 +41,12 @@ func (r *Reporter) RenderStoryScope(ctx context.Context, n StoryScopeNotice) (re
 		return redact.Body{}, fmt.Errorf("report: invalid scope notice")
 	}
 	parent := fmt.Sprintf("https://github.com/%s/%s/issues/%d", n.Parent.Owner, n.Parent.Repo, n.Parent.Issue)
+	if n.ParentURL != "" {
+		if !ticketBrowserURL(n.ParentURL) {
+			return redact.Body{}, fmt.Errorf("report: invalid parent browser link")
+		}
+		parent = n.ParentURL
+	}
 	body := fmt.Sprintf("Story %s is locked for implementation under parent %s, generation %d, approved revision `%s`. Later comments cannot change this approved scope. To reopen planning for unfinished stories, comment `replan` on the parent after the active run finishes. Completed stories remain completed; new scope needs a successor story.", n.Key, parent, n.Generation, n.Digest)
 	if n.Planning {
 		body = fmt.Sprintf("Planning is available again for unfinished story %s under parent %s, generation %d. Owner comments here refine that parent plan. Completed stories remain completed.", n.Key, parent, n.Generation)

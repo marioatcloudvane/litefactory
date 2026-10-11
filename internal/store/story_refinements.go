@@ -323,6 +323,6 @@ func (db *DB) AcknowledgeStoryRefinement(ctx context.Context, sessionID, comment
 	if ackID <= 0 {
 		return fmt.Errorf("store: acknowledgement id required")
 	}
-	_, err := db.sql.ExecContext(ctx, `INSERT INTO story_refinement_acks(session_id,comment_id,acknowledgement_id) VALUES(?,?,?) ON CONFLICT(session_id,comment_id) DO NOTHING`, sessionID, commentID, ackID)
+	_, err := db.sql.ExecContext(ctx, `INSERT INTO story_refinement_acks(session_id,comment_id,acknowledgement_id) VALUES(?,?,?) ON CONFLICT(session_id,comment_id) DO UPDATE SET acknowledgement_id=excluded.acknowledgement_id WHERE story_refinement_acks.acknowledgement_id=0`, sessionID, commentID, ackID)
 	return err
 }

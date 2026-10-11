@@ -95,13 +95,14 @@ func (s *AgentResultService) handleResult(ctx context.Context, q submission.Requ
 	case "submit":
 		r, err := s.Submit(ctx, q.RequestID, q.Payload)
 		if err != nil {
-			return nil, err
+			_, lookupErr := s.Receipt(ctx, s.binding.RunID, q.RequestID)
+			return resultFailure(q.Method, q.RequestID, s.binding, err, lookupErr)
 		}
 		return json.Marshal(r)
 	case "receipt":
 		r, err := s.Receipt(ctx, s.binding.RunID, q.RequestID)
 		if err != nil {
-			return nil, err
+			return resultFailure(q.Method, q.RequestID, s.binding, err, err)
 		}
 		return json.Marshal(r)
 	default:

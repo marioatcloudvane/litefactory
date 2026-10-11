@@ -58,7 +58,7 @@ func (f *cliUpgradeHTTP) serve(w http.ResponseWriter, r *http.Request) {
 	case "/user":
 		value = map[string]any{"id": f.botID, "login": "renamed-bot"}
 	case "/repos/owner/repo/issues/2/parent", "/repos/owner/repo/issues/1":
-		value = map[string]any{"id": 100, "number": 1, "title": "Parent", "state": "open", "user": map[string]any{"id": 42}}
+		value = map[string]any{"id": 100, "number": 1, "url": "http://" + r.Host + "/repos/owner/repo/issues/1", "html_url": "http://" + r.Host + "/owner/repo/issues/1", "title": "Parent", "state": "open", "user": map[string]any{"id": 42}}
 	case "/repos/owner/repo/issues/2":
 		if r.Method == http.MethodPatch {
 			var update struct {
@@ -71,7 +71,7 @@ func (f *cliUpgradeHTTP) serve(w http.ResponseWriter, r *http.Request) {
 			f.body = update.Body
 			f.writes++
 		}
-		value = map[string]any{"id": 200, "number": 2, "title": "US-001", "body": f.body, "state": "open", "user": map[string]any{"id": 9}}
+		value = map[string]any{"id": 200, "number": 2, "url": "http://" + r.Host + "/repos/owner/repo/issues/2", "html_url": "http://" + r.Host + "/owner/repo/issues/2", "title": "US-001", "body": f.body, "state": "open", "user": map[string]any{"id": 9}}
 	default:
 		http.Error(w, "unexpected endpoint "+r.URL.Path, http.StatusNotFound)
 		return

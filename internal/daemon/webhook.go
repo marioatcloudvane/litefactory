@@ -359,7 +359,7 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 		// hinted read takes the operational lane: a token and real quota left,
 		// not the discovery share, floor or head-of-line queue.
 		issue, err := doctorCall(ctx, d, func(ctx context.Context) (github.Issue, error) {
-			return d.forge.GetIssue(ctx, q.forgeRepo, hint.number)
+			return d.readIssue(ctx, q.forgeRepo, hint.number)
 		})
 		switch {
 		case errors.Is(err, ErrDiscoveryDeferred):

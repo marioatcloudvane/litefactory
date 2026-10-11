@@ -511,7 +511,7 @@ func (d *Daemon) discover(
 		if err := d.discoveryProbe(ctx, forgeRepo); err != nil {
 			return nil, err
 		}
-		issues, err := discoveryCall(ctx, d, discoveryKey(forgeRepo, "issues", 0), discoveryListBound, func(ctx context.Context) ([]github.Issue, error) { return d.forge.ListIssues(ctx, forgeRepo, since) })
+		issues, err := discoveryCall(ctx, d, discoveryKey(forgeRepo, "issues", 0), discoveryListBound, func(ctx context.Context) ([]github.Issue, error) { return d.discoverIssues(ctx, forgeRepo, since) })
 		if errors.Is(err, ErrDiscoveryDeferred) {
 			deferred, repoDeferred = true, true
 		} else if err != nil {
@@ -685,6 +685,9 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 	if err != nil {
 		return nil, fmt.Errorf("find the task for %s#%d: %w", q.forgeRepo, issue.Number, err)
 	}
+	if err := d.bindObservedIssue(ctx, session.ID, q.forgeRepo, issue); err != nil {
+		return nil, err
+	}
 	// Parsed on the Tick goroutine, like everything else that names a task: the
 	// ref is what a task's logger is decorated with, and a worker that had to
 	// derive its own identity before it could report a failure would have
@@ -851,7 +854,7 @@ func (d *Daemon) commentedIssues(
 	listed []github.Issue,
 ) ([]github.Issue, error) {
 	repo := q.forgeRepo
-	numbers, err := discoveryCall(ctx, d, discoveryKey(repo, "commented", 0), discoveryListBound, func(ctx context.Context) ([]int, error) { return d.forge.ListCommentedIssues(ctx, repo, since) })
+	numbers, err := discoveryCall(ctx, d, discoveryKey(repo, "commented", 0), discoveryListBound, func(ctx context.Context) ([]int, error) { return d.discoverCommented(ctx, repo, since) })
 	if err != nil {
 		return nil, fmt.Errorf("list the comments of %s written since %s: %w",
 			repo, since.UTC().Format(time.RFC3339), err)
@@ -1292,7 +1295,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		}
 		var fetched github.Issue
 		if len(pending) > 0 {
-			fetched, err = d.forge.GetIssue(ctx, c.forgeRepo, c.session.IssueNumber)
+			fetched, err = d.readIssue(ctx, c.forgeRepo, c.session.IssueNumber)
 		} else {
 			fetched, err = d.discoveryIssue(ctx, c.forgeRepo, c.session.IssueNumber)
 		}
@@ -1301,6 +1304,9 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 				c.forgeRepo, c.session.IssueNumber, err)
 		}
 		issue = fetched
+	}
+	if err := d.bindObservedIssue(ctx, c.session.ID, c.forgeRepo, issue); err != nil {
+		return nil, err
 	}
 	if issue.State == "closed" {
 		cleared, err := d.cancelClosedIssueGraphs(ctx, c.session.ID, tickAt)
@@ -1349,7 +1355,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 func (d *Daemon) taskComments(ctx context.Context, t *task, after int64) ([]github.Comment, error) {
 	if t.hinted {
 		return doctorCall(ctx, d, func(ctx context.Context) ([]github.Comment, error) {
-			return d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, after)
+			return d.readComments(ctx, t.forgeRepo, t.issue.Number, after)
 		})
 	}
 	return d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, after)
@@ -1810,6 +1816,10 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 // on a later tick — including a rate limit, which arms the backoff where it was
 // met and then leaves by that same door. See [Daemon.leave].
 func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) error {
+	qualifiedReply, err := d.qualifyReply(ctx, t.session.ID, c)
+	if err != nil {
+		return err
+	}
 	if held, e := d.doctorHeldSession(ctx, t.session.ID); e != nil {
 		return e
 	} else if held {
@@ -1830,7 +1840,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	// (D-I, AC-2.14). Everything is recorded, including litefactory's own
 	// comments: a dropped comment that left no trace cannot be told from one
 	// that was never fetched.
-	admission, err := d.filter.Admit(ctx, t.session.ID, c)
+	admission, err := d.admitReply(ctx, t.session.ID, c, qualifiedReply)
 	if err != nil {
 		return fmt.Errorf("classify comment %d on task %s: %w", c.ID, t.ref, err)
 	}
@@ -2080,7 +2090,7 @@ func (d *Daemon) replySchedule(
 // acknowledge adds the 👀 reaction to a comment litefactory is about to act on
 // (AC-2.17).
 func (d *Daemon) acknowledge(ctx context.Context, t *task, commentID int64) {
-	if err := d.forge.AddCommentReaction(ctx, t.forgeRepo, commentID, github.ReactionEyes); err != nil {
+	if err := d.reactToComment(ctx, t.forgeRepo, t.issue.Number, commentID, github.ReactionEyes); err != nil {
 		t.log.WarnContext(ctx, "could not acknowledge the comment with a reaction; carrying on",
 			slog.Int64("comment_id", commentID),
 			slog.Any("error", err))

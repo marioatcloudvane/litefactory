@@ -38,7 +38,18 @@ func configureDoctorNative(ctx context.Context, service *doctor.Service, env *En
 		if token, resolveErr := (secrets.Resolver{Keychain: env.Keychain}).Resolve(ctx, ref); resolveErr == nil {
 			service.Redactor = redact.New(redact.Options{Logger: env.Logger, Token: token, Environ: environ})
 			if client, clientErr := github.New(github.Options{APIBase: cfg.Providers.GitHub.APIBase, Token: token, Logger: env.Logger, UserAgent: initUserAgent(env)}); clientErr == nil {
-				service.Comments = client
+				tickets, ticketErr := github.NewTickets(client)
+				if ticketErr != nil {
+					return ticketErr
+				}
+				bot, botErr := service.DB.GetIdentity(ctx, store.ForgeGitHub, store.RoleBot)
+				if botErr == nil {
+					workflow, workflowErr := turn.NewGitHubTicketWorkflow(service.DB, tickets, bot.UserID)
+					if workflowErr != nil {
+						return workflowErr
+					}
+					service.Comments = workflow
+				}
 			}
 		}
 	}

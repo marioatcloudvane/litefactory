@@ -89,6 +89,14 @@ func runStoryContractUpgrade(ctx context.Context, env *Env, parent string, apply
 	if bot.ID != ids.BotUserID {
 		return Preconditionf("configured credential does not match the stored numeric bot identity")
 	}
+	tickets, err := github.NewTickets(forge)
+	if err != nil {
+		return err
+	}
+	ticketWorkflow, err := turn.NewGitHubTicketWorkflow(db, tickets, ids.BotUserID)
+	if err != nil {
+		return err
+	}
 	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{}), Limit: planbrief.MaxStoryBodyBytes})
 	if err != nil {
 		return err
@@ -100,7 +108,7 @@ func runStoryContractUpgrade(ctx context.Context, env *Env, parent string, apply
 	if !retained {
 		scope = planbrief.TaskOwnerScope()
 	} // This command upgrades explicit historical contracts.
-	o := turn.StoryContractUpgradeOptions{DB: db, Forge: forge, Renderer: renderer, Parent: ref, OwnerID: ids.OwnerUserID, Scope: scope, LockDir: filepath.Dir(paths.DBPath())}
+	o := turn.StoryContractUpgradeOptions{DB: db, Forge: ticketWorkflow, Renderer: renderer, Parent: ref, OwnerID: ids.OwnerUserID, Scope: scope, LockDir: filepath.Dir(paths.DBPath())}
 	p, err := turn.PreviewStoryContractUpgrade(ctx, o)
 	if err != nil {
 		return err

@@ -25,6 +25,10 @@ func (f *commentObservation) ListCommentsPage(ctx context.Context, r github.Repo
 	return out, err
 }
 
+func (f *commentObservation) BindPublication(ctx context.Context, key string, sessionID int64, ref naming.Ref, botID int64) error {
+	return bindPublicationDestination(ctx, f.CommentForge, key, sessionID, ref, botID)
+}
+
 type creationObservation struct {
 	CreationForge
 	next int

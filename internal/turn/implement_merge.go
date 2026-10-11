@@ -208,7 +208,7 @@ func (h ImplementMergeActivity) postMergedNote(ctx context.Context, a ImplementA
 	if body.Truncated() {
 		return errors.New("merge note was truncated")
 	}
-	if _, err := h.b.Forge.PostComment(ctx, repo, story.IssueNumber, body); err != nil {
+	if _, err := postTicketNotice(ctx, h.b.Forge, report.StoryMergedMarker(a.Parent, story.Key, commit), a.Parent.String(), 0, repo, story.IssueNumber, body); err != nil {
 		return fmt.Errorf("post merge note: %w", err)
 	}
 	return nil

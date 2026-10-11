@@ -1,0 +1,8 @@
+--- FAIL: TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase (0.20s)
+    archive_integration_test.go:54: problems [session_ticket_identities is not classified] <nil>
+2026/10/11 12:41:16 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen3391469111/001/litefactory.db
+--- FAIL: TestArchiveRegistryProblems_MigratedDatabaseIsClean (1.50s)
+    archive_unit_test.go:59: registry problems: [session_ticket_identities is not classified]
+2026/10/11 12:44:33 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants1781982439/001/litefactory.db
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	214.243s

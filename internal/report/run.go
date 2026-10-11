@@ -70,10 +70,11 @@ type Run struct {
 	// Meter contains prepared frozen metering values, independent of legacy
 	// cost. It is retained as an input even though the run comment no longer
 	// renders it.
-	Meter            *MeterSummary
-	Recovery         *Recovery
-	SourceStoryIssue int
-	SourceCommentID  int64
+	Meter                           *MeterSummary
+	Recovery                        *Recovery
+	SourceStoryIssue                int
+	SourceCommentID                 int64
+	SourceParentURL, SourceReplyURL string
 	// Ref is the task this run belongs to. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -560,7 +561,7 @@ func describeRunOutcome(run Run) outcomeView {
 func fixedSection(run Run, view outcomeView) string {
 	var b strings.Builder
 	b.WriteString(StatusMarker(run.Ref, run.Ordinal))
-	b.WriteString(storySource(run.Ref, run.SourceStoryIssue, run.SourceCommentID))
+	b.WriteString(storySource(run.Ref, run.SourceStoryIssue, run.SourceCommentID, run.SourceParentURL, run.SourceReplyURL))
 	b.WriteString(sectionGap)
 	fmt.Fprintf(&b, "### litefactory · run %d · %s", run.Ordinal, view.word)
 	if view.alert != "" {

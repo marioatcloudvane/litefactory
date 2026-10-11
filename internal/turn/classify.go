@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // MarkerPrefix is the literal every outbound litefactory comment body starts
@@ -99,6 +100,9 @@ const (
 // be a bug: GitHub lets an account be renamed, so a handle is a label with a
 // forwarding address, while the numeric id is the account (D-I).
 type Identities struct {
+	// TicketOrigin qualifies legacy numeric identities from trusted configuration.
+	// Empty retains the public GitHub legacy default.
+	TicketOrigin ticket.Origin
 	// OwnerUserID is the numeric id of the human whose comments are
 	// instructions.
 	OwnerUserID int64
@@ -117,6 +121,15 @@ type Identities struct {
 // account that is both owner and bot reads its own reports as instructions —
 // the loop this whole task exists to prevent (AC-0.6).
 func (i Identities) Validate() error {
+	if i.TicketOrigin != "" {
+		origin, err := ticket.CanonicalOrigin(string(i.TicketOrigin))
+		if err != nil {
+			return err
+		}
+		if origin != i.TicketOrigin {
+			return errors.New("turn: identity origin is not canonical")
+		}
+	}
 	switch {
 	case i.OwnerUserID == 0:
 		return errors.New("turn: identities: owner user id is not known; run `litefactory init`")
@@ -243,34 +256,9 @@ func (f *Filter) Identities() Identities { return f.identities }
 // and an author, and [Filter.Admit]'s refusal of a zero comment id stands. See
 // `.aiteam/AC_AMENDMENTS.md`.
 func (f *Filter) Classify(c github.Comment) Verdict {
-	if reason := f.selfReason(c); reason != SelfReasonNone {
-		return Verdict{Classification: store.ClassificationSelf, SelfReason: reason}
-	}
-	if f.identities.OwnerUserID != 0 && c.Author.ID == f.identities.OwnerUserID {
-		return Verdict{Classification: store.ClassificationInstruction}
-	}
-	return Verdict{Classification: store.ClassificationThirdParty}
-}
-
-// selfReason is the whole self-filter: one code path, three conditions, any of
-// which is sufficient (S-8). They are ordered by how much they explain — the
-// id match is the true statement about who wrote it, the marker is the fallback
-// that survives the ids being wrong.
-//
-// The id comparison is guarded on a non-zero bot id so that the zero id GitHub
-// reports for a deleted account cannot match an unknown bot and quietly drop
-// every such comment.
-func (f *Filter) selfReason(c github.Comment) SelfReason {
-	switch {
-	case f.identities.BotUserID != 0 && c.Author.ID == f.identities.BotUserID:
-		return SelfReasonBotUserID
-	case c.Author.IsBot:
-		return SelfReasonForgeBot
-	case HasMarker(c.Body):
-		return SelfReasonMarker
-	default:
-		return SelfReasonNone
-	}
+	// Explicit legacy boundary: these observations come from the configured
+	// GitHub client. Neutral callers carry qualification in the reply itself.
+	return f.ClassifyReply(ticket.Reply{Author: ticket.Actor{Identity: f.actorIdentity(c.Author.ID), Handle: c.Author.Login, IsBot: c.Author.IsBot}, Body: c.Body})
 }
 
 // Admission is a classified, recorded comment.
