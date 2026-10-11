@@ -200,7 +200,9 @@ func TestAskOwnerJourney(t *testing.T) {
 			t.Fatalf("background step: %t %v", more, err)
 		}
 		row, err := db.ReadChatReply(ctx, "discord", id)
-		if err != nil || row.State != "confirmed" || row.Question != "" || row.ProjectOption != "" || len(row.Arguments) != 0 {
+		// A delivered /ask turn may keep its question for local history;
+		// generic arguments are never archived.
+		if err != nil || row.State != "confirmed" || len(row.Arguments) != 0 {
 			t.Fatalf("temporary text retained: %+v %v", row, err)
 		}
 		mu.Lock()

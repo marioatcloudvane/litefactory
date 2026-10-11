@@ -65,6 +65,9 @@ type ImplementStory struct {
 	// GuidanceQuestion is the park reason (the worker's question) that
 	// Guidance answered, kept when the story is resumed.
 	GuidanceQuestion string
+	// Deviations are the decisions the worker's accepted completed answer
+	// recorded where the plan was silent, one per line, or empty.
+	Deviations string
 }
 
 // MaxImplementAttempts is the failed attempts a story may record: the first
@@ -117,7 +120,7 @@ func validImplementMove(from, to string) bool {
 	return false
 }
 
-const implementColumns = `parent,generation,story_key,position,branch,state,reason,merge_commit,revision,created_at,updated_at,state_at,attempts,park_origin,worker_session,last_failure,guidance,guidance_question`
+const implementColumns = `parent,generation,story_key,position,branch,state,reason,merge_commit,revision,created_at,updated_at,state_at,attempts,park_origin,worker_session,last_failure,guidance,guidance_question,deviations`
 
 // EnsureImplementStories adds a waiting row for every seed the ledger does not
 // hold yet and leaves existing rows untouched, so it is safe to repeat.
@@ -256,7 +259,7 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 func scanImplementStory(row scanner) (ImplementStory, error) {
 	var s ImplementStory
 	var created, updated, stateAt string
-	if err := row.Scan(&s.Parent, &s.Generation, &s.Key, &s.Position, &s.Branch, &s.State, &s.Reason, &s.MergeCommit, &s.Revision, &created, &updated, &stateAt, &s.Attempts, &s.ParkOrigin, &s.WorkerSession, &s.LastFailure, &s.Guidance, &s.GuidanceQuestion); err != nil {
+	if err := row.Scan(&s.Parent, &s.Generation, &s.Key, &s.Position, &s.Branch, &s.State, &s.Reason, &s.MergeCommit, &s.Revision, &created, &updated, &stateAt, &s.Attempts, &s.ParkOrigin, &s.WorkerSession, &s.LastFailure, &s.Guidance, &s.GuidanceQuestion, &s.Deviations); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ImplementStory{}, ErrNotFound
 		}
@@ -303,6 +306,28 @@ func (db *DB) SetImplementWorkerSession(ctx context.Context, parent string, gene
 	n, err := res.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("store: set implement worker session: %w", err)
+	}
+	if n == 0 {
+		return ErrImplementConflict
+	}
+	return nil
+}
+
+// SetImplementDeviations replaces the deviations kept for a running story with
+// those of its worker's accepted completed answer, so a re-completed story never
+// keeps an earlier list. It refuses a row that is not running and leaves the
+// row's revision alone so it never races a guarded move.
+func (db *DB) SetImplementDeviations(ctx context.Context, parent string, generation int64, key, deviations string, at time.Time) error {
+	if strings.TrimSpace(parent) == "" || generation < 1 || strings.TrimSpace(key) == "" || len(deviations) > maxImplementGuidance || at.IsZero() {
+		return errors.New("store: invalid implement deviations")
+	}
+	res, err := db.sql.ExecContext(ctx, `UPDATE implement_stories SET deviations=?,updated_at=? WHERE parent=? AND generation=? AND story_key=? AND state=?`, deviations, FormatTime(at), parent, generation, key, ImplementRunning)
+	if err != nil {
+		return fmt.Errorf("store: set implement deviations: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store: set implement deviations: %w", err)
 	}
 	if n == 0 {
 		return ErrImplementConflict

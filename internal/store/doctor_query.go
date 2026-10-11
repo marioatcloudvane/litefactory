@@ -21,7 +21,10 @@ const (
 	// DoctorQueryTimeout includes connection acquisition and query execution.
 	// The doctor runs on the factory host while agents and test suites load
 	// it, so the bound must stay above opening a fresh read-only connection there.
-	DoctorQueryTimeout = 5 * time.Second
+	// It is sized for -race test suites on a heavily loaded host, and stays below
+	// the doctor broker's 30-second RequestTimeout (internal/doctor/broker.go) so
+	// a slow query is reported as a tool error, not as a broker failure.
+	DoctorQueryTimeout = 20 * time.Second
 )
 
 // DoctorQueryResult is bounded readback, never a writable database capability.

@@ -203,8 +203,12 @@ func prepare(
 		}
 	}
 	// A story worker resolves a conflict with its feature branch itself: the
-	// factory starts the merge and leaves the conflict for the worker.
-	storyMerge, err := startStoryMerge(ctx, storyWorker, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync)
+	// factory starts the merge and leaves the conflict for the worker. The
+	// Implement coordinator's own agent (the sync resolver) does the same for a
+	// conflict between the base branch and the feature branch, in the parent's
+	// worktree.
+	coordinatorAgent := req.mode() == "implement" && req.Workflow != agent.WorkflowBug && !storyWorker && req.researchDefinition != nil
+	storyMerge, err := startStoryMerge(ctx, storyWorker || coordinatorAgent, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync)
 	if err != nil {
 		return nil, err
 	}
@@ -1681,12 +1685,13 @@ func storyBaseBranch(ctx context.Context, opts Options, clone *git.Clone, sessio
 	return parent.Branch
 }
 
-// startStoryMerge gives a story worker its conflict with the feature branch as
-// work instead of refusing the run. On a blocked sync it starts merging
+// startStoryMerge gives a story worker its conflict with the feature branch, and
+// the Implement sync resolver its conflict with the base branch, as work instead
+// of refusing the run. On a blocked sync it starts merging
 // baseRef into the story branch and leaves the conflicts in the worktree; on a
 // later run that finds that merge still in progress (a deferred sync) it
 // reports the paths still unmerged. It returns nil when there is no such
-// conflict, and for every run that is not a story worker.
+// conflict, and for every run that is neither.
 func startStoryMerge(ctx context.Context, storyWorker bool, worktree *git.Worktree, baseRef, featureBranch string, sync syncResult) (*harness.DeferredSyncContext, error) {
 	if !storyWorker {
 		return nil, nil

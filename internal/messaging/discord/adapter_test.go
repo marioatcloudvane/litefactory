@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -210,5 +211,136 @@ func TestVerification(t *testing.T) {
 	}
 	if intake.admissions != 0 {
 		t.Fatal("verification reached intake")
+	}
+}
+
+// TestDeferredEdit covers the deferred acknowledgement followed by an edit of
+// @original: a 404 on a live handle retries the edit, 5xx retries, and 401 or
+// an expired handle falls back to the channel. Each Step logs one line.
+func TestDeferredEdit(t *testing.T) {
+	t.Parallel()
+	const edit = "/webhooks/1/interaction-secret/messages/@original"
+	for _, test := range []struct {
+		name    string
+		edits   []int
+		advance time.Duration
+		routes  []string
+		states  []string
+		status  []int
+		outcome []string
+	}{
+		{"404 then edit", []int{404, 200}, 0, []string{edit, edit}, []string{"pending", "confirmed"}, []int{404, 200}, []string{"retry", "confirmed"}},
+		{"500 then edit", []int{500, 200}, 0, []string{edit, edit}, []string{"pending", "confirmed"}, []int{500, 200}, []string{"retry", "confirmed"}},
+		{"401 falls back", []int{401}, 0, []string{edit, "/channels/3/messages"}, []string{"confirmed"}, []int{200}, []string{"confirmed"}},
+		{"expired handle falls back", nil, 15 * time.Minute, []string{"/channels/3/messages"}, []string{"confirmed"}, []int{200}, []string{"confirmed"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+			public, private, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			db, err := store.Open(ctx, filepath.Join(t.TempDir(), "chat.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := db.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			if err := db.Migrate(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.ReplaceHealthSnapshot(ctx, store.ListenerStatus{DaemonStartedAt: at.Add(-time.Hour), WrittenAt: at, LastHeartbeatStartedAt: at.Add(-time.Second)}, nil); err != nil {
+				t.Fatal(err)
+			}
+			var routes, contents []string
+			edits := append([]int(nil), test.edits...)
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var data struct {
+					Content string `json:"content"`
+					Nonce   string `json:"nonce"`
+					Enforce bool   `json:"enforce_nonce"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+					t.Error(err)
+				}
+				routes = append(routes, r.URL.Path)
+				contents = append(contents, data.Content)
+				if r.Method == http.MethodPatch {
+					if r.Header.Get("Authorization") != "" {
+						t.Error("edit sent bot credential")
+					}
+					code := edits[0]
+					edits = edits[1:]
+					w.WriteHeader(code)
+					return
+				}
+				if r.Header.Get("Authorization") != "Bot bot-secret" || !data.Enforce || data.Nonce == "" {
+					t.Error("fallback lacks token or enforced nonce")
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer api.Close()
+			now := at
+			adapter := discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("bot-secret"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return now }})
+			service := messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
+			var logs bytes.Buffer
+			service.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
+			w := signed(t, adapter.Handler(service), private, at, body("10", "3", "2", "health"))
+			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":5`) {
+				t.Fatalf("ack: %d %s", w.Code, w.Body)
+			}
+			now = at.Add(test.advance)
+			for i, want := range test.states {
+				logs.Reset()
+				more, err := service.Step(ctx, now)
+				if err != nil || !more {
+					t.Fatalf("step %d: %t %v", i, more, err)
+				}
+				r, err := db.ReadChatReply(ctx, "discord", "10")
+				if err != nil || r.State != want {
+					t.Fatalf("step %d row: %+v %v", i, r, err)
+				}
+				if want == "pending" {
+					if !r.NextAttemptAt.After(now) {
+						t.Fatalf("retry not scheduled later: %+v", r)
+					}
+					now = r.NextAttemptAt
+				}
+				lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+				if len(lines) != 1 {
+					t.Fatalf("step %d log lines: %q", i, logs.String())
+				}
+				var record struct {
+					Command, Outcome, Route string
+					Status                  int
+				}
+				if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+					t.Fatal(err)
+				}
+				route := "edit"
+				if strings.HasPrefix(routes[len(routes)-1], "/channels/") {
+					route = "channel"
+				}
+				if record.Command != "health" || record.Outcome != test.outcome[i] || record.Status != test.status[i] || record.Route != route {
+					t.Fatalf("step %d log: %s", i, lines[0])
+				}
+				if strings.Contains(lines[0], "Running:") || strings.Contains(lines[0], "interaction-secret") {
+					t.Fatalf("log carries reply or token: %s", lines[0])
+				}
+			}
+			if strings.Join(routes, ",") != strings.Join(test.routes, ",") {
+				t.Fatalf("routes: %v", routes)
+			}
+			for _, content := range contents {
+				if !strings.Contains(content, "Running: ") {
+					t.Fatalf("reply: %q", content)
+				}
+			}
+		})
 	}
 }

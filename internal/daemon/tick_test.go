@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -1387,4 +1390,85 @@ func assertClosedIssueWasLeftAlone(
 	if !strings.Contains(f.logs.String(), "skipping an issue that is not open") {
 		t.Errorf("the skip was not logged; a comment that starts nothing has to say why\nlogs:\n%s", f.logs)
 	}
+}
+
+// TestLowDiskHoldsDispatchUntilSpaceReturns: below min_free_disk_gb no
+// comment run or scheduled run starts, the shortage is logged with free and
+// required bytes, and the same owed work starts once space returns.
+func TestLowDiskHoldsDispatchUntilSpaceReturns(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Disk guard")
+	f.settle() // first sight creates the session and watermark
+
+	var free atomic.Uint64
+	free.Store(1 << 30)
+	f.daemon = f.newLowDiskDaemon(15<<30, func(path string) (uint64, error) {
+		if path != f.paths.Home() {
+			t.Errorf("free space read for %q, want LF_HOME %q", path, f.paths.Home())
+		}
+		return free.Load(), nil
+	})
+	due := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
+	if _, _, err := f.db.CreateOrGetSchedule(t.Context(), store.CreateScheduleParams{
+		SessionID: f.session().ID, SourceCommentID: 701, OwnerHandle: ownerLogin,
+		Payload: "/spike scheduled payload", DueAt: due,
+	}); err != nil {
+		t.Fatalf("create schedule: %v", err)
+	}
+	f.clock.advance(25 * time.Hour)
+	f.forge.addComment(testIssue, 40, owner(), "/spike add a health endpoint")
+
+	held := f.settle()
+	if held.Dispatched != 0 || len(f.turns.calls()) != 0 {
+		t.Fatalf("dispatched %d (%d turns) below the free disk threshold\nlogs:\n%s", held.Dispatched, len(f.turns.calls()), f.logs)
+	}
+	if held.Scheduled != 1 {
+		t.Fatalf("scheduled=%d, want the owed schedule still pending", held.Scheduled)
+	}
+	logs := f.logs.String()
+	if !strings.Contains(logs, "free disk space below threshold") ||
+		!strings.Contains(logs, "free_bytes=1073741824") || !strings.Contains(logs, "required_bytes=16106127360") {
+		t.Fatalf("low-disk warning missing free and required bytes\nlogs:\n%s", logs)
+	}
+
+	free.Store(20 << 30)
+	for i := 0; i < 3 && len(f.turns.calls()) < 2; i++ {
+		f.settle()
+	}
+	var texts []string
+	for _, c := range f.turns.calls() {
+		texts = append(texts, c.Command.Text)
+	}
+	if !slices.Contains(texts, "add a health endpoint") || !slices.Contains(texts, "scheduled payload") {
+		t.Fatalf("owed work after space returned = %q, want the comment and the schedule\nlogs:\n%s", texts, f.logs)
+	}
+}
+
+// newLowDiskDaemon rebuilds the fixture daemon with the free-disk guard.
+func (f *fixture) newLowDiskDaemon(minFree uint64, read func(string) (uint64, error)) *daemon.Daemon {
+	f.t.Helper()
+	d, err := daemon.New(daemon.Options{
+		DefaultAgent:     agent.Kind(store.AgentClaude),
+		ToolProfiles:     config.DefaultToolProfiles().Permissions,
+		Agents:           turn.RunnerSet{agent.Kind(store.AgentClaude): nil},
+		Classifiers:      map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}},
+		DB:               f.db,
+		Forge:            f.client,
+		Filter:           f.filter,
+		Turn:             f.turns,
+		Reporter:         f.reporter,
+		InstanceID:       "daemon-instance-test",
+		Interval:         testInterval,
+		Logger:           f.logger,
+		Now:              f.clock.Now,
+		ShutdownGrace:    500 * time.Millisecond,
+		MinFreeDiskBytes: minFree,
+		DiskPath:         f.paths.Home(),
+		FreeDiskBytes:    read,
+	})
+	if err != nil {
+		f.t.Fatalf("build the daemon: %v", err)
+	}
+	return d
 }

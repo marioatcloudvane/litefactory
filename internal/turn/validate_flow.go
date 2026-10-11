@@ -105,6 +105,11 @@ type ValidateStory struct {
 	// OwnerQuestion is the worker's question OwnerGuidance answered, kept on
 	// the ledger row at resume. It is set only together with OwnerGuidance.
 	OwnerQuestion string `json:"owner_question,omitempty"`
+	// Deviations are the decisions the story's worker made where the plan was
+	// silent, kept on its Implement ledger row from the accepted completed
+	// answer: what was chosen, why, file:line. Reviewers judge them; they never
+	// change Text, Revision or Criteria.
+	Deviations []string `json:"deviations,omitempty"`
 }
 
 // ValidateFlowBindings supplies the trusted run context the Validate steps need.

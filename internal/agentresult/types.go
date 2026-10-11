@@ -68,7 +68,12 @@ type Context struct {
 	ReviewRole string
 	// RepairRole is set only for the Validate repair node and enables the
 	// repair report; reviewers and every other node must not send one.
-	RepairRole          bool
+	RepairRole bool
+	// CoordinatorRole is set only for an Implement agent that runs on the
+	// parent's (coordinator's) session, such as the sync resolver. It works on
+	// the feature branch, not on a story, so its result names no story and a
+	// completed result needs no story scope.
+	CoordinatorRole     bool
 	PlanScope           planbrief.ContentScope
 	Stories             map[string]agent.ContributionStory
 	EngineeringComplete map[string]bool
@@ -287,7 +292,16 @@ type UserStory struct {
 type Implement struct {
 	Stories         []ImplementationStory          `json:"stories,omitempty"`
 	AggregateChecks *agent.EngineeringContribution `json:"aggregate_checks,omitempty"`
+	// Deviations are the decisions a story worker made where the plan was
+	// silent, one short line each: what was chosen, why, file:line.
+	Deviations []string `json:"deviations,omitempty"`
 }
+
+// Bounds of the deviations an Implement result may record.
+const (
+	MaxImplementDeviations     = 20
+	MaxImplementDeviationBytes = 500
+)
 
 // ImplementationStory reports work against an authorized frozen story.
 type ImplementationStory struct {

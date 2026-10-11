@@ -2,8 +2,32 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+
+	"github.com/cloudvane/litefactory/internal/git"
 )
+
+// retirementErrorAttrs names the failing Git step of a retirement error using
+// only structured CommandError fields. Raw error text and stderr are never
+// included because either can carry credentials or file contents.
+func retirementErrorAttrs(err error) []slog.Attr {
+	if err == nil {
+		return nil
+	}
+	var ce *git.CommandError
+	if !errors.As(err, &ce) {
+		return []slog.Attr{slog.String("git_step", "non_git")}
+	}
+	step := ""
+	if len(ce.Args) > 0 {
+		step = ce.Args[0]
+		if step == "worktree" && len(ce.Args) > 1 {
+			step += " " + ce.Args[1]
+		}
+	}
+	return []slog.Attr{slog.String("git_step", step), slog.Int("git_exit_code", ce.ExitCode), slog.Bool("git_timed_out", ce.TimedOut)}
+}
 
 // LogRetirement emits value-only evidence at default visibility. Never include
 // response bodies, file contents, URLs with credentials or raw command errors.
@@ -23,7 +47,8 @@ func LogRetirement(ctx context.Context, log *slog.Logger, sweep, phase string, p
 	if e.Error != nil || e.IssueError != "" {
 		level = slog.LevelWarn
 	}
-	log.LogAttrs(ctx, level, "retirement observation", attrs...)
+	observation := append(append([]slog.Attr(nil), attrs...), retirementErrorAttrs(e.Error)...)
+	log.LogAttrs(ctx, level, "retirement observation", observation...)
 	for _, decision := range e.Decisions {
 		decisionLevel := level
 		if decision.Action == "unknown" {

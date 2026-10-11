@@ -125,3 +125,43 @@ func TestRetirementGuardRevalidatesSafety(t *testing.T) {
 		})
 	}
 }
+
+// A ref deleted after the observation the guard was given is observed absence:
+// the guard succeeds without a mutation and the caller confirms absence.
+func TestRetirementGuardGoneAtDeletion(t *testing.T) {
+	for _, kind := range []string{"local_branch", "remote_branch"} {
+		t.Run(kind, func(t *testing.T) {
+			r := gittest.New(t)
+			branch := "lf/213-retire"
+			r.Git("branch", branch)
+			r.Git("push", "origin", branch)
+			b, err := Resolve(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			c, err := b.Open(t.Context(), r.Dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observation, err := ObserveRetirement(t.Context(), c, "", branch, "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observation.LocalSHA == "" || observation.RemoteSHA == "" {
+				t.Fatalf("fixture refs absent: %+v", observation)
+			}
+			if kind == "local_branch" {
+				r.Git("branch", "-D", branch)
+			} else {
+				r.Git("push", "origin", "--delete", branch)
+			}
+			if err := GuardedRetirement(t.Context(), c, observation, "main", kind); err != nil {
+				t.Fatalf("gone %s rejected: %v", kind, err)
+			}
+			absent, err := RetirementAbsent(t.Context(), c, "", branch, kind)
+			if err != nil || !absent {
+				t.Fatalf("absent=%v err=%v", absent, err)
+			}
+		})
+	}
+}

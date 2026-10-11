@@ -207,6 +207,14 @@ type Options struct {
 	// False disables automatic recovery without affecting manual schedules.
 	AutoResumeOnSessionLimit bool
 
+	// MinFreeDiskBytes holds every run dispatch while the DiskPath volume has
+	// less free space; owed work stays pending. 0 disables the guard.
+	MinFreeDiskBytes uint64
+	// DiskPath is the directory whose volume is measured, normally $LF_HOME.
+	DiskPath string
+	// FreeDiskBytes reads available bytes; nil uses the filesystem.
+	FreeDiskBytes func(path string) (uint64, error)
+
 	// ValidateAutoStart is the loaded validate.auto_start setting: when true the
 	// daemon starts Validate by itself for each finished Implement parent. The
 	// zero value keeps the start manual.
@@ -417,6 +425,9 @@ type Daemon struct {
 	instanceID          string
 	// Loaded once at startup, shared by dispatch and pending recovery cancellation.
 	autoResumeOnSessionLimit bool
+	minFreeDiskBytes         uint64
+	diskPath                 string
+	freeDiskBytes            func(path string) (uint64, error)
 	validateAutoStart        bool
 	validateHead             func(ctx context.Context, session store.Session) (string, error)
 	// toolProfiles and toolCeiling are the operator's tool configuration as it
@@ -530,6 +541,9 @@ func New(opts Options) (*Daemon, error) {
 		archive:                  opts.Archive,
 		housekeeping:             newHousekeeping(opts.Housekeeping, opts.Logger),
 		autoResumeOnSessionLimit: opts.AutoResumeOnSessionLimit,
+		minFreeDiskBytes:         opts.MinFreeDiskBytes,
+		diskPath:                 opts.DiskPath,
+		freeDiskBytes:            opts.FreeDiskBytes,
 		validateAutoStart:        opts.ValidateAutoStart,
 		validateHead:             opts.ValidateHead,
 		// Copied, like every other tool list that crosses a boundary in this

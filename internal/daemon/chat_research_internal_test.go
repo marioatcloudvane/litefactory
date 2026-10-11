@@ -179,7 +179,7 @@ func TestChatResearchOwnerJourney(t *testing.T) {
 	if replies()[len(replies())-1] != "answer recorded" {
 		t.Fatalf("answer: %v", replies())
 	}
-	if response := send("13", "answer", answer); !strings.Contains(response, "already answered") {
+	if response := send("13", "answer", answer); !strings.Contains(response, "already received") {
 		t.Fatalf("duplicate: %s", response)
 	}
 	researchRecoveryCheck(t, d.chatResearchNotes(ctx))

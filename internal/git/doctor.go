@@ -8,7 +8,9 @@ import (
 )
 
 // DoctorObservation contains bounded local worktree facts with no file contents.
-type DoctorObservation struct{ Head, Status, Unpushed string }
+// BranchHead is the last local origin task head when the local branch has no
+// commits absent from it, and the local Head otherwise.
+type DoctorObservation struct{ Head, BranchHead, Status, Unpushed string }
 
 // ObserveDoctor never fetches or writes the index. It verifies recorded branch
 // identity and disables optional locks, fsmonitor and untracked-cache writes.
@@ -51,6 +53,7 @@ func (b *Binary) ObserveDoctor(ctx context.Context, path, branch string) (Doctor
 		return out, err
 	}
 	out.Head = strings.TrimSpace(head)
+	out.BranchHead = out.Head
 	out.Status, err = run("status", "--porcelain", "-z", "--untracked-files=all", "--ignore-submodules=all")
 	if err != nil {
 		return out, err
@@ -63,6 +66,9 @@ func (b *Binary) ObserveDoctor(ctx context.Context, path, branch string) (Doctor
 	count, err := run("rev-list", "--count", strings.TrimSpace(remote)+".."+out.Head)
 	if err != nil {
 		return out, err
+	}
+	if strings.TrimSpace(count) == "0" {
+		out.BranchHead = strings.TrimSpace(remote)
 	}
 	out.Unpushed = strings.TrimSpace(count) + " local commits absent from last local origin task reference; no fetch performed"
 	return out, nil

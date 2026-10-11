@@ -174,6 +174,11 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 		}
 		req.Prompt += guidance
 	}
+	attemptGuidance, err := implementAttemptGuidance(req, a.Attrs, runner)
+	if err != nil {
+		return out, err
+	}
+	req.Prompt += attemptGuidance
 	if invocation.Observe != nil {
 		invocation.Observe(req)
 	}
@@ -205,6 +210,7 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 			}
 			cold.Prompt += guidance
 		}
+		cold.Prompt += attemptGuidance
 		cold.Path = agent.PathColdAfterResumeRefused
 		if invocation.Observe != nil {
 			invocation.Observe(cold)
@@ -427,4 +433,45 @@ func loadNodeOutput(ctx context.Context, db *store.DB, attemptID int64, scope ag
 		return agentresult.ResearchNode{}, resultDiagnosticError(d)
 	}
 	return node, nil
+}
+
+// implementDelegationRequest is the owner's standing request to the Implement
+// story worker. It travels in the user prompt, outside the untrusted handoff
+// note, because a host may withdraw delegation granted only in the role text.
+const implementDelegationRequest = "\nThe owner explicitly asks you to delegate this story's tasks to subagents (spawn_agent or your subagent tool) and to run them in parallel.\n"
+
+// implementAttemptGuidance is the fixed factory text an Implement agent node
+// gets in its user prompt: the story worker's delegation request, and for every
+// Implement node the attempt's wall-clock limit and that there is no other
+// budget. The limit is the runner's timeout, or the node's declared budget when
+// that is smaller; when neither is known the number is left out.
+func implementAttemptGuidance(req agent.Request, attrs map[string]string, runner any) (string, error) {
+	if req.Mode != string(agent.ModeImplement) || req.Workflow == agent.WorkflowBug {
+		return "", nil
+	}
+	var b strings.Builder
+	role := attrs["lf_agent_markdown"]
+	if req.Delivery != nil && req.Delivery.MainRole != "" {
+		role = req.Delivery.MainRole
+	}
+	if role == "story-worker" {
+		b.WriteString(implementDelegationRequest)
+	}
+	var limit time.Duration
+	if timed, ok := runner.(interface{ Timeout() time.Duration }); ok {
+		limit = timed.Timeout()
+	}
+	minutes, budgeted, err := graphexec.AgentBudget(attrs)
+	if err != nil {
+		return "", err
+	}
+	if budget := time.Duration(minutes) * time.Minute; budgeted && (limit <= 0 || budget < limit) {
+		limit = budget
+	}
+	if limit >= time.Minute {
+		fmt.Fprintf(&b, "\nThis attempt has a wall-clock limit of %d minutes; there is no other budget (no token, context or cost budget), so do not stop early for budget reasons.\n", int(limit/time.Minute))
+	} else {
+		b.WriteString("\nThis attempt has a wall-clock limit; there is no other budget (no token, context or cost budget), so do not stop early for budget reasons.\n")
+	}
+	return b.String(), nil
 }

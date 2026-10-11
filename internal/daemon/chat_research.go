@@ -286,6 +286,7 @@ func (d *Daemon) dispatchChatDiagnosis(ctx context.Context, at time.Time) {
 	go func() {
 		defer d.doctor.pool.done()
 		text := "diagnosis failed"
+		outcomeStatus := "error"
 		source := "chat:" + r.Transport + ":" + r.MessageID
 		d.chat.mu.Lock()
 		note := d.chat.notes[source]
@@ -330,6 +331,7 @@ func (d *Daemon) dispatchChatDiagnosis(ctx context.Context, at time.Time) {
 						summary, summaryErr := d.diagnosisSummary(ctx, c)
 						if summaryErr == nil {
 							text = summary
+							outcomeStatus = "success"
 						}
 					}
 				}
@@ -339,7 +341,7 @@ func (d *Daemon) dispatchChatDiagnosis(ctx context.Context, at time.Time) {
 			return
 		}
 		if safe, e := d.chat.redactor.Apply(context.WithoutCancel(ctx), text, 65536); e == nil {
-			if e = d.db.CompleteChatDiagnosis(context.WithoutCancel(ctx), r.Transport, r.MessageID, r.AnswerAttempts, safe.String(), time.Now()); e != nil {
+			if e = d.db.CompleteChatDiagnosisResult(context.WithoutCancel(ctx), r.Transport, r.MessageID, r.AnswerAttempts, safe.String(), time.Now(), outcomeStatus); e != nil {
 				d.log.WarnContext(ctx, "chat diagnosis completion failed")
 			}
 		} else {

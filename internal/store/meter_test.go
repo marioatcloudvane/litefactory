@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 func meterFixture(t *testing.T) (*DB, MeterAttempt) {
@@ -476,5 +478,84 @@ func TestMeterFilteredIdentityCollisionAndCancelledCollection(t *testing.T) {
 	}
 	if n != 7 {
 		t.Fatal("cancel lost subtotal")
+	}
+}
+
+// A finished attempt's coverage replaces the stale status recorded when its
+// invocation was registered before any usage was seen.
+func TestMeterFinishedAttemptStatusReplacesStaleInvocationStatus(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	s := testSession(t, db, 74)
+	r := testRun(t, db, s.ID, 124)
+	model := "priced-model"
+	var rates []MeterPriceRate
+	for _, dimension := range []string{"input_uncached", "output", "cache_read", "cache_write"} {
+		rates = append(rates, MeterPriceRate{CodingAgent: "claude", Model: model, Dimension: dimension, USDPerMillion: "1"})
+	}
+	if _, err := db.SetMeterPrices(ctx, "claude", model, rates); err != nil {
+		t.Fatal(err)
+	}
+	attempt := func(finish string) MeterAttempt {
+		t.Helper()
+		a, err := db.StartMeterAttempt(ctx, r.ID, "claude")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.RecordMeterEvent(ctx, a.ID, "claude", agent.UsageEvent{Invocation: &agent.UsageInvocation{AttemptID: a.ID, ID: "root", SourceID: "s", SourceInvocationID: "root", Coverage: agent.UsageCoverage{Status: agent.CollectionUnknown}}}); err != nil {
+			t.Fatal(err)
+		}
+		n, zero := int64(10), int64(0)
+		o := agent.UsageObservation{AttemptID: a.ID, SourceID: "s", EventKey: "one", InvocationID: "root", ActualModel: &model, ModelProvenance: "provider", Mode: agent.CounterIncremental, Scope: agent.UsageExclusive, Tokens: agent.TokenUsage{InputUncached: &n, Output: &zero, CacheRead: &zero, CacheWrite: &zero}, Coverage: agent.UsageCoverage{Status: agent.CollectionPartial}}
+		if err := db.RecordMeterEvent(ctx, a.ID, "claude", agent.UsageEvent{Observation: &o}); err != nil {
+			t.Fatal(err)
+		}
+		if finish != "" {
+			if err := db.FinishMeterAttempt(ctx, a.ID, "success", finish, "v", "stream-json", nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return a
+	}
+	partial, complete, running := attempt("partial"), attempt("complete"), attempt("")
+	silent, err := db.StartMeterAttempt(ctx, r.ID, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FinishMeterAttempt(ctx, silent.ID, "failure", "unknown", "", "", []string{"missing_evidence"}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := db.NewMeterSnapshot(ctx, MeterFilter{}, MeterSnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := snap.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	rows, err := snap.Next(ctx, 256)
+	if err != nil || len(rows) != 4 {
+		t.Fatalf("rows=%+v err=%v", rows, err)
+	}
+	for _, row := range rows {
+		switch row.AttemptID {
+		case silent.ID:
+			if row.CollectionStatus != "unknown" {
+				t.Fatalf("attempt without observations: %+v", row)
+			}
+		case partial.ID:
+			if row.CollectionStatus != "partial" || row.EstimatedUSD != nil {
+				t.Fatalf("finished partial: %+v", row)
+			}
+		case complete.ID:
+			if row.CollectionStatus != "complete" || row.EstimatedUSD == nil || *row.EstimatedUSD == "" {
+				t.Fatalf("finished complete: %+v", row)
+			}
+		case running.ID:
+			if row.CollectionStatus != "unknown" || row.EstimatedUSD != nil {
+				t.Fatalf("running attempt lost worst-of status: %+v", row)
+			}
+		}
 	}
 }

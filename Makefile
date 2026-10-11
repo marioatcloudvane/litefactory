@@ -5,6 +5,12 @@ PKGS    := ./...
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
+# -trimpath keeps worktree paths out of the Go build cache keys, so every task
+# worktree of the same commit reuses one set of cache entries instead of
+# compiling and caching its own copy. Exported so test, vet and lint inherit it.
+GOFLAGS += -trimpath
+export GOFLAGS
+
 # `check` runs its steps in order and stops at the first failure; running them
 # concurrently would interleave their output for no gain.
 .NOTPARALLEL:

@@ -95,9 +95,17 @@ func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 	if failed.Outcome != "failed" {
 		t.Fatalf("test failure classified %q: %s", failed.Outcome, failed.Reason)
 	}
-	infra := p.Run(t.Context(), worktree, config.BugCheckCommand{Argv: []string{"/bin/sh", "-c", "exit 7"}, TimeoutSeconds: 60}, noop)
-	if infra.Outcome != "blocked" {
-		t.Fatalf("infrastructure exit classified %q", infra.Outcome)
+	for _, code := range []string{"2", "7"} {
+		got := p.Run(t.Context(), worktree, config.BugCheckCommand{Argv: []string{"/bin/sh", "-c", "exit " + code}, TimeoutSeconds: 60}, noop)
+		if got.Outcome != "failed" || got.Reason != "project check reported test failure" {
+			t.Fatalf("exit %s classified %q: %s", code, got.Outcome, got.Reason)
+		}
+	}
+	for _, code := range []string{"127", "137"} {
+		infra := p.Run(t.Context(), worktree, config.BugCheckCommand{Argv: []string{"/bin/sh", "-c", "exit " + code}, TimeoutSeconds: 60}, noop)
+		if infra.Outcome != "blocked" {
+			t.Fatalf("infrastructure exit %s classified %q", code, infra.Outcome)
+		}
 	}
 	// Both children outlive the startup-inclusive timeout. Record their PIDs
 	// before waiting, so a timeout before the fixture starts cannot pass.

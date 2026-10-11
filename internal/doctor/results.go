@@ -52,8 +52,9 @@ func BindResults(ctx context.Context, db *store.DB, id string, e store.DoctorEvi
 		return nil, errors.New("doctor result evidence identity mismatch")
 	}
 	if e.Live {
-		// Live manifests carry no typed records; resolve proposal targets from
-		// the issue's current store rows, keeping the manifest's own gaps.
+		// Live manifests carry only the branch record; resolve the other
+		// proposal targets from the issue's current store rows, keeping the
+		// manifest's own gaps.
 		ref, err := naming.ParseRef(e.TaskRef)
 		if err != nil {
 			return nil, err
@@ -62,7 +63,7 @@ func BindResults(ctx context.Context, db *store.DB, id string, e store.DoctorEvi
 		if err != nil {
 			return nil, err
 		}
-		e.Records = snapshot.Records
+		e.Records = append(append([]store.DoctorEvidenceRecord(nil), e.Records...), snapshot.Records...)
 	}
 	e.Records = append([]store.DoctorEvidenceRecord(nil), e.Records...)
 	e.Gaps = append([]string(nil), e.Gaps...)
