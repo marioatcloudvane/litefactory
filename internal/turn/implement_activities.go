@@ -31,12 +31,14 @@ type ImplementStory struct {
 // ImplementAuthority is factory-only context for the Implement activities. It
 // is never decoded from agent text or node attributes: Stories are in plan
 // order and IntegrationBranch is the feature line stories merge into, never the
-// repository default branch.
+// repository default branch. BaseBranch is the repository's base branch the base
+// sync brings into the integration branch.
 type ImplementAuthority struct {
 	Parent            naming.Ref
 	Generation        int64
 	Stories           []ImplementStory
 	IntegrationBranch string
+	BaseBranch        string
 }
 
 func (a ImplementAuthority) validate() error {
@@ -101,7 +103,8 @@ type ImplementBindings struct {
 }
 
 // RegisterImplementActivities registers the three Implement factory activities
-// in both registries. It adds no workflow policy and no graph.
+// and the coordinator's binding of the generic base sync in both registries. It
+// adds no workflow policy and no graph.
 func RegisterImplementActivities(specs *graphexec.Registry, activities *ActivityRegistry, b ImplementBindings) error {
 	if specs == nil || activities == nil || b.DB == nil || b.Forge == nil || b.Redactor == nil || b.LockDir == "" || b.Repo == nil || b.Bind == nil {
 		return errors.New("implement activities require registries, store, forge, redactor, lock directory, repository and bind")
@@ -121,7 +124,29 @@ func RegisterImplementActivities(specs *graphexec.Registry, activities *Activity
 			return err
 		}
 	}
-	return nil
+	return RegisterSyncBase(specs, activities, agent.ModeImplement, SyncBaseBinding{Repo: b.Repo, Bind: b.implementSyncBase})
+}
+
+// implementSyncBase binds lf_sync_base for the Implement coordinator: the
+// working branch is the feature (integration) branch, the base is the
+// repository's base branch, and the lock is the parent's story progress lock the
+// merge step holds too.
+func (b ImplementBindings) implementSyncBase(ctx context.Context, opts Options, req ActivityRequest) (SyncBaseTarget, error) {
+	a, err := b.bind(ctx, opts, req)
+	if err != nil {
+		return SyncBaseTarget{}, err
+	}
+	parent := a.Parent.String()
+	return SyncBaseTarget{Working: a.IntegrationBranch, Base: a.BaseBranch, Lock: func(ctx context.Context) (func() error, bool, error) {
+		unlock, err := b.DB.LockStoryProgress(ctx, parent, b.LockDir)
+		if errors.Is(err, store.ErrStoryProgressBusy) {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		return unlock, true, nil
+	}}, nil
 }
 
 func (b ImplementBindings) now(opts Options) time.Time {

@@ -1,4 +1,4 @@
-// Package messaging admits read-only commands and manages transport-neutral replies.
+// Package messaging admits enabled owner commands and manages transport-neutral replies.
 package messaging
 
 import (
@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -44,18 +45,27 @@ type Argument struct {
 type CommandDefinition struct {
 	Name, Description string
 	Arguments         []Argument
+	// NaturalLanguage and Effect opt into suggestion routing, never execution.
+	NaturalLanguage bool
+	Effect          CommandEffect
 }
 
 // Target identifies a reply; Handle is opaque and credentials remain in the adapter.
-type Target struct{ Transport, MessageID, Channel, Handle string }
+type Target struct {
+	Transport, MessageID, Channel, Handle string
+	Protected                             bool
+}
 
 // Delivery describes confirmation or permanent/temporary failure. Route and
 // Status describe the last transport call for logging only.
 type Delivery struct {
 	Confirmed, Permanent bool
-	RetryAfter           time.Duration
-	Route                string
-	Status               int
+	// PromptID is the platform message identity, returned only on known delivery.
+	PromptID           string
+	AttachmentRejected bool
+	RetryAfter         time.Duration
+	Route              string
+	Status             int
 }
 
 // Transport supplies delivery and its outcome without service-specific types.
@@ -106,7 +116,10 @@ type Handler func(context.Context, Message, time.Time) (string, error)
 
 // Service owns one transport. A single daemon sender calls Step.
 type Service struct {
-	stepMu sync.Mutex
+	stepMu              sync.Mutex
+	presentationEnabled bool
+	replyModel          ReplyModel
+	replyHistory        ask.HistoryReader
 	// Protect sanitizes generated text before persistence and delivery.
 	Protect func(context.Context, string) (string, error)
 	// Logger records terminal failures without remote response bodies.
@@ -126,6 +139,7 @@ type Service struct {
 	privateOptions   map[string]map[string]string
 	drafter          *feature.Drafter
 	confirmer        FeatureConfirmer
+	interpreter      Interpreter
 }
 
 // New copies admission rules and registers help, health and status.
@@ -134,9 +148,9 @@ func New(db *store.DB, transport, owner string, channels []string, sender Transp
 	for _, c := range channels {
 		s.channels[c] = true
 	}
-	s.RegisterCommand(CommandDefinition{Name: "help", Description: "List factory commands"}, s.help)
-	s.RegisterCommand(CommandDefinition{Name: "health", Description: "Read factory health"}, s.health)
-	s.RegisterCommand(CommandDefinition{Name: "status", Description: "Read factory status"}, s.summary)
+	s.RegisterCommand(CommandDefinition{Name: "help", NaturalLanguage: true, Effect: ReadEffect, Description: "List factory commands"}, s.help)
+	s.RegisterCommand(CommandDefinition{Name: "health", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory health"}, s.health)
+	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory status"}, s.summary)
 	s.registerMeter()
 	return s
 }
@@ -168,12 +182,16 @@ func (s *Service) Declarations() []CommandDefinition {
 	return out
 }
 
-// ReplyLimit returns the transport's maximum reply length.
+// ReplyLimit reserves space for a raw label before paginating command results.
 func (s *Service) ReplyLimit() int {
+	limit := presentation.MessageLimit
 	if sender, ok := s.sender.(interface{ ReplyLimit() int }); ok && sender.ReplyLimit() > 0 {
-		return sender.ReplyLimit()
+		limit = sender.ReplyLimit()
 	}
-	return 2000
+	if s.presentationEnabled {
+		limit = max(1, limit-replySize("\n\nRaw result."))
+	}
+	return limit
 }
 
 // Commands returns stable registry names.
@@ -205,9 +223,13 @@ func (s *Service) Admit(ctx context.Context, m Message, at time.Time) (allowed, 
 		return false, false, nil
 	}
 	r := store.ChatReply{Transport: m.Transport, MessageID: m.ID, ChannelRef: m.Channel, Command: m.Command, Arguments: m.Arguments, CreatedAt: at}
+	if s.presentationEnabled {
+		r.PresentationState = "pending"
+	}
 	if m.Command == "ask" && (strings.TrimSpace(m.Arguments["question"]) == "" || len(m.Arguments["question"]) > 8192 || len(m.Arguments["project"]) > 256 || !validArguments(m.Arguments, []string{"question", "project"})) {
 		r.ReplyText = ask.TurnPrefix(m.Arguments["question"], m.Arguments["project"]) + "Please give a question up to 8192 bytes and an optional project up to 256 bytes."
 		r.Arguments = nil
+		r.OutcomeStatus = string(presentation.Refusal)
 	}
 	if m.Command == "answer" || m.Command == "diagnose" {
 		s.mu.Lock()
@@ -232,10 +254,18 @@ func (s *Service) Admit(ctx context.Context, m Message, at time.Time) (allowed, 
 	if m.Command == "draft" && (len(m.Arguments["note"]) > 2000 || len(m.Arguments["project"]) > 256 || !validArguments(m.Arguments, []string{"note", "project"})) {
 		r.ReplyText = "Please give a note up to 2000 bytes and optional project up to 256 bytes."
 		r.Arguments = nil
+		r.OutcomeStatus = string(presentation.Refusal)
 	}
 	if m.Command == "confirm" && (len(m.Arguments["code"]) != 8 || !validArguments(m.Arguments, []string{"code"})) {
 		r.ReplyText = "Please give the 8-character preview code with /confirm."
 		r.Arguments = nil
+		r.OutcomeStatus = string(presentation.Refusal)
+	}
+	if r.ReplyText != "" && s.Protect != nil {
+		r.ReplyText, err = s.Protect(ctx, r.ReplyText)
+		if err != nil {
+			return true, false, err
+		}
 	}
 	inserted, err = s.db.AdmitChatReply(ctx, r)
 	return true, inserted, err
@@ -253,6 +283,7 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	originalReply := r.ReplyText
 	if r.Command == "ask" || r.Command == "draft" || r.Command == "confirm" {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
@@ -262,9 +293,21 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		s.mu.Lock()
 		delete(s.privateOptions, r.Transport+":"+r.MessageID)
 		s.mu.Unlock()
+		r.OutcomeStatus = string(presentation.Uncertain)
+		if err = s.finishNaturalOutcome(ctx, r, "The request expired. Check the target for any prior effect before requesting it again.", at); err != nil {
+			return true, err
+		}
 		return true, s.finish(ctx, r, true, at)
 	}
+	if _, err = s.prepareNaturalExecution(ctx, &r, at); err != nil {
+		return true, err
+	}
 	text := r.ReplyText
+	if text != "" && text != originalReply {
+		if err = s.db.SaveChatReply(ctx, r, text); err != nil {
+			return true, err
+		}
+	}
 	if text == "" {
 		s.mu.RLock()
 		h := s.commands[r.Command]
@@ -282,6 +325,7 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 			}
 		case h == nil:
 			text = "unknown command, try /help"
+			r.OutcomeStatus = string(presentation.Refusal)
 		default:
 			s.mu.Lock()
 			if options, ok := s.privateOptions[r.Transport+":"+r.MessageID]; ok {
@@ -289,7 +333,12 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 				delete(s.privateOptions, r.Transport+":"+r.MessageID)
 			}
 			s.mu.Unlock()
-			text, err = h(ctx, Message{Transport: r.Transport, ID: r.MessageID, Channel: r.ChannelRef, Command: r.Command, Arguments: r.Arguments}, at)
+			handlerCtx, source := presentation.WithAssessment(ctx)
+			text, err = h(handlerCtx, Message{Transport: r.Transport, ID: r.MessageID, Channel: r.ChannelRef, Command: r.Command, Arguments: r.Arguments}, at)
+			r.OutcomeStatus = string(source.Status)
+			if source.RepoID > 0 {
+				r.ResolvedRepoID = source.RepoID
+			}
 			if errors.Is(err, errDeferredDiagnosis) {
 				return true, nil
 			}
@@ -307,10 +356,63 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 			return true, err
 		}
 	}
-	d := s.sender.Deliver(ctx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID}, text)
+	if err = s.finishNaturalOutcome(ctx, r, text, at); err != nil {
+		return true, err
+	}
+	if r.PresentationState == "pending" {
+		r, err = s.db.ReadChatReply(ctx, r.Transport, r.MessageID)
+		if err != nil {
+			return true, err
+		}
+		r, err = s.present(ctx, r, text)
+		if err != nil {
+			return true, err
+		}
+		text = r.ReplyText
+	}
+	target := Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID, Protected: r.Command == "natural"}
+	var d Delivery
+	if _, ok := s.sender.(ReplyTransport); !ok && r.ReplyAttachment != "" {
+		raw, e := inlineRaw(r)
+		if e != nil {
+			return true, s.finish(ctx, r, true, at)
+		}
+		if e = s.db.InlineChatPresentation(ctx, r, raw); e != nil {
+			return true, e
+		}
+		r.ReplyAttachment = ""
+		r.ReplyText = raw
+		text = raw
+	}
+	if rich, ok := s.sender.(ReplyTransport); ok && r.ReplyAttachment != "" {
+		d = rich.DeliverReply(ctx, target, presentation.Payload{Content: text, Attachment: &presentation.Attachment{Name: presentation.RawFilename, Content: r.ReplyAttachment}})
+	} else {
+		d = s.sender.Deliver(ctx, target, text)
+	}
+	if d.AttachmentRejected && r.ReplyAttachment != "" {
+		raw, inlineErr := inlineRaw(r)
+		if inlineErr != nil {
+			return true, s.finish(ctx, r, true, at)
+		}
+		if err = s.db.InlineChatPresentation(ctx, r, raw); err != nil {
+			return true, err
+		}
+		return true, s.retry(ctx, r, at, 0)
+	}
 	outcome, level := "retry", slog.LevelInfo
 	switch {
 	case d.Confirmed:
+		if r.Command == "natural" && d.PromptID != "" {
+			proposal, lookupErr := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.ChannelRef)
+			if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) {
+				return true, lookupErr
+			}
+			if lookupErr == nil && proposal.State == "awaiting_confirmation" && r.MessageID == "nl:"+proposal.SourceID {
+				if err = s.db.BindNaturalPrompt(ctx, proposal, d.PromptID); err != nil {
+					return true, err
+				}
+			}
+		}
 		outcome, err = "confirmed", s.db.FinishChatReply(ctx, r, false, at)
 	case d.Permanent:
 		outcome, level, err = "failed", slog.LevelWarn, s.db.FinishChatReply(ctx, r, true, at)
@@ -339,17 +441,17 @@ func retryAt(r store.ChatReply, at time.Time, hint time.Duration) time.Time {
 
 // Purge removes finished reply state after the retention window.
 func (s *Service) Purge(ctx context.Context, at time.Time) error {
-	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at))
+	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at), s.db.PurgeNaturalChat(ctx, at))
 }
-func (s *Service) help(_ context.Context, _ Message, _ time.Time) (string, error) {
-	return "/" + strings.Join(s.Commands(), ", /"), nil
+func (s *Service) help(ctx context.Context, _ Message, _ time.Time) (string, error) {
+	return assessed(ctx, "/"+strings.Join(s.Commands(), ", /"), presentation.Success)
 }
 func (s *Service) health(ctx context.Context, _ Message, at time.Time) (string, error) {
 	v, err := s.status.Read(ctx, at)
 	if err != nil {
 		return "", err
 	}
-	return healthText(v), nil
+	return assessed(ctx, healthText(v), presentation.Success)
 }
 func healthText(v Status) string {
 	age := "unknown"
@@ -372,7 +474,8 @@ func (s *Service) summary(ctx context.Context, _ Message, at time.Time) (string,
 	} else if v.DiscoveryPaused {
 		resume = "when fresh rate-limit data arrives"
 	}
-	return fmt.Sprintf("%s\nRuns in flight: %d. Pause reason: %s. Expected resume: %s.\n%s", healthText(v), v.RunsInFlight, reason, resume, v.Polling), nil
+	text := fmt.Sprintf("%s\nRuns in flight: %d. Pause reason: %s. Expected resume: %s.\n%s", healthText(v), v.RunsInFlight, reason, resume, v.Polling)
+	return assessed(ctx, text, presentation.Success)
 }
 
 func (s *Service) finish(ctx context.Context, r store.ChatReply, failed bool, at time.Time) error {
