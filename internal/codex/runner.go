@@ -473,7 +473,7 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	if req.Delivery != nil {
 		args = append(args, "--strict-config")
 		if req.Delivery.MainRole != "" {
-			instructions, err := mainInstructionOverride(req.Delivery.Root)
+			instructions, err := mainInstructionOverride(req.Delivery.Root, req.Delivery.Skills)
 			if err != nil {
 				return nil, agent.DeliveryRefusal(req, fmt.Errorf("%w: %w", agent.ErrInvalidRequest, err))
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"html"
 	"os"
 	"path/filepath"
@@ -14,9 +15,11 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 const implementCompletedJSON = `{"version":1,"response":"completed","result":{"outcome":"completed","comment":"The health endpoint is built and its tests pass.","payload":{"implement":{"stories":[]}}}}`
@@ -110,7 +113,114 @@ func TestImplementWorkerCompletedIsCommittedPushedAndOnlyThenDone(t *testing.T) 
 	}
 }
 
-func TestImplementWorkerBlockedAndIncompleteParkAtOnceWithTheirOwnReason(t *testing.T) {
+// implementWorkerResultOutcomes lists the outcomes worker_result returned in
+// the story's latest Implement instance, in order.
+func implementWorkerResultOutcomes(t *testing.T, f *fixture) []string {
+	t.Helper()
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	mustProgress(t, err)
+	var outcomes []string
+	for _, a := range attempts {
+		if a.Node == "worker_result" {
+			outcomes = append(outcomes, a.Outcome)
+		}
+	}
+	return outcomes
+}
+
+// runOwedImplementStages runs every owed graph dispatch of the worker, one per
+// Execute, as the daemon does, and returns how many ran.
+func runOwedImplementStages(t *testing.T, f *fixture, req Request) int {
+	t.Helper()
+	ran := 0
+	for ; ran < 10; ran++ {
+		dispatch, ok, err := f.db.NextFreshGraphDispatch(t.Context(), f.session.ID)
+		mustProgress(t, err)
+		if !ok {
+			return ran
+		}
+		reserved, ok, err := f.db.ReserveGraphDispatch(t.Context(), dispatch.ID, dispatch.DueAt)
+		if err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		next := req
+		next.Trigger.CommentID, next.Trigger.Body = reserved.TriggerID(), "Continue the workflow."
+		if _, err := Execute(t.Context(), f.opts, next); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Fatal("the worker kept owing dispatches")
+	return ran
+}
+
+func TestImplementWorkerBlockedParksAtOnceWithItsOwnReason(t *testing.T) {
+	calls := 0
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		submitLiveResult(t, req, implementBlockedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	runOwedImplementStages(t, f, req)
+	row := implementWorkerRow(t, f)
+	if calls != 1 || row.State != store.ImplementParked || row.ParkOrigin != store.ImplementOriginWorker || !strings.Contains(row.Reason, "payment API key") || row.Attempts != 0 {
+		t.Fatalf("an honest blocked answer parks at once without repairs: calls=%d %+v", calls, row)
+	}
+	if got := implementWorkerResultOutcomes(t, f); len(got) != 1 || got[0] != "blocked" {
+		t.Fatalf("worker_result outcomes = %v, want [blocked]", got)
+	}
+}
+
+func TestImplementWorkerIncompleteRetriesWithItsReasonThenParksWithItsOwnWords(t *testing.T) {
+	var prompts []string
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompts = append(prompts, req.Prompt)
+		submitLiveResult(t, req, strings.Replace(implementIncompleteJSON, "The second endpoint is not done.", fmt.Sprintf("Attempt %d left the second endpoint undone.", len(prompts)), 1))
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	if _, err := Execute(t.Context(), f.opts, req); err != nil {
+		t.Fatal(err)
+	}
+	row := implementWorkerRow(t, f)
+	if row.State != store.ImplementRunning || row.Attempts != 1 || !strings.Contains(row.LastFailure, "Attempt 1 left the second endpoint undone.") {
+		t.Fatalf("an incomplete answer counts one attempt with its reason: %+v", row)
+	}
+	runOwedImplementStages(t, f, req)
+	if len(prompts) != store.MaxImplementAttempts {
+		t.Fatalf("the first attempt and two repairs ran: %d", len(prompts))
+	}
+	for i, prompt := range prompts[1:] {
+		want := fmt.Sprintf("Attempt %d left the second endpoint undone.", i+1)
+		if !strings.Contains(prompt, "previous_failure") || !strings.Contains(prompt, want) || !strings.Contains(prompt, fmt.Sprintf(`"attempt":%d`, i+2)) {
+			t.Errorf("repair %d does not carry the earlier worker's reason %q:\n%s", i+1, want, prompt[max(0, len(prompt)-1500):])
+		}
+	}
+	if got := implementWorkerResultOutcomes(t, f); len(got) != 3 || got[0] != "incomplete" || got[2] != "incomplete" {
+		t.Fatalf("worker_result outcomes = %v, want three incomplete", got)
+	}
+	row = implementWorkerRow(t, f)
+	if row.State != store.ImplementParked || row.Attempts != store.MaxImplementAttempts || !strings.Contains(row.Reason, "The worker stopped with an incomplete answer: Attempt 3 left the second endpoint undone.") || strings.Contains(row.Reason, "attempt(s) in a row") {
+		t.Fatalf("the spent budget parks with the last worker's own words: %+v", row)
+	}
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	if instance.Status != store.GraphSucceeded || instance.CurrentNode != "worker_parked" {
+		t.Fatalf("three attempts and the park fit within the node limits: %+v", instance)
+	}
+}
+
+// TestImplementReleasedGraphStillParksStoppedAtOnce runs the released 1.2.5
+// graph, which declares completed,stopped: incomplete and blocked answers both
+// return stopped and park at once without counting an attempt.
+func TestImplementReleasedGraphStillParksStoppedAtOnce(t *testing.T) {
 	for name, tc := range map[string]struct{ json, reason string }{
 		"blocked":    {implementBlockedJSON, "payment API key"},
 		"incomplete": {implementIncompleteJSON, "second endpoint"},
@@ -123,13 +233,20 @@ func TestImplementWorkerBlockedAndIncompleteParkAtOnceWithTheirOwnReason(t *test
 				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
 			})
 			f, _, req := assembledImplementFixture(t, runner)
+			f.opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+				return fixtureInstalled(teamsource.CaptureWorkflow(ctx, os.DirFS("../../teams/go-development/v1.2.5/implement"), "implement.dot", "go-development", agent.ModeImplement, specs))
+			}
 			seedImplementStory(t, f)
 			if _, err := Execute(t.Context(), f.opts, req); err != nil {
 				t.Fatal(err)
 			}
+			runOwedImplementStages(t, f, req)
 			row := implementWorkerRow(t, f)
 			if calls != 1 || row.State != store.ImplementParked || row.ParkOrigin != store.ImplementOriginWorker || !strings.Contains(row.Reason, tc.reason) || row.Attempts != 0 {
-				t.Fatalf("an honest %s answer parks at once without repairs: calls=%d %+v", name, calls, row)
+				t.Fatalf("the released graph parks an honest %s answer at once: calls=%d %+v", name, calls, row)
+			}
+			if got := implementWorkerResultOutcomes(t, f); len(got) != 1 || got[0] != "stopped" {
+				t.Fatalf("worker_result outcomes = %v, want [stopped]", got)
 			}
 		})
 	}
@@ -988,4 +1105,40 @@ func mustParseRef(t *testing.T, ref string) naming.Ref {
 	parsed, err := naming.ParseRef(ref)
 	mustProgress(t, err)
 	return parsed
+}
+
+// timedLifecycleHost is a lifecycle host that reports its run timeout, as the
+// Claude and Codex runners do.
+type timedLifecycleHost struct {
+	lifecycleMCPHost
+	timeout time.Duration
+}
+
+func (h timedLifecycleHost) Timeout() time.Duration { return h.timeout }
+
+func TestImplementWorkerPromptAsksToDelegateAndStatesTheTimeLimitOutsideTheNote(t *testing.T) {
+	var prompt string
+	runner := timedLifecycleHost{timeout: 6 * time.Hour, lifecycleMCPHost: func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		prompt = req.Prompt
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "health.go"), []byte("package health\n"), 0o600))
+		submitLiveResult(t, req, implementCompletedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	}}
+	f, _, req := assembledImplementFixture(t, runner)
+	seedImplementStory(t, f)
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.Succeeded() {
+		t.Fatalf("%+v %v", out, err)
+	}
+	outside := prompt
+	if start, end := strings.Index(prompt, "<note>"), strings.LastIndex(prompt, "</note>"); start >= 0 && end > start {
+		outside = prompt[:start] + prompt[end+len("</note>"):]
+	}
+	for _, want := range []string{
+		"The owner explicitly asks you to delegate this story's tasks to subagents (spawn_agent or your subagent tool) and to run them in parallel.",
+		"This attempt has a wall-clock limit of 360 minutes; there is no other budget",
+	} {
+		if !strings.Contains(outside, want) {
+			t.Errorf("the worker prompt lacks %q outside the handoff note:\n%s", want, prompt)
+		}
+	}
 }

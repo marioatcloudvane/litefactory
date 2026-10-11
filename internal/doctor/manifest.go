@@ -24,6 +24,9 @@ type PathManifest struct {
 	Worktree       string    `json:"worktree"`
 	Tools          []string  `json:"tools"`
 	Gaps           []string  `json:"gaps"`
+	// Records holds only the branch synchronization record, captured as the
+	// repair recheck captures it, so sync_branch proposals bind.
+	Records []store.DoctorEvidenceRecord `json:"records,omitempty"`
 }
 
 func (s *Service) pathManifest(ctx context.Context, ref naming.Ref) (PathManifest, string, error) {
@@ -41,9 +44,15 @@ func (s *Service) pathManifest(ctx context.Context, ref naming.Ref) (PathManifes
 	if sources.LogsTruncated {
 		m.Gaps = append(m.Gaps, "Run log manifest includes only the latest 100 runs; query runs.log_path for earlier logs")
 	}
+	if !sources.SessionMissing && m.Worktree != "" {
+		branch := store.DoctorEvidence{}
+		s.collectBranchRecord(ctx, ref, &branch)
+		m.Records = branch.Records
+		m.Gaps = append(m.Gaps, branch.Gaps...)
+	}
 	return m, sources.Provider, nil
 }
 
 func (m PathManifest) evidenceIdentity() store.DoctorEvidence {
-	return store.DoctorEvidence{Live: m.Live, TaskRef: m.TaskRef, Gaps: m.Gaps}
+	return store.DoctorEvidence{Live: m.Live, TaskRef: m.TaskRef, Records: m.Records, Gaps: m.Gaps}
 }

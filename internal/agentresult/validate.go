@@ -192,6 +192,15 @@ func contribution(c agent.Contribution, ctx Context, p string, d *Diagnostics) {
 	mergeDiagnostics(d, cd, p)
 }
 func validateImplement(p *Implement, outcome string, ctx Context, d *Diagnostics) {
+	if len(p.Deviations) > MaxImplementDeviations {
+		add(d, "$.result.payload.implement.deviations", "limit", "at most 20 deviations", "too many deviations", "Keep only the decisions the plan did not settle, one line each.")
+	}
+	for i, v := range p.Deviations {
+		dp := fmt.Sprintf("$.result.payload.implement.deviations[%d]", i)
+		if strings.TrimSpace(v) == "" || strings.ContainsAny(v, "\r\n") || len(v) > MaxImplementDeviationBytes {
+			add(d, dp, "limit", "one nonblank line of at most 500 bytes", "invalid deviation", "Write each deviation as one short line: what was chosen, why, file:line.")
+		}
+	}
 	seen := map[string]bool{}
 	for i, s := range p.Stories {
 		sp := fmt.Sprintf("$.result.payload.implement.stories[%d]", i)

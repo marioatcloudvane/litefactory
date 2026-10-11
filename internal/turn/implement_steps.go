@@ -136,19 +136,61 @@ func (rt *implementRuntime) budget(ctx context.Context, opts Options, _ Activity
 	return implementResult(outcome, map[string]any{"attempts": row.Attempts, "max": store.MaxImplementAttempts})
 }
 
-// workerResult reads the worker's accepted answer: completed is saved, blocked
-// or incomplete parks. The answer is read back from the retained submission,
-// never from what the agent printed.
+// workerResult reports the worker's accepted answer as the outcome: completed,
+// incomplete or blocked when the node declares it, otherwise stopped, which a
+// released graph parks. An incomplete answer counts as a failed attempt with the
+// worker's own reason, so the next attempt receives it. The answer is read back
+// from the retained submission, never from what the agent printed.
 func (rt *implementRuntime) workerResult(ctx context.Context, opts Options, a ActivityRequest) (ActivityResult, error) {
 	node, err := rt.retainedAnswer(ctx, opts, a)
 	if err != nil {
 		return ActivityResult{}, err
 	}
 	outcome := "stopped"
-	if node.Response == agentresult.ImplementResponseCompleted {
+	if declared, ok := rt.definition.Profile.Node(a.Node); ok && slices.Contains(declared.Outcomes, node.Response) {
+		outcome = node.Response
+	} else if node.Response == agentresult.ImplementResponseCompleted {
 		outcome = "completed"
 	}
+	if outcome == agentresult.ImplementResponseCompleted {
+		if err := rt.keepDeviations(ctx, opts, node); err != nil {
+			return ActivityResult{}, err
+		}
+	}
+	if outcome == agentresult.ImplementResponseIncomplete {
+		row, err := rt.workerRow(ctx, opts)
+		if err != nil {
+			return ActivityResult{}, err
+		}
+		reason := "The worker stopped with an incomplete answer: " + clipText(strings.Join(strings.Fields(node.Result.Reason), " "), 400)
+		if _, err := opts.DB.RecordImplementFailure(ctx, row.Parent, row.Generation, row.Key, reason, rt.now()); err != nil {
+			return ActivityResult{}, err
+		}
+		rt.refreshStatus(ctx, opts)
+	}
 	return implementResult(outcome, map[string]any{"response": node.Response})
+}
+
+// keepDeviations stores the deviations of the accepted completed answer on the
+// story's ledger row, replacing any earlier list, so Validate's reviewers judge
+// them. A story that is no longer running kept those of the answer that moved it.
+func (rt *implementRuntime) keepDeviations(ctx context.Context, opts Options, node agentresult.ResearchNode) error {
+	if rt.worker == nil {
+		return errors.New("the step belongs to a story worker run")
+	}
+	var deviations []string
+	if p := node.Result.Payload.Implement; p != nil {
+		for _, d := range p.Deviations {
+			if d = strings.TrimSpace(d); d != "" {
+				deviations = append(deviations, d)
+			}
+		}
+	}
+	err := opts.DB.SetImplementDeviations(ctx, rt.worker.Parent, rt.worker.Generation, rt.worker.Key, strings.Join(deviations, "\n"), rt.now())
+	if errors.Is(err, store.ErrImplementConflict) {
+		return nil
+	}
+	return err
 }
 
 // retainedAnswer loads the retained accepted result of the worker attempt a node's
