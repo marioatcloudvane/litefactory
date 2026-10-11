@@ -7,42 +7,37 @@ Research how to make Discord command replies natural-language answers written by
 ## Decisions
 
 - **d1** — Reuse NativeModel with a new fast-tier, no-tools profile rather than adding a new provider path.
-- **d2** — Story split: narrator interface and fallback; native fast model with project-less metering; number/link checker; command wiring with paging and details option; daemon wiring, config switch, docs.
+- **d2** — Story split: narrator interface and fallback; native fast model with project-less metering; number/link checker; command wiring with paging and details option; intent step; daemon wiring, config switch, docs.
+- **d3** — Owner answers: strict verbatim number/link check (q1 c); narrate every command (q2); language follows latest /ask else English (q3 a).
+- **d4** — Natural-language intake is added via a reasoning, no-tools intent agent in the shared service; only enabled commands, validated parameters, clarify when unsure.
 
 
 ## Assumptions
 
-- **a1** — Narration lives in the transport-neutral messaging service, not the Discord adapter, so other transports reuse it.
-- **a2** — /question and /answer, and /help, are not narrated because exact tokens and command lists must stay verbatim.
+- **a1** — Narration and intent live in the transport-neutral messaging service, not the Discord adapter.
+- **a2** — Exact tokens and fixed strings in /question, /answer and /help replies are appended unchanged, outside the narrated text.
 - **a3** — Without free text the reply language follows the latest /ask turn, else English.
 - **a4** — On agent failure or failed number/link check the raw redacted text is sent, marked as raw.
+- **a5** — Intent uses the balanced tier; narration uses the fast tier.
 
 
 ## Open questions
 
-### q1 — How strict should the number and link check be?
+### q5 — Should free text be able to change things without asking first?
 
 _Asked of: Product Owner Questions_
 
-- **a** — Strict: every digit sequence and link must appear exactly in the raw data. Safest, but the agent cannot write "about 1.4 million" or "4 seconds" for 4s, so more replies fall back to raw.
-- **b** — Strict on links and IDs, tolerant on numbers: allow rounding and unit changes if the value matches the raw data within 1%. The agent can write natural numbers. The check is more complex.
-- **c** — Tell the agent to copy numbers verbatim and check strictly. Replies sound a bit more technical but rarely fall back.  *(recommended)*
+- **a** — Never: anything that changes state needs a plain yes after the bot repeats what it understood.  *(recommended)*
+- **b** — Only when the agent is very sure, and show an undo hint.
+- **c** — Always run it; no confirmation.
 
-### q2 — Which commands get narrated?
+### q4 — How should Discord deliver plain messages to the factory?
 
-_Asked of: Product Owner Questions_
+_Asked of: Technical Questions_
 
-- **a** — health, status, meter, prices and the finished diagnose report only.  *(recommended)*
-- **b** — As (a), plus /question as a sentence, with the token line kept exact and appended unchanged.
-- **c** — Everything except /help and /answer.
-
-### q3 — Which language is used when a command has no free text?
-
-_Asked of: Product Owner Questions_
-
-- **a** — The language of your latest /ask turn, else English.  *(recommended)*
-- **b** — A configured reply language, default English, no guessing.
-- **c** — Always English.
+- **a** — Add a live Discord connection (gateway) that reads messages where the bot is mentioned or in a dedicated channel. Needs the privileged message-content permission in the Discord developer settings. Real natural chat.
+- **b** — Keep HTTP only and add one slash command, `/chat <text>`. No new connection or permission, but users still type a slash.
+- **c** — Do (b) first, then (a) as a later story.  *(recommended)*
 
 ## Research documents
 

@@ -83,3 +83,12 @@ Issue #630 reports replies not delivered (row confirmed in 3 ms, deferred messag
 Evidence:
 
 - `internal/messaging/discord/adapter.go:249`
+
+## f10
+
+The Discord adapter is an HTTP interactions endpoint only: it parses signed interaction payloads and has no gateway connection, so it cannot receive plain channel messages today.
+
+Evidence:
+
+- `internal/messaging/discord/adapter.go:1`
+- `internal/messaging/discord/adapter.go:158`
