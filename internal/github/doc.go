@@ -1,14 +1,14 @@
 // Package github is litefactory's client for the GitHub REST API.
 //
-// # Concrete, not abstract
+// # Ticket and code boundaries
 //
-// This package exports a concrete [Client] and concrete result structs. There
-// is no Forge interface and no capability descriptor: the second forge is
-// LF-18's problem, and its protocol will be *extracted* from this working
-// implementation rather than guessed at in advance. A file named forge.go in
-// M0 is a review blocker. Adopting an SDK did not change this — a dependency
-// is not an abstraction, and [Client] wraps go-github as a struct rather than
-// hiding it behind an interface nobody has a second implementation for.
+// [Client] remains the concrete authenticated SDK transport. [Tickets] adapts
+// its ticket operations to internal/ticket values without a second HTTP client
+// or credential path. Consumers declare their own narrow interfaces; repository,
+// branch, PR and merge operations remain on Client and confer no ticket authority.
+// The adapter binds origins from trusted client configuration, verifies immutable
+// destinations before mutation and retains original errors and uncertainty.
+// Existing numeric reply ordering belongs in this GitHub compatibility boundary.
 //
 // # The SDK
 //

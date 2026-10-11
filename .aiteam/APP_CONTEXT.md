@@ -26,8 +26,10 @@ dispatch, exit code).
 Arrows point at what a package imports (litefactory packages only).
 
 ```
-config, naming, store, git, secrets, identity, launchd, logging, render,
+config, naming, ticket, git, secrets, identity, launchd, logging, render,
 gittest, planbrief, attach, schedule, webhook → leaves
+
+store         → ticket
 
 agent         → naming
 meter         → agent              pure normalization, reconciliation, capability diagnostics and exact pricing
@@ -71,6 +73,7 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | mark/clear/list a session that still owes the daemon a look | `internal/store` | `store/sessions.go`: `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions`; `daemon/tick.go:materialise` retires confirmed closed backlog |
 | build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
 | call the GitHub API | `internal/github` | Concrete `*Client` backed by go-github/v90; the method inventory is pinned in `internal/github/surface_test.go`. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
+| represent a qualified ticket identity or bind a legacy session | `internal/ticket`; `store/session_tickets.go` | Origin comes from trusted configuration; immutable ticket ID stays separate from its locator and historical task ref. `github.Tickets` is the adapter; existing workflow routing still needs migration |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Pure rendering; failed-run `agent.RunResult.Diagnostic` is sanitized, literal and bounded |
