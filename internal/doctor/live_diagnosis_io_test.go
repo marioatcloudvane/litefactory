@@ -13,7 +13,10 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
@@ -23,6 +26,20 @@ import (
 type liveProviderFixture struct {
 	t        *testing.T
 	manifest PathManifest
+}
+
+// promptManifest reads the path manifest from a prepared diagnosis prompt.
+func promptManifest(t *testing.T, prompt string) PathManifest {
+	t.Helper()
+	i := strings.Index(prompt, "\n{\"")
+	var prepared PromptContext
+	if i < 0 {
+		t.Fatal("missing JSON context")
+	}
+	if err := json.Unmarshal([]byte(prompt[i+1:]), &prepared); err != nil {
+		t.Fatal(err)
+	}
+	return prepared.Manifest
 }
 
 func (p *liveProviderFixture) DoctorIsolation(context.Context) (string, error) {
@@ -36,15 +53,7 @@ func (p *liveProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorReque
 	if !strings.Contains(r.Prompt, FieldGuide) || strings.Contains(r.Prompt, "untrusted_evidence") || strings.Contains(r.Prompt, "pre-read-canary") || strings.Contains(r.Prompt, "no filesystem, shell") {
 		p.t.Fatal("legacy evidence reached diagnosis prompt")
 	}
-	i := strings.Index(r.Prompt, "\n{\"")
-	var prepared PromptContext
-	if i < 0 {
-		p.t.Fatal("missing JSON context")
-	}
-	if err := json.Unmarshal([]byte(r.Prompt[i+1:]), &prepared); err != nil {
-		p.t.Fatal(err)
-	}
-	p.manifest = prepared.Manifest
+	p.manifest = promptManifest(p.t, r.Prompt)
 	data, err := os.ReadFile(p.manifest.DaemonLog)
 	if err != nil || !strings.Contains(string(data), "pre-read-canary") {
 		p.t.Fatalf("live log unavailable: %s %v", data, err)
@@ -90,7 +99,7 @@ func (p *liveProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorReque
 	if err != nil || comments.Error != "" || !strings.Contains(string(comments.Result), "live issue finding") {
 		p.t.Fatalf("live comments: %+v %v", comments, err)
 	}
-	diagnosis := Diagnosis{Findings: []Finding{{Explanation: "Live logs and the database retain the stuck case; the owner comment corroborates it.", Evidence: []string{p.manifest.DaemonLog + ":1", "database:sessions task_ref=github:acme/api#406", "comment:91"}, Uncertainty: "This fake provider does not establish authentic shell isolation."}}, CoverageGaps: []string{"Git not inspected by the fake provider; real-instance check still required"}}
+	diagnosis := Diagnosis{Findings: []Finding{{Explanation: "Live logs and the database retain the stuck case; the owner comment corroborates it.", Evidence: []string{p.manifest.DaemonLog + ":1", "database:sessions task_ref=github:acme/api#406", "comment:91"}, Uncertainty: "This fake provider does not establish authentic shell isolation."}}, CoverageGaps: append([]string{"Git not inspected by the fake provider; real-instance check still required"}, p.manifest.Gaps...)}
 	raw, err := json.Marshal(ResultInput{Diagnosis: diagnosis})
 	if err != nil {
 		return agent.DoctorRunResult{}, err
@@ -290,7 +299,7 @@ func (p *proposalProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorR
 	step := func(n int, kind, target, before, after string) RepairStep {
 		return RepairStep{Action: &store.DoctorRepairAction{Kind: kind, Before: before, After: after}, Number: n, Target: target, Precondition: "Row still holds the observed state", Change: "Apply the typed repair", Reason: "The instance is stuck", Reversibility: "Retained in the repair journal", Rollback: "Restore from the journal backup"}
 	}
-	diagnosis := Diagnosis{Findings: []Finding{{Explanation: "A Validate instance is still running and an owner comment sits above the watermark.", Evidence: []string{"database:graph_instances id=" + graph, "database:comments forge_comment_id=" + comment}, Uncertainty: "Fake provider; no process inspection."}}, CoverageGaps: []string{"Process state not inspected by the fake provider"}}
+	diagnosis := Diagnosis{Findings: []Finding{{Explanation: "A Validate instance is still running and an owner comment sits above the watermark.", Evidence: []string{"database:graph_instances id=" + graph, "database:comments forge_comment_id=" + comment}, Uncertainty: "Fake provider; no process inspection."}}, CoverageGaps: append([]string{"Process state not inspected by the fake provider"}, promptManifest(p.t, r.Prompt).Gaps...)}
 	preflight := func(d Diagnosis) ResultDiagnostics {
 		raw, err := json.Marshal(ResultInput{Diagnosis: d})
 		if err != nil {
@@ -414,5 +423,96 @@ func TestDoctorLiveDiagnosisProposesRepairForQueriedTargets(t *testing.T) {
 	var saved PathManifest
 	if err := json.Unmarshal([]byte(got.Attempts[0].Evidence), &saved); err != nil || !saved.Live {
 		t.Fatalf("stored evidence is no longer the path manifest: %s %v", got.Attempts[0].Evidence, err)
+	}
+}
+
+// syncBranchRunner proposes sync_branch from the live manifest's branch record.
+type syncBranchRunner struct {
+	t      *testing.T
+	record store.DoctorEvidenceRecord
+}
+
+func (r *syncBranchRunner) IsolationEvidence(context.Context, string) (string, error) {
+	return "controlled fixture only", nil
+}
+func (r *syncBranchRunner) Run(ctx context.Context, inv Invocation, results *ResultService) (InvocationOutcome, error) {
+	for _, record := range promptManifest(r.t, inv.Prompt).Records {
+		if record.Kind == "branch" {
+			r.record = record
+		}
+	}
+	target := "branch:" + r.record.ID
+	input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "The feature branch is behind its base.", Evidence: []string{target}, Uncertainty: "Local refs only."}}, Proposal: []RepairStep{{Number: 1, Target: target, Precondition: "Captured head", Change: "Merge captured base", Reason: "Restore synchronization", Reversibility: "Backed up head", Rollback: "Restore head", Action: &store.DoctorRepairAction{Kind: "sync_branch", Before: r.record.State, After: r.record.Identity}}}}}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return InvocationOutcome{}, err
+	}
+	if check, err := results.Preflight(ctx, raw); err != nil || !check.Valid {
+		r.t.Fatalf("live sync_branch proposal rejected: %+v %v", check, err)
+	}
+	if _, err := results.Submit(ctx, "sync-branch-result", raw); err != nil {
+		return InvocationOutcome{}, err
+	}
+	return InvocationOutcome{RequestID: "sync-branch-result", ObservedModel: inv.ConfiguredModel}, nil
+}
+
+func TestDoctorLiveDiagnosisProposesSyncBranchForBehindBranch(t *testing.T) {
+	s := doctorIOService(t)
+	ctx := t.Context()
+	fixture := gittest.New(t)
+	repo, err := s.DB.UpsertRepo(ctx, store.Repo{Path: fixture.Dir, Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: fixture.Origin, BaseBranch: gittest.DefaultBranch, FeaturePrefix: "lf", WorktreeRoot: filepath.Join(filepath.Dir(fixture.Dir), "trees")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.DB.GetOrCreateSession(ctx, repo, 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session, err = s.DB.FreezeSessionSlug(ctx, session.ID, "case", "lf/406-case"); err != nil {
+		t.Fatal(err)
+	}
+	binary, err := git.Resolve(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone, err := binary.Open(ctx, fixture.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := naming.WorktreePath(repo.WorktreeRoot, 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: dir, Branch: session.Branch, BaseBranch: repo.BaseBranch}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.SetSessionWorktree(ctx, session.ID, dir); err != nil {
+		t.Fatal(err)
+	}
+	head := fixture.GitIn(dir, "rev-parse", "HEAD")
+	fixture.WriteFile("base.txt", "base moved on\n")
+	baseHead := fixture.Commit("base advances")
+	fixture.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+	runner := &syncBranchRunner{t: t}
+	s.Runner = runner
+	target, err := Target("acme/api", 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Diagnose(ctx, DiagnoseRequest{Target: target, Instructions: "Bring main into the feature branch", SourceID: "live-sync"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.record.ID != session.Branch || runner.record.State != head || runner.record.Identity != baseHead {
+		t.Fatalf("manifest branch record: %+v", runner.record)
+	}
+	if len(got.CurrentProposal) != 1 || got.CurrentProposal[0].Target != "branch:"+session.Branch || got.CurrentProposal[0].Action.Kind != "sync_branch" {
+		t.Fatalf("sync_branch proposal not adopted: %+v", got)
+	}
+	if err = s.DB.PresentDoctorProposal(ctx, target.String(), "live-sync-presentation", got.ProposalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DB.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "live-sync-repair", SourceID: "owner-apply", Principal: "local-owner", TaskRef: target.String(), PresentationID: "live-sync-presentation"}); err != nil {
+		t.Fatalf("live sync_branch proposal not reservable: %v", err)
 	}
 }
