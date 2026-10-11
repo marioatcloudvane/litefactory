@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 )
 
 func interpretationRequest() InterpretationRequest {
@@ -59,7 +61,7 @@ func (p *interpretationProvider) Present(ctx context.Context, repo int64, identi
 	p.calls++
 	p.prompt = prompt
 	deadline, ok := ctx.Deadline()
-	p.deadline = ok && time.Until(deadline) <= 30*time.Second
+	p.deadline = ok && time.Until(deadline) > 30*time.Second && time.Until(deadline) <= response.Budget
 	if repo != 0 || phase != "generation" || !strings.HasPrefix(identity, "interpretation-") {
 		return nil, errors.New("bad ownership")
 	}

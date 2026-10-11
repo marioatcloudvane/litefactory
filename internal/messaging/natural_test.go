@@ -1,12 +1,16 @@
 package messaging
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -160,5 +164,110 @@ func TestNaturalSeveralProjectsAsk(t *testing.T) {
 	args, _ = naturalRead(t, []string{"app", "web"}, "Is there an open research question on web issue 12?", spanInterpreter{command: "question", values: [][2]string{{"project", "web"}, {"issue", "12"}}}, at)
 	if args["project"] != "acme/web" {
 		t.Fatalf("named project not resolved: %v", args)
+	}
+}
+
+// funcInterpreter adapts a function to the Interpreter seam for fallback tests.
+type funcInterpreter func(context.Context, InterpretationRequest) ([]byte, error)
+
+func (f funcInterpreter) Interpret(ctx context.Context, r InterpretationRequest) ([]byte, error) {
+	return f(ctx, r)
+}
+
+// naturalFallback runs one owner message through interpretation with a
+// captured log and returns the replies, the log text and the dialogue state.
+func naturalFallback(t *testing.T, interpreter Interpreter) ([]string, string, string) {
+	t.Helper()
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	if _, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "app", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	send := &spanSender{}
+	var logs bytes.Buffer
+	s := New(db, "discord", "7", []string{"3"}, send, FactoryStatus{DB: db})
+	s.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	s.EnableNatural(interpreter)
+	if err := db.ActivateNaturalScan(ctx, "3", "100"); err != nil {
+		t.Fatal(err)
+	}
+	intake := &Intake{DB: db, Reader: &spanReader{messages: []store.NaturalMessage{{ChannelRef: "3", SourceID: "101", OwnerID: "7", Text: "How is the factory doing?", CreatedAt: at}}}, Transport: "discord", Owner: "7", Channels: []string{"3"}, Protect: func(_ context.Context, text string) (string, error) { return text, nil }}
+	if err := intake.Poll(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	for range 10 {
+		natural, err := s.NaturalStep(ctx, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		shared, err := s.Step(ctx, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !natural && !shared {
+			d, err := db.ReadNaturalDialogue(ctx, "discord", "7", "3")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return send.texts, logs.String(), d.State
+		}
+	}
+	t.Fatal("natural request did not settle")
+	return nil, "", ""
+}
+
+func TestNaturalSlowInterpreterWithinBudgetSucceeds(t *testing.T) {
+	var remaining time.Duration
+	slow := funcInterpreter(func(ctx context.Context, _ InterpretationRequest) ([]byte, error) {
+		deadline, _ := ctx.Deadline()
+		remaining = time.Until(deadline)
+		return []byte(`{"version":1,"kind":"clarify","question":"Which project?"}`), nil
+	})
+	replies, logs, _ := naturalFallback(t, slow)
+	if remaining <= 30*time.Second || remaining > response.Budget {
+		t.Fatalf("interpreter budget = %s, want more than 30s and at most %s", remaining, response.Budget)
+	}
+	if strings.Contains(logs, "natural interpretation fallback") || len(replies) != 1 || !strings.Contains(replies[0], "Which project?") {
+		t.Fatalf("slow interpretation within budget fell back: replies=%v logs=%s", replies, logs)
+	}
+}
+
+func TestNaturalInterpretationFallbackNamesReason(t *testing.T) {
+	saved := response.Budget
+	t.Cleanup(func() { response.Budget = saved })
+	response.Budget = 50 * time.Millisecond
+	cases := []struct {
+		reason      string
+		interpreter funcInterpreter
+		reply       string
+	}{
+		{"timeout", func(ctx context.Context, _ InterpretationRequest) ([]byte, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}, "The factory is busy, please try again in a minute. Nothing was applied."},
+		{"model_error", func(context.Context, InterpretationRequest) ([]byte, error) {
+			return nil, errors.New("provider failed")
+		}, "could not safely understand"},
+		{"decode", func(context.Context, InterpretationRequest) ([]byte, error) {
+			return []byte("not json"), nil
+		}, "could not safely understand"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.reason, func(t *testing.T) {
+			replies, logs, state := naturalFallback(t, tc.interpreter)
+			if len(replies) != 1 || !strings.Contains(replies[0], tc.reply) {
+				t.Fatalf("replies = %v, want %q", replies, tc.reply)
+			}
+			if tc.reason == "timeout" && strings.Contains(replies[0], "could not safely understand") {
+				t.Fatalf("timeout blamed the wording: %q", replies[0])
+			}
+			if state != "finished" {
+				t.Fatalf("dialogue state = %q, want finished", state)
+			}
+			if strings.Count(logs, "natural interpretation fallback") != 1 || !strings.Contains(logs, "reason="+tc.reason) || !strings.Contains(logs, "elapsed=") || !strings.Contains(logs, "source_id=101") {
+				t.Fatalf("fallback log = %q", logs)
+			}
+		})
 	}
 }
