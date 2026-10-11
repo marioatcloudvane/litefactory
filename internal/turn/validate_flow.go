@@ -98,6 +98,10 @@ type ValidateStory struct {
 	ExecutionRequired []string
 	// Text is the approved story revision itself: its criteria and plan.
 	Text string
+	// OwnerGuidance is the owner's decision recorded on the story's Implement
+	// ledger row when it was resumed, or empty. It amends how the frozen
+	// criteria are judged; it never changes Text, Revision or Criteria.
+	OwnerGuidance string `json:"owner_guidance,omitempty"`
 }
 
 // ValidateFlowBindings supplies the trusted run context the Validate steps need.
