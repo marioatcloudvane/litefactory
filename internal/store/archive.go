@@ -296,6 +296,9 @@ func (db *DB) DeleteArchivedFamily(ctx context.Context, f ArchiveFamily, want ar
 		if live.Digest != want.Digest || !countsEqual(live.Counts, want.Counts) {
 			return ErrArchiveDigestMismatch
 		}
+		if _, err := tx.ExecContext(ctx, archiveClearMeterGraphLinks, archiveNamed(f)...); err != nil {
+			return fmt.Errorf("clear meter graph links: %w", err)
+		}
 		granted := false
 		for _, t := range archiveRegistry {
 			if !granted && isPlanArchiveTable(t.Name) {
