@@ -11,6 +11,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
+	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/webhookreg"
 )
@@ -141,6 +142,12 @@ func ensureWebhook(ctx context.Context, env *Env, rt *repoRuntime, repo store.Re
 	var saved store.TicketSubscription
 	outcome := webhookreg.AlreadyCorrect
 	if len(owned) == 1 {
+		if owned[0].DesiredEnabled && strings.HasPrefix(owned[0].ID, "legacy-") && owned[0].RemoteHookID == "" {
+			containerID, verifyErr := verifySubscriptionContainer(ctx, qualified, version)
+			if verifyErr != nil || containerID != owned[0].ContainerID {
+				return webhookreg.Result{Outcome: webhookreg.Failed, Reason: "legacy ticket source repository identity changed; polling continues"}
+			}
+		}
 		saved, err = qualified.Repair(ctx, owned[0].ID, owned[0].Revision)
 	} else {
 		containerID, verifyErr := verifySubscriptionContainer(ctx, qualified, version)
@@ -155,6 +162,15 @@ func ensureWebhook(ctx context.Context, env *Env, rt *repoRuntime, repo store.Re
 			}
 		}
 		saved, err = rt.db.ImportLegacyTicketSubscription(ctx, version, containerID)
+		if errors.Is(err, store.ErrNotFound) {
+			secret, keyErr := qualified.Keychain.Read(ctx, webhookreg.KeychainService, version.Destination)
+			if keyErr != nil && !errors.Is(keyErr, secrets.ErrNotFound) {
+				return webhookreg.Result{Outcome: webhookreg.Failed, Reason: "webhook signing secret is unavailable; check Keychain access"}
+			}
+			if keyErr == nil && secret != "" {
+				saved, err = rt.db.PrepareLegacyTicketSubscription(ctx, version, containerID, qualified.PublicURL)
+			}
+		}
 		if errors.Is(err, store.ErrNotFound) {
 			saved, err = qualified.Create(ctx, version, containerID)
 			outcome = webhookreg.Created
