@@ -90,6 +90,8 @@ func (s *linearWorkflowServer) serve(w http.ResponseWriter, r *http.Request) {
 	input, _ := v["input"].(map[string]any)
 	var data map[string]any
 	switch {
+	case strings.Contains(q, "reactionCreate("):
+		data = map[string]any{"reactionCreate": map[string]any{"success": true}}
 	case strings.Contains(q, "issueCreate("):
 		s.creates++
 		createdID, _ := input["id"].(string)
