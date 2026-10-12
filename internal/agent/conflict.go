@@ -182,11 +182,9 @@ func (r ConflictResolutionRequest) validateRegions() error {
 }
 
 // maxConflictFileBytes bounds one conflicting file's total region content in a
-// resolution request. internal/git enforces the same ceiling when it collects
-// the snapshot (git.MaxConflictRegionBytes); the value is duplicated rather
-// than shared because this package takes no dependency on internal/git. Keep
-// the two in step.
-const maxConflictFileBytes = 8192
+// resolution request. It admits the maximum supported configured aggregate
+// budget; internal/git enforces the effective budget during collection.
+const maxConflictFileBytes = 1 << 20
 
 // ParseRegionConflictResolution strictly decodes and checks complete identified-region coverage.
 func ParseRegionConflictResolution(text string, request ConflictResolutionRequest) (ConflictResolution, error) {
