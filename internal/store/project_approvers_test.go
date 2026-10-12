@@ -481,3 +481,77 @@ func TestProjectApproverWorkerRecoveryNamesBlockingSession(t *testing.T) {
 		t.Fatalf("kept worker claim did not block replacement: %v", err)
 	}
 }
+
+// Saved work keeps the ticket source it was admitted with; only new work sees
+// a disabled or replaced project ticket connection (#712).
+func TestProjectApproverOrdinaryClaimsRetainSessionTicketSource(t *testing.T) {
+	for _, provider := range []ticket.Provider{ticket.GitHub, ticket.Linear} {
+		t.Run(string(provider), func(t *testing.T) {
+			db := newTestDB(t)
+			repo := testRepo(t, db, "code-owner", "repo")
+			code, err := db.SetConnection(t.Context(), connectionFixture(repo, CodeConnection), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture := connectionFixture(repo, TicketConnection)
+			if provider == ticket.Linear {
+				fixture = linearConnectionFixture(repo)
+			}
+			tickets, err := db.SetConnection(t.Context(), fixture, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := ticket.Ref{Identity: ticket.Identity{Provider: tickets.Provider, Origin: tickets.Origin, RemoteID: "700"}, Locator: ticket.Locator{Provider: tickets.Provider, Origin: tickets.Origin, Container: tickets.Destination, Key: "7"}}
+			if _, err = db.AddTicketBinding(t.Context(), TicketBinding{RepoID: repo.ID, ConnectionVersionID: tickets.ID, Ref: ref, Enabled: true, Provenance: "explicit"}); err != nil {
+				t.Fatal(err)
+			}
+			a, err := db.SetApprover(t.Context(), ApproverAppointment{RepoID: repo.ID, Actor: ticket.Identity{Provider: tickets.Provider, Origin: tickets.Origin, RemoteID: "42"}, Handle: "owner", VerifiedAt: time.Now(), Provenance: "explicit"}, tickets.Revision, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := db.AdmitSession(t.Context(), repo, ref, code.Revision, tickets.Revision, 99, "publisher", "task:"+string(provider))
+			if err != nil {
+				t.Fatal(err)
+			}
+			claim := func(key string, sessionID int64) (AuthorityClaim, error) {
+				return db.ClaimProjectAuthority(t.Context(), AuthorityClaim{RepoID: repo.ID, SessionID: sessionID, AppointmentID: a.ID, Revision: a.Revision, Actor: a.Actor, Source: ticket.Identity{Provider: tickets.Provider, Origin: tickets.Origin, RemoteID: key}, CreatedAt: a.ActivatedAt.Add(time.Second), Kind: "instruction", Key: key})
+			}
+			disabled, err := db.DisableConnection(t.Context(), repo.ID, TicketConnection, tickets.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			saved, err := claim("saved-after-disable", session.ID)
+			if err != nil {
+				t.Fatalf("saved reply refused after disable: %v", err)
+			}
+			if err = db.CompleteProjectAuthority(t.Context(), saved.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = claim("new-after-disable", 0); !errors.Is(err, ErrConnectionDisabled) {
+				t.Fatalf("new work admitted on disabled connection: %v", err)
+			}
+			other := ticket.Ref{Identity: ticket.Identity{Provider: tickets.Provider, Origin: tickets.Origin, RemoteID: "701"}, Locator: ticket.Locator{Provider: tickets.Provider, Origin: tickets.Origin, Container: tickets.Destination, Key: "8"}}
+			if _, err = db.AdmitSession(t.Context(), repo, other, code.Revision, disabled.Revision, 99, "publisher", "task:new:"+string(provider)); !errors.Is(err, ErrConnectionDisabled) {
+				t.Fatalf("new session admitted on disabled connection: %v", err)
+			}
+			replacement := connectionFixture(repo, TicketConnection)
+			replacement.Origin = "https://replacement.example/api/v3"
+			if provider == ticket.GitHub {
+				replacement = linearConnectionFixture(repo)
+			}
+			if _, err = db.SetConnection(t.Context(), replacement, disabled.Revision); err != nil {
+				t.Fatal(err)
+			}
+			saved, err = claim("saved-after-replace", session.ID)
+			if err != nil {
+				t.Fatalf("saved reply refused after replacement: %v", err)
+			}
+			if err = db.CompleteProjectAuthority(t.Context(), saved.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = claim("new-after-replace", 0); !errors.Is(err, ErrApproverUnauthorized) {
+				t.Fatalf("new work authorized against replaced connection: %v", err)
+			}
+		})
+	}
+}

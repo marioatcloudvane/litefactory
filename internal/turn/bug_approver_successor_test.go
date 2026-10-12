@@ -28,8 +28,10 @@ func TestFinishedBugSessionAcceptsReplacementApproverWithoutRewritingHistory(t *
 	actor := ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: "42"}
 	first, err := f.db.SetApprover(t.Context(), store.ApproverAppointment{RepoID: repo.ID, Actor: actor, Handle: "original", VerifiedAt: time.Now(), Provenance: "explicit"}, connection.Revision, 0)
 	mustProgress(t, err)
-	_, err = f.db.BindSessionTicket(t.Context(), session.ID, ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: "issue-immutable-id"}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: origin, Container: repo.Slug(), Key: strconv.Itoa(session.IssueNumber)}})
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: "issue-immutable-id"}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: origin, Container: repo.Slug(), Key: strconv.Itoa(session.IssueNumber)}}
+	_, err = f.db.BindSessionTicket(t.Context(), session.ID, ref)
 	mustProgress(t, err)
+	attachTicketSnapshot(t, f.db, repo, session.ID, connection, ref)
 	f.opts.ProjectApprovers = true
 	f.opts, err = bindProjectApprover(t.Context(), f.opts, session.ID)
 	mustProgress(t, err)

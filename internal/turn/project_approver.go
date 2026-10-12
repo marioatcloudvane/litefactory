@@ -31,7 +31,13 @@ func bindProjectApprover(ctx context.Context, opts Options, sessionID int64) (Op
 	if a.Actor.Provider != mapping.Locator.Provider || a.Actor.Origin != mapping.Locator.Origin {
 		return opts, store.ErrApproverUnauthorized
 	}
-	connection, err := opts.DB.CurrentConnection(ctx, session.RepoID, store.TicketConnection)
+	// Started work keeps the ticket source it was admitted with; disabling or
+	// replacing the project's connection affects new admissions only.
+	saved, err := opts.DB.GetExecutionSnapshot(ctx, sessionID)
+	if err != nil {
+		return opts, err
+	}
+	connection, err := opts.DB.GetConnectionVersion(ctx, saved.TicketVersionID)
 	if err != nil {
 		return opts, err
 	}
@@ -76,7 +82,7 @@ func claimTurnAuthority(ctx context.Context, opts Options, req Request) (store.A
 	if req.Trigger.AuthorID <= 0 || !matches {
 		return store.AuthorityClaim{}, store.ErrApproverUnauthorized
 	}
-	return opts.DB.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: a.RepoID, AppointmentID: a.ID, Revision: a.Revision, Actor: req.Trigger.Actor, Source: req.Trigger.Source, CreatedAt: req.Trigger.CreatedAt, Kind: "turn", Key: strconv.FormatInt(req.SessionID, 10) + ":" + strconv.FormatInt(req.Trigger.CommentID, 10)})
+	return opts.DB.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: a.RepoID, AppointmentID: a.ID, Revision: a.Revision, SessionID: req.SessionID, Actor: req.Trigger.Actor, Source: req.Trigger.Source, CreatedAt: req.Trigger.CreatedAt, Kind: "turn", Key: strconv.FormatInt(req.SessionID, 10) + ":" + strconv.FormatInt(req.Trigger.CommentID, 10)})
 }
 
 func isValidateCodeControlBody(body string) bool {
