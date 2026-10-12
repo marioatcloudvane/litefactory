@@ -1095,8 +1095,9 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 // owned by that worker, including sequential refinement copies. Nothing is
 // shared with another worker, so no lock is needed.
 type task struct {
-	observations []store.PendingTicketObservation
-	enrollmentAt time.Time
+	prepareFailureRecorded bool
+	observations           []store.PendingTicketObservation
+	enrollmentAt           time.Time
 	// workerLog holds immutable admission context for worker lifetime events.
 	workerLog *slog.Logger
 	worker    *workerState
@@ -1300,7 +1301,7 @@ const (
 // above the `go`: the rate-limit backoff (AC-PAR-4.4). It is last rather than
 // first on purpose — see the comment at the check itself.
 func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
-	if d.sessionRecoveryHeld(c.session.ID, tickAt) {
+	if d.sessionRecoveryHeld(c.session.ID, tickAt) || d.prepFailures.held(c.session.ID, tickAt) {
 		return offerSkipped
 	}
 	if !d.enterDoctorGuarded(ctx, c.session.ID) {
@@ -1343,6 +1344,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		}
 		if err != nil {
 			d.rateLimited(ctx, c.log, tickAt, err)
+			d.prepareFailed(ctx, &task{session: c.session, log: c.log, tickAt: tickAt}, err)
 			c.log.ErrorContext(ctx, "could not materialise a task that still needs a poll; "+
 				"it keeps its backlog flag and the next tick tries again",
 				slog.Any("error", err))
@@ -1689,25 +1691,25 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 // says so once when a task stops looking like it is between attempts and
 // starts looking stuck.
 //
-// The retry itself is deliberate and is not changed here: the comment stays
-// unconsumed so the work is not lost to a blip. What is added is the
-// difference between a blip and an origin that is never coming back, which
-// otherwise reads identically in the log — the same error line, every tick,
-// with nothing that counts them.
+// A worker can expose the same error through leave and stopped. Count that
+// attempt once; report recovery owns its own independent deadline.
 func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
+	if t.prepareFailureRecorded || isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) || ctx.Err() != nil {
+		return
+	}
+	t.prepareFailureRecorded = true
 	reason := err.Error()
 	if sanitizer := d.diagnosticRedactor; sanitizer != nil {
 		if body, redactErr := sanitizer.Apply(ctx, reason, 1024); redactErr == nil {
 			reason = body.String()
 		}
 	}
-	state, announce := d.prepFailures.record(t.session.ID, reason)
+	state, announce := d.prepFailures.record(t.session.ID, reason, t.tickAt, d.recoveryInterval())
 	if !announce || state.Attempts < prepareEscalationAttempts {
 		return
 	}
 	t.log.ErrorContext(ctx, "this task has failed every turn since it last made progress; "+
-		"the trigger is still unconsumed and the next tick will try again, but nothing "+
-		"will stop retrying on its own",
+		"the trigger is still unconsumed and retries use capped exponential backoff",
 		slog.Int("consecutive_failures", state.Attempts),
 		slog.Bool("escalated", state.Escalated),
 		slog.String("reason", reason))
@@ -1765,15 +1767,23 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		return fmt.Errorf("bootstrap the watermark of task %s: %w", t.ref, err)
 	}
 
-	t.log.InfoContext(ctx, "first sight of a task; its existing comments are skipped",
-		slog.Int("existing_comments", len(comments)),
-		slog.Int64("watermark", watermark.LastCommentID),
-		slog.Bool("created", created))
+	if created {
+		t.log.InfoContext(ctx, "first sight of a task; its existing comments are skipped",
+			slog.Int("existing_comments", len(comments)),
+			slog.Int64("watermark", watermark.LastCommentID),
+			slog.Bool("created", created))
+	}
 
-	// Only now, with the watermark planted and logged. See [Daemon.runIssueBody]
-	// for why that order is the whole of "exactly once".
-	if err := d.runIssueBody(ctx, t, comments); err != nil {
+	// Reconcile retained body delivery before checking current eligibility:
+	// its own visible reply must not turn an uncertain post into a body skip.
+	pending, err := d.resumeReport(ctx, t, 0)
+	if err != nil {
 		return err
+	}
+	if !pending {
+		if err := d.runIssueBody(ctx, t, comments); err != nil {
+			return err
+		}
 	}
 	if d.connections != nil {
 		if err := ctx.Err(); err != nil {
@@ -1782,7 +1792,10 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		if t.worker != nil && (t.worker.status == workerDeferred || t.worker.status == workerFailed) {
 			return &recoveryPending{}
 		}
-		return d.db.CompleteTicketBody(ctx, t.session.ID)
+		if err := d.db.CompleteTicketBody(ctx, t.session.ID); err != nil {
+			return err
+		}
+		d.prepFailures.clear(t.session.ID)
 	}
 	return nil
 }
@@ -1962,6 +1975,7 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 				slog.Int64("comment_id", c.ID))
 			return true, nil
 		}
+		d.prepFailures.clear(t.session.ID)
 		// Refresh after each actionable instruction so later owner label edits
 		// are observed before admitting another trigger. Persistent selection
 		// does not make this tick's issue snapshot authoritative forever.
@@ -2623,6 +2637,10 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
+		var refusal *workflowRefusal
+		if errors.As(err, &refusal) {
+			return d.refuseMode(ctx, t, trigger, refusal.kind, mode)
+		}
 		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && errors.Is(err, turn.ErrImplementReplyNotApplied) {
 			return d.refuseMode(ctx, t, trigger, report.ReplyImplementCommentNotApplied, "")
 		}
@@ -2957,6 +2975,7 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	}
 	d.commentFate(ctx, t, t.commentUnderWay, fateDeferred, "deferred, "+what+"; it is retried on a later heartbeat")
 	d.rateLimited(ctx, log, t.tickAt, err)
+	d.prepareFailed(ctx, t, err)
 	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 		slog.Any("error", err))
 	if store.IsGraphTrigger(t.commentUnderWay) || t.scheduled != nil {

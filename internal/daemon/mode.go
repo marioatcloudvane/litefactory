@@ -121,7 +121,7 @@ func (d *Daemon) classifyMode(ctx context.Context, t *task, instruction string) 
 }
 
 func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, kind report.ReplyKind, mode agent.Mode) error {
-	if trigger.CommentID == 0 && kind != report.ReplyBugUnavailable {
+	if trigger.CommentID == 0 && kind != report.ReplyBugUnavailable && kind != report.ReplyMissingModeMapping && kind != report.ReplyMissingTeam && kind != report.ReplyUnsupportedWorkflow {
 		t.log.InfoContext(ctx, "refusing issue-body mode selection; there is no comment to answer")
 		return nil
 	}

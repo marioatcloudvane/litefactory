@@ -387,6 +387,7 @@ func TestPlanChildrenSweep_UnconfirmedExplanationKeepsTheDebt(t *testing.T) {
 	}
 	f.forge.addComment(200, 60, owner(), "/approve-plan story story old")
 	f.settle()
+	f.clock.advance(testInterval)
 	f.settle()
 	if got := storyWatermark(f, 200); got >= 60 {
 		t.Fatalf("an unconfirmed explanation consumed the story's comment: watermark=%d\n%s", got, f.logs)
