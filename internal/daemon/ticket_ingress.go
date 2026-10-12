@@ -104,7 +104,7 @@ func (d *Daemon) admitReply(ctx context.Context, sessionID int64, c github.Comme
 		if !verdict.Triggers() {
 			return filter.AdmitReply(ctx, sessionID, *reply)
 		}
-		claim, err := d.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: appointment.RepoID, AppointmentID: appointment.ID, Revision: appointment.Revision, Actor: reply.Author.Identity, Source: reply.Identity, CreatedAt: reply.CreatedAt, Kind: "instruction", Key: fmt.Sprintf("%d:%s", sessionID, reply.Identity.RemoteID)})
+		claim, err := d.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: appointment.RepoID, AppointmentID: appointment.ID, Revision: appointment.Revision, SessionID: sessionID, Actor: reply.Author.Identity, Source: reply.Identity, CreatedAt: reply.CreatedAt, Kind: "instruction", Key: fmt.Sprintf("%d:%s", sessionID, reply.Identity.RemoteID)})
 		if err != nil {
 			return turn.Admission{}, err
 		}

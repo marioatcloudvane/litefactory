@@ -267,6 +267,10 @@ func (db *DB) claimProjectAuthority(ctx context.Context, c AuthorityClaim, codeA
 			return e
 		}
 		connection, e := currentConnection(ctx, tx, c.RepoID, TicketConnection)
+		if !codeAuthority && c.SessionID > 0 {
+			// Saved work is authorized against the ticket source it started with.
+			connection, e = scanConnection(tx.QueryRowContext(ctx, `SELECT `+connectionColumns+` FROM project_connection_versions WHERE id=(SELECT ticket_version_id FROM session_execution_snapshots WHERE session_id=? AND repo_id=?)`, c.SessionID, c.RepoID))
+		}
 		var retainedCode ConnectionVersion
 		if codeAuthority && c.SessionID > 0 {
 			retainedCode, connection, e = retainedCodeClaimConnections(ctx, tx, c)
