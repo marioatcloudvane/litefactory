@@ -20,6 +20,9 @@ var conflictMarkers = []string{"<<<<<<<", "=======", ">>>>>>>"}
 // issue handle, worktree, tool permissions, or persistence capability — the
 // same boundary [ScheduleProposalRequest] draws for scheduling advice.
 type ConflictResolutionRequest struct {
+	// Guidance is retained owner context, not permission to change the remedy
+	// or edit outside the identified conflict regions.
+	Guidance       string `json:"guidance,omitempty"`
 	BaseInputRef   string `json:"base_input_ref,omitempty"`
 	BaseInputSHA   string `json:"base_input_sha,omitempty"`
 	TaskInputRef   string `json:"task_input_ref,omitempty"`
