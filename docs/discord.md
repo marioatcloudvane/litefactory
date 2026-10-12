@@ -8,19 +8,22 @@ usage, and receive task notices. Chat cannot start, approve, stop or repair
 work, and nothing typed in Discord reaches the GitHub comment parser.
 
 Set up GitHub first, including its webhook listener: [GitHub setup](getting-started/github-setup.md).
+For Linear tickets, also complete [Linear setup](project-connections.md#linear-tickets-with-github-code).
 
 ## Set up
 
 ### 1. Create the Discord application and bot
 
-1. In the Discord developer portal, create an application. Copy its
+1. In the [Discord developer portal](https://discord.com/developers/applications), create an application. Copy its
    **Application ID** and its **Public Key** (64 hex characters).
 2. Add a bot to the application and copy the **bot token**.
 3. Under the bot settings, turn on **Message Content Intent**. It is needed for
    ordinary (natural language) messages. The factory checks the application
    flags and a channel history read; if either fails, ordinary messages are
    switched off and chat health reports it.
-4. Invite the bot to your server and give it, in each channel you will allow:
+4. Under Installation, configure Guild Install with `bot` and
+   `applications.commands` scopes. Open the install link, choose your test server
+   and authorize it. Give the bot, in each channel you will allow:
    View Channel, Send Messages, Attach Files and Read Message History.
 
 ### 2. Find the numeric IDs
@@ -34,29 +37,37 @@ A thread needs its own entry in the allowlist.
 
 ### 3. Store the bot token
 
-Keep the token out of `config.yaml`. Store it in the Keychain:
+Keep the token out of `config.yaml`. In Terminal.app or an SSH shell able to
+unlock the login Keychain, as the daemon user, paste the bot token at `read` and
+press Return. Do not enable shell tracing:
 
 ```sh
-security add-generic-password -s litefactory-discord -a bot -w
+security unlock-keychain ~/Library/Keychains/login.keychain-db
+read -rs T; security add-generic-password -s litefactory-discord -a bot -w "$T"; unset T
 ```
 
-or put it in an environment variable and name that variable in the config.
+The chosen service `litefactory-discord` and account `bot` match the config
+below. Use `add-generic-password -U` for an existing item. Alternatively, use an
+environment reference; Keychain suits the LaunchAgent without embedding tokens
+in its plist.
 
 ### 4. Add the chat settings
 
 Chat needs the webhook listener on, with a public **HTTPS** address
-(`webhook.listen` and `webhook.public_url`). Then add to `config.yaml`:
+(`webhook.listen` and `webhook.public_url`). Then add to `$LF_HOME/config.yaml` (default `~/.litefactory/config.yaml`).
+Replace each placeholder with the value collected above; IDs must be numeric
+strings and the public key must be the application's 64-character hex key:
 
 ```yaml
 chat:
   discord:
     enabled: true
-    application_id: "123456789"
-    public_key: "<64 hex characters>"
+    application_id: "APPLICATION_ID"
+    public_key: "PUBLIC_KEY_HEX"
     token_keychain: {service: litefactory-discord, account: bot}
     # or: token_env: DISCORD_BOT_TOKEN   (use exactly one of the two)
-    owner_id: "123456789"
-    channel_ids: ["123456789"]
+    owner_id: "OWNER_USER_ID"
+    channel_ids: ["CHANNEL_ID"]
     notice_channel_id: ""    # optional, must be one of channel_ids
 ```
 
@@ -75,12 +86,27 @@ Unknown keys and literal tokens are startup errors. The full key table is in the
 
 ### 5. Point Discord at the factory
 
-Your tunnel or proxy must forward two paths to the same listener:
-`/litefactory/webhook` (GitHub) and `/litefactory/discord` (Discord). In the
-developer portal set the **Interactions Endpoint URL** to
-`https://your-factory-address/litefactory/discord`.
+Your proxy must forward `/litefactory/webhook` and `/litefactory/discord` to
+`127.0.0.1:8787`. Use the [nginx example](getting-started/github-setup.md#reaching-the-listener);
+preserve the raw body and Discord's `X-Signature-Ed25519` and
+`X-Signature-Timestamp` headers. Use your public HTTPS hostname.
 
-Restart the daemon. Slash commands are registered with Discord; if Discord is
+Load the config and start the listener **before** saving the portal endpoint:
+
+```sh
+litefactory daemon stop
+litefactory daemon start
+litefactory daemon status
+```
+
+Confirm the listener is bound and inspect the `chat` line. In the developer
+portal's General Information, set **Interactions Endpoint URL** to
+`https://factory.example.com/litefactory/discord` (replace the host). Saving it
+must pass Discord's signed endpoint verification. See the
+[Discord setup guide](https://docs.discord.com/developers/quick-start/getting-started)
+for portal installation and endpoint verification.
+
+Slash commands are registered with Discord; if Discord is
 unavailable, registration is retried later. If the bot token cannot be read, the
 daemon still starts with chat unavailable. It logs an error naming the token
 setting, `litefactory daemon status` shows the reason on its `chat` line, and the
@@ -101,6 +127,7 @@ All commands are owner-only and work only in allowed channels.
 | --- | --- |
 | `/help`, `/health`, `/status` | List commands; read factory health and status. |
 | `/ask question:... [project:OWNER/REPO]` | Ask about a project and its open work. Question up to 8192 bytes. A follow-up without `project` uses the newest bot answer in the same channel or thread. |
+| `/details` | Show raw details of the previous reply; ordinary “show details” is also supported. |
 | `/draft [project:...] [note:...]` | Preview a feature issue (note up to 2000 bytes). Shows project, title, body and an 8-character code. Creates nothing. |
 | `/confirm code:CODE` | Create the previewed issue. Valid for 24 hours. A new `/draft` replaces the old preview and code. Confirming twice returns the same issue. |
 | `/diagnose issue:N [project:...] [note:...]` | Explain a stuck issue. Never repairs or posts to the issue. |
@@ -141,6 +168,27 @@ stay available.
   not run.
 
 Existing review and approval gates still apply to everything chat starts.
+
+## English examples
+
+Replace `OWNER/REPO` with the registered repository and `N` with the issue/task
+number shown by the factory.
+
+- `/ask question:What is waiting for my review? project:OWNER/REPO`
+- `/details`, or `show details` after the answer.
+- `Draft a feature for OWNER/REPO to add a keyboard shortcut for search.`
+  Read the proposed action, then send `confirm <code>` with its displayed code,
+  or reply directly to that proposal with `yes`. If a further creation preview
+  is returned, confirm that exact preview before expecting an issue.
+- `/draft project:OWNER/REPO note:Add a keyboard shortcut for search`, followed
+  by `/confirm code:CODE` using the returned draft code.
+- `/question issue:N project:OWNER/REPO`, then
+  `/answer issue:N revision:TOKEN text:Use the existing search index. project:OWNER/REPO`
+  using the returned Research token.
+- `/meter project:OWNER/REPO` and `/diagnose issue:N project:OWNER/REPO`.
+
+Verify the resulting issue link or Research answer receipt. A preview alone
+creates nothing; approvals for subsequent work still belong on the ticket.
 
 ## Task notices
 
@@ -184,6 +232,8 @@ details.
 | Symptom | Check |
 | --- | --- |
 | `daemon status` chat line says the token cannot be resolved | Store the token under the Keychain service/account (or env variable) in the config. |
+| `User interaction is not allowed` | Unlock the login Keychain in Terminal.app or an interactive SSH shell as the daemon user, then retry storing the token. |
+| Portal endpoint verification fails | Start the configured listener first; check public HTTPS, exact `/litefactory/discord` path, raw body, signature headers and the application public key. |
 | Config refused at startup | `chat.discord` needs `webhook.listen`, an HTTPS `webhook.public_url`, numeric IDs, a 64-hex public key and exactly one token reference. |
 | Commands do not appear | Restart the daemon; check the Interactions Endpoint URL and that the proxy forwards `/litefactory/discord`. |
 | Plain messages ignored | Enable Message Content; give the bot channel visibility and history; check `/health`. |
