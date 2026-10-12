@@ -256,6 +256,11 @@ func (d *Daemon) doctorControls(ctx context.Context) error {
 			}
 		case "apply":
 			body = "Doctor apply is unavailable. This command did not approve or perform a repair."
+			if blocking, err := d.db.ReadDoctorRepair(ctx, c.TaskRef); err == nil && !doctorRepairSettled(blocking.State) {
+				body += " Repair " + blocking.ID + " for this task is still in state " + blocking.State + "."
+			} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
 		}
 		if c.Operation != "stop" {
 			body += "\n\nContinue with `/doctor <instructions>`."
@@ -484,4 +489,14 @@ func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery 
 		return err
 	}
 	return d.db.CompleteDoctorDelivery(ctx, delivery.Key)
+}
+
+// doctorRepairSettled mirrors the terminal states excluded by the store's
+// one-active-repair-per-task index.
+func doctorRepairSettled(state string) bool {
+	switch state {
+	case "recovered", "stopped", "completed", "failed":
+		return true
+	}
+	return false
 }

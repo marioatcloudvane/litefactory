@@ -148,6 +148,15 @@ func (db *DB) AdmitDoctorCommand(ctx context.Context, c DoctorCommand) (DoctorCo
 			return err
 		}
 		if c.Operation == "apply" && state != "stopped" && c.RepairApprovalID != "" {
+			// A still-active repair holds the task's unique slot; admit without
+			// reserving so the control path answers this apply once.
+			var active int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM doctor_repairs WHERE task_ref=? AND state NOT IN ('recovered','stopped','completed','failed')`, c.TaskRef).Scan(&active); err != nil {
+				return err
+			}
+			if active > 0 {
+				return nil
+			}
 			var repair DoctorRepair
 			approval := DoctorApproval{ID: c.RepairApprovalID, SourceID: "github-doctor-apply:" + strconv.FormatInt(out.ID, 10), Principal: "github-owner:" + strconv.FormatInt(c.ActorID, 10), TaskRef: c.TaskRef, InboxID: out.ID}
 			if err := reserveDoctorRepairTx(ctx, tx, approval, &repair); err != nil {
