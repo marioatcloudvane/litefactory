@@ -159,7 +159,7 @@ func setApprover(ctx context.Context, tx *sql.Tx, a ApproverAppointment, connect
 			return a, e
 		}
 		for _, id := range ids {
-			if id <= 0 || strconv.FormatInt(id, 10) != a.Actor.RemoteID {
+			if id > 0 && strconv.FormatInt(id, 10) != a.Actor.RemoteID {
 				return a, fmt.Errorf("%w: historical approval actor conflicts with legacy identity", ErrApproverUnauthorized)
 			}
 		}
@@ -173,10 +173,10 @@ func setApprover(ctx context.Context, tx *sql.Tx, a ApproverAppointment, connect
 			return a, fmt.Errorf("%w: %s %s", ErrApproverBusy, blockers[0].Kind, blockers[0].Key)
 		}
 	}
-	if !legacy {
-		if _, e := tx.ExecContext(ctx, `DELETE FROM project_approver_initialization WHERE repo_id=? AND status='conflict'`, a.RepoID); e != nil {
-			return a, e
-		}
+	// A legacy retry that passed its checks above clears the conflict an
+	// earlier start recorded, so startup repairs the project without owner action.
+	if _, e := tx.ExecContext(ctx, `DELETE FROM project_approver_initialization WHERE repo_id=? AND status='conflict'`, a.RepoID); e != nil {
+		return a, e
 	}
 	a.Revision = old.Revision + 1
 	a.ActivatedAt = nowUTC()

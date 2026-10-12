@@ -144,17 +144,27 @@ func reconcileSession(ctx context.Context, db *store.DB, factory *Factory, sessi
 			expectedActor = actorID
 		}
 	}
-	for _, report := range reports {
-		if report.Destination != session.TaskRef || report.Task != session.TaskRef {
+	// Deliveries may address other issues or pull requests of the same
+	// repository (story sub-issues, refinement children, code proposals);
+	// each is checked and bound against its own destination.
+	destinations := make([]ticket.Locator, len(reports))
+	for i, report := range reports {
+		if _, ok := legacyRepositoryKey(report.Task, code.Destination); !ok {
 			return store.ErrTicketIdentityConflict
 		}
+		key, ok := legacyRepositoryKey(report.Destination, code.Destination)
+		if !ok {
+			return store.ErrTicketIdentityConflict
+		}
+		destinations[i] = ticket.Locator{Provider: mapping.Locator.Provider, Origin: mapping.Locator.Origin, Container: mapping.Locator.Container, Key: key}
 		if expectedActor > 0 && expectedActor != report.BotUserID {
 			return ErrActorChanged
 		}
 		expectedActor = report.BotUserID
 		effect, err := db.GetTicketEffect(ctx, report.Key)
 		if err == nil {
-			if effect.Locator != mapping.Locator || (mapping.RemoteID != "" && effect.RemoteID != "" && effect.RemoteID != mapping.RemoteID) {
+			own := destinations[i] == mapping.Locator
+			if effect.Locator != destinations[i] || (own && mapping.RemoteID != "" && effect.RemoteID != "" && effect.RemoteID != mapping.RemoteID) {
 				return store.ErrTicketIdentityConflict
 			}
 			if effect.Actor.RemoteID != "" && effect.Actor.RemoteID != strconv.FormatInt(expectedActor, 10) {
@@ -261,8 +271,15 @@ func reconcileSession(ctx context.Context, db *store.DB, factory *Factory, sessi
 			return err
 		}
 	}
-	for _, report := range reports {
+	for i, report := range reports {
 		actor := ticket.Identity{Provider: ticket.GitHub, Origin: ref.Identity.Origin, RemoteID: strconv.FormatInt(clients.Actor.ID, 10)}
+		if destinations[i] != mapping.Locator {
+			// Another issue of the same repository: no remote read during import.
+			if _, err := db.BindTicketEffect(ctx, report.Key, destinations[i], actor); err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := db.BindTicketEffect(ctx, report.Key, ref.Locator, actor); err != nil {
 			return err
 		}
@@ -271,6 +288,27 @@ func reconcileSession(ctx context.Context, db *store.DB, factory *Factory, sessi
 		}
 	}
 	return db.AttachExecutionSnapshot(ctx, store.ExecutionSnapshot{SessionID: session.ID, RepoID: session.RepoID, BindingID: binding.ID, CodeVersionID: code.ID, TicketVersionID: tickets.ID, ActorID: clients.Actor.ID, ActorLogin: clients.Actor.Login})
+}
+
+// legacyRepositoryKey returns the issue or pull request number addressed by a
+// historical delivery value ("github:owner/repo#N" or "owner/repo#N") when it
+// belongs to the given repository.
+func legacyRepositoryKey(value, repository string) (string, bool) {
+	if ref, err := naming.ParseRef(value); err == nil {
+		if ref.Forge != naming.ForgeGitHub || ref.Owner+"/"+ref.Repo != repository {
+			return "", false
+		}
+		return strconv.Itoa(ref.Issue), true
+	}
+	slug, number, ok := strings.Cut(value, "#")
+	if !ok || slug != repository {
+		return "", false
+	}
+	n, err := strconv.Atoi(number)
+	if err != nil || n <= 0 || strconv.Itoa(n) != number {
+		return "", false
+	}
+	return number, true
 }
 
 func sameLegacyDestination(a, b store.ConnectionVersion) bool {

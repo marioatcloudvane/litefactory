@@ -1,7 +1,6 @@
 package store
 
 import (
-	"errors"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -157,23 +156,14 @@ func TestProjectApproverLegacyBodyRunCannotInventAuthor(t *testing.T) {
 	if err = db.Migrate(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	// An unfinished body with no recorded author is unknown, not a different
+	// author: import proceeds, but the run never acquires a synthetic actor.
 	a := ApproverAppointment{RepoID: repo.ID, Actor: ticket.Identity{Provider: ticket.GitHub, Origin: connection.Origin, RemoteID: "42"}, Handle: "original-owner", VerifiedAt: time.Now(), Provenance: "legacy"}
-	if _, err = db.ImportLegacyApprover(t.Context(), a, connection.Revision); !errors.Is(err, ErrApproverUnauthorized) {
-		t.Fatalf("unfinished body invented approver authorship: %v", err)
-	}
-	var count int
-	if err = db.sql.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM project_approver_appointments WHERE repo_id=?`, repo.ID).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("failed attribution changed appointment: %d %v", count, err)
-	}
-	// A completed unattributed body stays historical data; it never acquires a
-	// synthetic source actor just because future project authority is imported.
-	if _, err = db.CompleteRunReport(t.Context(), run.ID, 999); err != nil {
-		t.Fatal(err)
-	}
 	a, err = db.ImportLegacyApprover(t.Context(), a, connection.Revision)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var count int
 	if err = db.ReconcileLegacyApproverEvidence(t.Context(), a); err != nil {
 		t.Fatal(err)
 	}
@@ -209,13 +199,18 @@ func TestProjectApproverLegacyRunlessReportRequiresExactSource(t *testing.T) {
 			if err = db.Migrate(t.Context()); err != nil {
 				t.Fatal(err)
 			}
+			// A source that cannot be attributed is unknown, not a different
+			// author: import proceeds and records no evidence for the report.
 			a := ApproverAppointment{RepoID: repo.ID, Actor: ticket.Identity{Provider: ticket.GitHub, Origin: connection.Origin, RemoteID: "42"}, Handle: "owner", VerifiedAt: time.Now(), Provenance: "legacy"}
-			if _, err = db.ImportLegacyApprover(t.Context(), a, connection.Revision); !errors.Is(err, ErrApproverUnauthorized) {
-				t.Fatalf("unrelated comment authorized report: %v", err)
+			if a, err = db.ImportLegacyApprover(t.Context(), a, connection.Revision); err != nil {
+				t.Fatalf("unattributed pending report blocked import: %v", err)
+			}
+			if err = db.ReconcileLegacyApproverEvidence(t.Context(), a); err != nil {
+				t.Fatal(err)
 			}
 			var count int
-			if err = db.sql.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM project_approver_appointments WHERE repo_id=?`, repo.ID).Scan(&count); err != nil || count != 0 {
-				t.Fatalf("failed import changed authority: %d %v", count, err)
+			if err = db.sql.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM project_legacy_authority_evidence WHERE repo_id=? AND record_kind='report_effect'`, repo.ID).Scan(&count); err != nil || count != 0 {
+				t.Fatalf("unrelated comment attributed report: %d %v", count, err)
 			}
 			delivery, err := db.GetReportDelivery(t.Context(), "missing-source")
 			if err != nil || delivery.Body != "original bytes" || delivery.Completed {
