@@ -8,6 +8,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/launchd"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 func TestDaemonRelative(t *testing.T) {
@@ -321,4 +322,51 @@ func TestDaemonStatusPrintsHeartbeatSnapshots(t *testing.T) {
 	if !strings.Contains(stdout, "last poll") {
 		t.Errorf("down status dropped the per-repo poll lines:\n%s", stdout)
 	}
+}
+
+func TestDaemonStatusDoctorCurrentConfiguration(t *testing.T) {
+	h := newDaemonHome(t, keychainConfig)
+	db := h.migrate()
+	ctx := t.Context()
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "linear", RemoteURL: "git@github.com:acme/linear.git", BaseBranch: "main", FeaturePrefix: "lf/", WorktreeRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team/project", CredentialSource: "env", CredentialEnv: "UNRESOLVED_LINEAR_TEST", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"plan"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.fake.answer = func(args []string) (string, error) {
+		return "", notLoadedError(args, 113, "Bad request.; Could not find service in domain for user gui: 501")
+	}
+	check := func(want bool) {
+		t.Helper()
+		code, stdout, stderr := h.run("daemon", "status")
+		if code != ExitOK {
+			t.Fatalf("status: %d %s", code, stderr)
+		}
+		if strings.Contains(stdout, "background Doctor discovery unsupported/skipped for Linear (current configuration)") != want {
+			t.Fatalf("status: %s", stdout)
+		}
+		if want && !strings.Contains(stdout, "project acme/linear") {
+			t.Fatalf("missing project: %s", stdout)
+		}
+	}
+	check(true)
+	v, err = db.DisableConnection(ctx, repo.ID, store.TicketConnection, v.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+	v.Enabled = true
+	v, err = db.SetConnection(ctx, v, v.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+	v.Provider, v.Origin, v.Destination, v.Linear = ticket.GitHub, "https://api.github.com", repo.Slug(), store.LinearConfiguration{}
+	if _, err := db.SetConnection(ctx, v, v.Revision); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
 }
