@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -402,5 +403,81 @@ func TestProjectApproverRetainedCodeWorkerIsReplacementBarrier(t *testing.T) {
 	}
 	if _, err = db.SetApprover(t.Context(), next, restored.Revision, a.Revision); err != nil {
 		t.Fatalf("completed polling barrier stayed outstanding: %v", err)
+	}
+}
+
+func TestProjectApproverSameActorClearsConflictWithOutstandingWork(t *testing.T) {
+	db, conn, a := approverFixture(t)
+	a, err := db.SetApprover(t.Context(), a, conn.Revision, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := AuthorityClaim{RepoID: a.RepoID, AppointmentID: a.ID, Revision: a.Revision, Actor: a.Actor, Source: ticket.Identity{Provider: ticket.GitHub, Origin: conn.Origin, RemoteID: "comment:1"}, CreatedAt: a.ActivatedAt.Add(time.Second), Kind: "instruction", Key: "1"}
+	if _, err = db.ClaimProjectAuthority(t.Context(), claim); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.SetApproverImportConflict(t.Context(), a.RepoID, "verify historical identity"); err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	if err = db.sql.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM project_approver_appointments WHERE repo_id=?`, a.RepoID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	again := a
+	again.Handle = "renamed"
+	got, err := db.SetApprover(t.Context(), again, conn.Revision, a.Revision)
+	if err != nil {
+		t.Fatalf("same actor blocked by outstanding work: %v", err)
+	}
+	if got.ID != a.ID || got.Revision != a.Revision {
+		t.Fatalf("same actor replaced appointment: %+v", got)
+	}
+	if _, err = db.GetApproverInitialization(t.Context(), a.RepoID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("conflict row kept: %v", err)
+	}
+	current, err := db.CurrentApprover(t.Context(), a.RepoID)
+	if err != nil || current.ID != a.ID || current.Revision != a.Revision {
+		t.Fatalf("admission after re-confirmation: %+v %v", current, err)
+	}
+	var after int
+	if err = db.sql.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM project_approver_appointments WHERE repo_id=?`, a.RepoID).Scan(&after); err != nil || after != before {
+		t.Fatalf("appointments %d -> %d %v", before, after, err)
+	}
+	next := a
+	next.Actor.RemoteID = "43"
+	if _, err = db.SetApprover(t.Context(), next, conn.Revision, a.Revision); !errors.Is(err, ErrApproverBusy) {
+		t.Fatalf("outstanding work did not block replacement: %v", err)
+	}
+}
+
+func TestProjectApproverWorkerRecoveryNamesBlockingSession(t *testing.T) {
+	db, conn, a := approverFixture(t)
+	a, err := db.SetApprover(t.Context(), a, conn.Revision, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := db.GetRepo(t.Context(), a.RepoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := db.GetOrCreateSession(t.Context(), repo, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.sql.ExecContext(t.Context(), `UPDATE sessions SET lock_owner='previous-daemon' WHERE id=?`, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	worker := AuthorityClaim{RepoID: a.RepoID, AppointmentID: a.ID, Revision: a.Revision, Actor: a.Actor, Kind: "worker", Key: "scan"}
+	if _, err = db.ClaimProjectAuthority(t.Context(), worker); err != nil {
+		t.Fatal(err)
+	}
+	err = db.RecoverProjectWorkerClaims(t.Context(), a.RepoID)
+	if !errors.Is(err, ErrApproverBusy) || !strings.Contains(err.Error(), "session "+session.TaskRef) {
+		t.Fatalf("recovery error does not name blocker: %v", err)
+	}
+	next := a
+	next.Actor.RemoteID = "43"
+	if _, err = db.SetApprover(t.Context(), next, conn.Revision, a.Revision); !errors.Is(err, ErrApproverBusy) {
+		t.Fatalf("kept worker claim did not block replacement: %v", err)
 	}
 }
