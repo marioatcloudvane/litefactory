@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -47,6 +48,10 @@ func TestProjectDiscoveryRetainsBacklogAndQualifiedWorkspace(t *testing.T) {
 		p := &provider{remote: remote}
 		p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-RateLimit-Limit", "5000")
+			w.Header().Set("X-RateLimit-Remaining", "4999")
+			w.Header().Set("X-RateLimit-Resource", "core")
+			w.Header().Set("X-RateLimit-Reset", fmt.Sprint(time.Now().Add(time.Hour).Unix()))
 			if r.Method != http.MethodGet {
 				t.Errorf("unexpected mutation %s %s", r.Method, r.URL.Path)
 				w.WriteHeader(http.StatusMethodNotAllowed)
@@ -106,14 +111,14 @@ func TestProjectDiscoveryRetainsBacklogAndQualifiedWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	d := &Daemon{db: db, connections: projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 99}), filter: filter, log: slog.New(slog.DiscardHandler)}
+	d := &Daemon{db: db, connections: projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 99}), filter: filter, log: slog.New(slog.DiscardHandler), now: func() time.Time { return now }}
+	d.quotas.tick(now)
+	d.connections.SetRequestContext(d.bindQuotaRequest)
 	approvers := projectconnection.ApproverService{DB: db, Factory: d.connections}
 	appointment, err := approvers.Set(t.Context(), repo.ID, "owner", tickets.Revision, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.discovery.tick(now)
-	d.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 4999, Reset: now.Add(time.Hour), StatusCode: http.StatusOK})
 	q := &repoQueue{repo: repo, forgeRepo: github.Repo{Owner: "owner", Name: "tasks"}, log: d.log}
 	discover := func() *candidate {
 		t.Helper()
@@ -215,4 +220,38 @@ func TestProjectDiscoveryRetainsBacklogAndQualifiedWorkspace(t *testing.T) {
 	if _, err = d.discoverIssues(projectContext(t.Context(), repo.ID), q.forgeRepo, time.Time{}); err == nil {
 		t.Fatal("disabled connection still admitted discovery")
 	}
+	// A refusal belongs to the retained connection even after both current
+	// roles have moved, and recovery for the replacement remains eligible.
+	oldCtx := sessionContext(t.Context(), first.session.ID)
+	newCtx := sessionContext(t.Context(), second.session.ID)
+	_, finish, err := d.bindQuotaRequest(oldCtx, tickets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish(&ticket.RateLimitError{RetryAfter: time.Minute})
+	if !d.scopedQuotaDeferred(oldCtx, errors.New("sanitized connection failure")) || d.scopedQuotaDeferred(newCtx, errors.New("sanitized connection failure")) {
+		t.Fatal("sanitized errors lost their actual connection hold")
+	}
+	before := original.comments.Load()
+	if _, err := d.readComments(oldCtx, task.forgeRepo, 7, 0); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatalf("retained hold bypassed: %v", err)
+	}
+	if original.comments.Load() != before {
+		t.Fatal("retained held request reached provider")
+	}
+	if _, err := d.readComments(newCtx, task.forgeRepo, 7, 0); err != nil {
+		t.Fatalf("replacement shares retained hold: %v", err)
+	}
+	if allowed, err := d.recoveryAllowed(t.Context(), store.ReportRecovery{Key: "original", SessionID: first.session.ID}, now); err != nil || allowed {
+		t.Fatalf("retained recovery escaped hold: %t %v", allowed, err)
+	}
+	if allowed, err := d.recoveryAllowed(t.Context(), store.ReportRecovery{Key: "replacement", SessionID: second.session.ID}, now); err != nil || !allowed {
+		t.Fatalf("independent recovery blocked: %t %v", allowed, err)
+	}
+	now = now.Add(time.Minute)
+	d.quotas.tick(now)
+	if _, err := d.readComments(oldCtx, task.forgeRepo, 7, 0); err != nil {
+		t.Fatalf("retained recovery did not resume: %v", err)
+	}
+
 }

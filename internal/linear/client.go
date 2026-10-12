@@ -23,13 +23,16 @@ const responseLimit = 4 << 20
 
 // Config is nonsecret, version-bound connection configuration.
 type Config struct {
-	Origin      string
-	WorkspaceID string
-	TeamID      string
-	ProjectID   string
-	AuthKind    string
-	ModeLabels  map[string]string
-	States      map[string]string
+	// RequestContext lets the daemon attach connection-local accounting and
+	// refuse a new request during a hold. It must be safe for concurrent use.
+	RequestContext func(context.Context) (context.Context, func(error), error)
+	Origin         string
+	WorkspaceID    string
+	TeamID         string
+	ProjectID      string
+	AuthKind       string
+	ModeLabels     map[string]string
+	States         map[string]string
 }
 
 // Client sends one bounded request per operation; ledgers own retries.
@@ -77,7 +80,18 @@ func failure(op string, kind ticket.FailureKind, message string) error {
 	return &ticket.Failure{Operation: op, Kind: kind, Cause: errors.New(message)}
 }
 
-func (c *Client) query(ctx context.Context, operation, query string, variables any, mutation bool, out any) error {
+func (c *Client) query(ctx context.Context, operation, query string, variables any, mutation bool, out any) (resultErr error) {
+	if c.config.RequestContext != nil {
+		var err error
+		var finish func(error)
+		ctx, finish, err = c.config.RequestContext(ctx)
+		if err != nil {
+			return err
+		}
+		if finish != nil {
+			defer func() { finish(resultErr) }()
+		}
+	}
 	kind := ticket.Unavailable
 	if mutation {
 		kind = ticket.Uncertain
@@ -104,6 +118,16 @@ func (c *Client) query(ctx context.Context, operation, query string, variables a
 	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Content-Type", "application/json")
 	response, err := c.http.Do(req)
+	observation := requestObservation(response)
+	defer func() {
+		var quota *ticket.RateLimitError
+		if errors.As(resultErr, &quota) {
+			observation.RetryAfter = quota.RetryAfter
+		}
+		if observe, ok := ctx.Value(requestObserverKey{}).(func(RequestObservation)); ok {
+			observe(observation)
+		}
+	}()
 	if err != nil {
 		return failure(operation, kind, "provider transport failed")
 	}

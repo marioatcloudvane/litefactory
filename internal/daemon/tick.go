@@ -134,6 +134,7 @@ type TickResult struct {
 func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	hb := &heartbeat{source: wakeSourceFrom(ctx), counts: &discoveryCounts{}}
 	startedAt := d.now()
+	d.quotas.tick(startedAt)
 	hb.startedAt = startedAt
 	// Last, whatever path the tick leaves by: the heartbeat line and the health
 	// snapshot are reporting only and never change the tick's result.
@@ -174,7 +175,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	d.refreshWebhookSecrets(ctx, startedAt)
 
-	if retryAt, held := d.backoff.hold(startedAt); held {
+	if retryAt, held := d.connectionHold(ctx, startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
 			slog.Time("retry_at", retryAt.UTC()),
 			slog.String("remaining", retryAt.Sub(startedAt).String()))
@@ -185,7 +186,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	if err := d.pollPublications(ctx, startedAt); err != nil {
 		d.log.ErrorContext(ctx, "publication observation remains pending", slog.Any("error", err))
 		if providerRateLimited(err) {
-			return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+			if d.connections == nil {
+				return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+			}
+			d.rateLimited(ctx, d.log, startedAt, err)
 		}
 	}
 	// Progress is reconciled even while the sole turn worker is occupied.
@@ -193,7 +197,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		if err := progress.PollStoryProgress(ctx); err != nil {
 			d.log.ErrorContext(ctx, "story progress remains pending", slog.Any("error", err))
 			if providerRateLimited(err) {
-				return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+				if d.connections == nil {
+					return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+				}
+				d.rateLimited(ctx, d.log, startedAt, err)
 			}
 		}
 	}
@@ -203,7 +210,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	if err := d.PollCodeDeliveryControls(ctx); err != nil {
 		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
 		if providerRateLimited(err) {
-			return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+			if d.connections == nil {
+				return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+			}
+			d.rateLimited(ctx, d.log, startedAt, err)
 		}
 	}
 
@@ -567,7 +577,8 @@ func (d *Daemon) discover(
 				}
 				repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
 				if providerRateLimited(err) {
-					return nil, d.observe(ctx, now, err)
+					d.rateLimited(ctx, repoLog, now, err)
+					continue
 				}
 				continue
 			}
@@ -579,7 +590,8 @@ func (d *Daemon) discover(
 			if err != nil {
 				repoLog.WarnContext(ctx, "ticket recovery remains pending", slog.Any("error", err))
 				if providerRateLimited(err) {
-					return nil, d.observe(ctx, now, err)
+					d.rateLimited(ctx, repoLog, now, err)
+					continue
 				}
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
@@ -1238,7 +1250,13 @@ func (d *Daemon) dispatch(ctx context.Context, queues []*repoQueue, tickAt time.
 			case offerDispatched:
 				d.lastRepoID = q.repo.ID
 				d.repoSessionCursor[q.repo.ID] = c.session.ID
-			case offerFull, offerHeld:
+			case offerHeld:
+				if d.connections != nil {
+					continue
+				}
+				d.deferRest(ctx, queues, result)
+				return
+			case offerFull:
 				// No queue, by design: everything still standing keeps its
 				// backlog flag and is reconsidered from scratch next tick,
 				// against fresh fairness and backoff state.
@@ -1301,6 +1319,7 @@ const (
 // above the `go`: the rate-limit backoff (AC-PAR-4.4). It is last rather than
 // first on purpose — see the comment at the check itself.
 func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
+	ctx = sessionContext(ctx, c.session.ID)
 	if d.sessionRecoveryHeld(c.session.ID, tickAt) || d.prepFailures.held(c.session.ID, tickAt) {
 		return offerSkipped
 	}
@@ -1389,7 +1408,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	// no handle on anything already running. The turns in flight keep running and
 	// their claude processes are left alone. This gates the dispatch of new runs,
 	// and that is the whole of what a rate limit costs.
-	if retryAt, held := d.backoff.hold(tickAt); held {
+	if retryAt, held := d.connectionHold(ctx, tickAt); held {
 		// The same undo as the materialise branch above, for the same reason:
 		// [pool.try] said yes and no worker will run, so the slot goes back
 		// here, on this goroutine, before anything else can be refused one.
@@ -3021,6 +3040,9 @@ func (d *Daemon) observe(ctx context.Context, now time.Time, err error) error {
 // all refused at once arms one hold between them rather than doubling it per
 // refusal (AC-PAR-4.2).
 func (d *Daemon) rateLimited(ctx context.Context, log *slog.Logger, now time.Time, err error) {
+	if d.connections != nil {
+		return
+	} // The version-bound transport already recorded this refusal.
 	var ticketRate *ticket.RateLimitError
 	if errors.As(err, &ticketRate) {
 		failures, delay, until := d.backoff.fail(now, ticketRate.RetryAfter)

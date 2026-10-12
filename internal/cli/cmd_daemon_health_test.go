@@ -407,3 +407,28 @@ func TestDaemonStatusDoctorCurrentConfiguration(t *testing.T) {
 	}
 	check(false)
 }
+
+func TestPrintDaemonHeartbeatScopedPauses(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	for _, summary := range []string{
+		"project 1 linear https://api.linear.app: rate-limit backoff until 2026-10-12T12:03:00Z",
+		"project 1 linear https://api.linear.app: rate-limit backoff until 2026-10-12T12:03:00Z; project 2 github https://api.github.com: rate-limit backoff until 2026-10-12T12:05:00Z",
+		"",
+	} {
+		var out bytes.Buffer
+		status := store.ListenerStatus{WrittenAt: now, LastHeartbeatStartedAt: now, PauseReason: summary}
+		if err := printDaemonHeartbeat(&out, heartbeatSnapshot(status), now, true, now); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(out.String(), "paused since") || !strings.Contains(out.String(), "running") {
+			t.Fatalf("global pause invented: %s", &out)
+		}
+		if summary != "" && !strings.Contains(out.String(), summary) {
+			t.Fatalf("scoped deadlines missing: %s", &out)
+		}
+		if summary == "" && strings.Contains(out.String(), "connection pauses") {
+			t.Fatalf("expired hold retained: %s", &out)
+		}
+	}
+}
