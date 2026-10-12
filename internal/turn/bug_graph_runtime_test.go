@@ -326,3 +326,130 @@ func TestOwnerStopBugCannotAdvanceAcceptedResult(t *testing.T) {
 		t.Fatalf("stop created graph publication: %v", err)
 	}
 }
+
+func bugBootstrapFixture(t *testing.T, runner Runner) (*fixture, *BugRuntime, Request) {
+	t.Helper()
+	f, forge, req := assembledResearchFixture(t, runner)
+	f.opts.Tiers.ModelByTier[config.Kind("claude")][config.Tier("flagship")] = "fixture-model"
+	req.Workflow, req.Mode, req.ToolProfile = agent.WorkflowBug, "", "bug-analyst"
+	req.Trigger.AuthorID = 42
+	req.Trigger.Body = "Investigate the bootstrap failure"
+	req.Command = ParseCommand(req.Trigger.Body)
+	_, err := f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: f.session.ID, Version: 1, Family: "standalone", Workflow: "bug"})
+	mustProgress(t, err)
+	runtime, err := NewGraphBugRuntime(t.Context(), f.opts, BugRuntimeConfig{Forge: bugRuntimeJourneyForge{forge.client}, OwnerID: 42, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
+		return BugRolePermissions{Tools: []string{"Read"}, AllowedTools: []string{"Read"}}, nil
+	}})
+	mustProgress(t, err)
+	f.opts.Bug = runtime
+	return f, runtime, req
+}
+
+func TestGraphBugBootstrapAndUntouchedRecovery(t *testing.T) {
+	for _, scenario := range []string{"body", "comment", "untouched", "consume failure", "graph trigger"} {
+		t.Run(scenario, func(t *testing.T) {
+			calls := 0
+			runner := lifecycleMCPHost(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
+				calls++
+				mustProgress(t, req.ValidateBugAnalyst())
+				if !strings.Contains(req.Prompt, "Investigate the bootstrap failure") {
+					t.Fatal("bootstrap input missing from analyst prompt")
+				}
+				raw, err := json.Marshal(map[string]any{"version": 1, "response": "blocked", "result": map[string]any{"outcome": "blocked", "reason": "Controlled evidence needed", "comment": "Diagnosis retained", "payload": map[string]any{"bug": map[string]any{"response": "blocked", "invocation": fmt.Sprintf("analysis:%d:%d", req.Graph.InstanceID, req.Graph.AttemptID), "base_revision": 0, "evidence": []string{"Controlled report"}}}}})
+				mustProgress(t, err)
+				submitLiveResult(t, req, string(raw))
+				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, FinishedAt: time.Now()}, nil
+			})
+			f, runtime, req := bugBootstrapFixture(t, runner)
+			ctx := t.Context()
+			_, _, err := f.db.BootstrapWatermark(ctx, f.session.ID, 7)
+			mustProgress(t, err)
+			var original store.WorkflowAdmission
+			switch scenario {
+			case "body":
+				req.Trigger.CommentID = 0
+				req.Issue.Body, req.Trigger.Body = req.Trigger.Body, ""
+			case "untouched", "graph trigger":
+				body := req
+				body.Trigger.CommentID = 0
+				original, err = runtime.graphAdmission(ctx, body)
+				mustProgress(t, err)
+				if scenario == "graph trigger" {
+					dispatch, err := f.db.ParkGraphInstance(ctx, original.Instance.ID, original.Instance.CurrentNode, f.opts.MCP.Now(), f.opts.MCP.Now())
+					mustProgress(t, err)
+					_, reserved, err := f.db.ReserveGraphDispatch(ctx, dispatch.ID, f.opts.MCP.Now())
+					mustProgress(t, err)
+					if !reserved {
+						t.Fatal("dispatch not reserved")
+					}
+					req.Trigger.CommentID = dispatch.TriggerID()
+				}
+			case "consume failure":
+				// A separate closed reporter database injects failure after admission,
+				// without changing the graph store or production Reporter validation.
+				broken, err := store.Open(ctx, filepath.Join(t.TempDir(), "closed.db"))
+				mustProgress(t, err)
+				mustProgress(t, broken.Close())
+				reporter := *runtime.opts.ResearchReporter
+				reporter.db = broken
+				runtime.opts.ResearchReporter = &reporter
+				_, err = Execute(ctx, f.opts, req)
+				if err == nil || !strings.Contains(err.Error(), "consume comment") || calls != 0 {
+					t.Fatalf("consume failure: calls=%d err=%v", calls, err)
+				}
+				original.Instance, err = f.db.LatestStandaloneBugInstance(ctx, f.session.ID)
+				mustProgress(t, err)
+				runtime.opts.ResearchReporter = f.opts.ResearchReporter
+				req.Trigger.CommentID++
+			}
+			_, err = Execute(ctx, f.opts, req)
+			mustProgress(t, err)
+			instance, err := f.db.LatestStandaloneBugInstance(ctx, f.session.ID)
+			mustProgress(t, err)
+			if original.Instance.ID != 0 && instance.ID != original.Instance.ID {
+				t.Fatal("recovery replaced the retained instance")
+			}
+			wait, err := f.db.GetGraphOwnerWait(ctx, instance.ID)
+			mustProgress(t, err)
+			if calls != 1 || wait.OriginNode != "analyst" {
+				t.Fatalf("calls=%d wait=%+v", calls, wait)
+			}
+			if scenario == "untouched" || scenario == "consume failure" {
+				captured, err := f.db.HasWorkflowLaunch(ctx, f.session.ID, req.Trigger.CommentID)
+				mustProgress(t, err)
+				if !captured {
+					t.Fatal("fresh owner input has no retained launch")
+				}
+			}
+			wm, _, err := f.db.GetWatermark(ctx, f.session.ID)
+			mustProgress(t, err)
+			want := req.Trigger.CommentID
+			if want == 0 || store.IsGraphTrigger(want) {
+				want = 7
+			}
+			if wm.LastCommentID != want {
+				t.Fatalf("watermark=%d want=%d", wm.LastCommentID, want)
+			}
+			attemptsBefore, err := f.db.ListGraphNodeAttempts(ctx, instance.ID)
+			mustProgress(t, err)
+			runsBefore, err := f.db.ListRuns(ctx, f.session.ID)
+			mustProgress(t, err)
+			// A replay may be refused by existing request/dispatch validation; it must
+			// never rerun analysis or replace the retained launch.
+			_, err = Execute(ctx, f.opts, req)
+			if err != nil {
+				t.Logf("replay refused without re-execution: %v", err)
+			}
+			if calls != 1 {
+				t.Fatalf("replay invoked analyst %d times", calls)
+			}
+			attemptsAfter, err := f.db.ListGraphNodeAttempts(ctx, instance.ID)
+			mustProgress(t, err)
+			runsAfter, err := f.db.ListRuns(ctx, f.session.ID)
+			mustProgress(t, err)
+			if len(attemptsAfter) != len(attemptsBefore) || len(runsAfter) != len(runsBefore) {
+				t.Fatal("replay allocated duplicate work")
+			}
+		})
+	}
+}
