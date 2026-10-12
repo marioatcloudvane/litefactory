@@ -1438,10 +1438,28 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 			if probes.Load() != 2 {
 				t.Fatalf("warm probes=%d", probes.Load())
 			}
+			f.d.pool = newPool(1)
+			f.d.repoSessionCursor = make(map[int64]int64)
+			result := TickResult{}
+			f.d.dispatch(ctx, []*repoQueue{q}, f.now, &result)
+			linearWorkflowCheck(t, f.d.Quiesce(t.Context()))
+			if result.Dispatched != 1 {
+				t.Fatalf("dispatched=%d; want selected fallback worker", result.Dispatched)
+			}
 			for _, c := range seen {
-				task, err := f.d.materialise(ctx, c, f.now)
+				_, exists, err := f.d.db.GetWatermark(ctx, c.session.ID)
 				linearWorkflowCheck(t, err)
-				linearWorkflowCheck(t, f.d.bootstrap(sessionContext(ctx, c.session.ID), task))
+				if !exists {
+					t.Fatalf("worker did not bootstrap: %s", f.logs.String())
+				}
+				bodyPending, err := f.d.db.TicketBodyPending(ctx, c.session.ID)
+				linearWorkflowCheck(t, err)
+				if bodyPending {
+					t.Fatal("worker left issue body pending")
+				}
+			}
+			if view := budget.discovery.view(); view.InProgress != 0 {
+				t.Fatalf("worker leaked reservation: %+v", view)
 			}
 			if !strings.Contains(f.logs.String(), "first sight of a task") {
 				t.Fatal("missing first sight")
@@ -1456,4 +1474,55 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The supported history bound is in pages, not HTTP requests: each page
+// revalidates the issue before listing its comments.
+func TestLinearHistoryActualRequestBound(t *testing.T) {
+	f, remote, v, _, _ := linearObservationFixture(t)
+	clients, err := f.d.connections.Clients(t.Context(), v, 0)
+	linearWorkflowCheck(t, err)
+	var calls atomic.Int64
+	original := remote.server.Config.Handler
+	remote.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		body, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			t.Error(readErr)
+			return
+		}
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if decodeErr := json.Unmarshal(body, &request); decodeErr != nil {
+			t.Error(decodeErr)
+			return
+		}
+		if strings.Contains(request.Query, "comments(") {
+			page := 1
+			if after, ok := request.Variables["after"].(string); ok {
+				previous, parseErr := strconv.Atoi(after)
+				if parseErr != nil {
+					t.Error(parseErr)
+					return
+				}
+				page = previous + 1
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if encodeErr := json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"comments": map[string]any{"nodes": []any{}, "pageInfo": map[string]any{"hasNextPage": page < 100, "endCursor": strconv.Itoa(page)}}}}); encodeErr != nil {
+				t.Error(encodeErr)
+			}
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		original.ServeHTTP(w, r)
+	})
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: "parent-uuid"}, Locator: ticket.Locator{Provider: v.Provider, Origin: v.Origin, Container: v.Destination, Key: "parent-uuid"}}
+	page, err := clients.Tickets.RepliesAfter(t.Context(), ref, ticket.Cursor{})
+	linearWorkflowCheck(t, err)
+	if !page.Complete || calls.Load() != 200 {
+		t.Fatalf("complete=%t calls=%d; want complete supported history using 200 HTTP requests", page.Complete, calls.Load())
+	}
+	t.Logf("one supported 100-page history used %d HTTP calls; approved per-history reservation is %d", calls.Load(), discoveryListBound)
 }

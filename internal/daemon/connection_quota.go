@@ -140,7 +140,7 @@ func (d *Daemon) bindQuotaRequest(ctx context.Context, v store.ConnectionVersion
 	r, _ := ctx.Value(quotaReservationKey{}).(*discoveryReservation)
 	if r != nil && r.fallback && r.budget == &q.discovery {
 		q.discovery.mu.Lock()
-		exhausted := r.requests >= r.bound || (q.discovery.limit > 0 && now.Before(q.discovery.reset) && (q.discovery.remaining <= q.discovery.floorLocked() || q.discovery.spent >= q.discovery.discoveryShareLocked()))
+		exhausted := r.finished || r.requests >= r.bound || (q.discovery.limit > 0 && now.Before(q.discovery.reset) && (q.discovery.remaining <= q.discovery.floorLocked() || q.discovery.spent >= q.discovery.discoveryShareLocked()))
 		q.discovery.mu.Unlock()
 		if exhausted {
 			return ctx, nil, ErrDiscoveryDeferred

@@ -270,7 +270,18 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			failedSources[version.ID] = true
 			continue
 		}
-		defer finish()
+		transferred := false
+		defer func() {
+			if !transferred {
+				finish()
+			}
+		}()
+		transfer := func(c *candidate) {
+			if r, ok := ctx.Value(quotaReservationKey{}).(*discoveryReservation); ok && r.fallback {
+				seen[c.session.ID].discoveryReservation = r
+				transferred = true
+			}
+		}
 		parent, err := d.observationParent(ctx, q, observation)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -286,6 +297,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		}
 		if parent != nil {
 			d.queueObservation(q, seen, parent, observation)
+			transfer(parent)
 			continue
 		}
 		identity := ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}
@@ -450,6 +462,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 				return err
 			}
 			d.queueObservation(q, seen, c, observation)
+			transfer(c)
 		} else if issue.State == "closed" {
 			if err := d.db.ClearPendingTicketObservation(ctx, observation.ConnectionVersionID, observation.TicketID, observation.Generation); err != nil {
 				warnRejection("closed_unadmitted", "retained", err)

@@ -51,6 +51,7 @@ type discoveryBudget struct {
 	waiters                                   []discoveryWaiter
 	fallbackAt                                time.Time
 	fallbackRecovery, fallbackPending         bool
+	fallbackWorker                            bool
 	deferrals                                 int
 	lists                                     chan struct{}
 }
@@ -61,6 +62,7 @@ type discoveryReservation struct {
 	reset                    time.Time
 	probe                    bool
 	fallback                 bool
+	pending, finished        bool
 }
 
 func (b *discoveryBudget) tick(now time.Time) {
@@ -216,7 +218,7 @@ func (b *discoveryBudget) acquireFallback(key string, cost int, pending bool) (*
 	if b.limit > 0 && b.now.Before(b.reset) && (b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.discoveryShareLocked()) {
 		return nil, ErrDiscoveryDeferred
 	}
-	if b.tokens < float64(cost) || (first != "" && first != key) {
+	if b.tokens < float64(cost) || b.reserved+cost > discoveryBurst || (pending && b.fallbackWorker) || (first != "" && first != key) {
 		return nil, ErrDiscoveryDeferred
 	}
 	if b.fallbackAt.IsZero() || !b.now.Before(b.fallbackAt.Add(time.Minute)) {
@@ -228,6 +230,7 @@ func (b *discoveryBudget) acquireFallback(key string, cost int, pending bool) (*
 	}
 	if pending {
 		b.fallbackPending = true
+		b.fallbackWorker = true
 	} else {
 		b.fallbackRecovery = true
 	}
@@ -240,7 +243,7 @@ func (b *discoveryBudget) acquireFallback(key string, cost int, pending bool) (*
 	b.waiters = append(b.waiters, discoveryWaiter{key, cost, b.now})
 	b.tokens -= float64(cost)
 	b.reserved += cost
-	return &discoveryReservation{budget: b, bound: cost, reset: b.reset, fallback: true}, nil
+	return &discoveryReservation{budget: b, bound: cost, reset: b.reset, fallback: true, pending: pending}, nil
 }
 
 func (d *Daemon) linearFallback(ctx context.Context, v store.ConnectionVersion, pending bool) (context.Context, func(), error) {
@@ -256,10 +259,11 @@ func (d *Daemon) linearFallback(ctx context.Context, v store.ConnectionVersion, 
 	}
 	// Recovery: cold publisher, container, three pages, up to one page of
 	// reply locators. Admission: cold publisher, container, reread, and the
-	// admission's own ticket/container checks. Code reads keep their own scope.
+	// admission's own ticket/container checks, then bootstrap and drain history.
+	// Code reads keep their own scope.
 	cost := 5 + recoveryPageSize
 	if pending {
-		cost = 5
+		cost = 5 + 2*discoveryListBound
 	}
 	r, err := b.acquireFallback(fmt.Sprint(v.ID), cost, pending)
 	if err != nil {
@@ -297,6 +301,13 @@ func (r *discoveryReservation) finish() {
 	b := r.budget
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if r.finished {
+		return
+	}
+	r.finished = true
+	if r.pending {
+		b.fallbackWorker = false
+	}
 	b.reserved -= r.bound
 	b.tokens = min(discoveryBurst, b.tokens+float64(max(0, r.bound-r.requests)))
 	// Requests outstanding across a reset still consume the new window unless
