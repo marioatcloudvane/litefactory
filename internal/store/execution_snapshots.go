@@ -243,8 +243,15 @@ func (db *DB) admitSession(ctx context.Context, repo Repo, ref ticket.Ref, codeR
 		if !binding.Enabled {
 			return ErrConnectionDisabled
 		}
-		if binding.RepoID != repo.ID || binding.ConnectionVersionID != tickets.ID || binding.Ref != ref {
+		if binding.RepoID != repo.ID || binding.Ref != ref {
 			return ErrBindingConflict
+		}
+		verifiedTicketID := ""
+		if len(remoteIDs) > 1 {
+			verifiedTicketID = remoteIDs[1]
+		}
+		if err := checkTicketBindingSource(ctx, tx, binding, tickets, verifiedTicketID); err != nil {
+			return err
 		}
 		number, err := sessionIssueNumber(ctx, tx, ref)
 		if err != nil {

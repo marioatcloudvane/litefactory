@@ -171,3 +171,116 @@ func TestLinearAdmissionRetainsPublishingIdentitiesAndReplySources(t *testing.T)
 		t.Fatalf("reply inherited another actor: %v", err)
 	}
 }
+
+func TestLinearBindingSurvivesConnectionVersions(t *testing.T) {
+	for _, edit := range []string{"labels", "states", "credential", "reenable", "workspace", "team", "project", "origin", "provider", "container"} {
+		t.Run(edit, func(t *testing.T) {
+			db := newTestDB(t)
+			repo := testRepo(t, db, "code", "repo")
+			if _, err := db.UpsertIdentity(t.Context(), Identity{Forge: ForgeGitHub, Role: RoleOwner, UserID: 7, Handle: "owner", Source: SourceGH}); err != nil {
+				t.Fatal(err)
+			}
+			code, err := db.SetConnection(t.Context(), connectionFixture(repo, CodeConnection), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			old, err := db.SetConnection(t.Context(), linearConnectionFixture(repo), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := ticket.Ref{Identity: ticket.Identity{Provider: old.Provider, Origin: old.Origin, RemoteID: "issue-uuid"}, Locator: ticket.Locator{Provider: old.Provider, Origin: old.Origin, Container: old.Destination, Key: "issue-uuid"}}
+			binding, err := db.AddTicketBinding(t.Context(), TicketBinding{RepoID: repo.ID, ConnectionVersionID: old.ID, Ref: ref, Enabled: true, Provenance: "explicit"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := old
+			compatible := true
+			switch edit {
+			case "labels":
+				next.Linear.ModeLabelsJSON = `{"plan":"new-label"}`
+			case "states":
+				next.Linear.LifecycleStatesJSON = `{"completed":"new-done","retired":"new-cancelled"}`
+			case "credential":
+				next.CredentialEnv = "NEW_TOKEN"
+			case "reenable":
+				next, err = db.DisableConnection(t.Context(), repo.ID, TicketConnection, old.Revision)
+				if err != nil {
+					t.Fatal(err)
+				}
+				next.Enabled = true
+			case "workspace":
+				next.Linear.WorkspaceID = "other"
+				compatible = false
+			case "team":
+				next.Linear.TeamID = "other"
+				next.Destination = "other/project"
+				compatible = false
+			case "project":
+				next.Linear.ProjectID = "other"
+				next.Destination = "team/other"
+				compatible = false
+			case "origin":
+				next.Origin = "https://other.example"
+				compatible = false
+			case "provider":
+				next.Provider = ticket.GitHub
+				next.Linear = LinearConfiguration{}
+				compatible = false
+			case "container":
+				next.RemoteID = "different"
+				compatible = false
+			}
+			next, err = db.SetConnection(t.Context(), next, next.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			admit := func() (Session, error) {
+				return db.AdmitSessionWithPublishers(t.Context(), repo, ref, code.Revision, next.Revision, PublishingActor{ID: 42, Login: "linear-bot"}, PublishingActor{ID: 99, Login: "code-bot"}, "linear-task", 0, "code-id", "project")
+			}
+			session, err := admit()
+			if !compatible {
+				if !errors.Is(err, ErrBindingConflict) {
+					t.Fatalf("replacement admitted: %+v %v", session, err)
+				}
+				if _, err := db.GetSessionByTicket(t.Context(), ref.Identity); !errors.Is(err, ErrNotFound) {
+					t.Fatalf("partial session: %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				snapshot, err := db.GetExecutionSnapshot(t.Context(), session.ID)
+				if err != nil || snapshot.BindingID != binding.ID || snapshot.TicketVersionID != next.ID || snapshot.CodeVersionID != code.ID || snapshot.ActorID != 42 || snapshot.CodeActorID != 99 {
+					t.Fatalf("wrong snapshot: %+v %v", snapshot, err)
+				}
+				again, err := admit()
+				if err != nil || again.ID != session.ID {
+					t.Fatalf("replay: %+v %v", again, err)
+				}
+				// Later source replacement cannot repin an admitted session.
+				next, err = db.DisableConnection(t.Context(), repo.ID, TicketConnection, next.Revision)
+				if err != nil {
+					t.Fatal(err)
+				}
+				next.Enabled = true
+				next.Linear.WorkspaceID = "replacement"
+				next, err = db.SetConnection(t.Context(), next, next.Revision)
+				if err != nil {
+					t.Fatal(err)
+				}
+				again, err = admit()
+				if err != nil || again.ID != session.ID {
+					t.Fatalf("retained session: %+v %v", again, err)
+				}
+				retained, err := db.GetExecutionSnapshot(t.Context(), session.ID)
+				if err != nil || retained != snapshot {
+					t.Fatalf("repinned snapshot: %+v %v", retained, err)
+				}
+			}
+			saved, err := db.GetTicketBindingByID(t.Context(), binding.ID)
+			if err != nil || saved != binding {
+				t.Fatalf("binding changed: %+v %v", saved, err)
+			}
+		})
+	}
+}

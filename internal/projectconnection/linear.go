@@ -2,6 +2,7 @@ package projectconnection
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/linear"
@@ -56,7 +57,7 @@ func (f *Factory) loadLinear(ctx context.Context, v store.ConnectionVersion, exp
 	if err != nil {
 		return nil, ErrInvalidConnection
 	}
-	adapter, err := linear.New(linear.Config{Origin: string(v.Origin), AuthKind: v.Linear.AuthKind, WorkspaceID: v.Linear.WorkspaceID, TeamID: v.Linear.TeamID, ProjectID: v.Linear.ProjectID, ModeLabels: labels, States: states}, token, f.options.HTTPClient)
+	adapter, err := linear.New(linear.Config{RequestContext: f.bindRequest(v), Origin: string(v.Origin), AuthKind: v.Linear.AuthKind, WorkspaceID: v.Linear.WorkspaceID, TeamID: v.Linear.TeamID, ProjectID: v.Linear.ProjectID, ModeLabels: labels, States: states}, token, f.options.HTTPClient)
 	if err != nil {
 		return nil, ErrInvalidConnection
 	}
@@ -78,10 +79,18 @@ func (f *Factory) loadLinear(ctx context.Context, v store.ConnectionVersion, exp
 	return clients, nil
 }
 
-func (f *Factory) checkLinear(ctx context.Context, v store.ConnectionVersion) store.ConnectionObservation {
+func (f *Factory) checkLinear(ctx context.Context, v store.ConnectionVersion) (o store.ConnectionObservation) {
 	ctx, cancel := context.WithTimeout(ctx, f.options.Timeout)
 	defer cancel()
-	o := store.ConnectionObservation{VersionID: v.ID, CheckedAt: time.Now().UTC()}
+	o = store.ConnectionObservation{VersionID: v.ID, CheckedAt: time.Now().UTC()}
+	defer func() {
+		labels, err := v.Linear.ModeLabels()
+		if err == nil {
+			if missing := linear.MissingModeLabels(labels); len(missing) > 0 {
+				o.Remedy += " Missing mode mappings: " + strings.Join(missing, ", ") + ". Add label IDs to the connection's --mode-labels, or use a mapped mode."
+			}
+		}
+	}()
 	clients, err := f.loadLinear(ctx, v, 0, true)
 	if err != nil {
 		o.Status, o.Reason, o.Remedy = healthFailure(err)

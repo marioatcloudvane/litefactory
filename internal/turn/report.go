@@ -195,6 +195,9 @@ func (rep RunReport) validate() error {
 
 // ReplyRequest is a run-less answer to a comment litefactory will not act on.
 type ReplyRequest struct {
+	// MissingMode is required for a missing connection label mapping refusal.
+	MissingMode agent.Mode
+
 	Creation           *report.CreationReply
 	CreationAcceptance *report.CreationAcceptance
 	// Ref is the task the comment is on. It appears in the marker, so it must
@@ -332,12 +335,12 @@ func (req ReplyRequest) validate() error {
 	switch {
 	case req.CreationAcceptance != nil && (req.Creation != nil || req.refusing() || req.ScheduleKind != report.ReplyInvalid || req.ConfirmKind != report.ReplyInvalid):
 		return invalidRequest("creation acceptance cannot be combined with another reply")
+	case req.Refusal == report.ReplyMissingModeMapping && !req.MissingMode.Valid():
+		return invalidRequest("a canonical missing mode is required")
 	case req.SessionID <= 0:
 		return invalidRequest("a session id is required to reply to a comment")
-	// A refusal needs one as much as any other reply does. The issue-body path
-	// has no comment to answer and does not come here at all: it refuses the run
-	// and logs it, and the next comment on the issue is refused on the thread.
-	case req.CommentID < 0 || (req.CommentID == 0 && req.Refusal != report.ReplyBugUnavailable):
+	// Only explicit owner-fixable admission refusals may answer an issue body.
+	case req.CommentID < 0 || (req.CommentID == 0 && req.Refusal != report.ReplyBugUnavailable && req.Refusal != report.ReplyMissingModeMapping && req.Refusal != report.ReplyMissingTeam && req.Refusal != report.ReplyUnsupportedWorkflow):
 		return invalidRequest("a comment id is required to reply to a comment")
 	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
 		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode() && !req.Refusal.RefusesSync():
@@ -694,6 +697,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 			SourceStoryIssue:         sourceStory,
 			SourceCommentID:          sourceComment,
 			Kind:                     kind,
+			MissingMode:              req.MissingMode,
 			Command:                  req.Command.Name,
 			Agent:                    req.Agent,
 			OwningAgent:              req.OwningAgent,

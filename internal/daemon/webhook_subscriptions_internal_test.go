@@ -2,6 +2,15 @@ package daemon
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
+	"github.com/cloudvane/litefactory/internal/webhook"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,5 +165,124 @@ func TestSubscriptionCacheDiscardsConnectionChangeDuringSecretLoad(t *testing.T)
 	w.refreshSubscriptions(t.Context(), f.d.db, f.now)
 	if _, ok := w.LookupSubscription(sub.ID); ok {
 		t.Fatal("connection changed during resolution admitted old source")
+	}
+}
+
+func TestLegacySecretWithoutRecordedHookAdmitsVerifiedSource(t *testing.T) {
+	for _, mode := range []string{"present", "missing", "denied", "ambiguous"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newDiscoveryHTTPFixture(t)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					t.Errorf("daemon mutated remote hook: %s", r.Method)
+				}
+				switch r.URL.Path {
+				case "/user":
+					_, _ = w.Write([]byte(`{"id":7,"login":"bot"}`))
+				case "/repos/acme/legacy":
+					_, _ = w.Write([]byte(`{"id":101,"full_name":"acme/legacy","has_issues":true}`))
+				default:
+					t.Errorf("unexpected remote call %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			repo, err := f.d.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "legacy", RemoteURL: "git@github.com:acme/legacy.git"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			v, err := f.d.db.SetConnection(t.Context(), store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.GitHub, Origin: ticket.Origin(server.URL), Destination: repo.Slug(), Enabled: true, Provenance: "legacy", CredentialSource: "env", CredentialEnv: "TOKEN"}, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pinned := v
+			pinned.RemoteID = "101"
+			if mode == "ambiguous" {
+				pinned.RemoteID = "102"
+			}
+			if _, err := f.d.db.RetainConnectionVersion(t.Context(), pinned); err != nil {
+				t.Fatal(err)
+			}
+			f.d.connections = projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 7, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "fake-token", true }}})
+			calls := 0
+			f.d.webhook = newWebhookRuntime(WebhookOptions{PublicURL: "https://callback.invalid" + webhook.Path, Secrets: secrets.Resolver{Keychain: func(_ context.Context, service, account string) (string, error) {
+				calls++
+				if service != WebhookKeychainService || account != repo.Slug() {
+					t.Fatalf("wrong secret reference: %s/%s", service, account)
+				}
+				if mode == "missing" {
+					return "", secrets.ErrNotFound
+				}
+				if mode == "denied" {
+					return "", errors.New("access denied private detail")
+				}
+				return "legacy-secret", nil
+			}}}, f.d.log)
+			f.d.refreshWebhookSecrets(t.Context(), f.now)
+			before := calls
+			f.d.refreshWebhookSecrets(t.Context(), f.now.Add(time.Minute))
+			if calls != before {
+				t.Fatal("secret retried before cadence")
+			}
+			handler, err := webhook.NewHandler(webhook.Options{Lookup: f.d.webhook, Sink: f.d.webhook, Logger: f.d.log})
+			if err != nil {
+				t.Fatal(err)
+			}
+			send := func(secret, delivery string) int {
+				body := `{"action":"opened","repository":{"id":101,"full_name":"acme/legacy"},"issue":{"number":7}}`
+				mac := hmac.New(sha256.New, []byte(secret))
+				_, _ = mac.Write([]byte(body))
+				req := httptest.NewRequest(http.MethodPost, webhook.Path, strings.NewReader(body))
+				req.Header.Set("X-GitHub-Event", "issues")
+				req.Header.Set("X-GitHub-Delivery", delivery)
+				req.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+				out := httptest.NewRecorder()
+				handler.ServeHTTP(out, req)
+				return out.Code
+			}
+			if got := send("wrong", "bad"); got != http.StatusUnauthorized {
+				t.Fatalf("bad signature status=%d", got)
+			}
+			status := send("legacy-secret", "good")
+			if mode != "present" {
+				if status != http.StatusUnauthorized {
+					t.Fatalf("unavailable source admitted: %d", status)
+				}
+				if mode != "ambiguous" {
+					logs := f.logs.String()
+					if strings.Count(logs, `"level":"WARN"`) != 1 || !strings.Contains(logs, repo.Slug()) || !strings.Contains(logs, "litefactory repo webhook") || strings.Contains(logs, "private detail") {
+						t.Fatalf("missing paced safe warning: %s", logs)
+					}
+					f.d.refreshWebhookSecrets(t.Context(), f.now.Add(6*time.Minute))
+					if calls != before+1 {
+						t.Fatal("no retry after cadence")
+					}
+				}
+				return
+			}
+			if status < 200 || status >= 300 {
+				t.Fatalf("signed delivery rejected: %d logs=%s", status, f.logs.String())
+			}
+			hints := f.d.webhook.hints.pending()
+			if len(hints) != 1 || hints[0].versionID != v.ID || hints[0].repoID != repo.ID {
+				t.Fatalf("wrong routing: %+v", hints)
+			}
+			if _, err := f.d.db.GetRepoWebhook(t.Context(), repo.ID); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("daemon claimed remote hook: %v", err)
+			}
+			subs, err := f.d.db.ListTicketSubscriptions(t.Context(), repo.ID)
+			if err != nil || len(subs) != 1 || subs[0].RemoteHookID != "" {
+				t.Fatalf("subscriptions: %+v %v", subs, err)
+			}
+			sub := subs[0]
+			sub.DesiredEnabled = false
+			if _, err := f.d.db.PutTicketSubscription(t.Context(), sub, sub.Revision); err != nil {
+				t.Fatal(err)
+			}
+			f.d.refreshWebhookSecrets(t.Context(), f.now.Add(2*time.Minute))
+			if got := send("legacy-secret", "disabled"); got != http.StatusUnauthorized {
+				t.Fatalf("disable admitted: %d", got)
+			}
+		})
 	}
 }

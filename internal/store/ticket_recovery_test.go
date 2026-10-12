@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -209,8 +210,37 @@ func TestTicketRecoveryLegacyEnterpriseAndAmbiguousMapping(t *testing.T) {
 	if _, err := db.SetConnection(ctx, replacement, legacy.Revision); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.InitTicketRecoveryPosition(ctx, legacy, other.CreatedAt); !errors.Is(err, ErrRecoveryMigrationAmbiguous) {
-		t.Fatalf("ambiguous legacy mapped %v", err)
+	if _, err := db.InitTicketRecoveryPosition(ctx, legacy, other.CreatedAt); !errors.Is(err, ErrRecoveryMigrationAmbiguous) || !strings.Contains(err.Error(), "new/source") {
+		t.Fatalf("ambiguous legacy mapped or candidates unnamed %v", err)
+	}
+}
+
+func TestTicketRecoveryLegacyRemoteIDRevisionIsNotAmbiguous(t *testing.T) {
+	db := newTestDB(t)
+	repo := testRepo(t, db, "owner", "imported")
+	ctx := t.Context()
+	v := connectionFixture(repo, TicketConnection)
+	v.Provenance = "legacy"
+	v, err := db.SetConnection(ctx, v, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := v
+	pinned.RemoteID = "R_kgDOexample"
+	pinned, err = db.RetainConnectionVersion(ctx, pinned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pinned.ID == v.ID {
+		t.Fatalf("retained revision reused version %d", v.ID)
+	}
+	coverage := repo.CreatedAt.Add(time.Hour)
+	if err := db.SetRepoPollCursor(ctx, repo.ID, coverage); err != nil {
+		t.Fatal(err)
+	}
+	p, err := db.InitTicketRecoveryPosition(ctx, pinned, repo.CreatedAt)
+	if err != nil || !p.CompletedThrough.Equal(coverage) || p.ContainerID != pinned.RemoteID {
+		t.Fatalf("single imported legacy source not mapped %+v %v", p, err)
 	}
 }
 
@@ -559,5 +589,62 @@ func TestEnrollmentCannotChangeAfterDiscoveryStarts(t *testing.T) {
 	}
 	if !pinned.EnrollmentAt.Equal(v.CreatedAt) || pinned.Revision != p.Revision {
 		t.Fatalf("started recovery enrollment changed %+v", pinned)
+	}
+}
+
+func TestLegacySubscriptionRetainedSourceValidation(t *testing.T) {
+	for _, change := range []string{"same", "remote", "origin", "destination", "explicit", "disabled"} {
+		t.Run(change, func(t *testing.T) {
+			db := newTestDB(t)
+			repo := testRepo(t, db, "owner", "legacy")
+			v := connectionFixture(repo, TicketConnection)
+			v.Provenance = "legacy"
+			v, err := db.SetConnection(t.Context(), v, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained := v
+			retained.RemoteID = "101"
+			switch change {
+			case "remote":
+				retained.RemoteID = "102"
+			case "origin":
+				retained.Origin = "https://other.example"
+			case "destination":
+				retained.Destination = "other/repo"
+			case "explicit":
+				retained.Provenance = "explicit"
+			case "disabled":
+				retained.Enabled = false
+			}
+			if _, err := db.RetainConnectionVersion(t.Context(), retained); err != nil {
+				t.Fatal(err)
+			}
+			sub, err := db.PrepareLegacyTicketSubscription(t.Context(), v, "101", "https://callback.invalid/webhook")
+			if change != "same" {
+				if !errors.Is(err, ErrSubscriptionConflict) {
+					t.Fatalf("inherited %s: %+v %v", change, sub, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sub.RemoteHookID != "" || sub.SecretAccount != repo.Slug() {
+				t.Fatalf("unverified hook claimed: %+v", sub)
+			}
+			if _, err := db.GetRepoWebhook(t.Context(), repo.ID); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("hook recorded: %v", err)
+			}
+			sub.DesiredEnabled = false
+			sub, err = db.PutTicketSubscription(t.Context(), sub, sub.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			again, err := db.PrepareLegacyTicketSubscription(t.Context(), v, "101", sub.CallbackURL)
+			if err != nil || again.DesiredEnabled {
+				t.Fatalf("disable lost: %+v %v", again, err)
+			}
+		})
 	}
 }

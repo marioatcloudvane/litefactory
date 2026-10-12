@@ -18,12 +18,19 @@ type waitStore struct {
 	waits      map[int64]store.GraphOwnerWait
 	deliveries map[string]store.ReportDelivery
 	finished   time.Time
+	runs       map[int64]store.Run
 }
 
 func (w *waitStore) ListTaskSessionsByRepo(context.Context, int64, int) ([]store.Session, bool, error) {
 	return w.sessions, false, nil
 }
-func (w *waitStore) LatestTaskRun(context.Context, int64) (store.Run, error) {
+func (w *waitStore) ImplementStoryByWorkerSession(context.Context, int64) (store.ImplementStory, error) {
+	return store.ImplementStory{}, store.ErrNotFound
+}
+func (w *waitStore) LatestTaskRun(_ context.Context, id int64) (store.Run, error) {
+	if run, ok := w.runs[id]; ok {
+		return run, nil
+	}
 	return store.Run{}, store.ErrNotFound
 }
 func (w *waitStore) GetPlanWorkflowState(context.Context, string) (planbrief.PlanState, int64, error) {
@@ -116,5 +123,31 @@ func TestStoreReaderOwnerWaits(t *testing.T) {
 				t.Fatalf("unexpected wait: %+v, %v", tasks, err)
 			}
 		})
+	}
+}
+
+func TestStoreReaderTaskStateFromLatestRun(t *testing.T) {
+	t.Parallel()
+	w := &waitStore{runs: map[int64]store.Run{
+		1: {Status: store.RunSucceeded},
+		2: {Status: store.RunRunning},
+		3: {Status: store.RunPrelaunch},
+		4: {Status: store.RunFailed},
+	}}
+	w.sessions = []store.Session{
+		{ID: 1, IssueNumber: 1, State: store.SessionRunning},
+		{ID: 2, IssueNumber: 2, State: store.SessionIdle},
+		{ID: 3, IssueNumber: 3, State: store.SessionIdle},
+		{ID: 4, IssueNumber: 4, State: store.SessionFailed},
+		{ID: 5, IssueNumber: 5, State: store.SessionRunning},
+	}
+	tasks, _, err := ask.StoreReader{Reader: w}.ReadProjectTasks(t.Context(), 1)
+	if err != nil || len(tasks) != 5 {
+		t.Fatalf("tasks: %+v, %v", tasks, err)
+	}
+	for i, want := range []string{"idle", "running", "running", "failed", "idle"} {
+		if tasks[i].State != want {
+			t.Errorf("task %d state %q, want %q", tasks[i].IssueNumber, tasks[i].State, want)
+		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 // StoreReads is the exact read-only factory capability needed by facts.
 type StoreReads interface {
 	ListTaskSessionsByRepo(context.Context, int64, int) ([]store.Session, bool, error)
+	ImplementStoryByWorkerSession(context.Context, int64) (store.ImplementStory, error)
 	LatestTaskRun(context.Context, int64) (store.Run, error)
 	GetPlanWorkflowState(context.Context, string) (planbrief.PlanState, int64, error)
 	ReadHealthSnapshot(context.Context) (store.HealthSnapshot, error)
@@ -36,12 +37,22 @@ func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task
 	}
 	var tasks []Task
 	for _, session := range sessions {
-		t := Task{IssueNumber: session.IssueNumber, Reference: session.TaskRef, State: string(session.State)}
+		t := Task{IssueNumber: session.IssueNumber, Reference: session.TaskRef}
 		run, err := s.Reader.LatestTaskRun(ctx, session.ID)
 		if err == nil {
 			t.LatestRun = &run
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return nil, more, err
+		}
+		// The stored session state is a bookkeeping flag that can stay
+		// running after work ends; running comes only from the latest run.
+		switch {
+		case runActive(t.LatestRun):
+			t.State = string(store.SessionRunning)
+		case session.State == store.SessionFailed:
+			t.State = string(store.SessionFailed)
+		default:
+			t.State = string(store.SessionIdle)
 		}
 		state, _, err := s.Reader.GetPlanWorkflowState(ctx, session.TaskRef)
 		if err != nil {
@@ -54,6 +65,15 @@ func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task
 		}
 		if t.OwnerWait, err = s.ownerWait(ctx, session.ID); err != nil {
 			return nil, more, err
+		}
+		story, err := s.Reader.ImplementStoryByWorkerSession(ctx, session.ID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, more, err
+		}
+		// Implement parked work can only resume after an owner decision. Ordinary
+		// graph scheduling/backoff is not an owner wait.
+		if err == nil && story.State == store.ImplementParked {
+			t.OwnerBlocked = byteExcerpt(story.Reason, 512)
 		}
 		tasks = append(tasks, t)
 	}

@@ -199,7 +199,8 @@ func TestUncertainBacklogObservationRetainsRetry(t *testing.T) {
 				}
 				f.clock.advance(limitDelay + time.Second)
 			}
-			// The same task must be admitted again after the failed/unknown read.
+			// The same task is admitted again when its task retry delay is due.
+			f.clock.advance(testInterval)
 			g.after = nil
 			f.settle()
 			if f.session().NeedsPoll || len(g.reads) != 2 {

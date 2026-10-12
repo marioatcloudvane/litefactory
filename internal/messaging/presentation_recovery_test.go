@@ -32,11 +32,11 @@ func TestRegistryRepliesAllCrossPresentationBoundary(t *testing.T) {
 	s.EnableFeatures(nil, nil)
 	s.EnableResearch(nil, nil)
 	names := s.Commands()
-	if len(names) != 11 {
+	if len(names) != 12 {
 		t.Fatalf("registry coverage changed: %v", names)
 	}
 	for _, command := range names {
-		before := send.richCalls
+		before := len(send.texts)
 		message := messaging.Message{Transport: "discord", ID: command, Channel: "3", Sender: "2", Command: command}
 		if _, inserted, err := s.Admit(t.Context(), message, at); err != nil || !inserted {
 			t.Fatalf("%s admission: %v", command, err)
@@ -44,8 +44,15 @@ func TestRegistryRepliesAllCrossPresentationBoundary(t *testing.T) {
 		if more, err := s.Step(t.Context(), at); err != nil || !more {
 			t.Fatalf("%s reply: %v", command, err)
 		}
-		if send.richCalls != before+1 {
-			t.Fatalf("%s bypassed presentation", command)
+		// A narrated reply is sent without raw details; a fallback or
+		// /details reply carries them. Every reply is a presented form.
+		if len(send.texts) != before+1 {
+			t.Fatalf("%s not delivered once", command)
+		}
+		switch text := send.texts[before]; text {
+		case "Here is the result.", presentation.FallbackNotice, "Raw details of your previous reply.":
+		default:
+			t.Fatalf("%s bypassed presentation: %q", command, text)
 		}
 	}
 }
@@ -86,7 +93,7 @@ func TestAsynchronousSavedResultUsesPresentationWithoutRequeue(t *testing.T) {
 	if _, err := s.Step(t.Context(), at); err != nil {
 		t.Fatal(err)
 	}
-	if diagnosis.calls != 1 || model.calls != 2 || send.richCalls != 1 {
+	if diagnosis.calls != 1 || model.calls != 2 || send.richCalls != 0 || len(send.texts) != 1 || send.texts[0] != "Here is the result." {
 		t.Fatal("saved diagnosis bypassed presentation or repeated command")
 	}
 }
@@ -208,7 +215,8 @@ func TestInterruptedPresentationNeverRepeatsCommandOrGeneration(t *testing.T) {
 func TestAttachmentRejectionPersistsInlineFallback(t *testing.T) {
 	db := database(t)
 	at := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
-	model := &replyModel{}
+	// Only a fallback carries raw details, so narration fails here.
+	model := &failingModel{}
 	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{Confirmed: true}}, rejected: true}
 	service := messaging.New(db, "discord", "2", []string{"3"}, send, nil)
 	service.EnablePresentation(model, nil)
@@ -233,7 +241,7 @@ func TestAttachmentRejectionPersistsInlineFallback(t *testing.T) {
 	if _, err := service.Step(t.Context(), row.NextAttemptAt); err != nil {
 		t.Fatal(err)
 	}
-	if effects != 1 || model.calls != 2 || send.richCalls != 1 || send.texts[len(send.texts)-1] != row.ReplyText {
+	if effects != 1 || model.calls != 1 || send.richCalls != 1 || send.texts[len(send.texts)-1] != row.ReplyText {
 		t.Fatal("fallback repeated effects or narration")
 	}
 }
@@ -256,21 +264,25 @@ func TestNaturalDialogueShownOnceAndNaturalReadNarrated(t *testing.T) {
 		t.Fatalf("dialogue not shown exactly once: calls=%d rich=%d %q", model.calls, send.richCalls, send.texts)
 	}
 	// A read command requested in natural language is narrated like the
-	// slash command, with its raw text only in the attachment.
+	// slash command, with no raw attachment.
 	if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "discord", ID: "nl-read:8", Channel: "3", Sender: "2", Command: "health"}, at); err != nil {
 		t.Fatal(err)
 	}
 	if more, err := s.Step(t.Context(), at); err != nil || !more {
 		t.Fatalf("natural read: %t %v", more, err)
 	}
-	if model.calls != 2 || send.richCalls != 1 || send.texts[1] != "Here is the result." {
+	if model.calls != 2 || send.richCalls != 0 || send.texts[1] != "Here is the result." {
 		t.Fatalf("natural read not narrated: calls=%d rich=%d %q", model.calls, send.richCalls, send.texts)
 	}
 }
 
-type failingModel struct{ remaining time.Duration }
+type failingModel struct {
+	remaining time.Duration
+	calls     int
+}
 
 func (m *failingModel) Present(ctx context.Context, _ int64, _, _, _ string) ([]byte, error) {
+	m.calls++
 	deadline, _ := ctx.Deadline()
 	m.remaining = time.Until(deadline)
 	return nil, errors.New("provider failed")
@@ -327,5 +339,91 @@ func TestNarrationSuccessLogsNothing(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "chat narration fallback") {
 		t.Fatalf("successful narration logged a fallback: %q", logs.String())
+	}
+}
+
+type malformedModel struct{ prompts map[string]string }
+
+const malformedSecret = "zebra-quokka narration text"
+
+func (m *malformedModel) Present(_ context.Context, _ int64, _, phase, prompt string) ([]byte, error) {
+	m.prompts[phase] = prompt
+	return []byte("Sure! " + malformedSecret + `: {"claims":[]}`), nil
+}
+
+func TestMalformedNarrationLogsDecodeDetailAndFallsBack(t *testing.T) {
+	db := database(t)
+	at := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
+	model := &malformedModel{prompts: map[string]string{}}
+	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{}}}
+	var logs bytes.Buffer
+	s := messaging.New(db, "discord", "2", []string{"3"}, send, messaging.FactoryStatus{DB: db})
+	s.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	s.EnablePresentation(model, nil)
+	if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "discord", ID: "100", Channel: "3", Sender: "2", Command: "health"}, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Step(t.Context(), at); err != nil {
+		t.Fatal(err)
+	}
+	row, err := db.ReadChatReply(t.Context(), "discord", "100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source presentation.Outcome
+	if err = json.Unmarshal([]byte(row.PresentationOutcome), &source); err != nil {
+		t.Fatal(err)
+	}
+	if row.PresentationState != "raw_fallback" || row.ReplyText != presentation.FallbackNotice || row.ReplyAttachment != source.RawText {
+		t.Fatalf("fallback content changed: %+v", row)
+	}
+	text := logs.String()
+	if strings.Count(text, "chat narration fallback") != 1 || !strings.Contains(text, "reason=decode") || !strings.Contains(text, "phase=generation") || !strings.Contains(text, `error="presentation: output must be an object"`) {
+		t.Fatalf("narration fallback log = %q", text)
+	}
+	if strings.Contains(text, "zebra") || strings.Contains(text, "Sure!") {
+		t.Fatalf("fallback log leaked model output: %q", text)
+	}
+	generation := model.prompts["generation"]
+	for _, rule := range []string{"bare JSON object with no code fences", "protected takes only handles from the source protected list and is [] when unused, never null", "facts takes only handles from the source facts list", "never round"} {
+		if !strings.Contains(generation, rule) {
+			t.Errorf("generation prompt lacks %q", rule)
+		}
+	}
+}
+
+type checkingPromptModel struct{ checking string }
+
+func (m *checkingPromptModel) Present(_ context.Context, _ int64, _, phase, prompt string) ([]byte, error) {
+	if phase == "generation" {
+		return []byte("```json\n" + `{"claims":[{"text":"Here is the result.","facts":["result"],"protected":[]}]}` + "\n```"), nil
+	}
+	m.checking = prompt
+	return []byte(`{"findings":[{"claim":0,"support":"maybe"}]}`), nil
+}
+
+func TestCheckingPromptStatesContractAndCheckFailureLogsPhase(t *testing.T) {
+	db := database(t)
+	at := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
+	model := &checkingPromptModel{}
+	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{}}}
+	var logs bytes.Buffer
+	s := messaging.New(db, "discord", "2", []string{"3"}, send, messaging.FactoryStatus{DB: db})
+	s.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	s.EnablePresentation(model, nil)
+	if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "discord", ID: "100", Channel: "3", Sender: "2", Command: "health"}, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Step(t.Context(), at); err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range []string{"bare JSON object with no code fences", "exactly one finding per claim", "supported, unsupported or uncertain"} {
+		if !strings.Contains(model.checking, rule) {
+			t.Errorf("checking prompt lacks %q", rule)
+		}
+	}
+	text := logs.String()
+	if strings.Count(text, "chat narration fallback") != 1 || !strings.Contains(text, "reason=decode") || !strings.Contains(text, "phase=checking") || !strings.Contains(text, "error=") {
+		t.Fatalf("narration fallback log = %q", text)
 	}
 }

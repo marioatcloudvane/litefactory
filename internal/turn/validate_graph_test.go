@@ -184,3 +184,60 @@ func catalogueDownloads(t *testing.T) []string {
 	slices.Sort(out)
 	return out
 }
+
+// #705: the implement outcome must reach the implement step, which must end the
+// run; a graph without them, such as the released packages before it, still
+// validates, and every shipped graph declares the hand-back.
+func TestValidateGraphImplementHandBack(t *testing.T) {
+	for name, c := range map[string]struct {
+		mutate func(string) string
+		want   string
+	}{
+		"an implement command that skips its step": {func(s string) string {
+			return strings.Replace(s, `owner_resolve -> owner_implement    [lf_on="implement"]`, `owner_resolve -> owner_report       [lf_on="implement"]`, 1)
+		}, "must hand the findings back to Implement"},
+		"an implement step that does not end the run": {func(s string) string {
+			return strings.Replace(s, `owner_implement -> reimplementing   [lf_on="started"]`, `owner_implement -> owner_report     [lf_on="started"]`, 1)
+		}, "must end at a terminal"},
+	} {
+		if err := checkValidateDot(t, c.mutate); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	err := checkValidateDot(t, func(s string) string {
+		s = strings.Replace(s, `close,implement,stale`, `close,stale`, 1)
+		s = strings.Replace(s, ` owner_implement [lf_action="lf_validate_implement", lf_outcomes="started", lf_suite="suite", lf_limit="4"];`+"\n", "", 1)
+		s = strings.Replace(s, ` reimplementing [lf_terminal="true"];`+"\n", "", 1)
+		s = strings.Replace(s, ` owner_resolve -> owner_implement    [lf_on="implement"];`+"\n", "", 1)
+		return strings.Replace(s, ` owner_implement -> reimplementing   [lf_on="started"];`+"\n", "", 1)
+	})
+	if err != nil {
+		t.Fatalf("a graph without the hand-back is refused: %v", err)
+	}
+	specs, err := ValidateFlowSpecs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, release := range catalogueDownloads(t) {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "teams", release, "validate", "validate.dot"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile, err := graphexec.ParseProfile(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasSuffix(release, "/v1.0.0") {
+			continue // released before the hand-back; covered above
+		}
+		if to, ok := graphexec.Decide(profile, "owner_resolve", "implement"); !ok || to != "owner_implement" {
+			t.Errorf("%s: owner_resolve implement reaches %q", release, to)
+		}
+		if to, ok := graphexec.Decide(profile, "owner_implement", "started"); !ok || to != "reimplementing" {
+			t.Errorf("%s: owner_implement started reaches %q", release, to)
+		}
+		if err := graphexec.Validate(profile, specs); err != nil {
+			t.Errorf("%s: %v", release, err)
+		}
+	}
+}

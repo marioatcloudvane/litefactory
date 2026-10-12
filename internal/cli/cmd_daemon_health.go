@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/webhook"
 )
 
@@ -20,26 +22,56 @@ import (
 // reached since the daemon started.
 const daemonNoDelivery = "none since start"
 
+type daemonHealth struct {
+	store.HealthSnapshot
+	unsupportedDoctor   []store.Repo
+	missingModeMappings []string
+}
+
 // readHealthSnapshot reads the snapshot the daemon published, opening and
 // closing the database at once like [lastTickTime]: `daemon status` must not hold
 // a connection while the daemon is writing. The snapshot is display-only.
-func readHealthSnapshot(ctx context.Context, paths config.Paths) (_ store.HealthSnapshot, err error) {
+func readHealthSnapshot(ctx context.Context, paths config.Paths) (_ daemonHealth, err error) {
 	if _, statErr := os.Stat(paths.DBPath()); statErr != nil {
 		if errors.Is(statErr, fs.ErrNotExist) {
-			return store.HealthSnapshot{}, Preconditionf("no litefactory database at %s: run `litefactory init` first", paths.DBPath())
+			return daemonHealth{}, Preconditionf("no litefactory database at %s: run `litefactory init` first", paths.DBPath())
 		}
-		return store.HealthSnapshot{}, fmt.Errorf("read %s: %w", paths.DBPath(), statErr)
+		return daemonHealth{}, fmt.Errorf("read %s: %w", paths.DBPath(), statErr)
 	}
 	db, err := store.Open(ctx, paths.DBPath())
 	if err != nil {
-		return store.HealthSnapshot{}, err
+		return daemonHealth{}, err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
 	snap, err := db.ReadHealthSnapshot(ctx)
 	if err != nil {
-		return store.HealthSnapshot{}, err
+		return daemonHealth{}, err
 	}
-	return snap, nil
+	repos, err := db.ListRepos(ctx)
+	if err != nil {
+		return daemonHealth{}, err
+	}
+	health := daemonHealth{HealthSnapshot: snap}
+	for _, repo := range repos {
+		connection, err := db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return daemonHealth{}, err
+		}
+		if connection.Enabled && connection.Provider == ticket.Linear {
+			health.unsupportedDoctor = append(health.unsupportedDoctor, repo)
+			labels, err := connection.Linear.ModeLabels()
+			if err != nil {
+				return daemonHealth{}, err
+			}
+			if missing := linear.MissingModeLabels(labels); len(missing) > 0 {
+				health.missingModeMappings = append(health.missingModeMappings, fmt.Sprintf("project %d (%s) connection %d (%s): missing mode mappings: %s; add label IDs to --mode-labels, or use a mapped mode", repo.ID, repo.Slug(), connection.ID, connection.Destination, strings.Join(missing, ", ")))
+			}
+		}
+	}
+	return health, nil
 }
 
 // printDaemonHealth writes the webhook listener line, the snapshot's age and
@@ -105,6 +137,9 @@ func printDaemonHeartbeat(w io.Writer, snap store.HealthSnapshot, lastCompleted 
 			daemonTimeAge(l.PausedSince, "an unknown time", now), l.PauseReason, resume)
 	} else {
 		fmt.Fprintf(tw, "discovery\trunning\n")
+		if l.PauseReason != "" {
+			fmt.Fprintf(tw, "connection pauses\t%s\n", l.PauseReason)
+		}
 	}
 	fmt.Fprintf(tw, "runs in flight\t%d (as of %s)\n", l.RunsInFlight, daemonAge(now.Sub(l.WrittenAt)))
 	return tw.Flush()
@@ -180,8 +215,17 @@ func daemonSecret(r store.RepoDiscoveryStatus, listening bool) string {
 	case r.SecretPresent:
 		return "ok"
 	case listening:
-		return "MISSING"
+		return fmt.Sprintf("MISSING; repair with `litefactory repo webhook %s/%s`", r.Owner, r.Name)
 	default:
 		return "not needed (listener off)"
 	}
+}
+
+// This is current configuration, independent of the daemon's recorded snapshot.
+func printDoctorConfiguration(w io.Writer, repos []store.Repo) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, repo := range repos {
+		fmt.Fprintf(tw, "project %s\tbackground Doctor discovery unsupported/skipped for Linear (current configuration)\n", repo.Slug())
+	}
+	return tw.Flush()
 }

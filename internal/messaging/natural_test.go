@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -269,5 +272,488 @@ func TestNaturalInterpretationFallbackNamesReason(t *testing.T) {
 				t.Fatalf("fallback log = %q", logs)
 			}
 		})
+	}
+}
+
+// naturalConversation runs owner messages one by one through intake and the
+// natural step only, recording every interpretation request.
+type naturalConversation struct {
+	t        *testing.T
+	db       *store.DB
+	s        *Service
+	send     *spanSender
+	requests []InterpretationRequest
+}
+
+func newNaturalConversation(t *testing.T, answer func(InterpretationRequest) ([]byte, error)) *naturalConversation {
+	t.Helper()
+	c := &naturalConversation{t: t, db: naturalExecutionDB(t), send: &spanSender{}}
+	if _, err := c.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	c.s = New(c.db, "discord", "7", []string{"3"}, c.send, FactoryStatus{DB: c.db})
+	c.s.EnableNatural(funcInterpreter(func(_ context.Context, r InterpretationRequest) ([]byte, error) {
+		c.requests = append(c.requests, r)
+		return answer(r)
+	}))
+	if err := c.db.ActivateNaturalScan(t.Context(), "3", "100"); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func (c *naturalConversation) say(id, text string, at time.Time) {
+	c.t.Helper()
+	intake := &Intake{DB: c.db, Reader: &spanReader{messages: []store.NaturalMessage{{ChannelRef: "3", SourceID: id, OwnerID: "7", Text: text, CreatedAt: at}}}, Transport: "discord", Owner: "7", Channels: []string{"3"}, Protect: func(_ context.Context, text string) (string, error) { return text, nil }}
+	if err := intake.Poll(c.t.Context(), at); err != nil {
+		c.t.Fatal(err)
+	}
+	for range 10 {
+		natural, err := c.s.NaturalStep(c.t.Context(), at)
+		if err != nil {
+			c.t.Fatal(err)
+		}
+		if !natural {
+			return
+		}
+	}
+	c.t.Fatal("natural request did not settle")
+}
+
+// askReply records a delivered /ask reply in the channel.
+func (c *naturalConversation) askReply(text string, at time.Time) {
+	c.t.Helper()
+	ctx := c.t.Context()
+	if _, err := c.db.AdmitChatReply(ctx, store.ChatReply{Transport: "discord", MessageID: "ask-1", ChannelRef: "3", Command: "ask", ReplyText: text, CreatedAt: at}); err != nil {
+		c.t.Fatal(err)
+	}
+	r, err := c.db.ClaimChatReply(ctx, "discord", at)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if err = c.db.FinishChatReply(ctx, r, false, at); err != nil {
+		c.t.Fatal(err)
+	}
+}
+
+func proposeSpans(r InterpretationRequest, command string, values ...[2]string) ([]byte, error) {
+	if len(values) == 0 {
+		return []byte(`{"version":1,"kind":"propose","command":"` + command + `","arguments":[]}`), nil
+	}
+	turn := r.Turns[len(r.Turns)-1]
+	args := []SourceValue{}
+	for _, v := range values {
+		start := strings.Index(turn.Text, v[1])
+		args = append(args, SourceValue{Name: v[0], SourceID: turn.SourceID, Start: start, End: start + len(v[1])})
+	}
+	return json.Marshal(Interpretation{Version: 1, Kind: "propose", Command: command, Arguments: args})
+}
+
+func TestNaturalTypoStatusRunsStatusWithoutClarifying(t *testing.T) {
+	at := time.Date(2026, 10, 12, 10, 25, 0, 0, time.UTC)
+	for i, text := range []string{"what is the overall staud", "what is the status of the livrary?"} {
+		c := newNaturalConversation(t, func(r InterpretationRequest) ([]byte, error) { return proposeSpans(r, "status") })
+		id := strconv.Itoa(101 + i)
+		c.say(id, text, at)
+		row, err := c.db.ReadChatReply(t.Context(), "discord", "nl-read:"+id)
+		if err != nil || row.Command != "status" {
+			t.Fatalf("%q: status not admitted: %+v %v", text, row, err)
+		}
+		if len(c.send.texts) != 0 {
+			t.Fatalf("%q: asked back: %v", text, c.send.texts)
+		}
+	}
+}
+
+func TestNaturalYesFollowUpAnswersPreviousOffer(t *testing.T) {
+	at := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
+	offer := "I can't find that. If you mean the whole project, I can summarize the project status of litefactory."
+	c := newNaturalConversation(t, func(r InterpretationRequest) ([]byte, error) {
+		if r.PreviousReply == "" {
+			return []byte(`{"version":1,"kind":"clarify","question":"What do you mean?"}`), nil
+		}
+		return proposeSpans(r, "ask", [2]string{"question", "project status of litefactory"})
+	})
+	c.s.EnableAsk(&ask.Service{})
+	c.askReply(offer, at)
+	c.say("101", "Yes project status of litefactory", at.Add(time.Minute))
+	if len(c.requests) != 1 || c.requests[0].PreviousReply != offer {
+		t.Fatalf("offer not supplied as previous_reply: %+v", c.requests)
+	}
+	row, err := c.db.ReadChatReply(t.Context(), "discord", "nl-read:101")
+	if err != nil || row.Command != "ask" || row.Question != "project status of litefactory" {
+		t.Fatalf("offered read not admitted: %s %q %v replies=%v", row.Command, row.Question, err, c.send.texts)
+	}
+	raw, err := json.Marshal(c.requests[0])
+	if err != nil || !strings.Contains(string(raw), `"previous_reply":`) {
+		t.Fatalf("previous_reply not serialized: %s %v", raw, err)
+	}
+
+	// A bare yes without a pending change proposal reaches the interpreter.
+	c.say("102", "yes", at.Add(2*time.Minute))
+	if len(c.requests) != 2 || c.requests[1].PreviousReply != offer {
+		t.Fatalf("bare yes did not reach interpreter with context: %+v", c.requests)
+	}
+	if strings.Contains(strings.Join(c.send.texts, "\n"), "Nothing was authorized") {
+		t.Fatalf("bare yes refused: %v", c.send.texts)
+	}
+
+	// An /ask reply older than the dialogue window is not context.
+	stale := newNaturalConversation(t, func(InterpretationRequest) ([]byte, error) { return []byte(`{"version":1,"kind":"ignore"}`), nil })
+	stale.askReply(offer, at)
+	stale.say("101", "yes", at.Add(16*time.Minute))
+	if len(stale.requests) != 1 || stale.requests[0].PreviousReply != "" {
+		t.Fatalf("stale reply used as context: %+v", stale.requests)
+	}
+}
+
+func TestNaturalAmbiguousAsksOnceAndKeepsQuestion(t *testing.T) {
+	at := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
+	c := newNaturalConversation(t, func(r InterpretationRequest) ([]byte, error) {
+		if r.PreviousReply == "" {
+			return []byte(`{"version":1,"kind":"clarify","question":"Do you mean the factory status or the project litefactory?"}`), nil
+		}
+		return proposeSpans(r, "status")
+	})
+	c.say("101", "how is it going", at)
+	d, err := c.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3")
+	if err != nil || d.State != "clarifying" || len(c.send.texts) != 0 {
+		t.Fatalf("dialogue=%+v err=%v", d, err)
+	}
+	reply, err := c.db.ReadChatReply(t.Context(), "discord", "nl:101")
+	if err != nil || !strings.Contains(reply.ReplyText, "factory status or the project") {
+		t.Fatalf("clarifying reply = %+v %v", reply, err)
+	}
+	c.say("102", "the factory", at.Add(time.Minute))
+	if len(c.requests) != 2 || c.requests[1].PreviousReply != "Do you mean the factory status or the project litefactory?" {
+		t.Fatalf("clarifying question not carried: %+v", c.requests)
+	}
+	if row, err := c.db.ReadChatReply(t.Context(), "discord", "nl-read:102"); err != nil || row.Command != "status" {
+		t.Fatalf("answer not admitted: %+v %v", row, err)
+	}
+}
+
+func TestCapPreviousReplyKeepsValidUTF8(t *testing.T) {
+	got := capPreviousReply(strings.Repeat("ä", 3000))
+	if len(got) > 4096 || !utf8.ValidString(got) || got == "" {
+		t.Fatalf("capped reply len=%d valid=%t", len(got), utf8.ValidString(got))
+	}
+}
+
+func TestNaturalBareYesRefusedWhileProposalAwaits(t *testing.T) {
+	at := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
+	c := newNaturalConversation(t, func(InterpretationRequest) ([]byte, error) { return []byte(`{"version":1,"kind":"ignore"}`), nil })
+	payload, digest, err := naturalDigest(naturalPayload{Invocation: Invocation{Command: "diagnose", Arguments: map[string]string{"issue": "3", "note": "exact"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := store.NaturalDialogue{Transport: "discord", OwnerID: "7", ChannelRef: "3", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: payload, Digest: digest, Code: "code", PromptID: "900", ExpiresAt: at.Add(time.Minute), UpdatedAt: at}
+	if err = c.db.SaveNaturalDialogue(t.Context(), d, 0); err != nil {
+		t.Fatal(err)
+	}
+	c.say("101", "yes", at)
+	reply, err := c.db.ReadChatReply(t.Context(), "discord", "nl:101")
+	if err != nil || !strings.Contains(reply.ReplyText, "Nothing was authorized") || len(c.requests) != 0 {
+		t.Fatalf("bare yes not refused: %q %v requests=%d", reply.ReplyText, err, len(c.requests))
+	}
+}
+
+func TestNaturalIssueProjectInference(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		first, second []int
+		explicit      string
+		want          string
+	}{
+		{"exact with empty", nil, []int{649}, "", "litefactory"},
+		{"exact with other tasks", []int{723}, []int{649}, "", "litefactory"},
+		{"single populated", nil, []int{726}, "", "litefactory"},
+		{"duplicate", []int{649}, []int{649}, "", ""},
+		{"no tasks", nil, nil, "", ""},
+		{"explicit wins", []int{649}, []int{726}, "litefactory!", "litefactory"},
+		{"unknown explicit", nil, []int{649}, "unknown", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := naturalExecutionDB(t)
+			for i, name := range []string{"cockpit", "litefactory"} {
+				repo, err := db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: name, BaseBranch: "main"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				tasks := tc.first
+				if i == 1 {
+					tasks = tc.second
+				}
+				for _, n := range tasks {
+					if _, err := db.GetOrCreateSession(t.Context(), repo, n); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			s := New(db, "discord", "7", nil, nil, nil)
+			got, err := s.resolveNaturalProject(t.Context(), map[string]string{"issue": "649", "project": tc.explicit})
+			if err != nil || got.Repository.Name != tc.want || (tc.want == "" && got.Refusal == "") {
+				t.Fatalf("%+v %v", got, err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			if got, err := s.resolveNaturalProject(ctx, map[string]string{"issue": "649"}); err == nil && got.Refusal == "" {
+				t.Fatal("guessed after lookup failure")
+			}
+		})
+	}
+}
+
+func TestNaturalProjectClarificationResumesSavedRequest(t *testing.T) {
+	for _, answer := range []string{"litefactory!", "litefactory", "acme/litefactory", "unknown", "cancel", "expired"} {
+		t.Run(answer, func(t *testing.T) {
+			db := naturalExecutionDB(t)
+			at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+			for _, name := range []string{"cockpit", "litefactory"} {
+				repo, err := db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: name, BaseBranch: "main"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.GetOrCreateSession(t.Context(), repo, 649); err != nil {
+					t.Fatal(err)
+				}
+			}
+			question := "Is anything stuck? Why isn't issue 649 moving?"
+			s := New(db, "discord", "7", []string{"3"}, &spanSender{}, FactoryStatus{DB: db})
+			s.EnableResearch(nil, nil)
+			s.EnableNatural(spanInterpreter{command: "diagnose", values: [][2]string{{"issue", "649"}, {"note", question}}})
+			first := store.NaturalMessage{ChannelRef: "3", SourceID: "101", OwnerID: "7", Text: question, CreatedAt: at}
+			if err := s.naturalTurn(t.Context(), first, at); err != nil {
+				t.Fatal(err)
+			}
+			for range 3 {
+				if _, err := s.Step(t.Context(), at); err != nil {
+					t.Fatal(err)
+				}
+			}
+			d, err := db.ReadNaturalDialogue(t.Context(), "discord", "7", "3")
+			if err != nil || d.State != "clarifying" {
+				t.Fatalf("%+v %v", d, err)
+			}
+			// Recreate the service; an interpreter that cannot propose proves the saved
+			// payload, not model reconstruction, supplies the original request.
+			s = New(db, "discord", "7", []string{"3"}, &spanSender{}, FactoryStatus{DB: db})
+			s.EnableResearch(nil, nil)
+			s.EnableNatural(spanInterpreter{command: "help"})
+			text := answer
+			if answer == "expired" {
+				at = at.Add(16 * time.Minute)
+				text = "litefactory!"
+			}
+			if err := s.naturalTurn(t.Context(), store.NaturalMessage{ChannelRef: "3", SourceID: "102", OwnerID: "7", Text: text, CreatedAt: at}, at); err != nil {
+				t.Fatal(err)
+			}
+			d, err = db.ReadNaturalDialogue(t.Context(), "discord", "7", "3")
+			if err != nil {
+				t.Fatal(err)
+			}
+			valid := answer == "litefactory!" || answer == "litefactory" || answer == "acme/litefactory"
+			if !valid {
+				if d.State == "awaiting_confirmation" || d.State == "authorized" {
+					t.Fatalf("stale/unknown executed: %+v", d)
+				}
+				return
+			}
+			var p naturalPayload
+			if err := json.Unmarshal([]byte(d.Payload), &p); err != nil {
+				t.Fatal(err)
+			}
+			if d.State != "awaiting_confirmation" || p.Invocation.Command != "diagnose" || p.Invocation.Arguments["issue"] != "649" || p.Invocation.Arguments["note"] != question || p.Project != "acme/litefactory" {
+				t.Fatalf("lost request: %+v %+v", d, p)
+			}
+		})
+	}
+}
+
+func TestStatusListsRunningAndOwnerDependentTasks(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory", BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := &spanSender{}
+	s := New(db, "discord", "7", []string{"3"}, send, FactoryStatus{DB: db})
+	text, err := s.summary(ctx, Message{}, at)
+	if err != nil || !strings.Contains(text, "no running tasks or owner waits") {
+		t.Fatalf("empty: %s %v", text, err)
+	}
+	for _, n := range []int{649, 650, 651, 652} {
+		session, err := db.GetOrCreateSession(ctx, repo, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch n {
+		case 649:
+			seg, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", "codex")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: seg.ID, Mode: "implement", Agent: "codex", TriggerCommentID: 1, StartedAt: at, LogPath: func(int) string { return "/tmp/test-run" }})
+			if err != nil {
+				t.Fatal(err)
+			}
+		case 650, 651:
+			kind := "review"
+			if n == 651 {
+				kind = "question"
+			}
+			def, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "chat", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+			if err != nil {
+				t.Fatal(err)
+			}
+			instance, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: def.ID, CurrentNode: "build", StartedAt: at})
+			if err != nil {
+				t.Fatal(err)
+			}
+			attempt, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "build", StartedAt: at})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.FinishGraphNodeAttempt(ctx, attempt.ID, store.GraphSucceeded, kind, at); err != nil {
+				t.Fatal(err)
+			}
+			key := "wait-" + kind
+			if err := db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: key, InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "build", Kind: kind, Candidate: []byte(`{"questions":[{"text":"Choose release?"}]}`)}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.EnsureReportDelivery(ctx, store.ReportDelivery{Key: key, SessionID: session.ID, Task: session.TaskRef, Destination: "acme/litefactory#" + strconv.Itoa(n), TriggerNamespace: "issue-comment", Purpose: "implement-" + kind, BotUserID: 99, Body: kind, Marker: "marker-" + key}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.MarkReportDeliverySent(ctx, key); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ConfirmReportDelivery(ctx, key, int64(n)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.CompleteReportDelivery(ctx, key); err != nil {
+				t.Fatal(err)
+			}
+		case 652:
+			parent := "github:acme/litefactory#100"
+			if err := db.EnsureImplementStories(ctx, parent, 1, []store.ImplementStorySeed{{Key: "a", Position: 1, Branch: "lf/a"}}, at); err != nil {
+				t.Fatal(err)
+			}
+			row, err := db.TransitionImplementStory(ctx, store.ImplementTransition{Parent: parent, Generation: 1, Key: "a", From: store.ImplementWaiting, To: store.ImplementRunning, ExpectedRevision: 1, At: at})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.SetImplementWorkerSession(ctx, parent, 1, "a", session.ID, at); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.TransitionImplementStory(ctx, store.ImplementTransition{Parent: parent, Generation: 1, Key: "a", From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: "Choose deployment target", At: at}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	question := "Which tasks are running at the moment, and which ones are waiting on me?"
+	request := InterpretationRequest{Turns: []DialogueTurn{{SourceID: "101", Text: question}}, Commands: s.NaturalCommands()}
+	_, inv, err := DecodeInterpretation([]byte(`{"version":1,"kind":"propose","command":"health","arguments":[]}`), request)
+	if err != nil || inv.Command != "status" {
+		t.Fatalf("routing: %+v %v", inv, err)
+	}
+	s.EnablePresentation(nil, nil)
+	if _, _, err := s.Admit(ctx, Message{Transport: "discord", ID: "101", Channel: "3", Sender: "7", Command: inv.Command, Arguments: inv.Arguments}, at); err != nil {
+		t.Fatal(err)
+	}
+	for range 4 {
+		if _, err := s.Step(ctx, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	text = strings.Join(send.texts, "\n")
+	for _, want := range []string{"acme/litefactory #649: running", "#650: waiting on owner", "implement review", "#651: waiting on owner", "implement question", "#652: parked, waiting on owner", "Choose deployment target"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q: %s", want, text)
+		}
+	}
+	s.EnablePresentation(statusTaskNarrator{}, nil)
+	if _, _, err := s.Admit(ctx, Message{Transport: "discord", ID: "102", Channel: "3", Sender: "7", Command: inv.Command}, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Step(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	narrated := send.texts[len(send.texts)-1]
+	for _, want := range []string{"649", "650", "651", "652"} {
+		if !strings.Contains(narrated, want) {
+			t.Fatalf("narration omitted task %s: %s", want, narrated)
+		}
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if text := s.taskSummary(cancelled); !strings.Contains(text, "could not be read") || strings.Contains(text, "no running tasks") {
+		t.Fatalf("failed read: %s", text)
+	}
+}
+
+// The provider is a fixture; the candidate/check validation and delivery are real.
+type statusTaskNarrator struct{}
+
+func (statusTaskNarrator) Present(_ context.Context, _ int64, _, phase, _ string) ([]byte, error) {
+	if phase == "generation" {
+		return []byte(`{"claims":[{"text":"Task #649 is running; #650 awaits your review, #651 awaits your answer, and #652 is parked for your deployment decision.","facts":["result"],"protected":[]}]}`), nil
+	}
+	return []byte(`{"findings":[{"claim":0,"support":"supported"}]}`), nil
+}
+
+type targetDiagnosis struct {
+	calls   int
+	request DiagnosisRequest
+}
+
+func (d *targetDiagnosis) Queue(_ context.Context, r DiagnosisRequest) error {
+	d.calls++
+	d.request = r
+	return nil
+}
+
+func TestReportedDiagnosisQueuesOnlyAfterConfirmation(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	for _, name := range []string{"cockpit", "litefactory"} {
+		repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: name, BaseBranch: "main"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "litefactory" {
+			if _, err := db.GetOrCreateSession(ctx, repo, 649); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	question := "Is anything stuck? Why isn't issue 649 moving?"
+	diagnosis := &targetDiagnosis{}
+	s := New(db, "discord", "7", []string{"3"}, &spanSender{}, FactoryStatus{DB: db})
+	s.EnableResearch(diagnosis, nil)
+	s.EnableNatural(spanInterpreter{command: "diagnose", values: [][2]string{{"issue", "649"}, {"note", question}}})
+	if err := s.naturalTurn(ctx, store.NaturalMessage{SourceID: "101", ChannelRef: "3", OwnerID: "7", Text: question, CreatedAt: at}, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Step(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.ReadNaturalDialogue(ctx, "discord", "7", "3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.State != "awaiting_confirmation" || diagnosis.calls != 0 {
+		t.Fatalf("premature queue: %+v %+v", d, diagnosis)
+	}
+	if err := s.naturalTurn(ctx, store.NaturalMessage{SourceID: "102", ChannelRef: "3", OwnerID: "7", Text: "yes", ReplyTo: d.PromptID, CreatedAt: at}, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Step(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	if diagnosis.calls != 1 || diagnosis.request.Target != "github:acme/litefactory#649" || diagnosis.request.Note != question {
+		t.Fatalf("wrong diagnosis: %+v", diagnosis)
 	}
 }

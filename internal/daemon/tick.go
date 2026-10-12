@@ -134,6 +134,7 @@ type TickResult struct {
 func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	hb := &heartbeat{source: wakeSourceFrom(ctx), counts: &discoveryCounts{}}
 	startedAt := d.now()
+	d.quotas.tick(startedAt)
 	hb.startedAt = startedAt
 	// Last, whatever path the tick leaves by: the heartbeat line and the health
 	// snapshot are reporting only and never change the tick's result.
@@ -147,6 +148,8 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "tick", counts)
 	ctx = context.WithValue(ctx, recoveryTickKey{}, startedAt)
+	ctx, checks := withContainerChecks(ctx)
+	defer checks.close()
 	d.doctorTick(ctx, startedAt)
 	d.refreshRecoveries(ctx, startedAt)
 	// Stopped execution debt is independent of discovery/storage availability.
@@ -172,7 +175,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	d.refreshWebhookSecrets(ctx, startedAt)
 
-	if retryAt, held := d.backoff.hold(startedAt); held {
+	if retryAt, held := d.connectionHold(ctx, startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
 			slog.Time("retry_at", retryAt.UTC()),
 			slog.String("remaining", retryAt.Sub(startedAt).String()))
@@ -183,7 +186,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	if err := d.pollPublications(ctx, startedAt); err != nil {
 		d.log.ErrorContext(ctx, "publication observation remains pending", slog.Any("error", err))
 		if providerRateLimited(err) {
-			return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+			if d.connections == nil {
+				return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+			}
+			d.rateLimited(ctx, d.log, startedAt, err)
 		}
 	}
 	// Progress is reconciled even while the sole turn worker is occupied.
@@ -191,7 +197,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		if err := progress.PollStoryProgress(ctx); err != nil {
 			d.log.ErrorContext(ctx, "story progress remains pending", slog.Any("error", err))
 			if providerRateLimited(err) {
-				return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+				if d.connections == nil {
+					return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+				}
+				d.rateLimited(ctx, d.log, startedAt, err)
 			}
 		}
 	}
@@ -201,7 +210,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	if err := d.PollCodeDeliveryControls(ctx); err != nil {
 		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
 		if providerRateLimited(err) {
-			return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+			if d.connections == nil {
+				return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+			}
+			d.rateLimited(ctx, d.log, startedAt, err)
 		}
 	}
 
@@ -565,7 +577,8 @@ func (d *Daemon) discover(
 				}
 				repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
 				if providerRateLimited(err) {
-					return nil, d.observe(ctx, now, err)
+					d.rateLimited(ctx, repoLog, now, err)
+					continue
 				}
 				continue
 			}
@@ -577,7 +590,8 @@ func (d *Daemon) discover(
 			if err != nil {
 				repoLog.WarnContext(ctx, "ticket recovery remains pending", slog.Any("error", err))
 				if providerRateLimited(err) {
-					return nil, d.observe(ctx, now, err)
+					d.rateLimited(ctx, repoLog, now, err)
+					continue
 				}
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
@@ -1093,8 +1107,9 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 // owned by that worker, including sequential refinement copies. Nothing is
 // shared with another worker, so no lock is needed.
 type task struct {
-	observations []store.PendingTicketObservation
-	enrollmentAt time.Time
+	prepareFailureRecorded bool
+	observations           []store.PendingTicketObservation
+	enrollmentAt           time.Time
 	// workerLog holds immutable admission context for worker lifetime events.
 	workerLog *slog.Logger
 	worker    *workerState
@@ -1235,7 +1250,13 @@ func (d *Daemon) dispatch(ctx context.Context, queues []*repoQueue, tickAt time.
 			case offerDispatched:
 				d.lastRepoID = q.repo.ID
 				d.repoSessionCursor[q.repo.ID] = c.session.ID
-			case offerFull, offerHeld:
+			case offerHeld:
+				if d.connections != nil {
+					continue
+				}
+				d.deferRest(ctx, queues, result)
+				return
+			case offerFull:
 				// No queue, by design: everything still standing keeps its
 				// backlog flag and is reconsidered from scratch next tick,
 				// against fresh fairness and backoff state.
@@ -1298,7 +1319,8 @@ const (
 // above the `go`: the rate-limit backoff (AC-PAR-4.4). It is last rather than
 // first on purpose — see the comment at the check itself.
 func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
-	if d.sessionRecoveryHeld(c.session.ID, tickAt) {
+	ctx = sessionContext(ctx, c.session.ID)
+	if d.sessionRecoveryHeld(c.session.ID, tickAt) || d.prepFailures.held(c.session.ID, tickAt) {
 		return offerSkipped
 	}
 	if !d.enterDoctorGuarded(ctx, c.session.ID) {
@@ -1341,6 +1363,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		}
 		if err != nil {
 			d.rateLimited(ctx, c.log, tickAt, err)
+			d.prepareFailed(ctx, &task{session: c.session, log: c.log, tickAt: tickAt}, err)
 			c.log.ErrorContext(ctx, "could not materialise a task that still needs a poll; "+
 				"it keeps its backlog flag and the next tick tries again",
 				slog.Any("error", err))
@@ -1385,7 +1408,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	// no handle on anything already running. The turns in flight keep running and
 	// their claude processes are left alone. This gates the dispatch of new runs,
 	// and that is the whole of what a rate limit costs.
-	if retryAt, held := d.backoff.hold(tickAt); held {
+	if retryAt, held := d.connectionHold(ctx, tickAt); held {
 		// The same undo as the materialise branch above, for the same reason:
 		// [pool.try] said yes and no worker will run, so the slot goes back
 		// here, on this goroutine, before anything else can be refused one.
@@ -1687,25 +1710,25 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 // says so once when a task stops looking like it is between attempts and
 // starts looking stuck.
 //
-// The retry itself is deliberate and is not changed here: the comment stays
-// unconsumed so the work is not lost to a blip. What is added is the
-// difference between a blip and an origin that is never coming back, which
-// otherwise reads identically in the log — the same error line, every tick,
-// with nothing that counts them.
+// A worker can expose the same error through leave and stopped. Count that
+// attempt once; report recovery owns its own independent deadline.
 func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
+	if t.prepareFailureRecorded || isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) || ctx.Err() != nil {
+		return
+	}
+	t.prepareFailureRecorded = true
 	reason := err.Error()
 	if sanitizer := d.diagnosticRedactor; sanitizer != nil {
 		if body, redactErr := sanitizer.Apply(ctx, reason, 1024); redactErr == nil {
 			reason = body.String()
 		}
 	}
-	state, announce := d.prepFailures.record(t.session.ID, reason)
+	state, announce := d.prepFailures.record(t.session.ID, reason, t.tickAt, d.recoveryInterval())
 	if !announce || state.Attempts < prepareEscalationAttempts {
 		return
 	}
 	t.log.ErrorContext(ctx, "this task has failed every turn since it last made progress; "+
-		"the trigger is still unconsumed and the next tick will try again, but nothing "+
-		"will stop retrying on its own",
+		"the trigger is still unconsumed and retries use capped exponential backoff",
 		slog.Int("consecutive_failures", state.Attempts),
 		slog.Bool("escalated", state.Escalated),
 		slog.String("reason", reason))
@@ -1763,15 +1786,23 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		return fmt.Errorf("bootstrap the watermark of task %s: %w", t.ref, err)
 	}
 
-	t.log.InfoContext(ctx, "first sight of a task; its existing comments are skipped",
-		slog.Int("existing_comments", len(comments)),
-		slog.Int64("watermark", watermark.LastCommentID),
-		slog.Bool("created", created))
+	if created {
+		t.log.InfoContext(ctx, "first sight of a task; its existing comments are skipped",
+			slog.Int("existing_comments", len(comments)),
+			slog.Int64("watermark", watermark.LastCommentID),
+			slog.Bool("created", created))
+	}
 
-	// Only now, with the watermark planted and logged. See [Daemon.runIssueBody]
-	// for why that order is the whole of "exactly once".
-	if err := d.runIssueBody(ctx, t, comments); err != nil {
+	// Reconcile retained body delivery before checking current eligibility:
+	// its own visible reply must not turn an uncertain post into a body skip.
+	pending, err := d.resumeReport(ctx, t, 0)
+	if err != nil {
 		return err
+	}
+	if !pending {
+		if err := d.runIssueBody(ctx, t, comments); err != nil {
+			return err
+		}
 	}
 	if d.connections != nil {
 		if err := ctx.Err(); err != nil {
@@ -1780,7 +1811,10 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		if t.worker != nil && (t.worker.status == workerDeferred || t.worker.status == workerFailed) {
 			return &recoveryPending{}
 		}
-		return d.db.CompleteTicketBody(ctx, t.session.ID)
+		if err := d.db.CompleteTicketBody(ctx, t.session.ID); err != nil {
+			return err
+		}
+		d.prepFailures.clear(t.session.ID)
 	}
 	return nil
 }
@@ -1960,6 +1994,7 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 				slog.Int64("comment_id", c.ID))
 			return true, nil
 		}
+		d.prepFailures.clear(t.session.ID)
 		// Refresh after each actionable instruction so later owner label edits
 		// are observed before admitting another trigger. Persistent selection
 		// does not make this tick's issue snapshot authoritative forever.
@@ -2477,12 +2512,12 @@ func (d *Daemon) run(
 	if err != nil {
 		var refusal *modeRefusal
 		if errors.As(err, &refusal) {
-			return d.refuseMode(ctx, t, trigger, refusal.kind)
+			return d.refuseMode(ctx, t, trigger, refusal.kind, refusal.mode)
 		}
 		return d.leave(ctx, t, log, "mode selection was refused", err)
 	}
 	if workflow == agent.WorkflowBug && d.bug == nil {
-		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable)
+		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable, "")
 	}
 	// A story issue without its own agent label takes its parent's.
 	if err := d.inheritParentAgent(ctx, t); err != nil {
@@ -2558,7 +2593,7 @@ func (d *Daemon) run(
 			if errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
 				log.InfoContext(ctx, "Research owner comment predates the open question; refusing it with a reply",
 					slog.Any("error", err))
-				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions, "")
 			}
 			// A plain Research or Implement comment refused because the wait holds
 			// another reply is answered and consumed. Explicit commands keep retry.
@@ -2566,7 +2601,7 @@ func (d *Daemon) run(
 				workflow != agent.WorkflowBug && command.Kind == turn.KindFreeText {
 				log.InfoContext(ctx, "Owner comment refused while the wait holds another reply; refusing it with a reply",
 					slog.Any("error", err))
-				return d.refuseMode(ctx, t, trigger, report.ReplyGraphOwnerWaitRefused)
+				return d.refuseMode(ctx, t, trigger, report.ReplyGraphOwnerWaitRefused, "")
 			}
 			return d.leave(ctx, t, log, "Research owner reply admission failed", err)
 		}
@@ -2621,20 +2656,24 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
+		var refusal *workflowRefusal
+		if errors.As(err, &refusal) {
+			return d.refuseMode(ctx, t, trigger, refusal.kind, mode)
+		}
 		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && errors.Is(err, turn.ErrImplementReplyNotApplied) {
-			return d.refuseMode(ctx, t, trigger, report.ReplyImplementCommentNotApplied)
+			return d.refuseMode(ctx, t, trigger, report.ReplyImplementCommentNotApplied, "")
 		}
 		// A Bug owner comment written before the open review or question can
 		// never answer it; refuse it once and consume it, as for Research.
 		if workflow == agent.WorkflowBug && errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
 			log.InfoContext(ctx, "Bug owner comment predates the open review or question; refusing it with a reply",
 				slog.Any("error", err))
-			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions, "")
 		}
 		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugReplyNotApplied) {
 			log.InfoContext(ctx, "Bug owner comment could not be applied at the current step; refusing it with a reply",
 				slog.Any("error", err))
-			return d.refuseMode(ctx, t, trigger, report.ReplyBugCommentNotApplied)
+			return d.refuseMode(ctx, t, trigger, report.ReplyBugCommentNotApplied, "")
 		}
 		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugCommentRefused) {
 			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))
@@ -2955,6 +2994,7 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	}
 	d.commentFate(ctx, t, t.commentUnderWay, fateDeferred, "deferred, "+what+"; it is retried on a later heartbeat")
 	d.rateLimited(ctx, log, t.tickAt, err)
+	d.prepareFailed(ctx, t, err)
 	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 		slog.Any("error", err))
 	if store.IsGraphTrigger(t.commentUnderWay) || t.scheduled != nil {
@@ -3000,6 +3040,9 @@ func (d *Daemon) observe(ctx context.Context, now time.Time, err error) error {
 // all refused at once arms one hold between them rather than doubling it per
 // refusal (AC-PAR-4.2).
 func (d *Daemon) rateLimited(ctx context.Context, log *slog.Logger, now time.Time, err error) {
+	if d.connections != nil {
+		return
+	} // The version-bound transport already recorded this refusal.
 	var ticketRate *ticket.RateLimitError
 	if errors.As(err, &ticketRate) {
 		failures, delay, until := d.backoff.fail(now, ticketRate.RetryAfter)

@@ -28,7 +28,10 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	rows := validateStoryRows(st, target)
 	fmt.Fprintf(&b, "%s **Validate report** · commit `%s` · suite %s · revision `%s`\n\n", validateOverallLight(st, rows), short(st.Commit), st.Suite.Outcome, st.Revision)
 	b.WriteString("Delivery: " + deliveryText(st) + "\n\n")
-	if strings.TrimSpace(notice) != "" {
+	switch {
+	case strings.TrimSpace(notice) != "" && st.Reimplementing:
+		b.WriteString("> **Sent back to Implement:** " + planTableCell(notice) + "\n\n")
+	case strings.TrimSpace(notice) != "":
 		b.WriteString("> **Your last command changed nothing:** " + planTableCell(notice) + "\n\n")
 	}
 	if validateOverallLight(st, rows) == lightRed {

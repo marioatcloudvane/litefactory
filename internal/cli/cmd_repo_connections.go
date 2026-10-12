@@ -83,7 +83,7 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 			if role != "" && v.Role != role {
 				continue
 			}
-			if err = writeConnection(env, v); err != nil {
+			if err = writeConnectionWithBindings(ctx, env, rt.db, v); err != nil {
 				return err
 			}
 			observation, e := rt.db.GetConnectionObservation(ctx, v.ID)
@@ -173,7 +173,7 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		if e != nil {
 			return Precondition(e)
 		}
-		return writeConnection(env, saved)
+		return writeConnectionWithBindings(ctx, env, rt.db, saved)
 	case "disable":
 		if f.revision < 1 {
 			return Usagef(cmd, "--revision is required")
@@ -182,7 +182,7 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		if e != nil {
 			return Precondition(e)
 		}
-		return writeConnection(env, saved)
+		return writeConnectionWithBindings(ctx, env, rt.db, saved)
 	case "check":
 		v, e := rt.db.CurrentConnection(ctx, id, role)
 		if e != nil {
@@ -197,7 +197,7 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		if e = rt.db.SaveConnectionObservation(ctx, observation); e != nil {
 			return Precondition(e)
 		}
-		_, e = fmt.Fprintf(env.Stdout, "%s version %d checked %s: %s (%s); capabilities %v; remedy %s\n", role, v.Revision, observation.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), observation.Status, observation.Reason, observation.Capabilities, observation.Remedy)
+		_, e = fmt.Fprintf(env.Stdout, "project %d connection %d (%s) %s version %d checked %s: %s (%s); capabilities %v; remedy %s\n", v.RepoID, v.ID, v.Destination, role, v.Revision, observation.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), observation.Status, observation.Reason, observation.Capabilities, observation.Remedy)
 		return e
 	default:
 		return Usagef(cmd, "unknown connection operation")
@@ -312,4 +312,29 @@ func runRepoBinding(ctx context.Context, env *Env, cmd *Command, action string, 
 func writeBinding(env *Env, b store.TicketBinding) error {
 	_, err := fmt.Fprintf(env.Stdout, "binding %d project %d revision %d %s %s ticket %s at %s#%s connection %d enabled=%t\n", b.ID, b.RepoID, b.Revision, b.Ref.Identity.Provider, b.Ref.Identity.Origin, b.Ref.Identity.RemoteID, b.Ref.Locator.Container, b.Ref.Locator.Key, b.ConnectionVersionID, b.Enabled)
 	return err
+}
+
+func writeConnectionWithBindings(ctx context.Context, env *Env, db *store.DB, v store.ConnectionVersion) error {
+	if err := writeConnection(env, v); err != nil {
+		return err
+	}
+	if v.Role != store.TicketConnection {
+		return nil
+	}
+	bindings, err := db.ListTicketBindings(ctx, v.RepoID)
+	if err != nil {
+		return err
+	}
+	var findings []error
+	for _, b := range bindings {
+		if !b.Enabled || b.ConnectionVersionID == v.ID {
+			continue
+		}
+		err := db.CheckTicketBindingSource(ctx, b, v)
+		if errors.Is(err, store.ErrBindingConflict) {
+			_, err = fmt.Fprintf(env.Stdout, "  binding %d cannot inherit source from version id %d to current version id %d: %s; verify or restore the intended ticket source\n", b.ID, b.ConnectionVersionID, v.ID, err)
+		}
+		findings = append(findings, err)
+	}
+	return errors.Join(findings...)
 }

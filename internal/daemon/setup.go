@@ -342,7 +342,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 				_ = ln.Close()
 			}
 		}()
-		webhookOpts = &WebhookOptions{Listener: ln, Secrets: s.WebhookSecrets}
+		webhookOpts = &WebhookOptions{Listener: ln, Secrets: s.WebhookSecrets, PublicURL: s.Config.Webhook.PublicURL}
 	}
 
 	chatOpts, chatErr := prepareChat(ctx, s.Config, s.WebhookSecrets)

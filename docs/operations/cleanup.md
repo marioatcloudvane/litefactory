@@ -23,7 +23,7 @@ Each local or remote branch tip must be an ancestor of the fresh remote base bef
 
 ## Archiving closed tasks
 
-Once the daemon has retired a closed task's worktree and branches, a separate daily pass can move that task's stored history (its database rows) into one compressed file under `archive/` in the factory home, then remove the rows and shrink the database. Only closed, fully retired tasks are archived; anything the daemon cannot prove is closed or safe is kept and logged as `kept` or `deferred`.
+Once the daemon has retired a closed task's worktree and branches, a separate daily pass can move that task's stored history (its database rows) into one compressed file under `archive/` in the factory home, then remove the rows and shrink the database. Only closed, fully retired tasks are archived; anything the daemon cannot prove is closed or safe is kept and logged as `kept` or `deferred`. Usage and cost records stay in the database when a task is archived, so the meter's totals do not drop; only their link to the workflow step is cleared.
 
 Archive files, and the run logs they cover, are deleted by the same daily pass after `settings.archive_retain_days` days (default 30; see the [configuration reference](../configuration/config-yaml.md)). If you need a task's logs or history for longer, copy them out before that time.
 

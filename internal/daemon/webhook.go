@@ -36,7 +36,8 @@ const (
 // [Open] binds it right after the singleton lock so that a taken port fails
 // start-up before any work begins.
 type WebhookOptions struct {
-	Listener net.Listener
+	Listener  net.Listener
+	PublicURL string
 	// Secrets resolves per-repository secrets from the keychain. The zero
 	// value uses the real keychain.
 	Secrets secrets.Resolver
@@ -152,9 +153,10 @@ type webhookRepo struct {
 // on. The handler never reaches the keychain; only [webhookRuntime.refresh],
 // called at start-up and from the heartbeat, does.
 type webhookRuntime struct {
-	ln       net.Listener
-	resolver secrets.Resolver
-	log      *slog.Logger
+	ln        net.Listener
+	resolver  secrets.Resolver
+	publicURL string
+	log       *slog.Logger
 
 	hints *hintSet
 	// schedule is told of every accepted delivery so the repository's poll
@@ -183,6 +185,7 @@ func newWebhookRuntime(opts WebhookOptions, log *slog.Logger) *webhookRuntime {
 		now:                     now,
 		ln:                      opts.Listener,
 		resolver:                opts.Secrets,
+		publicURL:               opts.PublicURL,
 		log:                     log,
 		hints:                   newHintSet(maxPendingHints),
 		wake:                    make(chan struct{}, 1),

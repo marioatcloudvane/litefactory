@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -469,7 +471,14 @@ func recoveryProvider(t *testing.T, f *fixture) ticket.Origin {
 					object["url"] = origin + "/repos/" + f.repo.Slug() + "/issues/" + strconv.Itoa(int(number))
 				} else if id, ok := object["id"].(float64); ok && object["body"] != nil {
 					object["url"] = origin + "/repos/" + f.repo.Slug() + "/issues/comments/" + strconv.Itoa(int(id))
-					object["issue_url"] = origin + "/repos/" + f.repo.Slug() + "/issues/" + strconv.Itoa(testIssue)
+					issueNumber := testIssue
+					parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+					if len(parts) == 6 && parts[3] == "issues" && parts[5] == "comments" {
+						if n, err := strconv.Atoi(parts[4]); err == nil {
+							issueNumber = n
+						}
+					}
+					object["issue_url"] = origin + "/repos/" + f.repo.Slug() + "/issues/" + strconv.Itoa(issueNumber)
 				}
 			}
 		}
@@ -624,4 +633,299 @@ func assertRecoveryReports(t *testing.T, f *fixture, count int) {
 	if posts != count {
 		t.Fatalf("provider report publications = %d, want %d", posts, count)
 	}
+}
+
+func TestTicketRecoveryRepositoryRefusalRetainsAndRetries(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	origin := recoveryProvider(t, w.fixture)
+	source := configureRecoverySource(t, w, origin)
+	// The code endpoint fails independently of the readable ticket source.
+	var refused atomic.Bool
+	refused.Store(true)
+	codeServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/"+w.repo.Slug() && refused.Load() {
+			http.Error(rw, "repository inaccessible", http.StatusNotFound)
+			return
+		}
+		w.forge.server.Config.Handler.ServeHTTP(rw, r)
+	}))
+	defer codeServer.Close()
+	code, err := w.db.CurrentConnection(t.Context(), w.repo.ID, store.CodeConnection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code.Origin = ticket.Origin(codeServer.URL)
+	if _, err := w.db.SetConnection(t.Context(), code, code.Revision); err != nil {
+		t.Fatal(err)
+	}
+
+	other := w.secondRepo()
+	otherFixture := *w.fixture
+	otherFixture.repo = other
+	otherOrigin := recoveryProvider(t, &otherFixture)
+	var otherSource store.ConnectionVersion
+	for _, role := range []store.ConnectionRole{store.CodeConnection, store.TicketConnection} {
+		v := source
+		v.ID, v.Revision, v.RepoID, v.Role = 0, 0, other.ID, role
+		v.Origin, v.Destination, v.RemoteID = otherOrigin, other.Slug(), "2"
+		v.ClonePath, v.RemoteURL, v.WorktreeRoot = other.Path, other.RemoteURL, other.WorktreeRoot
+		v, err = w.db.SetConnection(t.Context(), v, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role == store.TicketConnection {
+			otherSource = v
+		}
+	}
+	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: w.spy.lookup}, Logger: w.logger, ExpectedActorID: botID})
+	if _, err := (projectconnection.ApproverService{DB: w.db, Factory: factory}).Set(t.Context(), other.ID, ownerLogin, otherSource.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
+	w.daemon = newRecoveryDaemon(t, w, origin, "repository-refusal", false)
+	w.plantCursor()
+	w.issue("Repository access will recover")
+	w.forge.addComment(testIssue, 901, owner(), "/spike Retry the retained instruction.")
+	w.forge.addIssueIn(other.Owner, other.Name, fakeIssue{Number: testIssue, Title: "Healthy project", User: owner()})
+	w.forge.addCommentTo(other.Owner, other.Name, testIssue, 902, owner(), "/spike Process the healthy project.")
+	for _, v := range []store.ConnectionVersion{source, otherSource} {
+		if err := w.db.HandoffTicketObservation(t.Context(), store.PendingTicketObservation{
+			RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin,
+			Container: v.Destination, ContainerID: v.RemoteID, TicketID: strconv.Itoa(10000 + testIssue),
+			TicketKey: strconv.Itoa(testIssue), ObservedAt: w.clock.peek(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var completed time.Time
+	for range 2 {
+		result := w.settle()
+		if !result.Cursor.LastTickAt.After(completed) {
+			t.Fatalf("completed heartbeat did not advance: %+v", result)
+		}
+		completed = result.Cursor.LastTickAt
+		w.clock.advance(time.Minute)
+		if _, err := w.db.GetSessionByTicket(t.Context(), ticket.Identity{Provider: source.Provider, Origin: source.Origin, RemoteID: strconv.Itoa(10000 + testIssue)}); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("failed admission created a session/watermark: %v", err)
+		}
+		pending, err := w.db.ListPendingTicketObservations(t.Context(), source.ID)
+		if err != nil || len(pending) != 1 {
+			t.Fatalf("lost retry: %+v %v", pending, err)
+		}
+	}
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{902}) {
+		t.Fatalf("healthy comment did not run: %v\n%s", got, w.fixture.logs)
+	}
+	for _, want := range []string{"ticket observation cannot be admitted", fmt.Sprintf("project_id=%d", w.repo.ID), fmt.Sprintf("connection_version_id=%d", source.ID), string(source.Origin), strconv.Itoa(10000 + testIssue), "inspect repository", "404"} {
+		if !strings.Contains(w.fixture.logs.String(), want) {
+			t.Errorf("missing diagnostic %q: %s", want, w.fixture.logs)
+		}
+	}
+	// No ticket timestamp change and no new comment or observation.
+	refused.Store(false)
+	w.settle()
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{901, 902}) {
+		t.Fatalf("retained instruction did not recover: %v\n%s", got, w.fixture.logs)
+	}
+	w.settle() // Ordinary follow-up drain consumes the now reported instruction.
+	pending, err := w.db.ListPendingTicketObservations(t.Context(), source.ID)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("successful drain retained observation: %+v %v", pending, err)
+	}
+}
+
+func TestTicketRecoveryDoctorHoldSurvivesRestart(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	origin := recoveryProvider(t, w.fixture)
+	source := configureRecoverySource(t, w, origin)
+	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: w.spy.lookup}, Logger: w.logger, ExpectedActorID: botID})
+	w.issue("Held task")
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: source.Provider, Origin: origin, RemoteID: strconv.Itoa(10000 + testIssue)}, Locator: ticket.Locator{Provider: source.Provider, Origin: origin, Container: source.Destination, Key: strconv.Itoa(testIssue)}}
+	if _, err := w.db.AddTicketBinding(t.Context(), store.TicketBinding{RepoID: w.repo.ID, ConnectionVersionID: source.ID, Ref: ref, Enabled: true, Provenance: "explicit"}); err != nil {
+		t.Fatal(err)
+	}
+	held, err := daemon.AdmitProjectTicket(t.Context(), w.db, factory, w.repo, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.db.BootstrapTicketWatermark(t.Context(), held.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	reserveRecoveryHold(t, w.db, held)
+	w.forge.addComment(testIssue, 901, owner(), "/spike Recover this held instruction.")
+	w.forge.addIssue(fakeIssue{Number: testIssue + 1, Title: "Healthy sibling", User: owner()})
+	w.forge.addComment(testIssue+1, 902, owner(), "/spike Process the healthy sibling.")
+	other := w.secondRepo()
+	otherFixture := *w.fixture
+	otherFixture.repo = other
+	otherOrigin := recoveryProvider(t, &otherFixture)
+	var otherSource store.ConnectionVersion
+	for _, role := range []store.ConnectionRole{store.CodeConnection, store.TicketConnection} {
+		v := source
+		v.ID, v.Revision, v.RepoID, v.Role = 0, 0, other.ID, role
+		v.Origin, v.Destination, v.RemoteID = otherOrigin, other.Slug(), "2"
+		v.ClonePath, v.RemoteURL, v.WorktreeRoot = other.Path, other.RemoteURL, other.WorktreeRoot
+		v, err = w.db.SetConnection(t.Context(), v, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role == store.TicketConnection {
+			otherSource = v
+		}
+	}
+	if _, err := (projectconnection.ApproverService{DB: w.db, Factory: factory}).Set(t.Context(), other.ID, ownerLogin, otherSource.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
+	w.forge.addIssueIn(other.Owner, other.Name, fakeIssue{Number: testIssue, Title: "Healthy project", User: owner()})
+	w.forge.addCommentTo(other.Owner, other.Name, testIssue, 903, owner(), "/spike Process the healthy project.")
+	// Discovery is already beyond these updates. Only the durable observations
+	// can recover the instructions, including after reopening the database.
+	through := w.clock.peek().Add(time.Hour)
+	for _, v := range []store.ConnectionVersion{source, otherSource} {
+		p, err := w.db.InitTicketRecoveryPosition(t.Context(), v, v.CreatedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err = w.db.PinTicketRecoveryContainer(t.Context(), v.ID, p.Revision, v.RemoteID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.CompletedThrough, p.ScanThrough, p.ReconcileCompletedAt = through, through, through
+		p.TicketsComplete, p.RepliesComplete = true, true
+		if _, err = w.db.CommitTicketRecoveryPage(t.Context(), p, p.Revision, nil); err != nil {
+			t.Fatal(err)
+		}
+		numbers := []int{testIssue}
+		if v.ID == source.ID {
+			numbers = append(numbers, testIssue+1)
+		}
+		for _, n := range numbers {
+			if err := w.db.HandoffTicketObservation(t.Context(), store.PendingTicketObservation{RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: v.RemoteID, TicketID: strconv.Itoa(10000 + n), TicketKey: strconv.Itoa(n), ObservedAt: through}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	w.clock.advance(time.Hour)
+	w.daemon = newRecoveryDaemon(t, w, origin, "held-recovery", false)
+	for range 2 {
+		w.settle()
+		pending, err := w.db.ListPendingTicketObservations(t.Context(), source.ID)
+		var retained bool
+		for _, p := range pending {
+			if p.TicketID == ref.Identity.RemoteID {
+				retained = p.Generation == 1
+			}
+		}
+		if err != nil || !retained {
+			t.Fatalf("held generation lost: %+v %v", pending, err)
+		}
+		watermark, exists, err := w.db.GetWatermark(t.Context(), held.ID)
+		if err != nil || !exists || watermark.LastCommentID != 0 {
+			t.Fatalf("held watermark advanced: %+v %v", watermark, err)
+		}
+	}
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{902, 903}) {
+		t.Fatalf("unrelated work blocked: %v\n%s", got, w.fixture.logs)
+	}
+	reopenRecoveryDatabase(t, w.fixture)
+	w.daemon = newRecoveryDaemon(t, w, origin, "held-restarted", false)
+	w.settle()
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{902, 903}) {
+		t.Fatalf("held worker ran after restart: %v", got)
+	}
+	if err := w.db.StopDoctorRepair(t.Context(), held.TaskRef, "release fixture hold"); err != nil {
+		t.Fatal(err)
+	}
+	w.settle()
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{901, 902, 903}) {
+		t.Fatalf("release did not recover instruction: %v\n%s", got, w.fixture.logs)
+	}
+	w.settle()
+	pending, err := w.db.ListPendingTicketObservations(t.Context(), source.ID)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("successful drain did not clear: %+v %v", pending, err)
+	}
+}
+
+func reserveRecoveryHold(t *testing.T, db *store.DB, session store.Session) {
+	t.Helper()
+	ctx := t.Context()
+	conversation, err := db.BeginDoctorAttempt(ctx, session.TaskRef, store.DoctorAttempt{ID: "recovery-hold", SourceID: "recovery-hold", OwnerText: "fixture", PromptVersion: "test", GuideVersion: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, _ := json.Marshal(store.DoctorEvidence{TaskRef: session.TaskRef})
+	if err := db.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "recovery-hold", Provider: "claude", ConfiguredModel: "test", Evidence: string(evidence)}); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := db.BindDoctorResultAttempt(ctx, "recovery-hold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := []byte(fmt.Sprintf(`[{"number":1,"target":"session:%d","action":{"kind":"poll_flag","before":"0","after":"1"}}]`, session.ID))
+	snapshot := append(append([]byte(`{"proposal":`), proposal...), '}')
+	if _, err := db.RecordResult(ctx, store.ResultRecord{Binding: binding, RequestID: "recovery-hold-result", Payload: snapshot, Snapshot: snapshot, Diagnostics: []byte(`{"valid":true,"errors":[]}`), Retired: []byte(`[]`), Accepted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AdoptDoctorResult(ctx, binding, "recovery-hold-result", proposal); err != nil {
+		t.Fatal(err)
+	}
+	id, _, err := db.DoctorProposalReference(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PresentDoctorProposal(ctx, session.TaskRef, "recovery-hold-presentation", id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "recovery-hold", SourceID: "recovery-hold-approval", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: "recovery-hold-presentation"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTicketBodyTransientRetryKeepsFirstSight(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	origin := recoveryProvider(t, w.fixture)
+	configureRecoverySource(t, w, origin)
+	w.daemon = newRecoveryDaemon(t, w, origin, "transient-body", false)
+	w.plantCursor()
+	w.assignedIssue("Transient body", "Please investigate the first instruction.")
+	w.turns.set(func(context.Context, turn.Request) (turn.Result, error) {
+		return turn.Result{}, errors.New("temporary preparation failure")
+	})
+	w.clock.advance(scheduleInterval)
+	w.settle()
+	id := w.session().ID
+	if pending, err := w.db.TicketBodyPending(t.Context(), id); err != nil || !pending {
+		t.Fatalf("body debt lost: %v %v", pending, err)
+	}
+	for range 3 {
+		w.settle()
+	}
+	if got := len(w.turns.calls()); got != 1 {
+		t.Fatalf("premature body attempts=%d", got)
+	}
+	w.clock.advance(testInterval)
+	w.settle()
+	if got := len(w.turns.calls()); got != 2 {
+		t.Fatalf("due attempts=%d", got)
+	}
+	if got := strings.Count(w.fixture.logs.String(), "first sight of a task;"); got != 1 {
+		t.Fatalf("first-sight logs=%d", got)
+	}
+	w.turns.set(w.ranSuccessfully)
+	reopenRecoveryDatabase(t, w.fixture)
+	w.daemon = newRecoveryDaemon(t, w, origin, "transient-body-restarted", false)
+	w.settle()
+	if pending, err := w.db.TicketBodyPending(t.Context(), id); err != nil || pending {
+		t.Fatalf("body recovery failed: %v %v", pending, err)
+	}
+	assertRecoveryReports(t, w.fixture, 1)
 }

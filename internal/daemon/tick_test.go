@@ -13,8 +13,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -1427,4 +1429,170 @@ func (f *fixture) newLowDiskDaemon(minFree uint64, read func(string) (uint64, er
 		f.t.Fatalf("build the daemon: %v", err)
 	}
 	return d
+}
+
+func TestBugIssueBodyStartsAtFirstSight(t *testing.T) {
+	for _, assigned := range []bool{false, true} {
+		name := "unassigned"
+		if assigned {
+			name = "assigned"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			// The executor records the request; concrete runtime execution is
+			// covered by turn's Bug bootstrap fixture.
+			runtime, err := turn.NewGraphBugRuntime(t.Context(), turn.Options{DB: f.db, Git: new(git.Binary), CloneGate: unusedRecoveryCloneGate{}, ResearchReporter: f.reporter, MCP: &turn.MCPRuntime{Redactor: redact.New(redact.Options{Logger: f.logger}), BotID: botID}}, turn.BugRuntimeConfig{Forge: f.client, OwnerID: ownerID, Permissions: func(agent.Kind, string) (turn.BugRolePermissions, error) {
+				return turn.BugRolePermissions{}, nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.daemon = f.newDaemon(daemon.Options{Bug: runtime})
+			f.plantCursor()
+			issue := fakeIssue{Number: testIssue, Title: "Bug bootstrap", Body: "Investigate this failure", User: owner(), Labels: []fakeLabel{{Name: "bug"}}}
+			if assigned {
+				issue.Assignees = []fakeUser{owner()}
+			}
+			f.forge.addIssue(issue)
+			f.settle()
+			calls := f.turns.calls()
+			if len(calls) != 1 {
+				t.Fatalf("calls=%d logs=%s", len(calls), f.logs)
+			}
+			req := calls[0]
+			if req.Workflow != agent.WorkflowBug || req.Trigger.CommentID != 0 || req.Trigger.AuthorID != ownerID || req.Command.Text != issue.Body || req.Issue.Body != issue.Body {
+				t.Fatalf("wrong Bug body request: %+v", req)
+			}
+			if f.watermark() != 0 {
+				t.Fatal("body advanced comment watermark")
+			}
+			f.settle()
+			if len(f.turns.calls()) != 1 {
+				t.Fatal("body was replayed")
+			}
+		})
+	}
+}
+
+// Successful discovery cannot reset the task's retry deadline, and a healthy
+// sibling is still admitted while the failing task is held.
+func TestTransientExecutionBackoffPreservesOtherTasks(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Transient failure")
+	f.settle()
+	fail := true
+	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if fail && req.Issue.Number == testIssue {
+			return turn.Result{}, errors.New("temporary preparation failure")
+		}
+		return f.ranSuccessfully(ctx, req)
+	})
+	f.forge.addComment(testIssue, 40, owner(), "/spike run this")
+	f.settle()
+	if got := len(f.turns.calls()); got != 1 {
+		t.Fatalf("attempts=%d", got)
+	}
+	for range 3 {
+		f.settle()
+	}
+	if got := len(f.turns.calls()); got != 1 {
+		t.Fatalf("heartbeat retried before due: %d", got)
+	}
+	f.clock.advance(testInterval)
+	f.settle()
+	if got := len(f.turns.calls()); got != 2 {
+		t.Fatalf("due attempt missing: %d", got)
+	}
+	// The second failure doubles the interval.
+	f.clock.advance(testInterval)
+	f.settle()
+	if got := len(f.turns.calls()); got != 2 {
+		t.Fatalf("second delay did not grow: %d", got)
+	}
+	fail = false
+	f.clock.advance(testInterval)
+	f.settle()
+	if got := f.watermark(); got != 40 {
+		t.Fatalf("recovery watermark=%d", got)
+	}
+	// Consumed work resets the delay for the next independent instruction.
+	f.forge.addComment(testIssue, 41, owner(), "/spike next")
+	f.settle()
+	if got := f.watermark(); got != 41 {
+		t.Fatalf("progress did not reset: %d", got)
+	}
+}
+
+func TestTransientMaterialisationAndListingBackoff(t *testing.T) {
+	for _, stage := range []string{"materialise", "comments"} {
+		t.Run(stage, func(t *testing.T) {
+			f := newFixture(t)
+			f.plantCursor()
+			f.issue("Transient read failure")
+			f.settle()
+			f.clock.advance(pastListing)
+			f.settle()
+			f.needsPoll(testIssue)
+			g := &closureForge{labelFixtureForge: f.client}
+			var calls atomic.Int64
+			if stage == "materialise" {
+				g.after = func(_ context.Context, _ int, _ github.Issue, _ error) (github.Issue, error) {
+					calls.Add(1)
+					return github.Issue{}, errors.New("temporary lookup failure")
+				}
+			} else {
+				f.forge.mu.Lock()
+				f.forge.onListComments = func(w http.ResponseWriter, _ int) bool {
+					calls.Add(1)
+					http.Error(w, "temporary listing failure", http.StatusBadGateway)
+					return true
+				}
+				f.forge.mu.Unlock()
+			}
+			f.daemon = f.newDaemon(daemon.Options{Forge: g})
+			f.settle()
+			first := calls.Load()
+			if first == 0 {
+				t.Fatal("failure not injected")
+			}
+			for range 3 {
+				f.settle()
+			}
+			if got := calls.Load(); got != first {
+				t.Fatalf("calls before due=%d, want %d", got, first)
+			}
+			f.clock.advance(testInterval)
+			f.settle()
+			if got := calls.Load(); got != 2*first {
+				t.Fatalf("due calls=%d, want %d", got, 2*first)
+			}
+			f.clock.advance(testInterval)
+			f.settle()
+			if got := calls.Load(); got != 2*first {
+				t.Fatalf("delay did not double: %d", got)
+			}
+		})
+	}
+}
+
+func TestTransientFailureDoesNotHoldHealthySibling(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Failing task")
+	f.forge.addIssue(fakeIssue{Number: 124, Title: "Healthy task", User: stranger()})
+	f.bootstrapIssues(f.repo, testIssue, 124)
+	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if req.Issue.Number == testIssue {
+			return turn.Result{}, errors.New("temporary preparation failure")
+		}
+		return f.ranSuccessfully(ctx, req)
+	})
+	f.forge.addComment(testIssue, 40, owner(), "/spike failing")
+	f.settle()
+	f.forge.addComment(124, 41, owner(), "/spike healthy")
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{40, 41}) {
+		t.Fatalf("healthy sibling blocked or failed task repeated: %v", got)
+	}
 }

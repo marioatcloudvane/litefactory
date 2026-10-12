@@ -57,12 +57,39 @@ func ValidateAnswer(answer Answer, bundle Bundle) error {
 	}
 	known := make(map[string]bool, len(bundle.Facts))
 	for _, fact := range bundle.Facts {
-		known[fact.Handle] = true
+		known[fact.Handle] = bundle.TargetIssue == 0 || factTargets(fact, bundle.TargetIssue)
 	}
 	var failures []error
 	for i, point := range answer.Points {
 		if strings.TrimSpace(point.Text) == "" || len(point.Text) > 8192 || len(point.Handles) < 1 || len(point.Handles) > 8 {
 			failures = append(failures, fmt.Errorf("ask: invalid point %d", i+1))
+		}
+		if bundle.TargetIssue > 0 {
+			// A target citation cannot launder a claim about another issue. Additional
+			// references (for example a delivery PR) must occur in the cited evidence.
+			evidence := ""
+			for _, f := range bundle.Facts {
+				for _, h := range point.Handles {
+					if f.Handle == h && factTargets(f, bundle.TargetIssue) && f.Kind != "run" {
+						evidence += " " + f.Text
+					}
+				}
+			}
+			for _, target := range ExplicitIssues(point.Text) {
+				supported := target == bundle.TargetIssue
+				for _, n := range ExplicitIssues(evidence) {
+					supported = supported || n == target
+				}
+				if !supported {
+					failures = append(failures, errors.New("ask: answer names an unsupported issue"))
+				}
+			}
+			lower := strings.ToLower(point.Text)
+			for _, word := range []string{"delivered", "merged", "shipped", "deployed"} {
+				if strings.Contains(lower, word) && !strings.Contains(strings.ToLower(evidence), word) {
+					failures = append(failures, errors.New("ask: delivery claim lacks issue evidence"))
+				}
+			}
 		}
 		for _, handle := range point.Handles {
 			if !known[handle] {

@@ -6,11 +6,12 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Legacy import requires a single original connection and a recorded owned
-// hook. Provider verification happens outside HTTP ingress, and failures leave
+// Legacy import requires a verified original connection. Provider verification
+// happens outside HTTP ingress, and failures leave
 // polling available without assigning an old secret to a replacement source.
 func (d *Daemon) importLegacyWebhookSubscriptions(ctx context.Context, now time.Time) {
 	if d.webhook == nil || d.connections == nil {
@@ -40,9 +41,6 @@ func (d *Daemon) importLegacyWebhookSubscriptions(ctx context.Context, now time.
 		if exists {
 			continue
 		}
-		if _, err := d.db.GetRepoWebhook(ctx, repo.ID); err != nil {
-			continue
-		}
 		key := "legacy/" + repo.Slug()
 		d.webhook.mu.Lock()
 		previous := d.webhook.subscriptionSecretTries[key]
@@ -60,7 +58,19 @@ func (d *Daemon) importLegacyWebhookSubscriptions(ctx context.Context, now time.
 		if err != nil {
 			continue
 		}
-		if _, err := d.db.ImportLegacyTicketSubscription(ctx, version, identity.RemoteID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		if identity.Provider != version.Provider || identity.Origin != version.Origin {
+			continue
+		}
+		_, err = d.db.ImportLegacyTicketSubscription(ctx, version, identity.RemoteID)
+		if errors.Is(err, store.ErrNotFound) {
+			token, secretErr := d.webhook.resolver.Resolve(ctx, secrets.KeychainRef(WebhookKeychainService, repo.Slug()))
+			if secretErr != nil || token.Reveal() == "" {
+				d.log.WarnContext(ctx, "webhook signing secret unavailable; polling continues", slog.String("repo", repo.Slug()), slog.String("remedy", "litefactory repo webhook "+repo.Slug()))
+				continue
+			}
+			_, err = d.db.PrepareLegacyTicketSubscription(ctx, version, identity.RemoteID, d.webhook.publicURL)
+		}
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			d.log.WarnContext(ctx, "legacy webhook ownership is unresolved; polling continues", slog.Int64("project", repo.ID))
 		}
 	}

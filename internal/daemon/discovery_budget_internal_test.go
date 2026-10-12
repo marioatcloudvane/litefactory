@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
 )
 
 func budgetFixture(limit, remaining int) (*discoveryBudget, time.Time) {
@@ -335,4 +336,77 @@ func TestDiscoveryBudget_ConcurrentRefunds(t *testing.T) {
 	budgetDrainTo(t, b, 0)
 	budgetDenied(t, b, "one_more", 1, false)
 	r.finish()
+}
+
+func TestLinearRequestQuotaFreshnessAndCharging(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	b := &discoveryBudget{}
+	b.tick(now)
+	r, err := b.acquire("probe", 1, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := linear.RequestObservation{StatusCode: 200, RequestRateValid: true, Limit: 1000, Remaining: 900, Reset: now.Add(time.Hour)}
+	for range 3 {
+		b.observeLinear(valid)
+		r.observeLinear(valid)
+	}
+	r.finish()
+	v := b.view()
+	if !v.Fresh || v.Share != 500 || v.Reserve != 500 || v.Spent != 3 || v.InProgress != 0 || v.Burst != discoveryBurst-3 {
+		t.Fatalf("probe accounting: %+v", v)
+	}
+	other := &discoveryBudget{}
+	other.tick(now)
+	if _, err := other.acquire("ordinary", 1, false); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatalf("borrowed quota: %v", err)
+	}
+	if ordinary, err := b.acquire("ordinary", 1, false); err != nil {
+		t.Fatal(err)
+	} else {
+		ordinary.finish()
+	}
+	for _, tt := range []struct {
+		name string
+		o    linear.RequestObservation
+	}{
+		{"missing", linear.RequestObservation{}},
+		{"expired", linear.RequestObservation{RequestRateValid: true, Limit: 1000, Remaining: 900, Reset: now}},
+		{"older window", linear.RequestObservation{RequestRateValid: true, Limit: 1000, Remaining: 900, Reset: now.Add(30 * time.Minute)}},
+		{"inconsistent", linear.RequestObservation{RequestRateValid: true, Limit: 1000, Remaining: 1001, Reset: now.Add(time.Hour)}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			b.tick(now.Add(time.Minute))
+			observed := b.observedAt
+			remaining := b.remaining
+			b.observeLinear(tt.o)
+			if b.observedAt != observed || b.remaining != remaining-1 {
+				t.Fatalf("invalid evidence refreshed or uncharged: %+v", b.view())
+			}
+		})
+	}
+	b.tick(now.Add(2 * time.Minute))
+	if _, err := b.acquire("ordinary", 1, false); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatal("stale allowance admitted")
+	}
+	r, err = b.acquire("probe", 1, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.finish()
+	if _, err := b.acquire("probe", 1, true); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatal("probe cadence lost")
+	}
+	valid.Reset = now.Add(2 * time.Hour)
+	b.observeLinear(valid)
+	if !b.view().Fresh || b.spent != 0 {
+		t.Fatal("new valid window did not refresh allowance")
+	}
+	valid.Remaining = 500
+	b.observeLinear(valid)
+	b.tick(now.Add(4 * time.Minute))
+	if _, err := b.acquire("probe", 1, true); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatal("depleted window allowed probe")
+	}
 }

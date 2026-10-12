@@ -290,8 +290,37 @@ func (db *DB) ClearSubscriptionRemoteHook(ctx context.Context, id string, revisi
 // its original keychain account only when the current legacy source is proven.
 // Historical owner/name rows never establish ownership on a replacement source.
 func (db *DB) ImportLegacyTicketSubscription(ctx context.Context, v ConnectionVersion, containerID string) (TicketSubscription, error) {
+	return db.importLegacyTicketSubscription(ctx, v, containerID, "")
+}
+
+// PrepareLegacyTicketSubscription retains a verified original source and its
+// legacy secret reference without claiming ownership of an unrecorded hook.
+// The caller must have resolved the existing signing secret before calling.
+func (db *DB) PrepareLegacyTicketSubscription(ctx context.Context, v ConnectionVersion, containerID, callback string) (TicketSubscription, error) {
+	return db.importLegacyTicketSubscription(ctx, v, containerID, callback)
+}
+
+func (db *DB) importLegacyTicketSubscription(ctx context.Context, v ConnectionVersion, containerID, fallbackCallback string) (TicketSubscription, error) {
 	var out TicketSubscription
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		trusted, err := currentConnection(ctx, tx, v.RepoID, TicketConnection)
+		if err != nil {
+			return err
+		}
+		if trusted != v || !v.Enabled || v.Provider != ticket.GitHub || v.Provenance != "legacy" || containerID == "" || (v.RemoteID != "" && v.RemoteID != containerID) {
+			return ErrSubscriptionConflict
+		}
+		var count int
+		var destination string
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM project_connection_versions WHERE repo_id=? AND role='ticket' AND NOT (provenance='legacy' AND enabled=1 AND provider=? AND api_origin=? AND destination=? AND (remote_id='' OR remote_id=?))`, v.RepoID, v.Provider, v.Origin, v.Destination, containerID).Scan(&count); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT owner || '/' || name FROM repos WHERE id=?`, v.RepoID).Scan(&destination); err != nil {
+			return err
+		}
+		if count != 0 || destination != v.Destination {
+			return ErrSubscriptionConflict
+		}
 		existing, err := readSubscription(tx.QueryRowContext(ctx, `SELECT document FROM ticket_subscriptions WHERE connection_version_id=?`, v.ID))
 		if err == nil {
 			out = existing
@@ -300,39 +329,36 @@ func (db *DB) ImportLegacyTicketSubscription(ctx context.Context, v ConnectionVe
 		if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		trusted, err := currentConnection(ctx, tx, v.RepoID, TicketConnection)
-		if err != nil {
+		// A retained subscription's explicit disable still belongs to this
+		// immutable source, even when its connection version is no longer current.
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM ticket_subscriptions WHERE repo_id=? AND provider=? AND api_origin=? AND container_id=? AND json_extract(document,'$.DesiredEnabled')=0`, v.RepoID, v.Provider, v.Origin, containerID).Scan(&count); err != nil {
 			return err
 		}
-		if trusted != v || v.Provenance != "legacy" || containerID == "" || (v.RemoteID != "" && v.RemoteID != containerID) {
-			return ErrSubscriptionConflict
-		}
-		var count int
-		var destination string
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM project_connection_versions WHERE repo_id=? AND role='ticket'`, v.RepoID).Scan(&count); err != nil {
-			return err
-		}
-		if err := tx.QueryRowContext(ctx, `SELECT owner || '/' || name FROM repos WHERE id=?`, v.RepoID).Scan(&destination); err != nil {
-			return err
-		}
-		if count != 1 || destination != v.Destination {
+		if count != 0 {
 			return ErrSubscriptionConflict
 		}
 		var hookID int64
 		var callback, checked string
 		err = tx.QueryRowContext(ctx, `SELECT hook_id,url,updated_at FROM repo_webhooks WHERE repo_id=?`, v.RepoID).Scan(&hookID, &callback, &checked)
+		var at time.Time
+		remoteHookID := ""
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		at, err := ParseTime(checked)
-		if err != nil {
-			return err
+			if fallbackCallback == "" {
+				return ErrNotFound
+			}
+			callback = fallbackCallback
+		} else {
+			if err != nil {
+				return err
+			}
+			at, err = ParseTime(checked)
+			if err != nil {
+				return err
+			}
+			remoteHookID = fmt.Sprintf("%d", hookID)
 		}
 		digest := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%d\x00%s\x00%s\x00%s", v.RepoID, v.ID, v.Provider, v.Origin, containerID)))
-		out = TicketSubscription{ID: fmt.Sprintf("legacy-%x", digest[:16]), RepoID: v.RepoID, ConnectionVersionID: v.ID, Revision: 1, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: containerID, CallbackURL: callback, Events: []string{"issues", "issue_comment", "sub_issues"}, SecretService: "litefactory-webhook", SecretAccount: destination, SecretVersion: "legacy", DesiredEnabled: true, RemoteHookID: fmt.Sprintf("%d", hookID), ObservedState: "legacy_unverified", CheckedAt: at}
+		out = TicketSubscription{ID: fmt.Sprintf("legacy-%x", digest[:16]), RepoID: v.RepoID, ConnectionVersionID: v.ID, Revision: 1, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: containerID, CallbackURL: callback, Events: []string{"issues", "issue_comment", "sub_issues"}, SecretService: "litefactory-webhook", SecretAccount: destination, SecretVersion: "legacy", DesiredEnabled: true, RemoteHookID: remoteHookID, ObservedState: "legacy_unverified", CheckedAt: at}
 		data, err := json.Marshal(out)
 		if err != nil {
 			return err

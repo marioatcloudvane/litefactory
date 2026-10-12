@@ -108,8 +108,8 @@ func (w *webhookRuntime) refreshSubscriptions(ctx context.Context, db *store.DB,
 			w.subscriptionSecretTries[sub.ID] = subscriptionSecretAttempt{revision: sub.Revision, at: now}
 			w.mu.Unlock()
 			token, err := w.resolver.Resolve(ctx, secrets.KeychainRef(sub.SecretService, sub.SecretAccount))
-			if err != nil {
-				w.log.DebugContext(ctx, "webhook signing secret unavailable", slog.String("subscription", sub.ID))
+			if err != nil || token.Reveal() == "" {
+				w.log.WarnContext(ctx, "webhook signing secret unavailable; polling continues", slog.String("repo", sub.Container), slog.String("subscription", sub.ID), slog.String("remedy", "litefactory repo webhook "+sub.Container))
 				continue
 			}
 			// A disable/edit during keychain I/O must discard the stale load.

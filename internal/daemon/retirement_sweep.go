@@ -22,7 +22,7 @@ type retirementBudgetIssues struct {
 }
 
 func (b retirementBudgetIssues) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
-	if _, held := b.d.backoff.hold(b.now); held {
+	if _, held := b.d.connectionHold(ctx, b.now); held {
 		return github.Issue{}, ErrDiscoveryDeferred
 	}
 	return b.issues.GetIssue(ctx, repo, number)
@@ -35,7 +35,7 @@ func (d *Daemon) RunRetirementBatch(ctx context.Context, now time.Time) (err err
 	if d.retirement.CloneGate == nil || d.retirement.LockDir == "" {
 		return nil
 	}
-	if _, held := d.backoff.hold(now); held {
+	if _, held := d.connectionHold(ctx, now); held {
 		return nil
 	}
 	parentCtx := ctx
@@ -79,7 +79,12 @@ func (d *Daemon) RunRetirementBatch(ctx context.Context, now time.Time) (err err
 	owner := owners[0]
 	// A reservation covers the evaluator plus two fresh reads for each resource.
 	// All unused capacity is returned. Normal discovery has already had its turn.
-	reservation, err := d.discovery.acquire(fmt.Sprintf("retirement:%d", owner.Session.ID), retirementOwnerRequests, false)
+	ctx = sessionContext(ctx, owner.Session.ID)
+	budget, err := d.quotaBudget(ctx)
+	if err != nil {
+		return err
+	}
+	reservation, err := budget.acquire(fmt.Sprintf("retirement:%d", owner.Session.ID), retirementOwnerRequests, false)
 	if errors.Is(err, ErrDiscoveryDeferred) {
 		d.log.InfoContext(ctx, "retirement sweep deferred", slog.String("sweep", s.ID), slog.String("reason", "request_budget"), slog.Bool("completed", false))
 		return nil
@@ -88,7 +93,11 @@ func (d *Daemon) RunRetirementBatch(ctx context.Context, now time.Time) (err err
 		return err
 	}
 	defer reservation.finish()
-	ctx = github.WithRequestObserver(ctx, reservation.observe)
+	if d.connections != nil {
+		ctx = context.WithValue(ctx, quotaReservationKey{}, reservation)
+	} else {
+		ctx = github.WithRequestObserver(ctx, reservation.observe)
+	}
 	opts := d.retirement
 	issues := opts.Issues
 	if issues == nil {

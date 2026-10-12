@@ -150,7 +150,7 @@ type Service struct {
 	interpreter      Interpreter
 }
 
-// New copies admission rules and registers help, health and status.
+// New copies admission rules and registers help, health, status and details.
 func New(db *store.DB, transport, owner string, channels []string, sender Transport, status StatusReader) *Service {
 	s := &Service{db: db, transport: transport, owner: owner, channels: make(map[string]bool), sender: sender, status: status, wake: make(chan struct{}, 1), commands: make(map[string]Handler), definitions: make(map[string]CommandDefinition), privateOptions: make(map[string]map[string]string)}
 	for _, c := range channels {
@@ -158,7 +158,8 @@ func New(db *store.DB, transport, owner string, channels []string, sender Transp
 	}
 	s.RegisterCommand(CommandDefinition{Name: "help", NaturalLanguage: true, Effect: ReadEffect, Description: "List factory commands"}, s.help)
 	s.RegisterCommand(CommandDefinition{Name: "health", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory health"}, s.health)
-	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory status"}, s.summary)
+	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "List running tasks and work waiting on the owner, plus factory status"}, s.summary)
+	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show the raw details of your previous reply"}, s.details)
 	s.registerMeter()
 	return s
 }
@@ -307,6 +308,11 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		}
 		return true, s.finish(ctx, r, true, at)
 	}
+	stopTyping := func() {}
+	if strings.HasPrefix(r.MessageID, "nl") {
+		stopTyping = s.typing(ctx, r.ChannelRef)
+		defer stopTyping()
+	}
 	if _, err = s.prepareNaturalExecution(ctx, &r, at); err != nil {
 		return true, err
 	}
@@ -378,9 +384,14 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		}
 		text = r.ReplyText
 	}
+	// The posted reply clears the indicator; no refresh may follow it.
+	stopTyping()
 	target := Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID, Protected: r.Command == "natural"}
 	var d Delivery
-	if _, ok := s.sender.(ReplyTransport); !ok && r.ReplyAttachment != "" {
+	// A narrated reply shows only its narration; its raw text stays stored
+	// for /details. Fallback and /details replies carry the raw attachment.
+	attach := r.ReplyAttachment != "" && r.PresentationState != string(presentation.Narrated)
+	if _, ok := s.sender.(ReplyTransport); !ok && attach {
 		raw, e := inlineRaw(r)
 		if e != nil {
 			return true, s.finish(ctx, r, true, at)
@@ -391,13 +402,14 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		r.ReplyAttachment = ""
 		r.ReplyText = raw
 		text = raw
+		attach = false
 	}
-	if rich, ok := s.sender.(ReplyTransport); ok && r.ReplyAttachment != "" {
+	if rich, ok := s.sender.(ReplyTransport); ok && attach {
 		d = rich.DeliverReply(ctx, target, presentation.Payload{Content: text, Attachment: &presentation.Attachment{Name: presentation.RawFilename, Content: r.ReplyAttachment}})
 	} else {
 		d = s.sender.Deliver(ctx, target, text)
 	}
-	if d.AttachmentRejected && r.ReplyAttachment != "" {
+	if d.AttachmentRejected && attach {
 		raw, inlineErr := inlineRaw(r)
 		if inlineErr != nil {
 			return true, s.finish(ctx, r, true, at)
@@ -487,6 +499,7 @@ func (s *Service) summary(ctx context.Context, _ Message, at time.Time) (string,
 		resume = "when fresh rate-limit data arrives"
 	}
 	text := fmt.Sprintf("%s\nRuns in flight: %d. Pause reason: %s. Expected resume: %s.\n%s", healthText(v), v.RunsInFlight, reason, resume, v.Polling)
+	text += s.taskSummary(ctx)
 	return assessed(ctx, text, presentation.Success)
 }
 
@@ -496,4 +509,57 @@ func (s *Service) finish(ctx context.Context, r store.ChatReply, failed bool, at
 		s.Logger.WarnContext(ctx, "chat reply failed permanently or exceeded its retry window", slog.String("transport", r.Transport), slog.String("message_id", r.MessageID))
 	}
 	return err
+}
+
+func (s *Service) taskSummary(ctx context.Context) string {
+	repos, err := s.db.ListRepos(ctx)
+	if err != nil {
+		return "\nTask listing unavailable: registered projects could not be read."
+	}
+	reader := ask.StoreReader{Reader: s.db}
+	var lines []string
+	complete, found := true, false
+	for _, repo := range repos {
+		if repo.Forge != "github" {
+			continue
+		}
+		tasks, cut, err := reader.ReadProjectTasks(ctx, repo.ID)
+		if err != nil {
+			complete = false
+			lines = append(lines, repo.Slug()+": task data could not be read.")
+			continue
+		}
+		if cut {
+			complete = false
+			lines = append(lines, repo.Slug()+": additional tasks left out.")
+		}
+		for _, task := range tasks {
+			label := fmt.Sprintf("%s #%d", repo.Slug(), task.IssueNumber)
+			if run := task.LatestRun; run != nil && (run.Status == store.RunRunning || run.Status == store.RunPrelaunch) {
+				found = true
+				lines = append(lines, label+": running ("+run.Mode+").")
+			}
+			if wait := task.OwnerWait; wait != nil {
+				found = true
+				lines = append(lines, fmt.Sprintf("%s: waiting on owner — %s %s. https://github.com/%s/issues/%d#issuecomment-%d", label, wait.Workflow, wait.Kind, repo.Slug(), task.IssueNumber, wait.CommentID))
+			}
+			if task.OwnerBlocked != "" {
+				found = true
+				lines = append(lines, label+": parked, waiting on owner — "+task.OwnerBlocked)
+			}
+		}
+	}
+	if complete && !found {
+		lines = append(lines, "Tasks: no running tasks or owner waits found.")
+	}
+	// Keep the factual source bounded; presentation retains it as details when needed.
+	text := "\n"
+	for i, line := range lines {
+		if len(text)+len(line) > 16000 {
+			text += fmt.Sprintf("Task listing: %d additional entries left out.\n", len(lines)-i)
+			break
+		}
+		text += line + "\n"
+	}
+	return strings.TrimRight(text, "\n")
 }

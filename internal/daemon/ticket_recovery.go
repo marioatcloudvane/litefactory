@@ -51,6 +51,8 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 	if err != nil {
 		return false, err
 	}
+	ctx = quotaVersionContext(ctx, version)
+	ctx = context.WithValue(ctx, recoveryTickKey{}, now)
 	clients, err := d.connections.Clients(ctx, version, 0)
 	if err != nil {
 		return false, err
@@ -182,6 +184,7 @@ func (d *Daemon) restartRecovery(ctx context.Context, p store.TicketRecoveryPosi
 }
 
 func (d *Daemon) recoveryObservations(ctx context.Context, v store.ConnectionVersion, p store.TicketRecoveryPosition, page ticket.ChangePage, now time.Time, adapter projectconnection.TicketClient) ([]store.PendingTicketObservation, error) {
+	ctx = quotaVersionContext(ctx, v)
 	snapshots := append([]ticket.Snapshot(nil), page.Tickets...)
 	for _, locator := range page.Locators {
 		if locator.Provider != v.Provider || locator.Origin != v.Origin || locator.Container != v.Destination {
@@ -213,6 +216,8 @@ func githubRepo(container string) github.Repo {
 }
 func mustTicketNumber(key string) int { n, _ := strconv.Atoi(key); return n }
 
+var errRecoveryDoctorHeld = errors.New("ticket recovery deferred by Doctor repair hold")
+
 // drainTicketObservations converts durable qualified signals into the existing
 // session backlog and child discovery records. Clearing follows that handoff;
 // generation checks keep observations received during the read pending.
@@ -235,6 +240,21 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if q == nil {
 			continue
 		}
+		// State is unknown until the provider reread succeeds. Keep the logged
+		// version and generation tied to the observation, even for saved sources.
+		state, stateReason := "unavailable", "unavailable"
+		warnRejection := func(reason, disposition string, err error) {
+			q.log.WarnContext(ctx, "ticket observation admission rejected",
+				slog.Int64("project_id", observation.RepoID),
+				slog.Int64("connection_version_id", observation.ConnectionVersionID),
+				slog.String("provider", string(observation.Provider)),
+				slog.String("origin", string(observation.Origin)),
+				slog.String("ticket_id", observation.TicketID),
+				slog.Int64("generation", observation.Generation),
+				slog.String("state", state), slog.String("state_reason", stateReason),
+				slog.String("reason", reason), slog.String("disposition", disposition),
+				slog.Any("error", err))
+		}
 		version, err := d.db.GetConnectionVersion(ctx, observation.ConnectionVersionID)
 		if err != nil {
 			return err
@@ -243,6 +263,10 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			// A hold defers this observation, not every ticket from its source.
+			if errors.Is(err, errRecoveryDoctorHeld) || store.IsDoctorRepairHold(err) {
+				continue
 			}
 			failedSources[observation.ConnectionVersionID] = true
 			q.log.WarnContext(ctx, "child ticket observation remains pending", slog.Any("error", err))
@@ -257,13 +281,16 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if sessionErr == nil && session.RepoID != observation.RepoID {
 			// A source may be configured by multiple projects; its existing
 			// binding remains owned by the project that admitted the session.
+			warnRejection("other_owning_project", "retained", nil)
 			continue
 		}
 		if observation.SubscriptionID != "" && errors.Is(sessionErr, store.ErrNotFound) {
 			if !d.observationSubscriptionCurrent(ctx, observation.SubscriptionID, observation.SubscriptionRevision) {
+				warnRejection("subscription_revision", "retained", nil)
 				continue
 			}
 			if observation.RelatedSubscriptionID != "" && !d.observationSubscriptionCurrent(ctx, observation.RelatedSubscriptionID, observation.RelatedSubscriptionRevision) {
+				warnRejection("related_subscription_revision", "retained", nil)
 				continue
 			}
 		}
@@ -276,6 +303,16 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		var actorID int64
 		switch {
 		case sessionErr == nil:
+			if d.prepFailures.held(session.ID, recoveryTime(ctx)) || d.sessionRecoveryHeld(session.ID, recoveryTime(ctx)) {
+				continue
+			}
+			held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
+			if err != nil {
+				return err
+			}
+			if held {
+				continue
+			}
 			snapshot, err := d.db.GetExecutionSnapshot(ctx, session.ID)
 			if err != nil {
 				return err
@@ -286,6 +323,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 					return e
 				}
 				if original.Provider != observation.Provider || original.Origin != observation.Origin || original.Destination != observation.Container || snapshot.TicketRemoteID != observation.ContainerID {
+					warnRejection("retained_source_mismatch", "retained", nil)
 					continue
 				}
 				version = original
@@ -298,8 +336,10 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		case !errors.Is(sessionErr, store.ErrNotFound):
 			return sessionErr
 		case !current.Enabled || current.ID != version.ID:
+			warnRejection("connection_disabled_or_replaced", "retained", nil)
 			continue
 		}
+		readCtx = quotaVersionContext(readCtx, version)
 		container, verified := verifiedContainers[version.ID]
 		if !verified {
 			clients, e := d.connections.Clients(readCtx, version, actorID)
@@ -319,6 +359,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			verifiedContainers[version.ID] = container
 		}
 		if container.Provider != observation.Provider || container.Origin != observation.Origin || container.RemoteID != observation.ContainerID {
+			warnRejection("container_mismatch", "retained", nil)
 			continue
 		}
 		number := mustTicketNumber(observation.TicketKey)
@@ -336,17 +377,24 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			continue
 		}
 		if errors.Is(err, github.ErrNotFound) {
+			warnRejection("ticket_not_found", "retained", nil)
 			continue
 		}
 		if err != nil {
+			d.rateLimited(ctx, q.log, recoveryTime(ctx), err)
+			if sessionErr == nil {
+				d.prepareFailed(ctx, &task{session: session, log: q.log, tickAt: recoveryTime(ctx)}, err)
+			}
 			q.log.WarnContext(ctx, "pending ticket reread deferred", slog.Any("error", err))
 			continue
 		}
+		state, stateReason = issue.State, issue.StateReason
 		observedID := strconv.FormatInt(issue.ID, 10)
 		if issue.QualifiedSnapshot != nil {
 			observedID = issue.QualifiedSnapshot.Ref.Identity.RemoteID
 		}
 		if observedID != observation.TicketID {
+			warnRejection("ticket_identity_mismatch", "retained", nil)
 			continue
 		}
 		var c *candidate
@@ -361,8 +409,14 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		} else {
 			c, err = d.sight(readCtx, targetQueue, issue)
 			if err != nil {
-				if errors.Is(err, store.ErrBindingConflict) || errors.Is(err, store.ErrConnectionConflict) || errors.Is(err, store.ErrTicketIdentityConflict) || errors.Is(err, store.ErrConnectionDisabled) || errors.Is(err, store.ErrApproverMissing) || errors.Is(err, store.ErrApproverConflict) || errors.Is(err, store.ErrApproverUnauthorized) {
-					q.log.WarnContext(ctx, "ticket observation cannot be admitted through its saved source", slog.Any("error", err))
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if ticketAdmissionDeferred(err) || d.scopedQuotaDeferred(readCtx, err) {
+					q.log.WarnContext(ctx, "ticket observation cannot be admitted through its saved source",
+						slog.Int64("project_id", observation.RepoID),
+						slog.Int64("connection_version_id", observation.ConnectionVersionID),
+						slog.Any("ticket", identity), slog.Any("error", err))
 					continue
 				}
 				return err
@@ -371,13 +425,24 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 
 		if c != nil {
 			if err := d.db.SetSessionNeedsPoll(ctx, c.session.ID); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				// The hold may have started after the lookup. The durable
+				// observation still owns retry; no backlog handoff succeeded.
+				if store.IsDoctorRepairHold(err) {
+					continue
+				}
 				return err
 			}
 			d.queueObservation(q, seen, c, observation)
 		} else if issue.State == "closed" {
 			if err := d.db.ClearPendingTicketObservation(ctx, observation.ConnectionVersionID, observation.TicketID, observation.Generation); err != nil {
+				warnRejection("closed_unadmitted", "retained", err)
 				return err
 			}
+			// Only this processed generation is consumed; a newer one may remain.
+			warnRejection("closed_unadmitted", "consumed", nil)
 		}
 
 	}
@@ -406,7 +471,20 @@ func (d *Daemon) recoverRetainedSessions(ctx context.Context, q *repoQueue) erro
 		if current.Enabled && snapshot.TicketVersionID == current.ID {
 			continue
 		}
+		held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
+		if err != nil {
+			return err
+		}
+		if held {
+			continue
+		}
 		if err := d.db.SetSessionNeedsPoll(ctx, session.ID); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if store.IsDoctorRepairHold(err) {
+				continue
+			}
 			return err
 		}
 	}
@@ -466,6 +544,13 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 	}
 	if version.Provider != observation.Provider || version.Origin != observation.Origin || version.Destination != observation.Container || snapshot.TicketRemoteID != observation.ContainerID {
 		return nil, nil
+	}
+	held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		return nil, errRecoveryDoctorHeld
 	}
 	clients, err := d.connections.Clients(ctx, version, snapshot.ActorID)
 	if err != nil {
@@ -550,4 +635,22 @@ func (d *Daemon) observationSubscriptionCurrent(ctx context.Context, id string, 
 	}
 	current, err := d.db.CurrentConnection(ctx, sub.RepoID, store.TicketConnection)
 	return err == nil && current.Enabled && current.ID == sub.ConnectionVersionID && current.Provider == sub.Provider && current.Origin == sub.Origin && current.Destination == sub.Container
+}
+
+// Only confirmed access/lookup refusals are local to admission. Cancellation,
+// quota and infrastructure failures retain the caller's existing handling.
+func ticketAdmissionDeferred(err error) bool {
+	var quota *ticket.RateLimitError
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, github.ErrRateLimited) || errors.As(err, &quota) {
+		return false
+	}
+	var failure *ticket.Failure
+	return errors.Is(err, github.ErrNotFound) || errors.Is(err, github.ErrForbidden) ||
+		errors.Is(err, github.ErrUnauthorized) ||
+		(errors.As(err, &failure) && failure.Kind == ticket.Refused) ||
+		errors.Is(err, store.ErrBindingConflict) || errors.Is(err, store.ErrConnectionConflict) ||
+		errors.Is(err, store.ErrTicketIdentityConflict) || errors.Is(err, store.ErrConnectionDisabled) ||
+		errors.Is(err, store.ErrApproverMissing) || errors.Is(err, store.ErrApproverConflict) ||
+		errors.Is(err, store.ErrApproverUnauthorized)
 }

@@ -15,6 +15,7 @@ import (
 type uncertainSubscriptionForge struct {
 	adapter    *github.Tickets
 	loseCreate bool
+	loseUpdate bool
 	creates    int
 }
 
@@ -33,7 +34,11 @@ func (f *uncertainSubscriptionForge) CreateSubscription(ctx context.Context, c s
 	return h, err
 }
 func (f *uncertainSubscriptionForge) UpdateSubscription(ctx context.Context, c string, id ticket.Identity, s ticket.SubscriptionSpec, secret secrets.Token) (ticket.Subscription, error) {
-	return f.adapter.UpdateSubscription(ctx, c, id, s, secret)
+	h, err := f.adapter.UpdateSubscription(ctx, c, id, s, secret)
+	if err == nil && f.loseUpdate {
+		return ticket.Subscription{}, errors.New("response lost")
+	}
+	return h, err
 }
 
 func qualifiedEnv(t *testing.T, provenance ...string) (*env, webhookreg.Subscriptions, *uncertainSubscriptionForge, store.ConnectionVersion) {
@@ -159,5 +164,32 @@ func TestQualifiedSubscriptionImportsProvenLegacyOwnership(t *testing.T) {
 	}
 	if forge.creates != 0 || repaired.RemoteHookID != "100" || repaired.SecretAccount != "acme/api" {
 		t.Fatalf("legacy ownership lost %+v creates=%d", repaired, forge.creates)
+	}
+}
+
+func TestLegacyHookRecoveryRetainsOwnershipAfterLostUpdate(t *testing.T) {
+	e, r, forge, v := qualifiedEnv(t, "legacy")
+	e.kc.items[webhookreg.KeychainService+"/acme/api"] = "existing-secret"
+	e.gh.hooks[690902669] = &fakeHook{ID: 690902669, URL: publicURL, ContentType: "json", Active: true, Events: webhookreg.Events}
+	sub, err := e.db.PrepareLegacyTicketSubscription(t.Context(), v, "101", publicURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forge.loseUpdate = true
+	pending, err := r.Repair(t.Context(), sub.ID, sub.Revision)
+	if err == nil || pending.RemoteHookID != "690902669" {
+		t.Fatalf("lost update: %+v %v", pending, err)
+	}
+	hook, err := e.db.GetRepoWebhook(t.Context(), e.repo.ID)
+	if err != nil || hook.HookID != 690902669 {
+		t.Fatalf("lost ownership: %+v %v", hook, err)
+	}
+	writes := len(e.gh.writes())
+	fixed, err := r.Repair(t.Context(), sub.ID, sub.Revision)
+	if err != nil || fixed.ObservedState != "enabled" || len(e.gh.writes()) != writes || forge.creates != 0 || e.kc.writes != 0 {
+		t.Fatalf("repeated uncertain operation: %+v %v", fixed, err)
+	}
+	if e.gh.hooks[690902669].Secret != "existing-secret" {
+		t.Fatal("legacy secret was replaced")
 	}
 }

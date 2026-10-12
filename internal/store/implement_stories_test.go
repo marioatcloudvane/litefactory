@@ -183,3 +183,34 @@ func TestSetImplementDeviationsRoundTripsAndReplaces(t *testing.T) {
 		t.Fatalf("other stories carry none: %+v %v", rows, err)
 	}
 }
+
+func TestTransitionImplementStoryReopensMergedWithFindings(t *testing.T) {
+	db := newTestDB(t)
+	seedImplement(t, db, "a")
+	steps := []struct {
+		from, to string
+		extra    func(*ImplementTransition)
+	}{
+		{ImplementWaiting, ImplementRunning, nil},
+		{ImplementRunning, ImplementDone, nil},
+		{ImplementDone, ImplementMerged, func(in *ImplementTransition) { in.MergeCommit = "abc" }},
+	}
+	for i, s := range steps {
+		if _, err := move(t, db, "a", s.from, s.to, int64(i+1), s.extra); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := move(t, db, "a", ImplementMerged, ImplementWaiting, 4, nil); !errors.Is(err, ErrImplementTransition) {
+		t.Fatalf("a reopen without findings must be refused: %v", err)
+	}
+	got, err := move(t, db, "a", ImplementMerged, ImplementWaiting, 4, func(in *ImplementTransition) { in.Guidance = "fix a:C1" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != ImplementWaiting || got.MergeCommit != "" || got.Guidance != "fix a:C1" || got.Attempts != 0 || got.WorkerSession != 0 || got.LastFailure != "" || got.GuidanceQuestion != "" || got.Revision != 5 {
+		t.Fatalf("reopened row = %+v", got)
+	}
+	if _, err := move(t, db, "a", ImplementMerged, ImplementWaiting, 4, func(in *ImplementTransition) { in.Guidance = "again" }); !errors.Is(err, ErrImplementConflict) {
+		t.Fatalf("a repeated reopen must lose the compare-and-set: %v", err)
+	}
+}

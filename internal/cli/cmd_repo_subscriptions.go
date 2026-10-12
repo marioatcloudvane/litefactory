@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -17,6 +16,9 @@ import (
 
 func newRepoSubscriptionCommand(action string) *Command {
 	cmd := &Command{Name: "repo webhook " + action, Usage: "repo webhook " + action + " <project-id> [<subscription-id>]", Short: "Inspect or manage owned project ticket subscriptions", Args: ArgSpec{Names: []string{"project-id", "subscription-id"}, Min: 1}}
+	if action == "create" {
+		cmd.Usage += " --expected-revision=0"
+	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
 		var revision int64
 		var callback, eventNames string
@@ -167,11 +169,11 @@ func newProjectSubscriptions(ctx context.Context, env *Env, rt *repoRuntime, v s
 }
 
 func verifySubscriptionContainer(ctx context.Context, r webhookreg.Subscriptions, v store.ConnectionVersion) (string, error) {
-	adapter, ok := r.Forge.(*github.Tickets)
+	adapter, ok := r.Forge.(projectconnection.TicketClient)
 	if !ok {
 		return "", errors.New("ticket subscription adapter is unavailable")
 	}
-	// Resolve a repository identity without trusting callback payload names.
+	// Resolve a container identity without trusting callback payload names.
 	identity, err := adapter.ContainerIdentity(ctx, v.Destination)
 	if err != nil {
 		return "", err

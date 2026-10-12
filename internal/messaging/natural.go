@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
@@ -27,6 +28,7 @@ type naturalPayload struct {
 	PreviewID, PreviewHash, Question, Revision string
 	RepoID                                     int64
 	Project, Channel                           string
+	ProjectPending                             bool `json:"project_pending,omitempty"`
 }
 
 // EnableNatural installs suggestion-only interpretation before the worker starts.
@@ -60,6 +62,8 @@ func (s *Service) NaturalStep(ctx context.Context, at time.Time) (bool, error) {
 		if m.OwnerID != s.owner || !s.channels[m.ChannelRef] || (m.Transport != "" && m.Transport != s.transport) || !at.Before(m.CreatedAt.Add(24*time.Hour)) {
 			return true, s.db.FinishNaturalMessage(ctx, c, m.SourceID, at)
 		}
+		stop := s.typing(ctx, m.ChannelRef)
+		defer stop()
 		if err = s.naturalTurn(ctx, m, at); err != nil {
 			return true, err
 		}
@@ -98,6 +102,19 @@ func naturalConfirmation(text string, d store.NaturalDialogue, reply string) boo
 		return true
 	}
 	return reply == d.PromptID && d.PromptID != "" && (text == "yes" || text == "yes please" || text == "confirm" || text == "do it")
+}
+
+// capPreviousReply bounds the bot's last reply to a few KB of valid UTF-8.
+func capPreviousReply(text string) string {
+	const limit = 4096
+	if len(text) <= limit {
+		return text
+	}
+	text = text[:limit]
+	for !utf8.ValidString(text) {
+		text = text[:len(text)-1]
+	}
+	return text
 }
 func naturalCancel(text string) bool {
 	switch strings.ToLower(strings.TrimSpace(text)) {
@@ -165,10 +182,41 @@ func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at ti
 		return s.db.AuthorizeNaturalDialogue(ctx, d, m.SourceID, r, at)
 	}
 	// Bare, quoted and stale confirmations cannot become a new interpreted action.
+	// A plain yes is refused only while a change proposal awaits confirmation;
+	// otherwise it answers the bot's previous question or offer.
 	lower := strings.ToLower(strings.TrimSpace(m.Text))
-	if lower == "yes" || lower == "confirm" || strings.HasPrefix(lower, "confirm ") {
+	if (lower == "yes" && d.State == "awaiting_confirmation") || lower == "confirm" || strings.HasPrefix(lower, "confirm ") {
 		return s.naturalReply(ctx, m, "Reply directly to the current delivered proposal with yes, or use its exact confirmation code. Nothing was authorized.", presentation.Refusal, at)
 	}
+	// Only a live, delivered project clarification may resume saved arguments.
+	var resumed Invocation
+	if d.State == "clarifying" && p.ProjectPending && at.Before(d.ExpiresAt) && naturalLater(m.SourceID, d.SourceID) && !quotedSpan(m.Text, 0, len(m.Text)) {
+		option := strings.TrimRight(strings.TrimSpace(m.Text), "!?.,;: ")
+		resolution, e := ask.ResolveProject(ctx, s.db, option, nil)
+		if e != nil {
+			return e
+		}
+		reply, deliveryErr := s.db.ReadChatReply(ctx, s.transport, "nl:"+d.SourceID)
+		_, digest, digestErr := naturalDigest(p)
+		if deliveryErr != nil && !errors.Is(deliveryErr, store.ErrNotFound) {
+			return deliveryErr
+		}
+		if option != "" && resolution.Refusal == "" && deliveryErr == nil && reply.State == "confirmed" && digestErr == nil && digest == d.Digest {
+			resumed = p.Invocation
+			resumed.Arguments["project"] = resolution.Repository.Slug()
+		}
+	}
+	if (d.State == "clarifying" || d.State == "awaiting_confirmation") && !at.Before(d.ExpiresAt) {
+		p = naturalPayload{}
+		d.State = "expired"
+	}
+	previous := ""
+	if d.State == "clarifying" {
+		previous = p.Prompt
+	} else if replies, e := s.db.ReadAskReplies(ctx, s.transport, m.ChannelRef, 1); e == nil && len(replies) == 1 && !replies[0].FinishedAt.IsZero() && !at.After(replies[0].FinishedAt.Add(15*time.Minute)) {
+		previous = replies[0].ReplyText
+	}
+	previous = capPreviousReply(previous)
 	if d.State != "clarifying" && d.State != "awaiting_confirmation" {
 		p = naturalPayload{}
 	}
@@ -178,6 +226,7 @@ func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at ti
 	}
 	// Invalidating a proposal happens before a correction reaches any provider.
 	p.Invocation = Invocation{}
+	p.ProjectPending = false
 	p.Prompt = ""
 	p.PreviewID = ""
 	p.PreviewHash = ""
@@ -209,12 +258,21 @@ func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at ti
 	if err = s.db.SaveNaturalDialogue(ctx, d, old); err != nil {
 		return err
 	}
-	request := InterpretationRequest{Turns: p.Turns, Commands: s.NaturalCommands()}
+	request := InterpretationRequest{Turns: p.Turns, Commands: s.NaturalCommands(), PreviousReply: previous}
 	work, cancel := context.WithTimeout(ctx, response.Budget)
 	defer cancel()
 	started := time.Now()
-	raw, modelErr := s.interpreter.Interpret(work, request)
-	interpretation, invocation, decodeErr := DecodeInterpretation(raw, request)
+	var interpretation Interpretation
+	var invocation Invocation
+	var modelErr, decodeErr error
+	if resumed.Command != "" {
+		invocation, _, decodeErr = s.ValidateInvocation(resumed)
+		interpretation = Interpretation{Version: 1, Kind: "propose", Command: resumed.Command}
+	} else {
+		var raw []byte
+		raw, modelErr = s.interpreter.Interpret(work, request)
+		interpretation, invocation, decodeErr = DecodeInterpretation(raw, request)
+	}
 	if modelErr != nil || decodeErr != nil || work.Err() != nil {
 		reason := "decode"
 		if work.Err() != nil {
@@ -322,11 +380,12 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 		}
 	}
 	if p.Invocation.Command == "ask" || p.Invocation.Command == "draft" || p.Invocation.Command == "diagnose" || p.Invocation.Command == "question" || p.Invocation.Command == "answer" || p.Invocation.Command == "meter" && args["task"] != "" || args["project"] != "" {
-		resolution, err := ask.ResolveProject(ctx, s.db, args["project"], nil)
+		resolution, err := s.resolveNaturalProject(ctx, args)
 		if err != nil {
 			return "", err
 		}
 		if resolution.Refusal != "" {
+			p.ProjectPending = true
 			return resolution.Refusal, nil
 		}
 		args["project"] = resolution.Repository.Slug()
@@ -505,4 +564,55 @@ func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.
 		}
 	}
 	return "", nil
+}
+
+// Explicit project names win. Task inference requires complete reads across all
+// registered projects, so an unavailable project can never create uniqueness.
+func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]string) (ask.Resolution, error) {
+	option := strings.TrimRight(strings.TrimSpace(args["project"]), "!?.,;: ")
+	resolution, err := ask.ResolveProject(ctx, s.db, option, nil)
+	if err != nil || option != "" || resolution.Refusal == "" {
+		return resolution, err
+	}
+	repos, err := s.db.ListRepos(ctx)
+	if err != nil {
+		return resolution, err
+	}
+	issue, _ := strconv.Atoi(args["issue"])
+	if issue == 0 {
+		targets := ask.ExplicitIssues(args["question"])
+		if len(targets) == 1 {
+			issue = targets[0]
+		}
+	}
+	var exact, active []store.Repo
+	for _, repo := range repos {
+		if repo.Forge != "github" {
+			continue
+		}
+		if issue > 0 {
+			_, e := s.db.GetSessionByTaskRef(ctx, store.TaskRef(repo.Forge, repo.Owner, repo.Name, issue))
+			if e == nil {
+				exact = append(exact, repo)
+			} else if !errors.Is(e, store.ErrNotFound) {
+				resolution.Refusal += " Task lookup failed; project could not be inferred."
+				return resolution, nil
+			}
+		}
+		sessions, cut, e := s.db.ListTaskSessionsByRepo(ctx, repo.ID, 100)
+		if e != nil || cut {
+			resolution.Refusal += " Task lookup incomplete; project could not be inferred."
+			return resolution, nil //nolint:nilerr // The incomplete read is returned as a project clarification, never guessed uniqueness.
+		}
+		if len(sessions) > 0 {
+			active = append(active, repo)
+		}
+	}
+	if len(exact) == 1 {
+		return ask.Resolution{Repository: exact[0]}, nil
+	}
+	if len(exact) == 0 && len(active) == 1 {
+		return ask.Resolution{Repository: active[0]}, nil
+	}
+	return resolution, nil
 }

@@ -28,6 +28,8 @@ import (
 //	merge         the owner confirmed merge
 //	close         the owner confirmed close
 //	stale         the branch head or the report revision moved
+//	implement     the owner sent the blocking findings back to Implement (only
+//	              when the graph declares the outcome)
 //
 // /validate-ship records the open checks as passed and defers the open optional
 // findings, then returns the first undone delivery step. Push and merge come
@@ -45,6 +47,7 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
 	repairs := slices.Contains(step.node.Outcomes, "repair")
+	implements := slices.Contains(step.node.Outcomes, "implement")
 	if !h.b.Delivery.ready() {
 		return ActivityResult{Diagnostic: "validate owner steps lack delivery bindings"}, errors.New("validate owner steps lack delivery bindings")
 	}
@@ -214,6 +217,18 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 			return ActivityResult{Diagnostic: err.Error()}, err
 		}
 		return h.accept(ctx, opts, req, st, now, "close", "close confirmed")
+	case ValidateImplementCommand:
+		switch {
+		case !implements:
+			return refuse("wait", "This Validate run has no step that hands findings back to Implement. "+validateNewSnapshotStep)
+		case st.Reimplementing:
+			return refuse("wait", fmt.Sprintf("The findings of commit `%s` were already sent back to Implement.", short(st.Commit)))
+		case !st.Assessed:
+			return refuse("wait", "/validate-implement is refused: the assessment of this commit is not recorded yet.")
+		case len(st.implementTargets()) == 0:
+			return refuse("wait", fmt.Sprintf("/validate-implement is refused: no story has a failed or unverified criterion or a blocking review on commit `%s`, so Implement has nothing to repair.", short(st.Commit)))
+		}
+		return h.accept(ctx, opts, req, st, now, "implement", "implement confirmed")
 	case ValidateShipCommand:
 		if opts.ProjectApprovers && validateShipSettlesTicketDecisions(st) {
 			approver, err := ticketOwnerID(ctx, opts)

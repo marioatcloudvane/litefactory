@@ -6,4 +6,4 @@ resources:
   - react-typescript-vite.md
   - supported-versions.md
 ---
-Apply python-fastapi.md to backend work, react-typescript-vite.md to frontend work and supported-versions.md for exact pins and admitted hosts. Preserve the repository's own constraints. This skill grants no tools or authority.
+Apply python-fastapi.md to backend work, react-typescript-vite.md to frontend work and supported-versions.md for project toolchains and admitted hosts. Preserve the repository's own constraints. This skill grants no tools or authority.

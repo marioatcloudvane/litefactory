@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -292,7 +293,7 @@ func selectTicketConnection(ctx context.Context, db *store.DB, factory *projectc
 		if retainedRemote == "" {
 			return nil, 0, errors.New("original ticket container identity is unresolved")
 		}
-		identity, checkErr := clients.Tickets.ContainerIdentity(ctx, version.Destination)
+		identity, checkErr := tickContainerIdentity(ctx, clients.Tickets, version.ID, actor, version.Destination)
 		if checkErr != nil {
 			return nil, 0, checkErr
 		}
@@ -301,6 +302,58 @@ func selectTicketConnection(ctx context.Context, db *store.DB, factory *projectc
 		}
 	}
 	return clients.Tickets, clients.Actor.ID, nil
+}
+
+// containerCheckKey carries one poll cycle's original-container observations.
+type containerCheckKey struct{}
+
+type containerCheckEntry struct {
+	identity ticket.Identity
+	err      error
+}
+
+// containerChecks memoizes ContainerIdentity per connection version and actor
+// for one tick, so N task reads in a cycle cost one repository inspection.
+// After close, callers fall back to a fresh per-call check.
+type containerChecks struct {
+	mu      sync.Mutex
+	closed  bool
+	entries map[[2]int64]containerCheckEntry
+}
+
+func withContainerChecks(ctx context.Context) (context.Context, *containerChecks) {
+	m := &containerChecks{entries: make(map[[2]int64]containerCheckEntry)}
+	return context.WithValue(ctx, containerCheckKey{}, m), m
+}
+
+func (m *containerChecks) close() {
+	m.mu.Lock()
+	m.closed = true
+	m.entries = nil
+	m.mu.Unlock()
+}
+
+func tickContainerIdentity(ctx context.Context, tickets projectconnection.TicketClient, versionID, actor int64, destination string) (ticket.Identity, error) {
+	m, _ := ctx.Value(containerCheckKey{}).(*containerChecks)
+	if m == nil {
+		return tickets.ContainerIdentity(ctx, destination)
+	}
+	key := [2]int64{versionID, actor}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return tickets.ContainerIdentity(ctx, destination)
+	}
+	if e, ok := m.entries[key]; ok {
+		return e.identity, e.err
+	}
+	identity, err := tickets.ContainerIdentity(ctx, destination)
+	if err != nil && ctx.Err() != nil {
+		// A caller's own cancellation is not an observation for the cycle.
+		return identity, err
+	}
+	m.entries[key] = containerCheckEntry{identity: identity, err: err}
+	return identity, err
 }
 
 func (d *Daemon) connectionIngress(ctx context.Context, repo github.Repo, number int) (TicketIngress, ticket.Origin, error) {
