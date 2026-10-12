@@ -60,6 +60,8 @@ func (s *Service) NaturalStep(ctx context.Context, at time.Time) (bool, error) {
 		if m.OwnerID != s.owner || !s.channels[m.ChannelRef] || (m.Transport != "" && m.Transport != s.transport) || !at.Before(m.CreatedAt.Add(24*time.Hour)) {
 			return true, s.db.FinishNaturalMessage(ctx, c, m.SourceID, at)
 		}
+		stop := s.typing(ctx, m.ChannelRef)
+		defer stop()
 		if err = s.naturalTurn(ctx, m, at); err != nil {
 			return true, err
 		}
