@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -413,7 +414,7 @@ func TestLinearRequestQuotaFreshnessAndCharging(t *testing.T) {
 
 func TestLinearFallbackReservationLifetime(t *testing.T) {
 	b, now := budgetFixture(0, 0)
-	const cost = 5 + 2*discoveryListBound
+	const cost = linearPendingBound
 	r, err := b.acquireFallback("project-a", cost, true)
 	if err != nil {
 		t.Fatal(err)
@@ -448,5 +449,45 @@ func TestLinearFallbackReservationLifetime(t *testing.T) {
 	r.finish()
 	if v := b.view(); v.InProgress != 0 || v.Burst != cost-1+120-1 {
 		t.Fatalf("actual request not charged: %+v", v)
+	}
+}
+
+func TestLinearHistoryStillSerializesLists(t *testing.T) {
+	for _, cost := range []int{discoveryListBound, linearHistoryBound} {
+		t.Run(fmt.Sprint(cost), func(t *testing.T) {
+			d := &Daemon{}
+			now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+			d.discovery.tick(now)
+			d.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: now.Add(time.Hour), StatusCode: 200})
+			entered, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+			// One synthetic history owns the gate until the test releases it.
+			go func() {
+				_, err := discoveryCall(t.Context(), d, "first", cost, func(context.Context) (int, error) { close(entered); <-release; return 0, nil })
+				done <- err
+			}()
+			select {
+			case <-entered:
+			case <-time.After(10 * time.Second):
+				t.Fatal("waiting for list gate")
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			_, err := discoveryCall(ctx, d, "second", cost, func(context.Context) (int, error) { t.Error("concurrent list entered occupied gate"); return 0, nil })
+			close(release)
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("waiting list: %v", err)
+			}
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("waiting for list release")
+			}
+			if d.discovery.view().InProgress != 0 {
+				t.Fatal("list leaked reservation")
+			}
+		})
 	}
 }

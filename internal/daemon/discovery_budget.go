@@ -23,6 +23,11 @@ const (
 	discoveryBurst      = 400
 	discoveryListBound  = 100
 	discoveryQueueBound = 4096
+	// A Linear daemon history also selects its container twice, resolves the
+	// issue, and may initialize a cold publisher client.
+	linearHistoryBound = discoveryListBound + 4
+	// Admission and materialisation each need at most five prerequisite reads.
+	linearPendingBound = 5 + 5 + 2*linearHistoryBound
 	// discoveryQuotaDivisor sets background discovery's share of the forge
 	// rate limit: it may spend limit/discoveryQuotaDivisor requests per reset
 	// window, and may never take remaining below the rest, which stays
@@ -108,6 +113,17 @@ func (b *discoveryBudget) observeLinear(o linear.RequestObservation) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.observeRequestLocked(o.RequestRateValid, o.Limit, o.Remaining, o.Reset, true)
+	if b.freshLocked() {
+		// Fallback lanes no longer run with fresh evidence. Their rotation
+		// entries must not block ordinary discovery behind an inactive lane.
+		live := b.waiters[:0]
+		for _, w := range b.waiters {
+			if !strings.HasPrefix(w.key, "fallback-") {
+				live = append(live, w)
+			}
+		}
+		b.waiters = live
+	}
 }
 
 func (b *discoveryBudget) observeRequestLocked(valid bool, limit, remaining int, reset time.Time, charged bool) {
@@ -263,7 +279,7 @@ func (d *Daemon) linearFallback(ctx context.Context, v store.ConnectionVersion, 
 	// Code reads keep their own scope.
 	cost := 5 + recoveryPageSize
 	if pending {
-		cost = 5 + 2*discoveryListBound
+		cost = linearPendingBound
 	}
 	r, err := b.acquireFallback(fmt.Sprint(v.ID), cost, pending)
 	if err != nil {
@@ -460,7 +476,7 @@ func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, 
 		var zero T
 		return zero, err
 	}
-	if cost == discoveryListBound {
+	if cost == discoveryListBound || cost == linearHistoryBound {
 		// A list reserves the entire supported history before its first page.
 		// Serialize these reservations until unused pages are returned, rather
 		// than deferring another worker solely because a short fetch is in
@@ -498,7 +514,17 @@ func (d *Daemon) discoveryIssue(ctx context.Context, repo github.Repo, number in
 	return discoveryCall(ctx, d, discoveryKey(repo, "issue", number), 1, func(ctx context.Context) (github.Issue, error) { return d.readIssue(ctx, repo, number) })
 }
 func (d *Daemon) discoveryComments(ctx context.Context, repo github.Repo, number int, after int64) ([]github.Comment, error) {
-	return discoveryCall(ctx, d, discoveryKey(repo, "comments", number), discoveryListBound, func(ctx context.Context) ([]github.Comment, error) {
+	cost := discoveryListBound
+	if d.connections != nil {
+		v, selected, err := d.quotaVersion(ctx, store.TicketConnection)
+		if err != nil {
+			return nil, err
+		}
+		if selected && v.Provider == ticket.Linear {
+			cost = linearHistoryBound
+		}
+	}
+	return discoveryCall(ctx, d, discoveryKey(repo, "comments", number), cost, func(ctx context.Context) ([]github.Comment, error) {
 		return d.readComments(ctx, repo, number, after)
 	})
 }
