@@ -32,8 +32,9 @@ func (d *Daemon) researchReminders(ctx context.Context, at time.Time) {
 		return
 	}
 	for _, wait := range waits {
-		if _, held := d.backoff.hold(at); held {
-			return
+		ctx := sessionContext(ctx, wait.SessionID)
+		if _, held := d.connectionHold(ctx, at); held {
+			continue
 		}
 		if !d.enterDoctorGuarded(ctx, wait.SessionID) {
 			continue

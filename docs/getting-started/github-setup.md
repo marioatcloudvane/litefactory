@@ -1,6 +1,6 @@
 # GitHub setup
 
-[Getting started](README.md) · [Documentation](../README.md)
+[Getting started](README.md) · [Documentation](../README.md) · [Linear setup](../project-connections.md#linear-tickets-with-github-code)
 
 Follow these steps in order. At the end litefactory can read your issues, post as
 a bot, and is ready for a first Research run. Discord is optional and has its own
@@ -29,7 +29,10 @@ ignored.
 ## Step 2. Create the bot account and token
 
 Create a second GitHub account for the bot (a machine user is fine). Add it to
-your repository as a collaborator with write access, and accept the invitation.
+every repository it will publish to as a collaborator with **Write** access, and
+accept each invitation while signed in as the bot. Private repositories the bot
+cannot see can return `inspect repository` / `404`; check the accepted invitation
+and token repository selection before assuming the repository does not exist.
 
 Create an access token for that account. A fine-grained token limited to the
 repository is the safest choice. It needs, as far as the code shows:
@@ -55,11 +58,20 @@ litefactory init
 This creates `$LF_HOME` (default `~/.litefactory`), a default `config.yaml` and
 the database, and finds the owner from `gh`. It will warn that no bot token is
 stored. That is expected. Store the token in the macOS Keychain. The command
-asks for the token, so it is never written into a file or shell history:
+reads a hidden paste, so the token is not saved in shell history. Run this in
+Terminal.app or an SSH shell able to unlock your login Keychain, as the same
+macOS user that runs the daemon. Tools without an interactive login session can
+fail with `User interaction is not allowed`. Unlock first; paste the token at
+`read` and press Return (do not enable shell tracing):
 
 ```sh
-security add-generic-password -s litefactory -a github-bot -w
+security unlock-keychain ~/Library/Keychains/login.keychain-db
+read -rs T; security add-generic-password -s litefactory -a github-bot -w "$T"; unset T
 ```
+
+The service `litefactory` and account `github-bot` below match the generated
+configuration. If replacing an existing item, use `add-generic-password -U`
+with the same service/account.
 
 The generated `config.yaml` already points at this Keychain item. It holds a
 reference only, never the token:
@@ -100,8 +112,48 @@ litefactory repo list
 The clone needs a GitHub `origin` remote. Litefactory reads the owner, name and
 base branch from the clone, writes nothing into it, and keeps its task
 worktrees elsewhere. Options (`--base`, `--worktrees`, `--prefix`) are in the
-[CLI reference](../cli/command-reference.md). Specialist teams are optional; see
-the [team commands](../cli/command-reference.md).
+[CLI reference](../cli/command-reference.md).
+
+Appoint the human ticket approver before creating a test issue. Replace
+`PROJECT_ID` with the local numeric ID from `repo list`, `HUMAN_LOGIN` with your
+GitHub login, and `CONNECTION_REVISION` with the current ticket revision from
+`connection list` (the displayed `version`, not its internal `id`):
+
+```sh
+litefactory repo connection list PROJECT_ID ticket
+litefactory repo connection check PROJECT_ID ticket
+litefactory repo approver inspect PROJECT_ID
+litefactory repo approver set PROJECT_ID HUMAN_LOGIN --connection-revision CONNECTION_REVISION --revision 0
+litefactory repo approver inspect PROJECT_ID
+```
+
+Use `set --revision 0` only if no appointment exists. For an existing appointment
+of the same person, use `repo approver refresh PROJECT_ID --connection-revision
+CONNECTION_REVISION --revision APPROVER_REVISION`, taking the approver revision
+from `inspect`. Verify the human identity and absence of authority blockers.
+`ticket approver must differ from the publishing account` means the publisher's
+credential belongs to the intended approver; use the separate bot token.
+
+An installed team **must be linked before any mode runs**. Choose `TEAM_NAME`
+from the catalogue configured by `settings.team_source`; install its latest
+stable release, then copy `TEAM_VERSION` from `team list`:
+
+```sh
+litefactory team install TEAM_NAME
+litefactory team list
+litefactory team inspect TEAM_NAME TEAM_VERSION
+litefactory team link TEAM_NAME TEAM_VERSION --repo /absolute/path/to/project
+```
+
+Expect `Installed` (or `Already installed`) and `Linked` (or `Already linked`).
+Use the same clone path as `repo add`. Inspect the team's stack profile: its
+executables, OS, architecture and checks must fit the repository. A repository
+may supply `.litefactory/stack.overrides.json` with `"version": 1` and only the
+`guidance`, `checks`, `setup`, or `environment`
+fields allowed by that profile's `override_fields`. Overrides replace those
+fields; they cannot change host requirements or permissions or clear required
+fields. Overrides must be in the admitted Git revision; a dirty working file
+does not affect a run. See [stack profiles](../stack-profiles.md) for the profile format.
 
 ## Step 5. Start the daemon
 
@@ -129,7 +181,8 @@ delivery is picked up later.
    example `https://litefactory.example.com/litefactory/webhook`. The daemon
    listens on `webhook.listen` (default `127.0.0.1:8787`) and serves the path
    `/litefactory/webhook`. An empty `webhook.listen` turns the listener off.
-3. Restart the daemon after any config change.
+3. Reload configuration with `litefactory daemon stop`, then
+   `litefactory daemon start`; confirm `litefactory daemon status`.
 4. Register the hook on your repositories:
 
    ```sh
@@ -151,7 +204,10 @@ delivery is picked up later.
    "Inspect and manage a subscription" below). `repo add` registers the hook too
    when `webhook.public_url` is set.
 5. Check `litefactory daemon status`. The listener line should say `(bound)`,
-   and each repository shows its mode, last delivery, next poll and secret state.
+   and each repository shows `mode  webhook` and `secret  ok`. In GitHub repository
+   Settings → Webhooks → the hook → Recent Deliveries, generate a signed issue
+   or comment event and verify HTTP **202**, not **401**. A ping alone does not
+   prove issue dispatch; check the last delivery and a real test issue too.
 
 ### Reaching the listener
 
@@ -168,6 +224,25 @@ delivery is picked up later.
   traffic is then plain HTTP and the daemon is exposed to the internet, so prefer
   the proxy. `repo webhook` warns when `public_url` is plain `http`.
 
+For nginx on the same host, add these locations inside your existing HTTPS
+`server` block (use your domain and certificate in that server's TLS settings):
+
+```nginx
+location = /litefactory/webhook {
+    proxy_pass http://127.0.0.1:8787;
+    proxy_set_header Host $host;
+}
+location = /litefactory/discord {
+    proxy_pass http://127.0.0.1:8787;
+    proxy_set_header Host $host;
+}
+```
+
+A `proxy_pass` without a URI preserves the original path and query string;
+default nginx forwarding keeps request headers and body. Validate your proxy
+configuration with `nginx -t`, then reload it through your installation's service
+manager. The Discord location is used by [Discord setup](../discord.md).
+
 The listener speaks HTTP only. A delivery for an unknown repository, or with a
 bad or missing signature, gets a `401` and does nothing. The signature proves who
 sent it but hides nothing, so use HTTPS between GitHub and your proxy.
@@ -178,6 +253,13 @@ when it maps unambiguously to one source and its cached secret. Delivery
 wake-ups and recovery reads go through the project's configured ticket
 connection; repository names or issue numbers in the payload never select
 another project's work.
+
+A hand-made hook (including one made with `gh api`) is adopted only when the
+original ticket source is verified, the legacy signing secret already exists in
+Keychain service `litefactory-webhook`, account `OWNER/REPO`, and exactly one
+remote hook matches the configured callback URL. An arbitrary hook is not
+adopted automatically. Zero or multiple exact matches block legacy recovery;
+inspect the hooks and retained subscription before changing anything.
 
 To make a hook by hand, use content type `application/json`, the three events
 above, the owned subscription's full callback URL including
@@ -242,7 +324,10 @@ Next: [Discord setup](../discord.md) if you want chat (optional), then your
 | --- | --- |
 | Owner discovery fails | Run `gh auth status`; log in to `github.com`. |
 | Keychain item missing | Store the token under the exact service and account in `config.yaml`, then rerun `init`. |
-| Keychain asks for interaction | Unlock the login Keychain in your user session. |
+| `User interaction is not allowed` | Unlock the login Keychain in Terminal.app or an interactive SSH shell; repeat the hidden paste as the daemon user. |
+| `ticket approver must differ from the publishing account` | Store the bot token and appoint the human. |
+| `inspect repository` / `404` | Accept the bot invitation for this repository and check token access. |
+| Webhook delivery `401` | Preserve query, raw body and signature headers; inspect the subscription and its Keychain secret. |
 | Bot lookup fails | Check the token, its expiry and network access. |
 | API call forbidden | Check that the bot's account, token and organization allow that action. |
 | Git push fails | Check your local Git login and branch rules; they are independent of the bot token. |

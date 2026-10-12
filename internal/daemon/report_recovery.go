@@ -123,7 +123,7 @@ func (d *Daemon) recoveryInterval() time.Duration {
 
 func (d *Daemon) recoveryAllowed(ctx context.Context, source store.ReportRecovery, at time.Time) (bool, error) {
 	if !at.IsZero() {
-		if _, held := d.backoff.hold(at); held {
+		if _, held := d.connectionHold(sessionContext(ctx, source.SessionID), at); held {
 			return false, nil
 		}
 	}

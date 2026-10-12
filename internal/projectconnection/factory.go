@@ -61,10 +61,32 @@ type cacheKey struct{ version, actor int64 }
 // Factory resolves once per loaded version. Refresh explicitly reloads a credential.
 // No token is returned to a runner or stored in a project record.
 type Factory struct {
-	options Options
-	mu      sync.Mutex
-	clients map[cacheKey]*Clients
-	loading map[cacheKey]chan struct{}
+	options        Options
+	mu             sync.Mutex
+	clients        map[cacheKey]*Clients
+	loading        map[cacheKey]chan struct{}
+	requestContext func(context.Context, store.ConnectionVersion) (context.Context, func(error), error)
+}
+
+// SetRequestContext installs daemon-owned admission and accounting for every
+// request, including requests made by clients already in the cache. The callback
+// receives the immutable version actually used by the client.
+func (f *Factory) SetRequestContext(bind func(context.Context, store.ConnectionVersion) (context.Context, func(error), error)) {
+	f.mu.Lock()
+	f.requestContext = bind
+	f.mu.Unlock()
+}
+
+func (f *Factory) bindRequest(v store.ConnectionVersion) func(context.Context) (context.Context, func(error), error) {
+	return func(ctx context.Context) (context.Context, func(error), error) {
+		f.mu.Lock()
+		bind := f.requestContext
+		f.mu.Unlock()
+		if bind == nil {
+			return ctx, nil, nil
+		}
+		return bind(ctx, v)
+	}
 }
 
 // NewFactory creates a version-scoped client cache with shared redaction.
@@ -154,7 +176,7 @@ func (f *Factory) load(ctx context.Context, v store.ConnectionVersion, expectedA
 	}
 	// Register before any authenticated response can contain the credential.
 	f.options.Redactor.AddToken(token)
-	code, err := github.New(github.Options{Redactor: f.options.Redactor, APIBase: string(v.Origin), Token: token, HTTPClient: f.options.HTTPClient, Logger: f.options.Logger, UserAgent: f.options.UserAgent})
+	code, err := github.New(github.Options{RequestContext: f.bindRequest(v), Redactor: f.options.Redactor, APIBase: string(v.Origin), Token: token, HTTPClient: f.options.HTTPClient, Logger: f.options.Logger, UserAgent: f.options.UserAgent})
 	if err != nil {
 		return nil, ErrInvalidConnection
 	}

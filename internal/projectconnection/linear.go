@@ -57,7 +57,7 @@ func (f *Factory) loadLinear(ctx context.Context, v store.ConnectionVersion, exp
 	if err != nil {
 		return nil, ErrInvalidConnection
 	}
-	adapter, err := linear.New(linear.Config{Origin: string(v.Origin), AuthKind: v.Linear.AuthKind, WorkspaceID: v.Linear.WorkspaceID, TeamID: v.Linear.TeamID, ProjectID: v.Linear.ProjectID, ModeLabels: labels, States: states}, token, f.options.HTTPClient)
+	adapter, err := linear.New(linear.Config{RequestContext: f.bindRequest(v), Origin: string(v.Origin), AuthKind: v.Linear.AuthKind, WorkspaceID: v.Linear.WorkspaceID, TeamID: v.Linear.TeamID, ProjectID: v.Linear.ProjectID, ModeLabels: labels, States: states}, token, f.options.HTTPClient)
 	if err != nil {
 		return nil, ErrInvalidConnection
 	}

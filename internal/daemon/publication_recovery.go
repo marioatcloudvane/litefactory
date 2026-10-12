@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
@@ -11,14 +12,25 @@ import (
 // publicationRecovery is tick-owned bounded traversal state. Durable operation
 // records survive restart; losing these cursors only repeats read-only pages.
 type publicationRecovery struct {
-	next          time.Time
-	comment       *store.CommentOperation
-	commentAfter  store.CommentOperation
-	commentPage   int
-	creation      *store.PendingCreationOperation
-	creationAfter int64
-	creationPage  int
-	creationState string
+	next              time.Time
+	comment           *store.CommentOperation
+	commentAfter      store.CommentOperation
+	commentPage       int
+	creation          *store.PendingCreationOperation
+	creationAfter     int64
+	creationPage      int
+	creationState     string
+	commentPositions  map[string]int
+	creationPositions map[int64]creationRecoveryPosition
+}
+
+type creationRecoveryPosition struct {
+	page  int
+	state string
+}
+
+func commentPositionKey(op store.CommentOperation) string {
+	return fmt.Sprintf("%d/%q/%q", op.Scope.RunID, op.Scope.Attempt, op.RequestID)
 }
 
 func (d *Daemon) pollPublications(ctx context.Context, now time.Time) error {
@@ -46,7 +58,7 @@ func (d *Daemon) pollCommentPublication(ctx context.Context, e turnExecutor) err
 			return nil
 		}
 		p.comment = &rows[0]
-		p.commentPage = 1
+		p.commentPage = max(1, p.commentPositions[commentPositionKey(*p.comment)])
 	}
 	run, err := d.db.GetRun(ctx, p.comment.Scope.RunID)
 	if err != nil {
@@ -55,9 +67,18 @@ func (d *Daemon) pollCommentPublication(ctx context.Context, e turnExecutor) err
 	ctx = sessionContext(ctx, run.SessionID)
 	observed, next, err := e.opts.MCP.ObserveComment(ctx, *p.comment, p.commentPage)
 	if err != nil {
+		if d.scopedQuotaDeferred(ctx, err) {
+			if p.commentPositions == nil {
+				p.commentPositions = make(map[string]int)
+			}
+			p.commentPositions[commentPositionKey(*p.comment)] = p.commentPage
+			p.commentAfter = *p.comment
+			p.comment = nil
+		}
 		return err
 	}
 	if observed.State == "confirmed" || next <= p.commentPage {
+		delete(p.commentPositions, commentPositionKey(*p.comment))
 		p.commentAfter = *p.comment
 		p.comment = nil
 	} else {
@@ -83,6 +104,9 @@ func (d *Daemon) pollCreationPublication(ctx context.Context, e turnExecutor) er
 		p.creation = &rows[0]
 		p.creationPage = 1
 		p.creationState = "open"
+		if saved, ok := p.creationPositions[p.creation.ID]; ok {
+			p.creationPage, p.creationState = saved.page, saved.state
+		}
 	}
 	run, err := d.db.GetRun(ctx, p.creation.Scope.RunID)
 	if err != nil {
@@ -91,9 +115,18 @@ func (d *Daemon) pollCreationPublication(ctx context.Context, e turnExecutor) er
 	ctx = sessionContext(ctx, run.SessionID)
 	observed, next, err := e.opts.MCP.ObserveCreation(ctx, *p.creation, p.creationState, p.creationPage)
 	if err != nil {
+		if d.scopedQuotaDeferred(ctx, err) {
+			if p.creationPositions == nil {
+				p.creationPositions = make(map[int64]creationRecoveryPosition)
+			}
+			p.creationPositions[p.creation.ID] = creationRecoveryPosition{p.creationPage, p.creationState}
+			p.creationAfter = p.creation.ID
+			p.creation = nil
+		}
 		return err
 	}
 	if observed.State == "confirmed" {
+		delete(p.creationPositions, p.creation.ID)
 		p.creationAfter = p.creation.ID
 		p.creation = nil
 		return nil
@@ -107,6 +140,7 @@ func (d *Daemon) pollCreationPublication(ctx context.Context, e turnExecutor) er
 		p.creationPage = 1
 		return nil
 	}
+	delete(p.creationPositions, p.creation.ID)
 	p.creationAfter = p.creation.ID
 	p.creation = nil
 	return nil

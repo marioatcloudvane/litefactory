@@ -27,6 +27,7 @@ separate steps. New to the terminology? Read the [glossary](glossary.md).
 - [Attachments](guides/attachments.md)
 - [Sync and conflicts](guides/sync-and-conflicts.md)
 - [MCP](guides/mcp.md)
+- [Workflow activities](workflow/activities.md): every graph activity and attribute, by category
 - [Research](workflow/research-graph.md)
 - [Plan and Implement](workflow/plan-graph.md)
 - [Validate](workflow/validate.md)

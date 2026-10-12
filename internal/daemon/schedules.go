@@ -43,6 +43,7 @@ func (d *Daemon) dispatchSchedules(ctx context.Context, repos map[int64]store.Re
 // the dispatch pass may inspect another row; false means the shared capacity is
 // full, not that this individual row was invalid or already in flight.
 func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, scheduled store.Schedule, tickAt time.Time, result *TickResult) bool {
+	ctx = sessionContext(ctx, scheduled.SessionID)
 	session, err := d.db.GetSession(ctx, scheduled.SessionID)
 	if err != nil {
 		d.log.ErrorContext(ctx, "could not read the session for scheduled work; it remains pending",
@@ -91,11 +92,11 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		}
 		return true
 	}
-	if _, held := d.backoff.hold(tickAt); held {
+	if _, held := d.connectionHold(ctx, tickAt); held {
 		d.pool.done()
 		d.inflight.leave(session.ID)
 		result.Deferred++
-		return false
+		return d.connections != nil
 	}
 	reserved, ok, err := d.db.ReserveSchedule(ctx, scheduled.ID, tickAt.UTC())
 	if err != nil {
