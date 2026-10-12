@@ -66,6 +66,10 @@ func TestRecoveryInterruptedReplyStreamKeepsHandoffAndScanBoundary(t *testing.T)
 	var origin string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-RateLimit-Limit", "5000")
+		w.Header().Set("X-RateLimit-Remaining", "4900")
+		w.Header().Set("X-RateLimit-Resource", "core")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10))
 		switch r.URL.Path {
 		case "/user":
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 99, "login": "bot"})
@@ -286,6 +290,10 @@ func TestRecoveryAdmissionContinuesWithinSource(t *testing.T) {
 			var origin string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-RateLimit-Limit", "5000")
+				w.Header().Set("X-RateLimit-Remaining", "4900")
+				w.Header().Set("X-RateLimit-Resource", "core")
+				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10))
 				switch r.URL.Path {
 				case "/user":
 					_, _ = w.Write([]byte(`{"id":99,"login":"bot"}`))
@@ -358,9 +366,11 @@ func TestRecoveryAdmissionContinuesWithinSource(t *testing.T) {
 					t.Fatalf("cancellation swallowed: %v", err)
 				}
 			case "rate-limit":
-				var rate *github.RateLimitError
-				if !errors.As(err, &rate) || rate.RetryAfter != time.Minute {
-					t.Fatalf("rate limit lost: %v", err)
+				if err != nil || len(seen) != 0 {
+					t.Fatalf("quota should retain both admissions: %v %+v", err, seen)
+				}
+				if _, held := f.d.quotas.forVersion(v).backoff.hold(f.d.quotaNow(ctx)); !held {
+					t.Fatal("connection quota hold lost")
 				}
 			case "invalid-response":
 				if err == nil {
@@ -381,6 +391,10 @@ func TestRecoveryLinearTicketWithInaccessibleGitHubCode(t *testing.T) {
 	refused.Store(true)
 	codeRemote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-RateLimit-Limit", "5000")
+		w.Header().Set("X-RateLimit-Remaining", "4900")
+		w.Header().Set("X-RateLimit-Resource", "core")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10))
 		switch r.URL.Path {
 		case "/user":
 			_, _ = w.Write([]byte(`{"id":99,"login":"bot"}`))
@@ -694,7 +708,16 @@ func (e recoveryHoldExecutor) Execute(_ context.Context, req turn.Request) (turn
 	return turn.Result{Disposition: turn.DispositionLocked}, nil
 }
 
-func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) {
+func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) { recoveryMixedTick(t, "doctor") }
+
+func TestConnectionQuotaTickIsolation(t *testing.T) {
+	for _, ordering := range []string{"linear-first", "github-first"} {
+		t.Run(ordering, func(t *testing.T) { recoveryMixedTick(t, ordering) })
+	}
+}
+
+func recoveryMixedTick(t *testing.T, mode string) {
+	t.Helper()
 	f, v, q, sessions, onRead := recoveryHoldFixture(t)
 	ctx := t.Context()
 	remote := newLinearWorkflowServer(t)
@@ -709,6 +732,10 @@ func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) {
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		if bytes.Contains(body, []byte("reactionCreate")) {
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-RateLimit-Limit", "5000")
+			w.Header().Set("X-RateLimit-Remaining", "4900")
+			w.Header().Set("X-RateLimit-Resource", "core")
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10))
 			_, _ = w.Write([]byte(`{"data":{"reactionCreate":{"success":true}}}`))
 			return
 		}
@@ -730,7 +757,11 @@ func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) {
 	if _, err := f.d.db.SetApprover(ctx, store.ApproverAppointment{RepoID: v.RepoID, Actor: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: "42"}, Handle: "owner", VerifiedAt: time.Now(), Provenance: "explicit"}, v.Revision, 0); err != nil {
 		t.Fatal(err)
 	}
-	other, err := f.d.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "linear", RemoteURL: "git@github.com:acme/linear.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	otherName := "linear"
+	if mode == "linear-first" {
+		otherName = "aaa-linear"
+	}
+	other, err := f.d.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: otherName, RemoteURL: "git@github.com:acme/linear.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -766,7 +797,16 @@ func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) {
 	remote.addReply("fresh-reply", "/spike continue this Linear ticket", "human-uuid")
 	// Retain the HTTP callback factory for GitHub so the same tick can activate
 	// the hold after the lookup. The mixed factory delegates to it for loopback.
+	var quotaRequests atomic.Int64
+	var refuse atomic.Bool
+	refuse.Store(mode != "doctor")
 	factory = projectconnection.NewFactory(projectconnection.Options{DB: f.d.db, Logger: f.d.log, HTTPClient: &http.Client{Transport: discoveryUnitTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == strings.TrimPrefix(remote.server.URL, "http://") {
+			quotaRequests.Add(1)
+			if refuse.Load() {
+				return &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{"120"}}, Body: io.NopCloser(strings.NewReader("{}")), Request: r}, nil
+			}
+		}
 		if *onRead != nil {
 			(*onRead)(r)
 		}
@@ -778,7 +818,7 @@ func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) {
 		return "offline-token", true
 	}}})
 	*onRead = func(r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/issues/7") {
+		if mode == "doctor" && strings.HasSuffix(r.URL.Path, "/issues/7") {
 			*onRead = nil
 			approveEffect(t, f.d.db, sessions[0], store.DoctorRepairStep{Kind: "poll_flag", Target: fmt.Sprintf("session:%d", sessions[0].ID), Before: "0", After: "1"}, store.DoctorEvidence{TaskRef: sessions[0].TaskRef})
 		}
@@ -789,7 +829,7 @@ func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) {
 	if err := f.d.db.HandoffTicketObservation(ctx, store.PendingTicketObservation{RepoID: other.ID, ConnectionVersionID: linearSource.ID, Provider: linearSource.Provider, Origin: linearSource.Origin, Container: linearSource.Destination, ContainerID: linearSource.RemoteID, TicketID: "parent-uuid", TicketKey: "parent-uuid", ObservedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	requests := make(chan turn.Request, 4)
+	requests := make(chan turn.Request, 16)
 	now := time.Now().Add(2 * time.Hour)
 	d, err := New(Options{DB: f.d.db, Forge: f.client, Filter: f.d.filter, Connections: factory, Turn: recoveryHoldExecutor{requests}, Reporter: stubReporter{}, InstanceID: "hold-mixed", Logger: f.d.log, Now: func() time.Time { return now }, MaxConcurrentRuns: 4, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
 	if err != nil {
@@ -805,6 +845,65 @@ func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) {
 	}
 	if err := d.Quiesce(ctx); err != nil {
 		t.Fatal(err)
+	}
+	if mode != "doctor" {
+		if quotaRequests.Load() != 1 {
+			t.Fatalf("requests escaped first refusal: %d", quotaRequests.Load())
+		}
+		pending, e := d.db.ListPendingTicketObservations(ctx, linearSource.ID)
+		if e != nil || len(pending) != 1 || pending[0].Generation != 1 {
+			t.Fatalf("pending work changed: %+v %v", pending, e)
+		}
+		dispatched := map[int64]bool{}
+		for len(requests) > 0 {
+			dispatched[(<-requests).SessionID] = true
+		}
+		for _, session := range sessions {
+			if !dispatched[session.ID] {
+				t.Fatalf("healthy GitHub session %d did not dispatch", session.ID)
+			}
+		}
+		now = now.Add(time.Minute)
+		result, e := d.Tick(ctx)
+		if e != nil || result.Skipped {
+			t.Fatalf("factory stopped for one scope: %+v %v", result, e)
+		}
+		if e := d.Quiesce(ctx); e != nil {
+			t.Fatal(e)
+		}
+		if quotaRequests.Load() != 1 {
+			t.Fatal("held connection was called again")
+		}
+		pending, e = d.db.ListPendingTicketObservations(ctx, linearSource.ID)
+		if e != nil || len(pending) != 1 || pending[0].Generation != 1 {
+			t.Fatalf("pending work changed during hold: %+v %v", pending, e)
+		}
+		if d.pause.snapshot().Paused {
+			t.Fatal("healthy discovery described as globally paused")
+		}
+		refuse.Store(false)
+		now = now.Add(time.Minute)
+		if _, e := d.Tick(ctx); e != nil {
+			t.Fatal(e)
+		}
+		if e := d.Quiesce(ctx); e != nil {
+			t.Fatal(e)
+		}
+		found := false
+		for len(requests) > 0 {
+			req := <-requests
+			if req.SessionID == linearSession.ID {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("deferred Linear work did not resume")
+		}
+		pending, e = d.db.ListPendingTicketObservations(ctx, linearSource.ID)
+		if e != nil || len(pending) != 1 {
+			t.Fatalf("locked executor must retain observation: %+v %v", pending, e)
+		}
+		return
 	}
 	close(requests)
 	seen := map[int64]bool{}
@@ -839,6 +938,10 @@ func linearObservationFixture(t *testing.T) (*discoveryHTTPFixture, *linearWorkf
 	}
 	codeRemote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-RateLimit-Limit", "5000")
+		w.Header().Set("X-RateLimit-Remaining", "4900")
+		w.Header().Set("X-RateLimit-Resource", "core")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10))
 		switch r.URL.Path {
 		case "/user":
 			_, _ = w.Write([]byte(`{"id":99,"login":"bot"}`))
@@ -1143,4 +1246,88 @@ func TestRecoveryObservationRereadWarnings(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLinearProbeOwnQuotaAndHiddenRefusal(t *testing.T) {
+	f, remote, version, _, _ := linearObservationFixture(t)
+	f.d.quotas.tick(f.now)
+	ctx := projectContext(f.d.discoveryContext(t.Context()), version.RepoID)
+	var requests atomic.Int64
+	var refuse atomic.Bool
+	original := remote.server.Config.Handler
+	remote.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if refuse.Load() && bytes.Contains(body, []byte("webhooks")) {
+			// Positive request allowance cannot override a different exhausted bucket.
+			w.Header().Set("X-RateLimit-Requests-Limit", "1000")
+			w.Header().Set("X-RateLimit-Requests-Remaining", "900")
+			w.Header().Set("X-RateLimit-Requests-Reset", fmt.Sprint(f.now.Add(time.Hour).UnixMilli()))
+			w.Header().Set("Retry-After", "120")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		original.ServeHTTP(&linearQuotaResponseWriter{ResponseWriter: w, reset: f.now.Add(time.Hour)}, r)
+	})
+	q := f.d.quotas.forVersion(version)
+	if q.discovery.view().Fresh {
+		t.Fatal("Linear borrowed GitHub quota")
+	}
+	if err := f.d.discoveryProbe(ctx, githubRepo(version.Destination)); err != nil {
+		t.Fatal(err)
+	}
+	view := q.discovery.view()
+	if !view.Fresh || view.Share != 500 || view.Reserve != 500 || view.Spent != int(requests.Load()) || view.InProgress != 0 || view.Burst != discoveryBurst-float64(requests.Load()) {
+		t.Fatalf("probe accounting: %+v requests=%d", view, requests.Load())
+	}
+	clients, err := f.d.connections.Clients(ctx, version, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := discoveryCall(ctx, f.d, "ordinary", 1, func(ctx context.Context) (ticket.Actor, error) { return clients.Linear.Publisher(ctx) }); err != nil {
+		t.Fatal(err)
+	}
+	if q.discovery.view().Spent != int(requests.Load()) {
+		t.Fatal("ordinary request counted more or less than once")
+	}
+	other := version
+	other.ID++
+	other.CredentialEnv = "OTHER_LINEAR_KEY"
+	if f.d.quotas.forVersion(other).discovery.view().Fresh {
+		t.Fatal("second credential borrowed observations")
+	}
+	f.now = f.now.Add(2 * time.Minute)
+	f.d.quotas.tick(f.now)
+	refuse.Store(true)
+	if err := f.d.discoveryProbe(ctx, githubRepo(version.Destination)); err != nil {
+		t.Fatal(err)
+	} // Optional webhook failure is deliberately hidden by Inspect.
+	if _, held := q.backoff.hold(f.now); !held {
+		t.Fatal("optional subcall hid quota refusal")
+	}
+	before := requests.Load()
+	if _, err := clients.Linear.Publisher(ctx); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatalf("active hold bypassed: %v", err)
+	}
+	if before != requests.Load() {
+		t.Fatal("held request reached transport")
+	}
+}
+
+// Override only quota metadata before the fixture writes its first response.
+type linearQuotaResponseWriter struct {
+	http.ResponseWriter
+	reset time.Time
+}
+
+func (w *linearQuotaResponseWriter) Write(body []byte) (int, error) {
+	w.Header().Set("X-RateLimit-Requests-Limit", "1000")
+	w.Header().Set("X-RateLimit-Requests-Remaining", "900")
+	w.Header().Set("X-RateLimit-Requests-Reset", fmt.Sprint(w.reset.UnixMilli()))
+	return w.ResponseWriter.Write(body)
 }

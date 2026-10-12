@@ -53,7 +53,7 @@ func (d *Daemon) doctorTick(ctx context.Context, at time.Time) {
 		d.log.ErrorContext(ctx, "doctor controls remain pending", slog.Any("error", err))
 	}
 	d.dispatchDoctor(ctx)
-	if _, held := d.backoff.hold(at); held {
+	if _, held := d.connectionHold(ctx, at); held {
 		return
 	}
 	if err := d.discoverDoctor(ctx, at); err != nil {
@@ -67,7 +67,7 @@ func (d *Daemon) doctorTick(ctx context.Context, at time.Time) {
 		d.log.ErrorContext(ctx, "doctor controls remain pending", slog.Any("error", err))
 	}
 	d.dispatchDoctor(ctx)
-	if _, held := d.backoff.hold(at); held {
+	if _, held := d.connectionHold(ctx, at); held {
 		return
 	}
 	if err := d.publishDoctor(ctx); err != nil {
@@ -83,7 +83,11 @@ func (d *Daemon) doctorTick(ctx context.Context, at time.Time) {
 // quota observations and token accounting but uses the reserved operational
 // share so a depleted background scan cannot wedge the control lane.
 func doctorCall[T any](ctx context.Context, d *Daemon, call func(context.Context) (T, error)) (T, error) {
-	b := &d.discovery
+	b, err := d.quotaBudget(ctx)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
 	b.mu.Lock()
 	if b.tokens < 1 || (b.limit > 0 && b.now.Before(b.reset) && b.remaining-b.reserved <= 0) {
 		b.mu.Unlock()
@@ -95,6 +99,9 @@ func doctorCall[T any](ctx context.Context, d *Daemon, call func(context.Context
 	r := &discoveryReservation{budget: b, bound: 1, reset: b.reset}
 	b.mu.Unlock()
 	defer r.finish()
+	if d.connections != nil {
+		return call(context.WithValue(ctx, quotaReservationKey{}, r))
+	}
 	return call(github.WithRequestObserver(ctx, r.observe))
 }
 
@@ -151,6 +158,7 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 	if !eligible {
 		return nil
 	}
+	ctx = projectContext(ctx, repo.ID)
 	scan, err := d.db.DoctorScanWindow(ctx, repo.ID, at)
 	if err != nil {
 		return err

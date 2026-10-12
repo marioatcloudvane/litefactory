@@ -59,7 +59,7 @@ func (s *stoppedResults) releaseWorker(sessionID int64) bool {
 }
 
 func (d *Daemon) retryStoppedResults(ctx context.Context, tickAt time.Time) (dispatched int) {
-	if _, held := d.backoff.hold(tickAt); held || ctx.Err() != nil {
+	if _, held := d.connectionHold(ctx, tickAt); held || ctx.Err() != nil {
 		return
 	}
 	d.stoppedDebt.mu.Lock()

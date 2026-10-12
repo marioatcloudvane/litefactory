@@ -79,7 +79,7 @@ func (d *Daemon) finishHeartbeat(ctx context.Context, hb *heartbeat, res TickRes
 	switch {
 	case backedOff:
 		d.pause.enter(ctx, d.log, hb.startedAt, pauseReasonBackoff, retryAt)
-	case hb.deferred:
+	case hb.deferred && d.connections == nil:
 		reason, at := d.discovery.view().deferral()
 		d.pause.enter(ctx, d.log, hb.startedAt, reason, at)
 	case hb.polled > 0 && err == nil:

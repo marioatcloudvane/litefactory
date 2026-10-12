@@ -21,6 +21,7 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		return err
 	}
 	for _, c := range pending {
+		ctx := sessionContext(ctx, c.SessionID)
 		graph, err := d.db.HasWorkflowGraphSession(ctx, c.SessionID, c.Context.Mode)
 		if err != nil {
 			return err
@@ -66,7 +67,7 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		if !ready || c.DueAt.After(at.UTC()) {
 			continue
 		}
-		if _, held := d.backoff.hold(at); held {
+		if _, held := d.connectionHold(ctx, at); held {
 			continue
 		}
 		if !d.enterDoctorGuarded(ctx, session.ID) {

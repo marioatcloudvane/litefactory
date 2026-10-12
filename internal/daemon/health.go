@@ -88,6 +88,9 @@ func (d *Daemon) publishHealth(ctx context.Context, now time.Time) {
 	pause := d.pause.snapshot()
 	listener.DiscoveryPaused, listener.PauseReason = pause.Paused, pause.Reason
 	listener.PausedSince, listener.ExpectedResumeAt = pause.Since, pause.ResumeAt
+	if summary := d.scopedPauseSummary(now); summary != "" {
+		listener.PauseReason = summary
+	}
 	listener.RunsInFlight = d.inflight.size()
 	sig := healthSignature(listener, rows)
 	if p.written && sig == p.signature && now.Sub(p.writtenAt) < healthRefreshInterval {
