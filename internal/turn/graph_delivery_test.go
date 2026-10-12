@@ -327,7 +327,7 @@ func TestGraphDeliveryGitSyncThenFreshChecks(t *testing.T) {
 					return SyncBaseTarget{Working: b.Branch, Base: b.Target, ExpectedHead: head, Lock: func(context.Context) (func() error, bool, error) { return func() error { return nil }, true, nil }}, nil
 				}, ResolveConflict: func(ctx context.Context, scratch ImplementScratch, target SyncBaseTarget) (string, error) {
 					advice++
-					return resolveBugDeliveryConflict(ctx, gatedScratch{ImplementScratch: scratch, gate: gate, clone: g.repo.Dir}, target, resolvingAdvisor("func TestRepair(t *testing.T) {}\nfunc TestBase(t *testing.T) {}\n", ""), f.session.TaskRef, req.NodeAttemptID, "fixture", "")
+					return resolveBugDeliveryConflict(ctx, gatedScratch{ImplementScratch: scratch, gate: gate, clone: g.repo.Dir}, target, resolvingAdvisor("func TestRepair(t *testing.T) {}\nfunc TestBase(t *testing.T) {}\n", ""), f.session.TaskRef, req.NodeAttemptID, "fixture", "", 65536)
 				}}
 				result, err := (SyncBaseActivity{binding}).Execute(ctx, opts, a)
 				var out syncBaseOutput

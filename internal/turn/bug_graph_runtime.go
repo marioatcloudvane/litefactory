@@ -622,7 +622,7 @@ func (r *BugRuntime) syncGraphDelivery(ctx context.Context, opts Options, a Acti
 			return func() error { return nil }, true, nil
 		}}, nil
 	}, ResolveConflict: func(ctx context.Context, scratch ImplementScratch, target SyncBaseTarget) (string, error) {
-		return resolveBugDeliveryConflict(ctx, scratch, target, advisor, s.TaskRef, a.NodeAttemptID, run.Agent, shortenForPrompt(string(retained)))
+		return resolveBugDeliveryConflict(ctx, scratch, target, advisor, s.TaskRef, a.NodeAttemptID, run.Agent, shortenForPrompt(string(retained)), opts.ConflictContentMaxBytes)
 	}}
 	result, err := (SyncBaseActivity{binding}).Execute(ctx, opts, a)
 	var out syncBaseOutput
@@ -663,39 +663,57 @@ func (r bugDeliveryRepo) Begin(ctx context.Context, branch string) (ImplementScr
 	}}, nil
 }
 
-func resolveBugDeliveryConflict(ctx context.Context, scratch ImplementScratch, target SyncBaseTarget, advisor ConflictAdvisor, task string, attempt int64, model, guidance string) (string, error) {
+func resolveBugDeliveryConflict(ctx context.Context, scratch ImplementScratch, target SyncBaseTarget, advisor ConflictAdvisor, task string, attempt int64, model, guidance string, contentLimit int) (string, error) {
 	gated, ok := scratch.(gatedScratch)
 	if !ok {
 		return "", errors.New("conflict resolution requires a gated scratch worktree")
 	}
 	s, ok := gated.ImplementScratch.(*gitScratch)
-	if !ok || advisor == nil {
+	if !ok {
 		return "", errors.New("conflict advisor or scratch worktree unavailable")
 	}
-	base, snapshots, err := prepareBugDeliveryConflict(ctx, gated, s, target.Base)
+	base, snapshots, err := prepareBugDeliveryConflict(ctx, gated, s, target.Base, contentLimit)
 	if err != nil {
 		return "", err
 	}
-	req := agent.ConflictResolutionRequest{Guidance: guidance, Branch: target.Working, Base: target.Base, LocalSHA: s.head, TargetSHA: base, TaskInputSHA: s.head, BaseInputSHA: base, Files: conflictAdvisorFiles(snapshots)}
-	resolution, err := advisor.ProposeConflictResolution(ctx, req)
-	if err != nil {
-		return "", fmt.Errorf("conflict advisor: %w", err)
+	var validated []git.ValidatedConflict
+	for _, snapshot := range snapshots {
+		regions, proven := git.ResolveConflictAdditions(snapshot)
+		if !proven {
+			validated = nil
+			break
+		}
+		v, err := git.ValidateConflict(snapshot, regions)
+		if err != nil {
+			return "", err
+		}
+		validated = append(validated, v)
 	}
-	if err = agent.ValidateRegionConflictResolution(resolution, req); err != nil {
-		return "", err
-	}
-	validated, err := validateCollectedConflictResolution(snapshots, resolution)
-	if err != nil {
-		return "", err
+	if len(validated) != len(snapshots) {
+		if advisor == nil {
+			return "", errors.New("conflict advisor unavailable for conflicts not proven insertion-only")
+		}
+		req := agent.ConflictResolutionRequest{Guidance: guidance, Branch: target.Working, Base: target.Base, LocalSHA: s.head, TargetSHA: base, TaskInputSHA: s.head, BaseInputSHA: base, Files: conflictAdvisorFiles(snapshots)}
+		resolution, err := advisor.ProposeConflictResolution(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("conflict advisor: %w", err)
+		}
+		if err = agent.ValidateRegionConflictResolution(resolution, req); err != nil {
+			return "", err
+		}
+		validated, err = validateCollectedConflictResolution(snapshots, resolution)
+		if err != nil {
+			return "", err
+		}
 	}
 	var files []git.ResolvedFile
 	for _, v := range validated {
-		files = append(files, git.ResolvedFile{Path: v.Path, Format: git.RegionProposalVersion, BranchSHA: s.head, BaseSHA: base, ContentLimit: 1 << 20, Validated: v})
+		files = append(files, git.ResolvedFile{Path: v.Path, Format: git.RegionProposalVersion, BranchSHA: s.head, BaseSHA: base, ContentLimit: contentLimit, Validated: v})
 	}
 	return applyBugDeliveryConflict(ctx, gated, s, base, git.CompleteMergeOptions{Task: task, Mode: "bug", Author: s.repo.Author, Files: files, ProposalID: attempt, ConfirmedBy: "factory-approved Bug remedy", Model: model})
 }
 
-func prepareBugDeliveryConflict(ctx context.Context, gated gatedScratch, s *gitScratch, base string) (string, []git.ConflictSnapshot, error) {
+func prepareBugDeliveryConflict(ctx context.Context, gated gatedScratch, s *gitScratch, base string, contentLimit int) (string, []git.ConflictSnapshot, error) {
 	release, err := gated.gate.Acquire(ctx, gated.clone)
 	if err != nil {
 		return "", nil, err
@@ -709,7 +727,7 @@ func prepareBugDeliveryConflict(ctx context.Context, gated gatedScratch, s *gitS
 	if err != nil {
 		return "", nil, err
 	}
-	snapshots, err := s.wt.CollectConflictSnapshots(ctx, preview.TreeSHA, s.head, sha, preview.Conflicts, 1<<20)
+	snapshots, err := s.wt.CollectConflictSnapshots(ctx, preview.TreeSHA, s.head, sha, preview.Conflicts, contentLimit)
 	return sha, snapshots, err
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -455,9 +456,23 @@ func TestGraphBugBootstrapAndUntouchedRecovery(t *testing.T) {
 }
 
 func TestGraphBugDeliveryConcreteConflictAndOwnerWait(t *testing.T) {
-	for _, variant := range []string{"resolved", "refused", "invalid", "head drift"} {
+	for _, variant := range []string{"resolved", "refused", "invalid", "head drift", "union", "union no advisor", "budget", "mixed"} {
 		t.Run(variant, func(t *testing.T) {
 			f, h, req, forge, _ := graphFinalizationFixture(t)
+			f.opts.ConflictContentMaxBytes = 65536
+			additions := variant == "union" || variant == "union no advisor" || variant == "budget" || variant == "mixed"
+			seed := "package fixture\nimport \"testing\"\n"
+			taskAddition := "// " + strings.Repeat("task ", 1800) + "\nfunc TestTask(t *testing.T) {\n t.Log(\"task\")\n}\n"
+			baseAddition := "// " + strings.Repeat("base ", 1800) + "\nfunc TestBase(t *testing.T) {\n t.Log(\"base\")\n}\n"
+			if additions {
+				commitInSyncDir(t, f.repo, f.repo.Dir, "go.mod", "module fixture\ngo 1.26\n")
+				commitInSyncDir(t, f.repo, f.repo.Dir, "append_test.go", seed)
+				f.repo.Git("push", "origin", gittest.DefaultBranch)
+			}
+			if !additions || variant == "mixed" {
+				commitInSyncDir(t, f.repo, f.repo.Dir, "README.md", "# fixture\nold change\n")
+				f.repo.Git("push", "origin", gittest.DefaultBranch)
+			}
 			ctx := t.Context()
 			branch := "lf/786-recovery"
 			_, err := f.db.FreezeSessionSlug(ctx, f.session.ID, "recovery", branch)
@@ -468,7 +483,17 @@ func TestGraphBugDeliveryConcreteConflictAndOwnerWait(t *testing.T) {
 			mustProgress(t, err)
 			wt, err := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: path, Branch: branch, BaseBranch: gittest.DefaultBranch})
 			mustProgress(t, err)
-			conflictBaseAndBranch(t, f.repo, path)
+			if additions {
+				commitInSyncDir(t, f.repo, path, "append_test.go", seed+taskAddition)
+				commitInSyncDir(t, f.repo, f.repo.Dir, "append_test.go", seed+baseAddition)
+				f.repo.Git("push", "origin", gittest.DefaultBranch)
+			}
+			if !additions || variant == "mixed" {
+				conflictBaseAndBranch(t, f.repo, path)
+			}
+			if variant == "budget" {
+				f.opts.ConflictContentMaxBytes = 16384
+			}
 			// Saving must retain unfinished work before scratch synchronization.
 			mustProgress(t, os.WriteFile(filepath.Join(path, "retained.txt"), []byte("unfinished repair\n"), 0600))
 			locked, err := f.db.AcquireSessionLock(ctx, f.session.ID, f.opts.InstanceID)
@@ -488,7 +513,7 @@ func TestGraphBugDeliveryConcreteConflictAndOwnerWait(t *testing.T) {
 				if !strings.Contains(request.Guidance, "/approve-bug analysis 1") {
 					t.Fatal("retained guidance missing")
 				}
-				if variant == "refused" {
+				if variant == "refused" || variant == "mixed" {
 					return agent.ConflictResolution{}, errors.New("cannot choose behavior")
 				}
 				if variant == "head drift" {
@@ -502,6 +527,9 @@ func TestGraphBugDeliveryConcreteConflictAndOwnerWait(t *testing.T) {
 				return resolvingAdvisor("resolved change\n", suffix).ProposeConflictResolution(ctx, request)
 			}}
 			f.opts.Runners = runnerSet(advisor)
+			if variant == "union no advisor" {
+				f.opts.Runners = runnerSet(newStubRunner(nil))
+			}
 			runtime := &BugRuntime{opts: f.opts}
 			h.Resolve = func(_ context.Context, _ Options, _ ActivityRequest, eligible GraphBugRepairEligibility) (GraphDeliveryBinding, error) {
 				b := forge.binding
@@ -511,11 +539,44 @@ func TestGraphBugDeliveryConcreteConflictAndOwnerWait(t *testing.T) {
 			h.Save, h.PublishSaved, h.SyncBase = runtime.saveGraphDelivery, runtime.pushGraphDelivery, runtime.syncGraphDelivery
 			out, err := h.Execute(ctx, f.opts, req)
 			mustProgress(t, err)
-			if forge.merges != 0 || forge.closes != 0 || advisor.proposeCallCount() != 1 {
-				t.Fatalf("effects=%+v advisor=%d", forge, advisor.proposeCallCount())
+			wantCalls := 1
+			if variant == "union" || variant == "union no advisor" || variant == "budget" {
+				wantCalls = 0
+			}
+			if forge.merges != 0 || forge.closes != 0 || advisor.proposeCallCount() != wantCalls {
+				t.Fatalf("merges=%d closes=%d advisor=%d out=%+v", forge.merges, forge.closes, advisor.proposeCallCount(), out)
 			}
 			if f.repo.GitIn(f.repo.Origin, "show", branch+":retained.txt") != "unfinished repair" {
 				t.Fatal("retained work lost")
+			}
+			if variant == "union" || variant == "union no advisor" {
+				if out.Outcome != "revalidate" {
+					t.Fatalf("union did not require fresh checks: %+v", out)
+				}
+				merged := f.repo.GitIn(f.repo.Origin, "show", branch+":append_test.go")
+				if merged != strings.TrimSuffix(seed+taskAddition+baseAddition, "\n") {
+					t.Fatal("union bytes differ")
+				}
+				fixtureDir := t.TempDir()
+				mustProgress(t, os.WriteFile(filepath.Join(fixtureDir, "go.mod"), []byte("module fixture\ngo 1.26\n"), 0600))
+				mustProgress(t, os.WriteFile(filepath.Join(fixtureDir, "append_test.go"), []byte(merged), 0600))
+				cmd := exec.CommandContext(ctx, "go", "test", "./...")
+				cmd.Dir = fixtureDir
+				if output, e := cmd.CombinedOutput(); e != nil {
+					t.Fatalf("merged fixture tests: %v\n%s", e, output)
+				}
+				return
+			}
+			if variant == "budget" {
+				if out.Outcome != "blocked" {
+					t.Fatalf("budget accepted: %+v", out)
+				}
+				for _, want := range []string{"settings.conflict_content_max_bytes", "16384", "requires", "at least"} {
+					if !strings.Contains(out.Diagnostic, want) {
+						t.Fatalf("missing %q: %+v", want, out)
+					}
+				}
+				return
 			}
 			if variant == "resolved" || variant == "head drift" {
 				if out.Outcome != "revalidate" {
