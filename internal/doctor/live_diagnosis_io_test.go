@@ -105,7 +105,7 @@ func (p *liveProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorReque
 		if !strings.Contains(string(data), "plan scope: release declares no task owners") || !strings.Contains(string(data), "go-development 1.0.0") {
 			p.t.Fatal("missing representative failure evidence")
 		}
-		diagnosis.Findings = []Finding{{Explanation: "Current fixture log reports plan scope: release declares no task owners for go-development 1.0.0. A stack-profile Plan capture needs explicit task_owner: true declarations. The owner must cut and link a new go-development release containing the three engineering declarations. Relinking alone does not replace a bad retained capture; separate diagnosis is required. No repair or approval is claimed and no retained capture rewrite is proposed.", Evidence: []string{p.manifest.DaemonLog + ":1"}, Uncertainty: "Linked release and retained capture bytes were not inspected; canonical source is not proof of live state. This is a controlled provider fixture, not live delivery."}}
+		diagnosis.Findings = []Finding{{Explanation: "Current fixture log reports plan scope: release declares no task owners for go-development 1.0.0. A stack-profile Plan capture needs explicit task_owner: true declarations. The owner must cut and link a new go-development release containing implementation-engineer, integration-test-engineer and unit-test-engineer declarations. Relinking alone does not replace a bad retained capture; separate diagnosis is required. No repair or approval is claimed and no retained capture rewrite is proposed.", Evidence: []string{p.manifest.DaemonLog + ":1"}, Uncertainty: "Linked release and retained capture bytes were not inspected; canonical source is not proof of live state. This is a controlled provider fixture, not live delivery."}}
 	}
 	raw, err := json.Marshal(ResultInput{Diagnosis: diagnosis})
 	if err != nil {
@@ -209,7 +209,7 @@ func doctorLiveDiagnosisFixture(t *testing.T, planOwners bool) {
 	}
 	if planOwners {
 		body := RenderConversation(got)
-		for _, want := range []string{"plan scope: release declares no task owners", "go-development 1.0.0", "cut and link a new go-development release", "Relinking alone", "retained capture bytes were not inspected", "not proof of live state", "No repair or approval", "no retained capture rewrite"} {
+		for _, want := range []string{"plan scope: release declares no task owners", "go-development 1.0.0", "cut and link a new go-development release", "implementation-engineer", "integration-test-engineer", "unit-test-engineer", "Relinking alone", "retained capture bytes were not inspected", "not proof of live state", "No repair or approval", "no retained capture rewrite"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("diagnosis presentation missing %q", want)
 			}
@@ -571,7 +571,7 @@ func liveSyncBranchProposal(t *testing.T, mode string) {
 }
 
 func TestDoctorFieldGuideMissingPlanOwnersContract(t *testing.T) {
-	for _, want := range []string{"plan scope: release declares no task owners", "task_owner: true", "linked", "retained Plan capture", "go-development 1.0.0", "cut and link a new go-development release", "Relinking alone does not replace", "source-versus-live uncertainty", "without claiming a repair"} {
+	for _, want := range []string{"plan scope: release declares no task owners", "task_owner: true", "implementation-engineer", "integration-test-engineer", "unit-test-engineer", "linked", "retained Plan capture", "go-development 1.0.0", "cut and link a new go-development release", "Relinking alone does not replace", "source-versus-live uncertainty", "without claiming a repair"} {
 		if !strings.Contains(FieldGuide, want) {
 			t.Errorf("field guide missing %q", want)
 		}
