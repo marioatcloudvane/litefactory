@@ -24,6 +24,9 @@ type waitStore struct {
 func (w *waitStore) ListTaskSessionsByRepo(context.Context, int64, int) ([]store.Session, bool, error) {
 	return w.sessions, false, nil
 }
+func (w *waitStore) ImplementStoryByWorkerSession(context.Context, int64) (store.ImplementStory, error) {
+	return store.ImplementStory{}, store.ErrNotFound
+}
 func (w *waitStore) LatestTaskRun(_ context.Context, id int64) (store.Run, error) {
 	if run, ok := w.runs[id]; ok {
 		return run, nil

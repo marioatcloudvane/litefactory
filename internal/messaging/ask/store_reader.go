@@ -14,6 +14,7 @@ import (
 // StoreReads is the exact read-only factory capability needed by facts.
 type StoreReads interface {
 	ListTaskSessionsByRepo(context.Context, int64, int) ([]store.Session, bool, error)
+	ImplementStoryByWorkerSession(context.Context, int64) (store.ImplementStory, error)
 	LatestTaskRun(context.Context, int64) (store.Run, error)
 	GetPlanWorkflowState(context.Context, string) (planbrief.PlanState, int64, error)
 	ReadHealthSnapshot(context.Context) (store.HealthSnapshot, error)
@@ -64,6 +65,15 @@ func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task
 		}
 		if t.OwnerWait, err = s.ownerWait(ctx, session.ID); err != nil {
 			return nil, more, err
+		}
+		story, err := s.Reader.ImplementStoryByWorkerSession(ctx, session.ID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, more, err
+		}
+		// Implement parked work can only resume after an owner decision. Ordinary
+		// graph scheduling/backoff is not an owner wait.
+		if err == nil && story.State == store.ImplementParked {
+			t.OwnerBlocked = byteExcerpt(story.Reason, 512)
 		}
 		tasks = append(tasks, t)
 	}

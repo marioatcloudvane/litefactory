@@ -111,3 +111,41 @@ func TestDecodeInterpretationRejectsPreviousReplySpans(t *testing.T) {
 		}
 	}
 }
+
+func TestReportedQuestionsPreserveRoutingAndTargets(t *testing.T) {
+	s := New(nil, "discord", "7", nil, nil, nil)
+	s.EnableAsk(nil)
+	s.EnableResearch(nil, nil)
+	for _, tc := range []struct {
+		text, command, target string
+		values                [][2]string
+		reject                bool
+	}{
+		{text: "Which tasks are running at the moment, and which ones are waiting on me?", command: "health", target: "status"},
+		{text: "Is anything stuck? Why isn't issue 649 moving?", command: "diagnose", target: "diagnose", values: [][2]string{{"issue", "649"}, {"note", "Is anything stuck? Why isn't issue 649 moving?"}}},
+		{text: "What happened with bug 726, is it delivered?", command: "ask", target: "ask", values: [][2]string{{"question", "What happened with bug 726, is it delivered?"}}},
+		{text: "What happened with bug 726, is it delivered?", command: "details", reject: true},
+		{text: "What happened with bug 726, is it delivered?", command: "ask", values: [][2]string{{"question", "is it delivered?"}}, reject: true},
+	} {
+		t.Run(tc.command+tc.text, func(t *testing.T) {
+			r := InterpretationRequest{Turns: []DialogueTurn{{SourceID: "1", Text: tc.text}}, Commands: s.NaturalCommands(), PreviousReply: "completed: #723"}
+			raw, err := (spanInterpreter{command: tc.command, values: tc.values}).Interpret(t.Context(), r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tc.values) == 0 {
+				raw = []byte(strings.TrimSuffix(string(raw), "}") + `,"arguments":[]}`)
+			}
+			_, inv, err := DecodeInterpretation(raw, r)
+			if tc.reject {
+				if err == nil {
+					t.Fatalf("accepted wrong target: %+v", inv)
+				}
+				return
+			}
+			if err != nil || inv.Command != tc.target {
+				t.Fatalf("%+v %v", inv, err)
+			}
+		})
+	}
+}
