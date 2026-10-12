@@ -16,4 +16,4 @@ litefactory team install python-fastapi 1.0.0
 litefactory team link python-fastapi 1.0.0 --repo /path/to/registered-clone
 ```
 
-Use the existing `--source` option when selecting a specific installed catalogue source. No global factory settings change. Both providers use the same captured profile and guidance. See the python-fastapi-stack skill (supported-versions.md) for exact pins, required executables, defaults, override policy, admitted hosts and package compatibility evidence limits. These instructions do not install host tools or authorize broader permissions.
+Use the existing `--source` option when selecting a specific installed catalogue source. No global factory settings change. Both providers use the same captured profile and guidance. See the python-fastapi-stack skill (supported-versions.md) for project toolchains, conditional executables, defaults, override policy, admitted hosts and package compatibility evidence limits. These instructions do not install host tools or authorize broader permissions.
