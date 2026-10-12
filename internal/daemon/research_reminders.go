@@ -32,8 +32,9 @@ func (d *Daemon) researchReminders(ctx context.Context, at time.Time) {
 		return
 	}
 	for _, wait := range waits {
-		if _, held := d.backoff.hold(at); held {
-			return
+		ctx := sessionContext(ctx, wait.SessionID)
+		if _, held := d.connectionHold(ctx, at); held {
+			continue
 		}
 		if !d.enterDoctorGuarded(ctx, wait.SessionID) {
 			continue
@@ -48,6 +49,7 @@ func (d *Daemon) researchReminders(ctx context.Context, at time.Time) {
 }
 
 func (d *Daemon) researchReminder(ctx context.Context, reporter researchReminderReporter, wait store.ResearchReminder, at time.Time) (retErr error) {
+	ctx = sessionContext(ctx, wait.SessionID)
 	locked, err := d.db.AcquireSessionLock(ctx, wait.SessionID, d.instanceID)
 	if err != nil || !locked {
 		return err
@@ -71,11 +73,11 @@ func (d *Daemon) researchReminder(ctx context.Context, reporter researchReminder
 		return err
 	}
 	repo := github.RepoFromRef(ref)
-	issue, err := d.forge.GetIssue(ctx, repo, ref.Issue)
+	issue, err := d.readIssue(ctx, repo, ref.Issue)
 	if err != nil {
 		return err
 	}
-	comments, err := d.forge.ListCommentsAfter(ctx, repo, ref.Issue, 0)
+	comments, err := d.readComments(ctx, repo, ref.Issue, 0)
 	if err != nil {
 		return err
 	}
@@ -98,7 +100,7 @@ func (d *Daemon) researchReminder(ctx context.Context, reporter researchReminder
 	if err != nil {
 		return err
 	}
-	if issue.State != github.StateOpen || (!present || mode != agent.ModeResearch) || !issue.AssignedTo(d.filter.Identities().OwnerUserID) {
+	if issue.State != github.StateOpen || (!present || mode != agent.ModeResearch) {
 		return d.db.SuppressResearchReminder(ctx, wait.WaitKey)
 	}
 	wm, _, err := d.db.GetWatermark(ctx, wait.SessionID)
@@ -106,7 +108,7 @@ func (d *Daemon) researchReminder(ctx context.Context, reporter researchReminder
 		return err
 	}
 	for _, comment := range comments {
-		if comment.Author.ID != d.filter.Identities().OwnerUserID || comment.ID <= wait.CommentID || comment.ID <= wm.LastCommentID || strings.TrimSpace(comment.Body) == "" {
+		if comment.Author.ID != d.ticketIdentities(ctx).OwnerUserID || comment.ID <= wait.CommentID || comment.ID <= wm.LastCommentID || strings.TrimSpace(comment.Body) == "" {
 			continue
 		}
 		// Normal polling owns command precedence and reply admission. Defer rather

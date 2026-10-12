@@ -91,7 +91,7 @@ func (d *Daemon) RunArchiveBatch(ctx context.Context, now time.Time) (err error)
 	if d.archive.Dir == "" || d.retirement.CloneGate == nil || d.retirement.LockDir == "" {
 		return nil
 	}
-	if _, held := d.backoff.hold(now); held {
+	if _, held := d.connectionHold(ctx, now); held {
 		return nil
 	}
 	parentCtx := ctx
@@ -123,7 +123,12 @@ func (d *Daemon) RunArchiveBatch(ctx context.Context, now time.Time) (err error)
 		return d.finishArchivePass(parentCtx, s, now)
 	}
 	owner := owners[0]
-	reservation, err := d.discovery.acquire(fmt.Sprintf("archive:%d", owner.Session.ID), archiveOwnerRequests, false)
+	ctx = sessionContext(ctx, owner.Session.ID)
+	budget, err := d.quotaBudget(ctx)
+	if err != nil {
+		return err
+	}
+	reservation, err := budget.acquire(fmt.Sprintf("archive:%d", owner.Session.ID), archiveOwnerRequests, false)
 	if errors.Is(err, ErrDiscoveryDeferred) {
 		d.log.InfoContext(ctx, "archive sweep deferred", slog.String("sweep", s.ID), slog.String("reason", "request_budget"), slog.Bool("completed", false))
 		return nil
@@ -132,7 +137,11 @@ func (d *Daemon) RunArchiveBatch(ctx context.Context, now time.Time) (err error)
 		return err
 	}
 	defer reservation.finish()
-	ctx = github.WithRequestObserver(ctx, reservation.observe)
+	if d.connections != nil {
+		ctx = context.WithValue(ctx, quotaReservationKey{}, reservation)
+	} else {
+		ctx = github.WithRequestObserver(ctx, reservation.observe)
+	}
 	issues := d.archive.Issues
 	if issues == nil {
 		issues = d.retirement.Issues

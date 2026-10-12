@@ -30,10 +30,15 @@ const (
 	ValidatePushAction    = "lf_validate_push"
 	ValidateMergeAction   = "lf_validate_merge"
 	ValidateCloseAction   = "lf_validate_close"
+	// ValidateImplementAction reopens the stories with blocking findings and
+	// starts the parent's Implement coordinator on the same feature branch.
+	ValidateImplementAction = "lf_validate_implement"
 )
 
 // ValidateResolveOutcomes are the outcomes of resolving the owner's reply.
-var ValidateResolveOutcomes = []string{"wait", "create_issue", "push", "merge", "close", "stale"}
+// The repair and implement outcomes are optional in a graph: profiles released
+// before them keep validating without them.
+var ValidateResolveOutcomes = []string{"wait", "create_issue", "push", "merge", "close", "stale", "repair", "implement"}
 
 // ValidateMaxRepairRounds is the most repair rounds any Validate graph may
 // declare. The graph declares the bound it uses, at or below this.
@@ -131,10 +136,17 @@ func ValidateCloseSpec() ActionSpec {
 	return ActionSpec{Name: ValidateCloseAction, Mode: agent.ModeValidate, Outcomes: []string{"closed", "open"}}
 }
 
+// ValidateImplementSpec declares the step that hands the blocking findings back
+// to Implement: started once the stories are reopened and the coordinator is
+// scheduled.
+func ValidateImplementSpec() ActionSpec {
+	return ActionSpec{Name: ValidateImplementAction, Mode: agent.ModeValidate, Outcomes: []string{"started"}}
+}
+
 // ValidateSpecs lists every action of the Validate graph, the agent aside.
 func ValidateSpecs() []ActionSpec {
 	return []ActionSpec{ValidateSuiteSpec(), ValidateRepairBudgetSpec(), ValidateRepairCheckSpec(), ValidateReviewSpec(), ValidateOutcomeSpec(),
-		ValidateResolveSpec(), ValidateReportSpec(), ValidateAskSpec(), ValidateIssueSpec(), ValidatePushSpec(), ValidateMergeSpec(), ValidateCloseSpec()}
+		ValidateResolveSpec(), ValidateReportSpec(), ValidateAskSpec(), ValidateIssueSpec(), ValidatePushSpec(), ValidateMergeSpec(), ValidateCloseSpec(), ValidateImplementSpec()}
 }
 
 // ValidateFlowGraph checks the structure a Validate graph declares. It pins few
@@ -197,6 +209,9 @@ func ValidateFlowGraph(p *Profile) error {
 			c.edge(n, "done", func(t Node) bool { return t.Action == ValidateReportAction || t.Action == ValidateResolveAction }, "must report or return to the owner resolution")
 		case ValidateCloseAction:
 			c.closeStep(n)
+		case ValidateImplementAction:
+			c.named(n, "lf_suite", ValidateSuiteAction)
+			c.edge(n, "started", func(t Node) bool { return t.Terminal }, "must end at a terminal")
 		}
 	}
 	for _, action := range []string{"lf_agent", ValidateSuiteAction, ValidateRepairBudgetAction, ValidateRepairCheckAction, ValidateReviewAction, ValidateOutcomeAction,
@@ -204,6 +219,9 @@ func ValidateFlowGraph(p *Profile) error {
 		if counts[action] != 1 {
 			c.fail("validate graph requires exactly one %s node, has %d", action, counts[action])
 		}
+	}
+	if counts[ValidateImplementAction] > 1 {
+		c.fail("validate graph allows at most one %s node, has %d", ValidateImplementAction, counts[ValidateImplementAction])
 	}
 	return errors.Join(c.faults...)
 }
@@ -302,7 +320,10 @@ func (c *flowCheck) outcome(n Node) {
 }
 
 // resolve checks that each remote effect is reached only through its own step
-// from the resolution, and that a waiting or stale reply reports again.
+// from the resolution, and that a waiting or stale reply reports again. A
+// declared repair outcome must start a repair round and a declared implement
+// outcome must reach the implement step; a graph released without them still
+// validates.
 func (c *flowCheck) resolve(n Node) {
 	c.named(n, "lf_suite", ValidateSuiteAction)
 	c.edge(n, "wait", action(ValidateReportAction), "must report")
@@ -311,6 +332,12 @@ func (c *flowCheck) resolve(n Node) {
 	c.edge(n, "push", action(ValidatePushAction), "must push")
 	c.edge(n, "merge", action(ValidateMergeAction), "must merge")
 	c.edge(n, "close", action(ValidateCloseAction), "must close")
+	if slices.Contains(n.Outcomes, "repair") {
+		c.edge(n, "repair", action(ValidateRepairBudgetAction), "must start a repair round")
+	}
+	if slices.Contains(n.Outcomes, "implement") {
+		c.edge(n, "implement", action(ValidateImplementAction), "must hand the findings back to Implement")
+	}
 }
 
 func (c *flowCheck) ask(n Node) {

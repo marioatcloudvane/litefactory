@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 )
 
@@ -48,21 +49,25 @@ func SyncDoctorBranch(ctx context.Context, o DoctorSyncOptions) (result DoctorSy
 	var files []git.ResolvedFile
 	if !preview.Clean {
 		if o.Advisor == nil {
-			return result, errors.New("conflict advisor unavailable")
+			return result, &doctor.RepairConflictError{Category: doctor.ErrRepairAdvisorFailed, Paths: preview.Conflicts, Err: errors.New("conflict advisor unavailable")}
 		}
 		req := agent.ConflictResolutionRequest{Branch: o.Branch, Base: o.Base, LocalSHA: o.BeforeHead, TargetSHA: o.BaseHead, TaskInputSHA: o.BeforeHead, BaseInputSHA: o.BaseHead, Files: conflictAdvisorFiles(snapshots)}
 		advisorCtx, cancel := context.WithTimeout(ctx, doctorSyncAdvisorBudget)
 		resolution, e := o.Advisor.ProposeConflictResolution(advisorCtx, req)
 		cancel()
 		if e != nil {
-			return result, e
+			category := doctor.ErrRepairAdvisorFailed
+			if errors.Is(e, context.DeadlineExceeded) || errors.Is(advisorCtx.Err(), context.DeadlineExceeded) {
+				category = doctor.ErrRepairAdvisorTimedOut
+			}
+			return result, &doctor.RepairConflictError{Category: category, Paths: preview.Conflicts, Err: e}
 		}
 		if e = agent.ValidateRegionConflictResolution(resolution, req); e != nil {
-			return result, e
+			return result, &doctor.RepairConflictError{Category: doctor.ErrRepairConfirmationFailed, Paths: preview.Conflicts, Err: e}
 		}
 		validated, e := validateCollectedConflictResolution(snapshots, resolution)
 		if e != nil {
-			return result, e
+			return result, &doctor.RepairConflictError{Category: doctor.ErrRepairConfirmationFailed, Paths: preview.Conflicts, Err: e}
 		}
 		for _, v := range validated {
 			files = append(files, git.ResolvedFile{Path: v.Path, Format: git.RegionProposalVersion, BranchSHA: o.BeforeHead, BaseSHA: o.BaseHead, ContentLimit: 1 << 20, Validated: v})
@@ -79,6 +84,9 @@ func prepareDoctorSync(ctx context.Context, o DoctorSyncOptions) (git.MergePrevi
 		return git.MergePreview{}, nil, err
 	}
 	defer release()
+	if err = fastForwardDoctorSync(ctx, o); err != nil {
+		return git.MergePreview{}, nil, err
+	}
 	if err = checkDoctorSyncInputs(ctx, o); err != nil {
 		return git.MergePreview{}, nil, err
 	}
@@ -97,6 +105,36 @@ func prepareDoctorSync(ctx context.Context, o DoctorSyncOptions) (git.MergePrevi
 		return preview, nil, err
 	}
 	return preview, snapshots, nil
+}
+
+// fastForwardDoctorSync advances a clean task branch that is only behind the
+// approved head, such as after story merges pushed from scratch worktrees.
+// A diverged or dirty worktree is refused unchanged. Called under the clone gate.
+func fastForwardDoctorSync(ctx context.Context, o DoctorSyncOptions) error {
+	w := o.Worktree
+	head, err := w.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if err != nil || head == o.BeforeHead {
+		return err
+	}
+	if w.Branch() != o.Branch {
+		return errors.New("task branch differs from approved branch")
+	}
+	actual, err := w.RevParse(ctx, "HEAD", git.RevParseOptions{AbbrevRef: true})
+	if err != nil {
+		return err
+	}
+	if actual != o.Branch {
+		return errors.New("checked-out branch differs from approved branch")
+	}
+	divergence, err := w.Divergence(ctx, o.BeforeHead)
+	if err != nil {
+		return err
+	}
+	if divergence.Ahead != 0 {
+		return errors.New("task branch has local commits absent from the approved head")
+	}
+	_, err = w.MergeBase(ctx, o.BeforeHead, git.MergeOptions{Author: o.Author, FastForwardOnly: true})
+	return err
 }
 
 // checkDoctorSyncInputs is called only while the caller holds the clone gate.
@@ -120,8 +158,19 @@ func checkDoctorSyncInputs(ctx context.Context, o DoctorSyncOptions) error {
 	if err != nil {
 		return err
 	}
-	if head != o.BeforeHead || base != o.BaseHead {
-		return errors.New("branch synchronization inputs drifted")
+	if head != o.BeforeHead {
+		return doctor.ErrRepairBeforeHeadChanged
+	}
+	// The merge targets the pinned BaseHead, so a base that only moved forward
+	// is harmless; a rewritten base no longer contains the approved head.
+	if base != o.BaseHead {
+		forward, e := w.IsAncestor(ctx, o.BaseHead, base)
+		if e != nil {
+			return e
+		}
+		if !forward {
+			return doctor.ErrRepairBaseRewritten
+		}
 	}
 	changes, err := w.Status(ctx)
 	if err != nil {
@@ -155,7 +204,9 @@ func applyDoctorSync(ctx context.Context, o DoctorSyncOptions, preview git.Merge
 		}
 	}()
 	if preview.Clean {
-		_, err = w.MergeBase(ctx, o.BaseHead, git.MergeOptions{Author: o.Author})
+		if _, err = w.MergeBase(ctx, o.BaseHead, git.MergeOptions{Author: o.Author}); err != nil {
+			err = fmt.Errorf("%w: %w", doctor.ErrRepairMergeFailed, err)
+		}
 	} else {
 		if err = w.WriteResolvedFiles(ctx, o.BaseHead, files); err == nil {
 			err = w.StageResolvedFiles(ctx, files)
@@ -163,29 +214,32 @@ func applyDoctorSync(ctx context.Context, o DoctorSyncOptions, preview git.Merge
 		if err == nil {
 			_, err = w.CompleteMerge(ctx, git.CompleteMergeOptions{Task: o.Task, Mode: "doctor", Author: o.Author, Files: files, ProposalID: o.OperationID, ConfirmedBy: o.Owner, Model: o.Model})
 		}
+		if err != nil {
+			err = &doctor.RepairConflictError{Category: doctor.ErrRepairConfirmationFailed, Paths: preview.Conflicts, Err: err}
+		}
 	}
 	if err != nil {
 		return result, err
 	}
 	divergence, err := w.Divergence(ctx, o.BaseHead)
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("%w: %w", doctor.ErrRepairRecheckFailed, err)
 	}
 	changes, err := w.Status(ctx)
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("%w: %w", doctor.ErrRepairRecheckFailed, err)
 	}
 	if divergence.Behind != 0 || len(changes) != 0 {
-		return result, fmt.Errorf("branch synchronization recheck failed")
+		return result, fmt.Errorf("%w: branch synchronization recheck failed", doctor.ErrRepairRecheckFailed)
 	}
 	result.Head, err = w.RevParse(ctx, "HEAD", git.RevParseOptions{})
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("%w: %w", doctor.ErrRepairRecheckFailed, err)
 	}
 	// Git's per-command timeout bounds the push; a request deadline must not
 	// cut it short after the remote may have accepted it.
 	if err = w.Push(context.WithoutCancel(ctx), git.DefaultRemote); err != nil {
-		return result, err
+		return result, fmt.Errorf("%w: %w", doctor.ErrRepairPushRejected, err)
 	}
 	pushed = true
 	result.Rechecked = true

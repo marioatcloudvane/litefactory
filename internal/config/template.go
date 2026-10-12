@@ -18,6 +18,17 @@ func DefaultFileContents() []byte {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `# litefactory configuration.
+# Optional read-only Discord chat (requires webhook.listen and public HTTPS URL):
+# chat:
+#   discord:
+#     enabled: true
+#     application_id: "123456789"
+#     public_key: "<64 hex characters from the Discord developer portal>"
+#     token_keychain: {service: litefactory-discord, account: bot}
+#     # token_env: DISCORD_BOT_TOKEN  # alternative to token_keychain
+#     owner_id: "123456789"
+#     notice_channel_id: "" # Optional task notices; must be an allowed channel
+#     channel_ids: ["123456789"]
 #
 # Unknown keys and literal credentials are startup errors. Credentials are
 # references only: token_keychain names a Keychain item; token_env, shown as
@@ -56,6 +67,9 @@ settings:
   log_retain_days: %d # days rotated global logs are kept before daily deletion; valid range: %d..%d
   archive_retain_days: %d # days archive files and the run logs they cover are kept before daily deletion; valid range: %d..%d
   log_level: %q # debug, info, warn or error
+  # Runs and check commands wait while free disk space is below this many GB;
+  # 0 disables the guard.
+  min_free_disk_gb: %d # valid range: %d..%d
   # Attachment ingestion is additionally gated per workflow mode below.
   attachment_max_image_bytes: %d # valid range: %d..%d
   attachment_max_document_bytes: %d # valid range: %d..%d
@@ -148,6 +162,7 @@ tool_profiles:
 		d.Settings.LogRetainDays, MinLogRetainDays, MaxLogRetainDays,
 		d.Settings.ArchiveRetainDays, MinArchiveRetainDays, MaxArchiveRetainDays,
 		d.Settings.LogLevel,
+		d.Settings.MinFreeDiskGB, MinMinFreeDiskGB, MaxMinFreeDiskGB,
 		d.Settings.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes,

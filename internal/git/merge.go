@@ -453,3 +453,62 @@ func (w *Worktree) recoverFromFailedMerge(ctx context.Context, base, before stri
 	}
 	return MergeResult{}, classify(mergeErr, ErrMergeConflict, 1)
 }
+
+// StartMerge begins merging ref into the worktree's branch without committing
+// and leaves any conflict in place for an agent to resolve. It returns the
+// paths git left unmerged, sorted. A merge already in progress (MERGE_HEAD
+// resolves) is not restarted: its still-unmerged paths are returned as they
+// are. Otherwise the worktree must be clean. It never aborts; concluding the
+// merge is left to a later [Worktree.Commit].
+func (w *Worktree) StartMerge(ctx context.Context, ref string) ([]string, error) {
+	if err := w.check(); err != nil {
+		return nil, err
+	}
+	if err := checkName("base", ref); err != nil {
+		return nil, err
+	}
+	if _, err := revParse(ctx, w.runner, "MERGE_HEAD", RevParseOptions{}); err == nil {
+		unmerged, err := w.unmergedPaths(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read conflicted paths of the merge in progress on %s: %w", w.branch, err)
+		}
+		return sortedKeys(unmerged), nil
+	}
+	changes, err := w.Status(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("check worktree status before merging %s into %s: %w", ref, w.branch, err)
+	}
+	if len(changes) > 0 {
+		return nil, fmt.Errorf("merge %s into %s: %w", ref, w.branch, ErrWorktreeUncommittedChanges)
+	}
+	if _, _, err := w.runner.runAllowingExit(ctx, mergeTimeout, []int{0, 1},
+		"merge", "--no-commit", "--no-ff", "--end-of-options", ref); err != nil {
+		return nil, classify(err, ErrRevisionNotFound, 128)
+	}
+	if _, err := revParse(ctx, w.runner, "MERGE_HEAD", RevParseOptions{}); err != nil {
+		return nil, fmt.Errorf("merge %s into %s left no merge in progress: %w", ref, w.branch, err)
+	}
+	unmerged, err := w.unmergedPaths(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read conflicted paths after merging %s into %s: %w", ref, w.branch, err)
+	}
+	return sortedKeys(unmerged), nil
+}
+
+// IsAncestor reports whether ancestor is reachable from descendant. A commit
+// is its own ancestor. Exit code 1 from merge-base --is-ancestor means false;
+// any other failure, such as an unknown revision, is returned as an error.
+func (w *Worktree) IsAncestor(ctx context.Context, ancestor, descendant string) (bool, error) {
+	if strings.TrimSpace(ancestor) == "" || strings.TrimSpace(descendant) == "" {
+		return false, fmt.Errorf("ancestry check: %w: missing revision", ErrInvalidArgument)
+	}
+	_, err := w.runner.run(ctx, readTimeout, "merge-base", "--is-ancestor", "--end-of-options", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	var cmdErr *CommandError
+	if errors.As(err, &cmdErr) && cmdErr.ExitCode == 1 && !cmdErr.TimedOut {
+		return false, nil
+	}
+	return false, err
+}

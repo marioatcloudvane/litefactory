@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
@@ -221,6 +222,12 @@ const (
 	// that the reply could not resume, naming the node and the reason. It is
 	// posted and the comment is consumed.
 	ReplyGraphResumeRefused
+	// ReplyMissingModeMapping answers a missing connection label mapping.
+	ReplyMissingModeMapping
+	// ReplyMissingTeam answers admission without a repository team binding.
+	ReplyMissingTeam
+	// ReplyUnsupportedWorkflow answers a selected team without the requested workflow.
+	ReplyUnsupportedWorkflow
 )
 
 // String renders the kind for logs and test failures.
@@ -264,6 +271,12 @@ func (k ReplyKind) String() string {
 		return "story_locked"
 	case ReplyStoryPlanOnly:
 		return "story_plan_only"
+	case ReplyMissingTeam:
+		return "missing_team"
+	case ReplyUnsupportedWorkflow:
+		return "unsupported_workflow"
+	case ReplyMissingModeMapping:
+		return "missing_mode_mapping"
 	case ReplyConflictingModeSelection:
 		return "conflicting_mode_selection"
 	case ReplyLegacyToolLabel:
@@ -328,7 +341,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyRefusesSync, ReplySuggestsResolution, ReplyRefusesSyncTooFarBehind:
 		return true
-	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
+	case ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
 	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
 		return true
@@ -370,7 +383,7 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
+	case ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
 		return true
 	default:
 		return false
@@ -438,12 +451,16 @@ func (k ReplyKind) RefusesSync() bool {
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
 // carry the lf:reply marker and no run ordinal because no run happened.
 type Reply struct {
-	CreationAcceptance *CreationAcceptance
-	CreationRejection  *CreationRejection
-	Creation           *CreationReply
-	SourceGeneration   int
-	SourceStoryIssue   int
-	SourceCommentID    int64
+	// MissingMode names the canonical mode lacking a connection label mapping.
+	MissingMode agent.Mode
+
+	CreationAcceptance              *CreationAcceptance
+	CreationRejection               *CreationRejection
+	Creation                        *CreationReply
+	SourceGeneration                int
+	SourceStoryIssue                int
+	SourceCommentID                 int64
+	SourceParentURL, SourceReplyURL string
 	// Ref is the task the comment was on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -796,7 +813,7 @@ func (r Reply) body() string {
 	if r.Kind == ReplyStoryPlanning {
 		b.WriteString(StoryAcknowledgementMarker(r.Ref, r.SourceGeneration, r.SourceStoryIssue, r.SourceCommentID))
 	}
-	b.WriteString(storySource(r.Ref, r.SourceStoryIssue, r.SourceCommentID))
+	b.WriteString(storySource(r.Ref, r.SourceStoryIssue, r.SourceCommentID, r.SourceParentURL, r.SourceReplyURL))
 	b.WriteString(sectionGap)
 
 	span, named := commandSpan(r.Command)
@@ -866,6 +883,22 @@ func (r Reply) body() string {
 		b.WriteString("This task is already admitted to the standalone Bug workflow. A mode command cannot replace or cancel it. Its workflow and retained progress are unchanged.")
 	case ReplyBugUnavailable:
 		b.WriteString("Bug admission is retained, but execution is unavailable: the registered Bug policy, graph package, result decoder, shared-service preparation and factory role permission bindings are not installed. No agent was launched. The task remains resumable in Bug.")
+	case ReplyMissingTeam:
+		b.WriteString("This repository has no linked installed team for the requested workflow. Nothing was run.")
+		b.WriteString(sectionGap)
+		b.WriteString("Link a suitable installed team to the repository, then comment again.")
+	case ReplyUnsupportedWorkflow:
+		b.WriteString("The linked team does not provide the requested workflow. Nothing was run.")
+		b.WriteString(sectionGap)
+		b.WriteString("Select a workflow supported by the linked team, or link a suitable installed team, then comment again.")
+	case ReplyMissingModeMapping:
+		b.WriteString("The selected mode has no label mapping on this Linear connection. Nothing was run.")
+		b.WriteString(sectionGap)
+		if r.MissingMode.Valid() {
+			fmt.Fprintf(&b, "Add a label ID for `%s` to the connection's `--mode-labels`, or label the issue with a mapped mode, then comment again.", r.MissingMode)
+		} else {
+			b.WriteString("Add the selected mode's label ID to the connection's `--mode-labels`, or label the issue with a mapped mode, then comment again.")
+		}
 	case ReplyMalformedModeLabel:
 		b.WriteString("The `Mode: …` label on this issue is malformed or unknown. Nothing was run.")
 		b.WriteString(sectionGap)
@@ -909,6 +942,7 @@ func (r Reply) body() string {
 	case ReplyGraphOwnerWaitRefused:
 		b.WriteString("This comment could not be used because the workflow is already handling another reply or question, so it was set aside and nothing was run for it.")
 		b.WriteString(sectionGap)
+		b.WriteString("A question that is already answered cannot accept another answer. ")
 		b.WriteString("If it still applies, please post it again after the workflow has posted its next update.")
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")

@@ -162,10 +162,18 @@ func runDaemonStatus(ctx context.Context, env *Env, runner launchd.Runner) error
 	if env.Now != nil {
 		now = env.Now
 	}
-	if err := printDaemonHeartbeat(env.Stdout, health, lastCompleted, status.Running, now()); err != nil {
+	if err := printDaemonHeartbeat(env.Stdout, health.HealthSnapshot, lastCompleted, status.Running, now()); err != nil {
 		return err
 	}
-	return printDaemonHealth(env.Stdout, health, status.Running, now())
+	if err := printDaemonHealth(env.Stdout, health.HealthSnapshot, status.Running, now()); err != nil {
+		return err
+	}
+	for _, gap := range health.missingModeMappings {
+		if _, err := fmt.Fprintln(env.Stdout, gap); err != nil {
+			return err
+		}
+	}
+	return printDoctorConfiguration(env.Stdout, health.unsupportedDoctor)
 }
 
 // daemonRunning renders the running column, including launchd's own word for

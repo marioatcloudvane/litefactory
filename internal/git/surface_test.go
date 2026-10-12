@@ -87,6 +87,8 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// at).
 		"Path", "Branch", "ClonePath", "RevParse", "Status", "Divergence",
 		"MergePreview", "ConflictBlob",
+		// Doctor sync ancestry check: merge-base --is-ancestor reads only.
+		"IsAncestor",
 		// US-003 authoritative server observation; no local or remote mutation.
 		"RemoteHead",
 		// US-1 bounded immutable blob/mode collection, no index/worktree/ref mutations.
@@ -125,6 +127,11 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// without force, only while the remote still has the expected head.
 		// It pushes a commit that descends from that head and nothing else.
 		"PushHeadTo",
+		// Implement story conflict (#615): start merging the feature branch
+		// into a clean story branch with --no-commit and leave its conflicts
+		// for the story worker; it never aborts, and a later Commit concludes
+		// the merge.
+		"StartMerge",
 	}
 	slices.Sort(want)
 

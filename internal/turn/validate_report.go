@@ -28,7 +28,10 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	rows := validateStoryRows(st, target)
 	fmt.Fprintf(&b, "%s **Validate report** · commit `%s` · suite %s · revision `%s`\n\n", validateOverallLight(st, rows), short(st.Commit), st.Suite.Outcome, st.Revision)
 	b.WriteString("Delivery: " + deliveryText(st) + "\n\n")
-	if strings.TrimSpace(notice) != "" {
+	switch {
+	case strings.TrimSpace(notice) != "" && st.Reimplementing:
+		b.WriteString("> **Sent back to Implement:** " + planTableCell(notice) + "\n\n")
+	case strings.TrimSpace(notice) != "":
 		b.WriteString("> **Your last command changed nothing:** " + planTableCell(notice) + "\n\n")
 	}
 	if validateOverallLight(st, rows) == lightRed {
@@ -51,9 +54,13 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		for _, r := range rows {
 			fmt.Fprintf(&b, "| %s %s | %s | %s | %s | %s |\n", r.light, planTableCell(r.story), planTableCell(r.criteria), planTableCell(r.code), planTableCell(r.architecture), planTableCell(r.part))
 		}
+		if len(st.Rounds) > 0 {
+			// Owner-chosen repairs: a rejected or spent round shows why.
+			b.WriteString("\nRepair rounds: " + repairRoundsText(st.Rounds) + "\n")
+		}
 	}
 	if st.Handback != nil {
-		b.WriteString("\n**Handback to Implement:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 600)) + "\n")
+		b.WriteString("\n**What still needs fixing:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 600)) + "\n")
 	}
 	var closeSet []int
 	if target != nil {
@@ -307,7 +314,11 @@ func repairRoundsText(rounds []store.RepairRound) string {
 	}
 	var parts []string
 	for _, r := range rounds {
-		parts = append(parts, fmt.Sprintf("round %d: %s", r.Round, r.State))
+		part := fmt.Sprintf("round %d: %s", r.Round, r.State)
+		if reason := strings.TrimSpace(r.Reason); reason != "" {
+			part += " (" + planTableCell(clipText(reason, 200)) + ")"
+		}
+		parts = append(parts, part)
 	}
 	return strings.Join(parts, "; ")
 }

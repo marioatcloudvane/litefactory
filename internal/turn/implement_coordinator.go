@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -42,7 +43,7 @@ func (rt *implementRuntime) bind(ctx context.Context, opts Options, _ ActivityRe
 	if strings.TrimSpace(session.Branch) == "" {
 		return ImplementAuthority{}, errors.New("the feature branch of this task does not exist yet, so stories have nothing to merge into")
 	}
-	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
+	repo, err := executionRepository(ctx, opts.DB, session)
 	if err != nil {
 		return ImplementAuthority{}, err
 	}
@@ -52,7 +53,7 @@ func (rt *implementRuntime) bind(ctx context.Context, opts Options, _ ActivityRe
 			unfinished[r.Key] = true
 		}
 	}
-	authority := ImplementAuthority{Parent: rt.parentRef, Generation: int64(feature.Generation), IntegrationBranch: session.Branch}
+	authority := ImplementAuthority{Parent: rt.parentRef, Generation: int64(feature.Generation), IntegrationBranch: session.Branch, BaseBranch: repo.BaseBranch}
 	for _, r := range revisions {
 		if !unfinished[r.Key] {
 			continue
@@ -148,6 +149,76 @@ func (rt *implementRuntime) ask(ctx context.Context, opts Options, a ActivityReq
 		return ActivityResult{}, err
 	}
 	return ActivityResult{Outcome: "published", Kind: store.GraphOutputJSON, Output: payload}, nil
+}
+
+// implementCompletionCandidate builds the one reply the parent gets when every
+// story of the generation is merged: the feature branch and its head commit, one
+// line per story with its merge commit in ledger order, and the next step. The
+// head commit is the merge commit of the story merged last.
+func implementCompletionCandidate(rows []store.ImplementStory, branch string, autoStart bool) agentresult.Result {
+	head := rows[0]
+	for _, row := range rows[1:] {
+		if !row.StateAt.Before(head.StateAt) {
+			head = row
+		}
+	}
+	noun := "stories are"
+	if len(rows) == 1 {
+		noun = "story is"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Implement is finished: all %d %s merged into `%s`, now at commit `%s`.\n", len(rows), noun, branch, head.MergeCommit)
+	for _, row := range rows {
+		fmt.Fprintf(&b, "\n- **%s**: merged as `%s`", row.Key, row.MergeCommit)
+	}
+	next := "**Next step:** start Validate by commenting `" + ValidateStartCommand + "`"
+	if autoStart {
+		next = "**Next step:** Validate will start automatically."
+	}
+	return agentresult.Result{
+		Outcome: "completed",
+		Comment: b.String(),
+		Reason:  next,
+		Payload: agentresult.Payload{Implement: &agentresult.Implement{}},
+	}
+}
+
+// reportDone posts the completion reply on the parent once every story of the
+// generation is merged. The reply is identified by the merge step's attempt and
+// its exact bytes, so a retried or restarted step posts nothing new. When a
+// story is not merged it posts nothing.
+func (rt *implementRuntime) reportDone(ctx context.Context, opts Options, a ActivityRequest) (ActivityResult, error) {
+	rows, err := opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	merged := len(rows) > 0 && !slices.ContainsFunc(rows, func(r store.ImplementStory) bool { return r.State != store.ImplementMerged })
+	if !merged {
+		return implementResult("published", map[string]any{"posted": false, "reason": "not every story is merged, so there is no completion to report"})
+	}
+	session, err := opts.DB.GetSession(ctx, rt.req.SessionID)
+	if err != nil {
+		return ActivityResult{}, err
+	}
+	source, err := opts.DB.LatestGraphNodeAttempt(ctx, a.InstanceID, a.Attrs["lf_source"])
+	if err != nil {
+		return ActivityResult{}, fmt.Errorf("find the merge step the completion reply belongs to: %w", err)
+	}
+	if source.Status != store.GraphSucceeded {
+		return ActivityResult{}, errors.New("the merge step the completion reply belongs to has not finished")
+	}
+	policy := ImplementWorkflowPolicy()
+	candidate := implementCompletionCandidate(rows, session.Branch, opts.ValidateAutoStart)
+	posted, key, err := opts.ResearchReporter.ReportWorkflowCandidate(ctx, source, a.Node, "final", candidate, policy.baseContext(true), "", policy)
+	if err != nil {
+		return ActivityResult{Diagnostic: err.Error()}, err
+	}
+	return implementResult("published", struct {
+		Posted      bool   `json:"posted"`
+		DeliveryKey string `json:"delivery_key"`
+		CommentID   int64  `json:"comment_id"`
+		Stories     int    `json:"stories"`
+	}{true, key, posted.CommentID, len(rows)})
 }
 
 // sentence makes a reason read as a sentence: it starts with a capital letter and

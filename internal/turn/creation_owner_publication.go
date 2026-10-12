@@ -100,7 +100,7 @@ func (r *MCPRuntime) publishOwnerArtifacts(ctx context.Context, db *store.DB, in
 		if title.String() != a.Title || body.String() != a.Body || title.Truncated() || body.Truncated() {
 			return "uncertain", errors.New("reviewed creation content changed")
 		}
-		issue, err := r.Creation.CreateIssue(ctx, repo, title, body)
+		issue, err := createTicketEffect(ctx, r.Creation, fmt.Sprintf("owner-artifact:%d:%d", intentID, i), repo, a.ParentIssue, title, body)
 		if err != nil {
 			return "uncertain", fmt.Errorf("create draft %d: %w", i+1, err)
 		}

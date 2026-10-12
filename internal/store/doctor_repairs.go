@@ -9,7 +9,18 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"modernc.org/sqlite"
+	sqlitelib "modernc.org/sqlite/lib"
 )
+
+// IsDoctorRepairHold identifies only the database trigger protecting Doctor-held
+// writers. Wrapped errors retain the identity; other constraints are not holds.
+func IsDoctorRepairHold(err error) bool {
+	var native *sqlite.Error
+	return errors.As(err, &native) && native.Code() == sqlitelib.SQLITE_CONSTRAINT_TRIGGER &&
+		native.Error() == "constraint failed: issue held for doctor repair (1811)"
+}
 
 // DoctorRepairAction is an exact replacement, never an executable SQL or shell string.
 type DoctorRepairAction struct {

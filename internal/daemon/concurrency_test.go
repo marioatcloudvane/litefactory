@@ -73,7 +73,7 @@ func TestTickReturnsWithoutWaitingForADispatchedRun(t *testing.T) {
 	// after release is closed, below. A second issue, registered and assigned
 	// only now, is discovered and dispatched by a tick called while the first
 	// is still blocked — which is only possible if Tick returned without
-	// waiting for it. Assigning it and giving it a body that spawns a run
+	// waiting for it. Authoring its body as the approver with a command that spawns a run
 	// (AC-2.16b) makes its bootstrap itself produce a real Execute call, so
 	// "a different issue is dispatched" is proven by a turn actually running,
 	// not by a bootstrap that touched nothing.
@@ -87,7 +87,7 @@ func TestTickReturnsWithoutWaitingForADispatchedRun(t *testing.T) {
 		Number:    secondIssue,
 		Title:     "A second task",
 		Body:      "/spike do the other work",
-		User:      stranger(),
+		User:      owner(),
 		Assignees: []fakeUser{owner()},
 	})
 	second := f.tick()

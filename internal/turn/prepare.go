@@ -159,7 +159,7 @@ func prepare(
 		}
 	}
 
-	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
+	repo, err := executionRepository(ctx, opts.DB, session)
 	if err != nil {
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
 	}
@@ -167,6 +167,9 @@ func prepare(
 	clone, err := opts.Git.Open(ctx, repo.Path)
 	if err != nil {
 		return nil, failuref(err, "the registered clone at %s could not be opened", repo.Path)
+	}
+	if err := verifyExecutionClone(ctx, opts, session, clone); err != nil {
+		return nil, failuref(err, "original execution target is unavailable")
 	}
 	author, err := resolveAuthor(ctx, opts, clone)
 	if err != nil {
@@ -202,7 +205,17 @@ func prepare(
 			branch:       sync.Branch, base: sync.Base,
 		}
 	}
-	if sync.Outcome == syncOutcomeBlocked && opts.BlockRunOnConflict {
+	// A story worker resolves a conflict with its feature branch itself: the
+	// factory starts the merge and leaves the conflict for the worker. The
+	// Implement coordinator's own agent (the sync resolver) does the same for a
+	// conflict between the base branch and the feature branch, in the parent's
+	// worktree.
+	coordinatorAgent := req.mode() == "implement" && req.Workflow != agent.WorkflowBug && !storyWorker && req.researchDefinition != nil
+	storyMerge, err := startStoryMerge(ctx, storyWorker || coordinatorAgent, worktree, opts.remote()+"/"+repo.BaseBranch, repo.BaseBranch, sync)
+	if err != nil {
+		return nil, err
+	}
+	if sync.Outcome == syncOutcomeBlocked && opts.BlockRunOnConflict && storyMerge == nil {
 		return nil, &syncRefusal{
 			observation: &sync,
 			conflicts:   append([]string(nil), sync.Conflicts...),
@@ -445,6 +458,9 @@ func prepare(
 			Behind: sync.Behind, Ahead: sync.Ahead,
 		}
 	}
+	if storyMerge != nil {
+		promptInput.DeferredSync = *storyMerge
+	}
 	if !storyWorker {
 		if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
 			return nil, err
@@ -686,6 +702,9 @@ func prepareClone(
 	}
 	defer release()
 
+	if err := verifyExecutionClone(ctx, opts, session, clone); err != nil {
+		return session, "", nil, syncResult{}, nil, failuref(err, "original execution target changed")
+	}
 	if err := fetch(ctx, opts, clone, repo, logger); err != nil {
 		return session, "", nil, syncResult{}, nil, err
 	}
@@ -1573,7 +1592,7 @@ func freezeSlug(
 	if err := naming.ValidateSlug(slug); err != nil {
 		return session, "", failuref(err, "the feature slug %q is not usable", slug)
 	}
-	branch, err := naming.Branch(repo.FeaturePrefix, session.IssueNumber, slug)
+	branch, err := naming.QualifiedBranch(repo.FeaturePrefix, session.IssueNumber, slug, session.TaskRef)
 	if err != nil {
 		return session, "", failuref(err, "the branch for issue %d could not be derived", session.IssueNumber)
 	}
@@ -1614,7 +1633,7 @@ func ensureWorktree(
 	branch string,
 	logger *slog.Logger,
 ) (*git.Worktree, error) {
-	dir, err := naming.WorktreePath(repo.WorktreeRoot, session.IssueNumber)
+	dir, err := naming.QualifiedWorktreePath(repo.WorktreeRoot, session.IssueNumber, session.TaskRef)
 	if err != nil {
 		return nil, failuref(err, "the worktree path for issue %d could not be derived", session.IssueNumber)
 	}
@@ -1670,6 +1689,41 @@ func storyBaseBranch(ctx context.Context, opts Options, clone *git.Clone, sessio
 		return repo.BaseBranch
 	}
 	return parent.Branch
+}
+
+// startStoryMerge gives a story worker its conflict with the feature branch, and
+// the Implement sync resolver its conflict with the base branch, as work instead
+// of refusing the run. On a blocked sync it starts merging
+// baseRef into the story branch and leaves the conflicts in the worktree; on a
+// later run that finds that merge still in progress (a deferred sync) it
+// reports the paths still unmerged. It returns nil when there is no such
+// conflict, and for every run that is neither.
+func startStoryMerge(ctx context.Context, storyWorker bool, worktree *git.Worktree, baseRef, featureBranch string, sync syncResult) (*harness.DeferredSyncContext, error) {
+	if !storyWorker {
+		return nil, nil
+	}
+	switch sync.Outcome {
+	case syncOutcomeBlocked:
+	case syncOutcomeDeferredDirty:
+		_, err := worktree.RevParse(ctx, "MERGE_HEAD", git.RevParseOptions{})
+		if errors.Is(err, git.ErrRevisionNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, failuref(err, "whether a merge is in progress on %s could not be read", worktree.Branch())
+		}
+	default:
+		return nil, nil
+	}
+	conflicts, err := worktree.StartMerge(ctx, baseRef)
+	if err != nil {
+		return nil, failuref(err, "merging %s into %s to resolve its conflicts could not be started", baseRef, worktree.Branch())
+	}
+	return &harness.DeferredSyncContext{
+		Deferred: true, Branch: worktree.Branch(), Base: baseRef,
+		Behind: sync.Behind, Ahead: sync.Ahead,
+		FeatureBranch: featureBranch, Conflicts: conflicts,
+	}, nil
 }
 
 // allocateRun inserts the runs row before the subprocess starts (S-1).

@@ -6,12 +6,17 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -503,58 +508,38 @@ func TestDeferredTaskDoesNotStallTheOthers(t *testing.T) {
 	}
 }
 
-// TestAnUnassignedIssueBodyStartsNothing is AC-2.16a, the surviving half of the
-// old blanket ban on issue bodies (AC-2.16, reversed in
-// `.aiteam/AC_AMENDMENTS.md`).
-//
-// The reversal turns on one field and one field only: an issue assigned to the
-// owner may have its body run. Everything else about the old rule stands, and
-// this is it — an unassigned issue starts nothing however its body is worded,
-// *including* a body the owner wrote himself. Authorship was never the
-// authorisation, because a body the owner typed into an issue he did not assign
-// to anyone is a note to himself and not an order.
-func TestAnUnassignedIssueBodyStartsNothing(t *testing.T) {
+// An unassigned issue authored by the approver may bootstrap exactly once.
+func TestAnUnassignedApproverIssueBodyRunsOnce(t *testing.T) {
 	f := newFixture(t)
 	f.plantCursor()
-	f.forge.addIssue(fakeIssue{
-		Number: testIssue,
-		Title:  "Please do this",
-		Body:   "/spike rewrite the authentication layer",
-		User:   owner(), // the owner's own words, and still not enough
-	})
-
-	f.settle() // first sight
-	// Touch the issue so it is listed a second time: a first sight and an
-	// ordinary sighting are different code paths, and the body must start
-	// nothing on either.
-	f.forge.addComment(testIssue, 141, stranger(), "bumping this")
+	f.forge.addIssue(fakeIssue{Number: testIssue, Title: "Please do this", Body: "/spike add a health endpoint", User: owner()})
 	f.settle()
-
-	if calls := f.turns.calls(); len(calls) != 0 {
-		t.Errorf("ran %d turns from an unassigned issue body, want none", len(calls))
-	}
-	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
-		t.Errorf("posted %d comments and %d reactions in answer to an unassigned issue body, want none",
-			len(posted), len(reacted))
-	}
-	if got := f.runs(); len(got) != 0 {
-		t.Errorf("recorded %d runs for an unassigned issue body, want none", len(got))
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
+		t.Fatalf("approver-authored unassigned body triggers %v, want [0]", got)
 	}
 }
 
-// TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction is AC-2.16b: the whole
-// of the new behaviour, in the shape it actually happens in — Mario opens an
-// issue, assigns it to himself, says what he wants in the body, and does not
-// have to repeat himself in a comment.
-//
-// The issue is opened here by a *stranger* (see [fixture.assignedIssue]),
-// because the gate is assignment and not authorship, and the trigger's author
-// is then asserted to be that stranger: the prompt's attribution is what makes
-// running someone else's words safe, so losing it would be the bug.
-//
-// "Exactly once" is asserted by ticking again, and it is a property of the
-// control flow rather than of a check — the second tick finds a watermark and
-// takes drain, which never looks at the body.
+// Assignment cannot authorize a body authored by a third party.
+func TestAnAssignedThirdPartyIssueBodyStartsNothing(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.assignedIssueBy(stranger(), "Third-party request", "/spike rewrite the authentication layer")
+	f.settle()
+	f.forge.addComment(testIssue, 141, stranger(), "bumping this")
+	f.settle()
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("third-party body ran %d turns", len(calls))
+	}
+	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
+		t.Fatalf("third-party body produced comments=%d reactions=%d", len(posted), len(reacted))
+	}
+	if got := f.runs(); len(got) != 0 {
+		t.Fatalf("third-party body recorded %d runs", len(got))
+	}
+}
+
+// An approver-authored body remains the first instruction and runs only once.
 func TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction(t *testing.T) {
 	f := newFixture(t)
 	f.plantCursor()
@@ -580,10 +565,8 @@ func TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction(t *testing.T) {
 		t.Errorf("trigger body is %q, want empty: there is no comment, and the body reaches the "+
 			"prompt as the instruction and as the issue note", req.Trigger.Body)
 	}
-	if req.Trigger.Author != strangerLogin {
-		t.Errorf("trigger author is %q, want %q — the issue's author, not the owner: the gate is "+
-			"assignment, and the attribution is what makes that safe",
-			req.Trigger.Author, strangerLogin)
+	if req.Trigger.Author != ownerLogin {
+		t.Errorf("trigger author is %q, want approver %q", req.Trigger.Author, ownerLogin)
 	}
 	if req.Command.Kind != turn.KindSpike {
 		t.Errorf("the body parsed to %s, want %s", req.Command.Kind, turn.KindSpike)
@@ -774,36 +757,14 @@ func TestAnIssueWithCommentsDoesNotFireItsBody(t *testing.T) {
 	}
 }
 
-// TestANonOwnerAssigneeDoesNotFireTheBody guards the direction the assignment
-// gate has to hold in: it is the *owner's* id that unlocks a body, matched
-// numerically (D-I), and not the mere fact of the issue being assigned to
-// somebody. An issue triaged onto a colleague is not an instruction to
-// litefactory.
-func TestANonOwnerAssigneeDoesNotFireTheBody(t *testing.T) {
+// Assigning a colleague cannot block a valid approver-authored body.
+func TestAnApproverIssueBodyRunsWithAnotherAssignee(t *testing.T) {
 	f := newFixture(t)
 	f.plantCursor()
-	f.forge.addIssue(fakeIssue{
-		Number:    testIssue,
-		Title:     "Add a /health endpoint",
-		Body:      "/spike add a health endpoint",
-		User:      owner(),
-		Assignees: []fakeUser{stranger()},
-	})
-
-	result := f.settle()
-
-	if result.Dispatched != 1 {
-		t.Fatalf("dispatched %d tasks, want 1", result.Dispatched)
-	}
-	if got := f.watermark(); got != 0 {
-		t.Fatalf("watermark is %d, want 0: the task is still created and watermarked", got)
-	}
-	if calls := f.turns.calls(); len(calls) != 0 {
-		t.Errorf("ran %d turns on an issue assigned to somebody else, want none\nlogs:\n%s",
-			len(calls), f.logs)
-	}
-	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
-		t.Errorf("posted %d comments and %d reactions, want none", len(posted), len(reacted))
+	f.forge.addIssue(fakeIssue{Number: testIssue, Title: "Add a health endpoint", Body: "/spike add a health endpoint", User: owner(), Assignees: []fakeUser{stranger()}})
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
+		t.Fatalf("approver body with another assignee triggers %v, want [0]", got)
 	}
 }
 
@@ -1386,5 +1347,252 @@ func assertClosedIssueWasLeftAlone(
 	}
 	if !strings.Contains(f.logs.String(), "skipping an issue that is not open") {
 		t.Errorf("the skip was not logged; a comment that starts nothing has to say why\nlogs:\n%s", f.logs)
+	}
+}
+
+// TestLowDiskHoldsDispatchUntilSpaceReturns: below min_free_disk_gb no
+// comment run or scheduled run starts, the shortage is logged with free and
+// required bytes, and the same owed work starts once space returns.
+func TestLowDiskHoldsDispatchUntilSpaceReturns(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Disk guard")
+	f.settle() // first sight creates the session and watermark
+
+	var free atomic.Uint64
+	free.Store(1 << 30)
+	f.daemon = f.newLowDiskDaemon(15<<30, func(path string) (uint64, error) {
+		if path != f.paths.Home() {
+			t.Errorf("free space read for %q, want LF_HOME %q", path, f.paths.Home())
+		}
+		return free.Load(), nil
+	})
+	due := time.Date(2026, 8, 25, 9, 0, 0, 0, time.UTC)
+	if _, _, err := f.db.CreateOrGetSchedule(t.Context(), store.CreateScheduleParams{
+		SessionID: f.session().ID, SourceCommentID: 701, OwnerHandle: ownerLogin,
+		Payload: "/spike scheduled payload", DueAt: due,
+	}); err != nil {
+		t.Fatalf("create schedule: %v", err)
+	}
+	f.clock.advance(25 * time.Hour)
+	f.forge.addComment(testIssue, 40, owner(), "/spike add a health endpoint")
+
+	held := f.settle()
+	if held.Dispatched != 0 || len(f.turns.calls()) != 0 {
+		t.Fatalf("dispatched %d (%d turns) below the free disk threshold\nlogs:\n%s", held.Dispatched, len(f.turns.calls()), f.logs)
+	}
+	if held.Scheduled != 1 {
+		t.Fatalf("scheduled=%d, want the owed schedule still pending", held.Scheduled)
+	}
+	logs := f.logs.String()
+	if !strings.Contains(logs, "free disk space below threshold") ||
+		!strings.Contains(logs, "free_bytes=1073741824") || !strings.Contains(logs, "required_bytes=16106127360") {
+		t.Fatalf("low-disk warning missing free and required bytes\nlogs:\n%s", logs)
+	}
+
+	free.Store(20 << 30)
+	for i := 0; i < 3 && len(f.turns.calls()) < 2; i++ {
+		f.settle()
+	}
+	var texts []string
+	for _, c := range f.turns.calls() {
+		texts = append(texts, c.Command.Text)
+	}
+	if !slices.Contains(texts, "add a health endpoint") || !slices.Contains(texts, "scheduled payload") {
+		t.Fatalf("owed work after space returned = %q, want the comment and the schedule\nlogs:\n%s", texts, f.logs)
+	}
+}
+
+// newLowDiskDaemon rebuilds the fixture daemon with the free-disk guard.
+func (f *fixture) newLowDiskDaemon(minFree uint64, read func(string) (uint64, error)) *daemon.Daemon {
+	f.t.Helper()
+	d, err := daemon.New(daemon.Options{
+		DefaultAgent:     agent.Kind(store.AgentClaude),
+		ToolProfiles:     config.DefaultToolProfiles().Permissions,
+		Agents:           turn.RunnerSet{agent.Kind(store.AgentClaude): nil},
+		Classifiers:      map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}},
+		DB:               f.db,
+		Forge:            f.client,
+		Filter:           f.filter,
+		Turn:             f.turns,
+		Reporter:         f.reporter,
+		InstanceID:       "daemon-instance-test",
+		Interval:         testInterval,
+		Logger:           f.logger,
+		Now:              f.clock.Now,
+		ShutdownGrace:    500 * time.Millisecond,
+		MinFreeDiskBytes: minFree,
+		DiskPath:         f.paths.Home(),
+		FreeDiskBytes:    read,
+	})
+	if err != nil {
+		f.t.Fatalf("build the daemon: %v", err)
+	}
+	return d
+}
+
+func TestBugIssueBodyStartsAtFirstSight(t *testing.T) {
+	for _, assigned := range []bool{false, true} {
+		name := "unassigned"
+		if assigned {
+			name = "assigned"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			// The executor records the request; concrete runtime execution is
+			// covered by turn's Bug bootstrap fixture.
+			runtime, err := turn.NewGraphBugRuntime(t.Context(), turn.Options{DB: f.db, Git: new(git.Binary), CloneGate: unusedRecoveryCloneGate{}, ResearchReporter: f.reporter, MCP: &turn.MCPRuntime{Redactor: redact.New(redact.Options{Logger: f.logger}), BotID: botID}}, turn.BugRuntimeConfig{Forge: f.client, OwnerID: ownerID, Permissions: func(agent.Kind, string) (turn.BugRolePermissions, error) {
+				return turn.BugRolePermissions{}, nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.daemon = f.newDaemon(daemon.Options{Bug: runtime})
+			f.plantCursor()
+			issue := fakeIssue{Number: testIssue, Title: "Bug bootstrap", Body: "Investigate this failure", User: owner(), Labels: []fakeLabel{{Name: "bug"}}}
+			if assigned {
+				issue.Assignees = []fakeUser{owner()}
+			}
+			f.forge.addIssue(issue)
+			f.settle()
+			calls := f.turns.calls()
+			if len(calls) != 1 {
+				t.Fatalf("calls=%d logs=%s", len(calls), f.logs)
+			}
+			req := calls[0]
+			if req.Workflow != agent.WorkflowBug || req.Trigger.CommentID != 0 || req.Trigger.AuthorID != ownerID || req.Command.Text != issue.Body || req.Issue.Body != issue.Body {
+				t.Fatalf("wrong Bug body request: %+v", req)
+			}
+			if f.watermark() != 0 {
+				t.Fatal("body advanced comment watermark")
+			}
+			f.settle()
+			if len(f.turns.calls()) != 1 {
+				t.Fatal("body was replayed")
+			}
+		})
+	}
+}
+
+// Successful discovery cannot reset the task's retry deadline, and a healthy
+// sibling is still admitted while the failing task is held.
+func TestTransientExecutionBackoffPreservesOtherTasks(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Transient failure")
+	f.settle()
+	fail := true
+	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if fail && req.Issue.Number == testIssue {
+			return turn.Result{}, errors.New("temporary preparation failure")
+		}
+		return f.ranSuccessfully(ctx, req)
+	})
+	f.forge.addComment(testIssue, 40, owner(), "/spike run this")
+	f.settle()
+	if got := len(f.turns.calls()); got != 1 {
+		t.Fatalf("attempts=%d", got)
+	}
+	for range 3 {
+		f.settle()
+	}
+	if got := len(f.turns.calls()); got != 1 {
+		t.Fatalf("heartbeat retried before due: %d", got)
+	}
+	f.clock.advance(testInterval)
+	f.settle()
+	if got := len(f.turns.calls()); got != 2 {
+		t.Fatalf("due attempt missing: %d", got)
+	}
+	// The second failure doubles the interval.
+	f.clock.advance(testInterval)
+	f.settle()
+	if got := len(f.turns.calls()); got != 2 {
+		t.Fatalf("second delay did not grow: %d", got)
+	}
+	fail = false
+	f.clock.advance(testInterval)
+	f.settle()
+	if got := f.watermark(); got != 40 {
+		t.Fatalf("recovery watermark=%d", got)
+	}
+	// Consumed work resets the delay for the next independent instruction.
+	f.forge.addComment(testIssue, 41, owner(), "/spike next")
+	f.settle()
+	if got := f.watermark(); got != 41 {
+		t.Fatalf("progress did not reset: %d", got)
+	}
+}
+
+func TestTransientMaterialisationAndListingBackoff(t *testing.T) {
+	for _, stage := range []string{"materialise", "comments"} {
+		t.Run(stage, func(t *testing.T) {
+			f := newFixture(t)
+			f.plantCursor()
+			f.issue("Transient read failure")
+			f.settle()
+			f.clock.advance(pastListing)
+			f.settle()
+			f.needsPoll(testIssue)
+			g := &closureForge{labelFixtureForge: f.client}
+			var calls atomic.Int64
+			if stage == "materialise" {
+				g.after = func(_ context.Context, _ int, _ github.Issue, _ error) (github.Issue, error) {
+					calls.Add(1)
+					return github.Issue{}, errors.New("temporary lookup failure")
+				}
+			} else {
+				f.forge.mu.Lock()
+				f.forge.onListComments = func(w http.ResponseWriter, _ int) bool {
+					calls.Add(1)
+					http.Error(w, "temporary listing failure", http.StatusBadGateway)
+					return true
+				}
+				f.forge.mu.Unlock()
+			}
+			f.daemon = f.newDaemon(daemon.Options{Forge: g})
+			f.settle()
+			first := calls.Load()
+			if first == 0 {
+				t.Fatal("failure not injected")
+			}
+			for range 3 {
+				f.settle()
+			}
+			if got := calls.Load(); got != first {
+				t.Fatalf("calls before due=%d, want %d", got, first)
+			}
+			f.clock.advance(testInterval)
+			f.settle()
+			if got := calls.Load(); got != 2*first {
+				t.Fatalf("due calls=%d, want %d", got, 2*first)
+			}
+			f.clock.advance(testInterval)
+			f.settle()
+			if got := calls.Load(); got != 2*first {
+				t.Fatalf("delay did not double: %d", got)
+			}
+		})
+	}
+}
+
+func TestTransientFailureDoesNotHoldHealthySibling(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Failing task")
+	f.forge.addIssue(fakeIssue{Number: 124, Title: "Healthy task", User: stranger()})
+	f.bootstrapIssues(f.repo, testIssue, 124)
+	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if req.Issue.Number == testIssue {
+			return turn.Result{}, errors.New("temporary preparation failure")
+		}
+		return f.ranSuccessfully(ctx, req)
+	})
+	f.forge.addComment(testIssue, 40, owner(), "/spike failing")
+	f.settle()
+	f.forge.addComment(124, 41, owner(), "/spike healthy")
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{40, 41}) {
+		t.Fatalf("healthy sibling blocked or failed task repeated: %v", got)
 	}
 }

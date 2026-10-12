@@ -1,2 +1,0 @@
-# Unit testing responsibility
-Write focused tests for each changed acceptance criterion, including error paths and empty states, with the repository's existing test conventions. Backend: pytest and API tests with explicit dependency overrides and cleanup. Frontend: Vitest and accessible component tests through user interactions. Tests must exist and execute; no pass-with-no-tests options or suppressed failures. Run complete affected component checks only when assigned execution authority. Validate remains read-only.

@@ -195,6 +195,9 @@ func (rep RunReport) validate() error {
 
 // ReplyRequest is a run-less answer to a comment litefactory will not act on.
 type ReplyRequest struct {
+	// MissingMode is required for a missing connection label mapping refusal.
+	MissingMode agent.Mode
+
 	Creation           *report.CreationReply
 	CreationAcceptance *report.CreationAcceptance
 	// Ref is the task the comment is on. It appears in the marker, so it must
@@ -332,12 +335,12 @@ func (req ReplyRequest) validate() error {
 	switch {
 	case req.CreationAcceptance != nil && (req.Creation != nil || req.refusing() || req.ScheduleKind != report.ReplyInvalid || req.ConfirmKind != report.ReplyInvalid):
 		return invalidRequest("creation acceptance cannot be combined with another reply")
+	case req.Refusal == report.ReplyMissingModeMapping && !req.MissingMode.Valid():
+		return invalidRequest("a canonical missing mode is required")
 	case req.SessionID <= 0:
 		return invalidRequest("a session id is required to reply to a comment")
-	// A refusal needs one as much as any other reply does. The issue-body path
-	// has no comment to answer and does not come here at all: it refuses the run
-	// and logs it, and the next comment on the issue is refused on the thread.
-	case req.CommentID < 0 || (req.CommentID == 0 && req.Refusal != report.ReplyBugUnavailable):
+	// Only explicit owner-fixable admission refusals may answer an issue body.
+	case req.CommentID < 0 || (req.CommentID == 0 && req.Refusal != report.ReplyBugUnavailable && req.Refusal != report.ReplyMissingModeMapping && req.Refusal != report.ReplyMissingTeam && req.Refusal != report.ReplyUnsupportedWorkflow):
 		return invalidRequest("a comment id is required to reply to a comment")
 	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
 		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode() && !req.Refusal.RefusesSync():
@@ -604,6 +607,13 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 
 	intent := r.deliveryIntent(ref, destination, rep.SessionID, rep.CommentID, rep.RunID, "run-report")
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
+		if refinement != nil {
+			var err error
+			rep.Run.SourceParentURL, rep.Run.SourceReplyURL, err = reportSourceLinks(ctx, r.forge, ref, refinement.ChildNumber, refinement.CommentID)
+			if err != nil {
+				return redact.Body{}, err
+			}
+		}
 		if err := r.attachRecoveryReport(ctx, &rep); err != nil {
 			return redact.Body{}, err
 		}
@@ -673,11 +683,21 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	}
 	intent := r.deliveryIntent(req.Ref, destination, req.SessionID, req.CommentID, 0, purpose)
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
+		var parentURL, replyURL string
+		if sourceStory > 0 {
+			var err error
+			parentURL, replyURL, err = reportSourceLinks(ctx, r.forge, req.Ref, sourceStory, sourceComment)
+			if err != nil {
+				return redact.Body{}, err
+			}
+		}
 		return r.renderer.RenderReply(ctx, report.Reply{
+			SourceParentURL: parentURL, SourceReplyURL: replyURL,
 			Ref:                      req.Ref,
 			SourceStoryIssue:         sourceStory,
 			SourceCommentID:          sourceComment,
 			Kind:                     kind,
+			MissingMode:              req.MissingMode,
 			Command:                  req.Command.Name,
 			Agent:                    req.Agent,
 			OwningAgent:              req.OwningAgent,
@@ -749,11 +769,20 @@ func (r *Reporter) Consume(ctx context.Context, sessionID, commentID int64) (sto
 // The repository and issue come from the task ref rather than from a separate
 // parameter, so a report cannot be posted onto an issue other than the one whose
 // marker it carries.
-func (r *Reporter) post(ctx context.Context, ref naming.Ref, body redact.Body, _ *slog.Logger) (github.Comment, error) {
-	comment, err := r.forge.PostComment(ctx, github.RepoFromRef(ref), ref.Issue, body)
+func (r *Reporter) postEffect(ctx context.Context, key string, ref naming.Ref, body redact.Body, _ *slog.Logger) (github.Comment, error) {
+	publisherID, err := retainedTicketPublisher(ctx, r.db, ExecutionSessionID(ctx), r.botUserID)
+	if err != nil {
+		return github.Comment{}, err
+	}
+	comment, err := postCommentEffect(ctx, r.forge, key, github.RepoFromRef(ref), ref.Issue, body)
 	if err != nil {
 
 		return github.Comment{}, fmt.Errorf("post the comment on task %s: %w", ref, err)
+	}
+	if verified, qualified := verifiedCommentDestination(ctx, r.forge, comment, ref); qualified {
+		if !verified || comment.Author.ID != publisherID || comment.Body != body.String() {
+			return github.Comment{}, fmt.Errorf("post the comment on task %s: %w", ref, ErrReportReceiptUncertain)
+		}
 	}
 	if comment.ID == 0 {
 		// Defensive: a comment id of zero cannot be recorded as

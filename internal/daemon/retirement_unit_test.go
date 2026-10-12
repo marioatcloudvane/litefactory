@@ -175,6 +175,9 @@ func TestEvaluateRetirement_UnavailableEvidence(t *testing.T) {
 				if d.Action != "unknown" {
 					t.Errorf("%s action = %s", d.Kind, d.Action)
 				}
+				if stage == "git" && d.Reason != "git_verification_failed" {
+					t.Errorf("%s reason = %s", d.Kind, d.Reason)
+				}
 			}
 		})
 	}

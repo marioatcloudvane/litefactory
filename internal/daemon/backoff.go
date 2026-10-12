@@ -126,3 +126,17 @@ func (b *backoff) clear() (time.Duration, bool) {
 	b.until = time.Time{}
 	return held, true
 }
+
+// succeeded resets refusal history only after its standing hold has expired.
+// Checking and clearing under one lock prevents a concurrent refusal from being
+// erased by an older request that happened to succeed.
+func (b *backoff) succeeded(now time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if now.Before(b.until) {
+		return
+	}
+	b.failures = 0
+	b.delay = 0
+	b.until = time.Time{}
+}

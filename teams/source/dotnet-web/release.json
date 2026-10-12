@@ -1,11 +1,11 @@
 {
   "name": ".NET Blazor",
   "slug": "dotnet-web",
-  "version": "1.0.2",
+  "version": "1.0.1",
   "description": ".NET 10 Blazor workflows and retained stack guidance.",
   "tags": [
     "dotnet",
     "blazor"
   ],
-  "download": "dotnet-web/v1.0.2"
+  "download": "dotnet-web/v1.0.1"
 }

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,9 +10,14 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
+	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/testutil"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,12 +45,13 @@ func (doctorTestFilter) Admit(context.Context, int64, github.Comment) (turn.Admi
 
 type doctorTestForge struct {
 	Forge
-	entries []github.RepositoryComment
-	posts   []github.Comment
-	postErr error
-	seen    []github.Comment
-	issue   github.Issue
-	scans   int
+	entries    []github.RepositoryComment
+	posts      []github.Comment
+	postErr    error
+	seen       []github.Comment
+	issue      github.Issue
+	scans      int
+	issueReads int
 }
 
 func (f *doctorTestForge) ListRepositoryCommentsPage(context.Context, github.Repo, time.Time, int, int) (github.RepositoryCommentPage, error) {
@@ -52,6 +59,7 @@ func (f *doctorTestForge) ListRepositoryCommentsPage(context.Context, github.Rep
 	return github.RepositoryCommentPage{Comments: f.entries}, nil
 }
 func (f *doctorTestForge) GetIssue(context.Context, github.Repo, int) (github.Issue, error) {
+	f.issueReads++
 	return f.issue, nil
 }
 func (f *doctorTestForge) ListCommentsPage(context.Context, github.Repo, int, int, int) (github.CommentPage, error) {
@@ -551,4 +559,192 @@ func mustDoctorTarget(t *testing.T) naming.Ref {
 		t.Fatal(err)
 	}
 	return ref
+}
+
+// routedBridgeForge mirrors the routed ticket bridge: it can post and list
+// issue comments but has no repository comment listing.
+type routedBridgeForge struct {
+	Forge
+	t *testing.T
+}
+
+func (f routedBridgeForge) ListCommentsPage(context.Context, github.Repo, int, int, int) (github.CommentPage, error) {
+	f.t.Error("doctor read through the default forge instead of the connection client")
+	return github.CommentPage{}, errors.New("unexpected default forge read")
+}
+func (f routedBridgeForge) PostComment(context.Context, github.Repo, int, redact.Body) (github.Comment, error) {
+	f.t.Error("doctor posted through the default forge instead of the connection client")
+	return github.Comment{}, errors.New("unexpected default forge post")
+}
+
+func TestDoctorUsesTicketConnectionWhenDefaultForgeIsRoutedBridge(t *testing.T) {
+	f := newDoctorProjectFixture(t, false)
+	f.d.forge = routedBridgeForge{t: t}
+	ctx := t.Context()
+	start := f.appointment.ActivatedAt
+	if _, err := f.d.db.DoctorScanWindow(ctx, f.repo.ID, start); err != nil {
+		t.Fatal(err)
+	}
+	at := start.Add(2 * time.Minute)
+	f.d.discovery.tick(at)
+	if err := f.d.discoverDoctor(ctx, at); err != nil {
+		t.Fatalf("doctor discovery without repository listing on the default forge: %v", err)
+	}
+	command, err := f.d.db.ClaimDoctorCommand(ctx, "", false, "bridge-doctor")
+	if err != nil || command.CommentID != f.source.ID || command.TaskRef != "github:team/tickets#406" {
+		t.Fatalf("doctor command not discovered through the ticket connection: %+v %v", command, err)
+	}
+	if err := f.d.db.CompleteDoctorCommand(ctx, command.ID, "Diagnosis answered through the ticket connection.", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.d.publishDoctor(ctx); err != nil {
+		t.Fatalf("doctor publication without the default forge: %v", err)
+	}
+	pending, err := f.d.db.PendingDoctorDeliveries(ctx, "")
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("doctor answer not delivered: %+v %v", pending, err)
+	}
+	f.publication.mu.Lock()
+	defer f.publication.mu.Unlock()
+	body := ""
+	if len(f.publication.comments) == 1 {
+		body, _ = f.publication.comments[0]["body"].(string)
+	}
+	if f.publication.posts != 1 || !strings.Contains(body, "Diagnosis answered through the ticket connection.") {
+		t.Fatalf("doctor answer not posted on the ticket issue: %d %+v", f.publication.posts, f.publication.comments)
+	}
+}
+
+func doctorLinearConnection(repoID int64) store.ConnectionVersion {
+	return store.ConnectionVersion{RepoID: repoID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team/project", CredentialSource: "env", CredentialEnv: "DOCTOR_LINEAR_TEST", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"plan"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}
+}
+
+func TestDoctorSkipsUnsupportedBeforeAnyScanOrClient(t *testing.T) {
+	d, forge, repo := doctorDaemonFixture(t)
+	ctx := t.Context()
+	var logs bytes.Buffer
+	d.log = slog.New(slog.NewTextHandler(&logs, nil))
+	d.connections = projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { t.Error("resolved unsupported credential"); return "", false }}})
+	version, err := d.db.SetConnection(ctx, doctorLinearConnection(repo.ID), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens := d.discovery.tokens
+	for i := 0; i < 3; i++ {
+		if err := d.discoverDoctor(ctx, d.now().Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if forge.scans != 0 || d.discovery.tokens != tokens {
+		t.Fatal("unsupported project consumed discovery requests")
+	}
+	if strings.Count(logs.String(), "level=INFO") != 1 || !strings.Contains(logs.String(), "provider=linear") || !strings.Contains(logs.String(), "project=acme/api") || !strings.Contains(logs.String(), "unsupported; skipped") {
+		t.Fatalf("skip log: %s", &logs)
+	}
+	version, err = d.db.SetConnection(ctx, version, version.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.discoverDoctor(ctx, d.now().Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(logs.String(), "level=INFO") != 2 {
+		t.Fatalf("new version not logged once: %s", &logs)
+	}
+	if _, err := d.db.DisableConnection(ctx, repo.ID, store.TicketConnection, version.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.discoverDoctor(ctx, d.now().Add(4*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(logs.String(), "level=INFO") != 2 {
+		t.Fatal("disabled connection logged as unsupported")
+	}
+	at := d.now().Add(5 * time.Minute)
+	scan, err := d.db.DoctorScanWindow(ctx, repo.ID, at)
+	if err != nil || !scan.ActivatedAt.Equal(at) || !scan.CompletedAt.Equal(at) {
+		t.Fatalf("skip initialized scan: %+v %v", scan, err)
+	}
+}
+
+func TestDoctorMixedProjectsRotatePastUnsupportedAndFailures(t *testing.T) {
+	d, _, linearRepo := doctorDaemonFixture(t)
+	ctx := t.Context()
+	if _, err := d.db.SetConnection(ctx, doctorLinearConnection(linearRepo.ID), 0); err != nil {
+		t.Fatal(err)
+	}
+	var pages []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/user":
+			fmt.Fprint(w, `{"id":99,"login":"bot"}`)
+		case strings.HasSuffix(r.URL.Path, "/issues/comments"):
+			pages = append(pages, r.URL.Path)
+			if r.URL.Query().Get("per_page") != "12" {
+				t.Errorf("page bound: %s", r.URL)
+			}
+			if strings.Contains(r.URL.Path, "/z-last/") {
+				http.Error(w, "ordinary failure", http.StatusInternalServerError)
+				return
+			}
+			fmt.Fprint(w, `[]`)
+		default:
+			t.Errorf("unexpected request %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	d.connections = projectconnection.NewFactory(projectconnection.Options{HTTPClient: server.Client(), Resolver: secrets.Resolver{LookupEnv: func(name string) (string, bool) {
+		if name == "DOCTOR_LINEAR_TEST" {
+			t.Error("resolved Linear credential")
+		}
+		return "offline-token", true
+	}}})
+	// IDs increase while names decrease, unlike ListRepos ordering.
+	for _, name := range []string{"z-last", "a-first"} {
+		repo := linearRepo
+		repo.ID, repo.Path, repo.Name = 0, t.TempDir(), name
+		repo, err := d.db.UpsertRepo(ctx, repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.GitHub, Origin: ticket.Origin(server.URL), Destination: repo.Slug(), CredentialSource: "env", CredentialEnv: "DOCTOR_GITHUB_TEST", Enabled: true, Provenance: "explicit"}, 0); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.db.DoctorScanWindow(ctx, repo.ID, d.now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 4; i++ {
+		at := d.now().Add(time.Duration(i+1) * time.Minute)
+		d.discovery.tick(at)
+		err := d.discoverDoctor(ctx, at)
+		if (err != nil) != (i%2 == 0) {
+			t.Fatalf("tick %d: %v", i, err)
+		}
+		if len(pages) != i+1 {
+			t.Fatalf("tick %d consumed %d pages", i, len(pages))
+		}
+	}
+	want := "/repos/acme/z-last/issues/comments,/repos/acme/a-first/issues/comments,/repos/acme/z-last/issues/comments,/repos/acme/a-first/issues/comments"
+	if strings.Join(pages, ",") != want {
+		t.Fatalf("rotation: %v", pages)
+	}
+}
+
+func TestDoctorDiscoveryRetainsTwelveTargetBound(t *testing.T) {
+	d, forge, _ := doctorDaemonFixture(t)
+	ctx := t.Context()
+	if err := d.discoverDoctor(ctx, d.now()); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 12; i++ {
+		forge.entries = append(forge.entries, github.RepositoryComment{IssueNumber: 406, Comment: doctorComment(int64(i+1), "/doctor explain")})
+	}
+	if err := d.discoverDoctor(ctx, d.now().Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if forge.scans != 1 || forge.issueReads != 12 {
+		t.Fatalf("pages=%d target reads=%d", forge.scans, forge.issueReads)
+	}
 }

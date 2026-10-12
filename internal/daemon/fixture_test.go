@@ -154,6 +154,7 @@ type fakeComment struct {
 // actually hold issues and comments of its own rather than the always-empty
 // stub the O(registered repos) tests used until now.
 type repoState struct {
+	remoteID int64
 	issues   []fakeIssue
 	comments []fakeComment
 }
@@ -233,7 +234,7 @@ func (f *forgeServer) state(owner, name string) *repoState {
 	key := owner + "/" + name
 	rs, ok := f.repos[key]
 	if !ok {
-		rs = &repoState{}
+		rs = &repoState{remoteID: int64(len(f.repos) + 1)}
 		f.repos[key] = rs
 	}
 	return rs
@@ -273,6 +274,18 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	// nothing.
 	mux := http.NewServeMux()
 	const repos = "/repos/{owner}/{repo}"
+	// Production initialization verifies the publisher and destination before
+	// reconciling saved work. These reads supply stable fixture identities.
+	mux.HandleFunc("GET /user", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, bot())
+	})
+	mux.HandleFunc("GET "+repos, func(w http.ResponseWriter, r *http.Request) {
+		owner, name := r.PathValue("owner"), r.PathValue("repo")
+		f.mu.Lock()
+		remoteID := f.state(owner, name).remoteID
+		f.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"id": remoteID, "full_name": owner + "/" + name})
+	})
 	mux.HandleFunc("GET "+repos+"/issues", f.handleListIssues)
 	mux.HandleFunc("GET "+repos+"/issues/{number}", f.handleGetIssue)
 	mux.HandleFunc("GET "+repos+"/issues/comments", f.handleListRepoComments)
@@ -1159,6 +1172,7 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	}
 	if overrides.Webhook != nil {
 		opts.Webhook = overrides.Webhook
+		opts.Chat = overrides.Chat
 	}
 	if overrides.ShutdownGrace != 0 {
 		opts.ShutdownGrace = overrides.ShutdownGrace
@@ -1303,18 +1317,12 @@ func (f *fixture) issueWithLabels(title string, labels ...string) {
 	})
 }
 
-// assignedIssue registers an issue with the given body, assigned to the owner:
-// the shape that runs its body as a first instruction (AC-2.16b).
-//
-// The author is the *stranger*, on purpose. The gate is assignment and not
-// authorship — assigning an issue to yourself is the act of instruction, and
-// anyone at all may open one — so the harder of the two cases is the default
-// here, and a body test cannot pass by accident because the owner happened to
-// write it. Where authorship is the point, [fixture.assignedIssueBy] says so.
+// assignedIssue registers an approver-authored issue assigned to the approver.
+// Authorship authorizes the initial body; assignment remains metadata.
 func (f *fixture) assignedIssue(title, body string) {
 	f.t.Helper()
 
-	f.assignedIssueBy(stranger(), title, body)
+	f.assignedIssueBy(owner(), title, body)
 }
 
 // assignedIssueBy is [fixture.assignedIssue] with the issue's author spelled

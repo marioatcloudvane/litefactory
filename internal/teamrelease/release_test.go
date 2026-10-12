@@ -70,11 +70,8 @@ func snapshot(t *testing.T, dir string) map[string][]byte {
 func fixture(t *testing.T) string {
 	t.Helper()
 	root := canonicalTemp(t)
-	for _, dir := range append(append([]string{}, workflows...), "shared") {
+	for _, dir := range workflows {
 		for name, raw := range snapshot(t, "../teamsource/"+dir) {
-			if strings.HasPrefix(name, "skills/team-guidance/") {
-				continue
-			}
 			put(t, filepath.Join(root, "internal/teamsource", dir, filepath.FromSlash(name)), raw)
 		}
 	}
@@ -92,7 +89,7 @@ func fixture(t *testing.T) string {
 }
 
 // sourceVersion returns the version the source at dir currently releases, so tests
-// that mean "the current release" follow version bumps instead of pinning one.
+// that mean "the current release" follow the owner's releases instead of pinning one.
 func sourceVersion(t *testing.T, dir string) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(dir, "release.json"))
@@ -144,8 +141,8 @@ func TestGenerationDeterminismAndReadOnlyDrift(t *testing.T) {
 	if !reflect.DeepEqual(first, snapshot(t, root)) {
 		t.Fatal("repair did not reproduce release")
 	}
-	source := filepath.Join(root, "internal/teamsource/shared/team-guidance/environment-safety.md")
-	put(t, source, append(first["internal/teamsource/shared/team-guidance/environment-safety.md"], []byte("\nRetained new guidance.\n")...))
+	rules := "internal/teamsource/implement/skills/litefactory-rules/litefactory.md"
+	put(t, filepath.Join(root, filepath.FromSlash(rules)), append(first[rules], []byte("\nRetained new guidance.\n")...))
 	before := snapshot(t, root)
 	if err := Generate(t.Context(), root, true); err == nil {
 		t.Fatal("source drift was missed")
@@ -165,10 +162,8 @@ func TestGenerationDeterminismAndReadOnlyDrift(t *testing.T) {
 	if bytes.Equal(first["teams/teams.json"], after["teams/teams.json"]) {
 		t.Fatal("source edit did not change catalogue hashes")
 	}
-	for _, w := range workflows {
-		if !bytes.Contains(after["internal/teamsource/"+w+"/skills/team-guidance/environment-safety.md"], []byte("Retained new guidance")) {
-			t.Fatal("missing materialization", w)
-		}
+	if !bytes.Contains(after["teams/go-development/v99.0.0/implement/skills/litefactory-rules/litefactory.md"], []byte("Retained new guidance")) {
+		t.Fatal("missing materialization")
 	}
 }
 
@@ -177,25 +172,25 @@ func TestInvalidCandidatePreservesValidOutput(t *testing.T) {
 		name, file, cause string
 		change            func(*testing.T, string)
 	}{
-		{"missing resource", "workflow.md", "workflow.md", func(t *testing.T, root string) {
-			if err := os.Remove(filepath.Join(root, "internal/teamsource/shared/team-guidance/workflow.md")); err != nil {
+		{"missing resource", "litefactory.md", "litefactory.md", func(t *testing.T, root string) {
+			if err := os.Remove(filepath.Join(root, "internal/teamsource/implement/skills/litefactory-rules/litefactory.md")); err != nil {
 				t.Fatal(err)
 			}
 		}},
 		{"unsafe resource", "SKILL.md", "unsafe", func(t *testing.T, root string) {
-			p := filepath.Join(root, "internal/teamsource/shared/team-guidance/SKILL.md")
+			p := filepath.Join(root, "internal/teamsource/implement/skills/litefactory-rules/SKILL.md")
 			b, err := os.ReadFile(p)
 			if err != nil {
 				t.Fatal(err)
 			}
-			put(t, p, bytes.ReplaceAll(b, []byte("  - workflow.md"), []byte("  - ../workflow.md")))
+			put(t, p, bytes.ReplaceAll(b, []byte("  - litefactory.md"), []byte("  - ../litefactory.md")))
 		}},
-		{"symlink", "workflow.md", "symlink", func(t *testing.T, root string) {
-			p := filepath.Join(root, "internal/teamsource/shared/team-guidance/workflow.md")
+		{"symlink", "litefactory.md", "symlink", func(t *testing.T, root string) {
+			p := filepath.Join(root, "internal/teamsource/implement/skills/litefactory-rules/litefactory.md")
 			if err := os.Remove(p); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Symlink("litefactory.md", p); err != nil {
+			if err := os.Symlink("SKILL.md", p); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -259,29 +254,33 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 			t.Fatal(err)
 		}
 		normalized := bytes.ReplaceAll(current, []byte(`team="go-development"`), []byte(`team="builtin"`))
-		normalized = bytes.ReplaceAll(normalized, []byte(",team-guidance"), nil)
+		normalized = bytes.ReplaceAll(normalized, []byte(",litefactory-rules"), nil)
 		for _, role := range []string{"architect", "code-reviewer", "implementation-engineer", "unit-test-engineer", "integration-test-engineer"} {
 			normalized = bytes.ReplaceAll(normalized, []byte(`role="`+role+`"`), []byte(`role="go-`+role+`"`))
 		}
 		if !bytes.Equal(original, normalized) {
-			t.Fatalf("%s graph changed beyond team and guidance", w)
+			t.Fatalf("%s graph changed beyond team and litefactory rules", w)
 		}
 	}
-	for name, raw := range snapshot(t, "../teamsource/shared/team-guidance") {
-		if bytes.Contains(raw, []byte(".claude/")) || bytes.Contains(raw, []byte(".codex/")) || bytes.Contains(raw, []byte("teams/source/")) {
-			t.Errorf("%s retains active host reference", name)
-		}
+	if _, err := os.Lstat("../teamsource/shared"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("shared guidance tree remains: %v", err)
 	}
+	litefactoryRules := []string{"only when working on litefactory", "dist/litefactory", "$LF_HOME", "one", "modernc.org/sqlite", "UTC millisecond", "internal/store", "internal/git", "internal/daemon", "-race", "pinned", "golangci-lint"}
+	environmentSafety := []string{"production", "TEST_BASE_URL", "TEST_DATABASE_URL"}
 	for _, entry := range []struct {
 		file  string
 		terms []string
 	}{
-		{"litefactory.md", []string{"only when working on litefactory", "dist/litefactory", "$LF_HOME", "one", "modernc.org/sqlite", "UTC millisecond", "internal/store", "internal/git", "internal/daemon", "-race", "pinned", "golangci-lint"}},
-		{"workflow.md", []string{"preflight", "request identity", "list B", "Historical acceptance", "approval", "numeric owner", "Pending"}},
-		{"environment-safety.md", []string{"production", "TEST_BASE_URL", "TEST_DATABASE_URL", "no executable hook"}},
-		{"planning-responsibilities.md", []string{"version bounds", "missing prerequisites", "Unavailable proof", "frozen story"}},
+		{"implement/skills/litefactory-rules/litefactory.md", litefactoryRules},
+		{"bug/skills/litefactory-rules/litefactory.md", litefactoryRules},
+		{"validate/skills/litefactory-rules/litefactory.md", litefactoryRules},
+		{"implement/story-worker.md", environmentSafety},
+		{"implement/sync-resolver.md", environmentSafety},
+		{"bug/bug-fixer.md", environmentSafety},
+		{"validate/validate-repair.md", environmentSafety},
+		{"spike/spike-fixer.md", environmentSafety},
 	} {
-		raw, err := os.ReadFile("../teamsource/shared/team-guidance/" + entry.file)
+		raw, err := os.ReadFile("../teamsource/" + entry.file)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -387,19 +386,27 @@ func TestInstallationCaptureNativeDeliveryAndHistoricalReplay(t *testing.T) {
 				}
 				for _, w := range workflows {
 					d := capture(t, sourceFS, w, "go-development")
-					shared := snapshot(t, filepath.Join(root, "internal/teamsource", w, "skills/team-guidance"))
+					rules := map[string][]byte{}
+					if w == "implement" || w == "bug" || w == "validate" {
+						rules = snapshot(t, filepath.Join(root, "internal/teamsource", w, "skills/litefactory-rules"))
+					}
 					for id, node := range d.Nodes {
-						for name, raw := range shared {
-							if !bytes.Equal(raw, node.Files["skills/team-guidance/"+name]) {
-								t.Fatalf("%s/%s misses migrated %s", w, id, name)
+						for name := range node.Files {
+							if strings.Contains(name, "team-guidance") {
+								t.Fatalf("%s/%s still carries %s", w, id, name)
+							}
+						}
+						for name, raw := range rules {
+							if !bytes.Equal(raw, node.Files["skills/litefactory-rules/"+name]) {
+								t.Fatalf("%s/%s misses litefactory rule %s", w, id, name)
 							}
 						}
 						for _, kind := range []string{"claude", "codex"} {
 							b := bundle(t, d, node, kind)
 							nativeFiles := snapshot(t, b.Root)
-							for name, raw := range shared {
-								if !bytes.Equal(raw, nativeFiles["plugin/skills/team-guidance/"+name]) {
-									t.Fatalf("%s/%s/%s omits migrated %s", w, id, kind, name)
+							for name, raw := range rules {
+								if !bytes.Equal(raw, nativeFiles["plugin/skills/litefactory-rules/"+name]) {
+									t.Fatalf("%s/%s/%s omits litefactory rule %s", w, id, kind, name)
 								}
 							}
 						}
@@ -502,7 +509,7 @@ func TestPublicationFailureRestoresEntireBatch(t *testing.T) {
 		return root.Rename(oldPath, newPath)
 	}
 	outputs := map[string]map[string][]byte{
-		"internal/teamsource/bug/skills/team-guidance":               {"SKILL.md": []byte("candidate")},
+		"internal/teamsource/bug/skills/litefactory-rules":           {"SKILL.md": []byte("candidate")},
 		"teams/go-development/v" + sourceVersion(t, "../teamsource"): {"candidate.md": []byte("candidate")},
 	}
 	if err := publish(t.Context(), root, repo, outputs, []byte("new catalogue"), rename); err == nil || !strings.Contains(err.Error(), "injected publication") {

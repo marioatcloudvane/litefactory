@@ -34,7 +34,7 @@ func (d *Daemon) replayContinuationCancellations(ctx context.Context, repos []st
 			continue
 		}
 		if err := d.replayContinuationCancellation(ctx, notice, session); err != nil {
-			if isRecoveryPending(err) {
+			if isRecoveryPending(err) || (d.scopedQuotaDeferred(sessionContext(ctx, session.ID), err)) {
 				continue
 			}
 			faults = append(faults, err)

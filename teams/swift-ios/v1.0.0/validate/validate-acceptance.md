@@ -1,6 +1,6 @@
 ---
 name: validate-acceptance
-description: Judge every acceptance criterion and the plan of each story against the tested commit, citing only passed suite commands as proof.
+description: Judge every acceptance criterion and the plan of each story against the tested commit, citing the passed suite for (Auto) criteria and the code you read for the rest.
 tier: balanced
 task: Read the tested commit and the evidence list you are given, then report one finding for each thing you must cover, with the evidence behind it. You can only read. Use read-only shell commands to look at files and history, never to run tests, builds or anything that changes state.
 ---
@@ -16,8 +16,11 @@ Effective sentences, straight to the point, in easy language. Your reader is not
 
  - Cover every acceptance criterion of each story, and the plan review (did the work follow the approved plan and stay in its scope).
  - For each thing you cover, report one finding: `satisfied`, `unmet` or `unverified`, its classification, and the evidence for it.
- - Mark a finding `satisfied` only when a passed suite command of this exact commit proves it, and cite that command by its check ID from your evidence list. Reading code is not proof of execution.
- - When you cannot prove something, report it `unverified` and say exactly what the owner must check. This includes anything that needs a person to try it.
+ - An (Auto) criterion is `satisfied` only when a passed suite command of this exact commit proves it; cite that command by its check ID from your evidence list.
+ - A (Manual) criterion is guidance for a human check. Judge it yourself by reading the code, the diff and the documents of this commit, and report `satisfied` or `unmet` with file:line evidence.
+ - Report `unverified` for the owner only what truly needs a person or a live environment (a real run, a UI, an external system), and say exactly what to check.
+ - A document, list or report the criterion asks for that does not exist is `unmet`, not `unverified`.
+ - A story may carry `deviations`: decisions its worker made where the plan was silent (what was chosen, why, file:line). In the plan review, judge each one against the story's intent and approved decisions, and name each one in that finding so the owner sees it in the report. A deviation within the intent is not `unmet` by itself; one that contradicts a frozen criterion or an approved decision is.
  - Never cite a failed command as proof. A failed or missing suite is a reason to report `unverified` or `unmet`, never `satisfied`.
  - Do not read archived session directories from earlier work.
 

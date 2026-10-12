@@ -9,12 +9,16 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 const modeLabelPrefix = "Mode: "
 
-type modeRefusal struct{ kind report.ReplyKind }
+type modeRefusal struct {
+	kind report.ReplyKind
+	mode agent.Mode
+}
 
 func (e *modeRefusal) Error() string { return e.kind.String() }
 
@@ -116,13 +120,13 @@ func (d *Daemon) classifyMode(ctx context.Context, t *task, instruction string) 
 	})
 }
 
-func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, kind report.ReplyKind) error {
-	if trigger.CommentID == 0 && kind != report.ReplyBugUnavailable {
+func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, kind report.ReplyKind, mode agent.Mode) error {
+	if trigger.CommentID == 0 && kind != report.ReplyBugUnavailable && kind != report.ReplyMissingModeMapping && kind != report.ReplyMissingTeam && kind != report.ReplyUnsupportedWorkflow {
 		t.log.InfoContext(ctx, "refusing issue-body mode selection; there is no comment to answer")
 		return nil
 	}
 	_, err := d.reportReply(ctx, turn.ReplyRequest{
-		Ref: t.ref, SessionID: t.session.ID, CommentID: trigger.CommentID, Refusal: kind,
+		Ref: t.ref, SessionID: t.session.ID, CommentID: trigger.CommentID, Refusal: kind, MissingMode: mode,
 	})
 	return err
 }
@@ -149,7 +153,7 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 		if !errors.Is(err, store.ErrNotFound) {
 			return "", err
 		}
-		issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.issue.Number)
+		issue, err := d.readIssue(ctx, t.forgeRepo, t.issue.Number)
 		if err != nil {
 			return "", fmt.Errorf("read current mode selection: %w", err)
 		}
@@ -238,7 +242,7 @@ func (d *Daemon) confirmModeSelection(ctx context.Context, t *task, selection st
 	if selection.LabelApplied {
 		return nil
 	}
-	labels, ok := d.forge.(labelForge)
+	labels, ok := d.ticketLabels()
 	if !ok {
 		return fmt.Errorf("mode label transitions unavailable")
 	}
@@ -271,6 +275,10 @@ func (d *Daemon) confirmModeSelection(ctx context.Context, t *task, selection st
 	}
 	if current == "" {
 		if err := labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, selection.Label); err != nil {
+			var missing *ticket.MissingModeMapping
+			if errors.As(err, &missing) && agent.Mode(missing.Mode).Valid() && missing.Mode == selection.Mode {
+				return &modeRefusal{kind: report.ReplyMissingModeMapping, mode: agent.Mode(missing.Mode)}
+			}
 			return fmt.Errorf("apply selected mode label: %w", err)
 		}
 	}
@@ -285,7 +293,7 @@ func (d *Daemon) confirmModeSelection(ctx context.Context, t *task, selection st
 }
 
 func (d *Daemon) currentModeLabel(ctx context.Context, t *task) (string, error) {
-	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.issue.Number)
+	issue, err := d.readIssue(ctx, t.forgeRepo, t.issue.Number)
 	if err != nil {
 		return "", fmt.Errorf("verify mode transition: %w", err)
 	}

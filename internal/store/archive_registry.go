@@ -48,9 +48,6 @@ const (
 	inFT = `(SELECT task_ref FROM ft)`
 
 	subSPR     = `(SELECT run_id FROM story_progress_runs WHERE run_id IN ` + inFR + ` OR parent_task IN ` + inFT + `)`
-	subMeterAt = `(SELECT id FROM meter_attempts WHERE run_id IN ` + inFR + `)`
-	subMeasure = `(SELECT id FROM meter_measurements WHERE attempt_id IN ` + subMeterAt + `)`
-	subValuate = `(SELECT id FROM meter_valuations WHERE measurement_id IN ` + subMeasure + `)`
 	subInst    = `(SELECT id FROM graph_instances WHERE session_id IN ` + inFS + `)`
 	subNodeAt  = `(SELECT id FROM graph_node_attempts WHERE instance_id IN ` + subInst + ` OR run_id IN ` + inFR + `)`
 	subSched   = `(SELECT id FROM schedules WHERE session_id IN ` + inFS + ` OR run_id IN ` + inFR + `)`
@@ -93,16 +90,9 @@ var archiveRegistry = []ArchiveTable{
 	archived("validation_assessments", byRunTask),
 	archived("owner_exceptions", byTask),
 	// Delivery.
+	archived("delivery_pr_bindings", bySession),
 	archived("delivery_proposals", byTask),
 	archived("delivery_readiness", byTask),
-	// Metering.
-	archived("meter_valuation_dimensions", `valuation_id IN `+subValuate),
-	archived("meter_valuations", `measurement_id IN `+subMeasure),
-	archived("meter_checkpoints", `attempt_id IN `+subMeterAt),
-	archived("meter_measurements", `attempt_id IN `+subMeterAt),
-	archived("meter_observations", `attempt_id IN `+subMeterAt),
-	archived("meter_invocations", `attempt_id IN `+subMeterAt),
-	archived("meter_attempts", `id IN `+subMeterAt),
 	// MCP creation.
 	archived("creation_publication_requests", `(run_id IN `+inFR+` OR operation_id IN `+subOps+`)`),
 	archived("creation_publication_artifacts", `operation_id IN `+subOps),
@@ -212,6 +202,10 @@ var archiveRetained = map[string]ArchiveClass{
 	// The family skeleton and the per-task structure that identifies it.
 	"sessions": ArchiveClassSkeleton, "segments": ArchiveClassSkeleton, "runs": ArchiveClassSkeleton,
 	"watermarks": ArchiveClassSkeleton, "retirement_intents": ArchiveClassSkeleton,
+	"session_ticket_identities": ArchiveClassSkeleton, "ticket_effect_identities": ArchiveClassSkeleton,
+	"session_execution_snapshots": ArchiveClassSkeleton,
+	"ticket_effect_preparations":  ArchiveClassSkeleton,
+	"delivery_code_authorities":   ArchiveClassSkeleton, "delivery_control_sources": ArchiveClassSkeleton,
 	"managed_features": ArchiveClassSkeleton, "managed_stories": ArchiveClassSkeleton,
 	"managed_parent_closures": ArchiveClassSkeleton, "approved_story_revisions": ArchiveClassSkeleton,
 	"story_publications": ArchiveClassSkeleton, "story_revision_operations": ArchiveClassSkeleton,
@@ -221,15 +215,50 @@ var archiveRetained = map[string]ArchiveClass{
 	"story_refinement_acks": ArchiveClassSkeleton, "story_discovery": ArchiveClassSkeleton,
 	"story_discovery_pending": ArchiveClassSkeleton, "story_discovery_rotation": ArchiveClassSkeleton,
 	"segment_deliveries": ArchiveClassSkeleton,
+	// Usage and cost records stay live so a project's cumulative meter bound
+	// never drops when a task is archived. The archive clears
+	// meter_attempts.graph_node_attempt_id before deleting the graph attempts.
+	"meter_attempts": ArchiveClassSkeleton, "meter_invocations": ArchiveClassSkeleton,
+	"meter_observations": ArchiveClassSkeleton, "meter_measurements": ArchiveClassSkeleton,
+	"meter_checkpoints": ArchiveClassSkeleton, "meter_valuations": ArchiveClassSkeleton,
+	"meter_valuation_dimensions": ArchiveClassSkeleton,
 	// Finished suite runs and commands have no-delete triggers; they keep only
 	// the instance id and need no graph_instances row.
 	"suite_runs": ArchiveClassSkeleton, "suite_commands": ArchiveClassSkeleton,
 	// Not keyed by one task family. The doctor journal has delete triggers and
 	// holds; a family with doctor references is kept by the pending check.
 	"repos": ArchiveClassGlobal, "identities": ArchiveClassGlobal, "poll_cursor": ArchiveClassGlobal, "repo_poll_cursors": ArchiveClassGlobal, "repo_webhooks": ArchiveClassGlobal,
+	"chat_issue_previews": ArchiveClassGlobal,
+	"chat_inbox":          ArchiveClassGlobal,
+	// Owner/channel dialogue and replay positions span task families. Their
+	// short text and terminal retention belongs to PurgeNaturalChat; cursors
+	// survive archival to prevent old channel requests from being replayed.
+	"chat_natural_dialogues":   ArchiveClassGlobal,
+	"chat_natural_executions":  ArchiveClassGlobal,
+	"chat_natural_messages":    ArchiveClassGlobal,
+	"chat_natural_scans":       ArchiveClassGlobal,
+	"chat_presentation_owners": ArchiveClassGlobal,
+	// Chat delivery state follows its own short retention; source positions
+	// must survive task archival so enabling notices never replays history.
+	"chat_notices":           ArchiveClassGlobal,
+	"chat_notice_positions":  ArchiveClassGlobal,
 	"daemon_listener_status": ArchiveClassGlobal, "repo_discovery_status": ArchiveClassGlobal,
-	"repository_team_bindings": ArchiveClassGlobal,
-	"schema_migrations":        ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
+	"repository_team_bindings":    ArchiveClassGlobal,
+	"project_connection_versions": ArchiveClassGlobal, "project_connections": ArchiveClassGlobal,
+	"project_ticket_bindings": ArchiveClassGlobal, "project_connection_observations": ArchiveClassGlobal,
+	"project_connection_imports":    ArchiveClassGlobal,
+	"project_approver_appointments": ArchiveClassGlobal, "project_approvers": ArchiveClassGlobal,
+	"project_authority_claims": ArchiveClassGlobal, "project_approver_initialization": ArchiveClassGlobal,
+	"project_legacy_approver_eligibility": ArchiveClassGlobal, "project_legacy_approver_identities": ArchiveClassGlobal,
+	"project_legacy_authority_evidence": ArchiveClassGlobal,
+	"doctor_command_sources":            ArchiveClassGlobal,
+	// Subscription ownership and source recovery survive individual task archival.
+	// Pending signals can precede session admission; generations never reset.
+	"ticket_subscriptions": ArchiveClassGlobal, "ticket_subscription_operations": ArchiveClassGlobal,
+	"ticket_recovery_positions": ArchiveClassGlobal, "pending_ticket_observations": ArchiveClassGlobal,
+	"ticket_observation_generations": ArchiveClassGlobal,
+	"ticket_local_slots":             ArchiveClassGlobal,
+	"schema_migrations":              ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
 	"retirement_sweep": ArchiveClassGlobal, "archive_sweep": ArchiveClassGlobal,
 	planArchiveGrantsTable: ArchiveClassGlobal,
 	// Rights are keyed by repository, never archived or deleted.
@@ -252,6 +281,14 @@ var archiveGuardedReferences = map[string]bool{
 	"doctor_inbox": true, "doctor_presentations": true, "doctor_repairs": true,
 	"doctor_local_presentations": true,
 }
+
+// archiveClearedReferences are retained child tables whose reference to an
+// archived parent DeleteArchivedFamily clears before the parent rows go.
+var archiveClearedReferences = map[string]string{"meter_attempts": "graph_node_attempts"}
+
+// archiveClearMeterGraphLinks unlinks the family's retained meter attempts from
+// the graph attempts the archive is about to delete.
+const archiveClearMeterGraphLinks = archiveCTE + `UPDATE meter_attempts SET graph_node_attempt_id=NULL WHERE graph_node_attempt_id IN ` + subNodeAt
 
 // ArchiveRegistry returns every classified table: archived tables first in
 // DELETE order, then the rest by name. The result is a copy.
@@ -365,6 +402,7 @@ func (db *DB) ArchiveRegistryProblems(ctx context.Context) ([]string, error) {
 			case child == parent:
 			case parentArchived && childArchived && cp > pp:
 				problems = append(problems, fmt.Sprintf("%s is deleted after its parent %s", child, parent))
+			case parentArchived && !childArchived && archiveClearedReferences[child] == parent:
 			case parentArchived && !childArchived && !archiveGuardedReferences[child]:
 				problems = append(problems, fmt.Sprintf("retained %s references archived %s", child, parent))
 			}

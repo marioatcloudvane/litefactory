@@ -20,10 +20,16 @@ import (
 //	wait          nothing to act on (no reply yet, a refused command, or a
 //	              recorded verdict or choice)
 //	create_issue  the owner chose an issue for a finding
+//	repair        the owner chose repair, and every blocking finding of the
+//	              tested commit now has a choice: one repair round starts for
+//	              all findings chosen for repair (only when the graph declares
+//	              the outcome; otherwise the choice waits as before)
 //	push          the owner confirmed push
 //	merge         the owner confirmed merge
 //	close         the owner confirmed close
 //	stale         the branch head or the report revision moved
+//	implement     the owner sent the blocking findings back to Implement (only
+//	              when the graph declares the outcome)
 //
 // /validate-ship records the open checks as passed and defers the open optional
 // findings, then returns the first undone delivery step. Push and merge come
@@ -36,9 +42,12 @@ type ValidateResolveActivity struct{ b ValidateFlowBindings }
 
 // Execute resolves one entry of the step.
 func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
-	if _, err := loadValidateStep(ctx, opts, req, h.b.Profile, graphexec.ValidateResolveAction); err != nil {
+	step, err := loadValidateStep(ctx, opts, req, h.b.Profile, graphexec.ValidateResolveAction)
+	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
+	repairs := slices.Contains(step.node.Outcomes, "repair")
+	implements := slices.Contains(step.node.Outcomes, "implement")
 	if !h.b.Delivery.ready() {
 		return ActivityResult{Diagnostic: "validate owner steps lack delivery bindings"}, errors.New("validate owner steps lack delivery bindings")
 	}
@@ -76,6 +85,9 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 	}
 
 	owner, err := h.b.Delivery.OwnerID(ctx, opts)
+	if opts.ProjectApprovers && !isValidateCodeControlBody(wait.ReplyBody) {
+		owner, err = ticketOwnerID(ctx, opts)
+	}
 	if err != nil || owner < 1 {
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
 	}
@@ -84,7 +96,7 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 	}
 	// A reply this run already acted on (a restart replays the step) goes to the
 	// same step again. Every step recovers on its own, so nothing is done twice.
-	if outcome, ok := replayedValidateReply(ctx, opts, st, wait.ReplyID); ok {
+	if outcome, ok := replayedValidateReply(ctx, opts, st, wait.ReplyID, repairs); ok {
 		if isValidateShipReply(wait.ReplyBody) {
 			// A ship reply may have recorded its checks and choices without
 			// reaching its first step: carry on from what is recorded.
@@ -138,6 +150,15 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		}
 		if _, err := opts.DB.PutValidateChoice(ctx, store.ValidateChoice{InstanceID: req.InstanceID, Commit: st.Commit, Finding: f.ID, Choice: cmd.Choice, IssueKind: cmd.IssueKind, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, CreatedAt: now}); err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, err
+		}
+		if cmd.Choice == store.ChoiceRepair && repairs {
+			after, err := LoadValidateState(ctx, opts, h.b.Profile, req.InstanceID)
+			if err != nil {
+				return ActivityResult{Diagnostic: err.Error()}, err
+			}
+			if after.ownerRepairReady() {
+				return h.accept(ctx, opts, req, after, now, "repair", "repair chosen")
+			}
 		}
 		if cmd.Choice != store.ChoiceIssue {
 			return h.accept(ctx, opts, req, st, now, "wait", "choice recorded")
@@ -196,7 +217,25 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 			return ActivityResult{Diagnostic: err.Error()}, err
 		}
 		return h.accept(ctx, opts, req, st, now, "close", "close confirmed")
+	case ValidateImplementCommand:
+		switch {
+		case !implements:
+			return refuse("wait", "This Validate run has no step that hands findings back to Implement. "+validateNewSnapshotStep)
+		case st.Reimplementing:
+			return refuse("wait", fmt.Sprintf("The findings of commit `%s` were already sent back to Implement.", short(st.Commit)))
+		case !st.Assessed:
+			return refuse("wait", "/validate-implement is refused: the assessment of this commit is not recorded yet.")
+		case len(st.implementTargets()) == 0:
+			return refuse("wait", fmt.Sprintf("/validate-implement is refused: no story has a failed or unverified criterion or a blocking review on commit `%s`, so Implement has nothing to repair.", short(st.Commit)))
+		}
+		return h.accept(ctx, opts, req, st, now, "implement", "implement confirmed")
 	case ValidateShipCommand:
+		if opts.ProjectApprovers && validateShipSettlesTicketDecisions(st) {
+			approver, err := ticketOwnerID(ctx, opts)
+			if err != nil || wait.ReplyAuthorID != approver {
+				return refuse("wait", "The project ticket approver must settle acceptance checks and finding choices before the code owner can ship.")
+			}
+		}
 		if blockers := st.shipBlockers(); len(blockers) > 0 {
 			return refuse("wait", "/validate-ship is refused and nothing was recorded: "+strings.Join(blockers, " "))
 		}
@@ -355,9 +394,31 @@ func validateResolveResult(outcome, what string, st ValidateState) (ActivityResu
 	return validateJSONResult(outcome, map[string]any{"outcome": outcome, "detail": what, "commit": st.Commit, "revision": st.Revision, "ready": st.Ready})
 }
 
+// ownerRepairReady says a repair round may start for the owner's choices: at
+// least one finding is chosen for repair and every blocking finding has a
+// choice. Pending owner checks do not hold the round back, because a kept repair
+// is a new snapshot on which the checks are asked again.
+func (s ValidateState) ownerRepairReady() bool {
+	chosen := false
+	for _, f := range s.Findings {
+		if !f.needsChoice() {
+			continue
+		}
+		if f.Choice == nil {
+			if f.Blocking {
+				return false
+			}
+			continue
+		}
+		chosen = chosen || f.Choice.Choice == store.ChoiceRepair
+	}
+	return chosen
+}
+
 // replayedValidateReply finds what an owner reply already did: the step that
-// carries its confirmation on, or wait when it only recorded a verdict or choice.
-func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, commentID int64) (string, bool) {
+// carries its confirmation on, repair when it was the repair choice that
+// started a round, or wait when it only recorded a verdict or choice.
+func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, commentID int64, repairs bool) (string, bool) {
 	effects, err := opts.DB.ListValidateEffects(ctx, st.InstanceID)
 	if err == nil {
 		for _, e := range effects {
@@ -377,9 +438,21 @@ func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, 
 		}
 	}
 	for _, f := range st.Findings {
+		if f.Choice != nil && f.Choice.CommentID == commentID && f.Choice.Choice == store.ChoiceRepair && repairs && st.ownerRepairReady() {
+			return "repair", true
+		}
 		if f.Choice != nil && f.Choice.CommentID == commentID || f.Verdict != nil && f.Verdict.CommentID == commentID {
 			return "wait", true
 		}
 	}
 	return "", false
+}
+
+func validateShipSettlesTicketDecisions(st ValidateState) bool {
+	for _, f := range st.Findings {
+		if f.State == findingAwaitingCheck || (f.Optional && f.needsChoice() && f.Choice == nil) {
+			return true
+		}
+	}
+	return false
 }

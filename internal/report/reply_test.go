@@ -1,6 +1,7 @@
 package report_test
 
 import (
+	"github.com/cloudvane/litefactory/internal/agent"
 	"strings"
 	"testing"
 
@@ -80,7 +81,7 @@ func TestRenderReplyGraphOwnerWaitRefused(t *testing.T) {
 		t.Fatalf("RenderReply: %v", err)
 	}
 	text := body.String()
-	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "already handling another reply or question") || !strings.Contains(text, "nothing was run") {
+	if !strings.HasPrefix(text, report.ReplyMarker(testRef)) || !strings.Contains(text, "already handling another reply or question") || !strings.Contains(text, "already answered") || !strings.Contains(text, "nothing was run") {
 		t.Fatalf("reply:\n%s", text)
 	}
 	kind := report.ReplyGraphOwnerWaitRefused
@@ -129,5 +130,25 @@ func TestRenderReplyGraphResumeRefused(t *testing.T) {
 	}
 	if kind.String() != "graph_resume_refused" || !kind.RefusesMode() || kind.RefusesTools() || kind.RefusesAgent() || kind.RefusesSwitch() || kind.RefusesSync() || kind.IsConfirmationReply() {
 		t.Fatal("wrong refusal family")
+	}
+}
+
+func TestMissingModeMappingReply(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+	for _, mode := range []string{"research", "spike", "<!-- injected -->"} {
+		body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: report.ReplyMissingModeMapping, MissingMode: agent.Mode(mode)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := body.String()
+		containsAll(t, "mapping refusal", text, "Nothing was run", "--mode-labels", "label the issue with a mapped mode", "comment again")
+		if mode == "<!-- injected -->" {
+			if strings.Contains(text, mode) {
+				t.Fatal("unvalidated mode echoed")
+			}
+		} else if !strings.Contains(text, "`"+mode+"`") {
+			t.Fatalf("mode missing: %s", text)
+		}
 	}
 }

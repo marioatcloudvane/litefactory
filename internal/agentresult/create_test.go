@@ -576,3 +576,35 @@ func TestSnapshotJSONSchema_MetadataVersions(t *testing.T) {
 		}
 	}
 }
+
+// TestCreate_ImplementDeviations checks that a completed Implement result may
+// record the worker's own decisions as short lines and that blank, multi-line,
+// oversized or too many lines are refused.
+func TestCreate_ImplementDeviations(t *testing.T) {
+	r, c := createFixture("implement", "completed")
+	r.Payload.Implement.Deviations = []string{"Chose best-effort delivery with a nonce because Discord dedups only for minutes (bot/discord.go:42)."}
+	assertValid(t, r, c)
+	got, d := ar.Create([]byte(`{"result":{"outcome":"completed","comment":"Recorded meaningful work.","payload":{"implement":{"stories":[{"story":"US-001","outcome":"engineering_complete","engineering":{"snapshot_id":"snapshot-1","check_ids":["check-1"]}}],"deviations":["Kept the old name for callers (a.go:1)."]}}}}`), c)
+	if !d.Valid || len(got.Payload.Implement.Deviations) != 1 || got.Payload.Implement.Deviations[0] != "Kept the old name for callers (a.go:1)." {
+		t.Fatalf("payload.implement.deviations decodes: %+v %+v", d, got.Payload.Implement)
+	}
+	many := make([]string, ar.MaxImplementDeviations+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("Decision %d (a.go:%d).", i, i+1)
+	}
+	for name, lines := range map[string][]string{
+		"blank":     {"  "},
+		"multiline": {"first line\nsecond line"},
+		"oversized": {strings.Repeat("x", ar.MaxImplementDeviationBytes+1)},
+		"too many":  many,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, c := createFixture("implement", "completed")
+			r.Payload.Implement.Deviations = lines
+			d := ar.ValidateResult(r, c)
+			if d.Valid || !strings.Contains(fmt.Sprint(d.Diagnostics), "deviations") {
+				t.Fatalf("invalid deviations accepted: %+v", d)
+			}
+		})
+	}
+}

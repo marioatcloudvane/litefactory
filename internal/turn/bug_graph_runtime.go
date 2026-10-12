@@ -16,7 +16,13 @@ import (
 
 // NewGraphBugRuntime activates only the complete supported simplified package.
 func NewGraphBugRuntime(ctx context.Context, opts Options, cfg BugRuntimeConfig) (*BugRuntime, error) {
-	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || cfg.Forge == nil || cfg.OwnerID < 1 || cfg.Permissions == nil {
+	if cfg.Code == nil {
+		cfg.Code = cfg.Forge
+	}
+	if cfg.Tickets == nil {
+		cfg.Tickets = cfg.Forge
+	}
+	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || (cfg.Code == nil || cfg.Tickets == nil) || cfg.OwnerID < 1 || cfg.Permissions == nil {
 		return nil, errors.New("simplified Bug requires concrete source, result, owner, reporter and delivery bindings")
 	}
 	if err := ctx.Err(); err != nil {
@@ -77,6 +83,17 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 			}
 			return store.WorkflowAdmission{}, e
 		}
+	}
+	// Execute holds the task lock. Only a fresh authenticated owner comment may
+	// restart a launch that failed before any execution or publication began.
+	untouched := false
+	if e == nil && instance.Status == store.GraphRunning && req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.cfg.OwnerID {
+		untouched, e = r.untouchedGraphLaunch(ctx, instance)
+		if e != nil {
+			return store.WorkflowAdmission{}, e
+		}
+	}
+	if e == nil && instance.Status == store.GraphRunning && !untouched {
 		if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 			wait, e := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
 			if e != nil {
@@ -109,7 +126,7 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 		}
 		return retainedAdmission(ctx, r.opts.DB, req, instance, "bug"), nil
 	}
-	if !errors.Is(e, store.ErrNotFound) {
+	if e != nil && !errors.Is(e, store.ErrNotFound) {
 		return store.WorkflowAdmission{}, e
 	}
 	if store.IsGraphTrigger(req.Trigger.CommentID) {
@@ -133,15 +150,58 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 	return r.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Workflow: "bug", SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: r.definition.Profile.Start, ContentDigest: r.definition.Digest, TopologyDigest: topology, Files: raw, Provenance: store.WorkflowProvenance(r.definition.Origin), Reply: req.Trigger.Body})
 }
 
+// untouchedGraphLaunch is deliberately limited to the failed bootstrap shape.
+// The caller has already checked the supported pin; absence of a wait alone
+// never authorizes restarting work, and failed reads never count as absence.
+func (r *BugRuntime) untouchedGraphLaunch(ctx context.Context, instance store.GraphInstance) (bool, error) {
+	if instance.Status != store.GraphRunning || instance.CurrentNode != r.definition.Profile.Start || !instance.NextDueAt.IsZero() || !instance.FinishedAt.IsZero() {
+		return false, nil
+	}
+	if _, err := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID); !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	if _, err := r.opts.DB.LatestGraphDispatch(ctx, instance.ID); !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	attempts, err := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+	if err != nil || len(attempts) != 0 {
+		return false, err
+	}
+	runs, err := r.opts.DB.ListRuns(ctx, instance.SessionID)
+	if err != nil || len(runs) != 0 {
+		return false, err
+	}
+	transitions, err := r.opts.DB.ListGraphTransitions(ctx, instance.ID)
+	if err != nil || len(transitions) != 0 {
+		return false, err
+	}
+	comments, err := r.opts.DB.ListGraphComments(ctx, instance.ID, "", 1)
+	if err != nil || len(comments) != 0 {
+		return false, err
+	}
+	return true, nil
+}
+
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {
 	local := *r
 	r = &local
+	if r.opts.ProjectApprovers {
+		var err error
+		r.opts, err = bindProjectApprover(ctx, r.opts, req.SessionID)
+		if err != nil {
+			return result, err
+		}
+		r.cfg.OwnerID, err = ticketOwnerID(ctx, r.opts)
+		if err != nil {
+			return result, err
+		}
+	}
 	result.ResearchGraph = true
 	admission, e := r.graphAdmission(ctx, req)
 	if e != nil {
 		return result, e
 	}
-	if !store.IsGraphTrigger(req.Trigger.CommentID) {
+	if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 		if _, e = r.opts.ResearchReporter.Consume(ctx, req.SessionID, req.Trigger.CommentID); e != nil {
 			return result, e
 		}
@@ -200,7 +260,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		suffix := retained + "\n<note>Factory source preparation.\n" + sourceNote + "</note>\n"
 		return w.finishRoute(ctx, route, &request, suffix, w.prep.promptInput.SessionArtifactDir)
 	}
-	finalization := GraphBugFinalization{Forge: r.cfg.Forge, Redactor: r.opts.MCP.Redactor, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery}
+	finalization := GraphBugFinalization{Code: r.cfg.Code, Tickets: r.cfg.Tickets, Redactor: r.opts.MCP.Redactor, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery}
 	policy := SimplifiedBugPolicy{Profile: r.definition.Profile, Reporter: r.opts.ResearchReporter, Analyst: GraphBugAnalystActivity{Prepare: func(ctx context.Context, o Options, a ActivityRequest, c agentresult.Context, s string) (ResearchInvocation, error) {
 		if e := prepareWith(false)(ctx, o, a); e != nil {
 			return ResearchInvocation{}, e
@@ -351,7 +411,7 @@ func (r *BugRuntime) resolveGraphDelivery(ctx context.Context, _ Options, a Acti
 	if e != nil {
 		return GraphDeliveryBinding{}, e
 	}
-	repo, e := r.opts.DB.GetRepo(ctx, s.RepoID)
+	repo, e := executionRepository(ctx, r.opts.DB, s)
 	if e != nil {
 		return GraphDeliveryBinding{}, e
 	}
@@ -362,7 +422,7 @@ func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a Activit
 	if e != nil {
 		return "", e
 	}
-	repo, e := r.opts.DB.GetRepo(ctx, s.RepoID)
+	repo, e := executionRepository(ctx, r.opts.DB, s)
 	if e != nil {
 		return "", e
 	}
@@ -373,6 +433,9 @@ func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a Activit
 	defer release()
 	clone, e := r.opts.Git.Open(ctx, repo.Path)
 	if e != nil {
+		return "", e
+	}
+	if e := verifyExecutionClone(ctx, r.opts, s, clone); e != nil {
 		return "", e
 	}
 	result, e := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: s.WorktreePath, Branch: s.Branch, BaseBranch: repo.BaseBranch})
@@ -399,7 +462,7 @@ func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a Activit
 	if e != nil {
 		return e
 	}
-	repo, e := r.opts.DB.GetRepo(ctx, s.RepoID)
+	repo, e := executionRepository(ctx, r.opts.DB, s)
 	if e != nil {
 		return e
 	}
@@ -410,6 +473,9 @@ func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a Activit
 	defer release()
 	clone, e := r.opts.Git.Open(ctx, repo.Path)
 	if e != nil {
+		return e
+	}
+	if e := verifyExecutionClone(ctx, r.opts, s, clone); e != nil {
 		return e
 	}
 	result, e := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: s.WorktreePath, Branch: s.Branch, BaseBranch: repo.BaseBranch})

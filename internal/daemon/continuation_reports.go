@@ -38,7 +38,7 @@ func (d *Daemon) replayInterruptionReports(ctx context.Context, repos []store.Re
 			continue
 		}
 		if err := d.replayInterruptionReport(ctx, run, session); err != nil {
-			if isRecoveryPending(err) {
+			if isRecoveryPending(err) || (d.scopedQuotaDeferred(sessionContext(ctx, session.ID), err)) {
 				continue
 			}
 			failures = append(failures, err)

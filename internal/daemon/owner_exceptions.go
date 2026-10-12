@@ -19,7 +19,7 @@ func (e turnExecutor) ApplyOwnerException(ctx context.Context, c turn.OwnerExcep
 // handleOwnerException follows the normal numeric filter admission, with an
 // explicit second identity guard. No agent dispatch or implicit mode change.
 func (d *Daemon) handleOwnerException(ctx context.Context, t *task, c github.Comment, log *slog.Logger) error {
-	owner := d.filter.Identities().OwnerUserID
+	owner := d.ticketIdentities(ctx).OwnerUserID
 	if owner < 1 || c.Author.ID != owner {
 		return fmt.Errorf("owner exception requires numeric owner identity")
 	}

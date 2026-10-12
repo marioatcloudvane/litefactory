@@ -1,5 +1,5 @@
 # Python and FastAPI guidance
-Python 3.14, FastAPI 0.142.x and Pydantic 2 use exact release pins from supported-versions.md. Use typed request and response models with explicit validation, constrained fields and documented errors. Do not expose persistence objects or secrets through response serialization. Respect repository conventions for Pydantic strictness and coercion.
+Use the repository's Python, FastAPI and Pydantic versions; see supported-versions.md for manifest selection and conditional checks. Use typed request and response models with explicit validation, constrained fields and documented errors. Do not expose persistence objects or secrets through response serialization. Respect repository conventions for Pydantic strictness and coercion.
 
 Use dependency injection with explicit request versus application lifetimes. Initialize shared clients in lifespan and close them on shutdown; yield dependencies release resources on every path. Override dependencies in API tests and restore overrides after each fixture.
 

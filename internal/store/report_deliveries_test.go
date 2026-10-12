@@ -169,3 +169,54 @@ func TestReportDeliveryRunlessSyntheticAndRefinementAccounting(t *testing.T) {
 		})
 	}
 }
+
+func TestBodyRefusalCompletionIsAtomic(t *testing.T) {
+	db := newTestDB(t)
+	session := testSession(t, db, 124)
+	if _, _, err := db.BootstrapTicketWatermark(t.Context(), session.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetOrCreateModeSelection(t.Context(), ModeSelection{SessionID: session.ID, Mode: "research", Label: "Mode: Research"}); err != nil {
+		t.Fatal(err)
+	}
+	intent := reportIntent(session, Run{})
+	intent.TriggerNamespace, intent.Purpose = "issue-body", "reply:missing_mode_mapping"
+	if _, err := db.EnsureReportDelivery(t.Context(), intent); err != nil {
+		t.Fatal(err)
+	}
+	assertPending := func(want bool) {
+		t.Helper()
+		pending, err := db.TicketBodyPending(t.Context(), session.ID)
+		if err != nil || pending != want {
+			t.Fatalf("pending=%v want %v: %v", pending, want, err)
+		}
+	}
+	if _, err := db.CompleteReportDelivery(t.Context(), intent.Key); err == nil {
+		t.Fatal("unconfirmed completion")
+	}
+	assertPending(true)
+	if _, err := db.ConfirmReportDelivery(t.Context(), intent.Key, 500); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.sql.ExecContext(t.Context(), `CREATE TRIGGER reject_body_completion BEFORE UPDATE OF completed ON report_deliveries BEGIN SELECT RAISE(ABORT,'completion fault'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CompleteReportDelivery(t.Context(), intent.Key); err == nil {
+		t.Fatal("fault not exercised")
+	}
+	assertPending(true)
+	selection, err := db.GetModeSelection(t.Context(), session.ID, 0)
+	if err != nil || selection.CleanupPending {
+		t.Fatalf("cleanup escaped transaction: %+v %v", selection, err)
+	}
+	if _, err := db.sql.ExecContext(t.Context(), `DROP TRIGGER reject_body_completion`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CompleteReportDelivery(t.Context(), intent.Key); err != nil {
+		t.Fatal(err)
+	}
+	assertPending(false)
+	if _, found, err := db.PendingModeCleanup(t.Context(), session.ID); err != nil || !found {
+		t.Fatalf("missing cleanup: %v %v", found, err)
+	}
+}

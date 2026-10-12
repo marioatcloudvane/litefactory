@@ -1,0 +1,5 @@
+--- FAIL: TestCanonicalMigrationAndGraphContracts (2.02s)
+    release_test.go:267: validate graph changed beyond team and guidance
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamrelease	126.235s
+FAIL

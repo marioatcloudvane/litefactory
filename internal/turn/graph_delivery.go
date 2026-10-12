@@ -39,6 +39,8 @@ type GraphDeliveryBinding struct {
 // reply re-runs this step from the top.
 type GraphBugFinalization struct {
 	Forge    DeliveryOperations
+	Code     BugCodeForge
+	Tickets  BugCloseForge
 	Redactor *redact.Redactor
 	Resolve  func(context.Context, Options, ActivityRequest, GraphBugRepairEligibility) (GraphDeliveryBinding, error)
 	// Save commits the worktree (a no-op when clean) and returns HEAD.
@@ -58,6 +60,12 @@ type graphDeliveryProgress struct {
 
 // Execute saves, pushes, opens or finds the PR, merges it and closes the issue.
 func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+	if h.Code == nil {
+		h.Code = h.Forge
+	}
+	if h.Tickets == nil {
+		h.Tickets = h.Forge
+	}
 	out := graphDeliveryProgress{Record: "delivery_progress"}
 	finish := func(outcome, reason string) (ActivityResult, error) {
 		out.Outcome, out.Reason = outcome, reason
@@ -71,7 +79,7 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 		}
 		return ActivityResult{Outcome: outcome, Diagnostic: diagnostic, Kind: store.GraphOutputJSON, Output: raw}, e
 	}
-	if opts.DB == nil || h.Forge == nil || h.Redactor == nil || h.Resolve == nil || h.Save == nil || h.PublishSaved == nil || req.Workflow != agent.WorkflowBug || req.Mode != "" {
+	if opts.DB == nil || (h.Code == nil || h.Tickets == nil) || h.Redactor == nil || h.Resolve == nil || h.Save == nil || h.PublishSaved == nil || req.Workflow != agent.WorkflowBug || req.Mode != "" {
 		return ActivityResult{}, errors.New("incomplete graph finalization factory bindings")
 	}
 	eligibility, e := CurrentGraphBugRepairEligibility(ctx, opts.DB, req.InstanceID)
@@ -104,7 +112,7 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 			if pe != nil {
 				return finish("blocked", "Rendering the PR failed: "+pe.Error())
 			}
-			created, ce := h.Forge.CreateDeliveryPR(ctx, repo, binding.Branch, binding.Target, title, body)
+			created, ce := h.Code.CreateDeliveryPR(ctx, repo, binding.Branch, binding.Target, title, body)
 			if ce != nil {
 				// A lost reply may still have created it; look before reporting.
 				if pr, found, e = h.findPR(ctx, binding, head); e != nil || !found {
@@ -115,13 +123,13 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 			}
 		}
 		out.PR = pr
-		if me := h.Forge.MergeDeliveryPR(ctx, repo, pr.Number, head); me != nil {
+		if me := h.Code.MergeDeliveryPR(ctx, repo, pr.Number, head); me != nil {
 			// The merge may have happened despite the error; look before reporting.
-			if again, ge := h.Forge.GetDeliveryPR(ctx, repo, pr.Number); ge != nil || !again.Merged {
+			if again, ge := h.Code.GetDeliveryPR(ctx, repo, pr.Number); ge != nil || !again.Merged {
 				return finish("blocked", fmt.Sprintf("Merging PR #%d failed: %s. Reply to retry once GitHub allows the merge.", pr.Number, me.Error()))
 			}
 		}
-		if pr, e = h.Forge.GetDeliveryPR(ctx, repo, pr.Number); e != nil {
+		if pr, e = h.Code.GetDeliveryPR(ctx, repo, pr.Number); e != nil {
 			return finish("blocked", fmt.Sprintf("Reading PR #%d after merging failed: %s", out.PR.Number, e.Error()))
 		}
 		if !pr.Merged {
@@ -131,7 +139,7 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 	out.PR = pr
 	out.Integration = true
 
-	if e = h.Forge.CloseDeliveredParent(ctx, repo, binding.IssueNumber, binding.IssueID); e != nil {
+	if e = h.Tickets.CloseDeliveredParent(ctx, repo, binding.IssueNumber, binding.IssueID); e != nil {
 		return finish("blocked", fmt.Sprintf("Merged PR #%d, but closing issue #%d failed: %s", pr.Number, binding.IssueNumber, e.Error()))
 	}
 	out.Closed = true
@@ -142,7 +150,10 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 // else an open one. A closed or older merged PR does not count, so a new
 // repair generation gets a new PR.
 func (h GraphBugFinalization) findPR(ctx context.Context, b GraphDeliveryBinding, head string) (github.DeliveryPR, bool, error) {
-	prs, e := h.Forge.ListDeliveryPRs(ctx, b.Repository, b.Branch)
+	if h.Code == nil {
+		h.Code = h.Forge
+	}
+	prs, e := h.Code.ListDeliveryPRs(ctx, b.Repository, b.Branch)
 	if e != nil {
 		return github.DeliveryPR{}, false, e
 	}

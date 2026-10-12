@@ -47,6 +47,27 @@ func TestDotnetWebReleaseGenerationAndExactInstall(t *testing.T) {
 			put(t, filepath.Join(root, dir, name), raw)
 		}
 	}
+	// Canonical source may advance independently of immutable published releases.
+	// Choose a fixture-only version, never changing repository release metadata.
+	metadataPath := filepath.Join(root, dotnetSource, "release.json")
+	metadata, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var candidate map[string]any
+	if err := json.Unmarshal(metadata, &candidate); err != nil {
+		t.Fatal(err)
+	}
+	candidate["version"] = "9999.0.0"
+	candidate["download"] = "dotnet-web/v9999.0.0"
+	metadata, err = json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, metadataPath, metadata)
+	if err := GenerateSources(t.Context(), root, false, []string{dotnetSource}); err != nil {
+		t.Fatal(err)
+	}
 	before := snapshot(t, filepath.Join(root, "teams"))
 	if err := GenerateSources(t.Context(), root, true, []string{dotnetSource}); err != nil {
 		t.Fatal(err)
@@ -237,7 +258,9 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web")), released) {
+		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
+		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))
+		if !bytes.Equal(want, released) {
 			t.Fatal("team selection changed shared graph gates", mode)
 		}
 	}

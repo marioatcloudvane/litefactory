@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -15,6 +17,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -183,6 +186,11 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Connections selects saved project and execution versions; nil supports legacy callers.
+	Connections *projectconnection.Factory
+
+	// Tickets qualifies authenticated legacy ingress before authority decisions.
+	Tickets TicketIngress
 	// Doctor is the independent diagnostic service; nil disables dispatch.
 	Doctor *doctor.Service
 
@@ -204,6 +212,14 @@ type Options struct {
 	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
 	// False disables automatic recovery without affecting manual schedules.
 	AutoResumeOnSessionLimit bool
+
+	// MinFreeDiskBytes holds every run dispatch while the DiskPath volume has
+	// less free space; owed work stays pending. 0 disables the guard.
+	MinFreeDiskBytes uint64
+	// DiskPath is the directory whose volume is measured, normally $LF_HOME.
+	DiskPath string
+	// FreeDiskBytes reads available bytes; nil uses the filesystem.
+	FreeDiskBytes func(path string) (uint64, error)
 
 	// ValidateAutoStart is the loaded validate.auto_start setting: when true the
 	// daemon starts Validate by itself for each finished Implement parent. The
@@ -302,6 +318,8 @@ type Options struct {
 	// listener and lets them wake a scoped pass. Nil leaves the daemon on its
 	// heartbeat and poll alone.
 	Webhook *WebhookOptions
+	// Chat enables the read-only messaging service.
+	Chat *ChatOptions
 
 	// MaxConcurrentRuns is how many runs may be in flight at the same instant,
 	// daemon-wide across every repository (D2). Zero means
@@ -400,12 +418,14 @@ type Daemon struct {
 	archive      ArchiveOptions
 	housekeeping *Housekeeping
 
-	db        *store.DB
-	forge     Forge
-	filter    Classifier
-	turn      Executor
-	reporter  Reporter
-	proposals ProposalGenerator
+	connections *projectconnection.Factory
+	db          *store.DB
+	forge       Forge
+	filter      Classifier
+	tickets     TicketIngress
+	turn        Executor
+	reporter    Reporter
+	proposals   ProposalGenerator
 	// confirmer and conflictProposalTTL are US-12's confirmation-dispatch
 	// dependencies; see [Options.Confirmer] and [Options.ConflictProposalTTL].
 	confirmer           ConfirmApplier
@@ -413,6 +433,9 @@ type Daemon struct {
 	instanceID          string
 	// Loaded once at startup, shared by dispatch and pending recovery cancellation.
 	autoResumeOnSessionLimit bool
+	minFreeDiskBytes         uint64
+	diskPath                 string
+	freeDiskBytes            func(path string) (uint64, error)
 	validateAutoStart        bool
 	validateHead             func(ctx context.Context, session store.Session) (string, error)
 	// toolProfiles and toolCeiling are the operator's tool configuration as it
@@ -432,14 +455,25 @@ type Daemon struct {
 	digest       digest
 	fates        commentFates
 	webhook      *webhookRuntime
+	chat         *chatRuntime
 	grace        time.Duration
 	log          *slog.Logger
 	lock         *Lock
 	now          func() time.Time
 	ticks        <-chan time.Time
 
+	// chatBeat, chatWait, chatHandler and chatStatus carry chat that may be
+	// built after start: chatBeat is set in New when chat is configured,
+	// chatWait while the bot token is unresolved. chatHandler and chatStatus
+	// are read by the webhook server and the health publisher.
+	chatBeat    chan struct{}
+	chatWait    *chatPending
+	chatHandler atomic.Pointer[http.Handler]
+	chatStatus  atomic.Pointer[string]
+
 	discovery          discoveryBudget
 	backoff            backoff
+	quotas             connectionQuotas
 	inflight           inflight
 	stoppedDebt        stoppedResults
 	recoveries         reportRecoveryCache
@@ -458,8 +492,9 @@ type Daemon struct {
 	// are not, and they deliberately have no mutex: they are read and written
 	// only by [Daemon.dispatch], on the Tick goroutine, which is never
 	// concurrent with itself, and no worker can reach them.
-	lastRepoID        int64
-	repoSessionCursor map[int64]int64
+	lastRepoID               int64
+	repoSessionCursor        map[int64]int64
+	pendingObservationCursor map[int64]int
 }
 
 // New builds a daemon from its dependencies.
@@ -504,6 +539,8 @@ func New(opts Options) (*Daemon, error) {
 		bug:                      opts.Bug,
 		forge:                    opts.Forge,
 		filter:                   opts.Filter,
+		tickets:                  opts.Tickets,
+		connections:              opts.Connections,
 		turn:                     opts.Turn,
 		reporter:                 opts.Reporter,
 		diagnosticRedactor:       opts.DiagnosticRedactor,
@@ -516,6 +553,9 @@ func New(opts Options) (*Daemon, error) {
 		archive:                  opts.Archive,
 		housekeeping:             newHousekeeping(opts.Housekeeping, opts.Logger),
 		autoResumeOnSessionLimit: opts.AutoResumeOnSessionLimit,
+		minFreeDiskBytes:         opts.MinFreeDiskBytes,
+		diskPath:                 opts.DiskPath,
+		freeDiskBytes:            opts.FreeDiskBytes,
 		validateAutoStart:        opts.ValidateAutoStart,
 		validateHead:             opts.ValidateHead,
 		// Copied, like every other tool list that crosses a boundary in this
@@ -540,9 +580,15 @@ func New(opts Options) (*Daemon, error) {
 
 		repoSessionCursor: make(map[int64]int64),
 	}
+	if d.connections != nil {
+		d.connections.SetRequestContext(d.bindQuotaRequest)
+	}
 	if opts.Webhook != nil {
 		d.webhook = newWebhookRuntime(*opts.Webhook, opts.Logger)
 		d.webhook.schedule = d.schedule
+	}
+	if err := d.initChat(opts.Chat); err != nil {
+		return nil, err
 	}
 	return d, nil
 }
@@ -623,6 +669,26 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 	reconciliation, err := d.db.ReconcileOrphans(ctx, d.instanceID)
 	if err != nil {
 		return Reconciled{}, fmt.Errorf("reconcile what a previous daemon left behind: %w", err)
+	}
+
+	if d.connections != nil {
+		projects, e := d.db.ListRepos(ctx)
+		if e != nil {
+			return Reconciled{}, e
+		}
+		for _, project := range projects {
+			if e = d.db.RecoverProjectWorkerClaims(ctx, project.ID); e != nil {
+				if !errors.Is(e, store.ErrApproverBusy) {
+					return Reconciled{}, e
+				}
+				// Outstanding work keeps the worker claims; they only bar an
+				// approver replacement and are released on a later idle start.
+				d.log.WarnContext(ctx, "project worker claims kept at startup; outstanding work remains", slog.Int64("project", project.ID), slog.Any("error", e))
+			}
+			if e = d.db.RecoverConsumedProjectAuthorityClaims(ctx, project.ID); e != nil {
+				return Reconciled{}, e
+			}
+		}
 	}
 
 	if d.bug != nil {
@@ -857,6 +923,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 
+	d.chatServe(webCtx, &serving)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -943,6 +1010,7 @@ func (d *Daemon) beat(ctx context.Context, source string) bool {
 		// now would only produce a run to abandon.
 		return false
 	}
+	d.chatWake()
 	if _, err := d.Tick(withWakeSource(ctx, source)); err != nil {
 		if isRecoveryPending(err) {
 			return true

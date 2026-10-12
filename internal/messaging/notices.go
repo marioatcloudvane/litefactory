@@ -1,0 +1,432 @@
+package messaging
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf16"
+
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
+	"github.com/cloudvane/litefactory/internal/store"
+)
+
+// NoticeEvent is a transport-neutral projection of a durable factory event.
+type NoticeEvent struct {
+	Key, Kind, Workflow, From, To, Question, QuestionLink string
+	// Title is the issue title read live for the notice; Asked names what an
+	// owner wait asks for (question or review).
+	Title, Asked string
+	Task         naming.Ref
+	RunID        int64
+	At           time.Time
+	Usage        *report.MeterSummary
+}
+
+// NoticeEvents maps source facts to stable event identities. Graph node
+// transitions and same-mode follow-on runs are intentionally silent.
+func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
+	parked := source == "owner_waits" && r.StopOrigin != "" && r.StopCause != "diagnosis_question" && r.StopCause != "diagnosis_review"
+	if r.Ignore || (!r.Ready && !parked) {
+		return nil, nil
+	}
+	ref, err := naming.ParseRef(r.TaskRef)
+	if err != nil {
+		return nil, err
+	}
+	e := NoticeEvent{Task: ref, Workflow: r.Workflow, RunID: r.Run.ID, At: r.At}
+	switch source {
+	case "run_starts":
+		// A further run in the same mode continues work already announced,
+		// including a run recovered after a daemon restart.
+		if r.PreviousMode != "" && r.PreviousMode == r.Workflow {
+			return nil, nil
+		}
+		e.Key = fmt.Sprintf("run:%d:start", r.ID)
+		e.Kind = "started"
+		if r.PreviousMode != "" {
+			e.From = r.PreviousMode
+			e.To = r.Workflow
+		}
+	case "run_finishes":
+		e.Key = fmt.Sprintf("run:%d:finish", r.ID)
+		e.Kind = "failed"
+		if _, ok := r.Run.OwnerStop(); ok {
+			e.Kind = "stopped"
+		} else if strings.HasPrefix(r.Run.Error, "abandoned:") {
+			// The daemon abandoned the run in process, as on shutdown;
+			// recovery relaunches it silently, so it is not a failure.
+			return nil, nil
+		} else if r.Run.Succeeded() {
+			e.Kind = "completed"
+		}
+	case "transitions":
+		// Graph node moves stay within one graph instance, and so within one
+		// mode; they are factory internals, never owner notices.
+		return nil, nil
+	case "owner_waits":
+		// Only a published wait that still waits for the owner is announced.
+		published := r.State == "waiting" && r.Published
+		e.Key = "wait:" + r.Key + "@" + store.FormatTime(r.At) + "@" + r.TaskRef
+		e.Kind = "waiting for you"
+		// Asked names the wait in plain words. A review-ready Bug analysis is
+		// read on GitHub; its full text never enters the notice.
+		switch r.StopCause {
+		case "diagnosis_review":
+			e.Asked = "Bug analysis ready for your approval"
+		case "diagnosis_question":
+			e.Asked = "Bug analysis question"
+		default:
+			e.Asked = noticeAsked(r.Workflow, r.Kind)
+		}
+		if r.Kind == "question" && r.StopCause != "diagnosis_review" {
+			e.Question, err = noticeQuestion(r.Candidate, r.StopReason)
+			if err != nil {
+				return nil, err
+			}
+		}
+		e.QuestionLink = fmt.Sprintf("%s#issuecomment-%d", ref.IssueURL(), r.CommentID)
+		if parked {
+			stopped := e
+			stopped.Key = "stop:" + r.Key + "@" + store.FormatTime(r.At) + "@" + r.TaskRef
+			// An owner-cancelled run and its parked graph are the same stop.
+			// Other graph parking is a separate event from the source run finish.
+			if _, ownerStop := r.Run.OwnerStop(); ownerStop {
+				stopped.Key = fmt.Sprintf("run:%d:finish", r.Run.ID)
+			}
+			stopped.Kind = "stopped"
+			stopped.Question = ""
+			stopped.QuestionLink = ""
+			stopped.Asked = ""
+			if published {
+				return []NoticeEvent{stopped, e}, nil
+			}
+			return []NoticeEvent{stopped}, nil
+		}
+		if !published {
+			return nil, nil
+		}
+	default:
+		return nil, errors.New("unknown notice source")
+	}
+	return []NoticeEvent{e}, nil
+}
+
+func noticeQuestion(candidate []byte, reason string) (string, error) {
+	var text struct {
+		Questions []struct {
+			Text string `json:"text"`
+		} `json:"questions"`
+		Reason string `json:"reason"`
+		Text   string `json:"text"`
+	}
+	if err := json.Unmarshal(candidate, &text); err != nil {
+		return "", fmt.Errorf("notice question: %w", err)
+	}
+	parts := []string{}
+	for _, q := range text.Questions {
+		if q.Text != "" {
+			parts = append(parts, q.Text)
+		}
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, "\n"), nil
+	}
+	if reason != "" {
+		return reason, nil
+	}
+	if text.Reason != "" {
+		return text.Reason, nil
+	}
+	if text.Text != "" {
+		return text.Text, nil
+	}
+	return "Owner input requested.", nil
+}
+
+// NoticeText keeps a notice to a few lines: what happened and to which issue,
+// one link, and at most one short sentence of an owner question. Details are
+// read on the forge. The budget counts UTF-16 units used by chat APIs.
+func NoticeText(e NoticeEvent) string {
+	issue := fmt.Sprintf("#%d", e.Task.Issue)
+	if e.Title != "" {
+		issue += " " + e.Title
+	}
+	header := fmt.Sprintf("%s: %s (%s)", e.Kind, issue, e.Workflow)
+	if e.Asked != "" {
+		header += " — " + e.Asked
+	}
+	if e.Usage != nil && (e.Kind == "completed" || e.Kind == "failed" || e.Kind == "stopped") {
+		if cost := noticeUsage(e.Usage); cost != "" {
+			header += " — " + cost
+		}
+	}
+	link := e.Task.IssueURL()
+	if e.QuestionLink != "" {
+		link = e.QuestionLink
+	}
+	header += "\n" + link
+	if e.From != "" {
+		header += fmt.Sprintf("\nMode: %s → %s", e.From, e.To)
+	}
+	if q := noticeSentence(e.Question); q != "" {
+		header += "\n" + noticeLimit(q, min(noticeQuestionLimit, max(0, 1900-noticeUnits(header)-1)))
+	}
+	return noticeLimit(header, 1900)
+}
+
+// noticeQuestionLimit caps the one sentence of a question a notice shows.
+const noticeQuestionLimit = 160
+
+// noticeAsked names a generic wait, for example "Research question".
+func noticeAsked(workflow, kind string) string {
+	if workflow == "" {
+		return kind
+	}
+	return strings.ToUpper(workflow[:1]) + workflow[1:] + " " + kind
+}
+
+// noticeSentence keeps the first line of the text, cut after its first
+// sentence.
+func noticeSentence(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	for i := 0; i+1 < len(s); i++ {
+		if (s[i] == '.' || s[i] == '?' || s[i] == '!') && s[i+1] == ' ' {
+			return s[:i+1]
+		}
+	}
+	return s
+}
+func noticeUnits(s string) int { return len(utf16.Encode([]rune(s))) }
+func noticeLimit(s string, limit int) string {
+	if noticeUnits(s) <= limit {
+		return s
+	}
+	if limit < 1 {
+		return ""
+	}
+	var b strings.Builder
+	units := 0
+	for _, r := range s {
+		n := 1
+		if r > 0xffff {
+			n = 2
+		}
+		if units+n > limit-1 {
+			break
+		}
+		b.WriteRune(r)
+		units += n
+	}
+	b.WriteRune('…')
+	return b.String()
+}
+
+// noticeUsage is one short cost phrase, or nothing when no cost is known.
+func noticeUsage(s *report.MeterSummary) string {
+	prefix, value := "about", s.EstimatedUSD
+	if value == nil {
+		prefix, value = "at least about", s.PricedSubtotalUSD
+	}
+	if value == nil {
+		return ""
+	}
+	usd, err := strconv.ParseFloat(*value, 64)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s $%.2f", prefix, usd)
+}
+
+// NoticeCollector reads existing tables only and writes chat-owned state. It
+// runs solely in the sender goroutine; failures never enter run execution.
+type NoticeCollector struct {
+	DB                 *store.DB
+	Transport, Channel string
+	Logger             *slog.Logger
+	Protect            func(context.Context, string) (string, error)
+	// Issues reads issue titles live; nil or a failed read posts without one.
+	Issues NoticeIssues
+}
+
+// NoticeIssues is the forge read notices use for issue titles.
+type NoticeIssues interface {
+	GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error)
+}
+
+// Collect does nothing when notices are off. Each source is independent: an
+// error in one source cannot keep other sources from collecting their events.
+func (c *NoticeCollector) Collect(ctx context.Context, at time.Time) error {
+	if c.Channel == "" {
+		return nil
+	}
+	if err := c.DB.InitNoticePositions(ctx, c.Transport, at); err != nil {
+		return err
+	}
+	var errs []error
+	titles := make(map[string]string)
+	for _, source := range []string{"run_starts", "run_finishes", "transitions", "owner_waits"} {
+		if err := c.collectSource(ctx, source, at, titles); err != nil {
+			errs = append(errs, fmt.Errorf("collect %s: %w", source, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+func (c *NoticeCollector) collectSource(ctx context.Context, source string, at time.Time, titles map[string]string) error {
+	before, records, err := c.DB.ListNoticeRecords(ctx, c.Transport, source, at)
+	if err != nil {
+		return err
+	}
+
+	after := before
+	after.Pending = []int64{}
+	after.Seen = make(map[string]string)
+	for id, fingerprint := range before.Seen {
+		_, stamp, ok := strings.Cut(fingerprint, "@")
+		if !ok {
+			continue
+		}
+		eventAt, err := time.Parse(time.RFC3339Nano, stamp)
+		if err != nil {
+			return err
+		}
+		if at.Sub(eventAt) <= 24*time.Hour {
+			after.Seen[id] = fingerprint
+		}
+	}
+	notices := []store.ChatNotice{}
+	for _, r := range records {
+		after.LastID = max(after.LastID, r.ID)
+		if source == "transitions" || source == "owner_waits" {
+			after.Seen[strconv.FormatInt(r.ID, 10)] = r.TaskRef + "@" + store.FormatTime(r.At)
+		}
+		if !r.Ready {
+			after.Pending = append(after.Pending, r.ID)
+			if r.StopOrigin == "" {
+				continue
+			}
+		}
+		if !r.Ignore && at.Sub(r.At) > 24*time.Hour {
+			if c.Logger != nil && r.Ready {
+				c.Logger.WarnContext(ctx, "skipping stale chat notice", slog.String("source", source), slog.Int64("record_id", r.ID))
+			}
+			continue
+		}
+
+		events, err := NoticeEvents(source, r)
+		if err != nil {
+			return err
+		}
+		for _, event := range events {
+			// A parked stop is already history at first enable; its future question
+			// publication can still be noticed through the unresolved wait.
+			if source == "owner_waits" && event.Kind == "stopped" && r.ID <= before.InitialID && !r.At.After(before.InitialAt) {
+				continue
+			}
+			if event.RunID > 0 && (event.Kind == "completed" || event.Kind == "failed" || event.Kind == "stopped") {
+				event.Usage, err = c.runUsage(ctx, event.RunID)
+				if err != nil {
+					return err
+				}
+			}
+			event.Title = c.issueTitle(ctx, event.Task, titles)
+			text := NoticeText(event)
+			if c.Protect != nil {
+				text, err = c.Protect(ctx, text)
+				if err != nil {
+					return err
+				}
+			}
+			notices = append(notices, store.ChatNotice{TaskRef: event.Task.String(), ChatReply: store.ChatReply{Transport: c.Transport, MessageID: event.Key, ChannelRef: c.Channel, Command: event.Kind, CreatedAt: at, ReplyText: text}})
+		}
+	}
+	if len(records) == 0 && len(before.Seen) == len(after.Seen) {
+		return nil
+	}
+	return c.DB.AdmitNotices(ctx, c.Transport, before, after, notices)
+}
+
+// issueTitle reads each task's title once per Collect pass. A missing reader
+// or a failed read yields no title, and the notice still posts.
+func (c *NoticeCollector) issueTitle(ctx context.Context, ref naming.Ref, titles map[string]string) string {
+	if c.Issues == nil || ref.Forge != "github" {
+		return ""
+	}
+	key := ref.String()
+	if title, ok := titles[key]; ok {
+		return title
+	}
+	issue, err := c.Issues.GetIssue(ctx, github.Repo{Owner: ref.Owner, Name: ref.Repo}, ref.Issue)
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.WarnContext(ctx, "chat notice issue title unavailable", slog.String("task", key), slog.Any("error", err))
+		}
+		issue.Title = ""
+	}
+	titles[key] = issue.Title
+	return issue.Title
+}
+
+func (c *NoticeCollector) runUsage(ctx context.Context, runID int64) (summary *report.MeterSummary, err error) {
+	snapshot, err := c.DB.NewMeterSnapshot(ctx, store.MeterFilter{RunID: runID}, store.MeterSnapshotOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, snapshot.Close(ctx)) }()
+	for {
+		rows, e := snapshot.Next(ctx, 256)
+		if e != nil {
+			return nil, e
+		}
+		if len(rows) == 0 {
+			break
+		}
+		if summary == nil {
+			summary = &report.MeterSummary{}
+		}
+		for _, row := range rows {
+			if e = summary.Add(report.MeterValues{Tokens: agent.TokenUsage(row.Tokens), EstimatedUSD: row.EstimatedUSD, PricedSubtotalUSD: row.PricedSubtotalUSD, PriceRevisionID: row.PriceRevisionID, CollectionStatus: row.CollectionStatus, PricingStatus: row.PricingStatus, Diagnostics: row.Diagnostics}); e != nil {
+				return nil, e
+			}
+		}
+	}
+	return summary, nil
+}
+
+// NoticeStep uses the command sender's retry policy and neutral transport. The
+// event key becomes the channel post's nonce key, with no interaction handle.
+func (s *Service) NoticeStep(ctx context.Context, at time.Time) (bool, error) {
+	r, err := s.db.ClaimChatNotice(ctx, s.transport, at)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	failed := !at.Before(r.CreatedAt.Add(24 * time.Hour))
+	if !failed {
+		d := s.sender.Deliver(ctx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Notice: true}, r.ReplyText)
+		if !d.Confirmed && !d.Permanent {
+			if s.Logger != nil {
+				s.Logger.WarnContext(ctx, "chat notice delivery failed; retrying", slog.String("event_key", r.MessageID))
+			}
+			return true, s.db.RetryChatNotice(ctx, r, retryAt(r, at, d.RetryAfter), at)
+		}
+		failed = !d.Confirmed
+	}
+	err = s.db.FinishChatNotice(ctx, r, failed, at)
+	if err == nil && failed && s.Logger != nil {
+		s.Logger.WarnContext(ctx, "chat notice failed permanently or exceeded its retry window", slog.String("event_key", r.MessageID))
+	}
+	return true, err
+}

@@ -1,125 +1,91 @@
 # litefactory
-A lightweight Software Factory
 
-## Built-in agents
+**Your issue tracker is the interface. Coding agents are the workforce. You stay the owner.**
 
-Agents ship with litefactory and need no team selection or installation. Register
-any supported repository with `litefactory repo add /absolute/path/to/project`.
+litefactory is a self-hosted software factory. You write an issue; it researches the
+problem, plans it into stories, builds them in parallel with Claude Code and Codex,
+validates the result against the plan and hands you a report. Nothing ships until you
+say so. It runs as a single Go daemon on your own machine, with your own agents,
+your own keys and a local SQLite database.
 
-## Starting Validate
-
-After Implement has merged every approved story, the owner starts Validate with
-`/validate <note>` on the parent issue. Validate tests the exact commit the
-integration branch is at when it starts; starting it twice for the same commit
-gives one run. It is refused, with a plain reply, while Implement is still
-running, waiting or has parked stories. To let the factory start it by itself,
-set (default `false`, loaded at daemon start):
-
-```yaml
-validate:
-  auto_start: true
+```
+issue ──► Research ──► Plan ──► Implement ──► Validate ──► you ship
+            │            │          │             │
+         findings    stories    parallel      suite, repair,
+         questions   approvals  worktrees     3 reviewers
 ```
 
-## Automatic recovery after session limits
+## Why it is different
 
-Automatic quota recovery is disabled by default. To opt in for both Claude Code
-and Codex, set the following global option in your litefactory configuration:
+- **Workflows are graphs, not prompts.** Research, Plan, Implement, Validate, Bug and
+  Spike are DOT graphs shipped in versioned team packages. Every node, outcome and
+  loop bound is declared and checked before a run starts. No hidden control flow in
+  agent prose.
+- **You approve content, not vibes.** Plan approvals are bound to content hashes per
+  story and stage (story, technical, acceptance), plus a final approval of the whole
+  plan set. Change a story and its approval is stale. Every gate is an explicit
+  owner command on the issue.
+- **Agents hand in typed results.** Every node returns through a shared MCP result
+  protocol with preflight, submit and receipt. Printed terminal text never counts as
+  a result.
+- **Nothing reaches main behind your back.** Validate tests the exact commit, repairs
+  failures within a bounded budget and lets three independent reviewers judge
+  criteria, code and architecture. You get one traffic-light report and decide:
+  ship, repair, open a follow-up or close.
 
-```yaml
-settings:
-  auto_resume_on_session_limit: true
+## What you get
+
+| | |
+|---|---|
+| **Research** | Investigates the issue against the real code, asks you only what it cannot decide, and proposes a scope. |
+| **Plan** | Splits the work into stories with acceptance criteria written as human checks, at most one automated end-to-end test per story, and task owners from your team. |
+| **Implement** | Runs each story in its own git worktree and branch, in parallel, merges finished stories into a feature branch, and resolves merge conflicts with the story worker. Your answers to blocked workers become recorded decisions. |
+| **Validate** | Full test suite, bounded repair rounds, criteria/code/architecture reviews with your Implement decisions in view, owner checks for what only a person can verify, and `/validate-ship` when you are satisfied. |
+| **Bug** | Analysis first, fix only after you approve it, tests and a delivery PR that merges itself once green. |
+| **Spike** | `/spike`: a small, time-boxed experiment that answers one narrow question in a single report, with no plan and no pull request. |
+| **Teams** | Immutable, versioned team packages (roles, skills, graphs, stack profiles) for Go, Python/FastAPI, Swift/iOS and .NET. Install, clone, link per repository. |
+| **Two agents** | Claude Code and Codex side by side, per-mode model tiers, permission profiles, and read-only sandboxes for reviewers. |
+| **Meter** | Tokens and cost per project, task, mode, agent and model, against an immutable price catalogue, with CSV export. Unknown coverage is shown as unknown, never guessed. |
+| **Doctor** | `/doctor` explains why an issue is stuck and proposes typed repairs (release, resume, park, stop, requeue, sync) that you apply with a backup and a recheck. |
+| **Recovery** | Startup recovery of interrupted work, automatic resume after provider session limits, deploys that wait for idle, worktree retention and cleanup. |
+| **Chat** | Discord: health, status, project questions with sourced answers, meter reports, diagnoses, answering Research questions and drafting new feature issues from a conversation. Owner-only, signature-verified. |
+| **Fast triggers** | GitHub webhooks wake the daemon within seconds; polling stays on as a safety net. |
+
+Linear support is on the way, behind the same neutral ticket protocol.
+
+## Quick start
+
+```sh
+litefactory init                                   # config, database, identities
+litefactory repo add /absolute/path/to/your/clone  # register a repository
+litefactory team install go-development            # or python-fastapi, swift-ios, dotnet-web
+litefactory team link go-development <version> --repo /absolute/path/to/your/clone
+litefactory daemon start                           # launchd agent on macOS
+litefactory daemon status
 ```
 
-Configuration is loaded when the daemon starts; there is no hot reload. Restart
-the daemon after changing the setting. Omitting the key or setting it to `false`
-disables automatic recovery and leaves manual `/schedule` commands available.
-Loading `false` permanently cancels pending automatic recoveries; enabling it
-again does not revive them.
+Then open an issue in that repository and comment with what you want. The factory
+picks it up, and every step after that is a reply on the issue.
 
-Only a verified terminal provider quota refusal with a usable conversation
-identity and a reliable future reset time can schedule recovery. The factory
-persists the continuation before announcing its absolute UTC `/schedule` time.
-That comment describes the saved action; it does not create a second schedule.
-Recovery resumes the same conversation, request and worktree. Interrupted partial
-work remains uncommitted under the ordinary failure policy.
+Requirements: macOS, Go, git, the GitHub CLI and at least one of Claude Code or Codex.
 
-Claude's exact reset timestamp gets an extra 60 elapsed seconds. Codex's displayed
-local minute is interpreted in the machine's local timezone, rounded to its next
-minute boundary, then given another 60 elapsed seconds: a displayed 15:00 reset
-is eligible at 15:02. Agent timezones are not overridden. Ambiguous dates or DST
-times, contradictory timezone information, and missing, malformed or stale reset
-times are reported for manual recovery. Persisted UTC deadlines remain unchanged
-if the machine's timezone later changes; capacity and normal backoff can delay
-launch beyond the deadline.
+## Day to day
 
-A recovery chain permits at most **three actual automatic invocations** after the
-original interruption. Each further retry needs newly verified quota/reset
-evidence; reservation and report-delivery retries do not consume attempts. When
-the budget is exhausted, the conversation identity is unusable, or the failure is
-not a supported quota refusal, the report requests manual recovery. Automatic
-recovery never silently starts a new conversation. New admitted owner work,
-conversation reset, changed agent/mode/segment, or observed issue closure cancels
-stale recovery permanently. Schedule controls alone do not supersede unrelated
-work. After resolving a report-only failure, the owner can issue a new instruction
-or manually schedule work on the issue.
+```sh
+litefactory logs <issue> -f          # follow one issue's local log
+litefactory meter <repo> <issue>     # what did this cost?
+litefactory doctor <repo> <issue> "why is this stuck?"
+```
 
-## Webhooks and polling
+On the issue: `/approve-plan …`, `/approve-plan-set …`, `/implement <instructions>`,
+`/validate <instructions>`, `/validate-finding …`, `/validate-check …`,
+`/validate-ship …`, `/approve-bug analysis N`, `/doctor …`. Each command is
+explained by the reply that asks for it.
 
-litefactory can react to issues and comments within seconds when GitHub sends it a webhook; polling (`settings.poll_interval_minutes`) stays on as a safety net. Set `webhook.public_url` and run `litefactory repo webhook --all` to register the hooks. See [docs/features/github-webhooks.md](docs/features/github-webhooks.md) for setup, security and troubleshooting.
+## Documentation
 
-## Reading polling diagnostics
-
-The INFO tick summary counts workers and forge discovery, using these explicit
-names alongside compatible legacy aliases:
-
-| Field | Legacy alias | Meaning |
-|---|---|---|
-| `workers_dispatched` | `dispatched` | Worker handoffs during this tick, including routine polling. |
-| `workers_in_flight` | `in_flight` | Workers held in the in-flight set when the tick finished dispatching. |
-| `forge_issues` | `issues` | Issues discovered through forge issue/comment listings; excludes local managed registry and backlog enrollment. |
-
-Each alias has exactly the same value as its explicit counterpart. In-flight
-counts are snapshots, not promises about the next instant or counts of prepared
-agent runs. Two eligible open managed parents can produce two workers on every
-tick even with `forge_issues=0` and no pending backlog: registered parents are
-polled so new child input is detected without a parent timestamp change.
-
-At DEBUG, `worker dispatched` names `repo`, canonical `task`, `session_id`, and
-`dispatch_sources`: `forge_discovery`, `managed_registry`, `backlog`,
-`due_schedule`, or `automatic_continuation`. Sources describe enrollment, not
-proof of actionable work. Scheduled and continuation workers also carry their
-durable `schedule_id` or `continuation_id`; `tick_at` groups events for the tick.
-
-Each admitted worker normally ends with DEBUG `worker finished`, carrying the
-same context, elapsed `duration`, `status`, and `execution_requests`. The latter
-counts calls to the executor, including failed calls and lock refusals; it is
-not a prepared-run, process-launch, or success count. Zero requests can still
-include useful control work such as replies or scheduling. Worker status is
-`completed`, `deferred`, `failed`, or `cancelled`, independent of agent success.
-The event follows worker body cleanup and in-flight release; pool release comes
-after it, so it does not promise a free pool slot. Quiesce joins this diagnostic.
-Panics and process death are outside the normal-return guarantee.
-
-`turn complete` remains a per-trigger event: a worker can handle multiple
-triggers before it finishes. INFO `run prepared` establishes that a run was
-prepared; it does not establish process launch, completion, or success.
-
-For pending or uncertain report delivery, see [report recovery](docs/report-recovery.md).
-It describes retained content, bounded retry diagnostics and safe investigation.
-
-## Structured story contracts
-
-[The operator protocol](docs/story-contract.md) describes typed Plan sections,
-helper feedback, evidence lists, editable issue reconciliation and explicit legacy
-upgrade. Preview an existing unfinished feature with
-`litefactory story-contract upgrade github:owner/repo#123`; only `--apply` changes
-its contract. Completed history and persisted workflow remain unchanged.
-
-[The instruction manifest](docs/story-contract-instruction-manifest.md) records
-shared-source targets, isolated rendering and the manual opposite-harness handoff.
-Authentic helper/correction/receipt evidence from both harnesses remains a separate
-operator prerequisite; synthetic checks do not establish that runtime capability.
-
-Daily cleanup of finished task worktrees and merged branches, the advisory
-`task retire` preview, and retirement logs are described in
-[Retiring finished work](docs/retirement.md).
+- [Getting started](docs/getting-started/README.md): installation and GitHub setup
+- [Guides](docs/guides/README.md): working with issues, workflow, validation and delivery
+- [CLI](docs/cli/README.md) and [configuration](docs/configuration/README.md)
+- [Operations](docs/operations/README.md): running the daemon, recovery, cleanup, costs
+- [Discord setup and use](docs/discord.md) and [workflow internals](docs/workflow/)

@@ -148,3 +148,69 @@ func TestEnsureImplementStoriesRefusesInvalidInput(t *testing.T) {
 		t.Error("story without branch accepted")
 	}
 }
+
+// TestSetImplementDeviationsRoundTripsAndReplaces checks that a running story
+// keeps its worker's deviations, a later answer replaces them, the revision is
+// left alone and a story that is not running is refused.
+func TestSetImplementDeviationsRoundTripsAndReplaces(t *testing.T) {
+	db := newTestDB(t)
+	seedImplement(t, db, "a", "b")
+	if _, err := move(t, db, "a", ImplementWaiting, ImplementRunning, 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	const first = "Chose best-effort delivery (bot.go:12).\nKept the old route name (api.go:3)."
+	if err := db.SetImplementDeviations(t.Context(), "github:o/r#1", 1, "a", first, implementT0); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetImplementStory(t.Context(), "github:o/r#1", 1, "a")
+	if err != nil || got.Deviations != first || got.Revision != 2 {
+		t.Fatalf("deviations kept without a revision bump: %+v %v", got, err)
+	}
+	if err := db.SetImplementDeviations(t.Context(), "github:o/r#1", 1, "a", "", implementT0); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = db.GetImplementStory(t.Context(), "github:o/r#1", 1, "a"); err != nil || got.Deviations != "" {
+		t.Fatalf("a later answer replaces the list: %+v %v", got, err)
+	}
+	if err := db.SetImplementDeviations(t.Context(), "github:o/r#1", 1, "b", "x", implementT0); !errors.Is(err, ErrImplementConflict) {
+		t.Fatalf("a waiting story is refused: %v", err)
+	}
+	if err := db.SetImplementDeviations(t.Context(), "", 1, "a", "x", implementT0); err == nil {
+		t.Fatal("invalid scope accepted")
+	}
+	rows, err := db.ListImplementStories(t.Context(), "github:o/r#1", 1)
+	if err != nil || len(rows) != 2 || rows[1].Deviations != "" {
+		t.Fatalf("other stories carry none: %+v %v", rows, err)
+	}
+}
+
+func TestTransitionImplementStoryReopensMergedWithFindings(t *testing.T) {
+	db := newTestDB(t)
+	seedImplement(t, db, "a")
+	steps := []struct {
+		from, to string
+		extra    func(*ImplementTransition)
+	}{
+		{ImplementWaiting, ImplementRunning, nil},
+		{ImplementRunning, ImplementDone, nil},
+		{ImplementDone, ImplementMerged, func(in *ImplementTransition) { in.MergeCommit = "abc" }},
+	}
+	for i, s := range steps {
+		if _, err := move(t, db, "a", s.from, s.to, int64(i+1), s.extra); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := move(t, db, "a", ImplementMerged, ImplementWaiting, 4, nil); !errors.Is(err, ErrImplementTransition) {
+		t.Fatalf("a reopen without findings must be refused: %v", err)
+	}
+	got, err := move(t, db, "a", ImplementMerged, ImplementWaiting, 4, func(in *ImplementTransition) { in.Guidance = "fix a:C1" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != ImplementWaiting || got.MergeCommit != "" || got.Guidance != "fix a:C1" || got.Attempts != 0 || got.WorkerSession != 0 || got.LastFailure != "" || got.GuidanceQuestion != "" || got.Revision != 5 {
+		t.Fatalf("reopened row = %+v", got)
+	}
+	if _, err := move(t, db, "a", ImplementMerged, ImplementWaiting, 4, func(in *ImplementTransition) { in.Guidance = "again" }); !errors.Is(err, ErrImplementConflict) {
+		t.Fatalf("a repeated reopen must lose the compare-and-set: %v", err)
+	}
+}

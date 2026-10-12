@@ -5,12 +5,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/teampackage"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/turn"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -111,4 +115,75 @@ func TestInvalidSecondSourceLeavesWholePublicationUnchanged(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, filepath.Join(root, "teams"))) || !reflect.DeepEqual(mutated, snapshot(t, filepath.Join(root, "internal"))) {
 		t.Fatal("invalid batch changed publication or materialized source")
 	}
+}
+
+// Exercise canonical source closure without generating or modifying published releases.
+func TestCanonicalPlanTaskOwnersSurviveRetainedReplay(t *testing.T) {
+	for _, root := range []string{"internal/teamsource", "internal/teamsource/python-fastapi", "internal/teamsource/swift-ios", "teams/source/dotnet-web"} {
+		t.Run(root, func(t *testing.T) {
+			source := os.DirFS(filepath.Join("../..", root))
+			raw, err := os.ReadFile(filepath.Join("../..", root, config.StackProfilePath))
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile, err := config.ResolveStackProfile(raw, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			guidance, err := teamsource.CaptureStackGuidance(t.Context(), source, profile.Effective)
+			if err != nil {
+				t.Fatal(err)
+			}
+			team := filepath.Base(root)
+			if team == "teamsource" {
+				team = "go-development"
+			}
+			definition := capture(t, source, "plan", team)
+			if err := teamsource.AttachStackProfile(t.Context(), definition, profile, strings.Repeat("a", 40), guidance); err != nil {
+				t.Fatal(err)
+			}
+			if err := canonicalPlanOwnerCheck(definition); err != nil {
+				t.Fatal(err)
+			}
+			replay, err := teamsource.CaptureWorkflowIdentity(t.Context(), teamsource.RetainedFiles(definition.Files), "plan.dot", team, agent.WorkflowPlan, registry(t, "plan"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := canonicalPlanOwnerCheck(replay); err != nil {
+				t.Fatal(err)
+			}
+			if replay.Digest != definition.Digest {
+				t.Fatal("retained replay changed capture")
+			}
+			// Model the missing declaration bug, leaving the attached stack profile intact.
+			for _, role := range []string{"implementation-engineer", "integration-test-engineer", "unit-test-engineer"} {
+				delete(replay.Files, "skills/plan-acceptance-shaping/"+role+".md")
+			}
+			if err := canonicalPlanOwnerCheck(replay); err == nil {
+				t.Fatal("missing declarations passed source/release coverage")
+			}
+			if _, err := turn.PlanContentScope(replay); err == nil || err.Error() != "plan scope: release declares no task owners" {
+				t.Fatalf("missing declarations: %v", err)
+			}
+		})
+	}
+}
+
+func canonicalPlanOwnerCheck(d *teamsource.WorkflowDefinition) error {
+	want := []string{"implementation-engineer", "integration-test-engineer", "unit-test-engineer"}
+	owners, err := teamsource.TaskOwnerRoles(d)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(owners, want) {
+		return fmt.Errorf("Plan task owners = %v; want %v", owners, want)
+	}
+	scope, err := turn.PlanContentScope(d)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(scope.Roles, want) {
+		return fmt.Errorf("Plan scope roles = %v; want %v", scope.Roles, want)
+	}
+	return nil
 }

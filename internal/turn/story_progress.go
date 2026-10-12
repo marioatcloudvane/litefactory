@@ -42,6 +42,7 @@ type StoryProgress struct {
 	mu       sync.Mutex
 	db       *store.DB
 	forge    StoryProgressForge
+	code     CodeDelivery
 	renderer StoryProgressRenderer
 	botID    int64
 	lockDir  string
@@ -50,7 +51,7 @@ type StoryProgress struct {
 // NewStoryProgress validates shared dependencies once at daemon startup.
 // lockDir is the trusted config.Paths.StoryProgressLocksDir; every service
 // observing this database must share it. It must not be inside an agent worktree.
-func NewStoryProgress(db *store.DB, forge StoryProgressForge, renderer StoryProgressRenderer, botID int64, lockDir string) (*StoryProgress, error) {
+func NewStoryProgress(db *store.DB, forge StoryProgressForge, renderer StoryProgressRenderer, botID int64, lockDir string, code ...CodeDelivery) (*StoryProgress, error) {
 	if db == nil || forge == nil || renderer == nil || botID < 1 || lockDir == "" {
 		return nil, fmt.Errorf("story progress dependencies missing")
 	}
@@ -64,7 +65,17 @@ func NewStoryProgress(db *store.DB, forge StoryProgressForge, renderer StoryProg
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("story progress lock directory is not a real directory")
 	}
-	return &StoryProgress{db: db, forge: forge, renderer: renderer, botID: botID, lockDir: lockDir}, nil
+	var delivery CodeDelivery
+	if len(code) > 1 {
+		return nil, fmt.Errorf("one code delivery dependency is required")
+	}
+	if len(code) == 1 {
+		delivery = code[0]
+	} else {
+		// Explicit legacy constructor compatibility for saved callers and fixtures.
+		delivery, _ = forge.(CodeDelivery)
+	}
+	return &StoryProgress{db: db, forge: forge, code: delivery, renderer: renderer, botID: botID, lockDir: lockDir}, nil
 }
 
 // Register binds the factory-selected bundle to its trusted worktree transport.
@@ -214,6 +225,11 @@ func (p *StoryProgress) poll(ctx context.Context) error {
 }
 
 func (p *StoryProgress) pollParent(ctx context.Context, parent string, finishID int64, reason string) (err error) {
+	if session, e := p.db.GetSessionByTaskRef(ctx, parent); e == nil {
+		ctx = ExecutionContext(ctx, session.ID)
+	} else if !errors.Is(e, store.ErrNotFound) {
+		return e
+	}
 	release, err := p.db.LockStoryProgress(ctx, parent, p.lockDir)
 	if err != nil {
 		return err
@@ -515,6 +531,10 @@ func (p *StoryProgress) deliverParent(ctx context.Context, parent string) error 
 	return errors.Join(faults...)
 }
 func (p *StoryProgress) deliverOne(ctx context.Context, f store.StoryProgressEffect) error {
+	publisherID, publisherErr := p.ticketPublisherID(ctx, f.Parent)
+	if publisherErr != nil {
+		return publisherErr
+	}
 	ref, err := naming.ParseRef(f.Parent)
 	if err != nil {
 		return err
@@ -531,14 +551,14 @@ func (p *StoryProgress) deliverOne(ctx context.Context, f store.StoryProgressEff
 	if live.ID != f.IssueID || parent.ID != f.ParentID || parent.Number != ref.Issue {
 		return fmt.Errorf("progress target identity changed")
 	}
-	n := report.StoryProgressNotice{Parent: ref, Generation: f.Generation, RunID: f.RunID, EffectID: f.ID, Sequence: f.Sequence, Story: f.Story, Revision: f.Revision, Kind: f.Kind, Detail: f.Detail, ImplementationDigest: f.ImplementationDigest}
+	n := report.StoryProgressNotice{Parent: ref, ParentURL: parent.HTMLURL, Generation: f.Generation, RunID: f.RunID, EffectID: f.ID, Sequence: f.Sequence, Story: f.Story, Revision: f.Revision, Kind: f.Kind, Detail: f.Detail, ImplementationDigest: f.ImplementationDigest}
 	if f.CommentID == 0 {
 		comments, err := p.forge.ListCommentsAfter(ctx, repo, f.IssueNumber, 0)
 		if err != nil {
 			return err
 		}
 		for _, c := range comments {
-			if c.Author.ID == p.botID && exactProgressMarker(c.Body, n.Marker()) {
+			if !hasTicketNoticeGuard(p.forge) && c.Author.ID == publisherID && exactProgressMarker(c.Body, n.Marker()) {
 				f.CommentID = c.ID
 				break
 			}
@@ -548,9 +568,12 @@ func (p *StoryProgress) deliverOne(ctx context.Context, f store.StoryProgressEff
 			if err != nil {
 				return err
 			}
-			posted, err := p.forge.PostComment(ctx, repo, f.IssueNumber, body)
+			posted, err := postTicketNotice(ctx, p.forge, n.Marker(), f.Parent, publisherID, repo, f.IssueNumber, body)
 			if err != nil {
 				return err
+			}
+			if posted.ID < 1 || posted.Author.ID != publisherID {
+				return fmt.Errorf("progress report provenance mismatch")
 			}
 			f.CommentID = posted.ID
 		}

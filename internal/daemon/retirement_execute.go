@@ -93,7 +93,8 @@ func (d *Daemon) executeRetirement(ctx context.Context, sweepID string, ownerID 
 		}
 		LogRetirement(ctx, d.log, sweepID, "outcome", false, evaluation)
 		if err != nil {
-			d.log.ErrorContext(ctx, "retirement execution incomplete", slog.String("sweep", sweepID), slog.Int64("owner", ownerID))
+			attrs := append([]slog.Attr{slog.String("sweep", sweepID), slog.Int64("owner", ownerID)}, retirementErrorAttrs(err)...)
+			d.log.LogAttrs(ctx, slog.LevelError, "retirement execution incomplete", attrs...)
 		}
 	}()
 	issues := o.Issues
@@ -299,7 +300,8 @@ func (d *Daemon) executeRetirement(ctx context.Context, sweepID string, ownerID 
 				}
 				decision.Action = "unknown"
 				decision.Reason = "mutation_failed_or_uncertain"
-				d.log.ErrorContext(ctx, "retirement mutation failed", slog.String("sweep", sweepID), slog.String("task", owner.Session.TaskRef), slog.String("resource", decision.Resource))
+				attrs := append([]slog.Attr{slog.String("sweep", sweepID), slog.String("task", owner.Session.TaskRef), slog.String("resource", decision.Resource)}, retirementErrorAttrs(removeErr)...)
+				d.log.LogAttrs(ctx, slog.LevelError, "retirement mutation failed", attrs...)
 				return evaluation, removeErr
 			}
 		}

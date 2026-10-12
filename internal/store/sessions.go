@@ -83,6 +83,13 @@ func (db *DB) GetOrCreateSession(ctx context.Context, repo Repo, issueNumber int
 
 	var session Session
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		var matches int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE repo_id=? AND issue_number=?`, repo.ID, issueNumber).Scan(&matches); err != nil {
+			return err
+		}
+		if matches > 1 {
+			return &AmbiguousIssueError{IssueNumber: issueNumber}
+		}
 		existing, err := scanSession(tx.QueryRowContext(ctx,
 			`SELECT `+sessionColumns+` FROM sessions WHERE repo_id = ? AND issue_number = ?`,
 			repo.ID, issueNumber))

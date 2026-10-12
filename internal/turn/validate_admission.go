@@ -63,7 +63,7 @@ func IntegrationHead(ctx context.Context, opts Options, session store.Session) (
 	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || strings.TrimSpace(session.Branch) == "" {
 		return "", errors.New("the integration branch cannot be read: no git, clone gate or branch")
 	}
-	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
+	repo, err := executionRepository(ctx, opts.DB, session)
 	if err != nil {
 		return "", err
 	}
@@ -76,6 +76,9 @@ func IntegrationHead(ctx context.Context, opts Options, session store.Session) (
 		return "", err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, opts, session, clone); err != nil {
+		return "", err
+	}
 	remote := opts.remote()
 	if err := clone.Fetch(ctx, remote); err != nil {
 		return "", fmt.Errorf("fetch %s: %w", remote, err)
@@ -308,9 +311,9 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 		// owner command; the factory's own start never invents that authority.
 		ended := inst.Status == store.GraphFailed || inst.Status == store.GraphCancelled
 		if !auto && !ended {
-			// A run waiting for the owner whose reviews did not happen is ended by
-			// the owner's /validate, so the reviews run again on the same commit.
-			if ended, err = rt.endUnreviewed(ctx, existing, now); err != nil {
+			// A run that only waits for the owner after a passed suite is ended
+			// by the owner's /validate, so the reviews run again on the same commit.
+			if ended, err = rt.endWaitingSameCommit(ctx, existing, now); err != nil {
 				return rt.result, err
 			}
 		}
@@ -370,11 +373,12 @@ func (rt *validateRuntimeState) admit(ctx context.Context) (Result, error) {
 	return rt.launch(ctx, now)
 }
 
-// endUnreviewed cancels a run on this commit that waits for the owner after a
-// passed suite while at least one reviewer has no usable result. A new run on
-// the same commit then reuses the passed suite and only the reviews run again.
-// Any other run is left alone and false is returned.
-func (rt *validateRuntimeState) endUnreviewed(ctx context.Context, entry store.ValidateEntry, now time.Time) (bool, error) {
+// endWaitingSameCommit cancels a run on this commit that only waits for the
+// owner after a passed suite (an assessed outcome), whatever its reviews
+// found. A new run on the same commit then reuses the passed suite and only
+// the reviews run again. A run with a node still in progress, or any other
+// run, is left alone and false is returned.
+func (rt *validateRuntimeState) endWaitingSameCommit(ctx context.Context, entry store.ValidateEntry, now time.Time) (bool, error) {
 	db := rt.opts.DB
 	wait, err := db.GetGraphOwnerWait(ctx, entry.InstanceID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -397,22 +401,11 @@ func (rt *validateRuntimeState) endUnreviewed(ctx context.Context, entry store.V
 	if outcome.Outcome != store.ValidateAssessed {
 		return false, nil
 	}
-	var stories []ValidateJoinedStory
-	if err := json.Unmarshal(outcome.Assessment, &stories); err != nil {
-		return false, fmt.Errorf("the stored assessment is unreadable: %w", err)
-	}
-	unreviewed := false
-	for _, s := range stories {
-		unreviewed = unreviewed || len(s.Unresolved) > 0
-	}
-	if !unreviewed {
-		return false, nil
-	}
 	gate, err := ValidateEntryGate(ctx, db, rt.session)
 	if err != nil || !gate.Open {
 		return false, err
 	}
-	return db.CancelIdleGraphOwnerWait(ctx, entry.InstanceID, claimedReply, "the owner started Validate again to repeat the reviews", now)
+	return db.CancelIdleGraphOwnerWait(ctx, entry.InstanceID, claimedReply, "the owner started Validate again on the same commit", now)
 }
 
 // openOwnerWait reports whether an owner wait still counts as open. A wait

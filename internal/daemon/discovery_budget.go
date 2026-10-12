@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
+	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // ErrDiscoveryDeferred is local scheduling pressure, not a remote refusal.
@@ -93,18 +96,28 @@ func (b *discoveryBudget) observe(o github.RequestObservation) {
 	b.observeLocked(o)
 }
 func (b *discoveryBudget) observeLocked(o github.RequestObservation) {
-	if b.limit > 0 && (o.StatusCode != http.StatusNotModified || !o.Authenticated) {
+	b.observeRequestLocked(o.CoreRateValid, o.Limit, o.Remaining, o.Reset, o.StatusCode != http.StatusNotModified || !o.Authenticated)
+}
+
+func (b *discoveryBudget) observeLinear(o linear.RequestObservation) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.observeRequestLocked(o.RequestRateValid, o.Limit, o.Remaining, o.Reset, true)
+}
+
+func (b *discoveryBudget) observeRequestLocked(valid bool, limit, remaining int, reset time.Time, charged bool) {
+	if b.limit > 0 && charged {
 		b.remaining = max(0, b.remaining-1)
 	}
-	if !o.CoreRateValid || !o.Reset.After(b.now) || o.Limit <= 0 || o.Remaining < 0 || o.Remaining > o.Limit {
+	if !valid || !reset.After(b.now) || limit <= 0 || remaining < 0 || remaining > limit {
 		return
 	}
 	switch {
-	case b.reset.IsZero() || o.Reset.After(b.reset):
-		b.limit, b.remaining, b.reset, b.spent = o.Limit, o.Remaining, o.Reset, 0
-	case o.Reset.Equal(b.reset):
-		b.limit = min(b.limit, o.Limit)
-		b.remaining = min(b.remaining, o.Remaining)
+	case b.reset.IsZero() || reset.After(b.reset):
+		b.limit, b.remaining, b.reset, b.spent = limit, remaining, reset, 0
+	case reset.Equal(b.reset):
+		b.limit = min(b.limit, limit)
+		b.remaining = min(b.remaining, remaining)
 	default:
 		return
 	}
@@ -185,6 +198,13 @@ func (r *discoveryReservation) observe(o github.RequestObservation) {
 		r.charged++
 	}
 }
+
+func (r *discoveryReservation) observeLinear(_ linear.RequestObservation) {
+	r.budget.mu.Lock()
+	defer r.budget.mu.Unlock()
+	r.requests++
+	r.charged++
+}
 func (r *discoveryReservation) finish() {
 	b := r.budget
 	b.mu.Lock()
@@ -231,8 +251,14 @@ func (s *discoveryCounts) observe(o github.RequestObservation) {
 	s.endpoints[o.Endpoint] = c
 }
 func (d *Daemon) discoveryContext(ctx context.Context) context.Context {
+	if d.connections != nil {
+		d.connections.SetRequestContext(d.bindQuotaRequest)
+	}
 	ctx = github.WithRequestObserver(ctx, d.digest.observe)
-	return github.WithRequestObserver(ctx, d.discovery.observe)
+	if d.connections == nil {
+		return github.WithRequestObserver(ctx, d.discovery.observe)
+	}
+	return ctx
 }
 
 // total is how many requests the counts have seen, whatever their outcome.
@@ -313,18 +339,36 @@ func (v discoveryView) deferral() (reason string, resumeAt time.Time) {
 }
 
 func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, call func(context.Context) (T, error)) (T, error) {
+	if d.connections != nil {
+		v, selected, err := d.quotaVersion(ctx, store.TicketConnection)
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		if selected {
+			if err := d.discoveryProbe(ctx, githubRepo(v.Destination)); err != nil {
+				var zero T
+				return zero, err
+			}
+		}
+	}
+	budget, err := d.quotaBudget(ctx)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
 	if cost == discoveryListBound {
 		// A list reserves the entire supported history before its first page.
 		// Serialize these reservations until unused pages are returned, rather
 		// than deferring another worker solely because a short fetch is in
 		// flight. This waits only for existing HTTP work, never for a quota
 		// refill; execution and reporting do not enter this discovery gate.
-		d.discovery.mu.Lock()
-		if d.discovery.lists == nil {
-			d.discovery.lists = make(chan struct{}, 1)
+		budget.mu.Lock()
+		if budget.lists == nil {
+			budget.lists = make(chan struct{}, 1)
 		}
-		lists := d.discovery.lists
-		d.discovery.mu.Unlock()
+		lists := budget.lists
+		budget.mu.Unlock()
 		select {
 		case lists <- struct{}{}:
 			defer func() { <-lists }()
@@ -333,32 +377,80 @@ func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, 
 			return zero, ctx.Err()
 		}
 	}
-	r, err := d.discovery.acquire(key, cost, false)
+	r, err := budget.acquire(key, cost, false)
 	if err != nil {
 		var zero T
 		return zero, err
 	}
 	defer r.finish()
+	if d.connections != nil {
+		return call(context.WithValue(ctx, quotaReservationKey{}, r))
+	}
 	return call(github.WithRequestObserver(ctx, r.observe))
 }
 func discoveryKey(repo github.Repo, operation string, number int) string {
 	return fmt.Sprintf("%s/%s/%d", repo, operation, number)
 }
 func (d *Daemon) discoveryIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
-	return discoveryCall(ctx, d, discoveryKey(repo, "issue", number), 1, func(ctx context.Context) (github.Issue, error) { return d.forge.GetIssue(ctx, repo, number) })
+	return discoveryCall(ctx, d, discoveryKey(repo, "issue", number), 1, func(ctx context.Context) (github.Issue, error) { return d.readIssue(ctx, repo, number) })
 }
 func (d *Daemon) discoveryComments(ctx context.Context, repo github.Repo, number int, after int64) ([]github.Comment, error) {
 	return discoveryCall(ctx, d, discoveryKey(repo, "comments", number), discoveryListBound, func(ctx context.Context) ([]github.Comment, error) {
-		return d.forge.ListCommentsAfter(ctx, repo, number, after)
+		return d.readComments(ctx, repo, number, after)
 	})
 }
 func (d *Daemon) discoveryProbe(ctx context.Context, repo github.Repo) error {
-	r, err := d.discovery.acquire("probe", 1, true)
+	budget, err := d.quotaBudget(ctx)
+	if err != nil {
+		return err
+	}
+	r, err := budget.acquire("probe", 1, true)
 	if err != nil {
 		return nil
 	}
 	defer r.finish()
-	_, err = d.forge.GetIssue(github.WithRequestObserver(github.WithoutConditionalCache(ctx), r.observe), repo, 1)
+	if d.connections != nil {
+		ctx = context.WithValue(ctx, quotaReservationKey{}, r)
+	} else {
+		ctx = github.WithRequestObserver(ctx, r.observe)
+	}
+	if d.connections != nil {
+		version, selected, e := d.quotaVersion(ctx, store.TicketConnection)
+		if e != nil {
+			return e
+		}
+		if !selected {
+			return ErrDiscoveryDeferred
+		}
+		clients, e := d.connections.Clients(ctx, version, 0)
+		if e != nil {
+			return e
+		}
+		if version.Provider == ticket.Linear {
+			_, e = clients.Tickets.ContainerIdentity(ctx, version.Destination)
+			return e
+		}
+		_, e = clients.Code.GetIssue(github.WithoutConditionalCache(ctx), githubRepo(version.Destination), 1)
+		if errors.Is(e, github.ErrNotFound) || errors.Is(e, github.ErrInvalidArgument) {
+			return nil
+		}
+		return e
+	}
+	ingress, _, selectionErr := d.connectionIngress(ctx, repo, 0)
+	if selectionErr != nil {
+		return selectionErr
+	}
+	if ingress != nil && ingressProvider(ingress) == ticket.Linear {
+		adapter, ok := ingress.(interface {
+			ContainerIdentity(context.Context, string) (ticket.Identity, error)
+		})
+		if !ok {
+			return fmt.Errorf("ticket container verification required")
+		}
+		_, e := adapter.ContainerIdentity(ctx, repo.String())
+		return e
+	}
+	_, err = d.readIssue(github.WithoutConditionalCache(ctx), repo, 1)
 	if errors.Is(err, github.ErrNotFound) || errors.Is(err, github.ErrInvalidArgument) {
 		return nil
 	}

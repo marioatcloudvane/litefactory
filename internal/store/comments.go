@@ -80,35 +80,8 @@ func (db *DB) RecordComment(ctx context.Context, c Comment) (Comment, error) {
 
 	var stored Comment
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		existing, err := scanComment(tx.QueryRowContext(ctx,
-			`SELECT `+commentColumns+` FROM comments WHERE session_id = ? AND forge_comment_id = ?`,
-			c.SessionID, c.ForgeCommentID))
-		switch {
-		case err == nil:
-			stored = existing
-			return nil
-		case !errors.Is(err, ErrNotFound):
-			return err
-		}
-
-		tag := c.Tag
-		if tag == "" && c.Classification == ClassificationThirdParty {
-			if tag, err = nextCommentTag(ctx, tx, c.SessionID); err != nil {
-				return err
-			}
-		}
-		c.Tag = tag
-		c.RecordedAt = nowUTC()
-
-		stored, err = scanComment(tx.QueryRowContext(ctx, `
-INSERT INTO comments (
-    session_id, forge_comment_id, author_handle, author_user_id, author_is_bot,
-    body, created_at, classification, tag, recorded_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING `+commentColumns,
-			c.SessionID, c.ForgeCommentID, c.AuthorHandle, nullID(c.AuthorUserID), c.AuthorIsBot,
-			c.Body, FormatTime(c.CreatedAt), string(c.Classification), nullString(c.Tag),
-			FormatTime(c.RecordedAt)))
+		var err error
+		stored, err = recordComment(ctx, tx, c)
 		return err
 	})
 	if err != nil {
@@ -242,4 +215,36 @@ func scanComment(s scanner) (Comment, error) {
 		*field.dst = t
 	}
 	return c, nil
+}
+
+func recordComment(ctx context.Context, tx *sql.Tx, c Comment) (Comment, error) {
+	existing, err := scanComment(tx.QueryRowContext(ctx,
+		`SELECT `+commentColumns+` FROM comments WHERE session_id = ? AND forge_comment_id = ?`,
+		c.SessionID, c.ForgeCommentID))
+	switch {
+	case err == nil:
+		return existing, nil
+	case !errors.Is(err, ErrNotFound):
+		return Comment{}, err
+	}
+
+	tag := c.Tag
+	if tag == "" && c.Classification == ClassificationThirdParty {
+		if tag, err = nextCommentTag(ctx, tx, c.SessionID); err != nil {
+			return Comment{}, err
+		}
+	}
+	c.Tag = tag
+	c.RecordedAt = nowUTC()
+
+	stored, err := scanComment(tx.QueryRowContext(ctx, `
+INSERT INTO comments (
+    session_id, forge_comment_id, author_handle, author_user_id, author_is_bot,
+    body, created_at, classification, tag, recorded_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING `+commentColumns,
+		c.SessionID, c.ForgeCommentID, c.AuthorHandle, nullID(c.AuthorUserID), c.AuthorIsBot,
+		c.Body, FormatTime(c.CreatedAt), string(c.Classification), nullString(c.Tag),
+		FormatTime(c.RecordedAt)))
+	return stored, err
 }

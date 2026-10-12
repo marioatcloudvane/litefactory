@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -45,6 +46,26 @@ type AgentResultSubmission struct {
 	Receipt    *store.ResultReceipt
 	Snapshot   *agentresult.Snapshot
 	Baseline   *agentresult.Projection
+}
+
+// notRecordedMessage tells the agent that a failed request left nothing behind,
+// so no receipt will ever appear for it.
+const notRecordedMessage = "Nothing was recorded for this request. Correct the cause if one is reported and call submit again; do not wait for a receipt."
+
+// resultFailure logs a failed submit or receipt with its correlation before the
+// broker hides it behind generic text. lookupErr is the outcome of looking the
+// request up: when it is store.ErrNotFound nothing was recorded, and the agent
+// gets a plain not_recorded answer instead of being sent to a missing receipt.
+func resultFailure(method, requestID string, b store.ResultBinding, err, lookupErr error) (json.RawMessage, error) {
+	slog.Error("application result request failed", slog.String("method", method), slog.String("request_id", requestID), slog.Int64("run_id", b.RunID), slog.String("attempt", b.Attempt), slog.Any("error", err))
+	if !errors.Is(lookupErr, store.ErrNotFound) {
+		return nil, err
+	}
+	return json.Marshal(AgentResultSubmission{Validation: agentresult.UpdateDiagnostics{Diagnostics: agentresult.Diagnostics{
+		Complete:       true,
+		Diagnostics:    []agent.ContributionDiagnostic{{Path: "request_id", Code: "not_recorded", Expected: "a recorded request", Actual: "nothing recorded", Message: notRecordedMessage}},
+		UncheckedPaths: []string{},
+	}}})
 }
 
 // BindAgentResultService starts fresh authority for one real factory run. Exact

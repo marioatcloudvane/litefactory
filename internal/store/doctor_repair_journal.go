@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 func doctorRepairAuthority(ctx context.Context, tx *sql.Tx, id string) (DoctorRepair, error) {
@@ -172,17 +173,30 @@ func (db *DB) stopDoctorRepair(ctx context.Context, ref, reason string, onlyStop
 				return nil
 			}
 		}
-		if r.State == "verified" || r.State == "restart_pending" || r.State == "recovered" {
+		// A settled repair is terminal; a later stop must not reopen it.
+		if r.State == "verified" || r.State == "restart_pending" || r.State == "recovered" || r.State == "completed" || r.State == "failed" || r.State == "stopped" {
 			return nil
 		}
-		var count int
+		var count, legacy int
 		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM doctor_repair_steps WHERE repair_id=? AND state IN('write_intent','verified','uncertain')`, r.ID).Scan(&count); err != nil {
 			return err
 		}
+		kinds := DoctorRepairToolKinds()
+		args := []any{r.ID}
+		for _, kind := range kinds {
+			args = append(args, kind)
+		}
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM doctor_repair_steps WHERE repair_id=? AND kind NOT IN(?`+strings.Repeat(",?", len(kinds)-1)+`)`, args...).Scan(&legacy); err != nil {
+			return err
+		}
 		state := "stopped"
-		if count > 0 {
+		if count > 0 && legacy == 0 {
+			// Typed effects are settled as failed, matching typed recovery.
+			state = "failed"
+		} else if count > 0 {
 			state = "needs_review"
-		} else {
+		}
+		if state != "needs_review" {
 			if _, err = tx.ExecContext(ctx, `UPDATE doctor_repair_holds SET active=0 WHERE repair_id=?`, r.ID); err != nil {
 				return err
 			}

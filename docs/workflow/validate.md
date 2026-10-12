@@ -1,11 +1,20 @@
-# Validate: repair and review
+# Validate
 
-This page covers the part of the Validate graph that follows the suite step. The
-suite step itself (running the full recipe on one exact commit) is described with
-the suite activity. The graph is `internal/teamsource/validate/validate.dot`, and it
-is the only place the flow lives: the order, the repair bound, the time budget, the
-measured limits and the reviewers are declared there. Go supplies steps and never
-picks the next one.
+[Documentation](../README.md) · [Workflow guide](../guides/workflow.md)
+
+Validate checks finished work and helps you ship it. It tests one exact commit, may repair a failing suite a little, has three read-only reviewers assess the result, and then hands the decisions to you. Start it with `/validate <text>`, or let `validate.auto_start` start it once Implement has merged every story. For the owner's view, see [validation and delivery](../guides/validation-and-delivery.md).
+
+The graph is `internal/teamsource/validate/validate.dot`, and it is the only place the flow lives: the order, the repair bound, the time budget, the measured limits and the reviewers are declared there. Go supplies steps and never picks the next one.
+
+## The suite
+
+The suite step runs the `full` phase of the repository's check recipe (`.litefactory/bug-checks.yaml`, read from the tested commit; see [Bug checks](../bug-checks.md)) on one exact commit, in the check sandbox. It is:
+
+- **passed** when every command exits 0 on an unchanged snapshot,
+- **failed** when a command exits 1 (later commands do not run),
+- **blocked** when there is no recipe, the full phase is empty, a command exits with another code, the snapshot changed, or an earlier run could not be confirmed stopped.
+
+A finished result for the commit is reused as it is. Validate does not use the stack profile's own `checks` for this.
 
 ## Flow
 
@@ -19,6 +28,7 @@ repair check -> kept:       suite (on the new commit)
                 unfinished: repair budget
                 blocked:    review
 review -> outcome -> assessed | handed_back | blocked
+owner resolve -> repair: repair budget (owner-chosen findings)
 ```
 
 A finished suite result for the commit is reused as it is. The suite runs again
@@ -33,7 +43,7 @@ a round that times out or is interrupted is used. Before anything else, the budg
 step settles a round a restart left unfinished: the worktree goes back to the
 commit before the round and the round is recorded as interrupted.
 
-The repair agent has write access and a time budget (`lf_budget`, in minutes, at
+The repair agent has write access only if the operator granted the `validate-repair` permission profile under `tool_profiles.permissions` (see [permissions](../configuration/permissions.md)); without it only the repair step is refused, and reviewers stay read-only. It also has a time budget (`lf_budget`, in minutes, at
 most 60; the graph declares 15). The budget bounds the agent run only, never the
 tests. When it runs out the run is cancelled and the attempt is recorded as timed
 out. The check step measures what the agent really changed against the commit
@@ -42,6 +52,23 @@ before the round, with the limits the graph declares (`lf_max_files` and
 acceptance criteria). A change inside the limits is committed by the factory. A
 change over them is retained as a diff, the worktree is reset and the flow goes to
 review and then a handback.
+
+### Repairs the owner chooses
+
+When the suite passed and the reviewers raised findings, the owner can answer
+`/validate-finding <rev> <finding id> repair`. The choice is recorded; once every
+blocking finding of the tested commit has a choice, that reply makes the resolve
+step return `repair`, and one round starts for all findings chosen for repair.
+Pending owner checks do not hold the round back: a kept repair is a new commit, and
+the checks are asked again on it. The round uses the same budget, agent and check
+steps and the same two-round bound as a failed suite. The agent's task lists each
+chosen finding: its id, story, criterion or review name, the reviewer's text and
+check ids. A kept change is a new commit, so the suite and the reviewers run again
+on it and each finding clears or comes back. A change that is too big, a handback,
+a blocked or unfinished round and a spent budget go back through review and
+outcome (reused on the unchanged commit) to the owner report, which lists each
+round with its reason. Graphs released without the `repair` outcome keep the old
+flow: the choice is recorded and the run waits.
 
 ## Review
 
@@ -130,7 +157,8 @@ for exceptions.
 
 A non-owner, malformed or stale command changes nothing; the reply shows the
 current commands. Defer is allowed only for optional (advisory) findings. A repair
-or issue choice never clears a blocking finding; only a new tested snapshot does.
+or issue choice never clears a blocking finding; only a new tested snapshot does,
+such as the commit a kept repair makes.
 Push is offered only when the suite passed, every criterion is satisfied or
 owner-passed, no blocking finding is open, every optional finding has a choice and
 no issue creation is pending, failed or uncertain.

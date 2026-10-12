@@ -30,6 +30,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		return err
 	}
 	for _, dispatch := range pending {
+		ctx := sessionContext(ctx, dispatch.SessionID)
 		if d.bug != nil {
 			if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
 				d.log.ErrorContext(ctx, "graph dispatch refused; retained work unchanged", slog.Int64("dispatch_id", dispatch.ID), slog.Any("error", err))
@@ -55,7 +56,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			slog.Int64("session_id", session.ID),
 			slog.Int64("graph_dispatch_id", dispatch.ID),
 			slog.String("graph_node", dispatch.Node))
-		issue, err := d.forge.GetIssue(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, session.IssueNumber)
+		issue, err := d.readIssue(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, session.IssueNumber)
 		if err != nil {
 			d.rateLimited(ctx, log, at, err)
 			log.ErrorContext(ctx, "graph step issue observation failed; deferring", slog.Any("error", err))
@@ -75,7 +76,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			continue
 		}
 		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, issue: issue, log: log, tickAt: at}
-		if _, held := d.backoff.hold(at); held {
+		if _, held := d.connectionHold(ctx, at); held {
 			continue
 		}
 		if !d.enterDoctorGuarded(ctx, session.ID) {
@@ -115,6 +116,7 @@ const graphChainLimit = 32
 // tick keeps busy, such as a graph Plan parent observed every tick for child
 // replies, can never starve its own owed stage.
 func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
+	ctx = sessionContext(ctx, t.session.ID)
 	if d.db == nil || d.forge == nil {
 		return
 	}
@@ -124,7 +126,7 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 		if ctx.Err() != nil || d.stoppedDebt.owes(t.session.ID) {
 			return
 		}
-		if _, held := d.backoff.hold(t.tickAt); held {
+		if _, held := d.connectionHold(ctx, t.tickAt); held {
 			return
 		}
 		dispatch, ok, err := d.db.NextFreshGraphDispatch(ctx, t.session.ID)
@@ -142,7 +144,7 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 			return
 		}
 		log := t.log.With(slog.Int64("graph_dispatch_id", dispatch.ID), slog.String("graph_node", dispatch.Node))
-		issue, err := d.forge.GetIssue(ctx, t.forgeRepo, session.IssueNumber)
+		issue, err := d.readIssue(ctx, t.forgeRepo, session.IssueNumber)
 		if err != nil {
 			d.rateLimited(ctx, log, t.tickAt, err)
 			log.ErrorContext(ctx, "graph step issue observation failed; leaving it to the tick", slog.Any("error", err))
@@ -196,7 +198,7 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		return
 	}
 	t.validating = validating
-	trigger, command := graphStepRequest(dispatch, d.filter.Identities().OwnerHandle)
+	trigger, command := graphStepRequest(dispatch, d.ticketIdentities(ctx).OwnerHandle)
 	previousTrigger := t.commentUnderWay
 	t.commentUnderWay = trigger.CommentID
 	err := d.run(ctx, t, trigger, command, t.log)

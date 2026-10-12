@@ -1,6 +1,11 @@
 package graphexec
 
 import (
+	"encoding/json"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -79,16 +84,57 @@ func TestImplementGraphValidates(t *testing.T) {
 	}
 }
 
+// implementReportDoneDOT is the graph that reports completion on the parent:
+// any_parked false reaches report_done, which ends at finished.
+func implementReportDoneDOT(t *testing.T) string {
+	t.Helper()
+	dot := strings.Replace(implementTestDOT, ` any_parked -> finished [lf_on="false"];`, ` any_parked -> report_done [lf_on="false"];
+ report_done -> finished [lf_on="published"];`, 1)
+	dot = strings.Replace(dot, ` budget [lf_action=`, ` report_done [lf_action="lf_implement_report_done", lf_outcomes="published", lf_source="merge", lf_limit="16"];
+ budget [lf_action=`, 1)
+	if dot == implementTestDOT {
+		t.Fatal("the report_done graph changed nothing")
+	}
+	return dot
+}
+
+func TestImplementGraphValidatesWithAndWithoutTheCompletionReply(t *testing.T) {
+	if err := validateImplementDOT(t, implementTestDOT); err != nil {
+		t.Fatalf("a graph without report_done (released teams, running instances): %v", err)
+	}
+	dot := implementReportDoneDOT(t)
+	if err := validateImplementDOT(t, dot); err != nil {
+		t.Fatalf("a graph with report_done: %v", err)
+	}
+	for name, tc := range map[string]struct{ old, new, want string }{
+		"the reply names no merge step": {`lf_outcomes="published", lf_source="merge", lf_limit="16"];
+ budget`, `lf_outcomes="published", lf_source="ready", lf_limit="16"];
+ budget`, "must name the merge step"},
+		"the reply does not end": {` report_done -> finished [lf_on="published"];`, ` report_done -> merge [lf_on="published"];`, "must end at a terminal"},
+	} {
+		broken := strings.Replace(dot, tc.old, tc.new, 1)
+		if broken == dot {
+			t.Fatalf("%s: the mutation changed nothing", name)
+		}
+		if err := validateImplementDOT(t, broken); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want it to mention %q", name, err, tc.want)
+		}
+	}
+}
+
 func TestImplementSpecsOfTheWorkerAndTheBatchedQuestion(t *testing.T) {
 	want := map[string][]string{
-		ImplementSelectAction:    {"coordinator", "worker"},
-		ImplementBudgetAction:    {"run", "park"},
-		ImplementResultAction:    {"completed", "stopped"},
-		ImplementStoryDoneAction: {"done", "retry"},
-		ImplementParkAction:      {"parked"},
-		ImplementAwaitAction:     {"go"},
-		ImplementAnyParkedAction: {"true", "false"},
-		ImplementAskAction:       {"published"},
+		ImplementSelectAction:     {"coordinator", "worker"},
+		ImplementBudgetAction:     {"run", "park"},
+		ImplementResultAction:     {"completed", "incomplete", "blocked", "stopped"},
+		ImplementStoryDoneAction:  {"done", "retry"},
+		ImplementParkAction:       {"parked"},
+		ImplementAwaitAction:      {"go"},
+		ImplementAnyParkedAction:  {"true", "false"},
+		ImplementAskAction:        {"published"},
+		ImplementReportDoneAction: {"published"},
+		ImplementResolvedAction:   {"resolved", "blocked", "retry"},
+		SyncBaseAction:            {"synced", "current", "conflict", "retry"},
 	}
 	got := map[string][]string{}
 	for _, spec := range ImplementSpecs() {
@@ -183,5 +229,219 @@ func TestImplementControlPolicyIsTheWorkersOutcomes(t *testing.T) {
 	policy := ImplementControlPolicy()
 	if policy.Mode != agent.ModeImplement || !slices.Equal(policy.Responses, []string{"completed", "incomplete", "blocked"}) {
 		t.Fatalf("%+v", policy)
+	}
+}
+
+// implementRetryDOT is the current graph shape: an incomplete answer goes back to
+// the budget for another attempt, a blocked answer parks at once.
+func implementRetryDOT(t *testing.T) string {
+	t.Helper()
+	dot := strings.Replace(implementTestDOT, `lf_outcomes="completed,stopped"`, `lf_outcomes="completed,incomplete,blocked"`, 1)
+	dot = strings.Replace(dot, ` worker_result -> park_story [lf_on="stopped"];`, ` worker_result -> budget [lf_on="incomplete"];
+ worker_result -> park_story [lf_on="blocked"];`, 1)
+	if dot == implementTestDOT {
+		t.Fatal("the retry graph changed nothing")
+	}
+	return dot
+}
+
+func TestImplementResultCheckerAcceptsBothShapesAndRefusesWrongRouting(t *testing.T) {
+	if err := validateImplementDOT(t, implementTestDOT); err != nil {
+		t.Fatalf("completed,stopped (released graphs): %v", err)
+	}
+	dot := implementRetryDOT(t)
+	if err := validateImplementDOT(t, dot); err != nil {
+		t.Fatalf("completed,incomplete,blocked: %v", err)
+	}
+	for name, tc := range map[string]struct{ old, new, want string }{
+		"incomplete parks": {
+			` worker_result -> budget [lf_on="incomplete"];`, ` worker_result -> park_story [lf_on="incomplete"];`, "outcome incomplete must reach the budget decision",
+		},
+		"blocked retries": {
+			` worker_result -> park_story [lf_on="blocked"];`, ` worker_result -> budget [lf_on="blocked"];`, "outcome blocked must park the story",
+		},
+		"incomplete without blocked": {
+			`lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,incomplete"`, "no single edge for outcome blocked",
+		},
+		"blocked without incomplete": {
+			`lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,blocked"`, "no single edge for outcome incomplete",
+		},
+		"neither shape": {
+			`lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed"`, "must declare stopped, or incomplete and blocked",
+		},
+		"both shapes": {
+			`lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,incomplete,blocked,stopped"`, "declares stopped together with",
+		},
+	} {
+		broken := strings.Replace(dot, tc.old, tc.new, 1)
+		if broken == dot {
+			t.Fatalf("%s: the mutation changed nothing", name)
+		}
+		if err := validateImplementDOT(t, broken); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want it to mention %q", name, err, tc.want)
+		}
+	}
+}
+
+// stoppedImplementShape rewrites a released implement graph to the earlier
+// result shape (completed,stopped, with stopped parking the story) that running
+// instances captured from older releases still use.
+func stoppedImplementShape(t *testing.T, graph string) string {
+	t.Helper()
+	out := strings.Replace(graph, `lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,stopped"`, 1)
+	out = regexp.MustCompile(`(?m)^[ \t]*worker_result[ \t]*->[ \t]*budget[ \t]*\[lf_on="incomplete"\];\n`).ReplaceAllString(out, "")
+	out = regexp.MustCompile(`(worker_result[ \t]*->[ \t]*park_story[ \t]*)\[lf_on="blocked"\]`).ReplaceAllString(out, `${1}[lf_on="stopped"]`)
+	if !strings.Contains(out, `lf_outcomes="completed,stopped"`) || !strings.Contains(out, `[lf_on="stopped"]`) || strings.Contains(out, `[lf_on="incomplete"]`) {
+		t.Fatal("the released implement graph has no derivable stopped shape")
+	}
+	return out
+}
+
+// TestReleasedImplementGraphWithStoppedStillValidates keeps every implement graph
+// the catalogue ships valid, in its own result shape and in the earlier stopped
+// shape that running instances pinned to older releases still use. It reads
+// whatever releases teams/teams.json lists.
+func TestReleasedImplementGraphWithStoppedStillValidates(t *testing.T) {
+	raw, err := os.ReadFile("../../teams/teams.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalogue struct {
+		Releases []struct {
+			Download string `json:"download"`
+		} `json:"releases"`
+	}
+	if err := json.Unmarshal(raw, &catalogue); err != nil || len(catalogue.Releases) == 0 {
+		t.Fatalf("catalogue: %v", err)
+	}
+	for _, r := range catalogue.Releases {
+		if !fs.ValidPath(r.Download) {
+			t.Fatalf("unsafe catalogue download %q", r.Download)
+		}
+		graph, err := os.ReadFile(filepath.Join("../../teams", filepath.FromSlash(r.Download), "implement/implement.dot"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateImplementDOT(t, string(graph)); err != nil {
+			t.Errorf("%s: %v", r.Download, err)
+		}
+		shape := string(graph)
+		if !strings.Contains(shape, `lf_outcomes="completed,stopped"`) {
+			shape = stoppedImplementShape(t, shape)
+		}
+		if err := validateImplementDOT(t, shape); err != nil {
+			t.Errorf("%s stopped shape: %v", r.Download, err)
+		}
+	}
+}
+
+// implementSyncDOT adds the base sync at the start of the coordinator path, with
+// its resolver pair, to the test graph.
+func implementSyncDOT(t *testing.T) string {
+	t.Helper()
+	dot := strings.Replace(implementTestDOT, ` select_path -> merge [lf_on="coordinator"];`, ` select_path -> sync_start [lf_on="coordinator"];
+ sync_start -> merge [lf_on="synced"];
+ sync_start -> merge [lf_on="current"];
+ sync_start -> sync_start_resolve [lf_on="conflict"];
+ sync_start -> await [lf_on="retry"];
+ sync_start_resolve -> sync_start_resolved [lf_on="success"];
+ sync_start_resolve -> sync_start [lf_on="failed"];
+ sync_start_resolved -> sync_start [lf_on="resolved"];
+ sync_start_resolved -> sync_start [lf_on="retry"];
+ sync_start_resolved -> waiting [lf_on="blocked"];`, 1)
+	dot = strings.Replace(dot, ` budget [lf_action=`, ` sync_start [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"];
+ sync_start_resolve [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="sync-resolver", lf_skills="implement-result", lf_limit="3"];
+ sync_start_resolved [lf_action="lf_implement_resolved", lf_outcomes="resolved,blocked,retry", lf_source="sync_start_resolve", lf_limit="3"];
+ budget [lf_action=`, 1)
+	if dot == implementTestDOT {
+		t.Fatal("the sync graph changed nothing")
+	}
+	return dot
+}
+
+func TestImplementGraphValidatesWithTheBaseSyncAndRefusesBrokenSyncs(t *testing.T) {
+	dot := implementSyncDOT(t)
+	if err := validateImplementDOT(t, dot); err != nil {
+		t.Fatalf("a graph with the base sync and its resolver: %v", err)
+	}
+	for name, tc := range map[string]struct{ old, new, want string }{
+		"a conflict that is skipped": {
+			` sync_start -> sync_start_resolve [lf_on="conflict"];`, ` sync_start -> merge [lf_on="conflict"];`, "must hand the conflict to a resolver agent",
+		},
+		"a failed resolver that ends quietly": {
+			` sync_start_resolve -> sync_start [lf_on="failed"];`, ` sync_start_resolve -> finished [lf_on="failed"];`, "must return to a base sync",
+		},
+		"a resolution that skips the sync": {
+			` sync_start_resolved -> sync_start [lf_on="resolved"];`, ` sync_start_resolved -> merge [lf_on="resolved"];`, "outcome resolved must return to a base sync",
+		},
+		"a retry that skips the sync": {
+			` sync_start_resolved -> sync_start [lf_on="retry"];`, ` sync_start_resolved -> merge [lf_on="retry"];`, "outcome retry must return to a base sync",
+		},
+		"a blocked resolver that does not wait": {
+			` sync_start_resolved -> waiting [lf_on="blocked"];`, ` sync_start_resolved -> merge [lf_on="blocked"];`, "terminal owner wait",
+		},
+		"the decision names another agent": {
+			`lf_source="sync_start_resolve"`, `lf_source="worker_agent"`, "must name the resolver agent",
+		},
+		"an unbounded sync": {
+			`lf_outcomes="synced,current,conflict,retry", lf_limit="8"]`, `lf_outcomes="synced,current,conflict,retry"]`, "positive lf_limit",
+		},
+	} {
+		broken := strings.Replace(dot, tc.old, tc.new, 1)
+		if broken == dot {
+			t.Fatalf("%s: the mutation changed nothing", name)
+		}
+		if err := validateImplementDOT(t, broken); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want it to mention %q", name, err, tc.want)
+		}
+	}
+}
+
+// TestSyncBaseIsOneGenericStep keeps lf_sync_base a generic step any graph can
+// declare under its own mode, with the same outcomes.
+func TestSyncBaseIsOneGenericStep(t *testing.T) {
+	for _, mode := range []agent.Mode{agent.ModeImplement, agent.ModeValidate, agent.ModeSpike, agent.ModeResearch} {
+		var registry Registry
+		if err := registry.Register(SyncBaseSpec(mode)); err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		spec, ok := registry.Resolve(SyncBaseAction)
+		if !ok || spec.Mode != mode || !slices.Equal(spec.Outcomes, []string{"synced", "current", "conflict", "retry"}) {
+			t.Fatalf("%s: %+v %v", mode, spec, ok)
+		}
+	}
+	var registry Registry
+	bug := SyncBaseSpec("")
+	bug.Workflow = agent.WorkflowBug
+	if err := registry.Register(bug); err != nil {
+		t.Fatalf("the Bug workflow: %v", err)
+	}
+}
+
+// TestEveryShippedImplementGraphValidates checks the editable team sources, which
+// declare the base sync, and every released graph, which does not, against the
+// same checker.
+func TestEveryShippedImplementGraphValidates(t *testing.T) {
+	paths := []string{
+		"../teamsource/implement/implement.dot",
+		"../teamsource/python-fastapi/implement/implement.dot",
+		"../teamsource/swift-ios/implement/implement.dot",
+		"../../teams/source/dotnet-web/implement/implement.dot",
+	}
+	released, err := filepath.Glob("../../teams/*/v*/implement/implement.dot")
+	if err != nil || len(released) == 0 {
+		t.Fatalf("released graphs: %v %v", released, err)
+	}
+	for i, path := range append(paths, released...) {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i < len(paths) && !strings.Contains(string(raw), `lf_action="lf_sync_base"`) {
+			t.Errorf("%s: the source graph declares no base sync", path)
+		}
+		if err := validateImplementDOT(t, string(raw)); err != nil {
+			t.Errorf("%s: %v", path, err)
+		}
 	}
 }

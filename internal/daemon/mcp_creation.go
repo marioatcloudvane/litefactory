@@ -43,6 +43,13 @@ func (d *Daemon) handleMCPCreation(ctx context.Context, t *task, c github.Commen
 		return d.rejectMCPCreation(ctx, t, c, log, "disabled")
 	}
 	control := turn.OwnerGrantControl{Repository: t.forgeRepo.String(), SourceTask: t.ref.String(), Mode: string(mode), Body: c.Body, CommentID: c.ID, ActorID: c.Author.ID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, Bot: c.Author.IsBot}
+	if d.connections != nil {
+		trigger, err := d.projectTrigger(ctx, t.session.ID, c)
+		if err != nil {
+			return err
+		}
+		control.Actor, control.Source = trigger.Actor, trigger.Source
+	}
 	if strings.HasPrefix(c.Body, "/mcp-create prepare ") {
 		prepared, err := e.opts.MCP.PrepareCreationProposal(ctx, control)
 		if err != nil {

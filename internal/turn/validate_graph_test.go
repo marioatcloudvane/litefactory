@@ -1,6 +1,11 @@
 package turn
 
 import (
+	"encoding/json"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -78,6 +83,9 @@ func TestValidateGraphRefusesAWeakenedFlow(t *testing.T) {
 		"an unknown forbidden kind": {func(s string) string {
 			return strings.Replace(s, `package,dependency,schema,api,tests,criteria`, `package,dependency,schema,api,tests,magic`, 1)
 		}, "lf_forbid"},
+		"a repair choice that skips the repair budget": {func(s string) string {
+			return strings.Replace(s, `owner_resolve -> repair_budget      [lf_on="repair"]`, `owner_resolve -> owner_report       [lf_on="repair"]`, 1)
+		}, "must start a repair round"},
 		"a wrong reviewer set": {func(s string) string {
 			return strings.Replace(s, `validate-acceptance,validate-code,validate-architecture`, `validate-code,validate-acceptance,validate-architecture`, 1)
 		}, "lf_roles"},
@@ -117,5 +125,119 @@ func TestAgentBudgetAttributeIsValidatedAndBounded(t *testing.T) {
 	// The generic agent action admits the attribute for every workflow.
 	if _, ok := graphexec.AgentAttributes()[graphexec.BudgetAttribute]; !ok {
 		t.Error("the agent action does not declare lf_budget")
+	}
+}
+
+// #617: the repair outcome of the resolve step is optional, so a graph without
+// it, such as the released team packages, still validates.
+func TestValidateGraphWithoutTheRepairOutcomeStillValidates(t *testing.T) {
+	err := checkValidateDot(t, func(s string) string {
+		s = strings.Replace(s, `,stale,repair"`, `,stale"`, 1)
+		return strings.Replace(s, ` owner_resolve -> repair_budget      [lf_on="repair"];`+"\n", "", 1)
+	})
+	if err != nil {
+		t.Fatalf("a graph without the repair outcome is refused: %v", err)
+	}
+	specs, err := ValidateFlowSpecs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, release := range catalogueDownloads(t) {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "teams", release, "validate", "validate.dot"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile, err := graphexec.ParseProfile(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", release, err)
+		}
+		if err := graphexec.Validate(profile, specs); err != nil {
+			t.Errorf("released %s no longer validates: %v", release, err)
+		}
+	}
+}
+
+// catalogueDownloads lists the download path of every release teams/teams.json
+// ships, so released-graph tests follow the owner's releases.
+func catalogueDownloads(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "teams", "teams.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalogue struct {
+		Releases []struct {
+			Slug     string `json:"slug"`
+			Download string `json:"download"`
+		} `json:"releases"`
+	}
+	if err := json.Unmarshal(raw, &catalogue); err != nil || len(catalogue.Releases) == 0 {
+		t.Fatalf("catalogue: %v", err)
+	}
+	var out []string
+	for _, r := range catalogue.Releases {
+		if !fs.ValidPath(r.Download) || !strings.HasPrefix(r.Download, r.Slug+"/") {
+			t.Fatalf("unsafe catalogue download %q", r.Download)
+		}
+		out = append(out, r.Download)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// #705: the implement outcome must reach the implement step, which must end the
+// run; a graph without them, such as the released packages before it, still
+// validates, and every shipped graph declares the hand-back.
+func TestValidateGraphImplementHandBack(t *testing.T) {
+	for name, c := range map[string]struct {
+		mutate func(string) string
+		want   string
+	}{
+		"an implement command that skips its step": {func(s string) string {
+			return strings.Replace(s, `owner_resolve -> owner_implement    [lf_on="implement"]`, `owner_resolve -> owner_report       [lf_on="implement"]`, 1)
+		}, "must hand the findings back to Implement"},
+		"an implement step that does not end the run": {func(s string) string {
+			return strings.Replace(s, `owner_implement -> reimplementing   [lf_on="started"]`, `owner_implement -> owner_report     [lf_on="started"]`, 1)
+		}, "must end at a terminal"},
+	} {
+		if err := checkValidateDot(t, c.mutate); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	err := checkValidateDot(t, func(s string) string {
+		s = strings.Replace(s, `close,implement,stale`, `close,stale`, 1)
+		s = strings.Replace(s, ` owner_implement [lf_action="lf_validate_implement", lf_outcomes="started", lf_suite="suite", lf_limit="4"];`+"\n", "", 1)
+		s = strings.Replace(s, ` reimplementing [lf_terminal="true"];`+"\n", "", 1)
+		s = strings.Replace(s, ` owner_resolve -> owner_implement    [lf_on="implement"];`+"\n", "", 1)
+		return strings.Replace(s, ` owner_implement -> reimplementing   [lf_on="started"];`+"\n", "", 1)
+	})
+	if err != nil {
+		t.Fatalf("a graph without the hand-back is refused: %v", err)
+	}
+	specs, err := ValidateFlowSpecs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, release := range catalogueDownloads(t) {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "teams", release, "validate", "validate.dot"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile, err := graphexec.ParseProfile(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasSuffix(release, "/v1.0.0") {
+			continue // released before the hand-back; covered above
+		}
+		if to, ok := graphexec.Decide(profile, "owner_resolve", "implement"); !ok || to != "owner_implement" {
+			t.Errorf("%s: owner_resolve implement reaches %q", release, to)
+		}
+		if to, ok := graphexec.Decide(profile, "owner_implement", "started"); !ok || to != "reimplementing" {
+			t.Errorf("%s: owner_implement started reaches %q", release, to)
+		}
+		if err := graphexec.Validate(profile, specs); err != nil {
+			t.Errorf("%s: %v", release, err)
+		}
 	}
 }

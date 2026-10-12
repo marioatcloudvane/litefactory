@@ -95,25 +95,27 @@ func TestImplementGraphCapturesAndEveryNodeIsBounded(t *testing.T) {
 	if profile.Start != "select_path" || profile.Mode != agent.ModeImplement {
 		t.Fatalf("start=%q mode=%q", profile.Start, profile.Mode)
 	}
-	roles := 0
+	roles := map[string]int{}
 	for _, n := range profile.Nodes {
 		if !n.Terminal && n.Limit <= 0 {
 			t.Errorf("node %s has no positive lf_limit", n.Name)
 		}
 		if n.Action == "lf_agent" {
-			roles++
-			if n.Attrs["lf_agent_markdown"] != "story-worker" || n.Attrs["lf_skills"] != "implement-result,team-guidance" || n.Limit != 3 {
-				t.Errorf("worker node = %+v", n)
+			roles[n.Attrs["lf_agent_markdown"]]++
+			if n.Attrs["lf_skills"] != "implement-result,litefactory-rules" || n.Limit != 3 {
+				t.Errorf("agent node = %+v", n)
 			}
 		}
 	}
-	if roles != 1 {
-		t.Fatalf("worker agents = %d", roles)
+	if roles["story-worker"] != 1 || roles["sync-resolver"] != 2 || len(roles) != 2 {
+		t.Fatalf("one story worker and a resolver per base sync: %v", roles)
 	}
-	if _, ok := definition.Files["story-worker.md"]; !ok {
-		t.Fatalf("the role is not captured: %v", definition.Files)
+	for _, role := range []string{"story-worker.md", "sync-resolver.md"} {
+		if _, ok := definition.Files[role]; !ok {
+			t.Fatalf("the role %s is not captured: %v", role, definition.Files)
+		}
 	}
-	if to, _ := graphexec.Decide(profile, "select_path", "coordinator"); to != "merge" {
+	if to, _ := graphexec.Decide(profile, "select_path", "coordinator"); to != "sync_start" {
 		t.Errorf("coordinator path starts at %q", to)
 	}
 	if to, _ := graphexec.Decide(profile, "select_path", "worker"); to != "budget" {
@@ -451,6 +453,47 @@ func TestImplementCommentContractRefusesAnythingButTheBatchedQuestion(t *testing
 	other.Mode = "spike"
 	if err := validateImplementComment(store.GraphNodeAttempt{}, "question", good, other); err == nil {
 		t.Error("another mode accepted")
+	}
+}
+
+func TestImplementCompletionReplyIsAFinalCommentWithTheNextStep(t *testing.T) {
+	scope := ImplementWorkflowPolicy().baseContext(true)
+	rows := []store.ImplementStory{
+		{Key: "story-001", MergeCommit: "aaa111", StateAt: implementClock.Add(2 * time.Minute)},
+		{Key: "story-002", MergeCommit: "bbb222", StateAt: implementClock.Add(time.Minute)},
+	}
+	candidate := implementCompletionCandidate(rows, "lf/9-feature", false)
+	if err := validateImplementComment(store.GraphNodeAttempt{}, "final", candidate, scope); err != nil {
+		t.Fatal(err)
+	}
+	text := renderImplementComment(candidate, "", naming.Ref{}, "")
+	for _, want := range []string{"all 2 stories are merged into `lf/9-feature`, now at commit `aaa111`", "**story-001**: merged as `aaa111`", "**story-002**: merged as `bbb222`", ValidateStartCommand} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the completion reply does not say %q:\n%s", want, text)
+		}
+	}
+	if strings.Index(text, "story-001") > strings.Index(text, "story-002") {
+		t.Errorf("stories are listed in ledger order:\n%s", text)
+	}
+	auto := implementCompletionCandidate(rows[:1], "lf/9-feature", true)
+	if !strings.Contains(auto.Comment, "all 1 story is merged") || !strings.Contains(auto.Reason, "start automatically") || strings.Contains(auto.Reason, ValidateStartCommand) {
+		t.Fatalf("auto-start wording: %+v", auto)
+	}
+	for name, mutate := range map[string]func(*agentresult.Result){
+		"incomplete": func(r *agentresult.Result) { r.Outcome = "incomplete" },
+		"no comment": func(r *agentresult.Result) { r.Comment = " " },
+		"a question": func(r *agentresult.Result) {
+			r.Questions = []agentresult.Question{{ID: "q1", Audience: "business", Text: "?"}}
+		},
+	} {
+		c := candidate
+		mutate(&c)
+		if err := validateImplementComment(store.GraphNodeAttempt{}, "final", c, scope); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if err := validateImplementComment(store.GraphNodeAttempt{}, "question", candidate, scope); err == nil {
+		t.Error("a completion reply is not a question")
 	}
 }
 

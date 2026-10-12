@@ -1,0 +1,24 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	3.894s
+--- FAIL: TestDoctorLiveDiagnosisProposesRepairForQueriedTargets (13.84s)
+    live_diagnosis_io_test.go:279: query rows: {"valid":false,"error":"database query timed out or was cancelled"} <nil>
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/doctor	192.552s
+ok  	github.com/cloudvane/litefactory/internal/github	13.253s
+ok  	github.com/cloudvane/litefactory/internal/messaging	77.378s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	10.928s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	4.661s
+ok  	github.com/cloudvane/litefactory/internal/meterview	11.683s
+ok  	github.com/cloudvane/litefactory/internal/naming	12.693s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	49.023s
+ok  	github.com/cloudvane/litefactory/internal/repos	29.817s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	41.716s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+--- FAIL: TestCanonicalMigrationAndGraphContracts (1.97s)
+    release_test.go:267: validate graph changed beyond team and guidance
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamrelease	205.449s
+ok  	github.com/cloudvane/litefactory/internal/ticket	7.532s
+ok  	github.com/cloudvane/litefactory/internal/webhook	20.408s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	74.850s
+FAIL

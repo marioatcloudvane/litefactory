@@ -35,7 +35,8 @@ type implementMergeOutput struct {
 //
 //	merged  the story landed after a clean merge
 //	parked  a conflict or a missing story branch; the integration branch is
-//	        unchanged
+//	        unchanged. A content conflict moves the story back to waiting so
+//	        its worker resolves it; the others wait for the owner
 //	none    no story is done
 //	retry   the lock is busy or the integration branch moved; nothing changed
 //
@@ -87,10 +88,29 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 		}
 		return implementResult("merged", implementMergeOutput{Story: story.Key, Result: "merged", Commit: commit})
 	}
-	park := func(reason string) (ActivityResult, error) {
-		if _, err := h.b.DB.TransitionImplementStory(ctx, store.ImplementTransition{
+	parkRow := func(reason string) (store.ImplementStory, error) {
+		return h.b.DB.TransitionImplementStory(ctx, store.ImplementTransition{
 			Parent: a.Parent.String(), Generation: a.Generation, Key: story.Key,
 			From: store.ImplementDone, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: reason, At: now,
+		})
+	}
+	park := func(reason string) (ActivityResult, error) {
+		if _, err := parkRow(reason); err != nil {
+			return ActivityResult{}, err
+		}
+		return implementResult("parked", implementMergeOutput{Story: story.Key, Result: "parked", Reason: reason})
+	}
+	// A content conflict is the story worker's to resolve: the story is parked
+	// and at once moved back to waiting, so ready starts its worker again, which
+	// merges the feature branch into the story branch and resolves the conflict.
+	restart := func(reason string) (ActivityResult, error) {
+		parked, err := parkRow(reason)
+		if err != nil {
+			return ActivityResult{}, err
+		}
+		if _, err := h.b.DB.TransitionImplementStory(ctx, store.ImplementTransition{
+			Parent: a.Parent.String(), Generation: a.Generation, Key: story.Key,
+			From: store.ImplementParked, To: store.ImplementWaiting, ExpectedRevision: parked.Revision, At: now,
 		}); err != nil {
 			return ActivityResult{}, err
 		}
@@ -120,7 +140,7 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 	head, merged, err := scratch.Merge(ctx, story.Branch)
 	switch {
 	case errors.Is(err, git.ErrMergeConflict):
-		return park("the story conflicts with the work already merged; it could not be merged cleanly")
+		return restart("the story conflicts with the work already merged; its worker is started again to resolve the conflict")
 	case errors.Is(err, git.ErrRevisionNotFound):
 		return park("the story's branch was not found, so there is nothing to merge")
 	case err != nil:
@@ -188,7 +208,7 @@ func (h ImplementMergeActivity) postMergedNote(ctx context.Context, a ImplementA
 	if body.Truncated() {
 		return errors.New("merge note was truncated")
 	}
-	if _, err := h.b.Forge.PostComment(ctx, repo, story.IssueNumber, body); err != nil {
+	if _, err := postTicketNotice(ctx, h.b.Forge, report.StoryMergedMarker(a.Parent, story.Key, commit), a.Parent.String(), 0, repo, story.IssueNumber, body); err != nil {
 		return fmt.Errorf("post merge note: %w", err)
 	}
 	return nil

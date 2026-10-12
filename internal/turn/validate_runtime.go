@@ -25,6 +25,8 @@ import (
 // the run-slot pool the reviewers take their slots from.
 type ValidateRuntimeConfig struct {
 	Forge   ValidateForge
+	Code    BugCodeForge
+	Tickets ValidateTickets
 	OwnerID int64
 	Slots   ValidateSlots
 	// Permissions resolves the operator's validate-repair grant for the one
@@ -35,7 +37,13 @@ type ValidateRuntimeConfig struct {
 // NewValidateRuntime builds the production host bindings of the Validate graph.
 // Every binding is derived from factory state for the one entry it is bound to.
 func NewValidateRuntime(ctx context.Context, opts Options, cfg ValidateRuntimeConfig) (*ValidateRuntime, error) {
-	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || cfg.Forge == nil || cfg.OwnerID < 1 || cfg.Slots == nil {
+	if cfg.Code == nil {
+		cfg.Code = cfg.Forge
+	}
+	if cfg.Tickets == nil {
+		cfg.Tickets = cfg.Forge
+	}
+	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || (cfg.Code == nil || cfg.Tickets == nil) || cfg.OwnerID < 1 || cfg.Slots == nil {
 		return nil, errors.New("graph Validate requires concrete source, result, owner, reporter, forge and run-slot bindings")
 	}
 	if err := ctx.Err(); err != nil {
@@ -46,7 +54,12 @@ func NewValidateRuntime(ctx context.Context, opts Options, cfg ValidateRuntimeCo
 	}
 	owner := cfg.OwnerID
 	return &ValidateRuntime{
-		OwnerID: func(context.Context, Options) (int64, error) { return owner, nil },
+		OwnerID: func(ctx context.Context, o Options) (int64, error) {
+			if o.ProjectApprovers {
+				return ticketOwnerID(ctx, o)
+			}
+			return owner, nil
+		},
 		Bind: func(ctx context.Context, opts Options, req Request, entry store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
 			return bindValidate(ctx, opts, req, entry, cfg)
 		},
@@ -80,7 +93,7 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 	if h.ref, err = naming.ParseRef(h.session.TaskRef); err != nil {
 		return ValidateSuiteBindings{}, ValidateFlowBindings{}, err
 	}
-	if h.repo, err = opts.DB.GetRepo(ctx, h.session.RepoID); err != nil {
+	if h.repo, err = executionRepository(ctx, opts.DB, h.session); err != nil {
 		return ValidateSuiteBindings{}, ValidateFlowBindings{}, err
 	}
 	if h.clone, err = opts.Git.Open(ctx, h.repo.Path); err != nil {
@@ -119,7 +132,8 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 		Reviewers: &validateReviewers{host: h, definition: definition},
 		Slots:     cfg.Slots,
 		Delivery: ValidateDelivery{
-			Forge:    cfg.Forge,
+			Code:     cfg.Code,
+			Tickets:  cfg.Tickets,
 			Redactor: opts.MCP.Redactor,
 			Target: func(context.Context, Options, ActivityRequest) (ValidateDeliveryTarget, error) {
 				return h.target(), nil
@@ -128,6 +142,7 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 			Publish: h.publish,
 			OwnerID: func(context.Context, Options) (int64, error) { return cfg.OwnerID, nil },
 		},
+		AdvanceStory: h.advanceStory,
 	}
 	return suite, flow, nil
 }
@@ -192,9 +207,12 @@ func (h *validateHost) checkoutTaskWorktree(ctx context.Context) (*git.Worktree,
 		return nil, err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return nil, err
+	}
 	dir := h.session.WorktreePath
 	if dir == "" {
-		if dir, err = naming.WorktreePath(h.repo.WorktreeRoot, h.session.IssueNumber); err != nil {
+		if dir, err = naming.QualifiedWorktreePath(h.repo.WorktreeRoot, h.session.IssueNumber, h.session.TaskRef); err != nil {
 			return nil, err
 		}
 	}
@@ -252,6 +270,9 @@ func (h *validateHost) keepChange(ctx context.Context, summary string) (string, 
 		return "", err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return "", err
+	}
 	result, err := wt.Commit(ctx, git.CommitOptions{Summary: summary, Task: h.session.TaskRef, Mode: string(agent.ModeValidate), Run: ordinal, Author: author})
 	if err != nil {
 		return "", err
@@ -265,6 +286,22 @@ func (h *validateHost) keepChange(ctx context.Context, summary string) (string, 
 // stories are the frozen approved stories Implement built, with the criterion
 // IDs and the text of their approved revision.
 func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
+	rows, err := h.opts.DB.ListImplementStories(ctx, h.session.TaskRef, int64(h.feature.Generation))
+	if err != nil {
+		return nil, fmt.Errorf("implement ledger: %w", err)
+	}
+	guidance, question, deviations := map[string]string{}, map[string]string{}, map[string][]string{}
+	for _, row := range rows {
+		for _, line := range strings.Split(row.Deviations, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				deviations[row.Key] = append(deviations[row.Key], line)
+			}
+		}
+		if g := strings.TrimSpace(row.Guidance); g != "" {
+			guidance[row.Key] = g
+			question[row.Key] = strings.TrimSpace(row.GuidanceQuestion)
+		}
+	}
 	var out []ValidateStory
 	for _, r := range h.revisions {
 		if r.State == "completed" || r.EngineeringComplete {
@@ -274,7 +311,7 @@ func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 		if err != nil {
 			return nil, fmt.Errorf("criteria of %s: %w", r.Key, err)
 		}
-		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, ExecutionRequired: required, Text: r.Body})
+		out = append(out, ValidateStory{Key: r.Key, Title: r.Title, Revision: r.Hash, Criteria: criteria, ExecutionRequired: required, Text: r.Body, OwnerGuidance: guidance[r.Key], OwnerQuestion: question[r.Key], Deviations: deviations[r.Key]})
 	}
 	if len(out) == 0 {
 		return nil, errors.New("no approved story is under review")
@@ -329,7 +366,57 @@ func (h *validateHost) publish(ctx context.Context, commit, expectedHead string)
 		return err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return err
+	}
 	return wt.PushHeadTo(ctx, h.opts.remote(), h.session.Branch, expectedHead)
+}
+
+// advanceStory moves a story branch on the remote forward to the tested commit
+// with the same guarded push: no force, and only while the remote branch is
+// still where it was read. A story branch that is missing or holds commits the
+// tested commit lacks is left alone and false is returned.
+func (h *validateHost) advanceStory(ctx context.Context, branch, commit string) (bool, error) {
+	wt, err := h.openWorktree(ctx)
+	if err != nil {
+		return false, err
+	}
+	head, err := wt.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if err != nil {
+		return false, err
+	}
+	if head != commit {
+		return false, fmt.Errorf("the task worktree is at %s, not at the tested commit %s", shortSHA(head), shortSHA(commit))
+	}
+	release, err := h.opts.CloneGate.Acquire(ctx, h.repo.Path)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return false, err
+	}
+	if err := h.clone.Fetch(ctx, h.opts.remote()); err != nil {
+		return false, fmt.Errorf("fetch %s: %w", h.opts.remote(), err)
+	}
+	current, err := h.clone.ShowRef(ctx, "refs/remotes/"+h.opts.remote()+"/"+branch)
+	if errors.Is(err, git.ErrRefNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if current == commit {
+		return true, nil
+	}
+	if ok, err := wt.IsAncestor(ctx, current, commit); err != nil || !ok {
+		return false, err
+	}
+	err = wt.PushHeadTo(ctx, h.opts.remote(), branch, current)
+	if errors.Is(err, git.ErrIntegrationHeadMoved) || errors.Is(err, git.ErrInvalidArgument) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // validateReviewers starts each reviewer as its own read-only agent run of the
@@ -535,5 +622,5 @@ func validateReviewPrompt(vr ValidateReviewRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Factory invocation: Validate %s review of commit %s. The working directory is a read-only checkout of exactly that commit; read it with your file tools or read-only shell commands, never run tests or builds. Report one entry under stories for every story below, with the snapshot ID exactly as given, and cite only the check IDs of the evidence list; only a passed command proves a finding.\n<validate-review>%s</validate-review>\n", vr.Role, vr.Commit, data), nil
+	return fmt.Sprintf("Factory invocation: Validate %s review of commit %s. The working directory is a read-only checkout of exactly that commit; read it with your file tools or read-only shell commands, never run tests or builds. Report one entry under stories for every story below, with the snapshot ID exactly as given, and cite only the check IDs of the evidence list; only a passed command proves a finding. A story's owner_guidance is the owner's decision recorded during Implement, and its owner_question, when present, is the worker's question that owner_guidance answers: judge that story's criteria and reviews, and those of any story relying on the same behavior, against its frozen text as amended by that decision, cite the decision in the finding's evidence, and never fail a criterion or classify a finding as blocking only because it differs from the frozen text in the way the owner approved. A story's deviations are decisions the worker made where the plan was silent: judge each against the story's intent and approved decisions and name it in the plan review's finding.\n<validate-review>%s</validate-review>\n", vr.Role, vr.Commit, data), nil
 }

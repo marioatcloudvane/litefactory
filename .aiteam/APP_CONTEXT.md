@@ -4,7 +4,7 @@
 [`APP_CONSTRAINTS.md`](APP_CONSTRAINTS.md).
 
 `litefactory` (module `github.com/cloudvane/litefactory`, **Go 1.26**) is a macOS
-daemon that polls GitHub issues and, when the owner comments, runs a headless
+daemon that polls configured GitHub or Linear tickets and, when the project approver replies, runs a headless
 configured Claude or Codex process inside a git worktree and reports back on the thread.
 
 Single Go module. Not a monorepo. Everything is under `internal/`, with
@@ -26,23 +26,27 @@ dispatch, exit code).
 Arrows point at what a package imports (litefactory packages only).
 
 ```
-config, naming, store, git, secrets, identity, launchd, logging, render,
+config, naming, ticket, git, secrets, identity, launchd, logging, render,
 gittest, planbrief, attach, schedule, webhook → leaves
+
+store         → ticket
 
 agent         → naming
 meter         → agent              pure normalization, reconciliation, capability diagnostics and exact pricing
 
 redact        →  secrets
 teampackage   →  config, teamsource   machine-level installed team versions (Manager Install/Update/Remove/List/Inspect, clone, content, per-clone selection)
-github        →  naming, redact, secrets
+github        →  naming, redact, secrets, ticket
+linear        →  redact, secrets, ticket
+projectconnection → github, linear, redact, secrets, store, ticket
 codex         →  agent, config, meter, naming
 harness       →  agent, config, meter, naming
 report        →  agent, git, naming, redact
 repos         →  git, naming, store
-turn          →  agent, attach, codex, config, git, github, harness, meter, naming, planbrief, redact, report, store
-daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn, webhook
+turn          →  agent, attach, codex, config, git, github, harness, meter, naming, planbrief, redact, report, store, ticket
+daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, ticket, turn, webhook
 teamsource    →  agent, config, graphexec, render   captures and renders shipped team workflow definitions and native role files
-cli           →  agent, config, daemon, git, github, identity, launchd, meter, naming, report, repos, secrets, store, teampackage, teamsource, webhook, webhookreg
+cli           →  agent, config, daemon, git, github, identity, launchd, meter, naming, report, repos, secrets, store, teampackage, teamsource, ticket, turn, webhook, webhookreg
 cmd/litefactory → cli, config, logging
 ```
 
@@ -71,6 +75,8 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | mark/clear/list a session that still owes the daemon a look | `internal/store` | `store/sessions.go`: `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions`; `daemon/tick.go:materialise` retires confirmed closed backlog |
 | build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
 | call the GitHub API | `internal/github` | Concrete `*Client` backed by go-github/v90; the method inventory is pinned in `internal/github/surface_test.go`. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
+| represent a qualified ticket identity or bind a legacy session | `internal/ticket`; `store/session_tickets.go` | Origin comes from trusted configuration; immutable ticket ID stays separate from its locator and historical task ref. `github.Tickets` is the adapter; daemon discovery and admission use verified snapshots and replies |
+| call the Linear ticket API | `internal/linear`; `internal/projectconnection` | Bounded GraphQL, qualified workspace/team/project identities and versioned visible metadata; GitHub code delivery stays separate |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Pure rendering; failed-run `agent.RunResult.Diagnostic` is sanitized, literal and bounded |
@@ -102,7 +108,7 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | tell whether a *stored* run genuinely succeeded (not a live result) | `store.Run.Succeeded()` (`internal/store/runs.go`) | Uses durable semantic outcome when present, preserving interruption across reporting; legacy status/error fallback |
 | turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer`, `Register`/`Lookup`; Claude/OpenCode produce a standalone file plus a root marker section; Codex produces `.codex/skills/<agent>/SKILL.md` |
 | install a team version on the machine, atomically, from a catalogue source | `internal/teampackage` | `Manager.Install(ctx, source, slug, ver)`, with `Update`, `Remove`, `List`, `Inspect` and `WithExact`; CLI front door is `team install\|clone\|update\|list\|inspect\|remove\|link\|unlink` (`internal/cli/cmd_team.go`, `cmd_team_binding.go`) |
-| render native team instructions without installed-tree writes | `teamsource.NativeWorkflow` / `teamsource.NativeResearch` + `render` | Return in-memory rendered files for a captured node. Shared contract: `internal/teamsource/shared/team-guidance/workflow.md` |
+| render native team instructions without installed-tree writes | `teamsource.NativeWorkflow` / `teamsource.NativeResearch` + `render` | Return in-memory rendered files for a captured node. Contracts live in each mode's roles and result skills |
 | see which `team` CLI subcommands exist | `internal/cli` | `install`, `clone`, `update`, `list`, `inspect`, `remove`, `link`, `unlink` (`newTeamCommand` in `commands.go`). Retired: the earlier `internal/team` installer with `team add`/`status`/`manage` and `.litefactory/team.overrides.json` is gone |
 | publish a managed Plan | `turn.PublishPlan`, `planbrief.ParseProposal` | Frozen full-body proposals; factory transport and link-only Story Index |
 | enumerate or project acceptance | `planbrief.AcceptanceCriteria`, `acceptance_projection.go` | Complete criterion keys; checkbox updates preserve requirements and unrelated edits |
@@ -116,13 +122,14 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | accept and close an assessed story | `store/acceptance.go`, `turn/acceptance.go` | Durable decision, report, body projection and confirmed closure; historical snapshot retained |
 | authorize a reasoned exception | `turn/owner_exceptions.go`, `store/owner_exceptions.go` | Numeric-owner `/waive`, exact immutable expansion and original evidence; grammar in `docs/workflow/owner-exceptions.md` |
 | approve a linked follow-up | `turn/followups.go`, `store/followups.go`, `github/followups.go` | Concrete proposal, separate creation/attachment controls and uncertain-response reconciliation |
-| deliver accepted work to main | `turn/feature_delivery.go`, `store/delivery.go`, `github/delivery.go` | All-child readiness, retained full reports, explicit PR/head approval, confirmed integration then parent closure; `docs/workflow/delivery.md` |
+| preserve pending ticket effects through the neutral contract | `turn/ticket_workflow_bridge.go`, `ticket_publication_bridge.go`, `ticket_plan_bridge.go`; `store/ticket_effects.go` | Production entry points inject narrow ticket bridges; companion destinations preserve existing ledger keys, prepared bytes and uncertainty policies. Auxiliary notices retain a single dispatch fact beside that metadata, while their existing workflow ledgers own completion. Story acknowledgments retain prepared bytes and dispatch uncertainty in their original table; historical admissions without dispatch evidence block rather than invent another send |
+| deliver accepted work to main | `turn/feature_delivery.go`, `store/delivery.go`, `github/delivery.go` | All-child readiness, retained full reports, explicit PR/head approval, confirmed integration then parent closure through a separate ticket dependency; `CodeDelivery` owns PR/head/merge operations and selects the registered clone. Contradictions with historical proposals block delivery rather than retarget it; `docs/workflow/delivery.md` |
 | change Plan workflow state (one story, a wait, a reply, the summary digest) | `store.UpdatePlanWorkflowState` / `WithPlanWorkflowState` | Fresh read, apply, save with the revision check, retry on `ErrPlanStateConflict`, then `ErrPlanStateUncertain`; never hold a revision across a forge call. Story tasks (`StorySet.Tasks`, `daemon/plan_story_task.go`, `turn/plan_graph_issues.go`, `turn/plan_summary.go`) write only their own story entry |
 | continue or complete a managed Plan | `turn/plan_attempt.go`, `turn/plan_context.go`, `turn/plan_handoff.go`, `planbrief/outcome.go` | Strict per-attempt discussion/completed outcome; identity-bound `PLAN_CONTEXT.json` supports dates/resume/fallback; completed proposal v1 publishes and saves a link-only index before readiness; exact fields in `docs/plan-outcome.md` |
 | return, validate and retain an agent's mode or graph-node result | The shared result route: `communication_preflight`/`communication_submit`/`communication_receipt` over `turn.AgentResultService` (`turn/agent_results.go`, `turn/mcp_*.go`); `agentresult` validators (`agentresult/plan_graph.go` for graph Plan) | Never parse terminal text for application data or effect inputs. `WorkflowPolicy.Admit` and the closed `RegisteredWorkflowPolicies` (`turn/workflow_policy.go`, `workflow_registry.go`) admit a mode; `AgentActivity.acceptRetained` (`turn/research_agent.go`) is the runtime boundary that reads the retained accepted result and uses the terminal envelope only to confirm completion/consistency. Enforced today for Research and graph Plan; Bug and graph Implement/Validate/Spike register a policy from introduction (CONC-24). Legacy Plan v1, submission-v1 scopes and unmanaged Implement/Validate keep their compatibility routes; new Plan sessions are admitted to graph Plan (`store.AdmitPlanPath`); sessions already admitted keep their saved route, including legacy Plan v1 |
 | derive asynchronous question permission | `turn/ask.go:questionPermission`, shared `harness.BuildPrompt` and `agent.Request` | Research and Plan default on, legacy infer stays tagged, recognized direct no-question instructions win; current/previous policies and framed saved context reach both runners |
 | retain and switch the selected mode | `daemon/mode.go`, `store/modes.go` | Canonical labels persist through runs/recovery; explicit owner commands replace a valid selection through durable confirmed transitions; journal retirement preserves labels and uses independent child consumption |
-| locate and package current team instructions | `internal/teamsource`; `go run ./cmd/teamrelease` | Canonical roles, skills and shared guidance; workflow-local guidance and `teams/go-development/v1.1.0` are generated. `-check` detects drift without rewriting output. |
+| locate and package current team instructions | `internal/teamsource`; `go run ./cmd/teamrelease` | Canonical roles and per-mode skills (no shared guidance tree); `teams/<slug>/v<version>` and `teams/teams.json` are generated. Only the owner releases and links versions. `-check` detects drift without rewriting output. |
 | measure and check a Spike fix, or file its too-big follow-up | `turn/spike_check.go`, `turn/spike_issue.go`, `store/spike_records.go`, `git.Worktree.ChangedSince` | Union of committed diff and worktree status against the gate-saved HEAD; recipe phases the DOT names run through `bugchecks.Isolation.Run` from the pinned `.litefactory/bug-checks.yaml`; issue filing keeps a durable intent and a hidden marker and never recreates blindly |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | dispatch, diagnose and join polling workers | `daemon/tick.go`, `daemon/worker.go` | `Tick` admission sources and worker/forge counter aliases; `runWorker` lifetime diagnostics and executor-request count; `Quiesce` joins cleanup and diagnostics |

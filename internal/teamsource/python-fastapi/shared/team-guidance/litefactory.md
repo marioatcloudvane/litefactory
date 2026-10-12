@@ -1,2 +1,0 @@
-# Application repository boundary
-This team supplies application stack guidance. Read the selected repository's own context and constraints. Do not import the factory implementation's module, database, SQL, migration or testing conventions. Shared workflow and evidence contracts retain their authority. Existing factory permissions, pinned Bug/Spike recipes and read-only Validate remain unchanged.

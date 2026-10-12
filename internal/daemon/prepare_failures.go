@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"sync"
+	"time"
 )
 
 // prepareEscalationAttempts is the consecutive-failure count at which a stuck
@@ -10,20 +11,9 @@ import (
 // that fires on every failure is not an escalation.
 const prepareEscalationAttempts = 3
 
-// prepareFailures counts consecutive failed turns per session.
-//
-// A turn that fails before it consumed its trigger leaves the comment
-// unconsumed on purpose: a fetch that failed because the network was down has
-// to be retried, not answered with a report that burns the trigger. The cost
-// is that nothing ever terminates the retry, so the hundredth identical
-// failure reads exactly like the first — the tick logs an error and comes back
-// in thirty seconds, forever, and an origin that is permanently gone looks
-// like a blip that has not cleared yet.
-//
-// This is the counter that tells the two apart. It is in memory on purpose:
-// the question it answers is "is this task making progress right now", which a
-// restart legitimately resets — a daemon that has just come up has not yet
-// failed at anything.
+// prepareFailures delays consecutive failed task attempts independently.
+// Triggers remain unconsumed for recovery. This is in memory intentionally:
+// restart resets transient cadence, while durable report recovery owns delivery.
 type prepareFailures struct {
 	mu    sync.Mutex
 	items map[int64]prepareFailure
@@ -31,6 +21,7 @@ type prepareFailures struct {
 
 // prepareFailure is one session's consecutive-failure state.
 type prepareFailure struct {
+	NextAt time.Time
 	// Attempts is how many turns in a row have failed, counting this one.
 	Attempts int
 	// Escalated records that the threshold line has already been written, so
@@ -45,7 +36,7 @@ type prepareFailure struct {
 // record counts one failure and returns the session's state along with whether
 // this failure is the one that should be announced — the first, the one that
 // crosses the escalation threshold, or one that fails for a new reason.
-func (p *prepareFailures) record(sessionID int64, reason string) (prepareFailure, bool) {
+func (p *prepareFailures) record(sessionID int64, reason string, at time.Time, interval time.Duration) (prepareFailure, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.items == nil {
@@ -57,6 +48,14 @@ func (p *prepareFailures) record(sessionID int64, reason string) (prepareFailure
 		Escalated: previous.Escalated,
 		Reason:    reason,
 	}
+	delay := interval
+	for i := 1; i < current.Attempts && delay < MaxBackoff; i++ {
+		delay *= 2
+	}
+	if delay > MaxBackoff {
+		delay = MaxBackoff
+	}
+	current.NextAt = at.Add(delay)
 	escalate := current.Attempts >= prepareEscalationAttempts && !current.Escalated
 	if escalate {
 		current.Escalated = true
@@ -75,4 +74,11 @@ func (p *prepareFailures) clear(sessionID int64) {
 		return
 	}
 	delete(p.items, sessionID)
+}
+
+// held gates task-specific provider calls before materialisation.
+func (p *prepareFailures) held(sessionID int64, at time.Time) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return at.Before(p.items[sessionID].NextAt)
 }
