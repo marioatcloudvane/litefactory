@@ -361,8 +361,14 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		} else {
 			c, err = d.sight(readCtx, targetQueue, issue)
 			if err != nil {
-				if errors.Is(err, store.ErrBindingConflict) || errors.Is(err, store.ErrConnectionConflict) || errors.Is(err, store.ErrTicketIdentityConflict) || errors.Is(err, store.ErrConnectionDisabled) || errors.Is(err, store.ErrApproverMissing) || errors.Is(err, store.ErrApproverConflict) || errors.Is(err, store.ErrApproverUnauthorized) {
-					q.log.WarnContext(ctx, "ticket observation cannot be admitted through its saved source", slog.Any("error", err))
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if ticketAdmissionDeferred(err) {
+					q.log.WarnContext(ctx, "ticket observation cannot be admitted through its saved source",
+						slog.Int64("project_id", observation.RepoID),
+						slog.Int64("connection_version_id", observation.ConnectionVersionID),
+						slog.Any("ticket", identity), slog.Any("error", err))
 					continue
 				}
 				return err
@@ -550,4 +556,22 @@ func (d *Daemon) observationSubscriptionCurrent(ctx context.Context, id string, 
 	}
 	current, err := d.db.CurrentConnection(ctx, sub.RepoID, store.TicketConnection)
 	return err == nil && current.Enabled && current.ID == sub.ConnectionVersionID && current.Provider == sub.Provider && current.Origin == sub.Origin && current.Destination == sub.Container
+}
+
+// Only confirmed access/lookup refusals are local to admission. Cancellation,
+// quota and infrastructure failures retain the caller's existing handling.
+func ticketAdmissionDeferred(err error) bool {
+	var quota *ticket.RateLimitError
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, github.ErrRateLimited) || errors.As(err, &quota) {
+		return false
+	}
+	var failure *ticket.Failure
+	return errors.Is(err, github.ErrNotFound) || errors.Is(err, github.ErrForbidden) ||
+		errors.Is(err, github.ErrUnauthorized) ||
+		(errors.As(err, &failure) && failure.Kind == ticket.Refused) ||
+		errors.Is(err, store.ErrBindingConflict) || errors.Is(err, store.ErrConnectionConflict) ||
+		errors.Is(err, store.ErrTicketIdentityConflict) || errors.Is(err, store.ErrConnectionDisabled) ||
+		errors.Is(err, store.ErrApproverMissing) || errors.Is(err, store.ErrApproverConflict) ||
+		errors.Is(err, store.ErrApproverUnauthorized)
 }
