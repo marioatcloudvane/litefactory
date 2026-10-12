@@ -195,6 +195,9 @@ func (rep RunReport) validate() error {
 
 // ReplyRequest is a run-less answer to a comment litefactory will not act on.
 type ReplyRequest struct {
+	// MissingMode is required for a missing connection label mapping refusal.
+	MissingMode agent.Mode
+
 	Creation           *report.CreationReply
 	CreationAcceptance *report.CreationAcceptance
 	// Ref is the task the comment is on. It appears in the marker, so it must
@@ -332,6 +335,8 @@ func (req ReplyRequest) validate() error {
 	switch {
 	case req.CreationAcceptance != nil && (req.Creation != nil || req.refusing() || req.ScheduleKind != report.ReplyInvalid || req.ConfirmKind != report.ReplyInvalid):
 		return invalidRequest("creation acceptance cannot be combined with another reply")
+	case req.Refusal == report.ReplyMissingModeMapping && !req.MissingMode.Valid():
+		return invalidRequest("a canonical missing mode is required")
 	case req.SessionID <= 0:
 		return invalidRequest("a session id is required to reply to a comment")
 	// A refusal needs one as much as any other reply does. The issue-body path
@@ -694,6 +699,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 			SourceStoryIssue:         sourceStory,
 			SourceCommentID:          sourceComment,
 			Kind:                     kind,
+			MissingMode:              req.MissingMode,
 			Command:                  req.Command.Name,
 			Agent:                    req.Agent,
 			OwningAgent:              req.OwningAgent,

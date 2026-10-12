@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -40,6 +42,7 @@ type linearWorkflowServer struct {
 	issues         map[string]map[string]any
 	comments       map[string]map[string]any
 	creates, posts int
+	loseReply      bool
 }
 
 func newLinearWorkflowServer(t *testing.T) *linearWorkflowServer {
@@ -113,6 +116,11 @@ func (s *linearWorkflowServer) serve(w http.ResponseWriter, r *http.Request) {
 		body, _ := input["body"].(string)
 		reply := map[string]any{"id": createdID, "body": body, "user": s.actor("publisher-uuid"), "issue": s.issues[target], "url": "https://linear.app/test/comment/" + createdID, "createdAt": "2026-10-11T12:05:00Z", "updatedAt": "2026-10-11T12:05:00Z"}
 		s.comments[createdID] = reply
+		if s.loseReply {
+			s.loseReply = false
+			http.Error(w, "lost receipt", http.StatusServiceUnavailable)
+			return
+		}
 		data = map[string]any{"commentCreate": map[string]any{"success": true, "comment": reply}}
 	case strings.Contains(q, "issueUpdate("):
 		issue := s.issues[id]
@@ -520,4 +528,240 @@ func (transport linearMixedProviderTransport) RoundTrip(request *http.Request) (
 	localURL.Scheme, localURL.Host = transport.githubURL.Scheme, transport.githubURL.Host
 	local.URL = &localURL
 	return http.DefaultTransport.RoundTrip(local)
+}
+
+// Exercise the real Linear adapter and durable report ledger for fresh and
+// retained selections, including a remote post whose receipt is lost.
+func TestLinearUnmappedModeRefusal(t *testing.T) {
+	for _, scenario := range []string{"fresh", "pending", "lost_receipt"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := t.Context()
+			remote := newLinearWorkflowServer(t)
+			codeRemote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Header.Get("Authorization") != "Bearer test-github-token" {
+					t.Error("GitHub admission selected a ticket credential")
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				var response any
+				switch r.URL.Path {
+				case "/user":
+					response = map[string]any{"id": 99, "login": "github-publisher", "type": "Bot"}
+				case "/repos/code-owner/code":
+					response = map[string]any{"id": 101, "full_name": "code-owner/code"}
+				default:
+					t.Errorf("ticket workflow unexpectedly reached GitHub: %s %s", r.Method, r.URL.Path)
+					http.NotFound(w, r)
+					return
+				}
+				if err := json.NewEncoder(w).Encode(response); err != nil {
+					t.Error(err)
+				}
+			}))
+			defer codeRemote.Close()
+			codeURL, err := url.Parse(codeRemote.URL)
+			linearWorkflowCheck(t, err)
+			httpClient := &http.Client{Transport: linearMixedProviderTransport{githubURL: codeURL}}
+			dbPath := filepath.Join(t.TempDir(), "linear-workflow.db")
+			db, err := store.Open(ctx, dbPath)
+			linearWorkflowCheck(t, err)
+			defer func() { linearWorkflowCheck(t, db.Close()) }()
+			linearWorkflowCheck(t, db.Migrate(ctx))
+			repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "code-owner", Name: "code", RemoteURL: "git@github.com:code-owner/code.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+			linearWorkflowCheck(t, err)
+			code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: repo.Slug(), RemoteID: "101", CredentialSource: "env", CredentialEnv: "CODE_TOKEN", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, RemoteURL: repo.RemoteURL, BaseBranch: repo.BaseBranch, FeaturePrefix: repo.FeaturePrefix, WorktreeRoot: repo.WorktreeRoot}, 0)
+			linearWorkflowCheck(t, err)
+			version, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: ticket.Origin(remote.server.URL), Destination: "team-uuid/project-uuid", CredentialSource: "env", CredentialEnv: "LINEAR_TOKEN", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace-uuid", TeamID: "team-uuid", ProjectID: "project-uuid", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"label-plan","implement":"label-implement","validate":"label-validate"}`, LifecycleStatesJSON: `{"open":"state-open","completed":"state-completed","retired":"state-retired"}`}}, 0)
+			linearWorkflowCheck(t, err)
+			factoryOptions := projectconnection.Options{DB: db, HTTPClient: httpClient, Resolver: secrets.Resolver{LookupEnv: func(name string) (string, bool) {
+				switch name {
+				case "LINEAR_TOKEN":
+					return "test-linear-token", true
+				case "CODE_TOKEN":
+					return "test-github-token", true
+				default:
+					t.Errorf("unexpected credential reference %s", name)
+					return "", false
+				}
+			}}}
+			factory := projectconnection.NewFactory(factoryOptions)
+			_, err = db.UpsertIdentity(ctx, store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 7, Handle: "code-owner", Source: store.SourceGH})
+			linearWorkflowCheck(t, err)
+			appointment, err := (projectconnection.ApproverService{DB: db, Factory: factory}).Set(ctx, repo.ID, "human-uuid", version.Revision, 0)
+			linearWorkflowCheck(t, err)
+			clients, err := factory.Clients(ctx, version, 0)
+			linearWorkflowCheck(t, err)
+			if clients.Linear == nil || appointment.Actor.RemoteID != "human-uuid" || clients.Publisher.Identity.RemoteID != "publisher-uuid" {
+				t.Fatalf("unverified setup: %+v %+v", appointment, clients.Publisher)
+			}
+			adapter := clients.Linear
+			inspection, err := adapter.Inspect(ctx)
+			linearWorkflowCheck(t, err)
+			if inspection.WorkspaceID != "workspace-uuid" || inspection.TeamID != "team-uuid" || inspection.ProjectID != "project-uuid" {
+				t.Fatalf("setup did not verify the configured destination: %+v", inspection)
+			}
+			parent, err := adapter.Resolve(ctx, ticket.Locator{Provider: ticket.Linear, Origin: version.Origin, Container: version.Destination, Key: "parent-uuid"})
+			linearWorkflowCheck(t, err)
+			_, err = db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: version.ID, Ref: parent.Ref, Enabled: true, Provenance: "explicit"})
+			linearWorkflowCheck(t, err)
+			issueSlot, err := db.LocalTicketSlot(ctx, "issue", parent.Ref.Identity)
+			linearWorkflowCheck(t, err)
+			botSlot, err := db.LocalTicketSlot(ctx, "actor", clients.Publisher.Identity)
+			linearWorkflowCheck(t, err)
+			ownerSlot, err := db.LocalTicketSlot(ctx, "actor", appointment.Actor)
+			linearWorkflowCheck(t, err)
+			ref := naming.Ref{Forge: "linear", Owner: "team-uuid", Repo: "project-uuid", Issue: int(issueSlot)}
+			session, err := AdmitProjectTicket(ctx, db, factory, repo, parent.Ref)
+			linearWorkflowCheck(t, err)
+			snapshot, err := db.GetExecutionSnapshot(ctx, session.ID)
+			linearWorkflowCheck(t, err)
+			authority, err := db.EnsureDeliveryCodeAuthority(ctx, session.ID)
+			linearWorkflowCheck(t, err)
+			if snapshot.ActorID != botSlot || snapshot.CodeActorID != 99 || authority.OwnerID != 7 || authority.PublisherID != 99 || session.TaskRef != ref.String() {
+				t.Fatalf("production admission failed to pin distinct ticket and code identities: %+v %+v", snapshot, authority)
+			}
+			codeClients, err := factory.Clients(ctx, code, 99)
+			linearWorkflowCheck(t, err)
+			startupTickets, err := github.NewTickets(codeClients.Code)
+			linearWorkflowCheck(t, err)
+			selector := func(ctx context.Context, r github.Repo, number int, sessionID int64) (turn.WorkflowTickets, int64, error) {
+				return selectTicketConnection(ctx, db, factory, r, number, sessionID)
+			}
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, nil))
+			filter, err := turn.NewFilter(db, turn.Identities{OwnerUserID: ownerSlot, BotUserID: botSlot, TicketOrigin: version.Origin}, logger)
+			linearWorkflowCheck(t, err)
+			d := &Daemon{db: db, connections: factory, filter: filter, log: logger}
+			readAndAdmit := func(id, body string) turn.Admission {
+				t.Helper()
+				remote.addReply(id, body, "human-uuid")
+				page, e := adapter.RepliesAfter(ctx, parent.Ref, linear.ReplyCursor(parent.Ref))
+				linearWorkflowCheck(t, e)
+				for _, reply := range page.Replies {
+					if reply.Identity.RemoteID == id {
+						admission, e := d.admitReply(ctx, session.ID, github.Comment{}, &reply)
+						linearWorkflowCheck(t, e)
+						if !admission.Triggers() {
+							t.Fatalf("verified source rejected: %+v", admission)
+						}
+						return admission
+					}
+				}
+				t.Fatalf("missing source %s", id)
+				return turn.Admission{}
+			}
+			bridge, err := turn.NewRoutedGitHubTicketWorkflow(db, startupTickets, 99, selector)
+			linearWorkflowCheck(t, err)
+			redactor := redact.New(redact.Options{Token: secrets.NewToken("test-linear-token"), Environ: []string{}})
+			renderer, err := report.New(report.Options{Redactor: redactor, Limit: github.CommentSizeLimit, Logger: logger})
+			linearWorkflowCheck(t, err)
+			reporter, err := turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: logger, BotUserID: 99})
+			linearWorkflowCheck(t, err)
+
+			d.reporter = reporter
+			d.defaultAgent = agent.Kind("claude")
+			d.classifiers = map[agent.Kind]agent.Classifier{d.defaultAgent: missingMappingClassifier{}}
+			instruction := readAndAdmit("unmapped-instruction", "Investigate this request")
+			trigger := turn.Trigger{CommentID: instruction.Comment.ID}
+			issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
+			linearWorkflowCheck(t, err)
+			task := &task{repo: repo, session: session, ref: ref, forgeRepo: github.RepoFromRef(ref), issue: issue, log: logger, tickAt: time.Now().UTC()}
+			if scenario == "pending" {
+				_, err = db.GetOrCreateModeSelection(ctx, store.ModeSelection{SessionID: session.ID, TriggerCommentID: trigger.CommentID, Mode: "research", Label: "Mode: Research"})
+				linearWorkflowCheck(t, err)
+			}
+			remote.mu.Lock()
+			remote.loseReply = scenario == "lost_receipt"
+			remote.mu.Unlock()
+			err = d.run(ctx, task, trigger, turn.ParseCommand(instruction.Comment.Body), logger)
+			if scenario == "lost_receipt" {
+				if err == nil {
+					t.Fatal("lost delivery receipt reported success")
+				}
+				before, _, e := db.GetWatermark(ctx, session.ID)
+				linearWorkflowCheck(t, e)
+				if before.LastCommentID >= trigger.CommentID {
+					t.Fatal("unconfirmed reply consumed source")
+				}
+				// A fresh reporter after reopening SQLite must reconcile the existing
+				// durable intent with the one visible remote comment.
+				linearWorkflowCheck(t, db.Close())
+				db, err = store.Open(ctx, dbPath)
+				linearWorkflowCheck(t, err)
+				factoryOptions.DB = db
+				factory = projectconnection.NewFactory(factoryOptions)
+				bridge, err = turn.NewRoutedGitHubTicketWorkflow(db, startupTickets, 99, selector)
+				linearWorkflowCheck(t, err)
+				reporter, err = turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: logger, BotUserID: 99})
+				linearWorkflowCheck(t, err)
+				_, pending, e := reporter.ReportPending(ctx, session.ID, trigger.CommentID)
+				linearWorkflowCheck(t, e)
+				if !pending {
+					t.Fatal("lost durable delivery was not recovered")
+				}
+			} else {
+				linearWorkflowCheck(t, err)
+			}
+			// Fresh daemon state exercises cleanup and source admission after restart.
+			d = &Daemon{db: db, connections: factory, reporter: reporter, log: logger, defaultAgent: agent.Kind("claude"), classifiers: map[agent.Kind]agent.Classifier{agent.Kind("claude"): missingMappingClassifier{}}}
+			filter, err = turn.NewFilter(db, turn.Identities{OwnerUserID: ownerSlot, BotUserID: botSlot, TicketOrigin: version.Origin}, logger)
+			linearWorkflowCheck(t, err)
+			d.filter = filter
+			linearWorkflowCheck(t, d.retireModeSelections(ctx, session.ID))
+			if _, err := db.GetModeSelection(ctx, session.ID, trigger.CommentID); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("journal retained: %v", err)
+			}
+			consumed, _, err := db.GetWatermark(ctx, session.ID)
+			linearWorkflowCheck(t, err)
+			if consumed.LastCommentID < trigger.CommentID {
+				t.Fatal("confirmed refusal did not consume source")
+			}
+
+			d.discovery.tick(task.tickAt)
+			d.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 4999, Reset: task.tickAt.Add(time.Hour), StatusCode: http.StatusOK})
+			for i := 0; i < 3; i++ {
+				wm, _, e := db.GetWatermark(ctx, session.ID)
+				linearWorkflowCheck(t, e)
+				_, e = d.drain(sessionContext(ctx, session.ID), task, wm.LastCommentID)
+				linearWorkflowCheck(t, e)
+			}
+
+			remote.mu.Lock()
+			posts := remote.posts
+			var replyBody string
+			for _, reply := range remote.comments {
+				if linearWorkflowObject(t, reply["user"])["id"] == "publisher-uuid" {
+					replyBody, _ = reply["body"].(string)
+				}
+			}
+			remote.mu.Unlock()
+			if posts != 1 {
+				t.Fatalf("posts=%d", posts)
+			}
+			for _, want := range []string{"research", "Nothing was run", "--mode-labels", "label the issue with a mapped mode", "comment again"} {
+				if !strings.Contains(replyBody, want) {
+					t.Fatalf("reply missing %q: %s", want, replyBody)
+				}
+			}
+			if strings.Contains(logs.String(), "mode selection was refused") {
+				t.Fatalf("configuration still deferred: %s", &logs)
+			}
+			// No executor is installed: reaching execution in d.run would fail this
+			// fixture. A newly mapped label and new comment can now select Plan.
+			linearWorkflowCheck(t, bridge.AddIssueLabel(ctx, github.RepoFromRef(ref), ref.Issue, "Mode: Plan"))
+			next := readAndAdmit("next-instruction", "Continue with this mapped mode")
+			mode, err := d.admitMode(sessionContext(ctx, session.ID), task, turn.Trigger{CommentID: next.Comment.ID}, turn.ParseCommand(next.Comment.Body))
+			linearWorkflowCheck(t, err)
+			if mode != agent.ModePlan {
+				t.Fatalf("next mode=%s", mode)
+			}
+		})
+	}
+}
+
+type missingMappingClassifier struct{}
+
+func (missingMappingClassifier) Classify(context.Context, agent.Classification) (agent.Mode, error) {
+	return agent.ModeResearch, nil
 }

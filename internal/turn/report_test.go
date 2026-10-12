@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -883,4 +885,18 @@ func ghTripwire(t *testing.T) string {
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return marker
+}
+
+func TestMissingModeMappingRequestValidation(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []agent.Mode{"research", "spike", "", "Mode: Research", "research\n@owner"} {
+		req := ReplyRequest{Ref: naming.Ref{Forge: "github", Owner: "owner", Repo: "repo", Issue: 1}, SessionID: 1, CommentID: 2, Refusal: report.ReplyMissingModeMapping, MissingMode: mode}
+		err := req.validate()
+		if (err == nil) != mode.Valid() {
+			t.Fatalf("mode %q: %v", mode, err)
+		}
+		if kind, ok := req.kind(); !ok || kind != report.ReplyMissingModeMapping {
+			t.Fatal("mode refusal not accepted by request routing")
+		}
+	}
 }

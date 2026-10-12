@@ -168,6 +168,11 @@ func runDaemonStatus(ctx context.Context, env *Env, runner launchd.Runner) error
 	if err := printDaemonHealth(env.Stdout, health.HealthSnapshot, status.Running, now()); err != nil {
 		return err
 	}
+	for _, gap := range health.missingModeMappings {
+		if _, err := fmt.Fprintln(env.Stdout, gap); err != nil {
+			return err
+		}
+	}
 	return printDoctorConfiguration(env.Stdout, health.unsupportedDoctor)
 }
 

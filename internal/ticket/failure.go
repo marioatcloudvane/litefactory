@@ -35,3 +35,11 @@ func (f *Failure) Error() string {
 	return fmt.Sprintf("ticket: %s: %s: %v", f.Operation, f.Kind, f.Cause)
 }
 func (f *Failure) Unwrap() error { return f.Cause }
+
+// MissingModeMapping identifies a locally refused canonical mode label whose
+// connection has no explicit mapping. Other provider refusals retain their kind.
+type MissingModeMapping struct{ Mode string }
+
+func (e *MissingModeMapping) Error() string {
+	return fmt.Sprintf("explicit mode label mapping is required for %s", e.Mode)
+}
