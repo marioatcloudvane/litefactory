@@ -116,3 +116,56 @@ func TestOwnerWaitQuestionUsesWaitFacts(t *testing.T) {
 		}
 	}
 }
+
+func TestExplicitBugAnswerScopesEvidence(t *testing.T) {
+	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	question := "What happened with bug 726, is it delivered?"
+	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
+	for _, present := range []bool{false, true} {
+		f := &factory{tasks: []ask.Task{{IssueNumber: 723, Reference: "github:owner/app#723"}}}
+		if present {
+			f.tasks = append(f.tasks, ask.Task{IssueNumber: 726, Reference: "github:owner/app#726", LatestRun: &store.Run{Ordinal: 1, Status: store.RunSucceeded}})
+		}
+		s := &ask.Service{Repositories: catalog{repo}, Collector: ask.Collector{Factory: f, Issues: &forge{}}, Redactor: redact.New(redact.Options{})}
+		prepared, err := s.Prepare(t.Context(), question, "", "3", at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prepared.Bundle.TargetIssue != 726 || len(prepared.History.Turns) != 0 {
+			t.Fatalf("unscoped: %+v", prepared)
+		}
+		for _, fact := range prepared.Bundle.Facts {
+			if strings.Contains(fact.Handle, "723") {
+				t.Fatalf("unrelated evidence: %+v", fact)
+			}
+		}
+		if !present {
+			text, _, err := s.ReplyPrepared(t.Context(), prepared)
+			if err != nil || !strings.Contains(text, "No evidence found for issue #726") {
+				t.Fatalf("%s %v", text, err)
+			}
+			continue
+		}
+		// Closed tasks remain available for an explicitly named issue even after a
+		// complete open-issue read omits them.
+		if len(prepared.Bundle.Facts) != 2 {
+			t.Fatalf("closed evidence lost: %+v", prepared.Bundle)
+		}
+		b := prepared.Bundle
+		b.Facts = append(b.Facts, ask.Fact{Handle: "task:723", Kind: "task", Text: "#723 completed"})
+		for _, point := range []ask.Point{
+			{Text: "#723 completed", Handles: []string{"task:723"}},
+			{Text: "#723 completed", Handles: []string{"task:726"}},
+			{Text: "#726 delivered", Handles: []string{"run:726/1"}},
+		} {
+			if err := ask.ValidateAnswer(ask.Answer{Points: []ask.Point{point}}, b); err == nil {
+				t.Fatalf("accepted %+v", point)
+			}
+		}
+		b.Facts = append(b.Facts, ask.Fact{Handle: "issue:726", Kind: "issue", Text: "#726 delivered via PR #734"})
+		point := ask.Point{Text: "#726 delivered via PR #734", Handles: []string{"issue:726"}}
+		if err := ask.ValidateAnswer(ask.Answer{Points: []ask.Point{point}}, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

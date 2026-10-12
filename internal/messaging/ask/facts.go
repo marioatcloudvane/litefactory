@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -32,20 +35,22 @@ type Fact struct {
 
 // Bundle is the factory-owned citation catalog for one answer.
 type Bundle struct {
-	CapturedAt time.Time `json:"captured_at"`
-	Project    string    `json:"project"`
-	Facts      []Fact    `json:"facts"`
-	Gaps       []string  `json:"gaps"`
+	CapturedAt  time.Time `json:"captured_at"`
+	Project     string    `json:"project"`
+	TargetIssue int       `json:"target_issue,omitempty"`
+	Facts       []Fact    `json:"facts"`
+	Gaps        []string  `json:"gaps"`
 }
 
 // Task is a read-only projection; it contains no clone paths or credentials.
 type Task struct {
-	IssueNumber int
-	Reference   string
-	State       string
-	LatestRun   *store.Run
-	PlanStages  []string
-	OwnerWait   *OwnerWait
+	IssueNumber  int
+	Reference    string
+	State        string
+	LatestRun    *store.Run
+	PlanStages   []string
+	OwnerWait    *OwnerWait
+	OwnerBlocked string
 }
 
 // OwnerWait is a published owner question or review still waiting for a reply.
@@ -79,7 +84,11 @@ type Collector struct {
 // Collect records omissions explicitly and caps the complete encoded bundle,
 // including fact metadata and gaps, rather than only counting issue body bytes.
 func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (Bundle, error) {
-	b := Bundle{CapturedAt: at.UTC(), Project: repo.Slug(), Facts: []Fact{}, Gaps: []string{}}
+	return c.collect(ctx, repo, at, 0)
+}
+
+func (c Collector) collect(ctx context.Context, repo store.Repo, at time.Time, target int) (Bundle, error) {
+	b := Bundle{TargetIssue: target, CapturedAt: at.UTC(), Project: repo.Slug(), Facts: []Fact{}, Gaps: []string{}}
 	if c.Factory == nil || repo.ID < 1 || repo.Forge != "github" || at.IsZero() {
 		return b, errors.New("ask: invalid facts collection context")
 	}
@@ -138,7 +147,12 @@ func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (
 		}
 	}
 	// A task is closed only when a complete open-issue read omits its issue.
-	closed := func(task Task) bool { return openIssues != nil && !openIssues[task.IssueNumber] }
+	closed := func(task Task) bool { return target == 0 && openIssues != nil && !openIssues[task.IssueNumber] }
+	if target > 0 {
+		tasks = slices.DeleteFunc(slices.Clone(tasks), func(t Task) bool { return t.IssueNumber != target })
+		issues = slices.DeleteFunc(slices.Clone(issues), func(i github.Issue) bool { return i.Number != target })
+		b.Facts = nil // Project-wide facts cannot support an issue-specific answer.
+	}
 	if err := ctx.Err(); err != nil {
 		return b, err
 	}
@@ -166,7 +180,7 @@ func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (
 			seenActive[task.IssueNumber] = true
 			add(fact(fmt.Sprintf("active:%d", task.IssueNumber), "active", fmt.Sprintf("%s/issues/%d", base, task.IssueNumber), fmt.Sprintf("#%d has a factory run in progress: run %d; mode: %s; status: %s; started: %s.", task.IssueNumber, run.Ordinal, byteExcerpt(run.Mode, 128), run.Status, run.StartedAt.UTC().Format(time.RFC3339))))
 		}
-		if len(seenActive) == 0 && !tasksCut {
+		if len(seenActive) == 0 && !tasksCut && target == 0 {
 			add(fact("active:none", "active", "", "No factory run is currently running."))
 		}
 	}
@@ -254,4 +268,24 @@ func byteExcerpt(s string, limit int) string {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+var issueReference = regexp.MustCompile(`(?i)(?:\b(?:issue|bug)\s*#?\s*|#)([1-9][0-9]*)\b`)
+
+// ExplicitIssues returns distinct issue numbers in encounter order. It does not
+// infer an issue from a bare number, run number or PR number.
+func ExplicitIssues(text string) []int {
+	var out []int
+	for _, m := range issueReference.FindAllStringSubmatch(text, -1) {
+		n, err := strconv.Atoi(m[1])
+		if err == nil && !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func factTargets(f Fact, issue int) bool {
+	_, suffix, ok := strings.Cut(f.Handle, ":")
+	return ok && (suffix == strconv.Itoa(issue) || strings.HasPrefix(suffix, strconv.Itoa(issue)+"/"))
 }
