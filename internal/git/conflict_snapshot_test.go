@@ -1,6 +1,7 @@
 package git_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +43,7 @@ func TestCollectConflictSnapshotsBoundsAndCoverage(t *testing.T) {
 }
 
 func TestCollectConflictSnapshotsOriginalAndRegionBounds(t *testing.T) {
-	for _, tc := range []struct{ name, body string }{{"region", strings.Repeat("x", git.MaxConflictRegionBytes)}, {"original", strings.Repeat("x", git.MaxConflictOriginalBytes)}} {
+	for _, tc := range []struct{ name, body string }{{"original", strings.Repeat("x", git.MaxConflictOriginalBytes)}} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := gittest.New(t)
 			w, dir := newTaskWorktree(t, repo, 92, "bounded")
@@ -63,6 +64,9 @@ func TestCollectConflictSnapshotsOriginalAndRegionBounds(t *testing.T) {
 			got, err := w.CollectConflictSnapshots(t.Context(), preview.TreeSHA, branch, base, preview.Conflicts, 1<<20)
 			if err == nil || got != nil {
 				t.Fatal("oversized data accepted")
+			}
+			if !strings.Contains(err.Error(), "original exceeds 1 MiB") || strings.Contains(err.Error(), "at least") {
+				t.Fatalf("misleading original limit: %v", err)
 			}
 		})
 	}
@@ -110,6 +114,74 @@ func TestCollectConflictSnapshotsUnsupportedModesAndTypes(t *testing.T) {
 			got, err := w.CollectConflictSnapshots(t.Context(), preview.TreeSHA, branch, base, []string{"README.md"}, 4096)
 			if err == nil || got != nil {
 				t.Fatalf("accepted unsupported %s", kind)
+			}
+		})
+	}
+}
+
+func TestCollectConflictSnapshotsConfiguredAggregateBudget(t *testing.T) {
+	for _, size := range []int{9000, 270000} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			repo := gittest.New(t)
+			for _, path := range []string{"first.txt", "second.txt"} {
+				if err := os.WriteFile(filepath.Join(repo.Dir, path), []byte("header\ntail\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			repo.Git("add", ".")
+			repo.Git("commit", "-qm", "ancestor")
+			repo.Git("push", "origin", gittest.DefaultBranch)
+			w, dir := newTaskWorktree(t, repo, 94, "budget")
+			for i, location := range []string{dir, repo.Dir} {
+				for _, path := range []string{"first.txt", "second.txt"} {
+					content := "header\n" + strings.Repeat(string(rune('a'+i)), size) + "\ntail\n"
+					if err := os.WriteFile(filepath.Join(location, path), []byte(content), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				repo.GitIn(location, "add", ".")
+				repo.GitIn(location, "commit", "-qm", "addition")
+			}
+			branch := repo.GitIn(dir, "rev-parse", "HEAD")
+			base := repo.Git("rev-parse", "HEAD")
+			preview, err := w.MergePreview(t.Context(), base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Measure each complete file through the collector, then check the aggregate.
+			total := 0
+			for _, path := range preview.Conflicts {
+				snapshots, e := w.CollectConflictSnapshots(t.Context(), preview.TreeSHA, branch, base, []string{path}, 1<<20)
+				if e != nil {
+					t.Fatal(e)
+				}
+				for _, r := range snapshots[0].Regions {
+					total += len(r.Content)
+				}
+				if _, ok := git.ResolveConflictAdditions(snapshots[0]); !ok {
+					t.Fatal("interior addition not proven")
+				}
+			}
+			if total <= 1<<20 {
+				if _, e := w.CollectConflictSnapshots(t.Context(), preview.TreeSHA, branch, base, preview.Conflicts, total); e != nil {
+					t.Fatalf("exact budget: %v", e)
+				}
+			}
+			budget := total - 1
+			if total > 1<<20 {
+				budget = 1 << 20
+			}
+			got, e := w.CollectConflictSnapshots(t.Context(), preview.TreeSHA, branch, base, preview.Conflicts, budget)
+			if got != nil || e == nil {
+				t.Fatal("aggregate overflow accepted")
+			}
+			for _, want := range []string{fmt.Sprint(total), fmt.Sprint(budget), "settings.conflict_content_max_bytes"} {
+				if !strings.Contains(e.Error(), want) {
+					t.Fatalf("missing %q: %v", want, e)
+				}
+			}
+			if total > 1<<20 && (!strings.Contains(e.Error(), "no supported setting suffices") || strings.Contains(e.Error(), "at least")) {
+				t.Fatal(e)
 			}
 		})
 	}
