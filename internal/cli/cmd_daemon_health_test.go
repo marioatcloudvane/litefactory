@@ -60,7 +60,7 @@ func TestPrintDaemonHealthRunning(t *testing.T) {
 		"ok",
 		"acme/web", "polling only",
 		daemonNoDelivery,
-		"MISSING",
+		"MISSING; repair with `litefactory repo webhook acme/web`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)

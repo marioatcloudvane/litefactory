@@ -180,7 +180,7 @@ func daemonSecret(r store.RepoDiscoveryStatus, listening bool) string {
 	case r.SecretPresent:
 		return "ok"
 	case listening:
-		return "MISSING"
+		return fmt.Sprintf("MISSING; repair with `litefactory repo webhook %s/%s`", r.Owner, r.Name)
 	default:
 		return "not needed (listener off)"
 	}

@@ -25,19 +25,21 @@ const webhookTestPublicURL = "https://hooks.example.com/litefactory/webhook"
 // webhookCLI wires a fake GitHub, a fake keychain and a config naming both, so
 // no test reaches the real keychain or network.
 type webhookCLI struct {
-	t        *testing.T
-	paths    config.Paths
-	router   *Router
-	stdout   *bytes.Buffer
-	stderr   *bytes.Buffer
-	mu       sync.Mutex
-	items    map[string]string
-	writeErr error
-	status   int // forced status for every hook call
-	posts    int
-	patches  int
-	hookURL  string
-	hookSeen bool
+	t         *testing.T
+	paths     config.Paths
+	router    *Router
+	stdout    *bytes.Buffer
+	stderr    *bytes.Buffer
+	mu        sync.Mutex
+	items     map[string]string
+	writeErr  error
+	status    int // forced status for every hook call
+	posts     int
+	patches   int
+	hookURL   string
+	hookSeen  bool
+	hookID    int64
+	duplicate bool
 }
 
 func newWebhookCLI(t *testing.T, publicURL string) *webhookCLI {
@@ -105,14 +107,22 @@ func (w *webhookCLI) serve(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hook := func() map[string]any {
-		return map[string]any{"id": 55, "active": true, "events": webhookreg.Events,
+		id := w.hookID
+		if id == 0 {
+			id = 55
+		}
+		return map[string]any{"id": id, "active": true, "events": webhookreg.Events,
 			"config": map[string]any{"url": w.hookURL, "content_type": "json"}}
 	}
 	raw, _ := io.ReadAll(r.Body)
 	switch {
 	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/hooks"):
 		if w.hookSeen {
-			_ = json.NewEncoder(rw).Encode([]any{hook()})
+			hooks := []any{hook()}
+			if w.duplicate {
+				hooks = append(hooks, hook())
+			}
+			_ = json.NewEncoder(rw).Encode(hooks)
 			return
 		}
 		_, _ = io.WriteString(rw, `[]`)
@@ -440,5 +450,84 @@ func TestRepoWebhookCredentialEditPreservesRetainedSourceDisable(t *testing.T) {
 	}
 	if len(subscriptions) != 1 {
 		t.Fatalf("credential edit created a second subscription: %+v", subscriptions)
+	}
+}
+
+func TestRepoWebhookRecoversUnrecordedLegacyHook(t *testing.T) {
+	for _, mode := range []string{"empty", "imported", "ambiguous", "disabled"} {
+		t.Run(mode, func(t *testing.T) {
+			w := newWebhookCLI(t, "")
+			repo := newRepoFixture(t)
+			if code := w.run("repo", "add", repo.Dir); code != ExitOK {
+				t.Fatal(w.stderr.String())
+			}
+			raw, err := os.ReadFile(w.paths.ConfigPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(w.paths.ConfigPath(), []byte(strings.Replace(string(raw), `public_url: ""`, `public_url: "`+webhookTestPublicURL+`"`, 1)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			db, err := store.Open(t.Context(), w.paths.DBPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			repos, err := db.ListRepos(t.Context())
+			if err != nil || len(repos) != 1 {
+				t.Fatalf("repos: %v %v", repos, err)
+			}
+			v, err := db.CurrentConnection(t.Context(), repos[0].ID, store.TicketConnection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pinned := v
+			pinned.RemoteID = "101"
+			if _, err := db.RetainConnectionVersion(t.Context(), pinned); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "imported" || mode == "disabled" {
+				sub, err := db.PrepareLegacyTicketSubscription(t.Context(), v, "101", webhookTestPublicURL)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if mode == "disabled" {
+					sub.DesiredEnabled = false
+					if _, err := db.PutTicketSubscription(t.Context(), sub, sub.Revision); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			w.items[webhookreg.KeychainService+"/"+repos[0].Slug()] = "existing-secret"
+			w.hookSeen, w.hookURL, w.hookID = true, webhookTestPublicURL, 690902669
+			w.duplicate = mode == "ambiguous"
+			code := w.run("repo", "webhook", repos[0].Slug())
+			if mode == "ambiguous" || mode == "disabled" {
+				if code == ExitOK || w.posts != 0 || w.patches != 0 {
+					t.Fatalf("unsafe repair: code=%d posts=%d patches=%d", code, w.posts, w.patches)
+				}
+				if mode == "ambiguous" && !strings.Contains(w.stdout.String(), "2 exact callback matches") {
+					t.Fatal(w.stdout.String())
+				}
+				return
+			}
+			if code != ExitOK {
+				t.Fatalf("%s %s", w.stdout, w.stderr)
+			}
+			if code := w.run("repo", "webhook", repos[0].Slug()); code != ExitOK {
+				t.Fatal(w.stderr.String())
+			}
+			hook, err := db.GetRepoWebhook(t.Context(), repos[0].ID)
+			if err != nil || hook.HookID != 690902669 {
+				t.Fatalf("hook=%+v %v", hook, err)
+			}
+			subs, err := db.ListTicketSubscriptions(t.Context(), repos[0].ID)
+			if err != nil || len(subs) != 1 {
+				t.Fatalf("subscriptions: %+v %v", subs, err)
+			}
+			if subs[0].RemoteHookID != "690902669" || subs[0].SecretAccount != repos[0].Slug() || subs[0].SecretVersion != "legacy" || w.posts != 0 || w.patches != 1 || len(w.items) != 2 {
+				t.Fatalf("legacy repair: %+v posts=%d patches=%d secrets=%d", subs, w.posts, w.patches, len(w.items))
+			}
+		})
 	}
 }

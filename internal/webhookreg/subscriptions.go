@@ -167,6 +167,15 @@ func (r Subscriptions) Repair(ctx context.Context, id string, revision int64) (s
 	if r.Forge == nil || r.Keychain == nil {
 		return s, errors.New("subscription connection or secret access is unavailable")
 	}
+	if strings.HasPrefix(s.ID, "legacy-") && s.RemoteHookID == "" {
+		if !s.DesiredEnabled {
+			return s, nil
+		}
+		s, err = r.recoverLegacyHook(ctx, s)
+		if err != nil {
+			return s, err
+		}
+	}
 	prior, err := r.Store.GetSubscriptionOperation(ctx, id, revision)
 	if err == nil {
 		if prior.State == "confirmed" {
@@ -352,4 +361,50 @@ func (r Subscriptions) ownsHook(ctx context.Context, hook ticket.Subscription, s
 	}
 	legacy, err := r.Store.GetRepoWebhook(ctx, s.RepoID)
 	return err == nil && strconv.FormatInt(legacy.HookID, 10) == hook.ID.RemoteID && legacy.URL == hook.CallbackURL
+}
+
+// recoverLegacyHook establishes ownership only for the verified original source,
+// its existing secret and one exact configured callback. Repair owns mutations.
+func (r Subscriptions) recoverLegacyHook(ctx context.Context, s store.TicketSubscription) (store.TicketSubscription, error) {
+	v, err := r.Store.CurrentConnection(ctx, s.RepoID, store.TicketConnection)
+	if err != nil {
+		return s, err
+	}
+	verified, err := r.Store.ImportLegacyTicketSubscription(ctx, v, s.ContainerID)
+	if err != nil {
+		return s, err
+	}
+	if verified.ID != s.ID || verified.Revision != s.Revision || s.CallbackURL != r.PublicURL || s.SecretAccount != v.Destination {
+		return s, store.ErrSubscriptionConflict
+	}
+	secret, err := r.Keychain.Read(ctx, s.SecretService, s.SecretAccount)
+	if err != nil || secret == "" {
+		return s, errors.New("webhook signing secret is unavailable; check Keychain access")
+	}
+	hooks, err := r.Forge.ListSubscriptions(ctx, s.Container)
+	if err != nil {
+		return s, errors.New("legacy webhook listing is unavailable; polling continues")
+	}
+	var matches []ticket.Subscription
+	for _, hook := range hooks {
+		if hook.CallbackURL == s.CallbackURL {
+			matches = append(matches, hook)
+		}
+	}
+	if len(matches) != 1 {
+		return s, fmt.Errorf("legacy webhook ownership unresolved: found %d exact callback matches; no hook was created", len(matches))
+	}
+	hook := matches[0]
+	hookID, err := strconv.ParseInt(hook.ID.RemoteID, 10, 64)
+	if err != nil || hookID <= 0 || hook.ID.Provider != s.Provider || hook.ID.Origin != s.Origin || hook.Container != s.Container {
+		return s, errors.New("legacy webhook identity does not match the verified source")
+	}
+	if err := r.Store.SetRepoWebhook(ctx, s.RepoID, hookID, s.CallbackURL, r.now()); err != nil {
+		return s, err
+	}
+	if err := r.Store.AdoptSubscriptionRemoteHook(ctx, s.ID, s.Revision, "", hook.ID.RemoteID); err != nil {
+		return s, err
+	}
+	s.RemoteHookID = hook.ID.RemoteID
+	return s, nil
 }
