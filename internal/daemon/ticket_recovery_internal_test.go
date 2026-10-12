@@ -20,6 +20,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -1282,6 +1283,9 @@ func TestLinearProbeOwnQuotaAndHiddenRefusal(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := q.discovery.view()
+	if requests.Load() != 1 {
+		t.Fatalf("cold probe requests=%d", requests.Load())
+	}
 	if !view.Fresh || view.Share != 500 || view.Reserve != 500 || view.Spent != int(requests.Load()) || view.InProgress != 0 || view.Burst != discoveryBurst-float64(requests.Load()) {
 		t.Fatalf("probe accounting: %+v requests=%d", view, requests.Load())
 	}
@@ -1306,7 +1310,14 @@ func TestLinearProbeOwnQuotaAndHiddenRefusal(t *testing.T) {
 	refuse.Store(true)
 	if err := f.d.discoveryProbe(ctx, githubRepo(version.Destination)); err != nil {
 		t.Fatal(err)
-	} // Optional webhook failure is deliberately hidden by Inspect.
+	}
+	if _, held := q.backoff.hold(f.now); held {
+		t.Fatal("probe called optional webhook administration")
+	}
+	if _, err := clients.Linear.Inspect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Explicit inspection still observes optional webhook quota refusal.
 	if _, held := q.backoff.hold(f.now); !held {
 		t.Fatal("optional subcall hid quota refusal")
 	}
@@ -1330,4 +1341,119 @@ func (w *linearQuotaResponseWriter) Write(body []byte) (int, error) {
 	w.Header().Set("X-RateLimit-Requests-Remaining", "900")
 	w.Header().Set("X-RateLimit-Requests-Reset", fmt.Sprint(w.reset.UnixMilli()))
 	return w.ResponseWriter.Write(body)
+}
+
+// Strip or corrupt only request allowance metadata; provider content stays real.
+type missingLinearQuotaWriter struct {
+	http.ResponseWriter
+	mode string
+	now  time.Time
+}
+
+func (w *missingLinearQuotaWriter) Write(body []byte) (int, error) {
+	for _, key := range []string{"Limit", "Remaining", "Reset"} {
+		w.Header().Del("X-RateLimit-Requests-" + key)
+	}
+	if w.mode == "malformed" {
+		w.Header().Set("X-RateLimit-Requests-Limit", "invalid")
+	}
+	if w.mode == "expired" {
+		w.Header().Set("X-RateLimit-Requests-Limit", "5000")
+		w.Header().Set("X-RateLimit-Requests-Remaining", "4900")
+		w.Header().Set("X-RateLimit-Requests-Reset", fmt.Sprint(w.now.Add(-time.Minute).UnixMilli()))
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
+	for _, mode := range []string{"missing", "malformed", "expired"} {
+		t.Run(mode, func(t *testing.T) {
+			f, remote, v, _, q := linearObservationFixture(t)
+			f.d.quotas.tick(f.now)
+			ctx := projectContext(f.d.discoveryContext(t.Context()), v.RepoID)
+			var calls, probes atomic.Int64
+			original := remote.server.Config.Handler
+			remote.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if bytes.Contains(body, []byte("viewer")) {
+					probes.Add(1)
+				}
+				if bytes.Contains(body, []byte("webhooks")) || bytes.Contains(body, []byte("issueLabel(")) {
+					t.Error("recovery performed full inspection")
+				}
+				r.Body = io.NopCloser(bytes.NewReader(body))
+				original.ServeHTTP(&missingLinearQuotaWriter{w, mode, f.now}, r)
+			})
+			budget := f.d.quotas.forVersion(v)
+			budget.discovery.tick(f.now)
+			budget.discovery.observeLinear(linear.RequestObservation{RequestRateValid: true, Limit: 1000, Remaining: 0, Reset: f.now.Add(2 * time.Minute)})
+			budget.backoff.fail(f.now, time.Minute)
+			for range 4 {
+				if _, err := f.d.recoverSource(ctx, q, f.now); !errors.Is(err, ErrDiscoveryDeferred) {
+					t.Fatalf("hold: %v", err)
+				}
+				f.now = f.now.Add(30 * time.Second)
+				f.d.quotas.tick(f.now)
+			}
+			if calls.Load() != 0 {
+				t.Fatal("requests during hold or known depletion")
+			}
+			if _, err := f.d.recoverSource(ctx, q, f.now); err != nil {
+				t.Fatal(err)
+			}
+			pending, err := f.d.db.ListPendingTicketObservations(ctx, v.ID)
+			linearWorkflowCheck(t, err)
+			if len(pending) == 0 {
+				t.Fatal("fallback produced no generation")
+			}
+			seen := map[int64]*candidate{}
+			linearWorkflowCheck(t, f.d.drainTicketObservations(ctx, map[int64]*repoQueue{v.RepoID: q}, seen))
+			if len(seen) != 1 {
+				t.Fatalf("fallback admission=%d", len(seen))
+			}
+			if probes.Load() != 1 || calls.Load() > 1+55+5 {
+				t.Fatalf("calls=%d probes=%d", calls.Load(), probes.Load())
+			}
+			if budget.discovery.view().Fresh {
+				t.Fatal("absent evidence fabricated freshness")
+			}
+			before := calls.Load()
+			for range 10 {
+				_, _ = f.d.recoverSource(ctx, q, f.now)
+				linearWorkflowCheck(t, f.d.drainTicketObservations(ctx, map[int64]*repoQueue{v.RepoID: q}, map[int64]*candidate{}))
+			}
+			if calls.Load() != before {
+				t.Fatalf("repeated same-minute work: %d -> %d", before, calls.Load())
+			}
+			f.now = f.now.Add(time.Minute)
+			f.d.quotas.tick(f.now)
+			if _, err := f.d.recoverSource(ctx, q, f.now); err != nil {
+				t.Fatal(err)
+			}
+			if probes.Load() != 2 {
+				t.Fatalf("warm probes=%d", probes.Load())
+			}
+			for _, c := range seen {
+				task, err := f.d.materialise(ctx, c, f.now)
+				linearWorkflowCheck(t, err)
+				linearWorkflowCheck(t, f.d.bootstrap(sessionContext(ctx, c.session.ID), task))
+			}
+			if !strings.Contains(f.logs.String(), "first sight of a task") {
+				t.Fatal("missing first sight")
+			}
+			// Valid allowance on the next eligible probe restores ordinary discovery.
+			remote.server.Config.Handler = original
+			f.now = f.now.Add(time.Minute)
+			f.d.quotas.tick(f.now)
+			linearWorkflowCheck(t, f.d.discoveryProbe(ctx, q.forgeRepo))
+			if !budget.discovery.view().Fresh {
+				t.Fatal("fresh evidence did not restore budgeting")
+			}
+		})
+	}
 }

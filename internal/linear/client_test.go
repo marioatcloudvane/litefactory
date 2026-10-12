@@ -427,6 +427,13 @@ func TestRequestObservationFailuresAndOptionalInspection(t *testing.T) {
 	if _, err := c.ContainerIdentity(ctx, "team/project"); err != nil {
 		t.Fatal(err)
 	}
+	if len(got) != 1 {
+		t.Fatalf("container read must use one request: %+v", got)
+	}
+	got = nil
+	if _, err := c.Inspect(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 3 || got[2].RetryAfter != time.Minute {
 		t.Fatalf("hidden refusal or missing attempt: %+v", got)
 	}

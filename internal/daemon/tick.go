@@ -575,7 +575,9 @@ func (d *Daemon) discover(
 				if errors.Is(err, ErrDiscoveryDeferred) {
 					deferred = true
 				}
-				repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
+				if !d.scopedQuotaDeferred(ctx, err) {
+					repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
+				}
 				if providerRateLimited(err) {
 					d.rateLimited(ctx, repoLog, now, err)
 					continue
