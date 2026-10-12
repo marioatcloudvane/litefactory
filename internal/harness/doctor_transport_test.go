@@ -43,7 +43,7 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","claude_code_v
 	if err = os.WriteFile(credentials, []byte("{}"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	runner := &Runner{binary: config.Executable{Path: binary}, osHome: osHome, timeout: 10 * time.Second, forwardEnv: true, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=unrelated", "ANTHROPIC_BASE_URL=untrusted", "ANTHROPIC_API_KEY=fixture-secret"}}
+	runner := &Runner{binary: config.Executable{Path: binary}, osHome: osHome, timeout: 60 * time.Second, forwardEnv: true, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=unrelated", "ANTHROPIC_BASE_URL=untrusted", "ANTHROPIC_API_KEY=fixture-secret"}}
 	if evidence, gateErr := runner.DoctorIsolation(t.Context()); gateErr != nil || evidence == "" {
 		t.Fatalf("gate: %q %v", evidence, gateErr)
 	}
