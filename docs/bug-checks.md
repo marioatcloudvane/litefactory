@@ -1,9 +1,15 @@
-# Project checks for Bug repairs
+# Project checks (`.litefactory/bug-checks.yaml`)
 
-The factory reads `.litefactory/bug-checks.yaml` from the exact recorded **main
-commit**, never from the repair branch. A recipe does not grant permission. All
-three phases must validate before any command runs. This is the format (the
-executable names below are placeholders, not a configured project recipe):
+[Documentation](README.md) · [Configuration](configuration/README.md)
+
+A repository can tell the factory how to test it with a recipe in `.litefactory/bug-checks.yaml`. The factory reads the recipe from the exact commit being tested, never from a working branch the agent could change. Today it is used by:
+
+- **[Validate](workflow/validate.md):** the suite step runs the `full` phase.
+- **[Spike](workflow/spike.md):** the check after a small fix runs the `focused` and then the `full` phase.
+
+(The Bug workflow lets its fixer run the project's own commands and runs no recipe of its own; see [Bug](workflow/bug-runtime.md).)
+
+A recipe does not grant permission; the operator's `bug_checks` sandbox settings in [config.yaml](configuration/config-yaml.md) do. All three phases must validate before any command runs, even if a workflow only uses one. This is the format (the executable names are placeholders, not a real project recipe):
 
 ```yaml
 version: 1
@@ -30,6 +36,8 @@ the operator's absolute PATH directories; relative executable paths resolve from
 `cwd`. Environment names refer to operator-authorized values; inline values,
 protected process settings, credentials and capability variables are refused.
 
+Optionally a command can have a `rerun` block, so a failure in `go test` output can be attributed to named tests by rerunning only those tests: `failures: go-test`, an `argv` containing the whole elements `{tests}` and `{packages}` once each, and an optional `timeout_seconds`. Without it, a failure counts as it always did.
+
 Version 1 limits: recipe 1 MiB; 64 commands per phase; 128 argv entries and 64 KiB
 combined argv bytes per command; 64 distinct environment names; integer timeout
 1–86400 seconds, default 1800. Unknown/duplicate YAML keys, multiple documents,
@@ -53,7 +61,7 @@ redacted before output enters evidence. Environment names, not their values, are
 retained in command metadata.
 
 Every command runs under the **Codex sandbox** (`codex sandbox`: Seatbelt on
-macOS, Landlock on Linux), the same containment the Codex agents run under. The
+macOS, Landlock on Linux), the same kind of containment the Codex agents run under. The
 factory passes one explicit permission profile per command: the whole filesystem
 is readable except `$LF_HOME` and the operator's `deny_read` paths; writes are
 limited to the worktree, a private temporary directory (`TMPDIR`), the system
@@ -73,21 +81,9 @@ and target before and after commands and at completion. Ignored generated output
 may remain; changed tracked files or unexpected nonignored files invalidate the
 run. A worktree guard excludes fixer/save and overlapping check work.
 
-The phase ledger claims each command before launch. Exact replay returns retained
-progress; conflicting input is refused. Completed commands are not repeated.
-After an uncertain launch or cleanup, recovery remains blocked and retains the
-worktree guard; it never signals a stored PID without verified process identity.
-Durable cancellation prevents subsequent launches; the activity's `Cancel`
-method also stops its live process group. A cancellation is confirmed only
-with observed cleanup. The child owner is responsible for routing cancellation
-and scheduling reconciliation after restart.
+The phase ledger claims each command before launch. Replaying the same input returns the retained progress; conflicting input is refused. Completed commands are not repeated. After an uncertain launch or cleanup, recovery stays blocked and keeps the worktree guard; it never signals a stored PID without a verified process identity. A cancellation is confirmed only with observed cleanup.
 
-`lf_bug_checks` executes only one phase and returns `passed`, `failed`, `blocked`
-or `cancelled` with an evidence reference. Storage failures remain errors.
-The test child owns phase order and deliberate new infrastructure generations;
-this activity neither retries checks nor changes analysis or repair budgets.
-Passing evidence remains historical when invalidated; consumers must require
-its current-validity and reliability fields as well as matching bindings.
+Each phase ends as `passed`, `failed`, `blocked` or `cancelled` with an evidence reference. Passing evidence stays as history if it is later invalidated; consumers must also check that it is still valid, reliable and bound to the same commit.
 
 Right after launch the factory retains the command's process group with the
 kernel boot identity and the leader's start time (macOS and Linux). A crash

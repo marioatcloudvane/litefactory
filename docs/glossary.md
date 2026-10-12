@@ -4,16 +4,21 @@
 
 | Term | Meaning |
 | --- | --- |
-| Owner | The GitHub account whose numeric user ID authorizes issue instructions. `init` discovers it through the local `gh` login. |
+| Owner | The GitHub account whose numeric user ID authorizes issue instructions. `init` discovers it through the local `gh` login. Only the owner can give commands. |
 | Bot | The separate GitHub account whose token the factory uses for API reads and posts. It must have a different numeric ID from the owner. |
-| Mode | The selected kind of work: Research, Plan, Implement, Validate or Spike. It persists until explicitly changed; success alone does not change it. |
-| Story | A deliverable part of a managed plan, stored as a GitHub child issue with criteria and tasks. Implement consumes frozen approved revisions. |
-| Run | One recorded execution attempt for a task. A successful run does not by itself establish acceptance, publication or merge. |
-| Engineering | Implementation plus executed checks retained against a particular snapshot. In the separated workflow, stories can be engineering-complete while their issues stay open. |
-| Acceptance | The factory's decision about a story against retained criteria and review evidence, including any explicitly authorized exceptions. Validate supplies assessments; engineering does not grant acceptance. |
-| Delivery | Publication or integration of work. A posted report, pushed branch, open pull request and confirmed merge are distinct effects. Team instruction delivery separately means providing a selected specialist bundle to an agent. |
-| Worktree | A separate checkout where a task runs, associated with its own task branch. It preserves the registered clone's working files and index. |
-| Session | Retained task state spanning runs, including worktree and conversation information. Agent, mode or instruction changes can start a new conversation segment. |
+| Mode | The kind of work: Research, Plan, Implement, Validate or Spike. Bug is a separate workflow for issues labelled `bug`. A mode persists until you change it; a successful run never changes it. |
+| Graph | The written flow of a mode (a `.dot` file): the steps, the limits and where each outcome leads. The code runs the steps but does not choose the next one. |
+| Story | A deliverable part of a plan, kept as a GitHub child issue with a goal, scope, technical design and acceptance criteria. Implement builds the approved copy of it. |
+| Run | One recorded execution attempt for a task. A successful run does not by itself mean accepted, pushed or merged work. |
+| Engineering | Building a story and running its checks. A story can be engineering-complete while its issue stays open. |
+| Acceptance | Checking the finished work against the acceptance criteria. Validate supplies the assessment, and your commands decide what happens next. Engineering does not grant acceptance. |
+| Delivery | Getting work into the base branch: a pushed branch, an open pull request and a confirmed merge are distinct steps, and posting a report is not delivery. (Team delivery, a different term, means giving an agent its team's roles and skills.) |
+| Worktree | A separate checkout where a task runs, on its own task branch. It leaves your registered clone's files untouched. |
+| Session | The retained state of one task across runs: its worktree, branch and conversation. Changing the agent, mode or instructions can start a new conversation segment. |
+| Team | An installed, versioned package of roles, skills, graphs and a stack profile (for example `go-development`). |
+| Stack profile | A team's description of its technology: guidance, host requirements, setup and checks. See [stack profiles](stack-profiles.md). |
+| Recipe | The `.litefactory/bug-checks.yaml` file that tells the factory how to test a repository. See [project checks](bug-checks.md). |
+| Doctor | The read-only diagnosis of a stuck issue, with owner-approved repairs. See [Doctor](operations/doctor.md). |
+| Meter | The record of tokens and estimated cost per run. See [usage meter](meter.md). |
 
-See [workflow](guides/workflow.md) and
-[validation and delivery](guides/validation-and-delivery.md) for the full journey.
+See [workflow](guides/workflow.md) and [validation and delivery](guides/validation-and-delivery.md) for the full journey.

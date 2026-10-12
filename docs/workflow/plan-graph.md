@@ -1,89 +1,46 @@
-# Plan graph and compatibility inventory
+# Plan and Implement
 
-Graph Plan has three owner-led stages: story intent, technical shaping, and
-acceptance criteria with assembled-plan review. A usable first-stage draft may
-be published as a child issue while the plan remains unready. This is the narrow
-CONC-22 exception for factory-admitted graph Plan; legacy discussion continues
-to save context without publishing stories.
+[Documentation](../README.md) · [Workflow guide](../guides/workflow.md)
 
-## Package and ownership
+Plan turns a Research brief (or a plain request) into small stories you approve, one stage at a time. Implement then builds the approved stories. Plan uses the graph in `internal/teamsource/plan/plan.dot` and Implement uses `internal/teamsource/implement/implement.dot`. Start Plan with `/plan <text>` and Implement with `/implement <text>`. The exact approval commands are in [owner commands](../guides/owner-commands.md).
 
-`internal/teamsource/plan/` contains the embedded neutral roles, skills and graph;
-`teamsource.CapturePlan` captures the complete bounded resource closure and
-`NativeWorkflow` renders it in memory for either supported harness. Package
-capture does not select the production route or authorize remote effects.
+## How Plan works
 
-`lf_plan_story` is the only new activity. Roles supply typed semantic content.
-The activity derives parent/ordinal titles, renders the prescribed issue body,
-retains issue identity and journals candidate/effect history before mutations.
-A lost create reply remains uncertain until the original request is reconciled;
-a known creation survives attachment failure without another creation.
+Plan runs in four stages. The factory, not the agent, decides which stage a run is in, based on what is already approved. Each stage has its own agent role.
 
-The architecture role is technology-neutral. Its extensible Skills roster starts
-with Go and agent-setup guidance, selected from actual scope. Architecture -
-General is mandatory when architecture is populated. Data Model, Service Design,
-Solution Design and frontend Design references are conditional. Subsequent
-iterations reuse applicable decisions and references; explicit scoped changes
-replace them.
+| Stage | What it produces | You approve |
+| --- | --- | --- |
+| Story set | A list of stories (at most twelve) posted on the parent issue. | The set, which creates the story issues. |
+| Story | For each story: who needs what, and why, in plain words, with what is in and out of scope. | Each story. |
+| Technical | How it will be built and which role owns each task. | Each story. |
+| Acceptance | Acceptance criteria written as checks a person can make, and the final review of the whole plan. | Each story, then the assembled plan. |
 
-## Approval, readiness and routing contract
+In every stage the agent either asks you a question, answers a discussion comment without changing anything, or drafts and then shows you a review. A review is not an approval: a stage moves on only when you send the exact approve command the review shows. Replies that mix a change request with an approval, or that point at an out-of-date review, do not approve.
 
-The factory selects eligible stories independently. Questions and review-ready
-output are not approval. Authenticated owner promotion binds the current story,
-stage, candidate, upstream dependencies and shared decisions. Stale, ambiguous,
-wrong-story and mixed change-and-approval replies do not promote. Exhausted loops
-stop resumably and preserve context without granting approval.
+Questions and reviews wait for your reply with no time limit. If a stage runs out of its passes, it stops in a state you can resume with a reply. A failed agent or a failed issue update posts the cause and stops; nothing retries on its own.
 
-Intent changes reopen story shaping; technical changes reopen technical shaping.
-Dependency-aware invalidation preserves demonstrably unrelated approvals and
-holds uncertain impact for explicit resolution. Retirement is owner-confirmed
-not-planned closure with preserved history, never deletion or implementation
-completion. The remaining active set must have valid dependencies.
+### Changes and retiring stories
 
-Final readiness requires a nonempty complete typed active set, exact third-stage
-assembled approval, no unresolved material questions or pending edits/effects,
-confirmed publication using existing child identities, a link-only Story Index
-and successful save. Draft publication and local stage approval never freeze
-implementation scope. Plan approval, engineering completion and Validate
-acceptance are separate states. Ordinary replies do not change modes.
+If you change the intent of a story, its stages are reopened. If you change the technical design, the technical stage is reopened. Approvals that clearly do not depend on the change are kept; when the factory cannot tell, it holds them for you to settle. A story can be retired with `/retire-plan` (the review shows the exact text): it is closed as not planned with its history kept, never deleted. The remaining stories must still have valid dependencies. `/plan-new-story` asks for one more story.
 
-Workflow selection is a separate persisted admission decision from content,
-submission and implementation workflow versions. New eligible Plan admission
-uses the graph route only through the application admission owner. A saved legacy
-route remains legacy through replan, reply and restart unless a supported explicit
-upgrade admits another route; neither a role nor a label-like sentence upgrades
-it. An incomplete wiring attempt must not claim activation from package tests.
+### Ready for implementation
 
-## Retained compatibility inventory
+The plan is ready when it has at least one story, every story has all three stages approved, you approved the assembled plan, there are no open material questions or pending edits, the story issues are published and the parent's story index is saved. Draft stories and single-stage approvals never lock scope. Replies in Plan do not change the mode. Plan does not start Implement.
 
-These are current compatibility owners, not deleted or unused code. Removal is a
-separate operation requiring evidence that each supported cohort and pending
-effect has drained or undergone a supported explicit upgrade.
+A story issue created by Plan only ever runs Plan; comment on it to refine that story. To change a locked plan later, see [working with issues](../guides/working-with-issues.md).
 
-| Surface | Supported cohort and retained behavior | Removal prerequisite |
-|---|---|---|
-| `internal/turn/plan_attempt.go`, `plan_context.go`; `internal/planbrief/outcome.go` | Saved legacy Plan discussion, identity-bound `PLAN_CONTEXT.json`, per-attempt outcome/proposal transport and resumed/fallback attempts | No supported persisted legacy Plan discussion or active attempt requiring these readers; saved contexts upgraded through an explicit supported path |
-| `internal/turn/plan_handoff.go`, `typed_plan.go`; `internal/store/typed_plan.go` | Legacy full-body proposal v1 and typed contribution v2 Plan handoff, readiness invalidation, receipts and save confirmation | Every supported legacy content/submission cohort and unsettled handoff has drained or been explicitly upgraded; a graph admission does not rewrite these versions |
-| `internal/turn/plan_publication.go`, `plan_index.go` | Existing complete-plan publication, expected-base checks, pending creation/attachment/update reconciliation and link-only index replacement | All legacy publication effects resolved and all still-used complete-publication responsibilities transferred with equivalent recovery guarantees |
-| `internal/planbrief/proposal.go`, `typed_content.go`, `legacy_upgrade.go`, `reconcile.go` | Existing complete/frozen typed validation, legacy bodies and explicit contract upgrades | No supported frozen generation, retained acceptance or pending reconciliation depends on the format; incomplete graph drafts are not a replacement complete contract |
-| Installed `.claude/` and `.codex/` instruction trees | Existing factory roles and installed legacy workflows | Separate authorized instruction maintenance and supported cohort migration; this feature does not rewrite installed trees |
+## After the plan
 
-The new package does not substitute its neutral architecture role into the
-existing factory implementation roster. Research resources, dispatch and its
-independent activation/evidence gate remain unchanged.
+Implement builds the approved stories as a feature. It gets each story as an unchangeable copy of the approved text, not the live issue.
 
-## Evidence boundaries
+- **Coordinator (the parent issue).** First it merges the base branch (usually `main`) into the feature branch. It then merges finished stories and starts every story whose dependencies are done, resting while stories build. It never writes code itself.
+- **Worker (one story issue).** Each story has its own session, branch and worktree, so independent stories build side by side and a failing story does not stop the others. One write-capable agent writes the code and its unit tests and runs them. Only a completed answer is saved (committed and pushed), and only then is the story done.
+- **Attempts.** A story gets the first attempt and two repairs. An incomplete answer, a failed attempt or a failed save counts one attempt, and the next attempt is told why. A blocked answer parks the story at once, and so does an exhausted budget.
+- **Hand-off.** When no story can start or finish, the coordinator posts a hand-off report. If any story is parked, it asks one question that lists all of them and waits for you. If every story is merged, it merges the base branch once more, reports completion on the parent once and ends.
+- **Base conflicts.** If merging the base conflicts, a resolver agent resolves it in the feature worktree, the factory saves the answer and syncs again. Only a blocked resolver asks you.
 
-Graph/parser/schema, resource closure, digest parity and in-memory native-render
-checks establish package behavior. Real temporary SQLite, controlled HTTP forge
-and temporary git fixtures establish the exercised recovery and handoff behavior.
-They do not establish authentic hosted mutations or either provider's live
-instruction delivery. Those observations remain separate external prerequisites,
-including the existing #274/#296 obligations. Required retained compatibility
-must not be described as retired merely because offline checks pass.
+Stories that are engineering-complete can unblock others while their issues stay open. Finishing Implement is not acceptance: the next step is `/validate` ([Validate](validate.md)), unless `validate.auto_start` starts it for you.
 
-Production default adoption requires the actual admission/dispatch wiring and
-its executed regressions; removal requires the additional cohort/effect evidence
-in the table. The session engineering evidence records which changes and checks
-were actually completed. No daemon restart, `dist` rewrite or automatic mode
-transition is part of this workflow.
+Old plans created before the graph (a saved legacy Plan discussion) keep working the way they were started; they are not changed or upgraded for you.
+
+See also [Research](research-graph.md), [validation and delivery](../guides/validation-and-delivery.md) and [sync and conflicts](../guides/sync-and-conflicts.md).
