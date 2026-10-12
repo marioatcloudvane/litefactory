@@ -494,3 +494,21 @@ func (w *Worktree) StartMerge(ctx context.Context, ref string) ([]string, error)
 	}
 	return sortedKeys(unmerged), nil
 }
+
+// IsAncestor reports whether ancestor is reachable from descendant. A commit
+// is its own ancestor. Exit code 1 from merge-base --is-ancestor means false;
+// any other failure, such as an unknown revision, is returned as an error.
+func (w *Worktree) IsAncestor(ctx context.Context, ancestor, descendant string) (bool, error) {
+	if strings.TrimSpace(ancestor) == "" || strings.TrimSpace(descendant) == "" {
+		return false, fmt.Errorf("ancestry check: %w: missing revision", ErrInvalidArgument)
+	}
+	_, err := w.runner.run(ctx, readTimeout, "merge-base", "--is-ancestor", "--end-of-options", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	var cmdErr *CommandError
+	if errors.As(err, &cmdErr) && cmdErr.ExitCode == 1 && !cmdErr.TimedOut {
+		return false, nil
+	}
+	return false, err
+}

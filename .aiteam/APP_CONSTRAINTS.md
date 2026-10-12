@@ -224,7 +224,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **STYLE-6 [enforced]** — CLI handlers MUST capture bound flag values in `Command.New` closures instead of rereading flag sets. They receive positional arguments and `cli.Env`. Usage/precondition errors are reserved for invocation failures; domain findings (including drift) MUST use ordinary errors.
 
 - **STYLE-7** — Before editing a package, agents MUST read its `doc.go` specification.
-- **STYLE-8** — The factory-supplied `- Mode: X` header MUST remain authoritative. Canonical team guidance in `internal/teamsource/shared/team-guidance/litefactory.md` MUST agree with the prompt header in `internal/harness/prompt.go`. Agent guidance MUST NOT classify, change or dispatch modes. The graph and factory own routing.
+- **STYLE-8** — The factory-supplied `- Mode: X` header MUST remain authoritative. The Go team's `litefactory-rules` skill (`internal/teamsource/{implement,bug,validate}/skills/litefactory-rules/litefactory.md`) MUST agree with the prompt header in `internal/harness/prompt.go`. Agent guidance MUST NOT classify, change or dispatch modes. The graph and factory own routing.
 - **STYLE-9** — Loops validating or writing independent items MUST aggregate every item’s failure with `errors.Join`/`joinSorted`, as in CFG-5; one failure MUST NOT hide unrelated records.
 
 - **STYLE-10** — `agent.RunResult.Succeeded()` (live subprocess) and

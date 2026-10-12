@@ -60,7 +60,7 @@ func TestPlanSetAgentNodeCapturesTheShippedRoleAndSkill(t *testing.T) {
 	if !ok || node.Action != "lf_agent" {
 		t.Fatalf("set_agent is not a declared agent: %+v %v", node, ok)
 	}
-	if node.Attrs["lf_skills"] != "plan-story-set,team-guidance" {
+	if node.Attrs["lf_skills"] != "plan-story-set" {
 		t.Fatalf("set_agent skills %q", node.Attrs["lf_skills"])
 	}
 	if got, want := string(d.Files["plan-set.md"]), planEmbeddedText(t, "plan-set.md"); got != want || got == "" {

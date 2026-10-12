@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -43,10 +44,10 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 				t.Fatalf("event=%+v", e)
 			}
 			text := messaging.NoticeText(e)
-			if !strings.HasPrefix(text, tc.kind+": #1 (implement)\n") || strings.Contains(text, "github:") || !strings.Contains(text, "https://github.com/acme/repo/issues/1") {
+			if !strings.HasPrefix(text, tc.kind+": #1 (implement)") || strings.Contains(text, "github:") || !strings.Contains(text, "https://github.com/acme/repo/issues/1") {
 				t.Fatalf("text=%s", text)
 			}
-			if tc.source == "owner_waits" && (!strings.Contains(text, "Asked: question") || !strings.Contains(text, "What scope?") || !strings.Contains(text, "#issuecomment-91")) {
+			if tc.source == "owner_waits" && (!strings.Contains(text, "— Implement question\n") || !strings.Contains(text, "What scope?") || !strings.Contains(text, "#issuecomment-91")) {
 				t.Fatal(text)
 			}
 		})
@@ -59,7 +60,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	if err != nil || len(events) != 1 || events[0].Kind != "waiting for you" {
 		t.Fatalf("review wait=%+v err=%v", events, err)
 	}
-	if text := messaging.NoticeText(events[0]); !strings.Contains(text, "Asked: review") || !strings.Contains(text, "#issuecomment-92") {
+	if text := messaging.NoticeText(events[0]); !strings.Contains(text, "— Implement review\n") || !strings.Contains(text, "#issuecomment-92") {
 		t.Fatal(text)
 	}
 	// A wait that stopped waiting or is not yet published is never announced.
@@ -94,11 +95,41 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	if err != nil || len(events) != 1 || events[0].Kind != "started" || !strings.Contains(messaging.NoticeText(events[0]), "Mode: research → plan") {
 		t.Fatalf("mode change start=%+v err=%v", events, err)
 	}
+	// A run abandoned in process by a daemon shutdown is relaunched by
+	// recovery and is not announced as failed; real failures still are.
+	for _, f := range []struct {
+		status store.RunStatus
+		error  string
+		kinds  []string
+	}{
+		{store.RunFailed, "abandoned: the caller's run context ended before claude finished (daemon shutdown or cancellation)", nil},
+		{store.RunFailed, "claude exited with status 1", []string{"failed"}},
+		{store.RunFailed, "timed out after 30m0s; the process subtree was killed", []string{"failed"}},
+		{store.RunFailed, "abandoned", []string{"failed"}},
+		{store.RunSucceeded, "", []string{"completed"}},
+	} {
+		r := record
+		r.Run.Status, r.Run.Error, r.Run.SemanticOutcome = f.status, f.error, ""
+		events, err := messaging.NoticeEvents("run_finishes", r)
+		kinds := []string(nil)
+		for _, e := range events {
+			kinds = append(kinds, e.Kind)
+		}
+		if err != nil || strings.Join(kinds, ",") != strings.Join(f.kinds, ",") {
+			t.Fatalf("finish %q events=%+v err=%v", f.error, events, err)
+		}
+	}
 	record.Run.Status = store.RunFailed
 	record.Run.RecoveryReason = `owner-stop:{"run_id":7,"at":"2026-10-10T18:00:00Z"}`
 	events, err = messaging.NoticeEvents("run_finishes", record)
 	if err != nil || events[0].Kind != "stopped" {
 		t.Fatalf("stop=%+v err=%v", events, err)
+	}
+	abandonedStop := record
+	abandonedStop.Run.Error = "abandoned: the caller's run context ended before claude finished (daemon shutdown or cancellation)"
+	events, err = messaging.NoticeEvents("run_finishes", abandonedStop)
+	if err != nil || len(events) != 1 || events[0].Kind != "stopped" {
+		t.Fatalf("abandoned owner stop=%+v err=%v", events, err)
 	}
 	parked := record
 	parked.Ready = false
@@ -125,16 +156,21 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 		t.Fatalf("runless parked stop=%+v err=%v", events, err)
 	}
 	ref, _ := naming.ParseRef(record.TaskRef)
-	cost := "0.125"
-	usage := &report.MeterSummary{EstimatedUSD: &cost, CollectionStatus: "complete", PricingStatus: "priced"}
+	// Usage is one short cost phrase, never raw token counts or statuses.
+	cost, tokens := "0.9591808", int64(501004)
+	usage := &report.MeterSummary{EstimatedUSD: &cost, KnownTokens: agent.TokenUsage{CacheRead: &tokens}, CollectionStatus: "complete", PricingStatus: "priced"}
 	for _, kind := range []string{"completed", "failed", "stopped"} {
 		text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: kind, Usage: usage})
-		if !strings.Contains(text, "Estimated cost: $0.125") {
+		if !strings.Contains(text, "about $0.96") || strings.Contains(text, "tokens") || strings.Contains(text, "cache") || strings.Contains(text, "Collection") || strings.Contains(text, "501004") {
 			t.Fatal(text)
 		}
 	}
-	text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "completed"})
-	if strings.Contains(text, "Usage:") {
+	subtotal := "1.5"
+	if text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "completed", Usage: &report.MeterSummary{PricedSubtotalUSD: &subtotal}}); !strings.Contains(text, "at least about $1.50") {
+		t.Fatal(text)
+	}
+	text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "completed", Usage: &report.MeterSummary{CollectionStatus: "partial"}})
+	if strings.Contains(text, "$") || strings.Contains(text, "partial") || strings.Count(text, "\n") != 1 {
 		t.Fatal(text)
 	}
 	text = messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "started", Workflow: "implement", Title: "Authorize work"})
@@ -287,8 +323,8 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 	if err != nil || !row.NextAttemptAt.Equal(at.Add(10*time.Second)) {
 		t.Fatalf("retry=%+v err=%v", row, err)
 	}
-	if sender.target.Handle != "" {
-		t.Fatal("notice has interaction handle")
+	if sender.target.Handle != "" || !sender.target.Notice {
+		t.Fatal("notice has interaction handle or is not marked as a notice")
 	}
 	// First discard the other pending notice, then retry this one at its due time.
 	sender.delivery = messaging.Delivery{Permanent: true}
@@ -319,5 +355,77 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 	}
 	if _, err := db.ReadChatNotice(ctx, "test", fmt.Sprintf("run:%d:start", refused.ID)); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unlaunched refusal generated start: %v", err)
+	}
+}
+
+// A review-ready Bug analysis notice is a short heads-up with one link; the
+// analysis itself is read on GitHub.
+func TestNoticeBugAnalysisReviewIsShort(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 11, 22, 55, 0, 0, time.UTC)
+	analysis := "Bug work is waiting at conversation.\n\n- **What goes wrong:** the notice pastes everything.\n" + strings.Repeat("- **Why:** a long cause. ", 400)
+	r := store.NoticeRecord{ID: 9, TaskRef: "github:acme/repo#690", Workflow: "bug", Key: "review-key", Kind: "question", StopOrigin: "conversation", StopCause: "diagnosis_review", StopReason: analysis, Candidate: []byte(`{"cause":"diagnosis_review","reason":"What goes wrong"}`), CommentID: 93, State: "waiting", Published: true, Ready: true, At: at}
+	events, err := messaging.NoticeEvents("owner_waits", r)
+	if err != nil || len(events) != 1 || events[0].Kind != "waiting for you" || events[0].Question != "" {
+		t.Fatalf("events=%+v err=%v", events, err)
+	}
+	events[0].Title = "Discord notices are too long"
+	text := messaging.NoticeText(events[0])
+	if lines := strings.Split(text, "\n"); len(lines) > 3 {
+		t.Fatalf("%d lines: %s", len(lines), text)
+	}
+	if !strings.Contains(text, "Bug analysis ready for your approval") || strings.Count(text, "https://") != 1 || !strings.Contains(text, "#issuecomment-93") {
+		t.Fatal(text)
+	}
+	for _, body := range []string{"What goes wrong", "Why", "waiting at conversation"} {
+		if strings.Contains(text, body) {
+			t.Fatalf("analysis body %q in notice: %s", body, text)
+		}
+	}
+	// A Bug analysis question names itself plainly.
+	r.StopCause = "diagnosis_question"
+	r.Candidate = []byte(`{"questions":[{"text":"Which release?"}]}`)
+	events, err = messaging.NoticeEvents("owner_waits", r)
+	if err != nil || len(events) != 1 || events[0].Asked != "Bug analysis question" || events[0].Question != "Which release?" {
+		t.Fatalf("events=%+v err=%v", events, err)
+	}
+}
+
+// A question wait shows only one short sentence of the first question.
+func TestNoticeQuestionIsOneShortSentence(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 11, 22, 55, 0, 0, time.UTC)
+	first := "Should the release target the stable channel? " + strings.Repeat("More context follows here. ", 40)
+	r := store.NoticeRecord{ID: 10, TaskRef: "github:acme/repo#1", Workflow: "research", Key: "q", Kind: "question", CommentID: 94, State: "waiting", Published: true, Ready: true, At: at}
+	r.Candidate = []byte(`{"questions":[{"text":"` + first + `"},{"text":"` + strings.Repeat("Second question text. ", 40) + `"}]}`)
+	events, err := messaging.NoticeEvents("owner_waits", r)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("events=%+v err=%v", events, err)
+	}
+	text := messaging.NoticeText(events[0])
+	lines := strings.Split(text, "\n")
+	if len(lines) != 3 || lines[2] != "Should the release target the stable channel?" || !strings.Contains(lines[0], "— Research question") || strings.Count(text, "https://") != 1 {
+		t.Fatalf("%q", lines)
+	}
+	long := strings.Repeat("x", 500)
+	text = messaging.NoticeText(messaging.NoticeEvent{Kind: "waiting for you", Question: long})
+	lines = strings.Split(text, "\n")
+	if q := lines[len(lines)-1]; len(utf16.Encode([]rune(q))) > 160 || !strings.HasSuffix(q, "…") {
+		t.Fatalf("question line %q", q)
+	}
+}
+
+// A successful run that only leads to an owner wait posts nothing itself; a
+// failed one still posts.
+func TestNoticeIgnoredRunFinishPostsNothing(t *testing.T) {
+	t.Parallel()
+	r := store.NoticeRecord{ID: 11, TaskRef: "github:acme/repo#690", Workflow: "bug", Ready: true, Ignore: true, Run: store.Run{ID: 11, Status: store.RunSucceeded}}
+	if events, err := messaging.NoticeEvents("run_finishes", r); err != nil || len(events) != 0 {
+		t.Fatalf("events=%+v err=%v", events, err)
+	}
+	r.Ignore = false
+	r.Run = store.Run{ID: 11, Status: store.RunFailed, Error: "controlled failure"}
+	if events, err := messaging.NoticeEvents("run_finishes", r); err != nil || len(events) != 1 || events[0].Kind != "failed" {
+		t.Fatalf("events=%+v err=%v", events, err)
 	}
 }

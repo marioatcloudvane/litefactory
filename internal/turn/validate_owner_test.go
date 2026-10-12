@@ -490,6 +490,9 @@ func TestOwnerShipIsRefusedWhenSomethingBlocksAndChangesNothing(t *testing.T) {
 			if !strings.Contains(o.notice(), c.want) {
 				t.Fatalf("notice %q does not name %q", o.notice(), c.want)
 			}
+			if strings.Contains(o.notice(), "hand it back") {
+				t.Fatalf("notice %q names a handback the factory lacks", o.notice())
+			}
 			if c.outcome == "" && !strings.Contains(o.notice(), "/validate-ship is refused") {
 				t.Fatalf("notice %q", o.notice())
 			}

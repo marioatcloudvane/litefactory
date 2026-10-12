@@ -386,4 +386,25 @@ func TestRenderValidateReportFailedSuite(t *testing.T) {
 	if !strings.HasPrefix(out, lightRed) || strings.Contains(out, "| Story |") || !strings.Contains(out, "go test ./... exited 1") || nextLines(out) != 1 {
 		t.Errorf("failed suite:\n%s", out)
 	}
+	// #704: the Next line names only steps the factory has.
+	if !strings.Contains(out, "Next: The suite did not pass.") || !strings.Contains(out, "`"+ValidateStartCommand+"`") || strings.Contains(out, "hand it back") {
+		t.Errorf("failed suite Next line:\n%s", out)
+	}
+	st.Handback = &ValidateHandback{OwnerInstruction: ownerHandbackInstruction(ValidateHandback{Commit: st.Commit})}
+	out = renderValidateReport(st, twoTargets, "")
+	if strings.Contains(out, "Handback to Implement") || !strings.Contains(out, "**What still needs fixing:**") {
+		t.Errorf("handback heading:\n%s", out)
+	}
+}
+
+// #704 c-next-blocking: an open blocking finding with nothing for the owner
+// names a fix on the feature branch and the Validate start command.
+func TestValidateNextStepBlockingFindingNamesRealSteps(t *testing.T) {
+	f := ValidateFinding{ID: "s:code", State: findingOpen, Blocking: true, Choice: &store.ValidateChoice{Choice: store.ChoiceRepair}}
+	s := vsBase(f)
+	s.computeReadiness()
+	got := s.NextStep(nil)
+	if !strings.Contains(got, "feature branch") || !strings.Contains(got, "`"+ValidateStartCommand+"`") || strings.Contains(got, "hand it back") || strings.Contains(got, "Implement") {
+		t.Errorf("blocking Next line: %q", got)
+	}
 }

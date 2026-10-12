@@ -1,8 +1,11 @@
 package turn
 
 import (
+	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -139,7 +142,7 @@ func TestValidateGraphWithoutTheRepairOutcomeStillValidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, release := range []string{"go-development/v1.2.3", "python-fastapi/v1.0.2", "swift-ios/v1.0.2", "dotnet-web/v1.0.2"} {
+	for _, release := range catalogueDownloads(t) {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "teams", release, "validate", "validate.dot"))
 		if err != nil {
 			t.Fatal(err)
@@ -152,4 +155,32 @@ func TestValidateGraphWithoutTheRepairOutcomeStillValidates(t *testing.T) {
 			t.Errorf("released %s no longer validates: %v", release, err)
 		}
 	}
+}
+
+// catalogueDownloads lists the download path of every release teams/teams.json
+// ships, so released-graph tests follow the owner's releases.
+func catalogueDownloads(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "teams", "teams.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalogue struct {
+		Releases []struct {
+			Slug     string `json:"slug"`
+			Download string `json:"download"`
+		} `json:"releases"`
+	}
+	if err := json.Unmarshal(raw, &catalogue); err != nil || len(catalogue.Releases) == 0 {
+		t.Fatalf("catalogue: %v", err)
+	}
+	var out []string
+	for _, r := range catalogue.Releases {
+		if !fs.ValidPath(r.Download) || !strings.HasPrefix(r.Download, r.Slug+"/") {
+			t.Fatalf("unsafe catalogue download %q", r.Download)
+		}
+		out = append(out, r.Download)
+	}
+	slices.Sort(out)
+	return out
 }

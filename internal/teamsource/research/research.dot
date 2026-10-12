@@ -18,7 +18,7 @@ digraph research {
  loop        [lf_action="lf_loop",    lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="investigate"];
  continuing [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="continue", lf_limit="8", lf_source="investigate"];
  brief [lf_action="lf_research_brief", lf_outcomes="success,failed", lf_source="investigate", lf_limit="8"];
- investigate [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="research", lf_skills="research-evidence,team-guidance", lf_limit="8"];
+ investigate [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="research", lf_skills="research-evidence", lf_limit="8"];
  question    [lf_action="lf_if",      lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="investigate"];
  ask         [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="investigate"];
  report      [lf_action="lf_comment", lf_outcomes="published", lf_kind="final",    lf_limit="1", lf_source="investigate"];
@@ -27,7 +27,7 @@ digraph research {
  shapeloop   [lf_action="lf_loop",    lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="shape"];
  shapecontinue [lf_action="lf_if", lf_outcomes="true,false", lf_field="response", lf_condition="continue", lf_limit="8", lf_source="shape"];
  shapebrief [lf_action="lf_research_brief", lf_outcomes="success,failed", lf_source="shape", lf_limit="8"];
- shape       [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="shaping", lf_skills="research-evidence,team-guidance", lf_limit="8"];
+ shape       [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="shaping", lf_skills="research-evidence", lf_limit="8"];
  settled     [lf_action="lf_if",      lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8", lf_source="shape"];
  shaped      [lf_action="lf_if",      lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="shape"];
  clarify     [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];

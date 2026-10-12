@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -293,5 +294,118 @@ func TestTypedApplyStopsAndJoinsBeforeDrain(t *testing.T) {
 	steps, err := s.DB.DoctorRepairSteps(t.Context(), op.ID)
 	if err != nil || steps[0].State != "verified" || steps[0].ObservedAfter != "failed" || steps[0].BackupReference == "" {
 		t.Fatal(steps, err)
+	}
+}
+
+// refusingSyncEffects refuses sync_branch with a fixed-category error.
+type refusingSyncEffects struct {
+	calls int
+	err   error
+}
+
+func (e *refusingSyncEffects) Execute(_ context.Context, _ naming.Ref, _ store.DoctorRepair, step store.DoctorRepairStep, _ string) (store.DoctorRepairStep, error) {
+	e.calls++
+	return step, e.err
+}
+func (*refusingSyncEffects) Verify(context.Context, naming.Ref, store.DoctorRepairStep) error {
+	return nil
+}
+
+// cancelledSyncRunner calls sync_branch and then ends the way a provider does
+// once the refusal cancelled its run.
+type cancelledSyncRunner struct{}
+
+func (cancelledSyncRunner) IsolationEvidence(context.Context, string) (string, error) {
+	return "scoped-only", nil
+}
+func (cancelledSyncRunner) RunRepair(ctx context.Context, _ Invocation, tools *RepairTools, _ *ResultService) (InvocationOutcome, error) {
+	_, err := tools.ApplyTyped(ctx, 1, "sync_branch")
+	if ctx.Err() != nil {
+		return InvocationOutcome{}, ctx.Err()
+	}
+	return InvocationOutcome{}, err
+}
+
+func TestTypedApplyRetainsToolRefusalReason(t *testing.T) {
+	paths := []string{"docs/stack-profiles.md", "docs/setup.md"}
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"base rewritten", fmt.Errorf("sync refused: %w", ErrRepairBaseRewritten), ErrRepairBaseRewritten.Error()},
+		{"before-head changed", fmt.Errorf("sync refused: %w", ErrRepairBeforeHeadChanged), ErrRepairBeforeHeadChanged.Error()},
+		{"advisor failed", errors.Join(&RepairConflictError{Category: ErrRepairAdvisorFailed, Paths: paths[:1], Err: errors.New("untrusted advisor stderr")}, errors.New("reset noise")), "conflict advisor refused or failed: docs/stack-profiles.md"},
+		{"advisor timed out", &RepairConflictError{Category: ErrRepairAdvisorTimedOut, Paths: paths[:1], Err: context.DeadlineExceeded}, "conflict advisor timed out: docs/stack-profiles.md"},
+		{"confirmation failed", &RepairConflictError{Category: ErrRepairConfirmationFailed, Paths: paths, Err: errors.New("marker in resolution")}, "conflict resolution confirmation failed: docs/stack-profiles.md, docs/setup.md"},
+		{"merge failed", fmt.Errorf("%w: %w", ErrRepairMergeFailed, errors.New("git output")), "merge failed"},
+		{"recheck failed", fmt.Errorf("%w: behind", ErrRepairRecheckFailed), "recheck failed"},
+		{"push rejected", fmt.Errorf("%w: %w", ErrRepairPushRejected, errors.New("remote: denied")), "push rejected"},
+		{"uncategorized", errors.New("raw failure"), repairGenericFailure},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) { typedApplyRefusal(t, c.err, c.want) })
+	}
+}
+
+func typedApplyRefusal(t *testing.T, refusal error, want string) {
+	s := doctorIOService(t)
+	ctx := t.Context()
+	repo, err := s.DB.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.DB.GetOrCreateSession(ctx, repo, 685)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch := "lf/685-case"
+	if _, err = s.DB.FreezeSessionSlug(ctx, session.ID, "case", branch); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := naming.ParseRef(session.TaskRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, baseHead := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	evidence := store.DoctorEvidence{TaskRef: ref.String(), Records: []store.DoctorEvidenceRecord{{Kind: "branch", ID: branch, State: head, Identity: baseHead}}}
+	c, err := s.DB.BeginDoctorAttempt(ctx, ref.String(), store.DoctorAttempt{ID: "refusal-proposer", SourceID: "refusal-source", OwnerText: "Diagnose", PromptVersion: PromptVersion, GuideVersion: GuideVersion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "refusal-proposer", Provider: "claude", ConfiguredModel: "fixture", Evidence: string(captured)}); err != nil {
+		t.Fatal(err)
+	}
+	results, err := BindResults(ctx, s.DB, "refusal-proposer", evidence, s.Redactor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "Branch needs synchronization.", Uncertainty: "Local refs only.", Evidence: []string{"branch:" + branch}}}, Proposal: []RepairStep{{Number: 1, Target: "branch:" + branch, Precondition: "Captured head", Change: "Merge captured base", Reason: "Restore synchronization", Reversibility: "Backed up head", Rollback: "Restore head", Action: &store.DoctorRepairAction{Kind: "sync_branch", Before: head, After: baseHead}}}}}
+	retainLegacyRepairDiagnosis(t, results, "refusal-proposal", input)
+	pid, _, err := s.DB.DoctorProposalReference(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.PresentDoctorProposal(ctx, ref.String(), "refusal-presentation", pid); err != nil {
+		t.Fatal(err)
+	}
+	effects := &refusingSyncEffects{err: refusal}
+	s.RepairEffects = effects
+	s.RepairRunner = cancelledSyncRunner{}
+	s.RepairEnvironment = repairFixtureEnvironment{}
+	operation, err := s.Apply(ctx, ApplyRequest{Target: ref, SourceID: "refusal-apply", Principal: "local-owner", PresentationID: "refusal-presentation"})
+	if err == nil || effects.calls != 1 || !strings.HasPrefix(err.Error(), want) || strings.Contains(err.Error(), "untrusted advisor stderr") {
+		t.Fatalf("refused sync: calls %d err %v, want reason %q", effects.calls, err, want)
+	}
+	saved, err := s.DB.ReadDoctorRepair(ctx, ref.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.State != "failed" || saved.Failure != want || operation.Failure != want || strings.Contains(saved.Failure, "context canceled") {
+		t.Fatalf("repair %s failure %q (returned %q), want %q", saved.State, saved.Failure, operation.Failure, want)
 	}
 }

@@ -308,7 +308,7 @@ func countFailing(commands []store.SuiteCommand) int {
 // run. It names the commit, the failures and one objective for each.
 func ownerHandbackInstruction(h ValidateHandback) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Implement must fix the failing tests found on commit %s.", h.Commit)
+	fmt.Fprintf(&b, "Fix the failing tests found on commit %s on the feature branch.", h.Commit)
 	for i, f := range h.Failures {
 		fmt.Fprintf(&b, "\n%d. `%s`: %s", i+1, f.Command, strings.TrimSpace(f.Objective))
 		if len(f.Locations) > 0 {
@@ -323,6 +323,6 @@ func ownerHandbackInstruction(h ValidateHandback) string {
 			fmt.Fprintf(&b, " (look at %s)", strings.Join(where, ", "))
 		}
 	}
-	b.WriteString("\nThen run Validate again.")
+	b.WriteString("\nThen comment `" + ValidateStartCommand + "` to run Validate again.")
 	return b.String()
 }

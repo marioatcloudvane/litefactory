@@ -114,10 +114,19 @@ several teams into one catalogue, repeat `-source` with each canonical source
 root. Each source supplies its own `release.json`, `team.config`, workflows and
 package-root profile. `-check` verifies the generated result without publishing.
 All candidates are validated before publication. Existing exact versions are
-immutable; use a new version for changed content. Catalogue entries for other
-releases and historical download bytes are preserved.
+immutable. Only the owner chooses, generates and links a release; fixes and
+features change the canonical sources only. Catalogue entries for other releases
+and historical download bytes are preserved.
 
-The Go team (`go-development`, currently version 1.2.8) ships a profile that declares Go and agent-setup Plan guidance, requires the `go` executable and runs `make check` as its engineering check. The Python/FastAPI and Swift/iOS teams ship their own profiles with host requirements and setup commands. Role IDs name functions such as `implementation-engineer`, `unit-test-engineer` and `integration-test-engineer`. A captured role resource must declare `task_owner: true` in its header to be allowed to own Plan tasks. Plan guidance IDs come from the selected effective profile; submitted content cannot create either owner or guidance authority.
+The current Go release is `go-development@1.0.0`. Its profile retains the supported
+Go engineering recipe, declares Go and agent-setup Plan guidance, requires the `go`
+executable and runs `make check` as its engineering check. The Python/FastAPI and
+Swift/iOS teams ship their own profiles with host requirements and setup commands.
+New role IDs name functions such as `implementation-engineer`, `unit-test-engineer`
+and `integration-test-engineer`. A captured role resource explicitly declares
+`task_owner: true` in its header to authorize future Plan task ownership. Plan
+guidance IDs come from the selected effective profile; submitted content cannot
+create either owner or guidance authority.
 
 Fetched teams must match their installed immutable inventory. Editable local
 teams retain local provenance and are captured again at fresh admission; their

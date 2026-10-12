@@ -87,6 +87,8 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// at).
 		"Path", "Branch", "ClonePath", "RevParse", "Status", "Divergence",
 		"MergePreview", "ConflictBlob",
+		// Doctor sync ancestry check: merge-base --is-ancestor reads only.
+		"IsAncestor",
 		// US-003 authoritative server observation; no local or remote mutation.
 		"RemoteHead",
 		// US-1 bounded immutable blob/mode collection, no index/worktree/ref mutations.
