@@ -24,6 +24,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/linear"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -1348,6 +1349,66 @@ func (w *linearQuotaResponseWriter) Write(body []byte) (int, error) {
 	w.Header().Set("X-RateLimit-Requests-Remaining", "900")
 	w.Header().Set("X-RateLimit-Requests-Reset", fmt.Sprint(w.reset.UnixMilli()))
 	return w.ResponseWriter.Write(body)
+}
+
+func TestPlanStoryHandoffResolutionFailureRetainsDebt(t *testing.T) {
+	f := newDiscoveryHTTPFixture(t)
+	parent, _ := f.task(t, "handoff")
+	ctx := t.Context()
+	var commentReads atomic.Int64
+	f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/comments") {
+			commentReads.Add(1)
+		}
+		f.serve(w, r)
+	})
+	if _, err := f.d.db.AdmitPlanWorkflowPath(ctx, parent.session.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.d.db.ReservePlanStory(ctx, parent.ref.String(), "story"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.d.db.BindPlanStoryIssue(ctx, parent.ref.String(), "story", 2000, 200); err != nil {
+		t.Fatal(err)
+	}
+	state := planbrief.PlanState{SharedRevision: "shared", Stories: []planbrief.PlanStoryState{{Key: "story", Stage: "story"}}}
+	if _, err := f.d.db.SavePlanWorkflowState(ctx, parent.ref.String(), 0, state); err != nil {
+		t.Fatal(err)
+	}
+	child, err := f.d.db.GetOrCreateSession(ctx, parent.repo, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Inject a child-resolution failure: this legacy fixture has no saved
+	// project execution snapshot. The open-child observation itself succeeds.
+	f.d.connections = projectconnection.NewFactory(projectconnection.Options{Logger: f.d.log})
+	if ran, err := f.d.refinePlanChildren(ctx, parent); ran || !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("resolution failure was swallowed: ran=%v err=%v", ran, err)
+	}
+	if owed, err := f.d.db.StoryDiscoveryOwed(ctx, parent.session.ID, 200); err != nil || !owed {
+		t.Fatalf("failed handoff retired debt: %v %v", owed, err)
+	}
+	if strings.Contains(f.logs.String(), "plan story polling handed to child") {
+		t.Fatal("failed handoff logged success")
+	}
+	if saved, err := f.d.db.GetSession(ctx, child.ID); err != nil || saved.NeedsPoll {
+		t.Fatalf("failed resolution flagged child: %+v %v", saved, err)
+	}
+	// Restore the fixture's legacy resolver. Retained debt alone must retry;
+	// there is no new observation, comment or cursor reset.
+	f.d.connections = nil
+	if ran, err := f.d.refinePlanChildren(ctx, parent); ran || err != nil {
+		t.Fatalf("retained handoff did not recover: ran=%v err=%v", ran, err)
+	}
+	if saved, err := f.d.db.GetSession(ctx, child.ID); err != nil || !saved.NeedsPoll {
+		t.Fatalf("successful handoff lost polling responsibility: %+v %v", saved, err)
+	}
+	if owed, err := f.d.db.StoryDiscoveryOwed(ctx, parent.session.ID, 200); err != nil || owed {
+		t.Fatalf("successful handoff did not retire debt: %v %v", owed, err)
+	}
+	if commentReads.Load() != 0 {
+		t.Fatal("parent read child comments")
+	}
 }
 
 // Strip or corrupt only request allowance metadata; provider content stays real.
