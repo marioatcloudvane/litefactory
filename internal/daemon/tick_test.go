@@ -1473,3 +1473,126 @@ func TestBugIssueBodyStartsAtFirstSight(t *testing.T) {
 		})
 	}
 }
+
+// Successful discovery cannot reset the task's retry deadline, and a healthy
+// sibling is still admitted while the failing task is held.
+func TestTransientExecutionBackoffPreservesOtherTasks(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Transient failure")
+	f.settle()
+	fail := true
+	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if fail && req.Issue.Number == testIssue {
+			return turn.Result{}, errors.New("temporary preparation failure")
+		}
+		return f.ranSuccessfully(ctx, req)
+	})
+	f.forge.addComment(testIssue, 40, owner(), "/spike run this")
+	f.settle()
+	if got := len(f.turns.calls()); got != 1 {
+		t.Fatalf("attempts=%d", got)
+	}
+	for range 3 {
+		f.settle()
+	}
+	if got := len(f.turns.calls()); got != 1 {
+		t.Fatalf("heartbeat retried before due: %d", got)
+	}
+	f.clock.advance(testInterval)
+	f.settle()
+	if got := len(f.turns.calls()); got != 2 {
+		t.Fatalf("due attempt missing: %d", got)
+	}
+	// The second failure doubles the interval.
+	f.clock.advance(testInterval)
+	f.settle()
+	if got := len(f.turns.calls()); got != 2 {
+		t.Fatalf("second delay did not grow: %d", got)
+	}
+	fail = false
+	f.clock.advance(testInterval)
+	f.settle()
+	if got := f.watermark(); got != 40 {
+		t.Fatalf("recovery watermark=%d", got)
+	}
+	// Consumed work resets the delay for the next independent instruction.
+	f.forge.addComment(testIssue, 41, owner(), "/spike next")
+	f.settle()
+	if got := f.watermark(); got != 41 {
+		t.Fatalf("progress did not reset: %d", got)
+	}
+}
+
+func TestTransientMaterialisationAndListingBackoff(t *testing.T) {
+	for _, stage := range []string{"materialise", "comments"} {
+		t.Run(stage, func(t *testing.T) {
+			f := newFixture(t)
+			f.plantCursor()
+			f.issue("Transient read failure")
+			f.settle()
+			f.clock.advance(pastListing)
+			f.settle()
+			f.needsPoll(testIssue)
+			g := &closureForge{labelFixtureForge: f.client}
+			var calls atomic.Int64
+			if stage == "materialise" {
+				g.after = func(_ context.Context, _ int, _ github.Issue, _ error) (github.Issue, error) {
+					calls.Add(1)
+					return github.Issue{}, errors.New("temporary lookup failure")
+				}
+			} else {
+				f.forge.mu.Lock()
+				f.forge.onListComments = func(w http.ResponseWriter, _ int) bool {
+					calls.Add(1)
+					http.Error(w, "temporary listing failure", http.StatusBadGateway)
+					return true
+				}
+				f.forge.mu.Unlock()
+			}
+			f.daemon = f.newDaemon(daemon.Options{Forge: g})
+			f.settle()
+			first := calls.Load()
+			if first == 0 {
+				t.Fatal("failure not injected")
+			}
+			for range 3 {
+				f.settle()
+			}
+			if got := calls.Load(); got != first {
+				t.Fatalf("calls before due=%d, want %d", got, first)
+			}
+			f.clock.advance(testInterval)
+			f.settle()
+			if got := calls.Load(); got != 2*first {
+				t.Fatalf("due calls=%d, want %d", got, 2*first)
+			}
+			f.clock.advance(testInterval)
+			f.settle()
+			if got := calls.Load(); got != 2*first {
+				t.Fatalf("delay did not double: %d", got)
+			}
+		})
+	}
+}
+
+func TestTransientFailureDoesNotHoldHealthySibling(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Failing task")
+	f.forge.addIssue(fakeIssue{Number: 124, Title: "Healthy task", User: stranger()})
+	f.bootstrapIssues(f.repo, testIssue, 124)
+	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if req.Issue.Number == testIssue {
+			return turn.Result{}, errors.New("temporary preparation failure")
+		}
+		return f.ranSuccessfully(ctx, req)
+	})
+	f.forge.addComment(testIssue, 40, owner(), "/spike failing")
+	f.settle()
+	f.forge.addComment(124, 41, owner(), "/spike healthy")
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{40, 41}) {
+		t.Fatalf("healthy sibling blocked or failed task repeated: %v", got)
+	}
+}

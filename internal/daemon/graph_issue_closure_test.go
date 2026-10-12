@@ -91,6 +91,7 @@ func TestGraphIssueClosureRequiresConfirmedClosure(t *testing.T) {
 				t.Fatalf("uncertain observation changed graph: %+v %v", got, err)
 			}
 			g.after = nil
+			f.clock.advance(testInterval)
 			f.settle()
 			got, err = f.db.GetGraphInstance(t.Context(), instance.ID)
 			if err != nil || got.Status != store.GraphCancelled {

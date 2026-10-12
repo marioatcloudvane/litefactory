@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -90,6 +91,8 @@ func (s *linearWorkflowServer) serve(w http.ResponseWriter, r *http.Request) {
 	input, _ := v["input"].(map[string]any)
 	var data map[string]any
 	switch {
+	case strings.Contains(q, "reactionCreate("):
+		data = map[string]any{"reactionCreate": map[string]any{"success": true}}
 	case strings.Contains(q, "issueCreate("):
 		s.creates++
 		createdID, _ := input["id"].(string)
@@ -563,7 +566,7 @@ func (transport linearMixedProviderTransport) RoundTrip(request *http.Request) (
 // Exercise the real Linear adapter and durable report ledger for fresh and
 // retained selections, including a remote post whose receipt is lost.
 func TestLinearUnmappedModeRefusal(t *testing.T) {
-	for _, scenario := range []string{"fresh", "pending", "lost_receipt"} {
+	for _, scenario := range []string{"fresh", "pending", "lost_receipt", "body/fresh", "body/lost_receipt", "team/fresh", "team/lost_receipt", "team/body/fresh", "team/body/lost_receipt", "workflow/fresh", "workflow/lost_receipt", "workflow/body/fresh", "workflow/body/lost_receipt"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			remote := newLinearWorkflowServer(t)
@@ -689,11 +692,31 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			reporter, err := turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: logger, BotUserID: 99})
 			linearWorkflowCheck(t, err)
 
+			bodyTrigger := strings.Contains(scenario, "body/")
+			refusalKind := report.ReplyMissingModeMapping
+			if strings.HasPrefix(scenario, "team/") {
+				refusalKind = report.ReplyMissingTeam
+			}
+			if strings.HasPrefix(scenario, "workflow/") {
+				refusalKind = report.ReplyUnsupportedWorkflow
+			}
+			if refusalKind != report.ReplyMissingModeMapping {
+				linearWorkflowCheck(t, bridge.AddIssueLabel(ctx, github.RepoFromRef(ref), ref.Issue, "Mode: Plan"))
+				d.turn = admissionRefusalExecutor{kind: refusalKind}
+				d.toolProfiles = config.DefaultToolProfiles().Permissions
+			}
 			d.reporter = reporter
 			d.defaultAgent = agent.Kind("claude")
 			d.classifiers = map[agent.Kind]agent.Classifier{d.defaultAgent: missingMappingClassifier{}}
 			instruction := readAndAdmit("unmapped-instruction", "Investigate this request")
 			trigger := turn.Trigger{CommentID: instruction.Comment.ID}
+			if bodyTrigger {
+				trigger.CommentID = 0
+				_, _, err = db.BootstrapTicketWatermark(ctx, session.ID, 0)
+				linearWorkflowCheck(t, err)
+				_, err = db.InitTicketRecoveryPosition(ctx, version, version.CreatedAt)
+				linearWorkflowCheck(t, err)
+			}
 			issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
 			linearWorkflowCheck(t, err)
 			task := &task{repo: repo, session: session, ref: ref, forgeRepo: github.RepoFromRef(ref), issue: issue, log: logger, tickAt: time.Now().UTC()}
@@ -702,17 +725,24 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 				linearWorkflowCheck(t, err)
 			}
 			remote.mu.Lock()
-			remote.loseReply = scenario == "lost_receipt"
+			remote.loseReply = strings.HasSuffix(scenario, "lost_receipt")
 			remote.mu.Unlock()
 			err = d.run(ctx, task, trigger, turn.ParseCommand(instruction.Comment.Body), logger)
-			if scenario == "lost_receipt" {
+			if strings.HasSuffix(scenario, "lost_receipt") {
 				if err == nil {
 					t.Fatal("lost delivery receipt reported success")
 				}
 				before, _, e := db.GetWatermark(ctx, session.ID)
 				linearWorkflowCheck(t, e)
-				if before.LastCommentID >= trigger.CommentID {
+				if trigger.CommentID != 0 && before.LastCommentID >= trigger.CommentID {
 					t.Fatal("unconfirmed reply consumed source")
+				}
+				if bodyTrigger {
+					pending, e := db.TicketBodyPending(ctx, session.ID)
+					linearWorkflowCheck(t, e)
+					if !pending {
+						t.Fatal("unconfirmed body delivery lost obligation")
+					}
 				}
 				// A fresh reporter after reopening SQLite must reconcile the existing
 				// durable intent with the one visible remote comment.
@@ -725,13 +755,31 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 				linearWorkflowCheck(t, err)
 				reporter, err = turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: logger, BotUserID: 99})
 				linearWorkflowCheck(t, err)
-				_, pending, e := reporter.ReportPending(ctx, session.ID, trigger.CommentID)
-				linearWorkflowCheck(t, e)
-				if !pending {
-					t.Fatal("lost durable delivery was not recovered")
+				if bodyTrigger {
+					d = &Daemon{db: db, connections: factory, reporter: reporter, log: logger}
+					task.tickAt = task.tickAt.Add(time.Hour)
+					d.discovery.tick(task.tickAt)
+					d.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 4999, Reset: task.tickAt.Add(time.Hour), StatusCode: http.StatusOK})
+					// Bootstrap sees the visible bot reply, yet must reconcile
+					// the original obligation before its eligibility gates.
+					recoveryCtx := context.WithValue(sessionContext(ctx, session.ID), recoveryTickKey{}, task.tickAt)
+					linearWorkflowCheck(t, d.bootstrap(recoveryCtx, task))
+				} else {
+					_, pending, e := reporter.ReportPending(ctx, session.ID, trigger.CommentID)
+					linearWorkflowCheck(t, e)
+					if !pending {
+						t.Fatal("lost durable delivery was not recovered")
+					}
 				}
 			} else {
 				linearWorkflowCheck(t, err)
+			}
+			if bodyTrigger {
+				pending, e := db.TicketBodyPending(ctx, session.ID)
+				linearWorkflowCheck(t, e)
+				if pending {
+					t.Fatal("confirmed body refusal still pending")
+				}
 			}
 			// Fresh daemon state exercises cleanup and source admission after restart.
 			d = &Daemon{db: db, connections: factory, reporter: reporter, log: logger, defaultAgent: agent.Kind("claude"), classifiers: map[agent.Kind]agent.Classifier{agent.Kind("claude"): missingMappingClassifier{}}}
@@ -750,6 +798,12 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 
 			d.discovery.tick(task.tickAt)
 			d.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 4999, Reset: task.tickAt.Add(time.Hour), StatusCode: http.StatusOK})
+			if bodyTrigger {
+				// This fixture invokes the admitted body directly; retire its
+				// separately-created comment fixture before polling.
+				_, e := reporter.Consume(ctx, session.ID, instruction.Comment.ID)
+				linearWorkflowCheck(t, e)
+			}
 			for i := 0; i < 3; i++ {
 				wm, _, e := db.GetWatermark(ctx, session.ID)
 				linearWorkflowCheck(t, e)
@@ -769,7 +823,14 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			if posts != 1 {
 				t.Fatalf("posts=%d", posts)
 			}
-			for _, want := range []string{"research", "Nothing was run", "--mode-labels", "label the issue with a mapped mode", "comment again"} {
+			wants := []string{"research", "Nothing was run", "--mode-labels", "label the issue with a mapped mode", "comment again"}
+			if refusalKind == report.ReplyMissingTeam {
+				wants = []string{"no linked installed team", "Link a suitable installed team", "Nothing was run", "comment again"}
+			}
+			if refusalKind == report.ReplyUnsupportedWorkflow {
+				wants = []string{"does not provide the requested workflow", "Select a workflow supported", "Nothing was run", "comment again"}
+			}
+			for _, want := range wants {
 				if !strings.Contains(replyBody, want) {
 					t.Fatalf("reply missing %q: %s", want, replyBody)
 				}
@@ -794,4 +855,10 @@ type missingMappingClassifier struct{}
 
 func (missingMappingClassifier) Classify(context.Context, agent.Classification) (agent.Mode, error) {
 	return agent.ModeResearch, nil
+}
+
+type admissionRefusalExecutor struct{ kind report.ReplyKind }
+
+func (e admissionRefusalExecutor) Execute(context.Context, turn.Request) (turn.Result, error) {
+	return turn.Result{}, fmt.Errorf("capture: %w", &workflowRefusal{kind: e.kind, cause: errors.New("configuration fixture")})
 }

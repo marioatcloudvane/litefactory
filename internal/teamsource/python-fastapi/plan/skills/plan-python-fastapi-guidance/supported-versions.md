@@ -1,48 +1,19 @@
-# Python FastAPI with React 1.0.0
+# Python FastAPI project toolchains
 
-## Exact supported versions
+Use the repository's Python and dependency constraints, locks and frontend engine constraints. The team imposes no exact toolchain or dependency pins; Python 3.12 is supported. Repositories needing stricter versions can enforce them in setup/check overrides.
 
-The initial baseline is Python 3.14, FastAPI 0.142.x with Pydantic 2, Node.js 24 LTS, React 19.3 and Vite 8.3. These exact pins are required, not floating latest selections. No broader compatibility is claimed.
+## Selection and setup
 
-| Executable or dependency | Exact version |
-| --- | --- |
-| python | 3.14.0 |
-| node | 24.16.0 |
-| uv | 0.10.12 |
-| npm | 11.13.0 |
-| fastapi | 0.142.4 |
-| pydantic | 2.14.0 |
-| ruff | 0.17.0 |
-| mypy | 2.4.0 |
-| pytest | 9.1.1 |
-| httpx | 0.28.1 |
-| react | 19.3.0 |
-| react-dom | 19.3.0 |
-| vite | 8.3.4 |
-| typescript | 7.0.2 |
-| @vitejs/plugin-react | 6.1.2 |
-| eslint | 10.12.0 |
-| vitest | 5.0.3 |
-| @testing-library/react | 16.3.3 |
-| @types/react | 19.3.0 |
-| @types/react-dom | 19.3.0 |
+Recipes start at the repository root. Prefer root pyproject.toml or requirements.txt, falling back to backend/ only when neither exists at root. A pyproject.toml with uv.lock uses uv sync --locked --all-groups --no-python-downloads. Otherwise create or reuse the selected project's .venv and install requirements.txt with its python -m pip, or install an unlocked installable pyproject. The project supplies pytest and any configured check dependencies.
 
-## Operator use and defaults
+Checks use that .venv. pytest runs without a forced test directory, honoring pytest.ini and pyproject configuration, and fails on zero collection. Ruff format/check runs only with [tool.ruff], ruff.toml or .ruff.toml; mypy runs only with [tool.mypy] or a [mypy] section in mypy.ini, .mypy.ini or setup.cfg. Configured tool failures are failures.
 
-Install the checksummed python-fastapi 1.0.0 team and select that exact installed name/version through the existing `team link` command for the registered repository. Both Claude and Codex receive the captured profile and bundled guidance; no global settings change. Use the CLI help for the existing install/link arguments. Resumed runs retain captured bytes; fresh admission reads the selected release and admitted repository overrides.
+Frontend work is optional. Discover package.json at root or nested project locations, excluding dependency, environment, generated and .git directories. At each package location use npm ci with a package-lock.json, otherwise npm install, with engine-strict and ignored lifecycle scripts. Run declared typecheck, lint, test and build scripts without assuming React, TypeScript or a particular test runner. Configure scripts to terminate in CI. Selected paths must remain within the worktree; caches stay under each project's .cache. Existing permission and network ceilings still apply.
 
-The default layout is backend/ with pyproject.toml, uv.lock and tests/test_*.py, and frontend/ with package.json, package-lock.json, tsconfig.json and unit/component tests. Declare the pinned backend dependencies in the repository lock and frontend dependencies in package-lock.json. Strict TypeScript is explicit in tsconfig.json. Required frontend scripts typecheck, lint, test and build invoke tsc, eslint, vitest and vite respectively. Tests cannot use passWithNoTests or successful skip flags. pytest fails when it collects no tests.
+## Overrides and hosts
 
-Setup uses uv sync --locked --all-groups with no Python downloads and npm ci with engine-strict and ignored lifecycle scripts. Lockfiles are consumed, not rewritten. If an existing project needs approved dependency lifecycle scripts, explicitly replace the setup recipe within existing network, command and writable-path authority. uv and npm caches are confined under each component's .cache directory.
+Only setup and checks can be replaced in .litefactory/stack.overrides.json, schema version 1. Replace full nonempty arrays for stricter guards or repository commands. Guidance, host requirements and environment policy remain fixed. Overrides grant no permission. Bug/Spike pinned phase recipes retain authority; Implement executes setup within writable authority; Validate reviews evidence read-only.
 
-Backend checks verify exact dependency versions, Ruff format/check, mypy and pytest. Frontend checks verify exact versions, strict TypeScript, scripts/tests, ESLint, Vitest and a Vite production build. Missing host executables stop shared admission; guards fail specifically on incompatible versions, missing manifests/scripts/tests and disabled strict checking. Check failures are never suppressed.
+Supported hosts remain factory-admitted macOS (darwin), arm64 or amd64. Only python3 is universally required. uv is needed for locked Python projects; node and npm are needed only for discovered package.json projects. Do not install host tools or expand permission ceilings.
 
-Only setup and checks can be overridden in .litefactory/stack.overrides.json, schema version 1. Replace their full arrays to change confined cwd values for an existing layout or repository check commands. Keep all required guard and check responsibilities; neither array may be empty. Guidance, host requirements and environment policy are fixed. Overrides grant no permission and must preserve locked setup, exact versions and required checks. Bug/Spike pinned phase recipes retain authority; Implement executes checks and retains outcomes; Validate reviews retained evidence read-only.
-
-## Hosts and evidence boundary
-
-Supported hosts are factory-admitted macOS (darwin), arm64 or amd64, with python3 3.14.0, node 24.16.0, uv 0.10.12 and npm 11.13.0 already installed and admitted. Do not install host tools or expand permission ceilings. Environments, caches and outputs use admitted worktree/temporary paths only. External documentation is informational; execution-critical resources are bundled.
-
-Compatibility evidence consists of retained registry dependency/engine constraints and exact-pin dependency resolution for Python 3.14 macOS and Node 24.16.0/npm 11.13.0. It proves package compatibility and selection/capture contracts only. It does not prove an example application, live Claude/Codex workflow or deployment; those are outside this release's evidence boundary.
-
-Sources: https://pypi.org/pypi/fastapi/0.142.4/json, https://registry.npmjs.org/vite/8.3.4, https://registry.npmjs.org/react/19.3.0, https://fastapi.tiangolo.com/deployment/versions/, https://nodejs.org/en/about/previous-releases, https://react.dev/versions, https://vite.dev/releases.
+This source change does not update installed releases or retained runs. The owner releases and links a new version; fresh admission captures its profile. Package validation does not prove an example application, a released cockpit workflow or a deployment.

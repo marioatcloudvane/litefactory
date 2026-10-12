@@ -113,6 +113,10 @@ func TestRepositoryWorkflowSourceEditableSelectionAcrossSixWorkflows(t *testing.
 	if err == nil || unlinked != nil || !strings.Contains(err.Error(), "no linked installed team") {
 		t.Fatalf("unlinked source: %v %v", unlinked, err)
 	}
+	var refusal *workflowRefusal
+	if !errors.As(err, &refusal) || !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("missing typed cause: %v", err)
+	}
 	if _, err := db.ReplaceRepositoryTeamBinding(t.Context(), store.RepositoryTeamBinding{RepoID: repo.ID, Source: "local", Slug: "custom", Version: "1.0.0", Kind: "local"}); err != nil {
 		t.Fatal(err)
 	}
@@ -216,20 +220,20 @@ func TestRepositoryWorkflowSourceEditableSelectionAcrossSixWorkflows(t *testing.
 	}
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err = resolver(cancelled, repo, agent.WorkflowImplement, specs); !errors.Is(err, context.Canceled) {
+	if _, err = resolver(cancelled, repo, agent.WorkflowImplement, specs); !errors.Is(err, context.Canceled) || errors.As(err, &refusal) {
 		t.Fatalf("lost cancellation: %v", err)
 	}
 	if err = os.WriteFile(filepath.Join(fetchedDir, "content", "implement", "implement.dot"), []byte("corrupt"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = resolver(t.Context(), repo, agent.WorkflowImplement, specs); err == nil || !strings.Contains(err.Error(), repo.Path) || !strings.Contains(err.Error(), "implement") {
+	if _, err = resolver(t.Context(), repo, agent.WorkflowImplement, specs); err == nil || errors.As(err, &refusal) || !strings.Contains(err.Error(), repo.Path) || !strings.Contains(err.Error(), "implement") {
 		t.Fatalf("corrupt release accepted: %v", err)
 	}
 	if _, err = db.ReplaceRepositoryTeamBinding(t.Context(), store.RepositoryTeamBinding{RepoID: repo.ID, Source: "local", Slug: "custom", Version: "1.0.0", Kind: "local"}); err != nil {
 		t.Fatal(err)
 	}
 	write("team.config", []byte("research: research/research.dot\n"))
-	if _, err := resolver(t.Context(), repo, agent.WorkflowImplement, specs); err == nil || !strings.Contains(err.Error(), repo.Path) || !strings.Contains(err.Error(), "available workflows: research") {
+	if _, err := resolver(t.Context(), repo, agent.WorkflowImplement, specs); err == nil || !errors.As(err, &refusal) || !strings.Contains(err.Error(), repo.Path) || !strings.Contains(err.Error(), "available workflows: research") {
 		t.Fatalf("missing workflow diagnostic: %v", err)
 	}
 }

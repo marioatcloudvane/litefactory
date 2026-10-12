@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -155,9 +154,8 @@ func (d *Daemon) recoveryAllowed(ctx context.Context, source store.ReportRecover
 }
 
 func (d *Daemon) recoveryFailure(ctx context.Context, source store.ReportRecovery, at time.Time, err error) {
-	var rate *github.RateLimitError
-	if errors.As(err, &rate) && !at.IsZero() {
-		d.backoff.fail(at, rate.RetryAfter)
+	if !at.IsZero() {
+		d.rateLimited(ctx, d.log, at, err)
 	}
 	reason := "report recovery failed"
 	sanitizer := d.diagnosticRedactor
@@ -337,10 +335,19 @@ func (d *Daemon) sessionRecoveryHeld(sessionID int64, at time.Time) bool {
 }
 
 func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bool, error) {
-	// Bug domain journals own publication, including recovery of native runs.
+	// Bug domain journals own native publication. Only the runless
+	// configuration refusals introduced at admission use shared recovery.
 	admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
 	if err == nil && admission.Workflow == "bug" {
-		return false, nil
+		delivery, found, readErr := d.db.FindPendingReportDelivery(ctx, t.session.ID, triggerID)
+		if readErr != nil {
+			return true, readErr
+		}
+		configurationRefusal := strings.HasPrefix(delivery.Purpose, "reply:missing_team:") ||
+			strings.HasPrefix(delivery.Purpose, "reply:unsupported_workflow:")
+		if !found || delivery.RunID != 0 || !configurationRefusal {
+			return false, nil
+		}
 	}
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return true, err

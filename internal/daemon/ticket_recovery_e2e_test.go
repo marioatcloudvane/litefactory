@@ -886,3 +886,46 @@ func reserveRecoveryHold(t *testing.T, db *store.DB, session store.Session) {
 		t.Fatal(err)
 	}
 }
+
+func TestTicketBodyTransientRetryKeepsFirstSight(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	origin := recoveryProvider(t, w.fixture)
+	configureRecoverySource(t, w, origin)
+	w.daemon = newRecoveryDaemon(t, w, origin, "transient-body", false)
+	w.plantCursor()
+	w.assignedIssue("Transient body", "Please investigate the first instruction.")
+	w.turns.set(func(context.Context, turn.Request) (turn.Result, error) {
+		return turn.Result{}, errors.New("temporary preparation failure")
+	})
+	w.clock.advance(scheduleInterval)
+	w.settle()
+	id := w.session().ID
+	if pending, err := w.db.TicketBodyPending(t.Context(), id); err != nil || !pending {
+		t.Fatalf("body debt lost: %v %v", pending, err)
+	}
+	for range 3 {
+		w.settle()
+	}
+	if got := len(w.turns.calls()); got != 1 {
+		t.Fatalf("premature body attempts=%d", got)
+	}
+	w.clock.advance(testInterval)
+	w.settle()
+	if got := len(w.turns.calls()); got != 2 {
+		t.Fatalf("due attempts=%d", got)
+	}
+	if got := strings.Count(w.fixture.logs.String(), "first sight of a task;"); got != 1 {
+		t.Fatalf("first-sight logs=%d", got)
+	}
+	w.turns.set(w.ranSuccessfully)
+	reopenRecoveryDatabase(t, w.fixture)
+	w.daemon = newRecoveryDaemon(t, w, origin, "transient-body-restarted", false)
+	w.settle()
+	if pending, err := w.db.TicketBodyPending(t.Context(), id); err != nil || pending {
+		t.Fatalf("body recovery failed: %v %v", pending, err)
+	}
+	assertRecoveryReports(t, w.fixture, 1)
+}
