@@ -100,16 +100,19 @@ type ImplementTransition struct {
 	ExpectedRevision int64
 	Reason           string
 	MergeCommit      string
-	// Guidance is the owner's reply; only a resume (parked to waiting) takes it.
+	// Guidance is the owner's reply; only a move to waiting (a resume from
+	// parked, or a reopen of a merged story) takes it.
 	Guidance string
 	At       time.Time
 }
 
-// validImplementMove reports the moves the ledger allows. Merged is final. A
-// parked story only leaves by an owner resume.
+// validImplementMove reports the moves the ledger allows. A merged story only
+// leaves by an owner's reopen from Validate findings. A parked story only
+// leaves by an owner resume.
 func validImplementMove(from, to string) bool {
 	switch from + ">" + to {
 	case ImplementWaiting + ">" + ImplementRunning,
+		ImplementMerged + ">" + ImplementWaiting,
 		ImplementRunning + ">" + ImplementDone,
 		ImplementRunning + ">" + ImplementParked,
 		ImplementParked + ">" + ImplementWaiting,
@@ -199,6 +202,8 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 		return ImplementStory{}, fmt.Errorf("%w: only merging carries a commit", ErrImplementTransition)
 	case in.To != ImplementWaiting && in.Guidance != "":
 		return ImplementStory{}, fmt.Errorf("%w: only a resume carries guidance", ErrImplementTransition)
+	case in.From == ImplementMerged && strings.TrimSpace(in.Guidance) == "":
+		return ImplementStory{}, fmt.Errorf("%w: reopening a merged story needs the findings as guidance", ErrImplementTransition)
 	case len(in.Guidance) > maxImplementGuidance:
 		return ImplementStory{}, fmt.Errorf("%w: guidance of at most %d bytes", ErrImplementTransition, maxImplementGuidance)
 	}
@@ -216,6 +221,11 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 			extra = []any{ImplementOriginMerge}
 		case in.To == ImplementWaiting && in.From == ImplementParked:
 			set = ",park_origin='',attempts=0,last_failure='',worker_session=0,guidance=?,guidance_question=reason"
+			extra = []any{in.Guidance}
+		case in.To == ImplementWaiting && in.From == ImplementMerged:
+			// A reopen: the story starts again on the same branch with the
+			// findings as its guidance; merge_commit is cleared by the move.
+			set = ",park_origin='',attempts=0,last_failure='',worker_session=0,guidance=?,guidance_question=''"
 			extra = []any{in.Guidance}
 		case in.To == ImplementRunning:
 			set = ",worker_session=0"

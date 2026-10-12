@@ -214,11 +214,12 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// acquisition.
 		"IntegrationHead": {},
 		// Validate's host bindings: the task worktree is created or reused,
-		// a kept repair is committed and the tested commit is pushed, each in
-		// one acquisition.
+		// a kept repair is committed, the tested commit is pushed and a story
+		// branch is fetched and fast-forwarded to it, each in one acquisition.
 		"validateHost.checkoutTaskWorktree": {},
 		"validateHost.keepChange":           {},
 		"validateHost.publish":              {},
+		"validateHost.advanceStory":         {},
 	}
 
 	// gated names each call that must not happen outside a critical section,
