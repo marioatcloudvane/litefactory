@@ -471,7 +471,14 @@ func recoveryProvider(t *testing.T, f *fixture) ticket.Origin {
 					object["url"] = origin + "/repos/" + f.repo.Slug() + "/issues/" + strconv.Itoa(int(number))
 				} else if id, ok := object["id"].(float64); ok && object["body"] != nil {
 					object["url"] = origin + "/repos/" + f.repo.Slug() + "/issues/comments/" + strconv.Itoa(int(id))
-					object["issue_url"] = origin + "/repos/" + f.repo.Slug() + "/issues/" + strconv.Itoa(testIssue)
+					issueNumber := testIssue
+					parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+					if len(parts) == 6 && parts[3] == "issues" && parts[5] == "comments" {
+						if n, err := strconv.Atoi(parts[4]); err == nil {
+							issueNumber = n
+						}
+					}
+					object["issue_url"] = origin + "/repos/" + f.repo.Slug() + "/issues/" + strconv.Itoa(issueNumber)
 				}
 			}
 		}
@@ -726,5 +733,156 @@ func TestTicketRecoveryRepositoryRefusalRetainsAndRetries(t *testing.T) {
 	pending, err := w.db.ListPendingTicketObservations(t.Context(), source.ID)
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("successful drain retained observation: %+v %v", pending, err)
+	}
+}
+
+func TestTicketRecoveryDoctorHoldSurvivesRestart(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	origin := recoveryProvider(t, w.fixture)
+	source := configureRecoverySource(t, w, origin)
+	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: w.spy.lookup}, Logger: w.logger, ExpectedActorID: botID})
+	w.issue("Held task")
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: source.Provider, Origin: origin, RemoteID: strconv.Itoa(10000 + testIssue)}, Locator: ticket.Locator{Provider: source.Provider, Origin: origin, Container: source.Destination, Key: strconv.Itoa(testIssue)}}
+	if _, err := w.db.AddTicketBinding(t.Context(), store.TicketBinding{RepoID: w.repo.ID, ConnectionVersionID: source.ID, Ref: ref, Enabled: true, Provenance: "explicit"}); err != nil {
+		t.Fatal(err)
+	}
+	held, err := daemon.AdmitProjectTicket(t.Context(), w.db, factory, w.repo, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.db.BootstrapTicketWatermark(t.Context(), held.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	reserveRecoveryHold(t, w.db, held)
+	w.forge.addComment(testIssue, 901, owner(), "/spike Recover this held instruction.")
+	w.forge.addIssue(fakeIssue{Number: testIssue + 1, Title: "Healthy sibling", User: owner()})
+	w.forge.addComment(testIssue+1, 902, owner(), "/spike Process the healthy sibling.")
+	other := w.secondRepo()
+	otherFixture := *w.fixture
+	otherFixture.repo = other
+	otherOrigin := recoveryProvider(t, &otherFixture)
+	var otherSource store.ConnectionVersion
+	for _, role := range []store.ConnectionRole{store.CodeConnection, store.TicketConnection} {
+		v := source
+		v.ID, v.Revision, v.RepoID, v.Role = 0, 0, other.ID, role
+		v.Origin, v.Destination, v.RemoteID = otherOrigin, other.Slug(), "2"
+		v.ClonePath, v.RemoteURL, v.WorktreeRoot = other.Path, other.RemoteURL, other.WorktreeRoot
+		v, err = w.db.SetConnection(t.Context(), v, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role == store.TicketConnection {
+			otherSource = v
+		}
+	}
+	if _, err := (projectconnection.ApproverService{DB: w.db, Factory: factory}).Set(t.Context(), other.ID, ownerLogin, otherSource.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
+	w.forge.addIssueIn(other.Owner, other.Name, fakeIssue{Number: testIssue, Title: "Healthy project", User: owner()})
+	w.forge.addCommentTo(other.Owner, other.Name, testIssue, 903, owner(), "/spike Process the healthy project.")
+	// Discovery is already beyond these updates. Only the durable observations
+	// can recover the instructions, including after reopening the database.
+	through := w.clock.peek().Add(time.Hour)
+	for _, v := range []store.ConnectionVersion{source, otherSource} {
+		p, err := w.db.InitTicketRecoveryPosition(t.Context(), v, v.CreatedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err = w.db.PinTicketRecoveryContainer(t.Context(), v.ID, p.Revision, v.RemoteID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.CompletedThrough, p.ScanThrough, p.ReconcileCompletedAt = through, through, through
+		p.TicketsComplete, p.RepliesComplete = true, true
+		if _, err = w.db.CommitTicketRecoveryPage(t.Context(), p, p.Revision, nil); err != nil {
+			t.Fatal(err)
+		}
+		numbers := []int{testIssue}
+		if v.ID == source.ID {
+			numbers = append(numbers, testIssue+1)
+		}
+		for _, n := range numbers {
+			if err := w.db.HandoffTicketObservation(t.Context(), store.PendingTicketObservation{RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: v.RemoteID, TicketID: strconv.Itoa(10000 + n), TicketKey: strconv.Itoa(n), ObservedAt: through}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	w.clock.advance(time.Hour)
+	w.daemon = newRecoveryDaemon(t, w, origin, "held-recovery", false)
+	for range 2 {
+		w.settle()
+		pending, err := w.db.ListPendingTicketObservations(t.Context(), source.ID)
+		var retained bool
+		for _, p := range pending {
+			if p.TicketID == ref.Identity.RemoteID {
+				retained = p.Generation == 1
+			}
+		}
+		if err != nil || !retained {
+			t.Fatalf("held generation lost: %+v %v", pending, err)
+		}
+		watermark, exists, err := w.db.GetWatermark(t.Context(), held.ID)
+		if err != nil || !exists || watermark.LastCommentID != 0 {
+			t.Fatalf("held watermark advanced: %+v %v", watermark, err)
+		}
+	}
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{902, 903}) {
+		t.Fatalf("unrelated work blocked: %v\n%s", got, w.fixture.logs)
+	}
+	reopenRecoveryDatabase(t, w.fixture)
+	w.daemon = newRecoveryDaemon(t, w, origin, "held-restarted", false)
+	w.settle()
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{902, 903}) {
+		t.Fatalf("held worker ran after restart: %v", got)
+	}
+	if err := w.db.StopDoctorRepair(t.Context(), held.TaskRef, "release fixture hold"); err != nil {
+		t.Fatal(err)
+	}
+	w.settle()
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{901, 902, 903}) {
+		t.Fatalf("release did not recover instruction: %v\n%s", got, w.fixture.logs)
+	}
+	w.settle()
+	pending, err := w.db.ListPendingTicketObservations(t.Context(), source.ID)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("successful drain did not clear: %+v %v", pending, err)
+	}
+}
+
+func reserveRecoveryHold(t *testing.T, db *store.DB, session store.Session) {
+	t.Helper()
+	ctx := t.Context()
+	conversation, err := db.BeginDoctorAttempt(ctx, session.TaskRef, store.DoctorAttempt{ID: "recovery-hold", SourceID: "recovery-hold", OwnerText: "fixture", PromptVersion: "test", GuideVersion: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, _ := json.Marshal(store.DoctorEvidence{TaskRef: session.TaskRef})
+	if err := db.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "recovery-hold", Provider: "claude", ConfiguredModel: "test", Evidence: string(evidence)}); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := db.BindDoctorResultAttempt(ctx, "recovery-hold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := []byte(fmt.Sprintf(`[{"number":1,"target":"session:%d","action":{"kind":"poll_flag","before":"0","after":"1"}}]`, session.ID))
+	snapshot := append(append([]byte(`{"proposal":`), proposal...), '}')
+	if _, err := db.RecordResult(ctx, store.ResultRecord{Binding: binding, RequestID: "recovery-hold-result", Payload: snapshot, Snapshot: snapshot, Diagnostics: []byte(`{"valid":true,"errors":[]}`), Retired: []byte(`[]`), Accepted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AdoptDoctorResult(ctx, binding, "recovery-hold-result", proposal); err != nil {
+		t.Fatal(err)
+	}
+	id, _, err := db.DoctorProposalReference(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PresentDoctorProposal(ctx, session.TaskRef, "recovery-hold-presentation", id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "recovery-hold", SourceID: "recovery-hold-approval", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: "recovery-hold-presentation"}); err != nil {
+		t.Fatal(err)
 	}
 }
