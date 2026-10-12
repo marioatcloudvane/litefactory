@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -209,8 +210,37 @@ func TestTicketRecoveryLegacyEnterpriseAndAmbiguousMapping(t *testing.T) {
 	if _, err := db.SetConnection(ctx, replacement, legacy.Revision); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.InitTicketRecoveryPosition(ctx, legacy, other.CreatedAt); !errors.Is(err, ErrRecoveryMigrationAmbiguous) {
-		t.Fatalf("ambiguous legacy mapped %v", err)
+	if _, err := db.InitTicketRecoveryPosition(ctx, legacy, other.CreatedAt); !errors.Is(err, ErrRecoveryMigrationAmbiguous) || !strings.Contains(err.Error(), "new/source") {
+		t.Fatalf("ambiguous legacy mapped or candidates unnamed %v", err)
+	}
+}
+
+func TestTicketRecoveryLegacyRemoteIDRevisionIsNotAmbiguous(t *testing.T) {
+	db := newTestDB(t)
+	repo := testRepo(t, db, "owner", "imported")
+	ctx := t.Context()
+	v := connectionFixture(repo, TicketConnection)
+	v.Provenance = "legacy"
+	v, err := db.SetConnection(ctx, v, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := v
+	pinned.RemoteID = "R_kgDOexample"
+	pinned, err = db.RetainConnectionVersion(ctx, pinned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pinned.ID == v.ID {
+		t.Fatalf("retained revision reused version %d", v.ID)
+	}
+	coverage := repo.CreatedAt.Add(time.Hour)
+	if err := db.SetRepoPollCursor(ctx, repo.ID, coverage); err != nil {
+		t.Fatal(err)
+	}
+	p, err := db.InitTicketRecoveryPosition(ctx, pinned, repo.CreatedAt)
+	if err != nil || !p.CompletedThrough.Equal(coverage) || p.ContainerID != pinned.RemoteID {
+		t.Fatalf("single imported legacy source not mapped %+v %v", p, err)
 	}
 }
 
