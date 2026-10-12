@@ -57,8 +57,8 @@ func (p *presentationProvider) RunChat(ctx context.Context, request agent.ChatRe
 }
 
 // TestPlainLanguageReplyJourney covers signed admission, bot-only language
-// history, isolated generation/checking, persistence, one-message attachment
-// delivery and retry after restart. Providers and Discord are controlled fakes.
+// history, isolated generation/checking, persistence, narration-only delivery
+// without raw attachment and retry after restart. Providers and Discord are controlled fakes.
 func TestPlainLanguageReplyJourney(t *testing.T) {
 	ctx := t.Context()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "reply.db"))
@@ -90,14 +90,14 @@ func TestPlainLanguageReplyJourney(t *testing.T) {
 				return
 			}
 		}
+		var payload, raw string
 		reader, err := r.MultipartReader()
 		if err != nil {
-			t.Error(err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
+			// A narrated reply carries no raw attachment: plain JSON.
+			data, _ := io.ReadAll(r.Body)
+			payload = string(data)
 		}
-		var payload, raw string
-		for {
+		for reader != nil {
 			part, e := reader.NextPart()
 			if errors.Is(e, io.EOF) {
 				break
@@ -170,7 +170,7 @@ func TestPlainLanguageReplyJourney(t *testing.T) {
 	if err = json.Unmarshal([]byte(row.PresentationOutcome), &outcome); err != nil {
 		t.Fatal(err)
 	}
-	// The visible content is the narration only; the raw result is attached once.
+	// The visible content is the narration only; the raw result stays stored.
 	if outcome.LanguageHint() != "German" || row.ReplyText != "Hier ist der aktuelle Zustand." || row.ReplyAttachment != outcome.RawText {
 		t.Fatalf("source changed: %+v", row)
 	}
@@ -193,7 +193,7 @@ func TestPlainLanguageReplyJourney(t *testing.T) {
 		t.Fatal("retry repeated narration")
 	}
 	mu.Lock()
-	if len(payloads) != 2 || rawDetails[0] != outcome.RawText || rawDetails[1] != rawDetails[0] || !strings.HasPrefix(routes[0], "PATCH ") || routes[1] != "POST /channels/3/messages" {
+	if len(payloads) != 2 || rawDetails[0] != "" || rawDetails[1] != "" || !strings.HasPrefix(routes[0], "PATCH ") || routes[1] != "POST /channels/3/messages" {
 		t.Errorf("delivery mismatch: %v %v", routes, rawDetails)
 	}
 	var first, second struct {
@@ -218,7 +218,8 @@ func TestPlainLanguageReplyJourney(t *testing.T) {
 	}
 	mu.Unlock()
 	row, err = db.ReadChatReply(ctx, "discord", "100")
-	if err != nil || row.State != "confirmed" || row.PresentationOutcome != "" || row.ReplyText != "" || row.ReplyAttachment != "" {
+	// Only the raw details remain, for /details until the retention purge.
+	if err != nil || row.State != "confirmed" || row.PresentationOutcome != "" || row.ReplyText != "" || row.ReplyAttachment != outcome.RawText {
 		t.Fatalf("terminal content retained: %+v %v", row, err)
 	}
 	snapshot, err := db.NewMeterSnapshot(ctx, store.MeterFilter{}, store.MeterSnapshotOptions{})

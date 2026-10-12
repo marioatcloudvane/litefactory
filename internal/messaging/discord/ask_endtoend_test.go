@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -21,6 +22,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -279,5 +282,181 @@ func TestAskOwnerJourney(t *testing.T) {
 		if r.ExecutionPath != "chat_answer" || r.Project != "github:acme/app" || r.Issue != 0 || r.RunID != 0 || r.EstimatedUSD != nil {
 			t.Fatalf("wrong scope or invented zero cost: %+v", r)
 		}
+	}
+}
+
+// askNarrationProvider narrates /ask results; reject makes it describe the
+// answer in the third person, which the validator refuses.
+type askNarrationProvider struct{ reject bool }
+
+func (*askNarrationProvider) DoctorIsolation(context.Context) (string, error) {
+	return "controlled fixture only", nil
+}
+
+func (p *askNarrationProvider) RunChat(_ context.Context, r agent.ChatRequest) (agent.ChatResult, error) {
+	if err := r.Validate(); err != nil {
+		return agent.ChatResult{}, err
+	}
+	if strings.Contains(r.Prompt, `"findings"`) && strings.Contains(r.Prompt, `"candidate"`) {
+		return agent.ChatResult{Answer: []byte(`{"findings":[{"claim":0,"support":"supported"}]}`)}, nil
+	}
+	text := "I can't find anything called library, do you mean litefactory?"
+	if p.reject {
+		text = "The system found nothing called library and asks you to rephrase."
+	}
+	return agent.ChatResult{Answer: []byte(`{"claims":[{"text":"` + text + `","facts":["result"],"protected":[]}]}`)}, nil
+}
+
+type sentReply struct {
+	contentType, content, file, filename string
+}
+
+// TestAskRepliesShowOnlyNarrationAndDetailsReturnsRaw covers the owner-visible
+// /ask reply, its fallback and /details retrieval through the Discord adapter.
+func TestAskRepliesShowOnlyNarrationAndDetailsReturnsRaw(t *testing.T) {
+	ctx := t.Context()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "details.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err = db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 12, 10, 25, 0, 0, time.UTC)
+	var mu sync.Mutex
+	var sent []sentReply
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reply := sentReply{contentType: r.Header.Get("Content-Type")}
+		var payload []byte
+		if reader, err := r.MultipartReader(); err == nil {
+			for {
+				part, e := reader.NextPart()
+				if e != nil {
+					break
+				}
+				data, _ := io.ReadAll(part)
+				switch part.FormName() {
+				case "payload_json":
+					payload = data
+				case "files[0]":
+					reply.file, reply.filename = string(data), part.FileName()
+				}
+			}
+		} else {
+			payload, _ = io.ReadAll(r.Body)
+		}
+		var message struct {
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(payload, &message); err != nil {
+			t.Errorf("payload: %v", err)
+		}
+		reply.content = message.Content
+		mu.Lock()
+		sent = append(sent, reply)
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"id":"200"}`)
+	}))
+	defer api.Close()
+	cfg, err := config.Decode(strings.NewReader("agents:\n  claude: {}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &askNarrationProvider{}
+	model := &response.NativeModel{Config: cfg, Paths: config.NewPaths(t.TempDir()), Providers: map[string]response.ChatRunner{"claude": provider}, Meter: db}
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := discord.New(discord.Options{ApplicationID: "1", PublicKey: public, Token: secrets.NewToken("test-token"), APIURL: api.URL, Client: api.Client(), Now: func() time.Time { return at }})
+	s := messaging.New(db, "discord", "2", []string{"3", "4"}, a, messaging.FactoryStatus{DB: db})
+	history := messaging.AskHistory{DB: db, Transport: "discord"}
+	s.EnablePresentation(model, history)
+	rawAsk := func(answer string) string {
+		return "> what is the status of the livrary?\n> Project: none\n[lf:ask:v1]\n" + answer + "\nAs of 2026-10-12 10:25 UTC.\nGaps: none."
+	}
+	deliver := func(id string, admit func()) sentReply {
+		t.Helper()
+		admit()
+		if more, err := s.Step(ctx, at); err != nil || !more {
+			t.Fatalf("step %s: %t %v", id, more, err)
+		}
+		row, err := db.ReadChatReply(ctx, "discord", id)
+		if err != nil || row.State != "confirmed" {
+			t.Fatalf("row %s: %+v %v", id, row, err)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return sent[len(sent)-1]
+	}
+	askRow := func(id, raw string) func() {
+		return func() {
+			if _, err := db.AdmitChatReply(ctx, store.ChatReply{Transport: "discord", MessageID: id, ChannelRef: "3", Command: "ask", ReplyText: raw, OutcomeStatus: "success", PresentationState: "pending", CreatedAt: at}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	slash := func(id, channel string) func() {
+		return func() {
+			if _, inserted, err := s.Admit(ctx, messaging.Message{Transport: "discord", ID: id, Channel: channel, Sender: "2", Command: "details"}, at); err != nil || !inserted {
+				t.Fatalf("admit %s: %t %v", id, inserted, err)
+			}
+		}
+	}
+	visibleRaw := func(content string) bool {
+		for _, raw := range []string{"> ", "> Project:", "[lf:ask:v1]", "As of", "Gaps:"} {
+			if strings.Contains(content, raw) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// An /ask fallback shows only the one notice line, raw text attached once.
+	provider.reject = true
+	fallbackRaw := rawAsk("I found nothing called library. Which project do you mean?")
+	got := deliver("101", askRow("101", fallbackRaw))
+	if got.content != presentation.FallbackNotice || got.filename != presentation.RawFilename || got.file != fallbackRaw || visibleRaw(got.content) {
+		t.Fatalf("ask fallback: %+v", got)
+	}
+
+	// A narrated /ask reply shows only the narration and carries no file.
+	provider.reject = false
+	narratedRaw := rawAsk("I found nothing called library. Do you mean litefactory?")
+	got = deliver("102", askRow("102", narratedRaw))
+	if got.content != "I can't find anything called library, do you mean litefactory?" || visibleRaw(got.content) || got.file != "" || got.filename != "" || strings.HasPrefix(got.contentType, "multipart/") {
+		t.Fatalf("narrated ask reply: %+v", got)
+	}
+	// The raw text stays stored for /ask history and /details.
+	row, err := db.ReadChatReply(ctx, "discord", "102")
+	if err != nil || row.ReplyAttachment != narratedRaw {
+		t.Fatalf("narrated raw not kept: %+v %v", row, err)
+	}
+	turns, err := history.ReadAskHistory(ctx, "3")
+	if err != nil || len(turns.Turns) != 2 || turns.Turns[0].Question != "what is the status of the livrary?" {
+		t.Fatalf("ask history: %+v %v", turns, err)
+	}
+
+	// /details returns the previous reply's raw text, skipping /details rows.
+	for _, id := range []string{"103", "104"} {
+		got = deliver(id, slash(id, "3"))
+		if got.content != "Raw details of your previous reply." || got.filename != presentation.RawFilename || got.file != narratedRaw {
+			t.Fatalf("details %s: %+v", id, got)
+		}
+	}
+	// Its natural-language form is re-admitted as the same read command.
+	got = deliver("nl-read:105", slash("nl-read:105", "3"))
+	if got.content != "Raw details of your previous reply." || got.file != narratedRaw {
+		t.Fatalf("natural details: %+v", got)
+	}
+	// Another channel has no earlier reply: refusal, no attachment.
+	got = deliver("106", slash("106", "4"))
+	if got.content != "No earlier reply details are available here." || got.file != "" || strings.HasPrefix(got.contentType, "multipart/") {
+		t.Fatalf("details refusal: %+v", got)
 	}
 }

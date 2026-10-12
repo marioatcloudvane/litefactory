@@ -119,7 +119,8 @@ func (db *DB) SaveChatReply(ctx context.Context, r ChatReply, text string) error
 
 // FinishChatReply records a terminal outcome and clears the answer. A
 // delivered /ask reply keeps its question, project and reply text until the
-// retention purge, so follow-up /ask turns can read local history.
+// retention purge, so follow-up /ask turns can read local history. Every
+// delivered reply keeps its raw details until the purge for /details.
 func (db *DB) FinishChatReply(ctx context.Context, r ChatReply, failed bool, at time.Time) error {
 	state := "confirmed"
 	var last any
@@ -127,7 +128,7 @@ func (db *DB) FinishChatReply(ctx context.Context, r ChatReply, failed bool, at 
 		state = "failed"
 		last = FormatTime(at)
 	}
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?1,reply_text=CASE WHEN ?1='confirmed' AND command='ask' THEN reply_text ELSE '' END,target_ref='',arguments='{}',question=CASE WHEN ?1='confirmed' AND command='ask' THEN question ELSE '' END,project_option=CASE WHEN ?1='confirmed' AND command='ask' THEN project_option ELSE '' END,resolved_repo_id=NULL,presentation_state='',presentation_outcome='',presentation_generation=0,presentation_check=0,reply_attachment=CASE WHEN ?1='confirmed' AND command='ask' THEN reply_attachment ELSE '' END,outcome_status='',finished_at=?2,last_error_at=?3 WHERE transport=?4 AND message_id=?5 AND state='sent' AND attempts=?6`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?1,reply_text=CASE WHEN ?1='confirmed' AND command='ask' THEN reply_text ELSE '' END,target_ref='',arguments='{}',question=CASE WHEN ?1='confirmed' AND command='ask' THEN question ELSE '' END,project_option=CASE WHEN ?1='confirmed' AND command='ask' THEN project_option ELSE '' END,resolved_repo_id=NULL,presentation_state='',presentation_outcome='',presentation_generation=0,presentation_check=0,reply_attachment=CASE WHEN ?1='confirmed' THEN reply_attachment ELSE '' END,outcome_status='',finished_at=?2,last_error_at=?3 WHERE transport=?4 AND message_id=?5 AND state='sent' AND attempts=?6`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
 	return chatAffected(result, err)
 }
 
@@ -148,6 +149,18 @@ func (db *DB) ReadAskReplies(ctx context.Context, transport, channel string, lim
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// ReadLatestReplyDetails returns the raw details of the newest delivered reply
+// in one transport channel, excluding /details replies themselves, or
+// ErrNotFound. Only rows within the existing retention window remain.
+func (db *DB) ReadLatestReplyDetails(ctx context.Context, transport, channel string) (string, error) {
+	var raw string
+	err := db.sql.QueryRowContext(ctx, `SELECT reply_attachment FROM chat_inbox WHERE transport=? AND channel_ref=? AND state='confirmed' AND reply_attachment<>'' AND command<>'details' ORDER BY finished_at DESC,message_id DESC LIMIT 1`, transport, channel).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return raw, err
 }
 
 // RetryChatReply records timing only; remote errors may contain credentials.

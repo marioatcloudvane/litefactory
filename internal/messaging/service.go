@@ -150,7 +150,7 @@ type Service struct {
 	interpreter      Interpreter
 }
 
-// New copies admission rules and registers help, health and status.
+// New copies admission rules and registers help, health, status and details.
 func New(db *store.DB, transport, owner string, channels []string, sender Transport, status StatusReader) *Service {
 	s := &Service{db: db, transport: transport, owner: owner, channels: make(map[string]bool), sender: sender, status: status, wake: make(chan struct{}, 1), commands: make(map[string]Handler), definitions: make(map[string]CommandDefinition), privateOptions: make(map[string]map[string]string)}
 	for _, c := range channels {
@@ -159,6 +159,7 @@ func New(db *store.DB, transport, owner string, channels []string, sender Transp
 	s.RegisterCommand(CommandDefinition{Name: "help", NaturalLanguage: true, Effect: ReadEffect, Description: "List factory commands"}, s.help)
 	s.RegisterCommand(CommandDefinition{Name: "health", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory health"}, s.health)
 	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory status"}, s.summary)
+	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show the raw details of your previous reply"}, s.details)
 	s.registerMeter()
 	return s
 }
@@ -387,7 +388,10 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	stopTyping()
 	target := Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID, Protected: r.Command == "natural"}
 	var d Delivery
-	if _, ok := s.sender.(ReplyTransport); !ok && r.ReplyAttachment != "" {
+	// A narrated reply shows only its narration; its raw text stays stored
+	// for /details. Fallback and /details replies carry the raw attachment.
+	attach := r.ReplyAttachment != "" && r.PresentationState != string(presentation.Narrated)
+	if _, ok := s.sender.(ReplyTransport); !ok && attach {
 		raw, e := inlineRaw(r)
 		if e != nil {
 			return true, s.finish(ctx, r, true, at)
@@ -398,13 +402,14 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		r.ReplyAttachment = ""
 		r.ReplyText = raw
 		text = raw
+		attach = false
 	}
-	if rich, ok := s.sender.(ReplyTransport); ok && r.ReplyAttachment != "" {
+	if rich, ok := s.sender.(ReplyTransport); ok && attach {
 		d = rich.DeliverReply(ctx, target, presentation.Payload{Content: text, Attachment: &presentation.Attachment{Name: presentation.RawFilename, Content: r.ReplyAttachment}})
 	} else {
 		d = s.sender.Deliver(ctx, target, text)
 	}
-	if d.AttachmentRejected && r.ReplyAttachment != "" {
+	if d.AttachmentRejected && attach {
 		raw, inlineErr := inlineRaw(r)
 		if inlineErr != nil {
 			return true, s.finish(ctx, r, true, at)

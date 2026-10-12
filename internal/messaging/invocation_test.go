@@ -16,7 +16,7 @@ func TestNaturalInvocationCatalogueAndValidation(t *testing.T) {
 	s.Register("unclassified", nil)
 	s.RegisterCommand(messaging.CommandDefinition{Name: "bad-effect", NaturalLanguage: true, Effect: "model-decides"}, nil)
 	want := map[string]messaging.CommandEffect{
-		"help": messaging.ReadEffect, "health": messaging.ReadEffect, "status": messaging.ReadEffect,
+		"help": messaging.ReadEffect, "health": messaging.ReadEffect, "status": messaging.ReadEffect, "details": messaging.ReadEffect,
 		"meter": messaging.ReadEffect, "prices": messaging.ReadEffect, "ask": messaging.ReadEffect,
 		"question": messaging.ReadEffect, "draft": messaging.ChangeEffect, "diagnose": messaging.ChangeEffect,
 		"answer": messaging.ChangeEffect, "confirm": messaging.ChangeEffect,
