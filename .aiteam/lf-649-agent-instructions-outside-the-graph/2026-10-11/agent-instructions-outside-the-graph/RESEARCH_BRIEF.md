@@ -6,14 +6,16 @@ Research how to move every agent instruction outside the graph modes into editab
 
 ## Decisions
 
-- **d1** — Settled by owner: all non-graph agent wording becomes Markdown files embedded in the litefactory binary, one copy each, extracted to the factory home on first run. Not installable like teams. Program code keeps enforcement only, and no copy of moved text remains in code.
+- **d1** — Owner-set scope: non-graph agent roles ship as embedded Markdown extracted to the factory home, while graph extras and protocol instructions remain internal.
 - **d2** — Settled by owner: users edit the extracted files.
 - **d3** — Settled by owner: the file text is captured at the start of each unit of work with its digest recorded.
 - **d4** — Owner's reading of a missing or invalid file: re-extract the shipped file. Shaping adds that a broken edit is saved as .invalid first and the user is told.
 - **d5** — Shaping decision: on upgrade, unedited files (digest matches what was extracted) are replaced; edited files are kept and flagged as having a newer shipped version.
-- **d6** — Migration order: loader and extraction with shipped-file test, then conflict and schedule, then chat and #631 agents, then doctor with its field guide, then graph extras if the owner agrees. Each step deletes its text from code in the same change.
+- **d6** — Shaping boundary: extraction and loading cover conflict, schedule, chat and doctor; each moved role loses its duplicate program-code text, and graph extras are excluded.
 - **d7** — Out of scope: changing agent behaviour, tools or models; the story progress event schema; team-style install or clone; visual editor.
 - **d8** — Clarified: 'Go' means the language litefactory is written in, not the projects it builds. The fixed text added to graph roles is stack-neutral (checked: no Go-specific commands in implement policy, result finalization or mode hints), so non-Go projects such as Python are unaffected.
+- **d9** — Owner answered q5 no: graph extras remain internal until a later Book of Standards MCP that agents can call and query.
+- **d10** — One linked Book of Standards issue proposal was retained with hash 09572e2ec682f1133d86dff61f99ecd6ecc30d2730e9099bf53ee4e8e823ac78; publication awaits the owner's decision.
 
 
 ## Assumptions
@@ -24,16 +26,10 @@ Research how to move every agent instruction outside the graph modes into editab
 - **a4** — Superseded by the owner: a missing or invalid file is re-extracted from the binary (decision d4), not failed closed. Tests load every shipped file and check frontmatter, size, required placeholders and that no Go constant with the same text remains.
 - **a5** — What must stay in Go regardless of text: tool and sandbox limits; isolation proof; the result protocol and schema (decoders, citation checks, event file schema and byte limits); redaction before sending and after receiving; the untrusted-data wrapper around factory-supplied context (labelled JSON appended by code after the editable text); prompt size bounds. The editable file holds tone, scope, task and examples.
 - **a6** — Superseded by decision d6 (migration order).
-
-
-## Open questions
-
-### q5 — Should the extra rules the factory adds on top of graph roles also become editable files?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Yes. The wording of these extras (for example 'do not commit', how to report results) moves into the extracted files. They are stack-neutral, so they work the same for Python, .NET or Go projects. Enforcement stays in litefactory's program code. Done as the last stories.  *(recommended)*
-- **b** — No. Leave the extras inside litefactory's program code for a separate issue. This issue covers only the non-graph agents. The #643 drift risk stays.
+- **a7** — Shaping assumption based on current isolation and call contracts: operator-owned factory files supply stable identity, description and instruction body, while project inputs and agent outputs cannot select instruction sources or widen permissions.
+- **a8** — Shaping assumption based on captured graph work: store shipped release/digest, last extracted digest and captured bytes/digest; retries and resumes reuse capture, and new units read current valid files.
+- **a9** — Shaping recovery rule: preserve invalid edits in unique backups; failed read, backup, extraction or invalid shipped defaults prevent launch rather than silently discarding edits or using unvalidated instructions.
+- **a10** — Scope boundary: #631 supplies future intent/reply behavior; #649 supplies their instruction source contract and preserves current standard launch, model, tool and result behavior for existing agents.
 
 ## Research documents
 
