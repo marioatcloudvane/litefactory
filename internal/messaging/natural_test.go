@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -269,5 +272,188 @@ func TestNaturalInterpretationFallbackNamesReason(t *testing.T) {
 				t.Fatalf("fallback log = %q", logs)
 			}
 		})
+	}
+}
+
+// naturalConversation runs owner messages one by one through intake and the
+// natural step only, recording every interpretation request.
+type naturalConversation struct {
+	t        *testing.T
+	db       *store.DB
+	s        *Service
+	send     *spanSender
+	requests []InterpretationRequest
+}
+
+func newNaturalConversation(t *testing.T, answer func(InterpretationRequest) ([]byte, error)) *naturalConversation {
+	t.Helper()
+	c := &naturalConversation{t: t, db: naturalExecutionDB(t), send: &spanSender{}}
+	if _, err := c.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	c.s = New(c.db, "discord", "7", []string{"3"}, c.send, FactoryStatus{DB: c.db})
+	c.s.EnableNatural(funcInterpreter(func(_ context.Context, r InterpretationRequest) ([]byte, error) {
+		c.requests = append(c.requests, r)
+		return answer(r)
+	}))
+	if err := c.db.ActivateNaturalScan(t.Context(), "3", "100"); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func (c *naturalConversation) say(id, text string, at time.Time) {
+	c.t.Helper()
+	intake := &Intake{DB: c.db, Reader: &spanReader{messages: []store.NaturalMessage{{ChannelRef: "3", SourceID: id, OwnerID: "7", Text: text, CreatedAt: at}}}, Transport: "discord", Owner: "7", Channels: []string{"3"}, Protect: func(_ context.Context, text string) (string, error) { return text, nil }}
+	if err := intake.Poll(c.t.Context(), at); err != nil {
+		c.t.Fatal(err)
+	}
+	for range 10 {
+		natural, err := c.s.NaturalStep(c.t.Context(), at)
+		if err != nil {
+			c.t.Fatal(err)
+		}
+		if !natural {
+			return
+		}
+	}
+	c.t.Fatal("natural request did not settle")
+}
+
+// askReply records a delivered /ask reply in the channel.
+func (c *naturalConversation) askReply(text string, at time.Time) {
+	c.t.Helper()
+	ctx := c.t.Context()
+	if _, err := c.db.AdmitChatReply(ctx, store.ChatReply{Transport: "discord", MessageID: "ask-1", ChannelRef: "3", Command: "ask", ReplyText: text, CreatedAt: at}); err != nil {
+		c.t.Fatal(err)
+	}
+	r, err := c.db.ClaimChatReply(ctx, "discord", at)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if err = c.db.FinishChatReply(ctx, r, false, at); err != nil {
+		c.t.Fatal(err)
+	}
+}
+
+func proposeSpans(r InterpretationRequest, command string, values ...[2]string) ([]byte, error) {
+	if len(values) == 0 {
+		return []byte(`{"version":1,"kind":"propose","command":"` + command + `","arguments":[]}`), nil
+	}
+	turn := r.Turns[len(r.Turns)-1]
+	args := []SourceValue{}
+	for _, v := range values {
+		start := strings.Index(turn.Text, v[1])
+		args = append(args, SourceValue{Name: v[0], SourceID: turn.SourceID, Start: start, End: start + len(v[1])})
+	}
+	return json.Marshal(Interpretation{Version: 1, Kind: "propose", Command: command, Arguments: args})
+}
+
+func TestNaturalTypoStatusRunsStatusWithoutClarifying(t *testing.T) {
+	at := time.Date(2026, 10, 12, 10, 25, 0, 0, time.UTC)
+	for i, text := range []string{"what is the overall staud", "what is the status of the livrary?"} {
+		c := newNaturalConversation(t, func(r InterpretationRequest) ([]byte, error) { return proposeSpans(r, "status") })
+		id := strconv.Itoa(101 + i)
+		c.say(id, text, at)
+		row, err := c.db.ReadChatReply(t.Context(), "discord", "nl-read:"+id)
+		if err != nil || row.Command != "status" {
+			t.Fatalf("%q: status not admitted: %+v %v", text, row, err)
+		}
+		if len(c.send.texts) != 0 {
+			t.Fatalf("%q: asked back: %v", text, c.send.texts)
+		}
+	}
+}
+
+func TestNaturalYesFollowUpAnswersPreviousOffer(t *testing.T) {
+	at := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
+	offer := "I can't find that. If you mean the whole project, I can summarize the project status of litefactory."
+	c := newNaturalConversation(t, func(r InterpretationRequest) ([]byte, error) {
+		if r.PreviousReply == "" {
+			return []byte(`{"version":1,"kind":"clarify","question":"What do you mean?"}`), nil
+		}
+		return proposeSpans(r, "ask", [2]string{"question", "project status of litefactory"})
+	})
+	c.s.EnableAsk(&ask.Service{})
+	c.askReply(offer, at)
+	c.say("101", "Yes project status of litefactory", at.Add(time.Minute))
+	if len(c.requests) != 1 || c.requests[0].PreviousReply != offer {
+		t.Fatalf("offer not supplied as previous_reply: %+v", c.requests)
+	}
+	row, err := c.db.ReadChatReply(t.Context(), "discord", "nl-read:101")
+	if err != nil || row.Command != "ask" || row.Question != "project status of litefactory" {
+		t.Fatalf("offered read not admitted: %s %q %v replies=%v", row.Command, row.Question, err, c.send.texts)
+	}
+	raw, err := json.Marshal(c.requests[0])
+	if err != nil || !strings.Contains(string(raw), `"previous_reply":`) {
+		t.Fatalf("previous_reply not serialized: %s %v", raw, err)
+	}
+
+	// A bare yes without a pending change proposal reaches the interpreter.
+	c.say("102", "yes", at.Add(2*time.Minute))
+	if len(c.requests) != 2 || c.requests[1].PreviousReply != offer {
+		t.Fatalf("bare yes did not reach interpreter with context: %+v", c.requests)
+	}
+	if strings.Contains(strings.Join(c.send.texts, "\n"), "Nothing was authorized") {
+		t.Fatalf("bare yes refused: %v", c.send.texts)
+	}
+
+	// An /ask reply older than the dialogue window is not context.
+	stale := newNaturalConversation(t, func(InterpretationRequest) ([]byte, error) { return []byte(`{"version":1,"kind":"ignore"}`), nil })
+	stale.askReply(offer, at)
+	stale.say("101", "yes", at.Add(16*time.Minute))
+	if len(stale.requests) != 1 || stale.requests[0].PreviousReply != "" {
+		t.Fatalf("stale reply used as context: %+v", stale.requests)
+	}
+}
+
+func TestNaturalAmbiguousAsksOnceAndKeepsQuestion(t *testing.T) {
+	at := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
+	c := newNaturalConversation(t, func(r InterpretationRequest) ([]byte, error) {
+		if r.PreviousReply == "" {
+			return []byte(`{"version":1,"kind":"clarify","question":"Do you mean the factory status or the project litefactory?"}`), nil
+		}
+		return proposeSpans(r, "status")
+	})
+	c.say("101", "how is it going", at)
+	d, err := c.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3")
+	if err != nil || d.State != "clarifying" || len(c.send.texts) != 0 {
+		t.Fatalf("dialogue=%+v err=%v", d, err)
+	}
+	reply, err := c.db.ReadChatReply(t.Context(), "discord", "nl:101")
+	if err != nil || !strings.Contains(reply.ReplyText, "factory status or the project") {
+		t.Fatalf("clarifying reply = %+v %v", reply, err)
+	}
+	c.say("102", "the factory", at.Add(time.Minute))
+	if len(c.requests) != 2 || c.requests[1].PreviousReply != "Do you mean the factory status or the project litefactory?" {
+		t.Fatalf("clarifying question not carried: %+v", c.requests)
+	}
+	if row, err := c.db.ReadChatReply(t.Context(), "discord", "nl-read:102"); err != nil || row.Command != "status" {
+		t.Fatalf("answer not admitted: %+v %v", row, err)
+	}
+}
+
+func TestCapPreviousReplyKeepsValidUTF8(t *testing.T) {
+	got := capPreviousReply(strings.Repeat("ä", 3000))
+	if len(got) > 4096 || !utf8.ValidString(got) || got == "" {
+		t.Fatalf("capped reply len=%d valid=%t", len(got), utf8.ValidString(got))
+	}
+}
+
+func TestNaturalBareYesRefusedWhileProposalAwaits(t *testing.T) {
+	at := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
+	c := newNaturalConversation(t, func(InterpretationRequest) ([]byte, error) { return []byte(`{"version":1,"kind":"ignore"}`), nil })
+	payload, digest, err := naturalDigest(naturalPayload{Invocation: Invocation{Command: "diagnose", Arguments: map[string]string{"issue": "3", "note": "exact"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := store.NaturalDialogue{Transport: "discord", OwnerID: "7", ChannelRef: "3", Revision: 1, State: "awaiting_confirmation", SourceID: "100", Payload: payload, Digest: digest, Code: "code", PromptID: "900", ExpiresAt: at.Add(time.Minute), UpdatedAt: at}
+	if err = c.db.SaveNaturalDialogue(t.Context(), d, 0); err != nil {
+		t.Fatal(err)
+	}
+	c.say("101", "yes", at)
+	reply, err := c.db.ReadChatReply(t.Context(), "discord", "nl:101")
+	if err != nil || !strings.Contains(reply.ReplyText, "Nothing was authorized") || len(c.requests) != 0 {
+		t.Fatalf("bare yes not refused: %q %v requests=%d", reply.ReplyText, err, len(c.requests))
 	}
 }

@@ -123,9 +123,12 @@ type DialogueTurn struct {
 
 // InterpretationRequest supplies bounded data and the factory's command choices.
 // It exposes no store, forge client, runner resume state or execution capability.
+// PreviousReply is the bot's last question or offer in this channel; it is
+// untrusted context only and never a source for argument spans.
 type InterpretationRequest struct {
-	Turns    []DialogueTurn
-	Commands []CommandDefinition
+	Turns         []DialogueTurn
+	Commands      []CommandDefinition
+	PreviousReply string `json:"previous_reply,omitempty"`
 }
 
 // Interpreter suggests one action or asks for clarification. Its output is
