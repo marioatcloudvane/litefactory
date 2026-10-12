@@ -2,13 +2,16 @@ package daemon_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -117,6 +120,176 @@ func TestReportRecoverySQLiteTickPreservesOrderingAndOtherTaskCapacity(t *testin
 			}
 			if slices.Contains(f.turns.triggers(), int64(40)) || !slices.Contains(f.turns.triggers(), int64(41)) {
 				t.Fatalf("original relaunched or following source stayed blocked: %v", f.turns.triggers())
+			}
+		})
+	}
+}
+
+// releasePendingBugFixture uses the Doctor proposal/approval fixture protocol,
+// then the real typed release and settlement against the private test database.
+func releasePendingBugFixture(t *testing.T, f *fixture, instance store.GraphInstance) {
+	t.Helper()
+	ctx := t.Context()
+	check := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := f.session()
+	conversation, err := f.db.BeginDoctorAttempt(ctx, session.TaskRef, store.DoctorAttempt{ID: "release", SourceID: "release", OwnerText: "fixture", PromptVersion: "test", GuideVersion: "test"})
+	check(err)
+	evidence, err := json.Marshal(store.DoctorEvidence{TaskRef: session.TaskRef})
+	check(err)
+	check(f.db.PrepareDoctorAttempt(ctx, store.DoctorAttempt{ID: "release", Provider: "claude", ConfiguredModel: "test", Evidence: string(evidence)}))
+	binding, err := f.db.BindDoctorResultAttempt(ctx, "release")
+	check(err)
+	proposal := []byte(fmt.Sprintf(`[{"number":1,"target":"graph:%d","action":{"kind":"release_instance","before":"running","after":"failed"}}]`, instance.ID))
+	snapshot := append(append([]byte(`{"proposal":`), proposal...), '}')
+	_, err = f.db.RecordResult(ctx, store.ResultRecord{Binding: binding, RequestID: "release-result", Payload: snapshot, Snapshot: snapshot, Diagnostics: []byte(`{"valid":true,"errors":[]}`), Retired: []byte(`[]`), Accepted: true})
+	check(err)
+	check(f.db.AdoptDoctorResult(ctx, binding, "release-result", proposal))
+	id, _, err := f.db.DoctorProposalReference(ctx, conversation.ID)
+	check(err)
+	check(f.db.PresentDoctorProposal(ctx, session.TaskRef, "release-presentation", id))
+	op, err := f.db.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "release", SourceID: "release-approval", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: "release-presentation"})
+	check(err)
+	check(f.db.AcknowledgeDoctorExclusion(ctx, op.ID, "fixture"))
+	step, err := f.db.ApplyDoctorTypedRows(ctx, op.ID, 1, "release_instance")
+	check(err)
+	if step.State != "verified" {
+		t.Fatalf("release: %+v", step)
+	}
+	check(f.db.SettleDoctorTypedRepair(ctx, op.ID, true, ""))
+}
+
+func TestBugPendingRefusalAfterRelease(t *testing.T) {
+	for _, state := range []string{"unsent", "failed", "uncertain", "consumed"} {
+		t.Run(state, func(t *testing.T) {
+			f, instance, _ := stoppedGraphFixture(t, true)
+			ctx := t.Context()
+			check := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			releasePendingBugFixture(t, f, instance)
+			attempts, err := f.db.ListGraphNodeAttempts(ctx, instance.ID)
+			check(err)
+			if len(attempts) != 0 || len(f.turns.calls()) != 0 {
+				t.Fatal("release fixture has execution history")
+			}
+			session := f.session()
+			capture, err := f.db.WorkflowCaptureForAdmission(ctx, session.ID, 0, "bug")
+			check(err)
+			// Keep the executor synthetic while exercising real successor admission.
+			f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+				if req.Trigger.CommentID != 41 || req.Workflow != agent.WorkflowBug {
+					t.Errorf("unexpected execution: %+v", req)
+				}
+				admitted, e := f.db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Workflow: "bug", SessionID: session.ID, TriggerID: req.Trigger.CommentID, DefinitionID: instance.DefinitionID, Start: "conversation", ContentDigest: capture.ContentDigest, TopologyDigest: capture.TopologyDigest, Files: capture.Files, Provenance: capture.Provenance, Reply: req.Trigger.Body})
+				if e != nil {
+					return turn.Result{}, e
+				}
+				if admitted.PredecessorID != instance.ID {
+					t.Error("successor lost released predecessor")
+				}
+				_, e = f.reporter.Consume(ctx, session.ID, req.Trigger.CommentID)
+				return turn.Result{ResearchGraph: true, SessionID: session.ID, TriggerCommentID: req.Trigger.CommentID}, e
+			})
+			f.forge.addComment(testIssue, 40, owner(), "Old owner request")
+			f.forge.addComment(testIssue, 41, owner(), "Please start the Bug")
+			marker := "<!-- lf:delivery v=1 key=bug-refusal -->"
+			delivery, err := f.db.EnsureReportDelivery(ctx, store.ReportDelivery{Key: "bug-refusal", Version: 1, SessionID: session.ID, TriggerID: 40, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "comment", Purpose: "reply:bug_comment_not_applied:schedule:0:proposal:0:confirmation:0", BotUserID: botID, Body: "Retained refusal\n\n" + marker, Marker: marker})
+			check(err)
+			if state == "uncertain" || state == "consumed" {
+				_, err = f.db.MarkReportDeliverySent(ctx, delivery.Key)
+				check(err)
+			}
+			var consumedWatermark store.Watermark
+			if state == "consumed" {
+				// Advance after drain read its watermark but before the stale list
+				// containing A and B returns, as another recovery could do.
+				f.forge.onListComments = func(_ http.ResponseWriter, _ int) bool {
+					if consumedWatermark.LastCommentID == 0 {
+						_, e := f.db.ConfirmReportDelivery(ctx, delivery.Key, 900)
+						if e != nil {
+							t.Error(e)
+							return false
+						}
+						_, e = f.db.CompleteReportDelivery(ctx, delivery.Key)
+						if e != nil {
+							t.Error(e)
+							return false
+						}
+						consumedWatermark, _, e = f.db.GetWatermark(ctx, session.ID)
+						if e != nil {
+							t.Error(e)
+						}
+					}
+					return false
+				}
+			}
+			if state == "failed" {
+				f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool { w.WriteHeader(http.StatusServiceUnavailable); return true }
+			}
+			f.settle()
+			if state == "unsent" || state == "consumed" {
+				wm, _, e := f.db.GetWatermark(ctx, session.ID)
+				check(e)
+				if wm.LastCommentID != 40 || len(f.turns.calls()) != 0 {
+					t.Fatalf("head was not settled first: %+v calls=%v", wm, f.turns.triggers())
+				}
+				if state == "consumed" && wm != consumedWatermark {
+					t.Fatal("stale replay wrote the watermark again")
+				}
+			}
+			if state == "failed" || state == "uncertain" {
+				if f.watermark() >= 40 || len(f.turns.calls()) != 0 {
+					t.Fatal("unconfirmed refusal let later input run")
+				}
+				row, e := f.db.GetReportRecovery(ctx, fmt.Sprintf("source:%d:40", session.ID))
+				check(e)
+				if row.NextAt.IsZero() {
+					t.Fatal("missing retry deadline")
+				}
+				f.forge.onPostComment = nil
+				// Only a trustworthy receipt permits recovery after a possibly sent POST.
+				f.forge.addComment(testIssue, 900, bot(), delivery.Body)
+				f.clock.advance(4 * testInterval)
+			}
+			for range 3 {
+				f.settle()
+			}
+			saved, err := f.db.GetReportDelivery(ctx, delivery.Key)
+			check(err)
+			if !saved.Completed || saved.Body != delivery.Body || f.watermark() < 41 {
+				t.Fatalf("refusal/queue unfinished: %+v watermark=%d logs=%s", saved, f.watermark(), f.logs)
+			}
+			if !slices.Equal(f.turns.triggers(), []int64{41}) {
+				t.Fatalf("execution order: %v logs=%s", f.turns.triggers(), f.logs)
+			}
+			old, err := f.db.GetGraphInstance(ctx, instance.ID)
+			check(err)
+			latest, err := f.db.LatestStandaloneBugInstance(ctx, session.ID)
+			check(err)
+			if old.Status != store.GraphFailed || latest.ID == old.ID {
+				t.Fatalf("released graph reopened or successor missing: %+v %+v", old, latest)
+			}
+			posts, _, _ := f.forge.snapshot()
+			count := 0
+			for _, body := range posts {
+				if body == delivery.Body {
+					count++
+				}
+			}
+			wantPosts := 0
+			if state == "unsent" {
+				wantPosts = 1
+			}
+			if count != wantPosts {
+				t.Fatalf("saved refusal posts=%d want=%d", count, wantPosts)
 			}
 		})
 	}
