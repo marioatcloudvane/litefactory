@@ -213,6 +213,8 @@ func githubRepo(container string) github.Repo {
 }
 func mustTicketNumber(key string) int { n, _ := strconv.Atoi(key); return n }
 
+var errRecoveryDoctorHeld = errors.New("ticket recovery deferred by Doctor repair hold")
+
 // drainTicketObservations converts durable qualified signals into the existing
 // session backlog and child discovery records. Clearing follows that handoff;
 // generation checks keep observations received during the read pending.
@@ -243,6 +245,10 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			// A hold defers this observation, not every ticket from its source.
+			if errors.Is(err, errRecoveryDoctorHeld) || store.IsDoctorRepairHold(err) {
+				continue
 			}
 			failedSources[observation.ConnectionVersionID] = true
 			q.log.WarnContext(ctx, "child ticket observation remains pending", slog.Any("error", err))
@@ -276,6 +282,13 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		var actorID int64
 		switch {
 		case sessionErr == nil:
+			held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
+			if err != nil {
+				return err
+			}
+			if held {
+				continue
+			}
 			snapshot, err := d.db.GetExecutionSnapshot(ctx, session.ID)
 			if err != nil {
 				return err
@@ -377,6 +390,14 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 
 		if c != nil {
 			if err := d.db.SetSessionNeedsPoll(ctx, c.session.ID); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				// The hold may have started after the lookup. The durable
+				// observation still owns retry; no backlog handoff succeeded.
+				if store.IsDoctorRepairHold(err) {
+					continue
+				}
 				return err
 			}
 			d.queueObservation(q, seen, c, observation)
@@ -412,7 +433,20 @@ func (d *Daemon) recoverRetainedSessions(ctx context.Context, q *repoQueue) erro
 		if current.Enabled && snapshot.TicketVersionID == current.ID {
 			continue
 		}
+		held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
+		if err != nil {
+			return err
+		}
+		if held {
+			continue
+		}
 		if err := d.db.SetSessionNeedsPoll(ctx, session.ID); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if store.IsDoctorRepairHold(err) {
+				continue
+			}
 			return err
 		}
 	}
@@ -472,6 +506,13 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 	}
 	if version.Provider != observation.Provider || version.Origin != observation.Origin || version.Destination != observation.Container || snapshot.TicketRemoteID != observation.ContainerID {
 		return nil, nil
+	}
+	held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		return nil, errRecoveryDoctorHeld
 	}
 	clients, err := d.connections.Clients(ctx, version, snapshot.ActorID)
 	if err != nil {
