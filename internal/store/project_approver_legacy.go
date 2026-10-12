@@ -166,7 +166,7 @@ func (db *DB) ReconcileLegacyApproverEvidence(ctx context.Context, a ApproverApp
 			return e
 		}
 		for _, id := range ownerIDs {
-			if id <= 0 || strconv.FormatInt(id, 10) != a.Actor.RemoteID {
+			if id > 0 && strconv.FormatInt(id, 10) != a.Actor.RemoteID {
 				return fmt.Errorf("%w: historical approval actor conflicts with initial appointment", ErrApproverUnauthorized)
 			}
 		}

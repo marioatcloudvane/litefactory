@@ -67,7 +67,8 @@ func initializeApprover(ctx context.Context, db *store.DB, factory *Factory, pro
 		return "legacy_approval_history_unresolved; inspect saved owner decisions"
 	}
 	for _, actor := range actors {
-		if actor <= 0 || actor != owner.UserID {
+		// An unknown (0) historical author is not a different author.
+		if actor > 0 && actor != owner.UserID {
 			return "legacy_approval_actor_conflict; reconcile historical owner identities"
 		}
 	}

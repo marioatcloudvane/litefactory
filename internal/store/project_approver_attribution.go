@@ -209,7 +209,8 @@ func legacyRunActor(ctx context.Context, tx *sql.Tx, run int64, depth int) (int6
 }
 
 // checkLegacyOutstandingAttribution fails before seeding authority when an
-// unfinished remote action cannot identify its original instruction author.
+// unfinished remote action names a different original instruction author;
+// an unknown (0) author is not a different author.
 func checkLegacyOutstandingAttribution(ctx context.Context, tx *sql.Tx, repoID int64, expected string) error {
 	queries := []struct{ kind, sql string }{
 		{"story_progress_effect", `SELECT CAST(e.id AS TEXT) FROM story_progress_effects e JOIN sessions s ON s.task_ref=e.parent_task WHERE s.repo_id=? AND e.delivered=0 AND e.superseded=0`},
@@ -250,8 +251,8 @@ func checkLegacyOutstandingAttribution(ctx context.Context, tx *sql.Tx, repoID i
 			if e != nil {
 				return e
 			}
-			if actor <= 0 || strconv.FormatInt(actor, 10) != expected {
-				return fmt.Errorf("%w: original actor missing for unfinished %s %s", ErrApproverUnauthorized, q.kind, key)
+			if actor > 0 && strconv.FormatInt(actor, 10) != expected {
+				return fmt.Errorf("%w: original actor differs for unfinished %s %s", ErrApproverUnauthorized, q.kind, key)
 			}
 		}
 	}
@@ -292,8 +293,8 @@ func checkLegacyOutstandingAttribution(ctx context.Context, tx *sql.Tx, repoID i
 			if e != nil {
 				return e
 			}
-			if actor <= 0 || strconv.FormatInt(actor, 10) != expected {
-				return fmt.Errorf("%w: original authored source missing for Plan wait %s", ErrApproverUnauthorized, p.parent)
+			if actor > 0 && strconv.FormatInt(actor, 10) != expected {
+				return fmt.Errorf("%w: original authored source differs for Plan wait %s", ErrApproverUnauthorized, p.parent)
 			}
 		}
 	}
