@@ -36,7 +36,7 @@ type GraphBugRepairEligibility struct {
 }
 
 // fixerGuidance is the factory's instruction to every fixer invocation.
-const fixerGuidance = "Repair only the current factory-approved remedy, with the smallest change that fixes it. Preserve edits; code, build, test and correct repeatedly inside this invocation, using the repository's own checks (its README, Makefile, AGENTS or CLAUDE files, CI configuration). Submit succeeded once the bug is fixed and those checks pass; otherwise reshape (the remedy must change) or blocked, with the reason. Summarize the repair and list the checks you ran with their outcomes. The factory alone commits, pushes, merges and closes."
+const fixerGuidance = "Repair only the current factory-approved remedy, with the smallest change that fixes it. Preserve edits; code, build, test and correct repeatedly inside this invocation, using the repository's own checks (its README, Makefile, AGENTS or CLAUDE files, CI configuration). Submit succeeded once the bug is fixed and those checks pass; otherwise reshape (the remedy must change) or blocked, with the reason. When delivery returns for revalidation, rerun the affected repository checks on the synchronized source even if no further repair edits are needed; only a fresh succeeded result allows delivery. Summarize the repair and list the checks you ran with their outcomes. The factory alone commits, pushes, merges and closes."
 
 // Execute runs the fixer and records its accepted success for delivery.
 func (h GraphBugFixerActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
@@ -135,6 +135,15 @@ func CurrentGraphBugRepairEligibility(ctx context.Context, db *store.DB, instanc
 	}
 	if latest.ID != attempt.ID || attempt.Status != store.GraphSucceeded || attempt.Outcome != "succeeded" {
 		return eligibility, errors.New("the latest repair has not succeeded")
+	}
+	attempts, e := db.ListGraphNodeAttempts(ctx, instance)
+	if e != nil {
+		return eligibility, e
+	}
+	for _, delivery := range attempts {
+		if delivery.ID > attempt.ID && delivery.Node == "finalization" && delivery.Outcome == "revalidate" {
+			return eligibility, errors.New("delivery changed the source; a fresh successful repair check is required")
+		}
 	}
 	return eligibility, nil
 }

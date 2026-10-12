@@ -98,7 +98,7 @@ func prepareDoctorSync(ctx context.Context, o DoctorSyncOptions) (git.MergePrevi
 	if !preview.Clean {
 		snapshots, err = o.Worktree.CollectConflictSnapshots(ctx, preview.TreeSHA, o.BeforeHead, o.BaseHead, preview.Conflicts, 1<<20)
 		if err != nil {
-			return preview, nil, err
+			return preview, nil, &doctor.RepairConflictError{Category: doctor.ErrRepairConfirmationFailed, Paths: preview.Conflicts, Err: err}
 		}
 	}
 	if err = o.RecordBackup(ctx, o.BeforeHead); err != nil {
