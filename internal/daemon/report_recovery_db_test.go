@@ -100,7 +100,7 @@ func TestReportRecoverySQLiteRestartKeepsCadenceAndEscalation(t *testing.T) {
 		}
 		at = want
 	}
-	if got := len(recoveryLogRows(t, logs)); got != 2 {
+	if got := len(recoveryAlertRows(t, logs)); got != 2 {
 		t.Fatalf("restart repeated first/third diagnostics: %d", got)
 	}
 	if _, err := d.reportAttempt(recoveryUnitContext(t, at), source, func() (turn.Posted, error) { return turn.Posted{CommentID: 77}, nil }); err != nil {
