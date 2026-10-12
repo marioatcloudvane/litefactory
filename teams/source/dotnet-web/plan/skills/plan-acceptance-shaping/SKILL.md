@@ -2,6 +2,10 @@
 name: plan-acceptance-shaping
 description: Define observable completion and assemble the third-stage review.
 requires: [plan-evidence]
+resources:
+  - implementation-engineer.md
+  - integration-test-engineer.md
+  - unit-test-engineer.md
 ---
 # Acceptance shaping
 Use stable explicit criterion IDs and observable requirements. Attach a future

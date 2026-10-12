@@ -24,8 +24,9 @@ import (
 // This fixture exercises the real diagnosis service/broker/SQLite/result ledger.
 // It makes no claim about an installed provider or an authentic OS sandbox.
 type liveProviderFixture struct {
-	t        *testing.T
-	manifest PathManifest
+	t          *testing.T
+	manifest   PathManifest
+	planOwners bool
 }
 
 // promptManifest reads the path manifest from a prepared diagnosis prompt.
@@ -100,6 +101,12 @@ func (p *liveProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorReque
 		p.t.Fatalf("live comments: %+v %v", comments, err)
 	}
 	diagnosis := Diagnosis{Findings: []Finding{{Explanation: "Live logs and the database retain the stuck case; the owner comment corroborates it.", Evidence: []string{p.manifest.DaemonLog + ":1", "database:sessions task_ref=github:acme/api#406", "comment:91"}, Uncertainty: "This fake provider does not establish authentic shell isolation."}}, CoverageGaps: append([]string{"Git not inspected by the fake provider; real-instance check still required"}, p.manifest.Gaps...)}
+	if p.planOwners {
+		if !strings.Contains(string(data), "plan scope: release declares no task owners") || !strings.Contains(string(data), "go-development 1.0.0") {
+			p.t.Fatal("missing representative failure evidence")
+		}
+		diagnosis.Findings = []Finding{{Explanation: "Current fixture log reports plan scope: release declares no task owners for go-development 1.0.0. A stack-profile Plan capture needs explicit task_owner: true declarations. The owner must cut and link a new go-development release containing implementation-engineer, integration-test-engineer and unit-test-engineer declarations. Relinking alone does not replace a bad retained capture; separate diagnosis is required. No repair or approval is claimed and no retained capture rewrite is proposed.", Evidence: []string{p.manifest.DaemonLog + ":1"}, Uncertainty: "Linked release and retained capture bytes were not inspected; canonical source is not proof of live state. This is a controlled provider fixture, not live delivery."}}
+	}
 	raw, err := json.Marshal(ResultInput{Diagnosis: diagnosis})
 	if err != nil {
 		return agent.DoctorRunResult{}, err
@@ -127,6 +134,15 @@ func (p *liveProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorReque
 	return agent.DoctorRunResult{ObservedModel: r.Model, ProviderVersion: "fake-only"}, nil
 }
 func TestDoctorLiveDiagnosisEndToEndRetainsOnlyManifest(t *testing.T) {
+	doctorLiveDiagnosisFixture(t, false)
+}
+
+func TestDoctorMissingPlanOwnersDiagnosisPresentation(t *testing.T) {
+	doctorLiveDiagnosisFixture(t, true)
+}
+
+func doctorLiveDiagnosisFixture(t *testing.T, planOwners bool) {
+	t.Helper()
 	s := doctorIOService(t)
 	// Keep the Unix socket path short, independent of Go's descriptive test dirs.
 	root, err := os.MkdirTemp("/tmp", "lf538-")
@@ -167,10 +183,13 @@ func TestDoctorLiveDiagnosisEndToEndRetainsOnlyManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := []byte("{\"task\":\"github:acme/api#406\",\"message\":\"pre-read-canary: real diagnosis source\"}\n")
+	if planOwners {
+		log = []byte("{\"task\":\"github:acme/api#406\",\"message\":\"pre-read-canary: plan scope: release declares no task owners; go-development 1.0.0\"}\n")
+	}
 	if err := os.WriteFile(s.Paths.DaemonLogPath(), log, 0600); err != nil {
 		t.Fatal(err)
 	}
-	provider := &liveProviderFixture{t: t}
+	provider := &liveProviderFixture{t: t, planOwners: planOwners}
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -187,6 +206,17 @@ func TestDoctorLiveDiagnosisEndToEndRetainsOnlyManifest(t *testing.T) {
 	}
 	if len(got.Attempts) != 1 || got.Attempts[0].State != "completed" || got.Diagnosis == nil {
 		t.Fatalf("not adopted: %+v", got)
+	}
+	if planOwners {
+		body := RenderConversation(got)
+		for _, want := range []string{"plan scope: release declares no task owners", "go-development 1.0.0", "cut and link a new go-development release", "implementation-engineer", "integration-test-engineer", "unit-test-engineer", "Relinking alone", "retained capture bytes were not inspected", "not proof of live state", "No repair or approval", "no retained capture rewrite"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("diagnosis presentation missing %q", want)
+			}
+		}
+		if len(got.CurrentProposal) != 0 || got.ProposalID != 0 {
+			t.Fatal("diagnosis granted repair authority")
+		}
 	}
 	var saved PathManifest
 	if err := json.Unmarshal([]byte(got.Attempts[0].Evidence), &saved); err != nil {
@@ -537,5 +567,13 @@ func liveSyncBranchProposal(t *testing.T, mode string) {
 	}
 	if _, err = s.DB.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "live-sync-repair", SourceID: "owner-apply", Principal: "local-owner", TaskRef: target.String(), PresentationID: "live-sync-presentation"}); err != nil {
 		t.Fatalf("live sync_branch proposal not reservable: %v", err)
+	}
+}
+
+func TestDoctorFieldGuideMissingPlanOwnersContract(t *testing.T) {
+	for _, want := range []string{"plan scope: release declares no task owners", "task_owner: true", "implementation-engineer", "integration-test-engineer", "unit-test-engineer", "linked", "retained Plan capture", "go-development 1.0.0", "cut and link a new go-development release", "Relinking alone does not replace", "source-versus-live uncertainty", "without claiming a repair"} {
+		if !strings.Contains(FieldGuide, want) {
+			t.Errorf("field guide missing %q", want)
+		}
 	}
 }
