@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -246,6 +247,7 @@ func TestRecoveryObservationCannotAdoptAnotherProjectsSession(t *testing.T) {
 	if len(seen) != 0 || len(q.candidates) != 0 {
 		t.Fatal("another project adopted existing saved work")
 	}
+	assertObservationWarning(t, f.logs.String(), other, "700", "other_owning_project", "unavailable", "unavailable", "retained")
 }
 
 func TestTicketAdmissionFailureBoundary(t *testing.T) {
@@ -824,5 +826,321 @@ func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) {
 	}
 	if !retained {
 		t.Fatalf("hold race lost intent: %+v", pending)
+	}
+}
+
+// Uses real adapters and an isolated database; only provider HTTP is faked.
+func linearObservationFixture(t *testing.T) (*discoveryHTTPFixture, *linearWorkflowServer, store.ConnectionVersion, store.TicketSubscription, *repoQueue) {
+	t.Helper()
+	f := newDiscoveryHTTPFixture(t)
+	remote := newLinearWorkflowServer(t)
+	if _, err := f.d.db.UpsertIdentity(t.Context(), store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
+		t.Fatal(err)
+	}
+	codeRemote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/user":
+			_, _ = w.Write([]byte(`{"id":99,"login":"bot"}`))
+		case "/repos/acme/linear-code":
+			_, _ = w.Write([]byte(`{"id":1,"full_name":"acme/linear-code"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(codeRemote.Close)
+	v, _ := subscriptionCacheFixture(t, f, "linear-code", codeRemote.URL)
+	codeURL, err := url.Parse(codeRemote.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := v
+	code.Origin = "https://api.github.com"
+	code.ID, code.Revision, code.Role, code.RemoteID = 0, 0, store.CodeConnection, "1"
+	code.CredentialSource, code.CredentialEnv = "env", "CODE_TOKEN"
+	if _, err := f.d.db.SetConnection(t.Context(), code, 0); err != nil {
+		t.Fatal(err)
+	}
+	v.Provider, v.Origin, v.Destination, v.RemoteID = ticket.Linear, ticket.Origin(remote.server.URL), "team-uuid/project-uuid", "project-uuid"
+	v.CredentialSource, v.CredentialEnv = "env", "LINEAR_TOKEN"
+	v.Linear = store.LinearConfiguration{WorkspaceID: "workspace-uuid", TeamID: "team-uuid", ProjectID: "project-uuid", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"label-plan","spike":"label-spike"}`, LifecycleStatesJSON: `{"open":"state-open","completed":"state-completed","retired":"state-retired"}`}
+	v, err = f.d.db.SetConnection(t.Context(), v, v.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.d.connections = projectconnection.NewFactory(projectconnection.Options{DB: f.d.db, HTTPClient: &http.Client{Transport: linearMixedProviderTransport{githubURL: codeURL}}, Logger: f.d.log, Resolver: secrets.Resolver{LookupEnv: func(name string) (string, bool) {
+		if name == "LINEAR_TOKEN" {
+			return "test-linear-token", true
+		}
+		return "offline-token", true
+	}}})
+	if _, err := (projectconnection.ApproverService{DB: f.d.db, Factory: f.d.connections}).Set(t.Context(), v.RepoID, "human-uuid", v.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := f.d.db.GetRepo(t.Context(), v.RepoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sub, err := f.d.db.PutTicketSubscription(t.Context(), store.TicketSubscription{ID: "linear-current", RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: v.RemoteID, CallbackURL: "https://callback.invalid/webhook", DesiredEnabled: true, SecretService: "test", SecretAccount: "test", SecretVersion: "1"}, 0)
+	linearWorkflowCheck(t, err)
+	_, err = f.d.db.InitTicketRecoveryPosition(t.Context(), v, f.now)
+	linearWorkflowCheck(t, err)
+	remote.mu.Lock()
+	remote.issues["parent-uuid"]["description"] = "Observe this issue"
+	remote.mu.Unlock()
+	return f, remote, v, sub, &repoQueue{repo: repo, forgeRepo: githubRepo(v.Destination), log: f.d.log}
+}
+
+func handoffLinearObservation(t *testing.T, f *discoveryHTTPFixture, v store.ConnectionVersion, sub store.TicketSubscription) {
+	t.Helper()
+	linearWorkflowCheck(t, f.d.db.HandoffSubscriptionObservation(t.Context(), sub.ID, sub.Revision, store.PendingTicketObservation{RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: v.RemoteID, TicketID: "parent-uuid", TicketKey: "parent-uuid", ObservedAt: f.now}))
+}
+
+func TestRecoveryLinearObservationStates(t *testing.T) {
+	for _, kind := range []string{"backlog", "triage", "started", "unstarted", "completed", "canceled"} {
+		t.Run(kind, func(t *testing.T) {
+			f, remote, v, sub, q := linearObservationFixture(t)
+			stateID := "state-" + kind
+			if kind == "unstarted" {
+				stateID = "state-open"
+			}
+			remote.mu.Lock()
+			remote.issues["parent-uuid"]["state"] = map[string]any{"id": stateID, "type": kind, "name": kind}
+			remote.mu.Unlock()
+			identity := ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: "parent-uuid"}
+			if _, err := f.d.db.GetTicketBinding(t.Context(), identity); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("preexisting binding: %v", err)
+			}
+			if _, err := f.d.db.GetSessionByTicket(t.Context(), identity); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("preexisting session: %v", err)
+			}
+			handoffLinearObservation(t, f, v, sub)
+			seen := map[int64]*candidate{}
+			linearWorkflowCheck(t, f.d.drainTicketObservations(f.d.discoveryContext(t.Context()), map[int64]*repoQueue{v.RepoID: q}, seen))
+			if kind == "completed" || kind == "canceled" {
+				if len(seen) != 0 {
+					t.Fatal("terminal issue admitted")
+				}
+				if _, err := f.d.db.GetSessionByTicket(t.Context(), identity); !errors.Is(err, store.ErrNotFound) {
+					t.Fatalf("terminal session: %v", err)
+				}
+				pending, err := f.d.db.ListPendingTicketObservations(t.Context(), v.ID)
+				linearWorkflowCheck(t, err)
+				if len(pending) != 0 {
+					t.Fatalf("terminal observation retained: %+v", pending)
+				}
+				reason := "completed"
+				if kind == "canceled" {
+					reason = "not_planned"
+				}
+				assertObservationWarning(t, f.logs.String(), v, "parent-uuid", "closed_unadmitted", "closed", reason, "consumed")
+				return
+			}
+			session, err := f.d.db.GetSessionByTicket(t.Context(), identity)
+			linearWorkflowCheck(t, err)
+			binding, err := f.d.db.GetTicketBinding(t.Context(), identity)
+			linearWorkflowCheck(t, err)
+			if len(seen) != 1 || seen[session.ID] == nil || binding.ConnectionVersionID != v.ID || seen[session.ID].issue.State != "open" {
+				t.Fatalf("open admission: %+v %+v", session, seen)
+			}
+			task, err := f.d.materialise(t.Context(), seen[session.ID], f.now)
+			linearWorkflowCheck(t, err)
+			linearWorkflowCheck(t, f.d.bootstrap(sessionContext(t.Context(), session.ID), task))
+			if !strings.Contains(f.logs.String(), "first sight of a task") {
+				t.Fatal("missing first sight")
+			}
+			handoffLinearObservation(t, f, v, sub)
+			linearWorkflowCheck(t, f.d.drainTicketObservations(f.d.discoveryContext(t.Context()), map[int64]*repoQueue{v.RepoID: q}, seen))
+			replay, err := f.d.db.GetSessionByTicket(t.Context(), identity)
+			linearWorkflowCheck(t, err)
+			if len(seen) != 1 || replay.ID != session.ID {
+				t.Fatal("replay duplicated admission")
+			}
+			remote.addReply("eligible-reply", "/spike process this observation", "human-uuid")
+			requests := make(chan turn.Request, 1)
+			runner, err := New(Options{DB: f.d.db, Forge: f.client, Filter: f.d.filter, Connections: f.d.connections, Turn: recoveryHoldExecutor{requests}, Reporter: stubReporter{}, InstanceID: "linear-observation", Logger: f.d.log, Now: func() time.Time { return f.now }, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
+			linearWorkflowCheck(t, err)
+			runner.discovery.tick(f.now)
+			runner.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: f.now.Add(time.Hour), StatusCode: http.StatusOK})
+			_, err = runner.drain(sessionContext(t.Context(), session.ID), task, 0)
+			linearWorkflowCheck(t, err)
+			select {
+			case req := <-requests:
+				if req.SessionID != session.ID || req.Command.Name != "/spike" {
+					t.Fatalf("wrong owner execution: %+v", req)
+				}
+			default:
+				t.Fatalf("owner reply did not reach executor: %s", f.logs.String())
+			}
+			remote.mu.Lock()
+			gotState := linearWorkflowObject(t, remote.issues["parent-uuid"]["state"])["id"]
+			remote.mu.Unlock()
+			if gotState != stateID {
+				t.Fatalf("forced state transition: %v", gotState)
+			}
+		})
+	}
+}
+
+func assertObservationWarning(t *testing.T, logs string, v store.ConnectionVersion, ticketID, reason, state, stateReason, disposition string) {
+	t.Helper()
+	for _, line := range strings.Split(logs, "\n") {
+		var entry map[string]any
+		if json.Unmarshal([]byte(line), &entry) != nil || entry["reason"] != reason {
+			continue
+		}
+		for key, want := range map[string]any{"level": "WARN", "project_id": float64(v.RepoID), "connection_version_id": float64(v.ID), "provider": string(v.Provider), "origin": string(v.Origin), "ticket_id": ticketID, "generation": float64(1), "state": state, "state_reason": stateReason, "disposition": disposition} {
+			if entry[key] != want {
+				t.Errorf("%s = %v, want %v: %s", key, entry[key], want, line)
+			}
+		}
+		return
+	}
+	t.Fatalf("missing rejection warning %s: %s", reason, logs)
+}
+
+func TestRecoveryObservationRejectionWarnings(t *testing.T) {
+	for _, reason := range []string{"subscription_revision", "related_subscription_revision", "connection_disabled_or_replaced", "container_mismatch", "retained_source_mismatch"} {
+		t.Run(reason, func(t *testing.T) {
+			f, _, v, sub, q := linearObservationFixture(t)
+			ctx := t.Context()
+			observation := store.PendingTicketObservation{RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: v.RemoteID, TicketID: "parent-uuid", TicketKey: "parent-uuid", ObservedAt: f.now}
+			state, stateReason := "unavailable", "unavailable"
+			switch reason {
+			case "subscription_revision":
+				observation.SubscriptionID, observation.SubscriptionRevision = sub.ID, sub.Revision
+				sub.SecretVersion = "2"
+				_, err := f.d.db.PutTicketSubscription(ctx, sub, sub.Revision)
+				linearWorkflowCheck(t, err)
+			case "related_subscription_revision":
+				observation.SubscriptionID, observation.SubscriptionRevision = sub.ID, sub.Revision
+				observation.RelatedSubscriptionID, observation.RelatedSubscriptionRevision = "missing-related", 1
+			case "connection_disabled_or_replaced":
+				replacement := v
+				replacement.Enabled = false
+				_, err := f.d.db.SetConnection(ctx, replacement, v.Revision)
+				linearWorkflowCheck(t, err)
+			case "retained_source_mismatch":
+				handoffLinearObservation(t, f, v, sub)
+				linearWorkflowCheck(t, f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{v.RepoID: q}, map[int64]*candidate{}))
+				fallthrough
+			case "container_mismatch":
+				v.RemoteID = "different-project"
+				var err error
+				v, err = f.d.db.SetConnection(ctx, v, v.Revision)
+				linearWorkflowCheck(t, err)
+				observation.ConnectionVersionID, observation.ContainerID = v.ID, v.RemoteID
+			}
+			linearWorkflowCheck(t, f.d.db.HandoffTicketObservation(ctx, observation))
+			seen := map[int64]*candidate{}
+			linearWorkflowCheck(t, f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{v.RepoID: q}, seen))
+			assertObservationWarning(t, f.logs.String(), v, "parent-uuid", reason, state, stateReason, "retained")
+			pending, err := f.d.db.ListPendingTicketObservations(ctx, v.ID)
+			linearWorkflowCheck(t, err)
+			if len(pending) != 1 || pending[0].Generation != 1 {
+				t.Fatalf("rejection lost retry: %+v", pending)
+			}
+			if reason != "retained_source_mismatch" && len(seen) != 0 {
+				t.Fatal("rejected observation admitted")
+			}
+		})
+	}
+}
+
+// The existing sight diagnostic occurs immediately before the discard clear.
+// Intercept it to exercise cancellation and a concurrent new generation there.
+type observationBoundaryHandler struct {
+	slog.Handler
+	beforeClear func()
+}
+
+func (h observationBoundaryHandler) Handle(ctx context.Context, record slog.Record) error {
+	if strings.HasPrefix(record.Message, "skipping an issue that is not open;") {
+		h.beforeClear()
+	}
+	return h.Handler.Handle(ctx, record)
+}
+
+func TestRecoveryClosedObservationClearBoundary(t *testing.T) {
+	for _, failure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("clear-fails=%t", failure), func(t *testing.T) {
+			f, remote, v, sub, q := linearObservationFixture(t)
+			remote.mu.Lock()
+			remote.issues["parent-uuid"]["state"] = map[string]any{"id": "state-completed", "type": "completed"}
+			remote.mu.Unlock()
+			handoffLinearObservation(t, f, v, sub)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			q.log = slog.New(observationBoundaryHandler{Handler: f.d.log.Handler(), beforeClear: func() {
+				if failure {
+					cancel()
+				} else {
+					handoffLinearObservation(t, f, v, sub)
+				}
+			}})
+			err := f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{v.RepoID: q}, map[int64]*candidate{})
+			disposition, generation := "consumed", int64(2)
+			if failure {
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("clear failure lost: %v", err)
+				}
+				disposition, generation = "retained", 1
+				if strings.Contains(f.logs.String(), `"disposition":"consumed"`) || !strings.Contains(f.logs.String(), `"error":"context canceled"`) {
+					t.Fatalf("failure diagnostic: %s", f.logs.String())
+				}
+			} else {
+				linearWorkflowCheck(t, err)
+			}
+			assertObservationWarning(t, f.logs.String(), v, "parent-uuid", "closed_unadmitted", "closed", "completed", disposition)
+			pending, err := f.d.db.ListPendingTicketObservations(t.Context(), v.ID)
+			linearWorkflowCheck(t, err)
+			if len(pending) != 1 || pending[0].Generation != generation {
+				t.Fatalf("generation lost: %+v", pending)
+			}
+		})
+	}
+}
+
+func TestRecoveryObservationRereadWarnings(t *testing.T) {
+	for _, reason := range []string{"ticket_not_found", "ticket_identity_mismatch"} {
+		t.Run(reason, func(t *testing.T) {
+			f, v, q, _, _ := recoveryHoldFixture(t)
+			handoffRecoveryHold(t, f.d.db, v, 9)
+			f.d.connections = projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 99, Logger: f.d.log, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "offline-token", true }}, HTTPClient: &http.Client{Transport: discoveryUnitTransport(func(r *http.Request) (*http.Response, error) {
+				if strings.HasSuffix(r.URL.Path, "/issues/9") && reason == "ticket_not_found" {
+					r.URL.Path = "/missing"
+				}
+				response, err := http.DefaultTransport.RoundTrip(r)
+				if err != nil || !strings.HasSuffix(r.URL.Path, "/issues/9") {
+					return response, err
+				}
+				defer response.Body.Close()
+				var issue map[string]any
+				if err := json.NewDecoder(response.Body).Decode(&issue); err != nil {
+					return nil, err
+				}
+				issue["id"] = 100
+				raw, err := json.Marshal(issue)
+				if err != nil {
+					return nil, err
+				}
+				response.Body = io.NopCloser(bytes.NewReader(raw))
+				return response, nil
+			})}})
+
+			seen := map[int64]*candidate{}
+			linearWorkflowCheck(t, f.d.drainTicketObservations(f.d.discoveryContext(t.Context()), map[int64]*repoQueue{v.RepoID: q}, seen))
+			state, stateReason := "unavailable", "unavailable"
+			if reason == "ticket_identity_mismatch" {
+				state, stateReason = "open", ""
+			}
+			assertObservationWarning(t, f.logs.String(), v, "90", reason, state, stateReason, "retained")
+			pending, err := f.d.db.ListPendingTicketObservations(t.Context(), v.ID)
+			linearWorkflowCheck(t, err)
+			if len(pending) != 1 || pending[0].Generation != 1 || len(seen) != 0 {
+				t.Fatalf("reread rejection lost retry or admitted: %+v %+v", pending, seen)
+			}
+		})
 	}
 }

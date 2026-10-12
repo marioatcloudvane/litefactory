@@ -237,6 +237,21 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if q == nil {
 			continue
 		}
+		// State is unknown until the provider reread succeeds. Keep the logged
+		// version and generation tied to the observation, even for saved sources.
+		state, stateReason := "unavailable", "unavailable"
+		warnRejection := func(reason, disposition string, err error) {
+			q.log.WarnContext(ctx, "ticket observation admission rejected",
+				slog.Int64("project_id", observation.RepoID),
+				slog.Int64("connection_version_id", observation.ConnectionVersionID),
+				slog.String("provider", string(observation.Provider)),
+				slog.String("origin", string(observation.Origin)),
+				slog.String("ticket_id", observation.TicketID),
+				slog.Int64("generation", observation.Generation),
+				slog.String("state", state), slog.String("state_reason", stateReason),
+				slog.String("reason", reason), slog.String("disposition", disposition),
+				slog.Any("error", err))
+		}
 		version, err := d.db.GetConnectionVersion(ctx, observation.ConnectionVersionID)
 		if err != nil {
 			return err
@@ -263,13 +278,16 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if sessionErr == nil && session.RepoID != observation.RepoID {
 			// A source may be configured by multiple projects; its existing
 			// binding remains owned by the project that admitted the session.
+			warnRejection("other_owning_project", "retained", nil)
 			continue
 		}
 		if observation.SubscriptionID != "" && errors.Is(sessionErr, store.ErrNotFound) {
 			if !d.observationSubscriptionCurrent(ctx, observation.SubscriptionID, observation.SubscriptionRevision) {
+				warnRejection("subscription_revision", "retained", nil)
 				continue
 			}
 			if observation.RelatedSubscriptionID != "" && !d.observationSubscriptionCurrent(ctx, observation.RelatedSubscriptionID, observation.RelatedSubscriptionRevision) {
+				warnRejection("related_subscription_revision", "retained", nil)
 				continue
 			}
 		}
@@ -299,6 +317,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 					return e
 				}
 				if original.Provider != observation.Provider || original.Origin != observation.Origin || original.Destination != observation.Container || snapshot.TicketRemoteID != observation.ContainerID {
+					warnRejection("retained_source_mismatch", "retained", nil)
 					continue
 				}
 				version = original
@@ -311,6 +330,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		case !errors.Is(sessionErr, store.ErrNotFound):
 			return sessionErr
 		case !current.Enabled || current.ID != version.ID:
+			warnRejection("connection_disabled_or_replaced", "retained", nil)
 			continue
 		}
 		container, verified := verifiedContainers[version.ID]
@@ -332,6 +352,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			verifiedContainers[version.ID] = container
 		}
 		if container.Provider != observation.Provider || container.Origin != observation.Origin || container.RemoteID != observation.ContainerID {
+			warnRejection("container_mismatch", "retained", nil)
 			continue
 		}
 		number := mustTicketNumber(observation.TicketKey)
@@ -349,17 +370,20 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			continue
 		}
 		if errors.Is(err, github.ErrNotFound) {
+			warnRejection("ticket_not_found", "retained", nil)
 			continue
 		}
 		if err != nil {
 			q.log.WarnContext(ctx, "pending ticket reread deferred", slog.Any("error", err))
 			continue
 		}
+		state, stateReason = issue.State, issue.StateReason
 		observedID := strconv.FormatInt(issue.ID, 10)
 		if issue.QualifiedSnapshot != nil {
 			observedID = issue.QualifiedSnapshot.Ref.Identity.RemoteID
 		}
 		if observedID != observation.TicketID {
+			warnRejection("ticket_identity_mismatch", "retained", nil)
 			continue
 		}
 		var c *candidate
@@ -403,8 +427,11 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			d.queueObservation(q, seen, c, observation)
 		} else if issue.State == "closed" {
 			if err := d.db.ClearPendingTicketObservation(ctx, observation.ConnectionVersionID, observation.TicketID, observation.Generation); err != nil {
+				warnRejection("closed_unadmitted", "retained", err)
 				return err
 			}
+			// Only this processed generation is consumed; a newer one may remain.
+			warnRejection("closed_unadmitted", "consumed", nil)
 		}
 
 	}
