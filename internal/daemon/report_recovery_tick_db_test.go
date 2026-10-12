@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -261,6 +262,27 @@ func TestBugPendingRefusalAfterRelease(t *testing.T) {
 			}
 			for range 3 {
 				f.settle()
+			}
+			if state == "failed" || state == "uncertain" {
+				starts, outcomes := 0, 0
+				for _, line := range strings.Split(f.logs.String(), "\n") {
+					if !strings.Contains(line, `msg="report recovery attempt`) {
+						continue
+					}
+					for _, field := range []string{"level=INFO", fmt.Sprintf("session_id=%d", session.ID), "task=" + session.TaskRef, fmt.Sprintf("recovery=source:%d:40", session.ID)} {
+						if !strings.Contains(line, field) {
+							t.Fatalf("missing %s in retry: %s", field, line)
+						}
+					}
+					if strings.Contains(line, `msg="report recovery attempt"`) {
+						starts++
+					} else if strings.Contains(line, "outcome=resolved") {
+						outcomes++
+					}
+				}
+				if starts != 1 || outcomes != 1 {
+					t.Fatalf("runless retry diagnostics starts=%d resolved=%d logs=%s", starts, outcomes, f.logs)
+				}
 			}
 			saved, err := f.db.GetReportDelivery(ctx, delivery.Key)
 			check(err)
