@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,11 +31,12 @@ type doctorForge interface {
 // (CONC-2). It uses the existing pool join; no provider or publication retry loops
 // run in workers. Stop is handled on the short tick/intake path independently.
 type doctorLane struct {
-	service      *doctor.Service
-	pool         *pool
-	lastTask     string
-	lastRepo     int64
-	lastDelivery string
+	service                *doctor.Service
+	pool                   *pool
+	lastTask               string
+	lastRepo               int64
+	lastDelivery           string
+	unsupportedConnections map[int64]bool
 }
 
 func (d *Daemon) doctorTick(ctx context.Context, at time.Time) {
@@ -108,6 +110,7 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 	if len(repos) == 0 {
 		return nil
 	}
+	sort.Slice(repos, func(i, j int) bool { return repos[i].ID < repos[j].ID })
 	start := 0
 	for start < len(repos) && repos[start].ID <= d.doctor.lastRepo {
 		start++
@@ -115,9 +118,39 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 	if start == len(repos) {
 		start = 0
 	}
-	// One bounded repository page per tick plus at most twelve target reads.
-	repo := repos[start]
-	d.doctor.lastRepo = repo.ID
+	// Visit each local repository at most once, retaining one remote page per tick.
+	var repo store.Repo
+	var connection store.ConnectionVersion
+	eligible := false
+	for offset := 0; offset < len(repos); offset++ {
+		repo = repos[(start+offset)%len(repos)]
+		// Advance before fallible work so a failing project cannot starve its peers.
+		d.doctor.lastRepo = repo.ID
+		if d.connections != nil {
+			connection, err = d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
+			if err != nil {
+				return err
+			}
+			if !connection.Enabled {
+				continue
+			}
+			if connection.Provider != ticket.GitHub {
+				if d.doctor.unsupportedConnections == nil {
+					d.doctor.unsupportedConnections = make(map[int64]bool)
+				}
+				if !d.doctor.unsupportedConnections[connection.ID] {
+					d.log.InfoContext(ctx, "background doctor discovery unsupported; skipped", "project", repo.Slug(), "provider", connection.Provider, "connection_version", connection.ID)
+					d.doctor.unsupportedConnections[connection.ID] = true
+				}
+				continue
+			}
+		}
+		eligible = true
+		break
+	}
+	if !eligible {
+		return nil
+	}
 	scan, err := d.db.DoctorScanWindow(ctx, repo.ID, at)
 	if err != nil {
 		return err
@@ -127,13 +160,6 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 	}
 	fr := github.Repo{Owner: repo.Owner, Name: repo.Name}
 	if d.connections != nil {
-		connection, err := d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
-		if err != nil {
-			return err
-		}
-		if !connection.Enabled {
-			return nil
-		}
 		clients, err := d.connections.Clients(ctx, connection, 0)
 		if err != nil {
 			return err
