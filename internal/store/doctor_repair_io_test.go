@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -313,5 +315,34 @@ func TestDoctorTypedNeedsReviewMigrationSettlesTypedOnly(t *testing.T) {
 				t.Fatalf("legacy row changed: %+v -> %+v held %v", before, after, held)
 			}
 		})
+	}
+}
+
+func TestDoctorRepairHoldErrorIdentity(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 406)
+	_, presentation := retainedPollProposal(t, db, session)
+	if _, err := db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "hold", SourceID: "hold-approval", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
+		t.Fatal(err)
+	}
+	for _, write := range []func() error{
+		func() error { return db.SetSessionNeedsPoll(ctx, session.ID) },
+		func() error { return db.MarkStoryDiscoveryPending(ctx, session.ID, 407) },
+	} {
+		err := write()
+		if !IsDoctorRepairHold(err) || !IsDoctorRepairHold(fmt.Errorf("wrapped: %w", err)) {
+			t.Fatalf("hold not identified: %v", err)
+		}
+	}
+	_, other := db.sql.ExecContext(ctx, `CREATE TEMP TRIGGER unrelated_hold BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'another constraint'); END`)
+	if other != nil {
+		t.Fatal(other)
+	}
+	other = db.SetSessionNeedsPoll(ctx, session.ID)
+	for _, err := range []error{nil, other, errors.New("constraint failed: issue held for doctor repair (1811)"), context.Canceled, context.DeadlineExceeded} {
+		if IsDoctorRepairHold(err) {
+			t.Fatalf("unrelated error classified as hold: %v", err)
+		}
 	}
 }

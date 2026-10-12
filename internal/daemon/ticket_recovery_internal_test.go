@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,11 +16,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 func TestRecoveryObservationRejectsQualifiedCollisions(t *testing.T) {
@@ -452,5 +457,372 @@ func TestRecoveryLinearTicketWithInaccessibleGitHubCode(t *testing.T) {
 	}
 	if len(seen) != 1 {
 		t.Fatalf("unchanged Linear observation not retried: %s", f.logs.String())
+	}
+}
+
+func TestRecoveryDoctorHoldDefersOnlyAffectedObservation(t *testing.T) {
+	for _, parent := range []bool{false, true} {
+		for _, race := range []bool{false, true} {
+			t.Run(fmt.Sprintf("parent=%t/race=%t", parent, race), func(t *testing.T) {
+				f, v, q, sessions, onRead := recoveryHoldFixture(t)
+				ctx := t.Context()
+				observed := 7
+				if parent {
+					observed = 6
+					if _, err := f.d.db.AdmitPlanWorkflowPath(ctx, sessions[0].ID, "graph"); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := f.d.db.ReservePlanStory(ctx, sessions[0].TaskRef, "child"); err != nil {
+						t.Fatal(err)
+					}
+					if err := f.d.db.BindPlanStoryIssue(ctx, sessions[0].TaskRef, "child", 60, observed); err != nil {
+						t.Fatal(err)
+					}
+					if err := f.d.db.AdvanceStoryDiscovery(ctx, sessions[0].ID, observed, 0); err != nil {
+						t.Fatal(err)
+					}
+				}
+				hold := func() {
+					approveEffect(t, f.d.db, sessions[0], store.DoctorRepairStep{Kind: "poll_flag", Target: fmt.Sprintf("session:%d", sessions[0].ID), Before: "0", After: "1"}, store.DoctorEvidence{TaskRef: sessions[0].TaskRef})
+				}
+				if race {
+					*onRead = func(r *http.Request) {
+						if strings.HasSuffix(r.URL.Path, fmt.Sprintf("/issues/%d", observed)) {
+							*onRead = nil
+							hold()
+						}
+					}
+				} else {
+					hold()
+				}
+				for _, n := range []int{observed, 8} {
+					handoffRecoveryHold(t, f.d.db, v, n)
+				}
+				for range 2 {
+					seen := map[int64]*candidate{}
+					q.candidates = nil
+					if err := f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{q.repo.ID: q}, seen); err != nil {
+						t.Fatal(err)
+					}
+					if len(seen) != 1 || seen[sessions[1].ID] == nil {
+						t.Fatalf("unrelated same-source observation blocked: %+v", seen)
+					}
+					pending, err := f.d.db.ListPendingTicketObservations(ctx, v.ID)
+					if err != nil || len(pending) != 2 || pending[0].Generation != 1 || pending[1].Generation != 1 {
+						t.Fatalf("lost durable generation: %+v %v", pending, err)
+					}
+					held, err := f.d.db.GetSession(ctx, sessions[0].ID)
+					if err != nil || held.NeedsPoll {
+						t.Fatalf("held backlog changed: %+v %v", held, err)
+					}
+					if parent {
+						owed, err := f.d.db.StoryDiscoveryOwed(ctx, sessions[0].ID, observed)
+						if err != nil || owed {
+							t.Fatalf("held parent discovery changed: %t %v", owed, err)
+						}
+					}
+				}
+				if err := f.d.db.StopDoctorRepair(ctx, sessions[0].TaskRef, "release fixture hold"); err != nil {
+					t.Fatal(err)
+				}
+				seen := map[int64]*candidate{}
+				if err := f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{q.repo.ID: q}, seen); err != nil {
+					t.Fatal(err)
+				}
+				if len(seen) != 2 {
+					t.Fatalf("release did not retry: %+v", seen)
+				}
+			})
+		}
+	}
+}
+
+func TestRecoveryDoctorHeldRetainedSession(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replacement-enabled=%t", enabled), func(t *testing.T) {
+			f, v, q, sessions, _ := recoveryHoldFixture(t)
+			v.Enabled = enabled
+			if _, err := f.d.db.SetConnection(t.Context(), v, v.Revision); err != nil {
+				t.Fatal(err)
+			}
+			approveEffect(t, f.d.db, sessions[0], store.DoctorRepairStep{Kind: "poll_flag", Target: fmt.Sprintf("session:%d", sessions[0].ID), Before: "0", After: "1"}, store.DoctorEvidence{TaskRef: sessions[0].TaskRef})
+			for range 2 {
+				if err := f.d.recoverRetainedSessions(t.Context(), q); err != nil {
+					t.Fatal(err)
+				}
+				for i, s := range sessions {
+					got, err := f.d.db.GetSession(t.Context(), s.ID)
+					if err != nil || got.NeedsPoll != (i == 1) {
+						t.Fatalf("retained backlog: %+v %v", got, err)
+					}
+				}
+			}
+			if err := f.d.db.StopDoctorRepair(t.Context(), sessions[0].TaskRef, "release fixture"); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.d.recoverRetainedSessions(t.Context(), q); err != nil {
+				t.Fatal(err)
+			}
+			got, err := f.d.db.GetSession(t.Context(), sessions[0].ID)
+			if err != nil || !got.NeedsPoll {
+				t.Fatalf("retained scan failed to retry: %+v %v", got, err)
+			}
+		})
+	}
+}
+
+// The transport callback runs synchronously after the hold lookup and before
+// the provider read returns, placing a real hold in the lookup/write window.
+func recoveryHoldFixture(t *testing.T) (*discoveryHTTPFixture, store.ConnectionVersion, *repoQueue, []store.Session, *func(*http.Request)) {
+	t.Helper()
+	f := newDiscoveryHTTPFixture(t)
+	var origin string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-RateLimit-Limit", "5000")
+		w.Header().Set("X-RateLimit-Remaining", "4900")
+		w.Header().Set("X-RateLimit-Resource", "core")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(4*time.Hour).Unix(), 10))
+		switch {
+		case r.URL.Path == "/user":
+			_, _ = w.Write([]byte(`{"id":99,"login":"bot"}`))
+		case r.URL.Path == "/repos/acme/held":
+			_, _ = w.Write([]byte(`{"id":1,"full_name":"acme/held"}`))
+		case r.URL.Path == "/repos/acme/held/issues" || r.URL.Path == "/repos/acme/held/issues/comments" || strings.HasSuffix(r.URL.Path, "/labels"):
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "/comments"):
+			n, _ := strconv.Atoi(strings.Split(r.URL.Path, "/")[5])
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": n * 100, "body": "/spike process observed work", "url": origin + fmt.Sprintf("/repos/acme/held/issues/comments/%d", n*100), "issue_url": origin + fmt.Sprintf("/repos/acme/held/issues/%d", n), "user": map[string]any{"id": 42, "login": "owner"}, "created_at": time.Now().Add(time.Hour).Format(time.RFC3339), "updated_at": time.Now().Add(time.Hour).Format(time.RFC3339)}})
+		case strings.HasPrefix(r.URL.Path, "/repos/acme/held/issues/"):
+			n, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/repos/acme/held/issues/"))
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": n * 10, "number": n, "title": "Observed", "state": "open", "labels": []map[string]any{{"name": "Mode: Spike"}}, "url": origin + r.URL.Path})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	origin = server.URL
+	v, _ := subscriptionCacheFixture(t, f, "held", origin)
+	v.RemoteID, v.CredentialSource, v.CredentialEnv = "1", "env", "TEST_RECOVERY_TOKEN"
+	var err error
+	v, err = f.d.db.SetConnection(t.Context(), v, v.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := v
+	code.ID, code.Revision, code.Role = 0, 0, store.CodeConnection
+	code, err = f.d.db.SetConnection(t.Context(), code, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onRead func(*http.Request)
+	f.d.connections = projectconnection.NewFactory(projectconnection.Options{ExpectedActorID: 99, Logger: f.d.log, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "offline-token", true }}, HTTPClient: &http.Client{Transport: discoveryUnitTransport(func(r *http.Request) (*http.Response, error) {
+		if onRead != nil {
+			onRead(r)
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}})
+	repo, err := f.d.db.GetRepo(t.Context(), v.RepoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sessions []store.Session
+	for _, n := range []int{7, 8} {
+		session, err := f.d.db.GetOrCreateSession(t.Context(), repo, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: strconv.Itoa(n * 10)}, Locator: ticket.Locator{Provider: v.Provider, Origin: v.Origin, Container: v.Destination, Key: strconv.Itoa(n)}}
+		binding, err := f.d.db.AddTicketBinding(t.Context(), store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: v.ID, Ref: ref, Enabled: true, Provenance: "explicit"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.d.db.AttachExecutionSnapshot(t.Context(), store.ExecutionSnapshot{SessionID: session.ID, RepoID: repo.ID, BindingID: binding.ID, TicketVersionID: v.ID, CodeVersionID: code.ID, ActorID: 99, ActorLogin: "bot"}); err != nil {
+			t.Fatal(err)
+		}
+		sessions = append(sessions, session)
+	}
+	return f, v, &repoQueue{repo: repo, forgeRepo: githubRepo(v.Destination), log: f.d.log}, sessions, &onRead
+}
+
+func handoffRecoveryHold(t *testing.T, db *store.DB, v store.ConnectionVersion, n int) {
+	t.Helper()
+	if err := db.HandoffTicketObservation(t.Context(), store.PendingTicketObservation{RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: v.RemoteID, TicketID: strconv.Itoa(n * 10), TicketKey: strconv.Itoa(n), ObservedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRecoveryDoctorDeferralPreservesOtherFailures(t *testing.T) {
+	for _, mode := range []string{"store", "cancel"} {
+		t.Run(mode, func(t *testing.T) {
+			f, v, q, _, onRead := recoveryHoldFixture(t)
+			for _, n := range []int{7, 8} {
+				handoffRecoveryHold(t, f.d.db, v, n)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			*onRead = func(r *http.Request) {
+				if !strings.HasSuffix(r.URL.Path, "/issues/7") {
+					return
+				}
+				*onRead = nil
+				if mode == "cancel" {
+					cancel()
+				} else if err := f.d.db.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := f.d.drainTicketObservations(f.d.discoveryContext(ctx), map[int64]*repoQueue{q.repo.ID: q}, map[int64]*candidate{})
+			if err == nil || store.IsDoctorRepairHold(err) {
+				t.Fatalf("non-hold failure hidden: %v", err)
+			}
+			if mode == "cancel" && !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancellation lost: %v", err)
+			}
+		})
+	}
+}
+
+// Dispatch is the boundary under test; leave execution locked so this fixture
+// does not pretend to run an agent or publish a report.
+type recoveryHoldExecutor struct{ requests chan turn.Request }
+
+func (e recoveryHoldExecutor) Execute(_ context.Context, req turn.Request) (turn.Result, error) {
+	e.requests <- req
+	return turn.Result{Disposition: turn.DispositionLocked}, nil
+}
+
+func TestRecoveryDoctorHoldTickContinuesToLinear(t *testing.T) {
+	f, v, q, sessions, onRead := recoveryHoldFixture(t)
+	ctx := t.Context()
+	remote := newLinearWorkflowServer(t)
+	handler := remote.server.Config.Handler
+	remote.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			http.Error(w, "read request", http.StatusInternalServerError)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if bytes.Contains(body, []byte("reactionCreate")) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"reactionCreate":{"success":true}}}`))
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
+	codeURL, err := url.Parse(string(v.Origin))
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory := projectconnection.NewFactory(projectconnection.Options{DB: f.d.db, Logger: f.d.log, HTTPClient: &http.Client{Transport: linearMixedProviderTransport{githubURL: codeURL}}, Resolver: secrets.Resolver{LookupEnv: func(name string) (string, bool) {
+		if name == "LINEAR_TOKEN" {
+			return "test-linear-token", true
+		}
+		return "offline-token", true
+	}}})
+	if _, err := f.d.db.UpsertIdentity(ctx, store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 42, Handle: "owner", Source: store.SourceGH}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.d.db.SetApprover(ctx, store.ApproverAppointment{RepoID: v.RepoID, Actor: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: "42"}, Handle: "owner", VerifiedAt: time.Now(), Provenance: "explicit"}, v.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
+	other, err := f.d.db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "linear", RemoteURL: "git@github.com:acme/linear.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := f.d.db.CurrentConnection(ctx, v.RepoID, store.CodeConnection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code.ID, code.Revision, code.RepoID, code.Origin = 0, 0, other.ID, "https://api.github.com"
+	code.ClonePath, code.RemoteURL, code.WorktreeRoot = other.Path, other.RemoteURL, other.WorktreeRoot
+	if _, err := f.d.db.SetConnection(ctx, code, 0); err != nil {
+		t.Fatal(err)
+	}
+	linearSource, err := f.d.db.SetConnection(ctx, store.ConnectionVersion{RepoID: other.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: ticket.Origin(remote.server.URL), Destination: "team-uuid/project-uuid", RemoteID: "project-uuid", Enabled: true, Provenance: "explicit", CredentialSource: "env", CredentialEnv: "LINEAR_TOKEN", Linear: store.LinearConfiguration{WorkspaceID: "workspace-uuid", TeamID: "team-uuid", ProjectID: "project-uuid", AuthKind: "api_key", ModeLabelsJSON: `{"spike":"label-spike"}`, LifecycleStatesJSON: `{"open":"state-open","completed":"state-completed","retired":"state-retired"}`}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (projectconnection.ApproverService{DB: f.d.db, Factory: factory}).Set(ctx, other.ID, "human-uuid", linearSource.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: linearSource.Origin, RemoteID: "parent-uuid"}, Locator: ticket.Locator{Provider: ticket.Linear, Origin: linearSource.Origin, Container: linearSource.Destination, Key: "parent-uuid"}}
+	if _, err := f.d.db.AddTicketBinding(ctx, store.TicketBinding{RepoID: other.ID, ConnectionVersionID: linearSource.ID, Ref: ref, Enabled: true, Provenance: "explicit"}); err != nil {
+		t.Fatal(err)
+	}
+	linearSession, err := AdmitProjectTicket(ctx, f.d.db, factory, other, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range append(sessions, linearSession) {
+		if _, _, err := f.d.db.BootstrapWatermark(ctx, s.ID, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	remote.addReply("fresh-reply", "/spike continue this Linear ticket", "human-uuid")
+	// Retain the HTTP callback factory for GitHub so the same tick can activate
+	// the hold after the lookup. The mixed factory delegates to it for loopback.
+	factory = projectconnection.NewFactory(projectconnection.Options{DB: f.d.db, Logger: f.d.log, HTTPClient: &http.Client{Transport: discoveryUnitTransport(func(r *http.Request) (*http.Response, error) {
+		if *onRead != nil {
+			(*onRead)(r)
+		}
+		return (linearMixedProviderTransport{githubURL: codeURL}).RoundTrip(r)
+	})}, Resolver: secrets.Resolver{LookupEnv: func(name string) (string, bool) {
+		if name == "LINEAR_TOKEN" {
+			return "test-linear-token", true
+		}
+		return "offline-token", true
+	}}})
+	*onRead = func(r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/issues/7") {
+			*onRead = nil
+			approveEffect(t, f.d.db, sessions[0], store.DoctorRepairStep{Kind: "poll_flag", Target: fmt.Sprintf("session:%d", sessions[0].ID), Before: "0", After: "1"}, store.DoctorEvidence{TaskRef: sessions[0].TaskRef})
+		}
+	}
+	for _, n := range []int{7, 8} {
+		handoffRecoveryHold(t, f.d.db, v, n)
+	}
+	if err := f.d.db.HandoffTicketObservation(ctx, store.PendingTicketObservation{RepoID: other.ID, ConnectionVersionID: linearSource.ID, Provider: linearSource.Provider, Origin: linearSource.Origin, Container: linearSource.Destination, ContainerID: linearSource.RemoteID, TicketID: "parent-uuid", TicketKey: "parent-uuid", ObservedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	requests := make(chan turn.Request, 4)
+	now := time.Now().Add(2 * time.Hour)
+	d, err := New(Options{DB: f.d.db, Forge: f.client, Filter: f.d.filter, Connections: factory, Turn: recoveryHoldExecutor{requests}, Reporter: stubReporter{}, InstanceID: "hold-mixed", Logger: f.d.log, Now: func() time.Time { return now }, MaxConcurrentRuns: 4, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.d.db.InitPollCursor(ctx, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	d.schedule.ListingFinished(q.repo.ID, now)
+	d.schedule.ListingFinished(other.ID, now)
+	if _, err := d.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Quiesce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	close(requests)
+	seen := map[int64]bool{}
+	for req := range requests {
+		seen[req.SessionID] = true
+	}
+	if len(seen) != 2 || !seen[sessions[1].ID] || !seen[linearSession.ID] {
+		t.Fatalf("mixed-provider dispatch blocked: %v\n%s", seen, f.logs.String())
+	}
+	pending, err := f.d.db.ListPendingTicketObservations(ctx, v.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retained bool
+	for _, p := range pending {
+		if p.TicketID == "70" {
+			retained = p.Generation == 1
+		}
+	}
+	if !retained {
+		t.Fatalf("hold race lost intent: %+v", pending)
 	}
 }
