@@ -336,16 +336,17 @@ func (d *Daemon) sessionRecoveryHeld(sessionID int64, at time.Time) bool {
 
 func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bool, error) {
 	// Bug domain journals own native publication. Only the runless
-	// configuration refusals introduced at admission use shared recovery.
+	// admission and comment-not-applied refusals use shared recovery.
 	admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
 	if err == nil && admission.Workflow == "bug" {
 		delivery, found, readErr := d.db.FindPendingReportDelivery(ctx, t.session.ID, triggerID)
 		if readErr != nil {
 			return true, readErr
 		}
-		configurationRefusal := strings.HasPrefix(delivery.Purpose, "reply:missing_team:") ||
-			strings.HasPrefix(delivery.Purpose, "reply:unsupported_workflow:")
-		if !found || delivery.RunID != 0 || !configurationRefusal {
+		runlessRefusal := strings.HasPrefix(delivery.Purpose, "reply:missing_team:") ||
+			strings.HasPrefix(delivery.Purpose, "reply:unsupported_workflow:") ||
+			strings.HasPrefix(delivery.Purpose, "reply:bug_comment_not_applied:")
+		if !found || delivery.RunID != 0 || !runlessRefusal {
 			return false, nil
 		}
 	}
