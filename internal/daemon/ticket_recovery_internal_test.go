@@ -1371,7 +1371,7 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 			f, remote, v, _, q := linearObservationFixture(t)
 			f.d.quotas.tick(f.now)
 			ctx := projectContext(f.d.discoveryContext(t.Context()), v.RepoID)
-			var calls, probes atomic.Int64
+			var calls, probes, historyCalls atomic.Int64
 			original := remote.server.Config.Handler
 			remote.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
@@ -1385,6 +1385,19 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 				}
 				if bytes.Contains(body, []byte("webhooks")) || bytes.Contains(body, []byte("issueLabel(")) {
 					t.Error("recovery performed full inspection")
+				}
+				if bytes.Contains(body, []byte("comments(filter:")) {
+					historyCalls.Add(1)
+					var request struct{ Variables map[string]any }
+					linearWorkflowCheck(t, json.Unmarshal(body, &request))
+					page := 1
+					if after, ok := request.Variables["after"].(string); ok {
+						previous, err := strconv.Atoi(after)
+						linearWorkflowCheck(t, err)
+						page = previous + 1
+					}
+					linearWorkflowCheck(t, json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issue": remote.issues["parent-uuid"], "comments": map[string]any{"nodes": []any{}, "pageInfo": map[string]any{"hasNextPage": page < 100, "endCursor": strconv.Itoa(page)}}}}))
+					return
 				}
 				r.Body = io.NopCloser(bytes.NewReader(body))
 				original.ServeHTTP(&missingLinearQuotaWriter{w, mode, f.now}, r)
@@ -1413,6 +1426,9 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 			}
 			seen := map[int64]*candidate{}
 			linearWorkflowCheck(t, f.d.drainTicketObservations(ctx, map[int64]*repoQueue{v.RepoID: q}, seen))
+			for _, c := range seen {
+				t.Logf("selected reservation after admission: requests=%d bound=%d", c.discoveryReservation.requests, c.discoveryReservation.bound)
+			}
 			if len(seen) != 1 {
 				t.Fatalf("fallback admission=%d", len(seen))
 			}
@@ -1441,6 +1457,7 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 			f.d.pool = newPool(1)
 			f.d.repoSessionCursor = make(map[int64]int64)
 			result := TickResult{}
+			beforeDispatch := calls.Load()
 			f.d.dispatch(ctx, []*repoQueue{q}, f.now, &result)
 			linearWorkflowCheck(t, f.d.Quiesce(t.Context()))
 			if result.Dispatched != 1 {
@@ -1457,6 +1474,9 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 				if bodyPending {
 					t.Fatal("worker left issue body pending")
 				}
+			}
+			if historyCalls.Load() != 200 {
+				t.Fatalf("bootstrap plus drain calls=%d; want 200; total worker calls=%d; logs=%s", historyCalls.Load(), calls.Load()-beforeDispatch, f.logs.String())
 			}
 			if view := budget.discovery.view(); view.InProgress != 0 {
 				t.Fatalf("worker leaked reservation: %+v", view)
@@ -1476,8 +1496,7 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 	}
 }
 
-// The supported history bound is in pages, not HTTP requests: each page
-// revalidates the issue before listing its comments.
+// Each history page validates the issue and lists comments in one request.
 func TestLinearHistoryActualRequestBound(t *testing.T) {
 	f, remote, v, _, _ := linearObservationFixture(t)
 	clients, err := f.d.connections.Clients(t.Context(), v, 0)
@@ -1510,7 +1529,7 @@ func TestLinearHistoryActualRequestBound(t *testing.T) {
 				page = previous + 1
 			}
 			w.Header().Set("Content-Type", "application/json")
-			if encodeErr := json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"comments": map[string]any{"nodes": []any{}, "pageInfo": map[string]any{"hasNextPage": page < 100, "endCursor": strconv.Itoa(page)}}}}); encodeErr != nil {
+			if encodeErr := json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issue": remote.issues["parent-uuid"], "comments": map[string]any{"nodes": []any{}, "pageInfo": map[string]any{"hasNextPage": page < 100, "endCursor": strconv.Itoa(page)}}}}); encodeErr != nil {
 				t.Error(encodeErr)
 			}
 			return
@@ -1521,8 +1540,8 @@ func TestLinearHistoryActualRequestBound(t *testing.T) {
 	ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: "parent-uuid"}, Locator: ticket.Locator{Provider: v.Provider, Origin: v.Origin, Container: v.Destination, Key: "parent-uuid"}}
 	page, err := clients.Tickets.RepliesAfter(t.Context(), ref, ticket.Cursor{})
 	linearWorkflowCheck(t, err)
-	if !page.Complete || calls.Load() != 200 {
-		t.Fatalf("complete=%t calls=%d; want complete supported history using 200 HTTP requests", page.Complete, calls.Load())
+	if !page.Complete || calls.Load() != 100 {
+		t.Fatalf("complete=%t calls=%d; want complete supported history using 100 HTTP requests", page.Complete, calls.Load())
 	}
 	t.Logf("one supported 100-page history used %d HTTP calls; approved per-history reservation is %d", calls.Load(), discoveryListBound)
 }

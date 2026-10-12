@@ -410,3 +410,43 @@ func TestLinearRequestQuotaFreshnessAndCharging(t *testing.T) {
 		t.Fatal("depleted window allowed probe")
 	}
 }
+
+func TestLinearFallbackReservationLifetime(t *testing.T) {
+	b, now := budgetFixture(0, 0)
+	const cost = 5 + 2*discoveryListBound
+	r, err := b.acquireFallback("project-a", cost, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.tick(now.Add(time.Minute))
+	if _, err := b.acquireFallback("project-a", cost, true); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatalf("outstanding worker reused: %v", err)
+	}
+	if b.view().InProgress != cost {
+		t.Fatal("minute rollover released worker capacity")
+	}
+	var done sync.WaitGroup
+	for range 10 {
+		done.Go(func() { r.finish() })
+	}
+	done.Wait()
+	if v := b.view(); v.InProgress != 0 || v.Burst != discoveryBurst {
+		t.Fatalf("refund not exactly once: %+v", v)
+	}
+	b.mu.Lock()
+	b.tokens = cost - 1
+	b.mu.Unlock()
+	if _, err := b.acquireFallback("project-a", cost, true); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatalf("underfunded worker: %v", err)
+	}
+	b.tick(now.Add(2 * time.Minute))
+	r, err = b.acquireFallback("project-a", cost, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.observeLinear(linear.RequestObservation{})
+	r.finish()
+	if v := b.view(); v.InProgress != 0 || v.Burst != cost-1+120-1 {
+		t.Fatalf("actual request not charged: %+v", v)
+	}
+}

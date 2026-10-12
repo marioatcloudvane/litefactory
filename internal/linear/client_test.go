@@ -460,3 +460,93 @@ func TestRequestObservationTransportFailure(t *testing.T) {
 		t.Fatalf("observations=%+v", got)
 	}
 }
+
+func TestReplyHistoryCombinedIdentity(t *testing.T) {
+	for _, mode := range []string{"complete", "later identity", "null issue", "project", "team", "labels", "partial error", "missing cursor", "repeated cursor", "excess", "over bound", "wrong comment", "foreign reference"} {
+		t.Run(mode, func(t *testing.T) {
+			calls := 0
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var request struct {
+					Query     string
+					Variables map[string]any
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				if !strings.Contains(request.Query, "issue(id: $id) { "+issueFields) || !strings.Contains(request.Query, "comments(filter: $filter") || !strings.Contains(request.Query, commentFields) || request.Variables["id"] != "uuid-ticket" {
+					t.Errorf("missing combined identity query: %+v", request)
+				}
+				filter, _ := json.Marshal(request.Variables["filter"])
+				if string(filter) != `{"issue":{"id":{"eq":"uuid-ticket"}}}` {
+					t.Errorf("filter=%s", filter)
+				}
+				issue := issueJSON("uuid-ticket", "project")
+				switch mode {
+				case "later identity":
+					if calls == 2 {
+						issue = issueJSON("other", "project")
+					}
+				case "null issue":
+					issue = "null"
+				case "project":
+					issue = issueJSON("uuid-ticket", "other")
+				case "team":
+					issue = strings.ReplaceAll(issue, `"team"`, `"other"`)
+				case "labels":
+					issue = strings.ReplaceAll(issue, `"hasNextPage":false`, `"hasNextPage":true`)
+				}
+				next := calls < 100 || mode == "over bound"
+				cursor := fmt.Sprint(calls)
+				if mode == "missing cursor" {
+					cursor = ""
+				}
+				if mode == "repeated cursor" {
+					cursor = "same"
+				}
+				nodes := []any{}
+				if mode == "excess" {
+					nodes = make([]any, 101)
+				}
+				if mode == "wrong comment" {
+					nodes = append(nodes, map[string]any{"id": "reply", "user": map[string]string{"id": "owner"}, "issue": map[string]any{"id": "other"}})
+				}
+				result := map[string]any{"data": map[string]any{"issue": json.RawMessage(issue), "comments": map[string]any{"nodes": nodes, "pageInfo": map[string]any{"hasNextPage": next, "endCursor": cursor}}}}
+				if mode == "partial error" {
+					result["errors"] = []any{map[string]string{"message": "failed"}}
+				}
+				if err := json.NewEncoder(w).Encode(result); err != nil {
+					t.Error(err)
+				}
+			})
+			ref := ticket.Ref{Identity: c.identity("uuid-ticket"), Locator: c.locator("uuid-ticket")}
+			if mode == "foreign reference" {
+				ref.Locator.Container = "foreign"
+			}
+			for _, paged := range []bool{false, true} {
+				calls = 0
+				var page ticket.ReplyPage
+				var err error
+				if paged {
+					page, err = c.RepliesPage(t.Context(), ref, 100, 100)
+				} else {
+					page, err = c.RepliesAfter(t.Context(), ref, ticket.Cursor{})
+				}
+				wantSuccess := mode == "complete" || (paged && mode == "over bound")
+				if (err == nil) != wantSuccess {
+					t.Fatalf("paged=%t error=%v", paged, err)
+				}
+				if mode == "complete" && (!page.Complete || calls != 100) {
+					t.Fatalf("complete=%t calls=%d", page.Complete, calls)
+				}
+				if mode == "foreign reference" && calls != 0 {
+					t.Fatal("foreign reference made a request")
+				}
+				if !wantSuccess && page.Complete {
+					t.Fatal("failed history claimed completion")
+				}
+			}
+		})
+	}
+}
