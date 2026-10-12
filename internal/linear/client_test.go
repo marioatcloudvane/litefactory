@@ -338,3 +338,118 @@ func TestMissingModeLabels(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestObservations(t *testing.T) {
+	t.Parallel()
+	reset := time.Now().Add(time.Hour).UnixMilli()
+	for _, tt := range []struct {
+		name, limit, remaining, reset string
+		valid                         bool
+	}{
+		{"valid", "1000", "900", fmt.Sprint(reset), true},
+		{"absent", "", "", "", false},
+		{"partial", "1000", "900", "", false},
+		{"malformed", "many", "900", fmt.Sprint(reset), false},
+		{"overflow", "1000", "900", "9223372036854775808", false},
+		{"zero limit", "0", "0", fmt.Sprint(reset), false},
+		{"negative", "1000", "-1", fmt.Sprint(reset), false},
+		{"inconsistent", "1000", "1001", fmt.Sprint(reset), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("X-RateLimit-Requests-Limit", tt.limit)
+				w.Header().Set("X-RateLimit-Requests-Remaining", tt.remaining)
+				w.Header().Set("X-RateLimit-Requests-Reset", tt.reset)
+				w.Header().Set("X-RateLimit-Endpoint-Requests-Limit", "1")
+				w.Header().Set("X-RateLimit-Endpoint-Requests-Remaining", "0")
+				w.Header().Set("X-RateLimit-Complexity-Limit", "999999")
+				w.Header().Set("X-RateLimit-Complexity-Remaining", "0")
+				_, _ = fmt.Fprint(w, `{"data":{"value":{}}}`)
+			})
+			var observations []RequestObservation
+			var inherited int
+			ctx := WithRequestObserver(t.Context(), func(RequestObservation) { inherited++ })
+			ctx = WithRequestObserver(ctx, func(o RequestObservation) { observations = append(observations, o) })
+			var out any
+			if err := c.query(ctx, "test", "query { value }", nil, false, &out); err != nil {
+				t.Fatal(err)
+			}
+			if inherited != 1 || len(observations) != 1 {
+				t.Fatalf("observations=%v inherited=%d", observations, inherited)
+			}
+			o := observations[0]
+			if o.StatusCode != http.StatusOK || o.RequestRateValid != tt.valid || o.RetryAfter != 0 {
+				t.Fatalf("observation=%+v", o)
+			}
+			if tt.valid && (o.Limit != 1000 || o.Remaining != 900 || o.Reset.UnixMilli() != reset) {
+				t.Fatalf("request tuple replaced: %+v", o)
+			}
+		})
+	}
+}
+
+func TestRequestObservationFailuresAndOptionalInspection(t *testing.T) {
+	t.Parallel()
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusOK, http.StatusBadRequest} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Retry-After", "120")
+				w.WriteHeader(status)
+				_, _ = fmt.Fprint(w, `{"errors":[{"extensions":{"code":"RATELIMITED"}}]}`)
+			})
+			var got []RequestObservation
+			ctx := WithRequestObserver(t.Context(), func(o RequestObservation) { got = append(got, o) })
+			var out any
+			if err := c.query(ctx, "test", "query { value }", nil, false, &out); err == nil {
+				t.Fatal("refusal lost")
+			}
+			if len(got) != 1 || got[0].RetryAfter != 2*time.Minute || got[0].StatusCode != status {
+				t.Fatalf("observations=%+v", got)
+			}
+		})
+	}
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Query string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		switch {
+		case strings.Contains(body.Query, "viewer"):
+			_, _ = fmt.Fprint(w, `{"data":{"viewer":{"id":"bot","active":true,"organization":{"id":"workspace"}}}}`)
+		case strings.Contains(body.Query, "project(id:"):
+			_, _ = fmt.Fprint(w, `{"data":{"team":{"id":"team","organization":{"id":"workspace"}},"project":{"id":"project","teams":{"nodes":[{"id":"team"}],"pageInfo":{"hasNextPage":false}}}}}`)
+		default:
+			w.WriteHeader(http.StatusTooManyRequests)
+		}
+	})
+	var got []RequestObservation
+	ctx := WithRequestObserver(t.Context(), func(o RequestObservation) { got = append(got, o) })
+	if _, err := c.ContainerIdentity(ctx, "team/project"); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[2].RetryAfter != time.Minute {
+		t.Fatalf("hidden refusal or missing attempt: %+v", got)
+	}
+}
+
+type failingObservationTransport struct{}
+
+func (failingObservationTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("offline")
+}
+
+func TestRequestObservationTransportFailure(t *testing.T) {
+	t.Parallel()
+	c, err := New(Config{Origin: "https://fixture.invalid", WorkspaceID: "workspace", TeamID: "team", ProjectID: "project"}, secrets.NewToken("offline-token"), &http.Client{Transport: failingObservationTransport{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []RequestObservation
+	ctx := WithRequestObserver(t.Context(), func(o RequestObservation) { got = append(got, o) })
+	if _, err := c.Publisher(ctx); err == nil {
+		t.Fatal("missing transport error")
+	}
+	if len(got) != 1 || got[0] != (RequestObservation{}) {
+		t.Fatalf("observations=%+v", got)
+	}
+}

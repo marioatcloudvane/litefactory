@@ -51,6 +51,8 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 	if err != nil {
 		return false, err
 	}
+	ctx = quotaVersionContext(ctx, version)
+	ctx = context.WithValue(ctx, recoveryTickKey{}, now)
 	clients, err := d.connections.Clients(ctx, version, 0)
 	if err != nil {
 		return false, err
@@ -182,6 +184,7 @@ func (d *Daemon) restartRecovery(ctx context.Context, p store.TicketRecoveryPosi
 }
 
 func (d *Daemon) recoveryObservations(ctx context.Context, v store.ConnectionVersion, p store.TicketRecoveryPosition, page ticket.ChangePage, now time.Time, adapter projectconnection.TicketClient) ([]store.PendingTicketObservation, error) {
+	ctx = quotaVersionContext(ctx, v)
 	snapshots := append([]ticket.Snapshot(nil), page.Tickets...)
 	for _, locator := range page.Locators {
 		if locator.Provider != v.Provider || locator.Origin != v.Origin || locator.Container != v.Destination {
@@ -336,6 +339,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			warnRejection("connection_disabled_or_replaced", "retained", nil)
 			continue
 		}
+		readCtx = quotaVersionContext(readCtx, version)
 		container, verified := verifiedContainers[version.ID]
 		if !verified {
 			clients, e := d.connections.Clients(readCtx, version, actorID)
@@ -408,7 +412,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if ticketAdmissionDeferred(err) {
+				if ticketAdmissionDeferred(err) || d.scopedQuotaDeferred(readCtx, err) {
 					q.log.WarnContext(ctx, "ticket observation cannot be admitted through its saved source",
 						slog.Int64("project_id", observation.RepoID),
 						slog.Int64("connection_version_id", observation.ConnectionVersionID),

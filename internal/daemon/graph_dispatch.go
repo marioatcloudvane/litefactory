@@ -30,6 +30,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		return err
 	}
 	for _, dispatch := range pending {
+		ctx := sessionContext(ctx, dispatch.SessionID)
 		if d.bug != nil {
 			if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
 				d.log.ErrorContext(ctx, "graph dispatch refused; retained work unchanged", slog.Int64("dispatch_id", dispatch.ID), slog.Any("error", err))
@@ -75,7 +76,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			continue
 		}
 		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, issue: issue, log: log, tickAt: at}
-		if _, held := d.backoff.hold(at); held {
+		if _, held := d.connectionHold(ctx, at); held {
 			continue
 		}
 		if !d.enterDoctorGuarded(ctx, session.ID) {
@@ -115,6 +116,7 @@ const graphChainLimit = 32
 // tick keeps busy, such as a graph Plan parent observed every tick for child
 // replies, can never starve its own owed stage.
 func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
+	ctx = sessionContext(ctx, t.session.ID)
 	if d.db == nil || d.forge == nil {
 		return
 	}
@@ -124,7 +126,7 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 		if ctx.Err() != nil || d.stoppedDebt.owes(t.session.ID) {
 			return
 		}
-		if _, held := d.backoff.hold(t.tickAt); held {
+		if _, held := d.connectionHold(ctx, t.tickAt); held {
 			return
 		}
 		dispatch, ok, err := d.db.NextFreshGraphDispatch(ctx, t.session.ID)

@@ -70,6 +70,9 @@ func (s *linearWorkflowServer) addReply(id, body, actor string) {
 	s.comments[id] = map[string]any{"id": id, "body": body, "user": s.actor(actor), "issue": s.issues["parent-uuid"], "createdAt": time.Now().UTC().Add(time.Hour + time.Duration(len(s.comments))*time.Second).Format(time.RFC3339), "updatedAt": time.Now().UTC().Add(time.Hour + time.Duration(len(s.comments))*time.Second).Format(time.RFC3339), "url": "https://linear.app/test/comment/" + id}
 }
 func (s *linearWorkflowServer) serve(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-RateLimit-Requests-Limit", "5000")
+	w.Header().Set("X-RateLimit-Requests-Remaining", "4900")
+	w.Header().Set("X-RateLimit-Requests-Reset", fmt.Sprint(time.Now().Add(24*time.Hour).UnixMilli()))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if r.Method != http.MethodPost || r.Header.Get("Authorization") != "test-linear-token" {
@@ -320,8 +323,8 @@ func TestLinearTicketWorkflow(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	recoveryDaemon := &Daemon{db: db, connections: factory, log: logger}
 	now := time.Now()
-	recoveryDaemon.discovery.tick(now)
-	recoveryDaemon.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: now.Add(time.Hour), StatusCode: http.StatusOK})
+	recoveryDaemon.quotas.tick(now)
+	factory.SetRequestContext(recoveryDaemon.bindQuotaRequest)
 	queue := &repoQueue{repo: repo, forgeRepo: githubRepo(version.Destination), log: logger}
 	seen := make(map[int64]*candidate)
 	linearWorkflowCheck(t, recoveryDaemon.drainTicketObservations(ctx, map[int64]*repoQueue{repo.ID: queue}, seen))
@@ -758,8 +761,8 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 				if bodyTrigger {
 					d = &Daemon{db: db, connections: factory, reporter: reporter, log: logger}
 					task.tickAt = task.tickAt.Add(time.Hour)
-					d.discovery.tick(task.tickAt)
-					d.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 4999, Reset: task.tickAt.Add(time.Hour), StatusCode: http.StatusOK})
+					d.quotas.tick(task.tickAt)
+					factory.SetRequestContext(d.bindQuotaRequest)
 					// Bootstrap sees the visible bot reply, yet must reconcile
 					// the original obligation before its eligibility gates.
 					recoveryCtx := context.WithValue(sessionContext(ctx, session.ID), recoveryTickKey{}, task.tickAt)
@@ -796,8 +799,8 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 				t.Fatal("confirmed refusal did not consume source")
 			}
 
-			d.discovery.tick(task.tickAt)
-			d.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 4999, Reset: task.tickAt.Add(time.Hour), StatusCode: http.StatusOK})
+			d.quotas.tick(task.tickAt)
+			factory.SetRequestContext(d.bindQuotaRequest)
 			if bodyTrigger {
 				// This fixture invokes the admitted body directly; retire its
 				// separately-created comment fixture before polling.

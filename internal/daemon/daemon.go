@@ -473,6 +473,7 @@ type Daemon struct {
 
 	discovery          discoveryBudget
 	backoff            backoff
+	quotas             connectionQuotas
 	inflight           inflight
 	stoppedDebt        stoppedResults
 	recoveries         reportRecoveryCache
@@ -578,6 +579,9 @@ func New(opts Options) (*Daemon, error) {
 		pool:         newPool(maxRuns),
 
 		repoSessionCursor: make(map[int64]int64),
+	}
+	if d.connections != nil {
+		d.connections.SetRequestContext(d.bindQuotaRequest)
 	}
 	if opts.Webhook != nil {
 		d.webhook = newWebhookRuntime(*opts.Webhook, opts.Logger)
