@@ -13,8 +13,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -1427,4 +1429,47 @@ func (f *fixture) newLowDiskDaemon(minFree uint64, read func(string) (uint64, er
 		f.t.Fatalf("build the daemon: %v", err)
 	}
 	return d
+}
+
+func TestBugIssueBodyStartsAtFirstSight(t *testing.T) {
+	for _, assigned := range []bool{false, true} {
+		name := "unassigned"
+		if assigned {
+			name = "assigned"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			// The executor records the request; concrete runtime execution is
+			// covered by turn's Bug bootstrap fixture.
+			runtime, err := turn.NewGraphBugRuntime(t.Context(), turn.Options{DB: f.db, Git: new(git.Binary), CloneGate: unusedRecoveryCloneGate{}, ResearchReporter: f.reporter, MCP: &turn.MCPRuntime{Redactor: redact.New(redact.Options{Logger: f.logger}), BotID: botID}}, turn.BugRuntimeConfig{Forge: f.client, OwnerID: ownerID, Permissions: func(agent.Kind, string) (turn.BugRolePermissions, error) {
+				return turn.BugRolePermissions{}, nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.daemon = f.newDaemon(daemon.Options{Bug: runtime})
+			f.plantCursor()
+			issue := fakeIssue{Number: testIssue, Title: "Bug bootstrap", Body: "Investigate this failure", User: owner(), Labels: []fakeLabel{{Name: "bug"}}}
+			if assigned {
+				issue.Assignees = []fakeUser{owner()}
+			}
+			f.forge.addIssue(issue)
+			f.settle()
+			calls := f.turns.calls()
+			if len(calls) != 1 {
+				t.Fatalf("calls=%d logs=%s", len(calls), f.logs)
+			}
+			req := calls[0]
+			if req.Workflow != agent.WorkflowBug || req.Trigger.CommentID != 0 || req.Trigger.AuthorID != ownerID || req.Command.Text != issue.Body || req.Issue.Body != issue.Body {
+				t.Fatalf("wrong Bug body request: %+v", req)
+			}
+			if f.watermark() != 0 {
+				t.Fatal("body advanced comment watermark")
+			}
+			f.settle()
+			if len(f.turns.calls()) != 1 {
+				t.Fatal("body was replayed")
+			}
+		})
+	}
 }
