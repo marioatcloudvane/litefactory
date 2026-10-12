@@ -9,8 +9,9 @@ authenticated coding agent.
 1. [Install litefactory and prerequisites](installation.md).
 2. [Set up GitHub](github-setup.md): owner, bot, token, repository registration,
    daemon and optional webhooks.
-3. Optional: [set up Discord](../discord.md) for chat and task notices.
-4. [Request your first Research run](#request-your-first-research-run) below.
+3. For Linear tickets, [set up Linear](../project-connections.md#linear-tickets-with-github-code) after registering GitHub code.
+4. Optional: [set up Discord](../discord.md) for chat and task notices.
+5. [Request your first Research run](#request-your-first-research-run) below.
 
 GitHub setup already covers `litefactory init`, registering your clone with
 `litefactory repo add` and starting the daemon. If you have done those steps,
@@ -27,7 +28,8 @@ litefactory daemon status    # agent loaded, a recent tick
 
 `litefactory init` should show two different accounts as owner and bot. A warning
 about the bot is unfinished setup, even if the configuration and database were
-created. Specialist teams are optional; see the [CLI reference](../cli/command-reference.md).
+created. Confirm a verified human ticket approver and an installed team linked
+to the clone, with a compatible stack profile; [GitHub step 4](github-setup.md#step-4-register-your-repository) covers both.
 
 ## Start the daemon
 
@@ -45,17 +47,34 @@ if the process exits or no tick completes.
 
 ## Request your first Research run
 
-Create an issue in the registered repository. As the configured owner, post this
-as a **new issue comment**:
+After appointment and ticket-source enrollment, create an open issue **as the
+human ticket approver**, in the configured GitHub repository or connected Linear
+team/project. The publishing bot cannot instruct work. For Linear, use the
+mapped `research` team label, or allow mode inference (all inferred modes still
+need label mappings).
+
+For the body path, put this instruction in a new, nonempty issue body and leave
+it without comments until the factory first sees it:
 
 ```text
 /research Explain this repository's main components and propose a small documentation improvement. Do not implement changes.
 ```
 
-The factory reads owner comments when a webhook
-arrives or at the next poll, runs Research (the `/research` word selects it) and
-prepares a task worktree. Comments from anyone but the owner are ignored. Capacity, backoff and
-access problems can delay dispatch; posting is not a start-time guarantee.
+An eligible approver-authored body is the first instruction. It must contain an
+actionable request, have no factory marker or existing comments, satisfy the
+appointment activation boundary and not predate source enrollment. Creating it
+after setup avoids those historical boundaries.
+
+For an existing issue or an ineligible body, wait until the daemon has first
+seen it (check the task's first-sight entry in the daemon logs), then post the
+same request as a **new comment** from the approver. Historical comments are
+skipped at bootstrap; for enrolled ticket sources, comments created at or after
+enrollment are retained for processing even if posted before first sight.
+Do not depend on old comments or edit one to authorize new work. See
+[daemon and logs](../operations/running-the-daemon.md) for log access.
+
+A webhook or poll discovers work. Capacity, backoff and access problems can
+delay dispatch; posting is not a start-time guarantee.
 
 Expect a bot run report naming the run and its result, with a research brief
 link when produced. Research may ask a question on the issue; answer there.
