@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/webhook"
 )
 
@@ -20,26 +21,48 @@ import (
 // reached since the daemon started.
 const daemonNoDelivery = "none since start"
 
+type daemonHealth struct {
+	store.HealthSnapshot
+	unsupportedDoctor []store.Repo
+}
+
 // readHealthSnapshot reads the snapshot the daemon published, opening and
 // closing the database at once like [lastTickTime]: `daemon status` must not hold
 // a connection while the daemon is writing. The snapshot is display-only.
-func readHealthSnapshot(ctx context.Context, paths config.Paths) (_ store.HealthSnapshot, err error) {
+func readHealthSnapshot(ctx context.Context, paths config.Paths) (_ daemonHealth, err error) {
 	if _, statErr := os.Stat(paths.DBPath()); statErr != nil {
 		if errors.Is(statErr, fs.ErrNotExist) {
-			return store.HealthSnapshot{}, Preconditionf("no litefactory database at %s: run `litefactory init` first", paths.DBPath())
+			return daemonHealth{}, Preconditionf("no litefactory database at %s: run `litefactory init` first", paths.DBPath())
 		}
-		return store.HealthSnapshot{}, fmt.Errorf("read %s: %w", paths.DBPath(), statErr)
+		return daemonHealth{}, fmt.Errorf("read %s: %w", paths.DBPath(), statErr)
 	}
 	db, err := store.Open(ctx, paths.DBPath())
 	if err != nil {
-		return store.HealthSnapshot{}, err
+		return daemonHealth{}, err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
 	snap, err := db.ReadHealthSnapshot(ctx)
 	if err != nil {
-		return store.HealthSnapshot{}, err
+		return daemonHealth{}, err
 	}
-	return snap, nil
+	repos, err := db.ListRepos(ctx)
+	if err != nil {
+		return daemonHealth{}, err
+	}
+	health := daemonHealth{HealthSnapshot: snap}
+	for _, repo := range repos {
+		connection, err := db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return daemonHealth{}, err
+		}
+		if connection.Enabled && connection.Provider == ticket.Linear {
+			health.unsupportedDoctor = append(health.unsupportedDoctor, repo)
+		}
+	}
+	return health, nil
 }
 
 // printDaemonHealth writes the webhook listener line, the snapshot's age and
@@ -184,4 +207,13 @@ func daemonSecret(r store.RepoDiscoveryStatus, listening bool) string {
 	default:
 		return "not needed (listener off)"
 	}
+}
+
+// This is current configuration, independent of the daemon's recorded snapshot.
+func printDoctorConfiguration(w io.Writer, repos []store.Repo) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, repo := range repos {
+		fmt.Fprintf(tw, "project %s\tbackground Doctor discovery unsupported/skipped for Linear (current configuration)\n", repo.Slug())
+	}
+	return tw.Flush()
 }
