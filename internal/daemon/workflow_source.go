@@ -14,11 +14,21 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teampackage"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
+
+// workflowRefusal identifies only owner-fixable admission failures.
+type workflowRefusal struct {
+	kind  report.ReplyKind
+	cause error
+}
+
+func (e *workflowRefusal) Error() string { return e.cause.Error() }
+func (e *workflowRefusal) Unwrap() error { return e.cause }
 
 func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSourceResolver, error) {
 	manager, err := teampackage.New(teampackage.Options{Paths: paths, Validate: turn.ValidateTeamWorkflows, InUse: func(ctx context.Context, id teampackage.Identity) ([]string, error) {
@@ -32,7 +42,7 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 			binding, e := db.GetRepositoryTeamBinding(ctx, repo.ID)
 			if e != nil {
 				if errors.Is(e, store.ErrNotFound) {
-					return fmt.Errorf("repository %s requested workflow %s has no linked installed team: %w", repo.Path, workflow, e)
+					return &workflowRefusal{kind: report.ReplyMissingTeam, cause: fmt.Errorf("repository %s requested workflow %s has no linked installed team: %w", repo.Path, workflow, e)}
 				}
 				return e
 			}
@@ -47,7 +57,7 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 						available = append(available, mode)
 					}
 					slices.Sort(available)
-					return fmt.Errorf("repository %s: team %s %s from %s lacks requested workflow %s; available workflows: %s", repo.Path, binding.Slug, binding.Version, binding.Source, workflow, strings.Join(available, ", "))
+					return &workflowRefusal{kind: report.ReplyUnsupportedWorkflow, cause: fmt.Errorf("repository %s: team %s %s from %s lacks requested workflow %s; available workflows: %s", repo.Path, binding.Slug, binding.Version, binding.Source, workflow, strings.Join(available, ", "))}
 				}
 				raw, e := fs.ReadFile(source, graph)
 				if e != nil {

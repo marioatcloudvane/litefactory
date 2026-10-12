@@ -208,6 +208,16 @@ func (db *DB) CompleteReportDelivery(ctx context.Context, key string) (ReportDel
 				return err
 			}
 		}
+		// A confirmed runless body refusal settles initialization in the same
+		// transaction. A crash must not reopen this instruction after repair.
+		if !graph && d.RunID == 0 && d.TriggerNamespace == "issue-body" {
+			if _, err := tx.ExecContext(ctx, `UPDATE mode_selections SET cleanup_pending=1 WHERE session_id=? AND trigger_comment_id=0`, d.SessionID); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE watermarks SET ticket_body_pending=0 WHERE session_id=?`, d.SessionID); err != nil {
+				return err
+			}
+		}
 		out, err = scanReportDelivery(tx.QueryRowContext(ctx, `UPDATE report_deliveries SET completed=1 WHERE delivery_key=? RETURNING `+reportDeliveryColumns, key))
 		return err
 	})

@@ -300,6 +300,9 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		var actorID int64
 		switch {
 		case sessionErr == nil:
+			if d.prepFailures.held(session.ID, recoveryTime(ctx)) || d.sessionRecoveryHeld(session.ID, recoveryTime(ctx)) {
+				continue
+			}
 			held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
 			if err != nil {
 				return err
@@ -374,6 +377,10 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			continue
 		}
 		if err != nil {
+			d.rateLimited(ctx, q.log, recoveryTime(ctx), err)
+			if sessionErr == nil {
+				d.prepareFailed(ctx, &task{session: session, log: q.log, tickAt: recoveryTime(ctx)}, err)
+			}
 			q.log.WarnContext(ctx, "pending ticket reread deferred", slog.Any("error", err))
 			continue
 		}
