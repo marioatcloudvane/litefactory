@@ -579,6 +579,14 @@ func commitAndPush(
 	}
 	defer release()
 
+	clone, err := opts.Git.Open(ctx, prep.repo.Path)
+	if err == nil {
+		err = verifyExecutionClone(ctx, opts, prep.session, clone)
+	}
+	if err != nil {
+		result.Err = err
+		return result
+	}
 	commit, err := prep.worktree.Commit(ctx, git.CommitOptions{
 		// Untrusted: claude wrote it. internal/git strips any forged
 		// Litefactory- line out of it before the real trailers are appended

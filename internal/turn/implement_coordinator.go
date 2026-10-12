@@ -43,7 +43,7 @@ func (rt *implementRuntime) bind(ctx context.Context, opts Options, _ ActivityRe
 	if strings.TrimSpace(session.Branch) == "" {
 		return ImplementAuthority{}, errors.New("the feature branch of this task does not exist yet, so stories have nothing to merge into")
 	}
-	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
+	repo, err := executionRepository(ctx, opts.DB, session)
 	if err != nil {
 		return ImplementAuthority{}, err
 	}

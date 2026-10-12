@@ -93,6 +93,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("validation_assessments", byRunTask),
 	archived("owner_exceptions", byTask),
 	// Delivery.
+	archived("delivery_pr_bindings", bySession),
 	archived("delivery_proposals", byTask),
 	archived("delivery_readiness", byTask),
 	// Metering.
@@ -212,6 +213,10 @@ var archiveRetained = map[string]ArchiveClass{
 	// The family skeleton and the per-task structure that identifies it.
 	"sessions": ArchiveClassSkeleton, "segments": ArchiveClassSkeleton, "runs": ArchiveClassSkeleton,
 	"watermarks": ArchiveClassSkeleton, "retirement_intents": ArchiveClassSkeleton,
+	"session_ticket_identities": ArchiveClassSkeleton, "ticket_effect_identities": ArchiveClassSkeleton,
+	"session_execution_snapshots": ArchiveClassSkeleton,
+	"ticket_effect_preparations":  ArchiveClassSkeleton,
+	"delivery_code_authorities":   ArchiveClassSkeleton, "delivery_control_sources": ArchiveClassSkeleton,
 	"managed_features": ArchiveClassSkeleton, "managed_stories": ArchiveClassSkeleton,
 	"managed_parent_closures": ArchiveClassSkeleton, "approved_story_revisions": ArchiveClassSkeleton,
 	"story_publications": ArchiveClassSkeleton, "story_revision_operations": ArchiveClassSkeleton,
@@ -242,8 +247,22 @@ var archiveRetained = map[string]ArchiveClass{
 	"chat_notices":           ArchiveClassGlobal,
 	"chat_notice_positions":  ArchiveClassGlobal,
 	"daemon_listener_status": ArchiveClassGlobal, "repo_discovery_status": ArchiveClassGlobal,
-	"repository_team_bindings": ArchiveClassGlobal,
-	"schema_migrations":        ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
+	"repository_team_bindings":    ArchiveClassGlobal,
+	"project_connection_versions": ArchiveClassGlobal, "project_connections": ArchiveClassGlobal,
+	"project_ticket_bindings": ArchiveClassGlobal, "project_connection_observations": ArchiveClassGlobal,
+	"project_connection_imports":    ArchiveClassGlobal,
+	"project_approver_appointments": ArchiveClassGlobal, "project_approvers": ArchiveClassGlobal,
+	"project_authority_claims": ArchiveClassGlobal, "project_approver_initialization": ArchiveClassGlobal,
+	"project_legacy_approver_eligibility": ArchiveClassGlobal, "project_legacy_approver_identities": ArchiveClassGlobal,
+	"project_legacy_authority_evidence": ArchiveClassGlobal,
+	"doctor_command_sources":            ArchiveClassGlobal,
+	// Subscription ownership and source recovery survive individual task archival.
+	// Pending signals can precede session admission; generations never reset.
+	"ticket_subscriptions": ArchiveClassGlobal, "ticket_subscription_operations": ArchiveClassGlobal,
+	"ticket_recovery_positions": ArchiveClassGlobal, "pending_ticket_observations": ArchiveClassGlobal,
+	"ticket_observation_generations": ArchiveClassGlobal,
+	"ticket_local_slots":             ArchiveClassGlobal,
+	"schema_migrations":              ArchiveClassGlobal, "sqlite_sequence": ArchiveClassGlobal, "mcp_runtime": ArchiveClassGlobal,
 	"retirement_sweep": ArchiveClassGlobal, "archive_sweep": ArchiveClassGlobal,
 	planArchiveGrantsTable: ArchiveClassGlobal,
 	// Rights are keyed by repository, never archived or deleted.

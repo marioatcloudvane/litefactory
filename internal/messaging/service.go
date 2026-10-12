@@ -54,6 +54,9 @@ type CommandDefinition struct {
 type Target struct {
 	Transport, MessageID, Channel, Handle string
 	Protected                             bool
+	// Notice marks an unsolicited channel notice; transports suppress link
+	// previews for it.
+	Notice bool
 }
 
 // Delivery describes confirmation or permanent/temporary failure. Route and

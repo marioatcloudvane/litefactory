@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // OwnerGrantCommand is an exact public content fingerprint, not a secret.
@@ -31,14 +33,18 @@ type OwnerGrantControl struct {
 	CommentID, ActorID                 int64
 	CreatedAt, UpdatedAt               time.Time
 	Bot                                bool
+	Actor, Source                      ticket.Identity
 }
 
 // CreationAuthorizerOptions fixes the loaded gate and trusted numeric control identities.
 type CreationAuthorizerOptions struct {
-	Store          *store.CreationStore
-	SourceOutcomes CreationSourceOutcomes
-	Enabled        bool
-	OwnerID, BotID int64
+	// ProjectApprovers resolves ticket authority through the trusted source task.
+	ProjectApprovers bool
+	DB               *store.DB
+	Store            *store.CreationStore
+	SourceOutcomes   CreationSourceOutcomes
+	Enabled          bool
+	OwnerID, BotID   int64
 }
 
 // CreationSourceOutcomes observes admitted history without authorizing a new
@@ -51,18 +57,20 @@ type CreationSourceOutcomes interface {
 // CreationAuthorizer is factory-owned. Configuration/owner identities are copied
 // at construction; no method changes them and no model-facing mint API exists.
 type CreationAuthorizer struct {
-	store          *store.CreationStore
-	sourceOutcomes CreationSourceOutcomes
-	enabled        bool
-	ownerID, botID int64
+	projectApprovers bool
+	db               *store.DB
+	store            *store.CreationStore
+	sourceOutcomes   CreationSourceOutcomes
+	enabled          bool
+	ownerID, botID   int64
 }
 
 // NewCreationAuthorizer constructs immutable factory-owned creation policy.
 func NewCreationAuthorizer(o CreationAuthorizerOptions) (*CreationAuthorizer, error) {
-	if o.Store == nil || o.OwnerID < 1 || o.BotID < 1 || o.OwnerID == o.BotID {
+	if o.Store == nil || (!o.ProjectApprovers && o.OwnerID < 1) || (o.ProjectApprovers && o.DB == nil) || o.BotID < 1 || o.OwnerID == o.BotID {
 		return nil, store.ErrCreationAuthority
 	}
-	return &CreationAuthorizer{store: o.Store, sourceOutcomes: o.SourceOutcomes, enabled: o.Enabled, ownerID: o.OwnerID, botID: o.BotID}, nil
+	return &CreationAuthorizer{projectApprovers: o.ProjectApprovers, db: o.DB, store: o.Store, sourceOutcomes: o.SourceOutcomes, enabled: o.Enabled, ownerID: o.OwnerID, botID: o.BotID}, nil
 }
 
 func (a *CreationAuthorizer) outcomes() CreationSourceOutcomes {
@@ -107,11 +115,38 @@ func (a *CreationAuthorizer) RetainProposalForRun(ctx context.Context, runID int
 }
 
 // AdmitOwnerGrantIntent verifies control provenance before recording exact owner intent.
-func (a *CreationAuthorizer) AdmitOwnerGrantIntent(ctx context.Context, c OwnerGrantControl) (int64, error) {
+func (a *CreationAuthorizer) AdmitOwnerGrantIntent(ctx context.Context, c OwnerGrantControl) (intentID int64, outErr error) {
 	if a == nil || a.store == nil {
 		return 0, fmt.Errorf("creation owner intake unavailable: %w", store.ErrCreationAuthority)
 	}
-	if c.Bot || c.ActorID == a.botID || c.ActorID != a.ownerID || c.CommentID < 1 || c.CreatedAt.IsZero() {
+	ownerID := a.ownerID
+	var claim store.AuthorityClaim
+	if a.projectApprovers {
+		session, err := a.db.GetSessionByTaskRef(ctx, c.SourceTask)
+		if err != nil {
+			return 0, err
+		}
+		opts, err := bindProjectApprover(ctx, Options{DB: a.db, ProjectApprovers: true}, session.ID)
+		if err != nil {
+			return 0, err
+		}
+		ownerID, err = ticketOwnerID(ctx, opts)
+		if err != nil {
+			return 0, err
+		}
+		if c.ActorID <= 0 || strconv.FormatInt(c.ActorID, 10) != c.Actor.RemoteID {
+			return 0, store.ErrCreationAuthority
+		}
+		ap := opts.TicketApprover
+		claim, err = a.db.ClaimProjectAuthority(ctx, store.AuthorityClaim{RepoID: ap.RepoID, AppointmentID: ap.ID, Revision: ap.Revision, Actor: c.Actor, Source: c.Source, CreatedAt: c.CreatedAt, Kind: "creation-approval", Key: c.SourceTask + ":" + strconv.FormatInt(c.CommentID, 10)})
+		if err != nil {
+			return 0, err
+		}
+		defer func() {
+			outErr = errors.Join(outErr, a.db.CompleteProjectAuthority(context.WithoutCancel(ctx), claim.ID))
+		}()
+	}
+	if c.Bot || c.ActorID == a.botID || c.ActorID != ownerID || c.CommentID < 1 || c.CreatedAt.IsZero() {
 		return 0, rejectCreation("controls", store.ErrCreationAuthority)
 	}
 	// A recorded admission is history, not a new request for authority. Observe
@@ -128,7 +163,7 @@ func (a *CreationAuthorizer) AdmitOwnerGrantIntent(ctx context.Context, c OwnerG
 	if err != nil {
 		return 0, err
 	}
-	return a.store.AdmitOwnerIntent(ctx, store.CreationApproval{Repository: c.Repository, SourceTask: c.SourceTask, ProposalHash: command.ProposalHash, CommentID: c.CommentID, OwnerID: a.ownerID, ActorID: c.ActorID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, Bot: c.Bot}, command.Relationship)
+	return a.store.AdmitOwnerIntent(ctx, store.CreationApproval{Repository: c.Repository, SourceTask: c.SourceTask, ProposalHash: command.ProposalHash, CommentID: c.CommentID, OwnerID: ownerID, ActorID: c.ActorID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, Bot: c.Bot}, command.Relationship)
 }
 
 // ReconcileOperation records factory-observed history without issuing dispatch authority.

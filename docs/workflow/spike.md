@@ -1,5 +1,7 @@
 # Spike
 
+[Documentation](../README.md) · [Workflow guide](../guides/workflow.md)
+
 Spike answers one narrow question with a small, time-boxed experiment. It writes
 `SPIKE.md` in the session directory, reports once, and never creates a Plan or
 opens a pull request by itself. If the question needs more than a small change, it
@@ -7,7 +9,7 @@ hands back with a recommendation.
 
 ## Activation
 
-Spike runs only on the graph. Every new eligible `/spike` session is admitted to
+Spike runs only on the graph. Start it with `/spike <question>` or `Mode: Spike` (see [owner commands](../guides/owner-commands.md)). Every new eligible Spike session is admitted to
 the graph once, before anything is dispatched, and stays on it: a session that
 already has graph work resumes through its retained admission. There is no
 repository setting for the route. A leftover `.litefactory/spike.yaml` from the

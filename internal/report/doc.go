@@ -24,7 +24,11 @@
 // caller. Keeping the two apart is what makes every body in here assertable in
 // a unit test with no fixtures.
 //
-// # Links, without a forge client
+// Ticket browser links arrive as provider-returned display values. Rendering
+// validates their URL shape but never uses them as authority or mutation targets.
+// Legacy prepared reports retain their original link bytes.
+//
+// # Code links, without a forge client
 //
 // A run report links the session's research brief, so the short version on the
 // issue reaches the long one in a click. The URL is built here, from

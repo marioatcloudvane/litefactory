@@ -22,7 +22,13 @@ import (
 // ValidateForge is the forge Validate's owner steps use: the delivery calls that
 // Bug finalization combines today, plus the follow-up issue calls.
 type ValidateForge interface {
-	DeliveryOperations
+	BugCodeForge
+	ValidateTickets
+}
+
+// ValidateTickets contains ticket lifecycle and follow-up publication only.
+type ValidateTickets interface {
+	BugCloseForge
 	ListFollowupIssues(context.Context, github.Repo) ([]github.Issue, error)
 	CreateIssue(context.Context, github.Repo, redact.Body, redact.Body) (github.Issue, error)
 	SetStoryState(ctx context.Context, repo github.Repo, parentNumber int, parentID int64, number int, issueID int64, completed bool) error
@@ -70,6 +76,8 @@ func (t ValidateDeliveryTarget) CloseSet() []int {
 // comes from factory state, never from agent or comment text.
 type ValidateDelivery struct {
 	Forge    ValidateForge
+	Code     BugCodeForge
+	Tickets  ValidateTickets
 	Redactor *redact.Redactor
 	// Target names the repository, branch, base, parent and accepted stories.
 	Target func(ctx context.Context, opts Options, req ActivityRequest) (ValidateDeliveryTarget, error)
@@ -83,7 +91,7 @@ type ValidateDelivery struct {
 }
 
 func (d ValidateDelivery) ready() bool {
-	return d.Forge != nil && d.Redactor != nil && d.Target != nil && d.Head != nil && d.Publish != nil && d.OwnerID != nil
+	return d.code() != nil && d.tickets() != nil && d.Redactor != nil && d.Target != nil && d.Head != nil && d.Publish != nil && d.OwnerID != nil
 }
 
 // validateWorkflowComment judges the one comment the Validate graph publishes
@@ -318,4 +326,17 @@ func validateQuestionCandidate(st ValidateState, closeSet []int, notice string) 
 		c.Questions = append(c.Questions, agentresult.Question{ID: fmt.Sprintf("q%d", i+1), Audience: "business", Text: o})
 	}
 	return c
+}
+
+func (d ValidateDelivery) code() BugCodeForge {
+	if d.Code != nil {
+		return d.Code
+	}
+	return d.Forge
+}
+func (d ValidateDelivery) tickets() ValidateTickets {
+	if d.Tickets != nil {
+		return d.Tickets
+	}
+	return d.Forge
 }

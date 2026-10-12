@@ -45,6 +45,8 @@ Return reshape with all reasons and partial-work evidence before materially chan
 
 The factory alone grants approval, allocates attempts, saves checkpoints or successful changes, pushes, publishes, merges and closes. Do not commit, push, reset, stash, rebase, access forge credentials or modify authorization, counters, recipes or delivery state. A receipt grants no process success, source freshness or delivery authority.
 
+Never test against production. Where the repository authorizes tests against a running service, first establish a test or staging URL (`TEST_BASE_URL`) and, when a real external test database is needed, a dedicated one (`TEST_DATABASE_URL`). If either is missing or ambiguous, refuse that run and say what is missing. Never expose credentials in reports.
+
 # Writing the Report
 
 Explain the repaired behavior, actual checks and remaining obstacles in the structured result. Preserve relevant evidence and reasons.

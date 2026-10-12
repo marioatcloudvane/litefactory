@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -218,10 +221,58 @@ func TestImplementWorkerIncompleteRetriesWithItsReasonThenParksWithItsOwnWords(t
 	}
 }
 
-// TestImplementReleasedGraphStillParksStoppedAtOnce runs the released 1.2.5
-// graph, which declares completed,stopped: incomplete and blocked answers both
-// return stopped and park at once without counting an attempt.
+// releasedStoppedImplement returns the catalogue's go-development implement
+// package with its graph in the earlier completed,stopped result shape, which
+// running instances captured from older releases still use.
+func releasedStoppedImplement(t *testing.T) fstest.MapFS {
+	t.Helper()
+	var download string
+	for _, d := range catalogueDownloads(t) {
+		if strings.HasPrefix(d, "go-development/") {
+			download = d
+		}
+	}
+	if download == "" {
+		t.Fatal("the catalogue ships no go-development release")
+	}
+	dir := os.DirFS(filepath.Join("..", "..", "teams", filepath.FromSlash(download), "implement"))
+	files := fstest.MapFS{}
+	err := fs.WalkDir(dir, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		raw, err := fs.ReadFile(dir, name)
+		if err != nil {
+			return err
+		}
+		files[name] = &fstest.MapFile{Data: raw, Mode: 0o644}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph, ok := files["implement.dot"]
+	if !ok {
+		t.Fatal("the released implement package has no graph")
+	}
+	shape := string(graph.Data)
+	if !strings.Contains(shape, `lf_outcomes="completed,stopped"`) {
+		shape = strings.Replace(shape, `lf_outcomes="completed,incomplete,blocked"`, `lf_outcomes="completed,stopped"`, 1)
+		shape = regexp.MustCompile(`(?m)^[ \t]*worker_result[ \t]*->[ \t]*budget[ \t]*\[lf_on="incomplete"\];\n`).ReplaceAllString(shape, "")
+		shape = regexp.MustCompile(`(worker_result[ \t]*->[ \t]*park_story[ \t]*)\[lf_on="blocked"\]`).ReplaceAllString(shape, `${1}[lf_on="stopped"]`)
+	}
+	if !strings.Contains(shape, `lf_outcomes="completed,stopped"`) || !strings.Contains(shape, `[lf_on="stopped"]`) || strings.Contains(shape, `[lf_on="incomplete"]`) {
+		t.Fatal("the released implement graph has no derivable stopped shape")
+	}
+	graph.Data = []byte(shape)
+	return files
+}
+
+// TestImplementReleasedGraphStillParksStoppedAtOnce runs the catalogue's released
+// implement package in the earlier completed,stopped shape: incomplete and
+// blocked answers both return stopped and park at once without counting an attempt.
 func TestImplementReleasedGraphStillParksStoppedAtOnce(t *testing.T) {
+	released := releasedStoppedImplement(t)
 	for name, tc := range map[string]struct{ json, reason string }{
 		"blocked":    {implementBlockedJSON, "payment API key"},
 		"incomplete": {implementIncompleteJSON, "second endpoint"},
@@ -235,7 +286,7 @@ func TestImplementReleasedGraphStillParksStoppedAtOnce(t *testing.T) {
 			})
 			f, _, req := assembledImplementFixture(t, runner)
 			f.opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-				return fixtureInstalled(teamsource.CaptureWorkflow(ctx, os.DirFS("../../teams/go-development/v1.2.5/implement"), "implement.dot", "go-development", agent.ModeImplement, specs))
+				return fixtureInstalled(teamsource.CaptureWorkflow(ctx, released, "implement.dot", "go-development", agent.ModeImplement, specs))
 			}
 			seedImplementStory(t, f)
 			if _, err := Execute(t.Context(), f.opts, req); err != nil {

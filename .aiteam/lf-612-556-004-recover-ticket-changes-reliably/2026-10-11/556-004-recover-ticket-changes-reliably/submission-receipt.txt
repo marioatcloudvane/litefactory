@@ -1,0 +1,8 @@
+request_id: cd5e21b6169e510e35203679eae89747
+receipt_id: 976
+input: accepted
+validation: valid and complete; no diagnostics or unchecked paths
+reported outcome: completed
+engineering receipt state: pending
+acceptance receipt state: pending
+publication receipt state: pending

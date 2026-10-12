@@ -1,14 +1,17 @@
 # Workflow
 
-Use an explicit mode to tell the factory what result you need. Prerequisites: a registered repository, running daemon and configured owner/bot identities.
+[Documentation](../README.md) · [Using the factory](README.md)
 
-| Mode | Result |
-| --- | --- |
-| Research | Investigates the codebase/problem and saves research context. |
-| Plan | Resolves scope and produces a proposal; the factory publishes managed child stories. |
-| Implement | Builds frozen approved stories and executes checks. |
-| Validate | Assesses retained evidence read-only; does not edit or execute fresh checks. |
-| Spike | Performs a small experiment or ad-hoc change. |
+Tell the factory what result you want by choosing a mode. You need a registered repository, a running daemon and configured owner and bot identities (see [getting started](../getting-started/README.md)).
+
+| Mode | Result | Details |
+| --- | --- | --- |
+| Research | Investigates the problem against the real code, asks you what it cannot decide, and saves a brief. | [Research](../workflow/research-graph.md) |
+| Plan | Splits the work into stories with acceptance criteria and gets your approval stage by stage. | [Plan](../workflow/plan-graph.md) |
+| Implement | Builds the approved stories, each in its own worktree, and merges them into a feature branch. | [Plan](../workflow/plan-graph.md#after-the-plan) |
+| Validate | Runs the full test suite on the result, reviews it, repairs a little if needed, and helps you ship. | [Validate](../workflow/validate.md) |
+| Spike | Answers one narrow question with a small experiment or one small fix. | [Spike](../workflow/spike.md) |
+| Bug | Diagnoses a bug, waits for your approval, fixes it and delivers the fix. | [Bug](../workflow/bug-runtime.md) |
 
 Start with an owner comment:
 
@@ -16,16 +19,22 @@ Start with an owner comment:
 /research Explain the current login flow and identify what a password reset needs.
 ```
 
-Expect a run report and, for Research, a saved brief. Continue with `/plan <instruction>`, then explicitly request `/implement <instruction>` when the published plan is ready. Request `/validate <instruction>` separately after engineering. Successful output does not advance the mode automatically.
+You get a run report and, for Research, a saved brief. Moving on is always your decision: ask for `/plan <instruction>`, then `/implement <instruction>` when the plan is approved, then `/validate <instruction>`. A successful run never moves the issue to the next mode by itself. (The one optional exception is `validate.auto_start` in the [configuration](../configuration/config-yaml.md), which starts Validate once Implement has merged every story.)
 
-The canonical mode label persists. An explicit mode command selects the next mode; ordinary comments continue the selected mode. With no selection, classification can select a mode. Malformed or multiple mode labels are refused. A locked managed feature pins ordinary work to Implement; its scope gate still controls which explicit transitions are allowed.
+## How the mode is chosen
 
-Research and Plan can ask material questions asynchronously in the issue thread. Reply in a later comment to continue; there is no terminal conversation waiting for input. An explicit instruction such as “no questions; proceed with assumptions” disables questions for that request. Implement, Validate and Spike do not gain question permission from `lf: ask`.
+- An explicit command (`/research`, `/plan`, `/implement`, `/validate`, `/spike`) picks the mode for that comment.
+- A plain comment continues the mode already chosen for the issue. If none has been chosen, the factory picks one.
+- The chosen mode is stored as a `Mode:` label. Two mode labels, or a malformed one, are refused. Exact syntax and the other labels are in [owner commands](owner-commands.md).
+- An issue with the `bug` label and no mode label or command is treated as a Bug task. A Bug task cannot be switched to another mode.
+- Once a plan is approved, ordinary work on that parent goes to Implement. An explicit `/plan` or the word `replan` reopens Plan; see [working with issues](working-with-issues.md).
 
-Plan publication and freezing are factory operations. A valid proposal receipt alone does not establish publication or implementation readiness. Implement receives complete immutable story revisions, not live mutable issue bodies. Engineering-complete dependencies can unblock work while their issues remain open.
+## Questions
 
-New separated workflows keep engineering and acceptance independent: Implement records executed checks; Validate evaluates retained evidence; factory acceptance projects criteria and closes eligible stories. Legacy scopes retain their older combined verification/completion route. Neither route makes an ordinary successful run an unconditional instruction to close or reopen stories. Historical acceptance remains tied to its snapshot; later work belongs in new issues.
+Research and Plan ask you questions in the issue thread when they need a decision. Answer in a normal comment; there is no terminal waiting for you, and waiting has no time limit. Writing "no questions" in your instruction turns questions off for that request. Implement, Validate and Spike do not ask, even with `lf: ask`.
 
-If a mode is refused, inspect the report for ambiguous labels, unpublished scope or locked stories. For changed requirements, use [parent replanning](working-with-issues.md). See [command syntax](issue-command-reference.md) and [validation and delivery](validation-and-delivery.md).
+## Approvals and separate results
 
-[Using the factory](README.md)
+Asking for review is not approval. Plan stages, Bug repairs, shipping, merging and story creation each need your own exact command, shown in the comment that asks for it. A run that succeeds does not mean the work is accepted or delivered; engineering, review, push, merge and closing are separate steps. See [validation and delivery](validation-and-delivery.md).
+
+If a mode is refused, read the reply: it names the cause, such as ambiguous labels or a Bug task being switched. For the exact commands, see [owner commands](owner-commands.md).

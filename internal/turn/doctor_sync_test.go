@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 )
@@ -498,6 +499,173 @@ func TestDoctorSyncBehindRefusalsPreserveHeads(t *testing.T) {
 			}
 			if remoteHead := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remoteHead != remote {
 				t.Fatalf("remote head changed to %s", remoteHead)
+			}
+		})
+	}
+}
+
+// TestDoctorSyncBaseMovedAfterApproval covers origin/<base> changing between
+// proposal and apply: a forward move still merges the pinned BaseHead, while
+// a rewrite that drops the approved BaseHead is refused unchanged.
+func TestDoctorSyncBaseMovedAfterApproval(t *testing.T) {
+	for _, rewritten := range []bool{false, true} {
+		t.Run(map[bool]string{false: "advanced", true: "rewritten"}[rewritten], func(t *testing.T) {
+			repo := gittest.New(t)
+			w := newSyncWorktree(t, repo, 685, "doctor base moved")
+			before, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+			if e != nil {
+				t.Fatal(e)
+			}
+			advanceSyncBase(t, repo, 1)
+			approved, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if rewritten {
+				repo.Git("reset", "--quiet", "--hard", before)
+				commitInSyncDir(t, repo, repo.Dir, "rewritten.txt", "rewritten base")
+				repo.Git("push", "--quiet", "--force", "origin", gittest.DefaultBranch)
+			} else {
+				commitInSyncDir(t, repo, repo.Dir, "later.txt", "later base")
+				repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+			}
+			repo.Git("fetch", "--quiet", "origin")
+			current, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+			if e != nil || current == approved {
+				t.Fatalf("base did not move: %s %v", current, e)
+			}
+			result, e := SyncDoctorBranch(t.Context(), DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: before, Base: "origin/" + gittest.DefaultBranch, BaseHead: approved, Author: syncTestAuthor, RecordBackup: func(context.Context, string) error { return nil }})
+			after, x := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+			if x != nil {
+				t.Fatal(x)
+			}
+			if rewritten {
+				if !errors.Is(e, doctor.ErrRepairBaseRewritten) || result.Rechecked || after != before {
+					t.Fatalf("rewritten base accepted %+v %v head %s", result, e, after)
+				}
+				return
+			}
+			if e != nil || !result.Rechecked || result.Head != after || result.BaseHead != approved {
+				t.Fatalf("forward base refused %+v %v", result, e)
+			}
+			if ok, x := w.IsAncestor(t.Context(), approved, after); x != nil || !ok {
+				t.Fatalf("merged head lacks approved base %v %v", ok, x)
+			}
+			if ok, x := w.IsAncestor(t.Context(), current, after); x != nil || ok {
+				t.Fatalf("merge retargeted to newer base %v %v", ok, x)
+			}
+			if remoteHead := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remoteHead != after {
+				t.Fatalf("remote head %s differs from rechecked head %s", remoteHead, after)
+			}
+		})
+	}
+}
+
+// docsConflictedDoctorSync makes base and branch edit docs/stack-profiles.md
+// differently, the plain markdown content conflict seen on #702.
+func docsConflictedDoctorSync(t *testing.T, advisor ConflictAdvisor) (*gittest.Repo, *git.Worktree, DoctorSyncOptions) {
+	t.Helper()
+	repo := gittest.New(t)
+	w := newSyncWorktree(t, repo, 702, "doctor docs conflict")
+	const doc = "docs/stack-profiles.md"
+	repo.WriteFile(doc, "# Stack profiles\n\nShared intro.\n")
+	repo.Commit("add docs")
+	repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+	repo.GitIn(w.Path(), "fetch", "--quiet", "origin")
+	repo.GitIn(w.Path(), "merge", "--quiet", "--ff-only", "origin/"+gittest.DefaultBranch)
+	repo.WriteFile(doc, "# Stack profiles\n\nBase rewrite of the intro.\n")
+	repo.Commit("base edits docs")
+	repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+	if e := os.WriteFile(filepath.Join(w.Path(), doc), []byte("# Stack profiles\n\nBranch rewrite of the intro.\n"), 0o600); e != nil {
+		t.Fatal(e)
+	}
+	repo.GitIn(w.Path(), "commit", "--quiet", "--all", "--message", "branch edits docs")
+	head, e := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	base, e := w.RevParse(t.Context(), "origin/"+gittest.DefaultBranch, git.RevParseOptions{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	return repo, w, DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: head, Base: "origin/" + gittest.DefaultBranch, BaseHead: base, Author: syncTestAuthor, Advisor: advisor, OperationID: 1, Task: "github:fixture/repo#702", Owner: "owner", Model: "test", RecordBackup: func(context.Context, string) error { return nil }}
+}
+
+// resolvingAdvisor answers every region with text.
+func resolvingAdvisor(text string, idSuffix string) ConflictAdvisor {
+	return doctorSyncAdvisorFunc(func(_ context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+		result := agent.ConflictResolution{Version: git.RegionProposalVersion}
+		for _, f := range req.Files {
+			out := agent.ConflictResolutionFile{Path: f.Path}
+			for _, r := range f.Regions {
+				resolved := text
+				out.Regions = append(out.Regions, agent.ConflictRegionResolution{ID: r.ID + idSuffix, Resolution: &resolved})
+			}
+			result.Files = append(result.Files, out)
+		}
+		return result, nil
+	})
+}
+
+// TestDoctorSyncDocsConflictResolvesOrNamesCategory covers #702: a markdown
+// docs conflict resolves through the advisor, and each failure after the
+// backup carries a fixed category with the conflicting repository paths.
+func TestDoctorSyncDocsConflictResolvesOrNamesCategory(t *testing.T) {
+	blocking := doctorSyncAdvisorFunc(func(ctx context.Context, _ agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+		<-ctx.Done()
+		return agent.ConflictResolution{}, ctx.Err()
+	})
+	failing := doctorSyncAdvisorFunc(func(context.Context, agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+		return agent.ConflictResolution{}, errors.New("advisor exited 1")
+	})
+	cases := []struct {
+		name     string
+		advisor  ConflictAdvisor
+		push     bool
+		category error
+		paths    bool
+	}{
+		{name: "resolve", advisor: resolvingAdvisor("Merged rewrite of the intro.\n", "")},
+		{name: "advisor failed", advisor: failing, category: doctor.ErrRepairAdvisorFailed, paths: true},
+		{name: "advisor timed out", advisor: blocking, category: doctor.ErrRepairAdvisorTimedOut, paths: true},
+		{name: "conflict marker", advisor: resolvingAdvisor("<<<<<<< ours\nkept\n", ""), category: doctor.ErrRepairConfirmationFailed, paths: true},
+		{name: "wrong region", advisor: resolvingAdvisor("Merged.\n", "-unknown"), category: doctor.ErrRepairConfirmationFailed, paths: true},
+		{name: "push rejected", advisor: resolvingAdvisor("Merged.\n", ""), push: true, category: doctor.ErrRepairPushRejected},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if errors.Is(c.category, doctor.ErrRepairAdvisorTimedOut) {
+				saved := doctorSyncAdvisorBudget
+				doctorSyncAdvisorBudget = 50 * time.Millisecond
+				t.Cleanup(func() { doctorSyncAdvisorBudget = saved })
+			}
+			repo, w, o := docsConflictedDoctorSync(t, c.advisor)
+			if c.push {
+				repo.Git("remote", "set-url", "--push", "origin", filepath.Join(t.TempDir(), "missing"))
+			}
+			result, e := SyncDoctorBranch(t.Context(), o)
+			local, x := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+			if x != nil {
+				t.Fatal(x)
+			}
+			if c.category == nil {
+				if e != nil || !result.Rechecked || local != result.Head {
+					t.Fatalf("docs conflict not resolved %+v %v", result, e)
+				}
+				if ok, x := w.IsAncestor(t.Context(), o.BaseHead, local); x != nil || !ok {
+					t.Fatalf("resolved head lacks base %v %v", ok, x)
+				}
+				if remote := repo.GitIn(repo.Origin, "rev-parse", "refs/heads/"+w.Branch()); remote != local {
+					t.Fatalf("remote %s local %s", remote, local)
+				}
+				return
+			}
+			if !errors.Is(e, c.category) || result.Rechecked || local != o.BeforeHead {
+				t.Fatalf("want %v, got %+v %v head %s", c.category, result, e, local)
+			}
+			var conflict *doctor.RepairConflictError
+			if errors.As(e, &conflict) != c.paths || (c.paths && (!errors.Is(conflict.Category, c.category) || len(conflict.Paths) != 1 || conflict.Paths[0] != "docs/stack-profiles.md")) {
+				t.Fatalf("conflict paths %+v (%v)", conflict, e)
 			}
 		})
 	}

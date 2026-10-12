@@ -11,8 +11,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,10 +57,12 @@ func (f *cliUpgradeHTTP) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var value any
 	switch r.URL.Path {
+	case "/repos/owner/repo":
+		value = map[string]any{"id": 500, "full_name": "owner/repo", "has_issues": true}
 	case "/user":
 		value = map[string]any{"id": f.botID, "login": "renamed-bot"}
 	case "/repos/owner/repo/issues/2/parent", "/repos/owner/repo/issues/1":
-		value = map[string]any{"id": 100, "number": 1, "title": "Parent", "state": "open", "user": map[string]any{"id": 42}}
+		value = map[string]any{"id": 100, "number": 1, "url": "http://" + r.Host + "/repos/owner/repo/issues/1", "html_url": "http://" + r.Host + "/owner/repo/issues/1", "title": "Parent", "state": "open", "user": map[string]any{"id": 42}}
 	case "/repos/owner/repo/issues/2":
 		if r.Method == http.MethodPatch {
 			var update struct {
@@ -71,7 +75,7 @@ func (f *cliUpgradeHTTP) serve(w http.ResponseWriter, r *http.Request) {
 			f.body = update.Body
 			f.writes++
 		}
-		value = map[string]any{"id": 200, "number": 2, "title": "US-001", "body": f.body, "state": "open", "user": map[string]any{"id": 9}}
+		value = map[string]any{"id": 200, "number": 2, "url": "http://" + r.Host + "/repos/owner/repo/issues/2", "html_url": "http://" + r.Host + "/owner/repo/issues/2", "title": "US-001", "body": f.body, "state": "open", "user": map[string]any{"id": 9}}
 	default:
 		http.Error(w, "unexpected endpoint "+r.URL.Path, http.StatusNotFound)
 		return
@@ -210,5 +214,72 @@ func TestStoryContractUpgrade_CLIBoundary(t *testing.T) {
 				t.Fatalf("historical contract rewritten: %+v", contract)
 			}
 		})
+	}
+}
+
+func TestStoryContractUpgradeRetainsParentConnection(t *testing.T) {
+	db, fake, _ := newCLIUpgradeBoundary(t, cliUpgradeBody, 9)
+	repo, err := db.GetRepoBySlug(t.Context(), store.ForgeGitHub, "owner", "repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := config.Locate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin, err := ticket.CanonicalOrigin(cfg.Providers.GitHub.APIBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LF_UPGRADE_PINNED_TOKEN", "retained-upgrade-credential")
+	version := store.ConnectionVersion{RepoID: repo.ID, Provider: ticket.GitHub, Origin: origin, Destination: repo.Slug(), RemoteID: "500", CredentialSource: "env", CredentialEnv: "LF_UPGRADE_PINNED_TOKEN", Enabled: true, Provenance: "explicit"}
+	version.Role = store.CodeConnection
+	version.ClonePath = repo.Path
+	version.RemoteURL = repo.RemoteURL
+	version.BaseBranch = repo.BaseBranch
+	version.FeaturePrefix = repo.FeaturePrefix
+	version.WorktreeRoot = repo.WorktreeRoot
+	code, err := db.SetConnection(t.Context(), version, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version.Role = store.TicketConnection
+	tickets, err := db.SetConnection(t.Context(), version, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: "100"}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: origin, Container: repo.Slug(), Key: "1"}}
+	if _, err := db.AddTicketBinding(t.Context(), store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: tickets.ID, Ref: ref, Enabled: true, Provenance: "explicit"}); err != nil {
+		t.Fatal(err)
+	}
+	parent, err := db.AdmitSession(t.Context(), repo, ref, code.Revision, tickets.Revision, 9, "renamed-bot", cliUpgradeParent, "500", "500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DisableConnection(t.Context(), repo.ID, store.TicketConnection, tickets.Revision); err != nil {
+		t.Fatal(err)
+	}
+	// The current legacy credential is unavailable, and the child has no
+	// session. Every child read must use the parent's retained credential.
+	t.Setenv(initTokenEnvVar, "")
+	router, out, errout := newTestRouter(t)
+	if code := router.Run(t.Context(), []string{"story-contract", "upgrade", cliUpgradeParent}); code != ExitOK {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", code, out, errout)
+	}
+	if !strings.Contains(out.String(), "US-001 #2") {
+		t.Fatalf("preview omitted managed child: %s", out)
+	}
+	snapshot, err := db.GetExecutionSnapshot(t.Context(), parent.ID)
+	if err != nil || snapshot.TicketVersionID != tickets.ID {
+		t.Fatalf("preview changed parent routing: %+v, %v", snapshot, err)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.writes != 0 {
+		t.Fatal("preview published changes")
 	}
 }

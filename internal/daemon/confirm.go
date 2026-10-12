@@ -42,7 +42,7 @@ func (d *Daemon) handleConfirm(ctx context.Context, t *task, c github.Comment, c
 	// refuse the daemon's own owner confirming a proposal on an issue
 	// somebody else opened — the ordinary case, not the rare one.
 	confirmed, refusal, err := turn.ValidateConfirmation(ctx, d.db, t.session.ID, request.ProposalID,
-		d.filter.Identities().OwnerUserID, c.Author.ID, c.Author.Login)
+		d.ticketIdentities(ctx).OwnerUserID, c.Author.ID, c.Author.Login)
 	if err != nil {
 		return d.leave(ctx, t, log, "could not validate a conflict-resolution confirmation", err)
 	}

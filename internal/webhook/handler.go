@@ -10,6 +10,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +46,37 @@ type Lookup interface {
 	// repository that is not registered; an empty secret means the repository
 	// has none configured.
 	Lookup(fullName string) (repoID int64, secret []byte, found bool)
+}
+
+// Source is cached trusted subscription routing data. Payloads cannot select
+// its provider, API origin, connection version or project.
+type Source struct {
+	RepoID, ConnectionVersionID, Revision              int64
+	Selector, Provider, Origin, Container, ContainerID string
+	WorkspaceID, TeamID, ProjectID                     string
+	Secret                                             []byte
+}
+
+// QualifiedLookup resolves an opaque selector from memory only.
+type QualifiedLookup interface {
+	LookupSubscription(selector string) (Source, bool)
+}
+
+// QualifiedLegacyLookup preserves trusted source identity for an unambiguous
+// old callback. A legacy payload name must not erase its authenticated origin.
+type QualifiedLegacyLookup interface {
+	LookupLegacySource(fullName string) (Source, bool)
+}
+
+// RelatedSink receives same-origin references authenticated by another source.
+// It retains the full container and original source for daemon verification.
+type RelatedSink interface {
+	WakeReference(authenticatedSource Source, container string, issueNumber int)
+}
+
+// QualifiedSink retains the source selected before authentication.
+type QualifiedSink interface {
+	WakeSubscription(source Source, issueNumber int)
 }
 
 // Sink receives wake-up hints. Wake must not block.
@@ -103,11 +136,13 @@ func NewHandler(opts Options) (*Handler, error) {
 type repositoryPayload struct {
 	Repository struct {
 		FullName string `json:"full_name"`
+		ID       int64  `json:"id"`
 	} `json:"repository"`
 }
 
 type numberRef struct {
-	Number int `json:"number"`
+	Number int    `json:"number"`
+	URL    string `json:"url"`
 }
 
 type eventPayload struct {
@@ -142,6 +177,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Header.Get("Linear-Signature") != "" || r.Header.Get("Linear-Event") != "" {
+		h.linear(w, r, body)
+		return
+	}
+
 	event := r.Header.Get(headerEvent)
 	delivery := r.Header.Get(headerDelivery)
 	if event == "" || delivery == "" {
@@ -155,6 +195,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	repoID, secret, found := h.lookup.Lookup(strings.ToLower(minimal.Repository.FullName))
+	var source *Source
+	selector := r.URL.Query().Get("subscription")
+	if selector != "" {
+		found = false
+		if lookup, ok := h.lookup.(QualifiedLookup); ok {
+			selected, valid := lookup.LookupSubscription(selector)
+			if valid && selected.Provider == "github" {
+				source = &selected
+				repoID, secret, found = selected.RepoID, selected.Secret, true
+			}
+		}
+	}
+	if selector == "" {
+		if lookup, ok := h.lookup.(QualifiedLegacyLookup); ok {
+			selected, valid := lookup.LookupLegacySource(strings.ToLower(minimal.Repository.FullName))
+			found = valid && selected.Provider == "github"
+			if found {
+				source = &selected
+				repoID, secret = selected.RepoID, selected.Secret
+			}
+		}
+	}
 	if !found || len(secret) == 0 {
 		// A throwaway MAC keeps the unknown-repository path as expensive as
 		// the known one.
@@ -168,11 +230,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if source != nil && (!strings.EqualFold(minimal.Repository.FullName, source.Container) ||
+		source.ContainerID == "" || source.ContainerID != strconv.FormatInt(minimal.Repository.ID, 10)) {
+		h.unauthorized(w)
+		return
+	}
 	// From here on the sender holds the repository's secret.
-	h.accepted(w, event, delivery, minimal.Repository.FullName, repoID, body)
+	h.accepted(w, event, delivery, minimal.Repository.FullName, repoID, body, source)
 }
 
-func (h *Handler) accepted(w http.ResponseWriter, event, delivery, fullName string, repoID int64, body []byte) {
+func (h *Handler) accepted(w http.ResponseWriter, event, delivery, fullName string, repoID int64, body []byte, source *Source) {
 	log := h.log.With(
 		slog.String("delivery", clip(delivery)),
 		slog.String("event", clip(event)),
@@ -196,14 +263,28 @@ func (h *Handler) accepted(w http.ResponseWriter, event, delivery, fullName stri
 		return
 	}
 	var numbers []int
+	var references []issueReference
 	switch event {
 	case "sub_issues":
-		numbers = appendNumber(numbers, payload.ParentIssue)
-		numbers = appendNumber(numbers, payload.SubIssue)
+		for _, ref := range []*numberRef{payload.ParentIssue, payload.SubIssue} {
+			if source == nil {
+				numbers = appendNumber(numbers, ref)
+				continue
+			}
+			target, valid := sourceReference(ref, *source)
+			if !valid {
+				continue
+			}
+			if strings.EqualFold(target.container, source.Container) {
+				numbers = append(numbers, target.number)
+			} else {
+				references = append(references, target)
+			}
+		}
 	default:
-		numbers = appendNumber(numbers, payload.Issue)
+		numbers = appendSourceNumber(numbers, payload.Issue, source)
 	}
-	if len(numbers) == 0 {
+	if len(numbers) == 0 && len(references) == 0 {
 		log.Info("webhook delivery answered", slog.String("outcome", "no_issue"))
 		respond(w, http.StatusAccepted, "no issue\n")
 		return
@@ -212,17 +293,47 @@ func (h *Handler) accepted(w http.ResponseWriter, event, delivery, fullName stri
 	h.admit.Lock()
 	defer h.admit.Unlock()
 	now := h.now()
-	if h.seen.seen(delivery, now) {
+	scope := strconv.FormatInt(repoID, 10)
+	if source != nil {
+		scope = source.Provider + "\x00" + source.Origin + "\x00" + source.Selector
+	}
+	deliveryKey := scope + "\x00" + delivery
+	if h.seen.seen(deliveryKey, now) {
 		log.Info("webhook delivery answered", slog.String("outcome", "duplicate"))
 		respond(w, http.StatusOK, "duplicate\n")
 		return
 	}
 	for _, n := range numbers {
-		h.sink.Wake(repoID, n)
+		if source != nil {
+			if sink, ok := h.sink.(QualifiedSink); ok {
+				sink.WakeSubscription(*source, n)
+			}
+		} else {
+			h.sink.Wake(repoID, n)
+		}
 	}
-	h.seen.record(delivery, now)
+	if source != nil {
+		if sink, ok := h.sink.(RelatedSink); ok {
+			for _, ref := range references {
+				sink.WakeReference(*source, ref.container, ref.number)
+			}
+		}
+	}
+	h.seen.record(deliveryKey, now)
 	log.Info("webhook delivery answered", slog.String("outcome", "queued"), slog.Any("issues", numbers))
 	respond(w, http.StatusAccepted, "queued\n")
+}
+
+// Ordinary issue events remain local to the subscription container. Related
+// destinations carry full locators and authenticate through the original source.
+func appendSourceNumber(numbers []int, ref *numberRef, source *Source) []int {
+	if source != nil && ref != nil && ref.URL != "" {
+		expected := source.Origin + "/repos/" + source.Container + "/issues/" + strconv.Itoa(ref.Number)
+		if !strings.EqualFold(ref.URL, expected) {
+			return numbers
+		}
+	}
+	return appendNumber(numbers, ref)
 }
 
 func appendNumber(numbers []int, ref *numberRef) []int {
@@ -304,4 +415,41 @@ func clip(s string) string {
 // exists for the daemon's tests and for operators writing a replay script.
 func Sign(secret, body []byte) string {
 	return signaturePrefix + hex.EncodeToString(computeMAC(secret, body))
+}
+
+type issueReference struct {
+	container string
+	number    int
+}
+
+func sourceReference(ref *numberRef, source Source) (issueReference, bool) {
+	if ref == nil || ref.Number <= 0 || ref.URL == "" {
+		return issueReference{}, false
+	}
+	parsed, err := url.Parse(ref.URL)
+	if err != nil || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || parsed.RawPath != "" {
+		return issueReference{}, false
+	}
+	tail, ok := strings.CutPrefix(ref.URL, source.Origin+"/repos/")
+	if !ok {
+		return issueReference{}, false
+	}
+	parts := strings.Split(tail, "/")
+	if len(parts) != 4 || parts[2] != "issues" || parts[3] != strconv.Itoa(ref.Number) || !referenceSegment(parts[0]) || !referenceSegment(parts[1]) {
+		return issueReference{}, false
+	}
+	return issueReference{container: parts[0] + "/" + parts[1], number: ref.Number}, true
+}
+
+func referenceSegment(value string) bool {
+	if value == "" || value == "." || value == ".." {
+		return false
+	}
+	for _, ch := range value {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }

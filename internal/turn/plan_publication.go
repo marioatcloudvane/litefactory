@@ -15,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // PlanForge is the managed publication surface. All mutation inputs have
@@ -231,8 +232,12 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 				return nil, fmt.Errorf("story %s: %w", s.Key, err)
 			}
 		}
-		// URL is derived from validated numeric identity, never remote Markdown.
-		fmt.Fprintf(&index, "| %s | %s | [#%d](https://github.com/%s/%s/issues/%d) |\n", s.Key, strings.ReplaceAll(issue.Title, "|", "\\|"), issue.Number, o.Parent.Owner, o.Parent.Repo, issue.Number)
+		if issue.QualifiedSnapshot != nil && issue.QualifiedSnapshot.Ref.Identity.Provider == ticket.Linear {
+			fmt.Fprintf(&index, "| %s | %s | [%s](%s) |\n", s.Key, strings.ReplaceAll(issue.Title, "|", "\\|"), issue.QualifiedSnapshot.DisplayKey, issue.QualifiedSnapshot.BrowserURL)
+		} else {
+			// Retain the exact legacy GitHub index representation.
+			fmt.Fprintf(&index, "| %s | %s | [#%d](https://github.com/%s/%s/issues/%d) |\n", s.Key, strings.ReplaceAll(issue.Title, "|", "\\|"), issue.Number, o.Parent.Owner, o.Parent.Repo, issue.Number)
+		}
 	}
 	return []byte(index.String()), nil
 }
@@ -331,31 +336,44 @@ func publishStory(ctx context.Context, o PublicationOptions, parent github.Issue
 			return issue, err
 		}
 	} else {
-		// A durable pending intent may mean the create response was lost. Search
-		// the complete open-issue listing using exact marker plus numeric bot ID;
-		// absence on retry is ambiguous (e.g. an issue was closed), never permission
-		// to create a second issue.
-		candidates, e := o.Forge.ListIssues(ctx, repo, time.Time{})
-		if e != nil {
-			return issue, e
-		}
-		matches := 0
-		for _, candidate := range candidates {
-			if exactStoryMarker(candidate.Body, r.Marker) {
-				matches++
-				issue = candidate
+		qualified := false
+		if !fresh {
+			if recovery, ok := o.Forge.(interface {
+				RecoverIssueEffect(context.Context, string, github.Repo, int, string, string) (github.Issue, bool, error)
+			}); ok {
+				issue, qualified, err = recovery.RecoverIssueEffect(ctx, "story-publication:"+op.OperationKey, repo, o.Parent.Issue, r.Title.String(), r.Body.String())
+				if err != nil {
+					return issue, err
+				}
 			}
 		}
-		if matches > 1 {
-			return issue, fmt.Errorf("duplicate publication marker")
-		}
-		if matches == 0 {
-			if !fresh {
-				return issue, fmt.Errorf("ambiguous create delivery; reconcile pending operation before retry")
+		if !qualified {
+			// A durable pending intent may mean the create response was lost. Search
+			// the complete open-issue listing using exact marker plus numeric bot ID;
+			// absence on retry is ambiguous (e.g. an issue was closed), never permission
+			// to create a second issue.
+			candidates, e := o.Forge.ListIssues(ctx, repo, time.Time{})
+			if e != nil {
+				return issue, e
 			}
-			issue, err = o.Forge.CreateIssue(ctx, repo, r.Title, r.Body)
-			if err != nil {
-				return issue, err
+			matches := 0
+			for _, candidate := range candidates {
+				if exactStoryMarker(candidate.Body, r.Marker) {
+					matches++
+					issue = candidate
+				}
+			}
+			if matches > 1 {
+				return issue, fmt.Errorf("duplicate publication marker")
+			}
+			if matches == 0 {
+				if !fresh {
+					return issue, fmt.Errorf("ambiguous create delivery; reconcile pending operation before retry")
+				}
+				issue, err = createTicketEffect(ctx, o.Forge, "story-publication:"+op.OperationKey, repo, o.Parent.Issue, r.Title, r.Body)
+				if err != nil {
+					return issue, err
+				}
 			}
 		}
 	}
@@ -489,7 +507,7 @@ func publishTypedParts(ctx context.Context, o PublicationOptions, issue github.I
 		marker := typedPartMarker(o.Parent, typed.Key, i+1, len(parts))
 		posted := false
 		for _, c := range comments {
-			if strings.Contains(c.Body, marker) {
+			if !hasTicketNoticeGuard(commenter) && strings.Contains(c.Body, marker) {
 				posted = true
 				break
 			}
@@ -502,7 +520,7 @@ func publishTypedParts(ctx context.Context, o PublicationOptions, issue github.I
 		if err != nil {
 			return fmt.Errorf("render part %d: %w", i+1, err)
 		}
-		if _, err := commenter.PostComment(ctx, repo, issue.Number, safe.Body); err != nil {
+		if _, err := postTicketNotice(ctx, commenter, marker, o.Parent.String(), o.BotID, repo, issue.Number, safe.Body); err != nil {
 			return fmt.Errorf("post part %d: %w", i+1, err)
 		}
 	}

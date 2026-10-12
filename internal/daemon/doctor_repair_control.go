@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -25,6 +27,15 @@ func (d *Daemon) enterDoctorGuarded(ctx context.Context, session int64) bool {
 	return true
 }
 func (d *Daemon) runDoctorGuardedWorker(ctx context.Context, t *task, body func(context.Context)) {
+	d.runProjectGuardedWorker(ctx, t, body, false)
+}
+
+func (d *Daemon) runTicketPollingWorker(ctx context.Context, t *task, body func(context.Context)) {
+	d.runProjectGuardedWorker(ctx, t, body, true)
+}
+
+func (d *Daemon) runProjectGuardedWorker(ctx context.Context, t *task, body func(context.Context), codePolling bool) {
+	ctx = sessionContext(ctx, t.session.ID)
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	d.inflight.bindCancel(t.session.ID, cancel)
@@ -33,6 +44,33 @@ func (d *Daemon) runDoctorGuardedWorker(ctx context.Context, t *task, body func(
 		if err != nil || held {
 			cancel()
 			return
+		}
+		if d.connections != nil {
+			appointment, e := d.db.CurrentApprover(workerCtx, t.session.RepoID)
+			if !codePolling && (errors.Is(e, store.ErrApproverMissing) || errors.Is(e, store.ErrApproverUnauthorized)) {
+				body(workerCtx)
+				return
+			}
+			key := fmt.Sprintf("%s:%d:%s", d.instanceID, t.session.ID, t.tickAt.Format(time.RFC3339Nano))
+			var claim store.AuthorityClaim
+			if e == nil {
+				_, e = d.projectTicketIdentities(workerCtx, t.session.ID)
+			}
+			if e == nil {
+				claim, e = d.db.ClaimProjectAuthority(workerCtx, store.AuthorityClaim{RepoID: t.session.RepoID, AppointmentID: appointment.ID, Revision: appointment.Revision, Actor: appointment.Actor, Kind: "worker", Key: key})
+			}
+			if codePolling && (errors.Is(e, store.ErrApproverMissing) || errors.Is(e, store.ErrConnectionDisabled) || errors.Is(e, store.ErrApproverUnauthorized)) {
+				claim, e = d.claimCodePollingWorker(workerCtx, t.session.ID, key)
+			}
+			if e != nil {
+				t.recordWorkerError(e)
+				return
+			}
+			defer func() {
+				if e := d.db.CompleteProjectAuthority(context.WithoutCancel(workerCtx), claim.ID); e != nil {
+					t.recordWorkerError(e)
+				}
+			}()
 		}
 		body(workerCtx)
 	})

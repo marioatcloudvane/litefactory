@@ -1,0 +1,15 @@
+--- FAIL: TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase (0.95s)
+    archive_integration_test.go:54: problems [project_connection_imports is not classified project_connection_observations is not classified project_connection_versions is not classified project_connections is not classified project_ticket_bindings is not classified session_execution_snapshots is not classified] <nil>
+2026/10/11 15:34:00 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen191970108/001/litefactory.db
+--- FAIL: TestDoctorRepairApprovalBackupsHoldAndRestartIdentity (0.80s)
+    doctor_repair_io_test.go:67: normal writer bypassed hold
+--- FAIL: TestArchiveRegistryProblems_MigratedDatabaseIsClean (2.03s)
+    archive_unit_test.go:59: registry problems: [project_connection_imports is not classified project_connection_observations is not classified project_connection_versions is not classified project_connections is not classified project_ticket_bindings is not classified session_execution_snapshots is not classified]
+2026/10/11 15:42:37 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants1288896624/001/litefactory.db
+--- FAIL: TestNeedsPollSurvivesAReMigration (1.40s)
+    store_test.go:609: idx_sessions_needs_poll is "CREATE INDEX idx_sessions_needs_poll ON sessions(id) WHERE needs_poll=1", want a partial index on needs_poll = 1
+--- FAIL: TestDoctorTypedRepairMigrationRetainsLegacyJournal (35.72s)
+    doctor_typed_catalog_test.go:106: migration removed the session hold guard
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	609.140s
+FAIL

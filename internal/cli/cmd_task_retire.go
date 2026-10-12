@@ -11,6 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 func newTaskRetireCommand() *Command {
@@ -35,7 +36,13 @@ func runTaskRetire(ctx context.Context, env *Env, _ []string) (err error) {
 	if err != nil {
 		return err
 	}
-	return writeRetirementPreview(ctx, env, rt.db, daemon.RetirementOptions{Now: time.Now().UTC(), RetainDays: rt.cfg.Settings.WorktreeRetainDays, Issues: forge, ObserveGit: daemon.ObserveRetirementGit})
+	tickets, err := github.NewTickets(forge)
+	if err != nil {
+		return err
+	}
+	// Retirement only reads tickets; no bot mutation authority is needed.
+	issueReader := &turn.TicketPlanBridge{DB: rt.db, Tickets: tickets}
+	return writeRetirementPreview(ctx, env, rt.db, daemon.RetirementOptions{Now: time.Now().UTC(), RetainDays: rt.cfg.Settings.WorktreeRetainDays, Issues: issueReader, ObserveGit: daemon.ObserveRetirementGit})
 }
 
 // The bounded store interface keeps preview testable without starting a daemon.

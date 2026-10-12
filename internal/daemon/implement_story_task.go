@@ -165,7 +165,7 @@ func (d *Daemon) startImplementWork(ctx context.Context, t *task) error {
 		return err
 	}
 	stored, _, err := d.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{
-		SessionID: t.session.ID, SourceCommentID: id, OwnerHandle: d.filter.Identities().OwnerHandle,
+		SessionID: t.session.ID, SourceCommentID: id, OwnerHandle: d.ticketIdentities(ctx).OwnerHandle,
 		Payload: implementWorkPayload, DueAt: t.tickAt.UTC(),
 	})
 	if err != nil {
@@ -223,15 +223,17 @@ func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*re
 			return err
 		}
 		number := 0
+		var remoteID int64
 		for _, story := range stories {
 			if story.Key == row.Key {
 				number = story.IssueNumber
+				remoteID = story.IssueID
 			}
 		}
 		if number < 1 {
 			continue
 		}
-		session, err := d.db.GetOrCreateSession(ctx, q.repo, number)
+		session, err := d.managedChildSession(ctx, q.repo, row.Parent, number, remoteID)
 		if err != nil {
 			return fmt.Errorf("find the task of story %s: %w", row.Key, err)
 		}

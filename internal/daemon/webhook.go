@@ -47,8 +47,13 @@ type WebhookOptions struct {
 }
 
 type hintKey struct {
-	repoID int64
-	number int
+	repoID                      int64
+	number                      int
+	versionID, revision         int64
+	selector                    string
+	ticketKey                   string
+	authSelector                string
+	authRevision, authVersionID int64
 }
 
 // hintSet is the bounded set of issues a webhook asked the daemon to re-read.
@@ -160,8 +165,13 @@ type webhookRuntime struct {
 	// would.
 	wake chan struct{}
 
-	mu    sync.RWMutex
-	repos map[string]*webhookRepo
+	mu                      sync.RWMutex
+	repos                   map[string]*webhookRepo
+	subscriptions           map[string]webhook.Source
+	referenceSources        map[string][]webhook.Source
+	legacySources           map[string]webhook.Source
+	subscriptionSecretTries map[string]subscriptionSecretAttempt
+	db                      *store.DB
 }
 
 func newWebhookRuntime(opts WebhookOptions, log *slog.Logger) *webhookRuntime {
@@ -170,13 +180,17 @@ func newWebhookRuntime(opts WebhookOptions, log *slog.Logger) *webhookRuntime {
 		now = time.Now
 	}
 	return &webhookRuntime{
-		now:      now,
-		ln:       opts.Listener,
-		resolver: opts.Secrets,
-		log:      log,
-		hints:    newHintSet(maxPendingHints),
-		wake:     make(chan struct{}, 1),
-		repos:    make(map[string]*webhookRepo),
+		now:                     now,
+		ln:                      opts.Listener,
+		resolver:                opts.Secrets,
+		log:                     log,
+		hints:                   newHintSet(maxPendingHints),
+		wake:                    make(chan struct{}, 1),
+		repos:                   make(map[string]*webhookRepo),
+		subscriptions:           make(map[string]webhook.Source),
+		referenceSources:        make(map[string][]webhook.Source),
+		legacySources:           make(map[string]webhook.Source),
+		subscriptionSecretTries: make(map[string]subscriptionSecretAttempt),
 	}
 }
 
@@ -193,16 +207,24 @@ func (w *webhookRuntime) Lookup(fullName string) (int64, []byte, bool) {
 	return r.id, r.secret, true
 }
 
-// hasSecret reports whether a secret is cached for the repository key.
-func (w *webhookRuntime) hasSecret(key string) bool {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	r := w.repos[key]
-	return r != nil && len(r.secret) > 0
-}
-
 // Wake implements [webhook.Sink]: queue the hint, signal without blocking.
 func (w *webhookRuntime) Wake(repoID int64, issueNumber int) {
+	w.mu.RLock()
+	qualified := w.db != nil
+	var source webhook.Source
+	for _, item := range w.subscriptions {
+		if item.RepoID == repoID {
+			source = item
+			break
+		}
+	}
+	w.mu.RUnlock()
+	if qualified {
+		if source.Selector != "" {
+			w.WakeSubscription(source, issueNumber)
+		}
+		return
+	}
 	w.hints.add(hintKey{repoID: repoID, number: issueNumber})
 	if w.schedule != nil {
 		w.schedule.WebhookAccepted(repoID, w.now())
@@ -270,7 +292,11 @@ func (w *webhookRuntime) refresh(ctx context.Context, repos []store.Repo, now ti
 // webhookServe runs the HTTP server until ctx is cancelled, then shuts it down
 // gracefully within grace.
 func (d *Daemon) webhookServe(ctx context.Context, wg *sync.WaitGroup) error {
-	handler, err := webhook.NewHandler(webhook.Options{Lookup: d.webhook, Sink: d.webhook, Logger: d.log.With(slog.String("component", "webhook"))})
+	var lookup webhook.Lookup = d.webhook
+	if d.connections == nil {
+		lookup = legacyWebhookLookup{runtime: d.webhook}
+	}
+	handler, err := webhook.NewHandler(webhook.Options{Lookup: lookup, Sink: d.webhook, Logger: d.log.With(slog.String("component", "webhook"))})
 	if err != nil {
 		return err
 	}
@@ -316,7 +342,12 @@ func (d *Daemon) refreshWebhookSecrets(ctx context.Context, now time.Time) {
 		d.log.WarnContext(ctx, "webhook secrets not refreshed; the repository list could not be read", slog.Any("error", err))
 		return
 	}
-	d.webhook.refresh(ctx, repos, now)
+	if d.connections != nil {
+		d.importLegacyWebhookSubscriptions(ctx, now)
+		d.webhook.refreshSubscriptions(ctx, d.db, now)
+	} else {
+		d.webhook.refresh(ctx, repos, now)
+	}
 }
 
 // webhookHints turns pending hints into candidates beside the other discovery
@@ -332,6 +363,16 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if hint.versionID != 0 {
+			valid, err := d.webhookHintCurrent(ctx, hint)
+			if err != nil {
+				return err
+			}
+			if !valid {
+				d.webhook.hints.resolve(hint)
+				continue
+			}
+		}
 		q := byRepo[hint.repoID]
 		if q == nil {
 			// The repository is gone or not pollable; there is nothing to wake.
@@ -343,23 +384,53 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 			// listing tick gets from its probe and a heartbeat-only tick must
 			// ask for.
 			probed[hint.repoID] = true
-			if err := d.discoveryProbe(ctx, q.forgeRepo); err != nil {
-				return err
+			probeCtx := ctx
+			if d.connections != nil {
+				probeCtx = projectContext(ctx, q.repo.ID)
+			}
+			if err := d.discoveryProbe(probeCtx, q.forgeRepo); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				q.log.WarnContext(ctx, "webhook source quota or access probe deferred", slog.Any("error", err))
+				continue
 			}
 		}
-		marked, err := d.markCommentedChild(ctx, q.log, q, hint.number)
-		if err != nil {
-			return err
+		readCtx := ctx
+		if d.connections != nil {
+			readCtx = projectContext(ctx, q.repo.ID)
 		}
-		if marked {
+		if hint.versionID != 0 {
+			if err := d.verifyWebhookSource(readCtx, hint, q); err != nil {
+				q.log.WarnContext(ctx, "webhook source verification deferred", slog.Any("error", err))
+				continue
+			}
+		}
+		if hint.versionID == 0 {
+			marked, err := d.markCommentedChild(readCtx, q.log, q, hint.number)
+			if err != nil {
+				return err
+			}
+			if marked {
+				d.webhook.hints.resolve(hint)
+				continue
+			}
+		}
+		if hint.ticketKey != "" {
+			if err := d.handoffOpaqueWebhook(readCtx, hint, q); err != nil {
+				q.log.WarnContext(ctx, "opaque webhook read deferred", slog.Any("error", err))
+				d.webhook.hints.failed(hint)
+				continue
+			}
 			d.webhook.hints.resolve(hint)
+			result.Hinted++
 			continue
 		}
 		// An owner's comment must not wait behind background discovery, so the
 		// hinted read takes the operational lane: a token and real quota left,
 		// not the discovery share, floor or head-of-line queue.
-		issue, err := doctorCall(ctx, d, func(ctx context.Context) (github.Issue, error) {
-			return d.forge.GetIssue(ctx, q.forgeRepo, hint.number)
+		issue, err := doctorCall(readCtx, d, func(ctx context.Context) (github.Issue, error) {
+			return d.readIssue(ctx, q.forgeRepo, hint.number)
 		})
 		switch {
 		case errors.Is(err, ErrDiscoveryDeferred):
@@ -381,7 +452,19 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 			}
 			continue
 		}
-		c, err := d.sight(ctx, q, issue)
+		if hint.versionID != 0 {
+			if err := d.handoffWebhookIssue(readCtx, hint, q, issue); err != nil {
+				if errors.Is(err, store.ErrSubscriptionConflict) || errors.Is(err, store.ErrConnectionConflict) {
+					d.webhook.hints.resolve(hint)
+					continue
+				}
+				return err
+			}
+			d.webhook.hints.resolve(hint)
+			result.Hinted++
+			continue
+		}
+		c, err := d.sight(readCtx, q, issue)
 		if err != nil {
 			return err
 		}
@@ -399,4 +482,12 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 		q.candidates = append(q.candidates, c)
 	}
 	return nil
+}
+
+// Compatibility runtimes without project connections expose only the original
+// lookup contract. Configured sources always use the qualified cache.
+type legacyWebhookLookup struct{ runtime *webhookRuntime }
+
+func (l legacyWebhookLookup) Lookup(name string) (int64, []byte, bool) {
+	return l.runtime.Lookup(name)
 }

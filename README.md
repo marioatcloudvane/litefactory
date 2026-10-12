@@ -88,5 +88,4 @@ explained by the reply that asks for it.
 - [Guides](docs/guides/README.md): working with issues, workflow, validation and delivery
 - [CLI](docs/cli/README.md) and [configuration](docs/configuration/README.md)
 - [Operations](docs/operations/README.md): running the daemon, recovery, cleanup, costs
-- [Discord chat](docs/discord-chat.md) and [workflow internals](docs/workflow/)
-- [Daemon reference notes](docs/operations/daemon-reference.md): settings and diagnostics formerly in this README
+- [Discord setup and use](docs/discord.md) and [workflow internals](docs/workflow/)

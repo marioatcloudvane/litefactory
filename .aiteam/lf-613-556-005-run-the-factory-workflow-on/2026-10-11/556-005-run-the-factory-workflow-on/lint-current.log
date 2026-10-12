@@ -1,0 +1,48 @@
+internal/store/delivery_sources.go:195:2: ifElseChain: rewrite if-else to switch statement (gocritic)
+	if w.Kind == "github-cli-request" {
+	^
+internal/store/delivery_sources.go:92:1: exported: exported method DB.BindDeliveryPR should have comment or be unexported (revive)
+func (db *DB) BindDeliveryPR(ctx context.Context, q DeliveryProposal, sessionID int64) (out DeliveryPRBinding, err error) {
+^
+internal/store/delivery_sources.go:145:1: exported: exported method DB.GetDeliveryPRBinding should have comment or be unexported (revive)
+func (db *DB) GetDeliveryPRBinding(ctx context.Context, key string) (b DeliveryPRBinding, err error) {
+^
+internal/store/delivery_sources.go:180:1: exported: exported method DB.GetDeliveryControlSource should have comment or be unexported (revive)
+func (db *DB) GetDeliveryControlSource(ctx context.Context, id string) (DeliveryControlSource, error) {
+^
+internal/store/delivery_sources.go:183:1: exported: exported method DB.RetainDeliveryControlSource should have comment or be unexported (revive)
+func (db *DB) RetainDeliveryControlSource(ctx context.Context, w DeliveryControlSource) (DeliveryControlSource, error) {
+^
+internal/store/delivery_sources.go:230:1: exported: exported method DB.CompleteDeliveryControlSource should have comment or be unexported (revive)
+func (db *DB) CompleteDeliveryControlSource(ctx context.Context, id string) error {
+^
+internal/store/delivery_sources.go:241:1: exported: exported method DB.PendingDeliveryControlSources should have comment or be unexported (revive)
+func (db *DB) PendingDeliveryControlSources(ctx context.Context) ([]DeliveryControlSource, error) {
+^
+internal/daemon/linear_workflow_test.go:152:3: QF1003: could use tagged switch on id (staticcheck)
+		if id == "state-completed" {
+		^
+internal/projectconnection/tickets.go:60:26: ST1005: error strings should not be capitalized (staticcheck)
+		return ticket.Reply{}, errors.New("Linear reply destination differs")
+		                       ^
+internal/turn/ticket_creation_effects.go:57:26: ST1005: error strings should not be capitalized (staticcheck)
+		return ticket.Reply{}, errors.New("Linear publication requires a durable owning effect key")
+		                       ^
+internal/turn/ticket_creation_effects.go:180:26: ST1005: error strings should not be capitalized (staticcheck)
+		return github.Issue{}, errors.New("Linear creation requires a durable owning effect key")
+		                       ^
+internal/turn/ticket_workflow_bridge.go:181:15: ST1005: error strings should not be capitalized (staticcheck)
+		return nil, errors.New("Linear ticket workflow requires a scoped constructor")
+		            ^
+internal/turn/plan_ticket_bridge.go:320:6: func planLegacyReply is unused (unused)
+func planLegacyReply(r ticket.Reply) (github.Comment, error) {
+     ^
+internal/daemon/linear_workflow_test.go:82:32: "400" can be replaced by http.StatusBadRequest (usestdlibvars)
+		http.Error(w, "bad request", 400)
+		                             ^
+14 issues:
+* gocritic: 1
+* revive: 6
+* staticcheck: 5
+* unused: 1
+* usestdlibvars: 1

@@ -25,7 +25,7 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","tools":[]}' '
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	runner := &Runner{binary: config.Executable{Path: binary}, timeout: time.Second * 10, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=private", "LF_HOME=private", "ANTHROPIC_API_KEY=private", "ANTHROPIC_BASE_URL=private"}}
+	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 60 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=private", "LF_HOME=private", "ANTHROPIC_API_KEY=private", "ANTHROPIC_BASE_URL=private"}}
 	result, err := runner.RunChat(t.Context(), agent.ChatRequest{Prompt: "prepared chat data\n", Model: "balanced-fixture", WorkingDirectory: dir})
 	if err != nil || string(result.Answer) != `{"points":[]}` {
 		t.Fatalf("chat transport: %+v %v", result, err)

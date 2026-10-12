@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -41,8 +43,9 @@ func (s *Service) present(ctx context.Context, r store.ChatReply, text string) (
 	if r.PresentationState != "pending" {
 		return r, nil
 	}
-	work, cancel := context.WithTimeout(ctx, 30*time.Second)
+	work, cancel := context.WithTimeout(ctx, response.Budget)
 	defer cancel()
+	started := time.Now()
 	var outcome presentation.Outcome
 	if r.PresentationOutcome == "" {
 		language := "English"
@@ -112,9 +115,14 @@ func (s *Service) present(ctx context.Context, r store.ChatReply, text string) (
 		return r, err
 	}
 	state := presentation.RawFallback
+	narratable := s.replyModel != nil && r.Command != "natural"
+	reason := "budget_spent"
 	// A spent generation budget after a restart selects raw. No candidate or
 	// history is archived and a completed narration is never invoked again.
-	if s.replyModel != nil && r.Command != "natural" && !r.PresentationGeneration && work.Err() == nil {
+	if narratable && !r.PresentationGeneration && work.Err() != nil {
+		reason = "timeout"
+	}
+	if narratable && !r.PresentationGeneration && work.Err() == nil {
 		if err = s.db.BeginChatPresentation(ctx, r, false); err != nil {
 			return r, err
 		}
@@ -135,7 +143,12 @@ func (s *Service) present(ctx context.Context, r store.ChatReply, text string) (
 				if err != nil {
 					return r, err
 				}
+				reason = "validation"
+			} else {
+				reason = narrationFailure(work, modelErr)
 			}
+		} else {
+			reason = narrationFailure(work, modelErr)
 		}
 	}
 	if ctx.Err() != nil {
@@ -155,16 +168,32 @@ func (s *Service) present(ctx context.Context, r store.ChatReply, text string) (
 		if clean != payload.Content {
 			payload, err = presentation.Raw(outcome)
 			state = presentation.RawFallback
+			reason = "redaction"
 			if err != nil {
 				return r, err
 			}
 		}
+	}
+	if narratable && state == presentation.RawFallback && s.Logger != nil {
+		s.Logger.WarnContext(ctx, "chat narration fallback", slog.String("command", r.Command), slog.String("reason", reason), slog.Duration("elapsed", time.Since(started)))
 	}
 	if err := s.db.SaveChatPresentation(ctx, r, string(state), payload.Content, payload.Attachment.Content); err != nil {
 		return r, err
 	}
 	r.ReplyText, r.ReplyAttachment, r.PresentationState = payload.Content, payload.Attachment.Content, string(state)
 	return r, nil
+}
+
+// narrationFailure names why a narration call produced no usable result.
+func narrationFailure(work context.Context, modelErr error) string {
+	switch {
+	case work.Err() != nil:
+		return "timeout"
+	case modelErr != nil:
+		return "model_error"
+	default:
+		return "decode"
+	}
 }
 
 func generationPrompt(outcome presentation.Outcome) string {

@@ -63,7 +63,7 @@ func IntegrationHead(ctx context.Context, opts Options, session store.Session) (
 	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || strings.TrimSpace(session.Branch) == "" {
 		return "", errors.New("the integration branch cannot be read: no git, clone gate or branch")
 	}
-	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
+	repo, err := executionRepository(ctx, opts.DB, session)
 	if err != nil {
 		return "", err
 	}
@@ -76,6 +76,9 @@ func IntegrationHead(ctx context.Context, opts Options, session store.Session) (
 		return "", err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, opts, session, clone); err != nil {
+		return "", err
+	}
 	remote := opts.remote()
 	if err := clone.Fetch(ctx, remote); err != nil {
 		return "", fmt.Errorf("fetch %s: %w", remote, err)

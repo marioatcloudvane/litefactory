@@ -67,7 +67,7 @@ func (s *Service) collectLocal(ctx context.Context, ref naming.Ref, e *store.Doc
 	if !ok {
 		return
 	}
-	s.collectBranchInputs(ctx, ref, sources, binary, observation.BranchHead, e)
+	s.collectBranchInputs(ctx, ref, sources, binary, observation.BranchHead, false, e)
 	s.collectWorktreeFiles(ctx, ref, sources, observation.Status, e)
 	e.Records = append(e.Records, store.DoctorEvidenceRecord{CapturedAt: time.Now().UTC(), Kind: "worktree", ID: ref.String(), State: observation.Head, Content: observation.Unpushed + "\n" + observation.Status})
 }
@@ -105,6 +105,7 @@ func observeBranch(ctx context.Context, sources store.DoctorLocalSources, e *sto
 
 // collectBranchRecord captures the same branch record the repair recheck
 // builds through collectLocal, so a live diagnosis can propose sync_branch.
+// It fetches origin first so the proposal targets the current remote base.
 func (s *Service) collectBranchRecord(ctx context.Context, ref naming.Ref, e *store.DoctorEvidence) {
 	sources, ok := s.trustedLocalSources(ctx, ref, e)
 	if !ok {
@@ -114,7 +115,7 @@ func (s *Service) collectBranchRecord(ctx context.Context, ref naming.Ref, e *st
 	if !ok {
 		return
 	}
-	s.collectBranchInputs(ctx, ref, sources, binary, observation.BranchHead, e)
+	s.collectBranchInputs(ctx, ref, sources, binary, observation.BranchHead, true, e)
 }
 
 func (s *Service) collectLogs(ref naming.Ref, e *store.DoctorEvidence) {
@@ -310,9 +311,11 @@ func (s *Service) collectLiveness(e *store.DoctorEvidence) {
 	}
 }
 
-// collectBranchInputs binds synchronization to the locally observed base/parent
-// commit. No fetch is performed during diagnosis.
-func (s *Service) collectBranchInputs(ctx context.Context, ref naming.Ref, sources store.DoctorLocalSources, binary *git.Binary, head string, e *store.DoctorEvidence) {
+// collectBranchInputs binds synchronization to the observed base/parent commit.
+// With fetch set (live diagnosis only) it first updates the clone's
+// remote-tracking refs; a failed fetch keeps the local observation with a gap.
+// The repair-time evidence refresh never fetches.
+func (s *Service) collectBranchInputs(ctx context.Context, ref naming.Ref, sources store.DoctorLocalSources, binary *git.Binary, head string, fetch bool, e *store.DoctorEvidence) {
 	session, err := s.DB.GetSessionByTaskRef(ctx, ref.String())
 	if err != nil {
 		e.Gaps = append(e.Gaps, "Branch synchronization session unavailable")
@@ -340,10 +343,18 @@ func (s *Service) collectBranchInputs(ctx context.Context, ref naming.Ref, sourc
 		e.Gaps = append(e.Gaps, "Branch synchronization clone unavailable")
 		return
 	}
-	commit, err := clone.RevParse(ctx, "refs/remotes/origin/"+base, git.RevParseOptions{})
+	fetched := "no fetch performed"
+	if fetch {
+		if err := clone.Fetch(ctx, git.DefaultRemote); err != nil {
+			e.Gaps = append(e.Gaps, "Branch synchronization base fetch failed; local observation used")
+		} else {
+			fetched = "fetched from " + git.DefaultRemote
+		}
+	}
+	commit, err := clone.RevParse(ctx, "refs/remotes/"+git.DefaultRemote+"/"+base, git.RevParseOptions{})
 	if err != nil {
-		e.Gaps = append(e.Gaps, "Branch synchronization base unavailable; no fetch performed")
+		e.Gaps = append(e.Gaps, "Branch synchronization base unavailable; "+fetched)
 		return
 	}
-	e.Records = append(e.Records, store.DoctorEvidenceRecord{CapturedAt: time.Now().UTC(), Kind: "branch", ID: sources.Branch, State: head, Identity: commit, Content: "Observed base/parent: " + base + "; no fetch performed"})
+	e.Records = append(e.Records, store.DoctorEvidenceRecord{CapturedAt: time.Now().UTC(), Kind: "branch", ID: sources.Branch, State: head, Identity: commit, Content: "Observed base/parent: " + base + "; " + fetched})
 }
