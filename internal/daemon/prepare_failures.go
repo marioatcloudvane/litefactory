@@ -78,7 +78,13 @@ func (p *prepareFailures) clear(sessionID int64) {
 
 // held gates task-specific provider calls before materialisation.
 func (p *prepareFailures) held(sessionID int64, at time.Time) bool {
+	_, held := p.hold(sessionID, at)
+	return held
+}
+
+func (p *prepareFailures) hold(sessionID int64, at time.Time) (prepareFailure, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return at.Before(p.items[sessionID].NextAt)
+	row := p.items[sessionID]
+	return row, at.Before(row.NextAt)
 }

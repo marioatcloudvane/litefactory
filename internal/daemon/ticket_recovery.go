@@ -53,6 +53,11 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 	}
 	ctx = quotaVersionContext(ctx, version)
 	ctx = context.WithValue(ctx, recoveryTickKey{}, now)
+	ctx, finish, err := d.linearFallback(ctx, version, false)
+	if err != nil {
+		return false, err
+	}
+	defer finish()
 	clients, err := d.connections.Clients(ctx, version, 0)
 	if err != nil {
 		return false, err
@@ -259,6 +264,24 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if err != nil {
 			return err
 		}
+		ctx := quotaVersionContext(ctx, version)
+		ctx, finish, err := d.linearFallback(ctx, version, true)
+		if err != nil {
+			failedSources[version.ID] = true
+			continue
+		}
+		transferred := false
+		defer func() {
+			if !transferred {
+				finish()
+			}
+		}()
+		transfer := func(c *candidate) {
+			if r, ok := ctx.Value(quotaReservationKey{}).(*discoveryReservation); ok && r.fallback {
+				seen[c.session.ID].discoveryReservation = r
+				transferred = true
+			}
+		}
 		parent, err := d.observationParent(ctx, q, observation)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -274,6 +297,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		}
 		if parent != nil {
 			d.queueObservation(q, seen, parent, observation)
+			transfer(parent)
 			continue
 		}
 		identity := ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}
@@ -353,7 +377,9 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			})
 			if e != nil {
 				failedSources[observation.ConnectionVersionID] = true
-				q.log.WarnContext(ctx, "pending source container verification deferred", slog.Any("error", e))
+				if !d.scopedQuotaDeferred(readCtx, e) {
+					q.log.WarnContext(ctx, "pending source container verification deferred", slog.Any("error", e))
+				}
 				continue
 			}
 			verifiedContainers[version.ID] = container
@@ -436,6 +462,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 				return err
 			}
 			d.queueObservation(q, seen, c, observation)
+			transfer(c)
 		} else if issue.State == "closed" {
 			if err := d.db.ClearPendingTicketObservation(ctx, observation.ConnectionVersionID, observation.TicketID, observation.Generation); err != nil {
 				warnRejection("closed_unadmitted", "retained", err)
@@ -621,7 +648,11 @@ func (d *Daemon) rotateTicketObservations(pending []store.PendingTicketObservati
 		for index := range count {
 			out = append(out, observations[(offset+index)%len(observations)])
 		}
-		d.pendingObservationCursor[version] = (offset + count) % len(observations)
+		advance := count
+		if observations[0].Provider == ticket.Linear {
+			advance = 1
+		}
+		d.pendingObservationCursor[version] = (offset + advance) % len(observations)
 	}
 	return out
 }

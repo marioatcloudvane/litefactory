@@ -481,6 +481,9 @@ type Daemon struct {
 	diagnosticRedactor *redact.Redactor
 	pool               *pool
 
+	// holdDiagnostics is owned by candidate selection on the tick goroutine.
+	holdDiagnostics map[int64]candidateHold
+
 	// lastRepoID and repoSessionCursor are the two levels of the dispatch
 	// rotation (RD-1): the repository the last dispatch came from, and per
 	// repository the session id it last dispatched.

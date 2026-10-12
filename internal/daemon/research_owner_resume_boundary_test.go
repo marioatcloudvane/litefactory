@@ -1,9 +1,10 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"io"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -121,15 +122,16 @@ func (f replyRecoveryForge) GetIssue(context.Context, github.Repo, int) (github.
 
 func TestStoppedBugReplyRecoveryBoundary(t *testing.T) {
 	for _, tc := range []struct {
-		name                                  string
-		author                                int64
-		state                                 string
-		observation                           error
-		terminal, noAdmission, waiting, child bool
-		want                                  bool
+		name                                          string
+		author                                        int64
+		state                                         string
+		observation                                   error
+		terminal, noAdmission, waiting, child, locked bool
+		want                                          bool
 	}{
 		{name: "owner open", author: 7, state: github.StateOpen, want: true},
 		{name: "third party", author: 8, state: github.StateOpen},
+		{name: "held lock", author: 7, state: github.StateOpen, locked: true},
 		{name: "closed", author: 7, state: "closed"},
 		{name: "observation failed", author: 7, observation: errors.New("offline")},
 		{name: "terminal", author: 7, state: github.StateOpen, terminal: true},
@@ -183,14 +185,22 @@ func TestStoppedBugReplyRecoveryBoundary(t *testing.T) {
 			if tc.terminal {
 				check(db.SetGraphInstanceStatus(ctx, instance.ID, store.GraphCancelled, time.Time{}, at))
 			}
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, nil)).With(slog.Int64("session_id", session.ID))
 			filter, err := turn.NewFilter(db, turn.Identities{OwnerUserID: 7, OwnerHandle: "owner", BotUserID: 9, BotHandle: "bot"}, logger)
 			check(err)
 			d := &Daemon{db: db, filter: filter, forge: replyRecoveryForge{state: tc.state, err: tc.observation}, instanceID: "recovery-test"}
-			work := &task{session: session, forgeRepo: github.Repo{Owner: "acme", Name: "bug"}, tickAt: at}
+			work := &task{log: logger, worker: &workerState{}, session: session, forgeRepo: github.Repo{Owner: "acme", Name: "bug"}, tickAt: at}
 			trigger := turn.Trigger{CommentID: 10, AuthorID: tc.author, Body: "resume"}
 			if tc.child {
 				trigger.PlanReply = &planbrief.PlanOwnerReply{}
+			}
+			if tc.locked {
+				acquired, e := db.AcquireSessionLock(ctx, session.ID, "other-daemon")
+				check(e)
+				if !acquired {
+					t.Fatal("fixture lock not acquired")
+				}
 			}
 			_, err = d.recoverGraphReply(ctx, work, trigger, turn.Command{Kind: turn.KindFreeText, Text: "resume"})
 			if tc.observation == nil {
@@ -203,7 +213,43 @@ func TestStoppedBugReplyRecoveryBoundary(t *testing.T) {
 			if (got.ID != dispatch.ID) != tc.want {
 				t.Fatalf("recovery=%+v want new=%v", got, tc.want)
 			}
+			assertLog := func(reason string) {
+				t.Helper()
+				for _, want := range []string{"level=INFO", "comment_id=10", fmt.Sprintf("session_id=%d", session.ID), reason} {
+					if !strings.Contains(logs.String(), want) {
+						t.Fatalf("missing %q: %s", want, &logs)
+					}
+				}
+			}
+			if tc.name == "closed" {
+				assertLog("closed issue")
+			}
+			if tc.locked {
+				assertLog("waiting for the session lock")
+				before, exists, e := db.GetWatermark(ctx, session.ID)
+				check(e)
+				holder, e := db.GetSession(ctx, session.ID)
+				check(e)
+				if holder.LockOwner != "other-daemon" || work.worker.status != workerDeferred || exists && before.LastCommentID >= 10 {
+					t.Fatal("lock deferral changed ownership or consumed input")
+				}
+				size := logs.Len()
+				_, e = d.recoverGraphReply(ctx, work, trigger, turn.Command{Kind: turn.KindFreeText})
+				check(e)
+				if logs.Len() != size {
+					t.Fatal("unchanged lock deferral logged repeatedly")
+				}
+				check(db.ReleaseSessionLock(ctx, session.ID, "other-daemon"))
+				_, e = d.recoverGraphReply(ctx, work, trigger, turn.Command{Kind: turn.KindFreeText})
+				check(e)
+				retry, e := db.LatestGraphDispatch(ctx, instance.ID)
+				check(e)
+				if retry.ID == dispatch.ID {
+					t.Fatal("released lock did not permit recovery")
+				}
+			}
 			if tc.want {
+				assertLog("scheduled recovery at node conversation")
 				ordinaryBug, e := d.isBugParentDispatch(ctx, dispatch)
 				check(e)
 				recoveredBug, e := d.isBugParentDispatch(ctx, got)
@@ -215,13 +261,81 @@ func TestStoppedBugReplyRecoveryBoundary(t *testing.T) {
 					t.Fatalf("changed target: %+v", got)
 				}
 				check(db.CancelGraphDispatch(ctx, got.ID, "later stop", at))
+				before, _, e := db.GetWatermark(ctx, session.ID)
+				check(e)
 				_, err = d.recoverGraphReply(ctx, work, trigger, turn.Command{Kind: turn.KindFreeText, Text: "resume"})
 				check(err)
 				replay, err := db.LatestGraphDispatch(ctx, instance.ID)
 				check(err)
+				assertLog("already consumed")
+				after, _, e := db.GetWatermark(ctx, session.ID)
+				check(e)
+				if before != after {
+					t.Fatal("consumed replay wrote watermark")
+				}
 				if replay.ID != got.ID || replay.Status != "cancelled" {
 					t.Fatal("consumed reply restarted later stop")
 				}
+			}
+		})
+	}
+}
+
+type bugRecoveryOwnershipReporter struct {
+	Reporter
+	calls int
+}
+
+func (r *bugRecoveryOwnershipReporter) ReportPending(context.Context, int64, int64) (turn.Posted, bool, error) {
+	r.calls++
+	return turn.Posted{}, false, nil
+}
+
+func TestBugReportRecoveryOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		purpose string
+		run     bool
+		want    int
+	}{
+		{"reply:bug_comment_not_applied:schedule:0", false, 1},
+		{"reply:missing_team:schedule:0", false, 1},
+		{"reply:unsupported_workflow:schedule:0", false, 1},
+		{"reply:bug_comment_not_applied:schedule:0", true, 0},
+		{"reply:bug_comment_not_applied_other:schedule:0", false, 0},
+		{"reply:graph_resume_refused:schedule:0", false, 0},
+		{"bug-question", false, 0},
+	} {
+		t.Run(fmt.Sprintf("%s/run=%t", tc.purpose, tc.run), func(t *testing.T) {
+			d, _, repo := doctorDaemonFixture(t)
+			ctx := t.Context()
+			check := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			session, err := d.db.GetOrCreateSession(ctx, repo, 774)
+			check(err)
+			_, err = d.db.AdmitWorkflow(ctx, store.TaskWorkflowAdmission{SessionID: session.ID, Version: 1, Family: "standalone", Workflow: "bug", SourceTrigger: 1})
+			check(err)
+			var runID int64
+			if tc.run {
+				segment, e := d.db.GetOrCreateSegment(ctx, session.ID, 1, "bug", store.AgentClaude)
+				check(e)
+				run, e := d.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "bug", Agent: store.AgentClaude, TriggerCommentID: 40, LogPath: func(int) string { return "fixture.log" }})
+				check(e)
+				_, e = d.db.FinishRun(ctx, run.ID, store.RunOutcome{Status: store.RunFailed})
+				check(e)
+				runID = run.ID
+			}
+			_, err = d.db.EnsureReportDelivery(ctx, store.ReportDelivery{Key: "ownership", Version: 1, SessionID: session.ID, RunID: runID, TriggerID: 40, Task: session.TaskRef, Destination: session.TaskRef, TriggerNamespace: "comment", Purpose: tc.purpose, BotUserID: 99, Body: "retained", Marker: "ownership"})
+			check(err)
+			probe := &bugRecoveryOwnershipReporter{}
+			d.reporter = probe
+			_, err = d.resumeReport(ctx, &task{session: session, tickAt: d.now()}, 40)
+			check(err)
+			if probe.calls != tc.want {
+				t.Fatalf("shared recovery calls=%d want=%d", probe.calls, tc.want)
 			}
 		})
 	}
