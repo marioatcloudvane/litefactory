@@ -1320,7 +1320,7 @@ const (
 // first on purpose — see the comment at the check itself.
 func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
 	ctx = sessionContext(ctx, c.session.ID)
-	if d.sessionRecoveryHeld(c.session.ID, tickAt) || d.prepFailures.held(c.session.ID, tickAt) {
+	if d.observeCandidateHold(ctx, c, tickAt) {
 		return offerSkipped
 	}
 	if !d.enterDoctorGuarded(ctx, c.session.ID) {
@@ -3115,5 +3115,33 @@ func (d *Daemon) lowDisk(ctx context.Context) bool {
 		slog.String("path", d.diskPath),
 		slog.Uint64("free_bytes", free),
 		slog.Uint64("required_bytes", d.minFreeDiskBytes))
+	return true
+}
+
+// candidateHold contains only the metadata defining an observed admission hold.
+// It never participates in eligibility or retry bookkeeping.
+type candidateHold struct {
+	kind, key, state, reason string
+	nextAt                   time.Time
+}
+
+func (d *Daemon) observeCandidateHold(ctx context.Context, c *candidate, at time.Time) bool {
+	var hold candidateHold
+	if row, held := d.sessionRecoveryHold(c.session.ID, at); held {
+		hold = candidateHold{kind: "report-recovery", key: row.Key, state: row.State, nextAt: row.NextAt}
+	} else if row, held := d.prepFailures.hold(c.session.ID, at); held {
+		hold = candidateHold{kind: "preparation", reason: row.Reason, nextAt: row.NextAt}
+	} else {
+		delete(d.holdDiagnostics, c.session.ID)
+		return false
+	}
+	previous, seen := d.holdDiagnostics[c.session.ID]
+	if !seen || previous.kind != hold.kind || previous.key != hold.key || previous.state != hold.state || previous.reason != hold.reason || !previous.nextAt.Equal(hold.nextAt) {
+		if d.holdDiagnostics == nil {
+			d.holdDiagnostics = make(map[int64]candidateHold)
+		}
+		d.holdDiagnostics[c.session.ID] = hold
+		d.log.InfoContext(ctx, "session admission held", slog.Int64("session_id", c.session.ID), slog.String("task", c.ref.String()), slog.String("hold_kind", hold.kind), slog.String("recovery", hold.key), slog.String("state", hold.state), slog.String("reason", hold.reason), slog.Time("next_eligible", hold.nextAt))
+	}
 	return true
 }
