@@ -103,7 +103,7 @@ func TestFreshFactsAndForgeFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"repository", "discovery", "issue:8", "issue:7", "task:7", "run:7/3", "plan:7/1"}
+	want := []string{"repository", "discovery", "active:7", "issue:8", "issue:7", "task:7", "run:7/3", "plan:7/1"}
 	if len(b.Facts) != len(want) || len(b.Gaps) != 0 {
 		t.Fatalf("bundle: %+v", b)
 	}
@@ -112,20 +112,21 @@ func TestFreshFactsAndForgeFailure(t *testing.T) {
 			t.Fatalf("fact %d: %+v", i, fact)
 		}
 	}
-	if b.Facts[2].Link != "https://github.com/owner/app/issues/8" {
-		t.Fatalf("issue link: %+v", b.Facts[2])
+	if b.Facts[3].Link != "https://github.com/owner/app/issues/8" {
+		t.Fatalf("issue link: %+v", b.Facts[3])
 	}
 	f.tasks[0].State = "idle"
+	f.tasks[0].LatestRun.Status = store.RunSucceeded
 	f.paused = true
 	g.err = errors.New("remote unavailable")
 	b, err = c.Collect(t.Context(), repo, at.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.calls != 2 || len(b.Facts) != 5 || !strings.Contains(b.Facts[2].Text, "idle") || !strings.Contains(b.Facts[1].Text, "true") || !strings.Contains(strings.Join(b.Gaps, " "), "factory data only") {
+	if g.calls != 2 || len(b.Facts) != 6 || b.Facts[2].Handle != "active:none" || !strings.Contains(b.Facts[3].Text, "idle") || !strings.Contains(b.Facts[1].Text, "true") || !strings.Contains(strings.Join(b.Gaps, " "), "factory data only") {
 		t.Fatalf("stale or unsupported data: %+v, calls=%d", b, g.calls)
 	}
-	if strings.Contains(b.Facts[2].Text, "running") {
+	if strings.Contains(b.Facts[3].Text, "running") {
 		t.Fatalf("old task state survived: %+v", b)
 	}
 }
@@ -154,8 +155,8 @@ func TestFactsLimitsCountEncodedMetadata(t *testing.T) {
 			t.Errorf("missing omission %q in %s", want, gaps)
 		}
 	}
-	if b.Facts[2].Handle != "issue:75" {
-		t.Fatalf("did not keep freshest issue: %+v", b.Facts[2])
+	if b.Facts[2].Handle != "active:none" || b.Facts[3].Handle != "issue:75" {
+		t.Fatalf("did not keep freshest issue: %+v", b.Facts[2:4])
 	}
 }
 
@@ -202,5 +203,128 @@ func TestFactsListExactlyPublishedOwnerWaits(t *testing.T) {
 	}
 	if strings.Join(waits, ",") != "wait:629,wait:638,wait:649" {
 		t.Fatalf("owner waits: %v in %+v", waits, b.Facts)
+	}
+}
+
+func handles(b ask.Bundle) map[string]ask.Fact {
+	out := map[string]ask.Fact{}
+	for _, f := range b.Facts {
+		out[f.Handle] = f
+	}
+	return out
+}
+
+// A closed task whose session flag still says running is left out; only the
+// open task with a running latest run is reported as running.
+func TestFactsReportOnlyOpenRunningTasks(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 12, 11, 11, 0, 0, time.UTC)
+	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
+	w := &waitStore{runs: map[int64]store.Run{
+		562: {Ordinal: 4, Mode: "validate", Status: store.RunSucceeded, StartedAt: at.Add(-24 * time.Hour)},
+		629: {Ordinal: 2, Mode: "bug", Status: store.RunRunning, StartedAt: at.Add(-time.Hour)},
+	}}
+	w.sessions = []store.Session{
+		{ID: 562, IssueNumber: 562, TaskRef: "github:owner/app#562", State: store.SessionRunning},
+		{ID: 629, IssueNumber: 629, TaskRef: "github:owner/app#629", State: store.SessionIdle},
+	}
+	g := &forge{issues: []github.Issue{{Number: 629, State: "open", Title: "bug", UpdatedAt: at}}}
+	b, err := (ask.Collector{Factory: ask.StoreReader{Reader: w}, Issues: g}).Collect(t.Context(), repo, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := handles(b)
+	for handle := range h {
+		if strings.Contains(handle, "562") {
+			t.Fatalf("closed task fact %s in %+v", handle, b.Facts)
+		}
+	}
+	var active []string
+	for _, f := range b.Facts {
+		if f.Kind == "active" {
+			active = append(active, f.Handle)
+		}
+	}
+	if strings.Join(active, ",") != "active:629" || !strings.Contains(h["active:629"].Text, "bug") {
+		t.Fatalf("active facts: %v in %+v", active, b.Facts)
+	}
+	if !strings.Contains(h["task:629"].Text, "state: running") {
+		t.Fatalf("task fact: %+v", h["task:629"])
+	}
+
+	// Without a complete open-issue read, nothing is filtered as closed.
+	for _, alter := range []func(*forge){
+		func(g *forge) { g.err = errors.New("remote unavailable") },
+		func(g *forge) {
+			for i := range 51 {
+				g.issues = append(g.issues, github.Issue{Number: 1000 + i, State: "open", Title: "more", UpdatedAt: at})
+			}
+		},
+	} {
+		g := &forge{issues: []github.Issue{{Number: 629, State: "open", Title: "bug", UpdatedAt: at}}}
+		alter(g)
+		b, err := (ask.Collector{Factory: ask.StoreReader{Reader: w}, Issues: g}).Collect(t.Context(), repo, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h := handles(b)
+		if _, ok := h["task:562"]; !ok {
+			t.Fatalf("task dropped without a complete issue read: %+v", b.Facts)
+		}
+		if !strings.Contains(h["task:562"].Text, "state: idle") || h["active:629"].Handle == "" {
+			t.Fatalf("facts: %+v", b.Facts)
+		}
+	}
+}
+
+// Running work goes before issue text so the bundle budget cannot crowd it out.
+func TestFactsKeepRunningWorkUnderBudget(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 12, 11, 11, 0, 0, time.UTC)
+	g := &forge{}
+	for i := range 50 {
+		g.issues = append(g.issues, github.Issue{Number: i + 1, State: "open", Title: "bounded", Body: strings.Repeat("x", ask.MaxIssueBody), UpdatedAt: at.Add(time.Duration(i) * time.Minute)})
+	}
+	g.issues = append(g.issues, github.Issue{Number: 900, State: "open", Title: "running", UpdatedAt: at.Add(-time.Hour)})
+	f := &factory{tasks: []ask.Task{{IssueNumber: 900, Reference: "github:owner/app#900", State: "running", LatestRun: &store.Run{Ordinal: 1, Mode: "implement", Status: store.RunPrelaunch, StartedAt: at}}}}
+	b, err := (ask.Collector{Factory: f, Issues: g}).Collect(t.Context(), store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := handles(b)["active:900"]; !ok {
+		t.Fatalf("running task crowded out: %+v", b.Facts)
+	}
+}
+
+// When nothing is running the bundle says so exactly once, but only when the
+// task data was read.
+func TestFactsSayNothingIsRunning(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 12, 11, 11, 0, 0, time.UTC)
+	repo := store.Repo{ID: 1, Forge: "github", Owner: "owner", Name: "app"}
+	f := &factory{tasks: []ask.Task{
+		{IssueNumber: 7, State: "idle", LatestRun: &store.Run{Ordinal: 1, Status: store.RunSucceeded, StartedAt: at}},
+		{IssueNumber: 8, State: "failed", LatestRun: &store.Run{Ordinal: 2, Status: store.RunFailed, StartedAt: at}},
+		{IssueNumber: 9, State: "idle"},
+	}}
+	count := func(b ask.Bundle) (n int) {
+		for _, fact := range b.Facts {
+			if fact.Kind == "active" {
+				if fact.Handle != "active:none" || fact.Text != "No factory run is currently running." {
+					t.Fatalf("unexpected active fact: %+v", fact)
+				}
+				n++
+			}
+		}
+		return n
+	}
+	b, err := (ask.Collector{Factory: f, Issues: &forge{}}).Collect(t.Context(), repo, at)
+	if err != nil || count(b) != 1 {
+		t.Fatalf("nothing-running fact: %+v, %v", b.Facts, err)
+	}
+	f.err = errors.New("store unavailable")
+	b, err = (ask.Collector{Factory: f, Issues: &forge{}}).Collect(t.Context(), repo, at)
+	if err != nil || count(b) != 0 {
+		t.Fatalf("nothing-running fact after failed read: %+v, %v", b.Facts, err)
 	}
 }

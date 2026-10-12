@@ -116,18 +116,29 @@ func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (
 		b.Gaps = append(b.Gaps, "Additional factory tasks were left out.")
 	}
 	var issues []github.Issue
+	var openIssues map[int]bool
 	if c.Issues == nil {
 		b.Gaps = append(b.Gaps, "GitHub could not be read; using factory data only.")
 	} else {
 		var cut bool
 		issues, cut, err = c.Issues.ReadOpenIssues(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, MaxIssues)
-		if err != nil {
+		switch {
+		case err != nil:
 			issues = nil
 			b.Gaps = append(b.Gaps, "GitHub could not be read; using factory data only.")
-		} else if cut || len(issues) > MaxIssues {
+		case cut || len(issues) > MaxIssues:
 			b.Gaps = append(b.Gaps, "Additional open issues were left out (50 issue limit).")
+		default:
+			openIssues = map[int]bool{}
+			for _, issue := range issues {
+				if issue.State == github.StateOpen {
+					openIssues[issue.Number] = true
+				}
+			}
 		}
 	}
+	// A task is closed only when a complete open-issue read omits its issue.
+	closed := func(task Task) bool { return openIssues != nil && !openIssues[task.IssueNumber] }
 	if err := ctx.Err(); err != nil {
 		return b, err
 	}
@@ -144,6 +155,19 @@ func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (
 			}
 			seenWaits[task.IssueNumber] = true
 			add(fact(fmt.Sprintf("wait:%d", task.IssueNumber), "owner_wait", fmt.Sprintf("%s/issues/%d#issuecomment-%d", base, task.IssueNumber, w.CommentID), waitText(task.IssueNumber, *w, at)))
+		}
+		// Running work is live run state and also goes before issue text.
+		seenActive := map[int]bool{}
+		for _, task := range tasks {
+			run := task.LatestRun
+			if !runActive(run) || task.IssueNumber < 1 || seenActive[task.IssueNumber] || closed(task) {
+				continue
+			}
+			seenActive[task.IssueNumber] = true
+			add(fact(fmt.Sprintf("active:%d", task.IssueNumber), "active", fmt.Sprintf("%s/issues/%d", base, task.IssueNumber), fmt.Sprintf("#%d has a factory run in progress: run %d; mode: %s; status: %s; started: %s.", task.IssueNumber, run.Ordinal, byteExcerpt(run.Mode, 128), run.Status, run.StartedAt.UTC().Format(time.RFC3339))))
+		}
+		if len(seenActive) == 0 && !tasksCut {
+			add(fact("active:none", "active", "", "No factory run is currently running."))
 		}
 	}
 	issues = slices.Clone(issues)
@@ -171,7 +195,7 @@ func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (
 	if taskErr == nil {
 		seenTasks := map[int]bool{}
 		for _, task := range tasks {
-			if task.IssueNumber < 1 || seenTasks[task.IssueNumber] {
+			if task.IssueNumber < 1 || seenTasks[task.IssueNumber] || closed(task) {
 				continue
 			}
 			seenTasks[task.IssueNumber] = true
@@ -192,6 +216,11 @@ func (c Collector) Collect(ctx context.Context, repo store.Repo, at time.Time) (
 		return Bundle{}, errors.New("ask: project metadata exceeds facts bundle limit")
 	}
 	return b, nil
+}
+
+// runActive reports whether the factory is still executing the run.
+func runActive(run *store.Run) bool {
+	return run != nil && (run.Status == store.RunPrelaunch || run.Status == store.RunRunning)
 }
 
 func waitText(issue int, w OwnerWait, at time.Time) string {
