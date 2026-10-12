@@ -48,9 +48,6 @@ const (
 	inFT = `(SELECT task_ref FROM ft)`
 
 	subSPR     = `(SELECT run_id FROM story_progress_runs WHERE run_id IN ` + inFR + ` OR parent_task IN ` + inFT + `)`
-	subMeterAt = `(SELECT id FROM meter_attempts WHERE run_id IN ` + inFR + `)`
-	subMeasure = `(SELECT id FROM meter_measurements WHERE attempt_id IN ` + subMeterAt + `)`
-	subValuate = `(SELECT id FROM meter_valuations WHERE measurement_id IN ` + subMeasure + `)`
 	subInst    = `(SELECT id FROM graph_instances WHERE session_id IN ` + inFS + `)`
 	subNodeAt  = `(SELECT id FROM graph_node_attempts WHERE instance_id IN ` + subInst + ` OR run_id IN ` + inFR + `)`
 	subSched   = `(SELECT id FROM schedules WHERE session_id IN ` + inFS + ` OR run_id IN ` + inFR + `)`
@@ -96,14 +93,6 @@ var archiveRegistry = []ArchiveTable{
 	archived("delivery_pr_bindings", bySession),
 	archived("delivery_proposals", byTask),
 	archived("delivery_readiness", byTask),
-	// Metering.
-	archived("meter_valuation_dimensions", `valuation_id IN `+subValuate),
-	archived("meter_valuations", `measurement_id IN `+subMeasure),
-	archived("meter_checkpoints", `attempt_id IN `+subMeterAt),
-	archived("meter_measurements", `attempt_id IN `+subMeterAt),
-	archived("meter_observations", `attempt_id IN `+subMeterAt),
-	archived("meter_invocations", `attempt_id IN `+subMeterAt),
-	archived("meter_attempts", `id IN `+subMeterAt),
 	// MCP creation.
 	archived("creation_publication_requests", `(run_id IN `+inFR+` OR operation_id IN `+subOps+`)`),
 	archived("creation_publication_artifacts", `operation_id IN `+subOps),
@@ -226,6 +215,13 @@ var archiveRetained = map[string]ArchiveClass{
 	"story_refinement_acks": ArchiveClassSkeleton, "story_discovery": ArchiveClassSkeleton,
 	"story_discovery_pending": ArchiveClassSkeleton, "story_discovery_rotation": ArchiveClassSkeleton,
 	"segment_deliveries": ArchiveClassSkeleton,
+	// Usage and cost records stay live so a project's cumulative meter bound
+	// never drops when a task is archived. The archive clears
+	// meter_attempts.graph_node_attempt_id before deleting the graph attempts.
+	"meter_attempts": ArchiveClassSkeleton, "meter_invocations": ArchiveClassSkeleton,
+	"meter_observations": ArchiveClassSkeleton, "meter_measurements": ArchiveClassSkeleton,
+	"meter_checkpoints": ArchiveClassSkeleton, "meter_valuations": ArchiveClassSkeleton,
+	"meter_valuation_dimensions": ArchiveClassSkeleton,
 	// Finished suite runs and commands have no-delete triggers; they keep only
 	// the instance id and need no graph_instances row.
 	"suite_runs": ArchiveClassSkeleton, "suite_commands": ArchiveClassSkeleton,
@@ -285,6 +281,14 @@ var archiveGuardedReferences = map[string]bool{
 	"doctor_inbox": true, "doctor_presentations": true, "doctor_repairs": true,
 	"doctor_local_presentations": true,
 }
+
+// archiveClearedReferences are retained child tables whose reference to an
+// archived parent DeleteArchivedFamily clears before the parent rows go.
+var archiveClearedReferences = map[string]string{"meter_attempts": "graph_node_attempts"}
+
+// archiveClearMeterGraphLinks unlinks the family's retained meter attempts from
+// the graph attempts the archive is about to delete.
+const archiveClearMeterGraphLinks = archiveCTE + `UPDATE meter_attempts SET graph_node_attempt_id=NULL WHERE graph_node_attempt_id IN ` + subNodeAt
 
 // ArchiveRegistry returns every classified table: archived tables first in
 // DELETE order, then the rest by name. The result is a copy.
@@ -398,6 +402,7 @@ func (db *DB) ArchiveRegistryProblems(ctx context.Context) ([]string, error) {
 			case child == parent:
 			case parentArchived && childArchived && cp > pp:
 				problems = append(problems, fmt.Sprintf("%s is deleted after its parent %s", child, parent))
+			case parentArchived && !childArchived && archiveClearedReferences[child] == parent:
 			case parentArchived && !childArchived && !archiveGuardedReferences[child]:
 				problems = append(problems, fmt.Sprintf("retained %s references archived %s", child, parent))
 			}

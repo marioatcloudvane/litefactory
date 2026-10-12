@@ -34,6 +34,8 @@ The token amounts are split into separate kinds: uncached input, cache reads, ca
 
 The Claude and Codex readers use both the live output of the agent process and its transcript or rollout files. If a source, a model name or a sub-agent record is missing, the coverage shows as partial or unknown. The numbers are not checked against real provider invoices.
 
+Archiving a closed task keeps its usage and cost records, so a project's totals stay the same; the archived work just loses its link to the workflow step. Records removed by archives made before this change are not restored.
+
 ## Prices
 
 Prices are USD per million tokens, and you set them yourself; nothing is fetched. Use `meter prices list` to see the current list and `meter prices set` to change one agent and model.
