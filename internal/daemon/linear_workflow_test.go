@@ -288,7 +288,7 @@ func TestLinearTicketWorkflow(t *testing.T) {
 	}
 	parent, err := adapter.Resolve(ctx, ticket.Locator{Provider: ticket.Linear, Origin: version.Origin, Container: version.Destination, Key: "parent-uuid"})
 	linearWorkflowCheck(t, err)
-	_, err = db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: version.ID, Ref: parent.Ref, Enabled: true, Provenance: "explicit"})
+	originalBinding, err := db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: version.ID, Ref: parent.Ref, Enabled: true, Provenance: "explicit"})
 	linearWorkflowCheck(t, err)
 	issueSlot, err := db.LocalTicketSlot(ctx, "issue", parent.Ref.Identity)
 	linearWorkflowCheck(t, err)
@@ -297,13 +297,44 @@ func TestLinearTicketWorkflow(t *testing.T) {
 	ownerSlot, err := db.LocalTicketSlot(ctx, "actor", appointment.Actor)
 	linearWorkflowCheck(t, err)
 	ref := naming.Ref{Forge: "linear", Owner: "team-uuid", Repo: "project-uuid", Issue: int(issueSlot)}
-	session, err := AdmitProjectTicket(ctx, db, factory, repo, parent.Ref)
+	// A pending reply under a routine new version must reuse the old binding.
+	version.Linear.ModeLabelsJSON = `{"plan":"label-plan"}`
+	version, err = db.SetConnection(ctx, version, version.Revision)
+	linearWorkflowCheck(t, err)
+	position, err := db.InitTicketRecoveryPosition(ctx, version, time.Now())
+	linearWorkflowCheck(t, err)
+	_, err = db.PinTicketRecoveryContainer(ctx, version.ID, position.Revision, "project-uuid")
+	linearWorkflowCheck(t, err)
+	linearWorkflowCheck(t, db.HandoffTicketObservation(ctx, store.PendingTicketObservation{ConnectionVersionID: version.ID, RepoID: repo.ID, Provider: ticket.Linear, Origin: version.Origin, Container: version.Destination, ContainerID: "project-uuid", TicketID: parent.Ref.Identity.RemoteID, TicketKey: parent.Ref.Locator.Key, ObservedAt: time.Now()}))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	recoveryDaemon := &Daemon{db: db, connections: factory, log: logger}
+	now := time.Now()
+	recoveryDaemon.discovery.tick(now)
+	recoveryDaemon.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: now.Add(time.Hour), StatusCode: http.StatusOK})
+	queue := &repoQueue{repo: repo, forgeRepo: githubRepo(version.Destination), log: logger}
+	seen := make(map[int64]*candidate)
+	linearWorkflowCheck(t, recoveryDaemon.drainTicketObservations(ctx, map[int64]*repoQueue{repo.ID: queue}, seen))
+	session, err := db.GetSessionByTicket(ctx, parent.Ref.Identity)
+	linearWorkflowCheck(t, err)
+	if len(seen) != 1 || !session.NeedsPoll {
+		t.Fatalf("recovery lost pending work: %+v %+v", session, seen)
+	}
+	linearWorkflowCheck(t, recoveryDaemon.drainTicketObservations(ctx, map[int64]*repoQueue{repo.ID: queue}, seen))
+	if len(seen) != 1 {
+		t.Fatalf("duplicate recovery: %+v", seen)
+	}
+	savedBinding, err := db.GetTicketBindingByID(ctx, originalBinding.ID)
+	linearWorkflowCheck(t, err)
+	if savedBinding != originalBinding {
+		t.Fatalf("recovery changed binding: %+v", savedBinding)
+	}
+	session, err = AdmitProjectTicket(ctx, db, factory, repo, parent.Ref)
 	linearWorkflowCheck(t, err)
 	snapshot, err := db.GetExecutionSnapshot(ctx, session.ID)
 	linearWorkflowCheck(t, err)
 	authority, err := db.EnsureDeliveryCodeAuthority(ctx, session.ID)
 	linearWorkflowCheck(t, err)
-	if snapshot.ActorID != botSlot || snapshot.CodeActorID != 99 || authority.OwnerID != 7 || authority.PublisherID != 99 || session.TaskRef != ref.String() {
+	if snapshot.BindingID != originalBinding.ID || snapshot.TicketVersionID != version.ID || snapshot.ActorID != botSlot || snapshot.CodeActorID != 99 || authority.OwnerID != 7 || authority.PublisherID != 99 || session.TaskRef != ref.String() {
 		t.Fatalf("production admission failed to pin distinct ticket and code identities: %+v %+v", snapshot, authority)
 	}
 	codeClients, err := factory.Clients(ctx, code, 99)
@@ -313,7 +344,6 @@ func TestLinearTicketWorkflow(t *testing.T) {
 	selector := func(ctx context.Context, r github.Repo, number int, sessionID int64) (turn.WorkflowTickets, int64, error) {
 		return selectTicketConnection(ctx, db, factory, r, number, sessionID)
 	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	filter, err := turn.NewFilter(db, turn.Identities{OwnerUserID: ownerSlot, BotUserID: botSlot, TicketOrigin: version.Origin}, logger)
 	linearWorkflowCheck(t, err)
 	d := &Daemon{db: db, connections: factory, filter: filter, log: logger}

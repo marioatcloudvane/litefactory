@@ -196,3 +196,67 @@ func (db *DB) DisableTicketBinding(ctx context.Context, id, expectedRevision int
 	})
 	return out, err
 }
+
+// CheckTicketBindingSource explains whether a retained binding can be admitted
+// through this version. It does not change binding provenance or enrollment.
+func (db *DB) CheckTicketBindingSource(ctx context.Context, b TicketBinding, current ConnectionVersion) error {
+	return checkTicketBindingSource(ctx, db.sql, b, current, "")
+}
+
+func checkTicketBindingSource(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, b TicketBinding, current ConnectionVersion, verifiedID string) error {
+	conflict := func(reason string) error { return fmt.Errorf("%w: %s", ErrBindingConflict, reason) }
+	if b.RepoID != current.RepoID || current.Role != TicketConnection || b.Ref.Identity.Provider != current.Provider || b.Ref.Identity.Origin != current.Origin || b.Ref.Locator.Container != current.Destination {
+		return conflict("project, provider, origin or destination mismatch")
+	}
+	if b.ConnectionVersionID == current.ID {
+		return nil
+	}
+	old, err := scanConnection(q.QueryRowContext(ctx, `SELECT `+connectionColumns+` FROM project_connection_versions WHERE id=?`, b.ConnectionVersionID))
+	if err != nil {
+		return err
+	}
+	if old.RepoID != current.RepoID || old.Role != TicketConnection || old.Provider != current.Provider || old.Origin != current.Origin || old.Destination != current.Destination {
+		return conflict("retained project, provider, origin or destination mismatch")
+	}
+	linearProven := false
+	if current.Provider == ticket.Linear {
+		if old.Linear.WorkspaceID != current.Linear.WorkspaceID || old.Linear.TeamID != current.Linear.TeamID || old.Linear.ProjectID != current.Linear.ProjectID {
+			return conflict("Linear workspace, team or project mismatch")
+		}
+		linearProven = old.Linear.WorkspaceID != "" && old.Linear.TeamID != "" && old.Linear.ProjectID != ""
+	}
+	// Recovery may have verified a container whose immutable ID was not supplied
+	// at configuration time. Check every available piece of evidence for conflict.
+	ids := [2]string{}
+	for i, v := range []ConnectionVersion{old, current} {
+		ids[i] = v.RemoteID
+		position, err := readRecovery(q.QueryRowContext(ctx, `SELECT document FROM ticket_recovery_positions WHERE connection_version_id=?`, v.ID))
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if err == nil && position.ContainerID != "" {
+			if ids[i] != "" && ids[i] != position.ContainerID {
+				return conflict("immutable container evidence conflicts")
+			}
+			ids[i] = position.ContainerID
+		}
+	}
+	if verifiedID != "" {
+		if ids[1] != "" && ids[1] != verifiedID {
+			return conflict("verified container evidence conflicts")
+		}
+		ids[1] = verifiedID
+	}
+	if linearProven && ((ids[0] != "" && ids[0] != old.Linear.ProjectID) || (ids[1] != "" && ids[1] != current.Linear.ProjectID)) {
+		return conflict("Linear project and immutable container evidence conflict")
+	}
+	if ids[0] != "" && ids[1] != "" && ids[0] != ids[1] {
+		return conflict("immutable container mismatch")
+	}
+	if !linearProven && (ids[0] == "" || ids[1] == "") {
+		return conflict("unproven immutable source identity")
+	}
+	return nil
+}

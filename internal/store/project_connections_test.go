@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -297,6 +298,77 @@ func TestProjectBindingRejectsCompetingIdentityAtQualifiedAddress(t *testing.T) 
 			candidate.Ref.Locator.Key = original.Ref.Locator.Key
 			if _, err := db.CorrectTicketBinding(t.Context(), candidate, candidate.Revision); !errors.Is(err, ErrBindingConflict) {
 				t.Fatalf("correction claimed retained address: %v", err)
+			}
+		})
+	}
+}
+
+func TestBindingSourceImmutableEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, oldID, newID, recoveryID, verifiedID string
+		allowed                                    bool
+	}{
+		{name: "missing"},
+		{name: "matching", oldID: "101", newID: "101", allowed: true},
+		{name: "replacement", oldID: "101", newID: "102"},
+		{name: "verified", oldID: "101", verifiedID: "101", allowed: true},
+		{name: "recovery", recoveryID: "101", verifiedID: "101", allowed: true},
+		{name: "recovery conflict", oldID: "102", recoveryID: "101", verifiedID: "101"},
+		{name: "verified conflict", oldID: "101", newID: "101", verifiedID: "102"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newTestDB(t)
+			repo := testRepo(t, db, "owner", "repo")
+			code, err := db.SetConnection(t.Context(), connectionFixture(repo, CodeConnection), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			v := connectionFixture(repo, TicketConnection)
+			v.RemoteID = tc.oldID
+			old, err := db.SetConnection(t.Context(), v, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.recoveryID != "" {
+				p, err := db.InitTicketRecoveryPosition(t.Context(), old, time.Now())
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Retain conflicting evidence as corruption would; admission must refuse it.
+				p.ContainerID = tc.recoveryID
+				raw, err := json.Marshal(p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.sql.ExecContext(t.Context(), `UPDATE ticket_recovery_positions SET document=? WHERE connection_version_id=?`, string(raw), old.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ref := resolvedSessionTicket(repo.Slug(), "700")
+			b, err := db.AddTicketBinding(t.Context(), TicketBinding{RepoID: repo.ID, ConnectionVersionID: old.ID, Ref: ref, Enabled: true, Provenance: "explicit"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			v.RemoteID = tc.newID
+			next, err := db.SetConnection(t.Context(), v, old.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = db.AdmitSession(t.Context(), repo, ref, code.Revision, next.Revision, 42, "bot", "task", "", tc.verifiedID)
+			if tc.allowed && err != nil {
+				t.Fatal(err)
+			}
+			if !tc.allowed && !errors.Is(err, ErrBindingConflict) {
+				t.Fatalf("want refusal, got %v", err)
+			}
+			if !tc.allowed {
+				if _, err := db.GetSessionByTicket(t.Context(), ref.Identity); !errors.Is(err, ErrNotFound) {
+					t.Fatalf("partial session: %v", err)
+				}
+			}
+			saved, err := db.GetTicketBindingByID(t.Context(), b.ID)
+			if err != nil || saved != b {
+				t.Fatalf("binding changed: %+v %v", saved, err)
 			}
 		})
 	}
