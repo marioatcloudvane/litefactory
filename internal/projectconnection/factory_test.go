@@ -2,6 +2,7 @@ package projectconnection_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -277,6 +278,92 @@ func TestConnectionErrorsRedactAllTokensAndRetainRecoveryMetadata(t *testing.T) 
 	for _, diagnostic := range []string{err.Error(), limited.Message, limited.RequestID, limited.Resource, limited.DocumentationURL} {
 		if strings.Contains(diagnostic, credential) {
 			t.Fatal("connection credential survived in remote failure diagnostic")
+		}
+	}
+}
+
+func TestLinearMappingHealthPreservesAccessDiagnostics(t *testing.T) {
+	ctx := t.Context()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "linear-health.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, complete := range []bool{false, true} {
+		for _, denied := range []bool{false, true} {
+			t.Run(fmt.Sprintf("complete=%t/denied=%t", complete, denied), func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					var req struct {
+						Query     string
+						Variables map[string]string
+					}
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Error(err)
+						return
+					}
+					if strings.Contains(req.Query, "mutation") {
+						t.Error("health performed provider write")
+					}
+					if denied {
+						http.Error(w, "denied", http.StatusForbidden)
+						return
+					}
+					id := req.Variables["id"]
+					var data any
+					switch {
+					case strings.Contains(req.Query, "viewer"):
+						data = map[string]any{"viewer": map[string]any{"id": "bot", "active": true, "name": "bot", "organization": map[string]any{"id": "workspace"}}}
+					case strings.Contains(req.Query, "team("):
+						data = map[string]any{"team": map[string]any{"id": "team", "organization": map[string]any{"id": "workspace"}}, "project": map[string]any{"id": "project", "teams": map[string]any{"nodes": []any{map[string]string{"id": "team"}}, "pageInfo": map[string]bool{"hasNextPage": false}}}}
+					case strings.Contains(req.Query, "issueLabel("):
+						data = map[string]any{"issueLabel": map[string]any{"id": id, "organization": map[string]string{"id": "workspace"}, "team": map[string]string{"id": "team"}}}
+					case strings.Contains(req.Query, "workflowState("):
+						kind := "completed"
+						if id == "retired" {
+							kind = "canceled"
+						}
+						data = map[string]any{"workflowState": map[string]any{"id": id, "type": kind, "team": map[string]string{"id": "team"}}}
+					case strings.Contains(req.Query, "webhooks("):
+						data = map[string]any{"webhooks": map[string]any{"nodes": []any{}, "pageInfo": map[string]bool{"hasNextPage": false}}}
+					default:
+						t.Errorf("unexpected query: %s", req.Query)
+					}
+					if err := json.NewEncoder(w).Encode(map[string]any{"data": data}); err != nil {
+						t.Error(err)
+					}
+				}))
+				defer server.Close()
+				labels := `{"Mode: Plan":"p","implement":"i","validate":"v"}`
+				if complete {
+					labels = `{"research":"r","Plan":"p","implement":"i","validate":"v","Mode: Spike":"s"}`
+				}
+				v := version(server.URL, 1)
+				v.Provider = ticket.Linear
+				v.Destination = "team/project"
+				v.Linear = store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: labels, LifecycleStatesJSON: `{"completed":"completed","retired":"retired"}`}
+				f := projectconnection.NewFactory(projectconnection.Options{DB: db, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "test-token", true }}})
+				observation := f.Check(ctx, v)
+				if strings.Contains(observation.Remedy, "Missing mode mappings: research, spike") == complete {
+					t.Fatalf("mapping health: %+v", observation)
+				}
+				if !complete && !strings.Contains(observation.Remedy, "--mode-labels") {
+					t.Fatal("remedy missing")
+				}
+				if denied {
+					if observation.Status == "usable_for_checked_capabilities" {
+						t.Fatalf("access failure hidden: %+v", observation)
+					}
+				} else if observation.Status != "usable_for_checked_capabilities" || !slices.Contains(observation.Capabilities, "ticket_read") {
+					t.Fatalf("mapped modes disabled: %+v", observation)
+				}
+			})
 		}
 	}
 }

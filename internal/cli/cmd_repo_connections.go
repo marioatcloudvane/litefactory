@@ -197,7 +197,7 @@ func runRepoConnection(ctx context.Context, env *Env, cmd *Command, action strin
 		if e = rt.db.SaveConnectionObservation(ctx, observation); e != nil {
 			return Precondition(e)
 		}
-		_, e = fmt.Fprintf(env.Stdout, "%s version %d checked %s: %s (%s); capabilities %v; remedy %s\n", role, v.Revision, observation.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), observation.Status, observation.Reason, observation.Capabilities, observation.Remedy)
+		_, e = fmt.Fprintf(env.Stdout, "project %d connection %d (%s) %s version %d checked %s: %s (%s); capabilities %v; remedy %s\n", v.RepoID, v.ID, v.Destination, role, v.Revision, observation.CheckedAt.UTC().Format("2006-01-02T15:04:05Z"), observation.Status, observation.Reason, observation.Capabilities, observation.Remedy)
 		return e
 	default:
 		return Usagef(cmd, "unknown connection operation")

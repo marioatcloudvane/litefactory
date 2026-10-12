@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -332,13 +333,14 @@ func TestDaemonStatusDoctorCurrentConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team/project", CredentialSource: "env", CredentialEnv: "UNRESOLVED_LINEAR_TEST", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"plan"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
+	v, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team/project", CredentialSource: "env", CredentialEnv: "UNRESOLVED_LINEAR_TEST", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"Mode: Plan":"plan","implement":"implement","validate":"validate"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.fake.answer = func(args []string) (string, error) {
 		return "", notLoadedError(args, 113, "Bad request.; Could not find service in domain for user gui: 501")
 	}
+	wantGap := true
 	check := func(want bool) {
 		t.Helper()
 		code, stdout, stderr := h.run("daemon", "status")
@@ -348,11 +350,39 @@ func TestDaemonStatusDoctorCurrentConfiguration(t *testing.T) {
 		if strings.Contains(stdout, "background Doctor discovery unsupported/skipped for Linear (current configuration)") != want {
 			t.Fatalf("status: %s", stdout)
 		}
+		if strings.Contains(stdout, "missing mode mappings: research, spike") != (want && wantGap) {
+			t.Fatalf("mapping diagnostic: %s", stdout)
+		}
+		if want && wantGap && (!strings.Contains(stdout, "--mode-labels") || !strings.Contains(stdout, fmt.Sprintf("connection %d", v.ID))) {
+			t.Fatalf("mapping remedy or identity missing: %s", stdout)
+		}
 		if want && !strings.Contains(stdout, "project acme/linear") {
 			t.Fatalf("missing project: %s", stdout)
 		}
 	}
+
 	check(true)
+	for _, identity := range []store.Identity{
+		{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 7, Handle: "owner", Source: store.SourceGH},
+		{Forge: store.ForgeGitHub, Role: store.RoleBot, UserID: 99, Handle: "bot", Source: store.SourceForgeAPI},
+	} {
+		if _, err := db.UpsertIdentity(ctx, identity); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Missing credentials must retain both access guidance and the local gap.
+	t.Setenv("UNRESOLVED_LINEAR_TEST", "")
+	router, out, errOut := newTestRouter(t)
+	code := router.Run(ctx, []string{"repo", "connection", "check", fmt.Sprint(repo.ID), "ticket"})
+	stdout, stderr := out.String(), errOut.String()
+	if code != ExitOK {
+		t.Fatalf("check: %d %s", code, stderr)
+	}
+	for _, want := range []string{fmt.Sprintf("project %d connection %d", repo.ID, v.ID), "team/project", "research, spike", "--mode-labels", "credential"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("connection check missing %q: %s", want, stdout)
+		}
+	}
 	v, err = db.DisableConnection(ctx, repo.ID, store.TicketConnection, v.Revision)
 	if err != nil {
 		t.Fatal(err)
@@ -363,6 +393,13 @@ func TestDaemonStatusDoctorCurrentConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	check(true)
+	v.Linear.ModeLabelsJSON = `{"research":"research","plan":"plan","implement":"implement","validate":"validate","Mode: Spike":"spike"}`
+	v, err = db.SetConnection(ctx, v, v.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantGap = false
 	check(true)
 	v.Provider, v.Origin, v.Destination, v.Linear = ticket.GitHub, "https://api.github.com", repo.Slug(), store.LinearConfiguration{}
 	if _, err := db.SetConnection(ctx, v, v.Revision); err != nil {

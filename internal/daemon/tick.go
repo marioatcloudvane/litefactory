@@ -2479,12 +2479,12 @@ func (d *Daemon) run(
 	if err != nil {
 		var refusal *modeRefusal
 		if errors.As(err, &refusal) {
-			return d.refuseMode(ctx, t, trigger, refusal.kind)
+			return d.refuseMode(ctx, t, trigger, refusal.kind, refusal.mode)
 		}
 		return d.leave(ctx, t, log, "mode selection was refused", err)
 	}
 	if workflow == agent.WorkflowBug && d.bug == nil {
-		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable)
+		return d.refuseMode(ctx, t, trigger, report.ReplyBugUnavailable, "")
 	}
 	// A story issue without its own agent label takes its parent's.
 	if err := d.inheritParentAgent(ctx, t); err != nil {
@@ -2560,7 +2560,7 @@ func (d *Daemon) run(
 			if errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
 				log.InfoContext(ctx, "Research owner comment predates the open question; refusing it with a reply",
 					slog.Any("error", err))
-				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+				return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions, "")
 			}
 			// A plain Research or Implement comment refused because the wait holds
 			// another reply is answered and consumed. Explicit commands keep retry.
@@ -2568,7 +2568,7 @@ func (d *Daemon) run(
 				workflow != agent.WorkflowBug && command.Kind == turn.KindFreeText {
 				log.InfoContext(ctx, "Owner comment refused while the wait holds another reply; refusing it with a reply",
 					slog.Any("error", err))
-				return d.refuseMode(ctx, t, trigger, report.ReplyGraphOwnerWaitRefused)
+				return d.refuseMode(ctx, t, trigger, report.ReplyGraphOwnerWaitRefused, "")
 			}
 			return d.leave(ctx, t, log, "Research owner reply admission failed", err)
 		}
@@ -2624,19 +2624,19 @@ func (d *Daemon) run(
 	}
 	if err != nil {
 		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && errors.Is(err, turn.ErrImplementReplyNotApplied) {
-			return d.refuseMode(ctx, t, trigger, report.ReplyImplementCommentNotApplied)
+			return d.refuseMode(ctx, t, trigger, report.ReplyImplementCommentNotApplied, "")
 		}
 		// A Bug owner comment written before the open review or question can
 		// never answer it; refuse it once and consume it, as for Research.
 		if workflow == agent.WorkflowBug && errors.Is(err, store.ErrGraphReplyPredatesQuestion) {
 			log.InfoContext(ctx, "Bug owner comment predates the open review or question; refusing it with a reply",
 				slog.Any("error", err))
-			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions)
+			return d.refuseMode(ctx, t, trigger, report.ReplyGraphReplyBetweenQuestions, "")
 		}
 		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugReplyNotApplied) {
 			log.InfoContext(ctx, "Bug owner comment could not be applied at the current step; refusing it with a reply",
 				slog.Any("error", err))
-			return d.refuseMode(ctx, t, trigger, report.ReplyBugCommentNotApplied)
+			return d.refuseMode(ctx, t, trigger, report.ReplyBugCommentNotApplied, "")
 		}
 		if workflow == agent.WorkflowBug && errors.Is(err, turn.ErrBugCommentRefused) {
 			log.InfoContext(ctx, "Bug owner comment refused with a reply and consumed", slog.Any("error", err))

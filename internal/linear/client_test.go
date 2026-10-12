@@ -302,3 +302,39 @@ func TestQuotaDelayUsesDocumentedExhaustedBuckets(t *testing.T) {
 		})
 	}
 }
+
+func TestMissingModeMappingIdentity(t *testing.T) {
+	c := testClient(t, func(http.ResponseWriter, *http.Request) { t.Error("unmapped label performed remote I/O") })
+	c.config.ModeLabels = map[string]string{"plan": "p", "implement": "i", "validate": "v"}
+	for _, label := range []string{"research", "Mode: Research", "spike", "Mode: Spike", "unknown"} {
+		err := c.AddLabel(t.Context(), ticket.Ref{}, label)
+		var failure *ticket.Failure
+		var missing *ticket.MissingModeMapping
+		if !errors.As(err, &failure) || failure.Kind != ticket.Refused {
+			t.Fatalf("%s: %v", label, err)
+		}
+		if label == "unknown" {
+			if errors.As(err, &missing) {
+				t.Fatal("unknown label classified as missing canonical mode")
+			}
+		} else if !errors.As(fmt.Errorf("wrapped: %w", err), &missing) || canonicalModeLabel(missing.Mode) != canonicalModeLabel(label) {
+			t.Fatalf("%s lost canonical mode: %v", label, err)
+		}
+	}
+}
+
+func TestMissingModeLabels(t *testing.T) {
+	for _, labels := range []map[string]string{
+		{"plan": "p", "implement": "i", "validate": "v"},
+		{"Mode: Plan": "p", "Mode: Implement": "i", "Mode: Validate": "v"},
+		{"Plan": "p", "Implement": "i", "Validate": "v"},
+	} {
+		if got := strings.Join(MissingModeLabels(labels), ","); got != "research,spike" {
+			t.Fatalf("missing=%s", got)
+		}
+		labels["research"], labels["Mode: Spike"] = "r", "s"
+		if got := MissingModeLabels(labels); len(got) != 0 {
+			t.Fatalf("complete=%v", got)
+		}
+	}
+}
