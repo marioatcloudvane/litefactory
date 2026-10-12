@@ -97,8 +97,8 @@ func doctorCall[T any](ctx context.Context, d *Daemon, call func(context.Context
 }
 
 func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
-	forge, ok := d.forge.(doctorForge)
-	if !ok {
+	forge, _ := d.forge.(doctorForge)
+	if forge == nil && d.connections == nil {
 		return errors.New("doctor forge transport unavailable")
 	}
 	repos, err := d.db.ListRepos(ctx)
@@ -585,8 +585,8 @@ func (d *Daemon) recoverDoctor(ctx context.Context) error {
 }
 
 func (d *Daemon) publishDoctor(ctx context.Context) error {
-	forge, ok := d.forge.(doctorForge)
-	if !ok {
+	forge, _ := d.forge.(doctorForge)
+	if forge == nil && d.connections == nil {
 		return errors.New("doctor publication unavailable")
 	}
 	commands, err := d.db.DoctorCommandsNeedingReports(ctx)
@@ -639,6 +639,9 @@ func (d *Daemon) deliverDoctor(ctx context.Context, forge doctorForge, delivery 
 			}
 			forge = client
 		}
+	}
+	if forge == nil {
+		return errors.New("doctor publication unavailable")
 	}
 	ref, err := naming.ParseRef(delivery.Destination)
 	if err != nil {

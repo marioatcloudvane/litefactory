@@ -473,6 +473,15 @@ func parseRetry(value string, at time.Time) time.Duration {
 	return 0
 }
 
+// Typing triggers the channel's typing indicator. It is best effort: the
+// result is discarded and never affects delivery.
+func (a *Adapter) Typing(ctx context.Context, channel string) {
+	if !numeric(channel) {
+		return
+	}
+	_, _ = a.call(ctx, http.MethodPost, "/channels/"+channel+"/typing", struct{}{}, true)
+}
+
 // ReplyLimit is Discord's maximum message length.
 func (a *Adapter) ReplyLimit() int { return 2000 }
 

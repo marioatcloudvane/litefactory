@@ -144,8 +144,8 @@ func strictJSON(raw []byte, dst any) error {
 	if len(raw) == 0 || len(raw) > MaxCandidateBytes || !utf8.Valid(raw) {
 		return errors.New("presentation: invalid output size or encoding")
 	}
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
+	raw = unfence(bytes.TrimSpace(raw))
+	if len(raw) == 0 || raw[0] != '{' {
 		return errors.New("presentation: output must be an object")
 	}
 	// The typed decoder rejects unknown fields but accepts duplicates. Inspect
@@ -160,6 +160,27 @@ func strictJSON(raw []byte, dst any) error {
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	return d.Decode(dst)
+}
+
+// unfence strips one enclosing markdown code fence (``` or ```json) that
+// providers commonly wrap around JSON. Anything else is returned unchanged
+// for the strict object rules to judge.
+func unfence(raw []byte) []byte {
+	if !bytes.HasPrefix(raw, []byte("```")) || !bytes.HasSuffix(raw, []byte("```")) {
+		return raw
+	}
+	open := bytes.IndexByte(raw, '\n')
+	if open < 0 {
+		return raw
+	}
+	if lang := strings.TrimSpace(string(raw[3:open])); lang != "" && !strings.EqualFold(lang, "json") {
+		return raw
+	}
+	body := raw[open+1 : len(raw)-3]
+	if len(body) == 0 || body[len(body)-1] != '\n' {
+		return raw
+	}
+	return bytes.TrimSpace(body)
 }
 
 func jsonValue(d *json.Decoder, depth int) error {

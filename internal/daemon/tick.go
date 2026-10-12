@@ -147,6 +147,8 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "tick", counts)
 	ctx = context.WithValue(ctx, recoveryTickKey{}, startedAt)
+	ctx, checks := withContainerChecks(ctx)
+	defer checks.close()
 	d.doctorTick(ctx, startedAt)
 	d.refreshRecoveries(ctx, startedAt)
 	// Stopped execution debt is independent of discovery/storage availability.

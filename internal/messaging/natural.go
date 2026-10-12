@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
@@ -60,6 +61,8 @@ func (s *Service) NaturalStep(ctx context.Context, at time.Time) (bool, error) {
 		if m.OwnerID != s.owner || !s.channels[m.ChannelRef] || (m.Transport != "" && m.Transport != s.transport) || !at.Before(m.CreatedAt.Add(24*time.Hour)) {
 			return true, s.db.FinishNaturalMessage(ctx, c, m.SourceID, at)
 		}
+		stop := s.typing(ctx, m.ChannelRef)
+		defer stop()
 		if err = s.naturalTurn(ctx, m, at); err != nil {
 			return true, err
 		}
@@ -98,6 +101,19 @@ func naturalConfirmation(text string, d store.NaturalDialogue, reply string) boo
 		return true
 	}
 	return reply == d.PromptID && d.PromptID != "" && (text == "yes" || text == "yes please" || text == "confirm" || text == "do it")
+}
+
+// capPreviousReply bounds the bot's last reply to a few KB of valid UTF-8.
+func capPreviousReply(text string) string {
+	const limit = 4096
+	if len(text) <= limit {
+		return text
+	}
+	text = text[:limit]
+	for !utf8.ValidString(text) {
+		text = text[:len(text)-1]
+	}
+	return text
 }
 func naturalCancel(text string) bool {
 	switch strings.ToLower(strings.TrimSpace(text)) {
@@ -165,10 +181,19 @@ func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at ti
 		return s.db.AuthorizeNaturalDialogue(ctx, d, m.SourceID, r, at)
 	}
 	// Bare, quoted and stale confirmations cannot become a new interpreted action.
+	// A plain yes is refused only while a change proposal awaits confirmation;
+	// otherwise it answers the bot's previous question or offer.
 	lower := strings.ToLower(strings.TrimSpace(m.Text))
-	if lower == "yes" || lower == "confirm" || strings.HasPrefix(lower, "confirm ") {
+	if (lower == "yes" && d.State == "awaiting_confirmation") || lower == "confirm" || strings.HasPrefix(lower, "confirm ") {
 		return s.naturalReply(ctx, m, "Reply directly to the current delivered proposal with yes, or use its exact confirmation code. Nothing was authorized.", presentation.Refusal, at)
 	}
+	previous := ""
+	if d.State == "clarifying" {
+		previous = p.Prompt
+	} else if replies, e := s.db.ReadAskReplies(ctx, s.transport, m.ChannelRef, 1); e == nil && len(replies) == 1 && !replies[0].FinishedAt.IsZero() && !at.After(replies[0].FinishedAt.Add(15*time.Minute)) {
+		previous = replies[0].ReplyText
+	}
+	previous = capPreviousReply(previous)
 	if d.State != "clarifying" && d.State != "awaiting_confirmation" {
 		p = naturalPayload{}
 	}
@@ -209,7 +234,7 @@ func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at ti
 	if err = s.db.SaveNaturalDialogue(ctx, d, old); err != nil {
 		return err
 	}
-	request := InterpretationRequest{Turns: p.Turns, Commands: s.NaturalCommands()}
+	request := InterpretationRequest{Turns: p.Turns, Commands: s.NaturalCommands(), PreviousReply: previous}
 	work, cancel := context.WithTimeout(ctx, response.Budget)
 	defer cancel()
 	started := time.Now()

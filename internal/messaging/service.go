@@ -307,6 +307,11 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		}
 		return true, s.finish(ctx, r, true, at)
 	}
+	stopTyping := func() {}
+	if strings.HasPrefix(r.MessageID, "nl") {
+		stopTyping = s.typing(ctx, r.ChannelRef)
+		defer stopTyping()
+	}
 	if _, err = s.prepareNaturalExecution(ctx, &r, at); err != nil {
 		return true, err
 	}
@@ -378,6 +383,8 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 		}
 		text = r.ReplyText
 	}
+	// The posted reply clears the indicator; no refresh may follow it.
+	stopTyping()
 	target := Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Handle: r.MessageID, Protected: r.Command == "natural"}
 	var d Delivery
 	if _, ok := s.sender.(ReplyTransport); !ok && r.ReplyAttachment != "" {

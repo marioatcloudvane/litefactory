@@ -142,6 +142,7 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 			Publish: h.publish,
 			OwnerID: func(context.Context, Options) (int64, error) { return cfg.OwnerID, nil },
 		},
+		AdvanceStory: h.advanceStory,
 	}
 	return suite, flow, nil
 }
@@ -369,6 +370,53 @@ func (h *validateHost) publish(ctx context.Context, commit, expectedHead string)
 		return err
 	}
 	return wt.PushHeadTo(ctx, h.opts.remote(), h.session.Branch, expectedHead)
+}
+
+// advanceStory moves a story branch on the remote forward to the tested commit
+// with the same guarded push: no force, and only while the remote branch is
+// still where it was read. A story branch that is missing or holds commits the
+// tested commit lacks is left alone and false is returned.
+func (h *validateHost) advanceStory(ctx context.Context, branch, commit string) (bool, error) {
+	wt, err := h.openWorktree(ctx)
+	if err != nil {
+		return false, err
+	}
+	head, err := wt.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if err != nil {
+		return false, err
+	}
+	if head != commit {
+		return false, fmt.Errorf("the task worktree is at %s, not at the tested commit %s", shortSHA(head), shortSHA(commit))
+	}
+	release, err := h.opts.CloneGate.Acquire(ctx, h.repo.Path)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return false, err
+	}
+	if err := h.clone.Fetch(ctx, h.opts.remote()); err != nil {
+		return false, fmt.Errorf("fetch %s: %w", h.opts.remote(), err)
+	}
+	current, err := h.clone.ShowRef(ctx, "refs/remotes/"+h.opts.remote()+"/"+branch)
+	if errors.Is(err, git.ErrRefNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if current == commit {
+		return true, nil
+	}
+	if ok, err := wt.IsAncestor(ctx, current, commit); err != nil || !ok {
+		return false, err
+	}
+	err = wt.PushHeadTo(ctx, h.opts.remote(), branch, current)
+	if errors.Is(err, git.ErrIntegrationHeadMoved) || errors.Is(err, git.ErrInvalidArgument) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // validateReviewers starts each reviewer as its own read-only agent run of the

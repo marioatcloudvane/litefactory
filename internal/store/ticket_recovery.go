@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -86,20 +88,35 @@ func (db *DB) InitTicketRecoveryPosition(ctx context.Context, v ConnectionVersio
 			return ErrRecoveryConflict
 		}
 		out = TicketRecoveryPosition{ConnectionVersionID: v.ID, RepoID: v.RepoID, Revision: 1, Provider: v.Provider, Origin: v.Origin, Container: v.Destination, ContainerID: v.RemoteID, CursorFormat: "github-time-v1", EnrollmentAt: enrollment, CompletedThrough: enrollment}
-		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM project_connection_versions WHERE repo_id=? AND role='ticket'`, v.RepoID).Scan(&count); err != nil {
-			return err
-		}
 		if v.Provider == ticket.GitHub && v.Provenance == "legacy" {
 			var destination string
 			if err := tx.QueryRowContext(ctx, `SELECT owner || '/' || name FROM repos WHERE id=?`, v.RepoID).Scan(&destination); err != nil {
 				return err
 			}
-			if count != 1 || destination != v.Destination {
-				return ErrRecoveryMigrationAmbiguous
+			// Revisions of the same legacy source (such as the RemoteID-pinned
+			// import revision) are not a second candidate.
+			rows, err := tx.QueryContext(ctx, `SELECT id, destination FROM project_connection_versions WHERE repo_id=? AND role='ticket' AND NOT (provenance='legacy' AND provider=? AND api_origin=? AND destination=?) ORDER BY id`, v.RepoID, v.Provider, v.Origin, v.Destination)
+			if err != nil {
+				return err
+			}
+			var candidates []string
+			for rows.Next() {
+				var id int64
+				var other string
+				if err := rows.Scan(&id, &other); err != nil {
+					_ = rows.Close()
+					return err
+				}
+				candidates = append(candidates, fmt.Sprintf("version %d %s", id, other))
+			}
+			if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+				return err
+			}
+			if len(candidates) > 0 || destination != v.Destination {
+				return fmt.Errorf("%w: repo %s, legacy version %d %s, other candidates [%s]", ErrRecoveryMigrationAmbiguous, destination, v.ID, v.Destination, strings.Join(candidates, ", "))
 			}
 			var raw sql.NullString
-			err := tx.QueryRowContext(ctx, `SELECT listed_up_to FROM repo_poll_cursors WHERE repo_id=?`, v.RepoID).Scan(&raw)
+			err = tx.QueryRowContext(ctx, `SELECT listed_up_to FROM repo_poll_cursors WHERE repo_id=?`, v.RepoID).Scan(&raw)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return err
 			}
