@@ -187,8 +187,13 @@ func runDaemonRunWithRecovery(ctx context.Context, env *Env, repairID, recoveryT
 	// surfaces, so re-resolving it per tick would be a prompt storm nobody can
 	// answer.
 	token, err := resolveDaemonToken(ctx, paths, cfg)
-	if err != nil {
-		return err
+	var bootstrap store.ConnectionVersion
+	projectStartup := err != nil
+	if projectStartup {
+		token, bootstrap, err = resolveProjectStartupToken(ctx, env, db, cfg, err)
+		if err != nil {
+			return err
+		}
 	}
 
 	executable, err := os.Executable()
@@ -210,14 +215,18 @@ func runDaemonRunWithRecovery(ctx context.Context, env *Env, repairID, recoveryT
 		host.Recovery = &store.DoctorRestart{RepairID: repairID, Token: recoveryToken}
 	}
 	loop, startup, err := daemon.Open(ctx, daemon.Setup{
-		DoctorHost: host,
-		Paths:      paths,
-		Config:     cfg,
-		DB:         db,
-		Token:      token,
-		Logger:     env.Logger,
-		UserAgent:  initUserAgent(env),
-		LogSink:    env.LogSink,
+		DoctorHost:        host,
+		ConnectionSecrets: secrets.Resolver{Keychain: env.Keychain},
+		ProjectStartup:    projectStartup,
+		BootstrapOrigin:   bootstrap.Origin,
+		Launchd:           os.Getenv("XPC_SERVICE_NAME") == launchd.DefaultLabel,
+		Paths:             paths,
+		Config:            cfg,
+		DB:                db,
+		Token:             token,
+		Logger:            env.Logger,
+		UserAgent:         initUserAgent(env),
+		LogSink:           env.LogSink,
 	})
 	if err != nil {
 		return daemonRunError(err)

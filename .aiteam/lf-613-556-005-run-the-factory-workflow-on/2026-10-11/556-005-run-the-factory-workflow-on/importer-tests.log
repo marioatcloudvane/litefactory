@@ -1,0 +1,43 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	15.439s
+?   	github.com/cloudvane/litefactory/cmd/teamrelease	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	64.321s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	78.910s
+ok  	github.com/cloudvane/litefactory/internal/bugchecks	29.301s
+ok  	github.com/cloudvane/litefactory/internal/codex	196.728s
+--- FAIL: TestDoctorLiveDiagnosisEndToEndRetainsOnlyManifest (73.04s)
+    adapters.go:68: live query: {RequestID:9d3df03d30942745f74a42347fb4fbf8 Result:null Error:} submission: reply unavailable; query retained request correlation
+--- FAIL: TestDoctorLiveDiagnosisProposesRepairForQueriedTargets (24.90s)
+    live_diagnosis_io_test.go:279: query rows: {"valid":false,"error":"database query timed out or was cancelled"} <nil>
+--- FAIL: TestDoctorBrokerReadToolsExactCatalogAndRedactedQuery (23.92s)
+    read_tools_io_test.go:94: query disclosure: {"valid":false,"error":"database query timed out or was cancelled"} database query timed out or was cancelled
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/doctor	547.295s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	33.312s
+ok  	github.com/cloudvane/litefactory/internal/harness	212.240s
+--- FAIL: TestMCPServer_SizeBounds (57.44s)
+    --- FAIL: TestMCPServer_SizeBounds/full_contribution_plus_envelope (55.04s)
+        server_test.go:390: protocol response timeout
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/mcpadapter	71.849s
+ok  	github.com/cloudvane/litefactory/internal/messaging	240.424s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	10.937s
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	199.653s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	6.391s
+ok  	github.com/cloudvane/litefactory/internal/meter	3.928s
+ok  	github.com/cloudvane/litefactory/internal/meterview	4.826s
+ok  	github.com/cloudvane/litefactory/internal/naming	8.682s
+ok  	github.com/cloudvane/litefactory/internal/providerprocess	6.273s
+ok  	github.com/cloudvane/litefactory/internal/redact	21.989s
+ok  	github.com/cloudvane/litefactory/internal/report	197.377s
+ok  	github.com/cloudvane/litefactory/internal/repos	35.701s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	134.885s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/submission	12.167s
+ok  	github.com/cloudvane/litefactory/internal/teampackage	100.449s
+--- FAIL: TestCanonicalMigrationAndGraphContracts (12.61s)
+    release_test.go:267: validate graph changed beyond team and guidance
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamrelease	504.935s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	41.281s
+FAIL

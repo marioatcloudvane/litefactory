@@ -200,6 +200,10 @@ func (p *StoryProgress) deliverFollowups(ctx context.Context, parent string) err
 	return errors.Join(faults...)
 }
 func (p *StoryProgress) followupNotice(ctx context.Context, q store.FollowupProposal, stage, detail string) error {
+	publisherID, publisherErr := p.ticketPublisherID(ctx, q.Parent)
+	if publisherErr != nil {
+		return publisherErr
+	}
 	renderer, ok := p.renderer.(followupRenderer)
 	if !ok {
 		return fmt.Errorf("followup renderer unavailable")
@@ -215,7 +219,7 @@ func (p *StoryProgress) followupNotice(ctx context.Context, q store.FollowupProp
 		return err
 	}
 	for _, c := range comments {
-		if c.Author.ID == p.botID && exactProgressMarker(c.Body, marker) {
+		if !hasTicketNoticeGuard(p.forge) && c.Author.ID == publisherID && exactProgressMarker(c.Body, marker) {
 			return nil
 		}
 	}
@@ -223,16 +227,20 @@ func (p *StoryProgress) followupNotice(ctx context.Context, q store.FollowupProp
 	if err != nil {
 		return err
 	}
-	c, err := p.forge.PostComment(ctx, repo, ref.Issue, body)
+	c, err := postTicketNotice(ctx, p.forge, marker, q.Parent, publisherID, repo, ref.Issue, body)
 	if err != nil {
 		return err
 	}
-	if c.ID < 1 || c.Author.ID != p.botID {
+	if c.ID < 1 || c.Author.ID != publisherID {
 		return fmt.Errorf("followup report provenance mismatch")
 	}
 	return nil
 }
 func (p *StoryProgress) deliverFollowup(ctx context.Context, q *store.FollowupProposal) error {
+	publisherID, publisherErr := p.ticketPublisherID(ctx, q.Parent)
+	if publisherErr != nil {
+		return publisherErr
+	}
 	if !q.Proposed {
 		detail := fmt.Sprintf("Follow-up proposal %s (generation %d)\n\nTitle: %s\n\n%s\n\nApprove exact content with `/followup %d %s linked`; use `attach` instead of `linked` to explicitly attach it to the parent (and block readiness until closed). Neither action waives its source requirement.", q.Key, q.Generation, q.Title, q.Body, q.Generation, q.Key)
 		if err := p.followupNotice(ctx, *q, "proposal", detail); err != nil {
@@ -260,16 +268,33 @@ func (p *StoryProgress) deliverFollowup(ctx context.Context, q *store.FollowupPr
 	}
 	repo := github.RepoFromRef(ref)
 	if q.IssueID == 0 {
-		issues, err := gateway.ListFollowupIssues(ctx, repo)
-		if err != nil {
-			return err
-		}
 		var found github.Issue
 		matches := 0
-		for _, issue := range issues {
-			if issue.Author.ID == p.botID && exactProgressMarker(issue.Body, followupMarker(q.Key)) {
-				found = issue
-				matches++
+		qualified := false
+		if q.Attempted {
+			if recoverer, ok := gateway.(interface {
+				RecoverIssueEffect(context.Context, string, github.Repo, int, string, string) (github.Issue, bool, error)
+			}); ok {
+				issue, handled, recoverErr := recoverer.RecoverIssueEffect(ctx, "followup:"+q.Key, repo, 0, q.Title, q.Body)
+				if recoverErr != nil {
+					return recoverErr
+				}
+				qualified = handled
+				if handled {
+					found, matches = issue, 1
+				}
+			}
+		}
+		if !qualified {
+			issues, err := gateway.ListFollowupIssues(ctx, repo)
+			if err != nil {
+				return err
+			}
+			for _, issue := range issues {
+				if issue.Author.ID == publisherID && exactProgressMarker(issue.Body, followupMarker(q.Key)) {
+					found = issue
+					matches++
+				}
 			}
 		}
 		if matches > 1 {
@@ -290,19 +315,19 @@ func (p *StoryProgress) deliverFollowup(ctx context.Context, q *store.FollowupPr
 			if err = p.db.SaveFollowupEffects(ctx, *q); err != nil {
 				return err
 			}
-			found, err = gateway.CreateIssue(ctx, repo, t, b)
+			found, err = createTicketEffect(ctx, gateway, "followup:"+q.Key, repo, 0, t, b)
 			if err != nil {
 				return err
 			}
 		}
-		if found.ID < 1 || found.Number < 1 || found.Author.ID != p.botID || found.Title != q.Title || found.Body != q.Body {
+		if found.ID < 1 || found.Number < 1 || found.Author.ID != publisherID || found.Title != q.Title || found.Body != q.Body {
 			return fmt.Errorf("followup created content or identity mismatch")
 		}
 		verified, err := p.forge.GetIssue(ctx, repo, found.Number)
 		if err != nil {
 			return err
 		}
-		if verified.ID != found.ID || verified.Author.ID != p.botID || verified.Title != q.Title || verified.Body != q.Body {
+		if verified.ID != found.ID || verified.Author.ID != publisherID || verified.Title != q.Title || verified.Body != q.Body {
 			return fmt.Errorf("followup issue verification mismatch")
 		}
 		q.IssueID = found.ID

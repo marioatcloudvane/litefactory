@@ -100,11 +100,11 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 	if !ok {
 		return result, true, errors.New("graph Plan forge lacks story recovery and retirement")
 	}
-	owner, err := o.DB.GetIdentity(ctx, store.ForgeGitHub, store.RoleOwner)
+	ownerID, err := ticketOwnerID(ctx, o)
 	if err != nil {
 		return result, true, err
 	}
-	r.ownerID = owner.UserID
+	r.ownerID = ownerID
 	r.discussion = req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.ownerID && ParseCommand(req.Trigger.Body).Kind == KindFreeText
 	feature, featureErr := o.DB.GetManagedFeature(ctx, r.parentRef.String())
 	if featureErr != nil && !errors.Is(featureErr, store.ErrNotFound) {

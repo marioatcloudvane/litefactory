@@ -1,0 +1,49 @@
+Executed engineering checks; no acceptance or remote effects claimed.
+
+Changed packages:
+- go test -race -timeout=0 ./internal/linear ./internal/github ./internal/projectconnection ./internal/secrets ./internal/ticket ./internal/webhook ./internal/webhookreg: passed (leaf-tests.log).
+- go test -race -timeout=0 ./internal/github: passed after explicit human identity fixes (github-final-tests.log).
+- go test -race -timeout=0 ./internal/projectconnection ./internal/ticket ./internal/linear: passed after quota and publisher fixes (adapter-final-tests.log).
+- go test -race -timeout=0 ./internal/linear: passed after bounded complexity page change (linear-final-tests.log).
+- go test -timeout=0 ./internal/store ./internal/cli: final complete run passed (store-cli-final-tests.log).
+- go test -timeout=0 ./internal/daemon: final complete run passed, including TestLinearTicketWorkflow (daemon-final-tests.log).
+
+Importer checks:
+- Complete race runs of the importing packages listed in importer-tests.log; all but doctor, mcpadapter and teamrelease passed initially.
+- Complete race retry of doctor and mcpadapter: MCP passed; doctor had one query timeout (importer-retry-tests.log).
+- Complete race retry of doctor under reduced load: passed (doctor-final-tests.log).
+- The unchanged release-contract graph comparison remains failed (importer-tests.log).
+
+Formatting, build and lint:
+- gofmt -l on all changed package directories: empty.
+- git diff --check: passed.
+- go build ./...: passed (build-final.log).
+- Scoped pinned golangci-lint 2.13.1 run on all changed packages: zero findings (lint-clean.log).
+- Scoped rerun on final store, turn, daemon and linear changes: zero findings (lint-final-current.log).
+
+Earlier transient compile and archive/migration failures are retained separately and are not represented as passing checks.
+
+Final receipt-loss focused turn run: passed (5.049s).
+Final complete daemon rerun: passed (302.523s).
+Final scoped turn/daemon lint: passed, 0 issues.
+Final go build ./...: passed.
+Final gofmt check across changed packages: no output.
+Final git diff --check: passed.
+
+Initial complete turn run failed receipt-loss regressions after publisher lookup was added after dispatch. Fixed by resolving saved publisher before dispatch.
+Final complete turn run: passed (1509.862s), no race as required for this package.
+All changed packages now have complete passing runs. Importer release-contract check remains failed on unchanged graph inputs; see release-contract-baseline.txt.
+No acceptance review, commit, push, merge, deployment or real-provider publication was performed.
+
+Application result submitted as incomplete; accepted input receipt request_id: 682c27167d3c6a1b53dfb4c58832100c. Matching receipt read. Engineering, acceptance and publication remain pending.
+
+Attempt 2: clean worktree at saved implementation. Three read-only subagent checks found no new story-owned gap. Complete importer rerun: go test -race ./internal/teamrelease failed in 139.967s on TestCanonicalMigrationAndGraphContracts, validate graph changed beyond team and guidance. Both graph inputs remain unchanged. No source changes or remote effects.
+Attempt 2 incomplete application input accepted; matching receipt read, request_id b2eea463ad5b685c3cc869fb646520d2. Engineering, acceptance and publication remain pending.
+
+Attempt 3: git diff 8c11a3c HEAD -- internal teams is empty; clean worktree. Three subagents confirm no pending task or changed owned files. No repeated tests, code edits or remote effects. Existing complete importer failure remains applicable. Incomplete input accepted and matching receipt read: e9296d4f766836c733f1703c5d8bb702. Engineering, acceptance and publication pending.
+
+Owner-authorized final continuation: known base-branch importer failure is disclosed and is not a blocker; owner says fixed on main in #641. No source changes. Three parallel subagents confirmed no remaining task.
+Complete race package run: linear, github, projectconnection, secrets, ticket, webhook, webhookreg passed.
+Complete store passed 568.290s; daemon passed 624.566s. Initial CLI synthetic provider timeout failed; complete CLI rerun passed 106.560s. Initial turn short-budget timing test failed; complete turn rerun passed 1339.937s. Existing environment-dependent process-observation skip retained in log.
+Scoped lint across all eleven changed packages passed: 0 issues. gofmt check clean; git diff --check passed. Prior successful build and importer runs apply to unchanged code. No acceptance or real-provider remote effects claimed.
+Completed application input accepted, matching receipt read: 7f2e389dbb0ecd8b6d92a5ff199635a3. Engineering, acceptance and publication remain pending; receipt is acknowledgment only.

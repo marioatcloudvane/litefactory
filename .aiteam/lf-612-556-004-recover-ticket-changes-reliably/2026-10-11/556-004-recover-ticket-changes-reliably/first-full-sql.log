@@ -1,0 +1,20 @@
+--- FAIL: TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase (0.14s)
+    archive_integration_test.go:54: problems [pending_ticket_observations is not classified ticket_observation_generations is not classified ticket_recovery_positions is not classified ticket_subscription_operations is not classified ticket_subscriptions is not classified] <nil>
+2026/10/11 18:38:08 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen4242877513/001/litefactory.db
+--- FAIL: TestArchiveRegistryProblems_MigratedDatabaseIsClean (1.31s)
+    archive_unit_test.go:59: registry problems: [pending_ticket_observations is not classified ticket_observation_generations is not classified ticket_recovery_positions is not classified ticket_subscription_operations is not classified ticket_subscriptions is not classified]
+2026/10/11 18:42:31 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants1726776555/001/litefactory.db
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	327.182s
+ok  	github.com/cloudvane/litefactory/internal/turn	1715.144s
+--- FAIL: TestArchiveIntegrationSuiteRowsRetained (0.51s)
+    archive_integration_test.go:977: registry problems [pending_ticket_observations is not classified ticket_observation_generations is not classified ticket_recovery_positions is not classified ticket_subscription_operations is not classified ticket_subscriptions is not classified] <nil>
+    archive_integration_test.go:74: archive logs:
+--- FAIL: TestSubscriptionCacheRefreshFollowsRevisionAndDisable (0.11s)
+    webhook_subscriptions_internal_test.go:60: secret rotation {RepoID:1 ConnectionVersionID:1 Revision:2 Selector:cached Provider:github Origin:https://api.github.com Container:acme/cached ContainerID:container-cached Secret:[110 101 119]} true calls=2
+--- FAIL: TestOpenBindsTheListenerLoadsSecretsOnceAndCloseFreesThePort (0.27s)
+    webhook_test.go:411: keychain lookups at start = []
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/daemon	396.452s
+ok  	github.com/cloudvane/litefactory/internal/cli	115.011s
+FAIL

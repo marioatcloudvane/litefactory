@@ -140,7 +140,7 @@ scan:
 	changed = true
 	switch {
 	case existing == nil:
-		posted, err := b.Forge.PostComment(ctx, repo, a.Parent.Issue, body)
+		posted, err := postTicketNotice(ctx, b.Forge, marker, a.Parent.String(), 0, repo, a.Parent.Issue, body)
 		if err != nil {
 			return implementHandoffOutput{}, false, fmt.Errorf("post hand-off report: %w", err)
 		}

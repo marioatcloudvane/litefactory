@@ -91,11 +91,25 @@ func TestStoryRefinementFailedPostRemainsPending(t *testing.T) {
 	if f.watermark() != 0 {
 		t.Fatal("parent watermark advanced")
 	}
+	prepared, err := f.db.GetStoryRefinementACK(t.Context(), f.sessionOf(testIssue).ID, 60)
+	if err != nil || !prepared.DispatchAttempted || prepared.PreparedBody == "" {
+		t.Fatalf("uncertain acknowledgement intent = %+v, %v", prepared, err)
+	}
+	// A failed write response does not establish remote non-delivery. An empty
+	// reconciliation observation cannot restore the burned dispatch right.
 	f.forge.onPostComment = nil
 	f.settle()
 	pending, err = f.db.ListPendingStoryRefinements(t.Context(), f.sessionOf(testIssue).ID)
-	if err != nil || len(pending) != 0 {
-		t.Fatalf("pending after retry = %v, %v\n%s", pending, err, f.logs)
+	if err != nil || len(pending) != 1 || pending[0].Consumed {
+		t.Fatalf("uncertain refinement after retry = %v, %v\n%s", pending, err, f.logs)
+	}
+	retained, err := f.db.GetStoryRefinementACK(t.Context(), f.sessionOf(testIssue).ID, 60)
+	if err != nil || retained.PreparedBody != prepared.PreparedBody || !retained.DispatchAttempted {
+		t.Fatalf("acknowledgement intent changed on retry = %+v, %v", retained, err)
+	}
+	bodies, _, _ := f.forge.snapshot()
+	if len(bodies) != 0 || len(f.turns.calls()) != 0 || f.watermark() != 0 {
+		t.Fatalf("uncertain acknowledgement authorized duplicate publication or source advance: posts=%d turns=%d watermark=%d", len(bodies), len(f.turns.calls()), f.watermark())
 	}
 }
 

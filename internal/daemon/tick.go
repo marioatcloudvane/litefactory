@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/schedule"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -180,8 +182,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	if err := d.pollPublications(ctx, startedAt); err != nil {
 		d.log.ErrorContext(ctx, "publication observation remains pending", slog.Any("error", err))
-		var rate *github.RateLimitError
-		if errors.As(err, &rate) {
+		if providerRateLimited(err) {
 			return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
 		}
 	}
@@ -189,10 +190,18 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	if progress, ok := d.turn.(interface{ PollStoryProgress(context.Context) error }); ok {
 		if err := progress.PollStoryProgress(ctx); err != nil {
 			d.log.ErrorContext(ctx, "story progress remains pending", slog.Any("error", err))
-			var rate *github.RateLimitError
-			if errors.As(err, &rate) {
+			if providerRateLimited(err) {
 				return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
 			}
+		}
+	}
+
+	// Code-host controls have their own sources and must be polled even when
+	// work-management replies come from Linear.
+	if err := d.PollCodeDeliveryControls(ctx); err != nil {
+		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
+		if providerRateLimited(err) {
+			return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
 		}
 	}
 
@@ -224,6 +233,13 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	if err := d.replayInterruptionReports(ctx, repos); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(ctx, startedAt, err)
+	}
+	if d.connections != nil {
+		for _, project := range repos {
+			if err := d.db.RecoverConsumedProjectAuthorityClaims(ctx, project.ID); err != nil {
+				return result, d.observe(ctx, startedAt, err)
+			}
+		}
 	}
 
 	d.researchReminders(ctx, startedAt)
@@ -428,8 +444,10 @@ func (d *Daemon) finishListings(ctx context.Context, queues []*repoQueue, starte
 		if !q.finished {
 			continue
 		}
-		if err := d.db.SetRepoPollCursor(ctx, q.repo.ID, startedAt); err != nil {
-			return err
+		if d.connections == nil {
+			if err := d.db.SetRepoPollCursor(ctx, q.repo.ID, startedAt); err != nil {
+				return err
+			}
 		}
 		d.schedule.ListingFinished(q.repo.ID, finishedAt)
 	}
@@ -504,12 +522,69 @@ func (d *Daemon) discover(
 			continue
 		}
 
+		ctx := ctx
 		forgeRepo := github.Repo{Owner: repo.Owner, Name: repo.Name}
+		connectionEnabled := true
+		if d.connections != nil {
+			ctx = projectContext(ctx, repo.ID)
+			v, e := d.db.CurrentConnection(ctx, repo.ID, store.TicketConnection)
+			if e != nil {
+				repoLog.WarnContext(ctx, "project ticket connection unavailable", slog.Any("error", e))
+				continue
+			}
+			owner, name, _ := strings.Cut(v.Destination, "/")
+			forgeRepo = github.Repo{Owner: owner, Name: name}
+			connectionEnabled = v.Enabled
+			if state, e := d.db.GetProjectImportState(ctx, repo.ID); e == nil && state.Status == "conflict" {
+				connectionEnabled = false
+			}
+		}
 		q := &repoQueue{repo: repo, forgeRepo: forgeRepo, log: repoLog}
 		queues = append(queues, q)
 		byRepo[repo.ID] = q
 
-		if !due[repo.ID] {
+		if d.connections != nil && d.schedule.Due(repo.ID, now) {
+			if err := d.recoverRetainedSessions(ctx, q); err != nil {
+				return nil, err
+			}
+		}
+		if !due[repo.ID] || !connectionEnabled {
+			if due[repo.ID] && !connectionEnabled {
+				q.finished = true
+			}
+			continue
+		}
+		if d.connections != nil {
+			q.listing = true
+			if err := d.discoveryProbe(ctx, forgeRepo); err != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				if errors.Is(err, ErrDiscoveryDeferred) {
+					deferred = true
+				}
+				repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
+				if providerRateLimited(err) {
+					return nil, d.observe(ctx, now, err)
+				}
+				continue
+			}
+			finished, err := d.recoverSource(ctx, q, now)
+			if errors.Is(err, ErrDiscoveryDeferred) {
+				deferred = true
+				continue
+			}
+			if err != nil {
+				repoLog.WarnContext(ctx, "ticket recovery remains pending", slog.Any("error", err))
+				if providerRateLimited(err) {
+					return nil, d.observe(ctx, now, err)
+				}
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				continue
+			}
+			q.finished = finished
 			continue
 		}
 		q.listing = true
@@ -521,7 +596,7 @@ func (d *Daemon) discover(
 		if err := d.discoveryProbe(ctx, forgeRepo); err != nil {
 			return nil, err
 		}
-		issues, err := discoveryCall(ctx, d, discoveryKey(forgeRepo, "issues", 0), discoveryListBound, func(ctx context.Context) ([]github.Issue, error) { return d.forge.ListIssues(ctx, forgeRepo, since) })
+		issues, err := discoveryCall(ctx, d, discoveryKey(forgeRepo, "issues", 0), discoveryListBound, func(ctx context.Context) ([]github.Issue, error) { return d.discoverIssues(ctx, forgeRepo, since) })
 		if errors.Is(err, ErrDiscoveryDeferred) {
 			deferred, repoDeferred = true, true
 		} else if err != nil {
@@ -570,6 +645,9 @@ func (d *Daemon) discover(
 	}
 
 	if err := d.webhookHints(ctx, byRepo, seen, result); err != nil {
+		return nil, err
+	}
+	if err := d.drainTicketObservations(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
 	if err := d.graphPlanParents(ctx, byRepo, seen); err != nil {
@@ -675,8 +753,14 @@ func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen 
 // path re-checks the same thing in [Daemon.materialise], where the session
 // already exists and the only question left is whether to run.
 func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*candidate, error) {
-	if _, err := d.db.ManagedParentForChild(ctx, q.repo.ID, issue.Number); err == nil {
-		return nil, nil
+	if parent, err := d.db.ManagedParentForChild(ctx, q.repo.ID, issue.Number); err == nil {
+		same, e := d.sameTicketSource(ctx, q.repo.ID, parent)
+		if e != nil {
+			return nil, e
+		}
+		if same {
+			return nil, nil
+		}
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
@@ -691,9 +775,54 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 		return nil, nil
 	}
 
-	session, err := d.db.GetOrCreateSession(ctx, q.repo, issue.Number)
+	var session store.Session
+	var err error
+	if d.connections == nil {
+		session, err = d.db.GetOrCreateSession(ctx, q.repo, issue.Number)
+	} else {
+		ctx = projectContext(ctx, q.repo.ID)
+		v, e := d.db.CurrentConnection(ctx, q.repo.ID, store.TicketConnection)
+		if e != nil {
+			return nil, e
+		}
+		// The issue was observed before this current-version read. An edit
+		// between discovery and admission must not qualify old input with the
+		// replacement origin, even if both sources reuse the same numeric ID.
+		observedPath, sameOrigin := strings.CutPrefix(issue.APIURL, string(v.Origin)+"/repos/")
+		observedParts := strings.SplitN(observedPath, "/", 3)
+		owner, name, _ := strings.Cut(v.Destination, "/")
+		if v.Provider == ticket.GitHub && (q.forgeRepo.String() != v.Destination || !sameOrigin || len(observedParts) != 3 ||
+			!strings.EqualFold(observedParts[0], owner) || !strings.EqualFold(observedParts[1], name) ||
+			observedParts[2] != "issues/"+strconv.Itoa(issue.Number)) {
+			return nil, store.ErrConnectionConflict
+		}
+		ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: strconv.FormatInt(issue.ID, 10)}, Locator: locatorAt(v.Origin, q.forgeRepo, issue.Number)}
+		if v.Provider == ticket.Linear {
+			if issue.QualifiedSnapshot == nil {
+				return nil, store.ErrTicketIdentityConflict
+			}
+			ref = issue.QualifiedSnapshot.Ref
+			if ref.Identity.Provider != v.Provider || ref.Identity.Origin != v.Origin || ref.Locator.Container != v.Destination {
+				return nil, store.ErrConnectionConflict
+			}
+		}
+		binding, e := d.db.GetTicketBinding(ctx, ref.Identity)
+		if errors.Is(e, store.ErrNotFound) {
+			_, e = d.db.AddTicketBinding(ctx, store.TicketBinding{RepoID: q.repo.ID, ConnectionVersionID: v.ID, Ref: ref, Enabled: true, Provenance: "discovery"})
+		} else if e == nil && (binding.RepoID != q.repo.ID || !binding.Enabled) {
+			e = store.ErrBindingConflict
+		}
+		if e != nil {
+			return nil, e
+		}
+		session, err = AdmitProjectTicket(ctx, d.db, d.connections, q.repo, ref)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("find the task for %s#%d: %w", q.forgeRepo, issue.Number, err)
+	}
+	if err := d.bindObservedIssue(ctx, session.ID, q.forgeRepo, issue); err != nil {
+		return nil, err
 	}
 	// Parsed on the Tick goroutine, like everything else that names a task: the
 	// ref is what a task's logger is decorated with, and a worker that had to
@@ -730,6 +859,13 @@ func (d *Daemon) markPlanChild(ctx context.Context, q *repoQueue, number int) er
 	if err != nil {
 		return err
 	}
+	same, e := d.sameTicketSource(ctx, q.repo.ID, parent)
+	if e != nil {
+		return e
+	}
+	if !same {
+		return nil
+	}
 	session, err := d.db.GetSessionByTaskRef(ctx, parent)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
@@ -748,6 +884,7 @@ func (d *Daemon) markPlanChild(ctx context.Context, q *repoQueue, number int) er
 // been fetched yet: a session reached only through the backlog has no
 // [github.Issue] until [Daemon.materialise] reads one for it.
 type candidate struct {
+	observations []store.PendingTicketObservation
 	// sources are ordered discovery evidence, not proof of actionable work.
 	sources   []string
 	repo      store.Repo
@@ -861,7 +998,7 @@ func (d *Daemon) commentedIssues(
 	listed []github.Issue,
 ) ([]github.Issue, error) {
 	repo := q.forgeRepo
-	numbers, err := discoveryCall(ctx, d, discoveryKey(repo, "commented", 0), discoveryListBound, func(ctx context.Context) ([]int, error) { return d.forge.ListCommentedIssues(ctx, repo, since) })
+	numbers, err := discoveryCall(ctx, d, discoveryKey(repo, "commented", 0), discoveryListBound, func(ctx context.Context) ([]int, error) { return d.discoverCommented(ctx, repo, since) })
 	if err != nil {
 		return nil, fmt.Errorf("list the comments of %s written since %s: %w",
 			repo, since.UTC().Format(time.RFC3339), err)
@@ -926,6 +1063,14 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 	if err != nil {
 		return false, err
 	}
+	same, sourceErr := d.sameTicketSource(ctx, q.repo.ID, parent)
+	if sourceErr != nil {
+		return false, sourceErr
+	}
+	if !same {
+		return false, nil
+	}
+
 	session, err := d.db.GetSessionByTaskRef(ctx, parent)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -948,6 +1093,8 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 // owned by that worker, including sequential refinement copies. Nothing is
 // shared with another worker, so no lock is needed.
 type task struct {
+	observations []store.PendingTicketObservation
+	enrollmentAt time.Time
 	// workerLog holds immutable admission context for worker lifetime events.
 	workerLog *slog.Logger
 	worker    *workerState
@@ -1256,7 +1403,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 
 	// The dispatch point uses the daemon's long-lived context. runWorker owns
 	// the shared pool and in-flight lifetime through terminal diagnostics.
-	go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
+	go d.runTicketPollingWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
 
 	result.Dispatched++
 	return offerDispatched
@@ -1292,6 +1439,21 @@ func (d *Daemon) deferRest(ctx context.Context, queues []*repoQueue, result *Tic
 // construction stay where a test can count them, and no worker has to work out
 // its own identity before it can log.
 func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time) (*task, error) {
+	if d.connections != nil {
+		ctx = sessionContext(ctx, c.session.ID)
+		snapshot, e := d.db.GetExecutionSnapshot(ctx, c.session.ID)
+		if e != nil {
+			return nil, e
+		}
+		c.repo = snapshot.CodeTarget
+		binding, e := d.db.GetSessionTicket(ctx, c.session.ID)
+		if e != nil {
+			return nil, e
+		}
+		owner, name, _ := strings.Cut(binding.Locator.Container, "/")
+		c.forgeRepo = github.Repo{Owner: owner, Name: name}
+	}
+
 	issue := c.issue
 	if !c.resolved {
 		// Lazily, and only now that a slot is held: see [Daemon.offer] for why
@@ -1302,7 +1464,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		}
 		var fetched github.Issue
 		if len(pending) > 0 {
-			fetched, err = d.forge.GetIssue(ctx, c.forgeRepo, c.session.IssueNumber)
+			fetched, err = d.readIssue(ctx, c.forgeRepo, c.session.IssueNumber)
 		} else {
 			fetched, err = d.discoveryIssue(ctx, c.forgeRepo, c.session.IssueNumber)
 		}
@@ -1311,6 +1473,9 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 				c.forgeRepo, c.session.IssueNumber, err)
 		}
 		issue = fetched
+	}
+	if err := d.bindObservedIssue(ctx, c.session.ID, c.forgeRepo, issue); err != nil {
+		return nil, err
 	}
 	if issue.State == "closed" {
 		cleared, err := d.cancelClosedIssueGraphs(ctx, c.session.ID, tickAt)
@@ -1334,6 +1499,13 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 				c.forgeRepo, c.session.IssueNumber, err)
 		}
 	}
+	if issue.State == "closed" {
+		for _, observation := range c.observations {
+			if err := d.db.ClearPendingTicketObservation(ctx, observation.ConnectionVersionID, observation.TicketID, observation.Generation); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if issue.State != github.StateOpen {
 		c.log.DebugContext(ctx, "a task that still needs a poll is no longer open; nothing runs",
 			slog.String("state", issue.State))
@@ -1341,15 +1513,16 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 	}
 
 	return &task{
-		repo:      c.repo,
-		forgeRepo: c.forgeRepo,
-		issue:     issue,
-		session:   c.session,
-		ref:       c.ref,
-		log:       c.log,
-		tickAt:    tickAt,
-		hinted:    slices.Contains(c.sources, "webhook"),
-		workerLog: c.log.With(slog.Any("dispatch_sources", slices.Clone(c.sources)), slog.Time("tick_at", tickAt)),
+		observations: slices.Clone(c.observations),
+		repo:         c.repo,
+		forgeRepo:    c.forgeRepo,
+		issue:        issue,
+		session:      c.session,
+		ref:          c.ref,
+		log:          c.log,
+		tickAt:       tickAt,
+		hinted:       slices.Contains(c.sources, "webhook"),
+		workerLog:    c.log.With(slog.Any("dispatch_sources", slices.Clone(c.sources)), slog.Time("tick_at", tickAt)),
 	}, nil
 }
 
@@ -1359,7 +1532,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 func (d *Daemon) taskComments(ctx context.Context, t *task, after int64) ([]github.Comment, error) {
 	if t.hinted {
 		return doctorCall(ctx, d, func(ctx context.Context) ([]github.Comment, error) {
-			return d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, after)
+			return d.readComments(ctx, t.forgeRepo, t.issue.Number, after)
 		})
 	}
 	return d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, after)
@@ -1379,6 +1552,9 @@ func (d *Daemon) taskComments(ctx context.Context, t *task, after int64) ([]gith
 // comment list is exhausted, a comment was left unconsumed, or the context is
 // done.
 func (d *Daemon) work(ctx context.Context, t *task) {
+	if d.connections != nil {
+		ctx = sessionContext(ctx, t.session.ID)
+	}
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
@@ -1396,6 +1572,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		return
 	}
 	if handledPlan {
+		d.clearTicketObservations(ctx, t)
 		return
 	}
 
@@ -1421,8 +1598,24 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	}
 
 	var deferred bool
-	if !exists {
+	bodyPending := false
+	if exists && d.connections != nil {
+		bodyPending, err = d.db.TicketBodyPending(ctx, t.session.ID)
+		if err != nil {
+			d.stopped(ctx, t, "could not read first ticket instruction recovery", err)
+			return
+		}
+	}
+	if !exists || bodyPending {
 		err = d.bootstrap(ctx, t)
+		if err == nil && d.connections != nil {
+			initialized, _, readErr := d.db.GetWatermark(ctx, t.session.ID)
+			if readErr != nil {
+				err = readErr
+			} else {
+				deferred, err = d.drain(ctx, t, initialized.LastCommentID)
+			}
+		}
 	} else {
 		deferred, err = d.drain(ctx, t, watermark.LastCommentID)
 	}
@@ -1535,14 +1728,37 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		return fmt.Errorf("list the existing comments of task %s: %w", t.ref, err)
 	}
 
+	var enrollment time.Time
+	if d.connections != nil {
+		snapshot, err := d.db.GetExecutionSnapshot(ctx, t.session.ID)
+		if err != nil {
+			return err
+		}
+		position, err := d.db.GetTicketRecoveryPosition(ctx, snapshot.TicketVersionID)
+		if err != nil {
+			return err
+		}
+		enrollment = position.EnrollmentAt
+		t.enrollmentAt = enrollment
+	}
 	var highest int64
 	for _, c := range comments {
+		if !enrollment.IsZero() && c.CreatedAt.IsZero() {
+			return fmt.Errorf("daemon: enrolled reply has no creation time")
+		}
+		if !enrollment.IsZero() && !c.CreatedAt.Before(enrollment) {
+			break
+		}
 		if c.ID > highest {
 			highest = c.ID
 		}
 	}
 
-	watermark, created, err := d.db.BootstrapWatermark(ctx, t.session.ID, highest)
+	bootstrapWatermark := d.db.BootstrapWatermark
+	if d.connections != nil {
+		bootstrapWatermark = d.db.BootstrapTicketWatermark
+	}
+	watermark, created, err := bootstrapWatermark(ctx, t.session.ID, highest)
 	if err != nil {
 		return fmt.Errorf("bootstrap the watermark of task %s: %w", t.ref, err)
 	}
@@ -1554,7 +1770,19 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 
 	// Only now, with the watermark planted and logged. See [Daemon.runIssueBody]
 	// for why that order is the whole of "exactly once".
-	return d.runIssueBody(ctx, t, comments)
+	if err := d.runIssueBody(ctx, t, comments); err != nil {
+		return err
+	}
+	if d.connections != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if t.worker != nil && (t.worker.status == workerDeferred || t.worker.status == workerFailed) {
+			return &recoveryPending{}
+		}
+		return d.db.CompleteTicketBody(ctx, t.session.ID)
+	}
+	return nil
 }
 
 // runIssueBody runs the issue body as the task's first instruction, when the
@@ -1571,11 +1799,9 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 //     Re-checking it a third time would be another place to keep in step with
 //     those two, and the first of them is the one that also stops the session
 //     row being written.
-//  2. The issue is assigned to the owner, matched on the numeric user id and
-//     never on a handle (D-I). This is the authorisation, and it is the whole
-//     reason the old ban could be lifted: anyone can open an issue, but only
-//     the owner's account can assign one to the owner. Assigning an issue to
-//     yourself is the act of instruction.
+//  2. Its author is the verified ticket approver, matched on immutable ID.
+//     Assignment grants no authority. Provider creation time must satisfy the
+//     appointment boundary, and the retained body must satisfy source enrollment.
 //  3. Its body has something in it.
 //  4. It has no comments at all. A body is a *first* instruction; an issue that
 //     has already been talked on is one whose conversation is the instruction,
@@ -1584,13 +1810,10 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 //
 // # Watermark first, then run
 //
-// [Daemon.bootstrap] plants the watermark before calling this, and that
-// ordering is what makes "fires exactly once" a property of the control flow
-// rather than of a check: the next tick finds a watermark and takes
-// [Daemon.drain], so this function is unreachable a second time. A crash
-// between the two leaves a `running` row that startup reconciliation reports as
-// abandoned (AC-2.21) — which is the failure mode to prefer over a body that
-// silently runs twice.
+// Qualified bootstrap plants a durable body-pending flag with the watermark.
+// An interruption before run allocation resumes here; existing trigger ownership
+// handles an allocated run. Successful processing or an intentional refusal
+// clears the flag. Already initialized legacy sessions retain their history.
 //
 // # The trigger
 //
@@ -1604,20 +1827,29 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 // the body reaches the model as the instruction itself and as the issue note.
 // Nothing validates Trigger.Body.
 //
-// Author is the *issue* author's handle, which is not necessarily the owner —
-// the gate is assignment, not authorship. That is safe precisely because the
-// prompt keeps the `opened by X` attribution: a run started from a stranger's
-// body still tells the model who wrote what it was handed.
+// Author is the verified project approver who authored this body. Assignment
+// grants no authority; the provider creation time must satisfy activation.
 //
 // # No 👀
 //
 // There is no comment to react to, and reacting to the issue would be an eighth
 // forge endpoint for a cosmetic gain. AC-2.17 stays comment-only.
 func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Comment) error {
+	if d.connections != nil {
+		appointment, err := d.db.CurrentApprover(ctx, t.session.RepoID)
+		if err != nil {
+			return err
+		}
+		if appointment.RequireFresh && !t.issue.CreatedAt.After(appointment.ActivatedAt) {
+			return nil
+		}
+	}
 	var refusal string
 	switch {
-	case !t.issue.AssignedTo(d.filter.Identities().OwnerUserID):
-		refusal = "it is not assigned to the owner"
+	case !t.enrollmentAt.IsZero() && t.issue.UpdatedAt.Before(t.enrollmentAt):
+		refusal = "its retained body predates ticket source enrollment"
+	case t.issue.Author.ID != d.ticketIdentities(ctx).OwnerUserID || t.issue.Author.IsBot || turn.HasMarker(t.issue.Body):
+		refusal = "its author is not the verified ticket approver"
 	case strings.TrimSpace(t.issue.Body) == "":
 		refusal = "its body is empty"
 	case len(comments) != 0:
@@ -1663,7 +1895,18 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 	log.InfoContext(ctx, "running the issue body as the task's first instruction",
 		slog.String("command", command.Name),
 		slog.String("kind", command.Kind.String()))
-	trigger := turn.Trigger{CommentID: 0, Body: "", Author: t.issue.Author.Login}
+	trigger := turn.Trigger{CommentID: 0, Body: "", Author: t.issue.Author.Login, AuthorID: t.issue.Author.ID, CreatedAt: t.issue.CreatedAt}
+	if d.connections != nil {
+		mapping, err := d.db.GetSessionTicket(ctx, t.session.ID)
+		if err != nil {
+			return err
+		}
+		trigger.Actor = ticket.Identity{Provider: mapping.Locator.Provider, Origin: mapping.Locator.Origin, RemoteID: strconv.FormatInt(t.issue.Author.ID, 10)}
+		if t.issue.QualifiedSnapshot != nil {
+			trigger.Actor = t.issue.QualifiedSnapshot.Author.Identity
+		}
+		trigger.Source = ticket.Identity{Provider: mapping.Locator.Provider, Origin: mapping.Locator.Origin, RemoteID: mapping.RemoteID}
+	}
 	return d.run(ctx, t, trigger, command, log)
 }
 
@@ -1804,6 +2047,7 @@ func (d *Daemon) markBacklog(ctx context.Context, log *slog.Logger, sessionID in
 // failed is not re-runnable by any mechanism this flag could reach, and leaving
 // it standing would buy the next tick a listing that finds nothing.
 func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
+	d.clearTicketObservations(ctx, t)
 	if err := d.db.ClearSessionNeedsPoll(ctx, t.session.ID); err != nil {
 		t.recordWorkerError(err)
 		t.log.WarnContext(ctx, "could not clear this task's backlog flag after a clean drain; "+
@@ -1820,6 +2064,11 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 // on a later tick — including a rate limit, which arms the backoff where it was
 // met and then leaves by that same door. See [Daemon.leave].
 func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) error {
+	ctx = sessionContext(ctx, t.session.ID)
+	qualifiedReply, err := d.qualifyReply(ctx, t.session.ID, c)
+	if err != nil {
+		return err
+	}
 	if held, e := d.doctorHeldSession(ctx, t.session.ID); e != nil {
 		return e
 	} else if held {
@@ -1836,14 +2085,47 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),
 		slog.String("author", c.Author.Login))
+	commandForCode := turn.ParseCommand(c.Body)
+	if isCodeAuthorityControl(commandForCode.Name) {
+		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
+			if recordErr := d.recordCodeObservation(ctx, t.session.ID, c, qualifiedReply, false); recordErr != nil {
+				return recordErr
+			}
+			_, consumeErr := d.reporter.Consume(ctx, t.session.ID, c.ID)
+			return consumeErr
+		}
+		if err := d.recordCodeObservation(ctx, t.session.ID, c, qualifiedReply, true); err != nil {
+			return err
+		}
+		if d.connections != nil {
+			claim, err := d.claimCodeControl(ctx, t.session.ID, c)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if err := d.db.CompleteProjectAuthority(context.WithoutCancel(ctx), claim.ID); err != nil {
+					log.ErrorContext(ctx, "release code authority claim", "error", err)
+				}
+			}()
+		}
+		if commandForCode.Name == "/deliver" || commandForCode.Name == "/merge" {
+			return d.handleDelivery(ctx, t, c, log)
+		}
+		trigger, err := d.projectTrigger(ctx, t.session.ID, c)
+		if err != nil {
+			return err
+		}
+		return d.run(ctx, t, trigger, commandForCode, log)
+	}
 	// The self-filter runs first and matches on numeric ids, never handles
 	// (D-I, AC-2.14). Everything is recorded, including litefactory's own
 	// comments: a dropped comment that left no trace cannot be told from one
 	// that was never fetched.
-	admission, err := d.filter.Admit(ctx, t.session.ID, c)
+	admission, err := d.admitReply(ctx, t.session.ID, c, qualifiedReply)
 	if err != nil {
 		return fmt.Errorf("classify comment %d on task %s: %w", c.ID, t.ref, err)
 	}
+
 	if !admission.Triggers() {
 		// litefactory's own comment, or a third party's: recorded and tagged,
 		// nothing runs, the comment is consumed (AC-2.14, AC-2.15).
@@ -1856,7 +2138,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 
 	// A graph Plan story issue that is a task of its own has its owner comments
 	// answered here, where they were written.
-	if story, owned, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
+	if story, owned, err := d.graphPlanStoryForTask(ctx, t); err != nil {
 		return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
 	} else if owned {
 		return d.handlePlanStoryComment(ctx, t, c, story, log)
@@ -1864,7 +2146,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	// Any other graph Plan story issue belongs to its parent, whose worker reads
 	// the issue's comments as Plan input. Acting here as well would answer the
 	// same reply twice, or start a second run beside the Plan revision.
-	if parent, err := d.db.GraphPlanParentForChild(ctx, t.repo.ID, t.issue.Number); !errors.Is(err, store.ErrNotFound) {
+	if parent, err := d.graphPlanParentForTask(ctx, t); !errors.Is(err, store.ErrNotFound) {
 		if err != nil {
 			return d.leave(ctx, t, log, "could not read retained Plan story membership", err)
 		}
@@ -1902,7 +2184,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		if err == nil && admission.Workflow == string(agent.WorkflowBug) {
 			// The runtime authenticates and parses the exact original body against
 			// its published wait. This only routes an existing task's control.
-			trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+			trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
+			if triggerErr != nil {
+				return triggerErr
+			}
 			return d.run(ctx, t, trigger, turn.Command{Kind: turn.KindFreeText, Text: c.Body}, log)
 		}
 	}
@@ -1958,7 +2243,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, it is not a command that starts a run")
 		return d.reply(ctx, t, c, command, log)
 	}
-	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
+	if triggerErr != nil {
+		return triggerErr
+	}
 	return d.run(ctx, t, trigger, command, log)
 }
 
@@ -1981,7 +2269,10 @@ func (d *Daemon) handlePlanControl(
 	if route != "graph" {
 		return d.reply(ctx, t, c, turn.Command{Kind: turn.KindUnknown, Name: command.Name, Tagged: command.Tagged}, log)
 	}
-	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
+	if triggerErr != nil {
+		return triggerErr
+	}
 	return d.run(ctx, t, trigger, command, log)
 }
 
@@ -2005,7 +2296,10 @@ func (d *Daemon) handleValidateControl(
 	if !graph {
 		return d.reply(ctx, t, c, turn.Command{Kind: turn.KindUnknown, Name: command.Name, Tagged: command.Tagged}, log)
 	}
-	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
+	trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
+	if triggerErr != nil {
+		return triggerErr
+	}
 	return d.run(ctx, t, trigger, command, log)
 }
 
@@ -2090,7 +2384,7 @@ func (d *Daemon) replySchedule(
 // acknowledge adds the 👀 reaction to a comment litefactory is about to act on
 // (AC-2.17).
 func (d *Daemon) acknowledge(ctx context.Context, t *task, commentID int64) {
-	if err := d.forge.AddCommentReaction(ctx, t.forgeRepo, commentID, github.ReactionEyes); err != nil {
+	if err := d.reactToComment(ctx, t.forgeRepo, t.issue.Number, commentID, github.ReactionEyes); err != nil {
 		t.log.WarnContext(ctx, "could not acknowledge the comment with a reaction; carrying on",
 			slog.Int64("comment_id", commentID),
 			slog.Any("error", err))
@@ -2147,6 +2441,7 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
+	ctx = sessionContext(ctx, t.session.ID)
 	if d.bug != nil {
 		if err := d.bug.CheckExistingAdmission(ctx, t.session.ID); err != nil {
 			return d.leave(ctx, t, log, "unsupported pinned Bug work preserved", err)
@@ -2168,7 +2463,7 @@ func (d *Daemon) run(
 		t.implementing = true
 	} else if t.scheduled != nil && t.scheduled.Payload == planWorkPayload {
 		t.refining = true
-	} else if _, owned, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
+	} else if _, owned, err := d.graphPlanStoryForTask(ctx, t); err != nil {
 		return d.leave(ctx, t, log, "could not tell whether this is a graph Plan story issue", err)
 	} else if owned {
 		t.refining = true
@@ -2408,7 +2703,7 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		// consumption would skip unrelated parent comments whose globally
 		// allocated IDs are lower.
 		reply := trigger.PlanReply
-		if mode != agent.ModePlan || reply.ID != trigger.CommentID || reply.ActorID != trigger.AuthorID || reply.OwnerID != d.filter.Identities().OwnerUserID {
+		if mode != agent.ModePlan || reply.ID != trigger.CommentID || reply.ActorID != trigger.AuthorID || reply.OwnerID != d.ticketIdentities(ctx).OwnerUserID {
 			return errors.New("plan child completion correlation mismatch")
 		}
 		route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
@@ -2423,7 +2718,7 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		}
 		// Handled, or answered with a published failure the owner can reply to:
 		// either way this reply is done and the story's next reply is a new one.
-		if _, task, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err != nil {
+		if _, task, err := d.graphPlanStoryForTask(ctx, t); err != nil {
 			return err
 		} else if task {
 			if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {
@@ -2705,6 +3000,16 @@ func (d *Daemon) observe(ctx context.Context, now time.Time, err error) error {
 // all refused at once arms one hold between them rather than doubling it per
 // refusal (AC-PAR-4.2).
 func (d *Daemon) rateLimited(ctx context.Context, log *slog.Logger, now time.Time, err error) {
+	var ticketRate *ticket.RateLimitError
+	if errors.As(err, &ticketRate) {
+		failures, delay, until := d.backoff.fail(now, ticketRate.RetryAfter)
+		log.WarnContext(ctx, "ticket provider quota exhausted; backing off with recovery positions unchanged",
+			slog.Int("consecutive_refusals", failures),
+			slog.String("retry_after", ticketRate.RetryAfter.String()),
+			slog.String("backoff", delay.String()),
+			slog.Time("resumes_at", until.UTC()))
+		return
+	}
 	var rateLimit *github.RateLimitError
 	if !errors.As(err, &rateLimit) {
 		return
@@ -2736,6 +3041,12 @@ func (d *Daemon) requirePlanDiscussionReported(ctx context.Context, result turn.
 		}
 	}
 	return errors.New("plan discussion has no confirmed answer, review or refusal; the comment stays pending")
+}
+
+func providerRateLimited(err error) bool {
+	var codeRate *github.RateLimitError
+	var ticketRate *ticket.RateLimitError
+	return errors.As(err, &codeRate) || errors.As(err, &ticketRate)
 }
 
 // lowDisk reports whether free space on the daemon volume is below the

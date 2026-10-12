@@ -1,0 +1,15 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	5.413s
+ok  	github.com/cloudvane/litefactory/internal/github	8.149s
+ok  	github.com/cloudvane/litefactory/internal/messaging	90.562s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	3.674s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	3.056s
+ok  	github.com/cloudvane/litefactory/internal/meterview	2.799s
+ok  	github.com/cloudvane/litefactory/internal/naming	2.063s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	36.828s
+ok  	github.com/cloudvane/litefactory/internal/repos	12.178s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	49.156s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/ticket	1.927s
+ok  	github.com/cloudvane/litefactory/internal/webhook	16.276s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	56.620s

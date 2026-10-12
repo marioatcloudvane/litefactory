@@ -18,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // Runner is [agent.Runner], aliased here for continuity with the many call
@@ -83,6 +84,14 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// ProjectApprovers enables project-qualified production ticket authority.
+	ProjectApprovers bool
+	// TicketApprover is a per-invocation immutable authority snapshot.
+	TicketApprover *store.ApproverAppointment
+
+	// VerifyExecutionConnection verifies the pinned remote identity and actor before code effects.
+	VerifyExecutionConnection func(context.Context, store.Session) error
+
 	// WorkflowSource copies the current linked package under catalogue coordination.
 	WorkflowSource WorkflowSourceResolver
 	// ResearchDriver is the application-owned DOT execution path. An explicit
@@ -323,6 +332,9 @@ type Issue struct {
 
 // Trigger is what started this turn: a comment, or the issue body itself.
 type Trigger struct {
+	// Actor, Source and CreatedAt come from the bound provider response.
+	Actor, Source ticket.Identity
+	CreatedAt     time.Time
 	// PlanReply is correlated by authenticated child discovery, never role output.
 	PlanReply *planbrief.PlanOwnerReply
 
@@ -549,6 +561,39 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	session, err := opts.DB.GetSession(ctx, req.SessionID)
 	if err != nil {
 		return Result{}, fmt.Errorf("read task %d: %w", req.SessionID, err)
+	}
+	codeControl := opts.ProjectApprovers && !store.IsPrivateTrigger(req.Trigger.CommentID) && isValidateCodeControlBody(req.Trigger.Body)
+	if codeControl {
+		if err = verifyTurnCodeAuthority(ctx, opts, session, req.Trigger); err != nil {
+			return Result{}, err
+		}
+	}
+	opts, err = bindProjectApprover(ctx, opts, session.ID)
+	allowedMissing := codeControl && (errors.Is(err, store.ErrApproverMissing) || errors.Is(err, store.ErrApproverUnauthorized) || errors.Is(err, store.ErrConnectionDisabled))
+	if err != nil && !allowedMissing {
+		return Result{}, err
+	}
+	if codeControl {
+		appointment, readErr := opts.DB.RawCurrentApprover(ctx, session.RepoID)
+		if readErr != nil && !errors.Is(readErr, store.ErrApproverMissing) {
+			return Result{}, readErr
+		}
+		claim, claimErr := opts.DB.ClaimProjectCodeAuthority(ctx, store.AuthorityClaim{SessionID: session.ID, RepoID: session.RepoID, AppointmentID: appointment.ID, Revision: appointment.Revision, Actor: req.Trigger.Actor, Source: req.Trigger.Source, CreatedAt: req.Trigger.CreatedAt, Kind: "code-control", Key: "turn:" + session.TaskRef + ":" + fmt.Sprint(req.Trigger.CommentID)})
+		if claimErr != nil {
+			return Result{}, claimErr
+		}
+		defer func() {
+			outErr = errors.Join(outErr, opts.DB.CompleteProjectAuthority(context.WithoutCancel(ctx), claim.ID))
+		}()
+	}
+	if opts.ProjectApprovers && !store.IsPrivateTrigger(req.Trigger.CommentID) && !codeControl {
+		claim, claimErr := claimTurnAuthority(ctx, opts, req)
+		if claimErr != nil {
+			return Result{}, claimErr
+		}
+		defer func() {
+			outErr = errors.Join(outErr, opts.DB.CompleteProjectAuthority(context.WithoutCancel(ctx), claim.ID))
+		}()
 	}
 	result := Result{
 		SessionID:        req.SessionID,

@@ -29,7 +29,7 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 	if err != nil {
 		return nil, err
 	}
-	repo, err := o.DB.GetRepo(ctx, session.RepoID)
+	repo, err := executionRepository(ctx, o.DB, session)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +265,7 @@ func workflowRequestError(ctx context.Context, opts Options, req Request, sessio
 	if workflow == "" {
 		workflow, _ = agent.WorkflowForMode(req.Mode)
 	}
-	repo, err := opts.DB.GetRepo(context.WithoutCancel(ctx), session.RepoID)
+	repo, err := executionRepository(context.WithoutCancel(ctx), opts.DB, session)
 	if err != nil {
 		return fmt.Errorf("repository %d requested workflow %s: %w", session.RepoID, workflow, cause)
 	}

@@ -50,6 +50,17 @@ func (db *DB) GetWatermark(ctx context.Context, sessionID int64) (Watermark, boo
 // highestCommentID is 0 for a task with no comments at all, which correctly
 // means "nothing consumed yet, process everything from here".
 func (db *DB) BootstrapWatermark(ctx context.Context, sessionID, highestCommentID int64) (Watermark, bool, error) {
+	return db.bootstrapWatermark(ctx, sessionID, highestCommentID, false)
+}
+
+// BootstrapTicketWatermark atomically retains first-sight issue body work with
+// its enrolled reply boundary. Existing initialized watermarks never gain a new
+// body signal, so legacy history and already consumed bodies remain unchanged.
+func (db *DB) BootstrapTicketWatermark(ctx context.Context, sessionID, highestCommentID int64) (Watermark, bool, error) {
+	return db.bootstrapWatermark(ctx, sessionID, highestCommentID, true)
+}
+
+func (db *DB) bootstrapWatermark(ctx context.Context, sessionID, highestCommentID int64, bodyPending bool) (Watermark, bool, error) {
 	if highestCommentID < 0 {
 		return Watermark{}, false, errors.New("store: bootstrap watermark: comment id cannot be negative")
 	}
@@ -70,11 +81,19 @@ func (db *DB) BootstrapWatermark(ctx context.Context, sessionID, highestCommentI
 			return err
 		}
 
-		wm, err = scanWatermark(tx.QueryRowContext(ctx, `
+		if bodyPending {
+			wm, err = scanWatermark(tx.QueryRowContext(ctx, `
+INSERT INTO watermarks (session_id, last_comment_id, updated_at, ticket_body_pending)
+VALUES (?, ?, ?, 1)
+RETURNING session_id, last_comment_id, updated_at`,
+				sessionID, highestCommentID, FormatTime(nowUTC())))
+		} else {
+			wm, err = scanWatermark(tx.QueryRowContext(ctx, `
 INSERT INTO watermarks (session_id, last_comment_id, updated_at)
 VALUES (?, ?, ?)
 RETURNING session_id, last_comment_id, updated_at`,
-			sessionID, highestCommentID, FormatTime(nowUTC())))
+				sessionID, highestCommentID, FormatTime(nowUTC())))
+		}
 		if err != nil {
 			return err
 		}
@@ -141,4 +160,31 @@ func scanWatermark(s scanner) (Watermark, error) {
 		return Watermark{}, err
 	}
 	return wm, nil
+}
+
+// TicketBodyPending reports retained first-sight body work after interruption.
+func (db *DB) TicketBodyPending(ctx context.Context, sessionID int64) (bool, error) {
+	var pending bool
+	err := db.sql.QueryRowContext(ctx, `SELECT ticket_body_pending FROM watermarks WHERE session_id=?`, sessionID).Scan(&pending)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	return pending, err
+}
+
+// CompleteTicketBody clears body work after confirmed processing or an
+// intentional admission skip. It does not advance reply consumption.
+func (db *DB) CompleteTicketBody(ctx context.Context, sessionID int64) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE watermarks SET ticket_body_pending=0 WHERE session_id=?`, sessionID)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

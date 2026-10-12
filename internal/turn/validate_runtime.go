@@ -25,6 +25,8 @@ import (
 // the run-slot pool the reviewers take their slots from.
 type ValidateRuntimeConfig struct {
 	Forge   ValidateForge
+	Code    BugCodeForge
+	Tickets ValidateTickets
 	OwnerID int64
 	Slots   ValidateSlots
 	// Permissions resolves the operator's validate-repair grant for the one
@@ -35,7 +37,13 @@ type ValidateRuntimeConfig struct {
 // NewValidateRuntime builds the production host bindings of the Validate graph.
 // Every binding is derived from factory state for the one entry it is bound to.
 func NewValidateRuntime(ctx context.Context, opts Options, cfg ValidateRuntimeConfig) (*ValidateRuntime, error) {
-	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || cfg.Forge == nil || cfg.OwnerID < 1 || cfg.Slots == nil {
+	if cfg.Code == nil {
+		cfg.Code = cfg.Forge
+	}
+	if cfg.Tickets == nil {
+		cfg.Tickets = cfg.Forge
+	}
+	if opts.DB == nil || opts.Git == nil || opts.CloneGate == nil || opts.MCP == nil || opts.MCP.Redactor == nil || opts.MCP.BotID < 1 || opts.ResearchReporter == nil || (cfg.Code == nil || cfg.Tickets == nil) || cfg.OwnerID < 1 || cfg.Slots == nil {
 		return nil, errors.New("graph Validate requires concrete source, result, owner, reporter, forge and run-slot bindings")
 	}
 	if err := ctx.Err(); err != nil {
@@ -46,7 +54,12 @@ func NewValidateRuntime(ctx context.Context, opts Options, cfg ValidateRuntimeCo
 	}
 	owner := cfg.OwnerID
 	return &ValidateRuntime{
-		OwnerID: func(context.Context, Options) (int64, error) { return owner, nil },
+		OwnerID: func(ctx context.Context, o Options) (int64, error) {
+			if o.ProjectApprovers {
+				return ticketOwnerID(ctx, o)
+			}
+			return owner, nil
+		},
 		Bind: func(ctx context.Context, opts Options, req Request, entry store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
 			return bindValidate(ctx, opts, req, entry, cfg)
 		},
@@ -80,7 +93,7 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 	if h.ref, err = naming.ParseRef(h.session.TaskRef); err != nil {
 		return ValidateSuiteBindings{}, ValidateFlowBindings{}, err
 	}
-	if h.repo, err = opts.DB.GetRepo(ctx, h.session.RepoID); err != nil {
+	if h.repo, err = executionRepository(ctx, opts.DB, h.session); err != nil {
 		return ValidateSuiteBindings{}, ValidateFlowBindings{}, err
 	}
 	if h.clone, err = opts.Git.Open(ctx, h.repo.Path); err != nil {
@@ -119,7 +132,8 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 		Reviewers: &validateReviewers{host: h, definition: definition},
 		Slots:     cfg.Slots,
 		Delivery: ValidateDelivery{
-			Forge:    cfg.Forge,
+			Code:     cfg.Code,
+			Tickets:  cfg.Tickets,
 			Redactor: opts.MCP.Redactor,
 			Target: func(context.Context, Options, ActivityRequest) (ValidateDeliveryTarget, error) {
 				return h.target(), nil
@@ -192,9 +206,12 @@ func (h *validateHost) checkoutTaskWorktree(ctx context.Context) (*git.Worktree,
 		return nil, err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return nil, err
+	}
 	dir := h.session.WorktreePath
 	if dir == "" {
-		if dir, err = naming.WorktreePath(h.repo.WorktreeRoot, h.session.IssueNumber); err != nil {
+		if dir, err = naming.QualifiedWorktreePath(h.repo.WorktreeRoot, h.session.IssueNumber, h.session.TaskRef); err != nil {
 			return nil, err
 		}
 	}
@@ -252,6 +269,9 @@ func (h *validateHost) keepChange(ctx context.Context, summary string) (string, 
 		return "", err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return "", err
+	}
 	result, err := wt.Commit(ctx, git.CommitOptions{Summary: summary, Task: h.session.TaskRef, Mode: string(agent.ModeValidate), Run: ordinal, Author: author})
 	if err != nil {
 		return "", err
@@ -345,6 +365,9 @@ func (h *validateHost) publish(ctx context.Context, commit, expectedHead string)
 		return err
 	}
 	defer release()
+	if err := verifyExecutionClone(ctx, h.opts, h.session, h.clone); err != nil {
+		return err
+	}
 	return wt.PushHeadTo(ctx, h.opts.remote(), h.session.Branch, expectedHead)
 }
 

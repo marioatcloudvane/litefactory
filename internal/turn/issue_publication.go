@@ -116,6 +116,9 @@ func (s *IssuePublicationService) HandleComment(ctx context.Context, requestID s
 	if body.Truncated() || !strings.HasSuffix(body.String(), marker) {
 		return reject(errors.New("prepared comment exceeds bounds"))
 	}
+	if err := bindPublicationDestination(ctx, s.forge, "comment:"+hex.EncodeToString(digest[:]), 0, naming.Ref{Forge: naming.ForgeGitHub, Owner: s.repo.Owner, Repo: s.repo.Name, Issue: q.IssueNumber}, s.botID); err != nil {
+		return nil, err
+	}
 	op, first, err := s.db.ReserveCommentDispatch(ctx, s.Binding(), store.CommentOperation{Scope: s.receipts.scope, RequestID: requestID, IssueNumber: q.IssueNumber, BotID: s.botID, Body: body.String()})
 	if err != nil {
 		return nil, err
@@ -125,7 +128,7 @@ func (s *IssuePublicationService) HandleComment(ctx context.Context, requestID s
 		// rather than allowing a future retry to reclaim uncertain authority.
 		if err = s.db.CheckResultWriter(ctx, s.Binding()); err == nil {
 			var published github.Comment
-			published, err = s.forge.PostComment(ctx, s.repo, q.IssueNumber, body)
+			published, err = postCommentEffect(ctx, s.forge, "comment:"+hex.EncodeToString(digest[:]), s.repo, q.IssueNumber, body)
 			if err == nil {
 				if published.ID < 1 || published.Author.ID != s.botID || published.Body != op.Body {
 					err = errors.New("comment POST identity not confirmed")
@@ -185,6 +188,17 @@ func (s *IssuePublicationService) ReconcileComment(ctx context.Context, scope st
 	}
 	if op.State == "confirmed" {
 		return op, nil
+	}
+	correlation, err := json.Marshal(struct {
+		Scope   store.FamilyScope
+		Request string
+	}{scope, requestID})
+	if err != nil {
+		return op, err
+	}
+	digest := sha256.Sum256(correlation)
+	if err := bindPublicationDestination(ctx, s.forge, "comment:"+hex.EncodeToString(digest[:]), 0, naming.Ref{Forge: naming.ForgeGitHub, Owner: s.repo.Owner, Repo: s.repo.Name, Issue: op.IssueNumber}, op.BotID); err != nil {
+		return op, err
 	}
 	observed, err := s.forge.ListCommentsPage(ctx, s.repo, op.IssueNumber, page, 100)
 	if err != nil {

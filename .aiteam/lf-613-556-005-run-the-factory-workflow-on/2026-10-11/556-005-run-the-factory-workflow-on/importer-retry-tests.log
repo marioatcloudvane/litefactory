@@ -1,0 +1,6 @@
+--- FAIL: TestDoctorLiveDiagnosisProposesRepairForQueriedTargets (11.02s)
+    live_diagnosis_io_test.go:279: query rows: {"valid":false,"error":"database query timed out or was cancelled"} <nil>
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/doctor	213.078s
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	17.070s
+FAIL

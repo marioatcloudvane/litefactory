@@ -1,0 +1,8 @@
+ok  	github.com/cloudvane/litefactory/internal/store	568.290s
+--- FAIL: TestMeterEndToEndSyntheticProviderCoverage (22.43s)
+    --- FAIL: TestMeterEndToEndSyntheticProviderCoverage/claude (10.64s)
+        meter_endtoend_test.go:76: result=&{Usage:0x7da30ce5c910 Outcome:timed_out Interruption:<nil> Reason:timed out after 10s; the process subtree was killed Diagnostic: ExitCode:-1 SessionID:6f2a1c3d-9e4b-5a7c-8d1e-2f3a4b5c6d7e ResumeToken: LogPath:/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestMeterEndToEndSyntheticProviderCoverageclaude2023262859/001/logs/runs/github/acme/api/73/0001.jsonl Command:[/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestMeterEndToEndSyntheticProviderCoverageclaude2023262859/004/claude -p --output-format stream-json --verbose --session-id 6f2a1c3d-9e4b-5a7c-8d1e-2f3a4b5c6d7e --tools Read --settings /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestMeterEndToEndSyntheticProviderCoverageclaude2023262859/001/settings.json --permission-mode auto --model sonnet --autocompact 100k --allowedTools Read --forward-subagent-text --strict-mcp-config] Model: Tools:[] ResultText: CostUSD:0 HasCost:false IsError:false NumTurns:0 HasNumTurns:false ProviderReportedZeroCostRefusal:false HasResult:false Events:0 Malformed:0 LongestLine:0 Stderr: StreamError:<nil> StartedAt:2026-10-12 00:22:39.688971 +0200 CEST m=+127.829737585 FinishedAt:2026-10-12 00:22:50.039544 +0200 CEST m=+138.180443585 Duration:10.350706s} err=<nil>
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/cli	168.287s
+ok  	github.com/cloudvane/litefactory/internal/daemon	624.566s
+FAIL

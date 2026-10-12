@@ -71,6 +71,7 @@ func (db *DB) AdvanceDoctorScan(ctx context.Context, s DoctorScan, next int) err
 
 // DoctorCommand is an immutable authenticated source and durable dispatch state.
 type DoctorCommand struct {
+	Source                                  *DoctorCommandSource
 	RepairApprovalID                        string // factory-only admission input; empty leaves apply unavailable
 	ID, RepoID, IssueID, CommentID, ActorID int64
 	TaskRef                                 string
@@ -132,9 +133,24 @@ func (db *DB) AdmitDoctorCommand(ctx context.Context, c DoctorCommand) (DoctorCo
 		if err := tx.QueryRowContext(ctx, `SELECT owner,name,forge FROM repos WHERE id=?`, c.RepoID).Scan(&owner, &name, &forge); err != nil {
 			return err
 		}
-		if !strings.EqualFold(owner, ref.Owner) || !strings.EqualFold(name, ref.Repo) || forge != ref.Forge {
-			return errors.New("foreign doctor repository")
+		matches := strings.EqualFold(owner, ref.Owner) && strings.EqualFold(name, ref.Repo) && forge == ref.Forge
+		tickets, connectionErr := currentConnection(ctx, tx, c.RepoID, TicketConnection)
+		if connectionErr == nil {
+			matches = string(tickets.Provider) == ref.Forge && strings.EqualFold(tickets.Destination, ref.Owner+"/"+ref.Repo)
+		} else if !errors.Is(connectionErr, ErrNotFound) {
+			return connectionErr
 		}
+		if !matches {
+			var retained int
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions s JOIN session_ticket_identities t ON t.session_id=s.id WHERE s.repo_id=? AND t.provider=? AND lower(t.container)=lower(?) AND t.locator_key=?`, c.RepoID, ref.Forge, ref.Owner+"/"+ref.Repo, strconv.Itoa(ref.Issue)).Scan(&retained); err != nil {
+				return err
+			}
+			matches = retained > 0
+		}
+		if !matches {
+			return errors.New("foreign doctor ticket project")
+		}
+
 		state := "queued"
 		var laterStop int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM doctor_inbox WHERE task_ref=? AND operation='stop' AND comment_id>?`, c.TaskRef, c.CommentID).Scan(&laterStop); err != nil {
@@ -146,6 +162,11 @@ func (db *DB) AdmitDoctorCommand(ctx context.Context, c DoctorCommand) (DoctorCo
 		out, err = scanDoctorCommand(tx.QueryRowContext(ctx, `INSERT INTO doctor_inbox(repo_id,task_ref,issue_id,issue_number,comment_id,actor_id,created_at,operation,instructions,state) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING `+doctorCommandColumns, c.RepoID, c.TaskRef, c.IssueID, c.IssueNumber, c.CommentID, c.ActorID, FormatTime(c.CreatedAt), c.Operation, c.Instructions, state))
 		if err != nil {
 			return err
+		}
+		if c.Source != nil {
+			if err = retainDoctorSource(ctx, tx, out, *c.Source); err != nil {
+				return err
+			}
 		}
 		if c.Operation == "apply" && state != "stopped" && c.RepairApprovalID != "" {
 			// A still-active repair holds the task's unique slot; admit without

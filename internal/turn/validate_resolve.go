@@ -82,6 +82,9 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 	}
 
 	owner, err := h.b.Delivery.OwnerID(ctx, opts)
+	if opts.ProjectApprovers && !isValidateCodeControlBody(wait.ReplyBody) {
+		owner, err = ticketOwnerID(ctx, opts)
+	}
 	if err != nil || owner < 1 {
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
 	}
@@ -212,6 +215,12 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		}
 		return h.accept(ctx, opts, req, st, now, "close", "close confirmed")
 	case ValidateShipCommand:
+		if opts.ProjectApprovers && validateShipSettlesTicketDecisions(st) {
+			approver, err := ticketOwnerID(ctx, opts)
+			if err != nil || wait.ReplyAuthorID != approver {
+				return refuse("wait", "The project ticket approver must settle acceptance checks and finding choices before the code owner can ship.")
+			}
+		}
 		if blockers := st.shipBlockers(); len(blockers) > 0 {
 			return refuse("wait", "/validate-ship is refused and nothing was recorded: "+strings.Join(blockers, " "))
 		}
@@ -422,4 +431,13 @@ func replayedValidateReply(ctx context.Context, opts Options, st ValidateState, 
 		}
 	}
 	return "", false
+}
+
+func validateShipSettlesTicketDecisions(st ValidateState) bool {
+	for _, f := range st.Findings {
+		if f.State == findingAwaitingCheck || (f.Optional && f.needsChoice() && f.Choice == nil) {
+			return true
+		}
+	}
+	return false
 }
