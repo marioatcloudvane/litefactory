@@ -171,6 +171,9 @@ func TestOwnerHandbackInstructionNamesEveryFailure(t *testing.T) {
 	if strings.Contains(strings.ToLower(text), "approved") || strings.Contains(strings.ToLower(text), "accepted") {
 		t.Errorf("instruction approves: %q", text)
 	}
+	if strings.Contains(text, "Implement must") || !strings.Contains(text, ValidateStartCommand) {
+		t.Errorf("instruction names a step the factory lacks: %q", text)
+	}
 }
 
 func TestValidateRespondMapsTheRepairReportAndReviews(t *testing.T) {

@@ -241,7 +241,7 @@ func (s ValidateState) NextStep(closeSet []int) string {
 	}
 	switch {
 	case s.Suite.Outcome != store.SuitePassed:
-		return "The suite did not pass. It clears only on a new tested snapshot: hand it back to Implement and run Validate again."
+		return "The suite did not pass. " + validateNewSnapshotStep
 	case len(roles) > 0:
 		return validateRetryStep(s.Commit)
 	case !s.Assessed:
@@ -249,7 +249,7 @@ func (s ValidateState) NextStep(closeSet []int) string {
 	case owner:
 		return "Work through the sub-issues above: each lists its open checks and choices with the command to give here."
 	case !s.Ready && len(s.blockingIDs()) > 0:
-		return "A failed criterion or blocking finding clears only on a new tested snapshot: hand it back to Implement and run Validate again."
+		return "A failed criterion or blocking finding remains. " + validateNewSnapshotStep
 	case !s.Ready:
 		return "Wait: an issue you chose is still being created; the report updates by itself."
 	}
@@ -269,3 +269,8 @@ func (s ValidateState) blockingIDs() []string {
 	}
 	return out
 }
+
+// validateNewSnapshotStep names the only factory step that clears a failed
+// suite or a blocking finding: a fix on the feature branch, then Validate on
+// the new head.
+const validateNewSnapshotStep = "It clears only on a new tested snapshot: push a fix to the feature branch, then comment `" + ValidateStartCommand + "` to validate the new head."
