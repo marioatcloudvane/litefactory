@@ -107,3 +107,12 @@ Evidence:
 - `internal/teamsource/README.md:27`
 - `docs/operations/doctor.md:56`
 - `internal/doctor/prompt.go:13`
+
+## f10
+
+Bug execution already holds the task lock; Bug preparation independently acquires the clone gate, so an added activity must honor existing lock ownership rather than recursively take the task lock.
+
+Evidence:
+
+- `internal/turn/bug_graph_runtime.go:87`
+- `internal/turn/bug_graph_prepare.go:41`
