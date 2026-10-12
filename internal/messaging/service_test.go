@@ -95,7 +95,7 @@ func TestAdmissionAndRetryState(t *testing.T) {
 		t.Fatalf("confirmed: %+v, %v", r, err)
 	}
 	for _, text := range send.texts {
-		if text != "/health, /help, /meter, /prices, /status" {
+		if text != "/details, /health, /help, /meter, /prices, /status" {
 			t.Fatalf("answer changed: %q", text)
 		}
 	}

@@ -22,6 +22,11 @@ const (
 // Bare domains and alphabetic revision codes also belong in factory slots.
 var protectedProse = regexp.MustCompile(`(?i)(?:[\pL\pN-]+\.)+[\pL]{2,}|\b[a-f0-9]{8,}\b`)
 
+// thirdPerson matches English narration that reports about the answer
+// instead of speaking to the owner directly. Other languages rely on the
+// generation and checking prompts.
+var thirdPerson = regexp.MustCompile(`(?i)\bthe\s+(?:system|answer|result|reply|response|bot|factory)\s+(?:found|says|asks|reports|wants|was|could|did|has|is)\b|\bit\s+(?:asks\s+you|wants\s+to\s+know)\b`)
+
 // numberToken is a maximal digit run including '.' or ',' between digits.
 var numberToken = regexp.MustCompile(`\pN+(?:[.,]\pN+)*`)
 
@@ -63,6 +68,9 @@ func (c Candidate) Validate(o Outcome) error {
 	for _, claim := range c.Claims {
 		if strings.TrimSpace(claim.Text) == "" || len(claim.Text) > MaxClaimBytes || !utf8.ValidString(claim.Text) || strings.ContainsAny(claim.Text, "\r\n/\\`<>[]@\x00") || strings.Contains(strings.ToLower(claim.Text), "www.") || strings.Contains(claim.Text, "://") || protectedProse.MatchString(claim.Text) {
 			failures = append(failures, errors.New("presentation: invalid claim text"))
+		}
+		if thirdPerson.MatchString(claim.Text) {
+			failures = append(failures, errors.New("presentation: third-person self-description"))
 		}
 		for _, r := range claim.Text {
 			if unicode.IsControl(r) {

@@ -32,11 +32,11 @@ func TestRegistryRepliesAllCrossPresentationBoundary(t *testing.T) {
 	s.EnableFeatures(nil, nil)
 	s.EnableResearch(nil, nil)
 	names := s.Commands()
-	if len(names) != 11 {
+	if len(names) != 12 {
 		t.Fatalf("registry coverage changed: %v", names)
 	}
 	for _, command := range names {
-		before := send.richCalls
+		before := len(send.texts)
 		message := messaging.Message{Transport: "discord", ID: command, Channel: "3", Sender: "2", Command: command}
 		if _, inserted, err := s.Admit(t.Context(), message, at); err != nil || !inserted {
 			t.Fatalf("%s admission: %v", command, err)
@@ -44,8 +44,15 @@ func TestRegistryRepliesAllCrossPresentationBoundary(t *testing.T) {
 		if more, err := s.Step(t.Context(), at); err != nil || !more {
 			t.Fatalf("%s reply: %v", command, err)
 		}
-		if send.richCalls != before+1 {
-			t.Fatalf("%s bypassed presentation", command)
+		// A narrated reply is sent without raw details; a fallback or
+		// /details reply carries them. Every reply is a presented form.
+		if len(send.texts) != before+1 {
+			t.Fatalf("%s not delivered once", command)
+		}
+		switch text := send.texts[before]; text {
+		case "Here is the result.", presentation.FallbackNotice, "Raw details of your previous reply.":
+		default:
+			t.Fatalf("%s bypassed presentation: %q", command, text)
 		}
 	}
 }
@@ -86,7 +93,7 @@ func TestAsynchronousSavedResultUsesPresentationWithoutRequeue(t *testing.T) {
 	if _, err := s.Step(t.Context(), at); err != nil {
 		t.Fatal(err)
 	}
-	if diagnosis.calls != 1 || model.calls != 2 || send.richCalls != 1 {
+	if diagnosis.calls != 1 || model.calls != 2 || send.richCalls != 0 || len(send.texts) != 1 || send.texts[0] != "Here is the result." {
 		t.Fatal("saved diagnosis bypassed presentation or repeated command")
 	}
 }
@@ -208,7 +215,8 @@ func TestInterruptedPresentationNeverRepeatsCommandOrGeneration(t *testing.T) {
 func TestAttachmentRejectionPersistsInlineFallback(t *testing.T) {
 	db := database(t)
 	at := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
-	model := &replyModel{}
+	// Only a fallback carries raw details, so narration fails here.
+	model := &failingModel{}
 	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{Confirmed: true}}, rejected: true}
 	service := messaging.New(db, "discord", "2", []string{"3"}, send, nil)
 	service.EnablePresentation(model, nil)
@@ -233,7 +241,7 @@ func TestAttachmentRejectionPersistsInlineFallback(t *testing.T) {
 	if _, err := service.Step(t.Context(), row.NextAttemptAt); err != nil {
 		t.Fatal(err)
 	}
-	if effects != 1 || model.calls != 2 || send.richCalls != 1 || send.texts[len(send.texts)-1] != row.ReplyText {
+	if effects != 1 || model.calls != 1 || send.richCalls != 1 || send.texts[len(send.texts)-1] != row.ReplyText {
 		t.Fatal("fallback repeated effects or narration")
 	}
 }
@@ -256,21 +264,25 @@ func TestNaturalDialogueShownOnceAndNaturalReadNarrated(t *testing.T) {
 		t.Fatalf("dialogue not shown exactly once: calls=%d rich=%d %q", model.calls, send.richCalls, send.texts)
 	}
 	// A read command requested in natural language is narrated like the
-	// slash command, with its raw text only in the attachment.
+	// slash command, with no raw attachment.
 	if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "discord", ID: "nl-read:8", Channel: "3", Sender: "2", Command: "health"}, at); err != nil {
 		t.Fatal(err)
 	}
 	if more, err := s.Step(t.Context(), at); err != nil || !more {
 		t.Fatalf("natural read: %t %v", more, err)
 	}
-	if model.calls != 2 || send.richCalls != 1 || send.texts[1] != "Here is the result." {
+	if model.calls != 2 || send.richCalls != 0 || send.texts[1] != "Here is the result." {
 		t.Fatalf("natural read not narrated: calls=%d rich=%d %q", model.calls, send.richCalls, send.texts)
 	}
 }
 
-type failingModel struct{ remaining time.Duration }
+type failingModel struct {
+	remaining time.Duration
+	calls     int
+}
 
 func (m *failingModel) Present(ctx context.Context, _ int64, _, _, _ string) ([]byte, error) {
+	m.calls++
 	deadline, _ := ctx.Deadline()
 	m.remaining = time.Until(deadline)
 	return nil, errors.New("provider failed")

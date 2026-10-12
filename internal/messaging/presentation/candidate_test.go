@@ -96,10 +96,10 @@ func TestRenderShowsOnlyProseAndOneLineFallback(t *testing.T) {
 	const prefix = "[ask:turn]\n"
 	const caveat = "The effect is uncertain."
 	o := Outcome{Version: Version, Status: Uncertain, RawText: prefix + caveat, Facts: []Fact{{Handle: "caveat", Mandatory: true, Source: Source{Start: len(prefix), End: len(prefix) + len(caveat), Value: caveat}}}, Protected: []Protected{{Handle: "prefix", Kind: AskPrefix, Source: Source{Start: 0, End: len(prefix), Value: prefix}}}}
-	candidate := Candidate{Claims: []Claim{{Text: "The result could not be confirmed.", Facts: []string{"caveat"}}}}
+	candidate := Candidate{Claims: []Claim{{Text: "I could not confirm the result.", Facts: []string{"caveat"}}}}
 	check := Check{Findings: []Finding{{Claim: 0, Support: Supported}}}
 	payload, state, err := Render(o, candidate, check)
-	if err != nil || state != Narrated || payload.Content != "The result could not be confirmed." || payload.Attachment.Content != o.RawText {
+	if err != nil || state != Narrated || payload.Content != "I could not confirm the result." || payload.Attachment.Content != o.RawText {
 		t.Fatalf("narration not alone: %#v, %s, %v", payload, state, err)
 	}
 	candidate.Claims[0].Facts = []string{"absent"}
@@ -205,6 +205,30 @@ func TestFenceStrippingKeepsStrictRules(t *testing.T) {
 	for i, raw := range bad {
 		if _, err := DecodeCandidate([]byte(raw), o); err == nil {
 			t.Errorf("malformed candidate %d accepted: %q", i, raw)
+		}
+	}
+}
+
+// TestValidateRejectsThirdPersonSelfDescription keeps narration speaking to the
+// owner directly instead of reporting about the answer.
+func TestValidateRejectsThirdPersonSelfDescription(t *testing.T) {
+	o := FromSource("> what is the status of the livrary?\n> Project: none\n[lf:ask:v1]\nI found nothing called library. Do you mean litefactory?", Success, "English")
+	if err := o.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	accepted := Candidate{Claims: []Claim{{Text: "I can't find anything called library, do you mean litefactory?", Facts: []string{"result"}}}}
+	if err := accepted.Validate(o); err != nil {
+		t.Fatalf("second-person narration rejected: %v", err)
+	}
+	for _, text := range []string{
+		"The system found nothing called library and asks you to rephrase.",
+		"The answer says nothing called library exists.",
+		"It wants to know which project you mean.",
+		"It asks you to rephrase the question.",
+		"The bot could not find library.",
+	} {
+		if err := (Candidate{Claims: []Claim{{Text: text, Facts: []string{"result"}}}}).Validate(o); err == nil {
+			t.Errorf("third-person self-description accepted: %q", text)
 		}
 	}
 }
