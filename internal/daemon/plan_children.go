@@ -107,9 +107,20 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 
 		// A story that is a task of its own answers its own comments and runs its
 		// own stages; the parent only observes its issue.
-		if _, task, taskErr := d.db.GraphPlanStoryAt(ctx, t.repo.ID, draft.IssueNumber); taskErr != nil {
+		if story, task, taskErr := d.db.GraphPlanStoryAt(ctx, t.repo.ID, draft.IssueNumber); taskErr != nil {
 			return false, taskErr
 		} else if task && child.State == "open" {
+			// Transfer durable polling responsibility before retiring the parent's
+			// discovery debt, including observations received while awaiting review.
+			session, err := d.managedChildSession(ctx, t.repo, story.Parent, story.IssueNumber, story.IssueID)
+			if err != nil {
+				return false, err
+			}
+			if err = d.db.SetSessionNeedsPoll(ctx, session.ID); err != nil {
+				return false, err
+			}
+			t.log.Info("plan story polling handed to child", "parent_session", t.session.ID,
+				"child_session", session.ID, "issue", story.IssueNumber, "reason", "open_graph_plan_story")
 			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
 				return false, err
 			}
