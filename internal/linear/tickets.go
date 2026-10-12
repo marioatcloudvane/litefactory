@@ -599,6 +599,11 @@ func (c *Client) changeLabel(ctx context.Context, ref ticket.Ref, label string, 
 		}
 	}
 	if id == "" {
+		for _, mode := range MissingModeLabels(c.config.ModeLabels) {
+			if label == mode || label == canonicalModeLabel(mode) {
+				return &ticket.Failure{Kind: ticket.Refused, Operation: "label", Cause: &ticket.MissingModeMapping{Mode: mode}}
+			}
+		}
 		return failure("label", ticket.Refused, "explicit mode label mapping is required")
 	}
 	if _, err := c.Read(ctx, ref); err != nil {
@@ -644,4 +649,23 @@ func canonicalModeLabel(mode string) string {
 		return ""
 	}
 	return "Mode: " + strings.ToUpper(mode[:1]) + mode[1:]
+}
+
+// MissingModeLabels lists unmapped canonical modes in workflow order, accepting
+// the same canonical label keys as the adapter's label operations.
+func MissingModeLabels(labels map[string]string) []string {
+	var missing []string
+	for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
+		mapped := false
+		for key, id := range labels {
+			if id != "" && canonicalModeLabel(key) == canonicalModeLabel(mode) {
+				mapped = true
+				break
+			}
+		}
+		if !mapped {
+			missing = append(missing, mode)
+		}
+	}
+	return missing
 }

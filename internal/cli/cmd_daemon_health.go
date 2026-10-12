@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/webhook"
@@ -23,7 +24,8 @@ const daemonNoDelivery = "none since start"
 
 type daemonHealth struct {
 	store.HealthSnapshot
-	unsupportedDoctor []store.Repo
+	unsupportedDoctor   []store.Repo
+	missingModeMappings []string
 }
 
 // readHealthSnapshot reads the snapshot the daemon published, opening and
@@ -60,6 +62,13 @@ func readHealthSnapshot(ctx context.Context, paths config.Paths) (_ daemonHealth
 		}
 		if connection.Enabled && connection.Provider == ticket.Linear {
 			health.unsupportedDoctor = append(health.unsupportedDoctor, repo)
+			labels, err := connection.Linear.ModeLabels()
+			if err != nil {
+				return daemonHealth{}, err
+			}
+			if missing := linear.MissingModeLabels(labels); len(missing) > 0 {
+				health.missingModeMappings = append(health.missingModeMappings, fmt.Sprintf("project %d (%s) connection %d (%s): missing mode mappings: %s; add label IDs to --mode-labels, or use a mapped mode", repo.ID, repo.Slug(), connection.ID, connection.Destination, strings.Join(missing, ", ")))
+			}
 		}
 	}
 	return health, nil
