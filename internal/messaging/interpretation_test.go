@@ -86,3 +86,28 @@ func TestNativeInterpreterBoundedProviderCall(t *testing.T) {
 		t.Error("oversized request reached provider")
 	}
 }
+
+func TestNativeInterpreterPromptReadsTyposAndFollowUps(t *testing.T) {
+	p := &interpretationProvider{}
+	r := interpretationRequest()
+	r.PreviousReply = "If you mean the whole project, I can summarize it."
+	if _, err := (&NativeInterpreter{Model: p}).Interpret(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"staud" means status`, `"livrary" means litefactory`, "never treat a typo as a cut-off", "proposes the status command without asking back", "only when two or more readings remain plausible", "previous_reply", "never a source for arguments", `"previous_reply":"If you mean the whole project`} {
+		if !strings.Contains(p.prompt, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+}
+
+func TestDecodeInterpretationRejectsPreviousReplySpans(t *testing.T) {
+	r := interpretationRequest()
+	r.PreviousReply = "draft from the previous reply"
+	for _, source := range []string{"previous_reply", "unknown"} {
+		raw := `{"version":1,"kind":"propose","command":"draft","arguments":[{"name":"note","source_id":"` + source + `","start":6,"end":10}]}`
+		if _, _, err := DecodeInterpretation([]byte(raw), r); err == nil {
+			t.Errorf("span from %s accepted", source)
+		}
+	}
+}

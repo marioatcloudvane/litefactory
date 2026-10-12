@@ -137,7 +137,11 @@ type ValidateFlowBindings struct {
 	// Delivery supplies the trusted context of the owner steps: the forge, the
 	// delivery target, the branch head, the guarded push and the owner identity.
 	Delivery ValidateDelivery
-	Now      func() time.Time
+	// AdvanceStory moves a story branch on the remote forward to the tested
+	// commit, fast-forward only. It returns false, changing nothing, when the
+	// branch is missing or cannot be fast-forwarded to the commit.
+	AdvanceStory func(ctx context.Context, branch, commit string) (bool, error)
+	Now          func() time.Time
 }
 
 func (b ValidateFlowBindings) now(opts Options) time.Time {
@@ -164,13 +168,14 @@ func RegisterValidateFlow(specs *graphexec.Registry, activities *ActivityRegistr
 		graphexec.ValidatePushAction:         ValidatePushActivity{b},
 		graphexec.ValidateMergeAction:        ValidateMergeActivity{b},
 		graphexec.ValidateCloseAction:        ValidateCloseActivity{b},
+		graphexec.ValidateImplementAction:    ValidateImplementActivity{b},
 	} {
 		if err := activities.Register(name, handler); err != nil {
 			return err
 		}
 	}
 	for _, spec := range []graphexec.ActionSpec{graphexec.ValidateRepairBudgetSpec(), graphexec.ValidateRepairCheckSpec(), graphexec.ValidateReviewSpec(), graphexec.ValidateOutcomeSpec(),
-		graphexec.ValidateResolveSpec(), graphexec.ValidateReportSpec(), graphexec.ValidateAskSpec(), graphexec.ValidateIssueSpec(), graphexec.ValidatePushSpec(), graphexec.ValidateMergeSpec(), graphexec.ValidateCloseSpec()} {
+		graphexec.ValidateResolveSpec(), graphexec.ValidateReportSpec(), graphexec.ValidateAskSpec(), graphexec.ValidateIssueSpec(), graphexec.ValidatePushSpec(), graphexec.ValidateMergeSpec(), graphexec.ValidateCloseSpec(), graphexec.ValidateImplementSpec()} {
 		if _, ok := specs.Resolve(spec.Name); ok {
 			continue
 		}

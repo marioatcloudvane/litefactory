@@ -88,6 +88,12 @@ type ValidateState struct {
 	Open []string
 	// Ready is true when push may be offered.
 	Ready bool
+	// Reimplement says the graph declares the step that hands the blocking
+	// findings back to Implement.
+	Reimplement bool
+	// Reimplementing says this run already handed the findings of its tested
+	// commit back to Implement.
+	Reimplementing bool
 }
 
 // finding looks a finding up by its stable id.
@@ -217,6 +223,14 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 				f.State = findingOpen
 			}
 			st.Findings = append(st.Findings, f)
+		}
+	}
+	for _, n := range profile.Nodes {
+		st.Reimplement = st.Reimplement || n.Action == graphexec.ValidateImplementAction
+	}
+	if st.Reimplement {
+		if st.Reimplementing, err = validateImplementStarted(ctx, opts, instanceID, st.Commit); err != nil {
+			return st, err
 		}
 	}
 	st.computeReadiness()
@@ -357,6 +371,9 @@ func (s ValidateState) revision() string {
 	sort.Slice(effects, func(i, j int) bool { return effects[i].ID < effects[j].ID })
 	for _, e := range effects {
 		fmt.Fprintf(h, "effect=%s|%s|%s|%d\n", e.Kind, e.Target, e.State, e.ConfirmCommentID)
+	}
+	if s.Reimplementing {
+		h.Write([]byte("reimplementing\n"))
 	}
 	return hex.EncodeToString(h.Sum(nil))[:12]
 }

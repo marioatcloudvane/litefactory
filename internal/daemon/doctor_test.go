@@ -552,3 +552,57 @@ func mustDoctorTarget(t *testing.T) naming.Ref {
 	}
 	return ref
 }
+
+// routedBridgeForge mirrors the routed ticket bridge: it can post and list
+// issue comments but has no repository comment listing.
+type routedBridgeForge struct {
+	Forge
+	t *testing.T
+}
+
+func (f routedBridgeForge) ListCommentsPage(context.Context, github.Repo, int, int, int) (github.CommentPage, error) {
+	f.t.Error("doctor read through the default forge instead of the connection client")
+	return github.CommentPage{}, errors.New("unexpected default forge read")
+}
+func (f routedBridgeForge) PostComment(context.Context, github.Repo, int, redact.Body) (github.Comment, error) {
+	f.t.Error("doctor posted through the default forge instead of the connection client")
+	return github.Comment{}, errors.New("unexpected default forge post")
+}
+
+func TestDoctorUsesTicketConnectionWhenDefaultForgeIsRoutedBridge(t *testing.T) {
+	f := newDoctorProjectFixture(t, false)
+	f.d.forge = routedBridgeForge{t: t}
+	ctx := t.Context()
+	start := f.appointment.ActivatedAt
+	if _, err := f.d.db.DoctorScanWindow(ctx, f.repo.ID, start); err != nil {
+		t.Fatal(err)
+	}
+	at := start.Add(2 * time.Minute)
+	f.d.discovery.tick(at)
+	if err := f.d.discoverDoctor(ctx, at); err != nil {
+		t.Fatalf("doctor discovery without repository listing on the default forge: %v", err)
+	}
+	command, err := f.d.db.ClaimDoctorCommand(ctx, "", false, "bridge-doctor")
+	if err != nil || command.CommentID != f.source.ID || command.TaskRef != "github:team/tickets#406" {
+		t.Fatalf("doctor command not discovered through the ticket connection: %+v %v", command, err)
+	}
+	if err := f.d.db.CompleteDoctorCommand(ctx, command.ID, "Diagnosis answered through the ticket connection.", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.d.publishDoctor(ctx); err != nil {
+		t.Fatalf("doctor publication without the default forge: %v", err)
+	}
+	pending, err := f.d.db.PendingDoctorDeliveries(ctx, "")
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("doctor answer not delivered: %+v %v", pending, err)
+	}
+	f.publication.mu.Lock()
+	defer f.publication.mu.Unlock()
+	body := ""
+	if len(f.publication.comments) == 1 {
+		body, _ = f.publication.comments[0]["body"].(string)
+	}
+	if f.publication.posts != 1 || !strings.Contains(body, "Diagnosis answered through the ticket connection.") {
+		t.Fatalf("doctor answer not posted on the ticket issue: %d %+v", f.publication.posts, f.publication.comments)
+	}
+}

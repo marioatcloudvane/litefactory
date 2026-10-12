@@ -21,10 +21,12 @@ const (
 	ValidateMergeCommand   = "/validate-merge"
 	ValidateCloseCommand   = "/validate-close"
 	ValidateShipCommand    = "/validate-ship"
+	// ValidateImplementCommand sends the blocking findings back to Implement.
+	ValidateImplementCommand = "/validate-implement"
 )
 
 // ValidateControlCommands lists the Validate owner commands.
-var ValidateControlCommands = []string{ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand}
+var ValidateControlCommands = []string{ValidateCheckCommand, ValidateFindingCommand, ValidatePushCommand, ValidateMergeCommand, ValidateCloseCommand, ValidateShipCommand, ValidateImplementCommand}
 
 // IsValidateControlCommand reports whether a command token is one of them.
 func IsValidateControlCommand(name string) bool {
@@ -73,6 +75,7 @@ var (
 //	/validate-merge   <revision> <pr number> <head sha>
 //	/validate-close   <revision> <issue number>...
 //	/validate-ship    <revision> -- <evidence>
+//	/validate-implement <revision>
 //
 // The whole comment is the command. Anything else is refused and changes
 // nothing.
@@ -123,6 +126,10 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 	case ValidatePushCommand:
 		if len(args) != 0 {
 			return c, errors.New("/validate-push takes no argument after the revision")
+		}
+	case ValidateImplementCommand:
+		if len(args) != 0 {
+			return c, errors.New("/validate-implement takes no argument after the revision")
 		}
 	case ValidateMergeCommand:
 		if len(args) != 2 || !validateHeadPattern.MatchString(args[1]) {
@@ -229,6 +236,9 @@ func (s ValidateState) shipLine() string {
 // checks or choices open, otherwise the next delivery command. Per-item command
 // templates stay on the story sub-issues.
 func (s ValidateState) NextStep(closeSet []int) string {
+	if s.Reimplementing {
+		return "Nothing here: the blocking findings were sent back to Implement on the same feature branch. Validate runs again on the new head when Implement finishes."
+	}
 	if len(s.shipBlockers()) == 0 && !effectDone(s.Effects.Close) {
 		return s.shipLine()
 	}
@@ -240,14 +250,20 @@ func (s ValidateState) NextStep(closeSet []int) string {
 		}
 	}
 	switch {
+	case s.Suite.Outcome != store.SuitePassed && s.implementLine() != "":
+		return "The suite did not pass. " + s.implementLine()
 	case s.Suite.Outcome != store.SuitePassed:
 		return "The suite did not pass. " + validateNewSnapshotStep
 	case len(roles) > 0:
 		return validateRetryStep(s.Commit)
 	case !s.Assessed:
 		return "Wait for the assessment of this commit; the report updates by itself."
+	case owner && s.implementLine() != "":
+		return "Work through the sub-issues above: each lists its open checks and choices with the command to give here. " + s.implementLine()
 	case owner:
 		return "Work through the sub-issues above: each lists its open checks and choices with the command to give here."
+	case !s.Ready && len(s.blockingIDs()) > 0 && s.implementLine() != "":
+		return "A failed criterion or blocking finding remains. " + s.implementLine()
 	case !s.Ready && len(s.blockingIDs()) > 0:
 		return "A failed criterion or blocking finding remains. " + validateNewSnapshotStep
 	case !s.Ready:
@@ -274,3 +290,12 @@ func (s ValidateState) blockingIDs() []string {
 // suite or a blocking finding: a fix on the feature branch, then Validate on
 // the new head.
 const validateNewSnapshotStep = "It clears only on a new tested snapshot: push a fix to the feature branch, then comment `" + ValidateStartCommand + "` to validate the new head."
+
+// implementLine offers /validate-implement when the graph declares the step and
+// a story has a blocking finding on the tested commit. It is empty otherwise.
+func (s ValidateState) implementLine() string {
+	if !s.Reimplement || s.Reimplementing || !s.Assessed || len(s.implementTargets()) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("To send the blocking findings back to Implement on the same feature branch, comment `%s %s`; Validate runs again on the new head. Or push a fix to the feature branch yourself and comment `%s`.", ValidateImplementCommand, s.Revision, ValidateStartCommand)
+}
