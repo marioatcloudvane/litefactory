@@ -297,12 +297,15 @@ func TestTypedApplyStopsAndJoinsBeforeDrain(t *testing.T) {
 	}
 }
 
-// refusingSyncEffects refuses sync_branch with a fixed-category drift error.
-type refusingSyncEffects struct{ calls int }
+// refusingSyncEffects refuses sync_branch with a fixed-category error.
+type refusingSyncEffects struct {
+	calls int
+	err   error
+}
 
 func (e *refusingSyncEffects) Execute(_ context.Context, _ naming.Ref, _ store.DoctorRepair, step store.DoctorRepairStep, _ string) (store.DoctorRepairStep, error) {
 	e.calls++
-	return step, fmt.Errorf("sync refused: %w", ErrRepairBaseRewritten)
+	return step, e.err
 }
 func (*refusingSyncEffects) Verify(context.Context, naming.Ref, store.DoctorRepairStep) error {
 	return nil
@@ -324,6 +327,28 @@ func (cancelledSyncRunner) RunRepair(ctx context.Context, _ Invocation, tools *R
 }
 
 func TestTypedApplyRetainsToolRefusalReason(t *testing.T) {
+	paths := []string{"docs/stack-profiles.md", "docs/setup.md"}
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"base rewritten", fmt.Errorf("sync refused: %w", ErrRepairBaseRewritten), ErrRepairBaseRewritten.Error()},
+		{"before-head changed", fmt.Errorf("sync refused: %w", ErrRepairBeforeHeadChanged), ErrRepairBeforeHeadChanged.Error()},
+		{"advisor failed", errors.Join(&RepairConflictError{Category: ErrRepairAdvisorFailed, Paths: paths[:1], Err: errors.New("untrusted advisor stderr")}, errors.New("reset noise")), "conflict advisor refused or failed: docs/stack-profiles.md"},
+		{"advisor timed out", &RepairConflictError{Category: ErrRepairAdvisorTimedOut, Paths: paths[:1], Err: context.DeadlineExceeded}, "conflict advisor timed out: docs/stack-profiles.md"},
+		{"confirmation failed", &RepairConflictError{Category: ErrRepairConfirmationFailed, Paths: paths, Err: errors.New("marker in resolution")}, "conflict resolution confirmation failed: docs/stack-profiles.md, docs/setup.md"},
+		{"merge failed", fmt.Errorf("%w: %w", ErrRepairMergeFailed, errors.New("git output")), "merge failed"},
+		{"recheck failed", fmt.Errorf("%w: behind", ErrRepairRecheckFailed), "recheck failed"},
+		{"push rejected", fmt.Errorf("%w: %w", ErrRepairPushRejected, errors.New("remote: denied")), "push rejected"},
+		{"uncategorized", errors.New("raw failure"), repairGenericFailure},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) { typedApplyRefusal(t, c.err, c.want) })
+	}
+}
+
+func typedApplyRefusal(t *testing.T, refusal error, want string) {
 	s := doctorIOService(t)
 	ctx := t.Context()
 	repo, err := s.DB.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
@@ -368,19 +393,18 @@ func TestTypedApplyRetainsToolRefusalReason(t *testing.T) {
 	if err = s.DB.PresentDoctorProposal(ctx, ref.String(), "refusal-presentation", pid); err != nil {
 		t.Fatal(err)
 	}
-	effects := &refusingSyncEffects{}
+	effects := &refusingSyncEffects{err: refusal}
 	s.RepairEffects = effects
 	s.RepairRunner = cancelledSyncRunner{}
 	s.RepairEnvironment = repairFixtureEnvironment{}
 	operation, err := s.Apply(ctx, ApplyRequest{Target: ref, SourceID: "refusal-apply", Principal: "local-owner", PresentationID: "refusal-presentation"})
-	if err == nil || effects.calls != 1 {
-		t.Fatalf("refused sync accepted: calls %d err %v", effects.calls, err)
+	if err == nil || effects.calls != 1 || !strings.HasPrefix(err.Error(), want) || strings.Contains(err.Error(), "untrusted advisor stderr") {
+		t.Fatalf("refused sync: calls %d err %v, want reason %q", effects.calls, err, want)
 	}
 	saved, err := s.DB.ReadDoctorRepair(ctx, ref.String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := ErrRepairBaseRewritten.Error()
 	if saved.State != "failed" || saved.Failure != want || operation.Failure != want || strings.Contains(saved.Failure, "context canceled") {
 		t.Fatalf("repair %s failure %q (returned %q), want %q", saved.State, saved.Failure, operation.Failure, want)
 	}

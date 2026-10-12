@@ -8,6 +8,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -18,21 +19,59 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Fixed-category refusals a typed repair tool may report. Their text is
-// retained as the repair failure; any other tool error keeps a generic text.
+// Fixed-category refusals and failures a typed repair tool may report. Their
+// text is retained as the repair failure; any other tool error keeps a generic text.
 var (
-	ErrRepairBeforeHeadChanged = errors.New("inputs drifted: before-head changed")
-	ErrRepairBaseRewritten     = errors.New("inputs drifted: base rewritten")
+	ErrRepairBeforeHeadChanged  = errors.New("inputs drifted: before-head changed")
+	ErrRepairBaseRewritten      = errors.New("inputs drifted: base rewritten")
+	ErrRepairAdvisorFailed      = errors.New("conflict advisor refused or failed")
+	ErrRepairAdvisorTimedOut    = errors.New("conflict advisor timed out")
+	ErrRepairConfirmationFailed = errors.New("conflict resolution confirmation failed")
+	ErrRepairMergeFailed        = errors.New("merge failed")
+	ErrRepairRecheckFailed      = errors.New("recheck failed")
+	ErrRepairPushRejected       = errors.New("push rejected")
+	repairFailureCategories     = []error{ErrRepairBeforeHeadChanged, ErrRepairBaseRewritten, ErrRepairAdvisorFailed, ErrRepairAdvisorTimedOut, ErrRepairConfirmationFailed, ErrRepairMergeFailed, ErrRepairRecheckFailed, ErrRepairPushRejected}
+	repairGenericFailure        = "Approved repair tool failed or was refused; no further steps may run"
 )
+
+// RepairConflictError carries a fixed category with the repository paths that
+// conflicted. Only the category and paths are retained, never the cause text.
+type RepairConflictError struct {
+	Category error
+	Paths    []string
+	Err      error
+}
+
+func (e *RepairConflictError) Error() string {
+	return repairCategoryText(e.Category, e.Paths) + ": " + fmt.Sprint(e.Err)
+}
+
+// Unwrap exposes both the category and the cause to errors.Is and errors.As.
+func (e *RepairConflictError) Unwrap() []error { return []error{e.Category, e.Err} }
+
+func repairCategoryText(category error, paths []string) string {
+	if len(paths) == 0 {
+		return category.Error()
+	}
+	return category.Error() + ": " + strings.Join(paths, ", ")
+}
 
 // repairRefusalReason returns the fixed text to retain for a tool error.
 func repairRefusalReason(err error) string {
-	for _, known := range []error{ErrRepairBeforeHeadChanged, ErrRepairBaseRewritten} {
+	var conflict *RepairConflictError
+	if errors.As(err, &conflict) {
+		for _, known := range repairFailureCategories {
+			if errors.Is(conflict.Category, known) {
+				return repairCategoryText(known, conflict.Paths)
+			}
+		}
+	}
+	for _, known := range repairFailureCategories {
 		if errors.Is(err, known) {
 			return known.Error()
 		}
 	}
-	return "Approved repair tool failed or was refused; no further steps may run"
+	return repairGenericFailure
 }
 
 // RepairEnvironment is factory-owned process exclusion and restart capability.

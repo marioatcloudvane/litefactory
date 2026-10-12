@@ -430,19 +430,23 @@ func TestDoctorLiveDiagnosisProposesRepairForQueriedTargets(t *testing.T) {
 type syncBranchRunner struct {
 	t      *testing.T
 	record store.DoctorEvidenceRecord
+	gaps   []string
 }
 
 func (r *syncBranchRunner) IsolationEvidence(context.Context, string) (string, error) {
 	return "controlled fixture only", nil
 }
 func (r *syncBranchRunner) Run(ctx context.Context, inv Invocation, results *ResultService) (InvocationOutcome, error) {
-	for _, record := range promptManifest(r.t, inv.Prompt).Records {
+	manifest := promptManifest(r.t, inv.Prompt)
+	r.gaps = manifest.Gaps
+	for _, record := range manifest.Records {
 		if record.Kind == "branch" {
 			r.record = record
 		}
 	}
 	target := "branch:" + r.record.ID
 	input := ResultInput{Diagnosis: Diagnosis{Findings: []Finding{{Explanation: "The feature branch is behind its base.", Evidence: []string{target}, Uncertainty: "Local refs only."}}, Proposal: []RepairStep{{Number: 1, Target: target, Precondition: "Captured head", Change: "Merge captured base", Reason: "Restore synchronization", Reversibility: "Backed up head", Rollback: "Restore head", Action: &store.DoctorRepairAction{Kind: "sync_branch", Before: r.record.State, After: r.record.Identity}}}}}
+	input.Diagnosis.CoverageGaps = r.gaps
 	raw, err := json.Marshal(input)
 	if err != nil {
 		return InvocationOutcome{}, err
@@ -457,6 +461,15 @@ func (r *syncBranchRunner) Run(ctx context.Context, inv Invocation, results *Res
 }
 
 func TestDoctorLiveDiagnosisProposesSyncBranchForBehindBranch(t *testing.T) {
+	// "stale": origin moved but the clone's remote-tracking ref still names the
+	// old head, so the diagnosis must fetch to propose the current base (#702).
+	// "fetch fails": an unreachable origin keeps the local observation with a gap.
+	for _, mode := range []string{"fetched", "stale", "fetch fails"} {
+		t.Run(mode, func(t *testing.T) { liveSyncBranchProposal(t, mode) })
+	}
+}
+
+func liveSyncBranchProposal(t *testing.T, mode string) {
 	s := doctorIOService(t)
 	ctx := t.Context()
 	fixture := gittest.New(t)
@@ -493,6 +506,12 @@ func TestDoctorLiveDiagnosisProposesSyncBranchForBehindBranch(t *testing.T) {
 	fixture.WriteFile("base.txt", "base moved on\n")
 	baseHead := fixture.Commit("base advances")
 	fixture.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+	switch mode {
+	case "stale":
+		fixture.Git("update-ref", "refs/remotes/origin/"+gittest.DefaultBranch, head)
+	case "fetch fails":
+		fixture.SetOriginURL(filepath.Join(t.TempDir(), "unreachable"))
+	}
 	runner := &syncBranchRunner{t: t}
 	s.Runner = runner
 	target, err := Target("acme/api", 406)
@@ -505,6 +524,10 @@ func TestDoctorLiveDiagnosisProposesSyncBranchForBehindBranch(t *testing.T) {
 	}
 	if runner.record.ID != session.Branch || runner.record.State != head || runner.record.Identity != baseHead {
 		t.Fatalf("manifest branch record: %+v", runner.record)
+	}
+	const fetchGap = "Branch synchronization base fetch failed; local observation used"
+	if slices.Contains(runner.gaps, fetchGap) != (mode == "fetch fails") {
+		t.Fatalf("fetch gap for %s: %v", mode, runner.gaps)
 	}
 	if len(got.CurrentProposal) != 1 || got.CurrentProposal[0].Target != "branch:"+session.Branch || got.CurrentProposal[0].Action.Kind != "sync_branch" {
 		t.Fatalf("sync_branch proposal not adopted: %+v", got)
