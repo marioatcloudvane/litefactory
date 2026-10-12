@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -623,5 +625,106 @@ func assertRecoveryReports(t *testing.T, f *fixture, count int) {
 	_, _, posts, _ := f.forge.counts()
 	if posts != count {
 		t.Fatalf("provider report publications = %d, want %d", posts, count)
+	}
+}
+
+func TestTicketRecoveryRepositoryRefusalRetainsAndRetries(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	origin := recoveryProvider(t, w.fixture)
+	source := configureRecoverySource(t, w, origin)
+	// The code endpoint fails independently of the readable ticket source.
+	var refused atomic.Bool
+	refused.Store(true)
+	codeServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/"+w.repo.Slug() && refused.Load() {
+			http.Error(rw, "repository inaccessible", http.StatusNotFound)
+			return
+		}
+		w.forge.server.Config.Handler.ServeHTTP(rw, r)
+	}))
+	defer codeServer.Close()
+	code, err := w.db.CurrentConnection(t.Context(), w.repo.ID, store.CodeConnection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code.Origin = ticket.Origin(codeServer.URL)
+	if _, err := w.db.SetConnection(t.Context(), code, code.Revision); err != nil {
+		t.Fatal(err)
+	}
+
+	other := w.secondRepo()
+	otherFixture := *w.fixture
+	otherFixture.repo = other
+	otherOrigin := recoveryProvider(t, &otherFixture)
+	var otherSource store.ConnectionVersion
+	for _, role := range []store.ConnectionRole{store.CodeConnection, store.TicketConnection} {
+		v := source
+		v.ID, v.Revision, v.RepoID, v.Role = 0, 0, other.ID, role
+		v.Origin, v.Destination, v.RemoteID = otherOrigin, other.Slug(), "2"
+		v.ClonePath, v.RemoteURL, v.WorktreeRoot = other.Path, other.RemoteURL, other.WorktreeRoot
+		v, err = w.db.SetConnection(t.Context(), v, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role == store.TicketConnection {
+			otherSource = v
+		}
+	}
+	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: w.spy.lookup}, Logger: w.logger, ExpectedActorID: botID})
+	if _, err := (projectconnection.ApproverService{DB: w.db, Factory: factory}).Set(t.Context(), other.ID, ownerLogin, otherSource.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
+	w.daemon = newRecoveryDaemon(t, w, origin, "repository-refusal", false)
+	w.plantCursor()
+	w.issue("Repository access will recover")
+	w.forge.addComment(testIssue, 901, owner(), "/spike Retry the retained instruction.")
+	w.forge.addIssueIn(other.Owner, other.Name, fakeIssue{Number: testIssue, Title: "Healthy project", User: owner()})
+	w.forge.addCommentTo(other.Owner, other.Name, testIssue, 902, owner(), "/spike Process the healthy project.")
+	for _, v := range []store.ConnectionVersion{source, otherSource} {
+		if err := w.db.HandoffTicketObservation(t.Context(), store.PendingTicketObservation{
+			RepoID: v.RepoID, ConnectionVersionID: v.ID, Provider: v.Provider, Origin: v.Origin,
+			Container: v.Destination, ContainerID: v.RemoteID, TicketID: strconv.Itoa(10000 + testIssue),
+			TicketKey: strconv.Itoa(testIssue), ObservedAt: w.clock.peek(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var completed time.Time
+	for range 2 {
+		result := w.settle()
+		if !result.Cursor.LastTickAt.After(completed) {
+			t.Fatalf("completed heartbeat did not advance: %+v", result)
+		}
+		completed = result.Cursor.LastTickAt
+		w.clock.advance(time.Minute)
+		if _, err := w.db.GetSessionByTicket(t.Context(), ticket.Identity{Provider: source.Provider, Origin: source.Origin, RemoteID: strconv.Itoa(10000 + testIssue)}); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("failed admission created a session/watermark: %v", err)
+		}
+		pending, err := w.db.ListPendingTicketObservations(t.Context(), source.ID)
+		if err != nil || len(pending) != 1 {
+			t.Fatalf("lost retry: %+v %v", pending, err)
+		}
+	}
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{902}) {
+		t.Fatalf("healthy comment did not run: %v\n%s", got, w.fixture.logs)
+	}
+	for _, want := range []string{"ticket observation cannot be admitted", fmt.Sprintf("project_id=%d", w.repo.ID), fmt.Sprintf("connection_version_id=%d", source.ID), string(source.Origin), strconv.Itoa(10000 + testIssue), "inspect repository", "404"} {
+		if !strings.Contains(w.fixture.logs.String(), want) {
+			t.Errorf("missing diagnostic %q: %s", want, w.fixture.logs)
+		}
+	}
+	// No ticket timestamp change and no new comment or observation.
+	refused.Store(false)
+	w.settle()
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{901, 902}) {
+		t.Fatalf("retained instruction did not recover: %v\n%s", got, w.fixture.logs)
+	}
+	w.settle() // Ordinary follow-up drain consumes the now reported instruction.
+	pending, err := w.db.ListPendingTicketObservations(t.Context(), source.ID)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("successful drain retained observation: %+v %v", pending, err)
 	}
 }
