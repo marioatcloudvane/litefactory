@@ -1,26 +1,35 @@
 # Attachments
 
-Attach supporting images or documents to the issue or triggering comment so the agent can use their contents. The run must permit attachment ingestion and the factory must have an asset fetcher and access to the uploaded asset.
+[Documentation](../README.md) · [Using the factory](README.md)
 
-Upload a screenshot through GitHub, then include it in the request:
+Attach images or documents to the issue or to the comment that asks for the work. The agent can then use their contents.
+
+Upload a screenshot through GitHub and mention it in your request:
 
 ```text
 /research Explain why the uploaded screenshot differs from the current settings page.
 ```
 
-Only recognized HTTPS GitHub asset URLs are scanned: `github.com/user-attachments/assets/` and the objects, user-images and private-user-images GitHub asset hosts. Ordinary external links are ignored. The trigger comment is scanned before the issue body; duplicate URLs count once. Supported bytes are PNG, JPEG, GIF, WebP, PDF, DOCX and PPTX. Classification uses file contents; renaming an arbitrary ZIP to DOCX does not make it supported. DOCX/PPTX containers are identified by Office parts.
+## What is picked up
+
+- Only GitHub upload links are looked at: `github.com/user-attachments/assets/...` and the `objects`, `user-images` and `private-user-images` GitHub hosts, over HTTPS. Other links are ignored and never fetched.
+- The comment that triggered the run is read first, then the issue body. A link that appears twice counts once.
+- Supported files are PNG, JPEG, GIF, WebP, PDF, DOCX and PPTX. The factory checks the file's actual contents, not its name, so a ZIP renamed to `.docx` is not accepted.
+- The coding-agent permission profile for the run must allow attachments (`attachments: true` in `tool_profiles`; see [permissions](../configuration/permissions.md)).
 
 | Default limit | Value |
 | --- | --- |
 | One image | 5 MiB |
 | One document | 10 MiB |
-| Total accepted bytes per run | 25 MiB |
-| Accepted files per run | 10 |
+| Total per run | 25 MiB |
+| Files per run | 10 |
 
-Limits are configurable in the [YAML reference](../configuration/config-yaml.md). Accepted files are landed locally and described in the agent prompt; the run has an attachment manifest. Documents remain raw files: interpreting or converting them requires tools available to that agent. Successful ingestion does not guarantee successful interpretation.
+You can change the limits in [config.yaml](../configuration/config-yaml.md).
 
-Declines distinguish oversized files, unsupported types, fetch failures, count exhaustion and total-byte exhaustion. Other attachments can still ingest; a rejected file alone does not fail the run. Check the report and local logs, reduce size/count, use a supported format or repair access, then send a new request. State when the missing file is essential to the answer.
+Accepted files are saved locally and listed in the agent's prompt. Documents stay as raw files; whether the agent can read a PDF or Office file depends on the tools it has. A file being accepted does not guarantee it is understood.
+
+## When a file is refused
+
+The report says why: too large, unsupported type, could not be fetched, too many files, or the total size is used up. The other files are still used, and one refused file does not fail the run. Reduce the size or number, use a supported format, or fix access, then send a new request. If the missing file is essential, say so in the request.
 
 See [permissions](../configuration/permissions.md), [working with issues](working-with-issues.md) and [troubleshooting](../operations/troubleshooting.md).
-
-[Using the factory](README.md)

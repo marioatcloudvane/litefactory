@@ -1,21 +1,24 @@
 # Scheduling
 
-Schedule an owner instruction for later eligibility on a registered issue. The daemon must be running when it can dispatch; busy workers, repository serialization, polling and remote backoff can delay the actual start.
+[Documentation](../README.md) · [Using the factory](README.md)
+
+Use `/schedule` to ask the factory to do owner work later on a registered issue. The daemon must be running when the work is due. Busy workers, one-run-per-repository rules, polling and GitHub rate limits can delay the actual start.
 
 ```text
 /schedule -by 00:30:00 /research Check the current retry behavior.
 ```
 
-Expect a factory scheduling acknowledgment, then a separate run when eligible. `/schedule` itself does not start the requested work immediately.
+You get an acknowledgment from the factory first and a separate run when the work is due. `/schedule` never starts the work straight away.
 
-Use `-to MM/DD/YYYY HH:MM:SS [timezone] <instruction>` for a civil time. An omitted zone uses the daemon's local timezone; use `UTC` or an IANA name such as `Europe/Vienna` to be explicit. Stored due times are UTC. Skipped or repeated local times around daylight-saving transitions are refused rather than guessed.
+## Forms
 
-`--after <schedule-id[,schedule-id...]> -by HH:MM:SS <instruction>` waits for prerequisite schedules to complete successfully, then starts its delay. These numbers are schedule IDs, not issue numbers. A failed prerequisite does not establish completion. IDs must be positive and unique.
+- `-by HH:MM:SS <instruction>` runs the instruction after a delay from when the factory received the comment.
+- `-to MM/DD/YYYY HH:MM:SS [zone] <instruction>` runs it at a clock time. Without a zone, the daemon's local time zone is used. Give `UTC` or an IANA name such as `Europe/Vienna` to be exact. Times are stored in UTC. A time that does not exist or happens twice around a daylight-saving change is refused, not guessed.
+- `--after <id[,id...]> -by HH:MM:SS <instruction>` waits until the listed schedules have completed successfully, then starts the delay. The numbers are schedule IDs, not issue numbers. A failed schedule does not count as completed.
+- `--propose <instruction>` asks the factory to suggest a schedule. Read the proposal, then send `--accept <proposal-id>` or `--reject <proposal-id>`. A proposal contains 1 to 16 items, a pending proposal expires after seven days, and a newer proposal for the same issue replaces an older pending one. Rejecting cannot cancel work you already accepted.
 
-`--propose <instruction>` requests a scheduling proposal; review the reported proposal before sending `--accept <proposal-id>` or `--reject <proposal-id>`. An accepted proposal supplies its reviewed schedule; a proposal alone is not a dispatch promise. This requires a proposal generator; the current CLI daemon wiring does not install one, so `--propose` reports proposal failure there. Where a generator is installed, proposals contain 1–16 items, pending proposals older than seven days expire, and new advice supersedes older pending advice for the same issue/owner. Rejection cannot cancel already accepted work.
+Rules: delays use two-digit hours, minutes and seconds, must be positive, and minutes and seconds are at most 59. Every request needs an instruction. A `/schedule` inside a `/schedule` is refused. Bad dates, zones, IDs or stale proposals get a refusal reply; correct them in a new comment.
 
-Durations use exactly two-digit hours/minutes/seconds, must be positive, and minutes/seconds are at most 59. Every work request needs a payload. Nested `/schedule` payloads are refused. Invalid dates, zones, dependencies or stale/ineligible proposal decisions produce refusal feedback; correct them in a new comment. Check pending work and daemon health if a due time passes without a run.
+If a due time passes without a run, check that the daemon is running and look for pending work and warnings (see [running the daemon](../operations/running-the-daemon.md)).
 
-See the [complete syntax](issue-command-reference.md), [daemon operations](../operations/running-the-daemon.md) and [recovery](../operations/recovery.md).
-
-[Using the factory](README.md)
+The exact syntax is in [owner commands](owner-commands.md). See also [recovery](../operations/recovery.md): when automatic recovery after a provider session limit is on, the factory can create a schedule for you.

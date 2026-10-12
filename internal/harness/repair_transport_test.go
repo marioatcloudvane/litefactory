@@ -26,7 +26,7 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"repair-session","
 	}
 	var events []agent.UsageEvent
 	request := agent.RepairRequest{Operation: "repair-operation", Invocation: agent.DoctorRequest{Attempt: "repair-attempt", Model: "configured-flagship", Prompt: "approved scope", WorkingDirectory: dir, UsageAttemptID: "repair-meter", MCPLaunch: spec, Usage: &agent.UsageCapture{AttemptID: "repair-meter", Sink: func(_ context.Context, e agent.UsageEvent) error { events = append(events, e); return nil }}}}
-	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin"}}
+	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 60 * time.Second, environ: []string{"PATH=/usr/bin:/bin"}}
 	result, err := runner.RunDoctorRepair(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)

@@ -11,6 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -158,5 +159,48 @@ func TestDoctorStopRunTimeoutLeavesBackupAndNoFalseCompletion(t *testing.T) {
 	}
 	if _, err = d.DrainDoctorTarget(t.Context(), ref, op.ID); err == nil {
 		t.Fatal("timed out invocation drained")
+	}
+}
+
+// An apply blocked by a still-active repair is answered once with the blocking
+// repair instead of failing admission every tick (#708).
+func TestDoctorApplyBlockedByActiveRepairRepliesOnce(t *testing.T) {
+	d, ref, op, _ := doctorStopFixture(t)
+	ctx := t.Context()
+	forge, ok := d.forge.(*doctorTestForge)
+	if !ok {
+		t.Fatal("fixture forge unavailable")
+	}
+	repo, err := d.db.GetRepoBySlug(ctx, store.ForgeGitHub, "acme", "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The admission an owner /doctor apply makes once repair capability is proven.
+	apply := store.DoctorCommand{RepairApprovalID: "blocked-repair", RepoID: repo.ID, TaskRef: ref.String(), IssueID: forge.issue.ID, IssueNumber: forge.issue.Number, CommentID: 500, ActorID: 7, CreatedAt: time.Date(2026, 9, 29, 12, 1, 0, 0, time.UTC), Operation: "apply"}
+	admitted, err := d.db.AdmitDoctorCommand(ctx, apply)
+	if err != nil {
+		t.Fatal("blocked apply failed admission", err)
+	}
+	if current, err := d.db.ReadDoctorRepair(ctx, ref.String()); err != nil || current.ID != op.ID {
+		t.Fatal("blocked apply reserved a repair", current, err)
+	}
+	for range 2 {
+		replay, err := d.db.AdmitDoctorCommand(ctx, apply)
+		if err != nil || replay.ID != admitted.ID {
+			t.Fatal("replayed admission", replay, err)
+		}
+		if err = d.doctorControls(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err = d.publishDoctor(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(forge.posts) != 1 {
+		t.Fatalf("want one owner reply, got %d", len(forge.posts))
+	}
+	body := forge.posts[0].Body
+	if !strings.Contains(body, "Doctor apply is unavailable") || !strings.Contains(body, op.ID) || !strings.Contains(body, op.State) {
+		t.Fatalf("reply does not name blocking repair %s (%s): %q", op.ID, op.State, body)
 	}
 }

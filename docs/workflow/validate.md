@@ -1,11 +1,20 @@
-# Validate: repair and review
+# Validate
 
-This page covers the part of the Validate graph that follows the suite step. The
-suite step itself (running the full recipe on one exact commit) is described with
-the suite activity. The graph is `internal/teamsource/validate/validate.dot`, and it
-is the only place the flow lives: the order, the repair bound, the time budget, the
-measured limits and the reviewers are declared there. Go supplies steps and never
-picks the next one.
+[Documentation](../README.md) · [Workflow guide](../guides/workflow.md)
+
+Validate checks finished work and helps you ship it. It tests one exact commit, may repair a failing suite a little, has three read-only reviewers assess the result, and then hands the decisions to you. Start it with `/validate <text>`, or let `validate.auto_start` start it once Implement has merged every story. For the owner's view, see [validation and delivery](../guides/validation-and-delivery.md).
+
+The graph is `internal/teamsource/validate/validate.dot`, and it is the only place the flow lives: the order, the repair bound, the time budget, the measured limits and the reviewers are declared there. Go supplies steps and never picks the next one.
+
+## The suite
+
+The suite step runs the `full` phase of the repository's check recipe (`.litefactory/bug-checks.yaml`, read from the tested commit; see [Bug checks](../bug-checks.md)) on one exact commit, in the check sandbox. It is:
+
+- **passed** when every command exits 0 on an unchanged snapshot,
+- **failed** when a command exits 1 (later commands do not run),
+- **blocked** when there is no recipe, the full phase is empty, a command exits with another code, the snapshot changed, or an earlier run could not be confirmed stopped.
+
+A finished result for the commit is reused as it is. Validate does not use the stack profile's own `checks` for this.
 
 ## Flow
 
@@ -34,7 +43,7 @@ a round that times out or is interrupted is used. Before anything else, the budg
 step settles a round a restart left unfinished: the worktree goes back to the
 commit before the round and the round is recorded as interrupted.
 
-The repair agent has write access and a time budget (`lf_budget`, in minutes, at
+The repair agent has write access only if the operator granted the `validate-repair` permission profile under `tool_profiles.permissions` (see [permissions](../configuration/permissions.md)); without it only the repair step is refused, and reviewers stay read-only. It also has a time budget (`lf_budget`, in minutes, at
 most 60; the graph declares 15). The budget bounds the agent run only, never the
 tests. When it runs out the run is cancelled and the attempt is recorded as timed
 out. The check step measures what the agent really changed against the commit

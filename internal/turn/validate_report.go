@@ -57,7 +57,7 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 		}
 	}
 	if st.Handback != nil {
-		b.WriteString("\n**Handback to Implement:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 600)) + "\n")
+		b.WriteString("\n**What still needs fixing:** " + planTableCell(clipText(strings.TrimSpace(st.Handback.OwnerInstruction), 600)) + "\n")
 	}
 	var closeSet []int
 	if target != nil {

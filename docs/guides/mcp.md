@@ -1,32 +1,48 @@
 # Factory MCP
 
-Factory MCP gives a supported coding-agent launch scoped access to factory results, checkpoints, issue summaries, approved publication and request receipts. It is separate from arbitrary third-party MCP servers and does not provide GitHub credentials to the agent.
+[Documentation](../README.md) · [Using the factory](README.md)
 
-Prerequisites: a configured supported agent, a live factory attempt and enabled automatic registration (`settings.mcp_auto_start`, default `true`). The factory installs attempt-specific handlers. An idle daemon does not start an MCP child. See [MCP settings](../configuration/config-yaml.md) and [agent configuration](../configuration/coding-agents.md).
+The factory gives each coding-agent run a small set of tools over MCP (Model Context Protocol): saving results, reading issue summaries, posting authorized comments, reporting activity and checking receipts. They are the factory's own tools. They are separate from any third-party MCP servers you add yourself, and they do not give the agent your GitHub credentials.
 
-```text
-/research Investigate the retry flow and report the findings through the available factory tools.
-```
+You do not have to do anything for ordinary work. The agent uses these tools by itself when its role needs them.
 
-The agent may use permitted native tools as well; ordinary runs need not call MCP. Factory tool feedback separates valid input, engineering, acceptance and remote effects. Preflight diagnoses input without recording proof or approval. Activity is advisory. A receipt acknowledges retained state; `pending` or `uncertain` is not success.
+## Switching it on
 
-| Mode | Additional factory families |
+Factory tools are registered for each run when `settings.mcp_auto_start` is `true` (the default). The tools belong to that one run; an idle daemon starts nothing. Settings are in the [configuration reference](../configuration/config-yaml.md) and agent setup is in [coding agents](../configuration/coding-agents.md).
+
+## What each mode gets
+
+| Mode | Factory tools |
 | --- | --- |
-| Research | Preflight, issue summaries, authorized comments, receipts; gated exact-approved creation. |
-| Implement | Preflight, summaries, authorized comments, engineering checkpoints and receipts. |
-| Validate | Preflight, summaries, authorized comments, retained assessments and receipts; no fresh capture. |
-| Plan / Spike | Shared communication and advisory activity; expanded issue/checkpoint families unavailable. |
+| Research | Result tools (preflight, submit, receipt), issue summaries, authorized comments, activity, and a tool to draft new issues for your approval. |
+| Implement | Result tools, issue summaries, authorized comments, activity and engineering checkpoints. |
+| Validate | Result tools, issue summaries, authorized comments, activity and retained assessments. |
+| Plan, Spike, Bug | Result tools only (plus activity reporting where it is installed). |
 
-All modes can have shared communication/activity when installed. MCP refuses publishable/story-bearing Plan results; the existing factory helper route retains its own Plan policy. Discovery and direct calls both enforce permissions. Issue reads contain summaries, not full bodies/comments. Reading an issue does not authorize commenting on it.
+The tools are checked every time they are listed and every time they are called, so a tool that is not allowed for a mode simply is not there. Issue reads return summaries, not full bodies or comments. Being allowed to read an issue does not mean being allowed to comment on it.
 
-Creation requires selected Research mode, `settings.allow_mcp_story_creation: true` (default `false`) and a separate authenticated owner approval. First use `/mcp-create prepare <CreationEnvelope JSON>`; inspect the factory's exact prepared JSON and hash, then approve `/mcp-create <SHA256> linked` or `attach`. Copy the exact returned envelope; editing it needs new preparation and approval. Detailed schema is in [tool families](../mcp-tool-families.md#exact-creation-preparation-and-publication).
+Two ideas to know:
 
-Approval lasts 30 minutes, bounded by attempt expiry, and is consumed by the next eligible native Research launch. It is not inherited by resume/replacement. Limits are one batch of at most five artifacts per attempt and twenty artifacts per repository per rolling 24 hours; pending/uncertain effects retain charges. Enabling the setting grants nothing by itself.
+- **Preflight** checks an agent's input without saving it or granting anything.
+- A **receipt** confirms the factory kept a request. A receipt that says `pending` or `uncertain` is not success.
 
-For a lost response, retain the request ID and exact submitted bytes, then read the matching receipt. Do not change an uncertain request merely to force another write. Expired, cancelled or replaced attempts cannot regain authority through reconnect or a receipt. Correct refused content under a new request identity after recovering any prior outcome.
+## Creating new issues from Research
 
-Missing tools can mean a disabled setting, unavailable handler, wrong mode, expired attempt or native configuration collision. Inspect run diagnostics and [permissions](../configuration/permissions.md). Native Claude/Codex integrations and factory composition are implemented in this revision; authentic host delivery/isolation observations for #274/#296 remain unverified. Offline fixtures do not establish those observations or successful live GitHub publication.
+A Research run can propose new issues, but it cannot create them by itself.
 
-See [adapter protocol](../mcp-adapter.md), [tool-family reference](../mcp-tool-families.md) and [recovery](../operations/recovery.md).
+1. Creation must be on: `settings.allow_mcp_story_creation: true` (default `false`). Turning it on grants nothing by itself.
+2. When the owner's request asks for issues, the agent drafts one to five issues. The factory keeps the draft and posts it as a comment: the exact content, its SHA-256 and the approval command.
+3. You approve with `/mcp-create <sha256> linked`, or `/mcp-create <sha256> attach` to also attach the new issues as sub-issues of the source issue. Use the hash exactly as posted. If the content changes, the agent must draft again and you approve again.
+4. After approval, the factory creates the issues and posts which ones were created.
 
-[Using the factory](README.md)
+Approval lasts 30 minutes. At most five issues per proposal and twenty per repository in any 24 hours are allowed; effects that are still pending or uncertain count towards the limit. If the factory is not sure whether an issue was created, it checks before it tries again, so you do not get duplicates.
+
+## When a response is lost
+
+Keep the request ID and the exact text that was sent, then read the matching receipt. Do not change an uncertain request just to force another write. Once a run has expired, been cancelled or replaced, it cannot regain its rights by reconnecting or by reading a receipt. Send corrected content under a new request after you have recovered the earlier result.
+
+## If tools are missing
+
+Likely causes are a disabled setting, the wrong mode, an expired run, or a conflicting MCP entry in the agent's own configuration. Look at the run logs (`litefactory logs <issue> --only tool`; see the [CLI reference](../cli/command-reference.md)) and the [permissions](../configuration/permissions.md). Story creation and other owner commands are listed in [owner commands](owner-commands.md).
+
+See also [recovery](../operations/recovery.md).

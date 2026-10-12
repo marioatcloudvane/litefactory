@@ -1,6 +1,6 @@
 # Permissions
 
-[Configuration](README.md) · [Field reference](config-yaml.md) · [GitHub setup](../getting-started/github-setup.md)
+[Documentation home](../README.md) · [Configuration](README.md) · [Key reference](config-yaml.md#tool_profiles) · [GitHub setup](../getting-started/github-setup.md)
 
 Litefactory separates the human owner's instructions, the bot's GitHub access and the coding agent's local permissions. Configure all three before running work; a grant in one does not grant another.
 
@@ -22,18 +22,20 @@ This names an item; it does not create it. Resolve access through [GitHub setup]
 
 ## Mode permissions
 
-Each configured agent needs a cell in all four profiles. The selected mode determines its profile; Spike uses Implement. The generated posture is:
+Each configured agent needs a cell in the four profiles `research`, `plan`, `implement` and `validate`. The selected mode determines its profile. Spike, Bug and Validate-repair roles have their own optional profiles. The generated posture is:
 
 | Mode | Claude surface | Codex sandbox | Attachment ingestion |
 | --- | --- | --- | --- |
 | Research | Read/search, artifact writing, bounded shell and delegation tools | workspace-write | enabled |
 | Plan | Read/search, artifact writing, bounded shell and delegation tools | workspace-write | enabled |
-| Implement / Spike | Editing, build/test and delegation tools | workspace-write | disabled |
-| Validate | Read, Glob, Grep, Task only | read-only | disabled |
+| Implement | Editing, build/test and delegation tools | workspace-write | disabled |
+| Validate | Read, Glob, Grep, Task, and Bash limited to fixed read-only reviewer rules | read-only | disabled |
+| Spike investigator | Read, Glob, Grep | read-only | disabled |
+| Spike fixer | Read, Glob, Grep, Edit, MultiEdit, Write | workspace-write | disabled |
 
-These are tool surfaces, not permission to exceed a mode's scope. Validate consumes retained evidence: current runner controls disable Codex shell execution and multi-agent work and suppress inappropriate Claude tools. It must not execute fresh checks even inside a read-only sandbox.
+These are tool surfaces, not permission to exceed a mode's scope. Validate is read-only: the config check refuses any Claude tool outside Read, Glob, Grep, Task and Bash, allows Bash only with the fixed reviewer rules, and requires the Codex `read-only` sandbox. The optional `validate-repair`, `bug-analyst` and `bug-fixer` profiles grant the roles that need them; a missing optional profile blocks only that role. A missing Spike investigator or fixer blocks Spike.
 
-The permission matrix is mandatory and has no missing-cell fallback. The [field reference](config-yaml.md#tool_profilespermissions) lists exact lists, defaults and validation rules. Deprecated `lf:tools=...` labels are refused; remove them and select the intended mode through current [issue controls](../guides/issue-command-reference.md).
+The four main profiles are mandatory and have no missing-cell fallback. The [key reference](config-yaml.md#tool_profiles) lists exact keys, defaults and validation rules. Deprecated `lf:tools=...` labels are refused; remove them and select the intended mode through current [issue controls](../guides/owner-commands.md).
 
 ## Claude boundaries
 
@@ -49,10 +51,14 @@ The mode's `sandbox` is the filesystem boundary; Claude permission lists are nev
 
 Ordinary runs default to ignoring personal Codex configuration and rules. `allow_user_config: true` permits personal configuration and may expose repository skills as supported by the host CLI. Native team delivery retains configuration isolation and supplies factory-generated role configuration. Do not infer that a personal option overrides factory mode restrictions.
 
+## Check sandbox for Bug checks
+
+Bug checks run under a separate operator ceiling, `bug_checks` in `config.yaml`: a Codex sandbox with no network by default. See the [key reference](config-yaml.md#bug_checks) and [Bug checks](../bug-checks.md).
+
 ## Feedback and limits
 
 Configuration rejects incomplete mode/agent matrices, invalid tools, missing ceiling entries and invalid Validate grants. A later sandbox refusal usually means a workload needs an explicit permitted path or a different authorized task; adding an issue label cannot widen the configured surface. Fix the relevant setting and restart, then inspect a new run's effective permissions and diagnostics.
 
 Outbound reports pass through redaction; local `$LF_HOME/logs` copies are **unredacted** and may contain sensitive input or output. Inspect locally and sanitize excerpts before sharing. Redaction is report hygiene, not the subprocess secret boundary.
 
-Factory [MCP](../guides/mcp.md) capabilities have their own mode, scope, receipt and approval gates; registration does not authorize arbitrary third-party servers or effects. Current source paths do not establish authentic #274/#296 host delivery. See [troubleshooting](../operations/troubleshooting.md) for missing runs, access failures and uncertain outcomes.
+Factory [MCP](../guides/mcp.md) capabilities have their own mode, scope, receipt and approval gates; registration does not authorize arbitrary third-party servers or effects. See [troubleshooting](../operations/troubleshooting.md) for missing runs, access failures and uncertain outcomes.
