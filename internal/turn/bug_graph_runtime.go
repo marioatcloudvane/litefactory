@@ -84,7 +84,16 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 			return store.WorkflowAdmission{}, e
 		}
 	}
-	if e == nil && instance.Status == store.GraphRunning {
+	// Execute holds the task lock. Only a fresh authenticated owner comment may
+	// restart a launch that failed before any execution or publication began.
+	untouched := false
+	if e == nil && instance.Status == store.GraphRunning && req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) && req.Trigger.AuthorID == r.cfg.OwnerID {
+		untouched, e = r.untouchedGraphLaunch(ctx, instance)
+		if e != nil {
+			return store.WorkflowAdmission{}, e
+		}
+	}
+	if e == nil && instance.Status == store.GraphRunning && !untouched {
 		if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 			wait, e := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID)
 			if e != nil {
@@ -141,6 +150,38 @@ func (r *BugRuntime) graphAdmission(ctx context.Context, req Request) (store.Wor
 	return r.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Workflow: "bug", SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: pin.ID, Start: r.definition.Profile.Start, ContentDigest: r.definition.Digest, TopologyDigest: topology, Files: raw, Provenance: store.WorkflowProvenance(r.definition.Origin), Reply: req.Trigger.Body})
 }
 
+// untouchedGraphLaunch is deliberately limited to the failed bootstrap shape.
+// The caller has already checked the supported pin; absence of a wait alone
+// never authorizes restarting work, and failed reads never count as absence.
+func (r *BugRuntime) untouchedGraphLaunch(ctx context.Context, instance store.GraphInstance) (bool, error) {
+	if instance.Status != store.GraphRunning || instance.CurrentNode != r.definition.Profile.Start || !instance.NextDueAt.IsZero() || !instance.FinishedAt.IsZero() {
+		return false, nil
+	}
+	if _, err := r.opts.DB.GetGraphOwnerWait(ctx, instance.ID); !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	if _, err := r.opts.DB.LatestGraphDispatch(ctx, instance.ID); !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	attempts, err := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+	if err != nil || len(attempts) != 0 {
+		return false, err
+	}
+	runs, err := r.opts.DB.ListRuns(ctx, instance.SessionID)
+	if err != nil || len(runs) != 0 {
+		return false, err
+	}
+	transitions, err := r.opts.DB.ListGraphTransitions(ctx, instance.ID)
+	if err != nil || len(transitions) != 0 {
+		return false, err
+	}
+	comments, err := r.opts.DB.ListGraphComments(ctx, instance.ID, "", 1)
+	if err != nil || len(comments) != 0 {
+		return false, err
+	}
+	return true, nil
+}
+
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {
 	local := *r
 	r = &local
@@ -160,7 +201,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 	if e != nil {
 		return result, e
 	}
-	if !store.IsGraphTrigger(req.Trigger.CommentID) {
+	if req.Trigger.CommentID > 0 && !store.IsGraphTrigger(req.Trigger.CommentID) {
 		if _, e = r.opts.ResearchReporter.Consume(ctx, req.SessionID, req.Trigger.CommentID); e != nil {
 			return result, e
 		}
