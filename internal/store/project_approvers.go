@@ -138,14 +138,9 @@ func setApprover(ctx context.Context, tx *sql.Tx, a ApproverAppointment, connect
 			return a, e
 		}
 		if conflict > 0 {
-			blockers, e := approverBlockers(ctx, tx, a.RepoID)
-			if e != nil {
-				return a, e
-			}
-			if len(blockers) > 0 {
-				return a, ErrApproverBusy
-			}
-			if _, e = tx.ExecContext(ctx, `DELETE FROM project_approver_initialization WHERE repo_id=? AND status='conflict'`, a.RepoID); e != nil {
+			// The same actor is not a replacement, so outstanding work does not
+			// block re-confirmation from clearing the conflict.
+			if _, e := tx.ExecContext(ctx, `DELETE FROM project_approver_initialization WHERE repo_id=? AND status='conflict'`, a.RepoID); e != nil {
 				return a, e
 			}
 		}
@@ -374,14 +369,15 @@ func (db *DB) GetApproverInitialization(ctx context.Context, repoID int64) (Appr
 // replacement independently and remote instruction evidence stays untouched.
 func (db *DB) RecoverProjectWorkerClaims(ctx context.Context, repoID int64) error {
 	return db.withTx(ctx, func(tx *sql.Tx) error {
-		var n int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions s WHERE s.repo_id=? AND (s.state='running' OR COALESCE(s.lock_owner,'')<>'' OR EXISTS(SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.status IN ('prelaunch','running')))`, repoID).Scan(&n); err != nil {
+		var taskRef string
+		err := tx.QueryRowContext(ctx, `SELECT s.task_ref FROM sessions s WHERE s.repo_id=? AND (s.state='running' OR COALESCE(s.lock_owner,'')<>'' OR EXISTS(SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.status IN ('prelaunch','running'))) ORDER BY s.id LIMIT 1`, repoID).Scan(&taskRef)
+		if err == nil {
+			return fmt.Errorf("%w: session %s", ErrApproverBusy, taskRef)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if n > 0 {
-			return ErrApproverBusy
-		}
-		_, err := tx.ExecContext(ctx, `UPDATE project_authority_claims SET completed=1 WHERE repo_id=? AND kind='worker' AND completed=0`, repoID)
+		_, err = tx.ExecContext(ctx, `UPDATE project_authority_claims SET completed=1 WHERE repo_id=? AND kind='worker' AND completed=0`, repoID)
 		return err
 	})
 }

@@ -137,20 +137,29 @@ delivery is picked up later.
    ```
 
    Use `litefactory repo webhook <owner>/<name>` for one repository. The command
-   creates a hook with JSON content and the events `issues`, `issue_comment` and
-   `sub_issues`, and keeps a per-repository secret in the Keychain under service
-   `litefactory-webhook`, account `<owner>/<name>`. Running it again changes
-   nothing if the hook is right, and it never touches other hooks. `repo add`
-   registers the hook too when `webhook.public_url` is set.
+   keeps one webhook subscription for the project's configured ticket
+   connection: it repairs the subscription it already owns, imports a hook made
+   by an older litefactory, or creates a new one. A new hook uses JSON content,
+   the events `issues`, `issue_comment` and `sub_issues`, and the callback
+   `public_url` plus an opaque `?subscription=<subscription-id>` selector. Its
+   signing secret is kept in the Keychain under service `litefactory-webhook`,
+   account `subscription/<subscription-id>`. An imported old hook keeps its
+   legacy account `<owner>/<name>`. Running the command again changes nothing if
+   the hook is right, and it never touches other hooks. If the project has more
+   than one owned subscription for that connection, it stops with `subscription
+   selection is ambiguous`; manage it by project and subscription ID (see
+   "Inspect and manage a subscription" below). `repo add` registers the hook too
+   when `webhook.public_url` is set.
 5. Check `litefactory daemon status`. The listener line should say `(bound)`,
    and each repository shows its mode, last delivery, next poll and secret state.
 
 ### Reaching the listener
 
 - **Reverse proxy (recommended).** Let a web server you already run end HTTPS and
-  forward only the exact path `/litefactory/webhook` to `http://127.0.0.1:8787`.
-  Allow `POST` and pass the body and the `X-Hub-Signature-256`, `X-GitHub-Event`
-  and `X-GitHub-Delivery` headers unchanged. A proxy that rewrites the body or
+  forward only the exact path `/litefactory/webhook` to `http://127.0.0.1:8787`,
+  with its query string unchanged. Allow `POST` and pass the body and the
+  `X-Hub-Signature-256`, `X-GitHub-Event` and `X-GitHub-Delivery` headers
+  unchanged. A proxy that drops the `?subscription=` query, rewrites the body or
   drops the signature makes every delivery fail. If the proxy runs in Docker,
   `127.0.0.1` is the container; point it at `host.docker.internal:8787` and check
   with a real delivery.
@@ -163,8 +172,39 @@ The listener speaks HTTP only. A delivery for an unknown repository, or with a
 bad or missing signature, gets a `401` and does nothing. The signature proves who
 sent it but hides nothing, so use HTTPS between GitHub and your proxy.
 
+The `?subscription=` selector picks the configured source; the signature still
+authenticates the delivery. An old callback without a selector is accepted only
+when it maps unambiguously to one source and its cached secret. Delivery
+wake-ups and recovery reads go through the project's configured ticket
+connection; repository names or issue numbers in the payload never select
+another project's work.
+
 To make a hook by hand, use content type `application/json`, the three events
-above, your `public_url`, and the secret from the Keychain item.
+above, the owned subscription's full callback URL including
+`?subscription=<subscription-id>`, and the secret from its Keychain item.
+
+### Inspect and manage a subscription
+
+Address a subscription by the registered project ID and subscription ID:
+
+```sh
+litefactory repo webhook list <project-id>
+litefactory repo webhook status <project-id> [<subscription-id>]
+litefactory repo webhook create <project-id> --expected-revision=0
+litefactory repo webhook repair <project-id> <subscription-id> --expected-revision=N
+litefactory repo webhook update <project-id> <subscription-id> --expected-revision=N
+litefactory repo webhook disable <project-id> <subscription-id> --expected-revision=N
+```
+
+`create` takes `--expected-revision=0` and fails if the connection already has
+an owned subscription. The other changes need the current revision, shown by
+`status`; an outdated revision is rejected. `create` and `update` accept
+`--callback=<url>`; the selector is added to it. `update` also accepts
+`--events` (a comma-separated choice of `issues`, `issue_comment` and
+`sub_issues`) and `--enabled=true|false`. `disable` stops webhook delivery and
+keeps polling active. Status shows the desired and last observed state, the hook
+ID, the last valid delivery and recovery progress. It never prints the signing
+secret, which cannot be read back from GitHub.
 
 ### Polling settings
 
@@ -184,7 +224,7 @@ Run `litefactory daemon status` and match what you see.
 | `... (not bound)` | The daemon is not running, or the port is taken. Start it or change `webhook.listen`. |
 | `mode  polling only` | No `public_url`, or no hook registered. Set it and run `litefactory repo webhook --all`. |
 | `mode  webhook, no delivery yet` | A hook exists but nothing has arrived. Check the proxy or port forward, then redeliver a test event from the hook's page on GitHub. |
-| `secret  MISSING` | No Keychain secret for that repository. Run `litefactory repo webhook <owner>/<name>`, then restart. |
+| `secret  MISSING` | No Keychain secret for that repository's subscription (account `subscription/<id>`, or `<owner>/<name>` for an imported old hook). Run `litefactory repo webhook <owner>/<name>` to repair it, or `litefactory repo webhook status <project-id>` to inspect it, then restart. |
 
 If the log says `poll found a change no webhook announced; check the webhook
 path`, a poll found new work that no delivery announced. Look at the hook's

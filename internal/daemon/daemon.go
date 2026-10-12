@@ -674,7 +674,12 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		}
 		for _, project := range projects {
 			if e = d.db.RecoverProjectWorkerClaims(ctx, project.ID); e != nil {
-				return Reconciled{}, e
+				if !errors.Is(e, store.ErrApproverBusy) {
+					return Reconciled{}, e
+				}
+				// Outstanding work keeps the worker claims; they only bar an
+				// approver replacement and are released on a later idle start.
+				d.log.WarnContext(ctx, "project worker claims kept at startup; outstanding work remains", slog.Int64("project", project.ID), slog.Any("error", e))
 			}
 			if e = d.db.RecoverConsumedProjectAuthorityClaims(ctx, project.ID); e != nil {
 				return Reconciled{}, e
