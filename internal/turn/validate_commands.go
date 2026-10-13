@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -80,7 +81,7 @@ var (
 // The whole comment is the command. Anything else is refused and changes
 // nothing.
 func ParseValidateCommand(body string) (ValidateCommand, error) {
-	body = strings.TrimSpace(body)
+	body = strings.TrimSpace(commandtext.Normalize(body))
 	var c ValidateCommand
 	if body == "" || len(body) > validateCommandLimit || strings.ContainsAny(body, "\r\n\x00") {
 		return c, errors.New("a Validate command is one line of at most 2048 characters")
