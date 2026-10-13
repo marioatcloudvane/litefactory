@@ -552,8 +552,10 @@ func TestReplyHistoryCombinedIdentity(t *testing.T) {
 }
 
 func TestUpdateContentNormalizedReadback(t *testing.T) {
+	marExpected, marObserved := mar12Pair(t)
 	metadata := "\n<!-- lf:plan-content v=1 data={} -->"
 	for _, tt := range []struct{ name, written, observed, title, failure string }{
+		{name: "MAR-12", written: marExpected, observed: marObserved},
 		{name: "CRLF", written: "a\r\nb", observed: "a\nb"},
 		{name: "trailing space", written: "a \nb", observed: "a\nb"},
 		{name: "table", written: "| A | B |\n| --- | :---: |\n| one | two |", observed: "|A|B|\n|-----|:-----:|\n|one|two|"},

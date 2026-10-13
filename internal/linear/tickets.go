@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strings"
@@ -377,6 +378,7 @@ func (c *Client) UpdateContent(ctx context.Context, ref ticket.Ref, revision str
 		return ticket.Snapshot{}, err
 	}
 	if observed.Title != title.String() || !ContentEquivalent(body.String(), observed.Body) {
+		c.logContentDifference(ctx, ref, title.String(), body.String(), observed)
 		return ticket.Snapshot{}, failure("update content", ticket.Conflict, "content readback differs")
 	}
 	return observed, nil
@@ -679,4 +681,42 @@ func MissingModeLabels(labels map[string]string) []string {
 		}
 	}
 	return missing
+}
+
+// Log only the first differing comparison line, redacting before bounding it.
+// Raw provider revisions remain independent of this diagnostic.
+func (c *Client) logContentDifference(ctx context.Context, ref ticket.Ref, title, body string, observed ticket.Snapshot) {
+	if !slog.Default().Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+	field, expected, actual := "body", comparableContent(body), comparableContent(observed.Body)
+	if title != observed.Title {
+		field, expected, actual = "title", title, observed.Title
+	}
+	left, right := strings.Split(expected, "\n"), strings.Split(actual, "\n")
+	line := 0
+	for line < len(left) && line < len(right) && left[line] == right[line] {
+		line++
+	}
+	a, b := "<end>", "<end>"
+	if line < len(left) {
+		a = left[line]
+	}
+	if line < len(right) {
+		b = right[line]
+	}
+	redactor := redact.New(redact.Options{Token: c.token})
+	safeA, err := redactor.Apply(ctx, a, 256)
+	if err != nil {
+		return
+	}
+	safeB, err := redactor.Apply(ctx, b, 256)
+	if err != nil {
+		return
+	}
+	safeID, err := redactor.Apply(ctx, ref.Identity.RemoteID, 128)
+	if err != nil {
+		return
+	}
+	slog.DebugContext(ctx, "linear content readback differs", "ticket", safeID.String(), "field", field, "line", line+1, "expected", safeA.String(), "observed", safeB.String())
 }

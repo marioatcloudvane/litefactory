@@ -1,6 +1,7 @@
 package linear
 
 import (
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -90,7 +91,7 @@ func ContentEquivalent(expected, observed string) bool {
 	return comparableContent(expected) == comparableContent(observed)
 }
 
-var contentTableRule = regexp.MustCompile(`^:?-{3,}:?$`)
+var contentTableRule = regexp.MustCompile(`^:?-{2,}:?$`)
 
 func comparableContent(body string) string {
 	body = strings.ReplaceAll(body, "\r\n", "\n")
@@ -105,6 +106,10 @@ func comparableContent(body string) string {
 			return body
 		}
 		fence = next
+	}
+	lines = comparableScaffoldSpacing(lines)
+	if !uniformContentLists(lines) {
+		return body
 	}
 	fence = ""
 	for i := 0; i < len(lines); i++ {
@@ -159,6 +164,9 @@ func comparableContent(body string) string {
 		if strings.HasSuffix(line, " ") && !strings.HasSuffix(line, "  ") && !strings.HasSuffix(line, "\\ ") {
 			line = strings.TrimSuffix(line, " ")
 		}
+		if depth, ok := contentListItem(line); ok {
+			line = line[:depth] + "-" + line[depth+1:]
+		}
 		lines[i] = redundantContentEscapes(line)
 	}
 	return strings.Join(lines, "\n")
@@ -198,4 +206,124 @@ func redundantContentEscapes(line string) string {
 		}
 	}
 	return out.String()
+}
+
+// Recognize only unambiguous unordered items. Indentation is never rewritten.
+func contentListItem(line string) (int, bool) {
+	depth := len(line) - len(strings.TrimLeft(line, " "))
+	if depth > 3 || len(line) < depth+3 || !strings.ContainsRune("-*+", rune(line[depth])) || line[depth+1] != ' ' || line[depth+2] == ' ' {
+		return 0, false
+	}
+	if strings.Trim(line[depth:], " -*+") == "" {
+		return 0, false
+	}
+	return depth, true
+}
+
+// Switching marker within a run can split Markdown lists; keep that grouping
+// significant rather than flattening all bullet punctuation indiscriminately.
+func uniformContentLists(lines []string) bool {
+	markers := map[int]byte{}
+	fence := ""
+	for _, line := range lines {
+		next := nextContentFence(fence, line)
+		if fence != "" || next != "" {
+			fence = next
+			clear(markers)
+			continue
+		}
+		if line == "" {
+			continue
+		}
+		depth, ok := contentListItem(line)
+		if !ok {
+			clear(markers)
+			continue
+		}
+		if prior, exists := markers[depth]; exists && prior != line[depth] {
+			return false
+		}
+		for d := range markers {
+			if d > depth {
+				delete(markers, d)
+			}
+		}
+		markers[depth] = line[depth]
+	}
+	return true
+}
+
+var scaffoldStoryMarker = regexp.MustCompile(`^<!-- lf:plan-story parent=[0-9]+ key=[a-zA-Z0-9_-]+ -->$`)
+var scaffoldRequestMarker = regexp.MustCompile(`^<!-- lf:plan-request digest=[0-9a-f]{64} -->$`)
+
+// Only the full factory scaffold permits the observed block spacing changes.
+// Unknown Markdown keeps its paragraph and loose-list boundaries untouched.
+func comparableScaffoldSpacing(lines []string) []string {
+	if len(lines) < 8 || !scaffoldStoryMarker.MatchString(lines[0]) {
+		return lines
+	}
+	request := 1
+	if lines[request] == "" {
+		request++
+	}
+	if !scaffoldRequestMarker.MatchString(lines[request]) {
+		return lines
+	}
+	start := request + 1
+	if lines[start] == "" {
+		start++
+	}
+	if lines[start] != "# Userstory" {
+		return lines
+	}
+	end := len(lines) - 1
+	if lines[end] == "" {
+		end--
+	}
+	payload := strings.TrimSuffix(strings.TrimPrefix(lines[end], "<!-- lf:plan-content v=1 data="), " -->")
+	if !strings.HasPrefix(lines[end], "<!-- lf:plan-content v=1 data=") || !strings.HasSuffix(lines[end], " -->") || !json.Valid([]byte(payload)) {
+		return lines
+	}
+	headings := []string{"# Userstory", "## What this story solves", "## Scope", "# Task", "# Acceptance Criterias", "# Architecture"}
+	positions := make([]int, 0, len(headings))
+	for i := start; i < end; i++ {
+		if strings.HasPrefix(lines[i], "#") {
+			if len(positions) >= len(headings) || lines[i] != headings[len(positions)] {
+				return lines
+			}
+			positions = append(positions, i)
+		}
+	}
+	if len(positions) != len(headings) {
+		return lines
+	}
+	// Notes in the initial scaffold are single plain items. Never collapse
+	// paragraph boundaries for multiline, nested or inline-structured items.
+	simpleNote := func(line string) bool {
+		depth, ok := contentListItem(line)
+		return ok && depth == 0 && !strings.ContainsAny(line[2:], "*_`[]<>\\") && !strings.HasSuffix(line, "  ")
+	}
+	out := []string{lines[0], lines[request], lines[start]}
+	for i := start + 1; i <= end; i++ {
+		if lines[i] == "" {
+			j := i
+			for j < end && lines[j] == "" {
+				j++
+			}
+			count := j - i
+			if count <= 2 && (strings.HasPrefix(lines[j], "#") || j == end) {
+				out = append(out, "")
+				i = j - 1
+				continue
+			}
+			if count == 1 && i > start+1 && i < positions[1] && simpleNote(lines[i-1]) && simpleNote(lines[j]) {
+				continue
+			}
+		}
+		out = append(out, lines[i])
+	}
+	if end < len(lines)-1 {
+		out = append(out, "")
+	}
+	return out
 }

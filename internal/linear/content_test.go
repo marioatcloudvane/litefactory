@@ -1,6 +1,12 @@
 package linear
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/report"
+	"os"
 	"strings"
 	"testing"
 )
@@ -65,5 +71,86 @@ func TestContentEquivalent(t *testing.T) {
 	got, err := DecodeContent(EncodeContent(body))
 	if err != nil || got != body {
 		t.Fatalf("CRLF metadata roundtrip = %q, %v", got, err)
+	}
+}
+
+// The expected body is reconstructed, never a claimed captured 21:19 write.
+func mar12Pair(t *testing.T) (string, string) {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/mar-12-readback.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 3304 || fmt.Sprintf("%x", sha256.Sum256(raw)) != "98e141564f22ff4265dbb84bded3e2c495c457b803c9ad08c9755029e837a88b" {
+		t.Fatal("live fixture changed")
+	}
+	observed, err := DecodeContent(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "<!-- lf:plan-content v=1 data="
+	_, tail, ok := strings.Cut(observed, prefix)
+	if !ok {
+		t.Fatal("missing draft")
+	}
+	payload, _, ok := strings.Cut(tail, " -->")
+	if !ok {
+		t.Fatal("missing payload end")
+	}
+	var draft planbrief.PlanDraft
+	if err = json.Unmarshal([]byte(payload), &draft); err != nil {
+		t.Fatal(err)
+	}
+	_, body, err := report.RenderPlanDraft(4503599627567323, 1, draft, "story", planbrief.ContentScope{}, "MAR-11")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "<!-- lf:plan-story parent=4503599627567323 key=story-001 -->\n<!-- lf:plan-request digest=ed786d383bf1c84a31dcd0268555de20fb607414cc5d06da8cbaf0ff44b97885 -->\n" + body
+	return expected, observed
+}
+
+func TestMAR12Readback(t *testing.T) {
+	expected, observed := mar12Pair(t)
+	if expected == observed {
+		t.Fatal("fixture must exercise real representation differences")
+	}
+	if !ContentEquivalent(expected, observed) {
+		t.Fatalf("comparison differs:\nexpected %s\nobserved %s", comparableContent(expected), comparableContent(observed))
+	}
+}
+
+func TestContentListStructure(t *testing.T) {
+	for _, tt := range []struct {
+		name, a, b string
+		equal      bool
+	}{
+		{"star", "- one\n- two", "* one\n* two", true},
+		{"plus", "- one\n- two", "+ one\n+ two", true},
+		{"nested", "- one\n  - sub\n- two", "* one\n  + sub\n* two", true},
+		{"nesting changed", "- one\n  - sub", "* one\n* sub", false},
+		{"grouping", "- one\n- two", "* one\n+ two", false},
+		{"loose outside scaffold", "- one\n\n- two", "* one\n* two", false},
+		{"paragraph", "one\n\ntwo", "one\ntwo", false},
+		{"ordered unchanged", "2. one\n3. two", "2. one\n3. two", true},
+		{"ordered start", "1. one\n2. two", "2. one\n3. two", false},
+		{"ordered order", "1. one\n2. two", "1. two\n2. one", false},
+		{"ordered conversion", "1. one", "* one", false},
+		{"emphasis unchanged", "- **one**", "* **one**", true},
+		{"emphasis removed", "- **one**", "* one", false},
+		{"emphasis style unknown", "- **one**", "* __one__", false},
+		{"literal punctuation", `- \*one\*`, "* *one*", false},
+		{"checkbox marker", "- [ ] one", "* [ ] one", true},
+		{"checkbox state", "- [ ] one", "* [x] one", false},
+		{"code bullets", "```\n- one\n```", "```\n* one\n```", false},
+		{"hard break", "- one  \n  two", "* one\n  two", false},
+		{"rule not list", "- - -", "* * *", false},
+		{"two dash table", "| A |\n| --- |", "|A|\n|--|", true},
+		{"one dash unknown", "| A |\n| --- |", "|A|\n|-|", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if ContentEquivalent(tt.a, tt.b) != tt.equal || ContentEquivalent(tt.b, tt.a) != tt.equal {
+				t.Fatal("unexpected comparison")
+			}
+		})
 	}
 }
