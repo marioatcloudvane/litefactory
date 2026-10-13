@@ -182,6 +182,14 @@ func graphReplyAllocationTx(ctx context.Context, tx *sql.Tx, in GraphAttemptStar
 			return err
 		}
 	}
+	// Older Validate waits retained the preceding agent run as if the resolver
+	// itself needed an agent. Recover only an ordinary resolver question.
+	if in.RunID < 1 && !wait.AllowRunless && wait.OriginNode == "" {
+		wait.AllowRunless, err = validateResolverQuestionTx(ctx, tx, wait.DeliveryKey, wait.InstanceID, wait.SourceAttemptID)
+		if err != nil {
+			return err
+		}
+	}
 	if in.Node != origin || (in.RunID < 1 && !wait.AllowRunless) {
 		return graphInvariant("reply allocation must resume the admitted origin and execution kind")
 	}
@@ -261,4 +269,13 @@ func validateOwnerStopReplyTx(ctx context.Context, tx *sql.Tx, wait GraphOwnerWa
 		}
 	}
 	return true, nil
+}
+
+// validateResolverQuestionTx recognizes the factory resolver by its retained
+// Validate instance, succeeded source and ordinary owner-question provenance.
+// Its run ID is attribution to an earlier agent, not an execution requirement.
+func validateResolverQuestionTx(ctx context.Context, tx *sql.Tx, key string, instanceID, sourceID int64) (bool, error) {
+	var allowed bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id JOIN graph_definitions d ON d.id=i.definition_id JOIN graph_node_attempts a ON a.id=c.source_attempt_id AND a.instance_id=i.id WHERE c.delivery_key=? AND c.instance_id=? AND c.source_attempt_id=? AND COALESCE(NULLIF(d.workflow,''),d.mode)='validate' AND c.kind='question' AND c.node='owner_ask' AND COALESCE(c.stop_origin,'')='' AND a.node='owner_resolve' AND a.status='succeeded')`, key, instanceID, sourceID).Scan(&allowed)
+	return allowed, err
 }
