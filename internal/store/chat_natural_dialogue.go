@@ -179,7 +179,7 @@ func (db *DB) PurgeNaturalChat(ctx context.Context, at time.Time) error {
 			return e
 		}
 		// Expired intake keeps only replay identities, freeing bounded queue space.
-		_, e = tx.ExecContext(ctx, `UPDATE chat_natural_messages SET state='finished',content='',reply_to='',finished_at=? WHERE state IN ('staged','pending') AND created_at<=?`, FormatTime(at), FormatTime(at.Add(-24*time.Hour)))
+		_, e = tx.ExecContext(ctx, `UPDATE chat_natural_messages SET state='finished',content='',reply_to='',finished_at=? WHERE state IN ('staged','pending') AND created_at<=? AND NOT (state='pending' AND EXISTS(SELECT 1 FROM chat_conversations c WHERE c.channel_ref=chat_natural_messages.channel_ref AND c.transport='discord' AND c.active=1))`, FormatTime(at), FormatTime(at.Add(-24*time.Hour)))
 		if e != nil {
 			return e
 		}
