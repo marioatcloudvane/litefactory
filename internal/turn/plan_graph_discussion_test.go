@@ -222,3 +222,100 @@ func TestPlanDiscussion_LostPublicationRecoversWithoutRepeatingAgent(t *testing.
 		t.Fatalf("recovery duplicated or lost answer: delivery=%+v calls=%d", delivery, *calls)
 	}
 }
+
+func TestPlanDiscussion_FailedStoryReplyRecoversBeforeFreshDraft(t *testing.T) {
+	for _, body := range []string{"Retry", "Clarify the scope for the owner"} {
+		t.Run(body, func(t *testing.T) {
+			changing := false
+			f, remote, base, calls, forge := graphPlanFixtureWithForge(t, "agent", func(a *graphPlanAnswer) {
+				if changing {
+					a.Request.Draft.Problem = body
+					a.Request.ChangedSections = []string{"intent"}
+				}
+			})
+			remote.failAttach = true
+			out, err := Execute(t.Context(), f.opts, base)
+			if err == nil || out.Run.Status != store.RunFailed {
+				t.Fatalf("expected failed first publication: %+v %v", out, err)
+			}
+			requireFailureComment(t, forge, "attach")
+			mustProgress(t, f.db.UpdatePlanWorkflowState(t.Context(), f.ref().String(), func(s *planbrief.PlanState) (bool, error) {
+				s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: "story-002", Stage: "story", Hold: "independent sibling hold"})
+				return true, nil
+			}))
+			before := graphPlanState(t, f)
+			if before.Stories[0].Wait != nil || !before.Stories[0].Blocked() {
+				t.Fatalf("failure did not retain non-waiting debt: %+v", before)
+			}
+			oldRequest := before.Stories[0].EffectRequest
+			changing = true
+			req := asStoryTask(t, f, nextTrigger(base, 9980, body), "story-001")
+			binding, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001")
+			mustProgress(t, err)
+			req.Trigger.PlanReply = &planbrief.PlanOwnerReply{ID: req.Trigger.CommentID, OwnerID: 7, ActorID: 7, IssueID: binding.IssueID, Key: "story-001", Body: body}
+			executeGraphPlan(t, f, req)
+			after := graphPlanState(t, f)
+			item := after.Stories[0]
+			if !reflect.DeepEqual(before.Stories[1], after.Stories[1]) {
+				t.Fatal("retry changed sibling state")
+			}
+			if *calls != 2 || item.Blocked() || item.Wait == nil || item.Wait.Kind != "review" || item.Draft.Problem != body || len(item.Approvals) != 0 || item.Candidate == before.Stories[0].Candidate || item.EffectRequest == oldRequest {
+				t.Fatalf("retry did not produce a fresh unapproved review: calls=%d state=%+v", *calls, after)
+			}
+			complete, err := f.db.PlanStoryCompleted(t.Context(), f.ref().String(), oldRequest)
+			mustProgress(t, err)
+			if !complete || remote.creates != 1 {
+				t.Fatalf("original request not reconciled safely: complete=%v creates=%d", complete, remote.creates)
+			}
+			posts := len(forge.all())
+			executeGraphPlan(t, f, req)
+			if *calls != 2 || len(forge.all()) != posts {
+				t.Fatal("handled reply duplicated the draft or review")
+			}
+		})
+	}
+}
+
+func TestPlanDiscussion_FailedStoryUnknownOutcomePreservesOriginalRequest(t *testing.T) {
+	f, remote, base, calls, forge := graphPlanFixtureWithForge(t, "agent")
+	executeGraphPlan(t, f, base)
+	remote.losePatch = true
+	out, err := Execute(t.Context(), f.opts, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
+	if err == nil || out.Run.Status != store.RunFailed {
+		t.Fatalf("expected failed update: %+v %v", out, err)
+	}
+	requireFailureComment(t, forge, "lost update")
+	before := graphPlanState(t, f)
+	request := before.Stories[0].EffectRequest
+	original, err := f.db.GetPlanStoryCandidate(t.Context(), f.ref().String(), request)
+	mustProgress(t, err)
+	remote.mu.Lock()
+	remote.children[400]["body"] = "Changed remotely; the original outcome cannot be established."
+	patches := remote.patches
+	remote.mu.Unlock()
+	req := asStoryTask(t, f, nextTrigger(base, 9981, "Retry"), "story-001")
+	_, err = Execute(t.Context(), f.opts, req)
+	mustProgress(t, err)
+	after := graphPlanState(t, f)
+	retained, err := f.db.GetPlanStoryCandidate(t.Context(), f.ref().String(), request)
+	mustProgress(t, err)
+	if *calls != 2 || remote.patches != patches || !after.Stories[0].Blocked() || !reflect.DeepEqual(original, retained) || after.Stories[0].Wait != nil || after.Stories[0].Approvals["technical"] != "" {
+		t.Fatalf("unknown outcome replaced or approved: calls=%d state=%+v", *calls, after)
+	}
+}
+
+func TestPlanDiscussion_FailedStoryReplySourceMismatchCannotRecover(t *testing.T) {
+	f, remote, base, calls, _ := graphPlanFixtureWithForge(t, "agent")
+	remote.failAttach = true
+	_, err := Execute(t.Context(), f.opts, base)
+	if err == nil {
+		t.Fatal("expected publication failure")
+	}
+	before := graphPlanState(t, f)
+	req := asStoryTask(t, f, nextTrigger(base, 9982, "Retry"), "story-001")
+	req.Trigger.PlanReply = &planbrief.PlanOwnerReply{ID: req.Trigger.CommentID, OwnerID: 7, ActorID: 7, IssueID: 999, Key: "story-001", Body: "Retry"}
+	_, err = Execute(t.Context(), f.opts, req)
+	if err == nil || !strings.Contains(err.Error(), "source mismatch") || *calls != 1 || !reflect.DeepEqual(before, graphPlanState(t, f)) {
+		t.Fatalf("source mismatch admitted recovery: calls=%d err=%v", *calls, err)
+	}
+}

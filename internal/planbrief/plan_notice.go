@@ -4,6 +4,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/commandtext"
 )
 
 // PlanNoticeState contains only material owner-facing lifecycle and debt facts.
@@ -84,12 +86,19 @@ func (s *PlanState) withCurrentCommand(key, reason string) string {
 // PlanReplyReason checks exact approval commands against the current display.
 // Ordinary discussion and mixed prose retain their normal feedback semantics.
 func (s *PlanState) PlanReplyReason(key, body string) string {
-	if reason := s.PlanReplyHold(key); reason != "" {
-		return reason
-	}
+	parts := strings.Fields(commandtext.Normalize(body))
 	item, err := s.story(key)
 	if err != nil {
 		return "This story could not be found in the plan."
+	}
+	// Ordinary input may recover a failed stage without approving its held
+	// candidate when there is no review waiting. Existing waits retain their
+	// revision and hold checks; lifecycle restrictions apply to every reply.
+	if item.Active() && item.Wait == nil && (len(parts) == 0 || (parts[0] != "/approve-plan" && parts[0] != "/retire-plan")) {
+		return ""
+	}
+	if reason := s.PlanReplyHold(key); reason != "" {
+		return reason
 	}
 	w := item.Wait
 	if w != nil {
@@ -98,7 +107,6 @@ func (s *PlanState) PlanReplyReason(key, body string) string {
 			return "This story, a story it depends on, or a shared decision changed after the latest review. Wait for the updated review and use the command it shows."
 		}
 	}
-	parts := strings.Fields(body)
 	if len(parts) == 4 && parts[0] == "/approve-plan" {
 		if w == nil || w.Kind != "review" || parts[1] != key || parts[2] != item.Stage || parts[3] != item.Candidate || w.Candidate != item.Candidate {
 			return s.withCurrentCommand(key, "This approval does not match the latest review of this story, so nothing was approved.")

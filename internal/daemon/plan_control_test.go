@@ -13,7 +13,7 @@ import (
 // body, even when the issue still carries the label of an earlier mode. Without
 // a graph Plan route the same comment is an unknown command, as before.
 func TestPlanControlOnParentReachesGraphPlan(t *testing.T) {
-	const body = "/approve-plan set 2302ce4dd8c33b0b4c4cf7eff8895e9e03886d1a18ae6791f50ee1a3be4b1a65"
+	const body = "`/approve-plan set ab853aa4bf79081a5330b2499672434e34f380bd18013b75a5df1392c2bef64f`"
 	for _, tc := range []struct {
 		name  string
 		route string

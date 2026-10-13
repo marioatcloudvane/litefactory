@@ -50,9 +50,15 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 		// A review waits like a question does: the agent has shown finished
 		// work and the stage does not advance until the owner answers.
 		if GraphCommentWaits(in.Kind) {
-			// The Implement coordinator runs no agent, so its question has no run and
-			// the reply that answers it resumes a runless step.
+			// Factory-only sources without a run already resume runlessly. Validate
+			// also carries the preceding agent run through its owner resolver.
 			runless := (workflow == "implement" || workflow == "validate") && sourceRun == 0
+			if !runless {
+				runless, err = validateResolverQuestionTx(ctx, tx, in.Key, in.InstanceID, in.SourceAttemptID)
+				if err != nil {
+					return err
+				}
+			}
 			if _, err = tx.ExecContext(ctx, `INSERT INTO graph_owner_waits(delivery_key,instance_id,source_attempt_id,state,allow_runless) VALUES(?,?,?,'waiting',?)`, in.Key, in.InstanceID, in.SourceAttemptID, runless); err != nil {
 				return err
 			}

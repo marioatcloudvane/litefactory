@@ -177,6 +177,13 @@ func TestStoppedResultScheduledPrelaunchRemainsRetryable(t *testing.T) {
 	})
 	f.clock.advance(25 * time.Hour)
 	for i := 0; i < 2; i++ {
+		if i > 0 {
+			f.settle()
+			if len(f.turns.calls()) != 1 {
+				t.Fatal("prelaunch preparation retried before its backoff elapsed")
+			}
+			f.clock.advance(testInterval)
+		}
 		f.settle()
 		saved, err := f.db.GetSchedule(t.Context(), scheduled.ID)
 		if err != nil || saved.Status != store.SchedulePending {

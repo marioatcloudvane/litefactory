@@ -2,12 +2,20 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/bugchecks"
+	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -36,9 +44,10 @@ func newValidateAdmissionFixture(t *testing.T) *validateAdmissionFixture {
 		return nil, nil
 	}))
 	v := &validateAdmissionFixture{f: f, head: validateHeadA}
-	v.parent = seedImplementParent(t, f,
+	v.parent = seedValidateParent(t, f,
 		store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
 		store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002})
+	f.repo.Git("push", "--quiet", "origin", "HEAD:refs/heads/lf/123-feature")
 	ref, err := naming.ParseRef(f.session.TaskRef)
 	mustProgress(t, err)
 	v.result = Result{Ref: ref, SessionID: f.session.ID}
@@ -616,5 +625,192 @@ func TestValidateNewHeadIsRefusedWhileTheOlderRunExecutes(t *testing.T) {
 		if e.Commit == validateHeadB && e.InstanceID > 0 {
 			t.Fatalf("no run is admitted on the new commit: %+v", e)
 		}
+	}
+}
+
+// #815: a real shared-driver repair run leaves its ID on the factory resolver.
+// The next owner control must resume that resolver without starting an agent,
+// even with other workflow instances on the same session.
+func TestValidateImplementReplyAfterAgentWithMixedHistory(t *testing.T) {
+	a := newAdoptFlow(t)
+	ctx := t.Context()
+	db := a.f.db
+	session := a.f.reloadSession()
+	binary, err := git.Resolve(ctx)
+	mustProgress(t, err)
+	clone, err := binary.Open(ctx, a.f.repo.Dir)
+	mustProgress(t, err)
+	tree, err := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: a.f.worktreeDir(), Branch: session.Branch, BaseBranch: gittest.DefaultBranch})
+	mustProgress(t, err)
+	a.head, err = tree.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	mustProgress(t, err)
+
+	// Retain a Plan question alongside the already finished Implement instance.
+	specs, err := PlanSpecs()
+	mustProgress(t, err)
+	planDefinition, err := capturedWorkflow(ctx, a.f.opts, a.request(5900, validateOwnerID, "/plan"), agent.WorkflowPlan, specs)
+	mustProgress(t, err)
+	files, err := json.Marshal(planDefinition.Files)
+	mustProgress(t, err)
+	topology, err := graphexec.SemanticDigest(planDefinition.Profile)
+	mustProgress(t, err)
+	def, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: planDefinition.Profile.Team, Mode: "plan", ProfileVersion: planDefinition.Profile.ProfileVersion, Path: workflowGraphPath(planDefinition), Digest: planDefinition.Profile.Digest})
+	mustProgress(t, err)
+	_, err = db.AdmitPlanWorkflowPath(ctx, session.ID, "graph")
+	mustProgress(t, err)
+	admission, err := db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: "plan", SessionID: session.ID, TriggerID: 5900, DefinitionID: def.ID, Start: planDefinition.Profile.Start, ContentDigest: planDefinition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(planDefinition.Origin)})
+	mustProgress(t, err)
+	plan := admission.Instance
+	segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "plan", store.AgentClaude)
+	mustProgress(t, err)
+	planRun, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "plan", Agent: store.AgentClaude, TriggerCommentID: 5900, LogPath: func(int) string { return "plan.log" }})
+	mustProgress(t, err)
+	source, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: plan.ID, LaunchID: admission.LaunchID, Node: planDefinition.Profile.Start, RunID: planRun.ID, Limit: 3, StartedAt: implementClock})
+	mustProgress(t, err)
+	mustProgress(t, db.CompleteGraphNodeAttempt(ctx, source.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: implementClock}))
+	mustProgress(t, db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "plan-wait", InstanceID: plan.ID, SourceAttemptID: source.ID, Node: "ask", Kind: "question", Candidate: []byte(`{"outcome":"incomplete"}`)}))
+	_, err = db.EnsureReportDelivery(ctx, store.ReportDelivery{Key: "plan-wait", SessionID: session.ID, RunID: planRun.ID, TriggerID: 5900, Task: session.TaskRef, Destination: "acme/acme-api#123", TriggerNamespace: "issue-comment", Purpose: "plan-question", BotUserID: ownerBotID, Body: "Plan waiting", Marker: "plan-wait"})
+	mustProgress(t, err)
+	_, err = db.MarkReportDeliverySent(ctx, "plan-wait")
+	mustProgress(t, err)
+	_, err = db.ConfirmReportDelivery(ctx, "plan-wait", 5901)
+	mustProgress(t, err)
+	_, err = db.CompleteReportDelivery(ctx, "plan-wait")
+	mustProgress(t, err)
+	plan, err = db.GetGraphInstance(ctx, plan.ID)
+	mustProgress(t, err)
+	planWait, err := db.GetGraphOwnerWait(ctx, plan.ID)
+	mustProgress(t, err)
+	implement := mustImplementInstance(t, a.validateAdmissionFixture)
+
+	// Add the third merged story to the existing two-story ledger.
+	mustProgress(t, db.EnsureImplementStories(ctx, a.parent, 1, []store.ImplementStorySeed{{Key: "story-003", Position: 2, Branch: "lf/203-c"}}, implementClock))
+	for _, step := range [][2]string{{store.ImplementWaiting, store.ImplementRunning}, {store.ImplementRunning, store.ImplementDone}, {store.ImplementDone, store.ImplementMerged}} {
+		row, e := db.GetImplementStory(ctx, a.parent, 1, "story-003")
+		mustProgress(t, e)
+		tr := store.ImplementTransition{Parent: a.parent, Generation: 1, Key: row.Key, From: step[0], To: step[1], ExpectedRevision: row.Revision, At: implementClock}
+		if step[1] == store.ImplementMerged {
+			tr.MergeCommit = a.head
+		}
+		_, e = db.TransitionImplementStory(ctx, tr)
+		mustProgress(t, e)
+	}
+	before, err := db.ListImplementStories(ctx, a.parent, 1)
+	mustProgress(t, err)
+	agentCalls := 0
+	a.f.opts.Validate.Permissions = validateRepairResolver(t)
+	a.f.opts.Runners = RunnerSet{agent.Kind(store.AgentClaude): lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		agentCalls++
+		repair := handbackReport("The repair needs story implementation.")
+		raw, e := json.Marshal(map[string]any{"result": agentresult.Result{Outcome: "completed", Comment: "Return the failed suite to Implement.", Payload: agentresult.Payload{Validate: &agentresult.Validate{Repair: &repair}}}})
+		mustProgress(t, e)
+		submitLiveResult(t, req, string(raw))
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "Handed back.", FinishedAt: time.Now()}, nil
+	})}
+	bind := a.f.opts.Validate.Bind
+	moves := 0
+	a.f.opts.Validate.Bind = func(ctx context.Context, opts Options, req Request, entry store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
+		suite, flow, e := bind(ctx, opts, req, entry)
+		run := suite.Run
+		suite.Run = func(ctx context.Context, dir string, command config.BugCheckCommand, started func(bugchecks.CommandResult) error) bugchecks.CommandResult {
+			result := run(ctx, dir, command, started)
+			if command.Argv[0] == "full-one" {
+				code := 1
+				result.Exit, result.Outcome, result.Output = &code, "failed", "TestTotal failed"
+			}
+			return result
+		}
+		flow.Worktree = func() (*git.Worktree, error) { return tree.Worktree, nil }
+		flow.Stories = func(context.Context, Options, ActivityRequest) ([]ValidateStory, error) {
+			var stories []ValidateStory
+			for _, row := range before {
+				stories = append(stories, ValidateStory{Key: row.Key, Title: row.Key, Revision: strings.Repeat("ab", 32), Criteria: []string{"AC-001"}})
+			}
+			return stories, nil
+		}
+		target := flow.Delivery.Target
+		flow.Delivery.Target = func(ctx context.Context, opts Options, req ActivityRequest) (ValidateDeliveryTarget, error) {
+			out, e := target(ctx, opts, req)
+			out.Generation = 1
+			out.Stories = []ValidateIssueRef{{Key: "story-001", Number: 201, ID: 7001}, {Key: "story-002", Number: 202, ID: 7002}, {Key: "story-003", Number: 203, ID: 7003}}
+			return out, e
+		}
+		flow.AdvanceStory = func(context.Context, string, string) (bool, error) { moves++; return true, nil }
+		return suite, flow, e
+	}
+	a.reviewers.run = func(req ValidateReviewRequest) (*agentresult.Result, error) {
+		result := goodReview(req)
+		for i := range result.Payload.Validate.Stories {
+			story := &result.Payload.Validate.Stories[i]
+			for j := range story.Criteria {
+				story.Criteria[j].Status = "unmet"
+				story.Criteria[j].Evidence = []agent.EvidenceExplanation{{Summary: story.Story + " needs its own repair.", CheckIDs: []string{}}}
+			}
+		}
+		return result, nil
+	}
+	inst, revision := a.waitingValidate(t)
+	wait, err := db.GetGraphOwnerWait(ctx, inst.ID)
+	mustProgress(t, err)
+	resolver, err := db.LatestGraphNodeAttempt(ctx, inst.ID, "owner_resolve")
+	mustProgress(t, err)
+	outcome, err := db.GetValidateOutcome(ctx, inst.ID, a.head)
+	mustProgress(t, err)
+	if agentCalls != 1 || resolver.RunID == 0 || resolver.ID != wait.SourceAttemptID || outcome.Outcome != "handed_back" {
+		t.Fatalf("must reproduce inherited run after handback: calls=%d source=%+v wait=%+v outcome=%+v", agentCalls, resolver, wait, outcome)
+	}
+	body := ValidateImplementCommand + " " + revision
+	comment := a.claimOwnerReply(t, inst.ID, body)
+	out, err := Execute(ctx, a.f.opts, a.request(comment, validateOwnerID, body))
+	mustProgress(t, err)
+	if !out.ResearchGraph || out.Run.ID != 0 || agentCalls != 1 {
+		t.Fatalf("control must run without an agent: %+v calls=%d", out, agentCalls)
+	}
+	latest, err := db.LatestWorkflowInstance(ctx, session.ID, "validate")
+	mustProgress(t, err)
+	wait, err = db.GetGraphOwnerWait(ctx, inst.ID)
+	mustProgress(t, err)
+	resolver, err = db.LatestGraphNodeAttempt(ctx, inst.ID, "owner_resolve")
+	mustProgress(t, err)
+	if latest.ID != inst.ID || latest.CurrentNode != "reimplementing" || latest.Status != store.GraphSucceeded || resolver.RunID != 0 || resolver.Outcome != "implement" || wait.ContinuationAttemptID != resolver.ID || wait.State != "allocated" {
+		t.Fatalf("wrong continuation: %+v %+v %+v", latest, resolver, wait)
+	}
+	after, err := db.ListImplementStories(ctx, a.parent, 1)
+	mustProgress(t, err)
+	for i, row := range after {
+		if row.State != store.ImplementWaiting || row.Generation != before[i].Generation || row.Branch != before[i].Branch || !strings.Contains(row.Guidance, row.Key+" needs its own repair.") {
+			t.Errorf("story not reopened with its findings: %+v", row)
+		}
+		for _, other := range after {
+			if other.Key != row.Key && strings.Contains(row.Guidance, other.Key) {
+				t.Errorf("foreign findings in %s", row.Key)
+			}
+		}
+	}
+	if len(after) != 3 || moves != 3 {
+		t.Fatalf("stories=%d moves=%d", len(after), moves)
+	}
+	_, err = Execute(ctx, a.f.opts, a.request(comment, validateOwnerID, body))
+	mustProgress(t, err)
+	replayed, err := db.ListImplementStories(ctx, a.parent, 1)
+	mustProgress(t, err)
+	count, err := db.CountPendingSchedules(ctx)
+	mustProgress(t, err)
+	status, found, err := db.ScheduleStatusBySource(ctx, session.ID, validateImplementWorkID(inst.ID, a.head))
+	mustProgress(t, err)
+	if !reflect.DeepEqual(after, replayed) || count != 1 || !found || status != store.SchedulePending || moves != 3 {
+		t.Fatalf("replay changed handback: count=%d status=%s moves=%d", count, status, moves)
+	}
+	for _, prior := range []store.GraphInstance{plan, implement} {
+		current, e := db.GetGraphInstance(ctx, prior.ID)
+		mustProgress(t, e)
+		if !reflect.DeepEqual(current, prior) {
+			t.Errorf("other workflow changed: %+v -> %+v", prior, current)
+		}
+	}
+	currentWait, err := db.GetGraphOwnerWait(ctx, plan.ID)
+	mustProgress(t, err)
+	if !reflect.DeepEqual(currentWait, planWait) {
+		t.Fatalf("Plan wait changed: %+v", currentWait)
 	}
 }

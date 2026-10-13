@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // planSetStage is the stage that proposes a story set. It is about no story, so
@@ -98,4 +99,41 @@ func (r *planGraphRuntime) selectDiscussion(ctx context.Context) error {
 		}
 	}
 	return &PlanReplyRefusal{Reason: "This story is no longer in the plan.", Err: errors.New("plan discussion story not found")}
+}
+
+// retryFailedStory keeps healthy discussion unchanged, while an owner reply to
+// a failed, non-waiting story uses recovery and normal stage selection. It runs
+// after admitReply so recovery never substitutes for source authentication.
+func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
+	if !r.discussion || r.story == "" {
+		return false, nil
+	}
+	s, _, err := r.state(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range s.Stories {
+		if item.Key != r.story {
+			continue
+		}
+		if !item.Active() || item.Wait != nil {
+			return false, nil
+		}
+		if item.Blocked() {
+			return true, nil
+		}
+		instance, err := r.opts.DB.LatestWorkflowInstance(ctx, r.req.SessionID, "plan")
+		if errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		source, err := latestResearchAgentAttempt(ctx, r.opts, r.definition.Profile, instance.ID, "")
+		if err != nil || source.ID == 0 {
+			return false, err
+		}
+		return r.opts.DB.GraphFailureReported(ctx, source.RunID, PlanFailureNode)
+	}
+	return false, nil
 }

@@ -25,13 +25,19 @@ func TestDoctorCommandBoundaries(t *testing.T) {
 		{"unicode byte overflow/usage", "/doctor " + strings.Repeat("界", 10923), "usage", "", true},
 		{"token punctuation/normal input", "/doctor: explain", "", "", false},
 		{"token slash/normal input", "/doctor/stop", "", "", false},
-		{"inline code/normal input", "`/doctor stop`", "", "", false},
+		{"inline code/stop", "`/doctor stop`", "stop", "", true},
 		{"quoted token/normal input", "\"/doctor\" stop", "", "", false},
 		{"nonleading second line/normal input", "Please investigate\n/doctor stop", "", "", false},
 		{"only whitespace/normal input", " \n\t", "", "", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			if tt.envelope && !strings.ContainsAny(tt.body, "\r\n`") {
+				wrapped, ok := doctor.ParseCommand("`" + strings.TrimSpace(tt.body) + "`")
+				if !ok || wrapped.Operation != tt.operation || wrapped.Text != tt.text {
+					t.Errorf("wrapped command changed semantics: %+v", wrapped)
+				}
+			}
 			got, ok := doctor.ParseCommand(tt.body)
 			if ok != tt.envelope || got.Operation != tt.operation || got.Text != tt.text {
 				t.Fatalf("got operation=%q text length=%d envelope=%t; want operation=%q text length=%d envelope=%t", got.Operation, len(got.Text), ok, tt.operation, len(tt.text), tt.envelope)
