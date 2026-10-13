@@ -3,8 +3,10 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -76,7 +78,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			if err != nil {
 				return false, err
 			}
-			if err = turn.ReconcilePlanChildEdit(ctx, d.db, t.ref.String(), t.issue.Number, t.issue.ID, child, scope); err != nil {
+			if err = turn.ReconcilePlanChildEdit(ctx, d.db, t.ref.String(), t.issue.Number, t.issue.ID, child, scope, planParentTitleKey(t.issue, t.ref.Forge)); err != nil {
 				if !errors.Is(err, turn.ErrPlanChildEdit) {
 					return false, err
 				}
@@ -244,4 +246,14 @@ func (d *Daemon) sweptPlanChild(ctx context.Context, t *task, child int, cursor 
 		return err
 	}
 	return d.db.ClearStoryDiscoveryPending(ctx, t.session.ID, child)
+}
+
+func planParentTitleKey(issue github.Issue, forge string) string {
+	if s := issue.QualifiedSnapshot; s != nil && s.DisplayKey != "" {
+		return s.DisplayKey
+	}
+	if forge == "linear" {
+		return "story"
+	}
+	return fmt.Sprint(issue.Number)
 }

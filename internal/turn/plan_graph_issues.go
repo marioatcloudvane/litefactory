@@ -17,9 +17,13 @@ const planShellBodyLimit = 4000
 // its name, its intent and a line saying the first draft is in progress. It
 // carries the story marker, which binds the issue to its story, and nothing the
 // draft later adds.
-func planStoryShell(a PlanStoryAuthority, parentNumber int, ordinal int64, key string, entry planbrief.PlanStorySetEntry) (title, body string) {
+func planStoryShell(a PlanStoryAuthority, parentNumber int, ordinal int64, key string, entry planbrief.PlanStorySetEntry, parentKey ...string) (title, body string) {
 	name := strings.Join(strings.Fields(entry.Name), " ")
-	title = fmt.Sprintf("%d-%03d: %s", parentNumber, ordinal, name)
+	keyPrefix := fmt.Sprint(parentNumber)
+	if len(parentKey) > 0 {
+		keyPrefix = parentKey[0]
+	}
+	title = fmt.Sprintf("%s-%03d: %s", keyPrefix, ordinal, name)
 	intent := strings.TrimSpace(entry.Intent)
 	if len(intent) > planShellBodyLimit {
 		intent = intent[:planShellBodyLimit]
@@ -71,6 +75,10 @@ func (r *planGraphRuntime) createStoryIssues(ctx context.Context) (err error) {
 	}
 	repo := github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}
 	authority := PlanStoryAuthority{Parent: parent, Repo: repo, ParentNumber: r.parentNumber, ParentID: r.parentID}
+	display, err := lookupTicketDisplay(ctx, forge, r.parentRef, r.parentNumber)
+	if err != nil {
+		return err
+	}
 	var listed []github.Issue
 	haveListing := false
 	for _, entry := range set.Entries {
@@ -83,7 +91,7 @@ func (r *planGraphRuntime) createStoryIssues(ctx context.Context) (err error) {
 			continue
 		}
 		if draft.IssueID == 0 {
-			title, body := planStoryShell(authority, r.parentNumber, draft.Ordinal, key, entry)
+			title, body := planStoryShell(authority, r.parentNumber, draft.Ordinal, key, entry, display.TitleKey)
 			if !haveListing {
 				if listed, err = forge.ListFollowupIssues(ctx, repo); err != nil {
 					return fmt.Errorf("list issues to find story %s: %w", key, err)

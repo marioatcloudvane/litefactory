@@ -24,7 +24,10 @@ func storySource(ref naming.Ref, child int, comment int64, parentURL, replyURL s
 		}
 		return fmt.Sprintf("\n\nParent plan: %s · source: %s", parentURL, replyURL)
 	}
-	// Retained reports without provider links preserve their legacy bytes.
+	if ref.Forge == "linear" {
+		return ""
+	}
+	// GitHub renderers without provider links retain their legacy formatting.
 	return fmt.Sprintf("\n\nParent plan: https://github.com/%s/%s/issues/%d · source: https://github.com/%s/%s/issues/%d#issuecomment-%d", ref.Owner, ref.Repo, ref.Issue, ref.Owner, ref.Repo, child, comment)
 }
 

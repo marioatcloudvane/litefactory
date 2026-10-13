@@ -28,6 +28,7 @@ type GraphDeliveryBinding struct {
 	Record                                string `json:"record"`
 	InstanceID, SessionID, IssueID, BotID int64
 	IssueNumber                           int
+	IssueReference                        string
 	Repository                            github.Repo
 	Branch, Target, Marker, Predecessor   string
 	Eligibility                           GraphBugRepairEligibility
@@ -173,10 +174,10 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 	out.Integration = true
 
 	if e = h.Tickets.CloseDeliveredParent(ctx, repo, binding.IssueNumber, binding.IssueID); e != nil {
-		return finish("blocked", fmt.Sprintf("Merged PR #%d, but closing issue #%d failed: %s", pr.Number, binding.IssueNumber, e.Error()))
+		return finish("blocked", fmt.Sprintf("Merged PR #%d, but closing issue %s failed: %s", pr.Number, binding.displayReference(), e.Error()))
 	}
 	out.Closed = true
-	return finish("completed", fmt.Sprintf("Merged PR #%d and closed issue #%d", pr.Number, binding.IssueNumber))
+	return finish("completed", fmt.Sprintf("Merged PR #%d and closed issue %s", pr.Number, binding.displayReference()))
 }
 
 // findPR returns this branch's PR into the target: a merged one carrying head,
@@ -216,7 +217,7 @@ func (h GraphBugFinalization) presentation(ctx context.Context, b GraphDeliveryB
 	if e != nil {
 		return redact.Body{}, redact.Body{}, e
 	}
-	body, e := h.Redactor.Apply(ctx, fmt.Sprintf("%s\n\nIssue #%d. Approved diagnosis: %s\n\n%s", summary, b.IssueNumber, b.Eligibility.Handoff.Candidate.Digest, b.Marker), 65536)
+	body, e := h.Redactor.Apply(ctx, fmt.Sprintf("%s\n\nIssue %s. Approved diagnosis: %s\n\n%s", summary, b.displayReference(), b.Eligibility.Handoff.Candidate.Digest, b.Marker), 65536)
 	return title, body, e
 }
 
@@ -239,4 +240,11 @@ func graphDeliveryTitle(s string) string {
 		cut = cut[:i]
 	}
 	return strings.TrimRight(cut, " ,.;:") + "…"
+}
+
+func (b GraphDeliveryBinding) displayReference() string {
+	if b.IssueReference != "" {
+		return b.IssueReference
+	}
+	return "this issue"
 }
