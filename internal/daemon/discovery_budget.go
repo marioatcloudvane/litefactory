@@ -171,10 +171,12 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 		if b.limit > 0 && b.now.Before(b.reset) && (b.remaining <= b.floorLocked() || b.spent >= b.discoveryShareLocked()) {
 			return deny()
 		}
-	} else {
-		if !b.freshLocked() {
-			return deny()
-		}
+	} else if b.limit > 0 && b.now.Before(b.reset) {
+		// Within a known window the reserve and the discovery share apply,
+		// fresh or not. Without usable quota data (none observed yet, or the
+		// window has passed) only the token bucket bounds discovery: requiring
+		// fresh evidence here starved every read whose budget never receives
+		// observations (#793). Real refusals still arm the backoff.
 		if len(b.waiters) > 0 && b.waiters[0].key != key && !discoveryPrerequisite(key, b.waiters[0].key) {
 			// Materializing a deferred parent's task can require an unrelated
 			// scalar identity read. Permit it only while preserving the head
@@ -291,7 +293,14 @@ func (d *Daemon) linearFallback(ctx context.Context, v store.ConnectionVersion, 
 	return context.WithValue(ctx, quotaReservationKey{}, r), r.finish, nil
 }
 
-func (b *discoveryBudget) floorLocked() int { return b.limit - b.discoveryShareLocked() }
+// discoveryReserveDivisor sets how much of the window stays reserved for
+// execution and reporting: background discovery may not take remaining below
+// limit/discoveryReserveDivisor. Tying the reserve to the discovery share
+// (half the window) starved every owner comment once runs had used half of
+// the hourly allowance, until the reset (#793).
+const discoveryReserveDivisor = 10
+
+func (b *discoveryBudget) floorLocked() int { return b.limit / discoveryReserveDivisor }
 
 // discoveryShareLocked is how many requests of the current window background
 // discovery may spend, the complement of [discoveryBudget.floorLocked].
@@ -604,4 +613,33 @@ func discoveryPrerequisite(key, waiting string) bool {
 		return true
 	}
 	return (w[2] == "issue") && (k[2] == "issues" || k[2] == "commented")
+}
+
+// logDiscoveryDeferral says why a session's issue read was deferred, with the
+// budget it was charged to, so a starved fleet is visible at INFO (#793).
+func (d *Daemon) logDiscoveryDeferral(ctx context.Context, c *candidate) {
+	ctx = sessionContext(ctx, c.session.ID)
+	v, selected, verr := d.quotaVersion(ctx, store.TicketConnection)
+	attrs := []any{slog.Int64("session_id", c.session.ID), slog.Bool("connection_selected", selected)}
+	if verr != nil {
+		attrs = append(attrs, slog.Any("connection_error", verr))
+	}
+	if selected {
+		attrs = append(attrs, slog.Int64("connection_version_id", v.ID), slog.String("provider", string(v.Provider)))
+		q := d.quotas.forVersion(v)
+		if until, held := q.backoff.hold(d.quotaNow(ctx)); held {
+			attrs = append(attrs, slog.Time("backoff_until", until))
+		}
+	}
+	b, berr := d.quotaBudget(ctx)
+	if berr != nil {
+		attrs = append(attrs, slog.Any("budget_error", berr))
+	} else {
+		view := b.view()
+		reason, _ := view.deferral()
+		attrs = append(attrs, slog.String("reason", reason), slog.Bool("fresh", view.Fresh), slog.Int("limit", view.Limit),
+			slog.Int("remaining", view.Remaining), slog.Int("reserve", view.Reserve), slog.Int("spent", view.Spent),
+			slog.Int("share", view.Share), slog.Int("in_progress", view.InProgress), slog.Float64("tokens", view.Burst))
+	}
+	c.log.InfoContext(ctx, "issue read deferred by the discovery budget", attrs...)
 }

@@ -352,7 +352,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			if found == nil {
 				return record("create", "uncertain", "unresolved create result; no blind recreation")
 			}
-			if found.State != github.StateOpen || found.Title != title || found.Body != body {
+			if found.State != github.StateOpen || found.Title != title || !h.planContentEquivalent(body, *found) {
 				return record("create", "conflict", "created story changed or closed during recovery")
 			}
 			d.IssueID, d.IssueNumber = found.ID, found.Number
@@ -387,7 +387,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		if attachIntent {
 			return record("attach", "uncertain", "attachment outcome or later detachment is ambiguous; verify the original request before reattachment")
 		}
-		if child.State != github.StateOpen || (!bound && (child.Title != title || child.Body != body)) || (bound && PlanIssueRevision(child.Title, child.Body) != priorRevision) {
+		if child.State != github.StateOpen || (!bound && (child.Title != title || !h.planContentEquivalent(body, child))) || (bound && PlanIssueRevision(child.Title, child.Body) != priorRevision) {
 			return record("attach", "conflict", "created issue was edited or closed")
 		}
 		if _, err = record("attach", "uncertain", "known creation retained before attachment"); err != nil {
@@ -442,7 +442,7 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 			}
 			return record("observe", "conflict", "story was closed")
 		}
-		if (r.Operation == "update" || bound) && (effectErr != nil || child.Title != title || child.Body != body) {
+		if (r.Operation == "update" || bound) && (effectErr != nil || child.Title != title || !h.planContentEquivalent(body, child)) {
 			if PlanIssueRevision(child.Title, child.Body) != priorRevision {
 				return record("update", "conflict", "owner edits conflict with expected content revision")
 			}
@@ -457,10 +457,10 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		if getErr != nil {
 			return remoteFailure("verify", getErr)
 		}
-		if child.ID != d.IssueID || child.State != github.StateOpen || child.Title != title || child.Body != body {
+		if child.ID != d.IssueID || child.State != github.StateOpen || child.Title != title || !h.planContentEquivalent(body, child) {
 			return record("verify", "uncertain", "remote concurrent edit or incomplete mutation; no atomic CAS guarantee")
 		}
-		d.Revision = PlanIssueRevision(title, body)
+		d.Revision = PlanIssueRevision(child.Title, child.Body)
 	}
 	verifiedParent, verifyErr := h.Forge.GetParentIssue(ctx, a.Repo, d.IssueNumber)
 	if verifyErr != nil {
@@ -593,4 +593,13 @@ func (h *PlanStoryActivity) updatePlanStoryContent(ctx context.Context, repo git
 		return guarded.UpdateIssueExpected(ctx, repo, number, expected, title, body)
 	}
 	return h.Forge.UpdateIssue(ctx, repo, number, title, body)
+}
+
+func (h *PlanStoryActivity) planContentEquivalent(expected string, observed github.Issue) bool {
+	if comparer, ok := h.Forge.(interface {
+		PlanContentEquivalent(string, github.Issue) bool
+	}); ok {
+		return comparer.PlanContentEquivalent(expected, observed)
+	}
+	return expected == observed.Body
 }

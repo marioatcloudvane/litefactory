@@ -2,10 +2,11 @@
 //
 // A turn is the whole business path triggered by a single instruction comment:
 // parse it, take the per-task lock, prepare the worktree, run the harness,
-// harvest the result. It deliberately knows nothing about time — no ticker, no
-// signals, no backoff. That belongs to internal/daemon, which is about when
-// turns happen; this package is about what one turn does, so the entire path
-// is testable without a clock.
+// harvest the result. Scheduling ticks, signals and deferred retries belong to
+// internal/daemon. Bounded provider-capacity relaunches stay inside the active
+// invocation, with injectable cancellable waits; they do not schedule a new turn.
+// This package is about what one turn does, so the path is testable without
+// wall-clock waits.
 //
 // [ParseCommand] is the front door: it decides whether a comment body asks for
 // anything at all, and is a pure function with no dependencies. [Execute] is

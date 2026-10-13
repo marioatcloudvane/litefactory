@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sort"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 func TestRefinementReportDoesNotConsumeParentComment(t *testing.T) {
@@ -195,5 +197,95 @@ func TestGraphPlanParentForChildAndDiscoveryOwed(t *testing.T) {
 	}
 	if owed() {
 		t.Fatal("a cleared child is still owed")
+	}
+}
+
+func TestGraphPlanPreparedChildRequiresRetainedCorrelation(t *testing.T) {
+	for _, which := range []string{"matching", "other-uuid", "other-story", "other-parent", "other-repo", "origin", "container", "effect-locator", "effect-origin", "effect-container", "non-graph", "retired"} {
+		t.Run(which, func(t *testing.T) {
+			db := newTestDB(t)
+			ctx := t.Context()
+			repo := testRepo(t, db, "code", "repo")
+			code, err := db.SetConnection(ctx, connectionFixture(repo, CodeConnection), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			version, err := db.SetConnection(ctx, linearConnectionFixture(repo), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent, err := db.GetOrCreateSession(ctx, repo, 123)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parentRef := ticket.Ref{Identity: ticket.Identity{Provider: version.Provider, Origin: version.Origin, RemoteID: "parent"}, Locator: ticket.Locator{Provider: version.Provider, Origin: version.Origin, Container: version.Destination, Key: "parent"}}
+			binding, err := db.AddTicketBinding(ctx, TicketBinding{RepoID: repo.ID, ConnectionVersionID: version.ID, Ref: parentRef, Enabled: true, Provenance: "test"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = db.AttachExecutionSnapshot(ctx, ExecutionSnapshot{SessionID: parent.ID, RepoID: repo.ID, BindingID: binding.ID, CodeVersionID: code.ID, TicketVersionID: version.ID, ActorID: 42}); err != nil {
+				t.Fatal(err)
+			}
+			if which != "non-graph" {
+				if _, err = db.AdmitPlanWorkflowPath(ctx, parent.ID, "graph"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err = db.ReservePlanStory(ctx, parent.TaskRef, "story-001"); err != nil {
+				t.Fatal(err)
+			}
+			key := "plan-shell:" + parent.TaskRef + ":story-001"
+			if which == "other-story" {
+				key = "plan-shell:" + parent.TaskRef + ":story-002"
+			}
+			if which == "other-parent" {
+				key = "plan-shell:other-parent:story-001"
+			}
+			locator := parentRef.Locator
+			switch which {
+			case "effect-locator":
+				locator.Key = "other"
+			case "effect-origin":
+				locator.Origin = "https://other.test"
+			case "effect-container":
+				locator.Container = "other/project"
+			}
+			if _, err = db.BindTicketEffect(ctx, key, locator, ticket.Identity{}); err != nil {
+				t.Fatal(err)
+			}
+			prep, err := db.PrepareTicketEffect(ctx, key, "linear-markdown/v1", "title\nbody", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := parentRef
+			ref.Identity.RemoteID = prep.CreationUUID
+			ref.Locator.Key = prep.CreationUUID
+			repoID := repo.ID
+			switch which {
+			case "other-uuid":
+				ref.Identity.RemoteID = "other"
+				ref.Locator.Key = "other"
+			case "other-repo":
+				repoID++
+			case "origin":
+				ref.Identity.Origin = "https://other.test"
+				ref.Locator.Origin = ref.Identity.Origin
+			case "container":
+				ref.Locator.Container = "other/project"
+			case "retired":
+				_, err = db.sql.ExecContext(ctx, `UPDATE plan_story_drafts SET retired=1 WHERE parent=?`, parent.TaskRef)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := db.GraphPlanParentForPreparedChild(ctx, repoID, ref)
+			if which == "matching" {
+				if err != nil || got != parent.TaskRef {
+					t.Fatalf("prepared child: %q %v", got, err)
+				}
+			} else if !errors.Is(err, ErrNotFound) {
+				t.Fatalf("unproven correlation %q: %q %v", which, got, err)
+			}
+		})
 	}
 }

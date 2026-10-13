@@ -777,6 +777,17 @@ func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen 
 // path re-checks the same thing in [Daemon.materialise], where the session
 // already exists and the only question left is whether to run.
 func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*candidate, error) {
+	if issue.QualifiedSnapshot != nil && issue.QualifiedSnapshot.Ref.Identity.Provider == ticket.Linear && d.connections != nil {
+		ref := issue.QualifiedSnapshot.Ref
+		version, err := d.db.CurrentConnection(ctx, q.repo.ID, store.TicketConnection)
+		if err != nil {
+			return nil, err
+		}
+		parent, err := d.observationParent(ctx, q, store.PendingTicketObservation{RepoID: q.repo.ID, ConnectionVersionID: version.ID, Provider: ref.Identity.Provider, Origin: ref.Identity.Origin, Container: ref.Locator.Container, ContainerID: version.Linear.ProjectID, TicketID: ref.Identity.RemoteID, TicketKey: ref.Locator.Key})
+		if err != nil || parent != nil {
+			return parent, err
+		}
+	}
 	if parent, err := d.db.ManagedParentForChild(ctx, q.repo.ID, issue.Number); err == nil {
 		same, e := d.sameTicketSource(ctx, q.repo.ID, parent)
 		if e != nil {
@@ -1409,6 +1420,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		d.inflight.leave(c.session.ID)
 		if errors.Is(err, ErrDiscoveryDeferred) {
 			result.Deferred++
+			d.logDiscoveryDeferral(ctx, c)
 			return offerSkipped
 		}
 		if err != nil {
