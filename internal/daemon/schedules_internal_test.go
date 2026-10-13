@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,14 @@ func (e scheduledExecutor) Execute(ctx context.Context, req turn.Request) (turn.
 }
 
 func TestScheduledLinearStoryRetainsIdentityAndPublishesOnce(t *testing.T) {
+	testScheduledLinearStory(t, false)
+}
+
+func TestScheduledLinearHeldEffectSettlesAcrossRestart(t *testing.T) {
+	testScheduledLinearStory(t, true)
+}
+
+func testScheduledLinearStory(t *testing.T, held bool) {
 	f, remote, v, sub, q := linearObservationFixture(t)
 	ctx := t.Context()
 	db := f.d.db
@@ -52,8 +61,18 @@ func TestScheduledLinearStoryRetainsIdentityAndPublishesOnce(t *testing.T) {
 	key := state.StorySet.Keys["item"]
 	_, err = db.ReservePlanStory(ctx, parent.TaskRef, key)
 	linearWorkflowCheck(t, err)
-	_, err = db.SavePlanWorkflowState(ctx, parent.TaskRef, 0, state)
+	if held {
+		state.Stories[0].Effect = "uncertain"
+		state.Stories[0].SetEffectHold("plan-request-692-6680", "owner edits conflict with expected content revision")
+	}
+	revision, err := db.SavePlanWorkflowState(ctx, parent.TaskRef, 0, state)
 	linearWorkflowCheck(t, err)
+	if held {
+		for revision < 10 {
+			revision, err = db.SavePlanWorkflowState(ctx, parent.TaskRef, revision, state)
+			linearWorkflowCheck(t, err)
+		}
+	}
 	clients, err := f.d.connections.Clients(ctx, v, parentSnapshot.ActorID)
 	linearWorkflowCheck(t, err)
 	bridge, err := turn.NewTicketWorkflow(ctx, db, clients.Linear, parentSnapshot.ActorID)
@@ -103,11 +122,31 @@ func TestScheduledLinearStoryRetainsIdentityAndPublishesOnce(t *testing.T) {
 	linearWorkflowCheck(t, err)
 	reporter, err := turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: f.d.log, BotUserID: snapshot.ActorID})
 	linearWorkflowCheck(t, err)
+	var failedGraph store.GraphInstance
+	if held {
+		definition, e := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "core", Mode: "plan", ProfileVersion: 1, Path: "core/plan.dot", Digest: strings.Repeat("b", 64), CreatedAt: f.now})
+		linearWorkflowCheck(t, e)
+		failedGraph, e = db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: managed.ID, DefinitionID: definition.ID, CurrentNode: "story_draft", StartedAt: f.now})
+		linearWorkflowCheck(t, e)
+		attempt, e := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: failedGraph.ID, Node: "story_draft", StartedAt: f.now})
+		linearWorkflowCheck(t, e)
+		linearWorkflowCheck(t, db.FinishGraphNodeAttempt(ctx, attempt.ID, store.GraphFailed, "", f.now))
+		linearWorkflowCheck(t, db.SetGraphInstanceStatus(ctx, failedGraph.ID, store.GraphFailed, time.Time{}, f.now))
+		failedGraph, e = db.GetGraphInstance(ctx, failedGraph.ID)
+		linearWorkflowCheck(t, e)
+	}
+	locked := !held
 	calls := 0
 	executor := scheduledExecutor(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if locked {
+			return turn.Result{Disposition: turn.DispositionLocked}, nil
+		}
 		calls++
 		if req.Mode != agent.ModePlan || req.SessionID != managed.ID || req.Issue.Number != child.Number {
 			return turn.Result{}, fmt.Errorf("wrong scheduled request: %+v", req)
+		}
+		if held {
+			return turn.Result{ResearchGraph: true, Reason: "waiting: owner edits conflict with expected content revision"}, nil
 		}
 		segment, e := db.GetOrCreateSegment(ctx, managed.ID, 1, managed.TaskRef, store.AgentClaude)
 		if e != nil {
@@ -128,11 +167,27 @@ func TestScheduledLinearStoryRetainsIdentityAndPublishesOnce(t *testing.T) {
 		_, e = reporter.ReportRun(ctx, turn.RunReport{Run: report.Run{Ref: ref, Ordinal: run.Ordinal, Result: &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "Scheduled Linear story review"}}, SessionID: managed.ID})
 		return turn.Result{Run: run, Outcome: agent.OutcomeSucceeded, ResearchGraph: true}, e
 	})
-	d, err := New(Options{DB: db, Forge: f.client, Filter: f.d.filter, Connections: f.d.connections, Turn: executor, Reporter: reporter, InstanceID: "scheduled-linear", Logger: f.d.log, Now: func() time.Time { return f.now }, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions})
+	options := Options{DB: db, Forge: f.client, Filter: f.d.filter, Connections: f.d.connections, Turn: executor, Reporter: reporter, InstanceID: "scheduled-linear", Logger: f.d.log, Now: func() time.Time { return f.now }, DefaultAgent: agent.Kind(store.AgentClaude), Agents: turn.RunnerSet{agent.Kind(store.AgentClaude): nil}, Classifiers: map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}, ToolProfiles: config.DefaultToolProfiles().Permissions}
+	d, err := New(options)
 	linearWorkflowCheck(t, err)
-	scheduled, _, err := db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: managed.ID, SourceCommentID: 701, OwnerHandle: "human-uuid", Payload: planWorkPayload, DueAt: f.now})
+	sourceID, _ := storyWorkID(state, key)
+	if held {
+		sourceID = planWorkID("effect", key, "plan-request-692-6680")
+	}
+	scheduled, _, err := db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: managed.ID, SourceCommentID: sourceID, OwnerHandle: "human-uuid", Payload: planWorkPayload, DueAt: f.now})
 	linearWorkflowCheck(t, err)
 	d.prepFailures.record(managed.ID, "previous refusal", f.now.Add(-time.Hour), time.Second)
+	if locked {
+		first := TickResult{}
+		linearWorkflowCheck(t, d.dispatchSchedules(ctx, map[int64]store.Repo{q.repo.ID: q.repo}, f.now, &first))
+		linearWorkflowCheck(t, d.Quiesce(ctx))
+		pending, e := db.GetSchedule(ctx, scheduled.ID)
+		linearWorkflowCheck(t, e)
+		if pending.Status != store.SchedulePending || pending.RunID != 0 || calls != 0 {
+			t.Fatalf("lock contention not retried: %+v", pending)
+		}
+		locked = false
+	}
 	result := TickResult{}
 	linearWorkflowCheck(t, d.dispatchSchedules(ctx, map[int64]store.Repo{q.repo.ID: q.repo}, f.now, &result))
 	linearWorkflowCheck(t, d.Quiesce(ctx))
@@ -152,6 +207,41 @@ func TestScheduledLinearStoryRetainsIdentityAndPublishesOnce(t *testing.T) {
 	if calls != 1 {
 		t.Fatal("duplicate scheduled execution")
 	}
+	if held {
+		d, err = New(options)
+		linearWorkflowCheck(t, err)
+		restarted := TickResult{}
+		linearWorkflowCheck(t, d.dispatchSchedules(ctx, map[int64]store.Repo{q.repo.ID: q.repo}, f.now, &restarted))
+		linearWorkflowCheck(t, d.Quiesce(ctx))
+		storyQueue := &repoQueue{repo: q.repo, forgeRepo: q.forgeRepo, log: f.d.log}
+		linearWorkflowCheck(t, d.graphPlanStories(ctx, map[int64]*repoQueue{q.repo.ID: storyQueue}, map[int64]*candidate{}))
+		if calls != 1 || restarted.Dispatched != 0 || len(storyQueue.candidates) != 0 || stored.RunID != 0 {
+			t.Fatal("held work repeated or allocated a run")
+		}
+		_, exists, e := db.GetRunByTrigger(ctx, managed.ID, scheduled.TriggerID())
+		linearWorkflowCheck(t, e)
+		if exists {
+			t.Fatal("held work created a run")
+		}
+		latest, e := db.LatestSessionGraphInstance(ctx, managed.ID)
+		linearWorkflowCheck(t, e)
+		attempts, e := db.ListGraphNodeAttempts(ctx, failedGraph.ID)
+		linearWorkflowCheck(t, e)
+		if !reflect.DeepEqual(latest, failedGraph) || len(attempts) != 1 || attempts[0].Status != store.GraphFailed {
+			t.Fatal("failed graph or attempts changed")
+		}
+		retained, rev, e := db.GetPlanWorkflowState(ctx, parent.TaskRef)
+		linearWorkflowCheck(t, e)
+		if rev != 10 || !reflect.DeepEqual(retained, state) {
+			t.Fatalf("held state changed: %+v", retained)
+		}
+		logs := f.logs.String()
+		for _, want := range []string{"Plan work returned without a run", "Plan schedule has no eligible work", "owner edits conflict with expected content revision", managed.TaskRef, key, "plan-request-692-6680", fmt.Sprintf(`"schedule_id":%d`, scheduled.ID), fmt.Sprintf(`"session_id":%d`, managed.ID)} {
+			if !strings.Contains(logs, want) {
+				t.Fatalf("missing %q in %s", want, logs)
+			}
+		}
+	}
 	after, err := db.GetSessionTicket(ctx, managed.ID)
 	linearWorkflowCheck(t, err)
 	if after != binding {
@@ -168,7 +258,11 @@ func TestScheduledLinearStoryRetainsIdentityAndPublishesOnce(t *testing.T) {
 			}
 		}
 	}
-	if reviews != 1 {
+	wantReviews := 1
+	if held {
+		wantReviews = 0
+	}
+	if reviews != wantReviews {
 		t.Fatalf("reviews=%d", reviews)
 	}
 }
