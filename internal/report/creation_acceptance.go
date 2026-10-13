@@ -30,6 +30,7 @@ type CreationPublished struct {
 // confirmed.
 type PublishedIssue struct {
 	Title        string
+	Reference    string
 	Number       int
 	Relationship string
 }
@@ -65,15 +66,19 @@ func (a CreationAcceptance) published() string {
 		fmt.Fprintf(&b, "Publishing proposal `%s` stopped part-way: %s\n\n", a.Hash, p.Reason)
 	}
 	for _, issue := range p.Issues {
+		reference := issue.Reference
+		if reference == "" {
+			reference = fmt.Sprintf("#%d", issue.Number)
+		}
 		switch {
 		case issue.Number == 0:
 			fmt.Fprintf(&b, "- %s: **not confirmed**. Check the repository before approving again, or it may be created twice.\n", issue.Title)
 		case issue.Relationship == "attached":
-			fmt.Fprintf(&b, "- #%d %s (sub-issue)\n", issue.Number, issue.Title)
+			fmt.Fprintf(&b, "- %s %s (sub-issue)\n", reference, issue.Title)
 		case issue.Relationship == "uncertain":
-			fmt.Fprintf(&b, "- #%d %s (created; attaching it as a sub-issue was not confirmed)\n", issue.Number, issue.Title)
+			fmt.Fprintf(&b, "- %s %s (created; attaching it as a sub-issue was not confirmed)\n", reference, issue.Title)
 		default:
-			fmt.Fprintf(&b, "- #%d %s\n", issue.Number, issue.Title)
+			fmt.Fprintf(&b, "- %s %s\n", reference, issue.Title)
 		}
 	}
 	if p.State != "confirmed" {
