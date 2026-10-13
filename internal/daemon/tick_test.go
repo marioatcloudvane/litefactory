@@ -997,14 +997,9 @@ func TestRateLimitBacksOffAndResumes(t *testing.T) {
 	if resumed.Skipped {
 		t.Fatal("the daemon did not resume after the backoff expired")
 	}
-	// The remote hold ended, but fresh quota still requires the independently
-	// bounded scalar observation. Its one-minute cadence cannot be bypassed
-	// merely because the server supplied a shorter Retry-After.
-	if resumed.Dispatched != 0 {
-		t.Fatalf("dispatched %d before the next quota observation, want 0", resumed.Dispatched)
-	}
-	f.clock.advance(time.Minute)
-	resumed = f.settle()
+	// The remote hold ended. Without a usable quota window the token bucket
+	// bounds discovery, so polling resumes at once instead of waiting for fresh
+	// quota evidence (#793).
 	if resumed.Dispatched != 1 {
 		t.Errorf("dispatched %d tasks on resuming, want 1", resumed.Dispatched)
 	}
