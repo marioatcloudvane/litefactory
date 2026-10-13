@@ -212,7 +212,8 @@ type PromptInput struct {
 
 	// Ref identifies the task. Rendered in the header as the canonical
 	// forge:owner/name#issue string.
-	Ref naming.Ref
+	Ref            naming.Ref
+	IssueReference string
 
 	// FeatureSlug is the frozen slug for this task (D-4). Stated in the prompt
 	// because a headless run cannot answer aiteam's question about it (D-3).
@@ -668,8 +669,8 @@ func writeContextIntro(b *strings.Builder, in PromptInput, hasHistory bool) {
 
 // writeHeader writes the part of the prompt litefactory itself is asserting.
 func writeHeader(b *strings.Builder, in PromptInput, ordinal string) {
-	fmt.Fprintf(b, "# litefactory run %s of %s\n\n", ordinal, in.Ref.String())
-	fmt.Fprintf(b, "- Task: %s\n", in.Ref.String())
+	fmt.Fprintf(b, "# litefactory run %s of %s\n\n", ordinal, promptTask(in))
+	fmt.Fprintf(b, "- Task: %s\n", promptTask(in))
 	// AC-9: this exact literal — "- Mode: %s\n" — is what CLAUDE.md's
 	// ## Classify section parses to decide whether a run can trust the
 	// header and skip re-classification, rather than running its own
@@ -815,7 +816,7 @@ const (
 // between runs. The feature slug stays as insurance (see [PromptInput.Resume]).
 // Everything else the first prompt said is still in the transcript.
 func writeResumeHeader(b *strings.Builder, in PromptInput, ordinal string) {
-	fmt.Fprintf(b, "# litefactory run %s of %s\n\n", ordinal, in.Ref.String())
+	fmt.Fprintf(b, "# litefactory run %s of %s\n\n", ordinal, promptTask(in))
 	// AC-9/AC-10: same literal as writeHeader above, restated here because the
 	// mode can change between runs. CLAUDE.md's ## Classify section parses
 	// this "- Mode: %s\n" line on the resume path exactly as it does on the
@@ -967,8 +968,8 @@ func issueNote(in PromptInput) string {
 		body = "(the issue has no body)"
 	}
 
-	source := fmt.Sprintf("issue #%d on %s/%s, opened by %s",
-		in.Ref.Issue, in.Ref.Owner, in.Ref.Repo, attribution(in.IssueAuthor))
+	source := fmt.Sprintf("issue %s on %s/%s, opened by %s",
+		promptIssue(in), in.Ref.Owner, in.Ref.Repo, attribution(in.IssueAuthor))
 	return note(source, "Title: "+title+"\n\n"+body)
 }
 
@@ -979,8 +980,8 @@ func commentNote(in PromptInput) string {
 		body = "(the comment has no body)"
 	}
 
-	source := fmt.Sprintf("comment on issue #%d, written by %s, which triggered this run",
-		in.Ref.Issue, attribution(in.CommentAuthor))
+	source := fmt.Sprintf("comment on issue %s, written by %s, which triggered this run",
+		promptIssue(in), attribution(in.CommentAuthor))
 	if in.RefinementSource != "" {
 		source = "planning refinement comment from " + capText(in.RefinementSource, 1024) + ", written by " + attribution(in.CommentAuthor)
 	}
@@ -1028,10 +1029,10 @@ func historyNote(in PromptInput) string {
 		content.WriteString(entry)
 	}
 
-	source := fmt.Sprintf("a condensed record of earlier comments on issue #%d, oldest first. "+
+	source := fmt.Sprintf("a condensed record of earlier comments on issue %s, oldest first. "+
 		"It is not the whole thread: long comments are cut, older ones are dropped when the "+
 		"record runs out of room, and comments predating litefactory's first sight of the "+
-		"issue are not recorded at all.", in.Ref.Issue)
+		"issue are not recorded at all.", promptIssue(in))
 	return note(source, content.String())
 }
 
@@ -1201,4 +1202,20 @@ func truncateUTF8(s string, limit int) string {
 func oneLine(s string) string {
 	replacer := strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ")
 	return strings.TrimSpace(replacer.Replace(s))
+}
+
+func promptIssue(in PromptInput) string {
+	if in.IssueReference != "" {
+		return capText(in.IssueReference, 1024)
+	}
+	if in.Ref.Forge == "linear" {
+		return "this issue"
+	}
+	return fmt.Sprintf("#%d", in.Ref.Issue)
+}
+func promptTask(in PromptInput) string {
+	if in.Ref.Forge == "linear" {
+		return promptIssue(in)
+	}
+	return in.Ref.String()
 }

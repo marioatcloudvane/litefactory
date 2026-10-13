@@ -106,7 +106,11 @@ func (r *Reporter) ReportPlanSummary(ctx context.Context, parent naming.Ref, ses
 		if name == "" {
 			name = draft.Key
 		}
-		rows = append(rows, [4]string{name, issueLink(parent, draft.IssueNumber), stage, label})
+		display, err := lookupTicketDisplay(ctx, r.forge, parent, draft.IssueNumber)
+		if err != nil {
+			return err
+		}
+		rows = append(rows, [4]string{name, issueLink(parent, draft.IssueNumber, display.Link()), stage, label})
 	}
 	if len(rows) == 0 {
 		return nil

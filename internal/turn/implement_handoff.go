@@ -107,7 +107,22 @@ func refreshImplementHandoff(ctx context.Context, b ImplementBindings, opts Opti
 	if err != nil {
 		return out, false, err
 	}
-	text, counts := renderImplementHandoffNotes(a, rows, progress, notes)
+	displays := map[string]implementDisplay{}
+	for _, story := range a.Stories {
+		display, err := lookupTicketDisplay(ctx, b.Forge, a.Parent, story.IssueNumber)
+		if err != nil {
+			return out, false, err
+		}
+		d := implementDisplay{Reference: display.Reference()}
+		if note, ok := notes[story.Key]; ok {
+			_, d.ReplyURL, err = reportSourceLinks(ctx, b.Forge, a.Parent, story.IssueNumber, note.CommentID)
+			if err != nil {
+				return out, false, err
+			}
+		}
+		displays[story.Key] = d
+	}
+	text, counts := renderImplementHandoffNotes(a, rows, progress, notes, displays)
 	if len(text) > implementHandoffBudget {
 		return out, false, errors.New("hand-off report exceeds its size limit")
 	}
@@ -176,7 +191,7 @@ func renderImplementHandoffProgress(a ImplementAuthority, rows []store.Implement
 	return renderImplementHandoffNotes(a, rows, progress, nil)
 }
 
-func renderImplementHandoffNotes(a ImplementAuthority, rows []store.ImplementStory, progress []store.ImplementProgressReport, notes map[string]store.ReportDelivery) (string, implementHandoffCounts) {
+func renderImplementHandoffNotes(a ImplementAuthority, rows []store.ImplementStory, progress []store.ImplementProgressReport, notes map[string]store.ReportDelivery, displays ...map[string]implementDisplay) (string, implementHandoffCounts) {
 	state := map[string]store.ImplementStory{}
 	for _, row := range rows {
 		state[row.Key] = row
@@ -200,7 +215,14 @@ func renderImplementHandoffNotes(a ImplementAuthority, rows []store.ImplementSto
 		}
 		label := escapeImplementText(story.Key) + " " + safeImplementProgress(story.Name)
 		if story.IssueNumber > 0 {
-			label += fmt.Sprintf(" (#%d)", story.IssueNumber)
+			reference := fmt.Sprintf("#%d", story.IssueNumber)
+			if a.Parent.Forge == "linear" {
+				reference = "this issue"
+			}
+			if len(displays) > 0 {
+				reference = displays[0][story.Key].Reference
+			}
+			label += " (" + reference + ")"
 		}
 		display, info := "Waiting", waitingSentence(story, row, dependencies)
 		suffix := ""
@@ -221,7 +243,12 @@ func renderImplementHandoffNotes(a ImplementAuthority, rows []store.ImplementSto
 				if display != "Failed" && strings.HasPrefix(note.Body, "**Story parked**\n\nWorker response: blocked\n") {
 					display = "Blocked"
 				}
-				suffix = fmt.Sprintf(" [Full answer](https://github.com/%s/%s/issues/%d#issuecomment-%d)", a.Parent.Owner, a.Parent.Repo, story.IssueNumber, note.CommentID)
+				if a.Parent.Forge != "linear" {
+					suffix = fmt.Sprintf(" [Full answer](https://github.com/%s/%s/issues/%d#issuecomment-%d)", a.Parent.Owner, a.Parent.Repo, story.IssueNumber, note.CommentID)
+				}
+				if len(displays) > 0 && displays[0][story.Key].ReplyURL != "" {
+					suffix = " [Full answer](" + displays[0][story.Key].ReplyURL + ")"
+				}
 			}
 			counts.parked++
 		default:
@@ -354,3 +381,5 @@ func safeImplementProgress(text string) string {
 	}
 	return out.String()
 }
+
+type implementDisplay struct{ Reference, ReplyURL string }
