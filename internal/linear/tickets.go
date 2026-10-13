@@ -363,7 +363,7 @@ func (c *Client) mutateIssue(ctx context.Context, ref ticket.Ref, input map[stri
 	return observed, nil
 }
 
-// UpdateContent checks a fresh content revision and exact readback; writes are not atomic CAS.
+// UpdateContent checks a fresh raw revision and equivalent Markdown readback; writes are not atomic CAS.
 func (c *Client) UpdateContent(ctx context.Context, ref ticket.Ref, revision string, title, body redact.Body) (ticket.Snapshot, error) {
 	current, err := c.Read(ctx, ref)
 	if err != nil {
@@ -376,7 +376,7 @@ func (c *Client) UpdateContent(ctx context.Context, ref ticket.Ref, revision str
 	if err != nil {
 		return ticket.Snapshot{}, err
 	}
-	if observed.Title != title.String() || observed.Body != body.String() {
+	if observed.Title != title.String() || !ContentEquivalent(body.String(), observed.Body) {
 		return ticket.Snapshot{}, failure("update content", ticket.Conflict, "content readback differs")
 	}
 	return observed, nil

@@ -944,16 +944,26 @@ func (r *Runner) exec(
 			result.ResumeToken = stream.sessionID
 		}
 	}
+	if result.Outcome == agent.OutcomeFailed && result.Interruption == nil && stream.result != nil && stream.result.IsError {
+		result.Transient = agent.ProviderCapacity(strings.Join(stream.result.Errors, "\n"))
+		if result.Transient != nil {
+			result.Reason = result.Transient.Cause
+			result.Transient.Model = r.model
+			if req.Delivery != nil && req.Delivery.MainRole != "" {
+				result.Transient.Model = req.Delivery.MainModel
+			}
+		}
+	}
 	r.logCompletion(logger, result)
 
 	result.ProviderReportedZeroCostRefusal = provenZeroCostRefusal(req.Path.Resuming(), result, stream)
-	if resumeRefused(req.Path.Resuming(), result) {
+	if result.Transient == nil && resumeRefused(req.Path.Resuming(), result) {
 		logger.Warn("claude refused to resume the conversation",
 			slog.String("stderr", excerpt(result.Stderr)))
 		return result, fmt.Errorf("%w: no conversation to resume for session id %s (exit %d)",
 			ErrSessionNotResumable, req.Session.Ref, result.ExitCode)
 	}
-	if resumeUnusable(req.Path.Resuming(), result) {
+	if result.Transient == nil && resumeUnusable(req.Path.Resuming(), result) {
 		logger.Warn("the resumed conversation no longer fits; rerunning this run cold",
 			slog.Int("num_turns", result.NumTurns),
 			slog.String("result", excerpt(result.ResultText)))

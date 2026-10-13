@@ -376,11 +376,18 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	if ctx.Err() == nil && runCtx.Err() == nil && stream.failed && !stream.completed {
 		result.Interruption = quotaInterruption(stream.quotaMessage, started, finished, startLocation, machineLocation())
 		if result.Interruption != nil {
+			result.Transient = nil
 			result.Outcome, result.Reason, result.HasResult = agent.OutcomeInterrupted, "session quota limit reached", true
 		}
 	}
+	if result.Transient != nil {
+		result.Transient.Model = r.model
+		if req.Delivery != nil && req.Delivery.MainRole != "" {
+			result.Transient.Model = req.Delivery.MainModel
+		}
+	}
 	r.logger.Info("coding agent finished", "agent", "codex", "outcome", result.Outcome.String(), "events", result.Events, "log_path", logPath)
-	if req.Path.Resuming() && result.Outcome == agent.OutcomeFailed && !stream.turnStarted && exitCode > 0 {
+	if result.Transient == nil && req.Path.Resuming() && result.Outcome == agent.OutcomeFailed && !stream.turnStarted && exitCode > 0 {
 		return result, fmt.Errorf("%w: codex thread %s", agent.ErrSessionNotResumable, req.Session.Resume)
 	}
 	_ = waitErr // ProcessState and stream provide the stable classification.
@@ -397,7 +404,7 @@ func classifyOutcome(result *agent.RunResult, stream streamState, callerErr, run
 		result.Outcome, result.Reason, result.ExitCode = agent.OutcomeAbandoned, "abandoned: caller cancelled the run", agent.SignalExitCode
 	case errors.Is(runErr, context.DeadlineExceeded):
 		result.Outcome, result.Reason, result.ExitCode = agent.OutcomeTimedOut, fmt.Sprintf("timed out after %s", timeout), agent.SignalExitCode
-	case result.ExitCode == 0 && stream.failed:
+	case stream.failed:
 		result.Outcome, result.Reason = agent.OutcomeFailed, "coding agent reported turn.failed"
 		if stream.failureDetail != "" {
 			result.Reason += ": " + stream.failureDetail
@@ -406,6 +413,12 @@ func classifyOutcome(result *agent.RunResult, stream streamState, callerErr, run
 		result.Outcome, result.Reason = agent.OutcomeNoResult, "coding agent exited 0 without a turn.completed event"
 	default:
 		result.Outcome, result.Reason = agent.OutcomeFailed, fmt.Sprintf("coding agent exited with status %d", result.ExitCode)
+	}
+	if result.Outcome == agent.OutcomeFailed && stream.failed && !stream.completed {
+		result.Transient = agent.ProviderCapacity(stream.failureDetail)
+		if result.Transient != nil {
+			result.Reason = result.Transient.Cause
+		}
 	}
 	// No stdout events is deliberately conservative: once the agent emits a
 	// stream, quoted tool output cannot establish a startup failure. Neither
@@ -575,10 +588,18 @@ func (s *streamState) consumeLine(line []byte) {
 	if json.Unmarshal(bytes.TrimSpace(line), &terminal) == nil && terminal.Type == "turn.failed" {
 		s.failed = true
 		var detail struct {
-			Message string `json:"message"`
+			Message    string `json:"message"`
+			Code       string `json:"code"`
+			StatusCode int    `json:"status_code"`
 		}
-		if json.Unmarshal(terminal.Error, &detail) == nil && strings.TrimSpace(detail.Message) != "" {
+		if json.Unmarshal(terminal.Error, &detail) == nil && (strings.TrimSpace(detail.Message) != "" || detail.Code != "" || detail.StatusCode != 0) {
 			s.failureDetail = detail.Message
+			if detail.Code != "" {
+				s.failureDetail += " " + detail.Code
+			}
+			if detail.StatusCode != 0 {
+				s.failureDetail += fmt.Sprintf(" HTTP %d", detail.StatusCode)
+			}
 		} else {
 			var message string
 			if json.Unmarshal(terminal.Message, &message) == nil && strings.TrimSpace(message) != "" {
