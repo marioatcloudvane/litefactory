@@ -78,12 +78,12 @@ func linkSourceIssue(artifacts []submission.CreationArtifact, sourceIssue int) [
 }
 
 func (s *CreationPublicationService) prepare(ctx context.Context, e submission.CreationEnvelope, nonce [16]byte, presentationLimit int, retain creationRetainer) (PreparedCreation, error) {
-	return prepareCreation(ctx, e, nonce, presentationLimit, s.receipts.scope.Repository, s.Binding().Task, s.redactor, retain)
+	return prepareCreation(ctx, e, nonce, presentationLimit, s.receipts.scope.Repository, s.Binding().Task, s.redactor, retain, s.forge)
 }
 
 // prepareCreation is shared by agent proposal drafting and owner-comment intake.
 // Owner intake has source provenance, but no synthetic run or receipt authority.
-func prepareCreation(ctx context.Context, e submission.CreationEnvelope, nonce [16]byte, presentationLimit int, repository, task string, redactor *redact.Redactor, retain creationRetainer) (PreparedCreation, error) {
+func prepareCreation(ctx context.Context, e submission.CreationEnvelope, nonce [16]byte, presentationLimit int, repository, task string, redactor *redact.Redactor, retain creationRetainer, forges ...CreationForge) (PreparedCreation, error) {
 	if e.Repository != "" && e.Repository != repository || e.SourceTask != "" && e.SourceTask != task {
 		return PreparedCreation{}, rejectCreation("fields", store.ErrCreationAuthority)
 	}
@@ -103,7 +103,23 @@ func prepareCreation(ctx context.Context, e submission.CreationEnvelope, nonce [
 		a.LinkIssues = append([]int(nil), a.LinkIssues...)
 		var links strings.Builder
 		for _, target := range a.LinkIssues {
-			fmt.Fprintf(&links, "\n\nRelated: https://github.com/%s/issues/%d", e.Repository, target)
+			ref, err := naming.ParseRef(task)
+			if err != nil {
+				return PreparedCreation{}, err
+			}
+			var forge CreationForge
+			if len(forges) > 0 {
+				forge = forges[0]
+			}
+			display, err := lookupTicketDisplay(ctx, forge, ref, target)
+			if err != nil {
+				return PreparedCreation{}, err
+			}
+			if ref.Forge == "linear" {
+				fmt.Fprintf(&links, "\n\nRelated: %s", display.Reference())
+			} else {
+				fmt.Fprintf(&links, "\n\nRelated: %s", display.URL)
+			}
 		}
 		marker := fmt.Sprintf("<!-- lf:mcp-create v=1 key=%s artifact=%d -->", hex.EncodeToString(nonce[:]), i)
 		title, err := redactor.Apply(ctx, a.Title, 256)

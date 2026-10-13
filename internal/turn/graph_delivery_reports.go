@@ -43,7 +43,11 @@ func (r *Reporter) ReportGraphDeliveryCompletion(ctx context.Context, instanceID
 	}
 	intent := r.deliveryIntent(ref, ref, session.ID, 0, 0, fmt.Sprintf("bug-delivery-completed:%d", instanceID))
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
-		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("Bug repair delivered: commit `%s` merged into `%s` through PR #%d (merge `%s`), and issue #%d is closed.", progress.Commit, progress.Binding.Target, progress.PR.Number, progress.PR.MergeSHA, progress.Binding.IssueNumber), "")
+		display, err := lookupTicketDisplay(ctx, r.forge, ref, progress.Binding.IssueNumber)
+		if err != nil {
+			return redact.Body{}, err
+		}
+		return r.renderer.RenderReportDelivery(ctx, fmt.Sprintf("Bug repair delivered: commit `%s` merged into `%s` through PR #%d (merge `%s`), and issue %s is closed.", progress.Commit, progress.Binding.Target, progress.PR.Number, progress.PR.MergeSHA, display.Reference()), "")
 	})
 }
 

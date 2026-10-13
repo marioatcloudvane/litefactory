@@ -11,6 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -415,7 +416,15 @@ func (r *BugRuntime) resolveGraphDelivery(ctx context.Context, _ Options, a Acti
 	if e != nil {
 		return GraphDeliveryBinding{}, e
 	}
-	return GraphDeliveryBinding{Record: "delivery_binding", InstanceID: a.InstanceID, SessionID: s.ID, IssueID: identity.IssueID, IssueNumber: s.IssueNumber, BotID: r.opts.MCP.BotID, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, Branch: s.Branch, Target: repo.BaseBranch, Marker: fmt.Sprintf("<!-- lf:bug-delivery instance=%d issue=%d -->", a.InstanceID, identity.IssueID), Eligibility: eligibility}, nil
+	ref, e := naming.ParseRef(s.TaskRef)
+	if e != nil {
+		return GraphDeliveryBinding{}, e
+	}
+	display, e := lookupTicketDisplay(ctx, r.opts.SubIssueCreator, ref, s.IssueNumber)
+	if e != nil {
+		return GraphDeliveryBinding{}, e
+	}
+	return GraphDeliveryBinding{IssueReference: display.Reference(), Record: "delivery_binding", InstanceID: a.InstanceID, SessionID: s.ID, IssueID: identity.IssueID, IssueNumber: s.IssueNumber, BotID: r.opts.MCP.BotID, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, Branch: s.Branch, Target: repo.BaseBranch, Marker: fmt.Sprintf("<!-- lf:bug-delivery instance=%d issue=%d -->", a.InstanceID, identity.IssueID), Eligibility: eligibility}, nil
 }
 func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a ActivityRequest, b GraphDeliveryBinding) (string, error) {
 	s, e := r.opts.DB.GetSession(ctx, b.SessionID)
