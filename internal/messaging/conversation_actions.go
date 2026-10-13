@@ -56,7 +56,7 @@ func (r *factoryConversationRun) propose(ctx context.Context, inv Invocation, en
 	}
 	d.Code = hex.EncodeToString(nonce[:])
 	p.Prompt = s.naturalProposal(p, d.Code)
-	if replySize(p.Prompt) > s.ReplyLimit()-32 {
+	if _, renderErr := presentation.RenderConversation(strings.Repeat("0", 32), nil, nil, p.Prompt); renderErr != nil {
 		return s.conversationOutcome(ctx, r.t, "completed", "The exact proposal is too large to show safely. Please shorten the request; nothing was authorized.", r.at)
 	}
 	protected, err := s.Protect(ctx, p.Prompt)
@@ -94,7 +94,7 @@ func (r *factoryConversationRun) propose(ctx context.Context, inv Invocation, en
 	if err = s.db.SaveConversationActionLink(ctx, r.t, store.ConversationActionLink{TurnID: r.t.ID, DialogueID: d.Code, DialogueRevision: d.Revision, PreviewID: p.PreviewID, PayloadDigest: d.Digest}); err != nil {
 		return err
 	}
-	return s.conversationOutcome(ctx, r.t, "completed", p.Prompt, r.at)
+	return s.saveConversationPresentation(ctx, r.t, "completed", nil, p.Prompt, r.at)
 }
 
 func (r *factoryConversationRun) confirm(ctx context.Context) (bool, error) {
@@ -289,20 +289,20 @@ func (r *factoryConversationRun) narrate(ctx context.Context, outcome string) er
 		return err
 	}
 	response, runErr := r.invoke(ctx, string(raw))
-	text := "Saved action outcome:\n" + outcome
+	blocks := []presentation.AnswerBlock{{Text: "Saved action outcome:\n" + outcome}}
 	if runErr == nil {
 		envelope, _, decodeErr := DecodeConversationEnvelope(response, ConversationDecodeRequest{Turns: prompt.OwnerSources, Commands: prompt.Commands})
 		if decodeErr == nil && envelope.Kind == "answer" {
-			// Always retain the actual saved status beside its explanation.
-			explained, err := r.s.Protect(ctx, envelope.Text)
-			if err == nil && replySize(explained+"\n\n"+text) <= r.s.ReplyLimit() {
-				text = explained + "\n\n" + text
+			explanation := envelope.Blocks
+			if len(explanation) == 0 {
+				explanation = []presentation.AnswerBlock{{Text: envelope.Text}}
 			}
+			blocks = append(explanation, blocks...)
 		}
 	}
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	return r.s.conversationOutcome(cleanup, r.t, "completed", text, r.at)
+	return r.s.saveConversationPresentation(cleanup, r.t, "completed", blocks, "", r.at)
 }
 
 // consumeOutcomes hands an asynchronous diagnosis's saved result to the next

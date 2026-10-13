@@ -2,6 +2,8 @@ package messaging
 
 import (
 	"encoding/json"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"strings"
 	"testing"
 	"time"
 )
@@ -16,6 +18,10 @@ func TestConversationEnvelopeBoundaries(t *testing.T) {
 		name, raw string
 		valid     bool
 	}{
+		{"blocks", `{"version":1,"kind":"answer","blocks":[{"text":"seven widgets","fact_refs":["current"]},{"fact_refs":["current"]}]}`, true},
+		{"mixed answer", `{"version":1,"kind":"answer","text":"a","blocks":[{"text":"b"}]}`, false},
+		{"empty block", `{"version":1,"kind":"answer","blocks":[{}]}`, false},
+		{"model support", `{"version":1,"kind":"answer","blocks":[{"text":"a","supported":true}]}`, false},
 		{"answer", `{"version":1,"kind":"answer","text":"Current work is running."}`, true},
 		{"lookup", `{"version":1,"kind":"lookup","command":"status","arguments":[]}`, true},
 		{"proposal source", `{"version":1,"kind":"propose","command":"diagnose","arguments":[{"name":"issue","source_id":"s1","start":9,"end":11},{"name":"note","source_id":"s1","start":12,"end":17}]}`, true},
@@ -39,6 +45,15 @@ func TestConversationEnvelopeBoundaries(t *testing.T) {
 				t.Fatalf("valid=%v error=%v", tt.valid, err)
 			}
 		})
+	}
+	// Bound source expansion across the whole answer, including repeated handles.
+	excessive := ConversationEnvelope{Version: 1, Kind: "answer", Blocks: []presentation.AnswerBlock{{FactRefs: strings.Fields(strings.Repeat("current ", 17))}, {FactRefs: strings.Fields(strings.Repeat("current ", 16))}}}
+	encoded, err := json.Marshal(excessive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = DecodeConversationEnvelope(encoded, request); err == nil {
+		t.Fatal("accepted unbounded fact expansion")
 	}
 	raw := []byte(`{"version":1,"kind":"propose","command":"diagnose","arguments":[{"name":"issue","reference":"ref"}]}`)
 	for _, change := range []func(*ConversationReference){func(r *ConversationReference) { r.OwnerID = "other" }, func(r *ConversationReference) { r.ChannelID = "other" }, func(r *ConversationReference) { r.ExpiresAt = now }, func(r *ConversationReference) { r.OriginTurn = "" }} {

@@ -9,22 +9,24 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"time"
 	"unicode/utf8"
 )
 
-const conversationEnvelopeLimit = 16384
+const conversationEnvelopeLimit = 65536
 
 // ErrConversationEnvelope indicates unsafe or malformed provider output.
 var ErrConversationEnvelope = errors.New("messaging: invalid conversation envelope")
 
 // ConversationEnvelope is a suggestion or response, never execution authority.
 type ConversationEnvelope struct {
-	Version   int                    `json:"version"`
-	Kind      string                 `json:"kind"`
-	Text      string                 `json:"text,omitempty"`
-	Command   string                 `json:"command,omitempty"`
-	Arguments []ConversationArgument `json:"arguments,omitempty"`
+	Version   int                        `json:"version"`
+	Kind      string                     `json:"kind"`
+	Text      string                     `json:"text,omitempty"`
+	Blocks    []presentation.AnswerBlock `json:"blocks,omitempty"`
+	Command   string                     `json:"command,omitempty"`
+	Arguments []ConversationArgument     `json:"arguments,omitempty"`
 }
 
 // ConversationArgument selects exactly one original owner span, factory-issued
@@ -110,13 +112,36 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	required := []string{"version", "kind"}
 	switch envelope.Kind {
 	case "answer", "clarify":
-		required = append(required, "text")
-		limit := 8192
-		if envelope.Kind == "clarify" {
-			limit = 1000
-		}
-		if strings.TrimSpace(envelope.Text) == "" || len(envelope.Text) > limit || strings.ContainsRune(envelope.Text, 0) {
-			return bad()
+		if envelope.Kind == "answer" && len(envelope.Blocks) > 0 {
+			required = append(required, "blocks")
+			if len(envelope.Blocks) > 128 {
+				return bad()
+			}
+			total, references := 0, 0
+			for _, block := range envelope.Blocks {
+				total += len(block.Text)
+				references += len(block.FactRefs)
+				if strings.ContainsRune(block.Text, 0) || (block.Text == "" && len(block.FactRefs) == 0) || len(block.FactRefs) > 32 {
+					return bad()
+				}
+				for _, ref := range block.FactRefs {
+					if ref == "" || len(ref) > 128 {
+						return bad()
+					}
+				}
+			}
+			if total > 32768 || references > 32 {
+				return bad()
+			}
+		} else {
+			required = append(required, "text")
+			limit := 32768
+			if envelope.Kind == "clarify" {
+				limit = 1000
+			}
+			if strings.TrimSpace(envelope.Text) == "" || len(envelope.Text) > limit || strings.ContainsRune(envelope.Text, 0) {
+				return bad()
+			}
 		}
 	case "lookup", "propose":
 		required = append(required, "command", "arguments")

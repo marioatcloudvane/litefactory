@@ -121,7 +121,7 @@ func TestFactoryConversationNarrationFailureRetainsOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reply.ReplyText != "Saved action outcome:\n"+saved {
+	if !strings.HasSuffix(reply.ReplyText, "Saved action outcome:\nAnswer saved for acme/app\\#42.") || !strings.Contains(reply.ReplyText, "Unverified") {
 		t.Fatalf("saved outcome changed: %q", reply.ReplyText)
 	}
 	if provider.calls != 1 {
@@ -160,7 +160,7 @@ func TestFactoryConversationFirstCancellationSkipsProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reply.ReplyText != "Cancelled the pending request." {
+	if !strings.HasSuffix(reply.ReplyText, "Cancelled the pending request.") {
 		t.Fatalf("cancel response %q", reply.ReplyText)
 	}
 }
@@ -298,7 +298,7 @@ func TestFactoryConversationJournalProtectsDecodedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reply.ReplyText != "[redacted]" {
+	if !strings.HasSuffix(reply.ReplyText, `\[redacted\]`) || strings.Contains(reply.ReplyText, "private-token") {
 		t.Fatalf("unprotected output %q", reply.ReplyText)
 	}
 }

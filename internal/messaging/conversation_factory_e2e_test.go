@@ -214,7 +214,7 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 			if err != nil || conversation.SessionHandle == "" {
 				t.Fatalf("session missing: %+v %v", conversation, err)
 			}
-			if len(sent.texts) != 1 || sent.texts[0] != "No tasks are running or waiting on the owner. We are discussing acme/app issue 42." {
+			if len(sent.texts) != 1 || !strings.HasSuffix(sent.texts[0], "No tasks are running or waiting on the owner. We are discussing acme/app issue 42.") || !strings.Contains(sent.texts[0], "Unverified") {
 				t.Fatalf("lookup leaked or answer missing: %v", sent.texts)
 			}
 			firstTurn, err := db.LatestConversationTurn(ctx, conversation.ID)
@@ -267,7 +267,7 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 			if err != nil || execution.State != "finished" || execution.Outcome != link.Outcome {
 				t.Fatalf("saved execution differs from narration link: %+v %v", execution, err)
 			}
-			if len(sent.texts) != 3 || !strings.Contains(sent.texts[2], "Your CSV output answer was recorded for acme/app issue 42.") || !strings.Contains(sent.texts[2], "answer recorded") {
+			if len(sent.texts) != 4 || !strings.Contains(sent.texts[2], "Your CSV output answer was recorded for acme/app issue 42.") || !strings.Contains(sent.texts[3], "answer recorded") {
 				t.Fatalf("saved outcome narration missing: %v", sent.texts)
 			}
 			assertFactoryJourneySessions(t, after.StateDir, after.SessionHandle, 5)

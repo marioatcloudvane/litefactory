@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -59,7 +60,21 @@ func (r *factoryConversationRun) previousFactoryReply(ctx context.Context, sourc
 	if reply.ChannelRef != r.c.ChannelRef || reply.Command != "conversation" {
 		return "", nil
 	}
-	protected, err := r.s.Protect(ctx, reply.ReplyText)
+	text := reply.ReplyText
+	if answer, _, lookupErr := r.s.db.ConversationReplyAnswer(ctx, reply); lookupErr == nil {
+		parts, partErr := r.s.db.ReadConversationAnswerParts(ctx, answer.ID)
+		if partErr != nil {
+			return "", partErr
+		}
+		var content []string
+		for _, part := range parts {
+			content = append(content, part.Text)
+		}
+		text = strings.Join(content, "\n\n")
+	} else if !errors.Is(lookupErr, store.ErrNotFound) {
+		return "", lookupErr
+	}
+	protected, err := r.s.Protect(ctx, text)
 	if err != nil {
 		return "", err
 	}
