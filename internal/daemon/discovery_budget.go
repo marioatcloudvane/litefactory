@@ -607,3 +607,32 @@ func discoveryPrerequisite(key, waiting string) bool {
 	}
 	return (w[2] == "issue") && (k[2] == "issues" || k[2] == "commented")
 }
+
+// logDiscoveryDeferral says why a session's issue read was deferred, with the
+// budget it was charged to, so a starved fleet is visible at INFO (#793).
+func (d *Daemon) logDiscoveryDeferral(ctx context.Context, c *candidate) {
+	ctx = sessionContext(ctx, c.session.ID)
+	v, selected, verr := d.quotaVersion(ctx, store.TicketConnection)
+	attrs := []any{slog.Int64("session_id", c.session.ID), slog.Bool("connection_selected", selected)}
+	if verr != nil {
+		attrs = append(attrs, slog.Any("connection_error", verr))
+	}
+	if selected {
+		attrs = append(attrs, slog.Int64("connection_version_id", v.ID), slog.String("provider", string(v.Provider)))
+		q := d.quotas.forVersion(v)
+		if until, held := q.backoff.hold(d.quotaNow(ctx)); held {
+			attrs = append(attrs, slog.Time("backoff_until", until))
+		}
+	}
+	b, berr := d.quotaBudget(ctx)
+	if berr != nil {
+		attrs = append(attrs, slog.Any("budget_error", berr))
+	} else {
+		view := b.view()
+		reason, _ := view.deferral()
+		attrs = append(attrs, slog.String("reason", reason), slog.Bool("fresh", view.Fresh), slog.Int("limit", view.Limit),
+			slog.Int("remaining", view.Remaining), slog.Int("reserve", view.Reserve), slog.Int("spent", view.Spent),
+			slog.Int("share", view.Share), slog.Int("in_progress", view.InProgress), slog.Float64("tokens", view.Burst))
+	}
+	c.log.InfoContext(ctx, "issue read deferred by the discovery budget", attrs...)
+}

@@ -1409,6 +1409,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		d.inflight.leave(c.session.ID)
 		if errors.Is(err, ErrDiscoveryDeferred) {
 			result.Deferred++
+			d.logDiscoveryDeferral(ctx, c)
 			return offerSkipped
 		}
 		if err != nil {
