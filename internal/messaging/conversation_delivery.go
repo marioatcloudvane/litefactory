@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -43,6 +44,23 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 	d := s.sender.Deliver(deliveryCtx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Protected: true}, r.ReplyText)
 	switch {
 	case d.Confirmed:
+		if runtime.factory && d.PromptID != "" {
+			proposal, e := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.ChannelRef)
+			if e != nil && !errors.Is(e, store.ErrNotFound) {
+				return true, e
+			}
+			if e == nil && proposal.State == "awaiting_confirmation" {
+				var payload naturalPayload
+				if e = json.Unmarshal([]byte(proposal.Payload), &payload); e != nil {
+					return true, e
+				}
+				if payload.Prompt == r.ReplyText && proposal.PromptID == "" {
+					if e = s.db.BindNaturalPrompt(ctx, proposal, d.PromptID); e != nil {
+						return true, e
+					}
+				}
+			}
+		}
 		return true, s.db.FinishConversationReply(ctx, r, d.PromptID, at)
 	case d.Permanent:
 		return true, s.db.PauseConversationReply(ctx, r, "Discord permanently refused the saved conversation reply; retained work is paused", at)

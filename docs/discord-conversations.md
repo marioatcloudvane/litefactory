@@ -17,16 +17,40 @@ chat:
 ```
 
 Configuration is loaded at daemon startup. Renaming a conversation preserves its
-native session. A provider change waits for admitted turns, replies and the intake
-backlog to drain, then creates a separate binding and native directory. Provider
+native session. A provider change waits for admitted turns, replies, live proposals,
+asynchronous action outcomes and the intake backlog to drain, then creates a
+separate binding and native directory. Provider
 context is never transferred. The previous provider must remain configured while
 its work drains. Removing a binding pauses retained work; it does not reinterpret
 queued conversation messages as factory commands.
 
-The factory supplies redacted prompt fields and fixed instructions every turn.
-This story provides the context boundary; it does not select factory facts or
-perform factory actions. No repository or factory database is available to the
-agent. Each adapter has its own isolation gate. Unverified capabilities refuse
+The same ongoing agent answers ordinary factory questions and follow-ups through
+factory-managed lookup requests. Factory code checks enabled commands, current
+channel access and registered targets, then supplies bounded redacted results as
+prompt context. Lookups cover help, health, status, usage, prices, project facts
+and current research questions when those commands are enabled. The agent gets
+no repository, database, credentials or native tools. Factory facts and coverage
+gaps are retained privately with the answer; remembered facts are not fresh
+lookup evidence.
+
+Supported changes remain draft, feature confirmation, diagnosis and research
+answers. The factory renders the exact action, target and protected owner content
+with a 15-minute proposal code. Only a later owner reply to the delivered proposal
+or its exact code can authorize it. Cancellation, replacement, expiry and repeat
+confirmation cannot run it again. A draft only prepares a feature preview, which
+still requires separate confirmation. Missing exact owner content or unclear
+targets require clarification. Slash commands, including `/details`, retain their
+existing behavior.
+
+Each ordinary turn allows at most three lookups and four provider invocations,
+including one response correction. All continuations use the selected native
+session. Saved action outcomes survive explanation and delivery failures; uncertain
+provider input and effects are not replayed. A completed asynchronous diagnosis is
+supplied at the next eligible owner turn. Internal lookup exchanges are not sent
+to Discord. Conversation calls remain in the factory-wide usage ledger with
+coverage gaps because the current adapters expose no usage measurements. Token
+and cost amounts are not reconstructed. The factory supplies redacted prompt fields and fixed instructions
+every turn. Each adapter has its own isolation gate. Unverified capabilities refuse
 launch; the workflow and diagnosis gates are unchanged. See
 [recorded capability evidence](conversation-evidence.md) for this installation's
 limits. Help output alone does not demonstrate native recall or sandbox isolation.
