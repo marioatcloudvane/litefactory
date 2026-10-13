@@ -1,7 +1,7 @@
 # MAR-12 evidence
 
 mar-12-readback.md is the complete owner-supplied Linear GraphQL description from
-`issue(id:"MAR-12"){ description }`, read 2026-10-14 00:44 Europe/Vienna.
+reply:6156779049, `issue(id:"MAR-12"){ description }`, read 2026-10-14 00:44 Europe/Vienna.
 It is 3304 bytes including the final newline, SHA-256
 98e141564f22ff4265dbb84bded3e2c495c457b803c9ad08c9755029e837a88b.
 This is owner-provided live evidence, not an independent query or a capture of
@@ -38,3 +38,16 @@ could turn escaped punctuation into Markdown structure. The repair was returned
 for reshape before expanding the approved normalization. Partial comparison and
 diagnostic code is retained for review, not declared validated or complete.
 Conflict reconciliation is not yet changed.
+
+## Analysis 2 repair
+
+The repair adds comparison of the four demonstrated decimal entities only in
+unambiguous prose of the recognized scaffold. The complete comparison and local
+GraphQL fixture regression now pass. The GraphQL test helper's former 1000-byte
+limit was raised so this test sends the complete reconstructed expected body.
+The historical failure above remains evidence of the pre-repair state.
+
+Reconciliation tests use the complete fixture prose and content payload, mapping
+only its story marker parent to the test database's isolated compatibility ID.
+They seed the original request, shell, update intent, uncertain readback and
+conflict, and check observation-only completion and independent holds.

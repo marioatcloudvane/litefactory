@@ -99,15 +99,20 @@ func comparableContent(body string) string {
 	// Unknown HTML and inline code can span lines. Do not interpret their
 	// whitespace or escapes with the plain-prose rules below.
 	fence := ""
-	for _, line := range lines {
+	for i, line := range lines {
 		next := nextContentFence(fence, line)
 		if fence == "" && next == "" && !managedMarker(line) &&
 			(strings.ContainsAny(line, "`<") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")) {
 			return body
 		}
+		// Classify scaffold headings after the already-supported single-space
+		// normalization, while retaining hard breaks, metadata and code bytes.
+		if fence == "" && next == "" && !managedMarker(line) && strings.HasSuffix(line, " ") && !strings.HasSuffix(line, "  ") && !strings.HasSuffix(line, "\\ ") {
+			lines[i] = strings.TrimSuffix(line, " ")
+		}
 		fence = next
 	}
-	lines = comparableScaffoldSpacing(lines)
+	lines, scaffold := comparableScaffoldSpacing(lines)
 	if !uniformContentLists(lines) {
 		return body
 	}
@@ -160,14 +165,15 @@ func comparableContent(body string) string {
 				}
 			}
 		}
-		// Two spaces encode a hard break; never trim those or code whitespace.
-		if strings.HasSuffix(line, " ") && !strings.HasSuffix(line, "  ") && !strings.HasSuffix(line, "\\ ") {
-			line = strings.TrimSuffix(line, " ")
-		}
 		if depth, ok := contentListItem(line); ok {
 			line = line[:depth] + "-" + line[depth+1:]
 		}
-		lines[i] = redundantContentEscapes(line)
+		if scaffold {
+			line = comparableScaffoldProse(line)
+		} else {
+			line = redundantContentEscapes(line)
+		}
+		lines[i] = line
 	}
 	return strings.Join(lines, "\n")
 }
@@ -258,23 +264,23 @@ var scaffoldRequestMarker = regexp.MustCompile(`^<!-- lf:plan-request digest=[0-
 
 // Only the full factory scaffold permits the observed block spacing changes.
 // Unknown Markdown keeps its paragraph and loose-list boundaries untouched.
-func comparableScaffoldSpacing(lines []string) []string {
+func comparableScaffoldSpacing(lines []string) ([]string, bool) {
 	if len(lines) < 8 || !scaffoldStoryMarker.MatchString(lines[0]) {
-		return lines
+		return lines, false
 	}
 	request := 1
 	if lines[request] == "" {
 		request++
 	}
 	if !scaffoldRequestMarker.MatchString(lines[request]) {
-		return lines
+		return lines, false
 	}
 	start := request + 1
 	if lines[start] == "" {
 		start++
 	}
 	if lines[start] != "# Userstory" {
-		return lines
+		return lines, false
 	}
 	end := len(lines) - 1
 	if lines[end] == "" {
@@ -282,20 +288,20 @@ func comparableScaffoldSpacing(lines []string) []string {
 	}
 	payload := strings.TrimSuffix(strings.TrimPrefix(lines[end], "<!-- lf:plan-content v=1 data="), " -->")
 	if !strings.HasPrefix(lines[end], "<!-- lf:plan-content v=1 data=") || !strings.HasSuffix(lines[end], " -->") || !json.Valid([]byte(payload)) {
-		return lines
+		return lines, false
 	}
-	headings := []string{"# Userstory", "## What this story solves", "## Scope", "# Task", "# Acceptance Criterias", "# Architecture"}
+	headings := []string{"# Userstory", "## What this story solves", "## Scope", "# Task", "# Acceptance Criterias", "# Architecture"} //nolint:misspell // Exact heading emitted by the existing story renderer.
 	positions := make([]int, 0, len(headings))
 	for i := start; i < end; i++ {
 		if strings.HasPrefix(lines[i], "#") {
 			if len(positions) >= len(headings) || lines[i] != headings[len(positions)] {
-				return lines
+				return lines, false
 			}
 			positions = append(positions, i)
 		}
 	}
 	if len(positions) != len(headings) {
-		return lines
+		return lines, false
 	}
 	// Notes in the initial scaffold are single plain items. Never collapse
 	// paragraph boundaries for multiline, nested or inline-structured items.
@@ -325,5 +331,54 @@ func comparableScaffoldSpacing(lines []string) []string {
 	if end < len(lines)-1 {
 		out = append(out, "")
 	}
-	return out
+	return out, true
+}
+
+// Decode only the four observed entities in plain scaffold prose. Inspect both
+// forms before replacement: decoding must never manufacture Markdown syntax.
+func comparableScaffoldProse(line string) string {
+	prefix := ""
+	prose := line
+	if depth, ok := contentListItem(line); ok {
+		if depth != 0 {
+			return line
+		}
+		prefix, prose = line[:2], line[2:]
+	}
+	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")").Replace(prose)
+	if !plainScaffoldProse(decoded) || strings.ContainsAny(prose, "\\`[]<>*_!|@") {
+		return line
+	}
+	return prefix + decoded
+}
+
+func plainScaffoldProse(s string) bool {
+	letter := func(b byte) bool { return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' }
+	if s == "" || !letter(s[0]) || strings.ContainsAny(s, "&\\`[]<>*_!|@#") || strings.Contains(s, "://") || strings.Contains(s, "www.") {
+		return false
+	}
+	opened := false
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '.':
+			if i == 0 || !letter(s[i-1]) || (i+1 < len(s) && s[i+1] != ' ') {
+				return false
+			}
+		case '-':
+			if i == 0 || i+1 == len(s) || !letter(s[i-1]) || !letter(s[i+1]) {
+				return false
+			}
+		case '(':
+			if opened || i == 0 || s[i-1] != ' ' || i+1 == len(s) || !letter(s[i+1]) {
+				return false
+			}
+			opened = true
+		case ')':
+			if !opened || i == 0 || !letter(s[i-1]) || (i+1 < len(s) && s[i+1] != ' ' && s[i+1] != '.') {
+				return false
+			}
+			opened = false
+		}
+	}
+	return !opened
 }

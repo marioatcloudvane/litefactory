@@ -154,3 +154,53 @@ func TestContentListStructure(t *testing.T) {
 		})
 	}
 }
+
+func TestScaffoldEntities(t *testing.T) {
+	expected, _ := mar12Pair(t)
+	wrap := func(prose string) string {
+		start := strings.Index(expected, "As invoice reviewer")
+		end := strings.Index(expected[start:], "\n") + start
+		return expected[:start] + prose + expected[end:]
+	}
+	for _, tt := range []struct {
+		a, b  string
+		equal bool
+	}{
+		{"Plain prose&#46; Next sentence&#46;", "Plain prose. Next sentence.", true},
+		{"A layout&#45;only change", "A layout-only change", true},
+		{"Text &#40;separate story&#41;", "Text (separate story)", true},
+		{"1&#46; item", "1. item", false},
+		{"1&#41; item", "1) item", false},
+		{"&#45; item", "- item", false},
+		{"&#45;&#45;&#45;", "---", false},
+		{"Text [link]&#40;url&#41;", "Text [link](url)", false},
+		{"Text ![image]&#40;url&#41;", "Text ![image](url)", false},
+		{"<https://example&#46;com>", "<https://example.com>", false},
+		{"Text www&#46;example.com", "Text www.example.com", false},
+		{"`Text&#46;`", "`Text.`", false},
+		{"```\nText&#46;\n```", "```\nText.\n```", false},
+		{"    Text&#46;", "    Text.", false},
+		{`Text\&#46;`, `Text\.`, false},
+		{"Text&#46;", `Text\.`, false},
+		{"Text&amp;#46;", "Text&#46;", false},
+		{"Text&period;", "Text.", false},
+		{"Text&#x2e;", "Text.", false},
+		{"Text&unknown;", "Text.", false},
+		{"Text&#46;", "Text!", false},
+		{"Text **bold&#46;**", "Text **bold.**", false},
+		{"Text\n\n&#45; item", "Text\n\n- item", false},
+	} {
+		t.Run(tt.a, func(t *testing.T) {
+			a, b := wrap(tt.a), wrap(tt.b)
+			if ContentEquivalent(a, b) != tt.equal || ContentEquivalent(b, a) != tt.equal {
+				t.Fatal("unexpected entity equivalence")
+			}
+		})
+	}
+	if ContentEquivalent("Plain&#46;", "Plain.") {
+		t.Fatal("decoded outside scaffold")
+	}
+	if ContentEquivalent(expected, strings.Replace(expected, `"frontend":true`, `"frontend":false`, 1)) {
+		t.Fatal("metadata edit accepted")
+	}
+}
