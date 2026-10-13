@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/buganalysis"
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -390,7 +391,7 @@ func AdmitGraphBugOwnerReply(ctx context.Context, db *store.DB, reply store.Grap
 	if db == nil {
 		return store.GraphOwnerWait{}, errors.New("owner admission requires graph store")
 	}
-	body := strings.TrimSpace(reply.Body)
+	body := strings.TrimSpace(commandtext.Normalize(reply.Body))
 	if _, explicit := ParseCommand(body).Mode(); explicit {
 		return store.GraphOwnerWait{}, errors.New("explicit mode commands must be handled before Bug continuation")
 	}
