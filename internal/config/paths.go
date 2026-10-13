@@ -65,6 +65,9 @@ func Locate() (Paths, error) {
 // Home is the root directory, $LF_HOME.
 func (p Paths) Home() string { return p.home }
 
+// ConversationsDir retains private native conversation state across restarts.
+func (p Paths) ConversationsDir() string { return filepath.Join(p.home, "conversations") }
+
 // ArchiveDir is the root of the per-task archive of closed work, <home>/archive.
 func (p Paths) ArchiveDir() string { return filepath.Join(p.home, archiveDirName) }
 

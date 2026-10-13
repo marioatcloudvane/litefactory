@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
@@ -148,6 +149,7 @@ type Service struct {
 	drafter          *feature.Drafter
 	confirmer        FeatureConfirmer
 	interpreter      Interpreter
+	conversations    atomic.Pointer[conversationRuntime]
 }
 
 // New copies admission rules and registers help, health, status and details.
@@ -465,7 +467,7 @@ func retryAt(r store.ChatReply, at time.Time, hint time.Duration) time.Time {
 
 // Purge removes finished reply state after the retention window.
 func (s *Service) Purge(ctx context.Context, at time.Time) error {
-	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at), s.db.PurgeNaturalChat(ctx, at))
+	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at), s.db.PurgeNaturalChat(ctx, at), s.db.PurgeConversationBodies(ctx, at), s.db.PurgeConversationEvidence(ctx, at))
 }
 func (s *Service) help(ctx context.Context, _ Message, _ time.Time) (string, error) {
 	return assessed(ctx, "/"+strings.Join(s.Commands(), ", /"), presentation.Success)
@@ -475,7 +477,7 @@ func (s *Service) health(ctx context.Context, _ Message, at time.Time) (string, 
 	if err != nil {
 		return "", err
 	}
-	return assessed(ctx, healthText(v), presentation.Success)
+	return assessed(ctx, healthText(v)+s.conversationHealth(ctx, at), presentation.Success)
 }
 func healthText(v Status) string {
 	age := "unknown"

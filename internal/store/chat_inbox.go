@@ -11,6 +11,7 @@ import (
 // ChatReply contains only the durable command and delivery state, never tokens.
 type ChatReply struct {
 	OutcomeStatus                                                          string
+	ConversationTurnID                                                     string
 	Transport, MessageID, ChannelRef, Command, State, ReplyText, TargetRef string
 	PresentationState, PresentationOutcome, ReplyAttachment                string
 	PresentationGeneration, PresentationCheck                              bool
@@ -22,13 +23,13 @@ type ChatReply struct {
 	NextAttemptAt, CreatedAt, FinishedAt, LastErrorAt                      time.Time
 }
 
-const chatColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,question,project_option,COALESCE(resolved_repo_id,0),answer_attempts,target_ref,presentation_state,presentation_outcome,presentation_generation,presentation_check,reply_attachment,outcome_status`
+const chatColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,question,project_option,COALESCE(resolved_repo_id,0),answer_attempts,target_ref,presentation_state,presentation_outcome,presentation_generation,presentation_check,reply_attachment,outcome_status,conversation_turn_id`
 
 func scanChat(row scanner) (ChatReply, error) {
 	var r ChatReply
 	var next, created, arguments string
 	var finished, last sql.NullString
-	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &arguments, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last, &r.Question, &r.ProjectOption, &r.ResolvedRepoID, &r.AnswerAttempts, &r.TargetRef, &r.PresentationState, &r.PresentationOutcome, &r.PresentationGeneration, &r.PresentationCheck, &r.ReplyAttachment, &r.OutcomeStatus)
+	err := row.Scan(&r.Transport, &r.MessageID, &r.ChannelRef, &r.Command, &arguments, &r.State, &r.ReplyText, &r.Attempts, &next, &created, &finished, &last, &r.Question, &r.ProjectOption, &r.ResolvedRepoID, &r.AnswerAttempts, &r.TargetRef, &r.PresentationState, &r.PresentationOutcome, &r.PresentationGeneration, &r.PresentationCheck, &r.ReplyAttachment, &r.OutcomeStatus, &r.ConversationTurnID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -98,7 +99,7 @@ func (db *DB) ClaimChatReply(ctx context.Context, transport string, at time.Time
 	var r ChatReply
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+chatColumns+` FROM chat_inbox WHERE transport=? AND state IN ('answering','pending','sent') AND next_attempt_at<=? ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at)))
+		r, err = scanChat(tx.QueryRowContext(ctx, `SELECT `+chatColumns+` FROM chat_inbox WHERE transport=? AND command<>'conversation' AND conversation_turn_id='' AND state IN ('answering','pending','sent') AND next_attempt_at<=? ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at)))
 		if err != nil {
 			return err
 		}
@@ -113,7 +114,7 @@ func (db *DB) ClaimChatReply(ctx context.Context, transport string, at time.Time
 
 // SaveChatReply fixes the answer before external I/O so retries use the same text.
 func (db *DB) SaveChatReply(ctx context.Context, r ChatReply, text string) error {
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET reply_text=?,outcome_status=?,resolved_repo_id=COALESCE(NULLIF(?,0),resolved_repo_id) WHERE transport=? AND message_id=? AND state='sent' AND attempts=? AND presentation_outcome='' AND presentation_state IN ('','pending')`, text, r.OutcomeStatus, r.ResolvedRepoID, r.Transport, r.MessageID, r.Attempts)
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET reply_text=?,outcome_status=?,resolved_repo_id=COALESCE(NULLIF(?,0),resolved_repo_id) WHERE transport=? AND message_id=? AND command<>'conversation' AND state='sent' AND attempts=? AND presentation_outcome='' AND presentation_state IN ('','pending')`, text, r.OutcomeStatus, r.ResolvedRepoID, r.Transport, r.MessageID, r.Attempts)
 	return chatAffected(result, err)
 }
 
@@ -128,7 +129,7 @@ func (db *DB) FinishChatReply(ctx context.Context, r ChatReply, failed bool, at 
 		state = "failed"
 		last = FormatTime(at)
 	}
-	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?1,reply_text=CASE WHEN ?1='confirmed' AND command='ask' THEN reply_text ELSE '' END,target_ref='',arguments='{}',question=CASE WHEN ?1='confirmed' AND command='ask' THEN question ELSE '' END,project_option=CASE WHEN ?1='confirmed' AND command='ask' THEN project_option ELSE '' END,resolved_repo_id=NULL,presentation_state='',presentation_outcome='',presentation_generation=0,presentation_check=0,reply_attachment=CASE WHEN ?1='confirmed' THEN reply_attachment ELSE '' END,outcome_status='',finished_at=?2,last_error_at=?3 WHERE transport=?4 AND message_id=?5 AND state='sent' AND attempts=?6`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
+	result, err := db.sql.ExecContext(ctx, `UPDATE chat_inbox SET state=?1,reply_text=CASE WHEN ?1='confirmed' AND command='ask' THEN reply_text ELSE '' END,target_ref='',arguments='{}',question=CASE WHEN ?1='confirmed' AND command='ask' THEN question ELSE '' END,project_option=CASE WHEN ?1='confirmed' AND command='ask' THEN project_option ELSE '' END,resolved_repo_id=NULL,presentation_state='',presentation_outcome='',presentation_generation=0,presentation_check=0,reply_attachment=CASE WHEN ?1='confirmed' THEN reply_attachment ELSE '' END,outcome_status='',finished_at=?2,last_error_at=?3 WHERE transport=?4 AND message_id=?5 AND command<>'conversation' AND state='sent' AND attempts=?6`, state, FormatTime(at), last, r.Transport, r.MessageID, r.Attempts)
 	return chatAffected(result, err)
 }
 

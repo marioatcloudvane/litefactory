@@ -52,15 +52,17 @@ func boundedFailureReason(text string) string {
 	return string(runes[:maxFailureReasonRunes]) + "..."
 }
 
-// renderPlanFailure states the cause and how to retry. Retrying is the owner's
-// act: a reply on the issue starts a fresh attempt, so the text says exactly that.
+// renderPlanFailure states the cause. Exhausted automatic capacity retries
+// do not ask the owner to send a reply merely to retry.
 func renderPlanFailure(r agentresult.Result, _ string, _ naming.Ref, _ string) string {
 	var out strings.Builder
 	out.WriteString("Plan could not finish this step\n\n")
 	out.WriteString(strings.TrimSpace(r.Comment))
 	out.WriteString("\n\nCause: ")
 	out.WriteString(strings.TrimSpace(r.Reason))
-	out.WriteString("\n\nTo retry, reply on this issue. Your reply starts a new Plan attempt from the saved Plan state; the earlier step's result is not reused.")
+	if !strings.Contains(r.Reason, capacityRetriesExhausted) {
+		out.WriteString("\n\nTo retry, reply on this issue. Your reply starts a new Plan attempt from the saved Plan state; the earlier step's result is not reused.")
+	}
 	return out.String()
 }
 

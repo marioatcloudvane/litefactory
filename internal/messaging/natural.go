@@ -51,6 +51,9 @@ func (s *Service) NaturalStep(ctx context.Context, at time.Time) (bool, error) {
 	}
 	sort.Strings(channels)
 	for _, c := range channels {
+		if s.conversationBound(c) {
+			continue
+		}
 		messages, err := s.db.PendingNaturalMessages(ctx, c, 1)
 		if err != nil {
 			return false, err
