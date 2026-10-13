@@ -67,7 +67,7 @@ func budgetDrainTo(t *testing.T, b *discoveryBudget, target int) {
 func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
 	// remaining is given as an offset from that limit's floor, so the cases
 	// keep their meaning when discoveryQuotaDivisor is retuned.
-	floorOf := func(limit int) int { return limit - limit/discoveryQuotaDivisor }
+	floorOf := func(limit int) int { return limit / discoveryReserveDivisor }
 	// Headroom above the floor is exactly what may be spent, one scalar each,
 	// so the allowance is the offset rather than a separate literal.
 	for _, tt := range []struct {
@@ -79,7 +79,8 @@ func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b, _ := budgetFixture(tt.limit, floorOf(tt.limit)+tt.aboveFloor)
-			for i := 0; i < tt.aboveFloor; i++ {
+			// The discovery share can bind before the reserve on small limits.
+			for i := 0; i < min(tt.aboveFloor, tt.limit/discoveryQuotaDivisor); i++ {
 				r := budgetAcquire(t, b, "scalar", 1, false)
 				budgetRequest(b, r, 200, true)
 				r.finish()
@@ -91,7 +92,7 @@ func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
 
 func TestDiscoveryBudget_ConcurrentReservations(t *testing.T) {
 	// Exactly one listing of headroom above the floor, however the share is set.
-	b, _ := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+discoveryListBound)
+	b, _ := budgetFixture(5000, 5000/discoveryReserveDivisor+discoveryListBound)
 	var wg sync.WaitGroup
 	reservations := make(chan *discoveryReservation, 32)
 	for i := 0; i < 32; i++ {
@@ -206,7 +207,8 @@ func TestDiscoveryBudget_Metadata(t *testing.T) {
 			o := tt.observation
 			o.Reset = now.Add(time.Hour)
 			b.observe(o)
-			budgetDenied(t, b, "history", 100, false)
+			// Without usable quota data only the token bucket bounds discovery (#793).
+			budgetAcquire(t, b, "history", 100, false).finish()
 			budgetAcquire(t, b, "probe", 1, true).finish()
 		})
 	}
@@ -222,7 +224,8 @@ func TestDiscoveryBudget_StaleAndProbeCadence(t *testing.T) {
 				b.tick(now.Add(2 * time.Minute))
 				now = now.Add(2 * time.Minute)
 			}
-			budgetDenied(t, b, "history", 100, false)
+			// Stale or missing data no longer starves discovery (#793).
+			budgetAcquire(t, b, "history", 100, false).finish()
 			budgetAcquire(t, b, "probe", 1, true).finish()
 			budgetDenied(t, b, "other_repo_probe", 1, true)
 			b.tick(now.Add(59 * time.Second))
@@ -234,12 +237,14 @@ func TestDiscoveryBudget_StaleAndProbeCadence(t *testing.T) {
 }
 
 func TestDiscoveryBudget_ResetRequiresFreshEvidence(t *testing.T) {
-	b, now := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor)
+	b, now := budgetFixture(5000, 5000/discoveryReserveDivisor)
 	b.tick(now.Add(2 * time.Minute))
 	budgetDenied(t, b, "probe", 1, true)
-	// Passing reset does not fabricate a fresh allowance.
-	b.tick(now.Add(time.Hour))
+	// Within the window the observed reserve still holds.
 	budgetDenied(t, b, "history", 100, false)
+	// After reset the old window no longer applies; the token bucket bounds discovery (#793).
+	b.tick(now.Add(time.Hour))
+	budgetAcquire(t, b, "history", 100, false).finish()
 	r := budgetAcquire(t, b, "probe", 1, true)
 	o := github.RequestObservation{StatusCode: 200, Authenticated: true, CoreRateValid: true, Limit: 5000, Remaining: 4999, Reset: now.Add(2 * time.Hour)}
 	b.observe(o)
@@ -249,7 +254,7 @@ func TestDiscoveryBudget_ResetRequiresFreshEvidence(t *testing.T) {
 }
 
 func TestDiscoveryBudget_MissingMetadataPreservesReserve(t *testing.T) {
-	b, now := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+1)
+	b, now := budgetFixture(5000, 5000/discoveryReserveDivisor+1)
 	b.observe(github.RequestObservation{StatusCode: 200})
 	b.tick(now.Add(2 * time.Minute))
 	budgetDenied(t, b, "probe", 1, true)
@@ -284,15 +289,18 @@ func TestDiscoveryBudget_FreshnessBoundary(t *testing.T) {
 	b, now := budgetFixture(5000, 5000)
 	b.tick(now.Add(2*time.Minute - time.Nanosecond))
 	budgetAcquire(t, b, "history", 100, false).finish()
+	// Stale data inside a known window keeps its reserve but does not block (#793).
 	b.tick(now.Add(2 * time.Minute))
-	budgetDenied(t, b, "history", 100, false)
-	// An expired/reset historical observation must not make stale state fresh.
+	budgetAcquire(t, b, "history", 100, false).finish()
+	// An expired/reset historical observation must not change the known window.
 	b.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: now.Add(-time.Second), StatusCode: 304, Authenticated: true})
-	budgetDenied(t, b, "history", 100, false)
+	if b.view().Fresh {
+		t.Fatal("expired observation made stale state fresh")
+	}
 }
 
 func TestDiscoveryBudget_ForegroundObservationPreservesFloor(t *testing.T) {
-	b, _ := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+100)
+	b, _ := budgetFixture(5000, 5000/discoveryReserveDivisor+100)
 	// Foreground requests don't acquire background reservations, but consume real quota.
 	for range 100 {
 		b.observe(github.RequestObservation{StatusCode: 200, Authenticated: true})
@@ -355,13 +363,20 @@ func TestLinearRequestQuotaFreshnessAndCharging(t *testing.T) {
 	}
 	r.finish()
 	v := b.view()
-	if !v.Fresh || v.Share != 500 || v.Reserve != 500 || v.Spent != 3 || v.InProgress != 0 || v.Burst != discoveryBurst-3 {
+	if !v.Fresh || v.Share != 500 || v.Reserve != 100 || v.Spent != 3 || v.InProgress != 0 || v.Burst != discoveryBurst-3 {
 		t.Fatalf("probe accounting: %+v", v)
 	}
 	other := &discoveryBudget{}
 	other.tick(now)
-	if _, err := other.acquire("ordinary", 1, false); !errors.Is(err, ErrDiscoveryDeferred) {
-		t.Fatalf("borrowed quota: %v", err)
+	// Another budget never borrows b's quota data; without data of its own it
+	// is bounded only by its token bucket (#793).
+	if r, err := other.acquire("ordinary", 1, false); err != nil {
+		t.Fatalf("unobserved budget: %v", err)
+	} else {
+		r.finish()
+	}
+	if other.view().Fresh {
+		t.Fatal("other budget borrowed fresh quota data")
 	}
 	if ordinary, err := b.acquire("ordinary", 1, false); err != nil {
 		t.Fatal(err)
@@ -388,8 +403,11 @@ func TestLinearRequestQuotaFreshnessAndCharging(t *testing.T) {
 		})
 	}
 	b.tick(now.Add(2 * time.Minute))
-	if _, err := b.acquire("ordinary", 1, false); !errors.Is(err, ErrDiscoveryDeferred) {
-		t.Fatal("stale allowance admitted")
+	// Stale data inside the known window keeps its reserve but does not block (#793).
+	if ordinary, err := b.acquire("ordinary", 1, false); err != nil {
+		t.Fatalf("stale allowance within reserve refused: %v", err)
+	} else {
+		ordinary.finish()
 	}
 	r, err = b.acquire("probe", 1, true)
 	if err != nil {
@@ -404,7 +422,7 @@ func TestLinearRequestQuotaFreshnessAndCharging(t *testing.T) {
 	if !b.view().Fresh || b.spent != 0 {
 		t.Fatal("new valid window did not refresh allowance")
 	}
-	valid.Remaining = 500
+	valid.Remaining = 100
 	b.observeLinear(valid)
 	b.tick(now.Add(4 * time.Minute))
 	if _, err := b.acquire("probe", 1, true); !errors.Is(err, ErrDiscoveryDeferred) {

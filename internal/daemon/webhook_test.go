@@ -454,7 +454,7 @@ func TestWebhookHintedCommentRunsWhileDiscoveryIsExhausted(t *testing.T) {
 	// Real quota stays above zero but under the floor, so every background
 	// discovery read is held back.
 	w.forge.mu.Lock()
-	w.forge.quotaRemaining = 2000
+	w.forge.quotaRemaining = 300
 	w.forge.mu.Unlock()
 	backlog := w.sessionOf(testIssue + 1)
 	if err := w.db.SetSessionNeedsPoll(t.Context(), backlog.ID); err != nil {
