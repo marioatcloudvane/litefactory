@@ -337,6 +337,7 @@ func TestTypedApplyRetainsToolRefusalReason(t *testing.T) {
 		{"before-head changed", fmt.Errorf("sync refused: %w", ErrRepairBeforeHeadChanged), ErrRepairBeforeHeadChanged.Error()},
 		{"advisor failed", errors.Join(&RepairConflictError{Category: ErrRepairAdvisorFailed, Paths: paths[:1], Err: errors.New("untrusted advisor stderr")}, errors.New("reset noise")), "conflict advisor refused or failed: docs/stack-profiles.md"},
 		{"advisor timed out", &RepairConflictError{Category: ErrRepairAdvisorTimedOut, Paths: paths[:1], Err: context.DeadlineExceeded}, "conflict advisor timed out: docs/stack-profiles.md"},
+		{"snapshot refused before backup", &RepairConflictError{Category: ErrRepairConfirmationFailed, Paths: []string{"unsupported.txt"}, Err: errors.New("rename/delete/add conflict requires manual resolution")}, "conflict resolution confirmation failed: unsupported.txt"},
 		{"confirmation failed", &RepairConflictError{Category: ErrRepairConfirmationFailed, Paths: paths, Err: errors.New("marker in resolution")}, "conflict resolution confirmation failed: docs/stack-profiles.md, docs/setup.md"},
 		{"merge failed", fmt.Errorf("%w: %w", ErrRepairMergeFailed, errors.New("git output")), "merge failed"},
 		{"recheck failed", fmt.Errorf("%w: behind", ErrRepairRecheckFailed), "recheck failed"},

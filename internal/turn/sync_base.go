@@ -17,6 +17,8 @@ import (
 type SyncBaseTarget struct {
 	Working string
 	Base    string
+	// ExpectedHead pins the checked repair when the caller requires it.
+	ExpectedHead string
 	// Lock takes the working branch's lock. It returns ok false, with no error,
 	// when another writer holds it; the step then answers retry.
 	Lock func(context.Context) (unlock func() error, ok bool, err error)
@@ -27,7 +29,10 @@ type SyncBaseTarget struct {
 // opens the scratch worktree the merge is made in.
 type SyncBaseBinding struct {
 	Repo ImplementRepo
-	Bind func(context.Context, Options, ActivityRequest) (SyncBaseTarget, error)
+	// ResolveConflict optionally resolves in the disposable scratch tree.
+	// Publication and its expected-head guard remain owned by this activity.
+	ResolveConflict func(context.Context, ImplementScratch, SyncBaseTarget) (string, error)
+	Bind            func(context.Context, Options, ActivityRequest) (SyncBaseTarget, error)
 }
 
 // RegisterSyncBase registers lf_sync_base for one mode in both registries.
@@ -94,12 +99,26 @@ func (h SyncBaseActivity) Execute(ctx context.Context, opts Options, req Activit
 		}
 	}()
 
+	if target.ExpectedHead != "" && scratch.Head() != target.ExpectedHead {
+		out.Result, out.Reason = "retry", "the working branch differs from the checked repair head"
+		return implementResult("retry", out)
+	}
+
 	head, merged, err := scratch.Merge(ctx, target.Base)
 	switch {
 	case errors.Is(err, git.ErrMergeConflict):
 		out.Result, out.Reason = "conflict", fmt.Sprintf("%s conflicts with %s; the working branch is unchanged", target.Base, target.Working)
 		out.Conflicts = syncConflictPaths(ctx, scratch, target.Base)
-		return implementResult("conflict", out)
+		if h.b.ResolveConflict == nil {
+			return implementResult("conflict", out)
+		}
+		head, err = h.b.ResolveConflict(ctx, scratch, target)
+		if err != nil {
+			out.Reason += ": " + err.Error()
+			return implementResult("conflict", out)
+		}
+		merged = true
+		out.Reason, out.Conflicts = "", nil
 	case err != nil:
 		return ActivityResult{}, fmt.Errorf("merge %s into %s: %w", target.Base, target.Working, err)
 	}

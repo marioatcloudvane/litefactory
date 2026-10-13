@@ -274,19 +274,14 @@ func (d *Daemon) guardedRecoveryAllowed(ctx context.Context, source store.Report
 // guardedReportAttempt keeps persistence/exclusion checks at the production
 // effect boundary. reportAttempt owns cadence and outage debt independently.
 func (d *Daemon) guardedReportAttempt(ctx context.Context, source store.ReportRecovery, attempt func() (turn.Posted, error)) (turn.Posted, error) {
-	return d.reportAttempt(ctx, source, func() (turn.Posted, error) {
-		held, err := d.doctorHeldSession(ctx, source.SessionID)
-		if err != nil {
-			return turn.Posted{Skipped: true}, err
-		}
-		if held {
-			return turn.Posted{Skipped: true}, &recoveryPending{}
-		}
-		return attempt()
-	})
+	return d.reportAttemptWithGuard(ctx, source, attempt, true)
 }
 
 func (d *Daemon) reportAttempt(ctx context.Context, source store.ReportRecovery, attempt func() (turn.Posted, error)) (turn.Posted, error) {
+	return d.reportAttemptWithGuard(ctx, source, attempt, false)
+}
+
+func (d *Daemon) reportAttemptWithGuard(ctx context.Context, source store.ReportRecovery, attempt func() (turn.Posted, error), guarded bool) (turn.Posted, error) {
 	at := recoveryTime(ctx)
 	allowed, err := d.recoveryAllowed(ctx, source, at)
 	if err != nil {
@@ -296,16 +291,30 @@ func (d *Daemon) reportAttempt(ctx context.Context, source store.ReportRecovery,
 	if !allowed {
 		return turn.Posted{Skipped: true}, &recoveryPending{}
 	}
+	if guarded {
+		held, guardErr := d.doctorHeldSession(ctx, source.SessionID)
+		if guardErr != nil {
+			d.recoveryFailure(ctx, source, at, guardErr)
+			return turn.Posted{Skipped: true}, &recoveryPending{guardErr}
+		}
+		if held {
+			return turn.Posted{Skipped: true}, &recoveryPending{}
+		}
+	}
+	finish := d.observeRecoveryAttempt(ctx, source)
 	posted, err := attempt()
 	if isRecoveryPending(err) {
+		finish("pending")
 		return posted, err
 	}
 	if err != nil {
 		d.recoveryFailure(ctx, source, at, err)
+		finish("failed")
 
 		return posted, &recoveryPending{err}
 	}
 	d.recoverySucceeded(ctx, source.Key)
+	finish("resolved")
 	return posted, nil
 }
 
@@ -324,14 +333,42 @@ func (d *Daemon) reportReply(ctx context.Context, req turn.ReplyRequest) (turn.P
 
 // A blocked source retains this task's ordering but needs no worker until due.
 func (d *Daemon) sessionRecoveryHeld(sessionID int64, at time.Time) bool {
+	_, held := d.sessionRecoveryHold(sessionID, at)
+	return held
+}
+
+func (d *Daemon) sessionRecoveryHold(sessionID int64, at time.Time) (store.ReportRecovery, bool) {
 	d.recoveries.mu.Lock()
 	defer d.recoveries.mu.Unlock()
+	var selected store.ReportRecovery
+	found := false
 	for _, row := range d.recoveries.items {
 		if row.State != "resolved" && row.SessionID == sessionID && (row.NextAt.IsZero() || at.Before(row.NextAt)) {
-			return true
+			if !found || row.Key < selected.Key {
+				selected, found = row, true
+			}
 		}
 	}
-	return false
+	return selected, found
+}
+
+// observeRecoveryAttempt observes existing debt only, after all eligibility
+// guards. The returned function reads the resulting cached state without I/O.
+func (d *Daemon) observeRecoveryAttempt(ctx context.Context, source store.ReportRecovery) func(string) {
+	d.recoveries.mu.Lock()
+	row, exists := d.recoveries.items[source.Key]
+	d.recoveries.mu.Unlock()
+	if !exists || row.State == "resolved" {
+		return func(string) {}
+	}
+	log := d.log.With(slog.Int64("session_id", row.SessionID), slog.String("task", row.Task), slog.String("recovery", row.Key))
+	log.InfoContext(ctx, "report recovery attempt")
+	return func(outcome string) {
+		d.recoveries.mu.Lock()
+		current := d.recoveries.items[source.Key]
+		d.recoveries.mu.Unlock()
+		log.InfoContext(ctx, "report recovery attempt outcome", slog.String("outcome", outcome), slog.String("state", current.State), slog.String("reason", current.Reason), slog.Time("next_eligible", current.NextAt))
+	}
 }
 
 func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bool, error) {
@@ -368,17 +405,23 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 	if !allowed {
 		return true, &recoveryPending{}
 	}
+	finish := d.observeRecoveryAttempt(ctx, source)
 	_, pending, err := reporter.ReportPending(ctx, t.session.ID, triggerID)
 	if err != nil {
 		d.recoveryFailure(ctx, source, t.tickAt, err)
+		finish("failed")
 		return true, &recoveryPending{err}
 	}
 	if pending {
 		if err := d.retireModeSelections(ctx, t.session.ID); err != nil {
 			d.recoveryFailure(ctx, source, t.tickAt, &turn.DeliveryError{State: "cleanup", Cause: err})
+			finish("failed")
 			return true, &recoveryPending{err}
 		}
 		d.recoverySucceeded(ctx, source.Key)
+		finish("resolved")
+	} else {
+		finish("no-delivery-found")
 	}
 	return pending, nil
 }
