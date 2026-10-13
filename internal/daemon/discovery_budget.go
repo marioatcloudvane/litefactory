@@ -171,10 +171,12 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 		if b.limit > 0 && b.now.Before(b.reset) && (b.remaining <= b.floorLocked() || b.spent >= b.discoveryShareLocked()) {
 			return deny()
 		}
-	} else {
-		if !b.freshLocked() {
-			return deny()
-		}
+	} else if b.limit > 0 && b.now.Before(b.reset) {
+		// Within a known window the reserve and the discovery share apply,
+		// fresh or not. Without usable quota data (none observed yet, or the
+		// window has passed) only the token bucket bounds discovery: requiring
+		// fresh evidence here starved every read whose budget never receives
+		// observations (#793). Real refusals still arm the backoff.
 		if len(b.waiters) > 0 && b.waiters[0].key != key && !discoveryPrerequisite(key, b.waiters[0].key) {
 			// Materializing a deferred parent's task can require an unrelated
 			// scalar identity read. Permit it only while preserving the head
