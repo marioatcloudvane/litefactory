@@ -1294,7 +1294,7 @@ func TestLinearProbeOwnQuotaAndHiddenRefusal(t *testing.T) {
 	if requests.Load() != 1 {
 		t.Fatalf("cold probe requests=%d", requests.Load())
 	}
-	if !view.Fresh || view.Share != 500 || view.Reserve != 500 || view.Spent != int(requests.Load()) || view.InProgress != 0 || view.Burst != discoveryBurst-float64(requests.Load()) {
+	if !view.Fresh || view.Share != 500 || view.Reserve != 100 || view.Spent != int(requests.Load()) || view.InProgress != 0 || view.Burst != discoveryBurst-float64(requests.Load()) {
 		t.Fatalf("probe accounting: %+v requests=%d", view, requests.Load())
 	}
 	clients, err := f.d.connections.Clients(ctx, version, 0)
