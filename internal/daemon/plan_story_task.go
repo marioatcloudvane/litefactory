@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"hash/fnv"
 	"log/slog"
 	"strconv"
@@ -233,7 +232,14 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 		}
 		session, err := d.managedChildSession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
 		if err != nil {
-			return fmt.Errorf("find the task of story %s: %w", story.Key, err)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// One story whose task cannot be resolved must not fail discovery for
+			// every other task and project; it is retried on the next tick.
+			q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
+				slog.String("parent", story.Parent), slog.String("story", story.Key), slog.Any("error", err))
+			continue
 		}
 		attempted, err := d.db.ScheduleAttempted(ctx, session.ID, id)
 		if err != nil {
