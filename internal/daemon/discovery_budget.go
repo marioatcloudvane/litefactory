@@ -293,7 +293,14 @@ func (d *Daemon) linearFallback(ctx context.Context, v store.ConnectionVersion, 
 	return context.WithValue(ctx, quotaReservationKey{}, r), r.finish, nil
 }
 
-func (b *discoveryBudget) floorLocked() int { return b.limit - b.discoveryShareLocked() }
+// discoveryReserveDivisor sets how much of the window stays reserved for
+// execution and reporting: background discovery may not take remaining below
+// limit/discoveryReserveDivisor. Tying the reserve to the discovery share
+// (half the window) starved every owner comment once runs had used half of
+// the hourly allowance, until the reset (#793).
+const discoveryReserveDivisor = 10
+
+func (b *discoveryBudget) floorLocked() int { return b.limit / discoveryReserveDivisor }
 
 // discoveryShareLocked is how many requests of the current window background
 // discovery may spend, the complement of [discoveryBudget.floorLocked].

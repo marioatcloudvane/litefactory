@@ -91,7 +91,7 @@ func exhaustDiscovery(f *discoveryHTTPFixture) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.spent = b.discoveryShareLocked()
-	b.remaining = b.floorLocked() - 500
+	b.remaining = b.floorLocked() / 2
 	b.waiters = []discoveryWaiter{{key: "someone-else", cost: 1, seen: b.now}}
 }
 
