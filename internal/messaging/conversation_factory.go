@@ -444,7 +444,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 		return result, nil, nil
 	}
 	args := map[string]string{"project": p.Project}
-	for _, name := range []string{"issue", "revision", "code"} {
+	for _, name := range []string{"issue", "task", "revision", "code"} {
 		if value := p.Invocation.Arguments[name]; value != "" {
 			args[name] = value
 		}
