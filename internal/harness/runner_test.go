@@ -1725,3 +1725,35 @@ func TestValidateRequestBoundsTheReviewerShell(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderCapacityEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, terminal string
+		want           bool
+	}{
+		{"capacity", `{"type":"result","is_error":true,"errors":["Selected model is at capacity."]}`, true},
+		{"overload", `{"type":"result","is_error":true,"errors":["overloaded_error"]}`, true},
+		{"429", `{"type":"result","is_error":true,"errors":["HTTP 429"]}`, true},
+		{"529", `{"type":"result","is_error":true,"errors":["HTTP 529"]}`, true},
+		{"quota", `{"type":"result","is_error":true,"errors":["HTTP 429 insufficient_quota"]}`, false},
+		{"auth", `{"type":"result","is_error":true,"errors":["HTTP 429 invalid api key"]}`, false},
+		{"prose", `{"type":"result","is_error":true,"result":"model is at capacity"}`, false},
+		{"success", `{"type":"result","is_error":false,"errors":["HTTP 429"]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, emit(t, tc.terminal)+"exit 1\n")
+			req := f.request()
+			req.Path = agent.PathResume
+			result, err := f.runner.Run(t.Context(), req)
+			if (result.Transient != nil) != tc.want {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			if tc.want && err != nil {
+				t.Fatalf("capacity became resume refusal: %v", err)
+			}
+			if tc.want && result.Transient.Model == "" {
+				t.Fatal("capacity lost selected model")
+			}
+		})
+	}
+}

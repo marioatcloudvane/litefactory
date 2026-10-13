@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // StoryRefinement is an admitted owner discussion. Admission is durable but does
@@ -185,6 +187,37 @@ JOIN sessions s ON s.task_ref=d.parent
 JOIN plan_execution_paths p ON p.session_id=s.id AND p.path='graph'
 WHERE s.repo_id=? AND d.issue_number=?
 ORDER BY s.id LIMIT 1`, repoID, number).Scan(&parent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return parent, err
+}
+
+// GraphPlanParentForPreparedChild recognizes a Linear shell before its numeric
+// mapping is saved. Only the exact prepared Plan effect and qualified parent
+// locator establish ownership; remote issue text does not.
+func (db *DB) GraphPlanParentForPreparedChild(ctx context.Context, repoID int64, ref ticket.Ref) (string, error) {
+	if err := ref.Validate(); err != nil {
+		return "", err
+	}
+	if ref.Identity.Provider != ticket.Linear {
+		return "", ErrNotFound
+	}
+	var parent string
+	err := db.sql.QueryRowContext(ctx, `
+SELECT d.parent FROM ticket_effect_preparations e
+JOIN plan_story_drafts d ON e.effect_key='plan-shell:' || d.parent || ':' || d.story_key
+JOIN sessions s ON s.task_ref=d.parent
+JOIN plan_execution_paths p ON p.session_id=s.id AND p.path='graph'
+JOIN session_ticket_identities i ON i.session_id=s.id
+JOIN session_execution_snapshots x ON x.session_id=s.id
+JOIN project_connection_versions v ON v.id=x.ticket_version_id
+JOIN ticket_effect_identities b ON b.effect_key=e.effect_key
+WHERE e.creation_uuid=? AND s.repo_id=? AND x.repo_id=s.repo_id AND v.repo_id=s.repo_id
+AND v.role='ticket' AND v.provider=? AND v.api_origin=? AND v.destination=?
+AND i.provider=v.provider AND i.api_origin=v.api_origin AND i.container=v.destination
+AND b.provider=i.provider AND b.api_origin=i.api_origin AND b.container=i.container AND b.locator_key=i.locator_key
+AND d.retired=0`, ref.Identity.RemoteID, repoID, ref.Identity.Provider, ref.Identity.Origin, ref.Locator.Container).Scan(&parent)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}

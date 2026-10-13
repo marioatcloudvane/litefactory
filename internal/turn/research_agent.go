@@ -41,7 +41,7 @@ var ErrAgentTimedOut = errors.New("agent run exceeded its time budget")
 // ResearchInvocation contains factory-prepared delivery and result authority.
 // Close joins the live helper transports before exit-time result validation.
 // The caller owns run settlement. Only a refused resume permits one cold fallback;
-// other failures never retry, and this handler never publishes.
+// capacity refusals retry within this invocation, and this handler never publishes.
 type ResearchInvocation struct {
 	Request     agent.Request
 	ColdRequest *agent.Request
@@ -57,8 +57,10 @@ type ResearchInvocation struct {
 // helper setup and runs it under an explicit admitted mode policy. Prepare must
 // not start a subprocess or publish an effect.
 type AgentActivity struct {
-	Policy  WorkflowPolicy
-	Prepare func(context.Context, Options, ActivityRequest) (ResearchInvocation, error)
+	Policy WorkflowPolicy
+	// WaitCapacity overrides the cancellable backoff in tests.
+	WaitCapacity func(context.Context, time.Duration) error
+	Prepare      func(context.Context, Options, ActivityRequest) (ResearchInvocation, error)
 }
 
 // RegisterAgent declares one successful private result outcome. ask/done
@@ -195,11 +197,19 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 		runCtx, cancel = context.WithTimeout(ctx, agentBudgetClock(budget))
 		defer cancel()
 	}
+	// The runner's wall-clock allowance also bounds the whole invocation,
+	// including waits and relaunches, rather than restarting for each process.
+	budgetCtx := runCtx
+	if timed, ok := runner.(interface{ Timeout() time.Duration }); ok && timed.Timeout() > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(runCtx, timed.Timeout())
+		defer cancel()
+	}
 	if _, err := runStackSetup(runCtx, opts, req, a.Attrs); err != nil {
 		return out, err
 	}
-	result, runErr := RunResearchMetered(runCtx, opts.DB, invocation.Kind, req, runner)
-	if errors.Is(runErr, agent.ErrSessionNotResumable) && invocation.ColdRequest != nil && runCtx.Err() == nil {
+	result, retries, runErr := h.runCapacity(runCtx, opts, invocation, req, runner)
+	if retries == 0 && (result == nil || result.Transient == nil) && errors.Is(runErr, agent.ErrSessionNotResumable) && invocation.ColdRequest != nil && runCtx.Err() == nil {
 		cold := *invocation.ColdRequest
 		cold.Invocation, cold.Graph = req.Invocation, req.Graph
 		cold.StackProfile = req.StackProfile
@@ -215,14 +225,14 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 		if invocation.Observe != nil {
 			invocation.Observe(cold)
 		}
-		result, runErr = RunResearchMetered(runCtx, opts.DB, invocation.Kind, cold, runner)
+		result, _, runErr = h.runCapacity(runCtx, opts, invocation, cold, runner)
 	}
 	var closeErr error
 	if invocation.Close != nil {
 		closeErr = invocation.Close()
 	}
 	closed = true
-	if budgeted && ctx.Err() == nil && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+	if budgeted && ctx.Err() == nil && errors.Is(budgetCtx.Err(), context.DeadlineExceeded) {
 		if result != nil {
 			out.ProcessResult = result.Clone()
 		}
@@ -232,6 +242,11 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	}
 	if result == nil {
 		return out, errors.Join(errors.New("research invocation produced no process result"), runErr, closeErr)
+	}
+	if ctx.Err() == nil && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		result = result.Clone()
+		result.Outcome, result.Reason, result.Transient = agent.OutcomeTimedOut, "agent invocation exceeded its wall-clock limit", nil
+		runErr = errors.Join(runErr, context.DeadlineExceeded)
 	}
 	out.ProcessResult = result.Clone()
 	failed := runErr != nil || !result.Succeeded() || ctx.Err() != nil
@@ -250,6 +265,10 @@ func (h AgentActivity) execute(ctx context.Context, opts Options, a ActivityRequ
 	if failed {
 		out.Diagnostic = result.Reason
 		failureErr := errors.Join(fmt.Errorf("research process outcome: %s", result.Outcome.String()), runErr, closeErr, ctx.Err())
+		if errors.Is(runErr, errCapacityRetriesExhausted) {
+			failureErr = errors.Join(runErr, closeErr, ctx.Err())
+			out.Diagnostic = runErr.Error()
+		}
 		if h.Policy.Workflow == agent.WorkflowBug || h.Policy.Mode == agent.ModeResearch {
 			retained, retainErr := h.retainFailedSubmission(context.WithoutCancel(ctx), invocation.Results)
 			out.Kind, out.Output = retained.Kind, retained.Output
@@ -474,4 +493,59 @@ func implementAttemptGuidance(req agent.Request, attrs map[string]string, runner
 		b.WriteString("\nThis attempt has a wall-clock limit; there is no other budget (no token, context or cost budget), so do not stop early for budget reasons.\n")
 	}
 	return b.String(), nil
+}
+
+const capacityRetriesExhausted = "provider capacity retries exhausted"
+
+var errCapacityRetriesExhausted = errors.New(capacityRetriesExhausted)
+
+// runCapacity keeps helper/result authority live and the graph attempt unsettled.
+// Only proven absence of this attempt's accepted result permits another process.
+func (h AgentActivity) runCapacity(ctx context.Context, opts Options, invocation ResearchInvocation, req agent.Request, runner agent.Runner) (*agent.RunResult, int, error) {
+	result, err := RunResearchMetered(ctx, opts.DB, invocation.Kind, req, runner)
+	retries := 0
+	for ; result != nil && result.Outcome == agent.OutcomeFailed && result.Transient != nil && result.Interruption == nil && err == nil; retries++ {
+		if ctx.Err() != nil {
+			return result, retries, ctx.Err()
+		}
+		if _, _, readErr := invocation.Results.retainedCurrent(ctx); !errors.Is(readErr, errNoRetainedResult) {
+			return result, retries, readErr
+		}
+		if retries == 3 {
+			return result, retries, fmt.Errorf("%w: %s model %.120s: %s; retried %d times", errCapacityRetriesExhausted, invocation.Kind, result.Transient.Model, result.Transient.Cause, retries)
+		}
+		wait := h.WaitCapacity
+		if wait == nil {
+			wait = waitCapacity
+		}
+		if waitErr := wait(ctx, (30*time.Second)<<retries); waitErr != nil {
+			return result, retries, waitErr
+		}
+		if ctx.Err() != nil {
+			return result, retries, ctx.Err()
+		}
+		if _, _, readErr := invocation.Results.retainedCurrent(ctx); !errors.Is(readErr, errNoRetainedResult) {
+			return result, retries, readErr
+		}
+		run, readErr := opts.DB.GetRun(ctx, req.Graph.RunID)
+		if readErr != nil {
+			return result, retries, readErr
+		}
+		if _, stopped := run.OwnerStop(); stopped {
+			return result, retries, errors.New("agent invocation stopped by owner")
+		}
+		result, err = RunResearchMetered(ctx, opts.DB, invocation.Kind, req, runner)
+	}
+	return result, retries, err
+}
+
+func waitCapacity(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

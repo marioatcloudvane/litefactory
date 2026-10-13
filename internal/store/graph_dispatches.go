@@ -494,3 +494,75 @@ func (db *DB) WakeGraphInstance(ctx context.Context, instanceID int64, node stri
 	})
 	return woken, err
 }
+
+// ListInterruptedGraphDispatches finds allocated ownership whose run has ended
+// or is missing. Selection grants no retry authority; settlement rechecks it.
+func (db *DB) ListInterruptedGraphDispatches(ctx context.Context) ([]GraphDispatch, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE status='running' AND allocated_run_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM runs WHERE id=allocated_run_id AND status IN ('prelaunch','running')) ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GraphDispatch
+	for rows.Next() {
+		d, err := scanGraphDispatch(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// ReconcileGraphDispatch closes interrupted ownership without rewriting run
+// history. The caller holds task exclusion and validates the exact capture before
+// permitting a successor. Attempts and effects belong to their recovery owners.
+func (db *DB) ReconcileGraphDispatch(ctx context.Context, id int64, captureID int64, at time.Time) error {
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		d, err := scanGraphDispatch(tx.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE id=?`, id))
+		if err != nil {
+			return err
+		}
+		if d.Status != "running" || d.AllocatedRunID == 0 {
+			return nil
+		}
+		var protected bool
+		err = tx.QueryRowContext(ctx, `SELECT
+EXISTS(SELECT 1 FROM runs WHERE (id=? OR session_id=?) AND status IN ('prelaunch','running')) OR
+EXISTS(SELECT 1 FROM doctor_held_session_owners WHERE session_id=?) OR
+EXISTS(SELECT 1 FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running')) OR
+EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','dispatched','uncertain'))`, d.AllocatedRunID, d.SessionID, d.SessionID, d.InstanceID, d.InstanceID).Scan(&protected)
+		if err != nil || protected {
+			return err
+		}
+		instance, err := scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, d.InstanceID))
+		if err != nil {
+			return err
+		}
+		var waiting, superseded bool
+		err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_owner_waits WHERE instance_id=? AND state IN ('waiting','claimed')), EXISTS(SELECT 1 FROM graph_instances WHERE session_id=? AND id>?)`, instance.ID, instance.SessionID, instance.ID).Scan(&waiting, &superseded)
+		if err != nil {
+			return err
+		}
+		retry := instance.Status == GraphRunning && !waiting && !superseded
+		if retry && (captureID == 0 || captureID != d.LaunchID) {
+			return nil
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='finished',finished_at=? WHERE id=?`, FormatTime(at), d.ID); err != nil {
+			return err
+		}
+		if !retry {
+			_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=NULL WHERE id=?`, instance.ID)
+			return err
+		}
+		due := instance.NextDueAt
+		if due.IsZero() {
+			due = at
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id) VALUES(?,?,?,?,'pending',?,?)`, instance.ID, instance.SessionID, instance.CurrentNode, FormatTime(due), FormatTime(at), captureID); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=? WHERE id=?`, FormatTime(due), instance.ID)
+		return err
+	})
+}

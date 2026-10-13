@@ -232,3 +232,52 @@ func TestValidateRejectsThirdPersonSelfDescription(t *testing.T) {
 		}
 	}
 }
+
+func TestExactDecimalCostsKeepProtection(t *testing.T) {
+	t.Parallel()
+	for _, cost := range []string{"310.855329500000", "279.378863300000", "12345678.12345678"} {
+		t.Run(cost, func(t *testing.T) {
+			raw := "Observed lower bound USD: " + cost + "; total unknown."
+			o := FromSource(raw, Uncertain, "English")
+			if len(o.Protected) != 1 || o.Protected[0].Source.Value != raw || o.Protected[0].Source.Start != 0 || o.Protected[0].Source.End != len(raw) {
+				t.Fatalf("protected source span changed: %+v", o.Protected)
+			}
+			candidate := Candidate{Claims: []Claim{{Text: "Your observed lower bound is " + cost + " USD; the total is unknown.", Facts: []string{"result"}}}}
+			check := Check{Findings: []Finding{{Claim: 0, Support: Supported}}}
+			payload, state, err := Render(o, candidate, check)
+			if err != nil || state != Narrated || payload.Content != candidate.Claims[0].Text || payload.Attachment.Content != raw {
+				t.Fatalf("exact cost rejected: %+v %s %v", payload, state, err)
+			}
+		})
+	}
+	for _, text := range []string{
+		"Your cost is 310.86 USD.", "Your cost is 310.8553295 USD.", "Your cost is 311.855329500000 USD.",
+		"Revision abcdefab", "Revision 855329500000", "Revision deadbeef.310.855329500000",
+		"Visit 310.855329500000.example.com", "Visit example.com for 310.855329500000 USD.",
+		"Revision 310.855329500000.deadbeef", "Revision 310.855329500000 and abcdefab",
+	} {
+		t.Run(text, func(t *testing.T) {
+			// Include protected text in the source so rejection cannot rely on absent numbers.
+			o := FromSource("Cost: 310.855329500000 USD\nRevision: 855329500000 deadbeef abcdefab\nexample.com", Success, "English")
+			if err := (Candidate{Claims: []Claim{{Text: text, Facts: []string{"result"}}}}).Validate(o); err == nil {
+				t.Fatalf("invalid prose accepted: %q", text)
+			}
+		})
+	}
+}
+
+func TestClaimBudgetRemainsSix(t *testing.T) {
+	t.Parallel()
+	o := FromSource("No runs.", Success, "English")
+	c := Candidate{}
+	for range 6 {
+		c.Claims = append(c.Claims, Claim{Text: "You have no runs.", Facts: []string{"result"}})
+	}
+	if err := c.Validate(o); err != nil {
+		t.Fatal(err)
+	}
+	c.Claims = append(c.Claims, c.Claims[0])
+	if err := c.Validate(o); err == nil || !strings.Contains(err.Error(), "invalid claim count") {
+		t.Fatalf("seven claims must be rejected: %v", err)
+	}
+}

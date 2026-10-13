@@ -53,6 +53,11 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 	}
 	ctx = quotaVersionContext(ctx, version)
 	ctx = context.WithValue(ctx, recoveryTickKey{}, now)
+	ctx, finish, err := d.linearFallback(ctx, version, false)
+	if err != nil {
+		return false, err
+	}
+	defer finish()
 	clients, err := d.connections.Clients(ctx, version, 0)
 	if err != nil {
 		return false, err
@@ -259,6 +264,24 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if err != nil {
 			return err
 		}
+		ctx := quotaVersionContext(ctx, version)
+		ctx, finish, err := d.linearFallback(ctx, version, true)
+		if err != nil {
+			failedSources[version.ID] = true
+			continue
+		}
+		transferred := false
+		defer func() {
+			if !transferred {
+				finish()
+			}
+		}()
+		transfer := func(c *candidate) {
+			if r, ok := ctx.Value(quotaReservationKey{}).(*discoveryReservation); ok && r.fallback {
+				seen[c.session.ID].discoveryReservation = r
+				transferred = true
+			}
+		}
 		parent, err := d.observationParent(ctx, q, observation)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -274,6 +297,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		}
 		if parent != nil {
 			d.queueObservation(q, seen, parent, observation)
+			transfer(parent)
 			continue
 		}
 		identity := ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}
@@ -353,7 +377,9 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 			})
 			if e != nil {
 				failedSources[observation.ConnectionVersionID] = true
-				q.log.WarnContext(ctx, "pending source container verification deferred", slog.Any("error", e))
+				if !d.scopedQuotaDeferred(readCtx, e) {
+					q.log.WarnContext(ctx, "pending source container verification deferred", slog.Any("error", e))
+				}
 				continue
 			}
 			verifiedContainers[version.ID] = container
@@ -436,6 +462,7 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 				return err
 			}
 			d.queueObservation(q, seen, c, observation)
+			transfer(c)
 		} else if issue.State == "closed" {
 			if err := d.db.ClearPendingTicketObservation(ctx, observation.ConnectionVersionID, observation.TicketID, observation.Generation); err != nil {
 				warnRejection("closed_unadmitted", "retained", err)
@@ -520,6 +547,10 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 	if errors.Is(err, store.ErrNotFound) {
 		parent, err = d.db.GraphPlanParentForChild(ctx, q.repo.ID, number)
 	}
+	if errors.Is(err, store.ErrNotFound) && observation.Provider == ticket.Linear {
+		ref := ticket.Ref{Identity: ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}, Locator: ticket.Locator{Provider: observation.Provider, Origin: observation.Origin, Container: observation.Container, Key: observation.TicketID}}
+		parent, err = d.db.GraphPlanParentForPreparedChild(ctx, q.repo.ID, ref)
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
@@ -543,7 +574,16 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 		return nil, err
 	}
 	if version.Provider != observation.Provider || version.Origin != observation.Origin || version.Destination != observation.Container || snapshot.TicketRemoteID != observation.ContainerID {
+		if observation.Provider == ticket.Linear {
+			return nil, store.ErrBindingConflict
+		}
 		return nil, nil
+	}
+	if observation.Provider == ticket.Linear {
+		ref := ticket.Ref{Identity: ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}, Locator: ticket.Locator{Provider: observation.Provider, Origin: observation.Origin, Container: observation.Container, Key: observation.TicketID}}
+		if err := d.db.CheckTicketBindingSource(ctx, store.TicketBinding{RepoID: q.repo.ID, ConnectionVersionID: observation.ConnectionVersionID, Ref: ref}, version); err != nil {
+			return nil, err
+		}
 	}
 	held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
 	if err != nil {
@@ -570,7 +610,7 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 	if err != nil {
 		return nil, err
 	}
-	if verified.Ref.Identity.RemoteID != observation.TicketID {
+	if verified.Ref.Identity != (ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}) || verified.Ref.Locator.Container != observation.Container {
 		return nil, store.ErrTicketIdentityConflict
 	}
 	if err := d.db.MarkStoryDiscoveryPending(ctx, session.ID, number); err != nil {
@@ -621,7 +661,11 @@ func (d *Daemon) rotateTicketObservations(pending []store.PendingTicketObservati
 		for index := range count {
 			out = append(out, observations[(offset+index)%len(observations)])
 		}
-		d.pendingObservationCursor[version] = (offset + count) % len(observations)
+		advance := count
+		if observations[0].Provider == ticket.Linear {
+			advance = 1
+		}
+		d.pendingObservationCursor[version] = (offset + advance) % len(observations)
 	}
 	return out
 }

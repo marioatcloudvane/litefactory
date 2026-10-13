@@ -138,6 +138,9 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 		return false, nil
 	}
 	if consumed, e := d.consumed(ctx, t.session.ID, trigger.CommentID); e != nil || consumed {
+		if consumed {
+			d.commentFate(ctx, t, trigger.CommentID, fateIgnored, "ignored, stopped graph reply was already consumed")
+		}
 		return consumed, e
 	}
 	if _, err = d.db.GetTaskWorkflowAdmission(ctx, t.session.ID); errors.Is(err, store.ErrNotFound) {
@@ -146,8 +149,13 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 		return false, err
 	}
 	acquired, err := d.db.AcquireSessionLock(ctx, t.session.ID, d.instanceID)
-	if err != nil || !acquired {
+	if err != nil {
 		return true, err
+	}
+	if !acquired {
+		d.commentFate(ctx, t, trigger.CommentID, fateDeferred, "deferred, stopped graph reply recovery is waiting for the session lock")
+		t.recordWorkerStatus(workerDeferred)
+		return true, nil
 	}
 	defer func() {
 		err = errors.Join(err, d.db.ReleaseSessionLock(context.WithoutCancel(ctx), t.session.ID, d.instanceID))
@@ -180,12 +188,19 @@ func (d *Daemon) recoverGraphReply(ctx context.Context, t *task, trigger turn.Tr
 		return true, d.refuseGraphResume(ctx, t, trigger, instance.CurrentNode, "it is already scheduled to continue")
 	}
 	issue, err := d.readIssue(ctx, t.forgeRepo, t.session.IssueNumber)
-	if err != nil || issue.State != github.StateOpen {
+	if err != nil {
 		return true, err
+	}
+	if issue.State != github.StateOpen {
+		d.commentFate(ctx, t, trigger.CommentID, fateIgnored, "ignored, stopped graph reply cannot resume a closed issue")
+		return true, nil
 	}
 	_, err = d.db.ParkGraphInstanceForReply(ctx, instance.ID, instance.CurrentNode, t.tickAt.UTC(), trigger.CommentID)
 	if refusal := (*store.GraphReplyResumeRefusal)(nil); errors.As(err, &refusal) {
 		return true, d.refuseGraphResume(ctx, t, trigger, instance.CurrentNode, refusal.Reason)
+	}
+	if err == nil {
+		d.commentFate(ctx, t, trigger.CommentID, fateQueued, "queued, stopped graph reply scheduled recovery at node "+instance.CurrentNode)
 	}
 	return true, err
 }
