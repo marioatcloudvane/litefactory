@@ -94,7 +94,7 @@ func TestNativeInterpreterPromptReadsTyposAndFollowUps(t *testing.T) {
 	if _, err := (&NativeInterpreter{Model: p}).Interpret(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"staud" means status`, `"livrary" means litefactory`, "never treat a typo as a cut-off", "proposes the status command without asking back", "only when two or more readings remain plausible", "previous_reply", "never a source for arguments", `"previous_reply":"If you mean the whole project`} {
+	for _, want := range []string{`"staud" means status`, `"livrary" means litefactory`, "never treat a typo as a cut-off", "proposes the status command without asking back", "only when two or more readings remain plausible", "previous_reply", "never a source for arguments", "16-character confirmation code", "8-character feature preview code", "12-character research question token", "confirmation authorization is deterministic", `"previous_reply":"If you mean the whole project`} {
 		if !strings.Contains(p.prompt, want) {
 			t.Errorf("prompt lacks %q", want)
 		}
@@ -103,7 +103,7 @@ func TestNativeInterpreterPromptReadsTyposAndFollowUps(t *testing.T) {
 
 func TestDecodeInterpretationRejectsPreviousReplySpans(t *testing.T) {
 	r := interpretationRequest()
-	r.PreviousReply = "draft from the previous reply"
+	r.PreviousReply = "Delivered proposal (context only): Confirmation code: a03a88fba8cffa35; Proposed action: draft; Project: marioatcloudvane/litefactory"
 	for _, source := range []string{"previous_reply", "unknown"} {
 		raw := `{"version":1,"kind":"propose","command":"draft","arguments":[{"name":"note","source_id":"` + source + `","start":6,"end":10}]}`
 		if _, _, err := DecodeInterpretation([]byte(raw), r); err == nil {
