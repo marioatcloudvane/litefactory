@@ -63,6 +63,9 @@ func (t *task) recordWorkerError(err error) {
 // admission through the defers but are not represented as normal completion.
 func (d *Daemon) runWorker(ctx context.Context, t *task, body func()) {
 	defer d.pool.done()
+	if t.discoveryReservation != nil {
+		defer t.discoveryReservation.finish()
+	}
 	started := time.Now() // Private monotonic diagnostic timer, never scheduling time.
 	t.worker = &workerState{}
 	func() {

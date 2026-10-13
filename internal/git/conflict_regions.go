@@ -12,11 +12,12 @@ import (
 	"unicode/utf8"
 )
 
-// Fixed region safety limits are intentionally not configurable overrides.
+// Safety ceilings remain independent of the configured aggregate input budget.
+// MaxConflictRegionBytes matches the maximum supported input setting.
 const (
 	RegionProposalVersion    = 1
 	MaxConflictOriginalBytes = 1 << 20
-	MaxConflictRegionBytes   = 8192
+	MaxConflictRegionBytes   = 1 << 20
 	MaxConflictProposalFiles = 100
 	MaxConflictOutputBytes   = 1 << 20
 )
@@ -46,6 +47,8 @@ type RegionResolution struct {
 type ConflictSnapshot struct {
 	Path, Original, Baseline, Mode, BranchSHA string
 	Regions                                   []ConflictRegion
+	ancestor, other                           string
+	hasAncestor                               bool
 }
 
 // ConflictMetrics measure exact raw task-branch baseline and result bytes.
@@ -370,4 +373,124 @@ func rawConflictDiff(before, after string) string {
 		}
 	}
 	return out.String()
+}
+
+// ResolveConflictAdditions proves same-gap additions using immutable side blobs.
+// Exact ancestor prefixes prove EOF appends. Interior insertions additionally
+// require unique ancestor embeddings. Other edits fall back to the advisor.
+func ResolveConflictAdditions(s ConflictSnapshot) ([]RegionResolution, bool) {
+	if !s.hasAncestor {
+		return nil, false
+	}
+	gap, ours, ok := conflictAddition(s.ancestor, s.Baseline)
+	otherGap, theirs, otherOK := conflictAddition(s.ancestor, s.other)
+	if !ok || !otherOK || gap != otherGap {
+		return nil, false
+	}
+	union := ours
+	if ours != theirs {
+		if overlappingAdditions(ours, theirs) {
+			return nil, false
+		}
+		union += theirs
+	}
+	expected := s.ancestor[:gap] + union + s.ancestor[gap:]
+	regions, err := ParseConflictRegions(s.Path, s.Original)
+	if err != nil || len(regions) != 1 {
+		return nil, false
+	}
+	// Git may move shared addition prefixes/suffixes outside its markers. Keep
+	// those exact bytes and resolve only the identified span.
+	r := regions[0]
+	prefix, suffix := s.Original[:r.Start], s.Original[r.End:]
+	if len(prefix)+len(suffix) > len(expected) || !strings.HasPrefix(expected, prefix) || !strings.HasSuffix(expected, suffix) {
+		return nil, false
+	}
+	return []RegionResolution{{ID: r.ID, Resolution: expected[len(prefix) : len(expected)-len(suffix)]}}, true
+}
+
+func conflictAddition(ancestor, side string) (int, string, bool) {
+	if len(side) <= len(ancestor) {
+		return 0, "", false
+	}
+	// Appending after an unterminated line would replace that line.
+	if strings.HasPrefix(side, ancestor) && (ancestor == "" || strings.HasSuffix(ancestor, "\n")) {
+		return len(ancestor), side[len(ancestor):], true
+	}
+	a, b := rawLines(ancestor), rawLines(side)
+	gap := 0
+	for i := 0; i < len(a) && i < len(b) && a[i] == b[i]; i++ {
+		gap += len(a[i])
+	}
+	end := len(side) - (len(ancestor) - gap)
+	if end <= gap || side[end:] != ancestor[gap:] || !strings.HasSuffix(side[gap:end], "\n") || !uniqueAncestorEmbedding(ancestor, side) {
+		return 0, "", false
+	}
+	return gap, side[gap:end], true
+}
+
+// The earliest and latest subsequence embeddings must agree at every raw line.
+func uniqueAncestorEmbedding(ancestor, side string) bool {
+	a, b := rawLines(ancestor), rawLines(side)
+	first := make([]int, len(a))
+	j := 0
+	for i, line := range a {
+		for j < len(b) && b[j] != line {
+			j++
+		}
+		if j == len(b) {
+			return false
+		}
+		first[i] = j
+		j++
+	}
+	j = len(b) - 1
+	for i := len(a) - 1; i >= 0; i-- {
+		for j >= 0 && b[j] != a[i] {
+			j--
+		}
+		if j != first[i] {
+			return false
+		}
+		j--
+	}
+	return true
+}
+
+// Partial shared blocks need a human/model decision. Ignore overlap consisting
+// only of whitespace separators. Prefix tables keep the comparison linear.
+func overlappingAdditions(a, b string) bool {
+	if strings.Contains(a, b) || strings.Contains(b, a) {
+		return true
+	}
+	for _, pair := range [][2]string{{a, b}, {b, a}} {
+		x, y := pair[0], pair[1]
+		prefix := make([]int, len(y))
+		for i, j := 1, 0; i < len(y); i++ {
+			for j > 0 && y[i] != y[j] {
+				j = prefix[j-1]
+			}
+			if y[i] == y[j] {
+				j++
+			}
+			prefix[i] = j
+		}
+		j := 0
+		for i := range len(x) {
+			for j > 0 && x[i] != y[j] {
+				j = prefix[j-1]
+			}
+			if x[i] == y[j] {
+				j++
+			}
+			// Whole-block containment was handled above.
+		}
+		for j > 0 {
+			if (len(x) == j || x[len(x)-j-1] == '\n') && strings.TrimSpace(y[:j]) != "" {
+				return true
+			}
+			j = prefix[j-1]
+		}
+	}
+	return false
 }

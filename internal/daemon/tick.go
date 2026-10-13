@@ -268,6 +268,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		}
 	}
 	queues, err := d.discover(ctx, repos, startedAt, &result)
+	defer finishCandidateReservations(queues)
 	discoveryDeferred := errors.Is(err, ErrDiscoveryDeferred)
 	hb.deferred = discoveryDeferred
 	for _, q := range queues {
@@ -503,6 +504,12 @@ func (d *Daemon) discover(
 	queues := make([]*repoQueue, 0, len(repos))
 	byRepo := make(map[int64]*repoQueue, len(repos))
 	seen := make(map[int64]*candidate)
+	transferred := false
+	defer func() {
+		if !transferred {
+			finishCandidateReservations(queues)
+		}
+	}()
 
 	// Which repositories list this tick is decided before any of them is marked
 	// owed. An attempt is owed until it finishes, so a tick that fails midway
@@ -575,7 +582,9 @@ func (d *Daemon) discover(
 				if errors.Is(err, ErrDiscoveryDeferred) {
 					deferred = true
 				}
-				repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
+				if !d.scopedQuotaDeferred(ctx, err) {
+					repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
+				}
 				if providerRateLimited(err) {
 					d.rateLimited(ctx, repoLog, now, err)
 					continue
@@ -695,6 +704,7 @@ func (d *Daemon) discover(
 			return cmp.Compare(a.session.ID, b.session.ID)
 		})
 	}
+	transferred = true
 	if deferred {
 		return queues, ErrDiscoveryDeferred
 	}
@@ -898,7 +908,9 @@ func (d *Daemon) markPlanChild(ctx context.Context, q *repoQueue, number int) er
 // been fetched yet: a session reached only through the backlog has no
 // [github.Issue] until [Daemon.materialise] reads one for it.
 type candidate struct {
-	observations []store.PendingTicketObservation
+	// Owned by discovery until offer transfers it to the worker.
+	discoveryReservation *discoveryReservation
+	observations         []store.PendingTicketObservation
 	// sources are ordered discovery evidence, not proof of actionable work.
 	sources   []string
 	repo      store.Repo
@@ -1107,6 +1119,7 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 // owned by that worker, including sequential refinement copies. Nothing is
 // shared with another worker, so no lock is needed.
 type task struct {
+	discoveryReservation   *discoveryReservation
 	prepareFailureRecorded bool
 	observations           []store.PendingTicketObservation
 	enrollmentAt           time.Time
@@ -1158,6 +1171,17 @@ type task struct {
 	tickAt time.Time
 }
 
+func finishCandidateReservations(queues []*repoQueue) {
+	for _, q := range queues {
+		for _, c := range q.candidates {
+			if c.discoveryReservation != nil {
+				c.discoveryReservation.finish()
+				c.discoveryReservation = nil
+			}
+		}
+	}
+}
+
 // dispatch is the second of the two phases a tick is made of: it decides which
 // of the eligible sessions get one of the free slots, and starts a worker for
 // each of them.
@@ -1185,6 +1209,7 @@ type task struct {
 // worker cannot reach them. There is deliberately no mutex, because adding one
 // would say the opposite.
 func (d *Daemon) dispatch(ctx context.Context, queues []*repoQueue, tickAt time.Time, result *TickResult) {
+	defer finishCandidateReservations(queues)
 	if len(queues) == 0 {
 		return
 	}
@@ -1319,8 +1344,14 @@ const (
 // above the `go`: the rate-limit backoff (AC-PAR-4.4). It is last rather than
 // first on purpose — see the comment at the check itself.
 func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
+	defer func() {
+		if c.discoveryReservation != nil {
+			c.discoveryReservation.finish()
+			c.discoveryReservation = nil
+		}
+	}()
 	ctx = sessionContext(ctx, c.session.ID)
-	if d.sessionRecoveryHeld(c.session.ID, tickAt) || d.prepFailures.held(c.session.ID, tickAt) {
+	if d.observeCandidateHold(ctx, c, tickAt) {
 		return offerSkipped
 	}
 	if !d.enterDoctorGuarded(ctx, c.session.ID) {
@@ -1348,7 +1379,26 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		return offerFull
 	}
 
-	t, err := d.materialise(ctx, c, tickAt)
+	readCtx := ctx
+	if c.discoveryReservation == nil && d.connections != nil {
+		v, selected, err := d.quotaVersion(ctx, store.TicketConnection)
+		if err == nil && selected && v.Provider == ticket.Linear {
+			readCtx, _, err = d.linearFallback(ctx, v, true)
+			if r, ok := readCtx.Value(quotaReservationKey{}).(*discoveryReservation); ok && r.fallback {
+				c.discoveryReservation = r
+			}
+		}
+		if err != nil {
+			d.pool.done()
+			d.inflight.leave(c.session.ID)
+			result.Deferred++
+			return offerSkipped
+		}
+	}
+	if c.discoveryReservation != nil {
+		readCtx = context.WithValue(ctx, quotaReservationKey{}, c.discoveryReservation)
+	}
+	t, err := d.materialise(readCtx, c, tickAt)
 	if t == nil || err != nil {
 		// The one release that is not a worker's defer. It is exactly the undo
 		// of the [pool.try] above — the slot goes back and the join's count comes
@@ -1426,6 +1476,8 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 
 	// The dispatch point uses the daemon's long-lived context. runWorker owns
 	// the shared pool and in-flight lifetime through terminal diagnostics.
+	t.discoveryReservation = c.discoveryReservation
+	c.discoveryReservation = nil
 	go d.runTicketPollingWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
 
 	result.Dispatched++
@@ -1557,6 +1609,9 @@ func (d *Daemon) taskComments(ctx context.Context, t *task, after int64) ([]gith
 		return doctorCall(ctx, d, func(ctx context.Context) ([]github.Comment, error) {
 			return d.readComments(ctx, t.forgeRepo, t.issue.Number, after)
 		})
+	}
+	if t.discoveryReservation != nil {
+		ctx = context.WithValue(ctx, quotaReservationKey{}, t.discoveryReservation)
 	}
 	return d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, after)
 }
@@ -3115,5 +3170,33 @@ func (d *Daemon) lowDisk(ctx context.Context) bool {
 		slog.String("path", d.diskPath),
 		slog.Uint64("free_bytes", free),
 		slog.Uint64("required_bytes", d.minFreeDiskBytes))
+	return true
+}
+
+// candidateHold contains only the metadata defining an observed admission hold.
+// It never participates in eligibility or retry bookkeeping.
+type candidateHold struct {
+	kind, key, state, reason string
+	nextAt                   time.Time
+}
+
+func (d *Daemon) observeCandidateHold(ctx context.Context, c *candidate, at time.Time) bool {
+	var hold candidateHold
+	if row, held := d.sessionRecoveryHold(c.session.ID, at); held {
+		hold = candidateHold{kind: "report-recovery", key: row.Key, state: row.State, nextAt: row.NextAt}
+	} else if row, held := d.prepFailures.hold(c.session.ID, at); held {
+		hold = candidateHold{kind: "preparation", reason: row.Reason, nextAt: row.NextAt}
+	} else {
+		delete(d.holdDiagnostics, c.session.ID)
+		return false
+	}
+	previous, seen := d.holdDiagnostics[c.session.ID]
+	if !seen || previous.kind != hold.kind || previous.key != hold.key || previous.state != hold.state || previous.reason != hold.reason || !previous.nextAt.Equal(hold.nextAt) {
+		if d.holdDiagnostics == nil {
+			d.holdDiagnostics = make(map[int64]candidateHold)
+		}
+		d.holdDiagnostics[c.session.ID] = hold
+		d.log.InfoContext(ctx, "session admission held", slog.Int64("session_id", c.session.ID), slog.String("task", c.ref.String()), slog.String("hold_kind", hold.kind), slog.String("recovery", hold.key), slog.String("state", hold.state), slog.String("reason", hold.reason), slog.Time("next_eligible", hold.nextAt))
+	}
 	return true
 }

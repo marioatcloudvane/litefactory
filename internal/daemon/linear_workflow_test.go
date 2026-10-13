@@ -190,7 +190,12 @@ func (s *linearWorkflowServer) serve(w http.ResponseWriter, r *http.Request) {
 		sort.Slice(nodes, func(i, j int) bool {
 			return fmt.Sprint(linearWorkflowObject(s.t, nodes[i])["createdAt"]) < fmt.Sprint(linearWorkflowObject(s.t, nodes[j])["createdAt"])
 		})
-		data = map[string]any{"comments": s.page(nodes), "issue": map[string]any{"id": id, "comments": s.page(nodes)}}
+		issue := make(map[string]any)
+		for key, value := range s.issues[id] {
+			issue[key] = value
+		}
+		issue["comments"] = s.page(nodes)
+		data = map[string]any{"comments": s.page(nodes), "issue": issue}
 	case strings.Contains(q, "issues("):
 		nodes := []any{}
 		for _, issue := range s.issues {
