@@ -66,3 +66,41 @@ func TestAssemblyBlocked(t *testing.T) {
 		}
 	})
 }
+
+func TestStoryWorkIDRetainedEffectHolds(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		story planbrief.PlanStoryState
+		want  bool
+	}{
+		{"request hold", planbrief.PlanStoryState{Effect: "uncertain", EffectRequest: "original", EffectHolds: map[string]string{"original": "content conflict"}}, false},
+		{"legacy hold", planbrief.PlanStoryState{Effect: "uncertain", EffectRequest: "original", EffectHold: "content conflict"}, false},
+		{"independent hold", planbrief.PlanStoryState{Effect: "pending", EffectRequest: "newer", EffectHolds: map[string]string{"original": "content conflict"}}, false},
+		{"unheld uncertain", planbrief.PlanStoryState{Effect: "uncertain", EffectRequest: "original"}, true},
+		{"unheld pending", planbrief.PlanStoryState{Effect: "pending", EffectRequest: "original"}, true},
+		{"ordinary hold with reconciliation debt", planbrief.PlanStoryState{Effect: "pending", EffectRequest: "original", Hold: "waiting for owner"}, true},
+		{"owner wait", planbrief.PlanStoryState{Hold: "waiting for owner"}, false},
+		{"upstream wait", planbrief.PlanStoryState{Draft: planbrief.PlanDraft{Dependencies: planbrief.DependencyContent{StoryKeys: []string{"upstream"}}}}, false},
+		{"healthy draft", planbrief.PlanStoryState{}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.story.Key = "story-001"
+			state := planbrief.PlanState{SharedRevision: "shared", StorySet: &planbrief.PlanStorySetState{Promoted: true}, Stories: []planbrief.PlanStoryState{tc.story}}
+			id, ok := storyWorkID(state, tc.story.Key)
+			if ok != tc.want {
+				t.Fatalf("work=%d eligible=%v want %v", id, ok, tc.want)
+			}
+			if ok && tc.story.Effect != "" && id != planWorkID("effect", tc.story.Key, tc.story.EffectRequest) {
+				t.Fatal("reconciliation identity changed")
+			}
+		})
+	}
+	story := planbrief.PlanStoryState{Key: "story-001", Effect: "uncertain"}
+	story.SetEffectHold("original", "content conflict")
+	story.ClearEffectHold("original")
+	story.Effect = "applied"
+	state := planbrief.PlanState{SharedRevision: "shared", StorySet: &planbrief.PlanStorySetState{Promoted: true}, Stories: []planbrief.PlanStoryState{story}}
+	if _, ok := storyWorkID(state, story.Key); !ok {
+		t.Fatal("legitimately cleared hold blocked draft")
+	}
+}
