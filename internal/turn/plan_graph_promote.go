@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 )
 
@@ -45,7 +46,7 @@ var planSetRevisionText = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // command and returns the text after it. The prefix carries a space, so the
 // existing final-plan approval `/approve-plan-set` is never mistaken for it.
 func planSetPromotionArgument(body string) (string, bool) {
-	text := strings.TrimSpace(body)
+	text := strings.TrimSpace(commandtext.Normalize(body))
 	if text == strings.TrimSpace(planbrief.PlanSetPromotionPrefix) {
 		return "", true
 	}

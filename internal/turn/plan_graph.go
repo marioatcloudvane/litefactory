@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -131,6 +132,12 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 			return out, true, refuseErr
 		}
 		return result, true, err
+	}
+	// Authenticate ordinary input before deciding whether it retries failed work.
+	if retry, retryErr := r.retryFailedStory(ctx); retryErr != nil {
+		return result, true, retryErr
+	} else if retry {
+		r.discussion = false
 	}
 	if !r.discussion {
 		if err = r.createStoryIssues(ctx); err != nil {
@@ -335,7 +342,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 		if r.story != "" && reply.Key != r.story {
 			return errors.New("plan reply names a story this task does not own")
 		}
-		if strings.HasPrefix(strings.TrimSpace(reply.Body), "/retire-plan ") {
+		if strings.HasPrefix(strings.TrimSpace(commandtext.Normalize(reply.Body)), "/retire-plan ") {
 			return r.retire(ctx, s, rev, reply)
 		}
 		if r.discussion {
@@ -357,7 +364,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 	if argument, ok := planSetPromotionArgument(r.req.Trigger.Body); ok {
 		return r.promoteSet(ctx, s, rev, argument)
 	}
-	if strings.HasPrefix(strings.TrimSpace(r.req.Trigger.Body), "/approve-plan-set ") {
+	if strings.HasPrefix(strings.TrimSpace(commandtext.Normalize(r.req.Trigger.Body)), "/approve-plan-set ") {
 		if slices.Contains(s.ConsumedReplies, r.req.Trigger.CommentID) && s.AssembledApproval == s.PlanSetRevision() {
 			return nil
 		}
@@ -374,7 +381,7 @@ func (r *planGraphRuntime) admitReply(ctx context.Context) error {
 	}
 	// A parent reply never impersonates a child review. New requested stories get
 	// a factory-reserved semantic key only through an explicit owner request.
-	if strings.TrimSpace(r.req.Trigger.Body) == "/plan-new-story" && r.req.Trigger.AuthorID == r.ownerID && !slices.Contains(s.ConsumedReplies, r.req.Trigger.CommentID) {
+	if strings.TrimSpace(commandtext.Normalize(r.req.Trigger.Body)) == "/plan-new-story" && r.req.Trigger.AuthorID == r.ownerID && !slices.Contains(s.ConsumedReplies, r.req.Trigger.CommentID) {
 		key := s.NextStoryKey()
 		s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: key, Stage: "story", Approvals: map[string]string{}, Draft: planbrief.PlanDraft{Key: key}})
 		s.ConsumedReplies = append(s.ConsumedReplies, r.req.Trigger.CommentID)
@@ -401,7 +408,7 @@ var planStoryCommandPattern = regexp.MustCompile(`^/approve-plan (story-[0-9]{3,
 // planStoryCommandKey reports whether body is a story approval command written
 // on the parent, and names the story it is for.
 func planStoryCommandKey(body string) (string, bool) {
-	text := strings.TrimSpace(body)
+	text := strings.TrimSpace(commandtext.Normalize(body))
 	m := planStoryCommandPattern.FindStringSubmatch(text)
 	if m == nil {
 		return "", false

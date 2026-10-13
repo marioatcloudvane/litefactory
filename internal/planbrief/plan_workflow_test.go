@@ -404,3 +404,15 @@ func TestPlanWorkflow_RetirementRejectsStaleAndForeign(t *testing.T) {
 		})
 	}
 }
+
+func TestPlanWorkflowInlineApproval(t *testing.T) {
+	for _, suffix := range []string{"", "\r\nchange it"} {
+		s := workflowFixture(t, "a")
+		reply := workflowReply(t, &s, 0, 10)
+		reply.Body = " \n`" + reply.Body + "`" + suffix
+		promoted, err := s.ApplyOwnerReply(reply)
+		if err != nil || promoted != (suffix == "") {
+			t.Fatalf("suffix %q: promoted=%t err=%v", suffix, promoted, err)
+		}
+	}
+}
