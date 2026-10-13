@@ -163,7 +163,7 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 		// error is terminal: no agent has run, but silently retrying a malformed
 		// payload forever would make the durable queue permanently stuck.
 		if err == nil && (d.planWorkSettled(ctx, t, scheduled) || d.implementWorkSettled(ctx, t, scheduled)) {
-			// Plan work whose state moved on before the run began has nothing to run.
+			// Work whose state moved on or is explicitly held has nothing to run.
 			d.finishScheduled(ctx, t, scheduled, store.ScheduleSucceeded, 0)
 			return
 		}

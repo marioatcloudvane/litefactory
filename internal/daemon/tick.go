@@ -2837,6 +2837,14 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		return nil
 	}
 	if turnResult.ResearchGraph {
+		if mode == agent.ModePlan && turnResult.Run.ID == 0 {
+			attrs := []any{slog.String("task", t.ref.String()), slog.Int64("session_id", t.session.ID),
+				slog.Int64("trigger_id", trigger.CommentID), slog.String("reason", turnResult.Reason)}
+			if t.scheduled != nil {
+				attrs = append(attrs, slog.Int64("schedule_id", t.scheduled.ID))
+			}
+			log.InfoContext(ctx, "Plan work returned without a run", attrs...)
+		}
 		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
 			return d.leave(ctx, t, log, "the failed Plan run has no published failure comment", err)
 		}
