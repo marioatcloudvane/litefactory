@@ -193,6 +193,9 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// then revalidates and performs merge, publication and rollback in one section.
 		"prepareDoctorSync": {},
 		"applyDoctorSync":   {},
+		// Bug delivery snapshots and applies validated advice in disposable scratch.
+		"prepareBugDeliveryConflict": {},
+		"applyBugDeliveryConflict":   {},
 		// A repair attempt merges fetched main into the idle task worktree,
 		// and a Bug check adds and later removes the detached target
 		// worktree its failing tests rerun on; each is one acquisition.
@@ -243,9 +246,9 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// shape syncBase already has, and for the same reason: there is no
 		// claude run between ensureWorktree and this step for the agentless
 		// apply turn, so nothing needs the gate released and retaken.
-		"WriteResolvedFiles": {"prepareClone", "applyDoctorSync"},
-		"StageResolvedFiles": {"prepareClone", "applyDoctorSync"},
-		"CompleteMerge":      {"prepareClone", "applyDoctorSync"},
+		"WriteResolvedFiles": {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
+		"StageResolvedFiles": {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
+		"CompleteMerge":      {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
 		// Confirmed proposal application also pushes inside prepareClone's
 		// existing acquisition.
 		"Push": {"commitAndPush", "prepareClone", "BugRuntime.pushGraphDelivery", "applyDoctorSync"},
