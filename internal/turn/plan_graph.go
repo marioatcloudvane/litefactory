@@ -133,6 +133,12 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		}
 		return result, true, err
 	}
+	// Authenticate ordinary input before deciding whether it retries failed work.
+	if retry, retryErr := r.retryFailedStory(ctx); retryErr != nil {
+		return result, true, retryErr
+	} else if retry {
+		r.discussion = false
+	}
 	if !r.discussion {
 		if err = r.createStoryIssues(ctx); err != nil {
 			return result, true, err
