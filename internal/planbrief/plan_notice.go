@@ -4,6 +4,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/commandtext"
 )
 
 // PlanNoticeState contains only material owner-facing lifecycle and debt facts.
@@ -98,7 +100,7 @@ func (s *PlanState) PlanReplyReason(key, body string) string {
 			return "This story, a story it depends on, or a shared decision changed after the latest review. Wait for the updated review and use the command it shows."
 		}
 	}
-	parts := strings.Fields(body)
+	parts := strings.Fields(commandtext.Normalize(body))
 	if len(parts) == 4 && parts[0] == "/approve-plan" {
 		if w == nil || w.Kind != "review" || parts[1] != key || parts[2] != item.Stage || parts[3] != item.Candidate || w.Candidate != item.Candidate {
 			return s.withCurrentCommand(key, "This approval does not match the latest review of this story, so nothing was approved.")
