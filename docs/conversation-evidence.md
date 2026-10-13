@@ -27,13 +27,13 @@ isolation. It was an exploratory CLI probe, not the adapter's sentinel gate.
 
 ## Automated main path
 
-The main-path test uses the production Discord intake, conversation service, provider adapters, durable store and outbox. Only the provider executable and Discord sender are fixtures. Each fixture process exits after one turn and retains a harmless remembered fact only in its private session files. After the first delivered answer, the test closes and reopens the database and recreates both the service and provider adapter. A follow-up without the fact must resume the exact saved provider handle and return the remembered fact. This is exercised for both providers.
+The main-path test uses the production Discord intake, conversation service, provider adapters, durable store and outbox. Only the provider executable and Discord sender are fixtures. Each fixture process exits after one turn and retains a harmless remembered fact only in its private session files. After the first delivered answer, the recorded provider emits a native compaction event and replaces its earlier fact file with a summary under the same handle. The test then closes and reopens the database and recreates both the service and provider adapter. A follow-up without the fact must resume the exact saved provider handle and return the remembered fact from that summary. This is exercised for both providers.
 
 The executable fixture verifies the resume argument and private state survive process recreation. It does not demonstrate a real model remembering a fact or establish installed-provider isolation.
 
 ## Native demonstrations still required
 
-These demonstrations need a dedicated test installation with verified isolation and provider authentication outside model-accessible paths. No production Discord channel or factory database should be used. No native demonstration is claimed by this record.
+These demonstrations are owner checks in Validate on the running daemon, with provider authentication outside model-accessible paths. Use disposable conversation state and harmless sentinels while preserving existing conversations. Workers do not perform these checks. No native demonstration is claimed by this record.
 
 | Check | Claude | Codex | Evidence to retain |
 |---|---|---|---|
@@ -47,7 +47,7 @@ These demonstrations need a dedicated test installation with verified isolation 
 
 For delivery recovery, lose acknowledgment after a disposable reply, restart, and retry the same saved bytes and nonce before admitting the next turn. Discord may duplicate replies beyond its short nonce window; local dispatch order is the guarantee. Temporary throttling should leave other channels runnable. Permanent refusal and revoked authorization must preserve pending state and show a health reason.
 
-Native demonstrations are unexecuted because installed-provider isolation has not been demonstrated in this run and no dedicated external test endpoint was supplied. Tests of fixtures cannot replace those demonstrations in acceptance review.
+Native demonstrations belong to owner checks in Validate on the running daemon. Workers do not launch real provider sessions from their sandbox. Tests of fixtures cannot replace those live observations in acceptance review.
 
 ## Repair attempt 0008
 
@@ -60,3 +60,11 @@ The returned suite failure concerns scratch worktree canonicalization in existin
 Fresh complete tests passed for all **38 affected packages**, including reverse production and test importers. Commands used `go test -count=1 -race -timeout=0` for 34 packages and `go test -count=1 -timeout=0` for `internal/cli`, `internal/daemon`, `internal/store` and `internal/turn`, with `GOFLAGS=-trimpath` and canonical `TMPDIR=/private/tmp/lf776-run0008/scratch`. The complete messaging run includes the two-provider restart fixture. The complete turn run passed in 938.814 seconds and includes the reported concrete-conflict and budget scenarios. This local execution does not reproduce Validate's separate full-suite sandbox. Pinned golangci-lint 2.13.1 reported zero issues for those packages; initial optional linter cache writes emitted sandbox-denial warnings, while the additional importer check used a writable temporary cache. Story Go files are gofmt-clean and `git diff --check` passed.
 
 The shared aggregate-capture preflight rejected these new facts with `store: aggregate requires exact Implement binding and bounded evidence`. No capture was submitted or retained, and no passing retained check ID is claimed. The attempted manifest contained 34 complete story files and two fresh checks (successful affected-package verification and failed installed sandbox feasibility); it did not reuse an earlier check identity. Engineering verification is therefore reported here and in the result, separately from retained aggregate evidence and acceptance.
+
+## Worker verification boundary (attempt 0009)
+
+The supplied owner guidance assigns live Claude and Codex demonstrations to owner checks in Validate on the running daemon. Workers must not launch real provider sessions or nested native sandboxes. This attempt uses fake or recorded provider runners exclusively; the inability to start a nested macOS Codex sandbox is no longer treated as a worker engineering blocker. The approved prompt-only access boundary and production capability gates remain unchanged.
+
+Recorded-provider tests establish the factory's behavior against explicit provider protocols: exact saved identity, retained private state after compaction and restart, unfinished-turn recovery without replay, missing-session refusal without a replacement, and isolated launch controls with visible refusal for unsupported capabilities. They do not establish real-model recall or certify an installed provider's filesystem, tool or network enforcement. Those live observations remain unverified until the owner performs them in Validate.
+
+Attempt 0009 complete verification passed for **29 affected packages**, covering the changed packages and their production/test importers: 25 packages with `go test -count=1 -race -timeout=0`, and `internal/cli`, `internal/daemon`, `internal/store` and `internal/turn` with `go test -count=1 -timeout=0`. The complete messaging run passed in 845.313 seconds; the complete turn run passed in 1991.186 seconds. Commands used `GOFLAGS=-trimpath` and canonical temporary fixture storage. `go build ./...` passed; pinned golangci-lint 2.13.1 reported zero issues for the three changed packages; the five changed Go files are gofmt-clean. Raw scoped command logs and their source hashes are retained in the supplied session artifact directory under `run0009-checks`. These are worker execution records, not retained suite-command IDs or live-provider acceptance. No full suite, real provider session or nested native sandbox ran in this attempt.
