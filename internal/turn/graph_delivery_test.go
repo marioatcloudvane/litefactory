@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 	"os/exec"
 	"strings"
 	"testing"
@@ -403,4 +404,99 @@ func completeDeliveryRecheck(t *testing.T, f *fixture, instance int64, old Graph
 		completion.Transition = &store.GraphTransition{InstanceID: instance, FromNode: "fixer", ToNode: "finalization", OnOutcome: outcome, At: at}
 	}
 	mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, attempt.ID, completion))
+}
+
+// A spent dispatch must not hide the retained successful repair from the
+// existing finalization activity, or cause that repair to be executed again.
+func TestInterruptedDispatchResumesRetainedBugFinalization(t *testing.T) {
+	for _, observation := range []string{"new PR", "existing PR", "merged PR"} {
+		t.Run(observation, func(t *testing.T) {
+			f, h, req, forge, head := graphFinalizationFixture(t)
+			ctx, at := t.Context(), f.opts.MCP.Now()
+			// The graph recovery owner has already settled the old node attempt.
+			mustProgress(t, f.db.FinishGraphNodeAttempt(ctx, req.NodeAttemptID, store.GraphCancelled, "", at))
+			before, err := f.db.ListGraphNodeAttempts(ctx, req.InstanceID)
+			mustProgress(t, err)
+			old, err := f.db.ParkGraphInstance(ctx, req.InstanceID, "finalization", at, at)
+			mustProgress(t, err)
+			_, ok, err := f.db.ReserveGraphDispatch(ctx, old.ID, at)
+			mustProgress(t, err)
+			if !ok {
+				t.Fatal("reserve refused")
+			}
+			segment, err := f.db.GetOrCreateSegment(ctx, f.session.ID, 3, "interrupted-finalization", store.AgentClaude)
+			mustProgress(t, err)
+			run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: old.TriggerID(), LogPath: func(int) string { return "interrupted-finalization.log" }})
+			mustProgress(t, err)
+			_, err = f.db.FinishRun(ctx, run.ID, store.RunOutcome{Status: store.RunFailed, Error: store.ReasonAbandoned})
+			mustProgress(t, err)
+			_, err = f.db.CompleteRunReport(ctx, run.ID, 900)
+			mustProgress(t, err)
+			mustProgress(t, ValidateGraphDispatchRecovery(ctx, f.db, old))
+			for range 2 {
+				mustProgress(t, f.db.ReconcileGraphDispatch(ctx, old.ID, old.LaunchID, at))
+			}
+			next, err := f.db.LatestGraphDispatch(ctx, req.InstanceID)
+			mustProgress(t, err)
+			if next.ID == old.ID || next.Node != "finalization" || next.LaunchID != old.LaunchID {
+				t.Fatalf("successor=%+v", next)
+			}
+			_, ok, err = f.db.ReserveGraphDispatch(ctx, next.ID, at)
+			mustProgress(t, err)
+			if !ok {
+				t.Fatal("successor reserve refused")
+			}
+			if observation != "new PR" {
+				forge.remote = head
+				forge.pr = github.DeliveryPR{ID: 80, Number: 4, Head: head, Branch: "lf/repair", Target: "main", State: "open"}
+				if observation == "merged PR" {
+					forge.pr.State = "closed"
+					forge.pr.Merged = true
+					forge.pr.MergeSHA = strings.Repeat("f", 40)
+				}
+			}
+			specs, err := SimplifiedBugSpecs()
+			mustProgress(t, err)
+			definition, err := teamsource.CaptureBugParent(ctx, specs)
+			mustProgress(t, err)
+			activities := ActivityRegistry{}
+			mustProgress(t, activities.Register("lf_bug_finalize", h))
+			nodeReq := GraphNodeRequest{Profile: definition.Profile, Activities: activities, InstanceID: req.InstanceID, LaunchID: next.LaunchID, At: at}
+			result, err := ExecuteNodeAction(ctx, f.opts, nodeReq)
+			mustProgress(t, err)
+			if result.Activity.Outcome != "completed" {
+				t.Fatalf("finalization=%+v", result)
+			}
+			result, err = ExecuteNodeAction(ctx, f.opts, nodeReq)
+			mustProgress(t, err)
+			if result.Status != store.GraphSucceeded {
+				t.Fatalf("completion=%+v", result)
+			}
+			mustProgress(t, f.db.FinishGraphDispatch(ctx, next.ID, at))
+			mustProgress(t, f.db.ReconcileGraphDispatch(ctx, old.ID, old.LaunchID, at))
+			if due, err := f.db.ListDueGraphDispatches(ctx, at, 10); err != nil || len(due) != 0 {
+				t.Fatalf("completed work replayed: %+v %v", due, err)
+			}
+			after, err := f.db.ListGraphNodeAttempts(ctx, req.InstanceID)
+			mustProgress(t, err)
+			if len(after) != len(before)+1 || after[len(after)-1].Node != "finalization" {
+				t.Fatalf("unexpected repair replay: %+v", after)
+			}
+			wantCreates, wantMerges := 1, 1
+			if observation != "new PR" {
+				wantCreates = 0
+			}
+			if observation == "merged PR" {
+				wantMerges = 0
+			}
+			if forge.creates != wantCreates || forge.merges != wantMerges || !forge.pr.Merged || forge.issue.State != "closed" {
+				t.Fatalf("creates=%d merges=%d pr=%+v", forge.creates, forge.merges, forge.pr)
+			}
+			history, err := f.db.GetRun(ctx, run.ID)
+			mustProgress(t, err)
+			if history.Status != store.RunReported || history.Error != store.ReasonAbandoned {
+				t.Fatalf("terminal history changed: %+v", history)
+			}
+		})
+	}
 }

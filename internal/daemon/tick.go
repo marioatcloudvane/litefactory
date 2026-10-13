@@ -154,6 +154,9 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	d.refreshRecoveries(ctx, startedAt)
 	// Stopped execution debt is independent of discovery/storage availability.
 	stoppedDispatched := d.retryStoppedResults(ctx, startedAt)
+	if err := d.reconcileGraphDispatches(ctx, startedAt); err != nil {
+		return TickResult{StartedAt: startedAt}, err
+	}
 	if !d.autoResumeOnSessionLimit {
 		pending, err := d.db.ListPendingContinuations(ctx, 0)
 		if err != nil {

@@ -721,6 +721,9 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "implement", reconciliation.At); err != nil {
 		return Reconciled{}, err
 	}
+	if err := d.reconcileGraphDispatches(ctx, reconciliation.At); err != nil {
+		return Reconciled{}, err
+	}
 	d.refreshRecoveries(ctx, time.Time{})
 
 	for _, lock := range reconciliation.ReclaimedLocks {
