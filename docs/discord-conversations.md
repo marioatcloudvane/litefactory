@@ -88,3 +88,39 @@ stop admission or launch rather than discarding work. Owner input is refused whe
 it exceeds the intake byte budget; it is never silently truncated. Oversized saved
 answers remain retained if Discord refuses their protected delivery; long-answer
 presentation belongs to the dependent story.
+
+## Grounding and saved answer details
+
+Each factory conversation answer carries one opaque answer reference across all
+numbered parts. Use `/details answer:<reference>` to select it. Omit the selector
+to choose the latest answer with at least one acknowledged part in your current
+owner/channel scope; that selection is fixed when the command is admitted. An
+answer with no reads reports that no tool results were obtained. Unknown,
+unauthorized and expired references never substitute another answer's evidence.
+Legacy command details remain available as labelled legacy source text.
+
+Free explanation is shown with **Unverified** on every continuation: its wording
+has not been established by this answer's current tool evidence. This also warns
+on paraphrases, even when they may be correct. Only an entire complete current
+source fact selected by its factory handle can remove that warning. Source
+identity, target and caveats remain attached to each fact. Prior conversation
+claims, matching numbers and provider assertions do not establish grounding.
+
+Details exports the saved redacted results with result identities, normalized
+arguments, targets, capture times, statuses, completeness and gaps. It does not
+include native transcripts, prompts or private reasoning, and makes no fresh
+lookup or model call. Current channel and registered target access are rechecked
+before sending. Ordered exports use `raw-details.txt` attachments no larger than
+64 KiB; their manifest identifies byte continuations. A definite upload refusal
+switches remaining exports to saved numbered inline text. Uncertain delivery
+retries the same saved payload.
+
+Answers preserve accepted content in order, within Discord's 2000 UTF-16-unit
+message budget, with repeated warnings and selectors. An entire proposal remains
+one unchanged protected block; confirmation binds only to its acknowledged
+message. Parts are saved before delivery, and the next part waits for durable
+acknowledgment. Failed delivery resumes saved bytes after restart; later
+conversation answers wait. Remote duplicates remain possible. Permanent refusal
+or access loss preserves pending parts and reports a channel health reason.
+Completed answer details expire 24 hours after the entire answer is delivered;
+pending answer evidence and pending exports survive outages.

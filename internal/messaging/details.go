@@ -11,7 +11,7 @@ import (
 
 // detailsContent is the visible text of a /details reply; the raw text of the
 // previous reply is delivered as raw-details.txt.
-const detailsContent = "Raw details of your previous reply."
+const detailsContent = "Raw details of your previous reply (legacy source text)."
 
 // detailsRefusal answers /details when no earlier raw text is stored.
 const detailsRefusal = "No earlier reply details are available here."

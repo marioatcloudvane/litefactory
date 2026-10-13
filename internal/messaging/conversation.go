@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -368,6 +369,9 @@ func (s *Service) conversationOutcome(ctx context.Context, t store.ConversationT
 	if err != nil {
 		return err
 	}
+	if runtime := s.conversations.Load(); runtime != nil && runtime.factory {
+		return s.saveConversationPresentation(ctx, t, state, []presentation.AnswerBlock{{Text: protected}}, "", at)
+	}
 	return s.db.CompleteConversationTurn(ctx, t, state, protected, at)
 }
 func (s *Service) conversationUnavailable(ctx context.Context, c store.Conversation, t store.ConversationTurn, reason string, at time.Time) error {
@@ -411,6 +415,9 @@ func (s *Service) conversationHandled(ctx context.Context, t store.ConversationT
 	protected, err := s.Protect(ctx, text)
 	if err != nil {
 		return err
+	}
+	if runtime := s.conversations.Load(); runtime != nil && runtime.factory {
+		return s.saveConversationAnswer(ctx, t, "completed", []presentation.AnswerBlock{{Text: protected}}, "", at, true)
 	}
 	return s.db.CompleteConversationHandledTurn(ctx, t, protected, at)
 }

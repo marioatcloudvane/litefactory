@@ -51,7 +51,7 @@ func TestRegistryRepliesAllCrossPresentationBoundary(t *testing.T) {
 			t.Fatalf("%s not delivered once", command)
 		}
 		switch text := send.texts[before]; text {
-		case "Here is the result.", presentation.FallbackNotice, "Raw details of your previous reply.":
+		case "Here is the result.", presentation.FallbackNotice, "Raw details of your previous reply (legacy source text).":
 		default:
 			t.Fatalf("%s bypassed presentation: %q", command, text)
 		}

@@ -12,7 +12,7 @@ import (
 func (db *DB) ClaimConversationReply(ctx context.Context, transport string, at time.Time) (ChatReply, error) {
 	var out ChatReply
 	e := db.withTx(ctx, func(tx *sql.Tx) error {
-		r, e := scanChat(tx.QueryRowContext(ctx, `SELECT `+chatColumns+` FROM chat_inbox WHERE transport=? AND command='conversation' AND state IN ('pending','sent') AND next_attempt_at<=? AND EXISTS(SELECT 1 FROM chat_conversation_turns t JOIN chat_conversations c ON c.id=t.conversation_id WHERE t.reply_id=chat_inbox.message_id AND c.transport=chat_inbox.transport AND c.delivery_paused=0 AND NOT EXISTS(SELECT 1 FROM chat_conversation_turns p JOIN chat_conversations pc ON pc.id=p.conversation_id WHERE pc.transport=c.transport AND pc.channel_ref=c.channel_ref AND p.delivered_at IS NULL AND (pc.created_at<c.created_at OR (pc.id=c.id AND p.sequence<t.sequence)))) ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at)))
+		r, e := scanChat(tx.QueryRowContext(ctx, `SELECT `+chatColumns+` FROM chat_inbox WHERE transport=? AND command IN ('conversation','conversation_details') AND state IN ('pending','sent') AND next_attempt_at<=? AND ((command='conversation_details' AND EXISTS(SELECT 1 FROM chat_conversation_details_parts dp JOIN chat_conversation_details dd ON dd.transport=dp.transport AND dd.request_id=dp.request_id WHERE dp.transport=chat_inbox.transport AND dp.reply_id=chat_inbox.message_id AND dd.paused=0)) OR EXISTS(SELECT 1 FROM chat_conversation_turns t JOIN chat_conversations c ON c.id=t.conversation_id WHERE (t.reply_id=chat_inbox.message_id OR t.id=chat_inbox.conversation_turn_id) AND c.transport=chat_inbox.transport AND c.delivery_paused=0 AND NOT EXISTS(SELECT 1 FROM chat_conversation_turns p JOIN chat_conversations pc ON pc.id=p.conversation_id WHERE pc.transport=c.transport AND pc.channel_ref=c.channel_ref AND p.delivered_at IS NULL AND (pc.created_at<c.created_at OR (pc.id=c.id AND p.sequence<t.sequence))))) AND NOT EXISTS(SELECT 1 FROM chat_conversation_answer_parts own JOIN chat_conversation_answer_parts previous ON previous.answer_id=own.answer_id AND previous.ordinal<own.ordinal WHERE own.transport=chat_inbox.transport AND own.reply_id=chat_inbox.message_id AND previous.acknowledged_at IS NULL) AND NOT EXISTS(SELECT 1 FROM chat_conversation_details_parts own JOIN chat_conversation_details_parts previous ON previous.transport=own.transport AND previous.request_id=own.request_id AND previous.ordinal<own.ordinal WHERE own.transport=chat_inbox.transport AND own.reply_id=chat_inbox.message_id AND previous.acknowledged_at IS NULL) ORDER BY created_at,message_id LIMIT 1`, transport, FormatTime(at)))
 		if e != nil {
 			return e
 		}
@@ -30,8 +30,36 @@ func (db *DB) ClaimConversationReply(ctx context.Context, transport string, at t
 // delivery metadata for replay protection. Reply bodies use normal retention.
 func (db *DB) FinishConversationReply(ctx context.Context, r ChatReply, discordID string, at time.Time) error {
 	return db.withTx(ctx, func(tx *sql.Tx) error {
-		result, e := tx.ExecContext(ctx, `UPDATE chat_inbox SET state='confirmed',finished_at=? WHERE transport=? AND message_id=? AND command='conversation' AND state='sent' AND attempts=?`, FormatTime(at), r.Transport, r.MessageID, r.Attempts)
+		result, e := tx.ExecContext(ctx, `UPDATE chat_inbox SET state='confirmed',finished_at=? WHERE transport=? AND message_id=? AND command IN ('conversation','conversation_details') AND state='sent' AND attempts=?`, FormatTime(at), r.Transport, r.MessageID, r.Attempts)
 		if e = chatAffected(result, e); e != nil {
+			return e
+		}
+		if r.Command == "conversation_details" {
+			result, e = tx.ExecContext(ctx, `UPDATE chat_conversation_details_parts SET acknowledged_at=? WHERE transport=? AND reply_id=? AND acknowledged_at IS NULL`, FormatTime(at), r.Transport, r.MessageID)
+			return chatAffected(result, e)
+		}
+		var answerID string
+		e = tx.QueryRowContext(ctx, `SELECT answer_id FROM chat_conversation_answer_parts WHERE transport=? AND reply_id=?`, r.Transport, r.MessageID).Scan(&answerID)
+		if e == nil {
+			_, e = tx.ExecContext(ctx, `UPDATE chat_conversation_answer_parts SET acknowledged_at=?,discord_message_id=? WHERE transport=? AND reply_id=?`, FormatTime(at), discordID, r.Transport, r.MessageID)
+			if e != nil {
+				return e
+			}
+			var remaining int
+			if e = tx.QueryRowContext(ctx, `SELECT count(*) FROM chat_conversation_answer_parts WHERE answer_id=? AND acknowledged_at IS NULL`, answerID).Scan(&remaining); e != nil {
+				return e
+			}
+			if remaining > 0 {
+				return nil
+			}
+			_, e = tx.ExecContext(ctx, `UPDATE chat_conversation_answers SET completed_at=? WHERE id=?`, FormatTime(at), answerID)
+			if e != nil {
+				return e
+			}
+			result, e = tx.ExecContext(ctx, `UPDATE chat_conversation_turns SET delivered_at=?,discord_message_id=? WHERE id=(SELECT turn_id FROM chat_conversation_answers WHERE id=?) AND delivered_at IS NULL`, FormatTime(at), discordID, answerID)
+			return chatAffected(result, e)
+		}
+		if !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
 		result, e = tx.ExecContext(ctx, `UPDATE chat_conversation_turns SET delivered_at=?,discord_message_id=? WHERE reply_id=? AND delivered_at IS NULL AND conversation_id IN (SELECT id FROM chat_conversations WHERE transport=?)`, FormatTime(at), discordID, r.MessageID, r.Transport)
@@ -45,11 +73,19 @@ func (db *DB) PauseConversationReply(ctx context.Context, r ChatReply, reason st
 		return errors.New("conversation pause needs a reason")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error {
-		result, e := tx.ExecContext(ctx, `UPDATE chat_inbox SET state='pending',last_error_at=? WHERE transport=? AND message_id=? AND command='conversation' AND state='sent' AND attempts=?`, FormatTime(at), r.Transport, r.MessageID, r.Attempts)
+		result, e := tx.ExecContext(ctx, `UPDATE chat_inbox SET state='pending',last_error_at=? WHERE transport=? AND message_id=? AND command IN ('conversation','conversation_details') AND state='sent' AND attempts=?`, FormatTime(at), r.Transport, r.MessageID, r.Attempts)
 		if e = chatAffected(result, e); e != nil {
 			return e
 		}
-		result, e = tx.ExecContext(ctx, `UPDATE chat_conversations SET health_reason=?,delivery_paused=1,updated_at=? WHERE transport=? AND id IN (SELECT conversation_id FROM chat_conversation_turns WHERE reply_id=?)`, reason, FormatTime(at), r.Transport, r.MessageID)
+		if r.Command == "conversation_details" {
+			result, e = tx.ExecContext(ctx, `UPDATE chat_conversation_details SET paused=1 WHERE transport=? AND request_id=(SELECT request_id FROM chat_conversation_details_parts WHERE transport=? AND reply_id=?)`, r.Transport, r.Transport, r.MessageID)
+			if e = chatAffected(result, e); e != nil {
+				return e
+			}
+			_, e = tx.ExecContext(ctx, `UPDATE chat_conversations SET health_reason=?,updated_at=? WHERE transport=? AND channel_ref=? AND active=1`, reason, FormatTime(at), r.Transport, r.ChannelRef)
+			return e
+		}
+		result, e = tx.ExecContext(ctx, `UPDATE chat_conversations SET health_reason=?,delivery_paused=1,updated_at=? WHERE transport=? AND id IN (SELECT conversation_id FROM chat_conversation_turns WHERE reply_id=? OR id=?)`, reason, FormatTime(at), r.Transport, r.MessageID, r.ConversationTurnID)
 		return chatAffected(result, e)
 	})
 }

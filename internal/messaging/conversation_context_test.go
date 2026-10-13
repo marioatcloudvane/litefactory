@@ -92,7 +92,20 @@ func TestConversationPreviousReplyStaysBoundedAndScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bounded) > 4096 || bounded != text[:4095] {
+	answer, _, err := run.s.db.ConversationReplyAnswer(t.Context(), reply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts, err := run.s.db.ReadConversationAnswerParts(t.Context(), answer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved []string
+	for _, part := range parts {
+		saved = append(saved, part.Text)
+	}
+	expected, _ := boundedConversationText(strings.Join(saved, "\n\n"), 4096)
+	if len(parts) < 2 || len(bounded) > 4096 || bounded != expected {
 		t.Fatalf("reply context bound=%d", len(bounded))
 	}
 	absent, err := run.previousFactoryReply(t.Context(), []store.ConversationTurn{current, wrong})
