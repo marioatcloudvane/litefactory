@@ -547,6 +547,10 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 	if errors.Is(err, store.ErrNotFound) {
 		parent, err = d.db.GraphPlanParentForChild(ctx, q.repo.ID, number)
 	}
+	if errors.Is(err, store.ErrNotFound) && observation.Provider == ticket.Linear {
+		ref := ticket.Ref{Identity: ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}, Locator: ticket.Locator{Provider: observation.Provider, Origin: observation.Origin, Container: observation.Container, Key: observation.TicketID}}
+		parent, err = d.db.GraphPlanParentForPreparedChild(ctx, q.repo.ID, ref)
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
@@ -570,7 +574,16 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 		return nil, err
 	}
 	if version.Provider != observation.Provider || version.Origin != observation.Origin || version.Destination != observation.Container || snapshot.TicketRemoteID != observation.ContainerID {
+		if observation.Provider == ticket.Linear {
+			return nil, store.ErrBindingConflict
+		}
 		return nil, nil
+	}
+	if observation.Provider == ticket.Linear {
+		ref := ticket.Ref{Identity: ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}, Locator: ticket.Locator{Provider: observation.Provider, Origin: observation.Origin, Container: observation.Container, Key: observation.TicketID}}
+		if err := d.db.CheckTicketBindingSource(ctx, store.TicketBinding{RepoID: q.repo.ID, ConnectionVersionID: observation.ConnectionVersionID, Ref: ref}, version); err != nil {
+			return nil, err
+		}
 	}
 	held, err := d.db.DoctorRepairHeldSession(ctx, session.ID)
 	if err != nil {
@@ -597,7 +610,7 @@ func (d *Daemon) observationParent(ctx context.Context, q *repoQueue, observatio
 	if err != nil {
 		return nil, err
 	}
-	if verified.Ref.Identity.RemoteID != observation.TicketID {
+	if verified.Ref.Identity != (ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}) || verified.Ref.Locator.Container != observation.Container {
 		return nil, store.ErrTicketIdentityConflict
 	}
 	if err := d.db.MarkStoryDiscoveryPending(ctx, session.ID, number); err != nil {

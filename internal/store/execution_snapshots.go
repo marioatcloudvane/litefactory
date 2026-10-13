@@ -366,8 +366,28 @@ func (db *DB) AdmitManagedChild(ctx context.Context, parentID int64, ref ticket.
 			if err != nil {
 				return err
 			}
-			if snapshot.RepoID != parent.RepoID || snapshot.CodeVersionID != parent.CodeVersionID || snapshot.TicketVersionID != parent.TicketVersionID || snapshot.ActorID != parent.ActorID || snapshot.CodeRemoteID != parent.CodeRemoteID || snapshot.TicketRemoteID != parent.TicketRemoteID {
+			if snapshot.RepoID != parent.RepoID || snapshot.CodeVersionID != parent.CodeVersionID || snapshot.ActorID != parent.ActorID || snapshot.CodeActorID != parent.CodeActorID || snapshot.CodeRemoteID != parent.CodeRemoteID || snapshot.TicketRemoteID != parent.TicketRemoteID {
 				return ErrBindingConflict
+			}
+			mapping, err := scanSessionTicket(tx.QueryRowContext(ctx, `SELECT `+sessionTicketColumns+` FROM session_ticket_identities WHERE session_id=?`, existing.ID))
+			if err != nil {
+				return err
+			}
+			binding, err := getBinding(ctx, tx, ref.Identity)
+			if err != nil {
+				return err
+			}
+			if mapping.Locator != ref.Locator || mapping.RemoteID != ref.Identity.RemoteID || binding.ID != snapshot.BindingID || binding.RepoID != parent.RepoID || binding.Ref != ref {
+				return ErrBindingConflict
+			}
+			if err := checkTicketBindingSource(ctx, tx, binding, tickets, parent.TicketRemoteID); err != nil {
+				return err
+			}
+			// Prove the saved execution version as well as the binding version.
+			// Neither record may substitute for the other's retained evidence.
+			binding.ConnectionVersionID = snapshot.TicketVersionID
+			if err := checkTicketBindingSource(ctx, tx, binding, tickets, parent.TicketRemoteID); err != nil {
+				return err
 			}
 			out = existing
 			return nil
