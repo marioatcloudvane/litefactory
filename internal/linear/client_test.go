@@ -550,3 +550,101 @@ func TestReplyHistoryCombinedIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateContentNormalizedReadback(t *testing.T) {
+	metadata := "\n<!-- lf:plan-content v=1 data={} -->"
+	for _, tt := range []struct{ name, written, observed, title, failure string }{
+		{name: "CRLF", written: "a\r\nb", observed: "a\nb"},
+		{name: "trailing space", written: "a \nb", observed: "a\nb"},
+		{name: "table", written: "| A | B |\n| --- | :---: |\n| one | two |", observed: "|A|B|\n|-----|:-----:|\n|one|two|"},
+		{name: "escape", written: `Hello\!`, observed: "Hello!"},
+		{name: "combined metadata", written: "Hello\\! \r\n| A | B |\r\n| --- | :---: |\r\n| one | two |" + metadata, observed: "Hello!\n|A|B|\n|-----|:-----:|\n|one|two|" + metadata},
+		{name: "prose with matching metadata", written: "a" + metadata, observed: "b" + metadata, failure: "conflict"},
+		{name: "cell", written: "| A |\n| --- |\n| one |", observed: "| A |\n| --- |\n| two |", failure: "conflict"},
+		{name: "link", written: "[x](https://a.test)", observed: "[x](https://b.test)", failure: "conflict"},
+		{name: "code", written: "```\na \n```", observed: "```\na\n```", failure: "conflict"},
+		{name: "hard break", written: "a  \nb", observed: "a\nb", failure: "conflict"},
+		{name: "title", written: "a", observed: "a", title: "Edited", failure: "conflict"},
+		{name: "marker", written: "<!-- lf:plan-story key=a -->", observed: "<!-- lf:plan-story key=b -->", failure: "conflict"},
+		{name: "payload", written: metadata, observed: strings.ReplaceAll(metadata, "{}", "{ }"), failure: "conflict"},
+		{name: "malformed metadata", written: metadata, observed: metadataFence + "\nbroken", failure: "uncertain"},
+		{name: "stale base", written: "a", observed: "a", failure: "stale"},
+		{name: "missing confirmation", written: "a", observed: "a", failure: "confirmation"},
+		{name: "failed readback", written: "a", observed: "a", failure: "readback"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mutations := 0
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					Query     string
+					Variables map[string]json.RawMessage
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				if strings.Contains(req.Query, "issueUpdate") {
+					mutations++
+					var input struct{ Title, Description string }
+					if err := json.Unmarshal(req.Variables["input"], &input); err != nil {
+						t.Error(err)
+						return
+					}
+					if input.Description != EncodeContent(tt.written) || input.Title != "Title" {
+						t.Error("mutation did not contain prepared content")
+					}
+					_, _ = fmt.Fprintf(w, `{"data":{"issueUpdate":{"success":%t,"issue":{"id":"uuid-ticket"}}}}`, tt.failure != "confirmation")
+					return
+				}
+				raw := issueJSON("uuid-ticket", "project")
+				if mutations > 0 {
+					if tt.failure == "readback" {
+						http.Error(w, "unavailable", http.StatusServiceUnavailable)
+						return
+					}
+					body, err := json.Marshal(EncodeContent(tt.observed))
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					raw = strings.Replace(raw, `"description":"Body"`, `"description":`+string(body), 1)
+					if tt.title != "" {
+						raw = strings.Replace(raw, `"title":"Title"`, `"title":"Edited"`, 1)
+					}
+				}
+				_, _ = fmt.Fprintf(w, `{"data":{"issue":%s}}`, raw)
+			})
+			ref := ticket.Ref{Identity: c.identity("uuid-ticket"), Locator: c.locator("uuid-ticket")}
+			prior, err := c.Read(t.Context(), ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision := prior.Revision
+			if tt.failure == "stale" {
+				revision = "stale"
+			}
+			got, err := c.UpdateContent(t.Context(), ref, revision, mustBody(t, "Title"), mustBody(t, tt.written))
+			if tt.failure != "" {
+				kind := ticket.Conflict
+				if tt.failure == "uncertain" || tt.failure == "confirmation" || tt.failure == "readback" {
+					kind = ticket.Uncertain
+				}
+				var failure *ticket.Failure
+				if !errors.As(err, &failure) || failure.Kind != kind {
+					t.Fatalf("error = %v; want %s", err, kind)
+				}
+				if tt.failure == "stale" && mutations != 0 {
+					t.Fatal("stale revision dispatched")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			fetched, err := c.Read(t.Context(), ref)
+			if err != nil || got.Body != tt.observed || got.ProviderBody != EncodeContent(tt.observed) || got.Revision != fetched.Revision || mutations != 1 {
+				t.Fatalf("actual readback lost: %+v %v", got, err)
+			}
+		})
+	}
+}
