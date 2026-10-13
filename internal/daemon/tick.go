@@ -1141,6 +1141,9 @@ type task struct {
 	workerLog *slog.Logger
 	worker    *workerState
 
+	// implementCoordinatorHandedOff records this scheduled call's successful graph return.
+	implementCoordinatorHandedOff bool
+
 	scheduled          *store.Schedule
 	continuation       *store.Continuation
 	continuationLocked bool
@@ -2795,7 +2798,13 @@ func (d *Daemon) run(
 		// before its publication or domain operation has been confirmed.
 		return nil
 	}
-	return d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+	err = d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+	if err == nil && turnResult.Err == nil && mode == agent.ModeImplement &&
+		t.scheduled != nil && t.scheduled.Payload == turn.ValidateImplementPayload &&
+		trigger.CommentID == t.scheduled.TriggerID() && turnResult.ResearchGraph && turnResult.Run.ID == 0 {
+		t.implementCoordinatorHandedOff = true
+	}
+	return err
 }
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
