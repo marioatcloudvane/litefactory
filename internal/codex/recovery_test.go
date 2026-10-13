@@ -262,3 +262,49 @@ func eventScript(lines []string, exit int) string {
 	fmt.Fprintf(&script, "exit %d\n", exit)
 	return script.String()
 }
+
+func TestProviderCapacityEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, event string
+		want        bool
+	}{
+		{"incident", `{"type":"turn.failed","error":{"message":"Selected model is at capacity. Please try a different model."}}`, true},
+		{"overloaded", `{"type":"turn.failed","error":{"code":"overloaded_error"}}`, true},
+		{"429", `{"type":"turn.failed","error":{"status_code":429}}`, true},
+		{"529", `{"type":"turn.failed","error":{"message":"HTTP 529"}}`, true},
+		{"soft", `{"type":"turn.failed","error":{"message":"rate limit exceeded"}}`, true},
+		{"quota", `{"type":"turn.failed","error":{"message":"HTTP 429 insufficient_quota"}}`, false},
+		{"auth", `{"type":"turn.failed","error":{"message":"HTTP 429 authentication failed"}}`, false},
+		{"quoted", `{"type":"item.completed","item":{"type":"agent_message","text":"model is at capacity"}}`, false},
+		{"recovered", `{"type":"error","message":"model is at capacity"}` + "\n" + completedEvent, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner, _ := fakeRunner(t, eventScript(strings.Split(tc.event, "\n"), 1))
+			result, err := runner.Run(t.Context(), request(t, agent.PathResume))
+			if (result.Transient != nil) != tc.want {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			if tc.want && err != nil {
+				t.Fatalf("capacity became resume refusal: %v", err)
+			}
+			if tc.want && result.Transient.Model == "" {
+				t.Fatal("capacity lost selected model")
+			}
+			var stream streamState
+			for _, line := range strings.Split(tc.event, "\n") {
+				stream.consumeLine([]byte(line))
+			}
+			for _, cancelled := range []bool{true, false} {
+				r := &agent.RunResult{ExitCode: 1}
+				if cancelled {
+					classifyOutcome(r, stream, context.Canceled, nil, time.Minute)
+				} else {
+					classifyOutcome(r, stream, nil, context.DeadlineExceeded, time.Minute)
+				}
+				if r.Transient != nil {
+					t.Fatal("cancel/timeout is transient")
+				}
+			}
+		})
+	}
+}

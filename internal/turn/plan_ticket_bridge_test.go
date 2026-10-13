@@ -207,3 +207,28 @@ func TestLegacyPlanBatchRefusesWithoutRemoteIO(t *testing.T) {
 		t.Fatalf("batch bypass was not refused: %v", err)
 	}
 }
+
+func TestPlanContentComparisonIsProviderSpecific(t *testing.T) {
+	expected, observed := "Hello! \nworld", "Hello!\nworld"
+	for _, provider := range []ticket.Provider{ticket.Linear, ticket.GitHub, ""} {
+		t.Run(string(provider), func(t *testing.T) {
+			// Default client deliberately differs from the qualified observation.
+			h := &PlanStoryActivity{Forge: &TicketPlanBridge{Tickets: foreignPlanOrigin{}}}
+			issue := github.Issue{Body: observed}
+			if provider != "" {
+				issue.QualifiedSnapshot = &ticket.Snapshot{Ref: ticket.Ref{Identity: ticket.Identity{Provider: provider}}}
+			}
+			if h.planContentEquivalent(expected, issue) != (provider == ticket.Linear) {
+				t.Fatal("wrong provider comparison")
+			}
+			issue.Body += " edited"
+			if h.planContentEquivalent(expected, issue) {
+				t.Fatal("substantive edit accepted")
+			}
+		})
+	}
+	h := &PlanStoryActivity{}
+	if h.planContentEquivalent(expected, github.Issue{Body: observed}) {
+		t.Fatal("default comparison is not exact")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -25,8 +26,11 @@ type quotaIdentity struct {
 }
 
 type connectionQuota struct {
-	backoff   backoff
-	discovery discoveryBudget
+	backoff        backoff
+	discovery      discoveryBudget
+	reportMu       sync.Mutex
+	reportedReason string
+	reportedUntil  time.Time
 }
 
 type connectionQuotas struct {
@@ -134,6 +138,14 @@ func (d *Daemon) bindQuotaRequest(ctx context.Context, v store.ConnectionVersion
 		return ctx, nil, ErrDiscoveryDeferred
 	}
 	r, _ := ctx.Value(quotaReservationKey{}).(*discoveryReservation)
+	if r != nil && r.fallback && r.budget == &q.discovery {
+		q.discovery.mu.Lock()
+		exhausted := r.finished || r.requests >= r.bound || (q.discovery.limit > 0 && now.Before(q.discovery.reset) && (q.discovery.remaining <= q.discovery.floorLocked() || q.discovery.spent >= q.discovery.discoveryShareLocked()))
+		q.discovery.mu.Unlock()
+		if exhausted {
+			return ctx, nil, ErrDiscoveryDeferred
+		}
+	}
 	ctx = github.WithRequestObserver(ctx, func(o github.RequestObservation) {
 		q.discovery.observe(o)
 		if r != nil && r.budget == &q.discovery {
@@ -208,11 +220,45 @@ func (d *Daemon) scopedPauseSummary(now time.Time) string {
 		versions = append(versions, v)
 	}
 	d.quotas.mu.Unlock()
+	sort.Slice(versions, func(i, j int) bool { return versions[i].ID < versions[j].ID })
 	seen := make(map[string]bool)
 	var pauses []string
 	for _, v := range versions {
-		if until, held := d.quotas.forVersion(v).backoff.hold(now); held {
-			line := fmt.Sprintf("project %d %s %s: rate-limit backoff until %s", v.RepoID, v.Provider, v.Origin, until.UTC().Format(time.RFC3339))
+		q := d.quotas.forVersion(v)
+		reason, until := "", time.Time{}
+		if at, held := q.backoff.hold(now); held {
+			reason, until = pauseReasonBackoff, at
+		} else if v.Provider == ticket.Linear {
+			q.discovery.tick(now)
+			view := q.discovery.view()
+			if view.HeldBack > 0 || !view.ProbeAt.IsZero() || !view.FallbackAt.IsZero() {
+				if !view.Fresh || (view.Remaining <= view.Reserve || view.Spent >= view.Share) {
+					reason, until = view.deferral()
+					if reason == pauseReasonStale {
+						until = view.ProbeAt.Add(time.Minute)
+						if !view.FallbackAt.IsZero() {
+							reason += "; bounded fallback"
+							if at := view.FallbackAt.Add(time.Minute); at.After(until) {
+								until = at
+							}
+						}
+					}
+				}
+			}
+		}
+		q.reportMu.Lock()
+		changed := reason != q.reportedReason || !until.Equal(q.reportedUntil)
+		q.reportedReason, q.reportedUntil = reason, until
+		q.reportMu.Unlock()
+		if changed && d.log != nil {
+			if reason == "" {
+				d.log.Info("source discovery recovered", slog.Int64("project_id", v.RepoID), slog.String("provider", string(v.Provider)))
+			} else {
+				d.log.Warn("source discovery deferred", slog.Int64("project_id", v.RepoID), slog.String("provider", string(v.Provider)), slog.String("reason", reason), slog.Time("retry_at", until))
+			}
+		}
+		if reason != "" {
+			line := fmt.Sprintf("project %d %s %s: %s until %s", v.RepoID, v.Provider, v.Origin, reason, until.UTC().Format(time.RFC3339))
 			if !seen[line] {
 				seen[line] = true
 				pauses = append(pauses, line)

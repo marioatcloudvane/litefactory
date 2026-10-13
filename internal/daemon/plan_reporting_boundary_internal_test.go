@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -161,5 +163,98 @@ func TestPlanReportingBoundaryStaleReplyLossRetainsCursor(t *testing.T) {
 	}
 	if _, err = reporter.ReportPlanReply(t.Context(), parent, f.session.ID, "another-story", 201, 55, retained.Reason); err == nil || errors.Is(err, turn.ErrReportReceiptUncertain) {
 		t.Fatalf("changed input identity accepted: %v", err)
+	}
+}
+
+func TestPlanHeldEffectNoticeSurvivesSettlement(t *testing.T) {
+	for _, lost := range []bool{false, true} {
+		t.Run(fmt.Sprintf("lost=%v", lost), func(t *testing.T) {
+			f := newPublicationIO(t)
+			ctx := t.Context()
+			parent, err := naming.ParseRef(f.session.TaskRef)
+			publicationMust(t, err)
+			repo, err := f.db.GetRepo(ctx, f.session.RepoID)
+			publicationMust(t, err)
+			_, err = f.db.AdmitPlanWorkflowPath(ctx, f.session.ID, "graph")
+			publicationMust(t, err)
+			state := planbrief.PlanState{SharedRevision: "shared", Stories: []planbrief.PlanStoryState{{Key: "story-001", Stage: "story", Effect: "uncertain"}}}
+			state.Stories[0].SetEffectHold("plan-request-692-6680", "owner edits conflict with expected content revision")
+			_, err = f.db.ReservePlanStory(ctx, parent.String(), "story-001")
+			publicationMust(t, err)
+			publicationMust(t, f.db.BindPlanStoryShell(ctx, parent.String(), "story-001", 2000, 200, "original-content"))
+			_, err = f.db.SavePlanWorkflowState(ctx, parent.String(), 0, state)
+			publicationMust(t, err)
+			child, err := f.db.GetOrCreateSession(ctx, repo, 200)
+			publicationMust(t, err)
+			ref, err := naming.ParseRef(child.TaskRef)
+			publicationMust(t, err)
+			work := &task{repo: repo, session: child, ref: ref, issue: github.Issue{Number: 200}, log: f.d.log, tickAt: f.now}
+			scheduled, _, err := f.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: child.ID, SourceCommentID: planWorkID("effect", "story-001", "plan-request-692-6680"), OwnerHandle: "owner", Payload: planWorkPayload, DueAt: f.now})
+			publicationMust(t, err)
+			reporter, ok := f.d.reporter.(*turn.Reporter)
+			if !ok {
+				t.Fatal("fixture reporter has unexpected type")
+			}
+			f.mu.Lock()
+			f.lost = lost
+			f.mu.Unlock()
+			_, err = reporter.ReportPlanNotices(ctx, parent, f.session.ID)
+			if lost == (err == nil) {
+				t.Fatalf("lost=%v report error=%v", lost, err)
+			}
+			notices, err := f.db.PendingPlanStoryNotices(ctx, parent.String())
+			publicationMust(t, err)
+			var noticeID int64
+			if lost {
+				if len(notices) != 1 {
+					t.Fatalf("pending notices=%+v", notices)
+				}
+				noticeID = notices[0].ID
+			} else if len(notices) != 0 {
+				t.Fatalf("delivered notice still pending: %+v", notices)
+			}
+			reserved, ok, err := f.db.ReserveSchedule(ctx, scheduled.ID, f.now)
+			publicationMust(t, err)
+			if !ok || !f.d.planWorkSettled(ctx, work, reserved) {
+				t.Fatal("held GitHub schedule not settled")
+			}
+			f.d.finishScheduled(ctx, work, reserved, store.ScheduleSucceeded, 0)
+			reporter = restartPlanReporter(t, f)
+			f.mu.Lock()
+			f.lost = false
+			f.mu.Unlock()
+			if lost {
+				notices, err = f.db.PendingPlanStoryNotices(ctx, parent.String())
+				publicationMust(t, err)
+				if len(notices) != 1 || notices[0].ID != noticeID {
+					t.Fatal("settlement replaced delivery identity")
+				}
+			}
+			for range 2 {
+				_, err = reporter.ReportPlanNotices(ctx, parent, f.session.ID)
+				publicationMust(t, err)
+				queue := &repoQueue{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, log: f.d.log}
+				publicationMust(t, f.d.graphPlanStories(ctx, map[int64]*repoQueue{repo.ID: queue}, map[int64]*candidate{}))
+				if len(queue.candidates) != 0 {
+					t.Fatal("held GitHub effect offered again")
+				}
+			}
+			retained, _, err := f.db.GetPlanWorkflowState(ctx, parent.String())
+			publicationMust(t, err)
+			if !reflect.DeepEqual(state, retained) {
+				t.Fatalf("notice changed conflict state: %+v", retained)
+			}
+			final, err := f.db.GetSchedule(ctx, scheduled.ID)
+			publicationMust(t, err)
+			if final.Status != store.ScheduleSucceeded || final.RunID != 0 {
+				t.Fatalf("settlement=%+v", final)
+			}
+			f.mu.Lock()
+			posts := f.posts
+			f.mu.Unlock()
+			if posts != 1 {
+				t.Fatalf("notice posted %d times", posts)
+			}
+		})
 	}
 }
