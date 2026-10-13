@@ -360,7 +360,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		chatOpts.ReplyModel = &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}
 		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
 		{
-			options := &messaging.ConversationOptions{StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string)}
+			options := &messaging.ConversationOptions{Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string)}
 			for kind, runner := range runners {
 				if native, ok := runner.(messaging.ConversationProvider); ok {
 					options.Providers[string(kind)] = native

@@ -80,7 +80,7 @@ func (db *DB) EnsureConversation(ctx context.Context, c Conversation, at time.Ti
 				return e
 			}
 			var n int
-			if e = tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM chat_conversation_turns WHERE conversation_id=? AND delivered_at IS NULL)+(SELECT count(*) FROM chat_natural_messages WHERE channel_ref=? AND state IN ('pending','staged'))`, old.ID, old.ChannelRef).Scan(&n); e != nil {
+			if e = tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM chat_conversation_turns WHERE conversation_id=? AND delivered_at IS NULL)+(SELECT count(*) FROM chat_natural_messages WHERE channel_ref=? AND state IN ('pending','staged'))+(SELECT count(*) FROM chat_natural_dialogues WHERE transport=? AND owner_id=? AND channel_ref=? AND (state IN ('authorized','executing') OR (state IN ('clarifying','awaiting_confirmation') AND expires_at>?)))+(SELECT count(*) FROM chat_inbox WHERE conversation_turn_id IN (SELECT id FROM chat_conversation_turns WHERE conversation_id=?) AND state IN ('pending','sent','answering','working'))`, old.ID, old.ChannelRef, old.Transport, old.OwnerID, old.ChannelRef, FormatTime(at), old.ID).Scan(&n); e != nil {
 				return e
 			}
 			if n != 0 {

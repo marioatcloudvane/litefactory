@@ -29,6 +29,7 @@ type ConversationBinding struct{ Channel, Name, Provider, Model string }
 // ConversationOptions is installed before workers start. Context selection belongs
 // to the caller and conveys data only. Access is rechecked before every external effect.
 type ConversationOptions struct {
+	Factory         bool
 	Bindings        []ConversationBinding
 	StateRoot       string
 	Providers       map[string]ConversationProvider
@@ -46,6 +47,7 @@ type conversationRuntime struct {
 	root, worker string
 	check        func(context.Context, string) error
 	prepared     func(context.Context, string) (string, error)
+	factory      bool
 	next         int
 	accessMu     sync.Mutex
 	accessAfter  map[string]time.Time
@@ -62,7 +64,7 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
 	}
-	r := &conversationRuntime{bindings: make(map[string]ConversationBinding), providers: make(map[string]ConversationProvider), models: make(map[string]string), accessAfter: make(map[string]time.Time), root: filepath.Clean(options.StateRoot), worker: hex.EncodeToString(nonce[:]), check: options.CheckAccess, prepared: options.PreparedContext}
+	r := &conversationRuntime{bindings: make(map[string]ConversationBinding), providers: make(map[string]ConversationProvider), models: make(map[string]string), accessAfter: make(map[string]time.Time), root: filepath.Clean(options.StateRoot), worker: hex.EncodeToString(nonce[:]), check: options.CheckAccess, prepared: options.PreparedContext, factory: options.Factory}
 	for name, provider := range options.Providers {
 		r.providers[name] = provider
 	}
@@ -199,6 +201,26 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 				if c.SessionHandle == "" {
 					notice = "The previous turn was interrupted before its native session identity was saved. Continuity is unavailable; no replacement session was created."
 				}
+				if r.factory {
+					savedOutcome, recoveryErr := s.db.RecoverConversationActionOutcome(ctx, t, at)
+					if recoveryErr != nil && !errors.Is(recoveryErr, store.ErrNotFound) {
+						return true, recoveryErr
+					}
+					if errors.Is(recoveryErr, store.ErrNotFound) {
+						exchanges, e := s.db.ListConversationExchanges(ctx, t.ID)
+						if e != nil {
+							return true, e
+						}
+						for _, exchange := range exchanges {
+							if exchange.Kind == "saved_outcome" {
+								notice = "Saved action outcome:\n" + exchange.Result
+							}
+						}
+					}
+					if recoveryErr == nil {
+						notice = "Saved action outcome:\n" + savedOutcome
+					}
+				}
 				if err = s.conversationOutcome(ctx, t, "interrupted", notice, at); err != nil {
 					return true, err
 				}
@@ -265,6 +287,9 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 }
 
 func (s *Service) runConversation(ctx context.Context, c store.Conversation, b ConversationBinding, t store.ConversationTurn, at time.Time) error {
+	if s.conversations.Load().factory {
+		return s.runFactoryConversation(ctx, c, b, t, at)
+	}
 	r := s.conversations.Load()
 	provider := r.providers[c.Provider]
 	if provider == nil {
@@ -378,4 +403,14 @@ func (s *Service) conversationHealth(ctx context.Context, at time.Time) string {
 		}
 	}
 	return text
+}
+
+// conversationHandled records a deterministic factory reply without launching a
+// native session. The store refuses it if a provider input was journaled.
+func (s *Service) conversationHandled(ctx context.Context, t store.ConversationTurn, text string, at time.Time) error {
+	protected, err := s.Protect(ctx, text)
+	if err != nil {
+		return err
+	}
+	return s.db.CompleteConversationHandledTurn(ctx, t, protected, at)
 }

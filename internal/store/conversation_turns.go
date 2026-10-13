@@ -9,17 +9,17 @@ import (
 
 // ConversationTurn journals the launch boundary and durable delivery identity.
 type ConversationTurn struct {
-	ID, ConversationID, SourceID, Prompt, State, Worker, ReplyID, DiscordMessageID string
-	Sequence, Generation                                                           int64
-	LeaseUntil, CreatedAt, FinishedAt, DeliveredAt                                 time.Time
+	ID, ConversationID, SourceID, Source, ReplyTo, Prompt, State, Worker, ReplyID, DiscordMessageID string
+	Sequence, Generation                                                                            int64
+	LeaseUntil, CreatedAt, FinishedAt, DeliveredAt                                                  time.Time
 }
 
-const conversationTurnColumns = `id,conversation_id,source_id,prompt,state,worker,reply_id,discord_message_id,sequence,generation,lease_until,created_at,finished_at,delivered_at`
+const conversationTurnColumns = `id,conversation_id,source_id,source,reply_to,prompt,state,worker,reply_id,discord_message_id,sequence,generation,lease_until,created_at,finished_at,delivered_at`
 
 func scanConversationTurn(row scanner) (ConversationTurn, error) {
 	var t ConversationTurn
 	var lease, created, finished, delivered sql.NullString
-	e := row.Scan(&t.ID, &t.ConversationID, &t.SourceID, &t.Prompt, &t.State, &t.Worker, &t.ReplyID, &t.DiscordMessageID, &t.Sequence, &t.Generation, &lease, &created, &finished, &delivered)
+	e := row.Scan(&t.ID, &t.ConversationID, &t.SourceID, &t.Source, &t.ReplyTo, &t.Prompt, &t.State, &t.Worker, &t.ReplyID, &t.DiscordMessageID, &t.Sequence, &t.Generation, &lease, &created, &finished, &delivered)
 	if errors.Is(e, sql.ErrNoRows) {
 		return t, ErrNotFound
 	}
@@ -57,8 +57,8 @@ func (db *DB) AdmitConversationTurn(ctx context.Context, id, source, prompt stri
 		if !errors.Is(e, ErrNotFound) {
 			return e
 		}
-		var oldest, owner string
-		if e = tx.QueryRowContext(ctx, `SELECT source_id,owner_id FROM chat_natural_messages WHERE channel_ref=? AND state='pending' ORDER BY length(source_id),source_id LIMIT 1`, c.ChannelRef).Scan(&oldest, &owner); errors.Is(e, sql.ErrNoRows) {
+		var oldest, owner, sourceText, replyTo string
+		if e = tx.QueryRowContext(ctx, `SELECT source_id,owner_id,content,reply_to FROM chat_natural_messages WHERE channel_ref=? AND state='pending' ORDER BY length(source_id),source_id LIMIT 1`, c.ChannelRef).Scan(&oldest, &owner, &sourceText, &replyTo); errors.Is(e, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		if e != nil {
@@ -78,7 +78,7 @@ func (db *DB) AdmitConversationTurn(ctx context.Context, id, source, prompt stri
 		if e != nil {
 			return e
 		}
-		_, e = tx.ExecContext(ctx, `INSERT INTO chat_conversation_turns(id,conversation_id,source_id,sequence,prompt,created_at) VALUES(?,?,?,?,?,?)`, turnID, id, source, c.NextSequence, prompt, FormatTime(at))
+		_, e = tx.ExecContext(ctx, `INSERT INTO chat_conversation_turns(id,conversation_id,source_id,source,reply_to,sequence,prompt,created_at) VALUES(?,?,?,?,?,?,?,?)`, turnID, id, source, sourceText, replyTo, c.NextSequence, prompt, FormatTime(at))
 		if e != nil {
 			return e
 		}
@@ -130,6 +130,15 @@ func (db *DB) SaveConversationSession(ctx context.Context, t ConversationTurn, h
 // CompleteConversationTurn saves exact reply bytes and outbox identity in one
 // fenced transaction. Only a completed answer requires a known native session.
 func (db *DB) CompleteConversationTurn(ctx context.Context, t ConversationTurn, state, reply string, at time.Time) error {
+	return db.completeConversationTurn(ctx, t, state, reply, at, false)
+}
+
+// CompleteConversationHandledTurn saves a deterministic factory response before
+// a native session exists. It refuses turns with any provider launch journal.
+func (db *DB) CompleteConversationHandledTurn(ctx context.Context, t ConversationTurn, reply string, at time.Time) error {
+	return db.completeConversationTurn(ctx, t, "completed", reply, at, true)
+}
+func (db *DB) completeConversationTurn(ctx context.Context, t ConversationTurn, state, reply string, at time.Time, handled bool) error {
 	if (state != "completed" && state != "interrupted" && state != "unavailable") || reply == "" || len(reply) > 65536 {
 		return errors.New("invalid conversation outcome")
 	}
@@ -138,7 +147,16 @@ func (db *DB) CompleteConversationTurn(ctx context.Context, t ConversationTurn, 
 		if e != nil {
 			return e
 		}
-		if state == "completed" && c.SessionHandle == "" {
+		if handled {
+			var n int
+			if e = tx.QueryRowContext(ctx, `SELECT count(*) FROM chat_conversation_exchanges WHERE turn_id=? AND kind='provider'`, t.ID).Scan(&n); e != nil {
+				return e
+			}
+			if n != 0 {
+				return errors.New("factory handled turn contains provider launch")
+			}
+		}
+		if state == "completed" && c.SessionHandle == "" && !handled {
 			return errors.New("conversation completed without session identity")
 		}
 		replyID := "conversation:" + t.ID

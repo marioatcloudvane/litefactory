@@ -1,0 +1,106 @@
+package messaging
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strconv"
+
+	"github.com/cloudvane/litefactory/internal/store"
+)
+
+// savePreviewReference exposes only a code from a saved factory preview. Native
+// history and owner/model-authored values cannot manufacture this reference.
+func (r *factoryConversationRun) savePreviewReference(ctx context.Context, preview store.ChatIssuePreview) error {
+	if preview.Transport != r.c.Transport || preview.ChannelRef != r.c.ChannelRef || preview.State != "previewed" || !r.at.Before(preview.ExpiresAt) {
+		return errors.New("conversation preview is not current")
+	}
+	current, err := r.s.db.CurrentChatIssuePreview(ctx, r.c.Transport, r.c.ChannelRef)
+	if err != nil {
+		return err
+	}
+	if current.ID != preview.ID || current.ContentHash != preview.ContentHash || current.Code != preview.Code || current.RepoID != preview.RepoID {
+		return errors.New("conversation preview changed")
+	}
+	repo, err := r.s.db.GetRepo(ctx, preview.RepoID)
+	if err != nil {
+		return err
+	}
+	content, err := json.Marshal(map[string]string{"project": repo.Slug(), "code": preview.Code})
+	if err != nil {
+		return err
+	}
+	return r.s.db.SaveConversationReference(ctx, r.t, store.ConversationReference{ID: r.t.ID + "-preview", TurnID: r.t.ID, Kind: "preview", Repository: strconv.FormatInt(preview.RepoID, 10), Target: preview.ID, Revision: preview.ContentHash, Content: string(content), ExpiresAt: preview.ExpiresAt})
+}
+
+// previousFactoryReply is explanation context only, never an executable source.
+// Its selection is based on persisted turn sequence, independent of slice order.
+func (r *factoryConversationRun) previousFactoryReply(ctx context.Context, sources []store.ConversationTurn) (string, error) {
+	var previous *store.ConversationTurn
+	for i := range sources {
+		source := &sources[i]
+		if source.ID == r.t.ID || source.ConversationID != r.c.ID || source.Sequence >= r.t.Sequence || source.ReplyID == "" {
+			continue
+		}
+		if previous == nil || source.Sequence > previous.Sequence {
+			previous = source
+		}
+	}
+	if previous == nil {
+		return "", nil
+	}
+	reply, err := r.s.db.ReadChatReply(ctx, r.c.Transport, previous.ReplyID)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if reply.ChannelRef != r.c.ChannelRef || reply.Command != "conversation" {
+		return "", nil
+	}
+	protected, err := r.s.Protect(ctx, reply.ReplyText)
+	if err != nil {
+		return "", err
+	}
+	bounded, _ := boundedConversationText(protected, 4096)
+	return bounded, nil
+}
+
+// referenceCurrent refreshes revision-sensitive factory references. It does not
+// grant permission: the coordinator still resolves the registered repository,
+// and proposal/confirmation/execution independently recheck target permissions.
+func (r *factoryConversationRun) referenceCurrent(ctx context.Context, reference store.ConversationReference, args map[string]string) (bool, error) {
+	if !r.at.Before(reference.ExpiresAt) {
+		return false, nil
+	}
+	switch reference.Kind {
+	case "preview":
+		preview, err := r.s.db.CurrentChatIssuePreview(ctx, r.c.Transport, r.c.ChannelRef)
+		if errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return preview.State == "previewed" && r.at.Before(preview.ExpiresAt) && preview.ID == reference.Target && preview.ContentHash == reference.Revision && preview.Code == args["code"] && strconv.FormatInt(preview.RepoID, 10) == reference.Repository, nil
+	case "target":
+		if reference.Revision == "" {
+			return true, nil
+		}
+		if r.s.research == nil || args["revision"] != reference.Revision {
+			return false, nil
+		}
+		target, refusal := r.s.researchTarget(ctx, Message{Arguments: args}, true)
+		if refusal != "" {
+			return false, nil
+		}
+		question, err := r.s.research.Current(ctx, target)
+		if err != nil {
+			return false, err
+		}
+		return question.Text != "" && question.Token == reference.Revision, nil
+	default:
+		return false, nil
+	}
+}

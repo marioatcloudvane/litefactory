@@ -57,6 +57,6 @@ func (db *DB) PauseConversationReply(ctx context.Context, r ChatReply, reason st
 // PurgeConversationBodies removes completed, delivered prompt snapshots, never native
 // state, pending work, source identities, sequences, or delivery metadata.
 func (db *DB) PurgeConversationBodies(ctx context.Context, at time.Time) error {
-	_, e := db.sql.ExecContext(ctx, `UPDATE chat_conversation_turns SET prompt='' WHERE state='completed' AND delivered_at IS NOT NULL AND delivered_at<=?`, FormatTime(at.Add(-24*time.Hour)))
+	_, e := db.sql.ExecContext(ctx, `UPDATE chat_conversation_turns SET prompt='' WHERE state='completed' AND delivered_at IS NOT NULL AND delivered_at<=? AND NOT EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_natural_dialogues d ON d.code=a.dialogue_id AND d.revision=a.dialogue_revision WHERE a.turn_id=chat_conversation_turns.id AND EXISTS(SELECT 1 FROM chat_conversations c WHERE c.id=chat_conversation_turns.conversation_id AND c.transport=d.transport AND c.owner_id=d.owner_id AND c.channel_ref=d.channel_ref) AND d.state IN ('awaiting_confirmation','authorized','executing'))`, FormatTime(at.Add(-24*time.Hour)))
 	return e
 }
