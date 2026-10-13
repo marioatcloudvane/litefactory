@@ -66,7 +66,7 @@ func budgetDrainTo(t *testing.T, b *discoveryBudget, target int) {
 
 func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
 	// remaining is given as an offset from that limit's floor, so the cases
-	// keep their meaning when discoveryQuotaDivisor is retuned.
+	// keep their meaning when discoveryReserveDivisor is retuned.
 	floorOf := func(limit int) int { return limit / discoveryReserveDivisor }
 	// Headroom above the floor is exactly what may be spent, one scalar each,
 	// so the allowance is the offset rather than a separate literal.
@@ -80,7 +80,7 @@ func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
 			t.Parallel()
 			b, _ := budgetFixture(tt.limit, floorOf(tt.limit)+tt.aboveFloor)
 			// The discovery share can bind before the reserve on small limits.
-			for i := 0; i < min(tt.aboveFloor, tt.limit/discoveryQuotaDivisor); i++ {
+			for i := 0; i < min(tt.aboveFloor, tt.limit-floorOf(tt.limit)); i++ {
 				r := budgetAcquire(t, b, "scalar", 1, false)
 				budgetRequest(b, r, 200, true)
 				r.finish()
@@ -168,7 +168,7 @@ func TestDiscoveryBudget_BackgroundSpendCap(t *testing.T) {
 	b, now := budgetFixture(5000, 5000)
 	// Exhaust the background share exactly: whole listings, then scalars for
 	// the remainder, since the share need not divide into discoveryListBound.
-	share := 5000 / discoveryQuotaDivisor
+	share := 5000 - 5000/discoveryReserveDivisor
 	listings := share / discoveryListBound
 	for i := range listings {
 		b.tick(now.Add(time.Duration(i) * time.Minute))
@@ -363,7 +363,7 @@ func TestLinearRequestQuotaFreshnessAndCharging(t *testing.T) {
 	}
 	r.finish()
 	v := b.view()
-	if !v.Fresh || v.Share != 500 || v.Reserve != 100 || v.Spent != 3 || v.InProgress != 0 || v.Burst != discoveryBurst-3 {
+	if !v.Fresh || v.Share != 900 || v.Reserve != 100 || v.Spent != 3 || v.InProgress != 0 || v.Burst != discoveryBurst-3 {
 		t.Fatalf("probe accounting: %+v", v)
 	}
 	other := &discoveryBudget{}
