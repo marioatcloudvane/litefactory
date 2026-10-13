@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -235,7 +236,14 @@ func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*re
 		}
 		session, err := d.managedChildSession(ctx, q.repo, row.Parent, number, remoteID)
 		if err != nil {
-			return fmt.Errorf("find the task of story %s: %w", row.Key, err)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// One story whose task cannot be resolved must not fail discovery for
+			// every other task and project; it is retried on the next tick.
+			q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
+				slog.String("parent", row.Parent), slog.String("story", row.Key), slog.Any("error", err))
+			continue
 		}
 		if row.WorkerSession != session.ID {
 			if err := d.db.SetImplementWorkerSession(ctx, row.Parent, row.Generation, row.Key, session.ID, now.UTC()); err != nil {
