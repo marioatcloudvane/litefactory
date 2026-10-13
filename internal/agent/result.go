@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -87,6 +89,9 @@ type RunResult struct {
 
 	// Interruption carries verified quota evidence, including report-only resets.
 	Interruption *Interruption
+
+	// Transient carries provider-owned capacity refusal evidence.
+	Transient *TransientFailure
 
 	// Reason explains a non-success outcome in one line, suitable for the
 	// failure comment and for the runs row. Empty when the run succeeded.
@@ -206,7 +211,46 @@ func (r *RunResult) Clone() *RunResult {
 		interruption := *r.Interruption
 		out.Interruption = &interruption
 	}
+	if r.Transient != nil {
+		v := *r.Transient
+		out.Transient = &v
+	}
 	out.Tools = slices.Clone(r.Tools)
 	out.Command = slices.Clone(r.Command)
 	return &out
+}
+
+// TransientFailure carries a canonical cause, never raw provider text or secrets.
+type TransientFailure struct {
+	Cause string
+	// Model is the factory-selected model, not provider-observed usage attribution.
+	Model string
+}
+
+var capacityHTTP = regexp.MustCompile(`(?i)\b(?:http(?: status)?|status(?: code)?)[:= ]+(429|529)\b`)
+
+// ProviderCapacity classifies terminal provider diagnostics only. Adapters must
+// exclude generated content, recovered warnings, successful and cancelled runs.
+func ProviderCapacity(detail string) *TransientFailure {
+	text := strings.ToLower(detail)
+	for _, marker := range []string{"quota", "usage limit", "credit", "billing", "payment", "authentication", "unauthorized", "forbidden", "api key", "api_key", "permission", "invalid_request", "invalid request", "configuration"} {
+		if strings.Contains(text, marker) {
+			return nil
+		}
+	}
+	cause := ""
+	switch {
+	case strings.Contains(text, "model is at capacity"):
+		cause = "model is at capacity"
+	case strings.Contains(text, "overloaded"):
+		cause = "provider overloaded"
+	case capacityHTTP.MatchString(text):
+		cause = "provider HTTP " + capacityHTTP.FindStringSubmatch(text)[1]
+	case strings.Contains(text, "rate_limit"), strings.Contains(text, "rate limit"), strings.Contains(text, "rate-limit"):
+		cause = "provider rate limit"
+	}
+	if cause == "" {
+		return nil
+	}
+	return &TransientFailure{Cause: cause}
 }

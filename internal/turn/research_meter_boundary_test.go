@@ -3,6 +3,8 @@ package turn
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/graphexec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -168,5 +170,174 @@ func TestResearchMeterResumeFallbackAndMultiNodeTotals(t *testing.T) {
 	}
 	if total != 30 || len(seen) != 4 || paths[0] != agent.PathResume || paths[2] != agent.PathColdAfterResumeRefused {
 		t.Fatalf("total=%d ids=%v paths=%v", total, ids, paths)
+	}
+}
+
+// These fixtures exercise the real activity, result service, graph settlement
+// and metering without a provider or wall-clock backoff.
+func TestCapacityInvocation(t *testing.T) {
+	for _, tc := range []struct {
+		name                                                          string
+		successAt, acceptAt, cancelWait, cancelProcess                int
+		ownerStop, budgetWait, resumeRefused, readError, nontransient bool
+		calls                                                         int
+	}{
+		{name: "exhausted", calls: 4},
+		{name: "success", successAt: 2, calls: 2},
+		{name: "nontransient", nontransient: true, calls: 2},
+		{name: "accepted before exit", acceptAt: 1, calls: 1},
+		{name: "accepted during wait", acceptAt: 2, calls: 1},
+		{name: "read failure", readError: true, calls: 1},
+		{name: "cancel wait 1", cancelWait: 1, calls: 1},
+		{name: "cancel wait 2", cancelWait: 2, calls: 2},
+		{name: "cancel wait 3", cancelWait: 3, calls: 3},
+		{name: "cancel process 1", cancelProcess: 1, calls: 1},
+		{name: "cancel process 2", cancelProcess: 2, calls: 2},
+		{name: "cancel process 3", cancelProcess: 3, calls: 3},
+		{name: "cancel process 4", cancelProcess: 4, calls: 4},
+		{name: "owner stop", ownerStop: true, calls: 1},
+		{name: "budget expires during wait", budgetWait: true, calls: 1},
+		{name: "resume refused after capacity", resumeRefused: true, calls: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.budgetWait {
+				old := agentBudgetClock
+				agentBudgetClock = func(time.Duration) time.Duration { return 250 * time.Millisecond }
+				defer func() { agentBudgetClock = old }()
+			}
+			f := newRetainedFixture(t, "plan")
+			at := time.Now().UTC()
+			def, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "plan", ProfileVersion: 1, Path: "plan.dot", Digest: strings.Repeat("e", 64), CreatedAt: at})
+			mustProgress(t, err)
+			inst, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, CurrentNode: "work", StartedAt: at})
+			mustProgress(t, err)
+			profile := &graphexec.Profile{Mode: f.policy.Mode, Team: "builtin", ProfileVersion: 1, Digest: def.Digest, Nodes: []graphexec.Node{{Name: "work", Action: ResearchAgentAction, Limit: 1, Attrs: map[string]string{graphexec.BudgetAttribute: "15"}}}}
+			run, err := f.db.GetRun(t.Context(), f.opts.Attempt.RunID)
+			mustProgress(t, err)
+			seg, err := f.db.GetSegment(t.Context(), run.SegmentID)
+			mustProgress(t, err)
+			mustProgress(t, f.db.SetSegmentResumeToken(t.Context(), seg.ID, "original"))
+			ref, err := naming.ParseRef(f.session.TaskRef)
+			mustProgress(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			closed, prepared, calls := 0, 0, 0
+			var waits []time.Duration
+			var first agent.Request
+			var deadline time.Time
+			assertActive := func() {
+				if closed != 0 {
+					t.Fatal("helpers closed during invocation")
+				}
+				attempt, e := f.db.LatestGraphNodeAttempt(t.Context(), inst.ID, "work")
+				mustProgress(t, e)
+				if attempt.Status != store.GraphRunning {
+					t.Fatalf("settled during retry: %+v", attempt)
+				}
+			}
+			runner := newStubRunner(func(c context.Context, r agent.Request) (*agent.RunResult, error) {
+				calls++
+				assertActive()
+				d, ok := c.Deadline()
+				if !ok {
+					t.Fatal("missing invocation budget")
+				}
+				r.Usage = nil // Every process has a distinct meter capture, checked below.
+				if calls == 1 {
+					first, deadline = r, d
+				} else if !reflect.DeepEqual(first, r) || !deadline.Equal(d) {
+					t.Fatal("retry changed request or deadline")
+				}
+				if tc.acceptAt == 1 || tc.successAt == calls {
+					f.submit(t, f.result)
+				}
+				if tc.readError {
+					f.service.binding.Mode = "invalid-mode"
+				}
+				if tc.cancelProcess == calls {
+					cancel()
+				}
+				if tc.successAt == calls {
+					return &agent.RunResult{Outcome: agent.OutcomeSucceeded}, nil
+				}
+				if tc.resumeRefused && calls == 2 {
+					return &agent.RunResult{Outcome: agent.OutcomeFailed}, agent.ErrSessionNotResumable
+				}
+				if tc.nontransient && calls == 2 {
+					return &agent.RunResult{Outcome: agent.OutcomeFailed, Reason: "ordinary failure"}, nil
+				}
+				return &agent.RunResult{Outcome: agent.OutcomeFailed, Model: "fixture-model", Transient: &agent.TransientFailure{Cause: "model is at capacity", Model: "fixture-model"}, ResumeToken: "do-not-promote"}, nil
+			})
+			other := newStubRunner(func(context.Context, agent.Request) (*agent.RunResult, error) {
+				t.Fatal("changed provider")
+				return nil, nil
+			})
+			handler := AgentActivity{Policy: f.policy, WaitCapacity: func(c context.Context, d time.Duration) error {
+				assertActive()
+				waits = append(waits, d)
+				if tc.ownerStop {
+					_, e := f.db.RequestOwnerStop(t.Context(), f.session.TaskRef)
+					mustProgress(t, e)
+				}
+				if tc.budgetWait {
+					<-c.Done()
+					return c.Err()
+				}
+				if tc.acceptAt == 2 {
+					f.submit(t, f.result)
+				}
+				if tc.cancelWait == len(waits) {
+					cancel()
+				}
+				return c.Err()
+			}, Prepare: func(context.Context, Options, ActivityRequest) (ResearchInvocation, error) {
+				prepared++
+				r := agent.Request{Delivery: fixtureNativeDelivery(t, f.policy), Ref: ref, Mode: "plan", RunOrdinal: run.Ordinal, SegmentOrdinal: seg.Ordinal, Session: agent.SessionRef{Ref: seg.SessionRef, Resume: "original"}, Path: agent.PathResume, WorktreePath: t.TempDir(), Prompt: "Work", Permissions: agent.Permissions{Profile: "plan"}}
+				cold := r
+				cold.Prompt = "must not use cold fallback"
+				return ResearchInvocation{Request: r, ColdRequest: &cold, Kind: "claude", Results: f.service, Close: func() error { closed++; return nil }}, nil
+			}}
+			var registry ActivityRegistry
+			mustProgress(t, registry.Register(ResearchAgentAction, handler))
+			runners := runnerSet(runner)
+			runners["alternate"] = other
+			out, runErr := ExecuteNodeAction(ctx, Options{DB: f.db, Runners: runners}, GraphNodeRequest{Profile: profile, Activities: registry, InstanceID: inst.ID, RunID: run.ID, At: at})
+			if calls != tc.calls || prepared != 1 || closed != 1 {
+				t.Fatalf("calls=%d prepared=%d closed=%d err=%v", calls, prepared, closed, runErr)
+			}
+			for i, d := range waits {
+				if d != (30*time.Second)<<i {
+					t.Fatalf("waits=%v", waits)
+				}
+			}
+			if tc.acceptAt != 0 || tc.successAt != 0 {
+				if out.Activity.Outcome != "success" {
+					t.Fatalf("accepted result not routed: %+v %v", out, runErr)
+				}
+			}
+			if tc.budgetWait && !errors.Is(runErr, ErrAgentTimedOut) {
+				t.Fatalf("budget not enforced: %v", runErr)
+			}
+			if tc.name == "exhausted" {
+				if len(waits) != 3 {
+					t.Fatalf("waits=%v", waits)
+				}
+				if runErr == nil || !strings.Contains(runErr.Error(), "claude model fixture-model: model is at capacity; retried 3 times") {
+					t.Fatalf("cause=%v", runErr)
+				}
+				rendered := renderPlanFailure(planFailureCandidate(Request{}, runErr), "", ref, "")
+				if strings.Contains(rendered, "To retry, reply") {
+					t.Fatal(rendered)
+				}
+			}
+			if rows := researchMeterRows(t, f.db, run.ID); len(rows) != calls {
+				t.Fatalf("meter rows=%d calls=%d", len(rows), calls)
+			}
+			attempts, e := f.db.ListGraphNodeAttempts(t.Context(), inst.ID)
+			mustProgress(t, e)
+			if len(attempts) != 1 {
+				t.Fatalf("attempts=%+v", attempts)
+			}
+		})
 	}
 }

@@ -67,6 +67,7 @@ type initEvent struct {
 type resultEvent struct {
 	SessionID    string          `json:"session_id"`
 	IsError      bool            `json:"is_error"`
+	Errors       []string        `json:"errors"`
 	Result       string          `json:"result"`
 	TotalCostUSD float64         `json:"total_cost_usd"`
 	HasCost      bool            `json:"-"`
