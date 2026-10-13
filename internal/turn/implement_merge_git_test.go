@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/cloudvane/litefactory/internal/naming"
 
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
@@ -372,5 +375,86 @@ func TestImplementMergeGitMigrationInspectionFailuresPreventPublication(t *testi
 				t.Fatal("inspection failure changed state or leaked")
 			}
 		})
+	}
+}
+
+// A real merge, Validate handback and second worker commit retain the first
+// round's note throughout. The completion report must describe the new merge.
+func TestImplementMergeGitReopenedStoryMergesCurrentWork(t *testing.T) {
+	f := newImplementBackFixture(t)
+	g := newImplementGit(t, implementStories(3, nil)...)
+	parent, err := naming.ParseRef(f.parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.auth.Parent = parent
+	g.bindings.DB = f.db
+	g.bindings.Now = func() time.Time { return f.clock.Add(time.Minute) }
+	move := func(from, to string) {
+		t.Helper()
+		row := f.row("story-003")
+		guidance := ""
+		if from == store.ImplementMerged {
+			guidance = "fixture finding for the first merge"
+		}
+		if _, err := f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{
+			Parent: f.parent, Generation: 1, Key: row.Key, From: from, To: to,
+			ExpectedRevision: row.Revision, At: f.clock, Guidance: guidance,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	move(store.ImplementMerged, store.ImplementWaiting)
+	move(store.ImplementWaiting, store.ImplementRunning)
+	move(store.ImplementRunning, store.ImplementDone)
+	g.pushStory("story-003", "feature.txt", "round one\n")
+	res, first, err := g.merge()
+	if err != nil || res.Outcome != "merged" {
+		t.Fatalf("first merge: %+v %v", first, err)
+	}
+	// Only story-003 can advance in this fixture; the other rows stay merged.
+	f.advance = func(branch, _ string) (bool, error) {
+		if branch != "lf/story-003" {
+			return false, nil
+		}
+		g.repo.Git("checkout", "--quiet", branch)
+		g.repo.Git("merge", "--ff-only", first.Commit)
+		g.repo.Git("push", "--quiet", "origin", branch)
+		return true, nil
+	}
+	f.toOwner()
+	f.say(f.command(ValidateImplementCommand))
+	if row := f.row("story-003"); row.State != store.ImplementWaiting || row.MergeCommit != "" {
+		t.Fatalf("Validate did not clear the first merge: %+v", row)
+	}
+	g.repo.WriteFile("feature.txt", "round two\n")
+	tip := g.repo.Commit("repair the Validate finding")
+	g.repo.Git("push", "--quiet", "origin", "lf/story-003")
+	g.repo.Git("checkout", "--quiet", gittest.DefaultBranch)
+	move(store.ImplementWaiting, store.ImplementRunning)
+	move(store.ImplementRunning, store.ImplementDone)
+	res, second, err := g.merge()
+	if err != nil || res.Outcome != "merged" || second.Commit == first.Commit {
+		t.Fatalf("second merge: %+v %v", second, err)
+	}
+	head := g.remoteFeature()
+	if second.Commit != head || g.repo.Git("merge-base", tip, head) != tip || g.remoteFile("feature.txt") != "round two" {
+		t.Fatalf("new work did not reach feature head %s: %+v", head, second)
+	}
+	if row := f.row("story-003"); row.State != store.ImplementMerged || row.MergeCommit != head {
+		t.Fatalf("second merge ledger: %+v", row)
+	}
+	notes := g.forge.bodies(13)
+	if len(notes) != 2 || !strings.Contains(notes[0], first.Commit) || !strings.Contains(notes[1], head) {
+		t.Fatalf("merge notes: %q", notes)
+	}
+	candidate := implementCompletionCandidate(f.rows(), implementFeature, false)
+	for _, want := range []string{"now at commit `" + head + "`", "**story-003**: merged as `" + head + "`"} {
+		if !strings.Contains(candidate.Comment, want) {
+			t.Fatalf("completion lacks %q: %s", want, candidate.Comment)
+		}
+	}
+	if strings.Contains(candidate.Comment, first.Commit) {
+		t.Fatalf("completion reused the first round: %s", candidate.Comment)
 	}
 }
