@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -437,4 +438,13 @@ func (b *TicketPlanBridge) ReadOpenIssues(ctx context.Context, repo github.Repo,
 	}
 	items, err := b.inventory(ctx, observed.Tickets, nil)
 	return items, observed.More, err
+}
+
+// PlanContentEquivalent uses the qualified observation: a routed bridge may
+// read a different provider from its default client. Legacy observations stay exact.
+func (*TicketPlanBridge) PlanContentEquivalent(expected string, observed github.Issue) bool {
+	if observed.QualifiedSnapshot != nil && observed.QualifiedSnapshot.Ref.Identity.Provider == ticket.Linear {
+		return linear.ContentEquivalent(expected, observed.Body)
+	}
+	return expected == observed.Body
 }
