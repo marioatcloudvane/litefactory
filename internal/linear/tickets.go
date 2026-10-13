@@ -190,21 +190,32 @@ func (c *Client) RepliesAfter(ctx context.Context, ref ticket.Ref, cursor ticket
 
 // RepliesPage reads one bounded reply page, including threaded issue comments.
 func (c *Client) repliesPageCursor(ctx context.Context, ref ticket.Ref, cursor ticket.Cursor, limit int) (ticket.ReplyPage, error) {
-	if _, err := c.Read(ctx, ref); err != nil {
+	if ref.Validate() != nil {
+		return ticket.ReplyPage{}, failure("read", ticket.Refused, "invalid ticket reference")
+	}
+	if err := c.address(ref.Locator); err != nil {
 		return ticket.ReplyPage{}, err
 	}
 	if limit < 1 || limit > 100 || !cursor.Ticket.Equal(ref.Identity) || cursor.Kind != "linear-comments/v1" {
 		return ticket.ReplyPage{}, failure("replies", ticket.Refused, "invalid reply continuation")
 	}
 	var data struct {
+		Issue    issue
 		Comments struct {
 			Nodes    []comment
 			PageInfo pageInfo
 		}
 	}
-	err := c.query(ctx, "replies", "query($filter: CommentFilter!, $after: String, $first: Int!) { comments(filter: $filter, after: $after, first: $first, includeArchived: true) { nodes { "+commentFields+" } pageInfo { hasNextPage endCursor } } }", map[string]any{"filter": map[string]any{"issue": map[string]any{"id": map[string]string{"eq": ref.Identity.RemoteID}}}, "after": nullable(cursor.Value), "first": limit}, false, &data)
+	err := c.query(ctx, "replies", "query($id: String!, $filter: CommentFilter!, $after: String, $first: Int!) { issue(id: $id) { "+issueFields+" } comments(filter: $filter, after: $after, first: $first, includeArchived: true) { nodes { "+commentFields+" } pageInfo { hasNextPage endCursor } } }", map[string]any{"id": ref.Locator.Key, "filter": map[string]any{"issue": map[string]any{"id": map[string]string{"eq": ref.Identity.RemoteID}}}, "after": nullable(cursor.Value), "first": limit}, false, &data)
 	if err != nil {
 		return ticket.ReplyPage{}, err
+	}
+	snapshot, err := c.snapshot(data.Issue)
+	if err != nil {
+		return ticket.ReplyPage{}, err
+	}
+	if !snapshot.Ref.Equal(ref) {
+		return ticket.ReplyPage{}, failure("read", ticket.Conflict, "recorded ticket identity changed")
 	}
 	if len(data.Comments.Nodes) > limit {
 		return ticket.ReplyPage{}, failure("replies", ticket.Unavailable, "provider exceeded page bound")

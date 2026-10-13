@@ -59,36 +59,8 @@ func (c *Client) Inspect(ctx context.Context) (Inspection, error) {
 	if err != nil {
 		return Inspection{}, err
 	}
-	var data struct {
-		Team struct {
-			ID           string
-			ArchivedAt   *time.Time
-			Organization objectID
-		}
-		Project struct {
-			ID         string
-			ArchivedAt *time.Time
-			Teams      struct {
-				Nodes    []objectID
-				PageInfo pageInfo
-			}
-		}
-	}
-	err = c.query(ctx, "inspect connection", "query($team: String!, $project: String!) { team(id: $team) { id archivedAt organization { id } } project(id: $project) { id archivedAt teams(first: 100) { nodes { id } pageInfo { hasNextPage } } } }", map[string]string{"team": c.config.TeamID, "project": c.config.ProjectID}, false, &data)
-	if err != nil {
+	if _, err := c.ContainerIdentity(ctx, c.Container()); err != nil {
 		return Inspection{}, err
-	}
-	if data.Team.ID != c.config.TeamID || data.Team.Organization.ID != c.config.WorkspaceID || data.Team.ArchivedAt != nil || data.Project.ID != c.config.ProjectID || data.Project.ArchivedAt != nil || !data.Project.Teams.PageInfo.observed || data.Project.Teams.PageInfo.HasNextPage {
-		return Inspection{}, failure("inspect connection", ticket.Refused, "workspace, team or project is inaccessible or stale")
-	}
-	found := false
-	for _, team := range data.Project.Teams.Nodes {
-		if team.ID == c.config.TeamID {
-			found = true
-		}
-	}
-	if !found {
-		return Inspection{}, failure("inspect connection", ticket.Refused, "project is not in selected team")
 	}
 	seen := map[string]bool{}
 	for _, name := range slices.Sorted(maps.Keys(c.config.ModeLabels)) {
@@ -146,9 +118,36 @@ func (c *Client) ContainerIdentity(ctx context.Context, container string) (ticke
 	if container != c.Container() {
 		return ticket.Identity{}, failure("container", ticket.Refused, "container differs")
 	}
-	inspection, err := c.Inspect(ctx)
+	var data struct {
+		Team struct {
+			ID           string
+			ArchivedAt   *time.Time
+			Organization objectID
+		}
+		Project struct {
+			ID         string
+			ArchivedAt *time.Time
+			Teams      struct {
+				Nodes    []objectID
+				PageInfo pageInfo
+			}
+		}
+	}
+	err := c.query(ctx, "inspect connection", "query($team: String!, $project: String!) { team(id: $team) { id archivedAt organization { id } } project(id: $project) { id archivedAt teams(first: 100) { nodes { id } pageInfo { hasNextPage } } } }", map[string]string{"team": c.config.TeamID, "project": c.config.ProjectID}, false, &data)
 	if err != nil {
 		return ticket.Identity{}, err
 	}
-	return c.identity(inspection.ProjectID), nil
+	if data.Team.ID != c.config.TeamID || data.Team.Organization.ID != c.config.WorkspaceID || data.Team.ArchivedAt != nil || data.Project.ID != c.config.ProjectID || data.Project.ArchivedAt != nil || !data.Project.Teams.PageInfo.observed || data.Project.Teams.PageInfo.HasNextPage {
+		return ticket.Identity{}, failure("inspect connection", ticket.Refused, "workspace, team or project is inaccessible or stale")
+	}
+	found := false
+	for _, team := range data.Project.Teams.Nodes {
+		if team.ID == c.config.TeamID {
+			found = true
+		}
+	}
+	if !found {
+		return ticket.Identity{}, failure("inspect connection", ticket.Refused, "project is not in selected team")
+	}
+	return c.identity(data.Project.ID), nil
 }

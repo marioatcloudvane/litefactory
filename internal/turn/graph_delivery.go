@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
@@ -45,6 +46,8 @@ type GraphBugFinalization struct {
 	Resolve  func(context.Context, Options, ActivityRequest, GraphBugRepairEligibility) (GraphDeliveryBinding, error)
 	// Save commits the worktree (a no-op when clean) and returns HEAD.
 	Save func(context.Context, Options, ActivityRequest, GraphDeliveryBinding) (string, error)
+	// SyncBase synchronizes the saved head; any changed source requires revalidation.
+	SyncBase func(context.Context, Options, ActivityRequest, GraphDeliveryBinding, string) (syncBaseOutput, error)
 	// PublishSaved pushes the task branch; pushing an unchanged branch is a no-op.
 	PublishSaved func(context.Context, Options, ActivityRequest, string) error
 }
@@ -79,7 +82,7 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 		}
 		return ActivityResult{Outcome: outcome, Diagnostic: diagnostic, Kind: store.GraphOutputJSON, Output: raw}, e
 	}
-	if opts.DB == nil || (h.Code == nil || h.Tickets == nil) || h.Redactor == nil || h.Resolve == nil || h.Save == nil || h.PublishSaved == nil || req.Workflow != agent.WorkflowBug || req.Mode != "" {
+	if opts.DB == nil || (h.Code == nil || h.Tickets == nil) || h.Redactor == nil || h.Resolve == nil || h.Save == nil || h.PublishSaved == nil || h.SyncBase == nil || req.Workflow != agent.WorkflowBug || req.Mode != "" {
 		return ActivityResult{}, errors.New("incomplete graph finalization factory bindings")
 	}
 	eligibility, e := CurrentGraphBugRepairEligibility(ctx, opts.DB, req.InstanceID)
@@ -107,6 +110,30 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 		if e = h.PublishSaved(ctx, opts, req, head); e != nil {
 			return finish("blocked", "Pushing "+binding.Branch+" failed: "+e.Error())
 		}
+		sync := func() (ActivityResult, bool, error) {
+			state, err := h.SyncBase(ctx, opts, req, binding, head)
+			if err != nil {
+				res, e := finish("blocked", "Synchronizing the repair failed: "+err.Error())
+				return res, true, e
+			}
+			switch state.Result {
+			case "synced", "retry":
+				res, e := finish("revalidate", "The branch was synchronized or moved; rerun the approved repair checks on the current head. "+state.Reason)
+				return res, true, e
+			case "current":
+				if state.Commit == head {
+					return ActivityResult{}, false, nil
+				}
+				res, e := finish("revalidate", "The current branch differs from the checked repair; rerun its checks.")
+				return res, true, e
+			default:
+				res, e := finish("blocked", fmt.Sprintf("Bringing %s into %s could not complete. Conflicting files: %s. %s. Reply with how to resolve these conflicts.", binding.Target, binding.Branch, strings.Join(state.Conflicts, ", "), state.Reason))
+				return res, true, e
+			}
+		}
+		if res, stop, err := sync(); stop {
+			return res, err
+		}
 		if !found {
 			title, body, pe := h.presentation(ctx, binding)
 			if pe != nil {
@@ -126,6 +153,12 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 		if me := h.Code.MergeDeliveryPR(ctx, repo, pr.Number, head); me != nil {
 			// The merge may have happened despite the error; look before reporting.
 			if again, ge := h.Code.GetDeliveryPR(ctx, repo, pr.Number); ge != nil || !again.Merged {
+				var api *github.APIError
+				if ge == nil && errors.As(me, &api) && api.StatusCode == http.StatusMethodNotAllowed && strings.Contains(strings.ToLower(api.Message), "merge conflict") {
+					if res, stop, err := sync(); stop {
+						return res, err
+					}
+				}
 				return finish("blocked", fmt.Sprintf("Merging PR #%d failed: %s. Reply to retry once GitHub allows the merge.", pr.Number, me.Error()))
 			}
 		}

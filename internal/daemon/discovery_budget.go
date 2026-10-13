@@ -23,6 +23,11 @@ const (
 	discoveryBurst      = 400
 	discoveryListBound  = 100
 	discoveryQueueBound = 4096
+	// A Linear daemon history also selects its container twice, resolves the
+	// issue, and may initialize a cold publisher client.
+	linearHistoryBound = discoveryListBound + 4
+	// Admission and materialisation each need at most five prerequisite reads.
+	linearPendingBound = 5 + 5 + 2*linearHistoryBound
 	// discoveryQuotaDivisor sets background discovery's share of the forge
 	// rate limit: it may spend limit/discoveryQuotaDivisor requests per reset
 	// window, and may never take remaining below the rest, which stays
@@ -49,6 +54,9 @@ type discoveryBudget struct {
 	initialized                               bool
 	limit, remaining, spent, reserved         int
 	waiters                                   []discoveryWaiter
+	fallbackAt                                time.Time
+	fallbackRecovery, fallbackPending         bool
+	fallbackWorker                            bool
 	deferrals                                 int
 	lists                                     chan struct{}
 }
@@ -58,6 +66,8 @@ type discoveryReservation struct {
 	bound, requests, charged int
 	reset                    time.Time
 	probe                    bool
+	fallback                 bool
+	pending, finished        bool
 }
 
 func (b *discoveryBudget) tick(now time.Time) {
@@ -103,6 +113,17 @@ func (b *discoveryBudget) observeLinear(o linear.RequestObservation) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.observeRequestLocked(o.RequestRateValid, o.Limit, o.Remaining, o.Reset, true)
+	if b.freshLocked() {
+		// Fallback lanes no longer run with fresh evidence. Their rotation
+		// entries must not block ordinary discovery behind an inactive lane.
+		live := b.waiters[:0]
+		for _, w := range b.waiters {
+			if !strings.HasPrefix(w.key, "fallback-") {
+				live = append(live, w)
+			}
+		}
+		b.waiters = live
+	}
 }
 
 func (b *discoveryBudget) observeRequestLocked(valid bool, limit, remaining int, reset time.Time, charged bool) {
@@ -150,10 +171,12 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 		if b.limit > 0 && b.now.Before(b.reset) && (b.remaining <= b.floorLocked() || b.spent >= b.discoveryShareLocked()) {
 			return deny()
 		}
-	} else {
-		if !b.freshLocked() {
-			return deny()
-		}
+	} else if b.limit > 0 && b.now.Before(b.reset) {
+		// Within a known window the reserve and the discovery share apply,
+		// fresh or not. Without usable quota data (none observed yet, or the
+		// window has passed) only the token bucket bounds discovery: requiring
+		// fresh evidence here starved every read whose budget never receives
+		// observations (#793). Real refusals still arm the backoff.
 		if len(b.waiters) > 0 && b.waiters[0].key != key && !discoveryPrerequisite(key, b.waiters[0].key) {
 			// Materializing a deferred parent's task can require an unrelated
 			// scalar identity read. Permit it only while preserving the head
@@ -183,7 +206,101 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 	}
 	return &discoveryReservation{budget: b, bound: cost, reset: b.reset, probe: probe}, nil
 }
-func (b *discoveryBudget) floorLocked() int { return b.limit - b.discoveryShareLocked() }
+
+// A fallback pass reserves the complete operation, including prerequisites and
+// reply locator reads. The existing waiter queue rotates sources in each lane.
+func (b *discoveryBudget) acquireFallback(key string, cost int, pending bool) (*discoveryReservation, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.freshLocked() {
+		return nil, nil
+	}
+	present := false
+	first := ""
+	lane := "fallback-recovery/"
+	if pending {
+		lane = "fallback-pending/"
+	}
+	key = lane + key
+	for _, w := range b.waiters {
+		if strings.HasPrefix(w.key, lane) && first == "" {
+			first = w.key
+		}
+		if w.key == key {
+			present = true
+		}
+	}
+	if !present && len(b.waiters) < discoveryQueueBound {
+		b.waiters = append(b.waiters, discoveryWaiter{key, cost, b.now})
+	}
+	if b.limit > 0 && b.now.Before(b.reset) && (b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.discoveryShareLocked()) {
+		return nil, ErrDiscoveryDeferred
+	}
+	if b.tokens < float64(cost) || b.reserved+cost > discoveryBurst || (pending && b.fallbackWorker) || (first != "" && first != key) {
+		return nil, ErrDiscoveryDeferred
+	}
+	if b.fallbackAt.IsZero() || !b.now.Before(b.fallbackAt.Add(time.Minute)) {
+		b.fallbackAt = b.now
+		b.fallbackRecovery, b.fallbackPending = false, false
+	}
+	if (pending && b.fallbackPending) || (!pending && b.fallbackRecovery) {
+		return nil, ErrDiscoveryDeferred
+	}
+	if pending {
+		b.fallbackPending = true
+		b.fallbackWorker = true
+	} else {
+		b.fallbackRecovery = true
+	}
+	for i, w := range b.waiters {
+		if w.key == key {
+			b.waiters = append(b.waiters[:i], b.waiters[i+1:]...)
+			break
+		}
+	}
+	b.waiters = append(b.waiters, discoveryWaiter{key, cost, b.now})
+	b.tokens -= float64(cost)
+	b.reserved += cost
+	return &discoveryReservation{budget: b, bound: cost, reset: b.reset, fallback: true, pending: pending}, nil
+}
+
+func (d *Daemon) linearFallback(ctx context.Context, v store.ConnectionVersion, pending bool) (context.Context, func(), error) {
+	if v.Provider != ticket.Linear {
+		return ctx, func() {}, nil
+	}
+	if err := d.discoveryProbe(ctx, githubRepo(v.Destination)); err != nil {
+		return ctx, nil, err
+	}
+	b, err := d.quotaBudget(ctx)
+	if err != nil {
+		return ctx, nil, err
+	}
+	// Recovery: cold publisher, container, three pages, up to one page of
+	// reply locators. Admission: cold publisher, container, reread, and the
+	// admission's own ticket/container checks, then bootstrap and drain history.
+	// Code reads keep their own scope.
+	cost := 5 + recoveryPageSize
+	if pending {
+		cost = linearPendingBound
+	}
+	r, err := b.acquireFallback(fmt.Sprint(v.ID), cost, pending)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if r == nil {
+		return ctx, func() {}, nil
+	}
+	return context.WithValue(ctx, quotaReservationKey{}, r), r.finish, nil
+}
+
+// discoveryReserveDivisor sets how much of the window stays reserved for
+// execution and reporting: background discovery may not take remaining below
+// limit/discoveryReserveDivisor. Tying the reserve to the discovery share
+// (half the window) starved every owner comment once runs had used half of
+// the hourly allowance, until the reset (#793).
+const discoveryReserveDivisor = 10
+
+func (b *discoveryBudget) floorLocked() int { return b.limit / discoveryReserveDivisor }
 
 // discoveryShareLocked is how many requests of the current window background
 // discovery may spend, the complement of [discoveryBudget.floorLocked].
@@ -209,6 +326,13 @@ func (r *discoveryReservation) finish() {
 	b := r.budget
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if r.finished {
+		return
+	}
+	r.finished = true
+	if r.pending {
+		b.fallbackWorker = false
+	}
 	b.reserved -= r.bound
 	b.tokens = min(discoveryBurst, b.tokens+float64(max(0, r.bound-r.requests)))
 	// Requests outstanding across a reset still consume the new window unless
@@ -297,17 +421,18 @@ func (d *Daemon) discoverySummary(ctx context.Context, scope string, s *discover
 // discoveryView is a read-only copy of what the budget knows, taken under its
 // lock. Nothing decided from it feeds back into admission.
 type discoveryView struct {
-	Fresh      bool
-	Limit      int
-	Remaining  int
-	Reserve    int
-	Share      int
-	Spent      int
-	InProgress int
-	HeldBack   int
-	Burst      float64
-	Reset      time.Time
-	now        time.Time
+	Fresh               bool
+	Limit               int
+	Remaining           int
+	Reserve             int
+	Share               int
+	Spent               int
+	InProgress          int
+	HeldBack            int
+	Burst               float64
+	Reset               time.Time
+	ProbeAt, FallbackAt time.Time
+	now                 time.Time
 }
 
 func (b *discoveryBudget) view() discoveryView {
@@ -316,7 +441,7 @@ func (b *discoveryBudget) view() discoveryView {
 	return discoveryView{
 		Fresh: b.freshLocked(), Limit: b.limit, Remaining: b.remaining, Reserve: b.floorLocked(),
 		Share: b.discoveryShareLocked(), Spent: b.spent, InProgress: b.reserved, HeldBack: b.deferrals,
-		Burst: b.tokens, Reset: b.reset, now: b.now,
+		Burst: b.tokens, Reset: b.reset, now: b.now, ProbeAt: b.probeAt, FallbackAt: b.fallbackAt,
 	}
 }
 
@@ -339,6 +464,9 @@ func (v discoveryView) deferral() (reason string, resumeAt time.Time) {
 }
 
 func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, call func(context.Context) (T, error)) (T, error) {
+	if r, ok := ctx.Value(quotaReservationKey{}).(*discoveryReservation); ok && r.fallback {
+		return call(ctx)
+	}
 	if d.connections != nil {
 		v, selected, err := d.quotaVersion(ctx, store.TicketConnection)
 		if err != nil {
@@ -357,7 +485,7 @@ func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, 
 		var zero T
 		return zero, err
 	}
-	if cost == discoveryListBound {
+	if cost == discoveryListBound || cost == linearHistoryBound {
 		// A list reserves the entire supported history before its first page.
 		// Serialize these reservations until unused pages are returned, rather
 		// than deferring another worker solely because a short fetch is in
@@ -395,7 +523,17 @@ func (d *Daemon) discoveryIssue(ctx context.Context, repo github.Repo, number in
 	return discoveryCall(ctx, d, discoveryKey(repo, "issue", number), 1, func(ctx context.Context) (github.Issue, error) { return d.readIssue(ctx, repo, number) })
 }
 func (d *Daemon) discoveryComments(ctx context.Context, repo github.Repo, number int, after int64) ([]github.Comment, error) {
-	return discoveryCall(ctx, d, discoveryKey(repo, "comments", number), discoveryListBound, func(ctx context.Context) ([]github.Comment, error) {
+	cost := discoveryListBound
+	if d.connections != nil {
+		v, selected, err := d.quotaVersion(ctx, store.TicketConnection)
+		if err != nil {
+			return nil, err
+		}
+		if selected && v.Provider == ticket.Linear {
+			cost = linearHistoryBound
+		}
+	}
+	return discoveryCall(ctx, d, discoveryKey(repo, "comments", number), cost, func(ctx context.Context) ([]github.Comment, error) {
 		return d.readComments(ctx, repo, number, after)
 	})
 }
@@ -427,7 +565,14 @@ func (d *Daemon) discoveryProbe(ctx context.Context, repo github.Repo) error {
 			return e
 		}
 		if version.Provider == ticket.Linear {
-			_, e = clients.Tickets.ContainerIdentity(ctx, version.Destination)
+			// A cold client already performed the single publisher request.
+			budget.mu.Lock()
+			requested := r.requests > 0
+			budget.mu.Unlock()
+			if requested {
+				return nil
+			}
+			_, e = clients.Linear.Publisher(ctx)
 			return e
 		}
 		_, e = clients.Code.GetIssue(github.WithoutConditionalCache(ctx), githubRepo(version.Destination), 1)
@@ -468,4 +613,33 @@ func discoveryPrerequisite(key, waiting string) bool {
 		return true
 	}
 	return (w[2] == "issue") && (k[2] == "issues" || k[2] == "commented")
+}
+
+// logDiscoveryDeferral says why a session's issue read was deferred, with the
+// budget it was charged to, so a starved fleet is visible at INFO (#793).
+func (d *Daemon) logDiscoveryDeferral(ctx context.Context, c *candidate) {
+	ctx = sessionContext(ctx, c.session.ID)
+	v, selected, verr := d.quotaVersion(ctx, store.TicketConnection)
+	attrs := []any{slog.Int64("session_id", c.session.ID), slog.Bool("connection_selected", selected)}
+	if verr != nil {
+		attrs = append(attrs, slog.Any("connection_error", verr))
+	}
+	if selected {
+		attrs = append(attrs, slog.Int64("connection_version_id", v.ID), slog.String("provider", string(v.Provider)))
+		q := d.quotas.forVersion(v)
+		if until, held := q.backoff.hold(d.quotaNow(ctx)); held {
+			attrs = append(attrs, slog.Time("backoff_until", until))
+		}
+	}
+	b, berr := d.quotaBudget(ctx)
+	if berr != nil {
+		attrs = append(attrs, slog.Any("budget_error", berr))
+	} else {
+		view := b.view()
+		reason, _ := view.deferral()
+		attrs = append(attrs, slog.String("reason", reason), slog.Bool("fresh", view.Fresh), slog.Int("limit", view.Limit),
+			slog.Int("remaining", view.Remaining), slog.Int("reserve", view.Reserve), slog.Int("spent", view.Spent),
+			slog.Int("share", view.Share), slog.Int("in_progress", view.InProgress), slog.Float64("tokens", view.Burst))
+	}
+	c.log.InfoContext(ctx, "issue read deferred by the discovery budget", attrs...)
 }
