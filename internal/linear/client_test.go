@@ -681,3 +681,123 @@ func TestReadbackDifferenceDiagnostic(t *testing.T) {
 		}
 	}
 }
+
+func TestMetadataFooterProviderReadWriteRecovery(t *testing.T) {
+	for _, initial := range []string{legacyStoryFixture, footerStoryFixture} {
+		t.Run(initial[:5], func(t *testing.T) {
+			providerBody := initial
+			mutations := 0
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					Query     string
+					Variables map[string]json.RawMessage
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				if strings.Contains(req.Query, "issueUpdate") || strings.Contains(req.Query, "commentUpdate") {
+					var input struct{ Description, Body string }
+					if err := json.Unmarshal(req.Variables["input"], &input); err != nil {
+						t.Error(err)
+						return
+					}
+					raw := input.Description
+					if input.Body != "" {
+						raw = input.Body
+					}
+					if raw != strings.Replace(footerStoryFixture, "Story.", `Story\. `, 1) {
+						t.Errorf("unexpected write: %q", raw)
+					}
+					// Normalize only the visible prose and wrapper spacing, never
+					// regenerate metadata from the authored canonical body.
+					providerBody = strings.Replace(raw, `Story\. `, "Story.", 1)
+					providerBody = strings.Replace(providerBody, "metadata\n```", "metadata\n\n```", 1)
+					providerBody = strings.Replace(providerBody, "\n```\n+++", "\n```\n\n+++\n", 1)
+					mutations++
+				}
+				encoded, _ := json.Marshal(providerBody)
+				comment := fmt.Sprintf(`{"id":"comment","body":%s,"user":{"id":"owner","active":true},"issue":{"id":"uuid-ticket","team":{"id":"team"},"project":{"id":"project"}}}`, encoded)
+				switch {
+				case strings.Contains(req.Query, "commentUpdate"):
+					_, _ = fmt.Fprintf(w, `{"data":{"commentUpdate":{"success":true,"comment":%s}}}`, comment)
+				case strings.Contains(req.Query, "comment(id:"):
+					_, _ = fmt.Fprintf(w, `{"data":{"comment":%s}}`, comment)
+				case strings.Contains(req.Query, "issueUpdate"):
+					_, _ = fmt.Fprint(w, `{"data":{"issueUpdate":{"success":true,"issue":{"id":"uuid-ticket"}}}}`)
+				default:
+					raw := strings.Replace(issueJSON("uuid-ticket", "project"), `"description":"Body"`, `"description":`+string(encoded), 1)
+					_, _ = fmt.Fprintf(w, `{"data":{"issue":%s}}`, raw)
+				}
+			})
+			ref := ticket.Ref{Identity: c.identity("uuid-ticket"), Locator: c.locator("uuid-ticket")}
+			prior, err := c.Read(t.Context(), ref)
+			if err != nil || prior.Body != canonicalStoryFixture || prior.ProviderBody != initial || prior.Representation != Representation {
+				t.Fatalf("issue read: %+v %v", prior, err)
+			}
+			reply, err := c.ReadReply(t.Context(), ref, "comment")
+			if err != nil || reply.Body != canonicalStoryFixture || reply.ProviderBody != initial || reply.Representation != Representation {
+				t.Fatalf("reply read: %+v %v", reply, err)
+			}
+			written := strings.Replace(canonicalStoryFixture, "Story.", `Story\. `, 1)
+			updated, err := c.UpdateContent(t.Context(), ref, prior.Revision, mustBody(t, "Title"), mustBody(t, written))
+			if err != nil || updated.Body != canonicalStoryFixture || updated.ProviderBody != providerBody {
+				t.Fatalf("update: %+v %v", updated, err)
+			}
+			if err := c.EditReply(t.Context(), reply, mustBody(t, written)); err != nil {
+				t.Fatal(err)
+			}
+			recovered, err := c.ReadReply(t.Context(), ref, "comment")
+			if err != nil || recovered.Body != canonicalStoryFixture || recovered.ProviderBody != providerBody || recovered.Representation != Representation {
+				t.Fatalf("recovery read: %+v %v", recovered, err)
+			}
+			// A raw-only provider edit still invalidates the recorded revision.
+			providerBody = strings.Replace(providerBody, "metadata\n\n```", "metadata\n```", 1)
+			_, err = c.UpdateContent(t.Context(), ref, updated.Revision, mustBody(t, "Title"), mustBody(t, written))
+			var failure *ticket.Failure
+			if !errors.As(err, &failure) || failure.Kind != ticket.Conflict || mutations != 2 {
+				t.Fatalf("stale raw revision dispatched: %v, mutations=%d", err, mutations)
+			}
+		})
+	}
+}
+
+func TestMetadataFooterCommentConfirmationRejectsEdits(t *testing.T) {
+	for _, altered := range []string{
+		strings.Replace(footerStoryFixture, "Story.", "Owner edit.", 1),
+		strings.Replace(footerStoryFixture, "key=def", "key=other", 1),
+		strings.TrimSuffix(footerStoryFixture, "+++"),
+	} {
+		c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			var req struct{ Query string }
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Error(err)
+				return
+			}
+			raw := legacyStoryFixture
+			if strings.Contains(req.Query, "commentUpdate") {
+				raw = altered
+			}
+			body, _ := json.Marshal(raw)
+			comment := fmt.Sprintf(`{"id":"comment","body":%s,"user":{"id":"owner"},"issue":{"id":"uuid-ticket","team":{"id":"team"},"project":{"id":"project"}}}`, body)
+			switch {
+			case strings.Contains(req.Query, "commentUpdate"):
+				_, _ = fmt.Fprintf(w, `{"data":{"commentUpdate":{"success":true,"comment":%s}}}`, comment)
+			case strings.Contains(req.Query, "comment(id:"):
+				_, _ = fmt.Fprintf(w, `{"data":{"comment":%s}}`, comment)
+			default:
+				_, _ = fmt.Fprintf(w, `{"data":{"issue":%s}}`, issueJSON("uuid-ticket", "project"))
+			}
+		})
+		ref := ticket.Ref{Identity: c.identity("uuid-ticket"), Locator: c.locator("uuid-ticket")}
+		reply, err := c.ReadReply(t.Context(), ref, "comment")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.EditReply(t.Context(), reply, mustBody(t, canonicalStoryFixture))
+		var failure *ticket.Failure
+		if !errors.As(err, &failure) || failure.Kind != ticket.Uncertain {
+			t.Fatalf("altered confirmation accepted: %v", err)
+		}
+	}
+}

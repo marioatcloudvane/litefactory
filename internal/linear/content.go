@@ -15,29 +15,126 @@ func managedMarker(line string) bool {
 	return (strings.HasPrefix(line, "<!-- lf:") || strings.HasPrefix(line, "<!-- litefactory:")) && strings.HasSuffix(line, " -->")
 }
 
-// EncodeContent preserves prose bytes and represents complete factory marker
-// lines as visible fenced metadata so Linear does not discard HTML comments.
+const metadataFooter = "+++ Factory metadata"
+const relocatedMetadataFence = "```litefactory-metadata-v2"
+
+type relocatedMarker struct {
+	Line  int    `json:"line"`
+	Value string `json:"value"`
+	CR    bool   `json:"cr,omitempty"`
+}
+
+type relocatedMetadata struct {
+	Lines   int               `json:"lines"`
+	Markers []relocatedMarker `json:"markers"`
+}
+
+// EncodeContent moves standalone markers into one collapsed footer. Line
+// positions preserve the exact canonical body used by ownership and recovery.
 func EncodeContent(body string) string {
 	lines := strings.Split(body, "\n")
 	out := make([]string, 0, len(lines))
+	metadata := relocatedMetadata{Lines: len(lines)}
 	fence := ""
-	for _, line := range lines {
+	for index, line := range lines {
 		marker := strings.TrimSuffix(line, "\r")
-		cr := strings.TrimPrefix(line, marker)
 		if fence == "" && managedMarker(marker) {
-			out = append(out, metadataFence+cr, strings.TrimSuffix(strings.TrimPrefix(marker, "<!-- "), " -->")+cr, "```"+cr)
+			metadata.Markers = append(metadata.Markers, relocatedMarker{Line: index, Value: strings.TrimSuffix(strings.TrimPrefix(marker, "<!-- "), " -->"), CR: marker != line})
 		} else {
 			out = append(out, line)
 			fence = nextContentFence(fence, line)
 		}
 	}
-	return strings.Join(out, "\n")
+	if len(metadata.Markers) == 0 {
+		return body
+	}
+	// This struct contains only integers, strings and booleans; Marshal cannot fail.
+	encoded, _ := json.Marshal(metadata)
+	return strings.Join(out, "\n") + "\n\n" + metadataFooter + "\n" + relocatedMetadataFence + "\n" + string(encoded) + "\n```\n+++"
+}
+
+// decodeRelocatedMetadata accepts only our footer, never an ordinary collapsible
+// section. Counts and ordered positions reject truncation and ambiguous layouts.
+func decodeRelocatedMetadata(lines []string, index int) (string, error) {
+	invalid := errors.New("linear: invalid relocated provider metadata representation")
+	start, end := index-1, index+3
+	// Linear may add blank lines around fenced code in a collapsible section
+	// and a final newline. These belong to the envelope, not canonical prose.
+	if start >= 0 && strings.TrimSuffix(lines[start], "\r") == "" {
+		start--
+	}
+	if end < len(lines) && strings.TrimSuffix(lines[end], "\r") == "" {
+		end++
+	}
+	last := len(lines) - 1
+	if last >= 0 && strings.TrimSuffix(lines[last], "\r") == "" {
+		last--
+	}
+	if start < 2 || end != last || index+2 >= len(lines) || strings.TrimSuffix(lines[start], "\r") != metadataFooter ||
+		strings.TrimSuffix(lines[start-1], "\r") != "" || strings.TrimSuffix(lines[index+2], "\r") != "```" || strings.TrimSuffix(lines[end], "\r") != "+++" {
+		return "", invalid
+	}
+	var metadata relocatedMetadata
+	payload := strings.TrimSuffix(lines[index+1], "\r")
+	if err := json.Unmarshal([]byte(payload), &metadata); err != nil {
+		return "", invalid
+	}
+	canonical, _ := json.Marshal(metadata)
+	if string(canonical) != payload || len(metadata.Markers) == 0 {
+		return "", invalid
+	}
+	prose := lines[:start-1]
+	// An empty visible body has no lines, unlike a retained empty canonical line.
+	if metadata.Lines == len(metadata.Markers) && len(prose) == 1 && prose[0] == "" {
+		prose = nil
+	}
+	if metadata.Lines != len(prose)+len(metadata.Markers) {
+		return "", invalid
+	}
+	previous := -1
+	for _, marker := range metadata.Markers {
+		if marker.Line <= previous || marker.Line >= metadata.Lines || strings.ContainsAny(marker.Value, "\r\n") || !managedMarker("<!-- "+marker.Value+" -->") {
+			return "", invalid
+		}
+		previous = marker.Line
+	}
+	out := make([]string, 0, metadata.Lines)
+	m, p := 0, 0
+	for line := 0; line < metadata.Lines; line++ {
+		if m < len(metadata.Markers) && metadata.Markers[m].Line == line {
+			marker := metadata.Markers[m]
+			value := "<!-- " + marker.Value + " -->"
+			if marker.CR {
+				value += "\r"
+			}
+			out = append(out, value)
+			m++
+		} else {
+			out = append(out, prose[p])
+			p++
+		}
+	}
+	return strings.Join(out, "\n"), nil
 }
 
 // DecodeContent reverses only the exact versioned metadata form. Arbitrary prose,
 // spacing and owner edits remain byte-for-byte; malformed factory fences fail.
 func DecodeContent(body string) (string, error) {
 	lines := strings.Split(body, "\n")
+	f := ""
+	legacy := false
+	for index, line := range lines {
+		if f == "" && strings.TrimSuffix(line, "\r") == relocatedMetadataFence {
+			if legacy {
+				return "", errors.New("linear: mixed provider metadata representations")
+			}
+			return decodeRelocatedMetadata(lines, index)
+		}
+		if f == "" && strings.TrimSuffix(line, "\r") == metadataFence {
+			legacy = true
+		}
+		f = nextContentFence(f, line)
+	}
 	out := make([]string, 0, len(lines))
 	fence := ""
 	for index := 0; index < len(lines); index++ {

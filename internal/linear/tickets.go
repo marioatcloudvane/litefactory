@@ -318,7 +318,8 @@ func (c *Client) EditReply(ctx context.Context, r ticket.Reply, body redact.Body
 	if err != nil {
 		return err
 	}
-	if !data.CommentUpdate.Success || data.CommentUpdate.Comment.ID != r.Identity.RemoteID || data.CommentUpdate.Comment.Body != EncodeContent(body.String()) {
+	confirmed, decodeErr := DecodeContent(data.CommentUpdate.Comment.Body)
+	if !data.CommentUpdate.Success || data.CommentUpdate.Comment.ID != r.Identity.RemoteID || decodeErr != nil || !ContentEquivalent(body.String(), confirmed) {
 		return failure("edit reply", ticket.Uncertain, "mutation confirmation differs")
 	}
 	return nil
