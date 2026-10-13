@@ -135,7 +135,11 @@ func (p *StoryProgress) retainFollowups(ctx context.Context, parent string) erro
 			var source string
 			for _, known := range scope.Stories {
 				if known.Story.Key == s.Key {
-					source = fmt.Sprintf("https://github.com/%s/%s/issues/%d", ref.Owner, ref.Repo, known.Story.IssueNumber)
+					display, err := lookupTicketDisplay(ctx, p.forge, ref, known.Story.IssueNumber)
+					if err != nil {
+						return err
+					}
+					source = display.URL
 					break
 				}
 			}
@@ -368,7 +372,15 @@ func (p *StoryProgress) deliverFollowup(ctx context.Context, q *store.FollowupPr
 			return err
 		}
 	}
-	detail := fmt.Sprintf("Approved follow-up created: https://github.com/%s/%s/issues/%d (numeric ID %d). Owner %d approved via comment %d. Attached to parent: %t. Original requirement remains unchanged; no waiver or merge authority was granted.", ref.Owner, ref.Repo, q.IssueNumber, q.IssueID, q.ActorID, q.ApprovalComment, q.Attached)
+	display, err := lookupTicketDisplay(ctx, p.forge, ref, q.IssueNumber)
+	if err != nil {
+		return err
+	}
+	reference := display.Link()
+	if ref.Forge != "linear" {
+		reference += fmt.Sprintf(" (numeric ID %d)", q.IssueID)
+	}
+	detail := fmt.Sprintf("Approved follow-up created: %s. Owner %d approved via comment %d. Attached to parent: %t. Original requirement remains unchanged; no waiver or merge authority was granted.", reference, q.ActorID, q.ApprovalComment, q.Attached)
 	stage := "complete"
 	if q.Attached {
 		stage = "attached"

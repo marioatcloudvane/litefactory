@@ -15,7 +15,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
-	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // PlanForge is the managed publication surface. All mutation inputs have
@@ -232,12 +231,7 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 				return nil, fmt.Errorf("story %s: %w", s.Key, err)
 			}
 		}
-		if issue.QualifiedSnapshot != nil && issue.QualifiedSnapshot.Ref.Identity.Provider == ticket.Linear {
-			fmt.Fprintf(&index, "| %s | %s | [%s](%s) |\n", s.Key, strings.ReplaceAll(issue.Title, "|", "\\|"), issue.QualifiedSnapshot.DisplayKey, issue.QualifiedSnapshot.BrowserURL)
-		} else {
-			// Retain the exact legacy GitHub index representation.
-			fmt.Fprintf(&index, "| %s | %s | [#%d](https://github.com/%s/%s/issues/%d) |\n", s.Key, strings.ReplaceAll(issue.Title, "|", "\\|"), issue.Number, o.Parent.Owner, o.Parent.Repo, issue.Number)
-		}
+		fmt.Fprintf(&index, "| %s | %s | %s |\n", s.Key, strings.ReplaceAll(issue.Title, "|", "\\|"), displayIssue(o.Parent, issue).Link())
 	}
 	return []byte(index.String()), nil
 }

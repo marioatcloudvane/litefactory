@@ -27,7 +27,7 @@ func renderValidateReport(st ValidateState, target *ValidateDeliveryTarget, noti
 	var b strings.Builder
 	rows := validateStoryRows(st, target)
 	fmt.Fprintf(&b, "%s **Validate report** · commit `%s` · suite %s · revision `%s`\n\n", validateOverallLight(st, rows), short(st.Commit), st.Suite.Outcome, st.Revision)
-	b.WriteString("Delivery: " + deliveryText(st) + "\n\n")
+	b.WriteString("Delivery: " + deliveryText(st, target) + "\n\n")
 	switch {
 	case strings.TrimSpace(notice) != "" && st.Reimplementing:
 		b.WriteString("> **Sent back to Implement:** " + planTableCell(notice) + "\n\n")
@@ -91,7 +91,7 @@ func validateStoryRows(st ValidateState, target *ValidateDeliveryTarget) []valid
 			r.story += " " + ref.Title
 		}
 		if ok && ref.Number > 0 {
-			r.story += fmt.Sprintf(" (#%d)", ref.Number)
+			r.story += fmt.Sprintf(" (%s)", ref.display().Reference())
 		}
 		r.criteria = criteriaCell(st, findings)
 		r.code = reviewCell(st, findings, agent.ReviewRoleCode)
@@ -108,7 +108,7 @@ func validateStoryRows(st ValidateState, target *ValidateDeliveryTarget) []valid
 		if len(parts) > 0 {
 			r.part = strings.Join(parts, ", ")
 			if ok && ref.Number > 0 {
-				r.part += fmt.Sprintf(" on #%d", ref.Number)
+				r.part += fmt.Sprintf(" on %s", ref.display().Reference())
 			}
 		}
 		rows = append(rows, r)
@@ -334,7 +334,7 @@ func effectText(name string, e *store.ValidateEffect) string {
 	return text
 }
 
-func deliveryText(st ValidateState) string {
+func deliveryText(st ValidateState, target *ValidateDeliveryTarget) string {
 	var parts []string
 	for _, e := range []struct {
 		name   string
@@ -349,7 +349,14 @@ func deliveryText(st ValidateState) string {
 			r := decodeEffectResult(&e)
 			text := "issue for " + f.ID + ": " + e.State
 			if r.Issue > 0 {
-				text += fmt.Sprintf(" (#%d)", r.Issue)
+				reference := r.IssueReference
+				if reference == "" {
+					reference = "created issue"
+					if target != nil && strings.HasPrefix(target.Parent.display().Label, "#") {
+						reference = fmt.Sprintf("#%d", r.Issue)
+					}
+				}
+				text += " (" + reference + ")"
 			} else if e.Error != "" {
 				text += " (" + clipText(e.Error, 120) + "; repeat your command to retry)"
 			}

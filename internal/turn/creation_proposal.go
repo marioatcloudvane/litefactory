@@ -116,7 +116,7 @@ func (s *CreationProposalService) envelope(q CreationProposalRequest) (submissio
 			if a.ParentIssue == 0 {
 				a.ParentIssue = s.sourceIssue
 			} else if a.ParentIssue != s.sourceIssue {
-				return submission.CreationEnvelope{}, fmt.Errorf("draft %d: attach requires the parent issue to be the source issue #%d", i+1, s.sourceIssue)
+				return submission.CreationEnvelope{}, fmt.Errorf("draft %d: attach requires the parent issue to be this source issue", i+1)
 			}
 		}
 		artifacts[i] = a
