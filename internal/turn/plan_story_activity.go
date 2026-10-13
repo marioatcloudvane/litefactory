@@ -12,6 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -282,7 +283,11 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	if r.Operation != "create" {
 		render = report.RenderRetainedPlanDraftParts
 	}
-	rendered, err := render(int64(a.ParentNumber), d.Ordinal, candidate, r.Stage, a.ContentScope)
+	parentRef, err := naming.ParseRef(a.Parent)
+	if err != nil {
+		return receipt, err
+	}
+	rendered, err := render(int64(a.ParentNumber), d.Ordinal, candidate, r.Stage, a.ContentScope, displayIssue(parentRef, parent).TitleKey)
 	title, body := rendered.Title, rendered.Body
 	if err != nil {
 		// Rendering is deterministic and precedes every remote mutation, so the

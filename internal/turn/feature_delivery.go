@@ -366,7 +366,7 @@ func (p *StoryProgress) DeliveryReadiness(ctx context.Context, parent string) (D
 		}
 		seen[child.ID] = true
 		if child.State != "closed" {
-			obligation(fmt.Sprintf("child:%d", child.ID), fmt.Sprintf("Attached child #%d is %s.", child.Number, child.State))
+			obligation(fmt.Sprintf("child:%d", child.ID), fmt.Sprintf("Attached child %s is %s.", displayIssue(ref, child).Reference(), child.State))
 		}
 	}
 	return out, nil
@@ -801,7 +801,7 @@ func (p *StoryProgress) deliverDelivery(ctx context.Context, q *store.DeliveryPr
 	if err = p.db.SaveDeliveryEffects(ctx, *q); err != nil {
 		return err
 	}
-	detail := fmt.Sprintf("Delivery completed: PR https://github.com/%s/pull/%d integrated approved head %s into main; confirmed merge %s. Parent #%d is confirmed closed. Numeric owner %d approved in comment %d. Historical acceptance remains bound to its assessed snapshots.", repo.String(), q.PRNumber, q.Head, q.MergeSHA, ref.Issue, q.ActorID, q.ApprovalComment)
+	detail := fmt.Sprintf("Delivery completed: PR https://github.com/%s/pull/%d integrated approved head %s into main; confirmed merge %s. Parent %s is confirmed closed. Numeric owner %d approved in comment %d. Historical acceptance remains bound to its assessed snapshots.", repo.String(), q.PRNumber, q.Head, q.MergeSHA, displayIssue(ref, parent).Reference(), q.ActorID, q.ApprovalComment)
 	if err = p.deliveryNotice(ctx, q.Parent, q.Key, "complete", detail); err != nil {
 		return err
 	}

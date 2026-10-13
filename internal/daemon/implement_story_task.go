@@ -11,6 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 // implementWorkPayload is the instruction of a run the factory starts by itself
@@ -185,11 +186,14 @@ func (d *Daemon) startImplementWork(ctx context.Context, t *task) error {
 	return nil
 }
 
-// implementWorkSettled reports that a schedule the factory started for story work
-// found nothing left to run: the ledger moved on before the run began. Such a
-// schedule is finished, not returned to pending, or it would be offered again on
-// every tick.
+// implementWorkSettled settles a Validate coordinator after its successful graph
+// return; admission or a retained launch alone is not a hand-off. Story-worker
+// schedules also settle when the ledger moved on before execution, so neither
+// kind is offered again on every tick after its work has been handed off.
 func (d *Daemon) implementWorkSettled(ctx context.Context, t *task, scheduled store.Schedule) bool {
+	if scheduled.Payload == turn.ValidateImplementPayload {
+		return t.implementCoordinatorHandedOff
+	}
 	if scheduled.Payload != implementWorkPayload {
 		return false
 	}
