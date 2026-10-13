@@ -145,6 +145,7 @@ func (d *Daemon) readScheduledIssue(ctx context.Context, t *task) (github.Issue,
 // the normal turn path. SourceCommentID remains the report anchor; TriggerID
 // is private schedule identity so each proposal item gets its own run.
 func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Schedule) {
+	t.implementCoordinatorHandedOff = false
 	command := turn.ParseCommand(scheduled.Payload)
 	trigger := turn.Trigger{CommentID: scheduled.TriggerID(), Body: scheduled.Payload, Author: scheduled.OwnerHandle}
 	err := d.run(ctx, t, trigger, command, t.log)
