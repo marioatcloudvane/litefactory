@@ -1827,7 +1827,7 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		if err != nil {
 			return err
 		}
-		position, err := d.db.GetTicketRecoveryPosition(ctx, snapshot.TicketVersionID)
+		position, err := d.snapshotTicketRecovery(ctx, snapshot)
 		if err != nil {
 			return err
 		}
