@@ -3,13 +3,13 @@ package turn
 import (
 	"context"
 	"errors"
-	"github.com/cloudvane/litefactory/internal/graphexec"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -177,12 +177,13 @@ func TestResearchMeterResumeFallbackAndMultiNodeTotals(t *testing.T) {
 // and metering without a provider or wall-clock backoff.
 func TestCapacityInvocation(t *testing.T) {
 	for _, tc := range []struct {
-		name                                                          string
-		successAt, acceptAt, cancelWait, cancelProcess                int
-		ownerStop, budgetWait, resumeRefused, readError, nontransient bool
-		calls                                                         int
+		name                                                                    string
+		successAt, acceptAt, cancelWait, cancelProcess                          int
+		ownerStop, budgetWait, resumeRefused, readError, nontransient, baseline bool
+		calls                                                                   int
 	}{
 		{name: "exhausted", calls: 4},
+		{name: "earlier attempt baseline", baseline: true, calls: 4},
 		{name: "success", successAt: 2, calls: 2},
 		{name: "nontransient", nontransient: true, calls: 2},
 		{name: "accepted before exit", acceptAt: 1, calls: 1},
@@ -206,6 +207,13 @@ func TestCapacityInvocation(t *testing.T) {
 				defer func() { agentBudgetClock = old }()
 			}
 			f := newRetainedFixture(t, "plan")
+			if tc.baseline {
+				f.submit(t, f.result)
+				f.opts.Attempt = agentResultRun(t, f.db, f.session, "plan", "attempt-2", 2)
+				var err error
+				f.service, err = BindAgentResultService(t.Context(), f.opts)
+				mustProgress(t, err)
+			}
 			at := time.Now().UTC()
 			def, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "plan", ProfileVersion: 1, Path: "plan.dot", Digest: strings.Repeat("e", 64), CreatedAt: at})
 			mustProgress(t, err)
@@ -242,6 +250,12 @@ func TestCapacityInvocation(t *testing.T) {
 				if !ok {
 					t.Fatal("missing invocation budget")
 				}
+				cov := agent.UsageCoverage{Status: agent.CollectionPartial, Version: "fixture", SourceFormat: "fixture"}
+				v := agent.UsageInvocation{AttemptID: r.Usage.AttemptID, ID: "root", SourceID: "fixture", SourceInvocationID: "provider-root", Coverage: cov}
+				mustProgress(t, r.Usage.Emit(c, agent.UsageEvent{Invocation: &v}))
+				n := int64(calls)
+				o := agent.UsageObservation{AttemptID: r.Usage.AttemptID, SourceID: "fixture", EventKey: "tokens", InvocationID: "root", Mode: agent.CounterIncremental, Scope: agent.UsageExclusive, Tokens: agent.TokenUsage{Output: &n}, Coverage: cov}
+				mustProgress(t, r.Usage.Emit(c, agent.UsageEvent{Observation: &o}))
 				r.Usage = nil // Every process has a distinct meter capture, checked below.
 				if calls == 1 {
 					first, deadline = r, d
@@ -330,8 +344,21 @@ func TestCapacityInvocation(t *testing.T) {
 					t.Fatal(rendered)
 				}
 			}
-			if rows := researchMeterRows(t, f.db, run.ID); len(rows) != calls {
+			rows := researchMeterRows(t, f.db, run.ID)
+			if len(rows) != calls {
 				t.Fatalf("meter rows=%d calls=%d", len(rows), calls)
+			}
+			seen := map[string]bool{}
+			var tokens int64
+			for _, row := range rows {
+				if seen[row.AttemptID] || row.Tokens.Output == nil || row.GraphAttemptID == nil || *row.GraphAttemptID != first.Graph.AttemptID || row.RunID != run.ID {
+					t.Fatalf("lost per-process usage or binding: %+v", row)
+				}
+				seen[row.AttemptID] = true
+				tokens += *row.Tokens.Output
+			}
+			if tokens != int64(calls*(calls+1)/2) {
+				t.Fatalf("lost retry tokens: %d", tokens)
 			}
 			attempts, e := f.db.ListGraphNodeAttempts(t.Context(), inst.ID)
 			mustProgress(t, e)
