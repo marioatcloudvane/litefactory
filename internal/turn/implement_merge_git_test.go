@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 
 	"github.com/cloudvane/litefactory/internal/git"
@@ -38,7 +39,7 @@ func newImplementGit(t *testing.T, stories ...ImplementStory) *implementGit {
 	if g.clone, err = binary.Open(t.Context(), g.repo.Dir); err != nil {
 		t.Fatal(err)
 	}
-	g.scratchRoot = filepath.Join(t.TempDir(), "scratch")
+	g.scratchRoot = config.NewPaths(filepath.Join(t.TempDir(), "home")).ImplementScratchDir()
 	g.bindings.Repo = GitImplementRepo{Clone: g.clone, Remote: "origin", ScratchRoot: g.scratchRoot, Author: git.Author{Name: "Test", Email: "test@example.invalid"}}
 	g.auth.IntegrationBranch = implementFeature
 	return g
@@ -539,5 +540,53 @@ func TestImplementMergeGitStaleLedgerFailureHandling(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestImplementScratchSiblingPrivacyAndCleanup(t *testing.T) {
+	g := newImplementGit(t, implementStories(1, nil)...)
+	repo := g.bindings.Repo
+	one, err := repo.Begin(t.Context(), implementFeature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = one.Close(context.WithoutCancel(t.Context())) }()
+	two, err := repo.Begin(t.Context(), implementFeature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = two.Close(context.WithoutCancel(t.Context())) }()
+	for _, dir := range []string{g.scratchRoot, filepath.Dir(one.Path()), filepath.Dir(two.Path())} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Errorf("%s mode = %o", dir, info.Mode().Perm())
+		}
+	}
+	if one.Path() == two.Path() {
+		t.Fatal("scratch operations share a directory")
+	}
+	if err := one.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Dir(one.Path())); !os.IsNotExist(err) {
+		t.Fatalf("closed operation remains: %v", err)
+	}
+	if _, err := os.Stat(two.Path()); err != nil {
+		t.Fatalf("sibling removed: %v", err)
+	}
+	if err := two.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	worktrees, err := g.clone.WorktreeList(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wt := range worktrees {
+		if wt.Path == one.Path() || wt.Path == two.Path() {
+			t.Fatal("scratch remains registered")
+		}
 	}
 }
