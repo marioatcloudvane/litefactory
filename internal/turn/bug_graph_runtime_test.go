@@ -685,10 +685,34 @@ func TestGraphBugRevalidationExhaustionRepeatsAfterOwnerContinuation(t *testing.
 		if before[len(before)-2].Attempt != 3+occurrence {
 			t.Fatalf("wrong fixer budget: %+v", before)
 		}
+		// Enter through an ordinary recovered captured dispatch, not a direct
+		// untriggered runtime call. Repeated reconciliation creates one intent.
+		settleStrandedFixtureRuns(t, f, finalReq.InstanceID)
+		candidates, err := f.db.ListStrandedGraphDispatches(ctx)
+		mustProgress(t, err)
+		if len(candidates) != 1 {
+			t.Fatalf("stranded=%+v", candidates)
+		}
+		mustProgress(t, ValidateGraphDispatchRecovery(ctx, f.db, candidates[0]))
+		for range 2 {
+			mustProgress(t, f.db.ReconcileStrandedGraphDispatch(ctx, candidates[0], at))
+		}
+		due, err := f.db.ListDueGraphDispatches(ctx, at, 10)
+		mustProgress(t, err)
+		if len(due) != 1 {
+			t.Fatalf("due=%+v", due)
+		}
+		dispatch, ok, err := f.db.ReserveGraphDispatch(ctx, due[0].ID, at)
+		mustProgress(t, err)
+		if !ok {
+			t.Fatal("recovered dispatch refused")
+		}
+		request.Trigger.CommentID = dispatch.TriggerID()
 		for range 2 {
 			_, err = runtime.executeGraph(ctx, request, Result{Session: f.session})
 			mustProgress(t, err)
 		}
+		request.Trigger.CommentID = 0
 		after, err := f.db.ListGraphNodeAttempts(ctx, finalReq.InstanceID)
 		mustProgress(t, err)
 		if len(before) != len(after) || permissionCalls != 2 {
