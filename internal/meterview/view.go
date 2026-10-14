@@ -28,6 +28,7 @@ type Reader interface {
 // View holds the same summary, groups and optional rows used by the CLI.
 type View struct {
 	Summary         report.MeterSummary `json:"summary"`
+	Issues          []IssueSummary      `json:"issues"`
 	Groups          []Group             `json:"groups"`
 	Details         []store.MeterRow    `json:"details,omitempty"`
 	AsOf            time.Time           `json:"-"`
@@ -36,6 +37,7 @@ type View struct {
 
 // Build reads and closes one bounded snapshot, preserving its stable row order.
 func Build(ctx context.Context, db Reader, f store.MeterFilter, details bool) (v View, err error) {
+	f.IncludeStories = true
 	snapshot, err := db.NewMeterSnapshot(ctx, f, store.MeterSnapshotOptions{})
 	if err != nil {
 		return v, classify(err)
@@ -44,6 +46,7 @@ func Build(ctx context.Context, db Reader, f store.MeterFilter, details bool) (v
 	summary := report.MeterSummary{CollectionStatus: "unknown", PricingStatus: "unknown", HelperOverhead: "excluded"}
 	rows := []store.MeterRow{}
 	groups := map[string]*Group{}
+	issues := map[string]*IssueSummary{}
 	refusals := map[string]bool{}
 	for {
 		page, e := snapshot.Next(ctx, 256)
@@ -61,6 +64,15 @@ func Build(ctx context.Context, db Reader, f store.MeterFilter, details bool) (v
 				row.EstimatedUSD = nil
 			}
 			if e := summary.Add(reportValues(row)); e != nil {
+				return v, e
+			}
+			issueKey := fmt.Sprintf("%s#%d", row.Project, row.Issue)
+			issue := issues[issueKey]
+			if issue == nil {
+				issue = &IssueSummary{Project: row.Project, Issue: row.Issue}
+				issues[issueKey] = issue
+			}
+			if e := issue.Summary.Add(reportValues(row)); e != nil {
 				return v, e
 			}
 			keyBytes, _ := json.Marshal([]string{row.Project, strconv.FormatInt(row.Issue, 10), row.Mode, row.CodingAgent, strconv.FormatBool(row.ActualModel != nil), Amount(row.ActualModel)})
@@ -87,7 +99,15 @@ func Build(ctx context.Context, db Reader, f store.MeterFilter, details bool) (v
 	for _, key := range keys {
 		ordered = append(ordered, *groups[key])
 	}
-	v = View{Summary: summary, Groups: ordered, Details: rows, AsOf: time.Now().UTC(), RefusalAttempts: len(refusals)}
+	issueKeys := make([]string, 0, len(issues))
+	for key := range issues {
+		issueKeys = append(issueKeys, key)
+	}
+	slices.Sort(issueKeys)
+	for _, key := range issueKeys {
+		v.Issues = append(v.Issues, *issues[key])
+	}
+	v = View{Issues: v.Issues, Summary: summary, Groups: ordered, Details: rows, AsOf: time.Now().UTC(), RefusalAttempts: len(refusals)}
 	return v, ctx.Err()
 }
 
@@ -95,6 +115,11 @@ func Build(ctx context.Context, db Reader, f store.MeterFilter, details bool) (v
 func (v View) WriteText(out io.Writer) (err error) {
 	if _, err = fmt.Fprintf(out, "Collection: %s; pricing: %s; daemon helper overhead excluded\n%s\nPrice revisions: %v\n", v.Summary.CollectionStatus, v.Summary.PricingStatus, CostText(v.Summary.EstimatedUSD, v.Summary.PricedSubtotalUSD, v.Summary.CollectionStatus, v.Summary.PricingStatus), v.Summary.PriceRevisions); err != nil {
 		return err
+	}
+	if len(v.Summary.Diagnostics) > 0 {
+		if _, err = fmt.Fprintf(out, "Collection diagnostics: %s\n", strings.Join(v.Summary.Diagnostics, ";")); err != nil {
+			return err
+		}
 	}
 	if v.RefusalAttempts > 0 {
 		if _, err = fmt.Fprintf(out, "Provider-reported zero-cost refusals: %d attempts; token-derived pricing remains unknown\n", v.RefusalAttempts); err != nil {
@@ -110,8 +135,13 @@ func (v View) WriteText(out io.Writer) (err error) {
 			return err
 		}
 	}
+	for _, issue := range v.Issues {
+		if _, err = fmt.Fprintf(out, "%s #%d: %s\n", issue.Project, issue.Issue, CostText(issue.Summary.EstimatedUSD, issue.Summary.PricedSubtotalUSD, issue.Summary.CollectionStatus, issue.Summary.PricingStatus)); err != nil {
+			return err
+		}
+	}
 	for _, g := range v.Groups {
-		if _, err = fmt.Fprintf(out, "%s #%d %s %s model %s: input %s output %s; collection %s; pricing %s\n", g.Project, g.Issue, g.Mode, g.CodingAgent, Amount(g.Model), Count(g.Summary.Tokens.InputUncached), Count(g.Summary.Tokens.Output), g.Summary.CollectionStatus, g.Summary.PricingStatus); err != nil {
+		if _, err = fmt.Fprintf(out, "%s #%d %s %s model %s: recorded input %s output %s; collection %s; pricing %s\n", g.Project, g.Issue, g.Mode, g.CodingAgent, Amount(g.Model), Count(g.Summary.KnownTokens.InputUncached), Count(g.Summary.KnownTokens.Output), g.Summary.CollectionStatus, g.Summary.PricingStatus); err != nil {
 			return err
 		}
 	}
@@ -135,7 +165,12 @@ func (v View) Lines() []string {
 }
 
 // SummaryLines includes estimate labels and all coverage information.
-func (v View) SummaryLines() []string { v.Groups = nil; v.Details = nil; return v.Lines() }
+func (v View) SummaryLines() []string {
+	v.Issues = nil
+	v.Groups = nil
+	v.Details = nil
+	return v.Lines()
+}
 
 // GroupLines renders the ordered project, task, mode, agent and model groups.
 func (v View) GroupLines() []string {
@@ -165,6 +200,13 @@ func Count(v *int64) string {
 		return "unknown"
 	}
 	return strconv.FormatInt(*v, 10)
+}
+
+// IssueSummary combines all selected modes, agents and models for one issue.
+type IssueSummary struct {
+	Project string              `json:"project"`
+	Issue   int64               `json:"issue"`
+	Summary report.MeterSummary `json:"summary"`
 }
 
 // Group describes one stable aggregation key.
