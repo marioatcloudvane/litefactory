@@ -10,6 +10,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // planSetStage is the stage that proposes a story set. It is about no story, so
@@ -172,6 +173,12 @@ func (r *planGraphRuntime) releaseOwnerEditConflicts(ctx context.Context, item p
 		requests[item.EffectRequest] = true
 	}
 	parent := r.parentRef.String()
+	// Only Linear produced false owner-edit conflicts: its normalized readback
+	// was misjudged before #865/#866/#869. A GitHub conflict is a real edit and
+	// stays the owner's to resolve, whatever the reply says.
+	if linear, err := r.linearStory(ctx, item.Key); err != nil || !linear {
+		return err
+	}
 	if len(requests) == 0 && !contentHold {
 		// Blocked for another reason, such as an unknown remote outcome:
 		// nothing here is the owner's to waive.
@@ -212,6 +219,22 @@ func (r *planGraphRuntime) releaseOwnerEditConflicts(ctx context.Context, item p
 		}
 	}
 	return r.rebaseOwnerConfirmedContent(ctx, item.Key)
+}
+
+func (r *planGraphRuntime) linearStory(ctx context.Context, key string) (bool, error) {
+	d, err := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), key)
+	if err != nil || d.IssueID == 0 {
+		return false, err
+	}
+	forge, err := r.storyForge()
+	if err != nil {
+		return false, err
+	}
+	child, err := forge.GetIssue(ctx, github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}, d.IssueNumber)
+	if err != nil {
+		return false, err
+	}
+	return child.QualifiedSnapshot != nil && child.QualifiedSnapshot.Ref.Identity.Provider == ticket.Linear, nil
 }
 
 // rebaseOwnerConfirmedContent takes the live story issue as the expected content
