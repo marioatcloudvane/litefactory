@@ -166,14 +166,18 @@ func TestBugChecksSandboxScratchSiblings(t *testing.T) {
 			if err := os.Symlink("child", filepath.Join(root, "link")); err != nil {
 				t.Fatal(err)
 			}
-			script := `import pathlib,sys
+			script := `import subprocess,sys
 for secret in sys.argv[2:]:
  try:
   with open(secret, "rb") as f: f.read()
  except PermissionError: pass
  else: sys.exit(10)
-try: pathlib.Path(sys.argv[1]).resolve(strict=True)
-except PermissionError:
+# realpath inspects denied ancestors that pathlib.Path.resolve can tolerate.
+resolved = subprocess.run(["/bin/realpath", sys.argv[1]], capture_output=True, text=True)
+if resolved.returncode != 0:
+ if "Operation not permitted" not in resolved.stderr and "Permission denied" not in resolved.stderr:
+  sys.stderr.write(resolved.stderr)
+  sys.exit(2)
  print("resolution-denied")
  sys.exit(1)
 print("resolution-ok")
