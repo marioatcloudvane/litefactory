@@ -135,6 +135,20 @@ func (b *discoveryBudget) observeRequestLocked(valid bool, limit, remaining int,
 	b.observedAt = b.now
 }
 
+// affords reports, without reserving or queueing, whether an operation of cost
+// requests fits the known window's reserve and discovery share and the token
+// bucket. It mirrors acquire's ordinary (non-probe) admission.
+func (b *discoveryBudget) affords(cost int) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.limit > 0 && b.now.Before(b.reset) {
+		if b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.discoveryShareLocked() {
+			return false
+		}
+	}
+	return b.tokens >= float64(cost)
+}
+
 func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryReservation, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -514,6 +528,37 @@ func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, 
 func discoveryKey(repo github.Repo, operation string, number int) string {
 	return fmt.Sprintf("%s/%s/%d", repo, operation, number)
 }
+
+// drainAffordable says whether a backlog drain can pay for its issue read and
+// the comment history read that follows it. A backlog session whose history
+// read the budget would defer must not pay for the issue read either: each
+// tick's cheap issue reads then hold the allowance just above the reserve, the
+// history read never fits and every session is re-read forever, which drained
+// the Linear allowance to its floor for hours (2026-10-14).
+func (d *Daemon) drainAffordable(ctx context.Context) error {
+	if r, ok := ctx.Value(quotaReservationKey{}).(*discoveryReservation); ok && r.fallback {
+		return nil
+	}
+	cost := discoveryListBound
+	if d.connections != nil {
+		v, selected, err := d.quotaVersion(ctx, store.TicketConnection)
+		if err != nil {
+			return err
+		}
+		if selected && v.Provider == ticket.Linear {
+			cost = linearHistoryBound
+		}
+	}
+	budget, err := d.quotaBudget(ctx)
+	if err != nil {
+		return err
+	}
+	if !budget.affords(1 + cost) {
+		return ErrDiscoveryDeferred
+	}
+	return nil
+}
+
 func (d *Daemon) discoveryIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
 	return discoveryCall(ctx, d, discoveryKey(repo, "issue", number), 1, func(ctx context.Context) (github.Issue, error) { return d.readIssue(ctx, repo, number) })
 }

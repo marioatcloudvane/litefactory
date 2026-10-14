@@ -1558,7 +1558,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		var fetched github.Issue
 		if len(pending) > 0 {
 			fetched, err = d.readIssue(ctx, c.forgeRepo, c.session.IssueNumber)
-		} else {
+		} else if err = d.drainAffordable(ctx); err == nil {
 			fetched, err = d.discoveryIssue(ctx, c.forgeRepo, c.session.IssueNumber)
 		}
 		if err != nil {
