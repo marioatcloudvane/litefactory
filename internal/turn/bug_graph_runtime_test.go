@@ -459,6 +459,7 @@ func TestGraphBugDeliveryConcreteConflictAndOwnerWait(t *testing.T) {
 	for _, variant := range []string{"resolved", "refused", "invalid", "head drift", "union", "union no advisor", "budget", "mixed"} {
 		t.Run(variant, func(t *testing.T) {
 			f, h, req, forge, _ := graphFinalizationFixture(t)
+			f.opts.MCP.Paths = f.paths
 			f.opts.ConflictContentMaxBytes = 65536
 			additions := variant == "union" || variant == "union no advisor" || variant == "budget" || variant == "mixed"
 			seed := "package fixture\nimport \"testing\"\n"

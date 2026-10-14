@@ -127,7 +127,7 @@ All commands are owner-only and work only in allowed channels.
 | --- | --- |
 | `/help`, `/health`, `/status` | List commands; read factory health and status. |
 | `/ask question:... [project:OWNER/REPO]` | Ask about a project and its open work. Question up to 8192 bytes. A follow-up without `project` uses the newest bot answer in the same channel or thread. |
-| `/details` | Show raw details of the previous reply; ordinary “show details” is also supported. |
+| `/details [answer:]` | Inspect saved tool results for a conversation answer reference, or the latest acknowledged answer. Legacy command replies retain their source-text details. |
 | `/draft [project:...] [note:...]` | Preview a feature issue (note up to 2000 bytes). Shows project, title, body and an 8-character code. Creates nothing. |
 | `/confirm code:CODE` | Create the previewed issue. Valid for 24 hours. A new `/draft` replaces the old preview and code. Confirming twice returns the same issue. |
 | `/diagnose issue:N [project:...] [note:...]` | Explain a stuck issue. Never repairs or posts to the issue. |
