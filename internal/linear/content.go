@@ -257,7 +257,9 @@ func comparableContent(body string) string {
 	fence := ""
 	for i, line := range lines {
 		next := nextContentFence(fence, line)
-		if fence == "" && next == "" && !managedMarker(line) &&
+		// A table row is one line, so inline code or HTML inside its cells
+		// cannot span lines; its cells keep those characters untouched.
+		if fence == "" && next == "" && !managedMarker(line) && !strings.HasPrefix(line, "|") &&
 			(strings.ContainsAny(line, "`<") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")) {
 			return body
 		}
@@ -348,7 +350,8 @@ func comparableContent(body string) string {
 }
 
 func contentTableCells(line string) ([]string, bool) {
-	line = strings.TrimRight(line, " ")
+	// Linear escapes a literal underscore as \_ ; it is the same character.
+	line = strings.ReplaceAll(strings.TrimRight(line, " "), `\_`, "_")
 	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") || len(line) < 2 || strings.ContainsAny(line, "\\`") {
 		return nil, false
 	}
@@ -529,8 +532,8 @@ func comparableScaffoldProse(line string) string {
 }
 
 // comparableTableCell decodes the renderer's four punctuation entities inside a
-// table body cell, where Linear stores the plain characters. A cell that could
-// form links, code, HTML or a rule is left as it is.
+// table body cell, where Linear stores the plain characters (and \_ for _).
+// A cell that could form links or code, or is only a rule, is left as it is.
 // managedStoryDocument reports a factory Plan story body (story and request
 // markers first), the only content whose punctuation entities are decoded.
 func managedStoryDocument(lines []string) bool {
@@ -545,10 +548,10 @@ func managedStoryDocument(lines []string) bool {
 }
 
 func comparableTableCell(cell string) string {
-	if strings.ContainsAny(cell, "[]`<>\\") {
+	if strings.ContainsAny(cell, "[]`\\") {
 		return cell
 	}
-	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")").Replace(cell)
+	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")", "&#95;", "_", "&#60;", "<", "&#62;", ">").Replace(cell)
 	if strings.Trim(decoded, "-:. ") == "" {
 		return cell
 	}

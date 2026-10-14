@@ -105,6 +105,7 @@ func TestContentEquivalentForLaterStageEntitiesTablesAndLists(t *testing.T) {
 		"| Area | Decision |",
 		"| -- | -- |",
 		"| Scope | Change only the table &#40;renderer&#41;&#46; No new outside&#45;click logic&#46; |",
+		"| Legend | Delete the <div class=\"legend\"> block |",
 	}, "\n")
 	observed := strings.Join([]string{
 		"<!-- lf:plan-story parent=1 key=story-001 -->",
@@ -120,6 +121,7 @@ func TestContentEquivalentForLaterStageEntitiesTablesAndLists(t *testing.T) {
 		"| Area | Decision |",
 		"| -- | -- |",
 		"| Scope | Change only the table (renderer). No new outside-click logic. |",
+		"| Legend | Delete the <div class=\"legend\"> block |",
 	}, "\n")
 	if !ContentEquivalent(expected, observed) {
 		t.Fatalf("Linear's stored later-stage draft must be equivalent:\n%s\n---\n%s", comparableContent(expected), comparableContent(observed))
