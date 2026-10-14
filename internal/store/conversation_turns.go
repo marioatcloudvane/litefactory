@@ -211,8 +211,9 @@ func (db *DB) RenewConversationTurn(ctx context.Context, turn ConversationTurn, 
 	return chatAffected(result, err)
 }
 
-// DeferConversationTurn yields a claimed turn after a proven pre-launch failure.
-// It must never be used when provider input may already have been submitted.
+// DeferConversationTurn yields after a proven pre-launch failure or a journaled
+// factory boundary whose completed provider inputs will not be replayed.
+// It must never be used when provider completion is uncertain.
 func (db *DB) DeferConversationTurn(ctx context.Context, turn ConversationTurn) error {
 	result, err := db.sql.ExecContext(ctx, `UPDATE chat_conversation_turns SET state='pending',worker='',lease_until=NULL WHERE id=? AND conversation_id=? AND state='running' AND generation=? AND worker=?`, turn.ID, turn.ConversationID, turn.Generation, turn.Worker)
 	return chatAffected(result, err)

@@ -2,7 +2,6 @@ package presentation
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -28,9 +27,8 @@ type ConversationPart struct {
 	Protected bool
 }
 
-// RenderConversation keeps unsupported wording readable and labels every
-// continuation. Only exact complete current facts can remove the warning.
-func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFact, protected string) ([]ConversationPart, error) {
+// RenderConversation keeps ordinary replies readable and attaches local evidence caveats.
+func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFact, protected string, intent ...string) ([]ConversationPart, error) {
 	if answerID == "" || len(answerID) > 128 || strings.ContainsAny(answerID, "\r\n") {
 		return nil, errors.New("invalid answer reference")
 	}
@@ -58,7 +56,7 @@ func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFa
 			fact, ok := byID[ref]
 			if !ok || !fact.Complete || fact.Text == "" {
 				if block.Text == "" {
-					segments = append(segments, segment{text: plain("Requested current fact unavailable: " + ref), label: "Unverified — this wording is not established by current tool evidence."})
+					segments = append(segments, segment{text: plain("Requested current fact unavailable: " + ref), label: "Evidence unavailable."})
 					supported = true
 				}
 				continue
@@ -80,21 +78,31 @@ func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFa
 			if text == "" {
 				text = "Requested current fact unavailable: " + strings.Join(block.FactRefs, ", ")
 			}
-			segments = append(segments, segment{text: plain(text), label: "Unverified — this wording is not established by current tool evidence."})
+			label := ""
+			if len(block.FactRefs) > 0 {
+				label = "Caveat: cited evidence does not establish this wording."
+			}
+			if len(intent) == 0 || intent[0] != "clarify" {
+				for _, fact := range facts {
+					if !fact.Complete && fact.Caveats != "" {
+						label = "Evidence limited: " + plain(fact.Caveats)
+						break
+					}
+				}
+			}
+			segments = append(segments, segment{text: plain(text), label: label})
 		}
 	}
 	if protected != "" {
 		segments = append(segments, segment{text: protected, protected: true})
 	}
-	// Reserve enough digits for any part count under the accepted text budget.
-	reserve := fmt.Sprintf("Answer %s · part 999999 of 999999\n/details answer:%s\n\n", answerID, answerID)
 	var parts []ConversationPart
 	for _, seg := range segments {
 		prefix := ""
 		if seg.label != "" {
 			prefix = seg.label + "\n"
 		}
-		budget := MessageLimit - messageSize(reserve) - messageSize(prefix)
+		budget := MessageLimit - messageSize(prefix)
 		if budget < 2 {
 			return nil, errors.New("answer metadata exceeds message budget")
 		}
@@ -113,9 +121,6 @@ func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFa
 	}
 	if len(parts) > 1024 {
 		return nil, errors.New("answer exceeds saved part budget")
-	}
-	for i := range parts {
-		parts[i].Content = fmt.Sprintf("Answer %s · part %d of %d\n/details answer:%s\n\n", answerID, i+1, len(parts), answerID) + parts[i].Content
 	}
 	return parts, nil
 }

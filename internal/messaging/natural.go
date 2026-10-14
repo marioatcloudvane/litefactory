@@ -407,7 +407,7 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 			args["to"] = to
 		}
 	}
-	if p.Invocation.Command == "ask" || p.Invocation.Command == "draft" || p.Invocation.Command == "diagnose" || p.Invocation.Command == "question" || p.Invocation.Command == "answer" || p.Invocation.Command == "meter" && args["task"] != "" || args["project"] != "" {
+	if p.Invocation.Command == "ask" || p.Invocation.Command == "draft" || p.Invocation.Command == "diagnose" || p.Invocation.Command == "question" || p.Invocation.Command == "answer" || (p.Invocation.Command == "meter" || p.Invocation.Command == "status") && (args["task"] != "" || args["issue"] != "") || args["project"] != "" {
 		resolution, err := s.resolveNaturalProject(ctx, args)
 		if err != nil {
 			return "", err
@@ -599,48 +599,82 @@ func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.
 func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]string) (ask.Resolution, error) {
 	option := strings.TrimRight(strings.TrimSpace(args["project"]), "!?.,;: ")
 	resolution, err := ask.ResolveProject(ctx, s.db, option, nil)
-	if err != nil || option != "" || resolution.Refusal == "" {
-		return resolution, err
-	}
-	repos, err := s.db.ListRepos(ctx)
-	if err != nil {
+	if err != nil || option != "" {
 		return resolution, err
 	}
 	issue, _ := strconv.Atoi(args["issue"])
+	if issue == 0 {
+		issue, _ = strconv.Atoi(args["task"])
+	}
 	if issue == 0 {
 		targets := ask.ExplicitIssues(args["question"])
 		if len(targets) == 1 {
 			issue = targets[0]
 		}
 	}
-	var exact, active []store.Repo
+	repos, err := s.db.ListRepos(ctx)
+	if err != nil {
+		return resolution, err
+	}
+	if issue > 0 {
+		var exact []store.Repo
+		for _, repo := range repos {
+			if repo.Forge != "github" {
+				continue
+			}
+			_, e := s.knownNumericTask(ctx, repo, issue)
+			if e == nil {
+				exact = append(exact, repo)
+			} else if !errors.Is(e, store.ErrNotFound) {
+				return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, nil
+			}
+		}
+		switch len(exact) {
+		case 1:
+			return ask.Resolution{Repository: exact[0]}, nil
+		case 0:
+			return ask.Resolution{Refusal: "No known task matches that number. Please name a project and task."}, nil
+		default:
+			return ask.Resolution{Refusal: "That task number exists in multiple projects. Please name a project."}, nil
+		}
+	}
+	if resolution.Refusal == "" {
+		return resolution, nil
+	}
+	var active []store.Repo
 	for _, repo := range repos {
 		if repo.Forge != "github" {
 			continue
 		}
-		if issue > 0 {
-			_, e := s.db.GetSessionByTaskRef(ctx, store.TaskRef(repo.Forge, repo.Owner, repo.Name, issue))
-			if e == nil {
-				exact = append(exact, repo)
-			} else if !errors.Is(e, store.ErrNotFound) {
-				resolution.Refusal += " Task lookup failed; project could not be inferred."
-				return resolution, nil
-			}
-		}
-		sessions, cut, e := s.db.ListTaskSessionsByRepo(ctx, repo.ID, 100)
-		if e != nil || cut {
-			resolution.Refusal += " Task lookup incomplete; project could not be inferred."
-			return resolution, nil //nolint:nilerr // The incomplete read is returned as a project clarification, never guessed uniqueness.
+		sessions, _, e := s.db.ListTaskSessionsByRepo(ctx, repo.ID, 1)
+		if e != nil {
+			return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, nil
 		}
 		if len(sessions) > 0 {
 			active = append(active, repo)
 		}
 	}
-	if len(exact) == 1 {
-		return ask.Resolution{Repository: exact[0]}, nil
-	}
-	if len(exact) == 0 && len(active) == 1 {
+	if len(active) == 1 {
 		return ask.Resolution{Repository: active[0]}, nil
 	}
 	return resolution, nil
+}
+
+// Numeric GitHub references cannot select a Linear task's internal numeric alias.
+func (s *Service) knownNumericTask(ctx context.Context, repo store.Repo, number int) (store.Session, error) {
+	session, err := s.db.GetSessionByTaskRef(ctx, store.TaskRef(repo.Forge, repo.Owner, repo.Name, number))
+	if err != nil {
+		return store.Session{}, err
+	}
+	binding, err := s.db.GetSessionTicket(ctx, session.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return session, nil
+	}
+	if err != nil {
+		return store.Session{}, err
+	}
+	if string(binding.Locator.Provider) != "github" || binding.Locator.Container != repo.Slug() || binding.Locator.Key != strconv.Itoa(number) {
+		return store.Session{}, store.ErrNotFound
+	}
+	return session, nil
 }
