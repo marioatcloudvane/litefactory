@@ -290,21 +290,27 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 	if c.Author.ID != ids.OwnerUserID || turn.HasMarker(c.Body) {
 		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, only the owner's plain comments are Plan input")
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
+		if err != nil {
+			d.planReplyDeferred(ctx, t, c.ID, "could not consume a comment that is not Plan input: "+err.Error())
+		}
 		return d.leave(ctx, t, log, "could not consume a comment that is not Plan input", err)
 	}
 	d.acknowledge(ctx, t, c.ID)
 	parent := story.Parent
 	draft, err := d.db.GetPlanStoryDraft(ctx, parent, story.Key)
 	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, "could not read the story draft binding: "+err.Error())
 		return d.leave(ctx, t, log, "could not read the story draft binding", err)
 	}
 	state, _, err := d.db.GetPlanWorkflowState(ctx, parent)
 	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, "could not read the Plan state: "+err.Error())
 		return d.leave(ctx, t, log, "could not read the Plan state", err)
 	}
 	reason := state.PlanReplyReason(story.Key, c.Body)
 	explanation, explainErr := d.db.PlanReplyExplanation(ctx, t.ref.String(), c.ID)
 	if explainErr != nil && !errors.Is(explainErr, store.ErrNotFound) {
+		d.planReplyDeferred(ctx, t, c.ID, "could not read the retained reply explanation: "+explainErr.Error())
 		return d.leave(ctx, t, log, "could not read the retained reply explanation", explainErr)
 	}
 	if explainErr == nil {
@@ -326,6 +332,7 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 
 	trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
 	if triggerErr != nil {
+		d.planReplyDeferred(ctx, t, c.ID, triggerErr.Error())
 		return triggerErr
 	}
 	trigger.PlanReply = reply
@@ -336,6 +343,9 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 		// by the comment, so a retry resumes it; confirmed delivery consumes it.
 		return d.explainAndConsume(ctx, t, c, draft, refusal.Reason, log)
 	}
+	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, err.Error())
+	}
 	return err
 }
 
@@ -344,12 +354,17 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 func (d *Daemon) explainAndConsume(ctx context.Context, t *task, c github.Comment, draft store.PlanStoryDraft, reason string, log *slog.Logger) error {
 	confirmed, err := d.explainPlanReply(ctx, t, draft, c.ID, reason)
 	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, "could not explain a refused Plan reply: "+err.Error())
 		return d.leave(ctx, t, log, "could not explain a refused Plan reply", err)
 	}
 	if !confirmed {
+		d.planReplyDeferred(ctx, t, c.ID, "Plan reply explanation delivery is unconfirmed: "+reason)
 		return nil
 	}
 	d.commentFate(ctx, t, c.ID, fateIgnored, "explained, the reply does not match the current review")
 	_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
+	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, "could not consume an explained Plan reply: "+err.Error())
+	}
 	return d.leave(ctx, t, log, "could not consume an explained Plan reply", err)
 }

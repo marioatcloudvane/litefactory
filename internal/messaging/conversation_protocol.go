@@ -121,7 +121,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 			for _, block := range envelope.Blocks {
 				total += len(block.Text)
 				references += len(block.FactRefs)
-				if strings.ContainsRune(block.Text, 0) || (block.Text == "" && len(block.FactRefs) == 0) || len(block.FactRefs) > 32 {
+				if strings.ContainsRune(block.Text, 0) || (strings.TrimSpace(block.Text) == "" || presentation.ConversationDiagnostics(block.Text)) || len(block.FactRefs) > 32 {
 					return bad()
 				}
 				for _, ref := range block.FactRefs {
@@ -139,7 +139,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 			if envelope.Kind == "clarify" {
 				limit = 1000
 			}
-			if strings.TrimSpace(envelope.Text) == "" || len(envelope.Text) > limit || strings.ContainsRune(envelope.Text, 0) {
+			if strings.TrimSpace(envelope.Text) == "" || len(envelope.Text) > limit || strings.ContainsRune(envelope.Text, 0) || presentation.ConversationDiagnostics(envelope.Text) {
 				return bad()
 			}
 		}

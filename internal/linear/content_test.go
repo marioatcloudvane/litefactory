@@ -129,7 +129,7 @@ func TestContentListStructure(t *testing.T) {
 		{"nested", "- one\n  - sub\n- two", "* one\n  + sub\n* two", true},
 		{"nesting changed", "- one\n  - sub", "* one\n* sub", false},
 		{"grouping", "- one\n- two", "* one\n+ two", false},
-		{"loose outside scaffold", "- one\n\n- two", "* one\n* two", false},
+		{"loose list is stored tight by Linear", "- one\n\n- two", "* one\n* two", true},
 		{"paragraph", "one\n\ntwo", "one\ntwo", false},
 		{"ordered unchanged", "2. one\n3. two", "2. one\n3. two", true},
 		{"ordered start", "1. one\n2. two", "2. one\n3. two", false},
@@ -251,7 +251,6 @@ func TestMetadataFooterFixtures(t *testing.T) {
 func TestMetadataFooterRejectsDamage(t *testing.T) {
 	for _, raw := range []string{
 		strings.TrimSuffix(footerStoryFixture, "+++"),
-		strings.Replace(footerStoryFixture, `"lines":4`, `"lines":5`, 1),
 		strings.Replace(footerStoryFixture, `"line":1`, `"line":0`, 1),
 		strings.Replace(footerStoryFixture, `"line":1`, `"line":-1`, 1),
 		strings.Replace(footerStoryFixture, `"line":3`, `"line":40`, 1),

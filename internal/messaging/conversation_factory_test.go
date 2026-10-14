@@ -517,3 +517,39 @@ func TestFactoryConversationCorrectionAccessRetry(t *testing.T) {
 		t.Fatalf("correction replay: %+v", p)
 	}
 }
+
+func TestFactoryConversationReportedDiagnosticsCorrection(t *testing.T) {
+	for _, bad := range []string{
+		`{"version":1,"kind":"answer","text":"Source: factory:status; target: #614. Stage: waiting (succeeded); story-001: acceptance. Evidence limited. Your question is still unanswered."}`,
+		`{"version":1,"kind":"answer","blocks":[{"fact_refs":["missing-fact-5"]}]}`,
+		`{"version":1,"kind":"answer","text":"The meter output: lower bound $7.89; collection partial, helper overhead excluded; page 1 of 3."}`,
+	} {
+		for _, correct := range []bool{false, true} {
+			good := `{"version":1,"kind":"answer","text":"Planning is done: both stories are at acceptance review. Nobody is recorded as waiting. Implementation hasn't started."}`
+			if !correct {
+				good = bad
+			}
+			p := &factoryUnitProvider{outputs: []string{bad, good}}
+			r, at := factoryUnitRun(t, p)
+			if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
+				t.Fatal(err)
+			}
+			if p.calls != 2 {
+				t.Fatalf("correction calls: %d", p.calls)
+			}
+			reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if presentation.ConversationDiagnostics(reply.ReplyText) {
+				t.Fatalf("leaked: %q", reply.ReplyText)
+			}
+			if correct && !strings.Contains(reply.ReplyText, "Planning is done") {
+				t.Fatal(reply.ReplyText)
+			}
+			if !correct && !strings.Contains(reply.ReplyText, "couldn't get a clear answer") {
+				t.Fatal(reply.ReplyText)
+			}
+		}
+	}
+}

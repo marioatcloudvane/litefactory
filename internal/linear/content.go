@@ -88,15 +88,19 @@ func decodeRelocatedMetadata(lines []string, index int) (string, error) {
 	if metadata.Lines == len(metadata.Markers) && len(prose) == 1 && prose[0] == "" {
 		prose = nil
 	}
-	if metadata.Lines != len(prose)+len(metadata.Markers) {
-		return "", invalid
-	}
 	previous := -1
 	for _, marker := range metadata.Markers {
 		if marker.Line <= previous || marker.Line >= metadata.Lines || strings.ContainsAny(marker.Value, "\r\n") || !managedMarker("<!-- "+marker.Value+" -->") {
 			return "", invalid
 		}
 		previous = marker.Line
+	}
+	if metadata.Lines != len(prose)+len(metadata.Markers) {
+		// Linear normalizes Markdown (it drops blank lines, for example), so the
+		// recorded line positions no longer fit. Factory markers only lead or
+		// trail a body: restore the leading run in front and the rest after the
+		// prose. Content comparison is Linear-equivalence, not byte equality.
+		return relocateNormalized(prose, metadata.Markers), nil
 	}
 	out := make([]string, 0, metadata.Lines)
 	m, p := 0, 0
@@ -115,6 +119,27 @@ func decodeRelocatedMetadata(lines []string, index int) (string, error) {
 		}
 	}
 	return strings.Join(out, "\n"), nil
+}
+
+func relocateNormalized(prose []string, markers []relocatedMarker) string {
+	render := func(m relocatedMarker) string {
+		value := "<!-- " + m.Value + " -->"
+		if m.CR {
+			value += "\r"
+		}
+		return value
+	}
+	out := make([]string, 0, len(prose)+len(markers))
+	leading := 0
+	for leading < len(markers) && markers[leading].Line == leading {
+		out = append(out, render(markers[leading]))
+		leading++
+	}
+	out = append(out, prose...)
+	for _, m := range markers[leading:] {
+		out = append(out, render(m))
+	}
+	return strings.Join(out, "\n")
 }
 
 // DecodeContent reverses only the exact versioned metadata form. Arbitrary prose,
@@ -188,6 +213,40 @@ func ContentEquivalent(expected, observed string) bool {
 	return comparableContent(expected) == comparableContent(observed)
 }
 
+// withoutProseBlankLines normalizes blank-line layout outside fences the way
+// Linear stores it: runs of blank lines collapse to one, leading and trailing
+// blank lines go, and blank lines next to factory markers go (relocated markers
+// lose their surroundings). A single blank line between prose stays, since it
+// separates paragraphs. Blank lines between list items go: Linear
+// stores lists tight.
+func withoutProseBlankLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	fence := ""
+	blank := false
+	for _, line := range lines {
+		next := nextContentFence(fence, line)
+		if fence == "" && next == "" && strings.TrimSpace(line) == "" {
+			blank = true
+			fence = next
+			continue
+		}
+		_, listed := contentListItem(line)
+		previousListed := false
+		if len(out) > 0 {
+			_, previousListed = contentListItem(out[len(out)-1])
+		}
+		// Linear stores lists tight: a blank line between two list items is
+		// dropped (seen on MAR-12's technical draft, 2026-10-14).
+		if blank && len(out) > 0 && !managedMarker(out[len(out)-1]) && !managedMarker(line) && (!listed || !previousListed) {
+			out = append(out, "")
+		}
+		blank = false
+		out = append(out, line)
+		fence = next
+	}
+	return out
+}
+
 var contentTableRule = regexp.MustCompile(`^:?-{2,}:?$`)
 
 func comparableContent(body string) string {
@@ -198,7 +257,9 @@ func comparableContent(body string) string {
 	fence := ""
 	for i, line := range lines {
 		next := nextContentFence(fence, line)
-		if fence == "" && next == "" && !managedMarker(line) &&
+		// A table row is one line, so inline code or HTML inside its cells
+		// cannot span lines; its cells keep those characters untouched.
+		if fence == "" && next == "" && !managedMarker(line) && !strings.HasPrefix(line, "|") &&
 			(strings.ContainsAny(line, "`<") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")) {
 			return body
 		}
@@ -209,6 +270,7 @@ func comparableContent(body string) string {
 		}
 		fence = next
 	}
+	story := managedStoryDocument(lines)
 	lines, scaffold := comparableScaffoldSpacing(lines)
 	if !uniformContentLists(lines) {
 		return body
@@ -254,6 +316,11 @@ func comparableContent(body string) string {
 							}
 						}
 						for j, cells := range rows {
+							if j > 1 && story {
+								for k := range cells {
+									cells[k] = comparableTableCell(cells[k])
+								}
+							}
 							lines[i+j] = "|" + strings.Join(cells, "|") + "|"
 						}
 						i = end - 1
@@ -268,15 +335,23 @@ func comparableContent(body string) string {
 		if scaffold {
 			line = comparableScaffoldProse(line)
 		} else {
+			// Later Plan stages add headings, so they are not the scaffold, but
+			// the renderer escapes the same punctuation as entities there and
+			// Linear stores the plain characters. The decoder only accepts plain
+			// prose, so it cannot manufacture Markdown.
 			line = redundantContentEscapes(line)
+			if story {
+				line = comparableScaffoldProse(line)
+			}
 		}
 		lines[i] = line
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(withoutProseBlankLines(lines), "\n")
 }
 
 func contentTableCells(line string) ([]string, bool) {
-	line = strings.TrimRight(line, " ")
+	// Linear escapes a literal underscore as \_ ; it is the same character.
+	line = strings.ReplaceAll(strings.TrimRight(line, " "), `\_`, "_")
 	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") || len(line) < 2 || strings.ContainsAny(line, "\\`") {
 		return nil, false
 	}
@@ -441,6 +516,13 @@ func comparableScaffoldProse(line string) string {
 			return line
 		}
 		prefix, prose = line[:2], line[2:]
+		// A task-list checkbox belongs to the item prefix, not to its prose.
+		for _, box := range []string{"[ ] ", "[x] ", "[X] "} {
+			if strings.HasPrefix(prose, box) {
+				prefix, prose = prefix+box, prose[len(box):]
+				break
+			}
+		}
 	}
 	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")").Replace(prose)
 	if !plainScaffoldProse(decoded) || strings.ContainsAny(prose, "\\`[]<>*_!|@") {
@@ -449,8 +531,36 @@ func comparableScaffoldProse(line string) string {
 	return prefix + decoded
 }
 
+// comparableTableCell decodes the renderer's four punctuation entities inside a
+// table body cell, where Linear stores the plain characters (and \_ for _).
+// A cell that could form links or code, or is only a rule, is left as it is.
+// managedStoryDocument reports a factory Plan story body (story and request
+// markers first), the only content whose punctuation entities are decoded.
+func managedStoryDocument(lines []string) bool {
+	if len(lines) < 2 || !scaffoldStoryMarker.MatchString(lines[0]) {
+		return false
+	}
+	request := 1
+	if lines[request] == "" && len(lines) > 2 {
+		request++
+	}
+	return scaffoldRequestMarker.MatchString(lines[request])
+}
+
+func comparableTableCell(cell string) string {
+	if strings.ContainsAny(cell, "[]`\\") {
+		return cell
+	}
+	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")", "&#95;", "_", "&#60;", "<", "&#62;", ">").Replace(cell)
+	if strings.Trim(decoded, "-:. ") == "" {
+		return cell
+	}
+	return decoded
+}
+
 func plainScaffoldProse(s string) bool {
 	letter := func(b byte) bool { return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' }
+	alnum := func(b byte) bool { return letter(b) || b >= '0' && b <= '9' }
 	if s == "" || !letter(s[0]) || strings.ContainsAny(s, "&\\`[]<>*_!|@#") || strings.Contains(s, "://") || strings.Contains(s, "www.") {
 		return false
 	}
@@ -462,7 +572,8 @@ func plainScaffoldProse(s string) bool {
 				return false
 			}
 		case '-':
-			if i == 0 || i+1 == len(s) || !letter(s[i-1]) || !letter(s[i+1]) {
+			// Between letters or digits (AC-001, outside-click): never Markdown.
+			if i == 0 || i+1 == len(s) || !alnum(s[i-1]) || !alnum(s[i+1]) {
 				return false
 			}
 		case '(':
@@ -471,7 +582,7 @@ func plainScaffoldProse(s string) bool {
 			}
 			opened = true
 		case ')':
-			if !opened || i == 0 || !letter(s[i-1]) || (i+1 < len(s) && s[i+1] != ' ' && s[i+1] != '.') {
+			if !opened || i == 0 || !letter(s[i-1]) || (i+1 < len(s) && !strings.ContainsRune(" .,;:", rune(s[i+1]))) {
 				return false
 			}
 			opened = false

@@ -211,27 +211,35 @@ func TestTaskNoticeJourney(t *testing.T) {
 	mu.Lock()
 	counts := map[string]int{}
 	for _, text := range visible {
-		kind, _, ok := strings.Cut(text, ": ")
-		if !ok {
-			t.Errorf("missing kind: %s", text)
+		kind := ""
+		for k, phrase := range map[string]string{"started": " started.", "completed": " finished.", "failed": " failed.", "stopped": " stopped.", "waiting for you": "has a question for you:"} {
+			if strings.Contains(text, phrase) {
+				kind = k
+			}
+		}
+		if strings.Contains(text, "is ready for your review.") {
+			kind = "waiting for you"
+		}
+		if kind == "" {
+			t.Errorf("missing event: %s", text)
 		}
 		counts[kind]++
-		if !strings.HasPrefix(text, kind+": #596 Pick a release (implement)") || strings.Contains(text, "github:") || !strings.Contains(text, "https://github.com/acme/repo/issues/596") {
+		if !strings.HasPrefix(text, "Implementation #596 (Pick a release)") || strings.Contains(text, "github:") || !strings.Contains(text, "https://github.com/acme/repo/issues/596") {
 			t.Errorf("missing issue title or link: %s", text)
 		}
-		if strings.Contains(text, "— Implement question") && (!strings.Contains(text, "Which release should I target?") || !strings.Contains(text, "#issuecomment-91") || strings.Contains(text, "report prose")) {
+		if strings.Contains(text, "has a question for you:") && (!strings.Contains(text, "Which release should I target?") || !strings.Contains(text, "#issuecomment-91") || strings.Contains(text, "report prose")) {
 			t.Errorf("question text: %s", text)
 		}
-		if strings.Contains(text, "— Implement review") && !strings.Contains(text, "#issuecomment-92") {
+		if strings.Contains(text, "is ready for your review.") && !strings.Contains(text, "#issuecomment-92") {
 			t.Errorf("review text: %s", text)
 		}
-		if kind == "started" && !strings.Contains(text, "Mode: plan → implement") {
+		if kind == "started" && !strings.Contains(text, "Implementation") {
 			t.Errorf("mode change missing: %s", text)
 		}
-		if kind == "completed" && !strings.Contains(text, "about $") {
+		if kind == "completed" && !strings.Contains(text, "≈ $") {
 			t.Errorf("usage estimate missing: %s", text)
 		}
-		if (kind == "failed" || kind == "stopped") && (strings.Contains(text, "about $") || strings.Contains(text, "tokens")) {
+		if (kind == "failed" || kind == "stopped") && (strings.Contains(text, "≈ $") || strings.Contains(text, "tokens")) {
 			t.Errorf("invented usage: %s", text)
 		}
 	}
