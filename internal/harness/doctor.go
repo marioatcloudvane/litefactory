@@ -99,14 +99,16 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	session := ""
 	modelConflict := false
 	terminal, failed := false, false
+	var terminalErrors []string
 	observe := func(line []byte) {
 		var event struct {
-			Type    string `json:"type"`
-			Session string `json:"session_id"`
-			Parent  string `json:"parent_tool_use_id"`
-			Subtype string `json:"subtype"`
-			IsError bool   `json:"is_error"`
-			Version string `json:"claude_code_version"`
+			Type    string   `json:"type"`
+			Session string   `json:"session_id"`
+			Parent  string   `json:"parent_tool_use_id"`
+			Subtype string   `json:"subtype"`
+			IsError bool     `json:"is_error"`
+			Errors  []string `json:"errors"`
+			Version string   `json:"claude_code_version"`
 			Message struct {
 				Model string `json:"model"`
 			} `json:"message"`
@@ -125,6 +127,9 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 		if event.Type == "result" {
 			terminal = true
 			failed = failed || event.IsError
+			if event.IsError {
+				terminalErrors = append(terminalErrors, event.Errors...)
+			}
 		}
 		if event.Type == "system" && event.Subtype == "init" && usageIdentity(event.Version) {
 			result.ProviderVersion = event.Version
@@ -141,6 +146,9 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 		}
 	}
 	err = runScopedDoctorProcess(ctx, r.binary.Path, args, env, request, operation, r.timeout, observe, r.logger)
+	if operation == "judge" && terminal && failed && ctx.Err() == nil && (err == nil || errors.Is(err, providerprocess.ErrProviderExit)) && judgeCapacity(terminalErrors) {
+		err = agent.ErrJudgeUnavailable
+	}
 	if err == nil && (!terminal || failed) {
 		err = errors.New("doctor provider did not report a successful terminal result")
 	}
@@ -178,6 +186,9 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 		}
 		args = append(args, "--settings", settings)
 	}
+	if request.Thinking != "" {
+		args = append(args, "--effort", string(request.Thinking))
+	}
 	return append(args, "-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", tools, "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--allowedTools", strings.Join(allowed, ","), "--model", request.Model), nil
 }
 
@@ -197,4 +208,16 @@ func doctorSandboxSettings(request agent.DoctorRequest, privateHome string) (str
 	}}
 	data, err := json.Marshal(settings)
 	return string(data), err
+}
+
+// judgeCapacity reads native error diagnostics only, never generated terminal prose.
+func judgeCapacity(diagnostics []string) bool {
+	detail := strings.Join(diagnostics, "\n")
+	lower := strings.ToLower(detail)
+	for _, marker := range []string{"unsupported", "not supported", "does not support", "model not found", "unknown model", "invalid model", "budget", "context length", "max tokens", "token limit"} {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+	return agent.ProviderCapacity(detail) != nil
 }

@@ -160,6 +160,14 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 			if comment.ID <= after || slices.Contains(state.ConsumedReplies, comment.ID) {
 				continue
 			}
+			if routed, err := d.dispatchJudgeChild(ctx, t, child, comment); err != nil {
+				return false, err
+			} else if routed {
+				if err = d.db.AdvanceStoryDiscovery(ctx, t.session.ID, draft.IssueNumber, comment.ID); err != nil {
+					return false, err
+				}
+				continue
+			}
 			routed, routeErr := d.admitDoctor(ctx, t.repo, child, comment)
 			if routeErr != nil {
 				return false, routeErr

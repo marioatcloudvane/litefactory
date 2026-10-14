@@ -187,6 +187,9 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Judge is the isolated advisory service; nil explains unavailability.
+	Judge *turn.JudgeService
+
 	// Connections selects saved project and execution versions; nil supports legacy callers.
 	Connections *projectconnection.Factory
 
@@ -407,6 +410,8 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	judge *turn.JudgeService
+
 	doctorHostOptions *DoctorHostOptions
 	doctorHost        *DoctorRepairHost
 	doctor            doctorLane
@@ -541,6 +546,7 @@ func New(opts Options) (*Daemon, error) {
 	}
 
 	d := &Daemon{
+		judge:                    opts.Judge,
 		db:                       opts.DB,
 		bug:                      opts.Bug,
 		forge:                    opts.Forge,
