@@ -74,7 +74,13 @@ func (h ImplementMergeActivity) Execute(ctx context.Context, opts Options, req A
 func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a ImplementAuthority, story ImplementStory, row store.ImplementStory) (res ActivityResult, err error) {
 	now := h.b.now(opts)
 	repo := github.RepoFromRef(a.Parent)
-	finish := func(commit string, noted bool) (ActivityResult, error) {
+	finish := func(commit string) (ActivityResult, error) {
+		// Git has established the result; historical notes only suppress an
+		// identical note, never establish that the current story was merged.
+		noted, err := h.findMergedNote(ctx, a, story, repo, commit)
+		if err != nil {
+			return ActivityResult{}, err
+		}
 		if !noted {
 			if err := h.postMergedNote(ctx, a, story, repo, commit); err != nil {
 				return ActivityResult{}, err
@@ -117,16 +123,6 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 		return implementResult("parked", implementMergeOutput{Story: story.Key, Result: "parked", Reason: reason})
 	}
 
-	// A note that already exists means an earlier call pushed the merge and was
-	// interrupted before the ledger moved; finish that call's work.
-	prior, found, err := h.findMergedNote(ctx, a, story, repo)
-	if err != nil {
-		return ActivityResult{}, err
-	}
-	if found {
-		return finish(prior, true)
-	}
-
 	scratch, err := h.b.Repo.Begin(ctx, a.IntegrationBranch)
 	if err != nil {
 		return ActivityResult{}, fmt.Errorf("prepare merge: %w", err)
@@ -148,7 +144,7 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 	}
 	if !merged {
 		// Already part of the integration branch: nothing to check or push.
-		return finish(scratch.Head(), false)
+		return finish(scratch.Head())
 	}
 
 	const migrationPath = "internal/store/migrations"
@@ -173,28 +169,27 @@ func (h ImplementMergeActivity) mergeOne(ctx context.Context, opts Options, a Im
 	if err != nil {
 		return ActivityResult{}, fmt.Errorf("publish merge of %s: %w", story.Key, err)
 	}
-	return finish(head, false)
+	return finish(head)
 }
 
-// findMergedNote looks for an existing story-merged note for this story and
-// returns the commit it names.
-func (h ImplementMergeActivity) findMergedNote(ctx context.Context, a ImplementAuthority, story ImplementStory, repo github.Repo) (string, bool, error) {
+// findMergedNote looks for a note naming the result Git established for this story.
+func (h ImplementMergeActivity) findMergedNote(ctx context.Context, a ImplementAuthority, story ImplementStory, repo github.Repo, resultCommit string) (bool, error) {
 	if story.IssueNumber < 1 {
-		return "", false, fmt.Errorf("story %q has no issue to carry its merge note", story.Key)
+		return false, fmt.Errorf("story %q has no issue to carry its merge note", story.Key)
 	}
 	for page := 1; page > 0 && page <= implementCommentPages; {
 		got, err := h.b.Forge.ListCommentsPage(ctx, repo, story.IssueNumber, page, implementCommentLimit)
 		if err != nil {
-			return "", false, fmt.Errorf("look for merge note: %w", err)
+			return false, fmt.Errorf("look for merge note: %w", err)
 		}
 		for _, c := range got.Comments {
-			if commit, ok := report.ParseStoryMergedMarker(c.Body, a.Parent, story.Key); ok {
-				return commit, true, nil
+			if commit, ok := report.ParseStoryMergedMarker(c.Body, a.Parent, story.Key); ok && commit == resultCommit {
+				return true, nil
 			}
 		}
 		page = got.NextPage
 	}
-	return "", false, nil
+	return false, nil
 }
 
 // postMergedNote posts the visible note on the story.

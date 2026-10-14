@@ -397,6 +397,7 @@ func TestImplementMergeParksWithAPlainReason(t *testing.T) {
 			f := newImplementFixture(t, implementStories(2, nil)...)
 			f.ready()
 			f.drive("story-001", store.ImplementDone, implementClock)
+			f.forge.comments = map[int][]github.Comment{11: {{ID: 98, Body: report.StoryMergedMarker(implementParent, "story-001", "feedface")}}}
 			tc.setup(f)
 			res, out, err := f.merge()
 			if err != nil || res.Outcome != "parked" || !strings.Contains(out.Reason, tc.reason) {
@@ -443,6 +444,7 @@ func TestImplementMergeTransientFaultsDoNotPark(t *testing.T) {
 			f := newImplementFixture(t, implementStories(1, nil)...)
 			f.ready()
 			f.drive("story-001", store.ImplementDone, implementClock)
+			f.forge.comments = map[int][]github.Comment{11: {{ID: 98, Body: report.StoryMergedMarker(implementParent, "story-001", "feedface")}}}
 			setup(f)
 			if _, _, err := f.merge(); err == nil {
 				t.Fatal("expected an error")
@@ -461,6 +463,7 @@ func TestImplementMergeMovedHeadRetriesWithoutParkingOrNote(t *testing.T) {
 	f := newImplementFixture(t, implementStories(1, nil)...)
 	f.ready()
 	f.drive("story-001", store.ImplementDone, implementClock)
+	f.forge.comments = map[int][]github.Comment{11: {{ID: 98, Body: report.StoryMergedMarker(implementParent, "story-001", "feedface")}}}
 	f.repo.pushErr = fmt.Errorf("x: %w", git.ErrIntegrationHeadMoved)
 	res, out, err := f.merge()
 	if err != nil || res.Outcome != "retry" || out.Result != "retry" {
@@ -488,20 +491,26 @@ func TestImplementMergePostsExactlyOneMarkedNoteAndReusesIt(t *testing.T) {
 	}
 }
 
+// The historical test name remains selected by Makefile; recovery now must consult Git.
 func TestImplementMergeFinishesAfterALostReplyWithoutAPostOrAGitCall(t *testing.T) {
 	f := newImplementFixture(t, implementStories(1, nil)...)
 	f.ready()
 	f.drive("story-001", store.ImplementDone, implementClock)
-	// The earlier call pushed and posted its note, then died before the ledger moved.
-	f.forge.comments = map[int][]github.Comment{11: {{ID: 99, Body: report.StoryMergedMarker(implementParent, "story-001", "feedface") + "\n\nMerged."}}}
+	// The earlier call pushed and posted, then died before the ledger moved.
+	// An older round's note precedes the matching result.
+	f.forge.comments = map[int][]github.Comment{11: {
+		{ID: 98, Body: report.StoryMergedMarker(implementParent, "story-001", "feedface")},
+		{ID: 99, Body: report.StoryMergedMarker(implementParent, "story-001", fakeIntegrationHead)},
+	}}
+	f.repo.merged = false
 	res, out, err := f.merge()
-	if err != nil || res.Outcome != "merged" || out.Commit != "feedface" {
+	if err != nil || res.Outcome != "merged" || out.Commit != fakeIntegrationHead {
 		t.Fatalf("%s %+v %v", res.Outcome, out, err)
 	}
-	if f.forge.posts != 0 || f.repo.begins != 0 {
-		t.Fatalf("posts=%d begins=%d", f.forge.posts, f.repo.begins)
+	if f.forge.posts != 0 || f.repo.begins != 1 || len(f.repo.merges) != 1 || len(f.repo.pushes) != 0 || f.repo.closed != 1 {
+		t.Fatalf("posts=%d repo=%+v", f.forge.posts, f.repo)
 	}
-	if row := f.row("story-001"); row.State != store.ImplementMerged || row.MergeCommit != "feedface" {
+	if row := f.row("story-001"); row.State != store.ImplementMerged || row.MergeCommit != fakeIntegrationHead {
 		t.Fatalf("row = %+v", row)
 	}
 }
