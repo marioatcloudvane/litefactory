@@ -151,3 +151,9 @@ func (p Paths) TeamsTrashDir() string { return filepath.Join(p.TeamsDir(), "tras
 
 // TeamsLockPath coordinates readers and mutations across processes.
 func (p Paths) TeamsLockPath() string { return filepath.Join(p.TeamsDir(), "catalogue.lock") }
+
+// ValidateScratchDir holds suite checkouts outside the denied factory home.
+func (p Paths) ValidateScratchDir() string { return p.home + "-suite" }
+
+// ImplementScratchDir holds merge checkouts outside the denied factory home.
+func (p Paths) ImplementScratchDir() string { return p.home + "-implement" }

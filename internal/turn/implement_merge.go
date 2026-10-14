@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -61,13 +62,44 @@ func (h ImplementMergeActivity) Execute(ctx context.Context, opts Options, req A
 		return ActivityResult{}, err
 	}
 	row, found := oldestDone(rows)
+	if !found && slices.ContainsFunc(rows, func(r store.ImplementStory) bool { return r.State == store.ImplementMerged }) {
+		_, stale, err := inspectImplementMerged(ctx, h.b.Repo, a.IntegrationBranch, rows)
+		if err != nil {
+			return ActivityResult{}, err
+		}
+		if len(stale) > 0 {
+			row = stale[0]
+			row, err = h.b.DB.TransitionImplementStory(ctx, store.ImplementTransition{
+				Parent: row.Parent, Generation: row.Generation, Key: row.Key,
+				From: store.ImplementMerged, To: store.ImplementDone, ExpectedRevision: row.Revision, At: h.b.now(opts),
+			})
+			if err != nil {
+				return ActivityResult{}, err
+			}
+			found = true
+		}
+	}
 	if !found {
 		return implementResult("none", implementMergeOutput{Result: "none"})
 	}
 	story, ok := a.story(row.Key)
 	if !ok {
-		return ActivityResult{}, fmt.Errorf("done story %q is not part of the bound story set", row.Key)
+		revisions, err := h.b.DB.ListApprovedStoryRevisions(ctx, a.Parent.String(), int(a.Generation))
+		if err != nil {
+			return ActivityResult{}, err
+		}
+		for _, revision := range revisions {
+			if revision.Key == row.Key {
+				story = ImplementStory{Key: row.Key, Name: revision.Title, IssueNumber: revision.IssueNumber}
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return ActivityResult{}, fmt.Errorf("done story %q is not part of the approved story set", row.Key)
+		}
 	}
+	story.Branch = row.Branch
 	return h.mergeOne(ctx, opts, a, story, row)
 }
 

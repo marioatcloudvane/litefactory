@@ -119,6 +119,15 @@ func TestValidateProductionRuntimeRunsTheGraphToTheOwnerWait(t *testing.T) {
 	if len(entries) != 1 || entries[0].State != store.ValidateEntryAdmitted || entries[0].Commit != head {
 		t.Fatalf("one entry admitted on the integration head %s: %+v", head, entries)
 	}
+	suiteBinding, _, bindErr := bindValidate(t.Context(), f.opts, req, entries[0], ValidateRuntimeConfig{Forge: forge.client, OwnerID: runtimeOwnerID, Slots: slots})
+	mustProgress(t, bindErr)
+	suiteRepo, ok := suiteBinding.Repo.(GitValidateSuiteRepo)
+	if !ok {
+		t.Fatal("production suite repository is not GitValidateSuiteRepo")
+	}
+	if got := suiteRepo.ScratchRoot; got != f.opts.MCP.Paths.ValidateScratchDir() {
+		t.Fatalf("production suite scratch = %q", got)
+	}
 	inst, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "validate")
 	mustProgress(t, err)
 	run, err := f.db.LatestSuiteRun(t.Context(), inst.ID, head)
