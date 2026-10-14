@@ -96,10 +96,13 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"ListDeliveryPRs",
 		"GetDeliveryPR",
 		"CreateDeliveryPR",
-		"CreateHook", // POST /repos/{o}/{r}/hooks
-		"EditHook",   // PATCH /repos/{o}/{r}/hooks/{id}
-		"GetHook",    // GET /repos/{o}/{r}/hooks/{id}
-		"ListHooks",  // GET /repos/{o}/{r}/hooks
+		"CreateHook",            // POST /repos/{o}/{r}/hooks
+		"EditHook",              // PATCH /repos/{o}/{r}/hooks/{id}
+		"GetHook",               // GET /repos/{o}/{r}/hooks/{id}
+		"ListHooks",             // GET /repos/{o}/{r}/hooks
+		"HookDeliveriesPage",    // GET one cursor page of /repos/{o}/{r}/hooks/{id}/deliveries
+		"HookDeliveryIssue",     // GET /repos/{o}/{r}/hooks/{id}/deliveries/{delivery}, retain only locator metadata
+		"RedeliverHookDelivery", // POST /repos/{o}/{r}/hooks/{id}/deliveries/{delivery}/attempts
 		"MergeDeliveryPR",
 		"CloseDeliveredParent",
 		"ListFollowupIssues", // GET /repos/{o}/{r}/issues?state=all for reconciliation

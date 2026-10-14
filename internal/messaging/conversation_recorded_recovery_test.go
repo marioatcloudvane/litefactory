@@ -3,6 +3,7 @@ package messaging_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/messaging"
+	"github.com/cloudvane/litefactory/internal/providerprocess"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -181,5 +183,121 @@ func TestConversationRecordedCrashBeforeIdentityRetainsAndFences(t *testing.T) {
 				t.Fatalf("uncertain input replayed or replacement launched: %+v", recordedProvider.requests)
 			}
 		})
+	}
+}
+
+type preStartRecordingProvider struct {
+	mode     string
+	requests []agent.ConversationRequest
+}
+
+func (p *preStartRecordingProvider) RunConversation(ctx context.Context, request agent.ConversationRequest) (agent.ConversationResult, error) {
+	p.requests = append(p.requests, request)
+	if len(p.requests) == 1 {
+		_, scratch, err := providerprocess.PrepareConversationDirectory(request.StateDirectory)
+		if err != nil {
+			return agent.ConversationResult{}, err
+		}
+		if p.mode == "fence" {
+			request.BeforeLaunch = func(context.Context) error { return errors.New("recorded fence failure") }
+		} else {
+			scratch = filepath.Join(scratch, "missing")
+		}
+		return agent.ConversationResult{}, providerprocess.RunConversationProcess(ctx, "/bin/sh", []string{"-c", "exit 99"}, nil, request, scratch, time.Second, func([]byte) {})
+	}
+	session := request.Session
+	session.Resume = session.Ref
+	if err := request.OnSession(ctx, session); err != nil {
+		return agent.ConversationResult{}, err
+	}
+	return agent.ConversationResult{Session: session, Answer: []byte(`{"version":1,"kind":"answer","text":"later answer"}`)}, nil
+}
+
+func TestConversationPreStartFailureSurvivesRestart(t *testing.T) {
+	for _, factory := range []bool{false, true} {
+		for _, mode := range []string{"fence", "start"} {
+			t.Run(fmt.Sprintf("factory=%t/%s", factory, mode), func(t *testing.T) {
+				ctx := t.Context()
+				root, err := filepath.EvalSymlinks(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				dbPath := filepath.Join(root, "test.db")
+				db, err := store.Open(ctx, dbPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if err := db.Close(); err != nil {
+						t.Error(err)
+					}
+				}()
+				if err = db.Migrate(ctx); err != nil {
+					t.Fatal(err)
+				}
+				at := time.Now().UTC()
+				provider := &preStartRecordingProvider{mode: mode}
+				sender := &orderedConversationSender{}
+				sender.targets = append(sender.targets, messaging.Target{}) // All actual deliveries succeed.
+				start := func() *messaging.Service {
+					s := messaging.New(db, "discord", "7", []string{"3"}, sender, messaging.FactoryStatus{DB: db})
+					s.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
+					err := s.EnableConversations(ctx, messaging.ConversationOptions{Factory: factory, Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: "claude", Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{"claude": provider}, CheckAccess: func(context.Context, string) error { return nil }}, at)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return s
+				}
+				s := start()
+				if err = db.ActivateNaturalScan(ctx, "3", "100"); err != nil {
+					t.Fatal(err)
+				}
+				stage := func(id, text string) {
+					scan, err := db.ReadNaturalScan(ctx, "3")
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err = db.StageNaturalScan(ctx, scan, store.NaturalScan{ChannelRef: "3", Cursor: scan.Cursor, HighWater: id}, []store.NaturalMessage{{ChannelRef: "3", SourceID: id, OwnerID: "7", Text: text, CreatedAt: at}}, true); err != nil {
+						t.Fatal(err)
+					}
+				}
+				stage("101", "failed input")
+				if _, err = s.ConversationStep(ctx, at); err != nil {
+					t.Fatal(err)
+				}
+				if _, err = s.ConversationDeliveryStep(ctx, at); err != nil {
+					t.Fatal(err)
+				}
+				if len(sender.texts) != 1 || !strings.Contains(sender.texts[0], "before a provider process started") {
+					t.Fatalf("missing failure notice: %v", sender.texts)
+				}
+				if worked, err := s.ConversationStep(ctx, at); worked || err != nil {
+					t.Fatalf("automatic retry: %t %v", worked, err)
+				}
+				if err = db.Close(); err != nil {
+					t.Fatal(err)
+				}
+				db, err = store.Open(ctx, dbPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				s = start()
+				stage("102", "later owner input")
+				if _, err = s.ConversationStep(ctx, at); err != nil {
+					t.Fatal(err)
+				}
+				if len(provider.requests) != 2 {
+					t.Fatalf("requests=%d", len(provider.requests))
+				}
+				first, next := provider.requests[0], provider.requests[1]
+				if first.Session.Ref != next.Session.Ref || first.StateDirectory != next.StateDirectory || first.ConversationID != next.ConversationID || next.Session.Resume != "" || first.TurnID == next.TurnID || !strings.Contains(next.Prompt, "later owner input") {
+					t.Fatalf("continuity/retry changed: first=%+v next=%+v", first, next)
+				}
+				c, err := db.ReadConversation(ctx, "discord", "3")
+				if err != nil || c.HealthReason != "" || c.SessionHandle != next.Session.Ref {
+					t.Fatalf("retry failed: %+v %v", c, err)
+				}
+			})
+		}
 	}
 }

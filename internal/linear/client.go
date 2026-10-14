@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -34,6 +36,12 @@ type Config struct {
 	ModeLabels     map[string]string
 	States         map[string]string
 }
+
+var requestLogger atomic.Pointer[slog.Logger]
+
+// SetRequestLogger names the logger that records each request's operation at
+// DEBUG; nil turns it off.
+func SetRequestLogger(l *slog.Logger) { requestLogger.Store(l) }
 
 // Client sends one bounded request per operation; ledgers own retries.
 type Client struct {
@@ -91,6 +99,11 @@ func (c *Client) query(ctx context.Context, operation, query string, variables a
 		if finish != nil {
 			defer func() { finish(resultErr) }()
 		}
+	}
+	// One line per request at DEBUG, naming only the operation, so a drained
+	// Linear allowance can be traced to the code that spends it.
+	if l := requestLogger.Load(); l != nil {
+		l.DebugContext(ctx, "linear request", "operation", operation, "mutation", mutation)
 	}
 	kind := ticket.Unavailable
 	if mutation {

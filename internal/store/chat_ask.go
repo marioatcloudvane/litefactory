@@ -94,3 +94,45 @@ func (db *DB) StartChatMeterAttempt(ctx context.Context, repoID int64, provider 
 	a.Ordinal = 1
 	return a, err
 }
+
+// ListTaskSessionsPage walks a stable ID order without a recent-activity cutoff.
+func (db *DB) ListTaskSessionsPage(ctx context.Context, repoID, afterID int64, limit int) ([]Session, error) {
+	if repoID < 1 || afterID < 0 || limit < 1 || limit > 1000 {
+		return nil, errors.New("invalid task page")
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE repo_id=? AND id>? ORDER BY id LIMIT ?`, repoID, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Session
+	for rows.Next() {
+		session, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, session)
+	}
+	return out, rows.Err()
+}
+
+// RecentTaskRuns returns bounded newest run facts for a selected task.
+func (db *DB) RecentTaskRuns(ctx context.Context, sessionID int64, limit int) ([]Run, error) {
+	if sessionID < 1 || limit < 1 || limit > 100 {
+		return nil, errors.New("invalid recent run read")
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+runColumns+` FROM runs WHERE session_id=? ORDER BY ordinal DESC LIMIT ?`, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, run)
+	}
+	return out, rows.Err()
+}
