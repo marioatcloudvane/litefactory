@@ -130,15 +130,15 @@ func (db *DB) SaveConversationSession(ctx context.Context, t ConversationTurn, h
 // CompleteConversationTurn saves exact reply bytes and outbox identity in one
 // fenced transaction. Only a completed answer requires a known native session.
 func (db *DB) CompleteConversationTurn(ctx context.Context, t ConversationTurn, state, reply string, at time.Time) error {
-	return db.completeConversationTurn(ctx, t, state, reply, at, false)
+	return db.completeConversationTurn(ctx, t, state, reply, at, false, false)
 }
 
 // CompleteConversationHandledTurn saves a deterministic factory response before
 // a native session exists. It refuses turns with any provider launch journal.
 func (db *DB) CompleteConversationHandledTurn(ctx context.Context, t ConversationTurn, reply string, at time.Time) error {
-	return db.completeConversationTurn(ctx, t, "completed", reply, at, true)
+	return db.completeConversationTurn(ctx, t, "completed", reply, at, true, false)
 }
-func (db *DB) completeConversationTurn(ctx context.Context, t ConversationTurn, state, reply string, at time.Time, handled bool) error {
+func (db *DB) completeConversationTurn(ctx context.Context, t ConversationTurn, state, reply string, at time.Time, handled, preStart bool) error {
 	if (state != "completed" && state != "interrupted" && state != "unavailable") || reply == "" || len(reply) > 65536 {
 		return errors.New("invalid conversation outcome")
 	}
@@ -164,7 +164,7 @@ func (db *DB) completeConversationTurn(ctx context.Context, t ConversationTurn, 
 		if e = chatAffected(r, e); e != nil {
 			return e
 		}
-		if state == "unavailable" || (state == "interrupted" && c.SessionHandle == "") {
+		if state == "unavailable" || (state == "interrupted" && c.SessionHandle == "" && !preStart) {
 			_, e = tx.ExecContext(ctx, `UPDATE chat_conversations SET health_reason=CASE WHEN health_reason='' THEN 'Conversation continuity unavailable; native session recovery is required.' ELSE health_reason END,updated_at=? WHERE id=?`, FormatTime(at), c.ID)
 			if e != nil {
 				return e
@@ -216,4 +216,10 @@ func (db *DB) RenewConversationTurn(ctx context.Context, turn ConversationTurn, 
 func (db *DB) DeferConversationTurn(ctx context.Context, turn ConversationTurn) error {
 	result, err := db.sql.ExecContext(ctx, `UPDATE chat_conversation_turns SET state='pending',worker='',lease_until=NULL WHERE id=? AND conversation_id=? AND state='running' AND generation=? AND worker=?`, turn.ID, turn.ConversationID, turn.Generation, turn.Worker)
 	return chatAffected(result, err)
+}
+
+// CompleteConversationPreStartTurn persists a failed input without pausing native
+// continuity. The caller must have affirmative proof no process started.
+func (db *DB) CompleteConversationPreStartTurn(ctx context.Context, t ConversationTurn, reply string, at time.Time) error {
+	return db.completeConversationTurn(ctx, t, "interrupted", reply, at, false, true)
 }
