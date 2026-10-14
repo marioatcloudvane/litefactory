@@ -1,6 +1,7 @@
 package bugchecks
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,9 +108,9 @@ func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 			t.Fatalf("infrastructure exit %s classified %q", code, infra.Outcome)
 		}
 	}
-	// Both children outlive the startup-inclusive timeout. Record their PIDs
+	// The shell and its child outlive the startup-inclusive timeout. Record their PIDs
 	// before waiting, so a timeout before the fixture starts cannot pass.
-	script := `sleep 120 & child=$!; echo $child > child.pid; echo $$ > parent.pid; /bin/ps -o pgid= -p "$child" > child.pgid; /bin/ps -o pgid= -p $$ > parent.pgid; echo ready > ready; wait`
+	script := `sleep 120 & child=$!; echo $child > child.pid; echo $$ > parent.pid; echo ready > ready; wait`
 	slow := p.Run(t.Context(), worktree, config.BugCheckCommand{Argv: []string{"/bin/sh", "-c", script}, TimeoutSeconds: 10}, noop)
 	if slow.Outcome != "blocked" || slow.Reason != "check timed out" || !slow.CleanupConfirmed {
 		t.Fatalf("timeout outcome %q reason %q cleanup %v", slow.Outcome, slow.Reason, slow.CleanupConfirmed)
@@ -118,7 +119,7 @@ func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(ready)) != "ready" {
 		t.Fatalf("timeout fixture not ready: %q %v", ready, err)
 	}
-	for _, name := range []string{"child.pid", "parent.pid", "child.pgid", "parent.pgid"} {
+	for _, name := range []string{"child.pid", "parent.pid"} {
 		data, err := os.ReadFile(filepath.Join(worktree, name))
 		if err != nil {
 			t.Fatal(err)
@@ -127,10 +128,8 @@ func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 		if err != nil || pid <= 0 {
 			t.Fatal(fmt.Errorf("invalid %s: %q", name, data))
 		}
-		if strings.HasSuffix(name, ".pid") {
-			if err := syscall.Kill(pid, 0); err == nil {
-				t.Errorf("%s %d survived timeout", name, pid)
-			}
+		if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+			t.Errorf("%s %d: expected ESRCH after timeout, got %v", name, pid, err)
 		}
 	}
 
