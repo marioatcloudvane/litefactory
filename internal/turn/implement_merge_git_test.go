@@ -204,9 +204,13 @@ func (m *movingRepo) Begin(ctx context.Context, branch string) (ImplementScratch
 	if err != nil {
 		return nil, err
 	}
-	advance := m.advance
-	m.advance = nil
-	return &movingScratch{ImplementScratch: s, advance: advance}, nil
+	return &movingScratch{ImplementScratch: s, advance: func() {
+		if m.advance != nil {
+			advance := m.advance
+			m.advance = nil
+			advance()
+		}
+	}}, nil
 }
 
 type movingScratch struct {
@@ -448,7 +452,7 @@ func TestImplementMergeGitReopenedStoryMergesCurrentWork(t *testing.T) {
 	if len(notes) != 2 || !strings.Contains(notes[0], first.Commit) || !strings.Contains(notes[1], head) {
 		t.Fatalf("merge notes: %q", notes)
 	}
-	candidate := implementCompletionCandidate(f.rows(), implementFeature, false)
+	candidate := implementCompletionCandidate(f.rows(), implementFeature, head, false)
 	for _, want := range []string{"now at commit `" + head + "`", "**story-003**: merged as `" + head + "`"} {
 		if !strings.Contains(candidate.Comment, want) {
 			t.Fatalf("completion lacks %q: %s", want, candidate.Comment)
@@ -456,5 +460,84 @@ func TestImplementMergeGitReopenedStoryMergesCurrentWork(t *testing.T) {
 	}
 	if strings.Contains(candidate.Comment, first.Commit) {
 		t.Fatalf("completion reused the first round: %s", candidate.Comment)
+	}
+}
+
+func TestImplementMergeGitStaleLedgerFailureHandling(t *testing.T) {
+	for _, scenario := range []string{"missing", "fetch", "conflict", "push race", "cancelled"} {
+		t.Run(scenario, func(t *testing.T) {
+			g := newImplementGit(t, implementStories(1, nil)...)
+			g.pushStory("story-001", "shared.txt", "first\n")
+			g.start("story-001")
+			if res, _, err := g.merge(); err != nil || res.Outcome != "merged" {
+				t.Fatalf("first merge: %+v %v", res, err)
+			}
+			old := g.row("story-001")
+			g.repo.Git("checkout", "--quiet", "lf/story-001")
+			g.repo.WriteFile("shared.txt", "second\n")
+			g.repo.Commit("new story work")
+			g.repo.Git("push", "--quiet", "origin", "lf/story-001")
+			g.repo.Git("checkout", "--quiet", gittest.DefaultBranch)
+			ctx := t.Context()
+			switch scenario {
+			case "missing":
+				g.repo.Git("push", "--quiet", "origin", "--delete", "lf/story-001")
+			case "fetch":
+				g.repo.Git("remote", "set-url", "origin", filepath.Join(t.TempDir(), "absent.git"))
+			case "conflict", "push race":
+				advance := func() {
+					g.repo.Git("fetch", "--quiet", "origin")
+					g.repo.Git("checkout", "--quiet", "--detach", "origin/"+implementFeature)
+					file := "rival.txt"
+					if scenario == "conflict" {
+						file = "shared.txt"
+					}
+					g.repo.WriteFile(file, "rival\n")
+					g.repo.Commit("rival work")
+					g.repo.Git("push", "--quiet", "origin", "HEAD:refs/heads/"+implementFeature)
+					g.repo.Git("checkout", "--quiet", gittest.DefaultBranch)
+				}
+				if scenario == "conflict" {
+					advance()
+				} else {
+					g.bindings.Repo = &movingRepo{ImplementRepo: g.bindings.Repo, advance: advance}
+				}
+			case "cancelled":
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			res, err := (ImplementMergeActivity{b: g.bindings}).Execute(ctx, Options{}, g.req())
+			row := g.row("story-001")
+			switch scenario {
+			case "conflict":
+				if err != nil || res.Outcome != "parked" || row.State != store.ImplementWaiting {
+					t.Fatalf("conflict: %+v %+v %v", res, row, err)
+				}
+			case "push race":
+				if err != nil || res.Outcome != "retry" || row.State != store.ImplementDone {
+					t.Fatalf("race: %+v %+v %v", res, row, err)
+				}
+			default:
+				if err == nil || row != old {
+					t.Fatalf("uncertainty changed ledger: %+v %v", row, err)
+				}
+			}
+			if g.forge.posts != 1 || g.scratchLeft() != 0 {
+				t.Fatal("failure posted a merge note or leaked scratch")
+			}
+			unlock, lockErr := g.db.LockStoryProgress(t.Context(), g.auth.Parent.String(), g.lockDir)
+			if lockErr != nil {
+				t.Fatal(lockErr)
+			}
+			if err := unlock(); err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "push race" {
+				if res, _, err := g.merge(); err != nil || res.Outcome != "merged" {
+					t.Fatalf("retry: %+v %v", res, err)
+				}
+			}
+		})
 	}
 }
