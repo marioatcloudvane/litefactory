@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
@@ -181,7 +182,7 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 				}
 			}
 		}
-		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect, Issues: d.forge}
+		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect, Issues: noticeIssueReader{d}}
 	}
 	handler := a.Handler(s)
 	d.chatHandler.Store(&handler)
@@ -333,4 +334,11 @@ func (d *Daemon) webhookRouter(githubHandler http.Handler) http.Handler {
 		}
 		githubHandler.ServeHTTP(w, r)
 	})
+}
+
+// noticeIssueReader preserves the configured ticket connection and public metadata.
+type noticeIssueReader struct{ daemon *Daemon }
+
+func (r noticeIssueReader) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	return r.daemon.readIssue(ctx, repo, number)
 }
