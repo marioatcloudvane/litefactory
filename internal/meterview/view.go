@@ -28,7 +28,7 @@ type Reader interface {
 // View holds the same summary, groups and optional rows used by the CLI.
 type View struct {
 	Summary         report.MeterSummary `json:"summary"`
-	Issues          []IssueSummary      `json:"issues"`
+	Issues          []IssueSummary      `json:"issues,omitempty"`
 	Groups          []Group             `json:"groups"`
 	Details         []store.MeterRow    `json:"details,omitempty"`
 	AsOf            time.Time           `json:"-"`
