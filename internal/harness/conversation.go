@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -24,10 +25,11 @@ func (r *Runner) ConversationIsolation(ctx context.Context) (string, error) {
 		}
 	}
 	version, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"--version"}, providerprocess.DoctorEnvironment(r.environ, os.TempDir()), os.TempDir())
-	if err != nil || strings.TrimSpace(version) != "2.1.296 (Claude Code)" {
+	number, found := strings.CutSuffix(strings.TrimSpace(version), " (Claude Code)")
+	if err != nil || !found || !conversationVersionSupported(number) {
 		return "", agent.ErrConversationIsolation
 	}
-	return "claude-2.1.296-conversation-empty-tools-and-mcp-v1", nil
+	return "claude-" + number + "-conversation-empty-tools-and-mcp-v1", nil
 }
 
 // RunConversation performs one isolated turn and retains exact native session state.
@@ -87,7 +89,7 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 			}
 		}
 		if event.Type == "system" && event.Subtype == "init" {
-			if event.Tools == nil || event.MCP == nil || len(*event.MCP) != 0 || event.Version != "2.1.296" {
+			if event.Tools == nil || event.MCP == nil || len(*event.MCP) != 0 || !conversationVersionSupported(event.Version) {
 				fail(agent.ErrConversationIsolation)
 				return
 			}
@@ -132,6 +134,33 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 		return result, errors.New("conversation provider did not complete a turn")
 	}
 	return result, nil
+}
+
+// minimumConversationVersion is the first Claude Code release whose isolation
+// flags and empty tool/MCP init were recorded. Later releases are accepted while
+// the required flags stay present and the init event still proves isolation;
+// the CLI updates itself, so an exact pin breaks on every release.
+var minimumConversationVersion = [3]int{2, 1, 296}
+
+func conversationVersionSupported(version string) bool {
+	parts := strings.Split(version, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	var got [3]int
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 {
+			return false
+		}
+		got[i] = n
+	}
+	for i := range got {
+		if got[i] != minimumConversationVersion[i] {
+			return got[i] > minimumConversationVersion[i]
+		}
+	}
+	return true
 }
 
 func conversationArguments(request agent.ConversationRequest, mcp string) []string {

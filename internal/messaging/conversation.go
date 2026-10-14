@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -99,6 +102,13 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 		if c.Transport != s.transport {
 			continue
 		}
+		// A no-identity pause whose private state directory was never created
+		// proves no provider process ever launched: nothing native exists, so a
+		// restart lets the next message launch instead of holding every later
+		// message forever. A launched-then-crashed turn keeps its pause.
+		if _, ok := r.bindings[c.ChannelRef]; ok && c.SessionHandle == "" && noNativeIdentityPause(c.HealthReason) && neverLaunched(c.StateDir) {
+			failures = append(failures, s.db.SetConversationHealth(ctx, c.ID, "", at))
+		}
 		if _, ok := r.bindings[c.ChannelRef]; !ok {
 			r.bindings[c.ChannelRef] = ConversationBinding{Channel: c.ChannelRef}
 			failures = append(failures, s.db.SetConversationHealth(ctx, c.ID, "conversation disabled or channel authorization removed; retained work is paused", at))
@@ -109,6 +119,15 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 	}
 	sort.Strings(r.channels)
 	return errors.Join(failures...)
+}
+
+func neverLaunched(state string) bool {
+	_, err := os.Lstat(state)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+func noNativeIdentityPause(reason string) bool {
+	return reason == "turn unfinished with no saved native identity; no replacement session created" || reason == "interrupted turn has no saved native session; continuity unavailable"
 }
 
 func (s *Service) conversationBound(channel string) bool {
@@ -282,6 +301,8 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 			return false, err
 		}
 		r.next = (index + 1) % len(r.channels)
+		stop := s.typing(ctx, channel)
+		defer stop()
 		return true, s.runConversation(ctx, c, b, t, at)
 	}
 	return false, nil
@@ -345,6 +366,7 @@ func (s *Service) runConversation(ctx context.Context, c store.Conversation, b C
 	case errors.Is(runErr, agent.ErrConversationSessionMissing):
 		return s.conversationUnavailable(cleanup, c, t, "saved native session missing; no replacement session created", at)
 	case runErr != nil:
+		s.logConversationFailure(cleanup, c, t, runErr)
 		saved, err := s.db.ReadConversation(cleanup, c.Transport, c.ChannelRef)
 		if err != nil {
 			return err
@@ -374,6 +396,16 @@ func (s *Service) conversationOutcome(ctx context.Context, t store.ConversationT
 	}
 	return s.db.CompleteConversationTurn(ctx, t, state, protected, at)
 }
+
+// logConversationFailure records why a turn failed; reasons shown to the owner
+// are deliberately generic, so the cause must reach the daemon log.
+func (s *Service) logConversationFailure(ctx context.Context, c store.Conversation, t store.ConversationTurn, cause error) {
+	if s.Logger == nil || cause == nil {
+		return
+	}
+	s.Logger.WarnContext(ctx, "conversation turn failed", slog.String("conversation", c.ID), slog.String("turn", t.ID), slog.String("provider", c.Provider), slog.Bool("session_saved", c.SessionHandle != ""), slog.String("error", cause.Error()))
+}
+
 func (s *Service) conversationUnavailable(ctx context.Context, c store.Conversation, t store.ConversationTurn, reason string, at time.Time) error {
 	if err := s.conversationOutcome(ctx, t, "unavailable", "Conversation paused: "+reason+". Context and queued messages are retained.", at); err != nil {
 		return err

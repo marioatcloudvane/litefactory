@@ -295,6 +295,12 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 	if accessRetry(cause) > 0 && r.calls == 0 {
 		return r.s.db.DeferConversationTurn(cleanup, r.t)
 	}
+	r.s.logConversationFailure(cleanup, r.c, r.t, cause)
+	if r.c.SessionHandle == "" && errors.Is(cause, agent.ErrConversationIsolation) {
+		// Refused before any provider process started: nothing native exists, so
+		// only this turn ends and the owner's next message checks again.
+		return r.s.conversationOutcome(cleanup, r.t, "unavailable", "Conversation unavailable: the "+r.c.Provider+" conversation isolation check failed before launch, so nothing was started. Send your message again once it is fixed; queued messages are retained.", r.at)
+	}
 	if r.c.SessionHandle == "" {
 		return r.s.conversationUnavailable(cleanup, r.c, r.t, "turn unfinished with no saved native identity; no replacement session created", r.at)
 	}
