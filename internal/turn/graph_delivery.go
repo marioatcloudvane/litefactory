@@ -118,8 +118,11 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 				return res, true, e
 			}
 			switch state.Result {
-			case "synced", "retry":
-				res, e := finish("revalidate", "The branch was synchronized or moved; rerun the approved repair checks on the current head. "+state.Reason)
+			case "synced":
+				res, e := finish("revalidate", fmt.Sprintf("The base branch %s was merged into the repair branch; rerun the approved repair checks on the new head. %s", binding.Target, state.Reason))
+				return res, true, e
+			case "retry":
+				res, e := finish("revalidate", "Base synchronization requires a retry; rerun the approved repair checks on the current head. "+state.Reason)
 				return res, true, e
 			case "current":
 				if state.Commit == head {
