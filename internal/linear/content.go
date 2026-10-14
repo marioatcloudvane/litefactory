@@ -582,7 +582,7 @@ func plainScaffoldProse(s string) bool {
 			}
 			opened = true
 		case ')':
-			if !opened || i == 0 || !letter(s[i-1]) || (i+1 < len(s) && s[i+1] != ' ' && s[i+1] != '.') {
+			if !opened || i == 0 || !letter(s[i-1]) || (i+1 < len(s) && !strings.ContainsRune(" .,;:", rune(s[i+1]))) {
 				return false
 			}
 			opened = false
