@@ -133,6 +133,7 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 		}
 		return result, true, err
 	}
+	storyReply := r.story != "" && r.discussion
 	// Authenticate ordinary input before deciding whether it retries failed work.
 	if retry, retryErr := r.retryFailedStory(ctx); retryErr != nil {
 		return result, true, retryErr
@@ -155,6 +156,9 @@ func admitPlanExecution(ctx context.Context, o Options, req Request, result Resu
 			return result, true, errors.New("saved Plan dispatch no longer matches eligible work")
 		}
 		if r.story != "" {
+			if storyReply {
+				return result, true, r.unappliedReply(ctx)
+			}
 			out := result
 			out.ResearchGraph = true
 			out.Reason = "this story waits for the owner or for an upstream story"

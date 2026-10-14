@@ -2729,6 +2729,10 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
+		var planRefusal *turn.PlanReplyRefusal
+		if trigger.PlanReply != nil && errors.As(err, &planRefusal) {
+			return err
+		}
 		var refusal *workflowRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind, mode)
@@ -2810,6 +2814,7 @@ func (d *Daemon) run(
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
 	if mode == agent.ModePlan && turnResult.ResearchGraph && trigger.CommentID > 0 && !store.IsPrivateTrigger(trigger.CommentID) && turn.ParseCommand(trigger.Body).Kind == turn.KindFreeText {
 		if err := d.requirePlanDiscussionReported(ctx, turnResult); err != nil {
+			d.planReplyDeferred(ctx, t, trigger.CommentID, err.Error())
 			return &recoveryPending{err}
 		}
 	}
@@ -2832,6 +2837,7 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 			return errors.New("plan child completion lacks graph admission")
 		}
 		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
+			d.planReplyDeferred(ctx, t, trigger.CommentID, err.Error())
 			return &recoveryPending{err}
 		}
 		// Handled, or answered with a published failure the owner can reply to:
