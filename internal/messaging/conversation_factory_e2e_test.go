@@ -33,7 +33,7 @@ func factoryConversationExecutable(t *testing.T, provider string, responses []st
 provider=%s
 responses='%s'
 for argument in "$@"; do
- if [ "$argument" = --version ]; then printf '%%s\n' '2.1.296 (Claude Code)'; exit 0; fi
+ if [ "$argument" = --version ]; then printf '%%s\n' '2.1.299 (Claude Code)'; exit 0; fi
  if [ "$argument" = --help ]; then
   printf '%%s\n' '--settings --agents --system-prompt --restricted --disable-slash-commands --strict-mcp-config --setting-sources --tools --resume --session-id --no-chrome --safe-mode --ignore-user-config --ignore-rules --strict-config --json --profile'
   exit 0
@@ -88,7 +88,7 @@ if [ "$step" = 4 ]; then
  answer=$(printf '%%s' "$answer" | sed "s/@REFERENCE@/$reference/g")
 fi
 if [ "$provider" = claude ]; then
- printf '{"type":"system","subtype":"init","session_id":"%%s","tools":[],"mcp_servers":[],"claude_code_version":"2.1.296"}\n' "$session"
+ printf '{"type":"system","subtype":"init","session_id":"%%s","tools":[],"mcp_servers":[],"claude_code_version":"2.1.299"}\n' "$session"
  printf '{"type":"result","session_id":"%%s","result":%%s,"is_error":false}\n' "$session" "$answer"
 else
  printf '{"type":"thread.started","thread_id":"%%s"}\n' "$session"
