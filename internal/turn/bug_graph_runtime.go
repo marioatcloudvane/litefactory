@@ -289,7 +289,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 			return ResearchInvocation{}, e
 		}
 		return prepareRole(ctx, o, a, c, s)
-	}}, Fixer: GraphBugFixerActivity{PrepareSource: prepareSource, Prepare: prepareRole}, Finalization: finalization}
+	}}, SyncBase: r.graphSyncBaseBinding(req.SessionID), Fixer: GraphBugFixerActivity{PrepareSource: prepareSource, Prepare: prepareRole}, Finalization: finalization}
 	var specs graphexec.Registry
 	var activities ActivityRegistry
 	if e = policy.Register(&specs, &activities); e != nil {
@@ -326,6 +326,9 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		runID := int64(0)
 		allowanceSource := int64(0)
 		if node.Action == ResearchAgentAction {
+			if e = verifySyncHandoffBeforeAgent(ctx, r.opts, r.definition.Profile, instance, r.graphSyncBaseBinding(req.SessionID)); e != nil {
+				return finish(e)
+			}
 			if we == nil && wait.State == "allocated" && wait.AllowRunless && wait.AllowanceAttemptID == 0 {
 				source, e := r.opts.DB.GetGraphNodeAttempt(ctx, wait.ContinuationAttemptID)
 				if e != nil {

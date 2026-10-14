@@ -238,7 +238,12 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 	if out.Activity.Diagnostic != "" {
 		completion.Outputs = append(completion.Outputs, store.GraphOutput{Kind: store.GraphOutputDiagnostic, Payload: []byte(out.Activity.Diagnostic)})
 	}
-	if err := opts.DB.CompleteGraphNodeAttempt(ctx, out.AttemptID, completion); err != nil {
+	completionCtx := ctx
+	if node, ok := req.Profile.Node(out.Node); !succeeded && ok && node.Action == graphexec.SyncBaseAction {
+		// Preserve commit evidence from a possibly published sync despite cancellation.
+		completionCtx = context.WithoutCancel(ctx)
+	}
+	if err := opts.DB.CompleteGraphNodeAttempt(completionCtx, out.AttemptID, completion); err != nil {
 		return out, fmt.Errorf("complete graph activity: %w", err)
 	}
 	return out, nil

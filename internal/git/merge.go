@@ -265,6 +265,9 @@ func parseMergePreview(out string, clean bool) (MergePreview, error) {
 	return preview, nil
 }
 
+// ErrReservedTransportChange refuses synchronization that changes factory transport.
+var ErrReservedTransportChange = errors.New("reserved factory transport differs")
+
 // MergeOptions carries the identity a merge commit is authored as.
 // [Worktree.MergeBase] defaults to --no-ff --no-edit; FastForwardOnly
 // selects --ff-only for a task branch that has no unpublished local commits.
@@ -382,7 +385,7 @@ func (w *Worktree) MergeBase(ctx context.Context, base string, opts MergeOptions
 		return MergeResult{}, fmt.Errorf("inspect incoming reserved transport from %s: %w", base, err)
 	}
 	if reserved != "" {
-		return MergeResult{}, fmt.Errorf("merge %s into %s: reserved factory transport differs between branch and base; retained content was preserved: %w", base, w.branch, ErrInvalidArgument)
+		return MergeResult{}, fmt.Errorf("merge %s into %s: reserved factory transport differs between branch and base; retained content was preserved: %w", base, w.branch, errors.Join(ErrInvalidArgument, ErrReservedTransportChange))
 	}
 
 	strategy := "--no-ff"
