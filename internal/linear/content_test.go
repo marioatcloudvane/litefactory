@@ -129,7 +129,7 @@ func TestContentListStructure(t *testing.T) {
 		{"nested", "- one\n  - sub\n- two", "* one\n  + sub\n* two", true},
 		{"nesting changed", "- one\n  - sub", "* one\n* sub", false},
 		{"grouping", "- one\n- two", "* one\n+ two", false},
-		{"loose outside scaffold", "- one\n\n- two", "* one\n* two", false},
+		{"loose list is stored tight by Linear", "- one\n\n- two", "* one\n* two", true},
 		{"paragraph", "one\n\ntwo", "one\ntwo", false},
 		{"ordered unchanged", "2. one\n3. two", "2. one\n3. two", true},
 		{"ordered start", "1. one\n2. two", "2. one\n3. two", false},

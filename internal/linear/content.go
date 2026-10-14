@@ -217,7 +217,8 @@ func ContentEquivalent(expected, observed string) bool {
 // Linear stores it: runs of blank lines collapse to one, leading and trailing
 // blank lines go, and blank lines next to factory markers go (relocated markers
 // lose their surroundings). A single blank line between prose stays, since it
-// separates paragraphs and loosens lists.
+// separates paragraphs. Blank lines between list items go: Linear
+// stores lists tight.
 func withoutProseBlankLines(lines []string) []string {
 	out := make([]string, 0, len(lines))
 	fence := ""
@@ -229,7 +230,14 @@ func withoutProseBlankLines(lines []string) []string {
 			fence = next
 			continue
 		}
-		if blank && len(out) > 0 && !managedMarker(out[len(out)-1]) && !managedMarker(line) {
+		_, listed := contentListItem(line)
+		previousListed := false
+		if len(out) > 0 {
+			_, previousListed = contentListItem(out[len(out)-1])
+		}
+		// Linear stores lists tight: a blank line between two list items is
+		// dropped (seen on MAR-12's technical draft, 2026-10-14).
+		if blank && len(out) > 0 && !managedMarker(out[len(out)-1]) && !managedMarker(line) && (!listed || !previousListed) {
 			out = append(out, "")
 		}
 		blank = false
@@ -260,6 +268,7 @@ func comparableContent(body string) string {
 		}
 		fence = next
 	}
+	story := managedStoryDocument(lines)
 	lines, scaffold := comparableScaffoldSpacing(lines)
 	if !uniformContentLists(lines) {
 		return body
@@ -305,6 +314,11 @@ func comparableContent(body string) string {
 							}
 						}
 						for j, cells := range rows {
+							if j > 1 && story {
+								for k := range cells {
+									cells[k] = comparableTableCell(cells[k])
+								}
+							}
 							lines[i+j] = "|" + strings.Join(cells, "|") + "|"
 						}
 						i = end - 1
@@ -319,7 +333,14 @@ func comparableContent(body string) string {
 		if scaffold {
 			line = comparableScaffoldProse(line)
 		} else {
+			// Later Plan stages add headings, so they are not the scaffold, but
+			// the renderer escapes the same punctuation as entities there and
+			// Linear stores the plain characters. The decoder only accepts plain
+			// prose, so it cannot manufacture Markdown.
 			line = redundantContentEscapes(line)
+			if story {
+				line = comparableScaffoldProse(line)
+			}
 		}
 		lines[i] = line
 	}
@@ -498,6 +519,33 @@ func comparableScaffoldProse(line string) string {
 		return line
 	}
 	return prefix + decoded
+}
+
+// comparableTableCell decodes the renderer's four punctuation entities inside a
+// table body cell, where Linear stores the plain characters. A cell that could
+// form links, code, HTML or a rule is left as it is.
+// managedStoryDocument reports a factory Plan story body (story and request
+// markers first), the only content whose punctuation entities are decoded.
+func managedStoryDocument(lines []string) bool {
+	if len(lines) < 2 || !scaffoldStoryMarker.MatchString(lines[0]) {
+		return false
+	}
+	request := 1
+	if lines[request] == "" && len(lines) > 2 {
+		request++
+	}
+	return scaffoldRequestMarker.MatchString(lines[request])
+}
+
+func comparableTableCell(cell string) string {
+	if strings.ContainsAny(cell, "[]`<>\\") {
+		return cell
+	}
+	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")").Replace(cell)
+	if strings.Trim(decoded, "-:. ") == "" {
+		return cell
+	}
+	return decoded
 }
 
 func plainScaffoldProse(s string) bool {

@@ -84,3 +84,44 @@ func TestContentEquivalentAfterLinearNormalizesEmptySections(t *testing.T) {
 		t.Fatal("a real text change must not be equivalent")
 	}
 }
+
+// Later Plan stages are not the story scaffold (they add headings), but the
+// renderer still writes &#46; &#45; &#40; &#41; and loose lists, and Linear stores
+// plain punctuation and tight lists. Seen on MAR-12's technical draft.
+func TestContentEquivalentForLaterStageEntitiesTablesAndLists(t *testing.T) {
+	expected := strings.Join([]string{
+		"<!-- lf:plan-story parent=1 key=story-001 -->",
+		"<!-- lf:plan-request digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->",
+		"# Notes",
+		"",
+		"- Assumption: the actor reviews invoices&#46;",
+		"",
+		"- Assumption: layout only&#46;",
+		"",
+		"## Architecture - General",
+		"",
+		"| Area | Decision |",
+		"| -- | -- |",
+		"| Scope | Change only the table &#40;renderer&#41;&#46; No new outside&#45;click logic&#46; |",
+	}, "\n")
+	observed := strings.Join([]string{
+		"<!-- lf:plan-story parent=1 key=story-001 -->",
+		"<!-- lf:plan-request digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->",
+		"# Notes",
+		"",
+		"* Assumption: the actor reviews invoices.",
+		"* Assumption: layout only.",
+		"",
+		"## Architecture - General",
+		"",
+		"| Area | Decision |",
+		"| -- | -- |",
+		"| Scope | Change only the table (renderer). No new outside-click logic. |",
+	}, "\n")
+	if !ContentEquivalent(expected, observed) {
+		t.Fatalf("Linear's stored later-stage draft must be equivalent:\n%s\n---\n%s", comparableContent(expected), comparableContent(observed))
+	}
+	if ContentEquivalent(expected, strings.Replace(observed, "No new", "Some new", 1)) {
+		t.Fatal("a changed table cell must not be equivalent")
+	}
+}
