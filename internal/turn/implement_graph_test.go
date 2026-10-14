@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/config"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -578,5 +579,13 @@ func TestImplementEarlyReplyEligibilityAndUnusableTargets(t *testing.T) {
 				t.Fatalf("unusable input changed story: %+v", got)
 			}
 		})
+	}
+}
+
+func TestImplementScratchDirUsesSibling(t *testing.T) {
+	opts := Options{MCP: &MCPRuntime{}}
+	opts.MCP.Paths = config.NewPaths(filepath.Join(t.TempDir(), "home"))
+	if got, want := implementScratchDir(opts), opts.MCP.Paths.ImplementScratchDir(); got != want {
+		t.Fatalf("scratch = %q, want %q", got, want)
 	}
 }

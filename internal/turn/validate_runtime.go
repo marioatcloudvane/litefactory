@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -113,7 +112,7 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return ValidateSuiteBindings{}, ValidateFlowBindings{}, err
 	}
-	repo := GitValidateSuiteRepo{Clone: h.clone, ClonePath: h.repo.Path, Remote: opts.remote(), ScratchRoot: filepath.Join(opts.MCP.Paths.Home(), "validate-scratch"), Gate: opts.CloneGate}
+	repo := GitValidateSuiteRepo{Clone: h.clone, ClonePath: h.repo.Path, Remote: opts.remote(), ScratchRoot: opts.MCP.Paths.ValidateScratchDir(), Gate: opts.CloneGate}
 	suite := ValidateSuiteBindings{
 		DB: opts.DB, LockDir: lockDir, Repo: repo,
 		Bind: func(ctx context.Context, _ Options, _ ActivityRequest) (ValidateSuiteAuthority, error) {

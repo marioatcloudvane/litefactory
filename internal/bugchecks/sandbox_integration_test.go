@@ -135,3 +135,60 @@ func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 	}
 
 }
+
+// Strict resolution must inspect every ancestor; the old placement is the
+// failing control, while both sibling roots retain the same content denial.
+func TestBugChecksSandboxScratchSiblings(t *testing.T) {
+	p, parent := sandboxFixture(t)
+	paths := config.NewPaths(filepath.Join(parent, "factory"))
+	for _, file := range []string{paths.DBPath(), filepath.Join(parent, "protected", "token")} {
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("scratch-secret-canary"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p.DenyRead = []string{paths.Home(), filepath.Join(parent, "protected")}
+	for _, tc := range []struct {
+		name, root string
+		allowed    bool
+	}{
+		{"suite", paths.ValidateScratchDir(), true},
+		{"implement", paths.ImplementScratchDir(), true},
+		{"old", filepath.Join(paths.Home(), "validate-scratch"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join(tc.root, "operation", "tree")
+			if err := os.MkdirAll(filepath.Join(root, "child"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("child", filepath.Join(root, "link")); err != nil {
+				t.Fatal(err)
+			}
+			script := `import pathlib,sys
+for secret in sys.argv[2:]:
+ try:
+  with open(secret, "rb") as f: f.read()
+ except PermissionError: pass
+ else: sys.exit(10)
+try: pathlib.Path(sys.argv[1]).resolve(strict=True)
+except PermissionError:
+ print("resolution-denied")
+ sys.exit(1)
+print("resolution-ok")
+`
+			out := p.Run(t.Context(), root, config.BugCheckCommand{Argv: []string{"/usr/bin/python3", "-c", script, filepath.Join(root, "link"), paths.DBPath(), filepath.Join(parent, "protected", "token")}, TimeoutSeconds: 60}, func(CommandResult) error { return nil })
+			if tc.allowed {
+				if out.Outcome != "passed" || !strings.Contains(out.Output, "resolution-ok") {
+					t.Fatalf("sibling resolution: %+v", out)
+				}
+			} else if out.Outcome != "failed" || !strings.Contains(out.Output, "resolution-denied") {
+				t.Fatalf("old placement did not fail ancestor resolution: %+v", out)
+			}
+			if strings.Contains(out.Output, "scratch-secret-canary") {
+				t.Fatal("canary leaked")
+			}
+		})
+	}
+}
