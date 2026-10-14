@@ -79,3 +79,22 @@ func TestMeterPartialQuantityAndUnpricedEstimate(t *testing.T) {
 		t.Fatal("unpriced amount displayed")
 	}
 }
+
+func TestMeterDimensionGapPreservesOtherTotals(t *testing.T) {
+	t.Parallel()
+	n, zero := int64(7), int64(0)
+	amount := "1"
+	var s MeterSummary
+	if err := s.Add(MeterValues{Tokens: agent.TokenUsage{InputUncached: &n, CacheRead: &zero, Output: &n}, EstimatedUSD: &amount, PricedSubtotalUSD: &amount, CollectionStatus: "partial", PricingStatus: "priced", Diagnostics: []string{"inclusive_summary_mismatch", "inclusive_summary_mismatch_output"}}); err != nil {
+		t.Fatal(err)
+	}
+	if s.Tokens.InputUncached == nil || *s.Tokens.InputUncached != 7 || s.Tokens.CacheRead == nil || *s.Tokens.CacheRead != 0 || s.Tokens.Output != nil || s.Tokens.CacheWrite != nil || *s.KnownTokens.Output != 7 || s.EstimatedUSD != nil || s.PricedSubtotalUSD == nil {
+		t.Fatalf("scoped gap: %+v", s)
+	}
+	if err := s.Add(MeterValues{Tokens: agent.TokenUsage{InputUncached: &n}, CollectionStatus: "partial", Diagnostics: []string{"descendant_usage_unavailable"}}); err != nil {
+		t.Fatal(err)
+	}
+	if s.Tokens.InputUncached != nil || *s.KnownTokens.InputUncached != 14 {
+		t.Fatalf("descendant gap: %+v", s)
+	}
+}
