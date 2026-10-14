@@ -127,6 +127,9 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// without force, only while the remote still has the expected head.
 		// It pushes a commit that descends from that head and nothing else.
 		"PushHeadTo",
+		// Explicit base sync checks retained branch identity, bytes and ancestry
+		// without mutating the checkout before publication or handoff.
+		"CheckSyncCheckout",
 		// Implement story conflict (#615): start merging the feature branch
 		// into a clean story branch with --no-commit and leave its conflicts
 		// for the story worker; it never aborts, and a later Commit concludes

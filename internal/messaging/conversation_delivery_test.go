@@ -16,7 +16,7 @@ type orderedConversationProvider struct{ calls []string }
 
 func (p *orderedConversationProvider) RunConversation(ctx context.Context, r agent.ConversationRequest) (agent.ConversationResult, error) {
 	if err := r.BeforeLaunch(ctx); err != nil {
-		return agent.ConversationResult{}, err
+		return agent.ConversationResult{}, agent.ConversationError(err, "before_launch", true)
 	}
 	p.calls = append(p.calls, r.TurnID)
 	session := r.Session

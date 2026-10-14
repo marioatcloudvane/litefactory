@@ -12,9 +12,23 @@ const SyncBaseAction = "lf_sync_base"
 // branch for one mode:
 //
 //	synced    the base was merged and the working branch was published
-//	current   the working branch already holds the base; nothing changed
+//	current   the working branch already holds the base; checkout is refreshed
 //	conflict  the base conflicts with the working branch, which is unchanged
-//	retry     the working branch is busy or moved meanwhile; nothing changed
+//	retry     retained work is unsafe, or the working branch is busy or moved
 func SyncBaseSpec(mode agent.Mode) ActionSpec {
 	return ActionSpec{Name: SyncBaseAction, Mode: mode, Outcomes: []string{"synced", "current", "conflict", "retry"}}
+}
+
+// SyncBaseWorkflowSpec admits synchronization for a workflow identity, including
+// standalone Bug, whose legacy mode is empty.
+func SyncBaseWorkflowSpec(workflow agent.Workflow, mode agent.Mode) ActionSpec {
+	spec := SyncBaseSpec(mode)
+	spec.Workflow = workflow
+	if workflow == agent.WorkflowBug {
+		spec.Attributes = OwnerStopAttributes()
+		stop := spec.Attributes["lf_stop"]
+		stop.Values = append(stop.Values, "conflict", "retry")
+		spec.Attributes["lf_stop"] = stop
+	}
+	return spec
 }

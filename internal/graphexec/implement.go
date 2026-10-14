@@ -208,6 +208,18 @@ func ValidateImplementGraph(p *Profile) error {
 		case ImplementReportDoneAction:
 			c.reportDone(n)
 		case SyncBaseAction:
+			conflict, routed := Decide(p, n.Name, "conflict")
+			conflictTarget, exists := p.Node(conflict)
+			if routed && exists && conflictTarget.Terminal {
+				synced, a := Decide(p, n.Name, "synced")
+				current, b := Decide(p, n.Name, "current")
+				retry, retryRouted := Decide(p, n.Name, "retry")
+				retryTarget, d := p.Node(retry)
+				if !a || !b || synced != current || !retryRouted || !d || !retryTarget.Terminal {
+					c.fail("explicit sync %s requires common success and stopped failure paths", n.Name)
+				}
+				continue
+			}
 			c.edge(n, "conflict", c.isResolver, "must hand the conflict to a resolver agent")
 		case ImplementResolvedAction:
 			c.resolved(n)
@@ -235,6 +247,27 @@ func (c *implementCheck) next(n Node, outcome string) (Node, bool) {
 		return Node{}, false
 	}
 	target, ok := c.p.Node(to)
+	seen := map[string]bool{}
+	for ok && target.Action == SyncBaseAction {
+		conflict, routed := Decide(c.p, target.Name, "conflict")
+		failure, exists := c.p.Node(conflict)
+		if !routed || !exists || !failure.Terminal {
+			break
+		}
+		if seen[target.Name] {
+			c.fail("explicit sync success cycle at %s", target.Name)
+			return Node{}, false
+		}
+		seen[target.Name] = true
+		synced, a := Decide(c.p, target.Name, "synced")
+		current, b := Decide(c.p, target.Name, "current")
+		if !a || !b || synced != current {
+			c.fail("explicit sync %s has inconsistent success paths", target.Name)
+			return Node{}, false
+		}
+		to = synced
+		target, ok = c.p.Node(to)
+	}
 	if !ok {
 		c.fail("implement node %s outcome %s reaches undeclared %s", n.Name, outcome, to)
 	}

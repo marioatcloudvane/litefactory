@@ -159,3 +159,38 @@ func TestChatMeterKnownAndUnknownCostAndReadOnlyTasks(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskPagesAndRecentRuns(t *testing.T) {
+	db := newTestDB(t)
+	repo := testRepo(t, db, "acme", "app")
+	for n := 1; n <= 105; n++ {
+		if _, err := db.GetOrCreateSession(t.Context(), repo, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := db.ListTaskSessionsPage(t.Context(), repo.ID, 0, 100)
+	if err != nil || len(first) != 100 {
+		t.Fatalf("first page: %d %v", len(first), err)
+	}
+	second, err := db.ListTaskSessionsPage(t.Context(), repo.ID, first[99].ID, 100)
+	if err != nil || len(second) != 5 || second[0].ID <= first[99].ID {
+		t.Fatalf("second page: %+v %v", second, err)
+	}
+	end, err := db.ListTaskSessionsPage(t.Context(), repo.ID, second[4].ID, 100)
+	if err != nil || len(end) != 0 {
+		t.Fatalf("end: %+v %v", end, err)
+	}
+	for n := 1; n <= 4; n++ {
+		testRun(t, db, first[0].ID, int64(n))
+	}
+	runs, err := db.RecentTaskRuns(t.Context(), first[0].ID, 3)
+	if err != nil || len(runs) != 3 || runs[0].Ordinal != 4 || runs[2].Ordinal != 2 {
+		t.Fatalf("runs: %+v %v", runs, err)
+	}
+	if _, err := db.ListTaskSessionsPage(t.Context(), repo.ID, 0, 0); err == nil {
+		t.Fatal("unbounded page admitted")
+	}
+	if _, err := db.RecentTaskRuns(t.Context(), first[0].ID, 101); err == nil {
+		t.Fatal("unbounded runs admitted")
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -498,6 +499,7 @@ type Daemon struct {
 	lastRepoID               int64
 	repoSessionCursor        map[int64]int64
 	pendingObservationCursor map[int64]int
+	hookRecovery             map[int64]*hookRecoveryState
 }
 
 // New builds a daemon from its dependencies.
@@ -506,6 +508,7 @@ type Daemon struct {
 // rather than at the first tick — which happens thirty seconds after the
 // operator has stopped watching the terminal.
 func New(opts Options) (*Daemon, error) {
+	linear.SetRequestLogger(opts.Logger)
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}

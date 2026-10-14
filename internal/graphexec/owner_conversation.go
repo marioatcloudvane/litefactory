@@ -65,6 +65,15 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 			default:
 				faults = append(faults, errors.New("bug graph contains unauthorized agent role"))
 			}
+		case SyncBaseAction:
+			if len(n.Outcomes) != 4 || !slices.Contains(n.Outcomes, "synced") || !slices.Contains(n.Outcomes, "current") || !slices.Contains(n.Outcomes, "conflict") || !slices.Contains(n.Outcomes, "retry") {
+				faults = append(faults, fmt.Errorf("base sync %q requires its four outcomes", n.Name))
+			}
+			for _, outcome := range []string{"conflict", "retry"} {
+				if _, ok := Decide(p, n.Name, outcome); ok {
+					faults = append(faults, fmt.Errorf("base sync %q must park on %s", n.Name, outcome))
+				}
+			}
 		case "lf_bug_finalize":
 			finals++
 			final = n
@@ -81,9 +90,33 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 	if p.Start != loop.Name {
 		faults = append(faults, errors.New("bug starts at owner conversation"))
 	}
+	// Sync success chains are transparent to the existing authority routes.
+	resolve := func(name string) (string, bool) {
+		seen := map[string]bool{}
+		for {
+			n, ok := p.Node(name)
+			if !ok {
+				return "", false
+			}
+			if n.Action != SyncBaseAction {
+				return name, true
+			}
+			if seen[name] {
+				return "", false
+			}
+			seen[name] = true
+			synced, a := Decide(p, name, "synced")
+			current, b := Decide(p, name, "current")
+			if !a || !b || synced != current {
+				return "", false
+			}
+			name = synced
+		}
+	}
 	route := func(from Node, outcome, to string) {
 		next, ok := Decide(p, from.Name, outcome)
-		if !ok || next != to {
+		resolved, valid := resolve(next)
+		if !ok || !valid || resolved != to {
 			faults = append(faults, fmt.Errorf("%q %q must route to declared capability %q", from.Name, outcome, to))
 		}
 	}
@@ -111,12 +144,18 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 	route(final, "revalidate", fixer.Name)
 	next, ok := Decide(p, final.Name, "completed")
 	target, found := p.Node(next)
+	if resolved, valid := resolve(next); valid {
+		target, found = p.Node(resolved)
+	}
 	if !ok || !found || !target.Terminal {
 		faults = append(faults, errors.New("confirmed finalization must lead to terminal"))
 	}
 	// No other edge can bypass approval, repeat repair, or create an extra loop.
 	for _, edge := range p.Edges {
 		allowed := edge.From == loop.Name && (edge.On == "analyse" || edge.On == "approved") || edge.From == analyst.Name && (edge.On == "ask" || edge.On == "done") || edge.From == fixer.Name && (edge.On == "reshape" || edge.On == "succeeded") || edge.From == final.Name && (edge.On == "completed" || edge.On == "revalidate")
+		if node, exists := p.Node(edge.From); exists && node.Action == SyncBaseAction {
+			allowed = edge.On == "synced" || edge.On == "current"
+		}
 		if !allowed {
 			faults = append(faults, fmt.Errorf("edge %q to %q bypasses conversation authority", edge.From, edge.To))
 		}

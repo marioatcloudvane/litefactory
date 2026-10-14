@@ -2,7 +2,6 @@ package presentation
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"unicode/utf8"
 )
@@ -10,7 +9,7 @@ import (
 // ErrProtectedProposalTooLarge preserves the existing explicit proposal refusal.
 var ErrProtectedProposalTooLarge = errors.New("protected proposal exceeds message budget")
 
-// AnswerBlock is provider wording or a request to expand current factory facts.
+// AnswerBlock is provider wording with internal current-evidence associations.
 type AnswerBlock struct {
 	Text     string   `json:"text,omitempty"`
 	FactRefs []string `json:"fact_refs,omitempty"`
@@ -28,15 +27,14 @@ type ConversationPart struct {
 	Protected bool
 }
 
-// RenderConversation keeps unsupported wording readable and labels every
-// continuation. Only exact complete current facts can remove the warning.
-func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFact, protected string) ([]ConversationPart, error) {
+// RenderConversation keeps evidence internal; associations do not verify paraphrases.
+func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFact, protected string, intent ...string) ([]ConversationPart, error) {
 	if answerID == "" || len(answerID) > 128 || strings.ContainsAny(answerID, "\r\n") {
 		return nil, errors.New("invalid answer reference")
 	}
 	type segment struct {
-		text, label string
-		protected   bool
+		text      string
+		protected bool
 	}
 	var segments []segment
 	byID := make(map[string]CurrentFact, len(facts))
@@ -46,6 +44,7 @@ func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFa
 		}
 		byID[fact.ID] = fact
 	}
+	missing := false
 	for _, block := range blocks {
 		if !utf8.ValidString(block.Text) {
 			return nil, errors.New("invalid answer text")
@@ -53,51 +52,30 @@ func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFa
 		if block.Text == "" && len(block.FactRefs) == 0 {
 			return nil, errors.New("empty answer block")
 		}
-		supported := false
+		text := block.Text
 		for _, ref := range block.FactRefs {
-			fact, ok := byID[ref]
-			if !ok || !fact.Complete || fact.Text == "" {
-				if block.Text == "" {
-					segments = append(segments, segment{text: plain("Requested current fact unavailable: " + ref), label: "Unverified — this wording is not established by current tool evidence."})
-					supported = true
-				}
+			if _, ok := byID[ref]; !ok {
+				text = "I couldn't get the latest information."
+				break
+			}
+		}
+		if strings.TrimSpace(text) == "" {
+			text = "I couldn't get the latest information."
+		}
+		if text == "I couldn't get the latest information." {
+			if missing {
 				continue
 			}
-			if block.Text == "" || block.Text == fact.Text {
-				label := "Source: " + plain(fact.Source) + "; target: " + plain(fact.Target)
-				if fact.Caveats != "" {
-					label += "; caveats: " + plain(fact.Caveats)
-				}
-				segments = append(segments, segment{text: plain(fact.Text), label: label})
-				supported = true
-				if block.Text != "" {
-					break
-				}
-			}
+			missing = true
 		}
-		if !supported {
-			text := block.Text
-			if text == "" {
-				text = "Requested current fact unavailable: " + strings.Join(block.FactRefs, ", ")
-			}
-			segments = append(segments, segment{text: plain(text), label: "Unverified — this wording is not established by current tool evidence."})
-		}
+		segments = append(segments, segment{text: plain(text)})
 	}
 	if protected != "" {
 		segments = append(segments, segment{text: protected, protected: true})
 	}
-	// Reserve enough digits for any part count under the accepted text budget.
-	reserve := fmt.Sprintf("Answer %s · part 999999 of 999999\n/details answer:%s\n\n", answerID, answerID)
 	var parts []ConversationPart
 	for _, seg := range segments {
-		prefix := ""
-		if seg.label != "" {
-			prefix = seg.label + "\n"
-		}
-		budget := MessageLimit - messageSize(reserve) - messageSize(prefix)
-		if budget < 2 {
-			return nil, errors.New("answer metadata exceeds message budget")
-		}
+		budget := MessageLimit
 		if seg.protected && messageSize(seg.text) > budget {
 			return nil, ErrProtectedProposalTooLarge
 		}
@@ -107,17 +85,25 @@ func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFa
 			if end == 0 {
 				return nil, errors.New("answer cannot fit message budget")
 			}
-			parts = append(parts, ConversationPart{Content: prefix + remaining[:end], Protected: seg.protected})
+			parts = append(parts, ConversationPart{Content: remaining[:end], Protected: seg.protected})
 			remaining = remaining[end:]
 		}
 	}
 	if len(parts) > 1024 {
 		return nil, errors.New("answer exceeds saved part budget")
 	}
-	for i := range parts {
-		parts[i].Content = fmt.Sprintf("Answer %s · part %d of %d\n/details answer:%s\n\n", answerID, i+1, len(parts), answerID) + parts[i].Content
-	}
 	return parts, nil
+}
+
+// ConversationDiagnostics recognizes internal report syntax that needs rewriting.
+func ConversationDiagnostics(text string) bool {
+	lower := strings.ToLower(text)
+	for _, marker := range []string{"source:", "target:", "evidence", "fact-", "page ", "lower bound", "collection", "helper overhead", "still unanswered", "remains unanswered", "the meter output:", "at recorded rates", "total unknown", "total is unknown", "stage:", "mode:", "story-", "recent runs (", "caveat:"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // plain escapes Discord formatting while preserving every source character.

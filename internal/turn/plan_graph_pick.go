@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // planSetStage is the stage that proposes a story set. It is about no story, so
@@ -120,7 +124,7 @@ func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
 			return false, nil
 		}
 		if item.Blocked() {
-			return true, nil
+			return true, r.releaseOwnerEditConflicts(ctx, item)
 		}
 		instance, err := r.opts.DB.LatestWorkflowInstance(ctx, r.req.SessionID, "plan")
 		if errors.Is(err, store.ErrNotFound) {
@@ -136,4 +140,165 @@ func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
 		return r.opts.DB.GraphFailureReported(ctx, source.RunID, PlanFailureNode)
 	}
 	return false, nil
+}
+
+// ownerEditConflict is the hold a story gets when a write's readback differs
+// from the expected content, on the assumption that the owner edited it.
+const ownerEditConflict = "owner edits conflict with expected content revision"
+
+// childContentHold prefixes the lifecycle hold the child poll sets when a story
+// issue's content can be read neither as the factory's draft nor as an owner
+// edit (internal/daemon planChildContentHold).
+const childContentHold = "Child content cannot be reconciled"
+
+// releaseOwnerEditConflicts lets the owner's own retry settle a story held only
+// by owner-edit conflicts. The hold exists to protect the owner's edits; the
+// owner asking to retry says there are none to keep, so the stale requests are
+// settled and the retry drafts afresh, as the failure notice promises. Such
+// holds recorded before #821 can never re-verify: their content was rendered
+// before #824/#825 changed titles and markers. Any other hold is left alone.
+func (r *planGraphRuntime) releaseOwnerEditConflicts(ctx context.Context, item planbrief.PlanStoryState) error {
+	contentHold := strings.HasPrefix(item.LifecycleHold, childContentHold)
+	if item.Hold != "" || (item.LifecycleHold != "" && !contentHold) || (item.EffectHold != "" && item.EffectHold != ownerEditConflict) {
+		return nil
+	}
+	requests := map[string]bool{}
+	for request, hold := range item.EffectHolds {
+		if hold != ownerEditConflict {
+			return nil
+		}
+		requests[request] = true
+	}
+	if item.EffectHold == ownerEditConflict && item.EffectRequest != "" {
+		requests[item.EffectRequest] = true
+	}
+	parent := r.parentRef.String()
+	// Only Linear produced false owner-edit conflicts: its normalized readback
+	// was misjudged before #865/#866/#869. A GitHub conflict is a real edit and
+	// stays the owner's to resolve, whatever the reply says.
+	if linear, err := r.linearStory(ctx, item.Key); err != nil || !linear {
+		return err
+	}
+	if len(requests) == 0 && !contentHold {
+		// Blocked for another reason, such as an unknown remote outcome:
+		// nothing here is the owner's to waive.
+		return nil
+	}
+	if contentHold {
+		// The poll could not read the factory's own unrecorded write as an
+		// owner edit; the owner's retry says there is none.
+		if err := r.opts.DB.UpdatePlanWorkflowState(ctx, parent, func(s *planbrief.PlanState) (bool, error) {
+			for i := range s.Stories {
+				if s.Stories[i].Key == item.Key && strings.HasPrefix(s.Stories[i].LifecycleHold, childContentHold) {
+					s.Stories[i].LifecycleHold = ""
+					return true, nil
+				}
+			}
+			return false, nil
+		}); err != nil {
+			return err
+		}
+	}
+	for request := range requests {
+		state, revision, err := r.opts.DB.GetPlanWorkflowState(ctx, parent)
+		if err != nil {
+			return err
+		}
+		for i := range state.Stories {
+			s := &state.Stories[i]
+			if s.Key != item.Key {
+				continue
+			}
+			if s.EffectRequest == request {
+				s.Effect = ""
+			}
+			s.ClearEffectHold(request)
+		}
+		if err = r.opts.DB.SettlePlanStoryDebt(ctx, parent, request, state, revision, false); err != nil {
+			return err
+		}
+	}
+	return r.rebaseOwnerConfirmedContent(ctx, item.Key)
+}
+
+func (r *planGraphRuntime) linearStory(ctx context.Context, key string) (bool, error) {
+	d, err := r.opts.DB.GetPlanStoryDraft(ctx, r.parentRef.String(), key)
+	if err != nil || d.IssueID == 0 {
+		return false, err
+	}
+	forge, err := r.storyForge()
+	if err != nil {
+		return false, err
+	}
+	child, err := forge.GetIssue(ctx, github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}, d.IssueNumber)
+	if err != nil {
+		return false, err
+	}
+	return child.QualifiedSnapshot != nil && child.QualifiedSnapshot.Ref.Identity.Provider == ticket.Linear, nil
+}
+
+// rebaseOwnerConfirmedContent takes the live story issue as the expected content
+// revision. A write whose readback was misjudged (pre-#821) left the factory's
+// own draft on the issue without recording it, so every later write saw "owner
+// edits". The owner's retry confirms there are none.
+func (r *planGraphRuntime) rebaseOwnerConfirmedContent(ctx context.Context, key string) error {
+	parent := r.parentRef.String()
+	d, err := r.opts.DB.GetPlanStoryDraft(ctx, parent, key)
+	if err != nil || d.Retired || d.IssueID == 0 {
+		return err
+	}
+	forge, err := r.storyForge()
+	if err != nil {
+		return err
+	}
+	child, err := forge.GetIssue(ctx, github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}, d.IssueNumber)
+	if err != nil {
+		return err
+	}
+	if child.ID != d.IssueID || child.State != github.StateOpen {
+		return nil
+	}
+	observed := PlanIssueRevision(child.Title, child.Body)
+	if observed == d.Revision {
+		return nil
+	}
+	return r.opts.DB.RebasePlanStoryRevision(ctx, parent, key, d.Revision, observed)
+}
+
+// unappliedReply explains retained state without clearing recovery or approval debt.
+func (r *planGraphRuntime) unappliedReply(ctx context.Context) error {
+	s, _, err := r.state(ctx)
+	if err != nil {
+		return err
+	}
+	reason := "This story is no longer part of the plan."
+	for _, item := range s.Stories {
+		if item.Key != r.story {
+			continue
+		}
+		var holds []string
+		for request, hold := range item.EffectHolds {
+			holds = append(holds, request+": "+hold)
+		}
+		sort.Strings(holds)
+		for _, hold := range []string{item.Hold, item.LifecycleHold, item.EffectHold} {
+			if hold != "" {
+				holds = append(holds, hold)
+			}
+		}
+		switch {
+		case len(holds) > 0:
+			reason = "This reply cannot advance the story: " + strings.Join(holds, "; ")
+		case !item.Active():
+			reason = s.PlanReplyHold(r.story)
+		case item.Wait != nil:
+			reason = "This story is waiting for the owner's reply to its current review."
+		case !s.UpstreamApproved(item.Key, item.Stage):
+			reason = "This story needs approval of its upstream stories before its next stage can run."
+		default:
+			reason = "This story has no eligible next stage; its current stage and earlier approvals must be settled first."
+		}
+		break
+	}
+	return &PlanReplyRefusal{Reason: reason, Err: errors.New(reason)}
 }

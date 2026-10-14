@@ -18,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 func TestNoticeMappingAndQuestionBudget(t *testing.T) {
@@ -44,10 +45,10 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 				t.Fatalf("event=%+v", e)
 			}
 			text := messaging.NoticeText(e)
-			if !strings.HasPrefix(text, tc.kind+": #1 (implement)") || strings.Contains(text, "github:") || !strings.Contains(text, "https://github.com/acme/repo/issues/1") {
+			if !strings.HasPrefix(text, "Implementation #1 ") || strings.Contains(text, "github:") || !strings.Contains(text, "https://github.com/acme/repo/issues/1") {
 				t.Fatalf("text=%s", text)
 			}
-			if tc.source == "owner_waits" && (!strings.Contains(text, "— Implement question\n") || !strings.Contains(text, "What scope?") || !strings.Contains(text, "#issuecomment-91")) {
+			if tc.source == "owner_waits" && (!strings.Contains(text, "has a question for you:") || !strings.Contains(text, "What scope?") || !strings.Contains(text, "#issuecomment-91")) {
 				t.Fatal(text)
 			}
 		})
@@ -60,7 +61,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	if err != nil || len(events) != 1 || events[0].Kind != "waiting for you" {
 		t.Fatalf("review wait=%+v err=%v", events, err)
 	}
-	if text := messaging.NoticeText(events[0]); !strings.Contains(text, "— Implement review\n") || !strings.Contains(text, "#issuecomment-92") {
+	if text := messaging.NoticeText(events[0]); !strings.Contains(text, "is ready for your review.") || !strings.Contains(text, "#issuecomment-92") {
 		t.Fatal(text)
 	}
 	// A wait that stopped waiting or is not yet published is never announced.
@@ -92,7 +93,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	changed.Workflow = "plan"
 	changed.PreviousMode = "research"
 	events, err = messaging.NoticeEvents("run_starts", changed)
-	if err != nil || len(events) != 1 || events[0].Kind != "started" || !strings.Contains(messaging.NoticeText(events[0]), "Mode: research → plan") {
+	if err != nil || len(events) != 1 || events[0].Kind != "started" || !strings.Contains(messaging.NoticeText(events[0]), "Plan #1 started.") {
 		t.Fatalf("mode change start=%+v err=%v", events, err)
 	}
 	// A run abandoned in process by a daemon shutdown is relaunched by
@@ -144,7 +145,7 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	}
 	parked.Run.RecoveryReason = ""
 	events, err = messaging.NoticeEvents("owner_waits", parked)
-	if err != nil || len(events) != 1 || events[0].Key != "stop:park@"+store.FormatTime(at)+"@github:acme/repo#1" {
+	if err != nil || len(events) != 1 || events[0].Key != "stop:park@"+store.FormatTime(at)+"@github:acme/repo#1" || !strings.Contains(messaging.NoticeText(events[0]), "stopped and needs your guidance") {
 		t.Fatalf("independent graph stop=%+v err=%v", events, err)
 	}
 	parked.Run.ID = 0
@@ -161,12 +162,12 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 	usage := &report.MeterSummary{EstimatedUSD: &cost, KnownTokens: agent.TokenUsage{CacheRead: &tokens}, CollectionStatus: "complete", PricingStatus: "priced"}
 	for _, kind := range []string{"completed", "failed", "stopped"} {
 		text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: kind, Usage: usage})
-		if !strings.Contains(text, "about $0.96") || strings.Contains(text, "tokens") || strings.Contains(text, "cache") || strings.Contains(text, "Collection") || strings.Contains(text, "501004") {
+		if !strings.Contains(text, "≈ $0.96") || strings.Contains(text, "tokens") || strings.Contains(text, "cache") || strings.Contains(text, "Collection") || strings.Contains(text, "501004") {
 			t.Fatal(text)
 		}
 	}
 	subtotal := "1.5"
-	if text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "completed", Usage: &report.MeterSummary{PricedSubtotalUSD: &subtotal}}); !strings.Contains(text, "at least about $1.50") {
+	if text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "completed", Usage: &report.MeterSummary{PricedSubtotalUSD: &subtotal}}); strings.Contains(text, "$") {
 		t.Fatal(text)
 	}
 	text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "completed", Usage: &report.MeterSummary{CollectionStatus: "partial"}})
@@ -174,11 +175,11 @@ func TestNoticeMappingAndQuestionBudget(t *testing.T) {
 		t.Fatal(text)
 	}
 	text = messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "started", Workflow: "implement", Title: "Authorize work"})
-	if !strings.HasPrefix(text, "started: #1 Authorize work (implement)\nhttps://github.com/acme/repo/issues/1") {
+	if !strings.HasPrefix(text, "Implementation #1 (Authorize work) started.\nhttps://github.com/acme/repo/issues/1") {
 		t.Fatal(text)
 	}
 	text = messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "question", Question: strings.Repeat("😀", 3000), QuestionLink: ref.IssueURL() + "#issuecomment-91"})
-	if len(utf16.Encode([]rune(text))) > 1900 || !strings.Contains(text, "#issuecomment-91") || !strings.HasSuffix(text, "…") {
+	if len(utf16.Encode([]rune(text))) > 1900 || !strings.Contains(text, "#issuecomment-91") || !strings.Contains(text, "…") {
 		t.Fatal("question budget or link lost")
 	}
 }
@@ -285,7 +286,7 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 	issues := &noticeIssues{fail: true}
 	c.Issues = issues
 	c.Protect = func(_ context.Context, text string) (string, error) {
-		if strings.HasPrefix(text, "started:") {
+		if strings.Contains(text, " started.") {
 			return "", errors.New("controlled protection failure")
 		}
 		return text, nil
@@ -297,7 +298,7 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("one source blocked another: %v", err)
 	}
-	if !strings.HasPrefix(finished.ReplyText, "completed: #1 (implement)\n") {
+	if !strings.HasPrefix(finished.ReplyText, "Implementation #1 finished.\n") {
 		t.Fatalf("untitled notice: %s", finished.ReplyText)
 	}
 	c.Protect = nil
@@ -309,7 +310,7 @@ func TestNoticeCollectionEnableStaleAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(started.ReplyText, "started: #1 Authorize work for acme/repo (validate)\n") || strings.Contains(started.ReplyText, "github:") || issues.calls != 1 {
+	if !strings.HasPrefix(started.ReplyText, "Validation #1 (Authorize work for acme/repo) started.\n") || strings.Contains(started.ReplyText, "github:") || issues.calls != 1 {
 		t.Fatalf("titled notice: %s calls=%d", started.ReplyText, issues.calls)
 	}
 	sender := &noticeTransport{delivery: messaging.Delivery{RetryAfter: 10 * time.Second}}
@@ -404,13 +405,13 @@ func TestNoticeQuestionIsOneShortSentence(t *testing.T) {
 	}
 	text := messaging.NoticeText(events[0])
 	lines := strings.Split(text, "\n")
-	if len(lines) != 3 || lines[2] != "Should the release target the stable channel?" || !strings.Contains(lines[0], "— Research question") || strings.Count(text, "https://") != 1 {
+	if len(lines) != 2 || !strings.HasSuffix(lines[0], "Should the release target the stable channel?") || !strings.Contains(lines[0], "has a question for you:") || strings.Count(text, "https://") != 1 {
 		t.Fatalf("%q", lines)
 	}
 	long := strings.Repeat("x", 500)
 	text = messaging.NoticeText(messaging.NoticeEvent{Kind: "waiting for you", Question: long})
 	lines = strings.Split(text, "\n")
-	if q := lines[len(lines)-1]; len(utf16.Encode([]rune(q))) > 160 || !strings.HasSuffix(q, "…") {
+	if q := strings.Split(lines[0], ": ")[1]; len(utf16.Encode([]rune(q))) > 161 || !strings.HasSuffix(q, "….") {
 		t.Fatalf("question line %q", q)
 	}
 }
@@ -427,5 +428,282 @@ func TestNoticeIgnoredRunFinishPostsNothing(t *testing.T) {
 	r.Run = store.Run{ID: 11, Status: store.RunFailed, Error: "controlled failure"}
 	if events, err := messaging.NoticeEvents("run_finishes", r); err != nil || len(events) != 1 || events[0].Kind != "failed" {
 		t.Fatalf("events=%+v err=%v", events, err)
+	}
+}
+
+func TestNoticeTitleAndCostBounds(t *testing.T) {
+	t.Parallel()
+	ref, _ := naming.ParseRef("github:acme/repo#1")
+	for _, title := range []string{strings.Repeat("readable words ", 400), strings.Repeat("😀 café ", 400), strings.Repeat("x", 4000), "  normalize\tthese\nwords  "} {
+		e := messaging.NoticeEvent{Task: ref, Kind: "waiting for you", Workflow: "plan", Title: title, Asked: "Plan review"}
+		text := messaging.NoticeText(e)
+		if len(utf16.Encode([]rune(text))) > 1900 || !strings.HasSuffix(text, ref.IssueURL()) || !strings.Contains(text, "is ready for your review.") || strings.Contains(text, "\t") || strings.Count(text, "\n") != 1 {
+			t.Fatal(text)
+		}
+		if strings.HasPrefix(title, "readable") && !strings.Contains(text, "words…)") && !strings.Contains(text, "readable…)") {
+			t.Fatal(text)
+		}
+		if strings.HasPrefix(title, "  ") && !strings.Contains(text, "(normalize these words)") {
+			t.Fatal(text)
+		}
+	}
+	for _, tc := range []struct{ value, want string }{{"0.79", "≈ $0.79"}, {"0", "≈ $0.00"}, {"0.9591808", "≈ $0.96"}} {
+		text := messaging.NoticeText(messaging.NoticeEvent{Task: ref, Kind: "completed", Usage: &report.MeterSummary{EstimatedUSD: &tc.value}})
+		if !strings.Contains(text, tc.want) || strings.Contains(text, "about") || strings.Contains(text, "review") {
+			t.Fatal(text)
+		}
+	}
+}
+
+type publicNoticeIssues struct {
+	issue github.Issue
+	calls int
+}
+
+func (f *publicNoticeIssues) GetIssue(context.Context, github.Repo, int) (github.Issue, error) {
+	f.calls++
+	return f.issue, nil
+}
+
+func TestNoticeCollectorPublicIdentityEveryKind(t *testing.T) {
+	t.Parallel()
+	for _, provider := range []string{"github", "linear"} {
+		t.Run(provider, func(t *testing.T) {
+			ctx := t.Context()
+			db, err := store.Open(ctx, filepath.Join(t.TempDir(), "notices.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := db.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			must := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			must(db.Migrate(ctx))
+			number := 42
+			key := "#42"
+			url := "https://github.com/acme/repo/issues/42"
+			issue := github.Issue{Title: "Readable task", HTMLURL: url}
+			if provider == "linear" {
+				number = 4503599627580010
+				key = "MAR-12"
+				url = "https://linear.app/acme/issue/MAR-12/readable-task"
+				issue.QualifiedSnapshot = &ticket.Snapshot{DisplayKey: key, Title: "Readable task", BrowserURL: url}
+			}
+			reader := &publicNoticeIssues{issue: issue}
+			repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: provider, Owner: "acme", Name: "repo", RemoteURL: "git@github.com:acme/repo.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+			must(err)
+			session, err := db.GetOrCreateSession(ctx, repo, number)
+			must(err)
+			segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", "codex")
+			must(err)
+			at := time.Now().UTC()
+			c := &messaging.NoticeCollector{DB: db, Transport: "test", Channel: "3", Issues: reader}
+			must(c.Collect(ctx, at))
+			keys := map[string]string{}
+			for i, kind := range []string{"completed", "failed", "stopped"} {
+				r, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "research", Agent: "codex", TriggerCommentID: int64(i + 1), StartedAt: at, LogPath: func(int) string { return "/logs/test" }})
+				must(err)
+				if i == 0 {
+					keys["started"] = fmt.Sprintf("run:%d:start", r.ID)
+				}
+				outcome := store.RunOutcome{Status: store.RunSucceeded, FinishedAt: at}
+				if kind != "completed" {
+					outcome.Status = store.RunFailed
+					outcome.Error = "controlled failure"
+				}
+				if kind == "stopped" {
+					_, err = db.RequestOwnerStop(ctx, session.TaskRef)
+					must(err)
+				}
+				_, err = db.FinishRun(ctx, r.ID, outcome)
+				must(err)
+				keys[kind] = fmt.Sprintf("run:%d:finish", r.ID)
+			}
+			definition, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "notices", Mode: "implement", ProfileVersion: 1, Path: "research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+			must(err)
+			instance, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "work", StartedAt: at})
+			must(err)
+			attempt, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "work", StartedAt: at})
+			must(err)
+			must(db.FinishGraphNodeAttempt(ctx, attempt.ID, store.GraphSucceeded, "ask", at))
+			must(db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "public-wait", InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "work", Kind: "question", Candidate: []byte(`{"questions":[{"text":"Which release?"}]}`)}))
+			_, err = db.EnsureReportDelivery(ctx, store.ReportDelivery{Key: "public-wait", SessionID: session.ID, Task: session.TaskRef, Destination: "acme/repo#42", TriggerNamespace: "issue-comment", Purpose: "research-question", BotUserID: 99, Body: "Question", Marker: "public-marker"})
+			must(err)
+			_, err = db.MarkReportDeliverySent(ctx, "public-wait")
+			must(err)
+			_, err = db.ConfirmReportDelivery(ctx, "public-wait", 91)
+			must(err)
+			_, err = db.CompleteReportDelivery(ctx, "public-wait")
+			must(err)
+			keys["waiting for you"] = "wait:public-wait@" + store.FormatTime(at) + "@" + session.TaskRef
+			must(c.Collect(ctx, at))
+			if reader.calls != 1 {
+				t.Fatalf("reads=%d", reader.calls)
+			}
+			for kind, eventKey := range keys {
+				notice, err := db.ReadChatNotice(ctx, "test", eventKey)
+				must(err)
+				text := notice.ReplyText
+				if notice.Command != kind || !strings.Contains(text, key+" (Readable task)") || !strings.Contains(text, url) || strings.Contains(text, "(research)") || strings.Contains(text, "Mode:") || strings.Count(text, "\n") != 1 {
+					t.Fatalf("%s: %s", kind, text)
+				}
+				if provider == "linear" && (strings.Contains(text, "4503599627580010") || strings.Contains(text, "#issuecomment")) {
+					t.Fatal(text)
+				}
+				if provider == "github" && kind == "waiting for you" && !strings.HasSuffix(text, url+"#issuecomment-91") {
+					t.Fatal(text)
+				}
+			}
+			must(c.Collect(ctx, at.Add(time.Second)))
+			if reader.calls != 1 {
+				t.Fatal("recollection reread admitted events")
+			}
+		})
+	}
+}
+
+func TestNoticeGraphContinuationSettlesOnce(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"research", "plan"} {
+		for _, ending := range []string{"completed", "question", "failed", "stopped"} {
+			t.Run(mode+"/"+ending, func(t *testing.T) {
+				ctx := t.Context()
+				db, err := store.Open(ctx, filepath.Join(t.TempDir(), "graph.db"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := db.Close(); err != nil {
+						t.Error(err)
+					}
+				})
+				must := func(err error) {
+					t.Helper()
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				must(db.Migrate(ctx))
+				repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "repo", RemoteURL: "git@github.com:acme/repo.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+				must(err)
+				session, err := db.GetOrCreateSession(ctx, repo, 42)
+				must(err)
+				segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "session", "codex")
+				must(err)
+				if mode == "plan" {
+					_, err = db.AdmitPlanPath(ctx, session.ID)
+				} else {
+					_, err = db.AdmitResearchPath(ctx, session.ID, "graph")
+				}
+				must(err)
+				at := time.Now().UTC()
+				definition, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "notices", Mode: mode, ProfileVersion: 1, Path: mode + ".dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+				must(err)
+				launch := store.WorkflowLaunch{Mode: mode, SessionID: session.ID, TriggerID: 10, DefinitionID: definition.ID, Start: "work", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte(`{"role":"eA=="}`)}
+				admitted, err := db.AdmitWorkflowLaunch(ctx, launch)
+				must(err)
+				c := &messaging.NoticeCollector{DB: db, Transport: "test", Channel: "3"}
+				must(c.Collect(ctx, at))
+				allocate := func(trigger int64) (store.Run, store.GraphNodeAttempt) {
+					t.Helper()
+					r, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: mode, Agent: "codex", TriggerCommentID: trigger, StartedAt: at, LogPath: func(int) string { return "/logs/test" }})
+					must(err)
+					a, err := db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: admitted.Instance.ID, LaunchID: admitted.LaunchID, Node: "work", RunID: r.ID, StartedAt: at})
+					must(err)
+					must(db.FinishGraphNodeAttempt(ctx, a.ID, store.GraphSucceeded, "done", at))
+					return r, a
+				}
+				finish := func(r store.Run, status store.RunStatus) {
+					t.Helper()
+					_, err := db.FinishRun(ctx, r.ID, store.RunOutcome{Status: status, FinishedAt: at})
+					must(err)
+				}
+				absent := func(r store.Run) {
+					t.Helper()
+					if _, err := db.ReadChatNotice(ctx, "test", fmt.Sprintf("run:%d:finish", r.ID)); !errors.Is(err, store.ErrNotFound) {
+						t.Fatalf("intermediate completion: %v", err)
+					}
+				}
+				first, _ := allocate(10)
+				dispatch, err := db.ParkCapturedGraphInstanceAfter(ctx, admitted.Instance.ID, "work", at, at, 0, admitted.LaunchID)
+				must(err)
+				finish(first, store.RunSucceeded)
+				must(c.Collect(ctx, at))
+				absent(first)
+				_, reserved, err := db.ReserveGraphDispatch(ctx, dispatch.ID, at)
+				must(err)
+				if !reserved {
+					t.Fatal("not reserved")
+				}
+				second, source := allocate(dispatch.TriggerID())
+				// Collection while the successor is running must not revive its predecessor.
+				must(c.Collect(ctx, at))
+				absent(first)
+				if ending == "question" {
+					must(db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: "settled", InstanceID: admitted.Instance.ID, SourceAttemptID: source.ID, Node: "work", Kind: "question", Candidate: []byte(`{"questions":[{"text":"Which release?"}]}`)}))
+				}
+				status := store.RunSucceeded
+				if ending == "failed" || ending == "stopped" {
+					status = store.RunFailed
+				}
+				if ending == "stopped" {
+					_, err = db.RequestOwnerStop(ctx, session.TaskRef)
+					must(err)
+				}
+				finish(second, status)
+				must(db.FinishGraphDispatch(ctx, dispatch.ID, at))
+				must(c.Collect(ctx, at))
+				absent(first)
+				if ending == "question" {
+					absent(second)
+					_, err = db.EnsureReportDelivery(ctx, store.ReportDelivery{Key: "settled", SessionID: session.ID, RunID: second.ID, TriggerID: second.TriggerCommentID, Task: session.TaskRef, Destination: "acme/repo#42", TriggerNamespace: "issue-comment", Purpose: mode + "-question", BotUserID: 99, Body: "Question", Marker: "marker"})
+					must(err)
+					_, err = db.MarkReportDeliverySent(ctx, "settled")
+					must(err)
+					_, err = db.ConfirmReportDelivery(ctx, "settled", 91)
+					must(err)
+					_, err = db.CompleteReportDelivery(ctx, "settled")
+					must(err)
+				}
+				// Recreate the collector to exercise durable positions, then collect twice.
+				c = &messaging.NoticeCollector{DB: db, Transport: "test", Channel: "3"}
+				must(c.Collect(ctx, at))
+				must(c.Collect(ctx, at))
+				absent(first)
+				key := fmt.Sprintf("run:%d:finish", second.ID)
+				kind := ending
+				if ending == "question" {
+					key = "wait:settled@" + store.FormatTime(at) + "@" + session.TaskRef
+					kind = "waiting for you"
+					absent(second)
+				}
+				notice, err := db.ReadChatNotice(ctx, "test", key)
+				must(err)
+				if notice.Command != kind {
+					t.Fatalf("notice=%+v", notice)
+				}
+				if ending == "completed" {
+					// Fresh owner input in the same graph/mode has its own launch and outcome.
+					launch.TriggerID = 11
+					admitted, err = db.AdmitWorkflowLaunch(ctx, launch)
+					must(err)
+					later, _ := allocate(11)
+					finish(later, store.RunSucceeded)
+					must(c.Collect(ctx, at))
+					n, err := db.ReadChatNotice(ctx, "test", fmt.Sprintf("run:%d:finish", later.ID))
+					must(err)
+					if n.Command != "completed" {
+						t.Fatal(n)
+					}
+				}
+			})
+		}
 	}
 }

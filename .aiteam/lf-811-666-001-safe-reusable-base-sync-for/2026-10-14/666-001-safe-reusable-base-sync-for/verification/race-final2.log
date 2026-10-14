@@ -1,0 +1,6 @@
+ok  	github.com/cloudvane/litefactory/internal/git	202.288s
+ok  	github.com/cloudvane/litefactory/internal/doctor	349.731s
+ok  	github.com/cloudvane/litefactory/internal/report	(cached)
+ok  	github.com/cloudvane/litefactory/internal/repos	8.404s
+ok  	github.com/cloudvane/litefactory/internal/rights	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	(cached)

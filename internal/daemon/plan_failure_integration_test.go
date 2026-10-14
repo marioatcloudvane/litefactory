@@ -24,6 +24,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -31,7 +32,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
+	"reflect"
 )
 
 // planFailureTurn stands in for the graph Plan turn, and only for it. What the
@@ -594,10 +597,11 @@ func reportedPlanFixtureTurn(ctx context.Context, f *fixture, req turn.Request) 
 // must observe that original request before the new owner instruction can draft.
 type retryPlanForge struct {
 	refinementForge
-	mu      sync.Mutex
-	f       *fixture
-	updates int
-	lose    bool
+	mu         sync.Mutex
+	f          *fixture
+	updates    int
+	lose       bool
+	historical bool
 }
 
 func (p *retryPlanForge) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
@@ -607,7 +611,11 @@ func (p *retryPlanForge) GetIssue(ctx context.Context, repo github.Repo, number 
 	if missing {
 		return github.Issue{}, github.ErrNotFound
 	}
-	return p.refinementForge.GetIssue(ctx, repo, number)
+	issue, err := p.refinementForge.GetIssue(ctx, repo, number)
+	if p.historical && number == 200 {
+		issue.QualifiedSnapshot = &ticket.Snapshot{Ref: ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: "https://linear.example.test", RemoteID: "child"}}, Body: issue.Body, ProviderBody: linear.EncodeContent(issue.Body)}
+	}
+	return issue, err
 }
 
 func (p *retryPlanForge) UpdateIssue(ctx context.Context, repo github.Repo, number int, title, body redact.Body) (github.Issue, error) {
@@ -622,6 +630,10 @@ func (p *retryPlanForge) UpdateIssue(ctx context.Context, repo github.Repo, numb
 	return p.GetIssue(ctx, repo, number)
 }
 
+func (p *retryPlanForge) PlanContentEquivalent(expected string, observed github.Issue) bool {
+	return (&turn.TicketPlanBridge{}).PlanContentEquivalent(expected, observed)
+}
+
 type retryPlanRunner func(context.Context, agent.Request) (*agent.RunResult, error)
 
 func (retryPlanRunner) SupportsMCP() bool { return true }
@@ -630,8 +642,9 @@ func (r retryPlanRunner) Run(ctx context.Context, req agent.Request) (*agent.Run
 }
 
 func TestPlanFailureDaemon_OwnerReplyRunsFreshStoryDraft(t *testing.T) {
-	for _, body := range []string{"Retry", "Clarify the scope for the owner"} {
-		t.Run(body, func(t *testing.T) {
+	for _, scenario := range []string{"Retry", "Clarify the scope for the owner", "historical Linear readback", "unknown outcome"} {
+		body := scenario
+		t.Run(scenario, func(t *testing.T) {
 			f := newFixture(t)
 			realRepo := gittest.New(t)
 			if err := os.Rename(realRepo.Dir, f.repo.Path); err != nil {
@@ -768,12 +781,63 @@ func TestPlanFailureDaemon_OwnerReplyRunsFreshStoryDraft(t *testing.T) {
 				t.Fatalf("first draft did not fail once: calls=%d logs=%s", calls, f.logs)
 			}
 			requireFailureText(t, failureCommentsOnForge(f)[0], "lost first draft")
+			if err := f.db.UpdatePlanWorkflowState(t.Context(), parent.TaskRef, func(s *planbrief.PlanState) (bool, error) {
+				s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: "sibling", Stage: "technical", Hold: "independent sibling hold", Approvals: map[string]string{"story": "retained sibling approval"}})
+				return true, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
 			before, _, err := f.db.GetPlanWorkflowState(t.Context(), parent.TaskRef)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if before.Stories[0].Wait != nil || !before.Stories[0].Blocked() {
 				t.Fatalf("missing failure debt: %+v", before)
+			}
+			original, err := f.db.GetPlanStoryCandidate(t.Context(), parent.TaskRef, before.Stories[0].EffectRequest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			originalAuthority, err := f.db.PlanStoryAuthority(t.Context(), parent.TaskRef, original.RequestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "historical Linear readback" {
+				remote.historical = true
+				for _, effect := range []struct{ outcome, detail string }{
+					{"uncertain", "content readback differs"},
+					{"conflict", "owner edits conflict with expected content revision"},
+				} {
+					if err := f.db.AppendPlanStoryEffect(t.Context(), store.PlanStoryEffect{Parent: parent.TaskRef, RequestID: original.RequestID, Phase: "update", Outcome: effect.outcome, IssueID: 2000, IssueNumber: 200, Detail: effect.detail}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				f.forge.mu.Lock()
+				rs := f.forge.state(testOwnerName, testRepoName)
+				for i := range rs.issues {
+					if rs.issues[i].Number == 200 {
+						issue := &rs.issues[i]
+						lines := strings.Split(issue.Body, "\n")
+						for j, line := range lines {
+							if line != "" && !strings.HasPrefix(line, "<!--") {
+								lines[j] += " "
+							}
+						}
+						issue.Body = strings.Join(lines, "\n")
+					}
+				}
+				f.forge.mu.Unlock()
+			}
+			if scenario == "unknown outcome" {
+				f.forge.mu.Lock()
+				rs := f.forge.state(testOwnerName, testRepoName)
+				for i := range rs.issues {
+					if rs.issues[i].Number == 200 {
+						issue := &rs.issues[i]
+						issue.Body = strings.ReplaceAll(issue.Body, "Scope unclear", "Owner edited scope")
+					}
+				}
+				f.forge.mu.Unlock()
 			}
 			remote.lose = false
 			f.forge.addComment(200, 60, owner(), body)
@@ -785,7 +849,28 @@ func TestPlanFailureDaemon_OwnerReplyRunsFreshStoryDraft(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if !reflect.DeepEqual(before.Stories[1], after.Stories[1]) {
+				t.Fatal("retry changed sibling state or approvals")
+			}
+			retained, err := f.db.GetPlanStoryCandidate(t.Context(), parent.TaskRef, original.RequestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			retainedAuthority, err := f.db.PlanStoryAuthority(t.Context(), parent.TaskRef, original.RequestID)
+			if err != nil || !reflect.DeepEqual(original, retained) || originalAuthority != retainedAuthority {
+				t.Fatalf("original request or authority changed: %v", err)
+			}
 			item := after.Stories[0]
+			if scenario == "unknown outcome" {
+				if calls != 1 || remote.updates != 1 || !item.Blocked() || storyWatermark(f, 200) < 60 || len(item.Approvals) != 0 {
+					t.Fatalf("unresolved reply not refused safely: calls=%d state=%+v logs=%s", calls, after, f.logs)
+				}
+				explanation, err := f.db.PlanReplyExplanation(t.Context(), child.TaskRef, 60)
+				if err != nil || !strings.Contains(explanation.Reason, "owner edits") {
+					t.Fatalf("missing retained reason: %+v %v", explanation, err)
+				}
+				return
+			}
 			if calls != 2 || len(attempts) != 2 || attempts[0] == attempts[1] || item.Blocked() || item.Wait == nil || item.Wait.Kind != "review" || item.Candidate == before.Stories[0].Candidate || item.EffectRequest == before.Stories[0].EffectRequest || item.Draft.Problem != body || len(item.Approvals) != 0 || storyWatermark(f, 200) < 60 || remote.updates != 2 {
 				t.Fatalf("retry did not publish one fresh draft: calls=%d updates=%d state=%+v logs=%s", calls, remote.updates, after, f.logs)
 			}
@@ -802,6 +887,74 @@ func TestPlanFailureDaemon_OwnerReplyRunsFreshStoryDraft(t *testing.T) {
 			}
 			if reviews != 1 {
 				t.Fatalf("fresh reviews=%d", reviews)
+			}
+		})
+	}
+}
+
+func TestPlanReplyDeferredFateEveryAttempt(t *testing.T) {
+	for _, kind := range []string{"no run", "locked", "transport", "unconfirmed explanation"} {
+		t.Run(kind, func(t *testing.T) {
+			calls := 0
+			f, _ := planChildFixture(t, func(_ context.Context, _ *fixture, req turn.Request) (turn.Result, error) {
+				calls++
+				switch kind {
+				case "locked":
+					return turn.Result{Disposition: turn.DispositionLocked}, nil
+				case "transport":
+					return turn.Result{}, errors.New("test transport unavailable")
+				case "unconfirmed explanation":
+					return turn.Result{}, &turn.PlanReplyRefusal{Reason: "Retained test effect is unresolved", Err: errors.New("unresolved")}
+				default:
+					return turn.Result{ResearchGraph: true, SessionID: req.SessionID, TriggerCommentID: req.Trigger.CommentID}, nil
+				}
+			})
+			if kind == "unconfirmed explanation" {
+				f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
+					http.Error(w, "lost reply", http.StatusInternalServerError)
+					return true
+				}
+			}
+			f.forge.addComment(200, 60, owner(), "Retry")
+			for range 3 {
+				start := len(f.logs.String())
+				f.clock.advance(time.Hour)
+				f.settle()
+				if storyWatermark(f, 200) >= 60 {
+					t.Fatal("pending reply consumed")
+				}
+				logs := f.logs.String()[start:]
+				found := false
+				for _, line := range strings.Split(logs, "\n") {
+					if strings.Contains(line, "fate=deferred") && strings.Contains(line, "comment_id=60") && strings.Contains(line, "session_id=") && strings.Contains(line, "reason=") {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("missing per-attempt pending fate: %s", logs)
+				}
+			}
+			if kind == "unconfirmed explanation" {
+				if calls != 1 {
+					t.Fatalf("refusal re-executed %d times", calls)
+				}
+				explanation, err := f.db.PlanReplyExplanation(t.Context(), f.sessionOf(200).TaskRef, 60)
+				if err != nil {
+					t.Fatal(err)
+				}
+				delivery, err := f.db.GetReportDelivery(t.Context(), explanation.DeliveryKey)
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.forge.onPostComment = nil
+				f.forge.addCommentAt(200, 900060, bot(), delivery.Body, f.clock.Now())
+				for range 2 {
+					f.clock.advance(time.Hour)
+					f.settle()
+				}
+				if storyWatermark(f, 200) < 60 || calls != 1 {
+					t.Fatalf("confirmed explanation not consumed once: calls=%d logs=%s", calls, f.logs)
+				}
 			}
 		})
 	}

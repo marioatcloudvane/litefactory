@@ -59,3 +59,43 @@ func TestConversationFenceRefusesProcessBeforeLaunch(t *testing.T) {
 		t.Fatalf("stale worker launched provider: %v", err)
 	}
 }
+
+func TestConversationFailureStartBoundary(t *testing.T) {
+	for _, mode := range []string{"fence", "start", "wait"} {
+		t.Run(mode, func(t *testing.T) {
+			state := conversationTestDirectory(t)
+			scratch := state
+			sentinel := errors.New("fence refused")
+			request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "model", StateDirectory: state, Prompt: "owner", Session: agent.SessionRef{Ref: "session"}, OnSession: func(context.Context, agent.SessionRef) error { return nil }, BeforeLaunch: func(context.Context) error {
+				if mode == "fence" {
+					return sentinel
+				}
+				return nil
+			}}
+			if mode == "start" {
+				scratch = filepath.Join(state, "missing")
+			}
+			err := RunConversationProcess(t.Context(), "/bin/sh", []string{"-c", "exit 17"}, nil, request, scratch, time.Second, func([]byte) {})
+			var failure *agent.ConversationFailure
+			if !errors.As(err, &failure) || failure.NoProcessStarted != (mode != "wait") {
+				t.Fatalf("wrong start evidence: %v %#v", err, failure)
+			}
+			switch mode {
+			case "fence":
+				if failure.Phase != "before_launch" || !errors.Is(err, sentinel) {
+					t.Fatalf("lost fence: %#v", failure)
+				}
+			case "start":
+				var pathErr *os.PathError
+				if failure.Phase != "launch" || !errors.As(err, &pathErr) {
+					t.Fatalf("lost launch cause: %#v", failure)
+				}
+			case "wait":
+				var exitErr *exec.ExitError
+				if failure.Phase != "process_wait" || !errors.As(err, &exitErr) {
+					t.Fatalf("lost wait cause: %#v", failure)
+				}
+			}
+		})
+	}
+}

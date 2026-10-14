@@ -18,6 +18,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/webhook"
@@ -192,5 +193,30 @@ func TestChatWithUnresolvableTokenStartsLaterWithoutRestart(t *testing.T) {
 	}
 	if strings.Contains(w.logs.String(), secret) {
 		t.Fatal("the bot token was logged")
+	}
+}
+
+func TestChatWarnsWhenNoticesShareConversationChannel(t *testing.T) {
+	for _, channel := range []string{"", "3", "4"} {
+		t.Run("notice_"+channel, func(t *testing.T) {
+			w := newWebhookFixture(t)
+			public, _, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.daemon = w.newDaemon(daemon.Options{
+				Logger:  slog.New(slog.NewJSONHandler(w.logs, nil)),
+				Webhook: &daemon.WebhookOptions{Listener: w.ln, Secrets: secrets.Resolver{Keychain: w.spy.lookup}, Now: w.clock.peek},
+				Chat:    &daemon.ChatOptions{Settings: config.DiscordChat{ApplicationID: "1", PublicKey: hex.EncodeToString(public), OwnerID: "2", ChannelIDs: []string{"3"}, NoticeChannelID: channel}, Token: secrets.NewToken("fixture-token"), Conversations: &messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3"}}}},
+			})
+			records := dispatchRecords(t, w.logs, "Discord notices and conversation share a channel; separate notices may interleave with replies")
+			if channel == "3" {
+				if len(records) != 1 || records[0]["channel"] != "3" || records[0]["level"] != "WARN" {
+					t.Fatalf("warning missing: %v", records)
+				}
+			} else if len(records) != 0 {
+				t.Fatalf("unexpected warning: %v", records)
+			}
+		})
 	}
 }

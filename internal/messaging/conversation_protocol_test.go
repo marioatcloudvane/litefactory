@@ -18,7 +18,7 @@ func TestConversationEnvelopeBoundaries(t *testing.T) {
 		name, raw string
 		valid     bool
 	}{
-		{"blocks", `{"version":1,"kind":"answer","blocks":[{"text":"seven widgets","fact_refs":["current"]},{"fact_refs":["current"]}]}`, true},
+		{"blocks", `{"version":1,"kind":"answer","blocks":[{"text":"seven widgets","fact_refs":["current"]},{"fact_refs":["current"]}]}`, false},
 		{"mixed answer", `{"version":1,"kind":"answer","text":"a","blocks":[{"text":"b"}]}`, false},
 		{"empty block", `{"version":1,"kind":"answer","blocks":[{}]}`, false},
 		{"model support", `{"version":1,"kind":"answer","blocks":[{"text":"a","supported":true}]}`, false},

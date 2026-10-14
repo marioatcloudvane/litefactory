@@ -177,6 +177,25 @@ func (db *DB) ApplyPlanStoryDraft(ctx context.Context, d PlanStoryDraft, expecte
 	})
 }
 
+// RebasePlanStoryRevision moves a bound story's expected content revision to the
+// one now observed remotely, only if it is still the expected one. The owner's
+// retry of a story held by an owner-edit conflict uses it: the remote content is
+// then the factory's own earlier, unrecorded write, not an owner edit.
+func (db *DB) RebasePlanStoryRevision(ctx context.Context, parent, key, expected, revision string) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE plan_story_drafts SET revision=? WHERE parent=? AND story_key=? AND revision=? AND retired=0`, revision, parent, key, expected)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errors.New("plan story revision changed before rebase")
+	}
+	return nil
+}
+
 // HasPlanStoryMutation distinguishes a retained mutation intent from failures
 // during preflight observation; recovery never interprets absence as execution.
 func (db *DB) HasPlanStoryMutation(ctx context.Context, parent, request, phase string) (bool, error) {

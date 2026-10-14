@@ -1,8 +1,10 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,7 +30,7 @@ if [ "$1" = --help ]; then
  if [ "$mode" = unsupported ]; then echo '--resume'; else echo '--tools --safe-mode --restricted --disable-slash-commands --strict-mcp-config --setting-sources --session-id --resume --system-prompt --settings --agents --no-chrome'; fi
  exit 0
 fi
-if [ "$1" = --version ]; then echo '2.1.296 (Claude Code)'; exit 0; fi
+if [ "$1" = --version ]; then echo '2.1.299 (Claude Code)'; exit 0; fi
 [ -z "$GH_TOKEN$LF_HOME$ANTHROPIC_API_KEY" ] || exit 90
 printf '%s\n' "$@" > "$CLAUDE_CONFIG_DIR/launch.args"
 printf 'launch\n' >> "$CLAUDE_CONFIG_DIR/launch.count"
@@ -42,10 +44,12 @@ if [ -n "$resume" ] && [ "$mode" = missing ]; then exit 8; fi
 /bin/cat > "$CLAUDE_CONFIG_DIR/prompt"
 printf 'retained context\n' > "$CLAUDE_CONFIG_DIR/native-state"
 case "$mode" in
- tools) printf '{"type":"system","subtype":"init","session_id":"%s","tools":["Bash"],"mcp_servers":[],"claude_code_version":"2.1.296"}\n' "$sid";;
- omitted) printf '{"type":"system","subtype":"init","session_id":"%s","mcp_servers":[],"claude_code_version":"2.1.296"}\n' "$sid";;
- mcp) printf '{"type":"system","subtype":"init","session_id":"%s","tools":[],"mcp_servers":[{"name":"ambient"}],"claude_code_version":"2.1.296"}\n' "$sid";;
- *) printf '{"type":"system","subtype":"init","session_id":"%s","tools":[],"mcp_servers":[],"claude_code_version":"2.1.296"}\n' "$sid";;
+ tool_use) printf '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}\n';;
+ missing_mcp) printf '{"type":"system","subtype":"init","session_id":"%s","tools":[],"claude_code_version":"2.1.299"}\n' "$sid";;
+ tools) printf '{"type":"system","subtype":"init","session_id":"%s","tools":["Bash"],"mcp_servers":[],"claude_code_version":"2.1.299"}\n' "$sid";;
+ omitted) printf '{"type":"system","subtype":"init","session_id":"%s","mcp_servers":[],"claude_code_version":"2.1.299"}\n' "$sid";;
+ mcp) printf '{"type":"system","subtype":"init","session_id":"%s","tools":[],"mcp_servers":[{"name":"ambient"}],"claude_code_version":"2.1.299"}\n' "$sid";;
+ *) printf '{"type":"system","subtype":"init","session_id":"%s","tools":[],"mcp_servers":[],"claude_code_version":"2.1.299"}\n' "$sid";;
 esac
 [ "$mode" != interrupt ] || /bin/sleep 30
 printf '{"type":"result","session_id":"%s","result":"recorded answer","is_error":false}\n' "$sid"
@@ -59,7 +63,7 @@ printf '{"type":"result","session_id":"%s","result":"recorded answer","is_error"
 }
 
 func TestRecordedClaudeIsolationRefusals(t *testing.T) {
-	for _, mode := range []string{"unsupported", "tools", "omitted", "mcp"} {
+	for _, mode := range []string{"unsupported", "tools", "omitted", "mcp", "missing_mcp", "tool_use"} {
 		t.Run(mode, func(t *testing.T) {
 			runner, request := recordedClaudeConversation(t, mode)
 			identities := 0
@@ -140,5 +144,41 @@ func TestRecordedClaudeInterruptionRetainsNativeState(t *testing.T) {
 	}
 	if data, e := os.ReadFile(filepath.Join(request.StateDirectory, "home", "native-state")); e != nil || string(data) != "retained context\n" {
 		t.Fatalf("native state lost: %q %v", data, e)
+	}
+}
+
+func TestRecordedClaudePreStartFailures(t *testing.T) {
+	for _, mode := range []string{"validation", "isolation_probe", "directory_preparation"} {
+		t.Run(mode, func(t *testing.T) {
+			runner, request := recordedClaudeConversation(t, "normal")
+			switch mode {
+			case "validation":
+				request.Model = ""
+			case "isolation_probe":
+				runner.binary.Path += "-missing"
+			case "directory_preparation":
+				request.StateDirectory = filepath.Join(request.StateDirectory, "recorded-provider", "child")
+			}
+			_, err := runner.RunConversation(t.Context(), request)
+			var failure *agent.ConversationFailure
+			if !errors.As(err, &failure) || failure.Phase != mode || !failure.NoProcessStarted {
+				t.Fatalf("lost pre-start evidence: %v %#v", err, failure)
+			}
+		})
+	}
+}
+
+func TestRecordedClaudePatchVersionEvidence(t *testing.T) {
+	runner, request := recordedClaudeConversation(t, "normal")
+	var logs bytes.Buffer
+	runner.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	result, err := runner.RunConversation(t.Context(), request)
+	if err != nil || result.Session.Resume != request.Session.Ref {
+		t.Fatalf("patch rejected: %+v %v", result, err)
+	}
+	for _, want := range []string{"phase=probe version=2.1.299", "phase=init version=2.1.299"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Fatalf("missing version evidence %s: %s", want, logs.String())
+		}
 	}
 }

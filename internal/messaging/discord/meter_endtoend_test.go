@@ -88,6 +88,12 @@ func TestMeterOwnerJourney(t *testing.T) {
 			}
 		}
 	}
+	if _, err := db.ReservePlanStory(ctx, "github:acme/one#1", "child"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.BindPlanStoryIssue(ctx, "github:acme/one#1", "child", 2, 2); err != nil {
+		t.Fatal(err)
+	}
 	at := time.Now().UTC().Truncate(time.Second).Add(time.Minute)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -173,6 +179,12 @@ func TestMeterOwnerJourney(t *testing.T) {
 		want := fmt.Sprintf("input_uncached: %d; known subtotal: %d", *view.Summary.Tokens.InputUncached, *view.Summary.KnownTokens.InputUncached)
 		if !strings.Contains(reply, want) || !strings.Contains(strings.ToLower(reply), "complete local estimate") || !strings.Contains(reply, "daemon helper overhead excluded") {
 			t.Fatalf("shared CLI totals or coverage missing: %s; want %s", reply, want)
+		}
+	}
+	family := command("meter", text("project", "acme/one"), integer("task", 1))
+	for _, want := range []string{"input_uncached: 36;", "#1: Complete local estimate USD:", "#2: Complete local estimate USD:"} {
+		if !strings.Contains(family, want) {
+			t.Fatalf("family breakdown missing %q: %s", want, family)
 		}
 	}
 	filtered := command("meter", text("project", "acme/one"), text("mode", "implement"), text("agent", "codex"), text("model", model), text("from", "2000-01-01"), text("to", "2100-01-01"))

@@ -18,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/meterview"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 func TestRelativeBound(t *testing.T) {
@@ -148,22 +149,18 @@ func TestNaturalMeterResolvesYesterdayAndStatesRange(t *testing.T) {
 	}
 }
 
-func TestNaturalSingleProjectIsDefault(t *testing.T) {
+func TestNaturalSingleProjectDoesNotGuessUnknownTask(t *testing.T) {
 	at := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 	args, replies := naturalRead(t, []string{"app"}, "how much did we spend on feature 631?", spanInterpreter{command: "meter", values: [][2]string{{"task", "631"}}}, at)
-	if args["project"] != "acme/app" || args["task"] != "631" {
-		t.Fatalf("meter task project not defaulted: %v replies=%v", args, replies)
-	}
-	args, replies = naturalRead(t, []string{"app"}, "Is there an open research question on issue 12?", spanInterpreter{command: "question", values: [][2]string{{"issue", "12"}}}, at)
-	if args["project"] != "acme/app" || strings.Contains(strings.Join(replies, "\n"), "name a project") {
-		t.Fatalf("question project not defaulted: %v replies=%v", args, replies)
+	if args != nil || !strings.Contains(strings.Join(replies, "\n"), "No known task") {
+		t.Fatalf("unknown task guessed: %v replies=%v", args, replies)
 	}
 }
 
 func TestNaturalSeveralProjectsAsk(t *testing.T) {
 	at := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 	args, replies := naturalRead(t, []string{"app", "web"}, "Is there an open research question on issue 12?", spanInterpreter{command: "question", values: [][2]string{{"issue", "12"}}}, at)
-	if args != nil || len(replies) != 1 || !strings.Contains(replies[0], "Please name a project. Registered projects: acme/app, acme/web") {
+	if args != nil || len(replies) != 1 || !strings.Contains(replies[0], "No known task matches that number") {
 		t.Fatalf("several projects did not ask: %v replies=%v", args, replies)
 	}
 	args, _ = naturalRead(t, []string{"app", "web"}, "Is there an open research question on web issue 12?", spanInterpreter{command: "question", values: [][2]string{{"project", "web"}, {"issue", "12"}}}, at)
@@ -469,7 +466,7 @@ func TestNaturalIssueProjectInference(t *testing.T) {
 	}{
 		{"exact with empty", nil, []int{649}, "", "litefactory"},
 		{"exact with other tasks", []int{723}, []int{649}, "", "litefactory"},
-		{"single populated", nil, []int{726}, "", "litefactory"},
+		{"single populated", nil, []int{726}, "", ""},
 		{"duplicate", []int{649}, []int{649}, "", ""},
 		{"no tasks", nil, nil, "", ""},
 		{"explicit wins", []int{649}, []int{726}, "litefactory!", "litefactory"},
@@ -654,6 +651,18 @@ func TestStatusListsRunningAndOwnerDependentTasks(t *testing.T) {
 			}
 		}
 	}
+	// Relevant owner waits must survive the old newest-100 activity cutoff.
+	for n := 1000; n < 1105; n++ {
+		if _, err := db.GetOrCreateSession(ctx, repo, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, n := range []int{650, 651, 652} {
+		text, err := s.summary(ctx, Message{Arguments: map[string]string{"project": "acme/litefactory", "issue": strconv.Itoa(n)}}, at)
+		if err != nil || !strings.Contains(text, "#"+strconv.Itoa(n)+":") || !strings.Contains(text, "Waiting on: owner") {
+			t.Fatalf("selected wait: %s %v", text, err)
+		}
+	}
 	question := "Which tasks are running at the moment, and which ones are waiting on me?"
 	request := InterpretationRequest{Turns: []DialogueTurn{{SourceID: "101", Text: question}}, Commands: s.NaturalCommands()}
 	_, inv, err := DecodeInterpretation([]byte(`{"version":1,"kind":"propose","command":"health","arguments":[]}`), request)
@@ -670,7 +679,7 @@ func TestStatusListsRunningAndOwnerDependentTasks(t *testing.T) {
 		}
 	}
 	text = strings.Join(send.texts, "\n")
-	for _, want := range []string{"acme/litefactory #649: running", "#650: waiting on owner", "implement review", "#651: waiting on owner", "implement question", "#652: parked, waiting on owner", "Choose deployment target"} {
+	for _, want := range []string{"acme/litefactory#649: running", "#650: idle", "Waiting on: owner — implement review", "#651: idle", "Waiting on: owner — implement question", "#652: idle", "Waiting on: owner — parked", "Choose deployment target"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q: %s", want, text)
 		}
@@ -1022,5 +1031,145 @@ func TestProposalConfirmationAuthority(t *testing.T) {
 				t.Fatalf("confirmation reached interpreter: %v", c.requests)
 			}
 		})
+	}
+}
+
+func TestNaturalExactNumberBeyondActivityWindow(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	for _, name := range []string{"litefactory", "cockpit"} {
+		repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "cockpit" {
+			code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: repo.Slug(), CredentialSource: "env", CredentialEnv: "TEST_TOKEN", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, BaseBranch: "main"}, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			linear, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team/project", CredentialSource: "env", CredentialEnv: "TEST_TOKEN", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"plan"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: linear.Origin, RemoteID: "MAR-614"}, Locator: ticket.Locator{Provider: ticket.Linear, Origin: linear.Origin, Container: linear.Destination, Key: "MAR-614"}}
+			if _, err := db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: linear.ID, Ref: ref, Enabled: true, Provenance: "explicit"}); err != nil {
+				t.Fatal(err)
+			}
+			appointment, err := db.SetApprover(ctx, store.ApproverAppointment{RepoID: repo.ID, Actor: ticket.Identity{Provider: ticket.Linear, Origin: linear.Origin, RemoteID: "owner"}, Handle: "owner", VerifiedAt: time.Now(), Provenance: "explicit"}, linear.Revision, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.UpsertIdentity(ctx, store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 7, Handle: "owner", Source: store.SourceGH}); err != nil {
+				t.Fatal(err)
+			}
+			// Even a legacy numeric alias must not turn a Linear key into GitHub #614.
+			if _, err := db.AdmitSessionWithPublishers(ctx, repo, ref, code.Revision, linear.Revision, store.PublishingActor{ID: 42, Login: "linear-bot"}, store.PublishingActor{ID: 99, Login: "code-bot"}, store.TaskRef("github", "acme", "cockpit", 614), appointment.Revision, "code-id", "project"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if name == "litefactory" {
+			if _, err := db.GetOrCreateSession(ctx, repo, 614); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for n := 1000; n < 1105; n++ {
+			if _, err := db.GetOrCreateSession(ctx, repo, n); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	s := New(db, "discord", "7", nil, nil, nil)
+	for _, args := range []map[string]string{{"question": "where is #614?"}, {"task": "614"}, {"issue": "614"}} {
+		resolution, err := s.resolveNaturalProject(ctx, args)
+		if err != nil || resolution.Repository.Name != "litefactory" || resolution.Refusal != "" {
+			t.Fatalf("exact inference: %+v %v", resolution, err)
+		}
+	}
+	for _, args := range []map[string]string{{"task": "999"}, {"question": "where is MAR-614?"}} {
+		resolution, err := s.resolveNaturalProject(ctx, args)
+		if err != nil || resolution.Refusal == "" {
+			t.Fatalf("guessed: %+v %v", resolution, err)
+		}
+	}
+}
+
+func TestStatusSelectedTaskBeyondRecentWindow(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := db.GetOrCreateSession(ctx, repo, 614)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1000; n < 1105; n++ {
+		if _, err := db.GetOrCreateSession(ctx, repo, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := New(db, "discord", "7", nil, nil, FactoryStatus{DB: db})
+	text, err := s.summary(ctx, Message{Arguments: map[string]string{"task": "614"}}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"acme/litefactory#614: idle", "Mode: unavailable", "Stage: unavailable", "Waiting on: none recorded", "Recent runs (newest first, limit 3): unavailable"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q: %s", want, text)
+		}
+	}
+	segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "status", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "bug", Agent: "codex", TriggerCommentID: 1, StartedAt: at, LogPath: func(int) string { return "/tmp/status-fixture" }}); err != nil {
+		t.Fatal(err)
+	}
+	text, err = s.summary(ctx, Message{Arguments: map[string]string{"project": "acme/litefactory", "issue": "614"}}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"#614: running", "Mode: bug", "1: running (bug)"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q: %s", want, text)
+		}
+	}
+	text = s.taskSummary(ctx)
+	if !strings.Contains(text, "#614: running") || !strings.Contains(text, "Scope:") || strings.Contains(text, "left out") {
+		t.Fatalf("old task omitted: %s", text)
+	}
+}
+
+func TestStatusDisclosesOutputOmissions(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1; n <= 105; n++ {
+		session, err := db.GetOrCreateSession(ctx, repo, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "status", "codex")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: "codex", TriggerCommentID: 1, StartedAt: at, LogPath: func(int) string { return "/tmp/status-fixture" }}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := New(db, "discord", "7", nil, nil, FactoryStatus{DB: db})
+	text := s.taskSummary(ctx)
+	if !strings.Contains(text, "additional entries left out") || !strings.Contains(text, "Scope:") {
+		t.Fatalf("undisclosed truncation: %s", text)
+	}
+	selected, err := s.summary(ctx, Message{Arguments: map[string]string{"task": "105"}}, at)
+	if err != nil || !strings.Contains(selected, "#105: running") {
+		t.Fatalf("selected lookup truncated: %s %v", selected, err)
 	}
 }
