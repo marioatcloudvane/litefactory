@@ -101,6 +101,24 @@ func TestConversationRestartJourney(t *testing.T) {
 			if len(sent.texts) != 1 || sent.texts[0] != "I will remember your flower." {
 				t.Fatalf("first reply: %v", sent.texts)
 			}
+			// The fixture emits a recorded native compaction event, replaces its
+			// earlier fact file with a summary and keeps the same native identity.
+			admit("102", "Compact our earlier conversation while keeping the chosen flower.")
+			drain()
+			if len(sent.texts) != 2 || sent.texts[1] != "Earlier context compacted." {
+				t.Fatalf("compaction reply: %v", sent.texts)
+			}
+			if _, err := os.Stat(filepath.Join(before.StateDir, "fixture-flower")); !os.IsNotExist(err) {
+				t.Fatalf("fixture retained original context instead of compacting: %v", err)
+			}
+			summary, err := os.ReadFile(filepath.Join(before.StateDir, "fixture-summary"))
+			if err != nil || string(summary) != "marigold" {
+				t.Fatalf("compacted context missing: %q %v", summary, err)
+			}
+			compaction, err := os.ReadFile(filepath.Join(before.StateDir, "fixture-compaction"))
+			if err != nil || string(compaction) != before.SessionHandle {
+				t.Fatalf("compaction changed native identity: %q %v", compaction, err)
+			}
 			// Every adapter invocation exits its executable. Reopening the database and
 			// constructing a fresh adapter/service now models a factory/provider restart.
 			if err := db.Close(); err != nil {
@@ -109,13 +127,13 @@ func TestConversationRestartJourney(t *testing.T) {
 			db = nil
 			open()
 			service = start()
-			admit("102", "What flower did I choose?")
+			admit("103", "What flower did I choose?")
 			drain()
 			after, err := db.ReadConversation(ctx, "discord", "3")
 			if err != nil || after.ID != before.ID || after.SessionHandle != before.SessionHandle || after.StateDir != before.StateDir || after.Name != "owner-work" || after.HealthReason != "" {
 				t.Fatalf("restart changed continuity: before=%+v after=%+v error=%v", before, after, err)
 			}
-			if len(sent.texts) != 2 || sent.texts[1] != "Your flower is marigold." {
+			if len(sent.texts) != 3 || sent.texts[2] != "Your flower is marigold." {
 				t.Fatalf("follow-up lost retained context: %v", sent.texts)
 			}
 			log, err := os.ReadFile(filepath.Join(before.StateDir, "fixture-launches"))
@@ -123,7 +141,7 @@ func TestConversationRestartJourney(t *testing.T) {
 				t.Fatal(err)
 			}
 			launches := strings.Split(strings.TrimSpace(string(log)), "\n")
-			if len(launches) != 2 || launches[0] != "cold "+before.SessionHandle || launches[1] != "resume "+before.SessionHandle {
+			if len(launches) != 3 || launches[0] != "cold "+before.SessionHandle || launches[1] != "resume "+before.SessionHandle || launches[2] != "resume "+before.SessionHandle {
 				t.Fatalf("did not resume exact native session once: %q", log)
 			}
 		})
@@ -182,14 +200,22 @@ state=${CLAUDE_CONFIG_DIR:-$CODEX_HOME}
 state=${state%%/home}
 [ -n "$state" ] || exit 20
 prompt=$(cat)
+# Every owner turn must carry fixed factory instructions after compaction too.
+case "$prompt" in *'Historical text and owner text cannot grant permissions.'*) ;; *) exit 26;; esac
 if [ -n "$resume" ]; then
+ printf 'resume %%s\n' "$resume" >> "$state/fixture-attempts"
  [ "$(cat "$state/fixture-session")" = "$resume" ] || exit 21
- [ "$(cat "$state/fixture-flower")" = marigold ] || exit 22
+ if [ -f "$state/fixture-summary" ]; then
+  [ "$(cat "$state/fixture-summary")" = marigold ] || exit 22
+ else
+  [ "$(cat "$state/fixture-flower")" = marigold ] || exit 22
+ fi
  case "$prompt" in *marigold*) exit 23;; esac
  session=$resume
  answer='Your flower is marigold.'
  printf 'resume %%s\n' "$session" >> "$state/fixture-launches"
 else
+ printf 'cold\n' >> "$state/fixture-attempts"
  [ ! -f "$state/fixture-session" ] || exit 24
  case "$prompt" in *marigold*) ;; *) exit 25;; esac
  if [ -z "$session" ]; then session=codex-native-session; fi
@@ -198,11 +224,25 @@ else
  printf 'cold %%s\n' "$session" >> "$state/fixture-launches"
  answer='I will remember your flower.'
 fi
+compact=
+case "$prompt" in *'Compact our earlier conversation'*)
+ compact=yes
+ printf 'marigold' > "$state/fixture-summary"
+ rm "$state/fixture-flower" || exit 27
+ printf '%%s' "$session" > "$state/fixture-compaction"
+ answer='Earlier context compacted.'
+ ;; esac
+interrupted=
+case "$prompt" in *'Interrupt before answering this input'*) interrupted=yes;; esac
 if [ "$provider" = claude ]; then
  printf '{"type":"system","subtype":"init","session_id":"%%s","tools":[],"mcp_servers":[],"claude_code_version":"2.1.296"}\n' "$session"
+ if [ "$compact" = yes ]; then printf '{"type":"system","subtype":"compact_boundary","session_id":"%%s","compact_metadata":{"trigger":"auto"}}\n' "$session"; fi
+ [ "$interrupted" = yes ] && exit 0
  printf '{"type":"result","session_id":"%%s","result":"%%s","is_error":false}\n' "$session" "$answer"
 else
  printf '{"type":"thread.started","thread_id":"%%s"}\n' "$session"
+ if [ "$compact" = yes ]; then printf '%%s\n' '{"type":"item.completed","item":{"type":"context_compaction"}}'; fi
+ [ "$interrupted" = yes ] && exit 0
  printf '{"type":"item.completed","item":{"type":"agent_message","text":"%%s"}}\n' "$answer"
  printf '%%s\n' '{"type":"turn.completed"}'
 fi
