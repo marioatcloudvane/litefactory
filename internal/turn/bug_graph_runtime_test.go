@@ -630,3 +630,137 @@ func TestGraphBugDeliveryConcreteConflictAndOwnerWait(t *testing.T) {
 		})
 	}
 }
+
+// Exercise the concrete runtime precheck across two exhausted revalidations.
+func TestGraphBugRevalidationExhaustionRepeatsAfterOwnerContinuation(t *testing.T) {
+	f, h, finalReq, deliveryForge, _ := graphFinalizationFixture(t)
+	ctx, at := t.Context(), f.opts.MCP.Now()
+	questionForge := newFakeForge(t)
+	f.opts.ResearchReporter = newReporter(t, f, questionForge, nil)
+	permissionCalls := 0
+	dispatchReached := errors.New("automatic fixer reached preparation")
+	runtime := &BugRuntime{opts: f.opts, cfg: BugRuntimeConfig{OwnerID: 7, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
+		permissionCalls++
+		return BugRolePermissions{}, dispatchReached
+	}}}
+	request := Request{SessionID: f.session.ID, Workflow: agent.WorkflowBug}
+	syncFinal := func() {
+		t.Helper()
+		h.SyncBase = func(context.Context, Options, ActivityRequest, GraphDeliveryBinding, string) (syncBaseOutput, error) {
+			return syncBaseOutput{Result: "synced", Commit: "new-head"}, nil
+		}
+		out, err := h.Execute(ctx, f.opts, finalReq)
+		mustProgress(t, err)
+		if out.Outcome != "revalidate" {
+			t.Fatalf("finalization: %+v", out)
+		}
+		mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, finalReq.NodeAttemptID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "revalidate", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: out.Output}}, Transition: &store.GraphTransition{InstanceID: finalReq.InstanceID, FromNode: "finalization", ToNode: "fixer", OnOutcome: "revalidate", At: at}}))
+	}
+	startFinal := func() {
+		t.Helper()
+		a, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: finalReq.InstanceID, Node: "finalization", Limit: 16, StartedAt: at})
+		mustProgress(t, err)
+		finalReq.NodeAttemptID = a.ID
+	}
+	// Below limit the runtime still reaches automatic fixer preparation.
+	for range 2 {
+		syncFinal()
+		_, err := runtime.executeGraph(ctx, request, Result{Session: f.session})
+		if !errors.Is(err, dispatchReached) {
+			t.Fatalf("automatic path: %v", err)
+		}
+		wait, err := f.db.GetGraphOwnerWait(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if wait.State != "allocated" {
+			t.Fatalf("new owner gate below limit: %+v", wait)
+		}
+		completeDeliveryRecheck(t, f, finalReq.InstanceID, deliveryForge.binding.Eligibility, "succeeded")
+		startFinal()
+	}
+	syncFinal()
+	previousKey := ""
+	for occurrence := 0; occurrence < 2; occurrence++ {
+		before, err := f.db.ListGraphNodeAttempts(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if before[len(before)-2].Attempt != 3+occurrence {
+			t.Fatalf("wrong fixer budget: %+v", before)
+		}
+		// Enter through an ordinary recovered captured dispatch, not a direct
+		// untriggered runtime call. Repeated reconciliation creates one intent.
+		settleStrandedFixtureRuns(t, f, finalReq.InstanceID)
+		candidates, err := f.db.ListStrandedGraphDispatches(ctx)
+		mustProgress(t, err)
+		if len(candidates) != 1 {
+			t.Fatalf("stranded=%+v", candidates)
+		}
+		mustProgress(t, ValidateGraphDispatchRecovery(ctx, f.db, candidates[0]))
+		for range 2 {
+			mustProgress(t, f.db.ReconcileStrandedGraphDispatch(ctx, candidates[0], at))
+		}
+		due, err := f.db.ListDueGraphDispatches(ctx, at, 10)
+		mustProgress(t, err)
+		if len(due) != 1 {
+			t.Fatalf("due=%+v", due)
+		}
+		dispatch, ok, err := f.db.ReserveGraphDispatch(ctx, due[0].ID, at)
+		mustProgress(t, err)
+		if !ok {
+			t.Fatal("recovered dispatch refused")
+		}
+		request.Trigger.CommentID = dispatch.TriggerID()
+		for range 2 {
+			_, err = runtime.executeGraph(ctx, request, Result{Session: f.session})
+			mustProgress(t, err)
+		}
+		request.Trigger.CommentID = 0
+		after, err := f.db.ListGraphNodeAttempts(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if len(before) != len(after) || permissionCalls != 2 {
+			t.Fatal("exhaustion dispatched automatic work")
+		}
+		wait, err := f.db.GetGraphOwnerWait(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if wait.State != "waiting" || wait.SourceAttemptID != 0 || wait.DeliveryKey == previousKey {
+			t.Fatalf("lost fresh owner wait: %+v", wait)
+		}
+		previousKey = wait.DeliveryKey
+		delivery, err := f.db.GetReportDelivery(ctx, wait.DeliveryKey)
+		mustProgress(t, err)
+		for _, want := range []string{"passed its prior checks", "main was merged", "Reply to rerun", "one extra bounded fixer run", fmt.Sprintf("Latest completed attempt: %d", finalReq.NodeAttemptID)} {
+			if !strings.Contains(delivery.Body, want) {
+				t.Fatalf("missing %q in %s", want, delivery.Body)
+			}
+		}
+		if questionForge.attemptCount() != occurrence+1 {
+			t.Fatal("duplicate or missing notice")
+		}
+		if _, err := CurrentGraphBugRepairEligibility(ctx, f.db, finalReq.InstanceID); err == nil {
+			t.Fatal("stale success remained eligible")
+		}
+		if deliveryForge.merges != 0 || deliveryForge.closes != 0 {
+			t.Fatal("unchecked source delivered")
+		}
+		if occurrence == 1 {
+			break
+		}
+		reply := store.GraphOwnerReply{InstanceID: finalReq.InstanceID, OwnerID: 7, AuthorID: 7, CommentID: delivery.CommentID + 1000, QuestionCommentID: delivery.CommentID, TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug", DeliveryKey: wait.DeliveryKey, Body: "Rerun checks", At: at}
+		_, err = AdmitGraphBugOwnerReply(ctx, f.db, reply)
+		mustProgress(t, err)
+		_, err = runtime.executeGraph(ctx, request, Result{Session: f.session})
+		if !errors.Is(err, dispatchReached) {
+			t.Fatalf("claimed continuation: %v", err)
+		}
+		permissionCalls-- // Only the two automatic preparations count above.
+		completeDeliveryRecheck(t, f, finalReq.InstanceID, deliveryForge.binding.Eligibility, "succeeded")
+		wait, err = f.db.GetGraphOwnerWait(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if wait.State != "allocated" || wait.ContinuationAttemptID == 0 {
+			t.Fatalf("reply not consumed: %+v", wait)
+		}
+		if _, err = AdmitGraphBugOwnerReply(ctx, f.db, reply); err == nil {
+			t.Fatal("reply reused")
+		}
+		startFinal()
+		syncFinal()
+	}
+}
