@@ -150,3 +150,68 @@ func TestBuildCompletedRunReportsCompleteAndInterruptedRunIsNamed(t *testing.T) 
 		t.Fatalf("interrupted attempt not named:\n%s", out)
 	}
 }
+
+func TestManagedParentIssueCosts(t *testing.T) {
+	f := newMeterViewFixture(t)
+	ctx := t.Context()
+	repos, err := f.db.ListRepos(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := repos[0]
+	for _, issue := range []int{674, 809, 810, 811} {
+		session, err := f.db.GetOrCreateSession(ctx, repo, issue)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seg, err := f.db.GetOrCreateSegment(ctx, session.ID, 1, "session", store.AgentClaude)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: seg.ID, Mode: store.ModeSpike, Agent: store.AgentClaude, TriggerCommentID: int64(issue), LogPath: func(n int) string { return fmt.Sprintf("/logs/%d", n) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, err := f.db.StartMeterAttempt(ctx, run.ID, "claude")
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.invocation(a.ID, "root", "")
+		f.usage(a.ID, "root", "m", "root-model", 10, 2)
+		f.finish(a.ID, "success", agent.UsageCoverage{Status: agent.CollectionComplete})
+		if issue == 809 || issue == 810 {
+			key := fmt.Sprint(issue)
+			if _, err := f.db.ReservePlanStory(ctx, "github:acme/api#674", key); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.db.BindPlanStoryIssue(ctx, "github:acme/api#674", key, int64(issue), issue); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	v, err := Build(ctx, f.db, store.MeterFilter{RepoID: repo.ID, Issue: 674}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Issues) != 3 || len(v.Details) != 3 || v.Summary.EstimatedUSD == nil || *v.Summary.EstimatedUSD != "0.000036000000" {
+		t.Fatalf("family: %+v", v)
+	}
+	for _, i := range v.Issues {
+		if i.Summary.EstimatedUSD == nil || *i.Summary.EstimatedUSD != "0.000012" {
+			t.Fatalf("issue: %+v", i)
+		}
+	}
+	text := strings.Join(v.GroupLines(), "\n")
+	for _, issue := range []int{674, 809, 810} {
+		if !strings.Contains(text, fmt.Sprintf("#%d: Complete local estimate USD: 0.000012", issue)) {
+			t.Fatal(text)
+		}
+	}
+	child, err := Build(ctx, f.db, store.MeterFilter{RepoID: repo.ID, Issue: 809}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(child.Issues) != 1 || len(child.Details) != 1 {
+		t.Fatalf("child includes siblings: %+v", child)
+	}
+}

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/meterview"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // All envelopes, counters, file names and scheduling in this file are synthetic.
@@ -292,4 +294,96 @@ func TestFilesystemEvidenceCompletedRunWithSubagentIsComplete(t *testing.T) {
 	if models["root"] != "gpt-6-astra" || models["child"] != "gpt-6-mini" || input != 18 || read != 12 || output != 5 {
 		t.Fatalf("models=%v input=%d read=%d output=%d", models, input, read, output)
 	}
+}
+
+func TestFilesystemEvidenceFinalDiscoverySettlesOnlyTransientGap(t *testing.T) {
+	for _, permanent := range []bool{false, true} {
+		t.Run(fmt.Sprint(permanent), func(t *testing.T) {
+			t.Parallel()
+			home := t.TempDir()
+			c, got := filesystemEvidenceCollector(t, home)
+			db, attempt := filesystemEvidenceMeter(t)
+			priorSink := c.capture.Sink
+			c.capture.AttemptID = attempt
+			c.capture.Sink = func(ctx context.Context, e agent.UsageEvent) error {
+				if err := priorSink(ctx, e); err != nil {
+					return err
+				}
+				return db.RecordMeterEvent(ctx, attempt, "codex", e)
+			}
+			c.emit(agent.UsageEvent{Invocation: &agent.UsageInvocation{AttemptID: attempt, ID: "root", SourceID: "root", SourceInvocationID: "root", Coverage: agent.UsageCoverage{Status: agent.CollectionUnknown}}})
+			filesystemEvidenceWrite(t, home, "root", filesystemEvidenceEnvelope("root", "", "new"))
+			original := c.ctx
+			cancelled, cancel := context.WithCancel(original)
+			cancel()
+			c.ctx = cancelled
+			c.collectRollouts(false)
+			if !slices.Contains(c.coverage.Diagnostics, "usage_source_scan_incomplete") {
+				t.Fatal("interim failure not observed")
+			}
+			c.ctx = original
+			if permanent {
+				c.diagnostic("usage_source_inventory_incomplete")
+			}
+			c.terminal = true
+			coverage := c.finish()
+			if slices.Contains(coverage.Diagnostics, "usage_source_scan_incomplete") || slices.Contains(coverage.Diagnostics, "usage_source_discovery_cancelled") {
+				t.Fatalf("transient gap retained: %+v", coverage)
+			}
+			if (coverage.Status == agent.CollectionComplete) == permanent {
+				t.Fatalf("coverage %+v", coverage)
+			}
+			if err := db.FinishMeterAttempt(t.Context(), attempt, "success", string(coverage.Status), coverage.Version, coverage.SourceFormat, coverage.Diagnostics); err != nil {
+				t.Fatal(err)
+			}
+			view, err := meterview.Build(t.Context(), db, store.MeterFilter{}, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(view.Details) != 1 || view.Summary.CollectionStatus != string(coverage.Status) || view.Summary.KnownTokens.InputUncached == nil || *view.Summary.KnownTokens.InputUncached != 12 || slices.Contains(view.Summary.Diagnostics, "usage_source_scan_incomplete") {
+				t.Fatalf("persisted coverage: %+v", view)
+			}
+			if len(*got) != 1 || *(*got)[0].Tokens.InputUncached != 12 {
+				t.Fatalf("replay: %+v", *got)
+			}
+		})
+	}
+}
+
+func filesystemEvidenceMeter(t *testing.T) (*store.DB, string) {
+	t.Helper()
+	ctx := t.Context()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "meter.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: "git@github.com:acme/api.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := db.GetOrCreateSession(ctx, repo, 614)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seg, err := db.GetOrCreateSegment(ctx, session.ID, 1, "root", store.AgentCodex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: seg.ID, Mode: store.ModeSpike, Agent: store.AgentCodex, TriggerCommentID: 1, LogPath: func(n int) string { return fmt.Sprintf("/logs/%d", n) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := db.StartMeterAttempt(ctx, run.ID, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db, a.ID
 }
