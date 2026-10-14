@@ -167,7 +167,11 @@ func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int
 		if strings.TrimSpace(reason) != "" {
 			line += ": " + planTableCell(clipText(reason, 300))
 		}
-		blocks = append(blocks, line+" It clears only on a new tested snapshot.")
+		recovery := " It clears only on a new tested snapshot."
+		if f.checkable() {
+			recovery = " A later evidenced /validate-check verdict can clear it."
+		}
+		blocks = append(blocks, line+recovery)
 	}
 	if len(blocks) > 0 {
 		b.WriteString("\n**Blocks**\n\n" + strings.Join(blocks, "\n") + "\n")
@@ -184,7 +188,7 @@ func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int
 			look = ": " + planTableCell(clipText(sum, 300))
 		}
 		switch {
-		case f.State == findingAwaitingCheck:
+		case f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable():
 			items = append(items, fmt.Sprintf("- `%s` awaits your check%s\n  `%s %s %s pass|fail -- <evidence>`", f.Name, look, ValidateCheckCommand, rev, f.ID))
 		case f.needsChoice() && f.Choice == nil:
 			choices := "repair|issue bug|issue story"
