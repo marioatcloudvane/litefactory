@@ -568,7 +568,8 @@ func plainScaffoldProse(s string) bool {
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
 		case '.':
-			if i == 0 || !letter(s[i-1]) || (i+1 < len(s) && s[i+1] != ' ') {
+			// After a word, a number or a closing quote/parenthesis ('back'.).
+			if i == 0 || !(alnum(s[i-1]) || strings.ContainsRune(`'")`, rune(s[i-1]))) || (i+1 < len(s) && s[i+1] != ' ') {
 				return false
 			}
 		case '-':
