@@ -164,3 +164,32 @@ func assertNoSecret(t *testing.T, f *fixture) {
 		t.Errorf("the hook secret appears in the client log:\n%s", f.Logs())
 	}
 }
+
+func TestHookDeliveryRecoveryRequests(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/deliveries/1") {
+			_, _ = w.Write([]byte(`{"id":1,"guid":"g","repository_id":42,"event":"issue_comment","redelivery":false,"request":{"headers":{"secret":"discard"},"payload":{"repository":{"full_name":"acme/acme-api"},"issue":{"number":7,"url":"https://api.github.com/repos/acme/acme-api/issues/7"}}}}`))
+			return
+		}
+		w.Header().Set("Date", "Wed, 14 Oct 2026 10:00:00 GMT")
+		w.Header().Set("Link", fmt.Sprintf(`<http://%s/repos/acme/acme-api/hooks/9/deliveries?cursor=next>; rel="next"`, r.Host))
+		_, _ = w.Write([]byte(`[{"id":1,"guid":"g","status_code":502,"event":"issue_comment","redelivery":false,"delivered_at":"2026-10-14T09:59:00Z"}]`))
+	})
+	page, err := f.Client.HookDeliveriesPage(t.Context(), testRepo, 9, "")
+	if err != nil || page.Next != "next" || page.ServerTime.IsZero() || len(page.Deliveries) != 1 || !page.Deliveries[0].OriginalKnown {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+	item, url, number, err := f.Client.HookDeliveryIssue(t.Context(), testRepo, 9, 1)
+	if err != nil || item.GUID != "g" || number != 7 || url != "https://api.github.com/repos/acme/acme-api/issues/7" {
+		t.Fatalf("detail=%+v %q %d %v", item, url, number, err)
+	}
+	if _, err := f.Client.RedeliverHookDelivery(t.Context(), testRepo, 9, 1); err != nil {
+		t.Fatalf("202 acknowledgment: %v", err)
+	}
+}

@@ -499,6 +499,7 @@ type Daemon struct {
 	lastRepoID               int64
 	repoSessionCursor        map[int64]int64
 	pendingObservationCursor map[int64]int
+	hookRecovery             map[int64]*hookRecoveryState
 }
 
 // New builds a daemon from its dependencies.
