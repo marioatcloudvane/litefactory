@@ -122,7 +122,7 @@ func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
 			return false, nil
 		}
 		if item.Blocked() {
-			return true, nil
+			return true, r.releaseOwnerEditConflicts(ctx, item)
 		}
 		instance, err := r.opts.DB.LatestWorkflowInstance(ctx, r.req.SessionID, "plan")
 		if errors.Is(err, store.ErrNotFound) {
@@ -138,6 +138,53 @@ func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
 		return r.opts.DB.GraphFailureReported(ctx, source.RunID, PlanFailureNode)
 	}
 	return false, nil
+}
+
+// ownerEditConflict is the hold a story gets when a write's readback differs
+// from the expected content, on the assumption that the owner edited it.
+const ownerEditConflict = "owner edits conflict with expected content revision"
+
+// releaseOwnerEditConflicts lets the owner's own retry settle a story held only
+// by owner-edit conflicts. The hold exists to protect the owner's edits; the
+// owner asking to retry says there are none to keep, so the stale requests are
+// settled and the retry drafts afresh, as the failure notice promises. Such
+// holds recorded before #821 can never re-verify: their content was rendered
+// before #824/#825 changed titles and markers. Any other hold is left alone.
+func (r *planGraphRuntime) releaseOwnerEditConflicts(ctx context.Context, item planbrief.PlanStoryState) error {
+	if item.Hold != "" || item.LifecycleHold != "" || (item.EffectHold != "" && item.EffectHold != ownerEditConflict) {
+		return nil
+	}
+	requests := map[string]bool{}
+	for request, hold := range item.EffectHolds {
+		if hold != ownerEditConflict {
+			return nil
+		}
+		requests[request] = true
+	}
+	if item.EffectHold == ownerEditConflict && item.EffectRequest != "" {
+		requests[item.EffectRequest] = true
+	}
+	parent := r.parentRef.String()
+	for request := range requests {
+		state, revision, err := r.opts.DB.GetPlanWorkflowState(ctx, parent)
+		if err != nil {
+			return err
+		}
+		for i := range state.Stories {
+			s := &state.Stories[i]
+			if s.Key != item.Key {
+				continue
+			}
+			if s.EffectRequest == request {
+				s.Effect = ""
+			}
+			s.ClearEffectHold(request)
+		}
+		if err = r.opts.DB.SettlePlanStoryDebt(ctx, parent, request, state, revision, false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // unappliedReply explains retained state without clearing recovery or approval debt.
