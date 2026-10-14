@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"fmt"
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"os"
@@ -24,8 +25,12 @@ func TestDoctorNativeTransportRetainsUsageAndIsolatesEnvironment(t *testing.T) {
 [ -L "$CLAUDE_CONFIG_DIR/.credentials.json" ] || exit 12
 read -r prompt
 [ "$prompt" = "prepared context" ] || exit 11
+project=PROJECT_KEY
+mkdir -p "$CLAUDE_CONFIG_DIR/projects/$project"
+printf '%s\n' '{"type":"assistant","sessionId":"s","message":{"id":"m","model":"observed-model","usage":{"input_tokens":10,"output_tokens":3}}}' > "$CLAUDE_CONFIG_DIR/projects/$project/s.jsonl"
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","claude_code_version":"fixture-version"}' '{"type":"assistant","session_id":"s","message":{"id":"m","model":"observed-model","usage":{"input_tokens":10,"output_tokens":3}}}' '{"type":"result","session_id":"s","subtype":"success"}'
 `
+	script = strings.ReplaceAll(script, "PROJECT_KEY", fmt.Sprintf("%q", transcriptProjectKey(dir)))
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +60,7 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","claude_code_v
 		t.Fatalf("scratch cleanup removed the operator's credentials: %v", err)
 	}
 	if result.ObservedModel != "observed-model" || result.ProviderVersion != "fixture-version" || result.Usage == nil || result.Usage.Status != agent.CollectionComplete || len(result.Usage.Diagnostics) != 0 {
-		t.Fatalf("result: %+v", result)
+		t.Fatalf("result: %+v coverage: %+v", result, result.Usage)
 	}
 	observations := 0
 	for _, event := range events {

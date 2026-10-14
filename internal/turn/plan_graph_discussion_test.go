@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -295,7 +296,10 @@ func TestPlanDiscussion_FailedStoryUnknownOutcomePreservesOriginalRequest(t *tes
 	remote.mu.Unlock()
 	req := asStoryTask(t, f, nextTrigger(base, 9981, "Retry"), "story-001")
 	_, err = Execute(t.Context(), f.opts, req)
-	mustProgress(t, err)
+	var refusal *PlanReplyRefusal
+	if !errors.As(err, &refusal) || !strings.Contains(refusal.Reason, "story identity or provenance changed") {
+		t.Fatalf("missing retained refusal: %v", err)
+	}
 	after := graphPlanState(t, f)
 	retained, err := f.db.GetPlanStoryCandidate(t.Context(), f.ref().String(), request)
 	mustProgress(t, err)
@@ -317,5 +321,31 @@ func TestPlanDiscussion_FailedStoryReplySourceMismatchCannotRecover(t *testing.T
 	_, err = Execute(t.Context(), f.opts, req)
 	if err == nil || !strings.Contains(err.Error(), "source mismatch") || *calls != 1 || !reflect.DeepEqual(before, graphPlanState(t, f)) {
 		t.Fatalf("source mismatch admitted recovery: calls=%d err=%v", *calls, err)
+	}
+}
+
+func TestPlanRetryUpstreamIneligibleRefusal(t *testing.T) {
+	f, remote, base, calls, _ := graphPlanFixtureWithForge(t, "agent")
+	executeGraphPlan(t, f, base)
+	// Keep a failed reply eligible for recovery while its prerequisite has lost
+	// approval; recovery must not bypass that prerequisite or mutate the sibling.
+	mustProgress(t, f.db.UpdatePlanWorkflowState(t.Context(), f.ref().String(), func(s *planbrief.PlanState) (bool, error) {
+		s.Stories[0].Wait = nil
+		s.Stories[0].Draft.Dependencies.StoryKeys = []string{"upstream"}
+		s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: "upstream", Stage: "story", Candidate: "upstream-candidate", Draft: planbrief.PlanDraft{Key: "upstream"}})
+		return true, nil
+	}))
+	before := graphPlanState(t, f)
+	r := &planGraphRuntime{opts: f.opts, parentRef: f.ref(), story: "story-001"}
+	mustProgress(t, r.selectStory(t.Context()))
+	if r.stage != "" {
+		t.Fatal("upstream-ineligible work selected")
+	}
+	var refusal *PlanReplyRefusal
+	if err := r.unappliedReply(t.Context()); !errors.As(err, &refusal) || !strings.Contains(refusal.Reason, "upstream") {
+		t.Fatalf("missing eligibility reason: %v", err)
+	}
+	if !reflect.DeepEqual(before, graphPlanState(t, f)) || *calls != 1 || remote.patches != 0 {
+		t.Fatal("refusal changed state or launched work")
 	}
 }

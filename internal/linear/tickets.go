@@ -687,7 +687,7 @@ func MissingModeLabels(labels map[string]string) []string {
 // Log only the first differing comparison line, redacting before bounding it.
 // Raw provider revisions remain independent of this diagnostic.
 func (c *Client) logContentDifference(ctx context.Context, ref ticket.Ref, title, body string, observed ticket.Snapshot) {
-	if !slog.Default().Enabled(ctx, slog.LevelDebug) {
+	if requestLogger.Load() == nil && !slog.Default().Enabled(ctx, slog.LevelDebug) {
 		return
 	}
 	field, expected, actual := "body", comparableContent(body), comparableContent(observed.Body)
@@ -717,6 +717,10 @@ func (c *Client) logContentDifference(ctx context.Context, ref ticket.Ref, title
 	}
 	safeID, err := redactor.Apply(ctx, ref.Identity.RemoteID, 128)
 	if err != nil {
+		return
+	}
+	if l := requestLogger.Load(); l != nil {
+		l.WarnContext(ctx, "linear content readback differs", "ticket", safeID.String(), "field", field, "line", line+1, "expected", safeA.String(), "observed", safeB.String())
 		return
 	}
 	slog.DebugContext(ctx, "linear content readback differs", "ticket", safeID.String(), "field", field, "line", line+1, "expected", safeA.String(), "observed", safeB.String())

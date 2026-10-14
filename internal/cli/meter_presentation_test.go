@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
+	"github.com/cloudvane/litefactory/internal/meterview"
 	"strings"
 	"testing"
 	"time"
@@ -124,5 +126,71 @@ func TestMeterPresentationCoverage(t *testing.T) {
 				t.Fatalf("CSV refusal %v", records[1])
 			}
 		})
+	}
+}
+
+func TestMeterParentTextJSONAndExactExport(t *testing.T) {
+	f := newLogsHome(t)
+	if _, err := config.WriteDefault(config.NewPaths(f.home)); err != nil {
+		t.Fatal(err)
+	}
+	repo := f.repo("acme", "api")
+	if code, _, diag := f.run("meter", "prices", "set", "fixture-model", "--coding_agent", "claude", "--input", "1", "--output", "0", "--cache_read", "0", "--cache_write", "0"); code != 0 {
+		t.Fatal(diag)
+	}
+	for _, issue := range []int{614, 809, 810, 811} {
+		session := f.session(repo, issue)
+		run := f.allocateRun(session, int64(issue), time.Time{})
+		a, err := f.db.StartMeterAttempt(t.Context(), run.ID, "claude")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.db.PutMeterInvocation(t.Context(), store.MeterInvocation{AttemptID: a.ID, ID: "root", SourceID: "s", SourceInvocationID: "root", Status: "complete"}); err != nil {
+			t.Fatal(err)
+		}
+		n, z, model := int64(1000000), int64(0), "fixture-model"
+		if err := f.db.RecordMeterEvent(t.Context(), a.ID, "claude", agent.UsageEvent{Observation: &agent.UsageObservation{AttemptID: a.ID, SourceID: "s", EventKey: "m", InvocationID: "root", ActualModel: &model, ModelProvenance: "fixture", Mode: agent.CounterIncremental, Scope: agent.UsageExclusive, Tokens: agent.TokenUsage{InputUncached: &n, CacheRead: &z, CacheWrite: &z, Output: &z}, Coverage: agent.UsageCoverage{Status: agent.CollectionComplete}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.db.FinishMeterAttempt(t.Context(), a.ID, "success", "complete", "fixture", "fixture", nil); err != nil {
+			t.Fatal(err)
+		}
+		if issue == 809 || issue == 810 {
+			key := fmt.Sprint(issue)
+			if _, err := f.db.ReservePlanStory(t.Context(), "github:acme/api#614", key); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.db.BindPlanStoryIssue(t.Context(), "github:acme/api#614", key, int64(issue), issue); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	code, out, diag := f.run("meter", "acme/api", "614")
+	if code != 0 {
+		t.Fatal(diag)
+	}
+	for _, want := range []string{"Complete local estimate USD: 3.000000000000", "#614: Complete local estimate USD: 1", "#809: Complete local estimate USD: 1", "#810: Complete local estimate USD: 1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q: %s", want, out)
+		}
+	}
+	code, out, diag = f.run("meter", "acme/api", "614", "--json", "--details")
+	if code != 0 {
+		t.Fatal(diag)
+	}
+	var v meterview.View
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Issues) != 3 || len(v.Details) != 3 || v.Summary.EstimatedUSD == nil || *v.Summary.EstimatedUSD != "3.000000000000" {
+		t.Fatalf("JSON family: %+v", v)
+	}
+	code, out, diag = f.run("meter", "export", "github:acme/api", "--issue", "614")
+	if code != 0 {
+		t.Fatal(diag)
+	}
+	rows, err := csv.NewReader(strings.NewReader(out)).ReadAll()
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("exact export: %v %v", rows, err)
 	}
 }

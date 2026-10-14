@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -36,14 +37,16 @@ type rolloutBaseline struct {
 	info fs.FileInfo
 }
 type rolloutUsage struct {
-	root      *os.Root
-	home      string
-	baseline  map[string]rolloutBaseline
-	files     map[string]*rolloutFile
-	lastScan  time.Time
-	bytes     int64
-	disabled  bool
-	responses int
+	root            *os.Root
+	home            string
+	baseline        map[string]rolloutBaseline
+	files           map[string]*rolloutFile
+	lastScan        time.Time
+	bytes           int64
+	disabled        bool
+	responses       int
+	discoveryReason string
+	scanPermanent   bool
 }
 type rolloutFile struct {
 	path                string
@@ -354,18 +357,34 @@ func (c *usageCollector) collectRollouts(final bool) {
 		return nil
 	})
 	if err != nil {
+		if r.discoveryReason != "" {
+			c.coverage.Diagnostics = slices.DeleteFunc(c.coverage.Diagnostics, func(code string) bool { return code == r.discoveryReason })
+		}
+		r.discoveryReason = rolloutDiscoveryReason(err)
 		c.diagnostic("usage_source_scan_incomplete")
+		c.diagnostic(r.discoveryReason)
+		return
+	} else if final {
+		// Only a full final discovery settles an interim discovery failure.
+		c.coverage.Diagnostics = slices.DeleteFunc(c.coverage.Diagnostics, func(code string) bool {
+			return code == r.discoveryReason || (code == "usage_source_scan_incomplete" && !r.scanPermanent)
+		})
+		r.discoveryReason = ""
 	}
 	// Resolve parents before children even when filesystem order is unrelated.
 	for pass := 0; pass < len(r.files); pass++ {
 		if deadline.Err() != nil {
+			r.scanPermanent = true
 			c.diagnostic("usage_source_scan_incomplete")
+			c.diagnostic("usage_source_association_or_read_deadline")
 			return
 		}
 		progress := false
 		for _, file := range r.files {
 			if deadline.Err() != nil {
+				r.scanPermanent = true
 				c.diagnostic("usage_source_scan_incomplete")
+				c.diagnostic("usage_source_association_or_read_deadline")
 				return
 			}
 			if file.associated {
@@ -398,7 +417,9 @@ func (c *usageCollector) collectRollouts(final bool) {
 	}
 	for _, file := range r.files {
 		if deadline.Err() != nil {
+			r.scanPermanent = true
 			c.diagnostic("usage_source_scan_incomplete")
+			c.diagnostic("usage_source_association_or_read_deadline")
 			return
 		}
 		if !file.associated {
@@ -552,6 +573,11 @@ func (c *usageCollector) rolloutRecord(state *rolloutFile, record rolloutRecord,
 	state.observations++
 	model := state.model
 	coverage := c.coverage.Clone()
+	// Discovery coverage belongs to the attempt; interim observations must not
+	// freeze a recoverable discovery pass into a measurement diagnostic.
+	coverage.Diagnostics = slices.DeleteFunc(coverage.Diagnostics, func(code string) bool {
+		return code == c.rollouts.discoveryReason || (code == "usage_source_scan_incomplete" && !c.rollouts.scanPermanent)
+	})
 	coverage.Status = agent.CollectionPartial
 	coverage.SourceFormat = "rollout-token-usage-record-v1"
 	coverage.Version = state.version
@@ -596,5 +622,21 @@ func (c *usageCollector) diagnoseRollouts() {
 			c.diagnostic("descendant_usage_unavailable")
 			break
 		}
+	}
+}
+
+// Persist bounded reason codes, never filesystem paths or raw I/O errors.
+func rolloutDiscoveryReason(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) || err.Error() == "rollout discovery deadline" {
+		return "usage_source_discovery_deadline"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "usage_source_discovery_cancelled"
+	}
+	switch err.Error() {
+	case "rollout file limit", "rollout directory limit", "rollout byte limit":
+		return "usage_source_discovery_limit"
+	default:
+		return "usage_source_discovery_io"
 	}
 }
