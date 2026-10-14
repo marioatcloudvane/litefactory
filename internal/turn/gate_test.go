@@ -187,8 +187,10 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 
 	// sections is every function in this package that may take the clone gate.
 	sections := map[string]struct{}{
-		"prepareClone":  {},
-		"commitAndPush": {},
+		"prepareClone":                     {},
+		"sessionSyncCheckout.withCheckout": {},
+		"BugRuntime.syncBaseBranch":        {},
+		"commitAndPush":                    {},
 		// Standalone doctor sync releases its snapshot section before advisory work,
 		// then revalidates and performs merge, publication and rollback in one section.
 		"prepareDoctorSync": {},

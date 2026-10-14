@@ -27,12 +27,13 @@ type SimplifiedBugPolicy struct {
 	Fixer        ActivityHandler
 	Finalization ActivityHandler
 	Reporter     *Reporter
+	SyncBase     SyncBaseBinding
 }
 
 // SimplifiedBugSpecs is capture-only; registration still needs real handlers.
 func SimplifiedBugSpecs() (graphexec.Registry, error) {
 	r := graphexec.Registry{Policy: graphexec.ValidateOwnerConversationGraph}
-	for _, s := range []graphexec.ActionSpec{graphexec.OwnerConversationSpec(), graphexec.BugFinalizationSpec(), {Name: ResearchAgentAction, Workflow: agent.WorkflowBug, Outcomes: graphexec.OwnerStopAgentOutcomes(), Attributes: graphexec.AgentAttributes()}} {
+	for _, s := range []graphexec.ActionSpec{graphexec.OwnerConversationSpec(), graphexec.BugFinalizationSpec(), graphexec.SyncBaseWorkflowSpec(agent.WorkflowBug, ""), {Name: ResearchAgentAction, Workflow: agent.WorkflowBug, Outcomes: graphexec.OwnerStopAgentOutcomes(), Attributes: graphexec.AgentAttributes()}} {
 		if e := r.Register(s); e != nil {
 			return r, e
 		}
@@ -61,6 +62,17 @@ func (p SimplifiedBugPolicy) Register(specs *graphexec.Registry, activities *Act
 	}
 	if e = activities.Register("lf_bug_finalize", p.Finalization); e != nil {
 		return e
+	}
+	for _, node := range p.Profile.Nodes {
+		if node.Action == graphexec.SyncBaseAction {
+			if p.SyncBase.Repo == nil || p.SyncBase.Bind == nil {
+				return errors.New("explicit Bug base sync requires trusted repository and target bindings")
+			}
+			if e = activities.Register(graphexec.SyncBaseAction, SyncBaseActivity{p.SyncBase}); e != nil {
+				return e
+			}
+			break
+		}
 	}
 	return graphexec.Validate(p.Profile, *specs)
 }
