@@ -88,15 +88,19 @@ func decodeRelocatedMetadata(lines []string, index int) (string, error) {
 	if metadata.Lines == len(metadata.Markers) && len(prose) == 1 && prose[0] == "" {
 		prose = nil
 	}
-	if metadata.Lines != len(prose)+len(metadata.Markers) {
-		return "", invalid
-	}
 	previous := -1
 	for _, marker := range metadata.Markers {
 		if marker.Line <= previous || marker.Line >= metadata.Lines || strings.ContainsAny(marker.Value, "\r\n") || !managedMarker("<!-- "+marker.Value+" -->") {
 			return "", invalid
 		}
 		previous = marker.Line
+	}
+	if metadata.Lines != len(prose)+len(metadata.Markers) {
+		// Linear normalizes Markdown (it drops blank lines, for example), so the
+		// recorded line positions no longer fit. Factory markers only lead or
+		// trail a body: restore the leading run in front and the rest after the
+		// prose. Content comparison is Linear-equivalence, not byte equality.
+		return relocateNormalized(prose, metadata.Markers), nil
 	}
 	out := make([]string, 0, metadata.Lines)
 	m, p := 0, 0
@@ -115,6 +119,27 @@ func decodeRelocatedMetadata(lines []string, index int) (string, error) {
 		}
 	}
 	return strings.Join(out, "\n"), nil
+}
+
+func relocateNormalized(prose []string, markers []relocatedMarker) string {
+	render := func(m relocatedMarker) string {
+		value := "<!-- " + m.Value + " -->"
+		if m.CR {
+			value += "\r"
+		}
+		return value
+	}
+	out := make([]string, 0, len(prose)+len(markers))
+	leading := 0
+	for leading < len(markers) && markers[leading].Line == leading {
+		out = append(out, render(markers[leading]))
+		leading++
+	}
+	out = append(out, prose...)
+	for _, m := range markers[leading:] {
+		out = append(out, render(m))
+	}
+	return strings.Join(out, "\n")
 }
 
 // DecodeContent reverses only the exact versioned metadata form. Arbitrary prose,

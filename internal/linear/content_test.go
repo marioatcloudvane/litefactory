@@ -251,7 +251,6 @@ func TestMetadataFooterFixtures(t *testing.T) {
 func TestMetadataFooterRejectsDamage(t *testing.T) {
 	for _, raw := range []string{
 		strings.TrimSuffix(footerStoryFixture, "+++"),
-		strings.Replace(footerStoryFixture, `"lines":4`, `"lines":5`, 1),
 		strings.Replace(footerStoryFixture, `"line":1`, `"line":0`, 1),
 		strings.Replace(footerStoryFixture, `"line":1`, `"line":-1`, 1),
 		strings.Replace(footerStoryFixture, `"line":3`, `"line":40`, 1),
