@@ -517,3 +517,113 @@ func TestInterruptedDispatchResumesRetainedBugFinalization(t *testing.T) {
 		})
 	}
 }
+
+func TestStrandedBugRecoveryRecognizesAlreadyMergedRepair(t *testing.T) {
+	for _, match := range []bool{true, false} {
+		t.Run(fmt.Sprint(match), func(t *testing.T) {
+			f, h, req, forge, head := graphFinalizationFixture(t)
+			ctx, at := t.Context(), f.opts.MCP.Now()
+			// Two more successful checks exhaust the existing fixer budget. Each
+			// finalization returns to fixer, leaving the last revalidation stranded.
+			for i := range 3 {
+				mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, req.NodeAttemptID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "revalidate", FinishedAt: at, InstanceStatus: store.GraphRunning, Transition: &store.GraphTransition{InstanceID: req.InstanceID, FromNode: "finalization", ToNode: "fixer", OnOutcome: "revalidate", At: at}}))
+				if i < 2 {
+					completeDeliveryRecheck(t, f, req.InstanceID, forge.binding.Eligibility, "succeeded")
+					a, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: req.InstanceID, Node: "finalization", Limit: 16, StartedAt: at})
+					mustProgress(t, err)
+					req.NodeAttemptID = a.ID
+				}
+			}
+			questionForge := newFakeForge(t)
+			f.opts.ResearchReporter = newReporter(t, f, questionForge, nil)
+			runtime := &BugRuntime{opts: f.opts, cfg: BugRuntimeConfig{OwnerID: 7, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
+				t.Error("exhausted recovery prepared a fixer")
+				return BugRolePermissions{}, errors.New("unexpected preparation")
+			}}}
+			settleStrandedFixtureRuns(t, f, req.InstanceID)
+			candidates, err := f.db.ListStrandedGraphDispatches(ctx)
+			mustProgress(t, err)
+			if len(candidates) != 1 {
+				t.Fatalf("stranded=%+v", candidates)
+			}
+			mustProgress(t, ValidateGraphDispatchRecovery(ctx, f.db, candidates[0]))
+			mustProgress(t, f.db.ReconcileStrandedGraphDispatch(ctx, candidates[0], at))
+			due, err := f.db.ListDueGraphDispatches(ctx, at, 10)
+			mustProgress(t, err)
+			if len(due) != 1 {
+				t.Fatalf("due=%+v", due)
+			}
+			dispatch, ok, err := f.db.ReserveGraphDispatch(ctx, due[0].ID, at)
+			mustProgress(t, err)
+			if !ok {
+				t.Fatal("reserve refused")
+			}
+			request := Request{SessionID: f.session.ID, Workflow: agent.WorkflowBug}
+			request.Trigger.CommentID = dispatch.TriggerID()
+			_, err = runtime.executeGraph(ctx, request, Result{Session: f.session})
+			mustProgress(t, err)
+			wait, err := f.db.GetGraphOwnerWait(ctx, req.InstanceID)
+			mustProgress(t, err)
+			delivery, err := f.db.GetReportDelivery(ctx, wait.DeliveryKey)
+			mustProgress(t, err)
+			reply := store.GraphOwnerReply{InstanceID: req.InstanceID, OwnerID: 7, AuthorID: 7, CommentID: delivery.CommentID + 1000, QuestionCommentID: delivery.CommentID, TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug", DeliveryKey: wait.DeliveryKey, Body: "rerun checks", At: at}
+			_, err = AdmitGraphBugOwnerReply(ctx, f.db, reply)
+			mustProgress(t, err)
+			completeDeliveryRecheck(t, f, req.InstanceID, forge.binding.Eligibility, "succeeded")
+			if _, err = AdmitGraphBugOwnerReply(ctx, f.db, reply); err == nil {
+				t.Fatal("reply reused")
+			}
+			a, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: req.InstanceID, Node: "finalization", Limit: 16, StartedAt: at})
+			mustProgress(t, err)
+			req.NodeAttemptID = a.ID
+			h.Resolve = func(_ context.Context, _ Options, _ ActivityRequest, e GraphBugRepairEligibility) (GraphDeliveryBinding, error) {
+				b := forge.binding
+				b.Eligibility = e
+				return b, nil
+			}
+			forge.remote = head
+			forge.pr = github.DeliveryPR{ID: 80, Number: 4, Head: head, Branch: "lf/repair", Target: "main", State: "closed", Merged: true, MergeSHA: strings.Repeat("f", 40)}
+			forge.issue.State = "closed"
+			if !match {
+				forge.pr.Head = strings.Repeat("b", 40)
+				forge.refuseMerge = true
+			}
+			out, err := h.Execute(ctx, f.opts, req)
+			mustProgress(t, err)
+			if !match {
+				if out.Outcome == "completed" || forge.creates != 1 || forge.merges != 1 {
+					t.Fatal("mismatching historical PR counted as delivery")
+				}
+				return
+			}
+			if out.Outcome != "completed" || forge.creates != 0 || forge.merges != 0 {
+				t.Fatalf("out=%+v creates=%d merges=%d", out, forge.creates, forge.merges)
+			}
+			mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, a.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: out.Outcome, FinishedAt: at, InstanceStatus: store.GraphSucceeded, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: out.Output}}}))
+			instance, err := f.db.GetGraphInstance(ctx, req.InstanceID)
+			mustProgress(t, err)
+			if instance.Status != store.GraphSucceeded || forge.issue.State != "closed" {
+				t.Fatalf("instance=%+v", instance)
+			}
+		})
+	}
+}
+
+// completeDeliveryRecheck supplies activity evidence; these reconciliation
+// fixtures also need the corresponding process completion to be durable.
+func settleStrandedFixtureRuns(t *testing.T, f *fixture, instanceID int64) {
+	t.Helper()
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instanceID)
+	mustProgress(t, err)
+	for _, a := range attempts {
+		if a.RunID == 0 {
+			continue
+		}
+		run, err := f.db.GetRun(t.Context(), a.RunID)
+		mustProgress(t, err)
+		if run.Status == store.RunRunning || run.Status == store.RunPrelaunch {
+			_, err = f.db.FinishRun(t.Context(), a.RunID, store.RunOutcome{Status: store.RunSucceeded})
+			mustProgress(t, err)
+		}
+	}
+}

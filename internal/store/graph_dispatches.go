@@ -566,3 +566,61 @@ EXISTS(SELECT 1 FROM graph_effects WHERE instance_id=? AND state IN ('intent','d
 		return err
 	})
 }
+
+// strandedGraphInstancePredicate is shared by discovery and the transactional
+// recheck. Historical allocated waits and completed attempts are not work.
+const strandedGraphInstancePredicate = `g.status='running' AND g.next_due_at IS NULL
+AND NOT EXISTS(SELECT 1 FROM graph_instances newer WHERE newer.session_id=g.session_id AND newer.id>g.id)
+AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.instance_id=g.id AND d.status IN ('pending','reserved','running'))
+AND NOT EXISTS(SELECT 1 FROM graph_dispatches d WHERE d.id=(SELECT MAX(id) FROM graph_dispatches WHERE instance_id=g.id) AND d.status='cancelled' AND d.allocated_run_id IS NULL)
+AND NOT EXISTS(SELECT 1 FROM graph_node_attempts a WHERE a.instance_id=g.id AND a.status IN ('pending','running'))
+AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.session_id=g.session_id AND r.status IN ('prelaunch','running'))
+AND NOT EXISTS(SELECT 1 FROM graph_owner_waits w WHERE w.instance_id=g.id AND w.state IN ('waiting','claimed'))
+AND NOT EXISTS(SELECT 1 FROM schedules s WHERE s.session_id=g.session_id AND s.status IN ('pending','running'))
+AND NOT EXISTS(SELECT 1 FROM doctor_held_session_owners h WHERE h.session_id=g.session_id)
+AND NOT EXISTS(SELECT 1 FROM graph_effects e WHERE e.instance_id=g.id AND e.state IN ('intent','dispatched','uncertain'))`
+
+// Prefer the last step's exact capture. Historical rows without that reference
+// are recoverable only when the instance has one unambiguous retained launch.
+const strandedGraphCapture = `COALESCE(
+(SELECT launch_id FROM graph_node_attempts WHERE instance_id=g.id ORDER BY id DESC LIMIT 1),
+(SELECT MIN(id) FROM research_launch_definitions WHERE instance_id=g.id HAVING COUNT(*)=1))`
+
+// ListStrandedGraphDispatches describes missing continuation work. These are
+// candidates, not persisted dispatches; capture validation grants no execution.
+func (db *DB) ListStrandedGraphDispatches(ctx context.Context) ([]GraphDispatch, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT g.id,g.session_id,g.current_node,COALESCE(`+strandedGraphCapture+`,0) FROM graph_instances g WHERE `+strandedGraphInstancePredicate+` ORDER BY g.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GraphDispatch
+	for rows.Next() {
+		var d GraphDispatch
+		if err := rows.Scan(&d.InstanceID, &d.SessionID, &d.Node, &d.LaunchID); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// ReconcileStrandedGraphDispatch creates ordinary captured work only if the
+// validated candidate is still idle and unchanged. The caller owns the task and
+// session lock and validates the retained workflow and current node first.
+func (db *DB) ReconcileStrandedGraphDispatch(ctx context.Context, d GraphDispatch, at time.Time) error {
+	if d.LaunchID <= 0 {
+		return graphInvariant("stranded recovery requires exact capture")
+	}
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		var eligible bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_instances g WHERE g.id=? AND g.session_id=? AND g.current_node=? AND `+strandedGraphCapture+`=? AND `+strandedGraphInstancePredicate+`)`, d.InstanceID, d.SessionID, d.Node, d.LaunchID).Scan(&eligible); err != nil || !eligible {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id) VALUES(?,?,?,?,'pending',?,?)`, d.InstanceID, d.SessionID, d.Node, FormatTime(at), FormatTime(at), d.LaunchID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=? WHERE id=?`, FormatTime(at), d.InstanceID)
+		return err
+	})
+}
