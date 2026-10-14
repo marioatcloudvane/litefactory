@@ -91,6 +91,10 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 		}
 	}
 	collector := newUsageCaptureCollector(ctx, request.Usage, "", false)
+	// Establish the empty private-source baseline before the provider starts.
+	if collector != nil && operation == "" {
+		collector.prepareTranscripts(home, request.WorkingDirectory)
+	}
 	result := agent.DoctorRunResult{}
 	session := ""
 	modelConflict := false
@@ -162,6 +166,9 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 	// sources already keep hooks, plugins, memory and CLAUDE.md out.
 	tools := ""
 	args := []string{}
+	if operation != "" {
+		args = append(args, "--no-session-persistence")
+	}
 	if operation == "" {
 		tools = "Bash"
 		allowed = append(allowed, "Bash")
@@ -171,7 +178,7 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 		}
 		args = append(args, "--settings", settings)
 	}
-	return append(args, "-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-session-persistence", "--no-chrome", "--setting-sources", "", "--tools", tools, "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--allowedTools", strings.Join(allowed, ","), "--model", request.Model), nil
+	return append(args, "-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", tools, "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--allowedTools", strings.Join(allowed, ","), "--model", request.Model), nil
 }
 
 func doctorSandboxSettings(request agent.DoctorRequest, privateHome string) (string, error) {

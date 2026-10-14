@@ -341,11 +341,20 @@ func (c *usageCollector) finish() *agent.UsageCoverage {
 	for model, summary := range c.summaries {
 		total, ok := c.totals[model]
 		if !ok {
+			c.diagnostic("inclusive_summary_model_missing")
 			c.diagnostic("inclusive_summary_mismatch")
 			continue
 		}
 		if !sameSummary(total, summary) {
 			c.diagnostic("inclusive_summary_mismatch")
+			for _, dimension := range []struct {
+				name               string
+				measured, expected *int64
+			}{{"input_uncached", total.InputUncached, summary.InputUncached}, {"cache_read", total.CacheRead, summary.CacheRead}, {"cache_write", total.CacheWrite, summary.CacheWrite}, {"output", total.Output, summary.Output}} {
+				if dimension.measured == nil || dimension.expected == nil || *dimension.measured != *dimension.expected {
+					c.diagnostic("inclusive_summary_mismatch_" + dimension.name)
+				}
+			}
 		}
 	}
 
