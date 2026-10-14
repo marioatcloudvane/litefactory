@@ -56,3 +56,39 @@ func TestSettlePlanStoryDebtUsesLatestMutationOutcome(t *testing.T) {
 		t.Fatalf("uncertain then conflict must be settleable: %v", err)
 	}
 }
+
+func TestRebasePlanStoryRevisionIsCompareAndSet(t *testing.T) {
+	ctx := t.Context()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "rebase.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err = db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	session, err := db.GetOrCreateSession(ctx, testRepo(t, db, "owner", "repo"), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := session.TaskRef
+	if _, err = db.SavePlanWorkflowState(ctx, parent, 0, planbrief.PlanState{SharedRevision: "initial"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ReservePlanStory(ctx, parent, "story-001"); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.BindPlanStoryShell(ctx, parent, "story-001", 11, 12, "shell"); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.RebasePlanStoryRevision(ctx, parent, "story-001", "shell", "observed"); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.RebasePlanStoryRevision(ctx, parent, "story-001", "shell", "other"); err == nil {
+		t.Fatal("a stale expected revision must not rebase")
+	}
+	d, err := db.GetPlanStoryDraft(ctx, parent, "story-001")
+	if err != nil || d.Revision != "observed" {
+		t.Fatalf("revision not rebased: %+v %v", d, err)
+	}
+}

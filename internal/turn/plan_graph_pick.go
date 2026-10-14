@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -164,6 +165,11 @@ func (r *planGraphRuntime) releaseOwnerEditConflicts(ctx context.Context, item p
 	if item.EffectHold == ownerEditConflict && item.EffectRequest != "" {
 		requests[item.EffectRequest] = true
 	}
+	if len(requests) == 0 {
+		// Blocked for another reason, such as an unknown remote outcome:
+		// nothing here is the owner's to waive.
+		return nil
+	}
 	parent := r.parentRef.String()
 	for request := range requests {
 		state, revision, err := r.opts.DB.GetPlanWorkflowState(ctx, parent)
@@ -184,7 +190,35 @@ func (r *planGraphRuntime) releaseOwnerEditConflicts(ctx context.Context, item p
 			return err
 		}
 	}
-	return nil
+	return r.rebaseOwnerConfirmedContent(ctx, item.Key)
+}
+
+// rebaseOwnerConfirmedContent takes the live story issue as the expected content
+// revision. A write whose readback was misjudged (pre-#821) left the factory's
+// own draft on the issue without recording it, so every later write saw "owner
+// edits". The owner's retry confirms there are none.
+func (r *planGraphRuntime) rebaseOwnerConfirmedContent(ctx context.Context, key string) error {
+	parent := r.parentRef.String()
+	d, err := r.opts.DB.GetPlanStoryDraft(ctx, parent, key)
+	if err != nil || d.Retired || d.IssueID == 0 {
+		return err
+	}
+	forge, err := r.storyForge()
+	if err != nil {
+		return err
+	}
+	child, err := forge.GetIssue(ctx, github.Repo{Owner: r.parentRef.Owner, Name: r.parentRef.Repo}, d.IssueNumber)
+	if err != nil {
+		return err
+	}
+	if child.ID != d.IssueID || child.State != github.StateOpen {
+		return nil
+	}
+	observed := PlanIssueRevision(child.Title, child.Body)
+	if observed == d.Revision {
+		return nil
+	}
+	return r.opts.DB.RebasePlanStoryRevision(ctx, parent, key, d.Revision, observed)
 }
 
 // unappliedReply explains retained state without clearing recovery or approval debt.
