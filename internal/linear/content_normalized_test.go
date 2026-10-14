@@ -58,7 +58,7 @@ func TestContentEquivalentAfterLinearNormalizesEmptySections(t *testing.T) {
 		"",
 		"As an owner I want less.",
 		"",
-		"# Acceptance Criterias",
+		"# Acceptance",
 		"",
 		"",
 		"# Architecture",
@@ -68,7 +68,7 @@ func TestContentEquivalentAfterLinearNormalizesEmptySections(t *testing.T) {
 		"",
 	}, "\n")
 	encoded := EncodeContent(expected)
-	normalized := strings.NewReplacer("Criterias\n\n\n# Architecture\n\n\n", "Criterias\n\n# Architecture\n").Replace(encoded)
+	normalized := strings.NewReplacer("Acceptance\n\n\n# Architecture\n\n\n", "Acceptance\n\n# Architecture\n").Replace(encoded)
 	if normalized == encoded {
 		t.Fatal("fixture did not normalize")
 	}
