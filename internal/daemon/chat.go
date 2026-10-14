@@ -173,6 +173,14 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	}
 	s.EnableResearch(chatResearch{d}, chatResearch{d})
 	if o.Settings.NoticeChannelID != "" {
+		if o.Conversations != nil {
+			for _, binding := range o.Conversations.Bindings {
+				if binding.Channel == o.Settings.NoticeChannelID {
+					d.log.Warn("Discord notices and conversation share a channel; separate notices may interleave with replies", "channel", binding.Channel)
+					break
+				}
+			}
+		}
 		d.chat.collector = &messaging.NoticeCollector{DB: d.db, Transport: "discord", Channel: o.Settings.NoticeChannelID, Logger: d.log, Protect: s.Protect, Issues: d.forge}
 	}
 	handler := a.Handler(s)

@@ -49,7 +49,7 @@ func (s *groundingSender) DeliverReply(_ context.Context, _ messaging.Target, pa
 func groundingExecutable(t *testing.T, provider, explanation string) string {
 	t.Helper()
 	directory := t.TempDir()
-	response, err := json.Marshal(map[string]any{"version": 1, "kind": "answer", "blocks": []map[string]any{{"fact_refs": []string{"@FACT@"}}, {"text": explanation, "fact_refs": []string{"@FACT@"}}}})
+	response, err := json.Marshal(map[string]any{"version": 1, "kind": "answer", "blocks": []map[string]any{{"text": explanation, "fact_refs": []string{"@FACT@"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,22 +188,15 @@ func TestConversationGroundingDetailsOwnerJourney(t *testing.T) {
 					t.Fatalf("part %d has boilerplate: %q", i+1, text)
 				}
 				deliveredExplanation.WriteString(text)
-				content := text
-				label, fragment, found := strings.Cut(content, "\n")
-				if !found {
-					t.Fatalf("part %d has no grounding label", i+1)
-				}
-				if strings.HasPrefix(label, "Caveat:") {
-					explanationFragments.WriteString(strings.ReplaceAll(fragment, `\*`, "*"))
-				}
+				explanationFragments.WriteString(strings.ReplaceAll(text, `\*`, "*"))
 			}
 			if explanationFragments.String() != explanation {
 				t.Fatalf("multipart answer changed accepted explanation: got %d bytes, want %d", len(explanationFragments.String()), len(explanation))
 			}
 			combined := strings.ReplaceAll(strings.ReplaceAll(deliveredExplanation.String(), `\[`, "["), `\]`, "]")
-			for _, want := range []string{groundingFact, "factory:question", "acme/app", "Caveat:", "[redacted]"} {
-				if !strings.Contains(combined, want) {
-					t.Fatalf("answer omitted %q: %s", want, combined)
+			for _, forbidden := range []string{"Source:", "target:", "Evidence", "fact-", "Caveat:"} {
+				if strings.Contains(combined, forbidden) {
+					t.Fatalf("diagnostic leaked: %s", combined)
 				}
 			}
 			if strings.Contains(combined, groundingSecret) {
