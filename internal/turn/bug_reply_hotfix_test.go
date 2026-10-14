@@ -48,7 +48,7 @@ func TestGraphBugApprovalReadsFirstLine(t *testing.T) {
 			t.Fatalf("%q was admitted", bad)
 		}
 	}
-	reply.Body = "/approve-bug analysis 1.\r\nLooks good, go ahead."
+	reply.Body = "`/approve-bug analysis 1.`\r\nLooks good, go ahead."
 	_, e = AdmitGraphBugOwnerReply(t.Context(), f.db, reply)
 	mustProgress(t, e)
 	_, approval, e := f.db.CurrentGraphDiagnosis(t.Context(), inst.ID)

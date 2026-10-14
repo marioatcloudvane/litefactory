@@ -106,13 +106,14 @@ type ImplementTransition struct {
 	At       time.Time
 }
 
-// validImplementMove reports the moves the ledger allows. A merged story only
-// leaves by an owner's reopen from Validate findings. A parked story only
-// leaves by an owner resume.
+// validImplementMove reports the moves the ledger allows. A merged story may
+// need another merge when its published branch advances; reopening its worker
+// still requires owner findings.
 func validImplementMove(from, to string) bool {
 	switch from + ">" + to {
 	case ImplementWaiting + ">" + ImplementRunning,
 		ImplementMerged + ">" + ImplementWaiting,
+		ImplementMerged + ">" + ImplementDone,
 		ImplementRunning + ">" + ImplementDone,
 		ImplementRunning + ">" + ImplementParked,
 		ImplementParked + ">" + ImplementWaiting,
@@ -202,7 +203,7 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 		return ImplementStory{}, fmt.Errorf("%w: only merging carries a commit", ErrImplementTransition)
 	case in.To != ImplementWaiting && in.Guidance != "":
 		return ImplementStory{}, fmt.Errorf("%w: only a resume carries guidance", ErrImplementTransition)
-	case in.From == ImplementMerged && strings.TrimSpace(in.Guidance) == "":
+	case in.From == ImplementMerged && in.To == ImplementWaiting && strings.TrimSpace(in.Guidance) == "":
 		return ImplementStory{}, fmt.Errorf("%w: reopening a merged story needs the findings as guidance", ErrImplementTransition)
 	case len(in.Guidance) > maxImplementGuidance:
 		return ImplementStory{}, fmt.Errorf("%w: guidance of at most %d bytes", ErrImplementTransition, maxImplementGuidance)

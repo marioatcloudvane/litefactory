@@ -31,6 +31,13 @@ func TestParseValidateCommandValid(t *testing.T) {
 		{"/validate-ship " + rev + " -- clicked through the page", ValidateCommand{Name: ValidateShipCommand, Revision: rev, Evidence: "clicked through the page"}},
 	}
 	for _, tc := range cases {
+		wrapped := "`" + strings.TrimSpace(tc.body) + "`"
+		if got, err := ParseValidateCommand(wrapped); err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("wrapped %q: %+v %v", wrapped, got, err)
+		}
+		if _, err := ParseValidateCommand(wrapped + "\r\nmore"); err == nil {
+			t.Errorf("wrapped trailing text accepted: %q", wrapped)
+		}
 		got, err := ParseValidateCommand(tc.body)
 		if err != nil {
 			t.Errorf("%q: unexpected error %v", tc.body, err)

@@ -66,7 +66,7 @@ func PrepareGraphBugSource(ctx context.Context, opts Options, request Request, a
 		}
 		switch base.Outcome {
 		case syncOutcomeBlocked:
-			fmt.Fprintf(&note, "The branch was not merged with %s: it conflicts in %s. Repair on the current branch; the conflict will be reported at delivery.\n", repo.BaseBranch, strings.Join(base.Conflicts, ", "))
+			fmt.Fprintf(&note, "The branch was not merged with %s: it conflicts in %s. Repair on the current branch; delivery will try the validated conflict advisor, then return here for fresh checks or ask the owner if resolution fails.\n", repo.BaseBranch, strings.Join(base.Conflicts, ", "))
 		case syncOutcomeTooFarBehind, syncOutcomeDeferredDirty, syncOutcomeSkipped:
 			if base.Reason != "" {
 				fmt.Fprintf(&note, "The branch was not merged with %s: %s.\n", repo.BaseBranch, base.Reason)

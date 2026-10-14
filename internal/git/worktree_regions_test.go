@@ -13,6 +13,7 @@ import (
 func TestRegionApplyPreservesCompleteFiles(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, path, initial, ours, theirs string }{
+		{"large summed regions", "data.txt", "prefix\n" + strings.Repeat("o", 5000) + "\n" + strings.Repeat("unchanged\n", 20) + strings.Repeat("o", 5000) + "\ntail", strings.Repeat("o", 5000), strings.Repeat("n", 5000)},
 		{"large Go field", "large.go", "package p\n" + strings.Repeat("// untouched context\n", 500) + "type T struct {\n Original bool\n}\n", "Original bool", "Added bool"},
 		{"repeated regions", "data.txt", "first\noriginal\n" + strings.Repeat("unchanged\n", 20) + "original\nlast", "original", "changed"},
 		{"CRLF", "data.txt", "prefix\r\noriginal\r\nsuffix\r\n", "original", "changed"},

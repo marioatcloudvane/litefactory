@@ -30,26 +30,26 @@ type PlanDraftRender struct {
 // is reserved by the store; neither the parent nor sequence comes from a role.
 // A draft too long to fit yields the shortened body; use RenderPlanDraftParts
 // to also obtain the full-draft parts.
-func RenderPlanDraft(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope) (string, string, error) {
-	r, err := renderPlanDraft(parent, ordinal, d, stage, scope, false)
+func RenderPlanDraft(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope, parentKey ...string) (string, string, error) {
+	r, err := renderPlanDraft(parent, ordinal, d, stage, scope, false, parentKey...)
 	return r.Title, r.Body, err
 }
 
 // RenderRetainedPlanDraft preserves settled later sections during earlier-stage review.
 // The caller separately validates stage-local authorship before merging.
-func RenderRetainedPlanDraft(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope) (string, string, error) {
-	r, err := renderPlanDraft(parent, ordinal, d, stage, scope, true)
+func RenderRetainedPlanDraft(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope, parentKey ...string) (string, string, error) {
+	r, err := renderPlanDraft(parent, ordinal, d, stage, scope, true, parentKey...)
 	return r.Title, r.Body, err
 }
 
 // RenderPlanDraftParts is RenderPlanDraft returning body and full-draft parts.
-func RenderPlanDraftParts(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope) (PlanDraftRender, error) {
-	return renderPlanDraft(parent, ordinal, d, stage, scope, false)
+func RenderPlanDraftParts(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope, parentKey ...string) (PlanDraftRender, error) {
+	return renderPlanDraft(parent, ordinal, d, stage, scope, false, parentKey...)
 }
 
 // RenderRetainedPlanDraftParts is RenderRetainedPlanDraft returning body and parts.
-func RenderRetainedPlanDraftParts(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope) (PlanDraftRender, error) {
-	return renderPlanDraft(parent, ordinal, d, stage, scope, true)
+func RenderRetainedPlanDraftParts(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope, parentKey ...string) (PlanDraftRender, error) {
+	return renderPlanDraft(parent, ordinal, d, stage, scope, true, parentKey...)
 }
 
 // SplitStoryParts splits text at line breaks into parts of at most limit bytes.
@@ -90,7 +90,7 @@ func cutText(v string, n int) string {
 	return string([]rune(v)[:n]) + "\u2026"
 }
 
-func renderPlanDraft(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope, retained bool) (PlanDraftRender, error) {
+func renderPlanDraft(parent, ordinal int64, d planbrief.PlanDraft, stage string, scope planbrief.ContentScope, retained bool, parentKey ...string) (PlanDraftRender, error) {
 	if parent < 1 || ordinal < 1 {
 		return PlanDraftRender{}, fmt.Errorf("positive authorized parent and reserved ordinal required")
 	}
@@ -103,7 +103,11 @@ func renderPlanDraft(parent, ordinal int64, d planbrief.PlanDraft, stage string,
 	if err := validation; err != nil {
 		return PlanDraftRender{}, err
 	}
-	title := fmt.Sprintf("%d-%03d: %s", parent, ordinal, d.Name)
+	key := fmt.Sprint(parent)
+	if len(parentKey) > 0 {
+		key = parentKey[0]
+	}
+	title := fmt.Sprintf("%s-%03d: %s", key, ordinal, d.Name)
 	if len(title) > 256 {
 		return PlanDraftRender{}, fmt.Errorf("generated title exceeds 256 bytes")
 	}

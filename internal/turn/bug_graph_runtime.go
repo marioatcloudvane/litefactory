@@ -11,6 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -182,6 +183,28 @@ func (r *BugRuntime) untouchedGraphLaunch(ctx context.Context, instance store.Gr
 	return true, nil
 }
 
+func graphBugExhaustionReason(ctx context.Context, db *store.DB, node graphexec.Node, attempts []store.GraphNodeAttempt) (string, error) {
+	reason := fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
+	if node.Name != "fixer" || len(attempts) == 0 {
+		return reason, nil
+	}
+	last := attempts[len(attempts)-1]
+	if last.Node != "finalization" || last.Status != store.GraphSucceeded || last.Outcome != "revalidate" {
+		return reason, nil
+	}
+	outputs, err := db.ListGraphOutputs(ctx, last.ID)
+	if err != nil {
+		return "", err
+	}
+	for _, output := range outputs {
+		var progress graphDeliveryProgress
+		if output.Kind == store.GraphOutputJSON && json.Unmarshal(output.Payload, &progress) == nil && progress.Record == "delivery_progress" && progress.Outcome == "revalidate" {
+			return reason + ". The repair passed its prior checks. " + progress.Reason + " Reply to rerun the checks on the new head with one extra bounded fixer run.", nil
+		}
+	}
+	return reason, nil
+}
+
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {
 	local := *r
 	r = &local
@@ -260,7 +283,7 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		suffix := retained + "\n<note>Factory source preparation.\n" + sourceNote + "</note>\n"
 		return w.finishRoute(ctx, route, &request, suffix, w.prep.promptInput.SessionArtifactDir)
 	}
-	finalization := GraphBugFinalization{Code: r.cfg.Code, Tickets: r.cfg.Tickets, Redactor: r.opts.MCP.Redactor, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery}
+	finalization := GraphBugFinalization{Code: r.cfg.Code, Tickets: r.cfg.Tickets, Redactor: r.opts.MCP.Redactor, Resolve: r.resolveGraphDelivery, Save: r.saveGraphDelivery, PublishSaved: r.pushGraphDelivery, SyncBase: r.syncGraphDelivery}
 	policy := SimplifiedBugPolicy{Profile: r.definition.Profile, Reporter: r.opts.ResearchReporter, Analyst: GraphBugAnalystActivity{Prepare: func(ctx context.Context, o Options, a ActivityRequest, c agentresult.Context, s string) (ResearchInvocation, error) {
 		if e := prepareWith(false)(ctx, o, a); e != nil {
 			return ResearchInvocation{}, e
@@ -334,7 +357,11 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 				}
 			}
 			if node.Limit > 0 && maximum >= node.Limit && allowanceSource == 0 && (we != nil || wait.State != "claimed" || wait.OriginNode != node.Name) {
-				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)}}, "exhausted", false)
+				diagnostic, err := graphBugExhaustionReason(ctx, r.opts.DB, node, attempts)
+				if err != nil {
+					return finish(err)
+				}
+				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: diagnostic}}, "exhausted", false)
 				return finish(parkErr)
 			}
 			permissions, e := r.cfg.Permissions(req.Agent, node.Attrs["lf_agent_markdown"])
@@ -415,7 +442,15 @@ func (r *BugRuntime) resolveGraphDelivery(ctx context.Context, _ Options, a Acti
 	if e != nil {
 		return GraphDeliveryBinding{}, e
 	}
-	return GraphDeliveryBinding{Record: "delivery_binding", InstanceID: a.InstanceID, SessionID: s.ID, IssueID: identity.IssueID, IssueNumber: s.IssueNumber, BotID: r.opts.MCP.BotID, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, Branch: s.Branch, Target: repo.BaseBranch, Marker: fmt.Sprintf("<!-- lf:bug-delivery instance=%d issue=%d -->", a.InstanceID, identity.IssueID), Eligibility: eligibility}, nil
+	ref, e := naming.ParseRef(s.TaskRef)
+	if e != nil {
+		return GraphDeliveryBinding{}, e
+	}
+	display, e := lookupTicketDisplay(ctx, r.opts.SubIssueCreator, ref, s.IssueNumber)
+	if e != nil {
+		return GraphDeliveryBinding{}, e
+	}
+	return GraphDeliveryBinding{IssueReference: display.Reference(), Record: "delivery_binding", InstanceID: a.InstanceID, SessionID: s.ID, IssueID: identity.IssueID, IssueNumber: s.IssueNumber, BotID: r.opts.MCP.BotID, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, Branch: s.Branch, Target: repo.BaseBranch, Marker: fmt.Sprintf("<!-- lf:bug-delivery instance=%d issue=%d -->", a.InstanceID, identity.IssueID), Eligibility: eligibility}, nil
 }
 func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a ActivityRequest, b GraphDeliveryBinding) (string, error) {
 	s, e := r.opts.DB.GetSession(ctx, b.SessionID)
@@ -481,6 +516,13 @@ func (r *BugRuntime) pushGraphDelivery(ctx context.Context, _ Options, a Activit
 	result, e := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: s.WorktreePath, Branch: s.Branch, BaseBranch: repo.BaseBranch})
 	if e != nil {
 		return e
+	}
+	actual, e := result.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if e != nil {
+		return e
+	}
+	if actual != head {
+		return errors.New("task head changed after saving the repair")
 	}
 	return result.Worktree.Push(ctx, r.opts.remote())
 }
@@ -577,4 +619,165 @@ func (r *BugRuntime) reconcileGraphBugInstance(ctx context.Context, instance sto
 		_, e = r.opts.ResearchReporter.RecoverGraphStopQuestion(ctx, wait.DeliveryKey)
 	}
 	return e
+}
+
+// syncGraphDelivery runs inside Execute's task exclusion. The generic sync
+// owns scratch publication; advice is tool-free and runs outside the clone gate.
+func (r *BugRuntime) syncGraphDelivery(ctx context.Context, opts Options, a ActivityRequest, b GraphDeliveryBinding, head string) (syncBaseOutput, error) {
+	s, err := r.opts.DB.GetSession(ctx, b.SessionID)
+	if err != nil {
+		return syncBaseOutput{}, err
+	}
+	run, err := r.opts.DB.GetRun(ctx, b.Eligibility.RunID)
+	if err != nil {
+		return syncBaseOutput{}, err
+	}
+	advisor, _ := conflictAdvisorFor(agent.Kind(run.Agent), r.opts.Runners)
+	guidance, err := r.opts.DB.GraphDiagnosisGuidance(ctx, a.InstanceID)
+	if err != nil {
+		return syncBaseOutput{}, err
+	}
+	var replies []string
+	for _, reply := range guidance {
+		replies = append(replies, reply.ReplyBody)
+	}
+	retained, err := json.Marshal(replies)
+	if err != nil {
+		return syncBaseOutput{}, err
+	}
+	binding := SyncBaseBinding{Repo: bugDeliveryRepo{runtime: r, session: s}, Bind: func(context.Context, Options, ActivityRequest) (SyncBaseTarget, error) {
+		return SyncBaseTarget{Working: b.Branch, Base: b.Target, ExpectedHead: head, Lock: func(ctx context.Context) (func() error, bool, error) {
+			current, err := r.opts.DB.GetSession(ctx, s.ID)
+			if err != nil {
+				return nil, false, err
+			}
+			if current.LockOwner == "" || current.LockOwner != r.opts.InstanceID {
+				return nil, false, errors.New("bug delivery requires the current task writer exclusion")
+			}
+			return func() error { return nil }, true, nil
+		}}, nil
+	}, ResolveConflict: func(ctx context.Context, scratch ImplementScratch, target SyncBaseTarget) (string, error) {
+		return resolveBugDeliveryConflict(ctx, scratch, target, advisor, s.TaskRef, a.NodeAttemptID, run.Agent, shortenForPrompt(string(retained)), opts.ConflictContentMaxBytes)
+	}}
+	result, err := (SyncBaseActivity{binding}).Execute(ctx, opts, a)
+	var out syncBaseOutput
+	if err == nil {
+		err = json.Unmarshal(result.Output, &out)
+	}
+	return out, err
+}
+
+type bugDeliveryRepo struct {
+	runtime *BugRuntime
+	session store.Session
+}
+
+func (r bugDeliveryRepo) Begin(ctx context.Context, branch string) (ImplementScratch, error) {
+	opts := r.runtime.opts
+	repo, err := executionRepository(ctx, opts.DB, r.session)
+	if err != nil {
+		return nil, err
+	}
+	clone, err := opts.Git.Open(ctx, repo.Path)
+	if err != nil {
+		return nil, err
+	}
+	if err = verifyExecutionClone(ctx, opts, r.session, clone); err != nil {
+		return nil, err
+	}
+	author, err := resolveAuthor(ctx, opts, clone)
+	if err != nil {
+		return nil, err
+	}
+	scratch, err := beginImplementScratch(ctx, opts.CloneGate, repo.Path, GitImplementRepo{Clone: clone, Remote: opts.remote(), ScratchRoot: implementScratchDir(opts), Author: author}, branch)
+	if err != nil {
+		return nil, err
+	}
+	return gatedScratch{ImplementScratch: scratch, gate: opts.CloneGate, clone: repo.Path, verify: func(ctx context.Context) error {
+		return verifyExecutionClone(ctx, opts, r.session, clone)
+	}}, nil
+}
+
+func resolveBugDeliveryConflict(ctx context.Context, scratch ImplementScratch, target SyncBaseTarget, advisor ConflictAdvisor, task string, attempt int64, model, guidance string, contentLimit int) (string, error) {
+	gated, ok := scratch.(gatedScratch)
+	if !ok {
+		return "", errors.New("conflict resolution requires a gated scratch worktree")
+	}
+	s, ok := gated.ImplementScratch.(*gitScratch)
+	if !ok {
+		return "", errors.New("conflict advisor or scratch worktree unavailable")
+	}
+	base, snapshots, err := prepareBugDeliveryConflict(ctx, gated, s, target.Base, contentLimit)
+	if err != nil {
+		return "", err
+	}
+	var validated []git.ValidatedConflict
+	for _, snapshot := range snapshots {
+		regions, proven := git.ResolveConflictAdditions(snapshot)
+		if !proven {
+			validated = nil
+			break
+		}
+		v, err := git.ValidateConflict(snapshot, regions)
+		if err != nil {
+			return "", err
+		}
+		validated = append(validated, v)
+	}
+	if len(validated) != len(snapshots) {
+		if advisor == nil {
+			return "", errors.New("conflict advisor unavailable for conflicts not proven insertion-only")
+		}
+		req := agent.ConflictResolutionRequest{Guidance: guidance, Branch: target.Working, Base: target.Base, LocalSHA: s.head, TargetSHA: base, TaskInputSHA: s.head, BaseInputSHA: base, Files: conflictAdvisorFiles(snapshots)}
+		resolution, err := advisor.ProposeConflictResolution(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("conflict advisor: %w", err)
+		}
+		if err = agent.ValidateRegionConflictResolution(resolution, req); err != nil {
+			return "", err
+		}
+		validated, err = validateCollectedConflictResolution(snapshots, resolution)
+		if err != nil {
+			return "", err
+		}
+	}
+	var files []git.ResolvedFile
+	for _, v := range validated {
+		files = append(files, git.ResolvedFile{Path: v.Path, Format: git.RegionProposalVersion, BranchSHA: s.head, BaseSHA: base, ContentLimit: contentLimit, Validated: v})
+	}
+	return applyBugDeliveryConflict(ctx, gated, s, base, git.CompleteMergeOptions{Task: task, Mode: "bug", Author: s.repo.Author, Files: files, ProposalID: attempt, ConfirmedBy: "factory-approved Bug remedy", Model: model})
+}
+
+func prepareBugDeliveryConflict(ctx context.Context, gated gatedScratch, s *gitScratch, base string, contentLimit int) (string, []git.ConflictSnapshot, error) {
+	release, err := gated.gate.Acquire(ctx, gated.clone)
+	if err != nil {
+		return "", nil, err
+	}
+	defer release()
+	sha, err := s.wt.RevParse(ctx, "refs/remotes/"+s.repo.Remote+"/"+base, git.RevParseOptions{})
+	if err != nil {
+		return "", nil, err
+	}
+	preview, err := s.wt.MergePreview(ctx, sha)
+	if err != nil {
+		return "", nil, err
+	}
+	snapshots, err := s.wt.CollectConflictSnapshots(ctx, preview.TreeSHA, s.head, sha, preview.Conflicts, contentLimit)
+	return sha, snapshots, err
+}
+
+func applyBugDeliveryConflict(ctx context.Context, gated gatedScratch, s *gitScratch, base string, options git.CompleteMergeOptions) (string, error) {
+	release, err := gated.gate.Acquire(ctx, gated.clone)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	if err = s.wt.WriteResolvedFiles(ctx, base, options.Files); err != nil {
+		return "", err
+	}
+	if err = s.wt.StageResolvedFiles(ctx, options.Files); err != nil {
+		return "", err
+	}
+	result, err := s.wt.CompleteMerge(ctx, options)
+	return result.Head, err
 }

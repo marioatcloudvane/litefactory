@@ -391,3 +391,58 @@ func (d *Daemon) implementCoordinatorDispatch(ctx context.Context, dispatch stor
 	}
 	return true, nil
 }
+
+// Reconciliation owns no execution: only an idle task can surrender its stale
+// dispatch. Both startup and ticks use the same durable and in-memory fences.
+func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) error {
+	interrupted, err := d.db.ListInterruptedGraphDispatches(ctx)
+	if err != nil {
+		return err
+	}
+	var faults error
+	for _, dispatch := range interrupted {
+		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
+			continue
+		}
+		err := d.reconcileGraphDispatch(ctx, dispatch, at)
+		d.inflight.leave(dispatch.SessionID)
+		faults = errors.Join(faults, err)
+	}
+	stranded, err := d.db.ListStrandedGraphDispatches(ctx)
+	if err != nil {
+		return errors.Join(faults, err)
+	}
+	for _, dispatch := range stranded {
+		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
+			continue
+		}
+		err := d.reconcileGraphDispatch(ctx, dispatch, at)
+		d.inflight.leave(dispatch.SessionID)
+		faults = errors.Join(faults, err)
+	}
+	return faults
+}
+
+func (d *Daemon) reconcileGraphDispatch(ctx context.Context, dispatch store.GraphDispatch, at time.Time) (err error) {
+	locked, err := d.db.AcquireSessionLock(ctx, dispatch.SessionID, d.instanceID)
+	if err != nil || !locked {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, d.db.ReleaseSessionLock(context.WithoutCancel(ctx), dispatch.SessionID, d.instanceID))
+	}()
+	if dispatch.ID == 0 {
+		if err := turn.ValidateGraphDispatchRecovery(ctx, d.db, dispatch); err != nil {
+			d.log.WarnContext(ctx, "stranded graph capture cannot resume; retained work preserved", slog.Int64("instance_id", dispatch.InstanceID), slog.Any("error", err))
+			return nil
+		}
+		return d.db.ReconcileStrandedGraphDispatch(ctx, dispatch, at)
+	}
+	capture := int64(0)
+	if validationErr := turn.ValidateGraphDispatchRecovery(ctx, d.db, dispatch); validationErr == nil {
+		capture = dispatch.LaunchID
+	} else {
+		d.log.WarnContext(ctx, "interrupted graph dispatch capture cannot resume; retained work preserved", slog.Int64("dispatch_id", dispatch.ID), slog.Any("error", validationErr))
+	}
+	return d.db.ReconcileGraphDispatch(ctx, dispatch.ID, capture, at)
+}

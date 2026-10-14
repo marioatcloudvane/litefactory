@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 // implementWorkPayload is the instruction of a run the factory starts by itself
@@ -184,11 +186,14 @@ func (d *Daemon) startImplementWork(ctx context.Context, t *task) error {
 	return nil
 }
 
-// implementWorkSettled reports that a schedule the factory started for story work
-// found nothing left to run: the ledger moved on before the run began. Such a
-// schedule is finished, not returned to pending, or it would be offered again on
-// every tick.
+// implementWorkSettled settles a Validate coordinator after its successful graph
+// return; admission or a retained launch alone is not a hand-off. Story-worker
+// schedules also settle when the ledger moved on before execution, so neither
+// kind is offered again on every tick after its work has been handed off.
 func (d *Daemon) implementWorkSettled(ctx context.Context, t *task, scheduled store.Schedule) bool {
+	if scheduled.Payload == turn.ValidateImplementPayload {
+		return t.implementCoordinatorHandedOff
+	}
 	if scheduled.Payload != implementWorkPayload {
 		return false
 	}
@@ -235,7 +240,14 @@ func (d *Daemon) graphImplementStories(ctx context.Context, byRepo map[int64]*re
 		}
 		session, err := d.managedChildSession(ctx, q.repo, row.Parent, number, remoteID)
 		if err != nil {
-			return fmt.Errorf("find the task of story %s: %w", row.Key, err)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// One story whose task cannot be resolved must not fail discovery for
+			// every other task and project; it is retried on the next tick.
+			q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
+				slog.String("parent", row.Parent), slog.String("story", row.Key), slog.Any("error", err))
+			continue
 		}
 		if row.WorkerSession != session.ID {
 			if err := d.db.SetImplementWorkerSession(ctx, row.Parent, row.Generation, row.Key, session.ID, now.UTC()); err != nil {

@@ -1,0 +1,38 @@
+{
+  "scope": "affected packages only; no full suite or live provider checks",
+  "head": "51b5088005970fd8745735c02dccaeba67d42e13",
+  "checks": [
+    {
+      "name": "race",
+      "command": "go test -count=1 -race -timeout=0 ./cmd/litefactory ./cmd/teamrelease ./internal/agentresult ./internal/codex ./internal/doctor ./internal/github ./internal/graphexec ./internal/harness ./internal/messaging ./internal/messaging/ask ./internal/messaging/discord ./internal/messaging/feature ./internal/messaging/response ./internal/meterview ./internal/planbrief ./internal/projectconnection ./internal/report ./internal/repos ./internal/resultservice ./internal/rights ./internal/store/storetest ./internal/teampackage ./internal/teamrelease ./internal/teamsource ./internal/webhookreg",
+      "exit_code": 0,
+      "output": "ok  \tgithub.com/cloudvane/litefactory/cmd/litefactory\t5.373s\n?   \tgithub.com/cloudvane/litefactory/cmd/teamrelease\t[no test files]\nok  \tgithub.com/cloudvane/litefactory/internal/agentresult\t19.151s\nok  \tgithub.com/cloudvane/litefactory/internal/codex\t185.498s\nok  \tgithub.com/cloudvane/litefactory/internal/doctor\t634.855s\nok  \tgithub.com/cloudvane/litefactory/internal/github\t11.729s\nok  \tgithub.com/cloudvane/litefactory/internal/graphexec\t11.830s\nok  \tgithub.com/cloudvane/litefactory/internal/harness\t197.151s\nok  \tgithub.com/cloudvane/litefactory/internal/messaging\t845.313s\nok  \tgithub.com/cloudvane/litefactory/internal/messaging/ask\t8.804s\nok  \tgithub.com/cloudvane/litefactory/internal/messaging/discord\t147.494s\nok  \tgithub.com/cloudvane/litefactory/internal/messaging/feature\t6.449s\n?   \tgithub.com/cloudvane/litefactory/internal/messaging/response\t[no test files]\nok  \tgithub.com/cloudvane/litefactory/internal/meterview\t28.747s\nok  \tgithub.com/cloudvane/litefactory/internal/planbrief\t9.803s\nok  \tgithub.com/cloudvane/litefactory/internal/projectconnection\t102.498s\nok  \tgithub.com/cloudvane/litefactory/internal/report\t118.449s\nok  \tgithub.com/cloudvane/litefactory/internal/repos\t17.472s\n?   \tgithub.com/cloudvane/litefactory/internal/resultservice\t[no test files]\nok  \tgithub.com/cloudvane/litefactory/internal/rights\t55.636s\n?   \tgithub.com/cloudvane/litefactory/internal/store/storetest\t[no test files]\nok  \tgithub.com/cloudvane/litefactory/internal/teampackage\t22.294s\nok  \tgithub.com/cloudvane/litefactory/internal/teamrelease\t205.737s\nok  \tgithub.com/cloudvane/litefactory/internal/teamsource\t13.189s\nok  \tgithub.com/cloudvane/litefactory/internal/webhookreg\t58.542s\n"
+    },
+    {
+      "name": "nonrace",
+      "command": "go test -count=1 -timeout=0 ./internal/cli ./internal/daemon ./internal/store ./internal/turn",
+      "exit_code": 0,
+      "output": "ok  \tgithub.com/cloudvane/litefactory/internal/cli\t203.318s\nok  \tgithub.com/cloudvane/litefactory/internal/daemon\t700.102s\nok  \tgithub.com/cloudvane/litefactory/internal/store\t508.244s\nok  \tgithub.com/cloudvane/litefactory/internal/turn\t1991.186s\n"
+    },
+    {
+      "name": "lint",
+      "command": "golangci-lint run ./internal/harness ./internal/codex ./internal/messaging",
+      "exit_code": 0,
+      "output": "0 issues.\n"
+    },
+    {
+      "name": "build",
+      "command": "go build ./...",
+      "exit_code": 0,
+      "output": ""
+    }
+  ],
+  "source_hashes": {
+    "internal/messaging/conversation_e2e_test.go": "c3cfe2665a9edab1c4e8d2006dc956c60d86b8700559a9a1f420aaccf388cb33",
+    "internal/messaging/conversation_recovery_fixture_test.go": "647a90e9dfe431869c859d0a20106f25e3a4f0e8bb26dad32b22afff3fdebef6",
+    "internal/messaging/conversation_recorded_recovery_test.go": "25f2ff877b7a1839ed3f9272089dfe98ef10e471411933a9ff41bb58cad7162c",
+    "internal/harness/conversation_recorded_test.go": "2fc14c1d3e92bf3f681045912e24d65dcb9f4deb0cdad79d2b87bd3c8c14508f",
+    "internal/codex/conversation_recorded_test.go": "c058e1a09ffd15d1f0c591c1794efcde5eecfcf4a4f529f499260493b553f04a",
+    "docs/conversation-evidence.md": "48aeb9bf6d495bd109f15e7efbb612bb94cb451051199954696ee05c08149f1a"
+  }
+}

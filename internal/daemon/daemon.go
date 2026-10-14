@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -481,6 +482,9 @@ type Daemon struct {
 	diagnosticRedactor *redact.Redactor
 	pool               *pool
 
+	// holdDiagnostics is owned by candidate selection on the tick goroutine.
+	holdDiagnostics map[int64]candidateHold
+
 	// lastRepoID and repoSessionCursor are the two levels of the dispatch
 	// rotation (RD-1): the repository the last dispatch came from, and per
 	// repository the session id it last dispatched.
@@ -503,6 +507,7 @@ type Daemon struct {
 // rather than at the first tick — which happens thirty seconds after the
 // operator has stopped watching the terminal.
 func New(opts Options) (*Daemon, error) {
+	linear.SetRequestLogger(opts.Logger)
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
@@ -716,6 +721,9 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		return Reconciled{}, err
 	}
 	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "implement", reconciliation.At); err != nil {
+		return Reconciled{}, err
+	}
+	if err := d.reconcileGraphDispatches(ctx, reconciliation.At); err != nil {
 		return Reconciled{}, err
 	}
 	d.refreshRecoveries(ctx, time.Time{})

@@ -62,6 +62,10 @@ func (r *Reporter) ReportPlanReply(ctx context.Context, parent naming.Ref, sessi
 		return Posted{}, err
 	}
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
-		return r.renderer.RenderReportDelivery(ctx, report.PlanReplyExplanationText(explanation.Key, explanation.ChildNumber, explanation.CommentID, explanation.Reason), "")
+		display, err := lookupTicketDisplay(ctx, r.forge, parent, explanation.ChildNumber)
+		if err != nil {
+			return redact.Body{}, err
+		}
+		return r.renderer.RenderReportDelivery(ctx, report.PlanReplyExplanationText(explanation.Key, explanation.ChildNumber, explanation.CommentID, explanation.Reason, display.Reference()), "")
 	})
 }

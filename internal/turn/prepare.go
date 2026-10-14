@@ -429,6 +429,10 @@ func prepare(
 		previousReason = previous.Error
 	}
 
+	display, err := lookupTicketDisplay(ctx, opts.SubIssueCreator, ref, req.Issue.Number)
+	if err != nil {
+		return nil, err
+	}
 	promptInput := harness.PromptInput{
 		Ref:               ref,
 		FeatureSlug:       session.FeatureSlug,
@@ -438,6 +442,7 @@ func prepare(
 		RunOrdinal:        run.Ordinal,
 		Instruction:       req.Command.Text,
 		IssueTitle:        req.Issue.Title,
+		IssueReference:    display.Reference(),
 		IssueBody:         req.Issue.Body,
 		IssueAuthor:       req.Issue.Author,
 		CommentBody:       req.Trigger.Body,

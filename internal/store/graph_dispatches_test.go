@@ -330,3 +330,348 @@ func TestGraphReplyRecoveryAtomicallyConsumesInput(t *testing.T) {
 		t.Fatal("old dispatch accepted newer instance")
 	}
 }
+
+func interruptedDispatchFixture(t *testing.T) (*DB, GraphDispatch, Run) {
+	t.Helper()
+	db, launch := captureFixture(t)
+	ctx := t.Context()
+	admitted, err := db.AdmitWorkflowLaunch(ctx, launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := graphTestTime()
+	d, err := db.ParkGraphInstance(ctx, admitted.Instance.ID, admitted.Instance.CurrentNode, at, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := db.ReserveGraphDispatch(ctx, d.ID, at); err != nil || !ok {
+		t.Fatalf("reserve: %v %v", ok, err)
+	}
+	segment, err := db.GetOrCreateSegment(ctx, d.SessionID, 1, "dispatch-recovery", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: d.SessionID, SegmentID: segment.ID, Mode: "research", Agent: AgentClaude, TriggerCommentID: d.TriggerID(), StartedAt: at, LogPath: func(int) string { return "recovery.log" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db, readLaunchDispatch(t, db, d.ID), run
+}
+
+func TestReconcileGraphDispatchTerminalRuns(t *testing.T) {
+	for _, state := range []string{"succeeded", "failed", "reported success", "reported abandonment", "missing", "restart"} {
+		t.Run(state, func(t *testing.T) {
+			db, old, run := interruptedDispatchFixture(t)
+			ctx, at := t.Context(), graphTestTime().Add(time.Hour)
+			if state == "restart" {
+				if _, err := db.ReconcileOrphans(ctx, "replacement-daemon"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				outcome := RunOutcome{Status: RunSucceeded}
+				if state == "failed" || state == "reported abandonment" {
+					outcome.Status, outcome.Error = RunFailed, ReasonAbandoned
+				}
+				if _, err := db.FinishRun(ctx, run.ID, outcome); err != nil {
+					t.Fatal(err)
+				}
+				if state == "reported success" || state == "reported abandonment" {
+					if _, err := db.sql.ExecContext(ctx, `UPDATE runs SET status='reported' WHERE id=?`, run.ID); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			history, err := db.GetRun(ctx, run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state == "missing" {
+				// Model corruption explicitly: ordinary foreign keys prohibit this state.
+				if _, err = db.sql.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+					t.Fatal(err)
+				}
+				if _, err = db.sql.ExecContext(ctx, `DELETE FROM runs WHERE id=?`, run.ID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err = db.sql.ExecContext(ctx, `PRAGMA foreign_keys=ON`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			due := at.Add(time.Hour)
+			if _, err = db.sql.ExecContext(ctx, `UPDATE graph_instances SET current_node='next',next_due_at=? WHERE id=?`, FormatTime(due), old.InstanceID); err != nil {
+				t.Fatal(err)
+			}
+			candidates, err := db.ListInterruptedGraphDispatches(ctx)
+			if err != nil || len(candidates) != 1 {
+				t.Fatalf("candidates=%+v err=%v", candidates, err)
+			}
+			for range 2 {
+				if err = db.ReconcileGraphDispatch(ctx, old.ID, old.LaunchID, at); err != nil {
+					t.Fatal(err)
+				}
+			}
+			spent := readLaunchDispatch(t, db, old.ID)
+			if spent.Status != "finished" || spent.AllocatedRunID != run.ID {
+				t.Fatalf("history lost: %+v", spent)
+			}
+			next, err := db.LatestGraphDispatch(ctx, old.InstanceID)
+			if err != nil || next.ID == old.ID || next.TriggerID() == old.TriggerID() || next.Node != "next" || next.Status != "pending" || next.LaunchID != old.LaunchID || !next.DueAt.Equal(due) {
+				t.Fatalf("successor=%+v err=%v", next, err)
+			}
+			if before, err := db.ListDueGraphDispatches(ctx, at, 10); err != nil || len(before) != 0 {
+				t.Fatalf("backoff lost: %+v %v", before, err)
+			}
+			if ready, err := db.ListDueGraphDispatches(ctx, due, 10); err != nil || len(ready) != 1 {
+				t.Fatalf("due=%+v %v", ready, err)
+			}
+			if state != "missing" {
+				after, err := db.GetRun(ctx, run.ID)
+				if err != nil || after.Status != history.Status || after.Error != history.Error || !after.FinishedAt.Equal(history.FinishedAt) {
+					t.Fatalf("terminal run changed: %+v %v", after, err)
+				}
+			}
+		})
+	}
+}
+
+func TestReconcileGraphDispatchGuardsAndRollback(t *testing.T) {
+	for _, guard := range []string{"live", "doctor", "attempt", "effect", "waiting", "claimed", "terminal", "superseded", "unsupported", "write failure", "read failure"} {
+		t.Run(guard, func(t *testing.T) {
+			db, d, run := interruptedDispatchFixture(t)
+			ctx, at := t.Context(), graphTestTime().Add(time.Hour)
+			if guard != "live" {
+				if _, err := db.FinishRun(ctx, run.ID, RunOutcome{Status: RunFailed, Error: ReasonAbandoned}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			exec := func(query string, args ...any) {
+				t.Helper()
+				if _, err := db.sql.ExecContext(ctx, query, args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			switch guard {
+			case "doctor":
+				session, err := db.GetSession(ctx, d.SessionID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, presentation := retainedPollProposal(t, db, session)
+				if _, err = db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "dispatch-hold", SourceID: "dispatch-hold-input", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
+					t.Fatal(err)
+				}
+			case "attempt", "effect", "waiting", "claimed":
+				attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, Limit: 3, StartedAt: at})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if guard != "attempt" {
+					if err = db.FinishGraphNodeAttempt(ctx, attempt.ID, GraphSucceeded, "success", at); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if guard == "effect" {
+					exec(`INSERT INTO graph_effects(operation,instance_id,source_attempt_id,kind,binding,state,created_at,updated_at) VALUES('pending',?,?,'test',X'','uncertain',?,?)`, d.InstanceID, attempt.ID, FormatTime(at), FormatTime(at))
+				}
+				if guard == "waiting" || guard == "claimed" {
+					if err = db.RetainGraphComment(ctx, GraphCommentIntent{Key: "wait", InstanceID: d.InstanceID, SourceAttemptID: attempt.ID, Node: d.Node, Kind: "question", Candidate: []byte(`{}`)}); err != nil {
+						t.Fatal(err)
+					}
+					if guard == "claimed" {
+						exec(`UPDATE graph_owner_waits SET state='claimed' WHERE instance_id=?`, d.InstanceID)
+					}
+				}
+			case "terminal":
+				if err := db.SetGraphInstanceStatus(ctx, d.InstanceID, GraphSucceeded, time.Time{}, at); err != nil {
+					t.Fatal(err)
+				}
+			case "superseded":
+				instance, err := db.GetGraphInstance(ctx, d.InstanceID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				instance.ID = 0
+				if _, err = db.CreateGraphInstance(ctx, instance); err != nil {
+					t.Fatal(err)
+				}
+			case "write failure":
+				exec(`CREATE TRIGGER fail_recovery BEFORE INSERT ON graph_dispatches BEGIN SELECT RAISE(ABORT,'test write failure'); END`)
+			case "read failure":
+				exec(`ALTER TABLE graph_effects RENAME TO unavailable_effects`)
+			}
+			capture := d.LaunchID
+			if guard == "unsupported" {
+				capture = 0
+			}
+			err := db.ReconcileGraphDispatch(ctx, d.ID, capture, at)
+			failed := guard == "write failure" || guard == "read failure"
+			if (err != nil) != failed {
+				t.Fatalf("error=%v", err)
+			}
+			want := "running"
+			if guard == "waiting" || guard == "claimed" || guard == "terminal" || guard == "superseded" {
+				want = "finished"
+			}
+			if got := readLaunchDispatch(t, db, d.ID); got.Status != want {
+				t.Fatalf("dispatch=%+v want=%s", got, want)
+			}
+			if next, err := db.LatestGraphDispatch(ctx, d.InstanceID); err != nil || next.ID != d.ID {
+				t.Fatalf("unauthorized successor: %+v %v", next, err)
+			}
+			if guard == "waiting" || guard == "claimed" {
+				wait, err := db.GetGraphOwnerWait(ctx, d.InstanceID)
+				if err != nil || wait.State != guard {
+					t.Fatalf("wait changed: %+v %v", wait, err)
+				}
+			}
+			if failed {
+				if guard == "write failure" {
+					exec(`DROP TRIGGER fail_recovery`)
+				} else {
+					exec(`ALTER TABLE unavailable_effects RENAME TO graph_effects`)
+				}
+				if err = db.ReconcileGraphDispatch(ctx, d.ID, d.LaunchID, at); err != nil {
+					t.Fatal(err)
+				}
+				if next, err := db.LatestGraphDispatch(ctx, d.InstanceID); err != nil || next.ID == d.ID {
+					t.Fatalf("retry lost: %+v %v", next, err)
+				}
+			}
+		})
+	}
+}
+
+func TestStrandedGraphDispatchEligibilityAndRecheck(t *testing.T) {
+	for _, guard := range []string{"idle", "pending dispatch", "reserved dispatch", "running dispatch", "cancelled", "pending attempt", "running attempt", "prelaunch run", "running run", "waiting", "claimed", "allocated", "scheduled", "running schedule", "due", "doctor", "effect", "terminal", "superseded", "node changed", "capture changed"} {
+		t.Run(guard, func(t *testing.T) {
+			db, launch := captureFixture(t)
+			ctx, at := t.Context(), graphTestTime()
+			admitted, err := db.AdmitWorkflowLaunch(ctx, launch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidates, err := db.ListStrandedGraphDispatches(ctx)
+			if err != nil || len(candidates) != 1 {
+				t.Fatalf("candidates=%+v err=%v", candidates, err)
+			}
+			d := candidates[0]
+			exec := func(query string, args ...any) {
+				t.Helper()
+				if _, err := db.sql.ExecContext(ctx, query, args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+			switch guard {
+			case "pending dispatch", "reserved dispatch", "running dispatch", "cancelled":
+				status := map[string]string{"pending dispatch": "pending", "reserved dispatch": "reserved", "running dispatch": "running", "cancelled": "cancelled"}[guard]
+				exec(`INSERT INTO graph_dispatches(instance_id,session_id,node,due_at,status,created_at,launch_id) VALUES(?,?,?,?,?,?,?)`, d.InstanceID, d.SessionID, d.Node, FormatTime(at), status, FormatTime(at), d.LaunchID)
+			case "pending attempt", "running attempt", "effect", "waiting", "claimed", "allocated":
+				a, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: d.InstanceID, LaunchID: d.LaunchID, Node: d.Node, Limit: 3, StartedAt: at})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if guard == "pending attempt" {
+					exec(`UPDATE graph_node_attempts SET status='pending' WHERE id=?`, a.ID)
+				}
+				if guard != "pending attempt" && guard != "running attempt" {
+					if err := db.FinishGraphNodeAttempt(ctx, a.ID, GraphSucceeded, "success", at); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if guard == "effect" {
+					exec(`INSERT INTO graph_effects(operation,instance_id,source_attempt_id,kind,binding,state,created_at,updated_at) VALUES('pending',?,?,'test',X'','uncertain',?,?)`, d.InstanceID, a.ID, FormatTime(at), FormatTime(at))
+				}
+				if guard == "waiting" || guard == "claimed" || guard == "allocated" {
+					if err := db.RetainGraphComment(ctx, GraphCommentIntent{Key: "wait", InstanceID: d.InstanceID, SourceAttemptID: a.ID, Node: d.Node, Kind: "question", Candidate: []byte(`{}`)}); err != nil {
+						t.Fatal(err)
+					}
+					exec(`UPDATE graph_owner_waits SET state=? WHERE instance_id=?`, guard, d.InstanceID)
+				}
+			case "prelaunch run", "running run":
+				segment, err := db.GetOrCreateSegment(ctx, d.SessionID, 1, "work", AgentClaude)
+				if err != nil {
+					t.Fatal(err)
+				}
+				run, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: d.SessionID, SegmentID: segment.ID, Mode: "research", Agent: AgentClaude, TriggerCommentID: 10, LogPath: func(int) string { return "test.log" }})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if guard == "prelaunch run" {
+					exec(`UPDATE runs SET status='prelaunch' WHERE id=?`, run.ID)
+				}
+			case "scheduled", "running schedule":
+				status := "pending"
+				if guard == "running schedule" {
+					status = "running"
+				}
+				exec(`INSERT INTO schedules(session_id,source_comment_id,owner_handle,payload,status,created_at,updated_at) VALUES(?,1,'owner','test',?,?,?)`, d.SessionID, status, FormatTime(at), FormatTime(at))
+			case "due":
+				exec(`UPDATE graph_instances SET next_due_at=? WHERE id=?`, FormatTime(at.Add(time.Hour)), d.InstanceID)
+			case "doctor":
+				session, err := db.GetSession(ctx, d.SessionID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, presentation := retainedPollProposal(t, db, session)
+				if _, err := db.ReserveDoctorRepair(ctx, DoctorApproval{ID: "stranded-hold", SourceID: "stranded-input", Principal: "local-owner", TaskRef: session.TaskRef, PresentationID: presentation}); err != nil {
+					t.Fatal(err)
+				}
+			case "terminal":
+				if err := db.SetGraphInstanceStatus(ctx, d.InstanceID, GraphSucceeded, time.Time{}, at); err != nil {
+					t.Fatal(err)
+				}
+			case "superseded":
+				if _, err := db.CreateGraphInstance(ctx, GraphInstance{SessionID: d.SessionID, DefinitionID: admitted.Instance.DefinitionID, CurrentNode: d.Node, StartedAt: at}); err != nil {
+					t.Fatal(err)
+				}
+			case "node changed":
+				exec(`UPDATE graph_instances SET current_node='other' WHERE id=?`, d.InstanceID)
+			case "capture changed":
+				d.LaunchID++
+			}
+			selected, err := db.ListStrandedGraphDispatches(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, candidate := range selected {
+				if candidate.InstanceID == d.InstanceID {
+					found = true
+				}
+			}
+			wantSelected := guard == "idle" || guard == "allocated" || guard == "node changed" || guard == "capture changed"
+			if found != wantSelected {
+				t.Fatalf("discovery selected=%v want %v", found, wantSelected)
+			}
+
+			for range 2 {
+				if err := db.ReconcileStrandedGraphDispatch(ctx, d, at); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var count int
+			if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_dispatches WHERE instance_id=?`, d.InstanceID).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			want := 0
+			if guard == "idle" || guard == "allocated" || guard == "pending dispatch" || guard == "reserved dispatch" || guard == "running dispatch" || guard == "cancelled" {
+				want = 1
+			}
+			if count != want {
+				t.Fatalf("dispatch count=%d want %d", count, want)
+			}
+			if guard == "idle" || guard == "allocated" {
+				got, err := db.LatestGraphDispatch(ctx, d.InstanceID)
+				if err != nil || got.Node != d.Node || got.LaunchID != d.LaunchID || got.Status != "pending" || !got.DueAt.Equal(at) {
+					t.Fatalf("dispatch=%+v err=%v", got, err)
+				}
+				if guard == "allocated" {
+					wait, err := db.GetGraphOwnerWait(ctx, d.InstanceID)
+					if err != nil || wait.State != "allocated" {
+						t.Fatalf("wait changed: %+v %v", wait, err)
+					}
+				}
+			}
+		})
+	}
+}

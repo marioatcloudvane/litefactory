@@ -271,3 +271,45 @@ func workflowRequestError(ctx context.Context, opts Options, req Request, sessio
 	}
 	return fmt.Errorf("repository %s requested workflow %s: %w", repo.Path, workflow, cause)
 }
+
+// ValidateGraphDispatchRecovery checks the interrupted dispatch's exact retained
+// instructions with the same registry and integrity checks used at execution.
+// It grants no approval and performs no recovery or external effects.
+func ValidateGraphDispatchRecovery(ctx context.Context, db *store.DB, dispatch store.GraphDispatch) error {
+	saved, err := db.GetWorkflowCapture(ctx, dispatch.LaunchID)
+	if err != nil {
+		return err
+	}
+	if saved.InstanceID != dispatch.InstanceID || saved.SessionID != dispatch.SessionID {
+		return errors.New("dispatch recovery capture identity mismatch")
+	}
+	instance, err := db.GetGraphInstance(ctx, dispatch.InstanceID)
+	if err != nil {
+		return err
+	}
+	pin, err := db.GetGraphDefinition(ctx, instance.DefinitionID)
+	if err != nil {
+		return err
+	}
+	workflow, err := agent.ResolveWorkflow(agent.Workflow(pin.Workflow), agent.Mode(pin.Mode))
+	if err != nil {
+		return err
+	}
+	builders := map[agent.Workflow]func() (graphexec.Registry, error){agent.WorkflowResearch: ResearchSpecs, agent.WorkflowPlan: PlanSpecs, agent.WorkflowImplement: ImplementSpecs, agent.WorkflowValidate: ValidateFlowSpecs, agent.WorkflowSpike: SpikeSpecs, agent.WorkflowBug: SimplifiedBugSpecs}
+	builder, ok := builders[workflow]
+	if !ok {
+		return errors.New("dispatch recovery workflow is unsupported")
+	}
+	specs, err := builder()
+	if err != nil {
+		return err
+	}
+	definition, err := restoreWorkflow(ctx, db, saved, workflow, specs)
+	if err != nil {
+		return err
+	}
+	if _, ok := definition.Profile.Node(instance.CurrentNode); !ok {
+		return errors.New("dispatch recovery node is absent from retained capture")
+	}
+	return nil
+}

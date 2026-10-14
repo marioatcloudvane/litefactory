@@ -39,7 +39,11 @@ func prepareApprovedContext(ctx context.Context, opts Options, in *harness.Promp
 	}
 	bundle := &agent.ApprovedBundle{WorkflowVersion: feature.WorkflowVersion, ParentTitle: in.IssueTitle, ParentBody: in.IssueBody, Parent: feature.ParentTask, RunID: runID, RunOrdinal: in.RunOrdinal, Generation: feature.Generation}
 	for _, r := range revisions {
-		bundle.Stories = append(bundle.Stories, agent.ApprovedStory{EngineeringComplete: r.EngineeringComplete, State: r.State, Key: r.Key, IssueNumber: r.IssueNumber, IssueID: r.IssueID, ParentID: r.ParentID, Source: fmt.Sprintf("https://github.com/%s/%s/issues/%d", in.Ref.Owner, in.Ref.Repo, r.IssueNumber), Title: r.Title, Body: r.Body, Revision: r.Hash, FetchedAt: r.FetchedAt.UTC().Format(time.RFC3339Nano), Dependencies: slices.Clone(r.Dependencies)})
+		display, err := lookupTicketDisplay(ctx, opts.SubIssueCreator, in.Ref, r.IssueNumber)
+		if err != nil {
+			return err
+		}
+		bundle.Stories = append(bundle.Stories, agent.ApprovedStory{EngineeringComplete: r.EngineeringComplete, State: r.State, Key: r.Key, IssueNumber: r.IssueNumber, IssueID: r.IssueID, ParentID: r.ParentID, Source: display.URL, Title: r.Title, Body: r.Body, Revision: r.Hash, FetchedAt: r.FetchedAt.UTC().Format(time.RFC3339Nano), Dependencies: slices.Clone(r.Dependencies)})
 	}
 	selected := 0
 	for _, story := range bundle.Stories {
@@ -102,7 +106,7 @@ func validateApprovedRelationships(ctx context.Context, opts Options, prep *prep
 			continue
 		}
 		if planbrief.StoryHash(live.Title, live.Body) != s.Revision {
-			drift = append(drift, fmt.Sprintf("Story %s (#%d) differs from approved revision %s; this attempt retains that revision.", s.Key, s.IssueNumber, s.Revision))
+			drift = append(drift, fmt.Sprintf("Story %s (%s) differs from approved revision %s; this attempt retains that revision.", s.Key, displayIssue(prep.ref, live).Reference(), s.Revision))
 		}
 	}
 	return strings.Join(drift, "\n"), errors.Join(faults...)

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -138,5 +139,73 @@ func TestMeterLowerBoundSurvivesReclassificationAndArchive(t *testing.T) {
 	}
 	if got := meterPricedTotal(t, db); got.Cmp(before) != 0 {
 		t.Fatalf("lower bound after archive %s, want %s", got.FloatString(12), before.FloatString(12))
+	}
+}
+
+func TestMeterSnapshotManagedFamilySelection(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	repo := testRepo(t, db, "acme", "api")
+	other := testRepo(t, db, "foreign", "api")
+	for _, project := range []Repo{repo, other} {
+		for _, issue := range []int{614, 809, 810, 811} {
+			session, err := db.GetOrCreateSession(ctx, project, issue)
+			if err != nil {
+				t.Fatal(err)
+			}
+			run := testRun(t, db, session.ID, int64(issue))
+			a, err := db.StartMeterAttempt(ctx, run.ID, "claude")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.FinishMeterAttempt(ctx, a.ID, "success", "unknown", "fixture", "fixture", nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, query := range []string{
+		`INSERT INTO plan_story_drafts(parent,story_key,ordinal,issue_id,issue_number,retired) VALUES('github:acme/api#614','one',1,809,809,1)`,
+		`INSERT INTO managed_features(parent_task,generation,state) VALUES('github:acme/api#614',2,'completed')`,
+		`INSERT INTO managed_stories(parent_task,generation,story_key,issue_number,issue_id,body_hash,dependencies,state) VALUES('github:acme/api#614',1,'one',809,809,'x','[]','completed'),('github:acme/api#614',2,'one',809,809,'x','[]','completed'),('github:acme/api#614',2,'two',810,810,'x','[]','completed')`,
+		`INSERT INTO plan_story_drafts(parent,story_key,ordinal,issue_id,issue_number) VALUES('github:foreign/api#614','other',1,811,811)`,
+	} {
+		if _, err := db.sql.ExecContext(ctx, query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		f    MeterFilter
+		want string
+	}{
+		{"family", MeterFilter{RepoID: repo.ID, Issue: 614, IncludeStories: true}, "614,809,810"},
+		{"exact export and recovery", MeterFilter{RepoID: repo.ID, Issue: 614}, "614"},
+		{"child", MeterFilter{RepoID: repo.ID, Issue: 809, IncludeStories: true}, "809"},
+		{"foreign", MeterFilter{RepoID: other.ID, Issue: 614, IncludeStories: true}, "614,811"},
+		{"agent filter", MeterFilter{RepoID: repo.ID, Issue: 614, IncludeStories: true, CodingAgent: "codex"}, ""},
+		{"mode filter", MeterFilter{RepoID: repo.ID, Issue: 614, IncludeStories: true, Mode: "implement"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap, err := db.NewMeterSnapshot(ctx, tc.f, MeterSnapshotOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := snap.Close(ctx); err != nil {
+					t.Error(err)
+				}
+			}()
+			rows, err := snap.Next(ctx, 256)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var issues []string
+			for _, r := range rows {
+				issues = append(issues, fmt.Sprint(r.Issue))
+			}
+			if got := strings.Join(issues, ","); got != tc.want {
+				t.Fatalf("issues=%s want=%s", got, tc.want)
+			}
+		})
 	}
 }

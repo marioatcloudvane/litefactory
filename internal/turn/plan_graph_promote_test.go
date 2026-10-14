@@ -187,6 +187,9 @@ func TestPlanPromote_RefusalsExplainAndChangeNothing(t *testing.T) {
 		body   string
 		want   []string
 	}{
+		{"wrapped stale", 7, "`" + promoteCommand(older) + "`", []string{"not the current story set"}},
+		{"wrapped non-owner", 99, "`" + promoteCommand(current) + "`", []string{"only the authenticated owner"}},
+		{"wrapped trailing text", 7, "`" + promoteCommand(current) + "`\r\nmore", []string{"exact text"}},
 		{"older revision", 7, promoteCommand(older), []string{"not the current story set", "revision " + current, promoteCommand(current)}},
 		{"unknown revision", 7, promoteCommand(strings.Repeat("0", 64)), []string{"not the current story set", current}},
 		{"no revision", 7, "/approve-plan set", []string{"exact text", current}},
@@ -226,8 +229,9 @@ func TestPlanPromote_RefusalsExplainAndChangeNothing(t *testing.T) {
 // set, and the promotion command never approves a final plan.
 func TestPlanPromote_OnlyTheExactCommandPromotes(t *testing.T) {
 	for body, want := range map[string]bool{
-		"/approve-plan set " + strings.Repeat("a", 64):          true,
-		"/approve-plan set":                                     true,
+		"`/approve-plan set ab853aa4bf79081a5330b2499672434e34f380bd18013b75a5df1392c2bef64f`": true,
+		"/approve-plan set " + strings.Repeat("a", 64):                                         true,
+		"/approve-plan set": true,
 		"  /approve-plan set " + strings.Repeat("a", 64) + "  ": true,
 		"/approve-plan-set " + strings.Repeat("a", 64):          false,
 		"/approve-plan story-001 story cand":                    false,

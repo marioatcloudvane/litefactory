@@ -295,7 +295,7 @@ func TestPlanSetFlow_PublishedRevisionStaleRefusalPromotionAndDraftingOrder(t *t
 	_, current := setFlowReviewSet(t, f, remote, base, forge, run)
 
 	// (3) The owner's current promotion is accepted.
-	out, err := Execute(t.Context(), f.opts, promoteTrigger(base, 802, 7, promoteCommand(current)))
+	out, err := Execute(t.Context(), f.opts, promoteTrigger(base, 802, 7, "`"+promoteCommand(current)+"`"))
 	if err != nil || out.Err != nil || !out.Succeeded() {
 		t.Fatalf("promotion run: err=%v result=%+v logs=%s", err, out.Err, f.logs.String())
 	}
@@ -344,7 +344,7 @@ func TestPlanSetFlow_PublishedRevisionStaleRefusalPromotionAndDraftingOrder(t *t
 	// A replay of the promotion, once complete, changes nothing.
 	before := setFlowIdentities(t, f)
 	ran := len(c.order)
-	if replay, err := Execute(t.Context(), f.opts, promoteTrigger(base, 802, 7, promoteCommand(current))); err != nil || replay.Run.ID != out.Run.ID {
+	if replay, err := Execute(t.Context(), f.opts, promoteTrigger(base, 802, 7, "`"+promoteCommand(current)+"`")); err != nil || replay.Run.ID != out.Run.ID {
 		t.Fatalf("replay: %v", err)
 	}
 	requireIdentitiesKept(t, before, setFlowIdentities(t, f))
