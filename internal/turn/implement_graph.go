@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -457,5 +456,5 @@ func wakeImplementParent(ctx context.Context, db *store.DB, parent string, at ti
 
 // implementScratchDir is where merge scratch worktrees are made.
 func implementScratchDir(opts Options) string {
-	return filepath.Join(opts.MCP.Paths.Home(), "implement-scratch")
+	return opts.MCP.Paths.ImplementScratchDir()
 }

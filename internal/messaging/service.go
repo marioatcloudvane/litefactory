@@ -9,11 +9,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -148,6 +150,7 @@ type Service struct {
 	drafter          *feature.Drafter
 	confirmer        FeatureConfirmer
 	interpreter      Interpreter
+	conversations    atomic.Pointer[conversationRuntime]
 }
 
 // New copies admission rules and registers help, health, status and details.
@@ -159,7 +162,7 @@ func New(db *store.DB, transport, owner string, channels []string, sender Transp
 	s.RegisterCommand(CommandDefinition{Name: "help", NaturalLanguage: true, Effect: ReadEffect, Description: "List factory commands"}, s.help)
 	s.RegisterCommand(CommandDefinition{Name: "health", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory health"}, s.health)
 	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "List running tasks and work waiting on the owner, plus factory status"}, s.summary)
-	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show the raw details of your previous reply"}, s.details)
+	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show saved raw details for an answer or previous legacy reply", Arguments: []Argument{{Name: "answer", Type: TextArgument, Description: "Answer reference printed on the reply"}}}, s.details)
 	s.registerMeter()
 	return s
 }
@@ -235,6 +238,16 @@ func (s *Service) Admit(ctx context.Context, m Message, at time.Time) (allowed, 
 	if s.presentationEnabled {
 		r.PresentationState = "pending"
 	}
+	if m.Command == "details" {
+		if !validArguments(m.Arguments, []string{"answer"}) || len(m.Arguments["answer"]) > 128 || strings.ContainsAny(m.Arguments["answer"], "\r\n") {
+			r.ReplyText = "Please give the answer reference printed on the reply."
+			r.OutcomeStatus = string(presentation.Refusal)
+		} else {
+			inserted, err = s.db.AdmitConversationDetails(ctx, r, s.owner, m.Arguments["answer"], at)
+			return true, inserted, err
+		}
+	}
+
 	if m.Command == "ask" && (strings.TrimSpace(m.Arguments["question"]) == "" || len(m.Arguments["question"]) > 8192 || len(m.Arguments["project"]) > 256 || !validArguments(m.Arguments, []string{"question", "project"})) {
 		r.ReplyText = ask.TurnPrefix(m.Arguments["question"], m.Arguments["project"]) + "Please give a question up to 8192 bytes and an optional project up to 256 bytes."
 		r.Arguments = nil
@@ -292,6 +305,30 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if r.Command == "details" && r.ReplyText == "" {
+		selected, e := s.db.ConversationDetailsSelection(ctx, r)
+		if e != nil && !errors.Is(e, store.ErrNotFound) {
+			return true, e
+		}
+		if selected != "" {
+			runtime := s.conversations.Load()
+			if runtime != nil && runtime.bindings[r.ChannelRef].Provider != "" {
+				// The request lease and attempt fence protect export persistence; slow
+				// access checks must not hold the ordinary command coordinator's lock.
+				s.stepMu.Unlock()
+				defer s.stepMu.Lock()
+				work, cancel := context.WithTimeout(ctx, response.Budget)
+				defer cancel()
+				return true, s.answerDetails(work, r, selected, at)
+			}
+			r.ReplyText = "Answer details are unavailable or access is denied."
+			r.OutcomeStatus = string(presentation.Refusal)
+			if err := s.db.SaveChatReply(ctx, r, r.ReplyText); err != nil {
+				return true, err
+			}
+		}
+	}
+
 	originalReply := r.ReplyText
 	if r.Command == "ask" || r.Command == "draft" || r.Command == "confirm" {
 		var cancel context.CancelFunc
@@ -465,7 +502,7 @@ func retryAt(r store.ChatReply, at time.Time, hint time.Duration) time.Time {
 
 // Purge removes finished reply state after the retention window.
 func (s *Service) Purge(ctx context.Context, at time.Time) error {
-	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at), s.db.PurgeNaturalChat(ctx, at))
+	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at), s.db.PurgeNaturalChat(ctx, at), s.db.PurgeConversationBodies(ctx, at), s.db.PurgeConversationEvidence(ctx, at))
 }
 func (s *Service) help(ctx context.Context, _ Message, _ time.Time) (string, error) {
 	return assessed(ctx, "/"+strings.Join(s.Commands(), ", /"), presentation.Success)
@@ -475,7 +512,7 @@ func (s *Service) health(ctx context.Context, _ Message, at time.Time) (string, 
 	if err != nil {
 		return "", err
 	}
-	return assessed(ctx, healthText(v), presentation.Success)
+	return assessed(ctx, healthText(v)+s.conversationHealth(ctx, at), presentation.Success)
 }
 func healthText(v Status) string {
 	age := "unknown"

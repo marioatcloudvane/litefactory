@@ -96,3 +96,30 @@ func TestInterruptedGraphDispatchTaskOwnership(t *testing.T) {
 		})
 	}
 }
+
+func TestStrandedGraphRecoveryPreservesMissingCapture(t *testing.T) {
+	f := newResearchRecoveryFixture(t)
+	ctx := t.Context()
+	researchRecoveryCheck(t, f.db.FinishGraphNodeAttempt(ctx, f.attempt.ID, store.GraphSucceeded, "success", f.at))
+	_, err := f.db.FinishRun(ctx, f.run.ID, store.RunOutcome{Status: store.RunSucceeded})
+	researchRecoveryCheck(t, err)
+	researchRecoveryCheck(t, f.db.SetGraphInstanceStatus(ctx, f.instance.ID, store.GraphRunning, time.Time{}, time.Time{}))
+	var logs strings.Builder
+	d := &Daemon{db: f.db, instanceID: "stranded", log: slog.New(slog.NewTextHandler(&logs, nil))}
+	for range 2 {
+		researchRecoveryCheck(t, d.reconcileGraphDispatches(ctx, f.at))
+	}
+	due, err := f.db.ListDueGraphDispatches(ctx, f.at, 10)
+	researchRecoveryCheck(t, err)
+	if len(due) != 0 {
+		t.Fatalf("invalid capture dispatched: %+v", due)
+	}
+	if !strings.Contains(logs.String(), "stranded graph capture cannot resume; retained work preserved") {
+		t.Fatalf("missing refusal diagnostic: %s", logs.String())
+	}
+	instance, err := f.db.GetGraphInstance(ctx, f.instance.ID)
+	researchRecoveryCheck(t, err)
+	if instance.Status != store.GraphRunning || !instance.NextDueAt.IsZero() {
+		t.Fatalf("retained work changed: %+v", instance)
+	}
+}

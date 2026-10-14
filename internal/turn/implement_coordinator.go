@@ -154,20 +154,14 @@ func (rt *implementRuntime) ask(ctx context.Context, opts Options, a ActivityReq
 // implementCompletionCandidate builds the one reply the parent gets when every
 // story of the generation is merged: the feature branch and its head commit, one
 // line per story with its merge commit in ledger order, and the next step. The
-// head commit is the merge commit of the story merged last.
-func implementCompletionCandidate(rows []store.ImplementStory, branch string, autoStart bool) agentresult.Result {
-	head := rows[0]
-	for _, row := range rows[1:] {
-		if !row.StateAt.Before(head.StateAt) {
-			head = row
-		}
-	}
+// head commit is freshly verified against all listed story heads.
+func implementCompletionCandidate(rows []store.ImplementStory, branch, head string, autoStart bool) agentresult.Result {
 	noun := "stories are"
 	if len(rows) == 1 {
 		noun = "story is"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Implement is finished: all %d %s merged into `%s`, now at commit `%s`.\n", len(rows), noun, branch, head.MergeCommit)
+	fmt.Fprintf(&b, "Implement is finished: all %d %s merged into `%s`, now at commit `%s`.\n", len(rows), noun, branch, head)
 	for _, row := range rows {
 		fmt.Fprintf(&b, "\n- **%s**: merged as `%s`", row.Key, row.MergeCommit)
 	}
@@ -208,7 +202,14 @@ func (rt *implementRuntime) reportDone(ctx context.Context, opts Options, a Acti
 		return ActivityResult{}, errors.New("the merge step the completion reply belongs to has not finished")
 	}
 	policy := ImplementWorkflowPolicy()
-	candidate := implementCompletionCandidate(rows, session.Branch, opts.ValidateAutoStart)
+	head, stale, err := inspectImplementMerged(ctx, implementRepoLoader{rt: rt}, session.Branch, rows)
+	if err != nil {
+		return ActivityResult{}, fmt.Errorf("verify implement completion: %w", err)
+	}
+	if len(stale) > 0 {
+		return ActivityResult{}, fmt.Errorf("story %s has published work absent from feature head %s", stale[0].Key, head)
+	}
+	candidate := implementCompletionCandidate(rows, session.Branch, head, opts.ValidateAutoStart)
 	posted, key, err := opts.ResearchReporter.ReportWorkflowCandidate(ctx, source, a.Node, "final", candidate, policy.baseContext(true), "", policy)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err

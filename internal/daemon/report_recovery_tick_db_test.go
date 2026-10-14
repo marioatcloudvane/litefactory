@@ -196,6 +196,12 @@ func TestBugPendingRefusalAfterRelease(t *testing.T) {
 				if admitted.PredecessorID != instance.ID {
 					t.Error("successor lost released predecessor")
 				}
+				// A real conversation retains its next work or owner wait. Keep
+				// this synthetic successor waiting too, so report-ordering ticks
+				// do not correctly discover it as a stranded running instance.
+				if e = f.db.ParkGraphNode(ctx, store.GraphStop{Key: "successor-wait", InstanceID: admitted.Instance.ID, Origin: "conversation", Cause: "exhausted", Reason: "synthetic conversation awaits owner", Candidate: []byte(`{}`), At: f.clock.Now(), AllowRunless: true}); e != nil {
+					return turn.Result{}, e
+				}
 				_, e = f.reporter.Consume(ctx, session.ID, req.Trigger.CommentID)
 				return turn.Result{ResearchGraph: true, SessionID: session.ID, TriggerCommentID: req.Trigger.CommentID}, e
 			})

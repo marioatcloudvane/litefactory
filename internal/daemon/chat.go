@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"sync"
 	"time"
@@ -23,12 +25,13 @@ import (
 // imports the adapter; the service and store know no Discord types.
 type ChatOptions struct {
 	// Answers supplies read-only context and response-only model wiring.
-	Diagnoser   ChatDiagnoser
-	Answers     *ask.Service
-	ReplyModel  messaging.ReplyModel
-	Interpreter messaging.Interpreter
-	Settings    config.DiscordChat
-	Token       secrets.Token
+	Diagnoser     ChatDiagnoser
+	Answers       *ask.Service
+	ReplyModel    messaging.ReplyModel
+	Interpreter   messaging.Interpreter
+	Conversations *messaging.ConversationOptions
+	Settings      config.DiscordChat
+	Token         secrets.Token
 	// Resolve, when set, resolves the bot token again. A Token that is empty at
 	// startup leaves chat unavailable, and the chat goroutine calls Resolve on
 	// later heartbeats until it succeeds.
@@ -40,15 +43,16 @@ type ChatOptions struct {
 	Client *http.Client
 }
 type chatRuntime struct {
-	service   *messaging.Service
-	adapter   *discord.Adapter
-	heartbeat chan struct{}
-	collector *messaging.NoticeCollector
-	diagnoser ChatDiagnoser
-	redactor  *redact.Redactor
-	mu        sync.Mutex
-	notes     map[string]string
-	intake    *messaging.Intake
+	service       *messaging.Service
+	adapter       *discord.Adapter
+	heartbeat     chan struct{}
+	collector     *messaging.NoticeCollector
+	diagnoser     ChatDiagnoser
+	redactor      *redact.Redactor
+	mu            sync.Mutex
+	notes         map[string]string
+	intake        *messaging.Intake
+	conversations *messaging.ConversationOptions
 }
 
 func prepareChat(ctx context.Context, cfg *config.Config, resolver secrets.Resolver) (*ChatOptions, error) {
@@ -57,6 +61,7 @@ func prepareChat(ctx context.Context, cfg *config.Config, resolver secrets.Resol
 	}
 	c := *cfg.Chat.Discord
 	c.ChannelIDs = append([]string(nil), c.ChannelIDs...)
+	c.Conversations = append([]config.ChannelConversation(nil), c.Conversations...)
 	ref, ok := secrets.ReferenceFrom(c.TokenKeychain.Service, c.TokenKeychain.Account, c.TokenEnv)
 	if !ok {
 		return nil, fmt.Errorf("chat.discord requires a bot token reference")
@@ -141,10 +146,29 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		interpreter = &messaging.NativeInterpreter{Model: o.ReplyModel}
 	}
 	s.EnableNatural(interpreter)
+
 	writer, _ := d.forge.(ChatIssueForge)
 	s.EnableFeatures(&feature.Drafter{Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
 	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: d.chatBeat, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}
-	if interpreter != nil {
+	if o.Conversations != nil {
+		options := *o.Conversations
+		options.Bindings = append([]messaging.ConversationBinding(nil), options.Bindings...)
+		options.Providers = maps.Clone(options.Providers)
+		options.Models = maps.Clone(options.Models)
+		options.CheckAccess = func(ctx context.Context, channel string) error {
+			err := a.CheckIntakeCapability(ctx, channel)
+			if err == nil {
+				return nil
+			}
+			var failure *discord.IntakeFailure
+			if errors.As(err, &failure) {
+				return &messaging.ConversationAccessError{Permanent: failure.Capability, RetryAfter: failure.RetryAfter}
+			}
+			return err
+		}
+		d.chat.conversations = &options
+	}
+	if interpreter != nil || o.Conversations != nil {
 		d.chat.intake = &messaging.Intake{DB: d.db, Reader: a, Owner: o.Settings.OwnerID, Channels: append([]string(nil), o.Settings.ChannelIDs...), Transport: "discord", Protect: s.Protect}
 	}
 	s.EnableResearch(chatResearch{d}, chatResearch{d})
@@ -202,6 +226,7 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 		if d.chat == nil && !d.awaitChatToken(ctx) {
 			return
 		}
+		d.startConversations(ctx, wg, time.Now())
 		d.startNaturalIntake(ctx, wg, d.chat.intake)
 		if err := d.db.RecoverChatAnswers(ctx, "discord", time.Now()); err != nil {
 			d.log.WarnContext(ctx, "chat answer recovery failed; waiting rows retain their leases")
