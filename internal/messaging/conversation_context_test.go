@@ -117,9 +117,9 @@ func TestConversationPreviousReplyStaysBoundedAndScoped(t *testing.T) {
 
 func TestConversationFollowupPairsUnresolvedTasks(t *testing.T) {
 	p := &factoryUnitProvider{outputs: []string{
-		`{"version":1,"kind":"clarify","text":"The cost request for #614 remains unanswered; which project?"}`,
+		`{"version":1,"kind":"clarify","text":"Which project is #614 in?"}`,
 		`{"version":1,"kind":"answer","text":"The retained cost answer concerns #770 only."}`,
-		`{"version":1,"kind":"answer","text":"The earlier cost request for #614 remains unanswered. I need current cost evidence."}`,
+		`{"version":1,"kind":"answer","text":"Which project is the earlier request about?"}`,
 	}}
 	r, at := factoryUnitRun(t, p, "What did #614 cost?")
 	for i, input := range []string{"What did #614 cost?", "What did #770 cost?", "And the earlier request?"} {
@@ -175,7 +175,7 @@ func TestConversationFollowupPairsUnresolvedTasks(t *testing.T) {
 			t.Fatalf("history confused tasks: %+v", prompt)
 		}
 	}
-	if !strings.Contains(prompt.RecentReplies[0].Reply, "unanswered") || !strings.Contains(prompt.Instructions, "Address unresolved recent asks") || !strings.Contains(prompt.Instructions, "look up current facts again") {
+	if !strings.Contains(prompt.Instructions, "Never append reminders") || !strings.Contains(prompt.Instructions, "look up current facts again") {
 		t.Fatal("unanswered request or current-evidence rule lost")
 	}
 }

@@ -517,6 +517,15 @@ func (d *Daemon) discover(
 	// Which repositories list this tick is decided before any of them is marked
 	// owed. An attempt is owed until it finishes, so a tick that fails midway
 	// leaves the repository due whatever webhooks arrive meanwhile.
+	liveRecovery := make(map[int64]bool, len(repos))
+	for _, repo := range repos {
+		liveRecovery[repo.ID] = true
+	}
+	for id := range d.hookRecovery {
+		if !liveRecovery[id] {
+			delete(d.hookRecovery, id)
+		}
+	}
 	due := make(map[int64]bool, len(repos))
 	for _, repo := range repos {
 		if repo.Forge == store.ForgeGitHub && d.schedule.Due(repo.ID, now) {
@@ -568,6 +577,21 @@ func (d *Daemon) discover(
 		if d.connections != nil && d.schedule.Due(repo.ID, now) {
 			if err := d.recoverRetainedSessions(ctx, q); err != nil {
 				return nil, err
+			}
+		}
+		if d.connections != nil {
+			if connectionEnabled {
+				if err := d.recoverHookDeliveries(ctx, q, now, due[repo.ID]); err != nil {
+					if ctx.Err() != nil {
+						return nil, ctx.Err()
+					}
+					repoLog.WarnContext(ctx, "webhook recovery deferred", slog.Any("error", err))
+					if providerRateLimited(err) {
+						d.rateLimited(ctx, repoLog, now, err)
+					}
+				}
+			} else {
+				delete(d.hookRecovery, repo.ID)
 			}
 		}
 		if !due[repo.ID] || !connectionEnabled {
