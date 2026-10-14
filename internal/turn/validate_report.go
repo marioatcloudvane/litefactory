@@ -155,7 +155,7 @@ func validateItemBlocks(f ValidateFinding) bool {
 // finding without a choice, or an issue the owner chose that is not created.
 func validateOwnerItem(st ValidateState, f ValidateFinding) bool {
 	switch {
-	case f.State == findingAwaitingCheck:
+	case f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable():
 		return true
 	case f.needsChoice() && f.Choice == nil:
 		return true
@@ -276,6 +276,10 @@ func reviewCell(st ValidateState, findings []ValidateFinding, role string) strin
 
 // reviewState is the short state of one open review finding.
 func reviewState(f ValidateFinding) string {
+	switch f.State {
+	case findingAwaitingCheck, findingOwnerPassed, findingOwnerFailed:
+		return f.State
+	}
 	kind := "optional"
 	if f.Blocking {
 		kind = "blocking"
@@ -293,7 +297,7 @@ func ownerItemCounts(st ValidateState, findings []ValidateFinding) (checks, choi
 		if !validateOwnerItem(st, f) {
 			continue
 		}
-		if f.State == findingAwaitingCheck {
+		if f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable() {
 			checks++
 		} else {
 			choices++
