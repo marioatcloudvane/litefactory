@@ -257,7 +257,9 @@ func comparableContent(body string) string {
 	fence := ""
 	for i, line := range lines {
 		next := nextContentFence(fence, line)
-		if fence == "" && next == "" && !managedMarker(line) &&
+		// A table row is one line, so inline code or HTML inside its cells
+		// cannot span lines; its cells keep those characters untouched.
+		if fence == "" && next == "" && !managedMarker(line) && !strings.HasPrefix(line, "|") &&
 			(strings.ContainsAny(line, "`<") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")) {
 			return body
 		}
@@ -348,7 +350,8 @@ func comparableContent(body string) string {
 }
 
 func contentTableCells(line string) ([]string, bool) {
-	line = strings.TrimRight(line, " ")
+	// Linear escapes a literal underscore as \_ ; it is the same character.
+	line = strings.ReplaceAll(strings.TrimRight(line, " "), `\_`, "_")
 	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") || len(line) < 2 || strings.ContainsAny(line, "\\`") {
 		return nil, false
 	}
@@ -513,6 +516,13 @@ func comparableScaffoldProse(line string) string {
 			return line
 		}
 		prefix, prose = line[:2], line[2:]
+		// A task-list checkbox belongs to the item prefix, not to its prose.
+		for _, box := range []string{"[ ] ", "[x] ", "[X] "} {
+			if strings.HasPrefix(prose, box) {
+				prefix, prose = prefix+box, prose[len(box):]
+				break
+			}
+		}
 	}
 	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")").Replace(prose)
 	if !plainScaffoldProse(decoded) || strings.ContainsAny(prose, "\\`[]<>*_!|@") {
@@ -522,8 +532,8 @@ func comparableScaffoldProse(line string) string {
 }
 
 // comparableTableCell decodes the renderer's four punctuation entities inside a
-// table body cell, where Linear stores the plain characters. A cell that could
-// form links, code, HTML or a rule is left as it is.
+// table body cell, where Linear stores the plain characters (and \_ for _).
+// A cell that could form links or code, or is only a rule, is left as it is.
 // managedStoryDocument reports a factory Plan story body (story and request
 // markers first), the only content whose punctuation entities are decoded.
 func managedStoryDocument(lines []string) bool {
@@ -538,10 +548,10 @@ func managedStoryDocument(lines []string) bool {
 }
 
 func comparableTableCell(cell string) string {
-	if strings.ContainsAny(cell, "[]`<>\\") {
+	if strings.ContainsAny(cell, "[]`\\") {
 		return cell
 	}
-	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")").Replace(cell)
+	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")", "&#95;", "_", "&#60;", "<", "&#62;", ">").Replace(cell)
 	if strings.Trim(decoded, "-:. ") == "" {
 		return cell
 	}
@@ -550,6 +560,7 @@ func comparableTableCell(cell string) string {
 
 func plainScaffoldProse(s string) bool {
 	letter := func(b byte) bool { return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' }
+	alnum := func(b byte) bool { return letter(b) || b >= '0' && b <= '9' }
 	if s == "" || !letter(s[0]) || strings.ContainsAny(s, "&\\`[]<>*_!|@#") || strings.Contains(s, "://") || strings.Contains(s, "www.") {
 		return false
 	}
@@ -561,7 +572,8 @@ func plainScaffoldProse(s string) bool {
 				return false
 			}
 		case '-':
-			if i == 0 || i+1 == len(s) || !letter(s[i-1]) || !letter(s[i+1]) {
+			// Between letters or digits (AC-001, outside-click): never Markdown.
+			if i == 0 || i+1 == len(s) || !alnum(s[i-1]) || !alnum(s[i+1]) {
 				return false
 			}
 		case '(':
@@ -570,7 +582,7 @@ func plainScaffoldProse(s string) bool {
 			}
 			opened = true
 		case ')':
-			if !opened || i == 0 || !letter(s[i-1]) || (i+1 < len(s) && s[i+1] != ' ' && s[i+1] != '.') {
+			if !opened || i == 0 || !letter(s[i-1]) || (i+1 < len(s) && !strings.ContainsRune(" .,;:", rune(s[i+1]))) {
 				return false
 			}
 			opened = false
