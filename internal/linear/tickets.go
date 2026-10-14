@@ -687,7 +687,7 @@ func MissingModeLabels(labels map[string]string) []string {
 // Log only the first differing comparison line, redacting before bounding it.
 // Raw provider revisions remain independent of this diagnostic.
 func (c *Client) logContentDifference(ctx context.Context, ref ticket.Ref, title, body string, observed ticket.Snapshot) {
-	if !slog.Default().Enabled(ctx, slog.LevelDebug) {
+	if requestLogger.Load() == nil && !slog.Default().Enabled(ctx, slog.LevelDebug) {
 		return
 	}
 	field, expected, actual := "body", comparableContent(body), comparableContent(observed.Body)
