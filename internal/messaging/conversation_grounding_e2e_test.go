@@ -49,7 +49,7 @@ func (s *groundingSender) DeliverReply(_ context.Context, _ messaging.Target, pa
 func groundingExecutable(t *testing.T, provider, explanation string) string {
 	t.Helper()
 	directory := t.TempDir()
-	response, err := json.Marshal(map[string]any{"version": 1, "kind": "answer", "blocks": []map[string]any{{"fact_refs": []string{"@FACT@"}}, {"text": explanation}}})
+	response, err := json.Marshal(map[string]any{"version": 1, "kind": "answer", "blocks": []map[string]any{{"fact_refs": []string{"@FACT@"}}, {"text": explanation, "fact_refs": []string{"@FACT@"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,41 +178,22 @@ func TestConversationGroundingDetailsOwnerJourney(t *testing.T) {
 			if len(send.texts) < 3 {
 				t.Fatalf("complete multipart answer missing: %q", send.texts)
 			}
-			var selector string
 			var deliveredExplanation strings.Builder
 			var explanationFragments strings.Builder
 			for i, text := range send.texts {
 				if len(utf16.Encode([]rune(text))) > 2000 {
 					t.Fatalf("part %d exceeds Discord budget", i+1)
 				}
-				if !strings.Contains(text, fmt.Sprintf("part %d of %d", i+1, len(send.texts))) {
-					t.Fatalf("part %d lost ordered numbering: %q", i+1, text)
-				}
-				marker := "/details answer:"
-				start := strings.Index(text, marker)
-				if start < 0 {
-					t.Fatalf("part %d lost answer selector: %q", i+1, text)
-				}
-				got := strings.Fields(text[start+len(marker):])[0]
-				if selector == "" {
-					selector = got
-				}
-				if got != selector {
-					t.Fatalf("parts refer to different answers: %q != %q", got, selector)
-				}
-				if strings.Contains(text, "Seven checks") && !strings.Contains(text, "Unverified") {
-					t.Fatalf("part %d lost warning: %q", i+1, text)
+				if strings.HasPrefix(text, "Answer ") || strings.Contains(text, "/details answer:") || strings.Contains(text, "Unverified") {
+					t.Fatalf("part %d has boilerplate: %q", i+1, text)
 				}
 				deliveredExplanation.WriteString(text)
-				_, content, found := strings.Cut(text, "\n\n")
-				if !found {
-					t.Fatalf("part %d has no content", i+1)
-				}
+				content := text
 				label, fragment, found := strings.Cut(content, "\n")
 				if !found {
 					t.Fatalf("part %d has no grounding label", i+1)
 				}
-				if strings.HasPrefix(label, "Unverified") {
+				if strings.HasPrefix(label, "Caveat:") {
 					explanationFragments.WriteString(strings.ReplaceAll(fragment, `\*`, "*"))
 				}
 			}
@@ -220,7 +201,7 @@ func TestConversationGroundingDetailsOwnerJourney(t *testing.T) {
 				t.Fatalf("multipart answer changed accepted explanation: got %d bytes, want %d", len(explanationFragments.String()), len(explanation))
 			}
 			combined := strings.ReplaceAll(strings.ReplaceAll(deliveredExplanation.String(), `\[`, "["), `\]`, "]")
-			for _, want := range []string{groundingFact, "factory:question", "acme/app", "Unverified", "[redacted]"} {
+			for _, want := range []string{groundingFact, "factory:question", "acme/app", "Caveat:", "[redacted]"} {
 				if !strings.Contains(combined, want) {
 					t.Fatalf("answer omitted %q: %s", want, combined)
 				}
@@ -237,6 +218,15 @@ func TestConversationGroundingDetailsOwnerJourney(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			reply, err := db.ReadChatReply(ctx, "discord", turn.ReplyID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			answer, _, err := db.ConversationReplyAnswer(ctx, reply)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selector := answer.ID
 			exchanges, err := db.ListConversationExchanges(ctx, turn.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -250,7 +240,7 @@ func TestConversationGroundingDetailsOwnerJourney(t *testing.T) {
 			if evidence == "" || strings.Contains(evidence, groundingSecret) {
 				t.Fatalf("saved redacted evidence missing: %q", evidence)
 			}
-			if _, inserted, e := service.Admit(ctx, messaging.Message{Transport: "discord", ID: "102", Channel: "3", Sender: "7", Command: "details", Arguments: map[string]string{"answer": selector}}, at); e != nil || !inserted {
+			if _, inserted, e := service.Admit(ctx, messaging.Message{Transport: "discord", ID: "102", Channel: "3", Sender: "7", Command: "details"}, at); e != nil || !inserted {
 				t.Fatalf("details admission: inserted=%t err=%v", inserted, e)
 			}
 			for range 40 {

@@ -35,6 +35,12 @@ func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task
 	if err != nil {
 		return nil, false, err
 	}
+	tasks, err := s.ReadTaskSessions(ctx, sessions)
+	return tasks, more, err
+}
+
+// ReadTaskSessions projects explicitly selected sessions using the same current facts.
+func (s StoreReader) ReadTaskSessions(ctx context.Context, sessions []store.Session) ([]Task, error) {
 	var tasks []Task
 	for _, session := range sessions {
 		t := Task{IssueNumber: session.IssueNumber, Reference: session.TaskRef}
@@ -42,7 +48,7 @@ func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task
 		if err == nil {
 			t.LatestRun = &run
 		} else if !errors.Is(err, store.ErrNotFound) {
-			return nil, more, err
+			return nil, err
 		}
 		// The stored session state is a bookkeeping flag that can stay
 		// running after work ends; running comes only from the latest run.
@@ -56,7 +62,7 @@ func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task
 		}
 		state, _, err := s.Reader.GetPlanWorkflowState(ctx, session.TaskRef)
 		if err != nil {
-			return nil, more, err
+			return nil, err
 		}
 		for _, story := range state.Stories {
 			if !story.Retired {
@@ -64,11 +70,11 @@ func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task
 			}
 		}
 		if t.OwnerWait, err = s.ownerWait(ctx, session.ID); err != nil {
-			return nil, more, err
+			return nil, err
 		}
 		story, err := s.Reader.ImplementStoryByWorkerSession(ctx, session.ID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return nil, more, err
+			return nil, err
 		}
 		// Implement parked work can only resume after an owner decision. Ordinary
 		// graph scheduling/backoff is not an owner wait.
@@ -77,7 +83,7 @@ func (s StoreReader) ReadProjectTasks(ctx context.Context, repoID int64) ([]Task
 		}
 		tasks = append(tasks, t)
 	}
-	return tasks, more, nil
+	return tasks, nil
 }
 
 // ownerWait returns the session's published, unanswered owner question or

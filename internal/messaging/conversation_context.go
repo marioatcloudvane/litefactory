@@ -119,3 +119,36 @@ func (r *factoryConversationRun) referenceCurrent(ctx context.Context, reference
 		return false, nil
 	}
 }
+
+// Replies are paired by retained source identity, never admitted as owner input.
+type conversationPriorReply struct {
+	SourceID string `json:"source_id"`
+	Reply    string `json:"factory_reply"`
+}
+
+func (r *factoryConversationRun) recentFactoryReplies(ctx context.Context, sources []store.ConversationTurn, turns []DialogueTurn) ([]conversationPriorReply, error) {
+	var out []conversationPriorReply
+	remaining := 4096
+	for _, turn := range turns {
+		for _, source := range sources {
+			if source.SourceID != turn.SourceID || source.ID == r.t.ID {
+				continue
+			}
+			reply, err := r.previousFactoryReply(ctx, []store.ConversationTurn{source})
+			if err != nil {
+				return nil, err
+			}
+			if reply == "" {
+				reply = "No completed factory reply retained; request may remain unanswered."
+			}
+			// Divide the existing history budget across all retained owner sources.
+			reply, cut := boundedConversationText(reply, min(remaining, 4096/max(1, len(turns))))
+			if cut {
+				reply += " [reply excerpt]"
+			}
+			remaining -= len(reply)
+			out = append(out, conversationPriorReply{SourceID: source.SourceID, Reply: reply})
+		}
+	}
+	return out, nil
+}
