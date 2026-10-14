@@ -138,13 +138,13 @@ Exact grammar, one line, each naming the current report revision:
 
 | Command | Meaning |
 |---|---|
-| `/validate-check <rev> <criterion id> pass\|fail -- <evidence>` | manual verdict for a criterion the reviewer could not verify |
+| `/validate-check <rev> <criterion or review id> pass\|fail -- <evidence>` | evidenced manual verdict for an unverified criterion or usable unverified blocking review |
 | `/validate-finding <rev> <finding id> repair\|defer` | choice for a finding |
 | `/validate-finding <rev> <finding id> issue bug\|story` | create a follow-up issue |
 | `/validate-push <rev>` | push the tested commit and find or create the PR into the base |
 | `/validate-merge <rev> <pr> <head sha>` | merge only at that head |
 | `/validate-close <rev> <issue>...` | close the parent and accepted story issues |
-| `/validate-ship <rev> -- <evidence>` | the normal case in one command: record every criterion awaiting an owner check as passed with the evidence, defer every open optional finding, then push and open the PR, merge it at the recorded PR number and head, and close the parent and story issues |
+| `/validate-ship <rev> -- <evidence>` | the normal case in one command: record every eligible criterion or review awaiting an owner check as passed with the evidence, defer every open optional finding, then push and open the PR, merge it at the recorded PR number and head, and close the parent and story issues |
 
 `/validate-ship` is refused with one notice naming what blocks, and records
 nothing, when the suite did not pass, a reviewer has no usable result, the run is
@@ -157,8 +157,10 @@ for exceptions.
 
 A non-owner, malformed or stale command changes nothing; the reply shows the
 current commands. Defer is allowed only for optional (advisory) findings. A repair
-or issue choice never clears a blocking finding; only a new tested snapshot does,
-such as the commit a kept repair makes.
+or issue choice never clears a blocking finding. An unverified item can be cleared
+by an evidenced owner pass; an unmet defect requires a new tested snapshot, such
+as the commit a kept repair makes.
+Reviewer status and evidence remain unchanged by owner verdicts. Missing reviews and unmet defects cannot be manually passed.
 Push is offered only when the suite passed, every criterion is satisfied or
 owner-passed, no blocking finding is open, every optional finding has a choice and
 no issue creation is pending, failed or uncertain.
