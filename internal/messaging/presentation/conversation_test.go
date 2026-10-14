@@ -19,11 +19,11 @@ func TestConversationGroundingAndLosslessParts(t *testing.T) {
 		if messageSize(part.Content) > MessageLimit {
 			t.Fatalf("oversized part: %d", messageSize(part.Content))
 		}
-		if !strings.Contains(part.Content, "/details answer:answer-1") {
-			t.Fatal("missing selector")
+		if strings.Contains(part.Content, "/details answer:") || strings.HasPrefix(part.Content, "Answer ") {
+			t.Fatal("ordinary reply has metadata")
 		}
-		body := strings.SplitN(part.Content, "\n\n", 2)[1]
-		if strings.HasPrefix(body, "Unverified") {
+		body := part.Content
+		if strings.HasPrefix(body, "Caveat:") {
 			text := strings.SplitN(body, "\n", 2)[1]
 			if text != "Count: 7" {
 				reconstructed.WriteString(text)
@@ -36,7 +36,7 @@ func TestConversationGroundingAndLosslessParts(t *testing.T) {
 	if !strings.Contains(parts[len(parts)-3].Content, "Source: meter; target: task 42; caveats: snapshot only\nCount: 7") {
 		t.Fatal("source or caveats lost")
 	}
-	if !strings.Contains(parts[len(parts)-2].Content, "Unverified") {
+	if !strings.Contains(parts[len(parts)-2].Content, "Caveat:") {
 		t.Fatal("foreign handle removed warning")
 	}
 	last := parts[len(parts)-1]
@@ -51,11 +51,11 @@ func TestConversationExactFactAndPartialRead(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(parts[0].Content, "Unverified") == complete {
+		if strings.Contains(parts[0].Content, "Caveat:") == complete {
 			t.Fatal("incorrect grounding")
 		}
 	}
-	_, err := RenderConversation("a", nil, nil, strings.Repeat("😀", 1000))
+	_, err := RenderConversation("a", nil, nil, strings.Repeat("😀", 1001))
 	if !errors.Is(err, ErrProtectedProposalTooLarge) {
 		t.Fatalf("wrong refusal: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestConversationMixedReferencesAndEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(parts) != 2 || !strings.Contains(parts[1].Content, "Unverified") || !strings.Contains(parts[1].Content, "foreign") {
+	if len(parts) != 2 || !strings.Contains(parts[1].Content, "Evidence unavailable.") || !strings.Contains(parts[1].Content, "foreign") {
 		t.Fatal("unknown reference disappeared")
 	}
 	if end := splitEnd("abc\\*tail", 4); end != 3 {
@@ -74,5 +74,23 @@ func TestConversationMixedReferencesAndEscapes(t *testing.T) {
 	}
 	if end := splitEnd("abc\\\\tail", 5); end != 5 {
 		t.Fatalf("split complete escape at %d", end)
+	}
+}
+
+func TestConversationOrdinaryRepliesHaveNoBoilerplate(t *testing.T) {
+	for _, intent := range []string{"answer", "clarify"} {
+		parts, err := RenderConversation("saved-id", []AnswerBlock{{Text: "Which project?"}}, nil, "", intent)
+		if err != nil || len(parts) != 1 || parts[0].Content != "Which project?" {
+			t.Fatalf("%s: %+v %v", intent, parts, err)
+		}
+	}
+	facts := []CurrentFact{{ID: "missing", Caveats: "Task status unavailable."}}
+	parts, err := RenderConversation("a", []AnswerBlock{{Text: "Task status could not be read."}}, facts, "", "answer")
+	if err != nil || !strings.Contains(parts[0].Content, "Evidence limited: Task status unavailable.") {
+		t.Fatalf("lost local caveat: %+v %v", parts, err)
+	}
+	parts, err = RenderConversation("b", []AnswerBlock{{Text: "Which project?"}}, facts, "", "clarify")
+	if err != nil || parts[0].Content != "Which project?" {
+		t.Fatalf("clarification caveat: %+v %v", parts, err)
 	}
 }
