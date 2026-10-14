@@ -408,6 +408,18 @@ func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) err
 		d.inflight.leave(dispatch.SessionID)
 		faults = errors.Join(faults, err)
 	}
+	stranded, err := d.db.ListStrandedGraphDispatches(ctx)
+	if err != nil {
+		return errors.Join(faults, err)
+	}
+	for _, dispatch := range stranded {
+		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
+			continue
+		}
+		err := d.reconcileGraphDispatch(ctx, dispatch, at)
+		d.inflight.leave(dispatch.SessionID)
+		faults = errors.Join(faults, err)
+	}
 	return faults
 }
 
@@ -419,6 +431,13 @@ func (d *Daemon) reconcileGraphDispatch(ctx context.Context, dispatch store.Grap
 	defer func() {
 		err = errors.Join(err, d.db.ReleaseSessionLock(context.WithoutCancel(ctx), dispatch.SessionID, d.instanceID))
 	}()
+	if dispatch.ID == 0 {
+		if err := turn.ValidateGraphDispatchRecovery(ctx, d.db, dispatch); err != nil {
+			d.log.WarnContext(ctx, "stranded graph capture cannot resume; retained work preserved", slog.Int64("instance_id", dispatch.InstanceID), slog.Any("error", err))
+			return nil
+		}
+		return d.db.ReconcileStrandedGraphDispatch(ctx, dispatch, at)
+	}
 	capture := int64(0)
 	if validationErr := turn.ValidateGraphDispatchRecovery(ctx, d.db, dispatch); validationErr == nil {
 		capture = dispatch.LaunchID

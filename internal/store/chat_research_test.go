@@ -177,14 +177,14 @@ func TestChatResearchMigrationPreservesExistingRows(t *testing.T) {
 	if err = db.sql.QueryRowContext(t.Context(), `SELECT reply_source,state FROM graph_owner_waits WHERE delivery_key='old-wait'`).Scan(&source, &state); err != nil || source != "forge" || state != "claimed" {
 		t.Fatalf("old wait: %s %s %v", source, state, err)
 	}
-	// Accessors use the current schema; apply the forward presentation columns
-	// after checking the historical research migration itself.
+	// Accessors use the current schema; apply the forward presentation and
+	// conversation migrations after checking the historical research migration.
 	migrations, e := loadMigrations()
 	if e != nil {
 		t.Fatal(e)
 	}
 	for _, m := range migrations {
-		if m.name == "chat_presentation" {
+		if m.name == "chat_presentation" || m.name == "conversations" || m.name == "conversation_exchanges" {
 			if _, e = db.sql.ExecContext(t.Context(), m.sql); e != nil {
 				t.Fatal(e)
 			}

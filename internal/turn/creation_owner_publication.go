@@ -59,8 +59,16 @@ func (r *MCPRuntime) PublishApprovedCreation(ctx context.Context, intentID int64
 	if err != nil {
 		return nil, err
 	}
+	source, err := naming.ParseRef(e.SourceTask)
+	if err != nil {
+		return nil, err
+	}
 	for _, d := range artifacts {
-		out.Issues = append(out.Issues, report.PublishedIssue{Title: e.Artifacts[d.Ordinal].Title, Number: d.IssueNumber, Relationship: d.Relationship})
+		display, err := lookupTicketDisplay(ctx, r.Creation, source, d.IssueNumber)
+		if err != nil {
+			return nil, err
+		}
+		out.Issues = append(out.Issues, report.PublishedIssue{Reference: display.Reference(), Title: e.Artifacts[d.Ordinal].Title, Number: d.IssueNumber, Relationship: d.Relationship})
 	}
 	return out, nil
 }
@@ -116,14 +124,14 @@ func (r *MCPRuntime) publishOwnerArtifacts(ctx context.Context, db *store.DB, in
 		}
 		if a.ParentIssue > 0 {
 			if err := r.Creation.AddSubIssue(ctx, repo, a.ParentIssue, issue.ID); err != nil {
-				return "uncertain", fmt.Errorf("attach #%d under #%d: %w", issue.Number, a.ParentIssue, err)
+				return "uncertain", fmt.Errorf("attach %s under its approved parent: %w", displayIssue(source, issue).Reference(), err)
 			}
 			parent, err := r.Creation.GetParentIssue(ctx, repo, issue.Number)
 			if err != nil {
 				return "uncertain", err
 			}
 			if parent.Number != a.ParentIssue {
-				return "uncertain", fmt.Errorf("#%d is not attached under #%d", issue.Number, a.ParentIssue)
+				return "uncertain", fmt.Errorf("%s is not attached under its approved parent", displayIssue(source, issue).Reference())
 			}
 			detail.Relationship = "attached"
 			if err := db.SaveOwnerArtifact(ctx, intentID, detail); err != nil {

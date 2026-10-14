@@ -174,6 +174,13 @@ func RefreshImplementParentStatus(ctx context.Context, opts Options, parent stri
 	if err != nil {
 		return false, err
 	}
+	session, err := opts.DB.GetSessionByTaskRef(ctx, parent)
+	if err != nil {
+		return false, err
+	}
+	// Progress runs on the service context; a worker may supply its own.
+	// Both reads and edits belong to the parent's retained ticket connection.
+	ctx = ExecutionContext(ctx, session.ID)
 	_, changed, err := refreshImplementHandoff(ctx, b, opts, ActivityRequest{Mode: agent.ModeImplement})
 	return changed, err
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -252,5 +253,49 @@ func TestGraphStopPersistentAcceptedBugInputRoutesUnlessInterrupted(t *testing.T
 				t.Fatalf("failed execution wait=%+v", wait)
 			}
 		})
+	}
+}
+
+func TestGraphRunlessStopProgressSurvivesShorteningAndLostAcknowledgment(t *testing.T) {
+	f, forge, profile, instance := persistentStopReporterFixture(t)
+	ctx, at := t.Context(), time.Now().UTC()
+	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "analyst", Limit: 1, StartedAt: at})
+	mustProgress(t, err)
+	mustProgress(t, f.db.FinishGraphNodeAttempt(ctx, attempt.ID, store.GraphSucceeded, "done", at))
+	req := GraphNodeRequest{Profile: profile, InstanceID: instance.ID, At: at}
+	out := GraphNodeResult{InstanceID: instance.ID, Node: "analyst", Activity: ActivityResult{Diagnostic: strings.Repeat("long explanation ", 2000)}}
+	// Parking remains durable even when no reporter is available.
+	f.opts.ResearchReporter = nil
+	_, err = parkGraphAction(ctx, f.opts, req, out, "exhausted", false)
+	if err == nil {
+		t.Fatal("missing reporter hidden")
+	}
+	wait, err := f.db.GetGraphOwnerWait(ctx, instance.ID)
+	mustProgress(t, err)
+	intent, err := f.db.GetGraphComment(ctx, wait.DeliveryKey)
+	mustProgress(t, err)
+	var question GraphStopQuestion
+	mustProgress(t, json.Unmarshal(intent.Candidate, &question))
+	if !strings.Contains(question.Reason, "[explanation shortened]") || !strings.HasSuffix(question.Reason, fmt.Sprintf("Latest completed attempt: %d.", attempt.ID)) || question.SourceAttemptID != 0 {
+		t.Fatalf("progress lost: %+v", question)
+	}
+	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
+	forge.afterPost = func() { mustProgress(t, f.db.Close()) }
+	_, err = parkGraphAction(ctx, f.opts, req, out, "exhausted", false)
+	if err == nil {
+		t.Fatal("lost acknowledgment hidden")
+	}
+	reopenPersistentStopFixture(t, f)
+	forge.afterPost = nil
+	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
+	req.At = at.Add(time.Hour)
+	for range 2 {
+		_, err = parkGraphAction(ctx, f.opts, req, out, "exhausted", false)
+		mustProgress(t, err)
+	}
+	recovered, err := f.db.GetGraphOwnerWait(ctx, instance.ID)
+	mustProgress(t, err)
+	if recovered.DeliveryKey != wait.DeliveryKey || recovered.State != "waiting" || recovered.ContinuationAttemptID != 0 || forge.attemptCount() != 1 {
+		t.Fatalf("retry changed stop or allowance: %+v", recovered)
 	}
 }

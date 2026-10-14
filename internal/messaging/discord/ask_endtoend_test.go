@@ -445,13 +445,13 @@ func TestAskRepliesShowOnlyNarrationAndDetailsReturnsRaw(t *testing.T) {
 	// /details returns the previous reply's raw text, skipping /details rows.
 	for _, id := range []string{"103", "104"} {
 		got = deliver(id, slash(id, "3"))
-		if got.content != "Raw details of your previous reply." || got.filename != presentation.RawFilename || got.file != narratedRaw {
+		if got.content != "Raw details of your previous reply (legacy source text)." || got.filename != presentation.RawFilename || got.file != narratedRaw {
 			t.Fatalf("details %s: %+v", id, got)
 		}
 	}
 	// Its natural-language form is re-admitted as the same read command.
 	got = deliver("nl-read:105", slash("nl-read:105", "3"))
-	if got.content != "Raw details of your previous reply." || got.file != narratedRaw {
+	if got.content != "Raw details of your previous reply (legacy source text)." || got.file != narratedRaw {
 		t.Fatalf("natural details: %+v", got)
 	}
 	// Another channel has no earlier reply: refusal, no attachment.

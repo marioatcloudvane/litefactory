@@ -66,7 +66,10 @@ func (r *Reporter) RenderStoryProgress(ctx context.Context, n StoryProgressNotic
 	// Indented lines keep arbitrary evidence inside a code block; it cannot add a
 	// forged marker at column zero or impersonate the surrounding factory prose.
 	detail := strings.ReplaceAll(strings.ReplaceAll(n.Detail, "\r", ""), "\n", "\n    ")
-	parent := fmt.Sprintf("https://github.com/%s/%s/issues/%d", n.Parent.Owner, n.Parent.Repo, n.Parent.Issue)
+	parent := n.Parent.IssueURL()
+	if parent == "" {
+		parent = "this issue"
+	}
 	if n.ParentURL != "" {
 		if !ticketBrowserURL(n.ParentURL) {
 			return redact.Body{}, fmt.Errorf("report: invalid parent browser link")

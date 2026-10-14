@@ -45,8 +45,8 @@ func (a ImplementAuthority) validate() error {
 	if err := a.Parent.Validate(); err != nil {
 		return fmt.Errorf("implement parent: %w", err)
 	}
-	if a.Generation < 1 || len(a.Stories) == 0 {
-		return errors.New("implement authority needs a generation and a story set")
+	if a.Generation < 1 {
+		return errors.New("implement authority needs a generation")
 	}
 	seen := map[string]bool{}
 	for _, s := range a.Stories {
@@ -167,6 +167,17 @@ func (b ImplementBindings) bind(ctx context.Context, opts Options, req ActivityR
 	}
 	if err := a.validate(); err != nil {
 		return ImplementAuthority{}, err
+	}
+	// Completed stories may leave the unfinished authority empty. Retained
+	// ledger rows still need reconciliation before the coordinator can finish.
+	if len(a.Stories) == 0 {
+		rows, err := b.DB.ListImplementStories(ctx, a.Parent.String(), a.Generation)
+		if err != nil {
+			return ImplementAuthority{}, err
+		}
+		if len(rows) == 0 {
+			return ImplementAuthority{}, errors.New("implement authority needs a story set or retained ledger")
+		}
 	}
 	return a, nil
 }

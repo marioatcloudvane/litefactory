@@ -167,7 +167,7 @@ func (r *MCPRuntime) PrepareCreationProposal(ctx context.Context, c OwnerGrantCo
 		}
 		saved, err := r.CreationAuthorizer.store.RetainProposalForSource(ctx, p, creationSource(c))
 		return saved.Hash, err
-	})
+	}, r.Creation)
 	if err != nil {
 		return PreparedCreation{}, err
 	}

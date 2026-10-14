@@ -1,6 +1,7 @@
 package bugchecks
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,9 +108,9 @@ func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 			t.Fatalf("infrastructure exit %s classified %q", code, infra.Outcome)
 		}
 	}
-	// Both children outlive the startup-inclusive timeout. Record their PIDs
+	// The shell and its child outlive the startup-inclusive timeout. Record their PIDs
 	// before waiting, so a timeout before the fixture starts cannot pass.
-	script := `sleep 120 & child=$!; echo $child > child.pid; echo $$ > parent.pid; /bin/ps -o pgid= -p "$child" > child.pgid; /bin/ps -o pgid= -p $$ > parent.pgid; echo ready > ready; wait`
+	script := `sleep 120 & child=$!; echo $child > child.pid; echo $$ > parent.pid; echo ready > ready; wait`
 	slow := p.Run(t.Context(), worktree, config.BugCheckCommand{Argv: []string{"/bin/sh", "-c", script}, TimeoutSeconds: 10}, noop)
 	if slow.Outcome != "blocked" || slow.Reason != "check timed out" || !slow.CleanupConfirmed {
 		t.Fatalf("timeout outcome %q reason %q cleanup %v", slow.Outcome, slow.Reason, slow.CleanupConfirmed)
@@ -118,7 +119,7 @@ func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(ready)) != "ready" {
 		t.Fatalf("timeout fixture not ready: %q %v", ready, err)
 	}
-	for _, name := range []string{"child.pid", "parent.pid", "child.pgid", "parent.pgid"} {
+	for _, name := range []string{"child.pid", "parent.pid"} {
 		data, err := os.ReadFile(filepath.Join(worktree, name))
 		if err != nil {
 			t.Fatal(err)
@@ -127,11 +128,70 @@ func TestBugChecksSandboxClassifiesFailureAndTimeout(t *testing.T) {
 		if err != nil || pid <= 0 {
 			t.Fatal(fmt.Errorf("invalid %s: %q", name, data))
 		}
-		if strings.HasSuffix(name, ".pid") {
-			if err := syscall.Kill(pid, 0); err == nil {
-				t.Errorf("%s %d survived timeout", name, pid)
-			}
+		if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+			t.Errorf("%s %d: expected ESRCH after timeout, got %v", name, pid, err)
 		}
 	}
 
+}
+
+// Strict resolution must inspect every ancestor; the old placement is the
+// failing control, while both sibling roots retain the same content denial.
+func TestBugChecksSandboxScratchSiblings(t *testing.T) {
+	p, parent := sandboxFixture(t)
+	paths := config.NewPaths(filepath.Join(parent, "factory"))
+	for _, file := range []string{paths.DBPath(), filepath.Join(parent, "protected", "token")} {
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("scratch-secret-canary"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p.DenyRead = []string{paths.Home(), filepath.Join(parent, "protected")}
+	for _, tc := range []struct {
+		name, root string
+		allowed    bool
+	}{
+		{"suite", paths.ValidateScratchDir(), true},
+		{"implement", paths.ImplementScratchDir(), true},
+		{"old", filepath.Join(paths.Home(), "validate-scratch"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join(tc.root, "operation", "tree")
+			if err := os.MkdirAll(filepath.Join(root, "child"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("child", filepath.Join(root, "link")); err != nil {
+				t.Fatal(err)
+			}
+			script := `import subprocess,sys
+for secret in sys.argv[2:]:
+ try:
+  with open(secret, "rb") as f: f.read()
+ except PermissionError: pass
+ else: sys.exit(10)
+# realpath inspects denied ancestors that pathlib.Path.resolve can tolerate.
+resolved = subprocess.run(["/bin/realpath", sys.argv[1]], capture_output=True, text=True)
+if resolved.returncode != 0:
+ if "Operation not permitted" not in resolved.stderr and "Permission denied" not in resolved.stderr:
+  sys.stderr.write(resolved.stderr)
+  sys.exit(2)
+ print("resolution-denied")
+ sys.exit(1)
+print("resolution-ok")
+`
+			out := p.Run(t.Context(), root, config.BugCheckCommand{Argv: []string{"/usr/bin/python3", "-c", script, filepath.Join(root, "link"), paths.DBPath(), filepath.Join(parent, "protected", "token")}, TimeoutSeconds: 60}, func(CommandResult) error { return nil })
+			if tc.allowed {
+				if out.Outcome != "passed" || !strings.Contains(out.Output, "resolution-ok") {
+					t.Fatalf("sibling resolution: %+v", out)
+				}
+			} else if out.Outcome != "failed" || !strings.Contains(out.Output, "resolution-denied") {
+				t.Fatalf("old placement did not fail ancestor resolution: %+v", out)
+			}
+			if strings.Contains(out.Output, "scratch-secret-canary") {
+				t.Fatal("canary leaked")
+			}
+		})
+	}
 }
