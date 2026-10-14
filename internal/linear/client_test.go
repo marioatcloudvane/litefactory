@@ -1,10 +1,12 @@
 package linear
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -135,7 +137,7 @@ func TestDiscoveryContinuationBindsSourceAndCoverage(t *testing.T) {
 
 func mustBody(t *testing.T, text string) redact.Body {
 	t.Helper()
-	body, err := redact.New(redact.Options{}).Apply(context.Background(), text, 1000)
+	body, err := redact.New(redact.Options{}).Apply(context.Background(), text, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,8 +554,10 @@ func TestReplyHistoryCombinedIdentity(t *testing.T) {
 }
 
 func TestUpdateContentNormalizedReadback(t *testing.T) {
+	marExpected, marObserved := mar12Pair(t)
 	metadata := "\n<!-- lf:plan-content v=1 data={} -->"
 	for _, tt := range []struct{ name, written, observed, title, failure string }{
+		{name: "MAR-12", written: marExpected, observed: marObserved},
 		{name: "CRLF", written: "a\r\nb", observed: "a\nb"},
 		{name: "trailing space", written: "a \nb", observed: "a\nb"},
 		{name: "table", written: "| A | B |\n| --- | :---: |\n| one | two |", observed: "|A|B|\n|-----|:-----:|\n|one|two|"},
@@ -646,6 +650,35 @@ func TestUpdateContentNormalizedReadback(t *testing.T) {
 				t.Fatalf("actual readback lost: %+v %v", got, err)
 			}
 		})
+	}
+}
+
+func TestReadbackDifferenceDiagnostic(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	c := testClient(t, func(http.ResponseWriter, *http.Request) {})
+	ref := ticket.Ref{Identity: ticket.Identity{RemoteID: "MAR-12"}}
+	for _, title := range []string{"Title", "Changed"} {
+		output.Reset()
+		c.logContentDifference(t.Context(), ref, "Title", "same\nsensitive-token"+strings.Repeat("x", 500), ticket.Snapshot{Title: title, Body: "same\nother"})
+		var got struct {
+			Ticket, Field, Expected, Observed string
+			Line                              int
+		}
+		if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Ticket != "MAR-12" || strings.Contains(output.String(), "sensitive-token") || len(got.Expected) > 256 {
+			t.Fatalf("unsafe diagnostic: %s", output.String())
+		}
+		if title == "Title" && (got.Field != "body" || got.Line != 2) {
+			t.Fatal("wrong body difference")
+		}
+		if title != "Title" && (got.Field != "title" || got.Line != 1) {
+			t.Fatal("wrong title difference")
+		}
 	}
 }
 
