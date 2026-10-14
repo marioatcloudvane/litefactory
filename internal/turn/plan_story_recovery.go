@@ -439,3 +439,28 @@ func (h PlanStoryActivity) supersedeKnownIntent(ctx context.Context, c store.Pla
 	err = h.DB.SettlePlanStoryDebt(ctx, c.Parent, c.RequestID, state, revision, false)
 	return err == nil, err
 }
+
+// Only a retained content conflict with original authority and update intent can
+// be reconsidered. Apply still checks the qualified provider on the fresh child.
+func (h PlanStoryActivity) canReverifyContentConflict(ctx context.Context, a PlanStoryAuthority, r graphexec.PlanStoryRequest, d store.PlanStoryDraft, effect store.PlanStoryEffect) (bool, error) {
+	if !a.Recovery || r.Operation == "retire" || effect.Outcome != "conflict" || effect.Phase != "update" || effect.Detail != "owner edits conflict with expected content revision" || d.Retired || d.IssueID == 0 || effect.IssueID != d.IssueID || effect.IssueNumber != d.IssueNumber {
+		return false, nil
+	}
+	raw, err := h.DB.PlanStoryAuthority(ctx, a.Parent, r.RequestID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	original := a
+	original.Recovery = false
+	expected, err := json.Marshal(original)
+	if err != nil {
+		return false, err
+	}
+	if raw != string(expected) {
+		return false, nil
+	}
+	return h.DB.HasPlanStoryMutation(ctx, a.Parent, r.RequestID, "update")
+}

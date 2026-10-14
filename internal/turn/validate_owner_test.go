@@ -803,3 +803,156 @@ func TestOwnerIssueChoiceStartsNoRepair(t *testing.T) {
 		t.Fatalf("repair: %s %q", joinNodes(nodes), handoffs)
 	}
 }
+
+func ownerLiveReview(req ValidateReviewRequest) (*agentresult.Result, error) {
+	res := goodReview(req)
+	for si := range res.Payload.Validate.Stories {
+		for i := range res.Payload.Validate.Stories[si].Reviews {
+			r := &res.Payload.Validate.Stories[si].Reviews[i]
+			if r.Name == "architecture" {
+				r.Status, r.Classification = "unverified", "blocking"
+				r.Evidence = []agent.EvidenceExplanation{{Summary: "The owner must check installed-provider isolation and exact-session resume.", CheckIDs: []string{}}}
+			}
+		}
+	}
+	return res, nil
+}
+
+func TestOwnerLiveReviewVerdicts(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.stories = append(o.stories, ValidateStory{Key: "story-003", Title: "Second story", Revision: strings.Repeat("cd", 32), Criteria: []string{"AC-001"}})
+	o.reviewers.run = ownerLiveReview
+	o.toOwner()
+	before := o.state()
+	var ids []string
+	for _, f := range before.Findings {
+		if f.Name != "architecture" {
+			continue
+		}
+		ids = append(ids, f.ID)
+		body := renderValidateStoryComment(before, ValidateIssueRef{Key: f.Story}, 843)
+		if f.State != findingAwaitingCheck || !strings.Contains(body, ValidateCheckCommand+" "+before.Revision+" "+f.ID+" pass|fail -- <evidence>") || strings.Contains(body, "failed") || strings.Contains(body, "only on a new tested snapshot") {
+			t.Fatalf("awaiting review: %+v\n%s", f, body)
+		}
+	}
+	if len(ids) == 0 || before.Ready {
+		t.Fatal("expected pending architecture reviews")
+	}
+	id := ids[0]
+	o.say(o.command(ValidateCheckCommand, id, "fail", "-- provider continuity failed"))
+	failed := o.state()
+	f, _ := failed.finding(id)
+	body := renderValidateStoryComment(failed, ValidateIssueRef{Key: f.Story}, 843)
+	if f.State != findingOwnerFailed || failed.Ready || len(failed.shipBlockers()) == 0 || !strings.Contains(body, "provider continuity failed") || !strings.Contains(body, ValidateCheckCommand+" "+failed.Revision+" "+id) || strings.Contains(body, "only on a new tested snapshot") {
+		t.Fatalf("failed check: %+v\n%s", f, body)
+	}
+	for i, target := range ids {
+		o.say(o.command(ValidateCheckCommand, target, "pass", "-- both installed providers resumed the exact session"))
+		after := o.state()
+		got, _ := after.finding(target)
+		original, _ := before.finding(target)
+		v := got.Verdict
+		if got.State != findingOwnerPassed || got.Status != original.Status || got.Summary != original.Summary || v == nil || v.AuthorID != o.owner || v.CommentID == 0 || v.InstanceID != o.instance.ID || v.Commit != before.Commit || v.Evidence != "both installed providers resumed the exact session" || after.Revision == before.Revision {
+			t.Fatalf("retained owner check: %+v", got)
+		}
+		if i+1 < len(ids) {
+			next, _ := after.finding(ids[i+1])
+			if next.State != findingAwaitingCheck || after.Ready {
+				t.Fatal("one story's verdict settled another")
+			}
+		}
+		body = renderValidateStoryComment(after, ValidateIssueRef{Key: got.Story}, 843)
+		if !strings.Contains(body, "owner passed") || strings.Contains(body, "failed") || strings.Contains(body, "(blocking") {
+			t.Fatalf("passed review report: %s", body)
+		}
+	}
+	after := o.state()
+	if !after.Ready || !strings.Contains(after.NextStep(nil), ValidateShipCommand) {
+		t.Fatalf("settled reviews still block: %v", after.Open)
+	}
+	all, err := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, before.Commit, true)
+	if err != nil || len(all) != len(ids)+1 {
+		t.Fatalf("verdict history: %v %v", all, err)
+	}
+	other, err := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, strings.Repeat("f", 40), false)
+	if err != nil || len(other) != 0 {
+		t.Fatalf("verdict leaked to another commit: %v %v", other, err)
+	}
+	if _, ok := replayedValidateReply(t.Context(), o.opts, after, all[len(all)-1].CommentID, false); !ok {
+		t.Fatal("review verdict replay not recognized")
+	}
+}
+
+func TestOwnerLiveReviewRefusals(t *testing.T) {
+	for _, mode := range []string{"non-owner", "stale", "head", "evidence", "unknown", "unmet", "satisfied", "optional", "missing"} {
+		t.Run(mode, func(t *testing.T) {
+			o := newOwnerFixture(t)
+			o.reviewers.run = func(req ValidateReviewRequest) (*agentresult.Result, error) {
+				if mode == "missing" && req.Role == agent.ReviewRoleArchitecture {
+					return nil, errors.New("review unavailable")
+				}
+				res, err := ownerLiveReview(req)
+				for si := range res.Payload.Validate.Stories {
+					for i := range res.Payload.Validate.Stories[si].Reviews {
+						r := &res.Payload.Validate.Stories[si].Reviews[i]
+						if r.Name == "architecture" {
+							if mode == "unmet" || mode == "satisfied" {
+								r.Status = mode
+							}
+							if mode == "optional" {
+								r.Classification = "advisory"
+							}
+						}
+					}
+				}
+				return res, err
+			}
+			o.toOwner()
+			before := o.state()
+			body := o.command(ValidateCheckCommand, "story-002:architecture", "pass", "-- checked live")
+			switch mode {
+			case "stale":
+				body = strings.Replace(body, before.Revision, "000000000000", 1)
+			case "head":
+				o.write("app/extra.go", "package app\n")
+				if _, err := o.wt.Commit(t.Context(), gitCommitOptions()); err != nil {
+					t.Fatal(err)
+				}
+			case "evidence":
+				body = o.command(ValidateCheckCommand, "story-002:architecture", "pass")
+			case "unknown":
+				body = o.command(ValidateCheckCommand, "story-002:unknown", "pass", "-- checked live")
+			}
+			if mode == "non-owner" {
+				o.reply(o.owner+1, body)
+				o.toOwner()
+			} else {
+				o.say(body)
+			}
+			all, err := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, before.Commit, true)
+			if err != nil || len(all) != 0 || o.state().Revision != before.Revision || o.notice() == "" || len(o.forge.pushes)+len(o.forge.merges) != 0 {
+				t.Fatalf("refusal changed state: %v %v %s", all, err, o.notice())
+			}
+		})
+	}
+}
+
+func TestOwnerShipRecordsLiveReviewVerdicts(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.reviewers.run = ownerLiveReview
+	o.toOwner()
+	before := o.state()
+	if len(before.shipBlockers()) != 0 {
+		t.Fatal(before.shipBlockers())
+	}
+	o.say(o.command(ValidateShipCommand, "-- checked both installed providers"))
+	after := o.state()
+	for _, f := range after.Findings {
+		if f.Name == "architecture" && (f.State != findingOwnerPassed || f.Verdict == nil || f.Verdict.Evidence != "checked both installed providers") {
+			t.Fatalf("ship did not retain review verdict: %+v", f)
+		}
+	}
+	if !effectDone(after.Effects.Close) {
+		t.Fatal("ship did not complete")
+	}
+}

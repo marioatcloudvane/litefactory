@@ -168,7 +168,7 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 	if found.Number < 1 {
 		return fail(store.EffectFailed, errors.New("the created issue has no number"))
 	}
-	return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Issue: found.Number}, "")
+	return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Issue: found.Number, IssueReference: displayIssue(r.target.Task, found).Reference()}, "")
 }
 
 func bodyHasMarkerLine(body, marker string) bool {
@@ -191,7 +191,7 @@ func (r *validateRemote) issueContent(ctx context.Context, f ValidateFinding, ma
 		return redact.Body{}, redact.Body{}, err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Follow-up %s from Validate of issue #%d, tested commit `%s`.\n\nFinding `%s` is %s (%s).\n\n", kind, r.target.Parent.Number, r.st.Commit, f.ID, f.Status, f.Class)
+	fmt.Fprintf(&b, "Follow-up %s from Validate of issue %s, tested commit `%s`.\n\nFinding `%s` is %s (%s).\n\n", kind, r.target.Parent.display().Reference(), r.st.Commit, f.ID, f.Status, f.Class)
 	if f.Summary != "" {
 		b.WriteString(f.Summary + "\n\n")
 	}
@@ -319,12 +319,12 @@ func (r *validateRemote) openPR(ctx context.Context, e store.ValidateEffect) err
 		return r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The pull requests could not be listed: "+err.Error())
 	}
 	if !found {
-		titleText := graphDeliveryTitle(fmt.Sprintf("Deliver issue #%d", r.target.Parent.Number))
+		titleText := graphDeliveryTitle(fmt.Sprintf("Deliver issue %s", r.target.Parent.display().Label))
 		title, err := r.b.Delivery.Redactor.Apply(ctx, titleText, 256)
 		if err != nil {
 			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, err.Error())
 		}
-		body, err := r.b.Delivery.Redactor.Apply(ctx, fmt.Sprintf("Validated and confirmed by the owner. Tested commit `%s` of issue #%d.\n\n<!-- lf:validate-pr run=%d -->", commit, r.target.Parent.Number, r.req.InstanceID), 65536)
+		body, err := r.b.Delivery.Redactor.Apply(ctx, fmt.Sprintf("Validated and confirmed by the owner. Tested commit `%s` of issue %s.\n\n<!-- lf:validate-pr run=%d -->", commit, r.target.Parent.display().Reference(), r.req.InstanceID), 65536)
 		if err != nil {
 			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, err.Error())
 		}
@@ -451,7 +451,7 @@ func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req Ac
 	forge := r.b.Delivery.tickets()
 	for _, s := range r.target.Stories {
 		if err := forge.SetStoryState(ctx, r.target.Repo, r.target.Parent.Number, r.target.Parent.ID, s.Number, s.ID, true); err != nil {
-			failures = append(failures, fmt.Sprintf("#%d: %s", s.Number, err.Error()))
+			failures = append(failures, fmt.Sprintf("%s: %s", s.display().Reference(), err.Error()))
 			continue
 		}
 		closed = append(closed, s.Number)
@@ -459,7 +459,7 @@ func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req Ac
 	// The parent closes last, so it never looks done while a story is open.
 	if len(failures) == 0 {
 		if err := forge.CloseDeliveredParent(ctx, r.target.Repo, r.target.Parent.Number, r.target.Parent.ID); err != nil {
-			failures = append(failures, fmt.Sprintf("#%d: %s", r.target.Parent.Number, err.Error()))
+			failures = append(failures, fmt.Sprintf("%s: %s", r.target.Parent.display().Reference(), err.Error()))
 		} else {
 			closed = append(closed, r.target.Parent.Number)
 		}

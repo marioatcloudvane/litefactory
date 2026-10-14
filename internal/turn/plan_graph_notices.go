@@ -24,6 +24,7 @@ import (
 type planStoryRow struct {
 	Key, Name, Description string
 	Issue                  int
+	Reference              string
 	Dependencies           []string
 	Approved               []string
 	Command                string
@@ -72,6 +73,15 @@ func (r *planGraphRuntime) planStoryRows(ctx context.Context, s planbrief.PlanSt
 		switch {
 		case e == nil && draft.IssueID > 0:
 			row.Issue = draft.IssueNumber
+			forge, err := r.storyForge()
+			if err != nil {
+				return nil, false, err
+			}
+			display, err := lookupTicketDisplay(ctx, forge, r.result.Ref, row.Issue)
+			if err != nil {
+				return nil, false, err
+			}
+			row.Reference = display.Link()
 		case e == nil || errors.Is(e, store.ErrNotFound):
 			complete = false
 		default:
@@ -82,9 +92,15 @@ func (r *planGraphRuntime) planStoryRows(ctx context.Context, s planbrief.PlanSt
 	return rows, complete, nil
 }
 
-func issueLink(ref naming.Ref, number int) string {
+func issueLink(ref naming.Ref, number int, reference ...string) string {
+	if len(reference) > 0 && reference[0] != "" {
+		return reference[0]
+	}
 	if number < 1 {
 		return "not created yet"
+	}
+	if ref.Forge == "linear" {
+		return "this issue"
 	}
 	return fmt.Sprintf("[#%d](https://github.com/%s/%s/issues/%d)", number, ref.Owner, ref.Repo, number)
 }
@@ -106,7 +122,7 @@ func renderPlanStoryTable(ref naming.Ref, rows []planStoryRow, stages bool) stri
 		out.WriteString("| ID | Name | Description | Dependencies | Sub-issue |\n|---|---|---|---|---|\n")
 	}
 	for _, row := range rows {
-		fmt.Fprintf(&out, "| `%s` | %s | %s | %s | %s |", row.Key, planTableCell(row.Name), planTableCell(row.Description), dependencyCell(row.Dependencies), issueLink(ref, row.Issue))
+		fmt.Fprintf(&out, "| `%s` | %s | %s | %s | %s |", row.Key, planTableCell(row.Name), planTableCell(row.Description), dependencyCell(row.Dependencies), issueLink(ref, row.Issue, row.Reference))
 		if stages {
 			approved := "none"
 			if len(row.Approved) > 0 {
@@ -156,7 +172,7 @@ func planWaitingText(ref naming.Ref, rows []planStoryRow) string {
 		if row.Command != "" {
 			command = "`" + row.Command + "`"
 		}
-		fmt.Fprintf(&out, "| `%s` | %s | %s | %s |\n", row.Key, planTableCell(row.Name), issueLink(ref, row.Issue), command)
+		fmt.Fprintf(&out, "| `%s` | %s | %s | %s |\n", row.Key, planTableCell(row.Name), issueLink(ref, row.Issue, row.Reference), command)
 	}
 	out.WriteString("\nReply on each sub-issue with its command to approve it, or in plain words to change it. A story with no review waiting is still being worked on or has an unresolved problem reported on its sub-issue.\n")
 	return out.String()

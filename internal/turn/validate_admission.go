@@ -506,7 +506,11 @@ func (rt *validateRuntimeState) launch(ctx context.Context, now time.Time) (Resu
 func (rt *validateRuntimeState) alreadyStarted(ctx context.Context, entry store.ValidateEntry) (Result, error) {
 	text := fmt.Sprintf("Validate has already been started for commit %s. No second run was started.", shortSHA(entry.Commit))
 	if report, err := rt.opts.DB.GetValidateReport(ctx, entry.InstanceID); err == nil && report.CommentID > 0 {
-		text += fmt.Sprintf(" Its report: https://github.com/%s/%s/issues/%d#issuecomment-%d", rt.result.Ref.Owner, rt.result.Ref.Repo, rt.result.Ref.Issue, report.CommentID)
+		_, url, linkErr := reportSourceLinks(ctx, rt.opts.SubIssueCreator, rt.result.Ref, rt.result.Ref.Issue, report.CommentID)
+		if linkErr != nil {
+			return rt.result, linkErr
+		}
+		text += " Its report: " + url
 	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return rt.result, err
 	} else {

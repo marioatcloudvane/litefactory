@@ -438,10 +438,15 @@ const recoverySelector = "recovery-subscription"
 
 // The shared forge fixture predates qualified tickets. Supply the immutable
 // IDs and authoritative API URLs that GitHub returns at the external boundary.
-func recoveryProvider(t *testing.T, f *fixture) ticket.Origin {
+func recoveryProvider(t *testing.T, f *fixture, intercept ...func(http.ResponseWriter, *http.Request) bool) ticket.Origin {
 	t.Helper()
 	var origin string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, handle := range intercept {
+			if handle(w, r) {
+				return
+			}
+		}
 		if r.URL.Path == "/users/"+ownerLogin {
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(owner()); err != nil {
@@ -1124,4 +1129,346 @@ func (w *planHandoffLogWriter) Write(p []byte) (int, error) {
 		}
 	}
 	return n, err
+}
+
+func TestTicketRecoveryRetainedPlanStoriesBootstrap(t *testing.T) {
+	w := newWebhookFixture(t)
+	ctx := t.Context()
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	original := w.forge.server.Config.Handler
+	w.forge.server.Config.Handler = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/parent") {
+			r = r.Clone(r.Context())
+			r.URL.Path = "/repos/" + w.repo.Slug() + "/issues/" + strconv.Itoa(testIssue)
+		}
+		original.ServeHTTP(rw, r)
+	})
+	origin := recoveryProvider(t, w.fixture)
+	w.spy.store("recovery-ticket-reader", testToken)
+	var active, retainedCode, retainedTicket store.ConnectionVersion
+	for _, role := range []store.ConnectionRole{store.CodeConnection, store.TicketConnection} {
+		v, err := w.db.SetConnection(ctx, store.ConnectionVersion{
+			RepoID: w.repo.ID, Role: role, Provider: ticket.GitHub, Origin: origin,
+			Destination: w.repo.Slug(), Enabled: true, Provenance: "legacy",
+			CredentialSource: "keychain", CredentialService: "recovery-reader", CredentialAccount: "recovery-ticket-reader",
+			ClonePath: w.repo.Path, RemoteURL: w.repo.RemoteURL, BaseBranch: w.repo.BaseBranch,
+			FeaturePrefix: w.repo.FeaturePrefix, WorktreeRoot: w.repo.WorktreeRoot,
+		}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role == store.TicketConnection {
+			active = v
+		}
+		v.RemoteID = "1"
+		v, err = w.db.RetainConnectionVersion(ctx, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role == store.CodeConnection {
+			retainedCode = v
+		} else {
+			retainedTicket = v
+		}
+	}
+	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: w.spy.lookup}, Logger: w.logger, ExpectedActorID: botID})
+	if _, err := (projectconnection.ApproverService{DB: w.db, Factory: factory}).Set(ctx, w.repo.ID, ownerLogin, active.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
+	w.daemon = newRecoveryDaemon(t, w, origin, "retained-plan-setup", false)
+	w.plantCursor()
+	before, err := w.db.GetTicketRecoveryPosition(ctx, active.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := w.db.GetOrCreateSession(ctx, w.repo, testIssue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentRef := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: strconv.Itoa(10000 + testIssue)}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: origin, Container: w.repo.Slug(), Key: strconv.Itoa(testIssue)}}
+	binding, err := w.db.AddTicketBinding(ctx, store.TicketBinding{RepoID: w.repo.ID, ConnectionVersionID: retainedTicket.ID, Ref: parentRef, Enabled: true, Provenance: "legacy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.db.AttachExecutionSnapshot(ctx, store.ExecutionSnapshot{SessionID: parent.ID, RepoID: w.repo.ID, BindingID: binding.ID, CodeVersionID: retainedCode.ID, TicketVersionID: retainedTicket.ID, ActorID: botID, ActorLogin: botLogin, CodeActorID: botID, CodeActorLogin: botLogin, CodeRemoteID: "1", TicketRemoteID: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.db.BootstrapTicketWatermark(ctx, parent.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.db.CompleteTicketBody(ctx, parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.db.AdmitPlanWorkflowPath(ctx, parent.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
+	w.forge.addIssue(fakeIssue{ID: 10000 + testIssue, Number: testIssue, Title: "Retained parent", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+	state := planbrief.PlanState{SharedRevision: "scope"}
+	revision, _, err := state.ProposeStorySet([]planbrief.PlanStorySetEntry{{ID: "one", Name: "First story", Intent: "Review first"}, {ID: "two", Name: "Second story", Intent: "Review second"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.PromoteStorySet(revision); err != nil {
+		t.Fatal(err)
+	}
+	snapshots := map[int64]store.ExecutionSnapshot{}
+	for i, item := range []string{"one", "two"} {
+		key, number := state.StorySet.Keys[item], 200+i
+		if _, err := w.db.ReservePlanStory(ctx, parent.TaskRef, key); err != nil {
+			t.Fatal(err)
+		}
+		body := fmt.Sprintf("<!-- lf:plan-story parent=%d key=%s -->\nFirst draft in progress", 10000+testIssue, key)
+		w.forge.addIssue(fakeIssue{ID: int64(10000 + number), Number: number, Title: item, Body: body, State: "open", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+		if err := w.db.BindPlanStoryShell(ctx, parent.TaskRef, key, int64(10000+number), number, turn.PlanIssueRevision(item, body)); err != nil {
+			t.Fatal(err)
+		}
+		ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: strconv.Itoa(10000 + number)}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: origin, Container: w.repo.Slug(), Key: strconv.Itoa(number)}}
+		child, err := w.db.AdmitManagedChild(ctx, parent.ID, ref, "github:"+w.repo.Slug()+"#"+strconv.Itoa(number))
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := w.db.GetExecutionSnapshot(ctx, child.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.TicketVersionID != retainedTicket.ID || snapshot.CodeVersionID != retainedCode.ID {
+			t.Fatal("child did not inherit retained versions")
+		}
+		snapshots[child.ID] = snapshot
+		w.forge.addCommentAt(number, 8, owner(), "/spike historical request", w.repo.CreatedAt.Add(-time.Hour))
+		w.forge.addCommentAt(number, 9, stranger(), "Later discussion", w.clock.peek())
+		if _, exists, err := w.db.GetWatermark(ctx, child.ID); err != nil || exists {
+			t.Fatalf("child already bootstrapped: %v %v", exists, err)
+		}
+	}
+	if _, err := w.db.SavePlanWorkflowState(ctx, parent.TaskRef, 0, state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.db.GetTicketRecoveryPosition(ctx, retainedTicket.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("retained position should be absent: %v", err)
+	}
+	calls := map[int64]*atomic.Int64{}
+	for id := range snapshots {
+		calls[id] = &atomic.Int64{}
+	}
+	w.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if _, ok := snapshots[req.SessionID]; !ok || req.Mode != agent.ModePlan {
+			return turn.Result{}, fmt.Errorf("unexpected first stage: %+v", req)
+		}
+		watermark, exists, err := w.db.GetWatermark(ctx, req.SessionID)
+		if err != nil || !exists || watermark.LastCommentID != 9 {
+			return turn.Result{}, fmt.Errorf("enrolled replies not drained before stage: %+v: %w", watermark, err)
+		}
+		calls[req.SessionID].Add(1)
+		return w.ranSuccessfully(ctx, req)
+	})
+	for range 4 {
+		w.settle()
+	}
+	for id, snapshot := range snapshots {
+		if calls[id].Load() != 1 {
+			t.Fatalf("story %d ran %d times, want once\n%s", id, calls[id].Load(), w.fixture.logs)
+		}
+		after, err := w.db.GetExecutionSnapshot(ctx, id)
+		if err != nil || after != snapshot {
+			t.Fatalf("snapshot changed: %+v %v", after, err)
+		}
+		if _, exists, err := w.db.GetWatermark(ctx, id); err != nil || !exists {
+			t.Fatalf("missing child watermark: %v %v", exists, err)
+		}
+	}
+	position, err := w.db.GetTicketRecoveryPosition(ctx, retainedTicket.ID)
+	if err != nil || !position.EnrollmentAt.Equal(w.repo.CreatedAt) || position.ContainerID != "1" || position.TicketCursor != "" || position.ReplyCursor != "" || !position.ScanThrough.IsZero() {
+		t.Fatalf("retained enrollment/cursors: %+v %v", position, err)
+	}
+	after, err := w.db.GetTicketRecoveryPosition(ctx, active.ID)
+	if err != nil || after != before {
+		t.Fatalf("active recovery position changed: before=%+v after=%+v error=%v", before, after, err)
+	}
+	_, _, posts, _ := w.forge.counts()
+	// One parent progress projection and one report per child.
+	if posts != 3 || slices.ContainsFunc([]int{testIssue, 200, 201}, func(number int) bool { return !slices.Contains(w.forge.postedIssues, number) }) {
+		t.Fatalf("publication destinations=%v, want parent and each child once", w.forge.postedIssues)
+	}
+	reopenRecoveryDatabase(t, w.fixture)
+	w.daemon = newRecoveryDaemon(t, w, origin, "retained-plan-restart", false)
+	for range 3 {
+		w.settle()
+	}
+	for id := range snapshots {
+		if calls[id].Load() != 1 {
+			t.Fatalf("restart repeated story %d", id)
+		}
+	}
+	_, _, repeatedPosts, _ := w.forge.counts()
+	if repeatedPosts != posts {
+		t.Fatal("restart repeated publication")
+	}
+}
+
+func TestWebhookRecoveryHeartbeatConsumesMissedComment(t *testing.T) {
+	for _, scenario := range []string{"eligible", "prestart", "missing-hook", "forbidden-list", "unavailable-detail", "forbidden-post", "success-other-page", "disabled", "mismatch", "quota"} {
+		t.Run(scenario, func(t *testing.T) {
+			w := newWebhookFixture(t)
+			w.clock.mu.Lock()
+			w.clock.now = time.Now().UTC().Add(time.Minute)
+			w.clock.mu.Unlock()
+			var available atomic.Bool
+			var delayed atomic.Bool
+			var posts atomic.Int64
+			start := w.clock.peek()
+			original := start.Add(10 * time.Second)
+			if scenario == "prestart" {
+				original = start.Add(-time.Second)
+			}
+			var origin ticket.Origin
+			origin = recoveryProvider(t, w.fixture, func(out http.ResponseWriter, r *http.Request) bool {
+				if !strings.Contains(r.URL.Path, "/hooks/9/deliveries") {
+					return false
+				}
+				out.Header().Set("Content-Type", "application/json")
+				out.Header().Set("Date", w.clock.peek().UTC().Format(http.TimeFormat))
+				if r.Method == http.MethodPost {
+					posts.Add(1)
+					if scenario == "forbidden-post" {
+						out.WriteHeader(http.StatusForbidden)
+						_, _ = out.Write([]byte(`{"message":"forbidden"}`))
+					} else {
+						out.WriteHeader(http.StatusAccepted)
+					}
+					return true
+				}
+				if strings.HasSuffix(r.URL.Path, "/deliveries/1") {
+					if scenario == "unavailable-detail" {
+						out.WriteHeader(http.StatusForbidden)
+						_, _ = out.Write([]byte(`{"message":"forbidden"}`))
+						return true
+					}
+					_, _ = fmt.Fprintf(out, `{"id":1,"guid":"missed","repository_id":1,"event":"issue_comment","request":{"payload":{"repository":{"full_name":%q},"issue":{"number":%d,"url":%q}}}}`, w.repo.Slug(), testIssue, string(origin)+"/repos/"+w.repo.Slug()+"/issues/"+strconv.Itoa(testIssue))
+					return true
+				}
+				if scenario == "forbidden-list" {
+					out.WriteHeader(http.StatusForbidden)
+					_, _ = out.Write([]byte(`{"message":"forbidden"}`))
+					return true
+				}
+				if !available.Load() {
+					_, _ = out.Write([]byte(`[]`))
+					return true
+				}
+				if scenario == "success-other-page" && r.URL.Query().Get("cursor") == "success" {
+					_, _ = out.Write([]byte(`[{"id":2,"guid":"missed","repository_id":1,"event":"issue_comment","redelivery":true,"status_code":200}]`))
+					return true
+				}
+				if scenario == "success-other-page" {
+					out.Header().Set("Link", fmt.Sprintf(`<%s%s?cursor=success>; rel="next"`, origin, r.URL.Path))
+				}
+				_, _ = fmt.Fprintf(out, `[{"id":1,"guid":"missed","repository_id":1,"event":"issue_comment","redelivery":false,"status_code":502,"delivered_at":%q}`, original.Format(time.RFC3339))
+				if delayed.Load() {
+					_, _ = fmt.Fprintf(out, `,{"id":2,"guid":"missed","repository_id":1,"event":"issue_comment","redelivery":true,"status_code":502,"delivered_at":%q}`, w.clock.peek().Format(time.RFC3339))
+				}
+				_, _ = out.Write([]byte(`]`))
+				return true
+			})
+			configureRecoverySource(t, w, origin)
+			sub, err := w.db.GetTicketSubscription(t.Context(), recoverySelector)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario != "missing-hook" {
+				op, err := w.db.ClaimSubscriptionOperation(t.Context(), sub.ID, sub.Revision, "create")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := w.db.FinishSubscriptionOperation(t.Context(), op, "confirmed", "9", "active", "", start); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w.daemon = newRecoveryDaemon(t, w, origin, "webhook-recovery-"+scenario, false)
+			w.plantCursor()
+			w.clock.advance(10 * time.Second)
+			w.issue("Missed owner reply")
+			w.forge.addComment(testIssue, 9101, owner(), "/spike recover the missed reply")
+			available.Store(true)
+			w.clock.advance(50 * time.Second)
+			if scenario == "disabled" {
+				current, err := w.db.CurrentConnection(t.Context(), w.repo.ID, store.TicketConnection)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current.Enabled = false
+				if _, err := w.db.SetConnection(t.Context(), current, current.Revision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario == "mismatch" {
+				w.forge.mu.Lock()
+				w.forge.state(testOwnerName, testRepoName).remoteID = 3
+				w.forge.mu.Unlock()
+			}
+			if scenario == "quota" {
+				w.forge.mu.Lock()
+				w.forge.quotaRemaining = 0
+				w.forge.mu.Unlock()
+			}
+			w.settle()
+			if scenario == "disabled" || scenario == "mismatch" || scenario == "quota" {
+				if posts.Load() != 0 || len(w.turns.triggers()) != 0 {
+					t.Fatal("source/quota refusal permitted recovery effects")
+				}
+				if scenario != "quota" {
+					return
+				}
+				w.forge.mu.Lock()
+				w.forge.quotaRemaining = 4999
+				w.forge.mu.Unlock()
+				w.clock.advance(time.Hour)
+				w.settle()
+			}
+			if got := w.turns.triggers(); !slices.Equal(got, []int64{9101}) {
+				t.Fatalf("executions=%v\n%s", got, w.fixture.logs)
+			}
+			wantPosts := int64(1)
+			if scenario == "prestart" || scenario == "missing-hook" || scenario == "forbidden-list" || scenario == "success-other-page" {
+				wantPosts = 0
+			}
+			if got := posts.Load(); got != wantPosts {
+				t.Fatalf("POSTs=%d want=%d\n%s", got, wantPosts, w.fixture.logs)
+			}
+			assertRecoveryReports(t, w.fixture, 1)
+			for range 2 {
+				w.clock.advance(time.Minute)
+				w.settle()
+			}
+			if got := posts.Load(); got != wantPosts {
+				t.Fatalf("blind repeated POSTs=%d", got)
+			}
+			if got := w.turns.triggers(); !slices.Equal(got, []int64{9101}) {
+				t.Fatalf("duplicate executions=%v", got)
+			}
+			assertRecoveryReports(t, w.fixture, 1)
+			if scenario == "eligible" || scenario == "prestart" {
+				for restart := range 3 {
+					w.clock.advance(time.Minute)
+					w.daemon = newRecoveryDaemon(t, w, origin, fmt.Sprintf("ambiguous-restart-%d", restart), false)
+					w.settle()
+					if restart == 1 {
+						delayed.Store(true)
+					}
+					if got := posts.Load(); got != wantPosts {
+						t.Fatalf("restart restored retry allowance: %d", got)
+					}
+				}
+				if got := w.turns.triggers(); !slices.Equal(got, []int64{9101}) {
+					t.Fatalf("restart duplicated execution: %v", got)
+				}
+				assertRecoveryReports(t, w.fixture, 1)
+			}
+			if scenario != "success-other-page" && strings.Contains(w.fixture.logs.String(), "confirmed recovered") {
+				t.Fatal("202 or polling handoff mislabeled as confirmed recovery")
+			}
+		})
+	}
 }

@@ -98,7 +98,7 @@ func preparePlanHandoff(ctx context.Context, o Options, ref naming.Ref, mode str
 			if issue.ID != story.IssueID {
 				return fmt.Errorf("story %s identity changed", story.Key)
 			}
-			fmt.Fprintf(&contextText, "Story %s; state %s (include completed stories with intent unchanged as read-only dependencies; new scope requires a successor); issue #%d; database ID %d; expected_base %s\nTitle: %s\n%s\n\n", story.Key, story.State, issue.Number, issue.ID, planbrief.StoryHash(issue.Title, issue.Body), issue.Title, issue.Body)
+			fmt.Fprintf(&contextText, "Story %s; state %s (include completed stories with intent unchanged as read-only dependencies; new scope requires a successor); issue %s; database ID %d; expected_base %s\nTitle: %s\n%s\n\n", story.Key, story.State, displayIssue(ref, issue).Link(), issue.ID, planbrief.StoryHash(issue.Title, issue.Body), issue.Title, issue.Body)
 			if contextText.Len() > planbrief.MaxProposalBytes {
 				return fmt.Errorf("managed Plan context exceeds supported size")
 			}

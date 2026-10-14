@@ -44,13 +44,18 @@ type ValidateFinding struct {
 	Summary string
 	Checks  []string
 	State   string
-	// Blocking findings clear only on a new tested snapshot. A repair or an
-	// issue choice never clears one.
+	// Blocking findings require a new tested snapshot or an eligible owner
+	// verdict. A repair or an issue choice never clears one.
 	Blocking bool
 	// Optional findings are the advisory ones; only these may be deferred.
 	Optional bool
 	Choice   *store.ValidateChoice
 	Verdict  *store.ValidateVerdict
+}
+
+// checkable preserves reviewer facts while allowing evidenced owner verdicts.
+func (f ValidateFinding) checkable() bool {
+	return f.State != findingNotReviewed && f.Status == "unverified" && (f.Criterion || f.Blocking)
 }
 
 // needsChoice says the finding takes exactly one owner choice.
@@ -211,7 +216,7 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 		for _, r := range story.Reviews {
 			f := ValidateFinding{ID: story.Story + ":" + r.Name, Story: story.Story, Name: r.Name, Role: reviewOwner(r.Name), Status: r.Status, Class: r.Classification}
 			f.Summary, f.Checks = findingEvidence(r.Evidence)
-			f.Choice = choiceOf[f.ID]
+			f.Verdict, f.Choice = verdictOf[f.ID], choiceOf[f.ID]
 			f.Blocking = r.Classification == "blocking"
 			f.Optional = !f.Blocking
 			switch {
@@ -219,6 +224,12 @@ func LoadValidateState(ctx context.Context, opts Options, profile *graphexec.Pro
 				f.State = findingNotReviewed
 			case r.Status == "satisfied":
 				f.State = findingSatisfied
+			case f.checkable() && f.Verdict != nil && f.Verdict.Verdict == store.VerdictPass:
+				f.State = findingOwnerPassed
+			case f.checkable() && f.Verdict != nil:
+				f.State = findingOwnerFailed
+			case f.checkable():
+				f.State = findingAwaitingCheck
 			default:
 				f.State = findingOpen
 			}
@@ -309,7 +320,9 @@ func (s *ValidateState) computeReadiness() {
 	for _, f := range s.Findings {
 		switch {
 		case f.State == findingAwaitingCheck:
-			s.Open = append(s.Open, fmt.Sprintf("Criterion `%s` awaits your check.", f.ID))
+			s.Open = append(s.Open, fmt.Sprintf("Item `%s` awaits your check.", f.ID))
+		case f.State == findingOwnerFailed && f.checkable():
+			s.Open = append(s.Open, fmt.Sprintf("Blocking finding `%s` is open (your check failed). A later evidenced /validate-check verdict can clear it.", f.ID))
 		case f.needsChoice() && f.Blocking:
 			s.Open = append(s.Open, fmt.Sprintf("Blocking finding `%s` is open (%s). A repair or an issue does not clear it; only a new tested snapshot does.", f.ID, choiceWords(f)))
 		case f.needsChoice() && f.Choice == nil:
@@ -380,11 +393,12 @@ func (s ValidateState) revision() string {
 
 // effectResult decodes the result of a succeeded or partial effect.
 type validateEffectResult struct {
-	Head     string `json:"head,omitempty"`
-	Number   int    `json:"number,omitempty"`
-	MergeSHA string `json:"merge_sha,omitempty"`
-	Issue    int    `json:"issue,omitempty"`
-	Closed   []int  `json:"closed,omitempty"`
+	Head           string `json:"head,omitempty"`
+	Number         int    `json:"number,omitempty"`
+	MergeSHA       string `json:"merge_sha,omitempty"`
+	Issue          int    `json:"issue,omitempty"`
+	IssueReference string `json:"issue_reference,omitempty"`
+	Closed         []int  `json:"closed,omitempty"`
 }
 
 func decodeEffectResult(e *store.ValidateEffect) validateEffectResult {

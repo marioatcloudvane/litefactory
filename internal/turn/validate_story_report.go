@@ -45,13 +45,13 @@ func (b ValidateFlowBindings) refreshValidateStories(ctx context.Context, opts O
 		}
 		if b.Delivery.tickets() != nil {
 			if err := tickValidateStory(ctx, opts, b.Delivery.tickets(), task, target, s, st, st.Stories[i]); err != nil {
-				faults = append(faults, fmt.Errorf("story %s (#%d): %w", s.Key, s.Number, err))
+				faults = append(faults, fmt.Errorf("story %s (%s): %w", s.Key, s.display().Reference(), err))
 				continue
 			}
 		}
-		text := renderValidateStoryComment(st, s, target.Parent.Number)
+		text := renderValidateStoryComment(st, s, target.Parent.Number, target.Parent.display().Reference())
 		if err := opts.ResearchReporter.reportValidateStory(ctx, session.ID, task, s.Number, fmt.Sprintf("validate-story:%d:%s", req.InstanceID, s.Key), text); err != nil {
-			faults = append(faults, fmt.Errorf("story %s (#%d) comment: %w", s.Key, s.Number, err))
+			faults = append(faults, fmt.Errorf("story %s (%s) comment: %w", s.Key, s.display().Reference(), err))
 		}
 	}
 	return errors.Join(faults...)
@@ -121,7 +121,11 @@ func tickValidateStory(ctx context.Context, opts Options, forge ValidateTickets,
 // the story's light and counts, then only the owner's open items with one
 // command template each, the failed criteria and blocking findings with their
 // reason, or "Nothing to do".
-func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int) string {
+func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int, parentReference ...string) string {
+	reference := fmt.Sprintf("#%d", parent)
+	if len(parentReference) > 0 {
+		reference = parentReference[0]
+	}
 	var findings []ValidateFinding
 	for _, f := range st.Findings {
 		if f.Story == s.Key {
@@ -137,7 +141,7 @@ func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int
 	for _, role := range ValidateReviewRoles {
 		for _, f := range findings {
 			if f.Role == role && f.State == findingNotReviewed {
-				notReviewed = append(notReviewed, fmt.Sprintf("- The %s reviewer has no usable result: %s. The next step on the parent #%d runs the reviews again.", role, planTableCell(reviewerReason(st.Reviews, role)), parent))
+				notReviewed = append(notReviewed, fmt.Sprintf("- The %s reviewer has no usable result: %s. The next step on the parent %s runs the reviews again.", role, planTableCell(reviewerReason(st.Reviews, role)), reference))
 				break
 			}
 		}
@@ -163,7 +167,11 @@ func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int
 		if strings.TrimSpace(reason) != "" {
 			line += ": " + planTableCell(clipText(reason, 300))
 		}
-		blocks = append(blocks, line+" It clears only on a new tested snapshot.")
+		recovery := " It clears only on a new tested snapshot."
+		if f.checkable() {
+			recovery = " A later evidenced /validate-check verdict can clear it."
+		}
+		blocks = append(blocks, line+recovery)
 	}
 	if len(blocks) > 0 {
 		b.WriteString("\n**Blocks**\n\n" + strings.Join(blocks, "\n") + "\n")
@@ -180,7 +188,7 @@ func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int
 			look = ": " + planTableCell(clipText(sum, 300))
 		}
 		switch {
-		case f.State == findingAwaitingCheck:
+		case f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable():
 			items = append(items, fmt.Sprintf("- `%s` awaits your check%s\n  `%s %s %s pass|fail -- <evidence>`", f.Name, look, ValidateCheckCommand, rev, f.ID))
 		case f.needsChoice() && f.Choice == nil:
 			choices := "repair|issue bug|issue story"
@@ -204,7 +212,7 @@ func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int
 		b.WriteString("\n**Your part:** nothing to do.\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "\n**Your part** (give each command as its own comment on the parent #%d):\n\n%s\n", parent, strings.Join(items, "\n"))
+	fmt.Fprintf(&b, "\n**Your part** (give each command as its own comment on the parent %s):\n\n%s\n", reference, strings.Join(items, "\n"))
 	return b.String()
 }
 

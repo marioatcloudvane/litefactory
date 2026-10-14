@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -113,7 +112,7 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return ValidateSuiteBindings{}, ValidateFlowBindings{}, err
 	}
-	repo := GitValidateSuiteRepo{Clone: h.clone, ClonePath: h.repo.Path, Remote: opts.remote(), ScratchRoot: filepath.Join(opts.MCP.Paths.Home(), "validate-scratch"), Gate: opts.CloneGate}
+	repo := GitValidateSuiteRepo{Clone: h.clone, ClonePath: h.repo.Path, Remote: opts.remote(), ScratchRoot: opts.MCP.Paths.ValidateScratchDir(), Gate: opts.CloneGate}
 	suite := ValidateSuiteBindings{
 		DB: opts.DB, LockDir: lockDir, Repo: repo,
 		Bind: func(ctx context.Context, _ Options, _ ActivityRequest) (ValidateSuiteAuthority, error) {
@@ -135,8 +134,20 @@ func bindValidate(ctx context.Context, opts Options, req Request, entry store.Va
 			Code:     cfg.Code,
 			Tickets:  cfg.Tickets,
 			Redactor: opts.MCP.Redactor,
-			Target: func(context.Context, Options, ActivityRequest) (ValidateDeliveryTarget, error) {
-				return h.target(), nil
+			Target: func(ctx context.Context, _ Options, _ ActivityRequest) (ValidateDeliveryTarget, error) {
+				t := h.target()
+				var err error
+				t.Parent.Display, err = lookupTicketDisplay(ctx, cfg.Tickets, h.ref, t.Parent.Number)
+				if err != nil {
+					return t, err
+				}
+				for i := range t.Stories {
+					t.Stories[i].Display, err = lookupTicketDisplay(ctx, cfg.Tickets, h.ref, t.Stories[i].Number)
+					if err != nil {
+						return t, err
+					}
+				}
+				return t, nil
 			},
 			Head:    h.head,
 			Publish: h.publish,
@@ -322,7 +333,7 @@ func (h *validateHost) stories(ctx context.Context) ([]ValidateStory, error) {
 // target names the delivery: the feature branch onto the base branch, the
 // parent issue and the story issues a close completes.
 func (h *validateHost) target() ValidateDeliveryTarget {
-	t := ValidateDeliveryTarget{Repo: github.Repo{Owner: h.repo.Owner, Name: h.repo.Name}, Branch: h.session.Branch, Base: h.repo.BaseBranch, BotID: h.opts.MCP.BotID, Parent: ValidateIssueRef{Number: h.session.IssueNumber}, Generation: h.feature.Generation}
+	t := ValidateDeliveryTarget{Task: h.ref, Repo: github.Repo{Owner: h.repo.Owner, Name: h.repo.Name}, Branch: h.session.Branch, Base: h.repo.BaseBranch, BotID: h.opts.MCP.BotID, Parent: ValidateIssueRef{Number: h.session.IssueNumber}, Generation: h.feature.Generation}
 	for _, r := range h.revisions {
 		if t.Parent.ID == 0 {
 			t.Parent.ID = r.ParentID

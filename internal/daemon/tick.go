@@ -517,6 +517,15 @@ func (d *Daemon) discover(
 	// Which repositories list this tick is decided before any of them is marked
 	// owed. An attempt is owed until it finishes, so a tick that fails midway
 	// leaves the repository due whatever webhooks arrive meanwhile.
+	liveRecovery := make(map[int64]bool, len(repos))
+	for _, repo := range repos {
+		liveRecovery[repo.ID] = true
+	}
+	for id := range d.hookRecovery {
+		if !liveRecovery[id] {
+			delete(d.hookRecovery, id)
+		}
+	}
 	due := make(map[int64]bool, len(repos))
 	for _, repo := range repos {
 		if repo.Forge == store.ForgeGitHub && d.schedule.Due(repo.ID, now) {
@@ -568,6 +577,21 @@ func (d *Daemon) discover(
 		if d.connections != nil && d.schedule.Due(repo.ID, now) {
 			if err := d.recoverRetainedSessions(ctx, q); err != nil {
 				return nil, err
+			}
+		}
+		if d.connections != nil {
+			if connectionEnabled {
+				if err := d.recoverHookDeliveries(ctx, q, now, due[repo.ID]); err != nil {
+					if ctx.Err() != nil {
+						return nil, ctx.Err()
+					}
+					repoLog.WarnContext(ctx, "webhook recovery deferred", slog.Any("error", err))
+					if providerRateLimited(err) {
+						d.rateLimited(ctx, repoLog, now, err)
+					}
+				}
+			} else {
+				delete(d.hookRecovery, repo.ID)
 			}
 		}
 		if !due[repo.ID] || !connectionEnabled {
@@ -1141,6 +1165,9 @@ type task struct {
 	workerLog *slog.Logger
 	worker    *workerState
 
+	// implementCoordinatorHandedOff records this scheduled call's successful graph return.
+	implementCoordinatorHandedOff bool
+
 	scheduled          *store.Schedule
 	continuation       *store.Continuation
 	continuationLocked bool
@@ -1555,7 +1582,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		var fetched github.Issue
 		if len(pending) > 0 {
 			fetched, err = d.readIssue(ctx, c.forgeRepo, c.session.IssueNumber)
-		} else {
+		} else if err = d.drainAffordable(ctx); err == nil {
 			fetched, err = d.discoveryIssue(ctx, c.forgeRepo, c.session.IssueNumber)
 		}
 		if err != nil {
@@ -1827,7 +1854,7 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		if err != nil {
 			return err
 		}
-		position, err := d.db.GetTicketRecoveryPosition(ctx, snapshot.TicketVersionID)
+		position, err := d.snapshotTicketRecovery(ctx, snapshot)
 		if err != nil {
 			return err
 		}
@@ -2795,7 +2822,13 @@ func (d *Daemon) run(
 		// before its publication or domain operation has been confirmed.
 		return nil
 	}
-	return d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+	err = d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+	if err == nil && turnResult.Err == nil && mode == agent.ModeImplement &&
+		t.scheduled != nil && t.scheduled.Payload == turn.ValidateImplementPayload &&
+		trigger.CommentID == t.scheduled.TriggerID() && turnResult.ResearchGraph && turnResult.Run.ID == 0 {
+		t.implementCoordinatorHandedOff = true
+	}
+	return err
 }
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
@@ -2837,6 +2870,14 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		return nil
 	}
 	if turnResult.ResearchGraph {
+		if mode == agent.ModePlan && turnResult.Run.ID == 0 {
+			attrs := []any{slog.String("task", t.ref.String()), slog.Int64("session_id", t.session.ID),
+				slog.Int64("trigger_id", trigger.CommentID), slog.String("reason", turnResult.Reason)}
+			if t.scheduled != nil {
+				attrs = append(attrs, slog.Int64("schedule_id", t.scheduled.ID))
+			}
+			log.InfoContext(ctx, "Plan work returned without a run", attrs...)
+		}
 		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
 			return d.leave(ctx, t, log, "the failed Plan run has no published failure comment", err)
 		}

@@ -42,6 +42,21 @@ func parkGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, ou
 	if len(reason) > 16<<10 {
 		reason = strings.ToValidUTF8(reason[:16<<10], "") + "\n\n[explanation shortened]"
 	}
+	if out.AttemptID == 0 {
+		attempts, err := opts.DB.ListGraphNodeAttempts(context.WithoutCancel(ctx), out.InstanceID)
+		if err != nil {
+			return out, err
+		}
+		// A refusal allocates no attempt. Tie it to durable completed progress
+		// so a later exhaustion cannot reuse an already consumed owner wait.
+		// Append after shortening; retries at the same progress keep exact bytes.
+		for _, attempt := range slices.Backward(attempts) {
+			if !attempt.FinishedAt.IsZero() {
+				reason += fmt.Sprintf("\n\nLatest completed attempt: %d.", attempt.ID)
+				break
+			}
+		}
+	}
 	question := GraphStopQuestion{Version: 1, InstanceID: out.InstanceID, SourceAttemptID: out.AttemptID, Origin: out.Node, Cause: cause, Reason: reason}
 	if out.AttemptID != 0 {
 		attempt, err := opts.DB.GetGraphNodeAttempt(context.WithoutCancel(ctx), out.AttemptID)
