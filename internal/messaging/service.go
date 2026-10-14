@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -161,8 +162,8 @@ func New(db *store.DB, transport, owner string, channels []string, sender Transp
 	}
 	s.RegisterCommand(CommandDefinition{Name: "help", NaturalLanguage: true, Effect: ReadEffect, Description: "List factory commands"}, s.help)
 	s.RegisterCommand(CommandDefinition{Name: "health", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory health"}, s.health)
-	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "List running tasks and work waiting on the owner, plus factory status"}, s.summary)
-	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show saved raw details for an answer or previous legacy reply", Arguments: []Argument{{Name: "answer", Type: TextArgument, Description: "Answer reference printed on the reply"}}}, s.details)
+	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "Read a selected task, or factory health and running/owner-waiting tasks", Arguments: []Argument{{Name: "project", Type: TextArgument, Description: "Registered project"}, {Name: "issue", Type: IntegerArgument, Description: "Known GitHub issue number"}, {Name: "task", Type: IntegerArgument, Description: "Known GitHub task number"}}}, s.summary)
+	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show saved raw details for an answer or previous legacy reply", Arguments: []Argument{{Name: "answer", Type: TextArgument, Description: "Saved answer reference; omit for latest answer"}}}, s.details)
 	s.registerMeter()
 	return s
 }
@@ -521,7 +522,37 @@ func healthText(v Status) string {
 	}
 	return fmt.Sprintf("Running: %t. Heartbeat age: %s. Discovery paused: %t.", v.Running, age, v.DiscoveryPaused)
 }
-func (s *Service) summary(ctx context.Context, _ Message, at time.Time) (string, error) {
+func (s *Service) summary(ctx context.Context, m Message, at time.Time) (string, error) {
+	if m.Arguments["issue"] != "" || m.Arguments["task"] != "" {
+		resolution, err := s.resolveNaturalProject(ctx, m.Arguments)
+		if err != nil {
+			return "", err
+		}
+		if resolution.Refusal != "" {
+			return assessed(ctx, resolution.Refusal, presentation.Refusal)
+		}
+		number, _ := strconv.Atoi(m.Arguments["issue"])
+		if number == 0 {
+			number, _ = strconv.Atoi(m.Arguments["task"])
+		}
+		session, err := s.knownNumericTask(ctx, resolution.Repository, number)
+		if errors.Is(err, store.ErrNotFound) {
+			return assessed(ctx, "Requested task unavailable in that project.", presentation.Refusal)
+		}
+		if err != nil {
+			return "", err
+		}
+		tasks, err := (ask.StoreReader{Reader: s.db}).ReadTaskSessions(ctx, []store.Session{session})
+		if err != nil {
+			return "", err
+		}
+		text, err := s.taskStatus(ctx, session, tasks[0])
+		if err != nil {
+			return "", err
+		}
+		return assessed(ctx, text, presentation.Success)
+	}
+
 	v, err := s.status.Read(ctx, at)
 	if err != nil {
 		return "", err
@@ -560,37 +591,45 @@ func (s *Service) taskSummary(ctx context.Context) string {
 		if repo.Forge != "github" {
 			continue
 		}
-		tasks, cut, err := reader.ReadProjectTasks(ctx, repo.ID)
-		if err != nil {
-			complete = false
-			lines = append(lines, repo.Slug()+": task data could not be read.")
-			continue
-		}
-		if cut {
-			complete = false
-			lines = append(lines, repo.Slug()+": additional tasks left out.")
-		}
-		for _, task := range tasks {
-			label := fmt.Sprintf("%s #%d", repo.Slug(), task.IssueNumber)
-			if run := task.LatestRun; run != nil && (run.Status == store.RunRunning || run.Status == store.RunPrelaunch) {
-				found = true
-				lines = append(lines, label+": running ("+run.Mode+").")
+		var after int64
+		for {
+			sessions, err := s.db.ListTaskSessionsPage(ctx, repo.ID, after, 100)
+			if err != nil {
+				complete = false
+				lines = append(lines, repo.Slug()+": task data could not be read.")
+				break
 			}
-			if wait := task.OwnerWait; wait != nil {
-				found = true
-				lines = append(lines, fmt.Sprintf("%s: waiting on owner — %s %s. https://github.com/%s/issues/%d#issuecomment-%d", label, wait.Workflow, wait.Kind, repo.Slug(), task.IssueNumber, wait.CommentID))
+			if len(sessions) == 0 {
+				break
 			}
-			if task.OwnerBlocked != "" {
-				found = true
-				lines = append(lines, label+": parked, waiting on owner — "+task.OwnerBlocked)
+			after = sessions[len(sessions)-1].ID
+			tasks, err := reader.ReadTaskSessions(ctx, sessions)
+			if err != nil {
+				complete = false
+				lines = append(lines, repo.Slug()+": task data could not be read.")
+				break
+			}
+			for index, task := range tasks {
+				active := task.LatestRun != nil && (task.LatestRun.Status == store.RunRunning || task.LatestRun.Status == store.RunPrelaunch)
+				if active || task.OwnerWait != nil || task.OwnerBlocked != "" {
+					found = true
+					text, err := s.taskStatus(ctx, sessions[index], task)
+					if err != nil {
+						complete = false
+						lines = append(lines, task.Reference+": task data could not be read.")
+					} else {
+						lines = append(lines, text)
+					}
+				}
 			}
 		}
 	}
+
 	if complete && !found {
 		lines = append(lines, "Tasks: no running tasks or owner waits found.")
 	}
 	// Keep the factual source bounded; presentation retains it as details when needed.
-	text := "\n"
+	text := "\nScope: registered GitHub code projects; running tasks and owner waits, including parked work. Idle tasks require a task-specific status lookup.\n"
 	for i, line := range lines {
 		if len(text)+len(line) > 16000 {
 			text += fmt.Sprintf("Task listing: %d additional entries left out.\n", len(lines)-i)
@@ -599,4 +638,56 @@ func (s *Service) taskSummary(ctx context.Context) string {
 		text += line + "\n"
 	}
 	return strings.TrimRight(text, "\n")
+}
+
+// taskStatus uses retained state; absent facts stay explicitly unavailable.
+func (s *Service) taskStatus(ctx context.Context, session store.Session, task ask.Task) (string, error) {
+	mode, stage, waiting := "unavailable", "unavailable", "none recorded"
+	runs, err := s.db.RecentTaskRuns(ctx, session.ID, 3)
+	if err != nil {
+		return "", err
+	}
+	if len(runs) > 0 {
+		mode = runs[0].Mode
+		if mode == "" {
+			mode = runs[0].Workflow
+		}
+		if mode == "" {
+			mode = "unavailable"
+		}
+	}
+	instance, err := s.db.LatestSessionGraphInstance(ctx, session.ID)
+	if err == nil {
+		stage = instance.CurrentNode + " (" + instance.Status + ")"
+		definition, err := s.db.GetGraphDefinition(ctx, instance.DefinitionID)
+		if err != nil {
+			return "", err
+		}
+		mode = definition.Mode
+		if mode == "" {
+			mode = definition.Workflow
+		}
+		if mode == "" {
+			mode = "unavailable"
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	if len(task.PlanStages) > 0 {
+		stage += "; " + strings.Join(task.PlanStages, "; ")
+	}
+	if task.OwnerWait != nil {
+		waiting = "owner — " + task.OwnerWait.Workflow + " " + task.OwnerWait.Kind
+	}
+	if task.OwnerBlocked != "" {
+		waiting = "owner — parked: " + task.OwnerBlocked
+	}
+	text := fmt.Sprintf("%s: %s. Mode: %s. Stage: %s. Waiting on: %s. Recent runs (newest first, limit 3):", task.Reference, task.State, mode, stage, waiting)
+	if len(runs) == 0 {
+		text += " unavailable."
+	}
+	for _, run := range runs {
+		text += fmt.Sprintf(" %d: %s (%s);", run.Ordinal, run.Status, run.Mode)
+	}
+	return text, nil
 }

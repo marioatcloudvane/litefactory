@@ -62,3 +62,12 @@ func (d *Daemon) explainPlanReply(ctx context.Context, t *task, draft store.Plan
 	}
 	return err == nil, err
 }
+
+// Plan reply deferrals are reported on every attempt, including after dispatch:
+// the general commentFate transition cache intentionally suppresses those repeats.
+func (d *Daemon) planReplyDeferred(ctx context.Context, t *task, commentID int64, reason string) {
+	t.recordWorkerStatus(workerDeferred)
+	t.log.InfoContext(ctx, "owner Plan reply deferred",
+		slog.Int64("session_id", t.session.ID), slog.Int64("comment_id", commentID),
+		slog.Int("issue", t.issue.Number), slog.String("fate", fateDeferred), slog.String("reason", reason))
+}

@@ -25,7 +25,7 @@ type factoryUnitProvider struct {
 
 func (p *factoryUnitProvider) RunConversation(ctx context.Context, r agent.ConversationRequest) (agent.ConversationResult, error) {
 	if err := r.BeforeLaunch(ctx); err != nil {
-		return agent.ConversationResult{}, err
+		return agent.ConversationResult{}, agent.ConversationError(err, "before_launch", true)
 	}
 	p.calls++
 	p.prompts = append(p.prompts, r.Prompt)
@@ -124,7 +124,7 @@ func TestFactoryConversationNarrationFailureRetainsOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(reply.ReplyText, "Saved action outcome:\nAnswer saved for acme/app\\#42.") || !strings.Contains(reply.ReplyText, "Unverified") {
+	if !strings.HasSuffix(reply.ReplyText, "Saved action outcome:\nAnswer saved for acme/app\\#42.") || strings.Contains(reply.ReplyText, "Unverified") {
 		t.Fatalf("saved outcome changed: %q", reply.ReplyText)
 	}
 	if provider.calls != 1 {
@@ -443,5 +443,113 @@ func TestFactoryConversationSavedOutcomeRetainsMissingIdentityPause(t *testing.T
 	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
 	if err != nil || !strings.Contains(reply.ReplyText, run.savedOutcomes) {
 		t.Fatalf("saved outcome lost: %+v %v", reply, err)
+	}
+}
+
+func TestFactoryConversationAccessBoundaryRetry(t *testing.T) {
+	for _, failureAt := range []int{1, 2, 3, 4, 5} {
+		t.Run(fmt.Sprint(failureAt), func(t *testing.T) {
+			p := &factoryUnitProvider{outputs: []string{`{"version":1,"kind":"lookup","command":"health","arguments":[]}`, `{"version":1,"kind":"answer","text":"Current heartbeat unavailable."}`}}
+			r, at := factoryUnitRun(t, p)
+			checks := 0
+			r.s.conversations.Load().check = func(context.Context, string) error {
+				checks++
+				if checks == failureAt {
+					return &ConversationAccessError{RetryAfter: 10 * time.Second}
+				}
+				return nil
+			}
+			if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
+				t.Fatal(err)
+			}
+			pending, err := r.s.db.LatestConversationTurn(t.Context(), r.c.ID)
+			if err != nil || pending.State != "pending" || pending.ReplyID != "" {
+				t.Fatalf("not deferred: %+v %v", pending, err)
+			}
+			if worked, err := r.s.ConversationStep(t.Context(), at.Add(time.Second)); err != nil || worked {
+				t.Fatalf("retried before backoff: %t %v", worked, err)
+			}
+			if worked, err := r.s.ConversationStep(t.Context(), at.Add(11*time.Second)); err != nil || !worked {
+				t.Fatalf("retry failed: %t %v", worked, err)
+			}
+			finished, err := r.s.db.LatestConversationTurn(t.Context(), r.c.ID)
+			if err != nil || finished.ID != pending.ID || finished.State != "completed" || finished.Generation <= pending.Generation {
+				t.Fatalf("reclaimed turn: %+v %v", finished, err)
+			}
+			c, err := r.s.db.ReadConversation(t.Context(), "discord", "2")
+			if err != nil || c.SessionHandle != "unit-session" || p.calls != 2 {
+				t.Fatalf("native input replayed: %+v calls=%d %v", c, p.calls, err)
+			}
+			exchanges, err := r.s.db.ListConversationExchanges(t.Context(), r.t.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(exchanges) != 5 {
+				t.Fatalf("unexpected journal: %+v", exchanges)
+			}
+			for i, x := range exchanges {
+				if x.Ordinal != i+1 {
+					t.Fatalf("ordinal: %+v", x)
+				}
+			}
+		})
+	}
+}
+
+func TestFactoryConversationCorrectionAccessRetry(t *testing.T) {
+	p := &factoryUnitProvider{outputs: []string{`{"version":1,"kind":"execute"}`, `{"version":1,"kind":"clarify","text":"Which task?"}`}}
+	r, at := factoryUnitRun(t, p)
+	checks := 0
+	r.s.conversations.Load().check = func(context.Context, string) error {
+		checks++
+		if checks == 3 {
+			return &ConversationAccessError{}
+		}
+		return nil
+	}
+	if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := r.s.ConversationStep(t.Context(), at.Add(time.Minute)); err != nil || !worked {
+		t.Fatalf("retry: %t %v", worked, err)
+	}
+	if p.calls != 2 || !strings.Contains(p.prompts[1], "Previous output failed strict validation") {
+		t.Fatalf("correction replay: %+v", p)
+	}
+}
+
+func TestFactoryConversationReportedDiagnosticsCorrection(t *testing.T) {
+	for _, bad := range []string{
+		`{"version":1,"kind":"answer","text":"Source: factory:status; target: #614. Stage: waiting (succeeded); story-001: acceptance. Evidence limited. Your question is still unanswered."}`,
+		`{"version":1,"kind":"answer","blocks":[{"fact_refs":["missing-fact-5"]}]}`,
+		`{"version":1,"kind":"answer","text":"The meter output: lower bound $7.89; collection partial, helper overhead excluded; page 1 of 3."}`,
+	} {
+		for _, correct := range []bool{false, true} {
+			good := `{"version":1,"kind":"answer","text":"Planning is done: both stories are at acceptance review. Nobody is recorded as waiting. Implementation hasn't started."}`
+			if !correct {
+				good = bad
+			}
+			p := &factoryUnitProvider{outputs: []string{bad, good}}
+			r, at := factoryUnitRun(t, p)
+			if err := r.s.runFactoryConversation(t.Context(), r.c, r.b, r.t, at); err != nil {
+				t.Fatal(err)
+			}
+			if p.calls != 2 {
+				t.Fatalf("correction calls: %d", p.calls)
+			}
+			reply, err := r.s.db.ClaimConversationReply(t.Context(), "discord", at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if presentation.ConversationDiagnostics(reply.ReplyText) {
+				t.Fatalf("leaked: %q", reply.ReplyText)
+			}
+			if correct && !strings.Contains(reply.ReplyText, "Planning is done") {
+				t.Fatal(reply.ReplyText)
+			}
+			if !correct && !strings.Contains(reply.ReplyText, "couldn't get a clear answer") {
+				t.Fatal(reply.ReplyText)
+			}
+		}
 	}
 }

@@ -135,6 +135,21 @@ func (b *discoveryBudget) observeRequestLocked(valid bool, limit, remaining int,
 	b.observedAt = b.now
 }
 
+// listAdmission is what a history list must find above the reserve to start:
+// its first page plus the container/issue/publisher prerequisites. The list's
+// full bound (discoveryListBound/linearHistoryBound) still caps what it may
+// spend, but requiring that whole worst case up front kept every Linear
+// comment read waiting at ~350 of 2500 while a real read costs 1-2 requests;
+// a rare long history may dip into the reserve instead.
+const listAdmission = 5
+
+func admissionCost(cost int) int {
+	if cost >= discoveryListBound {
+		return listAdmission
+	}
+	return cost
+}
+
 // affords reports, without reserving or queueing, whether an operation of cost
 // requests fits the known window's reserve and discovery share and the token
 // bucket. It mirrors acquire's ordinary (non-probe) admission.
@@ -142,7 +157,8 @@ func (b *discoveryBudget) affords(cost int) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.limit > 0 && b.now.Before(b.reset) {
-		if b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.discoveryShareLocked() {
+		need := admissionCost(cost)
+		if b.remaining-b.reserved-need < b.floorLocked() || b.spent+b.reserved+need > b.discoveryShareLocked() {
 			return false
 		}
 	}
@@ -186,11 +202,13 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 			// scalar identity read. Permit it only while preserving the head
 			// operation's entire traffic and primary reservation.
 			head := b.waiters[0].cost
-			if cost != 1 || b.tokens-float64(cost) < float64(head) || b.remaining-b.reserved-cost-head < b.floorLocked() || b.spent+b.reserved+cost+head > b.discoveryShareLocked() {
+			need := admissionCost(head)
+			if cost != 1 || b.tokens-float64(cost) < float64(head) || b.remaining-b.reserved-cost-need < b.floorLocked() || b.spent+b.reserved+cost+need > b.discoveryShareLocked() {
 				return deny()
 			}
 		}
-		if b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.discoveryShareLocked() {
+		need := admissionCost(cost)
+		if b.remaining-b.reserved-need < b.floorLocked() || b.spent+b.reserved+need > b.discoveryShareLocked() {
 			return deny()
 		}
 	}
@@ -237,7 +255,7 @@ func (b *discoveryBudget) acquireFallback(key string, cost int, pending bool) (*
 	if !present && len(b.waiters) < discoveryQueueBound {
 		b.waiters = append(b.waiters, discoveryWaiter{key, cost, b.now})
 	}
-	if b.limit > 0 && b.now.Before(b.reset) && (b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.discoveryShareLocked()) {
+	if need := admissionCost(cost); b.limit > 0 && b.now.Before(b.reset) && (b.remaining-b.reserved-need < b.floorLocked() || b.spent+b.reserved+need > b.discoveryShareLocked()) {
 		return nil, ErrDiscoveryDeferred
 	}
 	if b.tokens < float64(cost) || b.reserved+cost > discoveryBurst || (pending && b.fallbackWorker) || (first != "" && first != key) {

@@ -153,6 +153,7 @@ type webhookRepo struct {
 // on. The handler never reaches the keychain; only [webhookRuntime.refresh],
 // called at start-up and from the heartbeat, does.
 type webhookRuntime struct {
+	handler   *webhook.Handler
 	ln        net.Listener
 	resolver  secrets.Resolver
 	publicURL string
@@ -303,6 +304,9 @@ func (d *Daemon) webhookServe(ctx context.Context, wg *sync.WaitGroup) error {
 	if err != nil {
 		return err
 	}
+	d.webhook.mu.Lock()
+	d.webhook.handler = handler
+	d.webhook.mu.Unlock()
 	server := webhook.NewServer(d.webhook.ln, d.webhookRouter(handler))
 	d.log.InfoContext(ctx, "webhook listener serving", slog.String("addr", d.webhook.ln.Addr().String()), slog.String("path", webhook.Path))
 	wg.Add(2)

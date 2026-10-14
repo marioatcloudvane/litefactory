@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf16"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -23,11 +24,13 @@ type NoticeEvent struct {
 	Key, Kind, Workflow, From, To, Question, QuestionLink string
 	// Title is the issue title read live for the notice; Asked names what an
 	// owner wait asks for (question or review).
-	Title, Asked string
-	Task         naming.Ref
-	RunID        int64
-	At           time.Time
-	Usage        *report.MeterSummary
+	Title, Asked         string
+	DisplayKey, IssueURL string
+	NeedsGuidance        bool
+	Task                 naming.Ref
+	RunID                int64
+	At                   time.Time
+	Usage                *report.MeterSummary
 }
 
 // NoticeEvents maps source facts to stable event identities. Graph node
@@ -92,7 +95,9 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 				return nil, err
 			}
 		}
-		e.QuestionLink = fmt.Sprintf("%s#issuecomment-%d", ref.IssueURL(), r.CommentID)
+		if ref.Forge == "github" && r.CommentID > 0 {
+			e.QuestionLink = fmt.Sprintf("%s#issuecomment-%d", ref.IssueURL(), r.CommentID)
+		}
 		if parked {
 			stopped := e
 			stopped.Key = "stop:" + r.Key + "@" + store.FormatTime(r.At) + "@" + r.TaskRef
@@ -102,6 +107,9 @@ func NoticeEvents(source string, r store.NoticeRecord) ([]NoticeEvent, error) {
 				stopped.Key = fmt.Sprintf("run:%d:finish", r.Run.ID)
 			}
 			stopped.Kind = "stopped"
+			if _, ownerStop := r.Run.OwnerStop(); !ownerStop {
+				stopped.NeedsGuidance = true
+			}
 			stopped.Question = ""
 			stopped.QuestionLink = ""
 			stopped.Asked = ""
@@ -155,31 +163,68 @@ func noticeQuestion(candidate []byte, reason string) (string, error) {
 // one link, and at most one short sentence of an owner question. Details are
 // read on the forge. The budget counts UTF-16 units used by chat APIs.
 func NoticeText(e NoticeEvent) string {
-	issue := fmt.Sprintf("#%d", e.Task.Issue)
-	if e.Title != "" {
-		issue += " " + e.Title
+	key := e.DisplayKey
+	if key == "" {
+		key = "task"
+		if e.Task.Forge == "github" {
+			key = fmt.Sprintf("#%d", e.Task.Issue)
+		}
 	}
-	header := fmt.Sprintf("%s: %s (%s)", e.Kind, issue, e.Workflow)
-	if e.Asked != "" {
-		header += " — " + e.Asked
+	workflow := map[string]string{"bug": "Bug", "research": "Research", "plan": "Plan", "implement": "Implementation", "validate": "Validation", "review": "Review", "fix": "Fix", "spike": "Spike"}[e.Workflow]
+	if workflow == "" {
+		workflow = "Work on"
+	}
+	action := " started"
+	switch e.Kind {
+	case "completed":
+		action = " finished"
+	case "failed":
+		action = " failed"
+	case "stopped":
+		action = " stopped"
+		if e.NeedsGuidance {
+			action += " and needs your guidance"
+		}
+	case "waiting for you", "question":
+		action = " needs your input"
+		if strings.Contains(strings.ToLower(e.Asked), "review") {
+			action = " is ready for your review"
+		}
+		if strings.Contains(e.Asked, "approval") {
+			action = " has a Bug analysis ready for your approval"
+		}
+		if q := noticeSentence(e.Question); q != "" {
+			action = " has a question for you: " + noticeLimit(q, noticeQuestionLimit)
+		}
+	}
+	if !strings.HasSuffix(action, "?") && !strings.HasSuffix(action, "!") && !strings.HasSuffix(action, ".") {
+		action += "."
 	}
 	if e.Usage != nil && (e.Kind == "completed" || e.Kind == "failed" || e.Kind == "stopped") {
 		if cost := noticeUsage(e.Usage); cost != "" {
-			header += " — " + cost
+			action += " " + cost
 		}
 	}
-	link := e.Task.IssueURL()
+	link := e.IssueURL
+	if link == "" {
+		link = e.Task.IssueURL()
+	}
 	if e.QuestionLink != "" {
 		link = e.QuestionLink
 	}
-	header += "\n" + link
-	if e.From != "" {
-		header += fmt.Sprintf("\nMode: %s → %s", e.From, e.To)
+	suffix := action
+	if link != "" {
+		suffix += "\n" + link
 	}
-	if q := noticeSentence(e.Question); q != "" {
-		header += "\n" + noticeLimit(q, min(noticeQuestionLimit, max(0, 1900-noticeUnits(header)-1)))
+	prefix := workflow + " " + key
+	title := strings.Join(strings.Fields(e.Title), " ")
+	if title != "" {
+		title = noticeLimit(title, min(240, max(0, 1900-noticeUnits(prefix+suffix)-3)))
+		if title != "" {
+			prefix += " (" + title + ")"
+		}
 	}
-	return noticeLimit(header, 1900)
+	return prefix + suffix
 }
 
 // noticeQuestionLimit caps the one sentence of a question a notice shows.
@@ -228,16 +273,17 @@ func noticeLimit(s string, limit int) string {
 		b.WriteRune(r)
 		units += n
 	}
-	b.WriteRune('…')
-	return b.String()
+	clipped := b.String()
+	// Prefer a complete word; a single oversized word still has a bounded fallback.
+	if i := strings.LastIndexFunc(clipped, unicode.IsSpace); i > 0 && !unicode.IsSpace([]rune(s)[len([]rune(clipped))]) {
+		clipped = clipped[:i]
+	}
+	return strings.TrimSpace(clipped) + "…"
 }
 
 // noticeUsage is one short cost phrase, or nothing when no cost is known.
 func noticeUsage(s *report.MeterSummary) string {
-	prefix, value := "about", s.EstimatedUSD
-	if value == nil {
-		prefix, value = "at least about", s.PricedSubtotalUSD
-	}
+	value := s.EstimatedUSD
 	if value == nil {
 		return ""
 	}
@@ -245,7 +291,7 @@ func noticeUsage(s *report.MeterSummary) string {
 	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("%s $%.2f", prefix, usd)
+	return fmt.Sprintf("≈ $%.2f", usd)
 }
 
 // NoticeCollector reads existing tables only and writes chat-owned state. It
@@ -255,11 +301,11 @@ type NoticeCollector struct {
 	Transport, Channel string
 	Logger             *slog.Logger
 	Protect            func(context.Context, string) (string, error)
-	// Issues reads issue titles live; nil or a failed read posts without one.
+	// Issues reads public issue metadata live; nil or a failed read omits it.
 	Issues NoticeIssues
 }
 
-// NoticeIssues is the forge read notices use for issue titles.
+// NoticeIssues reads provider metadata through the existing issue boundary.
 type NoticeIssues interface {
 	GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error)
 }
@@ -274,7 +320,7 @@ func (c *NoticeCollector) Collect(ctx context.Context, at time.Time) error {
 		return err
 	}
 	var errs []error
-	titles := make(map[string]string)
+	titles := make(map[string]github.Issue)
 	for _, source := range []string{"run_starts", "run_finishes", "transitions", "owner_waits"} {
 		if err := c.collectSource(ctx, source, at, titles); err != nil {
 			errs = append(errs, fmt.Errorf("collect %s: %w", source, err))
@@ -282,7 +328,7 @@ func (c *NoticeCollector) Collect(ctx context.Context, at time.Time) error {
 	}
 	return errors.Join(errs...)
 }
-func (c *NoticeCollector) collectSource(ctx context.Context, source string, at time.Time, titles map[string]string) error {
+func (c *NoticeCollector) collectSource(ctx context.Context, source string, at time.Time, titles map[string]github.Issue) error {
 	before, records, err := c.DB.ListNoticeRecords(ctx, c.Transport, source, at)
 	if err != nil {
 		return err
@@ -339,7 +385,14 @@ func (c *NoticeCollector) collectSource(ctx context.Context, source string, at t
 					return err
 				}
 			}
-			event.Title = c.issueTitle(ctx, event.Task, titles)
+			issue := c.issueMetadata(ctx, event.Task, titles)
+			event.Title, event.IssueURL = issue.Title, issue.HTMLURL
+			if snapshot := issue.QualifiedSnapshot; snapshot != nil {
+				event.DisplayKey, event.Title, event.IssueURL = snapshot.DisplayKey, snapshot.Title, snapshot.BrowserURL
+			}
+			if event.Kind == "waiting for you" && event.Task.Forge == "github" && event.IssueURL != "" && r.CommentID > 0 {
+				event.QuestionLink = fmt.Sprintf("%s#issuecomment-%d", event.IssueURL, r.CommentID)
+			}
 			text := NoticeText(event)
 			if c.Protect != nil {
 				text, err = c.Protect(ctx, text)
@@ -356,11 +409,11 @@ func (c *NoticeCollector) collectSource(ctx context.Context, source string, at t
 	return c.DB.AdmitNotices(ctx, c.Transport, before, after, notices)
 }
 
-// issueTitle reads each task's title once per Collect pass. A missing reader
+// issueMetadata reads each task once per Collect pass. A missing reader
 // or a failed read yields no title, and the notice still posts.
-func (c *NoticeCollector) issueTitle(ctx context.Context, ref naming.Ref, titles map[string]string) string {
-	if c.Issues == nil || ref.Forge != "github" {
-		return ""
+func (c *NoticeCollector) issueMetadata(ctx context.Context, ref naming.Ref, titles map[string]github.Issue) github.Issue {
+	if c.Issues == nil {
+		return github.Issue{}
 	}
 	key := ref.String()
 	if title, ok := titles[key]; ok {
@@ -371,10 +424,10 @@ func (c *NoticeCollector) issueTitle(ctx context.Context, ref naming.Ref, titles
 		if c.Logger != nil {
 			c.Logger.WarnContext(ctx, "chat notice issue title unavailable", slog.String("task", key), slog.Any("error", err))
 		}
-		issue.Title = ""
+		issue = github.Issue{}
 	}
-	titles[key] = issue.Title
-	return issue.Title
+	titles[key] = issue
+	return issue
 }
 
 func (c *NoticeCollector) runUsage(ctx context.Context, runID int64) (summary *report.MeterSummary, err error) {

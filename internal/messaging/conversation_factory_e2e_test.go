@@ -214,7 +214,7 @@ func TestConversationFactoryOwnerJourney(t *testing.T) {
 			if err != nil || conversation.SessionHandle == "" {
 				t.Fatalf("session missing: %+v %v", conversation, err)
 			}
-			if len(sent.texts) != 1 || !strings.HasSuffix(sent.texts[0], "No tasks are running or waiting on the owner. We are discussing acme/app issue 42.") || !strings.Contains(sent.texts[0], "Unverified") {
+			if len(sent.texts) != 1 || !strings.HasSuffix(sent.texts[0], "No tasks are running or waiting on the owner. We are discussing acme/app issue 42.") || strings.Contains(sent.texts[0], "Evidence") {
 				t.Fatalf("lookup leaked or answer missing: %v", sent.texts)
 			}
 			firstTurn, err := db.LatestConversationTurn(ctx, conversation.ID)
