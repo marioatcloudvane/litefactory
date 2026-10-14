@@ -3,6 +3,7 @@ package providerprocess
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -99,21 +100,26 @@ func ConversationIdle(state string) error {
 // RunConversationProcess journals the exact owned PID before allowing the provider
 // to exec. The pipe barrier prevents a daemon crash from launching an unrecorded
 // provider. An inherited lock also covers the provider's process lifetime.
-func RunConversationProcess(ctx context.Context, binary string, args, env []string, request agent.ConversationRequest, scratch string, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) error {
+func RunConversationProcess(ctx context.Context, binary string, args, env []string, request agent.ConversationRequest, scratch string, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) (failure error) {
+	phase, started := "validation", false
+	defer func() { failure = agent.ConversationError(failure, phase, !started) }()
 	if err := request.Validate(); err != nil {
 		return err
 	}
 	if timeout <= 0 {
 		return errors.New("conversation timeout must be positive")
 	}
+	phase = "ownership"
 	lock, err := conversationLock(request.StateDirectory)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); _ = lock.Close() }()
+	phase = "before_launch"
 	if err = request.BeforeLaunch(ctx); err != nil {
 		return err
 	}
+	phase = "launch"
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		return err
@@ -149,8 +155,10 @@ func RunConversationProcess(ctx context.Context, binary string, args, env []stri
 		return e
 	}
 	if err = cmd.Start(); err != nil {
-		return errors.New("conversation provider launch failed")
+		return fmt.Errorf("conversation provider launch failed: %w", err)
 	}
+	started = true
+	phase = "ownership_persistence"
 	marker := filepath.Join(request.StateDirectory, "provider.pid")
 	//nolint:gosec // Fixed marker filename below the locked, validated private state directory.
 	markerFile, e := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
@@ -183,13 +191,14 @@ func RunConversationProcess(ctx context.Context, binary string, args, env []stri
 		_ = os.Remove(marker)
 	}
 	if e != nil {
-		return errors.New("conversation ownership persistence failed")
+		return fmt.Errorf("conversation ownership persistence failed: %w", e)
 	}
+	phase = "process_wait"
 	if runCtx.Err() != nil {
 		return runCtx.Err()
 	}
 	if err != nil {
-		return errors.New("conversation provider process failed")
+		return fmt.Errorf("conversation provider process failed: %w", err)
 	}
 	return output.finish()
 }

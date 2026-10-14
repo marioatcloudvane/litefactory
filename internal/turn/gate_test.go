@@ -346,6 +346,12 @@ func TestTurnImposesNoAmbientDeadline(t *testing.T) {
 			if name == "SyncDoctorBranch" && forbidden == "WithTimeout" {
 				continue
 			}
+			// Advisory judging captures repository evidence before starting its
+			// shared provider budget. Only the isolated launches use that context;
+			// it never encloses a git command or a clone-gate acquisition.
+			if name == "JudgeService.Execute" && forbidden == "WithTimeout" {
+				continue
+			}
 			if countCalls(fn.decl, forbidden) > 0 {
 				t.Errorf("%s calls context.%s; internal/turn imposes no deadline of its own, "+
 					"because git commands start theirs at exec time (AC-PAR-3.6)", name, forbidden)

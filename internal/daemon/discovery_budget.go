@@ -135,6 +135,36 @@ func (b *discoveryBudget) observeRequestLocked(valid bool, limit, remaining int,
 	b.observedAt = b.now
 }
 
+// listAdmission is what a history list must find above the reserve to start:
+// its first page plus the container/issue/publisher prerequisites. The list's
+// full bound (discoveryListBound/linearHistoryBound) still caps what it may
+// spend, but requiring that whole worst case up front kept every Linear
+// comment read waiting at ~350 of 2500 while a real read costs 1-2 requests;
+// a rare long history may dip into the reserve instead.
+const listAdmission = 5
+
+func admissionCost(cost int) int {
+	if cost >= discoveryListBound {
+		return listAdmission
+	}
+	return cost
+}
+
+// affords reports, without reserving or queueing, whether an operation of cost
+// requests fits the known window's reserve and discovery share and the token
+// bucket. It mirrors acquire's ordinary (non-probe) admission.
+func (b *discoveryBudget) affords(cost int) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.limit > 0 && b.now.Before(b.reset) {
+		need := admissionCost(cost)
+		if b.remaining-b.reserved-need < b.floorLocked() || b.spent+b.reserved+need > b.discoveryShareLocked() {
+			return false
+		}
+	}
+	return b.tokens >= float64(cost)
+}
+
 func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryReservation, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -172,11 +202,13 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 			// scalar identity read. Permit it only while preserving the head
 			// operation's entire traffic and primary reservation.
 			head := b.waiters[0].cost
-			if cost != 1 || b.tokens-float64(cost) < float64(head) || b.remaining-b.reserved-cost-head < b.floorLocked() || b.spent+b.reserved+cost+head > b.discoveryShareLocked() {
+			need := admissionCost(head)
+			if cost != 1 || b.tokens-float64(cost) < float64(head) || b.remaining-b.reserved-cost-need < b.floorLocked() || b.spent+b.reserved+cost+need > b.discoveryShareLocked() {
 				return deny()
 			}
 		}
-		if b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.discoveryShareLocked() {
+		need := admissionCost(cost)
+		if b.remaining-b.reserved-need < b.floorLocked() || b.spent+b.reserved+need > b.discoveryShareLocked() {
 			return deny()
 		}
 	}
@@ -223,7 +255,7 @@ func (b *discoveryBudget) acquireFallback(key string, cost int, pending bool) (*
 	if !present && len(b.waiters) < discoveryQueueBound {
 		b.waiters = append(b.waiters, discoveryWaiter{key, cost, b.now})
 	}
-	if b.limit > 0 && b.now.Before(b.reset) && (b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.discoveryShareLocked()) {
+	if need := admissionCost(cost); b.limit > 0 && b.now.Before(b.reset) && (b.remaining-b.reserved-need < b.floorLocked() || b.spent+b.reserved+need > b.discoveryShareLocked()) {
 		return nil, ErrDiscoveryDeferred
 	}
 	if b.tokens < float64(cost) || b.reserved+cost > discoveryBurst || (pending && b.fallbackWorker) || (first != "" && first != key) {
@@ -514,6 +546,37 @@ func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, 
 func discoveryKey(repo github.Repo, operation string, number int) string {
 	return fmt.Sprintf("%s/%s/%d", repo, operation, number)
 }
+
+// drainAffordable says whether a backlog drain can pay for its issue read and
+// the comment history read that follows it. A backlog session whose history
+// read the budget would defer must not pay for the issue read either: each
+// tick's cheap issue reads then hold the allowance just above the reserve, the
+// history read never fits and every session is re-read forever, which drained
+// the Linear allowance to its floor for hours (2026-10-14).
+func (d *Daemon) drainAffordable(ctx context.Context) error {
+	if r, ok := ctx.Value(quotaReservationKey{}).(*discoveryReservation); ok && r.fallback {
+		return nil
+	}
+	cost := discoveryListBound
+	if d.connections != nil {
+		v, selected, err := d.quotaVersion(ctx, store.TicketConnection)
+		if err != nil {
+			return err
+		}
+		if selected && v.Provider == ticket.Linear {
+			cost = linearHistoryBound
+		}
+	}
+	budget, err := d.quotaBudget(ctx)
+	if err != nil {
+		return err
+	}
+	if !budget.affords(1 + cost) {
+		return ErrDiscoveryDeferred
+	}
+	return nil
+}
+
 func (d *Daemon) discoveryIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
 	return discoveryCall(ctx, d, discoveryKey(repo, "issue", number), 1, func(ctx context.Context) (github.Issue, error) { return d.readIssue(ctx, repo, number) })
 }

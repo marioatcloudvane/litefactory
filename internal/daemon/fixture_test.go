@@ -1201,6 +1201,7 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	// already follows, so a test that does not care about /confirm dispatch
 	// keeps compiling and behaving exactly as it did before this feature
 	// existed.
+	opts.Judge = overrides.Judge
 	if overrides.Confirmer != nil {
 		opts.Confirmer = overrides.Confirmer
 	}

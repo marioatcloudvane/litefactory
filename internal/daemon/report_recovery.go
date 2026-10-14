@@ -372,6 +372,12 @@ func (d *Daemon) observeRecoveryAttempt(ctx context.Context, source store.Report
 }
 
 func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bool, error) {
+	pendingDelivery, deliveryFound, deliveryErr := d.db.FindPendingReportDelivery(ctx, t.session.ID, triggerID)
+	if deliveryErr != nil {
+		return true, deliveryErr
+	}
+	judgeDelivery := deliveryFound && strings.HasPrefix(pendingDelivery.Purpose, "judge:")
+
 	// Bug domain journals own native publication. Only the runless
 	// admission and comment-not-applied refusals use shared recovery.
 	admission, err := d.db.GetTaskWorkflowAdmission(ctx, t.session.ID)
@@ -383,7 +389,7 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 		runlessRefusal := strings.HasPrefix(delivery.Purpose, "reply:missing_team:") ||
 			strings.HasPrefix(delivery.Purpose, "reply:unsupported_workflow:") ||
 			strings.HasPrefix(delivery.Purpose, "reply:bug_comment_not_applied:")
-		if !found || delivery.RunID != 0 || !runlessRefusal {
+		if !found || delivery.RunID != 0 || (!runlessRefusal && !judgeDelivery) {
 			return false, nil
 		}
 	}
@@ -413,10 +419,12 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 		return true, &recoveryPending{err}
 	}
 	if pending {
-		if err := d.retireModeSelections(ctx, t.session.ID); err != nil {
-			d.recoveryFailure(ctx, source, t.tickAt, &turn.DeliveryError{State: "cleanup", Cause: err})
-			finish("failed")
-			return true, &recoveryPending{err}
+		if !judgeDelivery {
+			if err := d.retireModeSelections(ctx, t.session.ID); err != nil {
+				d.recoveryFailure(ctx, source, t.tickAt, &turn.DeliveryError{State: "cleanup", Cause: err})
+				finish("failed")
+				return true, &recoveryPending{err}
+			}
 		}
 		d.recoverySucceeded(ctx, source.Key)
 		finish("resolved")

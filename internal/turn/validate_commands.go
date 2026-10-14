@@ -69,7 +69,7 @@ var (
 
 // ParseValidateCommand parses the exact grammar:
 //
-//	/validate-check   <revision> <criterion id> pass|fail -- <evidence>
+//	/validate-check   <revision> <criterion or review id> pass|fail -- <evidence>
 //	/validate-finding <revision> <finding id> repair|defer
 //	/validate-finding <revision> <finding id> issue bug|story
 //	/validate-push    <revision>
@@ -106,7 +106,7 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 	switch c.Name {
 	case ValidateCheckCommand:
 		if len(args) != 2 || !validateFindingPattern.MatchString(args[0]) || args[1] != store.VerdictPass && args[1] != store.VerdictFail {
-			return c, errors.New("use /validate-check <revision> <criterion id> pass|fail -- <evidence>")
+			return c, errors.New("use /validate-check <revision> <criterion or review id> pass|fail -- <evidence>")
 		}
 		c.Criterion, c.Verdict, c.Evidence = args[0], args[1], strings.TrimSpace(evidence)
 		if c.Evidence == "" {
@@ -173,7 +173,7 @@ func (s ValidateState) NextCommands(closeSet []int) []string {
 	rev := s.Revision
 	for _, f := range s.Findings {
 		switch {
-		case f.State == findingAwaitingCheck:
+		case f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable():
 			out = append(out, fmt.Sprintf("`%s %s %s pass -- <what you checked>` or `%s %s %s fail -- <what you saw>`", ValidateCheckCommand, rev, f.ID, ValidateCheckCommand, rev, f.ID))
 		case f.needsChoice():
 			line := fmt.Sprintf("`%s %s %s repair`, `%s %s %s issue bug`, `%s %s %s issue story`", ValidateFindingCommand, rev, f.ID, ValidateFindingCommand, rev, f.ID, ValidateFindingCommand, rev, f.ID)
@@ -209,7 +209,7 @@ func (s ValidateState) deliveryCommand(closeSet []int) string {
 
 // shipBlockers lists what keeps /validate-ship from being accepted: everything
 // in Open except the checks and choices the ship command itself records (a pass
-// for each criterion awaiting an owner check, a defer for each optional finding
+// for each eligible item awaiting an owner check, a defer for each optional finding
 // without a choice). It is empty when one /validate-ship can deliver.
 func (s ValidateState) shipBlockers() []string {
 	shipped := s

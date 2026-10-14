@@ -517,6 +517,15 @@ func (d *Daemon) discover(
 	// Which repositories list this tick is decided before any of them is marked
 	// owed. An attempt is owed until it finishes, so a tick that fails midway
 	// leaves the repository due whatever webhooks arrive meanwhile.
+	liveRecovery := make(map[int64]bool, len(repos))
+	for _, repo := range repos {
+		liveRecovery[repo.ID] = true
+	}
+	for id := range d.hookRecovery {
+		if !liveRecovery[id] {
+			delete(d.hookRecovery, id)
+		}
+	}
 	due := make(map[int64]bool, len(repos))
 	for _, repo := range repos {
 		if repo.Forge == store.ForgeGitHub && d.schedule.Due(repo.ID, now) {
@@ -568,6 +577,21 @@ func (d *Daemon) discover(
 		if d.connections != nil && d.schedule.Due(repo.ID, now) {
 			if err := d.recoverRetainedSessions(ctx, q); err != nil {
 				return nil, err
+			}
+		}
+		if d.connections != nil {
+			if connectionEnabled {
+				if err := d.recoverHookDeliveries(ctx, q, now, due[repo.ID]); err != nil {
+					if ctx.Err() != nil {
+						return nil, ctx.Err()
+					}
+					repoLog.WarnContext(ctx, "webhook recovery deferred", slog.Any("error", err))
+					if providerRateLimited(err) {
+						d.rateLimited(ctx, repoLog, now, err)
+					}
+				}
+			} else {
+				delete(d.hookRecovery, repo.ID)
 			}
 		}
 		if !due[repo.ID] || !connectionEnabled {
@@ -1558,7 +1582,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		var fetched github.Issue
 		if len(pending) > 0 {
 			fetched, err = d.readIssue(ctx, c.forgeRepo, c.session.IssueNumber)
-		} else {
+		} else if err = d.drainAffordable(ctx); err == nil {
 			fetched, err = d.discoveryIssue(ctx, c.forgeRepo, c.session.IssueNumber)
 		}
 		if err != nil {
@@ -2244,6 +2268,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	t.commentUnderWay = c.ID
 	defer func() { t.commentUnderWay = 0 }()
 
+	if commandForCode.Kind == turn.KindJudge {
+		return d.handleJudge(ctx, t, c, qualifiedReply != nil)
+	}
+
 	// A graph Plan story issue that is a task of its own has its owner comments
 	// answered here, where they were written.
 	if story, owned, err := d.graphPlanStoryForTask(ctx, t); err != nil {
@@ -2729,6 +2757,10 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
+		var planRefusal *turn.PlanReplyRefusal
+		if trigger.PlanReply != nil && errors.As(err, &planRefusal) {
+			return err
+		}
 		var refusal *workflowRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind, mode)
@@ -2810,6 +2842,7 @@ func (d *Daemon) run(
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
 	if mode == agent.ModePlan && turnResult.ResearchGraph && trigger.CommentID > 0 && !store.IsPrivateTrigger(trigger.CommentID) && turn.ParseCommand(trigger.Body).Kind == turn.KindFreeText {
 		if err := d.requirePlanDiscussionReported(ctx, turnResult); err != nil {
+			d.planReplyDeferred(ctx, t, trigger.CommentID, err.Error())
 			return &recoveryPending{err}
 		}
 	}
@@ -2832,6 +2865,7 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 			return errors.New("plan child completion lacks graph admission")
 		}
 		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
+			d.planReplyDeferred(ctx, t, trigger.CommentID, err.Error())
 			return &recoveryPending{err}
 		}
 		// Handled, or answered with a published failure the owner can reply to:

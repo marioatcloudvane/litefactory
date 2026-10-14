@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,28 +17,33 @@ import (
 func (r *Runner) ConversationIsolation(ctx context.Context) (string, error) {
 	help, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"--help"}, providerprocess.DoctorEnvironment(r.environ, os.TempDir()), os.TempDir())
 	if err != nil {
-		return "", agent.ErrConversationIsolation
+		return "", errors.Join(agent.ErrConversationIsolation, err)
 	}
 	for _, flag := range []string{"--tools", "--safe-mode", "--restricted", "--safe-mode", "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "--session-id", "--resume", "--system-prompt", "--settings", "--agents", "--no-chrome"} {
 		if !strings.Contains(help, flag) {
-			return "", agent.ErrConversationIsolation
+			return "", fmt.Errorf("%w: missing required flag %s", agent.ErrConversationIsolation, flag)
 		}
 	}
 	version, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"--version"}, providerprocess.DoctorEnvironment(r.environ, os.TempDir()), os.TempDir())
-	if err != nil || strings.TrimSpace(version) != "2.1.296 (Claude Code)" {
-		return "", agent.ErrConversationIsolation
+	if err != nil || strings.TrimSpace(version) == "" {
+		return "", errors.Join(agent.ErrConversationIsolation, err)
 	}
-	return "claude-2.1.296-conversation-empty-tools-and-mcp-v1", nil
+	r.logConversationVersion(ctx, "probe", version)
+	return "claude-conversation-empty-tools-and-mcp-v1", nil
 }
 
 // RunConversation performs one isolated turn and retains exact native session state.
-func (r *Runner) RunConversation(ctx context.Context, request agent.ConversationRequest) (agent.ConversationResult, error) {
+func (r *Runner) RunConversation(ctx context.Context, request agent.ConversationRequest) (_ agent.ConversationResult, failure error) {
+	phase, beforeProcess := "validation", true
+	defer func() { failure = agent.ConversationError(failure, phase, beforeProcess) }()
 	if err := request.Validate(); err != nil {
 		return agent.ConversationResult{}, err
 	}
+	phase = "isolation_probe"
 	if _, err := r.ConversationIsolation(ctx); err != nil {
 		return agent.ConversationResult{}, err
 	}
+	phase = "directory_preparation"
 	home, scratch, err := providerprocess.PrepareConversationDirectory(request.StateDirectory)
 	if err != nil {
 		return agent.ConversationResult{}, err
@@ -75,7 +81,17 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 		if json.Unmarshal(line, &event) != nil {
 			return
 		}
-		fail := func(e error) { observedErr = e; cancel() }
+		fail := func(e error) {
+			failurePhase := "stream"
+			if event.Type == "system" || event.Type == "thread.started" {
+				failurePhase = "identity"
+			}
+			if event.Type == "result" || event.Type == "turn.failed" || event.Type == "turn.completed" {
+				failurePhase = "terminal"
+			}
+			observedErr = agent.ConversationError(e, failurePhase, false)
+			cancel()
+		}
 		if event.Tools != nil && len(*event.Tools) > 0 {
 			fail(agent.ErrConversationIsolation)
 			return
@@ -87,10 +103,11 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 			}
 		}
 		if event.Type == "system" && event.Subtype == "init" {
-			if event.Tools == nil || event.MCP == nil || len(*event.MCP) != 0 || event.Version != "2.1.296" {
+			if event.Tools == nil || event.MCP == nil || len(*event.MCP) != 0 || event.Version == "" {
 				fail(agent.ErrConversationIsolation)
 				return
 			}
+			r.logConversationVersion(ctx, "init", event.Version)
 			expected := request.Session.Ref
 			if request.Session.Resume != "" {
 				expected = request.Session.Resume
@@ -118,6 +135,7 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 			}
 		}
 	}
+	phase, beforeProcess = "stream", false
 	err = providerprocess.RunConversationProcess(runCtx, r.binary.Path, args, env, request, scratch, r.timeout, observe)
 	if observedErr != nil {
 		return result, observedErr
@@ -128,6 +146,7 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 		}
 		return result, err
 	}
+	phase = "terminal"
 	if !terminal {
 		return result, errors.New("conversation provider did not complete a turn")
 	}
@@ -140,4 +159,16 @@ func conversationArguments(request agent.ConversationRequest, mcp string) []stri
 		return append(args, "--resume", request.Session.Resume)
 	}
 	return append(args, "--session-id", request.Session.Ref)
+}
+
+// Only the numeric version prefix is logged; arbitrary provider output is not.
+func (r *Runner) logConversationVersion(ctx context.Context, phase, version string) {
+	version = strings.TrimSpace(version)
+	end := 0
+	for end < len(version) && end < 32 && ((version[end] >= '0' && version[end] <= '9') || version[end] == '.') {
+		end++
+	}
+	if r.logger != nil {
+		r.logger.InfoContext(ctx, "conversation provider version", "provider", "claude", "phase", phase, "version", version[:end])
+	}
 }

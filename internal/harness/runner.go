@@ -419,6 +419,20 @@ func (r *Runner) Timeout() time.Duration { return r.timeout }
 // Tools does not already allow, so a rule outside the ceiling there cannot
 // widen this run past it.
 func (r *Runner) validateRequest(req agent.Request) error {
+	model := req.Model
+	if model == "" && req.Delivery != nil {
+		model = req.Delivery.MainModel
+	}
+	if model == "" {
+		model = r.model
+	}
+	thinking := req.Thinking
+	if thinking == "" && req.Delivery != nil {
+		thinking = req.Delivery.MainThinking
+	}
+	if err := config.ValidateThinking(config.KindClaude, model, thinking); err != nil {
+		return err
+	}
 	if req.Workflow == agent.WorkflowBug {
 		role := req.Permissions.Profile
 		allowed := config.BugRoleClaudeTools(role)
@@ -685,6 +699,9 @@ func (r *Runner) args(req agent.Request) []string {
 	if req.Delivery != nil && req.Delivery.MainRole != "" {
 		model = req.Delivery.MainModel
 	}
+	if req.Model != "" {
+		model = req.Model
+	}
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",
@@ -707,6 +724,13 @@ func (r *Runner) args(req agent.Request) []string {
 		// expensive orchestrators.
 		"--model", model,
 		"--autocompact", r.autoCompact,
+	}
+	thinking := req.Thinking
+	if thinking == "" && req.Delivery != nil {
+		thinking = req.Delivery.MainThinking
+	}
+	if thinking != "" {
+		args = append(args, "--effort", string(thinking))
 	}
 	if len(allowedTools) > 0 {
 		// Comma-joined into a single argument rather than passed variadically:

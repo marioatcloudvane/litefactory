@@ -26,7 +26,9 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 	}
 	var prior []migration
 	for _, m := range migrations {
-		if strings.HasPrefix(m.name, "chat_presentation") || strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") || strings.Contains(m.name, "_chat_research.sql") {
+		// Judge extends the presentation meter ledger, so it cannot precede the
+		// intentionally omitted chat migrations in this historical fixture.
+		if m.name == "judge" || strings.HasPrefix(m.name, "chat_presentation") || strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") || strings.Contains(m.name, "_chat_research.sql") {
 			continue
 		}
 		prior = append(prior, m)
@@ -157,5 +159,40 @@ func TestChatMeterKnownAndUnknownCostAndReadOnlyTasks(t *testing.T) {
 		if row.AttemptID == unknown.ID && row.EstimatedUSD != nil {
 			t.Fatalf("unknown cost became zero: %+v", row)
 		}
+	}
+}
+
+func TestTaskPagesAndRecentRuns(t *testing.T) {
+	db := newTestDB(t)
+	repo := testRepo(t, db, "acme", "app")
+	for n := 1; n <= 105; n++ {
+		if _, err := db.GetOrCreateSession(t.Context(), repo, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := db.ListTaskSessionsPage(t.Context(), repo.ID, 0, 100)
+	if err != nil || len(first) != 100 {
+		t.Fatalf("first page: %d %v", len(first), err)
+	}
+	second, err := db.ListTaskSessionsPage(t.Context(), repo.ID, first[99].ID, 100)
+	if err != nil || len(second) != 5 || second[0].ID <= first[99].ID {
+		t.Fatalf("second page: %+v %v", second, err)
+	}
+	end, err := db.ListTaskSessionsPage(t.Context(), repo.ID, second[4].ID, 100)
+	if err != nil || len(end) != 0 {
+		t.Fatalf("end: %+v %v", end, err)
+	}
+	for n := 1; n <= 4; n++ {
+		testRun(t, db, first[0].ID, int64(n))
+	}
+	runs, err := db.RecentTaskRuns(t.Context(), first[0].ID, 3)
+	if err != nil || len(runs) != 3 || runs[0].Ordinal != 4 || runs[2].Ordinal != 2 {
+		t.Fatalf("runs: %+v %v", runs, err)
+	}
+	if _, err := db.ListTaskSessionsPage(t.Context(), repo.ID, 0, 0); err == nil {
+		t.Fatal("unbounded page admitted")
+	}
+	if _, err := db.RecentTaskRuns(t.Context(), first[0].ID, 101); err == nil {
+		t.Fatal("unbounded runs admitted")
 	}
 }

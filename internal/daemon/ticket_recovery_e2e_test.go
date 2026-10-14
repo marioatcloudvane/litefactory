@@ -438,10 +438,15 @@ const recoverySelector = "recovery-subscription"
 
 // The shared forge fixture predates qualified tickets. Supply the immutable
 // IDs and authoritative API URLs that GitHub returns at the external boundary.
-func recoveryProvider(t *testing.T, f *fixture) ticket.Origin {
+func recoveryProvider(t *testing.T, f *fixture, intercept ...func(http.ResponseWriter, *http.Request) bool) ticket.Origin {
 	t.Helper()
 	var origin string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, handle := range intercept {
+			if handle(w, r) {
+				return
+			}
+		}
 		if r.URL.Path == "/users/"+ownerLogin {
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(owner()); err != nil {
@@ -1300,5 +1305,170 @@ func TestTicketRecoveryRetainedPlanStoriesBootstrap(t *testing.T) {
 	_, _, repeatedPosts, _ := w.forge.counts()
 	if repeatedPosts != posts {
 		t.Fatal("restart repeated publication")
+	}
+}
+
+func TestWebhookRecoveryHeartbeatConsumesMissedComment(t *testing.T) {
+	for _, scenario := range []string{"eligible", "prestart", "missing-hook", "forbidden-list", "unavailable-detail", "forbidden-post", "success-other-page", "disabled", "mismatch", "quota"} {
+		t.Run(scenario, func(t *testing.T) {
+			w := newWebhookFixture(t)
+			w.clock.mu.Lock()
+			w.clock.now = time.Now().UTC().Add(time.Minute)
+			w.clock.mu.Unlock()
+			var available atomic.Bool
+			var delayed atomic.Bool
+			var posts atomic.Int64
+			start := w.clock.peek()
+			original := start.Add(10 * time.Second)
+			if scenario == "prestart" {
+				original = start.Add(-time.Second)
+			}
+			var origin ticket.Origin
+			origin = recoveryProvider(t, w.fixture, func(out http.ResponseWriter, r *http.Request) bool {
+				if !strings.Contains(r.URL.Path, "/hooks/9/deliveries") {
+					return false
+				}
+				out.Header().Set("Content-Type", "application/json")
+				out.Header().Set("Date", w.clock.peek().UTC().Format(http.TimeFormat))
+				if r.Method == http.MethodPost {
+					posts.Add(1)
+					if scenario == "forbidden-post" {
+						out.WriteHeader(http.StatusForbidden)
+						_, _ = out.Write([]byte(`{"message":"forbidden"}`))
+					} else {
+						out.WriteHeader(http.StatusAccepted)
+					}
+					return true
+				}
+				if strings.HasSuffix(r.URL.Path, "/deliveries/1") {
+					if scenario == "unavailable-detail" {
+						out.WriteHeader(http.StatusForbidden)
+						_, _ = out.Write([]byte(`{"message":"forbidden"}`))
+						return true
+					}
+					_, _ = fmt.Fprintf(out, `{"id":1,"guid":"missed","repository_id":1,"event":"issue_comment","request":{"payload":{"repository":{"full_name":%q},"issue":{"number":%d,"url":%q}}}}`, w.repo.Slug(), testIssue, string(origin)+"/repos/"+w.repo.Slug()+"/issues/"+strconv.Itoa(testIssue))
+					return true
+				}
+				if scenario == "forbidden-list" {
+					out.WriteHeader(http.StatusForbidden)
+					_, _ = out.Write([]byte(`{"message":"forbidden"}`))
+					return true
+				}
+				if !available.Load() {
+					_, _ = out.Write([]byte(`[]`))
+					return true
+				}
+				if scenario == "success-other-page" && r.URL.Query().Get("cursor") == "success" {
+					_, _ = out.Write([]byte(`[{"id":2,"guid":"missed","repository_id":1,"event":"issue_comment","redelivery":true,"status_code":200}]`))
+					return true
+				}
+				if scenario == "success-other-page" {
+					out.Header().Set("Link", fmt.Sprintf(`<%s%s?cursor=success>; rel="next"`, origin, r.URL.Path))
+				}
+				_, _ = fmt.Fprintf(out, `[{"id":1,"guid":"missed","repository_id":1,"event":"issue_comment","redelivery":false,"status_code":502,"delivered_at":%q}`, original.Format(time.RFC3339))
+				if delayed.Load() {
+					_, _ = fmt.Fprintf(out, `,{"id":2,"guid":"missed","repository_id":1,"event":"issue_comment","redelivery":true,"status_code":502,"delivered_at":%q}`, w.clock.peek().Format(time.RFC3339))
+				}
+				_, _ = out.Write([]byte(`]`))
+				return true
+			})
+			configureRecoverySource(t, w, origin)
+			sub, err := w.db.GetTicketSubscription(t.Context(), recoverySelector)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario != "missing-hook" {
+				op, err := w.db.ClaimSubscriptionOperation(t.Context(), sub.ID, sub.Revision, "create")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := w.db.FinishSubscriptionOperation(t.Context(), op, "confirmed", "9", "active", "", start); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w.daemon = newRecoveryDaemon(t, w, origin, "webhook-recovery-"+scenario, false)
+			w.plantCursor()
+			w.clock.advance(10 * time.Second)
+			w.issue("Missed owner reply")
+			w.forge.addComment(testIssue, 9101, owner(), "/spike recover the missed reply")
+			available.Store(true)
+			w.clock.advance(50 * time.Second)
+			if scenario == "disabled" {
+				current, err := w.db.CurrentConnection(t.Context(), w.repo.ID, store.TicketConnection)
+				if err != nil {
+					t.Fatal(err)
+				}
+				current.Enabled = false
+				if _, err := w.db.SetConnection(t.Context(), current, current.Revision); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario == "mismatch" {
+				w.forge.mu.Lock()
+				w.forge.state(testOwnerName, testRepoName).remoteID = 3
+				w.forge.mu.Unlock()
+			}
+			if scenario == "quota" {
+				w.forge.mu.Lock()
+				w.forge.quotaRemaining = 0
+				w.forge.mu.Unlock()
+			}
+			w.settle()
+			if scenario == "disabled" || scenario == "mismatch" || scenario == "quota" {
+				if posts.Load() != 0 || len(w.turns.triggers()) != 0 {
+					t.Fatal("source/quota refusal permitted recovery effects")
+				}
+				if scenario != "quota" {
+					return
+				}
+				w.forge.mu.Lock()
+				w.forge.quotaRemaining = 4999
+				w.forge.mu.Unlock()
+				w.clock.advance(time.Hour)
+				w.settle()
+			}
+			if got := w.turns.triggers(); !slices.Equal(got, []int64{9101}) {
+				t.Fatalf("executions=%v\n%s", got, w.fixture.logs)
+			}
+			wantPosts := int64(1)
+			if scenario == "prestart" || scenario == "missing-hook" || scenario == "forbidden-list" || scenario == "success-other-page" {
+				wantPosts = 0
+			}
+			if got := posts.Load(); got != wantPosts {
+				t.Fatalf("POSTs=%d want=%d\n%s", got, wantPosts, w.fixture.logs)
+			}
+			assertRecoveryReports(t, w.fixture, 1)
+			for range 2 {
+				w.clock.advance(time.Minute)
+				w.settle()
+			}
+			if got := posts.Load(); got != wantPosts {
+				t.Fatalf("blind repeated POSTs=%d", got)
+			}
+			if got := w.turns.triggers(); !slices.Equal(got, []int64{9101}) {
+				t.Fatalf("duplicate executions=%v", got)
+			}
+			assertRecoveryReports(t, w.fixture, 1)
+			if scenario == "eligible" || scenario == "prestart" {
+				for restart := range 3 {
+					w.clock.advance(time.Minute)
+					w.daemon = newRecoveryDaemon(t, w, origin, fmt.Sprintf("ambiguous-restart-%d", restart), false)
+					w.settle()
+					if restart == 1 {
+						delayed.Store(true)
+					}
+					if got := posts.Load(); got != wantPosts {
+						t.Fatalf("restart restored retry allowance: %d", got)
+					}
+				}
+				if got := w.turns.triggers(); !slices.Equal(got, []int64{9101}) {
+					t.Fatalf("restart duplicated execution: %v", got)
+				}
+				assertRecoveryReports(t, w.fixture, 1)
+			}
+			if scenario != "success-other-page" && strings.Contains(w.fixture.logs.String(), "confirmed recovered") {
+				t.Fatal("202 or polling handoff mislabeled as confirmed recovery")
+			}
+		})
 	}
 }

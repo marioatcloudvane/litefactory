@@ -18,6 +18,7 @@ import (
 // sub-millisecond query bounds even though stored timestamps use milliseconds.
 type MeterFilter struct {
 	RepoID, Issue, RunID     int64
+	IncludeStories           bool
 	CodingAgent, Mode, Model string
 	TimeFrom, TimeTo         *time.Time
 }
@@ -97,7 +98,7 @@ func (db *DB) NewMeterSnapshot(ctx context.Context, f MeterFilter, options Meter
 		// concurrent collection invisible until the complete snapshot is captured.
 		predicate, args := meterPredicates(f)
 		// #nosec G202 -- predicate contains constant SQL fragments only; all selectors are bound parameters.
-		query := `SELECT COALESCE(p.forge||':'||p.owner||'/'||p.name,substr(dc.task_ref,1,instr(dc.task_ref,'#')-1),'factory'),COALESCE(s.issue_number,CAST(substr(dc.task_ref,instr(dc.task_ref,'#')+1) AS INTEGER),0),COALESCE(r.ordinal,0),a.id,a.started_at,COALESCE(a.finished_at,''),a.coding_agent,COALESCE(r.mode,''),COALESCE(i.id,''),COALESCE(i.parent_id,''),m.actual_model,COALESCE(m.model_provenance,''),m.input_uncached_tokens,m.cache_read_tokens,m.cache_write_tokens,m.cache_write_5m_tokens,m.cache_write_1h_tokens,m.output_tokens,m.reasoning_tokens,a.price_revision_id,COALESCE(m.id,0),COALESCE(m.revision,0),a.collection_status,COALESCE(i.collection_status,'unknown'),COALESCE(m.collection_status,'unknown'),a.diagnostic_codes_json,COALESCE(i.diagnostic_codes_json,'[]'),COALESCE(m.diagnostic_codes_json,'[]'),a.provider_reported_zero_cost_refusal,CASE WHEN a.presentation_owner IS NOT NULL THEN 'chat_presentation_'||po.phase WHEN a.chat_repo_id IS NOT NULL THEN 'chat_answer' WHEN a.doctor_attempt_id IS NOT NULL THEN 'doctor' WHEN n.id IS NULL THEN 'legacy' ELSE 'graph' END,COALESCE(r.id,0),n.instance_id,n.id,COALESCE(n.node,''),a.outcome,COALESCE(a.agent_version,''),COALESCE(a.source_format,''),COALESCE(i.source_invocation_id,'') FROM meter_attempts a LEFT JOIN chat_presentation_owners po ON po.id=a.presentation_owner LEFT JOIN graph_node_attempts n ON n.id=a.graph_node_attempt_id LEFT JOIN doctor_attempts da ON da.id=a.doctor_attempt_id LEFT JOIN doctor_conversations dc ON dc.id=da.conversation_id LEFT JOIN runs r ON r.id=a.run_id LEFT JOIN sessions s ON s.id=r.session_id LEFT JOIN repos p ON p.id=po.repo_id OR p.id=a.chat_repo_id OR p.id=s.repo_id OR (a.doctor_attempt_id IS NOT NULL AND lower(substr(dc.task_ref,1,instr(dc.task_ref,'#')-1))=lower(p.forge||':'||p.owner||'/'||p.name)) LEFT JOIN meter_invocations i ON i.attempt_id=a.id LEFT JOIN meter_measurements m ON m.attempt_id=i.attempt_id AND m.invocation_id=i.id WHERE ` + predicate + ` ORDER BY p.forge,p.owner,p.name,s.issue_number,r.ordinal,a.started_at,a.id,i.id,m.actual_model LIMIT 256 OFFSET ?`
+		query := `SELECT COALESCE(p.forge||':'||p.owner||'/'||p.name,substr(dc.task_ref,1,instr(dc.task_ref,'#')-1),'factory'),COALESCE(s.issue_number,CAST(substr(dc.task_ref,instr(dc.task_ref,'#')+1) AS INTEGER),0),COALESCE(r.ordinal,0),a.id,a.started_at,COALESCE(a.finished_at,''),a.coding_agent,COALESCE(r.mode,CASE WHEN a.judge_attempt_id IS NOT NULL THEN 'judge' END,''),COALESCE(i.id,''),COALESCE(i.parent_id,''),m.actual_model,COALESCE(m.model_provenance,''),m.input_uncached_tokens,m.cache_read_tokens,m.cache_write_tokens,m.cache_write_5m_tokens,m.cache_write_1h_tokens,m.output_tokens,m.reasoning_tokens,a.price_revision_id,COALESCE(m.id,0),COALESCE(m.revision,0),a.collection_status,COALESCE(i.collection_status,'unknown'),COALESCE(m.collection_status,'unknown'),a.diagnostic_codes_json,COALESCE(i.diagnostic_codes_json,'[]'),COALESCE(m.diagnostic_codes_json,'[]'),a.provider_reported_zero_cost_refusal,CASE WHEN a.presentation_owner IS NOT NULL THEN 'chat_presentation_'||po.phase WHEN a.chat_repo_id IS NOT NULL THEN 'chat_answer' WHEN a.judge_attempt_id IS NOT NULL THEN 'judge' WHEN a.doctor_attempt_id IS NOT NULL THEN 'doctor' WHEN n.id IS NULL THEN 'legacy' ELSE 'graph' END,COALESCE(r.id,0),n.instance_id,n.id,COALESCE(n.node,''),a.outcome,COALESCE(a.agent_version,''),COALESCE(a.source_format,''),COALESCE(i.source_invocation_id,'') FROM meter_attempts a LEFT JOIN chat_presentation_owners po ON po.id=a.presentation_owner LEFT JOIN graph_node_attempts n ON n.id=a.graph_node_attempt_id LEFT JOIN doctor_attempts da ON da.id=a.doctor_attempt_id LEFT JOIN doctor_conversations dc ON dc.id=da.conversation_id LEFT JOIN judge_attempts ja ON ja.id=a.judge_attempt_id LEFT JOIN judge_requests jq ON jq.id=ja.request_id LEFT JOIN runs r ON r.id=a.run_id LEFT JOIN sessions s ON s.id=COALESCE(r.session_id,jq.session_id) LEFT JOIN repos p ON p.id=po.repo_id OR p.id=a.chat_repo_id OR p.id=s.repo_id OR (a.doctor_attempt_id IS NOT NULL AND lower(substr(dc.task_ref,1,instr(dc.task_ref,'#')-1))=lower(p.forge||':'||p.owner||'/'||p.name)) LEFT JOIN meter_invocations i ON i.attempt_id=a.id LEFT JOIN meter_measurements m ON m.attempt_id=i.attempt_id AND m.invocation_id=i.id WHERE ` + predicate + ` ORDER BY p.forge,p.owner,p.name,s.issue_number,r.ordinal,a.started_at,a.id,i.id,m.actual_model LIMIT 256 OFFSET ?`
 		count, total := 0, options.HeaderBytes
 		lastFilteredInvocation := [2]string{}
 		if total < 0 || total > 256<<20 {
@@ -206,12 +207,22 @@ func scanMeterPage(rows *sql.Rows) ([]MeterRow, error) {
 				break
 			}
 		}
+		var finalCodes []string
+		if err := json.Unmarshal([]byte(ad), &finalCodes); err != nil {
+			return nil, err
+		}
 		for _, data := range []string{ad, id, md} {
 			var codes []string
 			if err := json.Unmarshal([]byte(data), &codes); err != nil {
 				return nil, err
 			}
-			r.Diagnostics = append(r.Diagnostics, codes...)
+			for _, code := range codes {
+				// Final coverage settles discovery only; all other evidence stays.
+				if a == "complete" && r.AttemptFinishedAt != "" && r.InvocationID != "" && !slices.Contains(finalCodes, "usage_source_scan_incomplete") && (code == "usage_source_scan_incomplete" || strings.HasPrefix(code, "usage_source_discovery_")) {
+					continue
+				}
+				r.Diagnostics = append(r.Diagnostics, code)
+			}
 		}
 		r.RowKind = "measurement"
 		r.PricingStatus = "unpriced"
@@ -286,7 +297,15 @@ func meterPredicates(f MeterFilter) (string, []any) {
 		add("p.id=?", f.RepoID)
 	}
 	if f.Issue != 0 {
-		add("COALESCE(s.issue_number,CAST(substr(dc.task_ref,instr(dc.task_ref,'#')+1) AS INTEGER),0)=?", f.Issue)
+		issue := "COALESCE(s.issue_number,CAST(substr(dc.task_ref,instr(dc.task_ref,'#')+1) AS INTEGER),0)"
+		if f.IncludeStories {
+			// Membership is persisted, repository-qualified and includes retired history.
+			parent := "p.forge||':'||p.owner||'/'||p.name||'#'||?"
+			clauses = append(clauses, "("+issue+"=? OR "+issue+" IN (SELECT issue_number FROM plan_story_drafts WHERE parent="+parent+" AND issue_number>0 UNION SELECT issue_number FROM managed_stories WHERE parent_task="+parent+"))")
+			args = append(args, f.Issue, f.Issue, f.Issue)
+		} else {
+			add(issue+"=?", f.Issue)
+		}
 	}
 	if f.RunID != 0 {
 		add("r.id=?", f.RunID)
@@ -295,7 +314,7 @@ func meterPredicates(f MeterFilter) (string, []any) {
 		add("a.coding_agent=?", f.CodingAgent)
 	}
 	if f.Mode != "" {
-		add("r.mode=?", f.Mode)
+		add("COALESCE(r.mode,CASE WHEN a.judge_attempt_id IS NOT NULL THEN 'judge' END)=?", f.Mode)
 	}
 	for _, bound := range []struct {
 		t         *time.Time

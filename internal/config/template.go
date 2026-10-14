@@ -54,6 +54,14 @@ webhook:
   # sends payloads unencrypted.
   public_url: %q
 
+# Optional shared manual advisory settings. Empty model uses the provider flagship tier.
+# judge:
+#   agent: other # claude, codex, other; omitted uses the task provider
+#   model: flagship
+#   thinking: high
+#   providers:
+#     claude: {thinking: high, aliases: {review: opus}}
+#     codex: {thinking: high, aliases: {}}
 settings:
   # Anonymous HTTPS catalogue for machine-level team installation.
   team_source: %q

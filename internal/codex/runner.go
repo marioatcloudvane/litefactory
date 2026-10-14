@@ -529,8 +529,21 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	if req.Delivery != nil && req.Delivery.MainRole != "" {
 		model = req.Delivery.MainModel
 	}
+	if req.Model != "" {
+		model = req.Model
+	}
 	if model != "" {
 		args = append(args, "--model", model)
+	}
+	thinking := req.Thinking
+	if thinking == "" && req.Delivery != nil {
+		thinking = req.Delivery.MainThinking
+	}
+	if err := config.ValidateThinking(config.KindCodex, model, thinking); err != nil {
+		return nil, err
+	}
+	if thinking != "" {
+		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(string(thinking)))
 	}
 	if req.Path.Resuming() {
 		return append(args, "resume", req.Session.Resume, "-"), nil
