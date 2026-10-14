@@ -65,6 +65,9 @@ func Locate() (Paths, error) {
 // Home is the root directory, $LF_HOME.
 func (p Paths) Home() string { return p.home }
 
+// ConversationsDir retains private native conversation state across restarts.
+func (p Paths) ConversationsDir() string { return filepath.Join(p.home, "conversations") }
+
 // ArchiveDir is the root of the per-task archive of closed work, <home>/archive.
 func (p Paths) ArchiveDir() string { return filepath.Join(p.home, archiveDirName) }
 
@@ -148,3 +151,9 @@ func (p Paths) TeamsTrashDir() string { return filepath.Join(p.TeamsDir(), "tras
 
 // TeamsLockPath coordinates readers and mutations across processes.
 func (p Paths) TeamsLockPath() string { return filepath.Join(p.TeamsDir(), "catalogue.lock") }
+
+// ValidateScratchDir holds suite checkouts outside the denied factory home.
+func (p Paths) ValidateScratchDir() string { return p.home + "-suite" }
+
+// ImplementScratchDir holds merge checkouts outside the denied factory home.
+func (p Paths) ImplementScratchDir() string { return p.home + "-implement" }

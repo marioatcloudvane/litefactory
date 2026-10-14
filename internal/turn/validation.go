@@ -31,6 +31,10 @@ func prepareValidationContext(ctx context.Context, opts Options, in *harness.Pro
 	}
 	v := &agent.ValidationContext{Version: 1, Parent: f.ParentTask, Generation: f.Generation}
 	for _, r := range revisions {
+		display, err := lookupTicketDisplay(ctx, opts.SubIssueCreator, in.Ref, r.IssueNumber)
+		if err != nil {
+			return err
+		}
 		if r.State == "completed" {
 			v.Dependencies = append(v.Dependencies, agent.CompletedStory{Key: r.Key, IssueNumber: r.IssueNumber, IssueID: r.IssueID})
 			continue
@@ -39,7 +43,7 @@ func prepareValidationContext(ctx context.Context, opts Options, in *harness.Pro
 		if err != nil {
 			return fmt.Errorf("story %s criteria: %w", r.Key, err)
 		}
-		s := agent.ValidationStory{Story: agent.ApprovedStory{EngineeringComplete: r.EngineeringComplete, State: r.State, Key: r.Key, IssueNumber: r.IssueNumber, IssueID: r.IssueID, ParentID: r.ParentID, Source: fmt.Sprintf("https://github.com/%s/%s/issues/%d", in.Ref.Owner, in.Ref.Repo, r.IssueNumber), Title: r.Title, Body: r.Body, Revision: r.Hash, FetchedAt: r.FetchedAt.UTC().Format(time.RFC3339Nano), Dependencies: slices.Clone(r.Dependencies)}, Criteria: criteria, EvidenceStatus: "unverified", EvidenceReason: "No retained initial engineering evidence"}
+		s := agent.ValidationStory{Story: agent.ApprovedStory{EngineeringComplete: r.EngineeringComplete, State: r.State, Key: r.Key, IssueNumber: r.IssueNumber, IssueID: r.IssueID, ParentID: r.ParentID, Source: display.URL, Title: r.Title, Body: r.Body, Revision: r.Hash, FetchedAt: r.FetchedAt.UTC().Format(time.RFC3339Nano), Dependencies: slices.Clone(r.Dependencies)}, Criteria: criteria, EvidenceStatus: "unverified", EvidenceReason: "No retained initial engineering evidence"}
 		retained, err := opts.DB.EngineeringEvidence(ctx, f.ParentTask, f.Generation, r.Key)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return err

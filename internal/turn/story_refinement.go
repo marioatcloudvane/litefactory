@@ -69,9 +69,13 @@ func prepareRefinementContext(ctx context.Context, opts Options, req Request, in
 	if len(child.Body) > planbrief.MaxStoryBodyBytes || len(child.Title) > 1024 {
 		return fmt.Errorf("current story exceeds context limits")
 	}
-	input.RefinementSource = fmt.Sprintf("https://github.com/%s/%s/issues/%d#issuecomment-%d (owner ID %d)", input.Ref.Owner, input.Ref.Repo, r.ChildNumber, r.CommentID, r.ActorID)
-	input.RefinementStory = fmt.Sprintf("Issue #%d (ID %d); expected_base %s\nTitle: %s\n\n%s", r.ChildNumber, r.ChildID, planbrief.StoryHash(child.Title, child.Body), child.Title, child.Body)
-	input.History = append(input.History, harness.HistoryEntry{Role: harness.RoleOldThirdParty, Body: fmt.Sprintf("Planning refinement targets managed story #%d (GitHub issue ID %d), generation %d. Source comment ID %d by numeric owner %d. Parent task %s. Keep this parent plan and session as the sole execution identity.", r.ChildNumber, r.ChildID, r.Generation, r.CommentID, r.ActorID, input.Ref.String())})
+	_, replyURL, err := reportSourceLinks(ctx, forge, input.Ref, r.ChildNumber, r.CommentID)
+	if err != nil {
+		return err
+	}
+	input.RefinementSource = fmt.Sprintf("%s (owner ID %d)", replyURL, r.ActorID)
+	input.RefinementStory = fmt.Sprintf("Issue %s (ID %d); expected_base %s\nTitle: %s\n\n%s", displayIssue(input.Ref, child).Link(), r.ChildID, planbrief.StoryHash(child.Title, child.Body), child.Title, child.Body)
+	input.History = append(input.History, harness.HistoryEntry{Role: harness.RoleOldThirdParty, Body: fmt.Sprintf("Planning refinement targets managed story %s (internal issue ID %d), generation %d. Source comment ID %d by numeric owner %d. Parent task %s. Keep this parent plan and session as the sole execution identity.", displayIssue(input.Ref, child).Link(), r.ChildID, r.Generation, r.CommentID, r.ActorID, input.Ref.String())})
 	return nil
 }
 

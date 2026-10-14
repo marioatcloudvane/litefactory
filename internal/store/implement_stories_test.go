@@ -214,3 +214,61 @@ func TestTransitionImplementStoryReopensMergedWithFindings(t *testing.T) {
 		t.Fatalf("a repeated reopen must lose the compare-and-set: %v", err)
 	}
 }
+
+func TestTransitionImplementStoryCorrectsStaleMergeOnly(t *testing.T) {
+	db := newTestDB(t)
+	seedImplement(t, db, "a")
+	row, err := move(t, db, "a", ImplementWaiting, ImplementRunning, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err = move(t, db, "a", ImplementRunning, ImplementParked, row.Revision, func(in *ImplementTransition) { in.Reason = "question" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err = move(t, db, "a", ImplementParked, ImplementWaiting, row.Revision, func(in *ImplementTransition) { in.Guidance = "retained guidance" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err = move(t, db, "a", ImplementWaiting, ImplementRunning, row.Revision, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetImplementWorkerSession(t.Context(), row.Parent, row.Generation, row.Key, 42, implementT0); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetImplementDeviations(t.Context(), row.Parent, row.Generation, row.Key, "retained decision", implementT0); err != nil {
+		t.Fatal(err)
+	}
+	row, err = db.RecordImplementFailure(t.Context(), row.Parent, row.Generation, row.Key, "retained failure", implementT0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err = move(t, db, "a", ImplementRunning, ImplementDone, row.Revision, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err = move(t, db, "a", ImplementDone, ImplementMerged, row.Revision, func(in *ImplementTransition) { in.MergeCommit = "old" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := move(t, db, "a", ImplementMerged, ImplementDone, row.Revision-1, nil); !errors.Is(err, ErrImplementConflict) {
+		t.Fatalf("stale revision accepted: %v", err)
+	}
+	if _, err := move(t, db, "a", ImplementMerged, ImplementWaiting, row.Revision, nil); !errors.Is(err, ErrImplementTransition) {
+		t.Fatalf("reopen without guidance accepted: %v", err)
+	}
+	got, err := move(t, db, "a", ImplementMerged, ImplementDone, row.Revision, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := row
+	want.State, want.MergeCommit, want.Revision = ImplementDone, "", row.Revision+1
+	want.UpdatedAt, want.StateAt = implementT0.Add(time.Minute), implementT0.Add(time.Minute)
+	if got != want {
+		t.Fatalf("correction changed worker history: got %+v want %+v", got, want)
+	}
+	if _, err := move(t, db, "a", ImplementMerged, ImplementDone, row.Revision, nil); !errors.Is(err, ErrImplementConflict) {
+		t.Fatalf("replayed correction accepted: %v", err)
+	}
+}

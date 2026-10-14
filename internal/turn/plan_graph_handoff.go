@@ -220,7 +220,7 @@ func (r *planGraphRuntime) finalize(ctx context.Context, s planbrief.PlanState, 
 			return out, err
 		}
 		// Only links and stable identifiers appear in the local index.
-		fmt.Fprintf(&index, "| %s | %s | [#%d](https://github.com/%s/%s/issues/%d) |\n", story.Key, strings.ReplaceAll(issue.Title, "|", "&#124;"), issue.Number, r.result.Ref.Owner, r.result.Ref.Repo, issue.Number)
+		fmt.Fprintf(&index, "| %s | %s | %s |\n", story.Key, strings.ReplaceAll(issue.Title, "|", "&#124;"), displayIssue(r.result.Ref, issue).Link())
 	}
 	s.PublishedRevision = s.PlanSetRevision()
 	if err = r.persist(ctx, s, revision); err != nil {

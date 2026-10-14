@@ -145,6 +145,7 @@ func (d *Daemon) readScheduledIssue(ctx context.Context, t *task) (github.Issue,
 // the normal turn path. SourceCommentID remains the report anchor; TriggerID
 // is private schedule identity so each proposal item gets its own run.
 func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Schedule) {
+	t.implementCoordinatorHandedOff = false
 	command := turn.ParseCommand(scheduled.Payload)
 	trigger := turn.Trigger{CommentID: scheduled.TriggerID(), Body: scheduled.Payload, Author: scheduled.OwnerHandle}
 	err := d.run(ctx, t, trigger, command, t.log)
@@ -163,7 +164,7 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 		// error is terminal: no agent has run, but silently retrying a malformed
 		// payload forever would make the durable queue permanently stuck.
 		if err == nil && (d.planWorkSettled(ctx, t, scheduled) || d.implementWorkSettled(ctx, t, scheduled)) {
-			// Plan work whose state moved on before the run began has nothing to run.
+			// Work whose state moved on or is explicitly held has nothing to run.
 			d.finishScheduled(ctx, t, scheduled, store.ScheduleSucceeded, 0)
 			return
 		}

@@ -30,11 +30,11 @@ func TestNarratedReplyHasNoAttachmentAndDetailsReturnsIt(t *testing.T) {
 	found := false
 	for _, def := range s.Declarations() {
 		if def.Name == "details" {
-			found = def.NaturalLanguage && def.Effect == messaging.ReadEffect && len(def.Arguments) == 0
+			found = def.NaturalLanguage && def.Effect == messaging.ReadEffect && len(def.Arguments) == 1 && def.Arguments[0].Name == "answer" && !def.Arguments[0].Required
 		}
 	}
 	if !found {
-		t.Fatal("details not declared as an argument-free natural-language read")
+		t.Fatal("details not declared as an natural-language read with optional answer selector")
 	}
 	run := func(id, channel, command string) {
 		t.Helper()
@@ -54,7 +54,7 @@ func TestNarratedReplyHasNoAttachmentAndDetailsReturnsIt(t *testing.T) {
 		t.Fatalf("raw details not kept: %+v %v", row, err)
 	}
 	run("2", "3", "details")
-	if len(send.payloads) != 1 || send.payloads[0].Content != "Raw details of your previous reply." || send.payloads[0].Attachment == nil || send.payloads[0].Attachment.Name != presentation.RawFilename || send.payloads[0].Attachment.Content != row.ReplyAttachment {
+	if len(send.payloads) != 1 || send.payloads[0].Content != "Raw details of your previous reply (legacy source text)." || send.payloads[0].Attachment == nil || send.payloads[0].Attachment.Name != presentation.RawFilename || send.payloads[0].Attachment.Content != row.ReplyAttachment {
 		t.Fatalf("details: %+v", send.payloads)
 	}
 	run("3", "4", "details")

@@ -12,6 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -183,13 +184,17 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 		receipt.IssueNumber = latest.IssueNumber
 		return receipt, nil
 	}
+	reverify := false
 	if effectErr == nil && (latest.Outcome == "conflict" || latest.Outcome == "failed") {
 		receipt.Outcome = latest.Outcome
 		receipt.Detail = latest.Detail
 		receipt.Revision = latest.Revision
 		receipt.IssueID = latest.IssueID
 		receipt.IssueNumber = latest.IssueNumber
-		return receipt, nil
+		reverify, err = h.canReverifyContentConflict(ctx, a, r, d, latest)
+		if err != nil || !reverify {
+			return receipt, err
+		}
 	}
 	candidate := r.Draft
 	if r.Operation != "create" {
@@ -282,7 +287,11 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	if r.Operation != "create" {
 		render = report.RenderRetainedPlanDraftParts
 	}
-	rendered, err := render(int64(a.ParentNumber), d.Ordinal, candidate, r.Stage, a.ContentScope)
+	parentRef, err := naming.ParseRef(a.Parent)
+	if err != nil {
+		return receipt, err
+	}
+	rendered, err := render(int64(a.ParentNumber), d.Ordinal, candidate, r.Stage, a.ContentScope, displayIssue(parentRef, parent).TitleKey)
 	title, body := rendered.Title, rendered.Body
 	if err != nil {
 		// Rendering is deterministic and precedes every remote mutation, so the
@@ -314,6 +323,28 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 	}
 	// Retain the exact redacted bytes in the revision comparison.
 	title, body = safeTitle.String(), safeBody.String()
+	if reverify {
+		// Recovery is observation-only and must never reach mutation paths.
+		if len(safeParts) != 0 {
+			return receipt, nil
+		}
+		child, readErr := h.Forge.GetIssue(ctx, a.Repo, d.IssueNumber)
+		if readErr != nil {
+			return receipt, readErr
+		}
+		if child.QualifiedSnapshot == nil || child.QualifiedSnapshot.Ref.Identity.Provider != ticket.Linear || child.ID != d.IssueID || child.Number != d.IssueNumber || child.State != github.StateOpen || child.Title != title || !h.planContentEquivalent(body, child) {
+			return receipt, nil
+		}
+		parent, readErr := h.Forge.GetParentIssue(ctx, a.Repo, d.IssueNumber)
+		if readErr != nil {
+			return receipt, readErr
+		}
+		if parent.ID != a.ParentID || parent.Number != a.ParentNumber {
+			return receipt, nil
+		}
+		d.Revision = PlanIssueRevision(child.Title, child.Body)
+		return h.completeReadback(ctx, a, r, d, candidate, child, priorRevision, receipt)
+	}
 	if r.Operation == "create" && d.IssueID == 0 {
 		createIntent, intentErr := h.DB.HasPlanStoryMutation(ctx, a.Parent, r.RequestID, "create")
 		if intentErr != nil {
@@ -523,6 +554,10 @@ func (h PlanStoryActivity) Apply(ctx context.Context, a PlanStoryAuthority, r gr
 
 		}
 	}
+	return h.completeReadback(ctx, a, r, d, candidate, child, priorRevision, receipt)
+}
+
+func (h PlanStoryActivity) completeReadback(ctx context.Context, a PlanStoryAuthority, r graphexec.PlanStoryRequest, d store.PlanStoryDraft, candidate planbrief.PlanDraft, child github.Issue, priorRevision string, receipt PlanStoryReceipt) (PlanStoryReceipt, error) {
 	d.Candidate = r.Candidate
 	d.Stage = r.Stage
 	draftRaw, err := json.Marshal(candidate)
