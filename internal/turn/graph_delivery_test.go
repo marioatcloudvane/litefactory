@@ -15,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/bugrepair"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -246,6 +247,20 @@ func TestGraphDeliverySyncOutcomesNeverMergeUncheckedSource(t *testing.T) {
 			if out.Outcome != want || forge.merges != 0 || forge.closes != 0 {
 				t.Fatalf("unchecked delivery: %+v merges=%d closes=%d", out, forge.merges, forge.closes)
 			}
+			if want == "revalidate" {
+				at := f.opts.MCP.Now()
+				mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), req.NodeAttemptID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: out.Outcome, FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: out.Output}}, Transition: &store.GraphTransition{InstanceID: req.InstanceID, FromNode: "finalization", ToNode: "fixer", OnOutcome: out.Outcome, At: at}}))
+				attempts, err := f.db.ListGraphNodeAttempts(t.Context(), req.InstanceID)
+				mustProgress(t, err)
+				reason, err := graphBugExhaustionReason(t.Context(), f.db, graphexec.Node{Name: "fixer", Limit: 3}, attempts)
+				mustProgress(t, err)
+				if strings.Contains(reason, "was merged") != (state == "synced") || !strings.Contains(reason, "Reply to rerun") {
+					t.Fatalf("inaccurate revalidation notice: %s", reason)
+				}
+				if (state == "retry" && !strings.Contains(reason, "controlled refusal")) || (state == "drift" && !strings.Contains(reason, "differs from the checked repair")) {
+					t.Fatalf("actual change omitted: %s", reason)
+				}
+			}
 			if state == "conflict" && (!strings.Contains(out.Diagnostic, "shared_test.go") || !strings.Contains(out.Diagnostic, "controlled refusal")) {
 				t.Fatalf("not actionable: %s", out.Diagnostic)
 			}
@@ -387,7 +402,9 @@ func completeDeliveryRecheck(t *testing.T, f *fixture, instance int64, old Graph
 	ctx, at := t.Context(), f.opts.MCP.Now()
 	segment, err := f.db.GetOrCreateSegment(ctx, f.session.ID, 2, "recheck", store.AgentClaude)
 	mustProgress(t, err)
-	run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: int64(200 + len(outcome)), StartedAt: at, LogPath: func(int) string { return "recheck.log" }})
+	history, err := f.db.ListGraphNodeAttempts(ctx, instance)
+	mustProgress(t, err)
+	run, err := f.db.AllocateRun(ctx, store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Workflow: "bug", Agent: store.AgentClaude, TriggerCommentID: int64(200 + len(history)), StartedAt: at, LogPath: func(int) string { return "recheck.log" }})
 	mustProgress(t, err)
 	attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance, Node: "fixer", RunID: run.ID, Limit: 3, StartedAt: at})
 	mustProgress(t, err)
