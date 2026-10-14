@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -100,6 +102,13 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 		if c.Transport != s.transport {
 			continue
 		}
+		// A no-identity pause whose private state directory was never created
+		// proves no provider process ever launched: nothing native exists, so a
+		// restart lets the next message launch instead of holding every later
+		// message forever. A launched-then-crashed turn keeps its pause.
+		if _, ok := r.bindings[c.ChannelRef]; ok && c.SessionHandle == "" && noNativeIdentityPause(c.HealthReason) && neverLaunched(c.StateDir) {
+			failures = append(failures, s.db.SetConversationHealth(ctx, c.ID, "", at))
+		}
 		if _, ok := r.bindings[c.ChannelRef]; !ok {
 			r.bindings[c.ChannelRef] = ConversationBinding{Channel: c.ChannelRef}
 			failures = append(failures, s.db.SetConversationHealth(ctx, c.ID, "conversation disabled or channel authorization removed; retained work is paused", at))
@@ -110,6 +119,15 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 	}
 	sort.Strings(r.channels)
 	return errors.Join(failures...)
+}
+
+func neverLaunched(state string) bool {
+	_, err := os.Lstat(state)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+func noNativeIdentityPause(reason string) bool {
+	return reason == "turn unfinished with no saved native identity; no replacement session created" || reason == "interrupted turn has no saved native session; continuity unavailable"
 }
 
 func (s *Service) conversationBound(channel string) bool {
