@@ -719,5 +719,9 @@ func (c *Client) logContentDifference(ctx context.Context, ref ticket.Ref, title
 	if err != nil {
 		return
 	}
+	if l := requestLogger.Load(); l != nil {
+		l.WarnContext(ctx, "linear content readback differs", "ticket", safeID.String(), "field", field, "line", line+1, "expected", safeA.String(), "observed", safeB.String())
+		return
+	}
 	slog.DebugContext(ctx, "linear content readback differs", "ticket", safeID.String(), "field", field, "line", line+1, "expected", safeA.String(), "observed", safeB.String())
 }
