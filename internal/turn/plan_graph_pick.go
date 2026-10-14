@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -136,4 +138,42 @@ func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
 		return r.opts.DB.GraphFailureReported(ctx, source.RunID, PlanFailureNode)
 	}
 	return false, nil
+}
+
+// unappliedReply explains retained state without clearing recovery or approval debt.
+func (r *planGraphRuntime) unappliedReply(ctx context.Context) error {
+	s, _, err := r.state(ctx)
+	if err != nil {
+		return err
+	}
+	reason := "This story is no longer part of the plan."
+	for _, item := range s.Stories {
+		if item.Key != r.story {
+			continue
+		}
+		var holds []string
+		for request, hold := range item.EffectHolds {
+			holds = append(holds, request+": "+hold)
+		}
+		sort.Strings(holds)
+		for _, hold := range []string{item.Hold, item.LifecycleHold, item.EffectHold} {
+			if hold != "" {
+				holds = append(holds, hold)
+			}
+		}
+		switch {
+		case len(holds) > 0:
+			reason = "This reply cannot advance the story: " + strings.Join(holds, "; ")
+		case !item.Active():
+			reason = s.PlanReplyHold(r.story)
+		case item.Wait != nil:
+			reason = "This story is waiting for the owner's reply to its current review."
+		case !s.UpstreamApproved(item.Key, item.Stage):
+			reason = "This story needs approval of its upstream stories before its next stage can run."
+		default:
+			reason = "This story has no eligible next stage; its current stage and earlier approvals must be settled first."
+		}
+		break
+	}
+	return &PlanReplyRefusal{Reason: reason, Err: errors.New(reason)}
 }
