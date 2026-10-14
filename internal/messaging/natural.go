@@ -626,7 +626,7 @@ func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]str
 			if e == nil {
 				exact = append(exact, repo)
 			} else if !errors.Is(e, store.ErrNotFound) {
-				return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, nil
+				return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, e
 			}
 		}
 		switch len(exact) {
@@ -648,7 +648,7 @@ func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]str
 		}
 		sessions, _, e := s.db.ListTaskSessionsByRepo(ctx, repo.ID, 1)
 		if e != nil {
-			return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, nil
+			return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, e
 		}
 		if len(sessions) > 0 {
 			active = append(active, repo)

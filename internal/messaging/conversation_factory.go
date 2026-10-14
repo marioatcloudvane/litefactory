@@ -28,7 +28,6 @@ type factoryConversationPrompt struct {
 	References    []ConversationReference  `json:"references"`
 	Context       string                   `json:"context,omitempty"`
 	RecentReplies []conversationPriorReply `json:"recent_factory_replies,omitempty"`
-	PreviousReply string                   `json:"previous_factory_reply,omitempty"`
 	Evidence      *conversationReadResult  `json:"evidence,omitempty"`
 	Correction    string                   `json:"correction,omitempty"`
 	SavedOutcome  string                   `json:"saved_outcome,omitempty"`
@@ -209,15 +208,11 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err != nil {
 		return err
 	}
-	previousReply, err := run.previousFactoryReply(work, sources)
-	if err != nil {
-		return err
-	}
 	recentReplies, err := run.recentFactoryReplies(work, sources, turns)
 	if err != nil {
 		return err
 	}
-	prompt := factoryConversationPrompt{RecentReplies: recentReplies, Instructions: factoryConversationInstructions, OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes, PreviousReply: previousReply}
+	prompt := factoryConversationPrompt{RecentReplies: recentReplies, Instructions: factoryConversationInstructions, OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes}
 	corrected, lookups, pendingLookup, err := run.resumeBoundary(work, &prompt)
 	if err != nil {
 		return run.failed(ctx, err)
@@ -244,6 +239,21 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				if !corrected && run.calls < 4 {
 					corrected = true
 					prompt.Correction = "Previous output failed strict validation. Return a new valid envelope using only supplied sources and references. Missing exact content or target requires clarify."
+					// The provider completed, but its invalid envelope cannot serve as
+					// the retry boundary. Retain the factory's next prompt instead.
+					encoded, e := json.Marshal(prompt)
+					if e != nil {
+						return e
+					}
+					protected, e := s.Protect(work, string(encoded))
+					if e != nil {
+						return e
+					}
+					run.ordinal++
+					if e = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "correction", Request: protected, CapturedAt: at, Complete: true}); e != nil {
+						return e
+					}
+					run.safe = true
 					continue
 				}
 				return s.conversationOutcome(ctx, t, "completed", "I could not safely understand this response. Nothing was authorized; please give a clear target and exact content.", at)
@@ -335,9 +345,6 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 		return r.s.db.DeferConversationTurn(cleanup, r.t)
 	}
 	if conversationPreStartRetry(cause) {
-		if accessRetry(cause) > 0 && (r.safe || r.calls == 0) {
-			return r.s.db.DeferConversationTurn(cleanup, r.t)
-		}
 		return r.s.conversationPreStartOutcome(cleanup, r.t, r.at)
 	}
 	if errors.Is(cause, agent.ErrConversationBusy) || errors.Is(cause, agent.ErrConversationSessionMissing) || errors.Is(cause, agent.ErrConversationIsolation) {
@@ -543,6 +550,10 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 	}
 	last := exchanges[len(exchanges)-1]
 	switch last.Kind {
+	case "saved_outcome":
+		if r.calls == 0 {
+			return corrected, lookups, nil, nil
+		}
 	case "lookup":
 		var pending conversationPendingLookup
 		if !last.Complete {
@@ -569,6 +580,14 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		}
 		prompt.References = refs
 		return corrected, lookups, nil, nil
+	case "correction":
+		if !last.Complete {
+			return false, 0, nil, errors.New("incomplete correction boundary")
+		}
+		if err := json.Unmarshal([]byte(last.Request), prompt); err != nil {
+			return false, 0, nil, err
+		}
+		return true, lookups, nil, nil
 	case "provider":
 		if last.Complete && last.Gaps == "provider_not_started" {
 			// Reuse the identical pre-launch journal slot and invocation count.
