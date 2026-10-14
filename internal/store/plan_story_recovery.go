@@ -157,7 +157,10 @@ func (db *DB) SettlePlanStoryDebt(ctx context.Context, parent, request string, s
 		if applied {
 			err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT outcome FROM plan_story_effects WHERE parent=? AND request_id=? ORDER BY id DESC LIMIT 1),'pending')='applied'`, parent, request).Scan(&allowed)
 		} else {
-			err = tx.QueryRowContext(ctx, `SELECT NOT EXISTS(SELECT 1 FROM plan_story_effects WHERE parent=? AND request_id=? AND phase IN ('create','attach','update','retire') AND outcome='uncertain')`, parent, request).Scan(&allowed)
+			// Only the latest mutation-phase effect decides: an uncertain write
+			// followed by a definitive outcome (a conflict or failure recorded
+			// from a fresh remote read) is no longer an unknown remote state.
+			err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT outcome FROM plan_story_effects WHERE parent=? AND request_id=? AND phase IN ('create','attach','update','retire') ORDER BY id DESC LIMIT 1),'')!='uncertain'`, parent, request).Scan(&allowed)
 		}
 		if err != nil {
 			return err
