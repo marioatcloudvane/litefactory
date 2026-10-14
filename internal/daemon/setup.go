@@ -638,6 +638,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
 	daemon.doctorHostOptions = s.DoctorHost
+	judgeProviders := make(map[agent.Kind]agent.JudgeRunner)
+	for kind, runner := range runners {
+		if native, ok := runner.(agent.JudgeRunner); ok {
+			judgeProviders[kind] = native
+		}
+	}
+	daemon.judge = &turn.JudgeService{DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
 	diagnosisProviders := make(map[string]agent.DoctorRunner)
 	repairProviders := make(map[string]agent.DoctorRepairRunner)
 	for kind, runner := range runners {

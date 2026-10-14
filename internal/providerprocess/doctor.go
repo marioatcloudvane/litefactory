@@ -6,13 +6,18 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/cloudvane/litefactory/internal/agent"
 	"io"
 	"os/exec"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/agent"
 )
+
+// ErrProviderExit marks a completed native process that returned a nonzero exit status.
+// It does not imply availability; adapters must examine native terminal diagnostics.
+var ErrProviderExit = errors.New("provider exited unsuccessfully")
 
 // RunDoctorProcess is transport only, not an isolation attestation. Provider
 // adapters must establish their tool ceiling before calling it. Output is
@@ -30,6 +35,14 @@ func RunDoctorProcess(ctx context.Context, binary string, args, env []string, re
 // RunRepairProcess shares bounded I/O while validating the separate exact repair
 // contract. Calling this function does not prove provider isolation or approval.
 func RunRepairProcess(ctx context.Context, binary string, args, env []string, request agent.RepairRequest, timeout time.Duration, observe func([]byte)) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	return runScopedDoctorProcess(ctx, binary, args, env, request.Invocation, timeout, observe)
+}
+
+// RunJudgeProcess validates the isolated advisory catalog before bounded I/O.
+func RunJudgeProcess(ctx context.Context, binary string, args, env []string, request agent.JudgeRequest, timeout time.Duration, observe func([]byte)) error {
 	if err := request.Validate(); err != nil {
 		return err
 	}
@@ -82,6 +95,10 @@ func runScopedDoctorProcess(ctx context.Context, binary string, args, env []stri
 		return runCtx.Err()
 	}
 	if err != nil {
+		var exited *exec.ExitError
+		if errors.As(err, &exited) {
+			return ErrProviderExit
+		}
 		return errors.New("doctor provider process or bounded output failed")
 	}
 	return nil

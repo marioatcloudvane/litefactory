@@ -2268,6 +2268,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	t.commentUnderWay = c.ID
 	defer func() { t.commentUnderWay = 0 }()
 
+	if commandForCode.Kind == turn.KindJudge {
+		return d.handleJudge(ctx, t, c, qualifiedReply != nil)
+	}
+
 	// A graph Plan story issue that is a task of its own has its owner comments
 	// answered here, where they were written.
 	if story, owned, err := d.graphPlanStoryForTask(ctx, t); err != nil {
