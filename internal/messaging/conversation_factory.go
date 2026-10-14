@@ -61,6 +61,8 @@ type factoryConversationRun struct {
 // invoke journals every input before crossing the prompt-only native boundary.
 // Each continuation resumes the exact identity durably reported by the prior call.
 func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ []byte, err error) {
+	phase, preStart := "preparation", true
+	defer func() { err = agent.ConversationError(err, phase, preStart) }()
 	if r.calls >= 4 {
 		return nil, errors.New("conversation invocation budget exhausted")
 	}
@@ -107,6 +109,7 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 		return nil, err
 	}
 	recorded := false
+	phase, preStart = "provider", false
 	result, err := provider.RunConversation(ctx, agent.ConversationRequest{ConversationID: r.c.ID, TurnID: r.t.ID, Model: r.b.Model, StateDirectory: r.c.StateDir, Prompt: prompt, Session: agent.SessionRef{Ref: ref, Resume: r.c.SessionHandle}, BeforeLaunch: func(cb context.Context) error {
 		if err := conversationAccess(cb, runtime, r.c.ChannelRef, r.at); err != nil {
 			return err
@@ -287,13 +290,33 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 }
 
 func (r *factoryConversationRun) failed(ctx context.Context, cause error) error {
+	r.s.logConversationFailure(ctx, r.c, r.t, cause)
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if r.savedOutcomes != "" {
-		return r.s.conversationOutcome(cleanup, r.t, "interrupted", "Saved action outcome:\n"+r.savedOutcomes+"\nThe explanation was interrupted. Its provider input was not replayed.", r.at)
+		if err := r.s.conversationOutcome(cleanup, r.t, "interrupted", "Saved action outcome:\n"+r.savedOutcomes+"\nThe explanation was interrupted. Its provider input was not replayed.", r.at); err != nil {
+			return err
+		}
+		if r.c.SessionHandle == "" && !conversationPreStartRetry(cause) {
+			return r.s.db.SetConversationHealth(cleanup, r.c.ID, "turn unfinished with no saved native identity; no replacement session created", r.at)
+		}
+		return nil
 	}
 	if accessRetry(cause) > 0 && r.calls == 0 {
 		return r.s.db.DeferConversationTurn(cleanup, r.t)
+	}
+	if conversationPreStartRetry(cause) {
+		if accessRetry(cause) > 0 {
+			return r.s.db.DeferConversationTurn(cleanup, r.t)
+		}
+		return r.s.conversationPreStartOutcome(cleanup, r.t, r.at)
+	}
+	if errors.Is(cause, agent.ErrConversationBusy) || errors.Is(cause, agent.ErrConversationSessionMissing) || errors.Is(cause, agent.ErrConversationIsolation) {
+		return r.s.conversationUnavailable(cleanup, r.c, r.t, "native continuity or isolation unavailable; no replacement session created", r.at)
+	}
+	var access *ConversationAccessError
+	if errors.As(cause, &access) && access.Permanent {
+		return r.s.conversationUnavailable(cleanup, r.c, r.t, "conversation authorization unavailable", r.at)
 	}
 	if r.c.SessionHandle == "" {
 		return r.s.conversationUnavailable(cleanup, r.c, r.t, "turn unfinished with no saved native identity; no replacement session created", r.at)

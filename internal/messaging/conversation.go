@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -243,6 +244,9 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 			if m.OwnerID != s.owner {
 				return true, s.db.SetConversationHealth(ctx, c.ID, "conversation message owner mismatch; retained work is paused", at)
 			}
+			typingCtx, endTyping := context.WithTimeout(ctx, 5*time.Minute)
+			defer endTyping()
+			defer s.typing(typingCtx, channel)()
 			input, err := s.Protect(ctx, m.Text)
 			if err != nil {
 				return false, err
@@ -281,32 +285,46 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 		if err != nil {
 			return false, err
 		}
+		if len(messages) == 0 {
+			typingCtx, endTyping := context.WithTimeout(ctx, 5*time.Minute)
+			defer endTyping()
+			defer s.typing(typingCtx, channel)()
+		}
 		r.next = (index + 1) % len(r.channels)
 		return true, s.runConversation(ctx, c, b, t, at)
 	}
 	return false, nil
 }
 
-func (s *Service) runConversation(ctx context.Context, c store.Conversation, b ConversationBinding, t store.ConversationTurn, at time.Time) error {
+func (s *Service) runConversation(ctx context.Context, c store.Conversation, b ConversationBinding, t store.ConversationTurn, at time.Time) (failure error) {
+	defer func() {
+		if failure != nil {
+			s.logConversationFailure(ctx, c, t, agent.ConversationError(failure, "accounting", false))
+		}
+	}()
 	if s.conversations.Load().factory {
 		return s.runFactoryConversation(ctx, c, b, t, at)
 	}
 	r := s.conversations.Load()
 	provider := r.providers[c.Provider]
 	if provider == nil {
+		s.logConversationFailure(ctx, c, t, agent.ConversationError(agent.ErrConversationIsolation, "preparation", true))
 		return s.conversationUnavailable(ctx, c, t, "selected conversation provider unavailable", at)
 	}
 	if err := conversationAccess(ctx, r, c.ChannelRef, at); err != nil {
+		s.logConversationFailure(ctx, c, t, agent.ConversationError(err, "authorization", true))
 		if accessRetry(err) > 0 {
 			return s.db.DeferConversationTurn(ctx, t)
 		}
 		return s.conversationUnavailable(ctx, c, t, "conversation authorization unavailable; provider launch refused", at)
 	}
 	if err := conversationCapacity(r.root); err != nil {
+		s.logConversationFailure(ctx, c, t, agent.ConversationError(err, "capacity", true))
 		return s.conversationUnavailable(ctx, c, t, "conversation disk backpressure; provider launch refused", at)
 	}
 	sessionRef, identityErr := naming.ConversationSessionRef(c.ID)
 	if identityErr != nil {
+		s.logConversationFailure(ctx, c, t, agent.ConversationError(identityErr, "validation", true))
 		return s.conversationUnavailable(ctx, c, t, "invalid stored conversation identity; provider launch refused", at)
 	}
 	var identityRecorded atomic.Bool
@@ -331,11 +349,19 @@ func (s *Service) runConversation(ctx context.Context, c store.Conversation, b C
 	}})
 	cleanup, done := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer done()
+	if runErr != nil {
+		s.logConversationFailure(cleanup, c, t, runErr)
+	}
 	var accessErr *ConversationAccessError
 	switch {
+	case conversationPreStartRetry(runErr):
+		if accessRetry(runErr) > 0 {
+			return s.db.DeferConversationTurn(cleanup, t)
+		}
+		return s.conversationPreStartOutcome(cleanup, t, at)
 	case errors.As(runErr, &accessErr):
 		if !accessErr.Permanent {
-			return s.db.DeferConversationTurn(cleanup, t)
+			return s.conversationUnavailable(cleanup, c, t, "authorization failure with uncertain provider launch; input will not be replayed", at)
 		}
 		return s.conversationUnavailable(cleanup, c, t, "conversation authorization removed before provider launch; retained work is paused", at)
 	case errors.Is(runErr, agent.ErrConversationBusy):
@@ -375,6 +401,7 @@ func (s *Service) conversationOutcome(ctx context.Context, t store.ConversationT
 	return s.db.CompleteConversationTurn(ctx, t, state, protected, at)
 }
 func (s *Service) conversationUnavailable(ctx context.Context, c store.Conversation, t store.ConversationTurn, reason string, at time.Time) error {
+	s.logConversationFailure(ctx, c, t, agent.ConversationError(errors.New(reason), "continuity", false))
 	if err := s.conversationOutcome(ctx, t, "unavailable", "Conversation paused: "+reason+". Context and queued messages are retained.", at); err != nil {
 		return err
 	}
@@ -420,4 +447,49 @@ func (s *Service) conversationHandled(ctx context.Context, t store.ConversationT
 		return s.saveConversationAnswer(ctx, t, "completed", []presentation.AnswerBlock{{Text: protected}}, "", at, true)
 	}
 	return s.db.CompleteConversationHandledTurn(ctx, t, protected, at)
+}
+
+func conversationPreStartRetry(err error) bool {
+	var failure *agent.ConversationFailure
+	var access *ConversationAccessError
+	return errors.As(err, &failure) && failure.NoProcessStarted &&
+		!errors.Is(err, agent.ErrConversationBusy) && !errors.Is(err, agent.ErrConversationSessionMissing) &&
+		(!errors.As(err, &access) || !access.Permanent)
+}
+
+func (s *Service) conversationPreStartOutcome(ctx context.Context, t store.ConversationTurn, at time.Time) error {
+	const notice = "The conversation turn failed before a provider process started. Its input will not be replayed. Your next message can retry using the same conversation identity."
+	if s.conversations.Load().factory {
+		return s.conversationOutcome(ctx, t, "interrupted", notice, at)
+	}
+	protected, err := s.Protect(ctx, notice)
+	if err != nil {
+		return err
+	}
+	return s.db.CompleteConversationPreStartTurn(ctx, t, protected, at)
+}
+
+func (s *Service) logConversationFailure(ctx context.Context, c store.Conversation, t store.ConversationTurn, err error) {
+	if s.Logger == nil || err == nil {
+		return
+	}
+	phase := "unknown"
+	var failure *agent.ConversationFailure
+	if errors.As(err, &failure) {
+		phase = failure.Phase
+	}
+	cause := err.Error()
+	for _, input := range []string{t.Prompt, t.Source} {
+		if input != "" {
+			cause = strings.ReplaceAll(cause, input, "[conversation input omitted]")
+		}
+	}
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	protected, protectErr := s.Protect(cleanup, cause)
+	if protectErr != nil {
+		protected = "cause unavailable: redaction failed"
+	}
+	protected, _ = boundedConversationText(protected, 2048)
+	s.Logger.WarnContext(cleanup, "conversation turn failed", "conversation_id", c.ID, "turn_id", t.ID, "provider", c.Provider, "phase", phase, "cause", protected)
 }

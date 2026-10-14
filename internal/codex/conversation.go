@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,11 +30,11 @@ func (r *Runner) ConversationIsolation(ctx context.Context, state string) (strin
 	env := append(providerprocess.DoctorEnvironment(r.environ, home), "CODEX_HOME="+home)
 	help, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"exec", "--help"}, env, scratch)
 	if err != nil {
-		return "", agent.ErrConversationIsolation
+		return "", errors.Join(agent.ErrConversationIsolation, err)
 	}
 	for _, flag := range []string{"--strict-config", "--ignore-user-config", "--ignore-rules", "--json"} {
 		if !strings.Contains(help, flag) {
-			return "", agent.ErrConversationIsolation
+			return "", fmt.Errorf("%w: missing required flag %s", agent.ErrConversationIsolation, flag)
 		}
 	}
 	sentinel := filepath.Join(home, "isolation-sentinel")
@@ -45,19 +46,23 @@ func (r *Runner) ConversationIsolation(ctx context.Context, state string) (strin
 	args := []string{"sandbox", "-c", conversationPermissions(scratch), "-P", "conversation", "--", "/bin/sh", "-c", script, "conversation-probe", sentinel, filepath.Join(home, "isolation-write"), filepath.Join(scratch, "isolation-write")}
 	output, err := providerprocess.ConversationProbe(ctx, r.binary.Path, args, env, scratch)
 	if err != nil || strings.TrimSpace(output) != "conversation-isolation-verified" {
-		return "", agent.ErrConversationIsolation
+		return "", errors.Join(agent.ErrConversationIsolation, err)
 	}
 	return "codex-conversation-named-deny-root-sandbox-v1", nil
 }
 
 // RunConversation performs one isolated turn and retains exact native session state.
-func (r *Runner) RunConversation(ctx context.Context, request agent.ConversationRequest) (agent.ConversationResult, error) {
+func (r *Runner) RunConversation(ctx context.Context, request agent.ConversationRequest) (_ agent.ConversationResult, failure error) {
+	phase, beforeProcess := "validation", true
+	defer func() { failure = agent.ConversationError(failure, phase, beforeProcess) }()
 	if err := request.Validate(); err != nil {
 		return agent.ConversationResult{}, err
 	}
+	phase = "isolation_probe"
 	if _, err := r.ConversationIsolation(ctx, request.StateDirectory); err != nil {
 		return agent.ConversationResult{}, err
 	}
+	phase = "directory_preparation"
 	home, scratch, err := providerprocess.PrepareConversationDirectory(request.StateDirectory)
 	if err != nil {
 		return agent.ConversationResult{}, err
@@ -94,7 +99,17 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 		if json.Unmarshal(line, &event) != nil {
 			return
 		}
-		fail := func(e error) { observedErr = e; cancel() }
+		fail := func(e error) {
+			failurePhase := "stream"
+			if event.Type == "system" || event.Type == "thread.started" {
+				failurePhase = "identity"
+			}
+			if event.Type == "result" || event.Type == "turn.failed" || event.Type == "turn.completed" {
+				failurePhase = "terminal"
+			}
+			observedErr = agent.ConversationError(e, failurePhase, false)
+			cancel()
+		}
 		if event.Type == "thread.started" {
 			if !agent.ConversationIdentity(event.Thread) || (request.Session.Resume != "" && event.Thread != request.Session.Resume) {
 				fail(agent.ErrConversationSessionMissing)
@@ -122,6 +137,7 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 			terminal = true
 		}
 	}
+	phase, beforeProcess = "stream", false
 	err = providerprocess.RunConversationProcess(runCtx, r.binary.Path, conversationArguments(request, scratch), env, request, scratch, r.timeout, observe)
 	if observedErr != nil {
 		return result, observedErr
@@ -132,6 +148,7 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 		}
 		return result, err
 	}
+	phase = "terminal"
 	if !terminal {
 		return result, errors.New("conversation provider did not complete a turn")
 	}

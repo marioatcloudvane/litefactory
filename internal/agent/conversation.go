@@ -73,3 +73,26 @@ func ConversationPrompt(owner, prepared, recovery string) (string, error) {
 	}
 	return string(body), nil
 }
+
+// ConversationFailure records the failure boundary. NoProcessStarted is affirmative
+// evidence, never inferred from a missing identity or an exited process.
+type ConversationFailure struct {
+	Phase            string
+	NoProcessStarted bool
+	Cause            error
+}
+
+func (e *ConversationFailure) Error() string { return e.Cause.Error() }
+func (e *ConversationFailure) Unwrap() error { return e.Cause }
+
+// ConversationError preserves more precise metadata supplied by a lower boundary.
+func ConversationError(err error, phase string, noProcessStarted bool) error {
+	if err == nil {
+		return nil
+	}
+	var failure *ConversationFailure
+	if errors.As(err, &failure) {
+		return err
+	}
+	return &ConversationFailure{Phase: phase, NoProcessStarted: noProcessStarted, Cause: err}
+}

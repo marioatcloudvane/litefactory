@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -24,7 +25,7 @@ func ConversationProbe(ctx context.Context, binary string, args, env []string, d
 	var output bytes.Buffer
 	cmd.Stdout = &limitedProbeWriter{target: &output}
 	if err := cmd.Run(); err != nil {
-		return "", errors.New("conversation capability probe failed")
+		return "", fmt.Errorf("conversation capability probe failed: %w", err)
 	}
 	return output.String(), nil
 }

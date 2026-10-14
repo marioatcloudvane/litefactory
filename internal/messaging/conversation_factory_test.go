@@ -1,8 +1,11 @@
 package messaging
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -356,5 +359,89 @@ func TestFactoryConversationPreservesUncertainDomainOutcome(t *testing.T) {
 	}
 	if reply.OutcomeStatus != string(presentation.Uncertain) {
 		t.Fatalf("saved status %q", reply.OutcomeStatus)
+	}
+}
+
+type failedConversationProvider struct{ err error }
+
+func (p failedConversationProvider) RunConversation(context.Context, agent.ConversationRequest) (agent.ConversationResult, error) {
+	return agent.ConversationResult{}, p.err
+}
+
+func TestConversationFailureDiagnosticsAndRetry(t *testing.T) {
+	for _, factory := range []bool{false, true} {
+		for _, phase := range []string{"validation", "isolation_probe", "directory_preparation", "before_launch", "launch", "stream", "terminal", "unknown", "busy", "missing", "denied", "temporary_unknown"} {
+			t.Run(fmt.Sprintf("factory=%t/%s", factory, phase), func(t *testing.T) {
+				run, at := factoryUnitRun(t, &factoryUnitProvider{})
+				run.s.conversations.Load().factory = factory
+				preStart := phase == "validation" || phase == "isolation_probe" || phase == "directory_preparation" || phase == "before_launch" || phase == "launch"
+				cause := errors.New("actionable cause secret-sentinel")
+				switch phase {
+				case "busy":
+					cause = agent.ErrConversationBusy
+				case "missing":
+					cause = agent.ErrConversationSessionMissing
+				case "denied":
+					cause = &ConversationAccessError{Permanent: true}
+				case "temporary_unknown":
+					cause = &ConversationAccessError{}
+				}
+				err := agent.ConversationError(cause, phase, preStart)
+				if phase == "unknown" {
+					err = cause
+				}
+				run.s.conversations.Load().providers["claude"] = failedConversationProvider{err: err}
+				var logs bytes.Buffer
+				run.s.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+				run.s.Protect = func(_ context.Context, text string) (string, error) {
+					return strings.ReplaceAll(text, "secret-sentinel", "[redacted]"), nil
+				}
+				if err := run.s.runConversation(t.Context(), run.c, run.b, run.t, at); err != nil {
+					t.Fatal(err)
+				}
+				expectedPhase := phase
+				if factory && phase == "unknown" {
+					expectedPhase = "provider"
+				}
+				for _, want := range []string{"conversation_id=" + run.c.ID, "turn_id=" + run.t.ID, "provider=claude", "phase=" + expectedPhase} {
+					if !strings.Contains(logs.String(), want) {
+						t.Fatalf("missing %s: %s", want, logs.String())
+					}
+				}
+				if strings.Contains(logs.String(), "secret-sentinel") {
+					t.Fatal("secret leaked")
+				}
+				saved, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if (saved.HealthReason == "") != preStart {
+					t.Fatalf("incorrect health: %+v", saved)
+				}
+				latest, err := run.s.db.LatestConversationTurn(t.Context(), run.c.ID)
+				if err != nil || latest.State == "running" || latest.State == "pending" {
+					t.Fatalf("failed input not settled: %+v %v", latest, err)
+				}
+				if worked, err := run.s.ConversationStep(t.Context(), at); worked || err != nil {
+					t.Fatalf("failed input retried: %t %v", worked, err)
+				}
+			})
+		}
+	}
+}
+
+func TestFactoryConversationSavedOutcomeRetainsMissingIdentityPause(t *testing.T) {
+	run, at := factoryUnitRun(t, &factoryUnitProvider{})
+	run.savedOutcomes = "previous action recorded"
+	if err := run.failed(t.Context(), errors.New("unknown process outcome")); err != nil {
+		t.Fatal(err)
+	}
+	c, err := run.s.db.ReadConversation(t.Context(), "discord", "2")
+	if err != nil || c.HealthReason == "" {
+		t.Fatalf("uncertain continuity released: %+v %v", c, err)
+	}
+	reply, err := run.s.db.ClaimConversationReply(t.Context(), "discord", at)
+	if err != nil || !strings.Contains(reply.ReplyText, run.savedOutcomes) {
+		t.Fatalf("saved outcome lost: %+v %v", reply, err)
 	}
 }
