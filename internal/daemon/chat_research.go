@@ -292,7 +292,24 @@ func (d *Daemon) dispatchChatDiagnosis(ctx context.Context, at time.Time) {
 		note := d.chat.notes[source]
 		delete(d.chat.notes, source)
 		d.chat.mu.Unlock()
-		if r.State != "exhausted" && at.Before(r.CreatedAt.Add(24*time.Hour)) {
+		conversationAllowed := true
+		if r.ConversationTurnID != "" {
+			var inputErr error
+			note, inputErr = d.chat.service.ConversationDiagnosisInput(ctx, r, at)
+			if inputErr != nil {
+				var access *messaging.ConversationAccessError
+				if errors.As(inputErr, &access) && !access.Permanent {
+					if e := d.db.RequeueChatDiagnosisBusy(context.WithoutCancel(ctx), r, at.Add(max(5*time.Second, access.RetryAfter))); e != nil {
+						d.log.WarnContext(ctx, "conversation diagnosis access retry could not be saved")
+					}
+					return
+				}
+				conversationAllowed = false
+				text = "The queued diagnosis was not started because its conversation authorization, target or protected content is unavailable."
+				outcomeStatus = "refusal"
+			}
+		}
+		if conversationAllowed && r.State != "exhausted" && at.Before(r.CreatedAt.Add(24*time.Hour)) {
 			ref, e := naming.ParseRef(r.TargetRef)
 			if e == nil {
 				if d.forge == nil {

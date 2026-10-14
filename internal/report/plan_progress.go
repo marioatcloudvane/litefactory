@@ -64,8 +64,12 @@ func PlanStoryNoticeText(n planbrief.PlanNoticeState) string {
 // PlanReplyExplanationText renders a bounded, plain-language explanation for
 // one reply on a story sub-issue that could not act. It is posted on that
 // sub-issue; the reason carries the command that works now when there is one.
-func PlanReplyExplanationText(key string, child int, _ int64, reason string) string {
+func PlanReplyExplanationText(key string, child int, _ int64, reason string, reference ...string) string {
 	details := planNoticeValue(reason)
 	fence := fenceFor(details)
-	return fmt.Sprintf("Your reply on #%d did not change story %s, and nothing was approved.\n\n", child, planNoticeValue(key)) + fence + "text\n" + details + "\n" + fence + "\n\nReply on this issue again when you are ready."
+	label := fmt.Sprintf("#%d", child)
+	if len(reference) > 0 {
+		label = reference[0]
+	}
+	return fmt.Sprintf("Your reply on %s did not change story %s, and nothing was approved.\n\n", label, planNoticeValue(key)) + fence + "text\n" + details + "\n" + fence + "\n\nReply on this issue again when you are ready."
 }

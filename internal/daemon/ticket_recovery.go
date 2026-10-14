@@ -21,6 +21,34 @@ import (
 const recoveryPageSize = 50
 const reconciliationInterval = 24 * time.Hour
 
+// A retained session may precede discovery for its exact connection version.
+// Initialize only that version; its snapshot supplies the verified container,
+// while the store preserves enrollment continuity without borrowing cursors.
+func (d *Daemon) snapshotTicketRecovery(ctx context.Context, snapshot store.ExecutionSnapshot) (store.TicketRecoveryPosition, error) {
+	position, err := d.db.GetTicketRecoveryPosition(ctx, snapshot.TicketVersionID)
+	if errors.Is(err, store.ErrNotFound) {
+		version, loadErr := d.db.GetConnectionVersion(ctx, snapshot.TicketVersionID)
+		if loadErr != nil {
+			return store.TicketRecoveryPosition{}, loadErr
+		}
+		enrollment := version.CreatedAt
+		if version.Provenance == "legacy" {
+			repo, loadErr := d.db.GetRepo(ctx, version.RepoID)
+			if loadErr != nil {
+				return store.TicketRecoveryPosition{}, loadErr
+			}
+			enrollment = repo.CreatedAt
+		}
+		position, err = d.db.InitTicketRecoveryPosition(ctx, version, enrollment)
+	}
+	if err != nil {
+		return store.TicketRecoveryPosition{}, err
+	}
+	// Repeat pinning after interrupted initialization, too. A conflict must
+	// never become successful merely because the row now exists.
+	return d.db.PinTicketRecoveryContainer(ctx, snapshot.TicketVersionID, position.Revision, snapshot.TicketRemoteID)
+}
+
 type ticketRecoveryDiscovery interface {
 	ChangesPage(context.Context, string, time.Time, ticket.DiscoveryCursor, int) (ticket.ChangePage, error)
 	ReplyChangesPage(context.Context, string, time.Time, ticket.DiscoveryCursor, int) (ticket.ChangePage, error)

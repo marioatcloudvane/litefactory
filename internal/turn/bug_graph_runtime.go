@@ -11,6 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -182,6 +183,28 @@ func (r *BugRuntime) untouchedGraphLaunch(ctx context.Context, instance store.Gr
 	return true, nil
 }
 
+func graphBugExhaustionReason(ctx context.Context, db *store.DB, node graphexec.Node, attempts []store.GraphNodeAttempt) (string, error) {
+	reason := fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
+	if node.Name != "fixer" || len(attempts) == 0 {
+		return reason, nil
+	}
+	last := attempts[len(attempts)-1]
+	if last.Node != "finalization" || last.Status != store.GraphSucceeded || last.Outcome != "revalidate" {
+		return reason, nil
+	}
+	outputs, err := db.ListGraphOutputs(ctx, last.ID)
+	if err != nil {
+		return "", err
+	}
+	for _, output := range outputs {
+		var progress graphDeliveryProgress
+		if output.Kind == store.GraphOutputJSON && json.Unmarshal(output.Payload, &progress) == nil && progress.Record == "delivery_progress" && progress.Outcome == "revalidate" {
+			return reason + ". The repair passed its prior checks. " + progress.Reason + " Reply to rerun the checks on the new head with one extra bounded fixer run.", nil
+		}
+	}
+	return reason, nil
+}
+
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {
 	local := *r
 	r = &local
@@ -334,7 +357,11 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 				}
 			}
 			if node.Limit > 0 && maximum >= node.Limit && allowanceSource == 0 && (we != nil || wait.State != "claimed" || wait.OriginNode != node.Name) {
-				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)}}, "exhausted", false)
+				diagnostic, err := graphBugExhaustionReason(ctx, r.opts.DB, node, attempts)
+				if err != nil {
+					return finish(err)
+				}
+				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: diagnostic}}, "exhausted", false)
 				return finish(parkErr)
 			}
 			permissions, e := r.cfg.Permissions(req.Agent, node.Attrs["lf_agent_markdown"])
@@ -415,7 +442,15 @@ func (r *BugRuntime) resolveGraphDelivery(ctx context.Context, _ Options, a Acti
 	if e != nil {
 		return GraphDeliveryBinding{}, e
 	}
-	return GraphDeliveryBinding{Record: "delivery_binding", InstanceID: a.InstanceID, SessionID: s.ID, IssueID: identity.IssueID, IssueNumber: s.IssueNumber, BotID: r.opts.MCP.BotID, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, Branch: s.Branch, Target: repo.BaseBranch, Marker: fmt.Sprintf("<!-- lf:bug-delivery instance=%d issue=%d -->", a.InstanceID, identity.IssueID), Eligibility: eligibility}, nil
+	ref, e := naming.ParseRef(s.TaskRef)
+	if e != nil {
+		return GraphDeliveryBinding{}, e
+	}
+	display, e := lookupTicketDisplay(ctx, r.opts.SubIssueCreator, ref, s.IssueNumber)
+	if e != nil {
+		return GraphDeliveryBinding{}, e
+	}
+	return GraphDeliveryBinding{IssueReference: display.Reference(), Record: "delivery_binding", InstanceID: a.InstanceID, SessionID: s.ID, IssueID: identity.IssueID, IssueNumber: s.IssueNumber, BotID: r.opts.MCP.BotID, Repository: github.Repo{Owner: repo.Owner, Name: repo.Name}, Branch: s.Branch, Target: repo.BaseBranch, Marker: fmt.Sprintf("<!-- lf:bug-delivery instance=%d issue=%d -->", a.InstanceID, identity.IssueID), Eligibility: eligibility}, nil
 }
 func (r *BugRuntime) saveGraphDelivery(ctx context.Context, _ Options, a ActivityRequest, b GraphDeliveryBinding) (string, error) {
 	s, e := r.opts.DB.GetSession(ctx, b.SessionID)

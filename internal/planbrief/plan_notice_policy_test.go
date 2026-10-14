@@ -121,6 +121,16 @@ func TestPlanReplyReason_CurrentState(t *testing.T) {
 	}{
 		{name: "current healthy approval/allowed", body: "/approve-plan a story a-candidate"},
 		{name: "healthy discussion/allowed", body: "Please explain the database choice."},
+		{name: "failed retry/allowed", body: "Retry", change: func(s *planbrief.PlanState) {
+			s.Stories[0].Wait = nil
+			s.Stories[0].SetEffectHold("a-request", "unknown result")
+		}},
+		{name: "failed change request/allowed", body: "Please clarify the scope.", change: func(s *planbrief.PlanState) {
+			s.Stories[0].Wait = nil
+			s.Stories[0].SetEffectHold("a-request", "unknown result")
+		}},
+		{name: "closed retry/explained", body: "Retry", wantHold: true, change: func(s *planbrief.PlanState) { s.Stories[0].Lifecycle.State = "closed" }},
+		{name: "retired retry/explained", body: "Retry", wantHold: true, change: func(s *planbrief.PlanState) { s.Stories[0].Retired = true }},
 		{name: "independent held sibling/allowed", body: "/approve-plan a story a-candidate", change: func(s *planbrief.PlanState) { s.Stories[1].SetEffectHold("b-request", "unknown result") }},
 		{name: "old candidate/explained", body: "/approve-plan a story old-candidate", wantHold: true},
 		{name: "closed story/explained", body: "/approve-plan a story a-candidate", wantHold: true, change: func(s *planbrief.PlanState) { s.Stories[0].Lifecycle.State = "closed" }},

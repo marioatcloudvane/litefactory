@@ -29,6 +29,9 @@ func DefaultFileContents() []byte {
 #     owner_id: "123456789"
 #     notice_channel_id: "" # Optional task notices; must be an allowed channel
 #     channel_ids: ["123456789"]
+#     # Opt in to a persistent, prompt-only native conversation:
+#     # conversations:
+#     #   - {channel_id: "123456789", name: "Owner work", provider: claude}
 #
 # Unknown keys and literal credentials are startup errors. Credentials are
 # references only: token_keychain names a Keychain item; token_env, shown as

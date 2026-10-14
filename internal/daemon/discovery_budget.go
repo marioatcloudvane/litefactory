@@ -28,18 +28,8 @@ const (
 	linearHistoryBound = discoveryListBound + 4
 	// Admission and materialisation each need at most five prerequisite reads.
 	linearPendingBound = 5 + 5 + 2*linearHistoryBound
-	// discoveryQuotaDivisor sets background discovery's share of the forge
-	// rate limit: it may spend limit/discoveryQuotaDivisor requests per reset
-	// window, and may never take remaining below the rest, which stays
-	// reserved for execution and reporting.
-	//
-	// The floor and the spend cap are two statements of the same share and
-	// must move together. At the original 5 they left discovery 1000 of 5000
-	// requests an hour, which a one-minute tick over eighteen managed
-	// features exhausts well inside the window — and a listing costs
-	// discoveryListBound, so discovery stops a further 100 short of the floor
-	// rather than at it.
-	discoveryQuotaDivisor = 2
+	// Background discovery may spend everything above the execution reserve
+	// (see discoveryReserveDivisor); there is no separate spending cap.
 )
 
 type discoveryWaiter struct {
@@ -304,7 +294,12 @@ func (b *discoveryBudget) floorLocked() int { return b.limit / discoveryReserveD
 
 // discoveryShareLocked is how many requests of the current window background
 // discovery may spend, the complement of [discoveryBudget.floorLocked].
-func (b *discoveryBudget) discoveryShareLocked() int { return b.limit / discoveryQuotaDivisor }
+func (b *discoveryBudget) discoveryShareLocked() int {
+	// Discovery may spend everything above the execution reserve. A separate
+	// half-window cap starved first sight of new issues and owner comments
+	// once silent retry loops had spent it, although real quota remained.
+	return b.limit - b.floorLocked()
+}
 
 func (r *discoveryReservation) observe(o github.RequestObservation) {
 	b := r.budget

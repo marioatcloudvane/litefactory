@@ -1141,6 +1141,9 @@ type task struct {
 	workerLog *slog.Logger
 	worker    *workerState
 
+	// implementCoordinatorHandedOff records this scheduled call's successful graph return.
+	implementCoordinatorHandedOff bool
+
 	scheduled          *store.Schedule
 	continuation       *store.Continuation
 	continuationLocked bool
@@ -1827,7 +1830,7 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		if err != nil {
 			return err
 		}
-		position, err := d.db.GetTicketRecoveryPosition(ctx, snapshot.TicketVersionID)
+		position, err := d.snapshotTicketRecovery(ctx, snapshot)
 		if err != nil {
 			return err
 		}
@@ -2795,7 +2798,13 @@ func (d *Daemon) run(
 		// before its publication or domain operation has been confirmed.
 		return nil
 	}
-	return d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+	err = d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+	if err == nil && turnResult.Err == nil && mode == agent.ModeImplement &&
+		t.scheduled != nil && t.scheduled.Payload == turn.ValidateImplementPayload &&
+		trigger.CommentID == t.scheduled.TriggerID() && turnResult.ResearchGraph && turnResult.Run.ID == 0 {
+		t.implementCoordinatorHandedOff = true
+	}
+	return err
 }
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
@@ -2837,6 +2846,14 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		return nil
 	}
 	if turnResult.ResearchGraph {
+		if mode == agent.ModePlan && turnResult.Run.ID == 0 {
+			attrs := []any{slog.String("task", t.ref.String()), slog.Int64("session_id", t.session.ID),
+				slog.Int64("trigger_id", trigger.CommentID), slog.String("reason", turnResult.Reason)}
+			if t.scheduled != nil {
+				attrs = append(attrs, slog.Int64("schedule_id", t.scheduled.ID))
+			}
+			log.InfoContext(ctx, "Plan work returned without a run", attrs...)
+		}
 		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
 			return d.leave(ctx, t, log, "the failed Plan run has no published failure comment", err)
 		}

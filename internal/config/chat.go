@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strings"
 )
 
 // Chat is optional. Absence preserves polling and GitHub webhook behavior.
@@ -15,14 +16,23 @@ type Chat struct {
 
 // DiscordChat configures a read-only chat adapter and references its credential.
 type DiscordChat struct {
-	Enabled         bool     `yaml:"enabled"`
-	ApplicationID   string   `yaml:"application_id"`
-	PublicKey       string   `yaml:"public_key"`
-	TokenKeychain   Keychain `yaml:"token_keychain"`
-	TokenEnv        string   `yaml:"token_env"`
-	OwnerID         string   `yaml:"owner_id"`
-	ChannelIDs      []string `yaml:"channel_ids"`
-	NoticeChannelID string   `yaml:"notice_channel_id"`
+	Enabled         bool                  `yaml:"enabled"`
+	ApplicationID   string                `yaml:"application_id"`
+	PublicKey       string                `yaml:"public_key"`
+	TokenKeychain   Keychain              `yaml:"token_keychain"`
+	TokenEnv        string                `yaml:"token_env"`
+	OwnerID         string                `yaml:"owner_id"`
+	ChannelIDs      []string              `yaml:"channel_ids"`
+	NoticeChannelID string                `yaml:"notice_channel_id"`
+	Conversations   []ChannelConversation `yaml:"conversations"`
+}
+
+// ChannelConversation opts an allowed channel into one persistent native session.
+// The name is a display label; the factory generates its private paths.
+type ChannelConversation struct {
+	ChannelID string `yaml:"channel_id"`
+	Name      string `yaml:"name"`
+	Provider  string `yaml:"provider"`
 }
 
 var chatID = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
@@ -56,6 +66,22 @@ func (c *Config) validateChat() []error {
 	}
 	if d.NoticeChannelID != "" && (!chatID.MatchString(d.NoticeChannelID) || !seen[d.NoticeChannelID]) {
 		errs = append(errs, fmt.Errorf("chat.discord.notice_channel_id must be one of the allowed channel_ids"))
+	}
+	bound := make(map[string]bool)
+	for _, conversation := range d.Conversations {
+		if !seen[conversation.ChannelID] || bound[conversation.ChannelID] {
+			errs = append(errs, fmt.Errorf("chat.discord.conversations requires one binding per allowed channel"))
+		}
+		bound[conversation.ChannelID] = true
+		if strings.TrimSpace(conversation.Name) == "" || len(conversation.Name) > 128 {
+			errs = append(errs, fmt.Errorf("chat.discord.conversations name requires 1–128 bytes"))
+		}
+		if conversation.Provider != "claude" && conversation.Provider != "codex" {
+			errs = append(errs, fmt.Errorf("chat.discord.conversations provider must be claude or codex"))
+		}
+		if _, ok := c.Tiers.ResolveModel(Kind(conversation.Provider), TierBalanced); !ok {
+			errs = append(errs, fmt.Errorf("chat.discord.conversations requires a configured balanced provider model"))
+		}
 	}
 	kc := d.TokenKeychain.Service != "" || d.TokenKeychain.Account != ""
 	if kc == (d.TokenEnv != "") {
