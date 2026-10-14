@@ -513,6 +513,13 @@ func comparableScaffoldProse(line string) string {
 			return line
 		}
 		prefix, prose = line[:2], line[2:]
+		// A task-list checkbox belongs to the item prefix, not to its prose.
+		for _, box := range []string{"[ ] ", "[x] ", "[X] "} {
+			if strings.HasPrefix(prose, box) {
+				prefix, prose = prefix+box, prose[len(box):]
+				break
+			}
+		}
 	}
 	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")").Replace(prose)
 	if !plainScaffoldProse(decoded) || strings.ContainsAny(prose, "\\`[]<>*_!|@") {
@@ -550,6 +557,7 @@ func comparableTableCell(cell string) string {
 
 func plainScaffoldProse(s string) bool {
 	letter := func(b byte) bool { return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' }
+	alnum := func(b byte) bool { return letter(b) || b >= '0' && b <= '9' }
 	if s == "" || !letter(s[0]) || strings.ContainsAny(s, "&\\`[]<>*_!|@#") || strings.Contains(s, "://") || strings.Contains(s, "www.") {
 		return false
 	}
@@ -561,7 +569,8 @@ func plainScaffoldProse(s string) bool {
 				return false
 			}
 		case '-':
-			if i == 0 || i+1 == len(s) || !letter(s[i-1]) || !letter(s[i+1]) {
+			// Between letters or digits (AC-001, outside-click): never Markdown.
+			if i == 0 || i+1 == len(s) || !alnum(s[i-1]) || !alnum(s[i+1]) {
 				return false
 			}
 		case '(':
