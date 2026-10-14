@@ -3,10 +3,13 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"strconv"
+	"time"
 
 	gogithub "github.com/google/go-github/v90/github"
 
@@ -184,4 +187,109 @@ func (c *Client) EditHook(ctx context.Context, repo Repo, id int64, spec HookSpe
 		return Hook{}, fmt.Errorf("github: edit hook %d on %s: %w", id, repo, err)
 	}
 	return convertHook(payload), nil
+}
+
+// HookDelivery contains only recovery metadata, never request headers or bodies.
+type HookDelivery struct {
+	OriginalKnown bool
+	ID            int64
+	GUID          string
+	DeliveredAt   time.Time
+	Redelivery    bool
+	StatusCode    int
+	Event         string
+	RepositoryID  int64
+}
+
+// HookDeliveryPage is one bounded page of available delivery history.
+type HookDeliveryPage struct {
+	Deliveries []HookDelivery
+	Next       string
+	ServerTime time.Time
+}
+
+func hookDelivery(h *gogithub.HookDelivery) HookDelivery {
+	if h == nil {
+		return HookDelivery{}
+	}
+	return HookDelivery{OriginalKnown: h.Redelivery != nil && !h.GetRedelivery(), ID: h.GetID(), GUID: h.GetGUID(), DeliveredAt: h.GetDeliveredAt().Time,
+		Redelivery: h.GetRedelivery(), StatusCode: h.GetStatusCode(), Event: h.GetEvent(), RepositoryID: h.GetRepositoryID()}
+}
+
+// HookDeliveriesPage makes exactly one history request.
+func (c *Client) HookDeliveriesPage(ctx context.Context, repo Repo, hook int64, cursor string) (HookDeliveryPage, error) {
+	if err := repo.Validate(); err != nil {
+		return HookDeliveryPage{}, err
+	}
+	items, resp, err := do(ctx, c, func(ctx context.Context) ([]*gogithub.HookDelivery, *gogithub.Response, error) {
+		return c.api.Repositories.ListHookDeliveries(ctx, repo.Owner, repo.Name, hook, &gogithub.ListCursorOptions{PerPage: 100, Cursor: cursor})
+	})
+	if err != nil {
+		return HookDeliveryPage{}, err
+	}
+	page := HookDeliveryPage{}
+	if resp != nil {
+		page.Next = resp.Cursor
+		page.ServerTime, _ = http.ParseTime(resp.Header.Get("Date"))
+	}
+	for _, item := range items {
+		page.Deliveries = append(page.Deliveries, hookDelivery(item))
+	}
+	return page, nil
+}
+
+// HookDeliveryIssue reads a delivery's source-local issue locator. Payloads are
+// discarded here; callers must verify identity and reread authoritative state.
+func (c *Client) HookDeliveryIssue(ctx context.Context, repo Repo, hook, delivery int64) (HookDelivery, string, int, error) {
+	if err := repo.Validate(); err != nil {
+		return HookDelivery{}, "", 0, err
+	}
+	item, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.HookDelivery, *gogithub.Response, error) {
+		return c.api.Repositories.GetHookDelivery(ctx, repo.Owner, repo.Name, hook, delivery)
+	})
+	if err != nil {
+		return HookDelivery{}, "", 0, err
+	}
+	var payload struct {
+		Repository struct {
+			FullName string `json:"full_name"`
+		}
+		Issue struct {
+			Number int
+			URL    string
+		}
+	}
+	if item == nil || item.Request == nil || item.Request.RawPayload == nil {
+		return HookDelivery{}, "", 0, ErrInvalidArgument
+	}
+	if err := json.Unmarshal(*item.Request.RawPayload, &payload); err != nil {
+		return HookDelivery{}, "", 0, ErrInvalidArgument
+	}
+	if payload.Repository.FullName != repo.String() || payload.Issue.Number <= 0 {
+		return HookDelivery{}, "", 0, ErrInvalidArgument
+	}
+	return hookDelivery(item), payload.Issue.URL, payload.Issue.Number, nil
+}
+
+// RedeliverHookDelivery requests one attempt. A nil error acknowledges the
+// request only; it is not evidence of delivery or consumption.
+func (c *Client) RedeliverHookDelivery(ctx context.Context, repo Repo, hook, delivery int64) (HookDelivery, error) {
+	if err := repo.Validate(); err != nil {
+		return HookDelivery{}, err
+	}
+	item, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.HookDelivery, *gogithub.Response, error) {
+		item, resp, err := c.api.Repositories.RedeliverHookDelivery(ctx, repo.Owner, repo.Name, hook, delivery)
+		var accepted *gogithub.AcceptedError
+		if resp != nil && resp.StatusCode == http.StatusAccepted && errors.As(err, &accepted) {
+			err = nil
+			// Some responses identify the new attempt. Only that explicit
+			// identity can later reconcile this request without inference.
+			var receipt gogithub.HookDelivery
+			if json.Unmarshal(accepted.Raw, &receipt) == nil {
+				item = &receipt
+			}
+		}
+		return item, resp, err
+	})
+	return hookDelivery(item), err
 }

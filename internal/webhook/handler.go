@@ -465,3 +465,9 @@ func referenceSegment(value string) bool {
 	}
 	return true
 }
+
+// AcceptedDelivery reports bounded local acceptance evidence for this qualified
+// subscription. Absence is never proof that a delivery was not processed.
+func (h *Handler) AcceptedDelivery(provider, origin, selector, guid string) bool {
+	return h.seen.seen(provider+"\x00"+origin+"\x00"+selector+"\x00"+guid, h.now())
+}
