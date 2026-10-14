@@ -98,7 +98,17 @@ func (s *MeterSummary) Add(v MeterValues) error {
 	}
 	if s.CollectionStatus != "complete" {
 		s.EstimatedUSD = nil
-		s.Tokens = agent.TokenUsage{}
+		// Only explicitly dimension-scoped gaps preserve other dimension totals.
+		// Historical or discovery gaps remain unknown, with measured subtotals.
+		if !scopedMeterGap(v.Diagnostics) && v.CollectionStatus != "complete" {
+			s.Tokens = agent.TokenUsage{}
+		} else {
+			for i, name := range []string{"input_uncached", "cache_read", "cache_write", "cache_write_5m", "cache_write_1h", "output", "reasoning"} {
+				if slices.Contains(v.Diagnostics, "inclusive_summary_mismatch_"+name) {
+					*totals[i] = nil
+				}
+			}
+		}
 	}
 	if s.PricingStatus != "priced" {
 		s.EstimatedUSD = nil
@@ -142,4 +152,18 @@ func addMeterAmount(a, b *string) (*string, error) {
 	}
 	result := sum.FloatString(12)
 	return &result, nil
+}
+
+func scopedMeterGap(codes []string) bool {
+	found := false
+	for _, code := range codes {
+		switch code {
+		case "inclusive_summary_mismatch":
+		case "inclusive_summary_mismatch_input_uncached", "inclusive_summary_mismatch_cache_read", "inclusive_summary_mismatch_cache_write", "inclusive_summary_mismatch_output":
+			found = true
+		default:
+			return false
+		}
+	}
+	return found
 }

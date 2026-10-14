@@ -74,11 +74,11 @@ func (s *Service) currentConversationFacts(ctx context.Context, turnID string) (
 	return facts, nil
 }
 
-func (s *Service) saveConversationPresentation(ctx context.Context, t store.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time) error {
-	return s.saveConversationAnswer(ctx, t, state, blocks, protected, at, false)
+func (s *Service) saveConversationPresentation(ctx context.Context, t store.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, intent ...string) error {
+	return s.saveConversationAnswer(ctx, t, state, blocks, protected, at, false, intent...)
 }
 
-func (s *Service) saveConversationAnswer(ctx context.Context, t store.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, handled bool) error {
+func (s *Service) saveConversationAnswer(ctx context.Context, t store.ConversationTurn, state string, blocks []presentation.AnswerBlock, protected string, at time.Time, handled bool, intent ...string) error {
 	var identity [16]byte
 	if _, err := rand.Read(identity[:]); err != nil {
 		return err
@@ -114,7 +114,7 @@ func (s *Service) saveConversationAnswer(ctx context.Context, t store.Conversati
 	if err != nil {
 		return err
 	}
-	rendered, err := presentation.RenderConversation(id, blocks, facts, protected)
+	rendered, err := presentation.RenderConversation(id, blocks, facts, protected, intent...)
 	if err != nil {
 		return err
 	}

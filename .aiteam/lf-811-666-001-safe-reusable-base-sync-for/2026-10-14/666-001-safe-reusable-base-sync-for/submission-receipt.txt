@@ -1,0 +1,8 @@
+Request: bc2c886333e2d878bf67036483324276
+Receipt: 1405
+Input: accepted
+Reported engineering outcome: completed
+Receipt engineering state: pending
+Acceptance: pending
+Publication: pending
+Matching receipt read before exit.

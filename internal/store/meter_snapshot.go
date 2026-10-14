@@ -18,6 +18,7 @@ import (
 // sub-millisecond query bounds even though stored timestamps use milliseconds.
 type MeterFilter struct {
 	RepoID, Issue, RunID     int64
+	IncludeStories           bool
 	CodingAgent, Mode, Model string
 	TimeFrom, TimeTo         *time.Time
 }
@@ -206,12 +207,22 @@ func scanMeterPage(rows *sql.Rows) ([]MeterRow, error) {
 				break
 			}
 		}
+		var finalCodes []string
+		if err := json.Unmarshal([]byte(ad), &finalCodes); err != nil {
+			return nil, err
+		}
 		for _, data := range []string{ad, id, md} {
 			var codes []string
 			if err := json.Unmarshal([]byte(data), &codes); err != nil {
 				return nil, err
 			}
-			r.Diagnostics = append(r.Diagnostics, codes...)
+			for _, code := range codes {
+				// Final coverage settles discovery only; all other evidence stays.
+				if a == "complete" && r.AttemptFinishedAt != "" && r.InvocationID != "" && !slices.Contains(finalCodes, "usage_source_scan_incomplete") && (code == "usage_source_scan_incomplete" || strings.HasPrefix(code, "usage_source_discovery_")) {
+					continue
+				}
+				r.Diagnostics = append(r.Diagnostics, code)
+			}
 		}
 		r.RowKind = "measurement"
 		r.PricingStatus = "unpriced"
@@ -286,7 +297,15 @@ func meterPredicates(f MeterFilter) (string, []any) {
 		add("p.id=?", f.RepoID)
 	}
 	if f.Issue != 0 {
-		add("COALESCE(s.issue_number,CAST(substr(dc.task_ref,instr(dc.task_ref,'#')+1) AS INTEGER),0)=?", f.Issue)
+		issue := "COALESCE(s.issue_number,CAST(substr(dc.task_ref,instr(dc.task_ref,'#')+1) AS INTEGER),0)"
+		if f.IncludeStories {
+			// Membership is persisted, repository-qualified and includes retired history.
+			parent := "p.forge||':'||p.owner||'/'||p.name||'#'||?"
+			clauses = append(clauses, "("+issue+"=? OR "+issue+" IN (SELECT issue_number FROM plan_story_drafts WHERE parent="+parent+" AND issue_number>0 UNION SELECT issue_number FROM managed_stories WHERE parent_task="+parent+"))")
+			args = append(args, f.Issue, f.Issue, f.Issue)
+		} else {
+			add(issue+"=?", f.Issue)
+		}
 	}
 	if f.RunID != 0 {
 		add("r.id=?", f.RunID)

@@ -154,14 +154,7 @@ func TestConversationDetailsPartitionRetryAndInlineFallback(t *testing.T) {
 		if part.Attachment != "" {
 			t.Fatal("definite rejection left attachment parts unfrozen")
 		}
-		_, body, found := strings.Cut(part.Text, "\n\n")
-		if !found {
-			t.Fatal("inline part missing answer metadata")
-		}
-		_, fragment, found := strings.Cut(body, "\n")
-		if !found {
-			t.Fatal("inline part missing label")
-		}
+		fragment := part.Text
 		reconstructed.WriteString(escaped.ReplaceAllString(fragment, "$1"))
 	}
 	if reconstructed.String() != completeExport.String() {

@@ -48,8 +48,16 @@ func validateOwnerStop(node Node, workflow agent.Workflow) error {
 	if workflow != agent.WorkflowBug || node.Terminal || node.Limit <= 0 {
 		faults = append(faults, errors.New("owner parking requires a bounded admitted Bug activity"))
 	}
-	faults = append(faults, validateListAttribute(node.Name, "lf_stop", node.Attrs["lf_stop"], OwnerStopAttributes()["lf_stop"].Values)...)
-	for _, outcome := range []string{"blocked", "failed", "invalid", "exhausted"} {
+	values := OwnerStopAttributes()["lf_stop"].Values
+	if node.Action == SyncBaseAction {
+		values = append(values, "conflict", "retry")
+	}
+	faults = append(faults, validateListAttribute(node.Name, "lf_stop", node.Attrs["lf_stop"], values)...)
+	required := []string{"blocked", "failed", "invalid", "exhausted"}
+	if node.Action == SyncBaseAction {
+		required = []string{"conflict", "retry", "failed", "invalid", "exhausted"}
+	}
+	for _, outcome := range required {
 		if !ParksOutcome(node, outcome) {
 			faults = append(faults, fmt.Errorf("owner parking must declare %q stop", outcome))
 		}

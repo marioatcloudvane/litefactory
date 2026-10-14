@@ -28,11 +28,13 @@ func remoteRefHead(ctx context.Context, r runner, remote, ref string) (string, e
 }
 
 // PushHeadTo publishes the worktree's HEAD as the remote branch, without force,
-// and only while the remote branch is still at expectedHead. HEAD must descend
-// from expectedHead, so the push is always a fast-forward: a branch that moved
-// meanwhile makes the server refuse it and nothing is overwritten. A moved head
-// is reported as [ErrIntegrationHeadMoved], whether it is seen before the push
-// or only after the server refused it.
+// after observing the remote at expectedHead. HEAD must descend from
+// expectedHead. The server refuses concurrent divergence; an intervening head
+// already contained in HEAD can safely fast-forward. A moved head
+// is reported as [ErrIntegrationHeadMoved], when it is seen before the push
+// or confirmed to diverge after rejection. A failed response with the proposed
+// commit (or its descendant) on the remote remains a PushError: publication may
+// have succeeded, so callers must reconcile instead of reporting no effect.
 func (w *Worktree) PushHeadTo(ctx context.Context, remote, branch, expectedHead string) error {
 	if err := w.check(); err != nil {
 		return err
@@ -66,8 +68,16 @@ func (w *Worktree) PushHeadTo(ctx context.Context, remote, branch, expectedHead 
 		return fmt.Errorf("publish to %s: %w", branch, ErrIntegrationHeadMoved)
 	}
 	if _, pushErr := w.runner.run(ctx, pushTimeout, "push", "--", remote, head+":"+ref); pushErr != nil {
-		if after, obsErr := remoteRefHead(ctx, w.runner, remote, ref); obsErr == nil && after != expectedHead {
-			return fmt.Errorf("publish to %s: %w", branch, ErrIntegrationHeadMoved)
+		if after, obsErr := remoteRefHead(ctx, w.runner, remote, ref); obsErr == nil && after != "" && after != expectedHead && after != head {
+			// Remote movement alone cannot prove that publication failed: another
+			// writer may already have advanced our successfully published commit.
+			// Unknown remote objects keep that uncertainty rather than inventing
+			// a no-publication result.
+			_, ancestryErr := w.runner.run(ctx, readTimeout, "merge-base", "--is-ancestor", head, after)
+			var command *CommandError
+			if errors.As(ancestryErr, &command) && command.ExitCode == 1 && !command.TimedOut {
+				return fmt.Errorf("publish to %s: %w", branch, ErrIntegrationHeadMoved)
+			}
 		}
 		return &PushError{Remote: remote, Branch: branch, Worktree: w.path, Err: pushErr}
 	}

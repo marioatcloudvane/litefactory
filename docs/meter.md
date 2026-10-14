@@ -140,3 +140,19 @@ The repository, issue and attempt must match. Only Codex attempts with a support
 - [Command reference: usage and costs](cli/command-reference.md#usage-and-costs)
 - [Operations](operations/README.md) and [troubleshooting](operations/troubleshooting.md)
 - [Documentation index](README.md)
+
+A task report includes the requested parent and its persisted graph and legacy
+managed story links, including retired history, once per issue. The text and JSON
+reports include per-issue costs across selected modes, agents and models. A child
+lookup stays scoped to that child; export and recovery keep their exact selectors.
+Unlinked issues are not inferred from issue numbers.
+
+Recorded token subtotals and frozen priced subtotals remain visible when coverage
+is partial. Explicit summary mismatches identify the affected token dimensions;
+matching dimensions remain available. Unresolved discovery, missing descendants,
+and historical coverage gaps still prevent an all-in total. Historical rows are
+not relabeled complete merely because counters exist. A final successful Codex
+discovery can settle an interim discovery failure, but cannot settle baseline,
+read, association, descendant or terminal failures. Claude doctor drains its
+private transcripts before deleting them; inclusive summaries validate exclusive
+usage and are never charged again.

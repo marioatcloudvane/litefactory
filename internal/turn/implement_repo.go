@@ -32,7 +32,7 @@ type ImplementScratch interface {
 	// the story is already part of the integration head.
 	Merge(ctx context.Context, storyBranch string) (head string, merged bool, err error)
 	// Publish pushes the merge as the integration branch without force, only
-	// while the remote is still at expectedHead (git.ErrIntegrationHeadMoved otherwise).
+	// after observing expectedHead; the server refuses concurrent divergence.
 	Publish(ctx context.Context, integrationBranch, expectedHead string) error
 	// Close discards the scratch worktree.
 	Close(ctx context.Context) error
@@ -84,7 +84,11 @@ func (s *gitScratch) Head() string { return s.head }
 func (s *gitScratch) Path() string { return s.wt.Path() }
 
 func (s *gitScratch) Merge(ctx context.Context, storyBranch string) (string, bool, error) {
-	res, err := s.wt.MergeBase(ctx, "refs/remotes/"+s.repo.Remote+"/"+storyBranch, git.MergeOptions{Author: s.repo.Author})
+	base, err := s.wt.RevParse(ctx, "refs/remotes/"+s.repo.Remote+"/"+storyBranch, git.RevParseOptions{})
+	if err != nil {
+		return "", false, err
+	}
+	res, err := s.wt.MergeBase(ctx, base, git.MergeOptions{Author: s.repo.Author})
 	if err != nil {
 		return "", false, err
 	}
