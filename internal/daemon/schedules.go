@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -67,7 +68,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		slog.String("task", ref.String()),
 		slog.Int64("session_id", session.ID),
 		slog.Int64("schedule_id", scheduled.ID))
-	if d.sessionRecoveryHeld(session.ID, tickAt) {
+	if d.observeCandidateHold(ctx, &candidate{session: session, ref: ref}, tickAt) {
 		return true
 	}
 	if !d.enterDoctorGuarded(ctx, session.ID) {
@@ -80,12 +81,14 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		return false
 	}
 
-	issue, err := d.readIssue(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, session.IssueNumber)
+	t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: log, tickAt: tickAt}
+	issue, err := d.readScheduledIssue(ctx, t)
 	if err != nil || issue.State != github.StateOpen {
 		d.pool.done()
 		d.inflight.leave(session.ID)
 		if err != nil {
 			d.rateLimited(ctx, log, tickAt, err)
+			d.prepareFailed(ctx, t, err)
 			log.ErrorContext(ctx, "could not read the issue for scheduled work; it remains pending", slog.Any("error", err))
 		} else {
 			log.InfoContext(ctx, "scheduled work is not started because its issue is closed")
@@ -110,7 +113,8 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		d.inflight.leave(session.ID)
 		return true
 	}
-	t := &task{scheduled: &reserved, repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, issue: issue, session: session, ref: ref, log: log, tickAt: tickAt}
+	t.scheduled = &reserved
+	t.issue = issue
 	t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"due_schedule"}), slog.Time("tick_at", tickAt))
 	t.workerLog.DebugContext(ctx, "worker dispatched")
 	go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.runScheduled(ctx, t, reserved) })
@@ -118,10 +122,30 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 	return true
 }
 
+// readScheduledIssue keeps scheduled ticket routing and code preparation pinned
+// to the session, as ordinary materialisation does.
+func (d *Daemon) readScheduledIssue(ctx context.Context, t *task) (github.Issue, error) {
+	if d.connections != nil {
+		snapshot, err := d.db.GetExecutionSnapshot(ctx, t.session.ID)
+		if err != nil {
+			return github.Issue{}, err
+		}
+		t.repo = snapshot.CodeTarget
+		binding, err := d.db.GetSessionTicket(ctx, t.session.ID)
+		if err != nil {
+			return github.Issue{}, err
+		}
+		owner, name, _ := strings.Cut(binding.Locator.Container, "/")
+		t.forgeRepo = github.Repo{Owner: owner, Name: name}
+	}
+	return d.readIssue(ctx, t.forgeRepo, t.session.IssueNumber)
+}
+
 // runScheduled delivers the stored payload, never the /schedule control, to
 // the normal turn path. SourceCommentID remains the report anchor; TriggerID
 // is private schedule identity so each proposal item gets its own run.
 func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Schedule) {
+	t.implementCoordinatorHandedOff = false
 	command := turn.ParseCommand(scheduled.Payload)
 	trigger := turn.Trigger{CommentID: scheduled.TriggerID(), Body: scheduled.Payload, Author: scheduled.OwnerHandle}
 	err := d.run(ctx, t, trigger, command, t.log)
@@ -140,7 +164,7 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 		// error is terminal: no agent has run, but silently retrying a malformed
 		// payload forever would make the durable queue permanently stuck.
 		if err == nil && (d.planWorkSettled(ctx, t, scheduled) || d.implementWorkSettled(ctx, t, scheduled)) {
-			// Plan work whose state moved on before the run began has nothing to run.
+			// Work whose state moved on or is explicitly held has nothing to run.
 			d.finishScheduled(ctx, t, scheduled, store.ScheduleSucceeded, 0)
 			return
 		}
@@ -190,6 +214,9 @@ func (d *Daemon) finishScheduled(ctx context.Context, t *task, scheduled store.S
 		t.recordWorkerError(err)
 		t.log.ErrorContext(ctx, "could not record the terminal outcome of scheduled work", slog.Any("error", err))
 		return
+	}
+	if status == store.ScheduleSucceeded {
+		d.prepFailures.clear(t.session.ID)
 	}
 	if status == store.ScheduleFailed {
 		d.replyBlockedSchedules(ctx, t, scheduled.ID)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -451,5 +452,316 @@ func TestGraphBugBootstrapAndUntouchedRecovery(t *testing.T) {
 				t.Fatal("replay allocated duplicate work")
 			}
 		})
+	}
+}
+
+func TestGraphBugDeliveryConcreteConflictAndOwnerWait(t *testing.T) {
+	for _, variant := range []string{"resolved", "refused", "invalid", "head drift", "union", "union no advisor", "budget", "mixed"} {
+		t.Run(variant, func(t *testing.T) {
+			f, h, req, forge, _ := graphFinalizationFixture(t)
+			f.opts.MCP.Paths = f.paths
+			f.opts.ConflictContentMaxBytes = 65536
+			additions := variant == "union" || variant == "union no advisor" || variant == "budget" || variant == "mixed"
+			seed := "package fixture\nimport \"testing\"\n"
+			taskAddition := "// " + strings.Repeat("task ", 1800) + "\nfunc TestTask(t *testing.T) {\n t.Log(\"task\")\n}\n"
+			baseAddition := "// " + strings.Repeat("base ", 1800) + "\nfunc TestBase(t *testing.T) {\n t.Log(\"base\")\n}\n"
+			if additions {
+				commitInSyncDir(t, f.repo, f.repo.Dir, "go.mod", "module fixture\ngo 1.26\n")
+				commitInSyncDir(t, f.repo, f.repo.Dir, "append_test.go", seed)
+				f.repo.Git("push", "origin", gittest.DefaultBranch)
+			}
+			if !additions || variant == "mixed" {
+				commitInSyncDir(t, f.repo, f.repo.Dir, "README.md", "# fixture\nold change\n")
+				f.repo.Git("push", "origin", gittest.DefaultBranch)
+			}
+			ctx := t.Context()
+			branch := "lf/786-recovery"
+			_, err := f.db.FreezeSessionSlug(ctx, f.session.ID, "recovery", branch)
+			mustProgress(t, err)
+			path := filepath.Join(f.storeRepo.WorktreeRoot, "recovery")
+			mustProgress(t, f.db.SetSessionWorktree(ctx, f.session.ID, path))
+			clone, err := f.opts.Git.Open(ctx, f.repo.Dir)
+			mustProgress(t, err)
+			wt, err := git.EnsureWorktree(ctx, clone, git.EnsureWorktreeOptions{Dir: path, Branch: branch, BaseBranch: gittest.DefaultBranch})
+			mustProgress(t, err)
+			if additions {
+				commitInSyncDir(t, f.repo, path, "append_test.go", seed+taskAddition)
+				commitInSyncDir(t, f.repo, f.repo.Dir, "append_test.go", seed+baseAddition)
+				f.repo.Git("push", "origin", gittest.DefaultBranch)
+			}
+			if !additions || variant == "mixed" {
+				conflictBaseAndBranch(t, f.repo, path)
+			}
+			if variant == "budget" {
+				f.opts.ConflictContentMaxBytes = 16384
+			}
+			// Saving must retain unfinished work before scratch synchronization.
+			mustProgress(t, os.WriteFile(filepath.Join(path, "retained.txt"), []byte("unfinished repair\n"), 0600))
+			locked, err := f.db.AcquireSessionLock(ctx, f.session.ID, f.opts.InstanceID)
+			mustProgress(t, err)
+			if !locked {
+				t.Fatal("missing writer exclusion")
+			}
+			gate := newTestGate()
+			f.opts.CloneGate = gate
+			advisor := &stubConflictRunner{stubRunner: newStubRunner(nil), propose: func(ctx context.Context, request agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+				gate.mu.Lock()
+				held := gate.held[f.repo.Dir]
+				gate.mu.Unlock()
+				if held != 0 {
+					t.Fatal("advisor called while holding clone gate")
+				}
+				if !strings.Contains(request.Guidance, "/approve-bug analysis 1") {
+					t.Fatal("retained guidance missing")
+				}
+				if variant == "refused" || variant == "mixed" {
+					return agent.ConflictResolution{}, errors.New("cannot choose behavior")
+				}
+				if variant == "head drift" {
+					commitInSyncDir(t, f.repo, path, "rival.txt", "intervening work\n")
+					f.repo.GitIn(path, "push", "--quiet", "origin", branch)
+				}
+				suffix := ""
+				if variant == "invalid" {
+					suffix = "-invalid"
+				}
+				return resolvingAdvisor("resolved change\n", suffix).ProposeConflictResolution(ctx, request)
+			}}
+			f.opts.Runners = runnerSet(advisor)
+			if variant == "union no advisor" {
+				f.opts.Runners = runnerSet(newStubRunner(nil))
+			}
+			runtime := &BugRuntime{opts: f.opts}
+			h.Resolve = func(_ context.Context, _ Options, _ ActivityRequest, eligible GraphBugRepairEligibility) (GraphDeliveryBinding, error) {
+				b := forge.binding
+				b.Branch, b.Target, b.Eligibility = branch, gittest.DefaultBranch, eligible
+				return b, nil
+			}
+			h.Save, h.PublishSaved, h.SyncBase = runtime.saveGraphDelivery, runtime.pushGraphDelivery, runtime.syncGraphDelivery
+			out, err := h.Execute(ctx, f.opts, req)
+			mustProgress(t, err)
+			wantCalls := 1
+			if variant == "union" || variant == "union no advisor" || variant == "budget" {
+				wantCalls = 0
+			}
+			if forge.merges != 0 || forge.closes != 0 || advisor.proposeCallCount() != wantCalls {
+				t.Fatalf("merges=%d closes=%d advisor=%d out=%+v", forge.merges, forge.closes, advisor.proposeCallCount(), out)
+			}
+			if f.repo.GitIn(f.repo.Origin, "show", branch+":retained.txt") != "unfinished repair" {
+				t.Fatal("retained work lost")
+			}
+			if variant == "union" || variant == "union no advisor" {
+				if out.Outcome != "revalidate" {
+					t.Fatalf("union did not require fresh checks: %+v", out)
+				}
+				merged := f.repo.GitIn(f.repo.Origin, "show", branch+":append_test.go")
+				if merged != strings.TrimSuffix(seed+taskAddition+baseAddition, "\n") {
+					t.Fatal("union bytes differ")
+				}
+				fixtureDir := t.TempDir()
+				mustProgress(t, os.WriteFile(filepath.Join(fixtureDir, "go.mod"), []byte("module fixture\ngo 1.26\n"), 0600))
+				mustProgress(t, os.WriteFile(filepath.Join(fixtureDir, "append_test.go"), []byte(merged), 0600))
+				cmd := exec.CommandContext(ctx, "go", "test", "./...")
+				cmd.Dir = fixtureDir
+				if output, e := cmd.CombinedOutput(); e != nil {
+					t.Fatalf("merged fixture tests: %v\n%s", e, output)
+				}
+				return
+			}
+			if variant == "budget" {
+				if out.Outcome != "blocked" {
+					t.Fatalf("budget accepted: %+v", out)
+				}
+				for _, want := range []string{"settings.conflict_content_max_bytes", "16384", "requires", "at least"} {
+					if !strings.Contains(out.Diagnostic, want) {
+						t.Fatalf("missing %q: %+v", want, out)
+					}
+				}
+				return
+			}
+			if variant == "resolved" || variant == "head drift" {
+				if out.Outcome != "revalidate" {
+					t.Fatalf("out=%+v", out)
+				}
+				if variant == "resolved" {
+					remote := f.repo.GitIn(f.repo.Origin, "rev-parse", branch)
+					base := f.repo.Git("rev-parse", "origin/"+gittest.DefaultBranch)
+					f.repo.Git("merge-base", "--is-ancestor", base, remote)
+				} else if f.repo.GitIn(f.repo.Origin, "show", branch+":rival.txt") != "intervening work" {
+					t.Fatal("lost concurrent head")
+				}
+				return
+			}
+			if out.Outcome != "blocked" || !strings.Contains(out.Diagnostic, "README.md") {
+				t.Fatalf("conflict not actionable: %+v", out)
+			}
+			local, err := wt.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+			mustProgress(t, err)
+			if remote := f.repo.GitIn(f.repo.Origin, "rev-parse", branch); remote != local {
+				t.Fatal("refusal changed branch")
+			}
+			// The standard graph stop route retains one question and recovers it
+			// without another publication; the reply resumes this same node.
+			specs, err := SimplifiedBugSpecs()
+			mustProgress(t, err)
+			definition, err := teamsource.CaptureBugParent(ctx, specs)
+			mustProgress(t, err)
+			questionForge := newFakeForge(t)
+			f.opts.ResearchReporter = newReporter(t, f, questionForge, nil)
+			_, err = parkGraphAction(ctx, f.opts, GraphNodeRequest{Profile: definition.Profile, InstanceID: req.InstanceID, At: f.opts.MCP.Now()}, GraphNodeResult{InstanceID: req.InstanceID, AttemptID: req.NodeAttemptID, Node: "finalization", NextNode: "finalization", Activity: out}, "blocked", true)
+			mustProgress(t, err)
+			wait, err := f.db.GetGraphOwnerWait(ctx, req.InstanceID)
+			mustProgress(t, err)
+			for range 2 {
+				_, err = f.opts.ResearchReporter.RecoverGraphStopQuestion(ctx, wait.DeliveryKey)
+				mustProgress(t, err)
+			}
+			if wait.OriginNode != "finalization" || questionForge.attemptCount() != 1 {
+				t.Fatalf("wait=%+v posts=%d", wait, questionForge.attemptCount())
+			}
+			delivery, err := f.db.GetReportDelivery(ctx, wait.DeliveryKey)
+			mustProgress(t, err)
+			_, err = AdmitGraphBugOwnerReply(ctx, f.db, store.GraphOwnerReply{InstanceID: req.InstanceID, OwnerID: 7, AuthorID: 7, CommentID: delivery.CommentID + 1000, QuestionCommentID: delivery.CommentID, TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug", DeliveryKey: wait.DeliveryKey, Body: "Keep both additions within the approved remedy", At: f.opts.MCP.Now().Add(time.Minute)})
+			mustProgress(t, err)
+			guidance, err := f.db.GraphDiagnosisGuidance(ctx, req.InstanceID)
+			mustProgress(t, err)
+			if len(guidance) < 2 || guidance[len(guidance)-1].ReplyBody != "Keep both additions within the approved remedy" {
+				t.Fatalf("reply not retained: %+v", guidance)
+			}
+		})
+	}
+}
+
+// Exercise the concrete runtime precheck across two exhausted revalidations.
+func TestGraphBugRevalidationExhaustionRepeatsAfterOwnerContinuation(t *testing.T) {
+	f, h, finalReq, deliveryForge, _ := graphFinalizationFixture(t)
+	ctx, at := t.Context(), f.opts.MCP.Now()
+	questionForge := newFakeForge(t)
+	f.opts.ResearchReporter = newReporter(t, f, questionForge, nil)
+	permissionCalls := 0
+	dispatchReached := errors.New("automatic fixer reached preparation")
+	runtime := &BugRuntime{opts: f.opts, cfg: BugRuntimeConfig{OwnerID: 7, Permissions: func(agent.Kind, string) (BugRolePermissions, error) {
+		permissionCalls++
+		return BugRolePermissions{}, dispatchReached
+	}}}
+	request := Request{SessionID: f.session.ID, Workflow: agent.WorkflowBug}
+	syncFinal := func() {
+		t.Helper()
+		h.SyncBase = func(context.Context, Options, ActivityRequest, GraphDeliveryBinding, string) (syncBaseOutput, error) {
+			return syncBaseOutput{Result: "synced", Commit: "new-head"}, nil
+		}
+		out, err := h.Execute(ctx, f.opts, finalReq)
+		mustProgress(t, err)
+		if out.Outcome != "revalidate" {
+			t.Fatalf("finalization: %+v", out)
+		}
+		mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, finalReq.NodeAttemptID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "revalidate", FinishedAt: at, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: store.GraphOutputJSON, Payload: out.Output}}, Transition: &store.GraphTransition{InstanceID: finalReq.InstanceID, FromNode: "finalization", ToNode: "fixer", OnOutcome: "revalidate", At: at}}))
+	}
+	startFinal := func() {
+		t.Helper()
+		a, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: finalReq.InstanceID, Node: "finalization", Limit: 16, StartedAt: at})
+		mustProgress(t, err)
+		finalReq.NodeAttemptID = a.ID
+	}
+	// Below limit the runtime still reaches automatic fixer preparation.
+	for range 2 {
+		syncFinal()
+		_, err := runtime.executeGraph(ctx, request, Result{Session: f.session})
+		if !errors.Is(err, dispatchReached) {
+			t.Fatalf("automatic path: %v", err)
+		}
+		wait, err := f.db.GetGraphOwnerWait(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if wait.State != "allocated" {
+			t.Fatalf("new owner gate below limit: %+v", wait)
+		}
+		completeDeliveryRecheck(t, f, finalReq.InstanceID, deliveryForge.binding.Eligibility, "succeeded")
+		startFinal()
+	}
+	syncFinal()
+	previousKey := ""
+	for occurrence := 0; occurrence < 2; occurrence++ {
+		before, err := f.db.ListGraphNodeAttempts(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if before[len(before)-2].Attempt != 3+occurrence {
+			t.Fatalf("wrong fixer budget: %+v", before)
+		}
+		// Enter through an ordinary recovered captured dispatch, not a direct
+		// untriggered runtime call. Repeated reconciliation creates one intent.
+		settleStrandedFixtureRuns(t, f, finalReq.InstanceID)
+		candidates, err := f.db.ListStrandedGraphDispatches(ctx)
+		mustProgress(t, err)
+		if len(candidates) != 1 {
+			t.Fatalf("stranded=%+v", candidates)
+		}
+		mustProgress(t, ValidateGraphDispatchRecovery(ctx, f.db, candidates[0]))
+		for range 2 {
+			mustProgress(t, f.db.ReconcileStrandedGraphDispatch(ctx, candidates[0], at))
+		}
+		due, err := f.db.ListDueGraphDispatches(ctx, at, 10)
+		mustProgress(t, err)
+		if len(due) != 1 {
+			t.Fatalf("due=%+v", due)
+		}
+		dispatch, ok, err := f.db.ReserveGraphDispatch(ctx, due[0].ID, at)
+		mustProgress(t, err)
+		if !ok {
+			t.Fatal("recovered dispatch refused")
+		}
+		request.Trigger.CommentID = dispatch.TriggerID()
+		for range 2 {
+			_, err = runtime.executeGraph(ctx, request, Result{Session: f.session})
+			mustProgress(t, err)
+		}
+		request.Trigger.CommentID = 0
+		after, err := f.db.ListGraphNodeAttempts(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if len(before) != len(after) || permissionCalls != 2 {
+			t.Fatal("exhaustion dispatched automatic work")
+		}
+		wait, err := f.db.GetGraphOwnerWait(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if wait.State != "waiting" || wait.SourceAttemptID != 0 || wait.DeliveryKey == previousKey {
+			t.Fatalf("lost fresh owner wait: %+v", wait)
+		}
+		previousKey = wait.DeliveryKey
+		delivery, err := f.db.GetReportDelivery(ctx, wait.DeliveryKey)
+		mustProgress(t, err)
+		for _, want := range []string{"passed its prior checks", "main was merged", "Reply to rerun", "one extra bounded fixer run", fmt.Sprintf("Latest completed attempt: %d", finalReq.NodeAttemptID)} {
+			if !strings.Contains(delivery.Body, want) {
+				t.Fatalf("missing %q in %s", want, delivery.Body)
+			}
+		}
+		if questionForge.attemptCount() != occurrence+1 {
+			t.Fatal("duplicate or missing notice")
+		}
+		if _, err := CurrentGraphBugRepairEligibility(ctx, f.db, finalReq.InstanceID); err == nil {
+			t.Fatal("stale success remained eligible")
+		}
+		if deliveryForge.merges != 0 || deliveryForge.closes != 0 {
+			t.Fatal("unchecked source delivered")
+		}
+		if occurrence == 1 {
+			break
+		}
+		reply := store.GraphOwnerReply{InstanceID: finalReq.InstanceID, OwnerID: 7, AuthorID: 7, CommentID: delivery.CommentID + 1000, QuestionCommentID: delivery.CommentID, TaskRef: f.session.TaskRef, SourceRef: f.session.TaskRef, Workflow: "bug", DeliveryKey: wait.DeliveryKey, Body: "Rerun checks", At: at}
+		_, err = AdmitGraphBugOwnerReply(ctx, f.db, reply)
+		mustProgress(t, err)
+		_, err = runtime.executeGraph(ctx, request, Result{Session: f.session})
+		if !errors.Is(err, dispatchReached) {
+			t.Fatalf("claimed continuation: %v", err)
+		}
+		permissionCalls-- // Only the two automatic preparations count above.
+		completeDeliveryRecheck(t, f, finalReq.InstanceID, deliveryForge.binding.Eligibility, "succeeded")
+		wait, err = f.db.GetGraphOwnerWait(ctx, finalReq.InstanceID)
+		mustProgress(t, err)
+		if wait.State != "allocated" || wait.ContinuationAttemptID == 0 {
+			t.Fatalf("reply not consumed: %+v", wait)
+		}
+		if _, err = AdmitGraphBugOwnerReply(ctx, f.db, reply); err == nil {
+			t.Fatal("reply reused")
+		}
+		startFinal()
+		syncFinal()
 	}
 }

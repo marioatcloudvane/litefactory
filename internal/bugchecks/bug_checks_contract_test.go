@@ -182,3 +182,46 @@ func TestBugChecksContractCaptureOverflowCancelsContext(t *testing.T) {
 		t.Fatalf("overflow did not retain bounded output and request cancellation: %v", ctx.Err())
 	}
 }
+
+func TestBugChecksContractScratchSiblingsOutsideDeniedPaths(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := config.NewPaths(filepath.Join(parent, ".litefactory"))
+	p := Isolation{DenyRead: []string{paths.Home(), filepath.Join(parent, ".ssh"), filepath.Join(parent, ".config")}}
+	for _, root := range []string{paths.ValidateScratchDir(), paths.ImplementScratchDir()} {
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if canonical != root {
+			t.Fatalf("scratch not canonical: %q != %q", canonical, root)
+		}
+		args, err := p.sandboxArgs(root, "/private/tmp/check", "/private/tmp", root, "/bin/pwd", []string{"/bin/pwd"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		table := args[4]
+		for _, denied := range p.DenyRead {
+			if !strings.Contains(table, `"`+denied+`"="none"`) {
+				t.Fatalf("deny missing: %s", table)
+			}
+			rel, err := filepath.Rel(denied, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+				t.Fatalf("scratch %s is under deny %s", root, denied)
+			}
+		}
+		p2 := p
+		p2.DenyRead = append(append([]string{}, p.DenyRead...), root)
+		if _, err := p2.sandboxArgs(root, "/private/tmp/check", "/private/tmp", root, "/bin/pwd", []string{"/bin/pwd"}); err == nil {
+			t.Fatal("operator denial of scratch must refuse duplicate write grant")
+		}
+	}
+}

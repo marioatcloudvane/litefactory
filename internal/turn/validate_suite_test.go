@@ -483,7 +483,7 @@ func TestGitValidateSuiteReadsRecipeFromCommitAndRemovesWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scratchRoot := filepath.Join(t.TempDir(), "scratch")
+	scratchRoot := config.NewPaths(filepath.Join(t.TempDir(), "home")).ValidateScratchDir()
 	f := newSuiteFixture(t)
 	f.b.Repo = GitValidateSuiteRepo{Clone: clone, ClonePath: repo.Dir, Remote: "origin", ScratchRoot: scratchRoot}
 	f.b.Bind = func(context.Context, Options, ActivityRequest) (ValidateSuiteAuthority, error) {
@@ -493,6 +493,15 @@ func TestGitValidateSuiteReadsRecipeFromCommitAndRemovesWorktree(t *testing.T) {
 	inner := f.b.Run
 	f.b.Run = func(c context.Context, w string, cmd config.BugCheckCommand, s func(bugchecks.CommandResult) error) bugchecks.CommandResult {
 		worktree = w
+		for _, dir := range []string{scratchRoot, filepath.Dir(w)} {
+			info, statErr := os.Stat(dir)
+			if statErr != nil {
+				t.Fatal(statErr)
+			}
+			if info.Mode().Perm() != 0o700 {
+				t.Errorf("%s mode = %o", dir, info.Mode().Perm())
+			}
+		}
 		if _, err := os.Stat(filepath.Join(w, "README.md")); err != nil {
 			t.Errorf("the scratch checkout is not a checkout: %v", err)
 		}

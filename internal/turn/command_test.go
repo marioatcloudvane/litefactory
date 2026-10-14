@@ -282,3 +282,23 @@ func TestPlanControlCommandsSelectPlan(t *testing.T) {
 		}
 	}
 }
+
+func TestParseCommandInlineCode(t *testing.T) {
+	for _, body := range []string{
+		"/approve-plan set ab853aa4bf79081a5330b2499672434e34f380bd18013b75a5df1392c2bef64f",
+		"/plan investigate", "/implement this", "/validate this", "/validate-push abcdef012345", "/approve-bug analysis 1", "/doctor stop",
+	} {
+		for _, suffix := range []string{"", "\r\nfollowing text"} {
+			want := ParseCommand(body + suffix)
+			got := ParseCommand(" \n\t`" + body + "`" + suffix)
+			if got != want {
+				t.Errorf("%q: got %+v want %+v", body+suffix, got, want)
+			}
+		}
+	}
+	for _, body := range []string{"``/plan work``", "```/plan work```", "```\n/plan work\n```", "> `/plan work`", "`/plan work", "`/plan `work`", "Please `/plan work`", "`/plan work` please", "Please\n`/plan work`"} {
+		if got := ParseCommand(body); got.Kind != KindFreeText {
+			t.Errorf("%q gained command authority: %+v", body, got)
+		}
+	}
+}

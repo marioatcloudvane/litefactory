@@ -380,11 +380,12 @@ func (s ValidateState) revision() string {
 
 // effectResult decodes the result of a succeeded or partial effect.
 type validateEffectResult struct {
-	Head     string `json:"head,omitempty"`
-	Number   int    `json:"number,omitempty"`
-	MergeSHA string `json:"merge_sha,omitempty"`
-	Issue    int    `json:"issue,omitempty"`
-	Closed   []int  `json:"closed,omitempty"`
+	Head           string `json:"head,omitempty"`
+	Number         int    `json:"number,omitempty"`
+	MergeSHA       string `json:"merge_sha,omitempty"`
+	Issue          int    `json:"issue,omitempty"`
+	IssueReference string `json:"issue_reference,omitempty"`
+	Closed         []int  `json:"closed,omitempty"`
 }
 
 func decodeEffectResult(e *store.ValidateEffect) validateEffectResult {

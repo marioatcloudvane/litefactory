@@ -50,6 +50,11 @@ func TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage(t *testing.T)
 // question's delivery has been completed.
 func predatingReplyFixture(t *testing.T, complete bool) (*DB, GraphOwnerReply) {
 	t.Helper()
+	return ownerReplyFixture(t, complete, "research", "shape", "question", "question")
+}
+
+func ownerReplyFixture(t *testing.T, complete bool, workflow, source, node, kind string) (*DB, GraphOwnerReply) {
+	t.Helper()
 	ctx := t.Context()
 	check := func(err error) {
 		t.Helper()
@@ -67,14 +72,14 @@ func predatingReplyFixture(t *testing.T, complete bool) (*DB, GraphOwnerReply) {
 	check(err)
 	run, err := db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "research", Agent: AgentClaude, TriggerCommentID: 20, LogPath: func(int) string { return "shape.log" }})
 	check(err)
-	definition, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+	definition, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "builtin", Mode: workflow, ProfileVersion: 1, Path: "research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
 	check(err)
-	instance, err := db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "shape", StartedAt: at, NextDueAt: at})
+	instance, err := db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: source, StartedAt: at, NextDueAt: at})
 	check(err)
-	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: "shape", RunID: run.ID, Limit: 3, StartedAt: at})
+	attempt, err := db.StartGraphNodeAttempt(ctx, GraphAttemptStart{InstanceID: instance.ID, Node: source, RunID: run.ID, Limit: 3, StartedAt: at})
 	check(err)
 	check(db.CompleteGraphNodeAttempt(ctx, attempt.ID, GraphCompletion{Status: GraphSucceeded, Outcome: "success", FinishedAt: at}))
-	check(db.RetainGraphComment(ctx, GraphCommentIntent{Key: "shape-question", InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: "question", Kind: "question", Candidate: []byte(`{"outcome":"incomplete"}`)}))
+	check(db.RetainGraphComment(ctx, GraphCommentIntent{Key: "shape-question", InstanceID: instance.ID, SourceAttemptID: attempt.ID, Node: node, Kind: kind, Candidate: []byte(`{"outcome":"incomplete"}`)}))
 	_, err = db.EnsureReportDelivery(ctx, ReportDelivery{Key: "shape-question", SessionID: session.ID, RunID: run.ID, TriggerID: 20, Task: session.TaskRef, Destination: "acme/research#378", TriggerNamespace: "issue-comment", Purpose: "research-question", BotUserID: 99, Body: "Which boundary?", Marker: "shape-question"})
 	check(err)
 	_, err = db.MarkReportDeliverySent(ctx, "shape-question")
@@ -85,7 +90,7 @@ func predatingReplyFixture(t *testing.T, complete bool) (*DB, GraphOwnerReply) {
 		_, err = db.CompleteReportDelivery(ctx, "shape-question")
 		check(err)
 	}
-	return db, GraphOwnerReply{InstanceID: instance.ID, OwnerID: 7, AuthorID: 7, CommentID: 102, QuestionCommentID: 101, TaskRef: session.TaskRef, SourceRef: session.TaskRef, Mode: "research", DeliveryKey: "shape-question", Body: "Use storage boundaries", At: at.Add(time.Minute)}
+	return db, GraphOwnerReply{InstanceID: instance.ID, OwnerID: 7, AuthorID: 7, CommentID: 102, QuestionCommentID: 101, TaskRef: session.TaskRef, SourceRef: session.TaskRef, Mode: workflow, DeliveryKey: "shape-question", Body: "Use storage boundaries", At: at.Add(time.Minute)}
 }
 
 // A comment written before the open question was published (#378) is refused
@@ -151,5 +156,99 @@ func TestClaimGraphOwnerReply_IncompleteQuestionKeepsGenericInvariant(t *testing
 		if _, err := db.ClaimGraphOwnerReply(t.Context(), in); !errors.Is(err, ErrGraphInvariant) || errors.Is(err, ErrGraphReplyPredatesQuestion) {
 			t.Fatalf("comment %d with incomplete delivery: error=%v, want only ErrGraphInvariant", id, err)
 		}
+	}
+}
+
+func TestValidateResolverReplyWithInheritedRun(t *testing.T) {
+	for _, legacy := range []string{"new", "waiting", "claimed"} {
+		t.Run(legacy, func(t *testing.T) {
+			db, reply := ownerReplyFixture(t, true, "validate", "owner_resolve", "owner_ask", "question")
+			ctx := t.Context()
+			wait, err := db.GetGraphOwnerWait(ctx, reply.InstanceID)
+			if err != nil || !wait.AllowRunless {
+				t.Fatalf("new wait must allow a factory reply: %+v %v", wait, err)
+			}
+			oldShape := func() {
+				t.Helper()
+				if _, err := db.sql.ExecContext(ctx, `UPDATE graph_owner_waits SET allow_runless=0 WHERE delivery_key=?`, reply.DeliveryKey); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if legacy == "waiting" {
+				oldShape()
+			}
+			start := GraphAttemptStart{InstanceID: reply.InstanceID, Node: "owner_resolve", Limit: 8, StartedAt: reply.At}
+			if _, err := db.StartGraphNodeAttempt(ctx, start); !errors.Is(err, ErrGraphOwnerWait) {
+				t.Fatalf("unclaimed reply: %v", err)
+			}
+			for _, mutate := range []func(*GraphOwnerReply){
+				func(r *GraphOwnerReply) { r.AuthorID++ },
+				func(r *GraphOwnerReply) { r.CommentID = r.QuestionCommentID },
+				func(r *GraphOwnerReply) { r.QuestionCommentID++ },
+				func(r *GraphOwnerReply) { r.InstanceID++ },
+			} {
+				bad := reply
+				mutate(&bad)
+				if _, err := db.ClaimGraphOwnerReply(ctx, bad); err == nil {
+					t.Fatal("invalid reply admitted")
+				}
+			}
+			if _, err := db.ClaimGraphOwnerReply(ctx, reply); err != nil {
+				t.Fatal(err)
+			}
+			if legacy == "claimed" {
+				oldShape()
+			}
+			wrong := start
+			wrong.Node = "repair"
+			if _, err := db.sql.ExecContext(ctx, `UPDATE graph_instances SET current_node='repair' WHERE id=?`, reply.InstanceID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.StartGraphNodeAttempt(ctx, wrong); !errors.Is(err, ErrGraphInvariant) || !strings.Contains(err.Error(), "reply allocation must resume") {
+				t.Fatalf("wrong origin: %v", err)
+			}
+			if _, err := db.sql.ExecContext(ctx, `UPDATE graph_instances SET current_node='owner_resolve' WHERE id=?`, reply.InstanceID); err != nil {
+				t.Fatal(err)
+			}
+			attempt, err := db.StartGraphNodeAttempt(ctx, start)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wait, err = db.GetGraphOwnerWait(ctx, reply.InstanceID)
+			if err != nil || wait.State != "allocated" || wait.ContinuationAttemptID != attempt.ID || attempt.RunID != 0 || attempt.Node != "owner_resolve" {
+				t.Fatalf("runless continuation: %+v %+v %v", wait, attempt, err)
+			}
+			if _, err := db.StartGraphNodeAttempt(ctx, start); !errors.Is(err, ErrGraphAttemptRunning) {
+				t.Fatalf("duplicate allocation: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateResolverRunlessExceptionIsNarrow(t *testing.T) {
+	for _, tc := range []struct{ workflow, source, node, kind string }{
+		{"research", "owner_resolve", "owner_ask", "question"},
+		{"plan", "owner_resolve", "owner_ask", "question"},
+		{"implement", "owner_resolve", "owner_ask", "question"},
+		{"validate", "repair", "owner_ask", "question"},
+		{"validate", "owner_resolve", "other_question", "question"},
+		{"validate", "owner_resolve", "owner_ask", "review"},
+	} {
+		t.Run(strings.Join([]string{tc.workflow, tc.source, tc.node, tc.kind}, "/"), func(t *testing.T) {
+			db, reply := ownerReplyFixture(t, true, tc.workflow, tc.source, tc.node, tc.kind)
+			if _, err := db.ClaimGraphOwnerReply(t.Context(), reply); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.StartGraphNodeAttempt(t.Context(), GraphAttemptStart{InstanceID: reply.InstanceID, Node: tc.source, Limit: 8, StartedAt: reply.At}); !errors.Is(err, ErrGraphInvariant) {
+				t.Fatalf("agent-backed wait accepted runless continuation: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateResolverQuestionMustBePublished(t *testing.T) {
+	db, reply := ownerReplyFixture(t, false, "validate", "owner_resolve", "owner_ask", "question")
+	if _, err := db.ClaimGraphOwnerReply(t.Context(), reply); !errors.Is(err, ErrGraphInvariant) {
+		t.Fatalf("unpublished wait admitted: %v", err)
 	}
 }

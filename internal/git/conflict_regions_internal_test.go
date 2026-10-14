@@ -90,3 +90,52 @@ func TestRawDiffWorkIsBounded(t *testing.T) {
 		t.Fatalf("expected bounded diff refusal, got %v", err)
 	}
 }
+
+func TestResolveConflictAdditionsProof(t *testing.T) {
+	for _, tc := range []struct {
+		name, ancestor, prefix, ours, theirs, suffix string
+		want                                         bool
+	}{
+		{"EOF", "header\n", "header\n", "task\n", "base\n", "", true},
+		{"interior", "header\ntail", "header\n", "task\n", "base\n", "tail", true},
+		{"CRLF", "header\r\ntail\r\n", "header\r\n", "task\r\n", "base\r\n", "tail\r\n", true},
+		{"identical", "header\n", "header\n", "same\n", "same\n", "", true},
+		{"replacement", "header\nold\n", "header\n", "task\n", "base\n", "", false},
+		{"deletion", "header\nold\n", "header\n", "", "base\n", "", false},
+		{"ambiguous ancestor", "header\ntail\n", "header\n", "tail\n", "base\n", "tail\n", false},
+		{"partial overlap", "header\n", "header\n", "task\nshared\n", "shared\nbase\n", "", false},
+		{"contained block", "header\n", "header\n", "task\nshared\nbase\n", "shared\n", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := ConflictSnapshot{Path: "f.txt", Original: tc.prefix + "<<<<<<< task\n" + tc.ours + "=======\n" + tc.theirs + ">>>>>>> base\n" + tc.suffix,
+				Baseline: tc.prefix + tc.ours + tc.suffix, ancestor: tc.ancestor, other: tc.prefix + tc.theirs + tc.suffix, hasAncestor: true}
+			rs, ok := ResolveConflictAdditions(s)
+			if ok != tc.want {
+				t.Fatalf("proven=%v want %v", ok, tc.want)
+			}
+			if !ok {
+				return
+			}
+			v, err := ValidateConflict(s, rs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			union := tc.ours
+			if tc.ours != tc.theirs {
+				union += tc.theirs
+			}
+			if v.Result != tc.prefix+union+tc.suffix {
+				t.Fatalf("unexpected bytes %q", v.Result)
+			}
+			s.hasAncestor = false
+			if _, ok := ResolveConflictAdditions(s); ok {
+				t.Fatal("missing ancestor accepted")
+			}
+			s.hasAncestor = true
+			s.other = "unrelated edit\n" + s.other
+			if _, ok := ResolveConflictAdditions(s); ok {
+				t.Fatal("side mismatch accepted")
+			}
+		})
+	}
+}

@@ -51,6 +51,9 @@ func (s *Service) NaturalStep(ctx context.Context, at time.Time) (bool, error) {
 	}
 	sort.Strings(channels)
 	for _, c := range channels {
+		if s.conversationBound(c) {
+			continue
+		}
 		messages, err := s.db.PendingNaturalMessages(ctx, c, 1)
 		if err != nil {
 			return false, err
@@ -98,10 +101,28 @@ func naturalLater(id, previous string) bool {
 }
 func naturalConfirmation(text string, d store.NaturalDialogue, reply string) bool {
 	text = strings.ToLower(strings.TrimSpace(text))
-	if text == "confirm "+strings.ToLower(d.Code) {
+	if d.Code != "" && (text == "confirm "+strings.ToLower(d.Code) || naturalConfirmationCode(text) == strings.ToLower(d.Code)) {
 		return true
 	}
 	return reply == d.PromptID && d.PromptID != "" && (text == "yes" || text == "yes please" || text == "confirm" || text == "do it")
+}
+
+// naturalConfirmationCode recognizes only a whole proposal-code message.
+func naturalConfirmationCode(text string) string {
+	text = strings.ToLower(strings.TrimSpace(text))
+	for _, prefix := range []string{"confirm ", "yes ", "ok "} {
+		if strings.HasPrefix(text, prefix) {
+			text = strings.TrimPrefix(text, prefix)
+			break
+		}
+	}
+	if len(text) != 16 {
+		return ""
+	}
+	if _, err := hex.DecodeString(text); err != nil {
+		return ""
+	}
+	return text
 }
 
 // capPreviousReply bounds the bot's last reply to a few KB of valid UTF-8.
@@ -181,7 +202,10 @@ func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at ti
 		r := store.ChatReply{Transport: s.transport, ChannelRef: m.ChannelRef, MessageID: "nl-exec:" + d.Code, Command: invocation.Command, Arguments: invocation.Arguments, CreatedAt: at, PresentationState: "pending", ResolvedRepoID: p.RepoID}
 		return s.db.AuthorizeNaturalDialogue(ctx, d, m.SourceID, r, at)
 	}
-	// Bare, quoted and stale confirmations cannot become a new interpreted action.
+	if naturalConfirmationCode(m.Text) != "" {
+		return s.naturalReply(ctx, m, "This confirmation code is unknown or expired; request a fresh proposal.", presentation.Refusal, at)
+	}
+	// Bare and stale confirmations cannot become a new interpreted action.
 	// A plain yes is refused only while a change proposal awaits confirmation;
 	// otherwise it answers the bot's previous question or offer.
 	lower := strings.ToLower(strings.TrimSpace(m.Text))
@@ -213,6 +237,10 @@ func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at ti
 	previous := ""
 	if d.State == "clarifying" {
 		previous = p.Prompt
+	} else if d.State == "awaiting_confirmation" && d.PromptID != "" && at.Before(d.ExpiresAt) {
+		// Put identity before potentially long protected arguments so the cap
+		// cannot drop the code. This context grants no execution authority.
+		previous = fmt.Sprintf("Delivered proposal (context only):\nConfirmation code: %s\nProposed action: %s\nProject: %s\n%s", d.Code, p.Invocation.Command, p.Project, p.Prompt)
 	} else if replies, e := s.db.ReadAskReplies(ctx, s.transport, m.ChannelRef, 1); e == nil && len(replies) == 1 && !replies[0].FinishedAt.IsZero() && !at.After(replies[0].FinishedAt.Add(15*time.Minute)) {
 		previous = replies[0].ReplyText
 	}
@@ -506,7 +534,7 @@ func (s *Service) naturalProposal(p naturalPayload, code string) string {
 	case "confirm":
 		scope = "Create an issue from this exact saved feature preview: " + p.Question
 	}
-	return fmt.Sprintf("Proposed action: %s\nProject: %s\n%s\nExact protected arguments: %s\nConfirmation code: %s\nReply directly to this message with yes, or send confirm %s. Send cancel to cancel. Expires in 15 minutes.", p.Invocation.Command, p.Project, scope, args, code, code)
+	return fmt.Sprintf("Proposed action: %s\nProject: %s\n%s\nExact protected arguments: %s\nConfirmation code: %s\nReply directly to this message with yes, or send %s alone or prefixed by confirm, yes or ok. Send cancel to cancel. Expires in 15 minutes.", p.Invocation.Command, p.Project, scope, args, code, code)
 }
 func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.Time) (string, error) {
 	_, _, err := s.ValidateInvocation(p.Invocation)

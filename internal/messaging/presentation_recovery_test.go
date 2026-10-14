@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +51,7 @@ func TestRegistryRepliesAllCrossPresentationBoundary(t *testing.T) {
 			t.Fatalf("%s not delivered once", command)
 		}
 		switch text := send.texts[before]; text {
-		case "Here is the result.", presentation.FallbackNotice, "Raw details of your previous reply.":
+		case "Here is the result.", presentation.FallbackNotice, "Raw details of your previous reply (legacy source text).":
 		default:
 			t.Fatalf("%s bypassed presentation: %q", command, text)
 		}
@@ -426,4 +427,102 @@ func TestCheckingPromptStatesContractAndCheckFailureLogsPhase(t *testing.T) {
 	if strings.Count(text, "chat narration fallback") != 1 || !strings.Contains(text, "reason=decode") || !strings.Contains(text, "phase=checking") || !strings.Contains(text, "error=") {
 		t.Fatalf("narration fallback log = %q", text)
 	}
+}
+
+// These fixtures reconstruct the reported excerpts, not production captures.
+// Stub findings test orchestration, not a live checker's semantic accuracy.
+func TestReconstructedMeterAndStatusNarration(t *testing.T) {
+	const meter = `Collection: litefactory
+Collection coverage: incomplete
+Observed lower bound USD: 310.855329500000
+Total cost: unknown
+Today observed lower bound USD: 279.378863300000
+Highest observed cost task today: task 742, USD 279.378863300000
+Price revisions: 1, 2
+Input tokens: 100
+Output tokens: 20
+Cache read tokens: 30
+Cache write tokens: 40
+Task 741 observed USD: 31.476466200000
+Task 742 observed USD: 279.378863300000
+`
+	const status = "Runs in flight: 0\nDiscovery: active\nHeartbeat: known\n"
+	for _, tc := range []struct {
+		name, command, raw string
+		claims             []string
+		support            presentation.Support
+		want               presentation.State
+	}{
+		{"meter", "meter", meter, []string{
+			"Your observed lower bound is 310.855329500000 USD; total cost is unknown because collection is incomplete.",
+			"Today your observed lower bound is 279.378863300000 USD.",
+			"Your highest observed cost task today is task 742 at 279.378863300000 USD.",
+		}, presentation.Supported, presentation.Narrated},
+		{"status supported", "status", status, []string{"You have 0 runs in flight and discovery is active."}, presentation.Supported, presentation.Narrated},
+		{"status unsupported", "status", status, []string{"You have 0 runs in flight, which fits with nothing being paused."}, presentation.Unsupported, presentation.RawFallback},
+		{"status uncertain", "status", status, []string{"You have 0 runs in flight, which fits with nothing being paused."}, presentation.Support("uncertain"), presentation.RawFallback},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := database(t)
+			at := time.Date(2026, 10, 12, 14, 0, 0, 0, time.UTC)
+			model := &reconstructedReplyModel{claims: tc.claims, support: tc.support}
+			send := &attachmentSender{sender: sender{outcome: messaging.Delivery{}}}
+			s := messaging.New(db, "discord", "2", []string{"3"}, send, nil)
+			s.EnablePresentation(model, nil)
+			// Admit an already completed source result, as on delivery recovery.
+			_, err := db.AdmitChatReply(t.Context(), store.ChatReply{Transport: "discord", MessageID: "100", ChannelRef: "3", Command: tc.command, ReplyText: tc.raw, CreatedAt: at, PresentationState: "pending", OutcomeStatus: "uncertain"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if more, err := s.Step(t.Context(), at); err != nil || !more {
+				t.Fatalf("presentation: %t %v", more, err)
+			}
+			row, err := db.ReadChatReply(t.Context(), "discord", "100")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.Join(tc.claims, "\n")
+			if tc.want == presentation.RawFallback {
+				want = presentation.FallbackNotice
+			}
+			if model.calls != 2 || row.PresentationState != string(tc.want) || row.ReplyText != want || row.ReplyAttachment != tc.raw {
+				t.Fatalf("narration or raw attachment changed: calls=%d row=%+v", model.calls, row)
+			}
+			for _, rule := range []string{
+				"Return 1 through " + strconv.Itoa(presentation.MaxClaims) + " claims",
+				"Select the most relevant source facts instead of one claim per source line",
+				"preserve all mandatory facts and all relevant uncertainty and caveats",
+				"State only directly supported facts, without inferred relationships",
+				"do not infer pause state from other status facts",
+			} {
+				if !strings.Contains(model.generation, rule) {
+					t.Errorf("generation prompt lacks %q", rule)
+				}
+			}
+		})
+	}
+}
+
+type reconstructedReplyModel struct {
+	claims     []string
+	support    presentation.Support
+	generation string
+	calls      int
+}
+
+func (m *reconstructedReplyModel) Present(_ context.Context, _ int64, _, phase, prompt string) ([]byte, error) {
+	m.calls++
+	if phase == "generation" {
+		m.generation = prompt
+		candidate := presentation.Candidate{}
+		for _, text := range m.claims {
+			candidate.Claims = append(candidate.Claims, presentation.Claim{Text: text, Facts: []string{"result"}, Protected: []string{}})
+		}
+		return json.Marshal(candidate)
+	}
+	check := presentation.Check{}
+	for i := range m.claims {
+		check.Findings = append(check.Findings, presentation.Finding{Claim: i, Support: m.support})
+	}
+	return json.Marshal(check)
 }

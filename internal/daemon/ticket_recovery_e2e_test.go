@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -472,6 +474,11 @@ func recoveryProvider(t *testing.T, f *fixture) ticket.Origin {
 				} else if id, ok := object["id"].(float64); ok && object["body"] != nil {
 					object["url"] = origin + "/repos/" + f.repo.Slug() + "/issues/comments/" + strconv.Itoa(int(id))
 					issueNumber := testIssue
+					if issueURL, ok := object["issue_url"].(string); ok {
+						if n, err := strconv.Atoi(issueURL[strings.LastIndex(issueURL, "/")+1:]); err == nil {
+							issueNumber = n
+						}
+					}
 					parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 					if len(parts) == 6 && parts[3] == "issues" && parts[5] == "comments" {
 						if n, err := strconv.Atoi(parts[4]); err == nil {
@@ -928,4 +935,370 @@ func TestTicketBodyTransientRetryKeepsFirstSight(t *testing.T) {
 		t.Fatalf("body recovery failed: %v %v", pending, err)
 	}
 	assertRecoveryReports(t, w.fixture, 1)
+}
+
+func TestTicketRecoveryPlanStoryWebhookHandoff(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	var hideListings atomic.Bool
+	var childReads atomic.Int64
+	original := w.forge.server.Config.Handler
+	w.forge.server.Config.Handler = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		base := "/repos/" + w.repo.Slug()
+		if hideListings.Load() && (r.URL.Path == base+"/issues" || r.URL.Path == base+"/issues/comments") {
+			rw.Header().Set("Content-Type", "application/json")
+			_, _ = rw.Write([]byte(`[]`))
+			return
+		}
+		if r.URL.Path == base+"/issues/200/comments" && r.Method == http.MethodGet {
+			childReads.Add(1)
+		}
+		if r.URL.Path == base+"/issues/200/parent" {
+			r = r.Clone(r.Context())
+			r.URL.Path = base + "/issues/" + strconv.Itoa(testIssue)
+		}
+		original.ServeHTTP(rw, r)
+	})
+	origin := recoveryProvider(t, w.fixture)
+	source := configureRecoverySource(t, w, origin)
+	w.daemon = newRecoveryDaemon(t, w, origin, "plan-story-setup", false)
+	_, parent := seedPlanChildFixture(t, w.fixture, 10000+testIssue, 10200)
+	// Admit the child independently of the handoff under test, with its saved
+	// parent connection and an initialized zero watermark.
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: source.Provider, Origin: origin, RemoteID: "10200"}, Locator: ticket.Locator{Provider: source.Provider, Origin: origin, Container: source.Destination, Key: "200"}}
+	story, err := w.db.AdmitManagedChild(t.Context(), parent.ID, ref, "github:"+w.repo.Slug()+"#200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.db.BootstrapTicketWatermark(t.Context(), story.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	w.clock.advance(scheduleInterval)
+	w.settle()
+	w.settle()
+	if _, err := w.db.AdmitPlanWorkflowPath(t.Context(), story.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
+	childWatermark := func() int64 {
+		wm, _, err := w.db.GetWatermark(t.Context(), story.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return wm.LastCommentID
+	}
+	if err := w.db.ClearSessionNeedsPoll(t.Context(), story.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.db.ClearStoryDiscoveryPending(t.Context(), parent.ID, 200); err != nil {
+		t.Fatal(err)
+	}
+	hideListings.Store(true)
+	reads := childReads.Load()
+	w.forge.addComment(200, 60, owner(), "/approve-plan story story candidate")
+	w.forge.addComment(200, 70, owner(), "/approve-plan story story candidate")
+	w.forge.addComment(200, 80, owner(), "/approve-plan story story stale")
+	w.forge.addComment(200, 90, stranger(), "/approve-plan story story candidate")
+	state, _, err := w.db.GetPlanWorkflowState(t.Context(), parent.TaskRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvedRevision := state.Stories[0].Wait.Revision
+	var applied atomic.Int64
+	w.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if req.Trigger.PlanReply == nil || req.Trigger.CommentID != 60 || req.SessionID != story.ID {
+			return turn.Result{}, fmt.Errorf("unexpected approval execution: %+v", req.Trigger)
+		}
+		watermark, _, err := w.db.GetWatermark(ctx, story.ID)
+		if err != nil || watermark.LastCommentID >= 60 {
+			return turn.Result{}, fmt.Errorf("approval consumed before handling: %+v: %w", watermark, err)
+		}
+		// Execute the same persisted Plan reply application used by the graph
+		// turn; only the subsequent agent stage and its report are scripted.
+		if err := w.db.UpdatePlanWorkflowState(ctx, parent.TaskRef, func(s *planbrief.PlanState) (bool, error) {
+			return s.ApplyOwnerReply(*req.Trigger.PlanReply)
+		}); err != nil {
+			return turn.Result{}, err
+		}
+		applied.Add(1)
+		return w.ranSuccessfully(ctx, req)
+	})
+	handed := make(chan struct{}, 1)
+	w.logger = slog.New(slog.NewTextHandler(&planHandoffLogWriter{syncBuffer: w.fixture.logs, handed: handed}, nil))
+	w.daemon = newRecoveryDaemon(t, w, origin, "plan-story-webhook", true)
+	w.settle() // Populate the listener's subscription cache before ingress.
+	logStart := len(w.fixture.logs.String())
+	stop := w.run()
+	stopped := false
+	t.Cleanup(func() {
+		if !stopped {
+			_ = stop()
+		}
+	})
+	body := []byte(fmt.Sprintf(`{"action":"created","issue":{"number":200,"url":%q},"comment":{"id":70},"repository":{"id":1,"full_name":%q}}`, string(origin)+"/repos/"+w.repo.Slug()+"/issues/200", w.repo.Slug()))
+	address := "http://" + w.ln.Addr().String() + webhook.Path + "?subscription=" + recoverySelector
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, address, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-GitHub-Event", "issue_comment")
+	req.Header.Set("X-GitHub-Delivery", "plan-story-approval")
+	req.Header.Set("X-Hub-Signature-256", webhook.Sign([]byte(webhookTestSecret), body))
+	response, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("signed comment delivery: %d\n%s", response.StatusCode, w.fixture.logs)
+	}
+	// The webhook wakes exactly one pass. Wait for its durable handoff before
+	// stopping; no timer tick or listing can poll the child in this interval.
+	select {
+	case <-handed:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("webhook did not hand off polling\n%s", w.fixture.logs)
+	}
+	if err := w.daemon.Quiesce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+	stopped = true
+	w.daemon = newRecoveryDaemon(t, w, origin, "plan-story-retry", false)
+	story, err = w.db.GetSession(t.Context(), story.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !story.NeedsPoll || childReads.Load() != reads {
+		t.Fatalf("parent swept without child polling responsibility: %+v reads=%d/%d\n%s", story, childReads.Load(), reads, w.fixture.logs)
+	}
+	if owed, err := w.db.StoryDiscoveryOwed(t.Context(), parent.ID, 200); err != nil || owed {
+		t.Fatalf("successful handoff retained parent debt: %v %v", owed, err)
+	}
+	for _, want := range []string{"level=INFO", "plan story polling handed to child", fmt.Sprintf("parent_session=%d", parent.ID), fmt.Sprintf("child_session=%d", story.ID), "issue=200", "reason=open_graph_plan_story"} {
+		if !strings.Contains(w.fixture.logs.String()[logStart:], want) {
+			t.Errorf("missing handoff log %q: %s", want, w.fixture.logs.String()[logStart:])
+		}
+	}
+	w.settle() // The next heartbeat must read the child's backlog.
+	state, _, err = w.db.GetPlanWorkflowState(t.Context(), parent.TaskRef)
+	if err != nil || state.Stories[0].Approvals["story"] != approvedRevision || state.Stories[0].Stage != "technical" || state.Stories[0].Wait != nil || applied.Load() != 1 {
+		t.Fatalf("approval not applied exactly once: %+v %v applied=%d\n%s", state, err, applied.Load(), w.fixture.logs)
+	}
+	// A successful turn can yield after one comment; its retained backlog
+	// must then consume the later, now-stale duplicate under existing rules.
+	for range 4 {
+		w.settle()
+	}
+	if childWatermark() != 90 || w.watermark() != 0 {
+		t.Fatalf("unsafe watermarks: child=%d parent=%d\n%s", childWatermark(), w.watermark(), w.fixture.logs)
+	}
+	observation := store.PendingTicketObservation{RepoID: w.repo.ID, ConnectionVersionID: source.ID, Provider: source.Provider, Origin: origin, Container: source.Destination, ContainerID: "1", TicketID: "10200", TicketKey: "200", ObservedAt: w.clock.peek()}
+	if err := w.db.HandoffTicketObservation(t.Context(), observation); err != nil {
+		t.Fatal(err)
+	}
+	reopenRecoveryDatabase(t, w.fixture)
+	w.daemon = newRecoveryDaemon(t, w, origin, "plan-story-restarted", false)
+	w.settle()
+	w.settle()
+	if applied.Load() != 1 || childWatermark() != 90 {
+		t.Fatal("restart or duplicate observation reapplied a consumed approval")
+	}
+}
+
+// A log rendezvous observes the persisted handoff without polling worker state.
+type planHandoffLogWriter struct {
+	*syncBuffer
+	handed chan struct{}
+}
+
+func (w *planHandoffLogWriter) Write(p []byte) (int, error) {
+	n, err := w.syncBuffer.Write(p)
+	if bytes.Contains(p, []byte("plan story polling handed to child")) {
+		select {
+		case w.handed <- struct{}{}:
+		default:
+		}
+	}
+	return n, err
+}
+
+func TestTicketRecoveryRetainedPlanStoriesBootstrap(t *testing.T) {
+	w := newWebhookFixture(t)
+	ctx := t.Context()
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	original := w.forge.server.Config.Handler
+	w.forge.server.Config.Handler = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/parent") {
+			r = r.Clone(r.Context())
+			r.URL.Path = "/repos/" + w.repo.Slug() + "/issues/" + strconv.Itoa(testIssue)
+		}
+		original.ServeHTTP(rw, r)
+	})
+	origin := recoveryProvider(t, w.fixture)
+	w.spy.store("recovery-ticket-reader", testToken)
+	var active, retainedCode, retainedTicket store.ConnectionVersion
+	for _, role := range []store.ConnectionRole{store.CodeConnection, store.TicketConnection} {
+		v, err := w.db.SetConnection(ctx, store.ConnectionVersion{
+			RepoID: w.repo.ID, Role: role, Provider: ticket.GitHub, Origin: origin,
+			Destination: w.repo.Slug(), Enabled: true, Provenance: "legacy",
+			CredentialSource: "keychain", CredentialService: "recovery-reader", CredentialAccount: "recovery-ticket-reader",
+			ClonePath: w.repo.Path, RemoteURL: w.repo.RemoteURL, BaseBranch: w.repo.BaseBranch,
+			FeaturePrefix: w.repo.FeaturePrefix, WorktreeRoot: w.repo.WorktreeRoot,
+		}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role == store.TicketConnection {
+			active = v
+		}
+		v.RemoteID = "1"
+		v, err = w.db.RetainConnectionVersion(ctx, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role == store.CodeConnection {
+			retainedCode = v
+		} else {
+			retainedTicket = v
+		}
+	}
+	factory := projectconnection.NewFactory(projectconnection.Options{Resolver: secrets.Resolver{Keychain: w.spy.lookup}, Logger: w.logger, ExpectedActorID: botID})
+	if _, err := (projectconnection.ApproverService{DB: w.db, Factory: factory}).Set(ctx, w.repo.ID, ownerLogin, active.Revision, 0); err != nil {
+		t.Fatal(err)
+	}
+	w.daemon = newRecoveryDaemon(t, w, origin, "retained-plan-setup", false)
+	w.plantCursor()
+	before, err := w.db.GetTicketRecoveryPosition(ctx, active.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := w.db.GetOrCreateSession(ctx, w.repo, testIssue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentRef := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: strconv.Itoa(10000 + testIssue)}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: origin, Container: w.repo.Slug(), Key: strconv.Itoa(testIssue)}}
+	binding, err := w.db.AddTicketBinding(ctx, store.TicketBinding{RepoID: w.repo.ID, ConnectionVersionID: retainedTicket.ID, Ref: parentRef, Enabled: true, Provenance: "legacy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.db.AttachExecutionSnapshot(ctx, store.ExecutionSnapshot{SessionID: parent.ID, RepoID: w.repo.ID, BindingID: binding.ID, CodeVersionID: retainedCode.ID, TicketVersionID: retainedTicket.ID, ActorID: botID, ActorLogin: botLogin, CodeActorID: botID, CodeActorLogin: botLogin, CodeRemoteID: "1", TicketRemoteID: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := w.db.BootstrapTicketWatermark(ctx, parent.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.db.CompleteTicketBody(ctx, parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.db.AdmitPlanWorkflowPath(ctx, parent.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
+	w.forge.addIssue(fakeIssue{ID: 10000 + testIssue, Number: testIssue, Title: "Retained parent", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+	state := planbrief.PlanState{SharedRevision: "scope"}
+	revision, _, err := state.ProposeStorySet([]planbrief.PlanStorySetEntry{{ID: "one", Name: "First story", Intent: "Review first"}, {ID: "two", Name: "Second story", Intent: "Review second"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.PromoteStorySet(revision); err != nil {
+		t.Fatal(err)
+	}
+	snapshots := map[int64]store.ExecutionSnapshot{}
+	for i, item := range []string{"one", "two"} {
+		key, number := state.StorySet.Keys[item], 200+i
+		if _, err := w.db.ReservePlanStory(ctx, parent.TaskRef, key); err != nil {
+			t.Fatal(err)
+		}
+		body := fmt.Sprintf("<!-- lf:plan-story parent=%d key=%s -->\nFirst draft in progress", 10000+testIssue, key)
+		w.forge.addIssue(fakeIssue{ID: int64(10000 + number), Number: number, Title: item, Body: body, State: "open", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+		if err := w.db.BindPlanStoryShell(ctx, parent.TaskRef, key, int64(10000+number), number, turn.PlanIssueRevision(item, body)); err != nil {
+			t.Fatal(err)
+		}
+		ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: origin, RemoteID: strconv.Itoa(10000 + number)}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: origin, Container: w.repo.Slug(), Key: strconv.Itoa(number)}}
+		child, err := w.db.AdmitManagedChild(ctx, parent.ID, ref, "github:"+w.repo.Slug()+"#"+strconv.Itoa(number))
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := w.db.GetExecutionSnapshot(ctx, child.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.TicketVersionID != retainedTicket.ID || snapshot.CodeVersionID != retainedCode.ID {
+			t.Fatal("child did not inherit retained versions")
+		}
+		snapshots[child.ID] = snapshot
+		w.forge.addCommentAt(number, 8, owner(), "/spike historical request", w.repo.CreatedAt.Add(-time.Hour))
+		w.forge.addCommentAt(number, 9, stranger(), "Later discussion", w.clock.peek())
+		if _, exists, err := w.db.GetWatermark(ctx, child.ID); err != nil || exists {
+			t.Fatalf("child already bootstrapped: %v %v", exists, err)
+		}
+	}
+	if _, err := w.db.SavePlanWorkflowState(ctx, parent.TaskRef, 0, state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.db.GetTicketRecoveryPosition(ctx, retainedTicket.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("retained position should be absent: %v", err)
+	}
+	calls := map[int64]*atomic.Int64{}
+	for id := range snapshots {
+		calls[id] = &atomic.Int64{}
+	}
+	w.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		if _, ok := snapshots[req.SessionID]; !ok || req.Mode != agent.ModePlan {
+			return turn.Result{}, fmt.Errorf("unexpected first stage: %+v", req)
+		}
+		watermark, exists, err := w.db.GetWatermark(ctx, req.SessionID)
+		if err != nil || !exists || watermark.LastCommentID != 9 {
+			return turn.Result{}, fmt.Errorf("enrolled replies not drained before stage: %+v: %w", watermark, err)
+		}
+		calls[req.SessionID].Add(1)
+		return w.ranSuccessfully(ctx, req)
+	})
+	for range 4 {
+		w.settle()
+	}
+	for id, snapshot := range snapshots {
+		if calls[id].Load() != 1 {
+			t.Fatalf("story %d ran %d times, want once\n%s", id, calls[id].Load(), w.fixture.logs)
+		}
+		after, err := w.db.GetExecutionSnapshot(ctx, id)
+		if err != nil || after != snapshot {
+			t.Fatalf("snapshot changed: %+v %v", after, err)
+		}
+		if _, exists, err := w.db.GetWatermark(ctx, id); err != nil || !exists {
+			t.Fatalf("missing child watermark: %v %v", exists, err)
+		}
+	}
+	position, err := w.db.GetTicketRecoveryPosition(ctx, retainedTicket.ID)
+	if err != nil || !position.EnrollmentAt.Equal(w.repo.CreatedAt) || position.ContainerID != "1" || position.TicketCursor != "" || position.ReplyCursor != "" || !position.ScanThrough.IsZero() {
+		t.Fatalf("retained enrollment/cursors: %+v %v", position, err)
+	}
+	after, err := w.db.GetTicketRecoveryPosition(ctx, active.ID)
+	if err != nil || after != before {
+		t.Fatalf("active recovery position changed: before=%+v after=%+v error=%v", before, after, err)
+	}
+	_, _, posts, _ := w.forge.counts()
+	// One parent progress projection and one report per child.
+	if posts != 3 || slices.ContainsFunc([]int{testIssue, 200, 201}, func(number int) bool { return !slices.Contains(w.forge.postedIssues, number) }) {
+		t.Fatalf("publication destinations=%v, want parent and each child once", w.forge.postedIssues)
+	}
+	reopenRecoveryDatabase(t, w.fixture)
+	w.daemon = newRecoveryDaemon(t, w, origin, "retained-plan-restart", false)
+	for range 3 {
+		w.settle()
+	}
+	for id := range snapshots {
+		if calls[id].Load() != 1 {
+			t.Fatalf("restart repeated story %d", id)
+		}
+	}
+	_, _, repeatedPosts, _ := w.forge.counts()
+	if repeatedPosts != posts {
+		t.Fatal("restart repeated publication")
+	}
 }

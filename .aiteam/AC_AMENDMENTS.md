@@ -1586,3 +1586,9 @@ factual evidence and actual merge confirmation remain nonwaivable boundaries.
 
 - Authorized: frozen story-004 (#460), revision `e71737b29d0d434cb847513987ad95b9d487c025ae43147eac44fc9130ce1b30`.
 - CONC-11: the simplified Bug workflow MAY deliver automatically without a second PR approval only from its current explicitly approved immutable diagnosis, current accepted succeeded fixer submission, successful settled execution and complete fresh validation binding. Factory-owned saving, nonforce push, guarded merge and independently confirmed integration MUST precede independently confirmed numeric issue closure. Checkpoints, receipts and terminal text MUST NOT confer delivery authority. Uncertain effects MUST be observed before repetition; changed tested inputs MUST park and require owner-released revalidation through DOT. Existing feature/story approval policy and repository protections remain unchanged.
+
+
+## Amendment: #792 in-invocation provider capacity retries
+
+- Authorized: factory-approved Bug analysis revision 3.
+- CONC-6: the active agent invocation MAY relaunch the same prepared request for a classified terminal provider-capacity failure without an accepted result, at most three times with cancellable 30/60/120-second waits. The invocation keeps its existing deadline, authority and per-process metering. This narrow exception does not add scheduled retries or change graph settlement, reservations, approval handling or daemon ownership of scheduling.

@@ -5,6 +5,7 @@ import (
 	"unicode"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"github.com/cloudvane/litefactory/internal/doctor"
 )
 
@@ -176,7 +177,8 @@ func (c Command) NeedsReply() bool {
 // Only the first non-whitespace token is considered (AC-2.18). A "/spike"
 // halfway down a comment is prose, not an instruction — a comment discussing
 // what to spike must not become one. Leading whitespace and blank lines before
-// the token are skipped.
+// the token are skipped. A whole first-line single-backtick command span is
+// unwrapped for interpretation; provider and stored bodies remain unchanged.
 //
 // Matching is case-insensitive: phone keyboards capitalise the first word of a
 // message, and "/Spike" is a typo the tool should absorb rather than answer
@@ -218,6 +220,7 @@ func (c Command) NeedsReply() bool {
 // comment the daemon reads has to be disposed of one way or another — and the
 // tag parser cannot fail either, precisely so that contract still holds.
 func ParseCommand(body string) Command {
+	body = commandtext.Normalize(body)
 	if _, ok := doctor.ParseCommand(body); ok {
 		return Command{Kind: KindNone, Name: "/doctor"}
 	}

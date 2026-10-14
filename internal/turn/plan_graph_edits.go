@@ -18,7 +18,7 @@ var ErrPlanChildEdit = errors.New("plan child edit requires resolution")
 // ReconcilePlanChildEdit turns observed issue edits into unapproved candidates.
 // The caller observes the direct parent relationship; edit text never proves
 // author identity or grants approval. Presentation-only edits keep semantic gates.
-func ReconcilePlanChildEdit(ctx context.Context, db *store.DB, parent string, parentNumber int, parentID int64, issue github.Issue, scope planbrief.ContentScope) error {
+func ReconcilePlanChildEdit(ctx context.Context, db *store.DB, parent string, parentNumber int, parentID int64, issue github.Issue, scope planbrief.ContentScope, parentKey ...string) error {
 	feature, err := db.GetManagedFeature(ctx, parent)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
@@ -52,7 +52,7 @@ func ReconcilePlanChildEdit(ctx context.Context, db *store.DB, parent string, pa
 	if err = json.Unmarshal([]byte(binding.DraftJSON), &prior); err != nil {
 		return err
 	}
-	edit, err := planbrief.ReconcilePlanDraftEdit(prior, int64(parentNumber), binding.Ordinal, issue.Title, issue.Body, scope)
+	edit, err := planbrief.ReconcilePlanDraftEdit(prior, int64(parentNumber), binding.Ordinal, issue.Title, issue.Body, scope, parentKey...)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrPlanChildEdit, err)
 	}

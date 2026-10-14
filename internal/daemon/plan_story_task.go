@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"hash/fnv"
 	"log/slog"
 	"strconv"
@@ -45,8 +44,10 @@ func storyWorkID(state planbrief.PlanState, key string) (int64, bool) {
 		}
 		return planWorkID("story", key, stage, candidate, strconv.FormatBool(create)), true
 	}
+	// Explicit effect holds need resolution through retained recovery, not a
+	// scheduled turn. Other waits must still admit unheld reconciliation debt.
 	for _, item := range state.Stories {
-		if item.Key == key && item.Active() && item.Effect != "" && item.Effect != "applied" {
+		if item.Key == key && item.Active() && item.Effect != "" && item.Effect != "applied" && item.EffectHold == "" && len(item.EffectHolds) == 0 {
 			return planWorkID("effect", key, item.EffectRequest), true
 		}
 	}
@@ -189,7 +190,22 @@ func (d *Daemon) planWorkSettled(ctx context.Context, t *task, scheduled store.S
 		return false
 	}
 	id, ok, err := d.planWorkFor(ctx, t)
-	return err == nil && (!ok || id != scheduled.SourceCommentID)
+	if err != nil || (ok && id == scheduled.SourceCommentID) {
+		return false
+	}
+	attrs := []any{slog.String("task", t.ref.String()), slog.Int64("session_id", t.session.ID), slog.Int64("schedule_id", scheduled.ID)}
+	if story, owned, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err == nil && owned {
+		if state, _, err := d.db.GetPlanWorkflowState(ctx, story.Parent); err == nil {
+			for _, item := range state.Stories {
+				if item.Key == story.Key {
+					attrs = append(attrs, slog.String("story", item.Key), slog.String("request", item.EffectRequest),
+						slog.String("effect_hold", item.EffectHold), slog.Any("effect_holds", item.EffectHolds))
+				}
+			}
+		}
+	}
+	d.log.InfoContext(ctx, "Plan schedule has no eligible work; settling without a run", attrs...)
+	return true
 }
 
 // graphPlanStories offers every story task that has work: a stage it may run, or
@@ -233,7 +249,14 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 		}
 		session, err := d.managedChildSession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
 		if err != nil {
-			return fmt.Errorf("find the task of story %s: %w", story.Key, err)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// One story whose task cannot be resolved must not fail discovery for
+			// every other task and project; it is retried on the next tick.
+			q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
+				slog.String("parent", story.Parent), slog.String("story", story.Key), slog.Any("error", err))
+			continue
 		}
 		attempted, err := d.db.ScheduleAttempted(ctx, session.ID, id)
 		if err != nil {

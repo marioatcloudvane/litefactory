@@ -132,6 +132,15 @@ func TestWorkflowCaptureAllSixSourcesAndRetainedReplay(t *testing.T) {
 				if restored.Digest != def.Digest || calls != 1 || !reflect.DeepEqual(restored.Files, def.Files) || !reflect.DeepEqual(restored.Origin, def.Origin) || restored.Profile.Digest != def.Profile.Digest {
 					t.Fatalf("retained replay changed bytes: %v", err)
 				}
+				dispatch := store.GraphDispatch{InstanceID: admitted.Instance.ID, SessionID: f.session.ID, LaunchID: admitted.LaunchID}
+				if err := ValidateGraphDispatchRecovery(t.Context(), f.db, dispatch); err != nil {
+					t.Fatal(err)
+				}
+				foreign := dispatch
+				foreign.InstanceID++
+				if err := ValidateGraphDispatchRecovery(t.Context(), f.db, foreign); err == nil {
+					t.Fatal("foreign capture accepted for recovery")
+				}
 				saved, err := f.db.GetWorkflowCapture(t.Context(), admitted.LaunchID)
 				if err != nil {
 					t.Fatal(err)

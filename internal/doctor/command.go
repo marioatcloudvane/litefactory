@@ -3,6 +3,8 @@ package doctor
 import (
 	"strings"
 	"unicode"
+
+	"github.com/cloudvane/litefactory/internal/commandtext"
 )
 
 // Command is a doctor envelope, not a workflow mode or repair authority.
@@ -14,7 +16,7 @@ type Command struct {
 // ParseCommand recognizes only a complete first token, ignoring leading space
 // and case. Quoted, embedded and fenced occurrences retain ordinary meaning.
 func ParseCommand(body string) (Command, bool) {
-	body = strings.TrimSpace(body)
+	body = strings.TrimSpace(commandtext.Normalize(body))
 	token, rest := body, ""
 	if i := strings.IndexFunc(body, unicode.IsSpace); i >= 0 {
 		token, rest = body[:i], strings.TrimSpace(body[i:])
