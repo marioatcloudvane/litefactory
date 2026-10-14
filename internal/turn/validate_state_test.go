@@ -408,3 +408,27 @@ func TestValidateNextStepBlockingFindingNamesRealSteps(t *testing.T) {
 		t.Errorf("blocking Next line: %q", got)
 	}
 }
+
+func TestValidateOwnerPassedReviewPreservesOtherGates(t *testing.T) {
+	f := ValidateFinding{ID: "s:architecture", Status: "unverified", Blocking: true, State: findingOwnerPassed}
+	for _, gate := range []string{"suite", "missing review", "issue pending", "issue failed", "issue uncertain"} {
+		t.Run(gate, func(t *testing.T) {
+			s := vsBase(f)
+			switch gate {
+			case "suite":
+				s.Suite.Outcome = store.SuiteFailed
+			case "missing review":
+				s.Findings = append(s.Findings, ValidateFinding{ID: "s:code", Role: agent.ReviewRoleCode, State: findingNotReviewed})
+			default:
+				s.Findings[0].Choice = &store.ValidateChoice{Choice: store.ChoiceIssue, IssueKind: "bug"}
+				if gate != "issue pending" {
+					s.Effects.Issues[f.ID] = store.ValidateEffect{State: strings.TrimPrefix(gate, "issue ")}
+				}
+			}
+			s.computeReadiness()
+			if s.Ready || len(s.shipBlockers()) == 0 {
+				t.Fatal("owner verdict bypassed another gate")
+			}
+		})
+	}
+}

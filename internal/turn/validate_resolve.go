@@ -127,8 +127,8 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		if ok && f.State == findingNotReviewed {
 			return notReviewed(f.ID)
 		}
-		if !ok || !f.Criterion || f.Status != "unverified" {
-			return refuse("wait", fmt.Sprintf("`%s` is not a criterion that awaits an owner check.", cmd.Criterion))
+		if !ok || !f.checkable() {
+			return refuse("wait", fmt.Sprintf("`%s` does not await an eligible owner check.", cmd.Criterion))
 		}
 		if _, err := opts.DB.PutValidateVerdict(ctx, store.ValidateVerdict{InstanceID: req.InstanceID, Commit: st.Commit, Criterion: f.ID, Verdict: cmd.Verdict, Evidence: cmd.Evidence, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, CreatedAt: now}); err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, err
