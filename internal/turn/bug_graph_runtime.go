@@ -183,6 +183,28 @@ func (r *BugRuntime) untouchedGraphLaunch(ctx context.Context, instance store.Gr
 	return true, nil
 }
 
+func graphBugExhaustionReason(ctx context.Context, db *store.DB, node graphexec.Node, attempts []store.GraphNodeAttempt) (string, error) {
+	reason := fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
+	if node.Name != "fixer" || len(attempts) == 0 {
+		return reason, nil
+	}
+	last := attempts[len(attempts)-1]
+	if last.Node != "finalization" || last.Status != store.GraphSucceeded || last.Outcome != "revalidate" {
+		return reason, nil
+	}
+	outputs, err := db.ListGraphOutputs(ctx, last.ID)
+	if err != nil {
+		return "", err
+	}
+	for _, output := range outputs {
+		var progress graphDeliveryProgress
+		if output.Kind == store.GraphOutputJSON && json.Unmarshal(output.Payload, &progress) == nil && progress.Record == "delivery_progress" && progress.Outcome == "revalidate" {
+			return reason + ". The repair passed its prior checks. " + progress.Reason + " Reply to rerun the checks on the new head with one extra bounded fixer run.", nil
+		}
+	}
+	return reason, nil
+}
+
 func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Result) (Result, error) {
 	local := *r
 	r = &local
@@ -335,7 +357,11 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 				}
 			}
 			if node.Limit > 0 && maximum >= node.Limit && allowanceSource == 0 && (we != nil || wait.State != "claimed" || wait.OriginNode != node.Name) {
-				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)}}, "exhausted", false)
+				diagnostic, err := graphBugExhaustionReason(ctx, r.opts.DB, node, attempts)
+				if err != nil {
+					return finish(err)
+				}
+				_, parkErr := parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: node.Name, NextNode: node.Name, Activity: ActivityResult{Diagnostic: diagnostic}}, "exhausted", false)
 				return finish(parkErr)
 			}
 			permissions, e := r.cfg.Permissions(req.Agent, node.Attrs["lf_agent_markdown"])
