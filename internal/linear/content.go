@@ -213,6 +213,32 @@ func ContentEquivalent(expected, observed string) bool {
 	return comparableContent(expected) == comparableContent(observed)
 }
 
+// withoutProseBlankLines normalizes blank-line layout outside fences the way
+// Linear stores it: runs of blank lines collapse to one, leading and trailing
+// blank lines go, and blank lines next to factory markers go (relocated markers
+// lose their surroundings). A single blank line between prose stays, since it
+// separates paragraphs and loosens lists.
+func withoutProseBlankLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	fence := ""
+	blank := false
+	for _, line := range lines {
+		next := nextContentFence(fence, line)
+		if fence == "" && next == "" && strings.TrimSpace(line) == "" {
+			blank = true
+			fence = next
+			continue
+		}
+		if blank && len(out) > 0 && !managedMarker(out[len(out)-1]) && !managedMarker(line) {
+			out = append(out, "")
+		}
+		blank = false
+		out = append(out, line)
+		fence = next
+	}
+	return out
+}
+
 var contentTableRule = regexp.MustCompile(`^:?-{2,}:?$`)
 
 func comparableContent(body string) string {
@@ -297,7 +323,7 @@ func comparableContent(body string) string {
 		}
 		lines[i] = line
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(withoutProseBlankLines(lines), "\n")
 }
 
 func contentTableCells(line string) ([]string, bool) {
