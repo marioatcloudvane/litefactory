@@ -1679,7 +1679,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
 	if err := d.recoverPlanStories(ctx, t); err != nil {
-		d.stopped(ctx, t, "could not reconcile Plan stories", err)
+		d.stopped(ctx, t, "could not reconcile Plan stories", errors.Join(err, d.reportPlanProgress(ctx, t)))
 		return
 	}
 	handledPlan, err := d.refinePlanChildren(ctx, t)
