@@ -397,7 +397,7 @@ func partialOutcomeView(tally *StoryTally) outcomeView {
 // withFailure folds a failure that was not the run's own into the callout.
 //
 // The three cases are different reports, not one report with a footnote. A turn
-// that never reached `claude` has no run to describe; a run that worked but
+// that never reached a coding agent has no run to describe; a run that worked but
 // could not be pushed is not a success, because nothing a reader can fetch came
 // of it; and a run that failed and then could not be tidied up needs both facts
 // in the order they happened.
@@ -409,7 +409,7 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 		v = outcomeView{
 			word:  "did not run",
 			alert: "CAUTION",
-			lead:  fmt.Sprintf("litefactory could not start coding agent %s for run %d: %s", codeSpan(run.agentName()), run.Ordinal, failure),
+			lead:  fmt.Sprintf("Run %d did not run: %s", run.Ordinal, failure),
 		}
 	case v.succeed:
 		v = outcomeView{

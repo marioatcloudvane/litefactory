@@ -3,6 +3,6 @@
 ### litefactory · run 1 · did not run
 
 > [!CAUTION]
-> litefactory could not start coding agent `claude` for run 1: git worktree add: fatal: 'lf/123-x' is already checked out at /Users/mario/dev/.lf-worktrees/acme-api/task-123
+> Run 1 did not run: git worktree add: fatal: 'lf/123-x' is already checked out at /Users/mario/dev/.lf-worktrees/acme-api/task-123
 
 - **Commit:** none — this run did not succeed; if it produced anything, it is still in the worktree
