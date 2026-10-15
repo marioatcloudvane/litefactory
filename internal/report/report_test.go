@@ -711,6 +711,28 @@ func TestAFailureAroundTheRunIsItsOwnReport(t *testing.T) {
 		checkGolden(t, "run_never_started", body)
 	})
 
+	t.Run("refused turn names no agent", func(t *testing.T) {
+		t.Parallel()
+
+		const reason = "The Validate run on commit 9a31d7a2e9ae stopped before it finished. Send /validate again to start it anew."
+		for _, agent := range []string{"codex", ""} {
+			body := render(t, rep, report.Run{
+				Ref:     testRef,
+				Ordinal: 7,
+				Agent:   agent,
+				Failure: errors.New(reason),
+			}).String()
+
+			containsAll(t, "the refused-turn report (agent "+agent+")", body,
+				"Run 7 did not run: "+reason)
+			for _, banned := range []string{"could not start coding agent", "`claude`"} {
+				if strings.Contains(body, banned) {
+					t.Errorf("agent %q: refused-turn report contains %q:\n%s", agent, banned, body)
+				}
+			}
+		}
+	})
+
 	t.Run("push failed after a good run", func(t *testing.T) {
 		t.Parallel()
 
