@@ -201,7 +201,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			w.result.LogPath, w.result.MetaPath = started.LogPath, w.prep.metaPath
 		}
 		executed = true
-		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: w.result.Run.ID, At: opts.MCP.Now()})
+		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: w.result.Run.ID, At: opts.MCP.Now(), RetryDueAt: opts.MCP.Now().Add(opts.GraphRetryDelay)})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}
@@ -210,6 +210,15 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		}
 		if step.Status == store.GraphFailed {
 			return w.finish(ctx, w.failed(ctx, scope, step, errors.New(step.Activity.Diagnostic), false))
+		}
+		if step.Deferred || (step.Activity.Outcome == "retry" && step.NextNode == step.Node) {
+			if opts.GraphRetryDelay <= 0 {
+				return w.finish(ctx, errors.New("graph retry requires a positive host delay"))
+			}
+			now := opts.MCP.Now()
+			spent, _ := store.GraphTriggerDispatch(req.Trigger.CommentID)
+			_, parkErr := opts.DB.ParkCapturedGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, step.NextNode, now.Add(opts.GraphRetryDelay), now, spent, w.admission.LaunchID)
+			return w.finish(ctx, parkErr)
 		}
 		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" || step.Status == "waiting_child" {
 			return w.finish(ctx, nil)
