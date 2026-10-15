@@ -9,25 +9,66 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
 // ConversationProbe performs only local capability checks, never a model call.
 // Output and runtime are bounded and ambient secrets/settings are removed.
 func ConversationProbe(ctx context.Context, binary string, args, env []string, directory string) (string, error) {
-	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	//nolint:gosec // Adapter-owned executable and local capability arguments.
-	cmd := exec.CommandContext(probeCtx, binary, args...)
-	cmd.Env = env
-	cmd.Dir = directory
-	cmd.Stderr = io.Discard
-	var output bytes.Buffer
-	cmd.Stdout = &limitedProbeWriter{target: &output}
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("conversation capability probe failed: %w", err)
+	return conversationProbe(ctx, binary, args, env, directory, 10*time.Second, waitForRetry)
+}
+
+// ErrProbeTransient preserves a local availability failure separately from an
+// affirmative isolation refusal. No model process has been authorized yet.
+var ErrProbeTransient = errors.New("conversation capability probe temporarily unavailable")
+
+func conversationProbe(ctx context.Context, binary string, args, env []string, directory string, timeout time.Duration, wait func(context.Context, time.Duration) error) (string, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, timeout)
+		//nolint:gosec // Adapter-owned executable and local capability arguments.
+		cmd := exec.CommandContext(probeCtx, binary, args...)
+		cmd.Env, cmd.Dir, cmd.Stderr = env, directory, io.Discard
+		cmd.WaitDelay = time.Second
+		var output bytes.Buffer
+		cmd.Stdout = &limitedProbeWriter{target: &output}
+		err := cmd.Run()
+		deadline := errors.Is(probeCtx.Err(), context.DeadlineExceeded)
+		cancel()
+		if err == nil {
+			return output.String(), nil
+		}
+		if ctx.Err() != nil {
+			return "", errors.Join(err, ctx.Err())
+		}
+		transient := deadline || killedProbe(err) || missingExecutable(err, binary, directory)
+		if deadline {
+			err = errors.Join(err, context.DeadlineExceeded)
+		}
+		if !transient {
+			return "", fmt.Errorf("conversation capability probe failed: %w", err)
+		}
+		err = fmt.Errorf("%w: %w", ErrProbeTransient, err)
+		if attempt == 2 {
+			return "", err
+		}
+		if waitErr := wait(ctx, time.Duration(attempt+1)*time.Second); waitErr != nil {
+			return "", errors.Join(err, waitErr)
+		}
 	}
-	return output.String(), nil
+	panic("unreachable probe attempt")
+}
+
+func killedProbe(err error) bool {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return false
+	}
+	status, ok := exit.Sys().(syscall.WaitStatus)
+	return ok && status.Signaled() && status.Signal() == syscall.SIGKILL
 }
 
 type limitedProbeWriter struct{ target *bytes.Buffer }

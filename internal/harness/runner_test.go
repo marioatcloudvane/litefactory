@@ -1757,3 +1757,49 @@ func TestProviderCapacityEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestRunnerRecoversMissingExecutable(t *testing.T) {
+	f := newFixture(t, successScript(t))
+	binary := f.runner.binary.Path
+	if err := os.Rename(binary, binary+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { time.Sleep(time.Second); done <- os.Rename(binary+".saved", binary) }()
+	result, err := f.runner.Run(t.Context(), f.request())
+	if restoreErr := <-done; restoreErr != nil {
+		t.Fatal(restoreErr)
+	}
+	if err != nil || result == nil || !result.Succeeded() {
+		t.Fatalf("recovery: %+v %v", result, err)
+	}
+}
+
+func TestRunnerRecoveryRechecksDelivery(t *testing.T) {
+	f := newFixture(t, successScript(t))
+	req := f.request()
+	req.Delivery = verifiedClaudeDelivery(t)
+	binary := f.runner.binary.Path
+	if err := os.Rename(binary, binary+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		time.Sleep(time.Second)
+		if err := os.WriteFile(filepath.Join(req.Delivery.Root, "bootstrap.md"), []byte("changed"), 0600); err != nil {
+			done <- err
+			return
+		}
+		done <- os.Rename(binary+".saved", binary)
+	}()
+	result, err := f.runner.Run(t.Context(), req)
+	if restoreErr := <-done; restoreErr != nil {
+		t.Fatal(restoreErr)
+	}
+	if !errors.Is(err, agent.ErrDeliveryRefused) || result != nil {
+		t.Fatalf("changed delivery launched: %+v %v", result, err)
+	}
+	if _, err = os.Stat(filepath.Join(req.WorktreePath, "argv.dump")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("process launched: %v", err)
+	}
+}

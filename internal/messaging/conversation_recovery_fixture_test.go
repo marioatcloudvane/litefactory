@@ -3,6 +3,7 @@ package messaging_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -194,5 +195,95 @@ func TestConversationUnfinishedLaunchRecovery(t *testing.T) {
 				t.Fatalf("paused binding launched replacement: %q %v", finalAttempts, err)
 			}
 		})
+	}
+}
+
+// Exercise the same retained input through both service paths using real
+// adapters and local recorded executables; no live provider is contacted.
+func TestConversationTransientProbeCompletesOriginalTurn(t *testing.T) {
+	for _, factory := range []bool{false, true} {
+		for _, provider := range []string{"claude", "codex"} {
+			for _, failure := range []string{"kill -KILL $$", "exec /bin/sleep 30"} {
+				t.Run(fmt.Sprintf("%s/factory=%t/%s", provider, factory, failure), func(t *testing.T) {
+					ctx := t.Context()
+					root, rootErr := filepath.EvalSymlinks(t.TempDir())
+					if rootErr != nil {
+						t.Fatal(rootErr)
+					}
+					at := time.Now().UTC()
+					db, err := store.Open(ctx, filepath.Join(root, "factory.db"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer func() {
+						if err := db.Close(); err != nil {
+							t.Error(err)
+						}
+					}()
+					if err = db.Migrate(ctx); err != nil {
+						t.Fatal(err)
+					}
+					executable := conversationExecutable(t, provider)
+					answer := "I will remember your flower."
+					if factory {
+						answer = "Recovered original input."
+						executable = factoryConversationExecutable(t, provider, []string{`{"version":1,"kind":"answer","text":"Recovered original input."}`})
+					}
+					original, err := os.ReadFile(executable)
+					if err != nil {
+						t.Fatal(err)
+					}
+					injected := "#!/bin/sh\nif [ -f \"$0.armed\" ] && [ ! -f \"$0.once\" ]; then touch \"$0.once\"; " + failure + "; fi\n" + string(original)
+					if err = os.WriteFile(executable, []byte(injected), 0700); err != nil {
+						t.Fatal(err)
+					}
+					sender := &journeySender{}
+					service := messaging.New(db, "discord", "7", []string{"3"}, sender, messaging.FactoryStatus{DB: db})
+					service.Protect = func(_ context.Context, text string) (string, error) { return text, nil }
+					runner := conversationAdapter(t, provider, executable, root)
+					if err = service.EnableConversations(ctx, messaging.ConversationOptions{Bindings: []messaging.ConversationBinding{{Channel: "3", Name: "owner", Provider: provider, Model: "fixture"}}, StateRoot: filepath.Join(root, "conversations"), Providers: map[string]messaging.ConversationProvider{provider: runner}, CheckAccess: func(context.Context, string) error { return nil }, Factory: factory}, at); err != nil {
+						t.Fatal(err)
+					}
+					if err = os.WriteFile(executable+".armed", nil, 0600); err != nil {
+						t.Fatal(err)
+					}
+					if err = db.ActivateNaturalScan(ctx, "3", "100"); err != nil {
+						t.Fatal(err)
+					}
+					reader := &journeyReader{messages: []store.NaturalMessage{{ChannelRef: "3", SourceID: "101", OwnerID: "7", Text: "For acme/app issue 42, remember that my chosen flower is marigold.", CreatedAt: at}}}
+					intake := messaging.Intake{DB: db, Reader: reader, Transport: "discord", Owner: "7", Channels: []string{"3"}, Protect: service.Protect}
+					if err = intake.Poll(ctx, at); err != nil {
+						t.Fatal(err)
+					}
+					for range 10 {
+						work, err := service.ConversationStep(ctx, at)
+						if err != nil {
+							t.Fatal(err)
+						}
+						sent, err := service.ConversationDeliveryStep(ctx, at)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if !work && !sent {
+							break
+						}
+					}
+					c, err := db.ReadConversation(ctx, "discord", "3")
+					if err != nil {
+						t.Fatal(err)
+					}
+					if c.SessionHandle == "" || c.HealthReason != "" || len(sender.texts) != 1 || sender.texts[0] != answer {
+						t.Fatalf("recovery failed: %+v replies=%v", c, sender.texts)
+					}
+					launches, err := os.ReadFile(filepath.Join(c.StateDir, "fixture-launches"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if strings.Count(string(launches), "\n") != 1 {
+						t.Fatalf("duplicate launch: %q", launches)
+					}
+				})
+			}
+		}
 	}
 }
