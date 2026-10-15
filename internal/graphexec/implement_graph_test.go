@@ -445,3 +445,48 @@ func TestEveryShippedImplementGraphValidates(t *testing.T) {
 		}
 	}
 }
+
+func TestImplementWorkerSyncAdmission(t *testing.T) {
+	dot := strings.Replace(implementSyncDOT(t), ` budget -> worker_agent [lf_on="run"];`, ` sync_before_worker [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"];
+ budget -> sync_before_worker [lf_on="run"];
+ sync_before_worker -> worker_agent [lf_on="synced"];
+ sync_before_worker -> worker_agent [lf_on="current"];
+ sync_before_worker -> sync_before_worker [lf_on="retry"];
+ sync_before_worker -> park_story [lf_on="conflict"];`, 1)
+	if err := validateImplementDOT(t, dot); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutation := range map[string][2]string{
+		"budget bypass":       {` budget -> sync_before_worker [lf_on="run"];`, ` budget -> worker_agent [lf_on="run"];`},
+		"selector bypass":     {` select_path -> budget [lf_on="worker"];`, ` select_path -> worker_agent [lf_on="worker"];`},
+		"gate budget bypass":  {` select_path -> budget [lf_on="worker"];`, ` select_path -> sync_before_worker [lf_on="worker"];`},
+		"different successes": {` sync_before_worker -> worker_agent [lf_on="current"];`, ` sync_before_worker -> worker_done [lf_on="current"];`},
+		"unsafe retry":        {` sync_before_worker -> sync_before_worker [lf_on="retry"];`, ` sync_before_worker -> worker_agent [lf_on="retry"];`},
+		"resolver conflict":   {` sync_before_worker -> park_story [lf_on="conflict"];`, ` sync_before_worker -> sync_start_resolve [lf_on="conflict"];`},
+		"changed bound":       {`sync_before_worker [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"]`, `sync_before_worker [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="9"]`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			broken := strings.Replace(dot, mutation[0], mutation[1], 1)
+			if broken == dot {
+				t.Fatal("mutation changed nothing")
+			}
+			if err := validateImplementDOT(t, broken); err == nil {
+				t.Fatal("unsafe worker gate admitted")
+			}
+		})
+	}
+	profile, err := ParseProfile([]byte(dot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gate, ok := ImplementWorkerSyncNode(profile); !ok || gate.Name != "sync_before_worker" {
+		t.Fatalf("gate = %+v, %v", gate, ok)
+	}
+	legacy, err := ParseProfile([]byte(implementTestDOT))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ImplementWorkerSyncNode(legacy); ok {
+		t.Fatal("legacy graph treated as gated")
+	}
+}

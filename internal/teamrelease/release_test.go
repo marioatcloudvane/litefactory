@@ -258,7 +258,7 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 		for _, role := range []string{"architect", "code-reviewer", "implementation-engineer", "unit-test-engineer", "integration-test-engineer"} {
 			normalized = bytes.ReplaceAll(normalized, []byte(`role="`+role+`"`), []byte(`role="go-`+role+`"`))
 		}
-		if !bytes.Equal(original, normalized) {
+		if !bytes.Equal(original, normalized) && (w != "implement" || !pendingWorkerSyncMatchesRelease(normalized, original)) {
 			t.Fatalf("%s graph changed beyond team and litefactory rules", w)
 		}
 	}

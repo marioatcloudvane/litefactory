@@ -50,6 +50,11 @@ func TestImplementWorkerExplicitSyncSuccessAndStopPaths(t *testing.T) {
 			if name == "safe" && err != nil {
 				t.Fatal(err)
 			}
+			if name == "safe" {
+				if _, gated := ImplementWorkerSyncNode(profile); gated {
+					t.Fatal("terminal-stop legacy sync was classified as a worker gate")
+				}
+			}
 			if name != "safe" && err == nil {
 				t.Fatal("unsafe sync route admitted")
 			}
