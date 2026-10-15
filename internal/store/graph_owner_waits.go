@@ -190,7 +190,17 @@ func graphReplyAllocationTx(ctx context.Context, tx *sql.Tx, in GraphAttemptStar
 			return err
 		}
 	}
-	if in.Node != origin || (in.RunID < 1 && !wait.AllowRunless) {
+	syncRestart := in.BugSyncPrerequisite != nil && origin == in.BugSyncPrerequisite.FixerNode && in.Node == in.BugSyncPrerequisite.SyncNode && in.RunID == 0
+	if syncRestart {
+		var bug bool
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_instances i JOIN graph_definitions d ON d.id=i.definition_id WHERE i.id=? AND d.workflow='bug' AND d.profile_version=2)`, in.InstanceID).Scan(&bug); err != nil {
+			return err
+		}
+		if !bug {
+			return graphInvariant("sync prerequisite requires revised Bug workflow")
+		}
+	}
+	if !syncRestart && (in.Node != origin || (in.RunID < 1 && !wait.AllowRunless)) {
 		return graphInvariant("reply allocation must resume the admitted origin and execution kind")
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='allocated',continuation_attempt_id=? WHERE delivery_key=?`, attemptID, wait.DeliveryKey)

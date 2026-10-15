@@ -1,8 +1,11 @@
 package turn
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/agent"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,13 +19,23 @@ import (
 
 func conversationFixture(t *testing.T) (*fixture, *fakeForge, *graphexec.Profile, store.GraphInstance) {
 	t.Helper()
+	return conversationSourceFixture(t, false)
+}
+
+func conversationSourceFixture(t *testing.T, gated bool) (*fixture, *fakeForge, *graphexec.Profile, store.GraphInstance) {
+	t.Helper()
 	f := newFixture(t, nil)
 	forge := newFakeForge(t)
 	_, e := f.db.AdmitWorkflow(t.Context(), store.TaskWorkflowAdmission{SessionID: f.session.ID, Version: 1, Family: "standalone", Workflow: "bug"})
 	mustProgress(t, e)
 	specs, e := SimplifiedBugSpecs()
 	mustProgress(t, e)
-	packageDef, e := teamsource.CaptureBugParent(t.Context(), specs)
+	var packageDef *teamsource.WorkflowDefinition
+	if gated {
+		packageDef, e = teamsource.CaptureBugParent(t.Context(), specs)
+	} else {
+		packageDef, e = captureLegacyConversation(t.Context(), specs)
+	}
 	mustProgress(t, e)
 	if _, exists := packageDef.Files["bug_tests.dot"]; exists {
 		t.Fatal("simplified package retained child closure")
@@ -44,6 +57,21 @@ func conversationFixture(t *testing.T) (*fixture, *fakeForge, *graphexec.Profile
 	f.opts.MCP = &MCPRuntime{Now: func() time.Time { return at }}
 	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
 	return f, forge, profile, inst
+}
+
+// captureLegacyConversation keeps fixtures pinned to the pre-gate source.
+// New synchronization tests capture the revised canonical definition directly.
+func captureLegacyConversation(ctx context.Context, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+	definition, err := teamsource.CaptureBugParent(ctx, specs)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile("testdata/bug_before_sync.profile")
+	if err != nil {
+		return nil, err
+	}
+	definition.Files["bug.dot"] = raw
+	return teamsource.CaptureWorkflowIdentity(ctx, teamsource.RetainedFiles(definition.Files), "bug.dot", "go-development", agent.WorkflowBug, specs)
 }
 
 func completeConversationAnalyst(t *testing.T, f *fixture, inst store.GraphInstance, response string) store.GraphNodeAttempt {

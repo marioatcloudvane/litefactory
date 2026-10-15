@@ -157,7 +157,10 @@ func ImplementSpecs() []ActionSpec {
 //   - the batched question ends at a terminal, where the owner wait rests;
 //   - the completion reply, when a graph declares one, reads the merge step and
 //     ends at a terminal. A graph without it still validates;
-//   - a base sync, when a graph declares one, hands a conflict to a resolver
+//   - a worker base-sync gate follows budget/run, admits only synced/current
+//     to the worker, retries itself and parks conflicts; no incoming worker
+//     or gate route may bypass those checks;
+//   - a coordinator base sync, when a graph declares one, hands a conflict to a resolver
 //     agent; the resolver's success reaches its own resolved decision and its
 //     failure returns to a base sync; the decision returns resolved and retry to
 //     a base sync and ends blocked at a terminal owner wait. A graph without a
@@ -201,13 +204,29 @@ func ValidateImplementGraph(p *Profile) error {
 		case ImplementStoryDoneAction:
 			c.storyDone(n)
 		case ImplementBudgetAction:
-			c.edge(n, "run", func(t Node) bool { return t.Action == "lf_agent" }, "must run the worker agent")
+			c.budget(n)
 			c.edge(n, "park", func(t Node) bool { return t.Action == ImplementParkAction }, "must park the story")
 		case ImplementAskAction:
 			c.ask(n)
 		case ImplementReportDoneAction:
 			c.reportDone(n)
 		case SyncBaseAction:
+			if c.isWorkerSync(n) {
+				c.workerSync(n)
+				continue
+			}
+			conflict, routed := Decide(p, n.Name, "conflict")
+			conflictTarget, exists := p.Node(conflict)
+			if routed && exists && conflictTarget.Terminal {
+				synced, a := Decide(p, n.Name, "synced")
+				current, b := Decide(p, n.Name, "current")
+				retry, retryRouted := Decide(p, n.Name, "retry")
+				retryTarget, d := p.Node(retry)
+				if !a || !b || synced != current || !retryRouted || !d || !retryTarget.Terminal {
+					c.fail("explicit sync %s requires common success and stopped failure paths", n.Name)
+				}
+				continue
+			}
 			c.edge(n, "conflict", c.isResolver, "must hand the conflict to a resolver agent")
 		case ImplementResolvedAction:
 			c.resolved(n)
@@ -235,6 +254,27 @@ func (c *implementCheck) next(n Node, outcome string) (Node, bool) {
 		return Node{}, false
 	}
 	target, ok := c.p.Node(to)
+	seen := map[string]bool{}
+	for ok && target.Action == SyncBaseAction {
+		conflict, routed := Decide(c.p, target.Name, "conflict")
+		failure, exists := c.p.Node(conflict)
+		if !routed || !exists || !failure.Terminal {
+			break
+		}
+		if seen[target.Name] {
+			c.fail("explicit sync success cycle at %s", target.Name)
+			return Node{}, false
+		}
+		seen[target.Name] = true
+		synced, a := Decide(c.p, target.Name, "synced")
+		current, b := Decide(c.p, target.Name, "current")
+		if !a || !b || synced != current {
+			c.fail("explicit sync %s has inconsistent success paths", target.Name)
+			return Node{}, false
+		}
+		to = synced
+		target, ok = c.p.Node(to)
+	}
 	if !ok {
 		c.fail("implement node %s outcome %s reaches undeclared %s", n.Name, outcome, to)
 	}
@@ -326,4 +366,93 @@ func (c *implementCheck) resolved(n Node) {
 	c.edge(n, "resolved", sync, "must return to a base sync")
 	c.edge(n, "retry", sync, "must return to a base sync")
 	c.edge(n, "blocked", func(t Node) bool { return t.Terminal }, "must end at a terminal owner wait")
+}
+
+// ImplementWorkerSyncNode identifies a worker gate from the budget's run route.
+// Legacy captured graphs that launch the worker directly have no worker gate.
+func ImplementWorkerSyncNode(p *Profile) (Node, bool) {
+	if p != nil {
+		for _, n := range p.Nodes {
+			if n.Action == ImplementBudgetAction {
+				to, ok := Decide(p, n.Name, "run")
+				if target, exists := p.Node(to); ok && exists && target.Action == SyncBaseAction && !implementTerminalSync(p, target) {
+					return target, true
+				}
+			}
+		}
+	}
+	return Node{}, false
+}
+
+// Earlier explicit-sync graphs stopped both unsuccessful outcomes at a terminal.
+// They retain their generic synchronization binding and do not gain a worker gate.
+func implementTerminalSync(p *Profile, n Node) bool {
+	for _, outcome := range []string{"conflict", "retry"} {
+		to, routed := Decide(p, n.Name, outcome)
+		target, exists := p.Node(to)
+		if !routed || !exists || !target.Terminal {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *implementCheck) isWorkerSync(n Node) bool {
+	if implementTerminalSync(c.p, n) {
+		return false
+	}
+	if gate, ok := ImplementWorkerSyncNode(c.p); ok && gate.Name == n.Name {
+		return true
+	}
+	for _, outcome := range []string{"synced", "current", "conflict"} {
+		to, routed := Decide(c.p, n.Name, outcome)
+		target, exists := c.p.Node(to)
+		if routed && exists && (target.Action == ImplementParkAction || (target.Action == "lf_agent" && !c.isResolver(target))) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *implementCheck) budget(n Node) {
+	to, routed := Decide(c.p, n.Name, "run")
+	target, exists := c.p.Node(to)
+	if routed && exists && target.Action == SyncBaseAction && c.isWorkerSync(target) {
+		return
+	}
+	c.edge(n, "run", func(t Node) bool { return t.Action == "lf_agent" && !c.isResolver(t) }, "must run the worker agent or its sync gate")
+}
+
+func (c *implementCheck) workerSync(n Node) {
+	if n.Limit != 8 {
+		c.fail("worker sync %s requires lf_limit 8", n.Name)
+	}
+	synced, a := Decide(c.p, n.Name, "synced")
+	current, b := Decide(c.p, n.Name, "current")
+	worker, exists := c.p.Node(synced)
+	if !a || !b || synced != current || !exists || worker.Action != "lf_agent" || c.isResolver(worker) {
+		c.fail("worker sync %s requires synced and current to reach the same worker agent", n.Name)
+	}
+	c.edge(n, "retry", func(t Node) bool { return t.Name == n.Name }, "must retry the same worker sync")
+	c.edge(n, "conflict", func(t Node) bool { return t.Action == ImplementParkAction }, "must park the story")
+	budgetRun := false
+	for _, edge := range c.p.Edges {
+		source, _ := c.p.Node(edge.From)
+		if edge.To == n.Name {
+			if source.Action == ImplementBudgetAction && edge.On == "run" {
+				budgetRun = true
+				continue
+			}
+			if edge.From == n.Name && edge.On == "retry" {
+				continue
+			}
+			c.fail("worker sync %s incoming path must pass the budget", n.Name)
+		}
+		if exists && edge.To == worker.Name && (edge.From != n.Name || (edge.On != "synced" && edge.On != "current")) {
+			c.fail("worker agent %s incoming path must pass its worker sync", worker.Name)
+		}
+	}
+	if !budgetRun {
+		c.fail("worker sync %s must follow the budget run decision", n.Name)
+	}
 }

@@ -18,7 +18,9 @@
 // coordinator itself never writes code.
 //
 // Worker (story sub-issue). The repair budget is counted in the story ledger:
-// the first attempt and two repairs. One write-access agent writes the code and
+// the first attempt and two repairs. Each permitted entry first synchronizes
+// the selected story base; conflicts or exhausted sync retries park the story.
+// One write-access agent writes the code and
 // its tailored unit tests and runs them. Only an accepted completed answer is
 // saved (committed and pushed), and only then is the story done. A blocked
 // answer parks the story at once with the agent's own reason. An incomplete
@@ -54,6 +56,7 @@ digraph implement {
  sync_done_resolved  [lf_action="lf_implement_resolved", lf_outcomes="resolved,blocked,retry", lf_source="sync_done_resolve", lf_limit="3"];
 
  // ---- Worker -----------------------------------------------------------------------
+ sync_before_worker [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"];
  budget        [lf_action="lf_implement_budget", lf_outcomes="run,park", lf_limit="8"];
  worker_agent  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="story-worker", lf_skills="implement-result,python-fastapi-stack", lf_limit="3"];
  worker_result [lf_action="lf_implement_result", lf_outcomes="completed,incomplete,blocked", lf_source="worker_agent", lf_limit="3"];
@@ -112,9 +115,13 @@ digraph implement {
  sync_done_resolved -> sync_done          [lf_on="retry"];
  sync_done_resolved -> waiting            [lf_on="blocked"];
 
- // Worker: budget, then the agent. Completed is saved; blocked parks at once. An
+ // Worker: budget, then synchronize the selected story base before the agent. Completed is saved; blocked parks at once. An
  // incomplete answer, a failed attempt or a failed save goes back to the budget.
- budget        -> worker_agent  [lf_on="run"];
+ budget        -> sync_before_worker [lf_on="run"];
+ sync_before_worker -> worker_agent [lf_on="synced"];
+ sync_before_worker -> worker_agent [lf_on="current"];
+ sync_before_worker -> sync_before_worker [lf_on="retry"];
+ sync_before_worker -> park_story [lf_on="conflict"];
  budget        -> park_story    [lf_on="park"];
  worker_agent  -> worker_result [lf_on="success"];
  worker_agent  -> budget        [lf_on="failed"];

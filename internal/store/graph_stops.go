@@ -20,11 +20,16 @@ type GraphStop struct {
 	At                          time.Time
 	AllowRunless                bool
 	Completion                  *GraphCompletion
+	// ReparkReplyID replaces only the exact claimed reply refused before dispatch.
+	ReparkReplyID int64
 }
 
 // ParkGraphNode atomically records completion, retained history and a question
 // at the existing origin. It clears automatic dispatch; publication is separate.
 func (db *DB) ParkGraphNode(ctx context.Context, in GraphStop) error {
+	if in.ReparkReplyID < 0 || (in.ReparkReplyID > 0 && (in.SourceAttemptID != 0 || in.Completion != nil || !in.AllowRunless)) {
+		return graphInvariant("invalid claimed reply repark")
+	}
 	if in.Key == "" || in.InstanceID <= 0 || in.SourceAttemptID < 0 || in.Origin == "" || in.Cause == "" || in.Reason == "" || len(in.Reason) > 65536 || len(in.Candidate) == 0 || len(in.Candidate) > 1<<20 || in.At.IsZero() || (in.SourceAttemptID == 0) != (in.Completion == nil) {
 		return graphInvariant("invalid graph stop intent")
 	}
@@ -89,6 +94,19 @@ func (db *DB) ParkGraphNode(ctx context.Context, in GraphStop) error {
 				return ErrGraphAttemptRunning
 			}
 		}
+		if in.ReparkReplyID > 0 {
+			result, err := tx.ExecContext(ctx, `UPDATE graph_owner_waits SET state='cancelled' WHERE instance_id=? AND state='claimed' AND reply_id=? AND (origin_node=? OR EXISTS(SELECT 1 FROM graph_transitions t WHERE t.instance_id=graph_owner_waits.instance_id AND t.from_node=graph_owner_waits.origin_node AND t.to_node=? AND t.on_outcome='sync_required' AND t.id=(SELECT MAX(latest.id) FROM graph_transitions latest WHERE latest.instance_id=graph_owner_waits.instance_id)))`, in.InstanceID, in.ReparkReplyID, in.Origin, in.Origin)
+			if err != nil {
+				return err
+			}
+			count, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if count != 1 {
+				return graphInvariant("claimed reply no longer owns repark")
+			}
+		}
 		if _, e = tx.ExecContext(ctx, `INSERT INTO graph_comment_intents(delivery_key,instance_id,source_attempt_id,node,kind,candidate,stop_origin,stop_cause,stop_reason,created_at) VALUES(?,?,?,?,'question',?,?,?,?,?)`, in.Key, in.InstanceID, nullID(in.SourceAttemptID), in.Origin, in.Candidate, in.Origin, in.Cause, in.Reason, FormatTime(in.At)); e != nil {
 			return e
 		}
@@ -106,6 +124,9 @@ func (db *DB) ParkGraphNode(ctx context.Context, in GraphStop) error {
 // graphClaimAllowsAttemptTx releases exactly one bounded allocation from a
 // consumed owner claim. It preserves accumulated attempt counters.
 func graphClaimAllowsAttemptTx(ctx context.Context, tx *sql.Tx, in GraphAttemptStart) (bool, error) {
+	if in.BugSyncPrerequisite != nil && in.Node == in.BugSyncPrerequisite.SyncNode {
+		return false, nil
+	}
 	var count int
 	err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_owner_waits WHERE instance_id=? AND state='claimed' AND origin_node=? AND (allow_runless=1 OR ?>0)`, in.InstanceID, in.Node, in.RunID).Scan(&count)
 	if err != nil {
@@ -120,9 +141,13 @@ func graphClaimAllowsAttemptTx(ctx context.Context, tx *sql.Tx, in GraphAttemptS
 	return false, nil
 }
 
-// graphMechanicalAllowanceTx accepts only the latest successful runless owner
-// continuation and its retained immediate transition. It never chooses a route.
+// graphMechanicalAllowanceTx accepts a successful factory owner continuation
+// and its immediate transition, or the declared Bug sync traversal. It never
+// chooses a route or creates another allowance.
 func graphMechanicalAllowanceTx(ctx context.Context, tx *sql.Tx, in GraphAttemptStart) (bool, error) {
+	if in.BugSyncPrerequisite != nil && (in.Node == in.BugSyncPrerequisite.FixerNode || in.Node == in.BugSyncPrerequisite.SyncNode) {
+		return graphBugSyncAllowanceTx(ctx, tx, in)
+	}
 	if in.OwnerAllowanceSource < 1 || in.RunID < 1 {
 		return false, nil
 	}
