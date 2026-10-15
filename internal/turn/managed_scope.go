@@ -250,7 +250,7 @@ func deliverScopeNotice(ctx context.Context, o Options, sessionID int64, ref nam
 	if !ok {
 		return fmt.Errorf("scope announcement renderer unavailable")
 	}
-	publisher, err := scopeNoticePublisher(ctx, o, sessionID, ref)
+	publisher, err := ticketPublisherID(ctx, o, forge, sessionID, ref)
 	if err != nil {
 		return err
 	}
@@ -297,30 +297,4 @@ func deliverScopeNotice(ctx context.Context, o Options, sessionID int64, ref nam
 		kind = "planning"
 	}
 	return o.DB.DeliverStoryScopeNotice(context.WithoutCancel(ctx), ref.String(), f.Generation, s.Key, kind)
-}
-
-// scopeNoticePublisher uses the ticket actor retained at admission. Only legacy
-// GitHub sessions without connected identity may use the global bot identity.
-func scopeNoticePublisher(ctx context.Context, o Options, sessionID int64, ref naming.Ref) (int64, error) {
-	snapshot, err := o.DB.GetExecutionSnapshot(ctx, sessionID)
-	if err == nil {
-		if snapshot.ActorID <= 0 {
-			return 0, fmt.Errorf("scope announcement requires retained ticket publisher")
-		}
-		return snapshot.ActorID, nil
-	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return 0, err
-	}
-	if ref.Forge != store.ForgeGitHub || o.ProjectApprovers {
-		return 0, fmt.Errorf("scope announcement requires retained ticket publisher")
-	}
-	bot, err := o.DB.GetIdentity(ctx, ref.Forge, store.RoleBot)
-	if err != nil {
-		return 0, err
-	}
-	if bot.UserID <= 0 {
-		return 0, fmt.Errorf("scope announcement requires verified bot identity")
-	}
-	return bot.UserID, nil
 }

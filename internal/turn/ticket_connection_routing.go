@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -11,6 +12,63 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
+
+// ErrRequiredTicketPublisher identifies a definitively absent or invalid publisher.
+// Transport failures and cancellation retain their original retry semantics.
+var ErrRequiredTicketPublisher = errors.New("required ticket publisher unavailable")
+
+// ticketPublisherID shares the retained admission identity across publication paths.
+// Routed verification may reject that identity, but cannot replace it.
+func ticketPublisherID(ctx context.Context, o Options, forge any, sessionID int64, ref naming.Ref) (int64, error) {
+	db := o.DB
+	snapshot, snapshotErr := db.GetExecutionSnapshot(ctx, sessionID)
+	if snapshotErr != nil && !errors.Is(snapshotErr, store.ErrNotFound) {
+		return 0, snapshotErr
+	}
+	if (snapshotErr == nil && snapshot.ActorID <= 0) || (snapshotErr != nil && o.ProjectApprovers) {
+		return 0, ErrRequiredTicketPublisher
+	}
+	if contextual, ok := forge.(interface {
+		BotIdentityFor(context.Context, github.Repo, int) (ticket.Identity, error)
+	}); ok {
+		actor, err := contextual.BotIdentityFor(ctx, github.RepoFromRef(ref), ref.Issue)
+		if err != nil {
+			if ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && (errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrTicketIdentityConflict)) {
+				return 0, fmt.Errorf("%w: %w", ErrRequiredTicketPublisher, err)
+			}
+			return 0, err
+		}
+		if err := actor.Validate(); err != nil || string(actor.Provider) != ref.Forge {
+			return 0, ErrRequiredTicketPublisher
+		}
+		slot, err := compatibilitySlot(ctx, db, "actor", actor)
+		if errors.Is(err, store.ErrTicketIdentityConflict) {
+			return 0, fmt.Errorf("%w: %w", ErrRequiredTicketPublisher, err)
+		}
+		if err != nil {
+			return 0, err
+		}
+		if snapshotErr == nil {
+			if slot != snapshot.ActorID {
+				return 0, ErrRequiredTicketPublisher
+			}
+			return snapshot.ActorID, nil
+		}
+		return slot, nil
+	}
+	if snapshotErr == nil {
+		return snapshot.ActorID, nil
+	}
+	// Only historical GitHub callers can use the provider-global identity table.
+	if ref.Forge != naming.ForgeGitHub {
+		return 0, ErrRequiredTicketPublisher
+	}
+	bot, err := db.GetIdentity(ctx, ref.Forge, store.RoleBot)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && bot.UserID <= 0) {
+		return 0, ErrRequiredTicketPublisher
+	}
+	return bot.UserID, err
+}
 
 // TicketConnectionSelector resolves a trusted project version or a retained
 // session snapshot. A zero number allows container and reply operations; the
@@ -41,7 +99,7 @@ func (b *TicketWorkflowBridge) selected(ctx context.Context, repo github.Repo, n
 		return nil, err
 	}
 	if adapter == nil || actorID < 1 {
-		return nil, errors.New("retained ticket connection unavailable")
+		return nil, ErrRequiredTicketPublisher
 	}
 	selected, err := NewTicketWorkflow(ctx, b.DB, adapter, actorID)
 	if err != nil {

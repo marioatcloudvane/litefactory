@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -223,6 +224,30 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 		next = 0
 	}
 	return d.db.AdvanceDoctorScan(ctx, scan, next)
+}
+
+// refuseUnsupportedDoctor uses the qualified retained ticket before the GitHub-only
+// Doctor authority path can interpret a Linear compatibility slot as a remote ID.
+func (d *Daemon) refuseUnsupportedDoctor(ctx context.Context, t *task, c github.Comment, reply *ticket.Reply) (bool, error) {
+	if reply == nil || reply.Ticket.Identity.Provider != ticket.Linear {
+		return false, nil
+	}
+	if _, ok := doctor.ParseCommand(c.Body); !ok {
+		return false, nil
+	}
+	admission, err := d.admitReply(ctx, t.session.ID, c, reply)
+	if err != nil {
+		return true, err
+	}
+	if !admission.Triggers() {
+		_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
+		return true, err
+	}
+	_, err = d.reportReply(ctx, turn.ReplyRequest{
+		Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID,
+		Refusal: report.ReplyDoctorUnsupported,
+	})
+	return true, err
 }
 
 // admitDoctor is shared by priority discovery and normal ordered consumers.

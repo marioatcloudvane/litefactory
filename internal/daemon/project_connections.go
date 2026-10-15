@@ -377,7 +377,11 @@ func (d *Daemon) connectionIngress(ctx context.Context, repo github.Repo, number
 // execution selection used by daemon workers. No mutable replacement fallback exists.
 func ProjectTicketSelector(db *store.DB, factory *projectconnection.Factory) turn.TicketConnectionSelector {
 	return func(ctx context.Context, repo github.Repo, number int, sessionID int64) (turn.WorkflowTickets, int64, error) {
-		return selectTicketConnection(ctx, db, factory, repo, number, sessionID)
+		adapter, actor, err := selectTicketConnection(ctx, db, factory, repo, number, sessionID)
+		if ctx.Err() == nil && errors.Is(err, projectconnection.ErrActorChanged) {
+			return nil, 0, fmt.Errorf("%w: %w", turn.ErrRequiredTicketPublisher, err)
+		}
+		return adapter, actor, err
 	}
 }
 

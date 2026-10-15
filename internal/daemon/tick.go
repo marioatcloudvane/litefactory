@@ -2228,6 +2228,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	} else if held {
 		return errors.New("issue held for doctor repair")
 	}
+	if routed, err := d.refuseUnsupportedDoctor(ctx, t, c, qualifiedReply); routed {
+		return err
+	}
 	if routed, err := d.admitDoctor(ctx, t.repo, t.issue, c); routed {
 		if err != nil {
 			return err
@@ -2778,6 +2781,9 @@ func (d *Daemon) run(
 		var planRefusal *turn.PlanReplyRefusal
 		if trigger.PlanReply != nil && errors.As(err, &planRefusal) {
 			return err
+		}
+		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && errors.Is(err, turn.ErrRequiredTicketPublisher) {
+			return d.refuseMode(ctx, t, trigger, report.ReplyMissingTicketPublisher, "")
 		}
 		var refusal *workflowRefusal
 		if errors.As(err, &refusal) {
