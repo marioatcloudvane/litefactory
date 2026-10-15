@@ -224,11 +224,11 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 	if renderer == nil {
 		return fail(fmt.Errorf("complete story renderer unavailable"))
 	}
-	bot, err := o.DB.GetIdentity(ctx, prep.ref.Forge, store.RoleBot)
+	bot, err := ticketPublisherID(ctx, o.DB, forge, prep.ref)
 	if err != nil {
 		return fail(err)
 	}
-	publication := PublicationOptions{DB: o.DB, Forge: forge, Renderer: renderer, Parent: prep.ref, Generation: prep.promptInput.PlanGeneration, BotID: bot.UserID}
+	publication := PublicationOptions{DB: o.DB, Forge: forge, Renderer: renderer, Parent: prep.ref, Generation: prep.promptInput.PlanGeneration, BotID: bot}
 	if prep.typedPlan != nil {
 		publication.TypedContent = prep.typedPlan.content
 		publication.TypedScope = prep.typedPlan.scope

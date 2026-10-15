@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 type scopeTestForge struct {
@@ -140,5 +141,48 @@ func TestManagedReplanRequiresExactParentControl(t *testing.T) {
 		if ManagedReplan(ParseCommand(text)) {
 			t.Fatalf("incidental text unlocked: %q", text)
 		}
+	}
+}
+
+type linearScopeForge struct {
+	scopeTestForge
+	actor ticket.Identity
+	bot   int64
+}
+
+func (f *linearScopeForge) BotIdentityFor(context.Context, github.Repo, int) (ticket.Identity, error) {
+	return f.actor, nil
+}
+func (f *linearScopeForge) PostComment(_ context.Context, _ github.Repo, n int, body redact.Body) (github.Comment, error) {
+	f.posts++
+	c := github.Comment{ID: int64(f.posts), Body: body.String(), Author: github.User{ID: f.bot}}
+	f.comments[n] = append(f.comments[n], c)
+	return c, nil
+}
+func TestLinearScopeNoticesUseContextualPublisherWithoutGlobalIdentity(t *testing.T) {
+	ctx := t.Context()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "scope.db"))
+	mustProgress(t, err)
+	defer func() { _ = db.Close() }()
+	mustProgress(t, db.Migrate(ctx))
+	actor := ticket.Identity{Provider: ticket.Linear, Origin: "https://linear.example/graphql", RemoteID: "verified-bot"}
+	slot, err := db.LocalTicketSlot(ctx, "actor", actor)
+	mustProgress(t, err)
+	forge := &linearScopeForge{scopeTestForge: scopeTestForge{publicationForge: publicationForge{attached: true}, comments: map[int][]github.Comment{}}, actor: actor, bot: slot}
+	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: 65536})
+	mustProgress(t, err)
+	ref := naming.Ref{Forge: "linear", Owner: "team", Repo: "project", Issue: 1}
+	feature := store.ManagedFeature{ParentTask: ref.String(), Generation: 1, State: "planning"}
+	mustProgress(t, db.PutManagedFeature(ctx, feature))
+	story := store.ManagedStory{ParentTask: ref.String(), Generation: 1, Key: "story-001", IssueNumber: 2, IssueID: 200, BodyHash: strings.Repeat("a", 64), State: "planning"}
+	mustProgress(t, db.PutManagedStory(ctx, story))
+	mustProgress(t, db.SetManagedFeatureReady(ctx, ref.String(), 1, true))
+	mustProgress(t, db.ApproveManagedStories(ctx, ref.String(), 1, []store.ApprovedStoryRevision{{ManagedStory: story, ParentID: 100, Title: "Story", Body: "Body", Hash: story.BodyHash, FetchedAt: implementClock}}))
+	opts := Options{DB: db, SubIssueCreator: forge, SubIssueRenderer: renderer}
+	for range 2 {
+		mustProgress(t, deliverScopeNotice(ctx, opts, ref, feature, story, false))
+	}
+	if forge.posts != 1 || forge.comments[2][0].Author.ID != slot {
+		t.Fatalf("wrong or repeated publisher: %+v", forge.comments)
 	}
 }

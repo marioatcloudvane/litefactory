@@ -29,6 +29,7 @@ var everyReplyKind = []report.ReplyKind{
 	report.ReplyAmbiguousModeLabels,
 	report.ReplyConflictingModeSelection,
 	report.ReplyMissingModeMapping,
+	report.ReplyMissingTicketPublisher,
 	report.ReplyMissingTeam,
 	report.ReplyUnsupportedWorkflow,
 	report.ReplyLegacyToolLabel,

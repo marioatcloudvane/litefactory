@@ -250,11 +250,11 @@ func deliverScopeNotice(ctx context.Context, o Options, ref naming.Ref, f store.
 	if !ok {
 		return fmt.Errorf("scope announcement renderer unavailable")
 	}
-	bot, err := o.DB.GetIdentity(ctx, ref.Forge, store.RoleBot)
+	bot, err := ticketPublisherID(ctx, o.DB, forge, ref)
 	if err != nil {
 		return err
 	}
-	if bot.UserID <= 0 {
+	if bot <= 0 {
 		return fmt.Errorf("scope announcement requires verified bot identity")
 	}
 	parent, err := forge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
@@ -285,13 +285,13 @@ func deliverScopeNotice(ctx context.Context, o Options, ref naming.Ref, f store.
 	}
 	found := false
 	for _, c := range comments {
-		if !hasTicketNoticeGuard(forge) && c.Author.ID == bot.UserID && strings.Contains(c.Body, n.Marker()) && c.Body == body.String() {
+		if !hasTicketNoticeGuard(forge) && c.Author.ID == bot && strings.Contains(c.Body, n.Marker()) && c.Body == body.String() {
 			found = true
 			break
 		}
 	}
 	if !found {
-		if _, err := postTicketNotice(ctx, forge, n.Marker(), ref.String(), bot.UserID, github.RepoFromRef(ref), s.IssueNumber, body); err != nil {
+		if _, err := postTicketNotice(ctx, forge, n.Marker(), ref.String(), bot, github.RepoFromRef(ref), s.IssueNumber, body); err != nil {
 			return err
 		}
 	}

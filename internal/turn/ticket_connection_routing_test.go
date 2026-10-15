@@ -170,3 +170,59 @@ func TestTicketReceiptMetadataDistinguishesCollidingOrigins(t *testing.T) {
 		}
 	}
 }
+
+// This seam returns only a verified connection identity; global rows deliberately
+// disagree so any compatibility fallback changes the observed publisher.
+type contextualPublisherFixture struct {
+	actor ticket.Identity
+	err   error
+}
+
+func (f contextualPublisherFixture) BotIdentityFor(context.Context, github.Repo, int) (ticket.Identity, error) {
+	return f.actor, f.err
+}
+
+func TestTicketPublisherUsesQualifiedConnectionAndNeverFallsBack(t *testing.T) {
+	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "publisher.db"))
+	mustProgress(t, err)
+	defer func() { _ = db.Close() }()
+	mustProgress(t, db.Migrate(t.Context()))
+	_, err = db.UpsertIdentity(t.Context(), store.Identity{Forge: "github", Role: store.RoleBot, UserID: 9})
+	mustProgress(t, err)
+	ref := naming.Ref{Forge: "linear", Owner: "team", Repo: "project", Issue: 1}
+	var slots []int64
+	for _, origin := range []ticket.Origin{"https://first.example/graphql", "https://second.example/graphql"} {
+		actor := ticket.Identity{Provider: ticket.Linear, Origin: origin, RemoteID: "publisher"}
+		slot, e := ticketPublisherID(t.Context(), db, contextualPublisherFixture{actor: actor}, ref)
+		mustProgress(t, e)
+		retained, e := db.TicketIdentityForSlot(t.Context(), "actor", slot)
+		mustProgress(t, e)
+		if !retained.Equal(actor) {
+			t.Fatalf("publisher changed: %+v", retained)
+		}
+		slots = append(slots, slot)
+	}
+	if slots[0] == slots[1] {
+		t.Fatal("origins shared an actor slot")
+	}
+	for _, cause := range []error{store.ErrNotFound, store.ErrTicketIdentityConflict, context.Canceled, errors.New("transient transport failure")} {
+		slot, e := ticketPublisherID(t.Context(), db, contextualPublisherFixture{err: cause}, ref)
+		if slot != 0 || !errors.Is(e, cause) {
+			t.Fatalf("routed error fell back: %d %v", slot, e)
+		}
+		permanent := errors.Is(cause, store.ErrNotFound) || errors.Is(cause, store.ErrTicketIdentityConflict)
+		if errors.Is(e, ErrRequiredTicketPublisher) != permanent {
+			t.Fatalf("wrong retry classification: %v", e)
+		}
+	}
+	if _, e := ticketPublisherID(t.Context(), db, contextualPublisherFixture{}, ref); !errors.Is(e, ErrRequiredTicketPublisher) {
+		t.Fatalf("invalid identity: %v", e)
+	}
+	if _, e := ticketPublisherID(t.Context(), db, struct{}{}, ref); !errors.Is(e, ErrRequiredTicketPublisher) {
+		t.Fatalf("Linear used global identity: %v", e)
+	}
+	ref.Forge = "github"
+	if id, e := ticketPublisherID(t.Context(), db, struct{}{}, ref); e != nil || id != 9 {
+		t.Fatalf("legacy GitHub: %d %v", id, e)
+	}
+}
