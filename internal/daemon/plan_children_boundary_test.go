@@ -333,6 +333,24 @@ func TestPlanChildrenSweep_IdleParentReadsNoChildren(t *testing.T) {
 	// and each listing names it again. Past the window, nothing names it.
 	f.clock.advance(daemon.ListingOverlap + time.Minute)
 	f.settle()
+	// Quiesce joins workers, but a parent worker can leave a child poll owed
+	// after the child's worker has finished. Drain that durable backlog before
+	// measuring idle reads, without accepting renewed parent discovery debt.
+	const maxDrainTicks = 3
+	for drained := 0; ; drained++ {
+		owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		child := f.sessionOf(200)
+		if owed || (child.NeedsPoll && drained == maxDrainTicks) {
+			t.Fatalf("child not quiet after %d drain ticks: discovery owed=%v needs poll=%v\n%s", drained, owed, child.NeedsPoll, f.logs)
+		}
+		if !child.NeedsPoll {
+			break
+		}
+		f.settle()
+	}
 	swept := forge.childReads(200)
 	for tick := range 2 {
 		issue, comments := forge.parentReads()

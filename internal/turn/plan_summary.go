@@ -85,7 +85,7 @@ func (r *Reporter) ReportPlanSummary(ctx context.Context, parent naming.Ref, ses
 	}
 	var rows [][4]string
 	for _, draft := range drafts {
-		if draft.IssueID < 1 || draft.Retired {
+		if draft.Retired {
 			continue
 		}
 		var found *planbrief.PlanStoryState
@@ -95,6 +95,34 @@ func (r *Reporter) ReportPlanSummary(ctx context.Context, parent naming.Ref, ses
 			}
 		}
 		if found == nil || !found.Active() {
+			continue
+		}
+		if draft.IssueID < 1 || draft.IssueNumber < 1 {
+			issue := "issue unresolved"
+			// Lookup is advisory: an outage must not hide the durable warning.
+			if forge, ok := r.forge.(PlanStoryForge); ok {
+				a := PlanStoryAuthority{Parent: parent.String(), Repo: github.RepoFromRef(parent), ParentNumber: parent.Issue}
+				parentIssue, parentReadErr := forge.GetIssue(ctx, a.Repo, parent.Issue)
+				a.ParentID = parentIssue.ID
+				if listed, listErr := forge.ListFollowupIssues(ctx, a.Repo); listErr == nil && parentReadErr == nil && a.ParentID > 0 {
+					var match *github.Issue
+					matches := 0
+					for i := range listed {
+						if strings.HasPrefix(listed[i].Body, planStoryMarker(a, draft.Key)+"\n") {
+							match = &listed[i]
+							matches++
+						}
+					}
+					if matches == 1 && match.ID > 0 && match.Number > 0 {
+						observed, readErr := forge.GetIssue(ctx, a.Repo, match.Number)
+						owner, parentErr := forge.GetParentIssue(ctx, a.Repo, match.Number)
+						if readErr == nil && parentErr == nil && observed.ID == match.ID && observed.Number == match.Number && owner.Number == parent.Issue && owner.ID == a.ParentID && strings.HasPrefix(observed.Body, planStoryMarker(a, draft.Key)+"\n") {
+							issue = displayIssue(parent, observed).Link()
+						}
+					}
+				}
+			}
+			rows = append(rows, [4]string{draft.Key, issue, "story", "Not bound to its issue; cannot draft; plan assembly is blocked."})
 			continue
 		}
 		failed, err := r.storyRunFailed(ctx, parent, draft.IssueNumber)
