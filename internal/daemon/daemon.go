@@ -715,6 +715,14 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		}
 	}
 
+	if recovery, ok := d.turn.(interface {
+		RecoverWorkflowJudges(context.Context, time.Time) error
+	}); ok {
+		if err := recovery.RecoverWorkflowJudges(ctx, reconciliation.At); err != nil {
+			return Reconciled{}, err
+		}
+	}
+
 	if _, err := d.db.ReconcileResearchGraphs(ctx, reconciliation.At); err != nil {
 		return Reconciled{}, err
 	}

@@ -52,6 +52,13 @@ type JudgeRequest struct {
 	Options                    JudgeCommandOptions
 	Comments                   []JudgeComment
 	Cutoff                     time.Time
+	// Workflow fields are factory-pinned and never accepted from command text.
+	GraphInstanceID, JudgeNodeAttemptID, SourceNodeAttemptID int64
+	SourceNode                                               string
+	PinnedSource                                             *store.JudgeSource
+	Role                                                     []byte
+	Budget                                                   time.Duration
+	RecoverOnly                                              bool
 }
 
 type judgeConfiguration struct {
@@ -71,7 +78,7 @@ type judgeSavedReport struct {
 // Execute pins source, settings and captured evidence before any provider launch.
 // Saved reports and interrupted launches are recovered without rerunning an assessment.
 func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text string, returnedErr error) {
-	if s.DB == nil || s.Config == nil || s.Redactor == nil || in.SessionID < 1 || in.CommentID < 1 || in.TicketKey == "" || in.RemoteCommentID == "" {
+	if s.DB == nil || s.Config == nil || s.Redactor == nil || in.SessionID < 1 || (in.CommentID < 1 && in.GraphInstanceID == 0) || in.TicketKey == "" || in.RemoteCommentID == "" {
 		return "", errors.New("judge requires authenticated ticket context and configured dependencies")
 	}
 	if err := in.Ref.Validate(); err != nil {
@@ -87,7 +94,13 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 	defer func() { returnedErr = errors.Join(returnedErr, release()) }()
 	q, err := s.DB.FindJudgeRequest(ctx, in.TicketKey, in.RemoteCommentID)
 	if errors.Is(err, store.ErrNotFound) {
-		source, e := s.DB.ResolveJudgeSource(ctx, in.Ref.String(), in.Options.Target)
+		var source store.JudgeSource
+		var e error
+		if in.PinnedSource != nil && in.GraphInstanceID > 0 {
+			source = *in.PinnedSource
+		} else {
+			source, e = s.DB.ResolveJudgeSource(ctx, in.Ref.String(), in.Options.Target)
+		}
 		if e != nil {
 			return "", e
 		}
@@ -95,16 +108,29 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 		if e != nil {
 			return "", fmt.Errorf("%w: %w", ErrJudgeSettings, e)
 		}
-		role, e := teamsource.JudgeInstructions()
+		role := in.Role
+		if len(role) == 0 {
+			role, e = teamsource.JudgeInstructions()
+		}
 		if e != nil {
 			return "", e
 		}
 		sum := sha256.Sum256(role)
 		cfg := judgeConfiguration{Requested: in.Options, Effective: invocation, Role: string(role), RoleDigest: hex.EncodeToString(sum[:])}
-		evidence, e := CaptureJudgeEvidence(ctx, s.Git, in.Root, string(source.Snapshot), in.Comments)
+		sourceText := string(source.Snapshot)
+		if len(source.PlanContext) > 0 {
+			sourceText += "\nFactory-pinned Plan context and constituent revisions:\n" + string(source.PlanContext)
+		}
+		if source.PlanContextGap != "" {
+			sourceText += "\nPlan evidence gap: " + source.PlanContextGap
+		}
+		evidence, e := CaptureJudgeEvidence(ctx, s.Git, in.Root, sourceText, in.Comments)
 		if e != nil {
-			evidence, _ = CaptureJudgeEvidence(ctx, s.Git, "", string(source.Snapshot), in.Comments)
+			evidence, _ = CaptureJudgeEvidence(ctx, s.Git, "", sourceText, in.Comments)
 			evidence.Evidence = append(evidence.Evidence, agentresult.JudgeEvidence{ID: "capture", Kind: "code", Essential: true, Gap: "Repository evidence could not be captured consistently."})
+		}
+		if source.PlanContextGap != "" {
+			evidence.Evidence = append(evidence.Evidence, agentresult.JudgeEvidence{ID: "plan-context", Kind: "source", Gap: source.PlanContextGap})
 		}
 		evidence.Cutoff = in.Cutoff
 		codeBase, codeErr := url.Parse(in.CodeURL)
@@ -132,7 +158,7 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 			return "", e
 		}
 		if len(captured) > 128<<20 {
-			evidence, _ = CaptureJudgeEvidence(ctx, s.Git, "", string(source.Snapshot), in.Comments)
+			evidence, _ = CaptureJudgeEvidence(ctx, s.Git, "", sourceText, in.Comments)
 			evidence.Cutoff = in.Cutoff
 			evidence.Evidence = append(evidence.Evidence, agentresult.JudgeEvidence{ID: "capture-size", Kind: "code", Essential: true, Gap: "Serialized repository evidence exceeds the retained snapshot budget; repository bytes were omitted."})
 			if err := s.cleanEvidence(ctx, &evidence); err != nil {
@@ -143,12 +169,16 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 				return "", e
 			}
 		}
-		q, err = s.DB.AdmitJudgeRequest(ctx, store.JudgeRequest{Task: in.Ref.String(), TicketKey: in.TicketKey, CommentID: in.RemoteCommentID, SessionID: in.SessionID, TriggerCommentID: in.CommentID, Source: source, Configuration: configuration, Evidence: captured})
+		caller := "manual"
+		if in.GraphInstanceID > 0 {
+			caller = "workflow"
+		}
+		q, err = s.DB.AdmitJudgeRequest(ctx, store.JudgeRequest{CallerKind: caller, GraphInstanceID: in.GraphInstanceID, JudgeNodeAttemptID: in.JudgeNodeAttemptID, SourceNode: in.SourceNode, SourceNodeAttemptID: in.SourceNodeAttemptID, Task: in.Ref.String(), TicketKey: in.TicketKey, CommentID: in.RemoteCommentID, SessionID: in.SessionID, TriggerCommentID: in.CommentID, Source: source, Configuration: configuration, Evidence: captured})
 	}
 	if err != nil {
 		return "", err
 	}
-	if q.Task != in.Ref.String() || q.SessionID != in.SessionID {
+	if q.Task != in.Ref.String() || q.SessionID != in.SessionID || q.GraphInstanceID != in.GraphInstanceID || q.JudgeNodeAttemptID != in.JudgeNodeAttemptID || q.SourceNode != in.SourceNode {
 		return "", store.ErrResultAuthority
 	}
 	if len(q.Report) > 0 {
@@ -193,9 +223,16 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 		}
 		return s.save(ctx, q, cfg, evidence, unableJudge("Provider execution was interrupted; no assessment was rerun."), "interrupted")
 	}
+	if in.RecoverOnly {
+		return s.save(ctx, q, cfg, evidence, unableJudge("Provider execution was abandoned before launch; no assessment was rerun."), "interrupted")
+	}
 	invocation := cfg.Effective
 	// One wall-clock budget covers primary and the optional availability fallback.
-	budgetCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	budget := 30 * time.Minute
+	if in.Budget > 0 && in.Budget < budget {
+		budget = in.Budget
+	}
+	budgetCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	for launch := 0; launch < 2; launch++ {
 		report, runErr := s.launch(budgetCtx, q, &cfg, evidence, invocation)
@@ -235,6 +272,9 @@ func unableJudge(reason string) agentresult.JudgeReport {
 
 func (s *JudgeService) save(ctx context.Context, q store.JudgeRequest, cfg judgeConfiguration, e JudgeEvidenceSnapshot, r agentresult.JudgeReport, status string) (string, error) {
 	p := JudgePresentation{SourceName: judgeSourceName(q.Source), SourceReference: q.Source.Reference, Provider: string(cfg.Effective.Provider), Model: cfg.Effective.Model, Thinking: string(cfg.Effective.Thinking), FallbackReason: cfg.Effective.FallbackReason, Commit: e.Commit, LocalDigest: e.LocalDigest, Report: r, Evidence: e.Evidence, ObservedModel: cfg.ObservedModel, ProviderVersion: cfg.ProviderVersion, Cutoff: e.Cutoff.Format(time.RFC3339)}
+	if q.CallerKind == "workflow" {
+		p.SourceReference = fmt.Sprintf("graph instance %d, node %s, attempt %d; %s", q.GraphInstanceID, q.SourceNode, q.SourceNodeAttemptID, q.Source.Reference)
+	}
 	if p.Thinking == "" {
 		p.Thinking = "native default (unset)"
 	}

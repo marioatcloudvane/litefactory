@@ -286,9 +286,11 @@ var archiveRetained = map[string]ArchiveClass{
 }
 
 // archiveGuardedReferences are retained tables that may reference archived
-// tables. Families that reach them are kept by the doctor pending check, so a
+// tables. Families that reach them are kept by the doctor or workflow judge
+// reference checks, so a
 // reference never turns into a failed delete.
 var archiveGuardedReferences = map[string]bool{
+	"judge_requests":       true,
 	"doctor_conversations": true, "doctor_proposals": true, "doctor_attempts": true,
 	"doctor_inbox": true, "doctor_presentations": true, "doctor_repairs": true,
 	"doctor_local_presentations": true,

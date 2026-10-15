@@ -95,6 +95,18 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			return result, err
 		}
 	}
+	if policy.Mode == agent.ModeResearch || policy.Mode == agent.ModePlan {
+		if err := activities.Register(graphexec.JudgeAction, JudgeActivity{Profile: definition.Profile, Service: opts.Judge, Context: func(ctx context.Context, a ActivityRequest) (JudgeRequest, error) {
+			input, err := workflowJudgeContext(ctx, opts, a)
+			if err != nil {
+				return input, err
+			}
+			input.Role, err = teamsource.WorkflowJudgeInstructions(definition)
+			return input, err
+		}}); err != nil {
+			return result, err
+		}
+	}
 	if policy.RegisterEffects != nil {
 		env := WorkflowEnv{StackProfile: definition.StackProfile, Ref: result.Ref, Worktree: func() (*git.Worktree, error) {
 			if w.prep == nil || w.prep.worktree == nil {
@@ -201,7 +213,18 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			w.result.LogPath, w.result.MetaPath = started.LogPath, w.prep.metaPath
 		}
 		executed = true
-		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: w.result.Run.ID, At: opts.MCP.Now()})
+		runID, resumeID := w.result.Run.ID, int64(0)
+		if node.Action == graphexec.JudgeAction {
+			runID = 0
+			prior, e := opts.DB.LatestGraphNodeAttempt(ctx, instance.ID, node.Name)
+			if e != nil && !errors.Is(e, store.ErrNotFound) {
+				return w.finish(ctx, e)
+			}
+			if e == nil && prior.Status == store.GraphRunning {
+				resumeID = prior.ID
+			}
+		}
+		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{ResumeAttemptID: resumeID, LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, At: opts.MCP.Now()})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}

@@ -28,8 +28,11 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 		if err := tx.QueryRowContext(ctx, `SELECT a.instance_id,a.status,COALESCE(NULLIF(g.workflow,''),g.mode),i.status,COALESCE(a.run_id,0) FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions g ON g.id=i.definition_id WHERE a.id=?`, in.SourceAttemptID).Scan(&instance, &status, &workflow, &instanceStatus, &sourceRun); err != nil {
 			return err
 		}
+		if in.Kind == "advisory" && ((workflow != "research" && workflow != "plan") || sourceRun != 0) {
+			return errors.New("store: advisory source must be a runless Research or Plan activity")
+		}
 		exhaustedResearch := workflow == "research" && instanceStatus == GraphFailed && status == GraphSucceeded
-		if instance != in.InstanceID || ((in.Kind == "failure" && status != GraphFailed && !exhaustedResearch) || (in.Kind != "failure" && status != GraphSucceeded)) {
+		if instance != in.InstanceID || ((in.Kind == "advisory" && status != GraphSucceeded && status != GraphFailed) || (in.Kind == "failure" && status != GraphFailed && !exhaustedResearch) || (in.Kind != "failure" && in.Kind != "advisory" && status != GraphSucceeded)) {
 			return errors.New("store: graph comment source mismatch")
 		}
 		var old GraphCommentIntent
@@ -94,6 +97,12 @@ func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (b
 	if err != nil {
 		return false, err
 	}
+	if kind == "advisory" {
+		if (workflow != "research" && workflow != "plan") || session != d.SessionID || d.RunID != 0 || run.Valid || (status != GraphSucceeded && status != GraphFailed) {
+			return false, errors.New("store: advisory graph report binding mismatch")
+		}
+		return true, nil
+	}
 	// Bug factory activities have no subprocess run. Their actual succeeded
 	// or failed source attempt remains the publication authority; never invent
 	// a run or extend this exception to existing agent-backed workflows.
@@ -155,7 +164,7 @@ func (db *DB) ListGraphComments(ctx context.Context, instanceID int64, afterKey 
 // "failure" an attempt that produced none.
 func GraphCommentKind(kind string) bool {
 	switch kind {
-	case "question", "review", "final", "failure":
+	case "question", "review", "final", "failure", "advisory":
 		return true
 	}
 	return false

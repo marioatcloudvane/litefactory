@@ -13,6 +13,7 @@ import (
 
 // Research and Plan enter the shared driver. The supported simplified Bug host
 // dispatches only its pinned graph identities through its exact executeGraph method.
+// Judge startup recovery may reconcile only an existing, runless judge attempt.
 // Reject other wiring, including function-value references and nested callbacks.
 func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 	t.Parallel()
@@ -51,6 +52,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 					declarations[fn.Name.Name]++
 					allowed[fn.Name] = true
 				}
+				judgeRecoveryEntry := filepath.Clean(path) == filepath.Join("..", "turn", "workflow_judge_recovery.go") && fn.Name.Name == "recoverWorkflowJudgeAttempt" && fn.Recv == nil
 				planEntry := filepath.Clean(path) == filepath.Join("..", "turn", "plan_graph.go") && fn.Name.Name == "admitPlanExecution"
 				bugParentEntry := false
 				if filepath.Clean(path) == filepath.Join("..", "turn", "bug_graph_runtime.go") && fn.Name.Name == "executeGraph" && fn.Recv != nil && len(fn.Recv.List) == 1 {
@@ -80,7 +82,7 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 				shared, sharedEntry := sharedEntries[fn.Name.Name]
 				sharedEntry = sharedEntry && filepath.Clean(path) == filepath.Join("..", "turn", shared.file)
 				researchFile := filepath.Clean(path) == filepath.Join("..", "turn", "research_workflow.go")
-				if !bugParentEntry && !implementEntry && !validateEntry && ((!planEntry && !sharedEntry && !researchFile) || fn.Recv != nil) {
+				if !judgeRecoveryEntry && !bugParentEntry && !implementEntry && !validateEntry && ((!planEntry && !sharedEntry && !researchFile) || fn.Recv != nil) {
 					continue
 				}
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -96,8 +98,11 @@ func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 						return true
 					}
 					sharedDispatch := (sharedEntry || planEntry || implementEntry || validateEntry) && id.Name == "ExecuteWorkflow"
-					if owners[id.Name] != fn.Name.Name && !sharedDispatch && (!bugParentEntry || id.Name != "ExecuteNodeAction") {
+					if owners[id.Name] != fn.Name.Name && !sharedDispatch && ((!bugParentEntry && !judgeRecoveryEntry) || id.Name != "ExecuteNodeAction") {
 						return true
+					}
+					if judgeRecoveryEntry {
+						assertJudgeRecoveryDispatch(t, positions, call)
 					}
 					allowed[id] = true
 					calls[id.Name]++
@@ -257,5 +262,43 @@ func assertPlanDispatchPolicy(t *testing.T, positions *token.FileSet, fn *ast.Fu
 	}
 	if assignments != 1 {
 		t.Errorf("Plan policy assignment count=%d, want 1", assignments)
+	}
+}
+
+// Recovery cannot allocate a new model run or a different graph attempt.
+func assertJudgeRecoveryDispatch(t *testing.T, positions *token.FileSet, call *ast.CallExpr) {
+	t.Helper()
+	if len(call.Args) != 3 {
+		t.Errorf("%s: judge recovery dispatch lacks pinned request", positions.Position(call.Pos()))
+		return
+	}
+	request, ok := call.Args[2].(*ast.CompositeLit)
+	if !ok {
+		t.Errorf("%s: judge recovery requires explicit request", positions.Position(call.Pos()))
+		return
+	}
+	pinned := false
+	for _, element := range request.Elts {
+		field, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		name, ok := field.Key.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		if name.Name == "RunID" {
+			t.Errorf("%s: judge recovery must remain runless", positions.Position(field.Pos()))
+		}
+		if name.Name == "ResumeAttemptID" {
+			value, ok := field.Value.(*ast.SelectorExpr)
+			if ok {
+				source, ok := value.X.(*ast.Ident)
+				pinned = ok && source.Name == "attempt" && value.Sel.Name == "ID"
+			}
+		}
+	}
+	if !pinned {
+		t.Errorf("%s: judge recovery must resume its reserved attempt", positions.Position(call.Pos()))
 	}
 }

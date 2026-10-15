@@ -44,7 +44,7 @@ func validWorkflowActionName(name string, mode agent.Workflow) bool {
 	if slices.Contains([]string{"lf_research_agent", "lf_research_if", "lf_research_loop", "lf_research_comment"}, name) {
 		return false
 	}
-	if mode.Valid() && slices.Contains([]string{"lf_agent", "lf_if", "lf_loop", "lf_comment", "lf_ask", SyncBaseAction}, name) {
+	if mode.Valid() && slices.Contains([]string{"lf_agent", "lf_if", "lf_loop", "lf_comment", "lf_ask", JudgeAction, SyncBaseAction}, name) {
 		return true
 	}
 	prefix := "lf_" + string(mode) + "_"
