@@ -147,7 +147,7 @@ func TestPreparationDiagnosticsOncePerReasonAndAttempt(t *testing.T) {
 	delay := DefaultInterval
 	for attempt := 1; attempt <= 10; attempt++ {
 		work := &task{session: store.Session{ID: session.ID, NeedsPoll: true}, log: logger, tickAt: at}
-		err := errors.New("missing retained publisher")
+		var err error = &ticket.Failure{Kind: ticket.Uncertain, Operation: "creation correlation", Cause: errors.New("created issue UUID, content or publisher differs")}
 		if e := d.leave(t.Context(), work, logger, "prepare", err); e != nil {
 			t.Fatal(e)
 		}
@@ -182,7 +182,7 @@ func TestPreparationDiagnosticsOncePerReasonAndAttempt(t *testing.T) {
 	}
 	d.prepFailures.clear(session.ID)
 	fresh := &task{session: store.Session{ID: session.ID}, log: logger, tickAt: at}
-	d.stopped(t.Context(), fresh, "prepare", errors.New("missing retained publisher"))
+	d.stopped(t.Context(), fresh, "prepare", &ticket.Failure{Kind: ticket.Uncertain, Operation: "creation correlation", Cause: errors.New("created issue UUID, content or publisher differs")})
 	if d.prepFailures.items[session.ID].Attempts != 1 || strings.Count(output.String(), "a later tick comes back") != 2 {
 		t.Fatal("recovery did not reset diagnostic spell")
 	}

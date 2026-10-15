@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
@@ -199,7 +200,7 @@ func (b *TicketPlanBridge) CreateIssueEffect(ctx context.Context, key string, re
 	if err != nil {
 		return github.Issue{}, err
 	}
-	if snapshot.Ref.Identity.RemoteID != p.CreationUUID || snapshot.Title != title.String() || snapshot.Body != body.String() || snapshot.Representation != p.Representation || !snapshot.Author.Identity.Equal(b.Bot) {
+	if snapshot.Ref.Identity.RemoteID != p.CreationUUID || snapshot.Title != title.String() || !linear.ContentEquivalent(body.String(), snapshot.Body) || snapshot.Representation != p.Representation || !snapshot.Author.Identity.Equal(b.Bot) {
 		return github.Issue{}, &ticket.Failure{Kind: ticket.Uncertain, Operation: "creation correlation", Cause: errors.New("created issue UUID, content or publisher differs")}
 	}
 	if err = b.DB.ConfirmTicketEffectRepresentation(ctx, key, snapshot.Title+"\n"+snapshot.ProviderBody); err != nil {
@@ -257,7 +258,7 @@ func (b *TicketWorkflowBridge) RecoverIssueEffect(ctx context.Context, key strin
 	if err != nil {
 		return github.Issue{}, true, err
 	}
-	if snapshot.Ref.Locator != locator || snapshot.Ref.Identity.RemoteID != prepared.CreationUUID || snapshot.Title != title || snapshot.Body != body || snapshot.Representation != prepared.Representation || !snapshot.Author.Identity.Equal(bound.Actor) {
+	if snapshot.Ref.Locator != locator || snapshot.Ref.Identity.RemoteID != prepared.CreationUUID || snapshot.Title != title || !linear.ContentEquivalent(body, snapshot.Body) || snapshot.Representation != prepared.Representation || !snapshot.Author.Identity.Equal(bound.Actor) {
 		return github.Issue{}, true, errors.New("exact issue creation correlation did not confirm publication")
 	}
 	if parentRef != nil {

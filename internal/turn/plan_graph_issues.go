@@ -112,19 +112,46 @@ func (h *PlanStoryActivity) ReconcileShells(ctx context.Context, authority PlanS
 		}
 		if draft.IssueID == 0 {
 			title, body := planStoryShell(authority, authority.ParentNumber, draft.Ordinal, key, entry, display.TitleKey)
-			if !haveListing {
-				if listed, err = forge.ListFollowupIssues(ctx, repo); err != nil {
-					return fmt.Errorf("list issues to find story %s: %w", key, err)
-				}
-				haveListing = true
-			}
 			var found *github.Issue
-			for i := range listed {
-				if strings.HasPrefix(listed[i].Body, planStoryMarker(authority, key)+"\n") {
-					if found != nil {
-						return fmt.Errorf("multiple issues match story %s", key)
+			effectKey := "plan-shell:" + parent + ":" + key
+			prepared, prepareErr := h.DB.GetTicketEffectPreparation(ctx, effectKey)
+			if prepareErr == nil {
+				recoverer, ok := forge.(interface {
+					RecoverIssueEffect(context.Context, string, github.Repo, int, string, string) (github.Issue, bool, error)
+				})
+				if !ok {
+					return fmt.Errorf("recover story %s: exact creation recovery unavailable", key)
+				}
+				// Recovery uses the frozen, redacted intent, not newly rendered text.
+				preparedTitle, preparedBody, valid := strings.Cut(prepared.AuthoredContent, "\n")
+				if !valid {
+					return fmt.Errorf("recover story %s: invalid retained creation content", key)
+				}
+				issue, handled, recoverErr := recoverer.RecoverIssueEffect(ctx, effectKey, repo, authority.ParentNumber, preparedTitle, preparedBody)
+				if recoverErr != nil {
+					return fmt.Errorf("recover story %s: %w", key, recoverErr)
+				}
+				if !handled {
+					return fmt.Errorf("recover story %s: retained creation was not recovered", key)
+				}
+				found = &issue
+			} else if !errors.Is(prepareErr, store.ErrNotFound) {
+				return prepareErr
+			}
+			if found == nil {
+				if !haveListing {
+					if listed, err = forge.ListFollowupIssues(ctx, repo); err != nil {
+						return fmt.Errorf("list issues to find story %s: %w", key, err)
 					}
-					found = &listed[i]
+					haveListing = true
+				}
+				for i := range listed {
+					if strings.HasPrefix(listed[i].Body, planStoryMarker(authority, key)+"\n") {
+						if found != nil {
+							return fmt.Errorf("multiple issues match story %s", key)
+						}
+						found = &listed[i]
+					}
 				}
 			}
 			if found == nil {
