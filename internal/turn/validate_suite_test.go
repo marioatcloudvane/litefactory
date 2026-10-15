@@ -47,12 +47,13 @@ phases:
 `
 
 type suiteRepoFake struct {
-	recipe    []byte
-	recipeErr error
-	trees     []string // digests returned by successive Observe calls
-	observed  int
-	begun     int
-	closed    int
+	recipe     []byte
+	recipeErr  error
+	observeErr error
+	trees      []string // digests returned by successive Observe calls
+	observed   int
+	begun      int
+	closed     int
 }
 
 func (r *suiteRepoFake) Begin(context.Context, string) (ValidateSuiteScratch, error) {
@@ -67,6 +68,9 @@ func (s *suiteScratchFake) Recipe(context.Context) ([]byte, error) {
 	return s.r.recipe, s.r.recipeErr
 }
 func (s *suiteScratchFake) Observe(context.Context) (string, error) {
+	if s.r.observeErr != nil {
+		return "", s.r.observeErr
+	}
 	i := s.r.observed
 	s.r.observed++
 	if i >= len(s.r.trees) {
@@ -470,6 +474,9 @@ func TestValidateSuiteRejectsBadAuthority(t *testing.T) {
 func TestGitValidateSuiteReadsRecipeFromCommitAndRemovesWorktree(t *testing.T) { // AC-003, AC-007
 	repo := gittest.New(t)
 	repo.WriteFile(".litefactory/bug-checks.yaml", suiteRecipe)
+	if err := os.Symlink("README.md", filepath.Join(repo.Dir, "link")); err != nil {
+		t.Fatal(err)
+	}
 	commit := repo.Commit("add recipe")
 	repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
 	// The working file now differs from the committed recipe.
@@ -787,5 +794,77 @@ func TestValidateSuiteGraphAdmissionReleasesLockOnErrors(t *testing.T) {
 				t.Fatal("error started suite scratch")
 			}
 		})
+	}
+}
+
+func TestValidateSuiteInitialObservationErrors(t *testing.T) {
+	for _, cause := range []error{errors.New("I/O failure"), context.Canceled} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			f := newSuiteFixture(t)
+			f.repo.observeErr = cause
+			_, _, err := f.exec(1)
+			if !errors.Is(err, cause) || len(f.commands) != 0 || f.repo.closed != 1 {
+				t.Fatalf("err %v, fixture %+v", err, f.repo)
+			}
+		})
+	}
+}
+
+func TestValidateSuiteSymlinkRefusalReportAndReplay(t *testing.T) {
+	f := newSuiteFixture(t)
+	f.repo.observeErr = &git.SourceSymlinkError{Path: ".venv/bin/python", Reason: "is a symlink outside the repository"}
+	res, out, err := f.exec(1)
+	if err != nil || res.Outcome != store.SuiteBlocked || out.RunID == 0 || len(f.commands) != 0 || f.repo.closed != 1 {
+		t.Fatalf("result %+v, %+v, %v", res, out, err)
+	}
+	end, reason, _ := decideValidateEnd(out, nil)
+	if end != store.ValidateBlocked || reason != f.repo.observeErr.Error() {
+		t.Fatalf("end %s, reason %s", end, reason)
+	}
+	report := renderValidateReport(ValidateState{Commit: suiteCommit, Suite: out}, nil, "")
+	if !strings.Contains(report, f.repo.observeErr.Error()) {
+		t.Fatal(report)
+	}
+	again, replay, err := f.exec(1)
+	if err != nil || string(again.Output) != string(res.Output) || replay.Reason != out.Reason || f.repo.begun != 1 {
+		t.Fatalf("replay %+v %v", replay, err)
+	}
+}
+
+func TestGitValidateSuiteSymlinkRefusal(t *testing.T) {
+	repo := gittest.New(t)
+	repo.WriteFile(".litefactory/bug-checks.yaml", suiteRecipe)
+	if err := os.MkdirAll(filepath.Join(repo.Dir, ".venv/bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../../outside", filepath.Join(repo.Dir, ".venv/bin/python")); err != nil {
+		t.Fatal(err)
+	}
+	commit := repo.Commit("escaping link")
+	repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+	binary, err := git.Resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone, err := binary.Open(t.Context(), repo.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratchRoot := config.NewPaths(filepath.Join(t.TempDir(), "home")).ValidateScratchDir()
+	f := newSuiteFixture(t)
+	f.b.Repo = GitValidateSuiteRepo{Clone: clone, ClonePath: repo.Dir, Remote: "origin", ScratchRoot: scratchRoot}
+	f.b.Bind = func(context.Context, Options, ActivityRequest) (ValidateSuiteAuthority, error) {
+		return ValidateSuiteAuthority{Commit: commit}, nil
+	}
+	res, out, err := f.exec(1)
+	if err != nil || res.Outcome != store.SuiteBlocked || len(f.commands) != 0 {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if !strings.Contains(renderValidateReport(ValidateState{Commit: commit, Suite: out}, nil, ""), ".venv/bin/python is a symlink outside the repository") {
+		t.Fatalf("%+v", out)
+	}
+	dirs, err := os.ReadDir(scratchRoot)
+	if err != nil || len(dirs) != 0 {
+		t.Fatalf("scratch not cleaned: %v %v", dirs, err)
 	}
 }
