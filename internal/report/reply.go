@@ -228,6 +228,8 @@ const (
 	ReplyMissingTeam
 	// ReplyUnsupportedWorkflow answers a selected team without the requested workflow.
 	ReplyUnsupportedWorkflow
+	// ReplyMissingTicketPublisher answers an unavailable verified publishing identity.
+	ReplyMissingTicketPublisher
 	// ReplyDoctorUnsupported answers Doctor commands on unsupported ticket providers.
 	ReplyDoctorUnsupported
 )
@@ -235,6 +237,8 @@ const (
 // String renders the kind for logs and test failures.
 func (k ReplyKind) String() string {
 	switch k {
+	case ReplyMissingTicketPublisher:
+		return "missing_ticket_publisher"
 	case ReplyCreationAccepted:
 		return "creation_accepted"
 	case ReplyCreationRejected:
@@ -345,7 +349,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyRefusesSync, ReplySuggestsResolution, ReplyRefusesSyncTooFarBehind:
 		return true
-	case ReplyDoctorUnsupported, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
+	case ReplyMissingTicketPublisher, ReplyDoctorUnsupported, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
 	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
 		return true
@@ -387,7 +391,7 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
+	case ReplyMissingTicketPublisher, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
 		return true
 	default:
 		return false
@@ -890,6 +894,10 @@ func (r Reply) body() string {
 
 	case ReplyBugUnavailable:
 		b.WriteString("Bug admission is retained, but execution is unavailable: the registered Bug policy, graph package, result decoder, shared-service preparation and factory role permission bindings are not installed. No agent was launched. The task remains resumable in Bug.")
+	case ReplyMissingTicketPublisher:
+		fmt.Fprintf(&b, "The retained %s ticket connection for %s/%s has no usable verified publisher. Implement is blocked.", r.Ref.Forge, r.Ref.Owner, r.Ref.Repo)
+		b.WriteString(sectionGap)
+		b.WriteString("Restore and verify the ticket connection's original publishing account, then send a fresh `/implement <instruction>` command. The configured project approver remains unchanged.")
 	case ReplyMissingTeam:
 		b.WriteString("This repository has no linked installed team for the requested workflow. Nothing was run.")
 		b.WriteString(sectionGap)

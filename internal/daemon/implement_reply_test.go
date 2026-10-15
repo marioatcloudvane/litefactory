@@ -139,3 +139,75 @@ func TestImplementClaimedQuestionConflictIsAnsweredAndConsumed(t *testing.T) {
 		t.Fatalf("refusal count = %d, posts=%v", count, posted)
 	}
 }
+
+func TestMissingTicketPublisherRefusalDeliveryAndAuthentication(t *testing.T) {
+	for _, body := range []string{"story-001: change the running story", "No parked stories remain; please retry"} {
+		t.Run(body, func(t *testing.T) {
+			f := newFixture(t)
+			f.plantCursor()
+			f.issueWithLabels("Implement the feature", "Mode: Implement")
+			f.settle()
+			f.bootstrapIssues(f.repo, testIssue)
+			f.turns.set(func(_ context.Context, req turn.Request) (turn.Result, error) {
+				if req.Mode != agent.ModeImplement {
+					t.Errorf("mode = %s", req.Mode)
+				}
+				return turn.Result{}, turn.ErrRequiredTicketPublisher
+			})
+			f.forge.addComment(testIssue, 90, stranger(), body)
+			f.settle()
+			if _, ran := turnFor(f, 90); ran {
+				t.Fatal("non-owner reached reply execution")
+			}
+			f.forge.addComment(testIssue, 91, owner(), body)
+			lost := strings.HasPrefix(body, "No parked")
+			if lost {
+				f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "delivery failed"})
+					return true
+				}
+			}
+			f.settle()
+			if lost {
+				if f.watermark() >= 91 {
+					t.Fatal("failed refusal delivery consumed input")
+				}
+				pending, found, err := f.db.FindPendingReportDelivery(t.Context(), f.session().ID, 91)
+				if err != nil || !found || !strings.Contains(pending.Body, "has no usable verified publisher") {
+					t.Fatalf("missing durable refusal: %+v %v %v", pending, found, err)
+				}
+				f.forge.onPostComment = nil
+				// A lost response is reconciled only against a trusted bot receipt.
+				f.forge.addComment(testIssue, 900040, bot(), pending.Body)
+			}
+			if !settleUntilHandled(f, 91, 6) {
+				t.Fatalf("refusal never delivered: %s", f.logs)
+			}
+			for range 2 {
+				f.clock.advance(time.Minute)
+				f.settle()
+			}
+			posted, _, _ := f.forge.snapshot()
+			count := 0
+			for _, text := range posted {
+				if strings.Contains(text, "has no usable verified publisher") {
+					count++
+				}
+			}
+			want := 1
+			if lost {
+				want = 0 // the restored receipt must not be reposted
+			}
+			if count != want {
+				t.Fatalf("refusals = %d; posts=%v", count, posted)
+			}
+			f.forge.addComment(testIssue, 900041, owner(), "/unknown-command story-001")
+			if !settleUntilHandled(f, 900041, 6) {
+				t.Fatal("command handler did not consume its refusal")
+			}
+			if _, ran := turnFor(f, 900041); ran {
+				t.Fatal("command became ordinary guidance")
+			}
+		})
+	}
+}
