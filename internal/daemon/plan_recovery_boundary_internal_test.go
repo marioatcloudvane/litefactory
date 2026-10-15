@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -207,6 +208,150 @@ func TestPlanRecoveryDaemonBoundaryNoCommentRestart(t *testing.T) {
 			if receipt.Outcome != "applied" || receipt.Revision == healthy.Revision || mutations != before+1 {
 				t.Fatalf("healthy work did not advance: %+v mutations=%d", receipt, mutations)
 			}
+		})
+	}
+}
+
+func TestPlanRecoveryCandidateLessShell(t *testing.T) {
+	for _, failure := range []string{"none", "lookup", "readback", "wrong-parent", "ambiguous"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newPublicationIO(t)
+			ctx := t.Context()
+			ref, err := naming.ParseRef(f.session.TaskRef)
+			publicationMust(t, err)
+			state := planbrief.PlanState{SharedRevision: "shared"}
+			rev, _, err := state.ProposeStorySet([]planbrief.PlanStorySetEntry{{ID: "one", Name: "First", Intent: "First story"}, {ID: "two", Name: "Second", Intent: "Second story"}})
+			publicationMust(t, err)
+			_, err = state.PromoteStorySet(rev)
+			publicationMust(t, err)
+			healthy := approvedPlanState(t, "implementation-engineer", true).Stories[0]
+			healthy.Key, healthy.Draft.Key = "story-001", "story-001"
+			state.Stories[0] = healthy
+			for _, stage := range []string{"story", "technical", "acceptance"} {
+				current, e := state.ReviewRevision(healthy.Key, stage)
+				publicationMust(t, e)
+				healthy.Approvals[stage] = current
+			}
+			_, err = f.db.SavePlanWorkflowState(ctx, ref.String(), 0, state)
+			publicationMust(t, err)
+			for _, key := range []string{"story-001", "story-002"} {
+				_, err = f.db.ReservePlanStory(ctx, ref.String(), key)
+				publicationMust(t, err)
+			}
+			publicationMust(t, f.db.BindPlanStoryShell(ctx, ref.String(), "story-001", 4000, 400, "healthy-shell"))
+			_, err = f.db.AdmitPlanWorkflowPath(ctx, f.session.ID, "graph")
+			publicationMust(t, err)
+			// Existing sibling is already a draft: shell recovery must not touch it.
+			sibling, err := f.db.GetPlanStoryDraft(ctx, ref.String(), "story-001")
+			publicationMust(t, err)
+			sibling.Candidate = healthy.Candidate
+			publicationMust(t, f.db.PutPlanStoryCandidate(ctx, store.PlanStoryCandidate{Parent: ref.String(), RequestID: "healthy", Key: sibling.Key, Candidate: healthy.Candidate, RequestJSON: `{}`}))
+			publicationMust(t, f.db.ApplyPlanStoryDraft(ctx, sibling, sibling.Revision, store.PlanStoryEffect{Parent: ref.String(), RequestID: "healthy", Phase: "draft", Outcome: "applied"}))
+			saved, version, err := f.db.GetPlanWorkflowState(ctx, ref.String())
+			publicationMust(t, err)
+			publicationMust(t, f.db.SettlePlanStoryDebt(ctx, ref.String(), "healthy", saved, version, true))
+			body := "<!-- lf:plan-story parent=2780 key=story-002 -->\nShell"
+			child := map[string]any{"id": 4010, "number": 401, "title": "Second", "body": body, "state": "open"}
+			failing := failure != "none"
+			mutations := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method != http.MethodGet {
+					mutations++
+					http.Error(w, "unexpected mutation", http.StatusInternalServerError)
+					return
+				}
+				switch r.URL.Path {
+				case "/repos/owner/api/issues":
+					if failing && failure == "lookup" {
+						http.Error(w, "lookup unavailable", http.StatusServiceUnavailable)
+						return
+					}
+					list := []any{child}
+					if failing && failure == "ambiguous" {
+						list = append(list, child)
+					}
+					_ = json.NewEncoder(w).Encode(list)
+				case "/repos/owner/api/issues/401":
+					if failing && failure == "readback" {
+						http.Error(w, "readback unavailable", http.StatusServiceUnavailable)
+						return
+					}
+					_ = json.NewEncoder(w).Encode(child)
+				case "/repos/owner/api/issues/401/parent":
+					number := 278
+					if failing && failure == "wrong-parent" {
+						number = 999
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"id": number * 10, "number": number, "state": "open"})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+			client, err := github.New(github.Options{APIBase: srv.URL + "/", HTTPClient: srv.Client(), Token: secrets.NewToken("fixture")})
+			publicationMust(t, err)
+			f.d.forge = client
+			publicationMust(t, os.MkdirAll(f.runtime.Paths.StoryProgressLocksDir(), 0700))
+			work := &task{ref: ref, session: f.session, issue: github.Issue{ID: 2780, Number: 278, State: "open"}, forgeRepo: github.RepoFromRef(ref), log: f.d.log}
+			err = f.d.recoverPlanStories(ctx, work)
+			if failing {
+				if err == nil {
+					t.Fatal("unsafe recovery accepted")
+				}
+				draft, readErr := f.db.GetPlanStoryDraft(ctx, ref.String(), "story-002")
+				publicationMust(t, readErr)
+				if draft.IssueID != 0 || mutations != 0 {
+					t.Fatal("failed lookup adopted or created shell")
+				}
+			} else {
+				publicationMust(t, err)
+			}
+			publicationMust(t, f.runtime.Authority.Close(ctx))
+			publicationMust(t, f.db.Close())
+			f.db, err = store.Open(ctx, f.path)
+			publicationMust(t, err)
+			f.d.db = f.db
+			f.reopenRuntime(t)
+			failing = false
+			for range 2 {
+				publicationMust(t, f.d.recoverPlanStories(ctx, work))
+			}
+			draft, err := f.db.GetPlanStoryDraft(ctx, ref.String(), "story-002")
+			publicationMust(t, err)
+			if draft.IssueID != 4010 || draft.IssueNumber != 401 || draft.Revision != turn.PlanIssueRevision("Second", body) || mutations != 0 {
+				t.Fatalf("binding=%+v mutations=%d", draft, mutations)
+			}
+			retained, _, err := f.db.GetPlanWorkflowState(ctx, ref.String())
+			publicationMust(t, err)
+			if !reflect.DeepEqual(retained.Stories[0], healthy) {
+				t.Fatal("sibling authority changed")
+			}
+			if _, ok := storyWorkID(retained, "story-002"); !ok {
+				t.Fatal("recovered child has no work")
+			}
+			if _, due := parentWorkIDWithScope(retained, planbrief.ReleaseScope([]string{"implementation-engineer"}, []string{"agent-setup"})); due {
+				t.Fatal("assembly bypassed child review")
+			}
+			next := approvedPlanState(t, "implementation-engineer", false).Stories[0].Draft
+			next.Key = "story-002"
+			publicationMust(t, retained.PutCandidate(next, "story", "recovered-draft"))
+			scope := planbrief.ReleaseScope([]string{"implementation-engineer"}, []string{"agent-setup"})
+			for i, stage := range []string{"story", "technical", "acceptance"} {
+				if _, due := parentWorkIDWithScope(retained, scope); due {
+					t.Fatalf("assembly bypassed %s approval", stage)
+				}
+				publicationMust(t, retained.OpenPlanWait(next.Key, "review-"+stage, "review", 4010))
+				applied, e := retained.ApplyOwnerReply(planbrief.PlanOwnerReply{ID: int64(100 + i), OwnerID: 7, ActorID: 7, IssueID: 4010, Key: next.Key, Stage: stage, Candidate: "recovered-draft", WaitID: "review-" + stage, Body: "/approve-plan " + next.Key + " " + stage + " recovered-draft"})
+				publicationMust(t, e)
+				if !applied {
+					t.Fatal("current approval not applied")
+				}
+			}
+			if _, due := parentWorkIDWithScope(retained, scope); !due {
+				t.Fatal("reviewed recovered set cannot assemble")
+			}
+
 		})
 	}
 }
