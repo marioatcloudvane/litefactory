@@ -224,7 +224,7 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 	if renderer == nil {
 		return fail(fmt.Errorf("complete story renderer unavailable"))
 	}
-	bot, err := ticketPublisherID(ctx, o.DB, forge, prep.ref)
+	bot, err := ticketPublisherID(ctx, o, forge, prep.session.ID, prep.ref)
 	if err != nil {
 		return fail(err)
 	}

@@ -152,7 +152,15 @@ func TestManagedPublicationRecoversDurableCreateAndAttach(t *testing.T) {
 	}
 }
 
-type linearPlanForge struct{ *linearScopeForge }
+type linearPlanForge struct {
+	scopeTestForge
+	actor ticket.Identity
+	bot   int64
+}
+
+func (f *linearPlanForge) BotIdentityFor(context.Context, github.Repo, int) (ticket.Identity, error) {
+	return f.actor, nil
+}
 
 func (f *linearPlanForge) CreateIssue(ctx context.Context, repo github.Repo, title, body redact.Body) (github.Issue, error) {
 	issue, err := f.publicationForge.CreateIssue(ctx, repo, title, body)
@@ -172,7 +180,9 @@ func TestManagedPlanHandoffUsesLinearPublisherWithoutGlobalIdentity(t *testing.T
 	actor := ticket.Identity{Provider: ticket.Linear, Origin: "https://linear.example/graphql", RemoteID: "verified-publisher"}
 	bot, err := f.db.LocalTicketSlot(ctx, "actor", actor)
 	mustProgress(t, err)
-	forge := &linearPlanForge{&linearScopeForge{scopeTestForge: scopeTestForge{comments: map[int][]github.Comment{}}, actor: actor, bot: bot}}
+	session := publisherSession(t, f.db, ref, bot)
+	f.opts.ProjectApprovers = true
+	forge := &linearPlanForge{scopeTestForge: scopeTestForge{comments: map[int][]github.Comment{}, publisher: bot}, actor: actor, bot: bot}
 	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: 65536})
 	mustProgress(t, err)
 	f.opts.SubIssueCreator, f.opts.SubIssueRenderer = forge, renderer
@@ -180,7 +190,7 @@ func TestManagedPlanHandoffUsesLinearPublisherWithoutGlobalIdentity(t *testing.T
 	mustProgress(t, err)
 	req := agent.Request{Ref: ref, WorktreePath: worktree.Path(), PlanGeneration: 1, PlanRunID: 1, PlanAttempt: "current", PlanOutcomePath: planbrief.OutcomeFileName, PlanProposalPath: planbrief.ProposalFileName, PlanContextPath: filepath.Join(dir, "PLAN_CONTEXT.json")}
 	writeCompletedProposal(t, req)
-	prep := &preparation{ref: ref, worktree: worktree, session: store.Session{Branch: branch}, run: store.Run{ID: 1, Mode: "plan", StartedAt: implementClock}, promptInput: harness.PromptInput{PlanProposalPath: planbrief.ProposalFileName, PlanGeneration: 1, PlanAttempt: "current"}}
+	prep := &preparation{ref: ref, worktree: worktree, session: store.Session{ID: session.ID, Branch: branch}, run: store.Run{ID: 1, Mode: "plan", StartedAt: implementClock}, promptInput: harness.PromptInput{PlanProposalPath: planbrief.ProposalFileName, PlanGeneration: 1, PlanAttempt: "current"}}
 	out := publishPlanHandoff(ctx, f.opts, prep, Result{}, &agent.RunResult{Outcome: agent.OutcomeSucceeded}, f.opts.Logger)
 	if out.Err != nil || !prep.planCompleted {
 		t.Fatalf("publication failed: %v", out.Err)

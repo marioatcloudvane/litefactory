@@ -17,7 +17,17 @@ import (
 // Transport failures and cancellation retain their original retry semantics.
 var ErrRequiredTicketPublisher = errors.New("required ticket publisher unavailable")
 
-func ticketPublisherID(ctx context.Context, db *store.DB, forge any, ref naming.Ref) (int64, error) {
+// ticketPublisherID shares the retained admission identity across publication paths.
+// Routed verification may reject that identity, but cannot replace it.
+func ticketPublisherID(ctx context.Context, o Options, forge any, sessionID int64, ref naming.Ref) (int64, error) {
+	db := o.DB
+	snapshot, snapshotErr := db.GetExecutionSnapshot(ctx, sessionID)
+	if snapshotErr != nil && !errors.Is(snapshotErr, store.ErrNotFound) {
+		return 0, snapshotErr
+	}
+	if (snapshotErr == nil && snapshot.ActorID <= 0) || (snapshotErr != nil && o.ProjectApprovers) {
+		return 0, ErrRequiredTicketPublisher
+	}
 	if contextual, ok := forge.(interface {
 		BotIdentityFor(context.Context, github.Repo, int) (ticket.Identity, error)
 	}); ok {
@@ -35,7 +45,19 @@ func ticketPublisherID(ctx context.Context, db *store.DB, forge any, ref naming.
 		if errors.Is(err, store.ErrTicketIdentityConflict) {
 			return 0, fmt.Errorf("%w: %w", ErrRequiredTicketPublisher, err)
 		}
-		return slot, err
+		if err != nil {
+			return 0, err
+		}
+		if snapshotErr == nil {
+			if slot != snapshot.ActorID {
+				return 0, ErrRequiredTicketPublisher
+			}
+			return snapshot.ActorID, nil
+		}
+		return slot, nil
+	}
+	if snapshotErr == nil {
+		return snapshot.ActorID, nil
 	}
 	// Only historical GitHub callers can use the provider-global identity table.
 	if ref.Forge != naming.ForgeGitHub {
