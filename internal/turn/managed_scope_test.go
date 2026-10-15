@@ -3,9 +3,11 @@ package turn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -21,6 +23,7 @@ type scopeTestForge struct {
 	publicationForge
 	comments     map[int][]github.Comment
 	posts        int
+	publisher    int64
 	loseResponse bool
 }
 
@@ -32,7 +35,11 @@ func (f *scopeTestForge) ListCommentsAfter(_ context.Context, _ github.Repo, n i
 }
 func (f *scopeTestForge) PostComment(_ context.Context, _ github.Repo, n int, b redact.Body) (github.Comment, error) {
 	f.posts++
-	c := github.Comment{ID: int64(f.posts), Body: b.String(), Author: github.User{ID: 9}}
+	actor := f.publisher
+	if actor == 0 {
+		actor = 9
+	}
+	c := github.Comment{ID: int64(f.posts), Body: b.String(), Author: github.User{ID: actor}}
 	f.comments[n] = append(f.comments[n], c)
 	if f.loseResponse {
 		f.loseResponse = false
@@ -77,6 +84,9 @@ func TestFreezeNoticesRecoverOriginalRevisionAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := Options{DB: db, SubIssueCreator: forge, SubIssueRenderer: renderer}
+	if _, err := scopeNoticePublisher(ctx, Options{DB: db, ProjectApprovers: true}, 0, ref); err == nil {
+		t.Fatal("connected GitHub session without snapshot used global bot")
+	}
 	req := Request{Mode: agent.ModeImplement}
 	forge.issues[0].Body += "manual dependency edit"
 	if err := prepareManagedScope(ctx, o, req, ref); err == nil || !strings.Contains(err.Error(), "refresh and publish") {
@@ -144,45 +154,74 @@ func TestManagedReplanRequiresExactParentControl(t *testing.T) {
 	}
 }
 
-type linearScopeForge struct {
-	scopeTestForge
-	actor ticket.Identity
-	bot   int64
-}
-
-func (f *linearScopeForge) BotIdentityFor(context.Context, github.Repo, int) (ticket.Identity, error) {
-	return f.actor, nil
-}
-func (f *linearScopeForge) PostComment(_ context.Context, _ github.Repo, n int, body redact.Body) (github.Comment, error) {
-	f.posts++
-	c := github.Comment{ID: int64(f.posts), Body: body.String(), Author: github.User{ID: f.bot}}
-	f.comments[n] = append(f.comments[n], c)
-	return c, nil
-}
-func TestLinearScopeNoticesUseContextualPublisherWithoutGlobalIdentity(t *testing.T) {
+func TestScopeNoticeRetainsConnectedPublisher(t *testing.T) {
 	ctx := t.Context()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "scope.db"))
-	mustProgress(t, err)
-	defer func() { _ = db.Close() }()
-	mustProgress(t, db.Migrate(ctx))
-	actor := ticket.Identity{Provider: ticket.Linear, Origin: "https://linear.example/graphql", RemoteID: "verified-bot"}
-	slot, err := db.LocalTicketSlot(ctx, "actor", actor)
-	mustProgress(t, err)
-	forge := &linearScopeForge{scopeTestForge: scopeTestForge{publicationForge: publicationForge{attached: true}, comments: map[int][]github.Comment{}}, actor: actor, bot: slot}
-	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: 65536})
-	mustProgress(t, err)
-	ref := naming.Ref{Forge: "linear", Owner: "team", Repo: "project", Issue: 1}
-	feature := store.ManagedFeature{ParentTask: ref.String(), Generation: 1, State: "planning"}
-	mustProgress(t, db.PutManagedFeature(ctx, feature))
-	story := store.ManagedStory{ParentTask: ref.String(), Generation: 1, Key: "story-001", IssueNumber: 2, IssueID: 200, BodyHash: strings.Repeat("a", 64), State: "planning"}
-	mustProgress(t, db.PutManagedStory(ctx, story))
-	mustProgress(t, db.SetManagedFeatureReady(ctx, ref.String(), 1, true))
-	mustProgress(t, db.ApproveManagedStories(ctx, ref.String(), 1, []store.ApprovedStoryRevision{{ManagedStory: story, ParentID: 100, Title: "Story", Body: "Body", Hash: story.BodyHash, FetchedAt: implementClock}}))
-	opts := Options{DB: db, SubIssueCreator: forge, SubIssueRenderer: renderer}
-	for range 2 {
-		mustProgress(t, deliverScopeNotice(ctx, opts, ref, feature, story, false))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if forge.posts != 1 || forge.comments[2][0].Author.ID != slot {
-		t.Fatalf("wrong or repeated publisher: %+v", forge.comments)
+	t.Cleanup(func() { _ = db.Close() })
+	check := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	check(db.Migrate(ctx))
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "o", Name: "code", RemoteURL: "git@github.com:o/code.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	check(err)
+	code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: "o/code", Enabled: true, Provenance: "explicit"}, 0)
+	check(err)
+	tickets, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team/project", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"implement":"label"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
+	check(err)
+	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: 65536})
+	check(err)
+	for i, actor := range []int64{77, 88} {
+		remote := fmt.Sprintf("parent-%d", i)
+		qualified := ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: remote}, Locator: ticket.Locator{Provider: ticket.Linear, Origin: tickets.Origin, Container: tickets.Destination, Key: remote}}
+		_, err := db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: tickets.ID, Ref: qualified, Enabled: true, Provenance: "explicit"})
+		check(err)
+		ref := naming.Ref{Forge: "linear", Owner: "team", Repo: fmt.Sprintf("project-%d", i), Issue: 1}
+		// Invalid publisher evidence cannot be retained by admission.
+		if _, err := db.AdmitSession(ctx, repo, qualified, code.Revision, tickets.Revision, 0, "invalid", ref.String()); err == nil {
+			t.Fatal("invalid publisher admitted")
+		}
+		session, err := db.AdmitSession(ctx, repo, qualified, code.Revision, tickets.Revision, actor, "ticket-publisher", ref.String())
+		check(err)
+		story := store.ManagedStory{ParentTask: ref.String(), Generation: 1, Key: "story", IssueNumber: 2, IssueID: 200, BodyHash: planbrief.StoryHash("Story", "approved"), State: "planning"}
+		check(db.PutManagedFeature(ctx, store.ManagedFeature{ParentTask: ref.String(), Generation: 1, State: "planning"}))
+		check(db.PutManagedStory(ctx, story))
+		check(db.SetManagedFeatureReady(ctx, ref.String(), 1, true))
+		check(db.ApproveManagedStories(ctx, ref.String(), 1, []store.ApprovedStoryRevision{{ManagedStory: story, ParentID: 100, Title: "Story", Body: "approved", Hash: story.BodyHash, FetchedAt: time.Now()}}))
+		forge := &scopeTestForge{publicationForge: publicationForge{attached: true}, comments: map[int][]github.Comment{}, publisher: actor, loseResponse: true}
+		o := Options{DB: db, SubIssueCreator: forge, SubIssueRenderer: renderer, ProjectApprovers: true}
+		// Even a global Linear identity must not rescue a missing snapshot.
+		if i == 1 {
+			_, err := db.UpsertIdentity(ctx, store.Identity{Forge: "linear", Role: store.RoleBot, UserID: 999})
+			check(err)
+		}
+		if err := prepareManagedScope(ctx, o, Request{Mode: agent.ModeImplement}, ref); err == nil {
+			t.Fatal("missing snapshot accepted")
+		}
+		feature, err := db.GetManagedFeature(ctx, ref.String())
+		check(err)
+		delivered, err := db.StoryScopeNoticeDelivered(ctx, ref.String(), 1, "story", "freeze")
+		check(err)
+		if feature.State != "freezing" || delivered || forge.posts != 0 {
+			t.Fatal("missing publisher changed scope")
+		}
+		req := Request{Mode: agent.ModeImplement, SessionID: session.ID}
+		if err := prepareManagedScope(ctx, o, req, ref); err == nil {
+			t.Fatal("lost response activated scope")
+		}
+		check(prepareManagedScope(ctx, o, req, ref))
+		check(prepareManagedScope(ctx, o, req, ref))
+		feature, err = db.GetManagedFeature(ctx, ref.String())
+		check(err)
+		delivered, err = db.StoryScopeNoticeDelivered(ctx, ref.String(), 1, "story", "freeze")
+		check(err)
+		if feature.State != "implementing" || !delivered || forge.posts != 1 || forge.comments[2][0].Author.ID != actor {
+			t.Fatalf("retained publisher or replay failed: %+v posts=%d", feature, forge.posts)
+		}
 	}
 }

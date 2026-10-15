@@ -69,7 +69,7 @@ func prepareManagedScope(ctx context.Context, o Options, req Request, ref naming
 		return nil
 	}
 	if f.State == "planning" && req.mode() != "implement" {
-		return deliverScopeNotices(ctx, o, ref, f, true)
+		return deliverScopeNotices(ctx, o, req.SessionID, ref, f, true)
 	}
 	if req.mode() != "implement" {
 		return fmt.Errorf("approved stories remain locked; comment replan on the quiescent parent to reopen Plan")
@@ -85,7 +85,7 @@ func prepareManagedScope(ctx context.Context, o Options, req Request, ref naming
 		f.State = "freezing"
 	}
 	if f.State == "freezing" {
-		if err := deliverScopeNotices(ctx, o, ref, f, false); err != nil {
+		if err := deliverScopeNotices(ctx, o, req.SessionID, ref, f, false); err != nil {
 			return err
 		}
 		if err := o.DB.ActivateManagedScope(ctx, ref.String(), f.Generation); err != nil {
@@ -208,7 +208,7 @@ func readScopeForApproval(ctx context.Context, o Options, ref naming.Ref, f stor
 	return out, nil
 }
 
-func deliverScopeNotices(ctx context.Context, o Options, ref naming.Ref, f store.ManagedFeature, planning bool) error {
+func deliverScopeNotices(ctx context.Context, o Options, sessionID int64, ref naming.Ref, f store.ManagedFeature, planning bool) error {
 	stories, err := o.DB.ListManagedStories(ctx, ref.String(), f.Generation)
 	if err != nil {
 		return err
@@ -234,14 +234,14 @@ func deliverScopeNotices(ctx context.Context, o Options, ref naming.Ref, f store
 		if delivered {
 			continue
 		}
-		if err := deliverScopeNotice(ctx, o, ref, f, s, planning); err != nil {
+		if err := deliverScopeNotice(ctx, o, sessionID, ref, f, s, planning); err != nil {
 			faults = append(faults, err)
 		}
 	}
 	return errors.Join(faults...)
 }
 
-func deliverScopeNotice(ctx context.Context, o Options, ref naming.Ref, f store.ManagedFeature, s store.ManagedStory, planning bool) error {
+func deliverScopeNotice(ctx context.Context, o Options, sessionID int64, ref naming.Ref, f store.ManagedFeature, s store.ManagedStory, planning bool) error {
 	forge, ok := o.SubIssueCreator.(scopeForge)
 	if !ok {
 		return fmt.Errorf("scope announcement forge unavailable")
@@ -250,12 +250,9 @@ func deliverScopeNotice(ctx context.Context, o Options, ref naming.Ref, f store.
 	if !ok {
 		return fmt.Errorf("scope announcement renderer unavailable")
 	}
-	bot, err := ticketPublisherID(ctx, o.DB, forge, ref)
+	publisher, err := scopeNoticePublisher(ctx, o, sessionID, ref)
 	if err != nil {
 		return err
-	}
-	if bot <= 0 {
-		return fmt.Errorf("scope announcement requires verified bot identity")
 	}
 	parent, err := forge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
 	if err != nil {
@@ -285,13 +282,13 @@ func deliverScopeNotice(ctx context.Context, o Options, ref naming.Ref, f store.
 	}
 	found := false
 	for _, c := range comments {
-		if !hasTicketNoticeGuard(forge) && c.Author.ID == bot && strings.Contains(c.Body, n.Marker()) && c.Body == body.String() {
+		if !hasTicketNoticeGuard(forge) && c.Author.ID == publisher && strings.Contains(c.Body, n.Marker()) && c.Body == body.String() {
 			found = true
 			break
 		}
 	}
 	if !found {
-		if _, err := postTicketNotice(ctx, forge, n.Marker(), ref.String(), bot, github.RepoFromRef(ref), s.IssueNumber, body); err != nil {
+		if _, err := postTicketNotice(ctx, forge, n.Marker(), ref.String(), publisher, github.RepoFromRef(ref), s.IssueNumber, body); err != nil {
 			return err
 		}
 	}
@@ -300,4 +297,30 @@ func deliverScopeNotice(ctx context.Context, o Options, ref naming.Ref, f store.
 		kind = "planning"
 	}
 	return o.DB.DeliverStoryScopeNotice(context.WithoutCancel(ctx), ref.String(), f.Generation, s.Key, kind)
+}
+
+// scopeNoticePublisher uses the ticket actor retained at admission. Only legacy
+// GitHub sessions without connected identity may use the global bot identity.
+func scopeNoticePublisher(ctx context.Context, o Options, sessionID int64, ref naming.Ref) (int64, error) {
+	snapshot, err := o.DB.GetExecutionSnapshot(ctx, sessionID)
+	if err == nil {
+		if snapshot.ActorID <= 0 {
+			return 0, fmt.Errorf("scope announcement requires retained ticket publisher")
+		}
+		return snapshot.ActorID, nil
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return 0, err
+	}
+	if ref.Forge != store.ForgeGitHub || o.ProjectApprovers {
+		return 0, fmt.Errorf("scope announcement requires retained ticket publisher")
+	}
+	bot, err := o.DB.GetIdentity(ctx, ref.Forge, store.RoleBot)
+	if err != nil {
+		return 0, err
+	}
+	if bot.UserID <= 0 {
+		return 0, fmt.Errorf("scope announcement requires verified bot identity")
+	}
+	return bot.UserID, nil
 }

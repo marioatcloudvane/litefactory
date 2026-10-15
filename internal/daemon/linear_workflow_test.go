@@ -568,7 +568,6 @@ func linearTicketWorkflow(t *testing.T, setApproval, implement bool) {
 		t.Fatal("restart changed the retained child index")
 	}
 	remote.mu.Lock()
-	defer remote.mu.Unlock()
 	if remote.posts != confirmedPosts {
 		t.Fatalf("restart repeated a confirmed workflow publication: before=%d after=%d", confirmedPosts, remote.posts)
 	}
@@ -589,6 +588,8 @@ func linearTicketWorkflow(t *testing.T, setApproval, implement bool) {
 	if !questionSeen || !reportSeen {
 		t.Fatalf("confirmed publications omitted their prepared contents: question=%t report=%t", questionSeen, reportSeen)
 	}
+	remote.mu.Unlock()
+	linearScopeFreeze(t, db, session, ref, bridge, renderer, reporter, redactor, logger, remote)
 	t.Log("Linear verified instruction, published question, answer, exact Plan approval, managed child and report confirmed through HTTP and SQLite")
 }
 
@@ -1058,126 +1059,56 @@ func (linearApprovalNoAgent) Run(context.Context, agent.Request) (*agent.RunResu
 	return nil, errors.New("set approval unexpectedly requested an agent")
 }
 
-func linearImplementAdmission(t *testing.T, d *Daemon, remote *linearWorkflowServer, bridge *turn.TicketWorkflowBridge, reporter *turn.Reporter, renderer *report.Reporter, redactor *redact.Redactor, repo store.Repo, session store.Session, ref naming.Ref, gitRepo *gittest.Repo) {
-	t.Helper()
+// Stop graph admission after scope preparation, before any worker or git effect.
+func linearScopeFreeze(t *testing.T, db *store.DB, session store.Session, ref naming.Ref, bridge *turn.TicketWorkflowBridge, renderer *report.Reporter, reporter *turn.Reporter, redactor *redact.Redactor, logger *slog.Logger, remote *linearWorkflowServer) {
 	ctx := t.Context()
-	_, err := d.db.UpsertIdentity(ctx, store.Identity{Forge: "github", Role: store.RoleBot, UserID: 99})
-	linearWorkflowCheck(t, err)
-	if _, err = d.db.GetIdentity(ctx, "linear", store.RoleBot); !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("fixture has global Linear identity: %v", err)
+	if _, err := db.GetIdentity(ctx, "linear", store.RoleBot); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("fixture has global Linear bot: %v", err)
 	}
-	linearWorkflowCheck(t, d.db.PutManagedFeature(ctx, store.ManagedFeature{ParentTask: ref.String(), Generation: 1, State: "planning", WorkflowVersion: store.WorkflowSeparated}))
-	linearWorkflowCheck(t, d.db.SetManagedFeatureReady(ctx, ref.String(), 1, true))
-	_, err = d.db.FreezeSessionSlug(ctx, session.ID, "linear-feature", "lf/linear-feature")
-	linearWorkflowCheck(t, err)
-	gitRepo.Git("push", "--quiet", "origin", "HEAD:refs/heads/lf/linear-feature")
+	linearWorkflowCheck(t, db.SetManagedFeatureReady(ctx, ref.String(), 1, true))
 	paths := config.NewPaths(t.TempDir())
 	linearWorkflowCheck(t, paths.EnsureHome())
 	binary, err := git.Resolve(ctx)
 	linearWorkflowCheck(t, err)
-	attemptAuthority, err := turn.NewAttemptAuthority(ctx, d.db)
-	linearWorkflowCheck(t, err)
-	t.Cleanup(func() { _ = attemptAuthority.Close(context.WithoutCancel(ctx)) })
-	opts := turn.Options{DB: d.db, Git: binary, Paths: paths, InstanceID: "linear-implement-test", Logger: d.log, ProjectApprovers: true, CloneGate: newCloneGate(), Runners: turn.RunnerSet{"claude": linearApprovalNoAgent{}}, ResearchReporter: reporter, SubIssueCreator: bridge, SubIssueRenderer: renderer, MCP: &turn.MCPRuntime{Paths: paths, Redactor: redactor, Now: time.Now}}
-	opts.MCP.Authority, opts.MCP.Executable = attemptAuthority, "/factory/litefactory"
-	status, err := turn.NewImplementStatusService(ctx, turn.ImplementStatusOptions{Now: time.Now, Wait: waitImplementStatus, Refresh: func(ctx context.Context, parent string, generation int64) (bool, error) {
-		return turn.RefreshImplementParentStatus(ctx, opts, parent, generation)
-	}})
-	linearWorkflowCheck(t, err)
-	defer status.Close()
-	opts.MCP.ImplementStatus = status
-	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
-		definition, err := teamsource.CaptureImplement(ctx, specs)
-		if err != nil {
-			return nil, err
-		}
-		configBytes := []byte("implement: implement/implement.dot\n")
-		digest := sha256.Sum256(configBytes)
-		definition.Origin = teamsource.WorkflowOrigin{Kind: "local", Source: "local", Slug: "fixture", Version: "1.0.0", GraphPath: "implement/implement.dot", GraphFile: "implement.dot", Team: definition.Profile.Team, TeamConfig: configBytes, ConfigDigest: hex.EncodeToString(digest[:])}
-		return definition, nil
+	stop := errors.New("scope prepared; stop before graph execution")
+	opts := turn.Options{DB: db, Git: binary, Paths: paths, InstanceID: "linear-scope-test", Logger: logger, CloneGate: linearApprovalNoAgent{}, Runners: turn.RunnerSet{"claude": linearApprovalNoAgent{}}, ResearchReporter: reporter, SubIssueCreator: bridge, SubIssueRenderer: renderer, MCP: &turn.MCPRuntime{Paths: paths, Redactor: redactor, Now: time.Now}}
+	opts.WorkflowSource = func(context.Context, store.Repo, agent.Workflow, graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		return nil, stop
 	}
-	d.reporter, d.defaultAgent, d.toolProfiles = reporter, "claude", config.DefaultToolProfiles().Permissions
-	executor := &linearImplementExecutor{t: t, opts: opts, missingPublisher: true}
-	d.turn = executor
 	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
 	linearWorkflowCheck(t, err)
-	task := &task{repo: repo, session: session, ref: ref, forgeRepo: github.RepoFromRef(ref), issue: issue, log: d.log, tickAt: time.Now()}
-	// A definitive admission failure is consumed only after its refusal; a
-	// fresh command after verification is repaired must use the real executor.
-	remote.addReply("implement-before-verification", "/implement before verification", "human-uuid")
-	before, err := bridge.ListCommentsAfter(ctx, github.RepoFromRef(ref), ref.Issue, 0)
-	linearWorkflowCheck(t, err)
-	for _, comment := range before {
-		if comment.Body != "/implement before verification" {
-			continue
+	remote.mu.Lock()
+	before := remote.posts
+	remote.mu.Unlock()
+	for range 2 {
+		_, err := turn.Execute(ctx, opts, turn.Request{SessionID: session.ID, Mode: agent.ModeImplement, Agent: "claude", Issue: turn.Issue{Number: ref.Issue, Title: issue.Title, Body: issue.Body}, Trigger: turn.Trigger{CommentID: 9999999999999999, Body: "/implement approved stories"}, Command: turn.ParseCommand("/implement approved stories")})
+		if !errors.Is(err, stop) {
+			t.Fatalf("scope preparation failed before graph boundary: %v", err)
 		}
-		linearWorkflowCheck(t, d.handleComment(ctx, task, comment))
-		watermark, _, e := d.db.GetWatermark(ctx, session.ID)
-		linearWorkflowCheck(t, e)
-		if watermark.LastCommentID < comment.ID {
-			t.Fatal("confirmed refusal did not consume the command")
-		}
-		_, e = d.drain(sessionContext(ctx, session.ID), task, watermark.LastCommentID)
-		linearWorkflowCheck(t, e)
-	}
-	if executor.calls != 1 {
-		t.Fatalf("refused command retried: %d", executor.calls)
-	}
-	pending, err := d.db.ListImplementStories(ctx, ref.String(), 1)
-	linearWorkflowCheck(t, err)
-	if len(pending) != 0 {
-		t.Fatalf("missing publisher started workers: %+v", pending)
-	}
-	executor.missingPublisher = false
-	remote.addReply("implement-command", "/implement the approved plan", "human-uuid")
-	comments, err := bridge.ListCommentsAfter(ctx, github.RepoFromRef(ref), ref.Issue, 0)
-	linearWorkflowCheck(t, err)
-	for _, comment := range comments {
-		if comment.Body == "/implement the approved plan" {
-			linearWorkflowCheck(t, d.handleComment(ctx, task, comment))
+		feature, err := db.GetManagedFeature(ctx, ref.String())
+		linearWorkflowCheck(t, err)
+		delivered, err := db.StoryScopeNoticeDelivered(ctx, ref.String(), 1, "story-001", "freeze")
+		linearWorkflowCheck(t, err)
+		if feature.State != "implementing" || !delivered {
+			t.Fatalf("scope not activated: %+v delivered=%t", feature, delivered)
 		}
 	}
-	if executor.calls != 2 {
-		t.Fatalf("implement dispatch count: %d", executor.calls)
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
+	if remote.posts != before+1 {
+		t.Fatalf("scope notice duplicated: before=%d after=%d", before, remote.posts)
 	}
-	stories, err := d.db.ListImplementStories(ctx, ref.String(), 1)
-	linearWorkflowCheck(t, err)
-	if len(stories) != 1 || stories[0].State != store.ImplementRunning {
-		t.Fatalf("first story did not start: %+v", stories)
-	}
-	published, err := bridge.ListCommentsAfter(ctx, github.RepoFromRef(ref), ref.Issue, 0)
-	linearWorkflowCheck(t, err)
-	snapshot, err := d.db.GetExecutionSnapshot(ctx, session.ID)
-	linearWorkflowCheck(t, err)
-	for _, comment := range published {
-		if strings.HasPrefix(comment.Body, report.ImplementHandoffMarker(ref)) {
-			if comment.Author.ID != snapshot.ActorID {
-				t.Fatalf("handoff used wrong publisher: %+v", comment)
+	found := false
+	for _, reply := range remote.comments {
+		body, _ := reply["body"].(string)
+		if strings.Contains(body, "litefactory:scope:") {
+			found = true
+			if linearWorkflowObject(t, reply["user"])["id"] != "publisher-uuid" || linearWorkflowObject(t, reply["issue"])["id"] == "parent-uuid" {
+				t.Fatal("scope notice used wrong publisher or target")
 			}
-			return
 		}
 	}
-	t.Fatal("verified Linear publisher did not publish the handoff")
-}
-
-type linearImplementExecutor struct {
-	missingPublisher bool
-	t                *testing.T
-	opts             turn.Options
-	calls            int
-}
-
-func (e *linearImplementExecutor) Execute(ctx context.Context, req turn.Request) (turn.Result, error) {
-	e.calls++
-	if e.missingPublisher {
-		return turn.Result{}, turn.ErrRequiredTicketPublisher
+	if !found {
+		t.Fatal("scope notice missing")
 	}
-	if req.Mode != agent.ModeImplement {
-		e.t.Fatalf("wrong mode: %s", req.Mode)
-	}
-	out, err := turn.Execute(ctx, e.opts, req)
-	if err != nil || out.Err != nil {
-		e.t.Fatalf("Implement failed: %v result=%+v", err, out)
-	}
-	return out, err
 }
