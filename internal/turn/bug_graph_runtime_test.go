@@ -604,7 +604,7 @@ func TestGraphBugDeliveryConcreteConflictAndOwnerWait(t *testing.T) {
 			// without another publication; the reply resumes this same node.
 			specs, err := SimplifiedBugSpecs()
 			mustProgress(t, err)
-			definition, err := teamsource.CaptureBugParent(ctx, specs)
+			definition, err := captureLegacyConversation(ctx, specs)
 			mustProgress(t, err)
 			questionForge := newFakeForge(t)
 			f.opts.ResearchReporter = newReporter(t, f, questionForge, nil)

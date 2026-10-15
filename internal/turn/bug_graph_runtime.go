@@ -189,7 +189,32 @@ func graphBugExhaustionReason(ctx context.Context, db *store.DB, node graphexec.
 		return reason, nil
 	}
 	last := attempts[len(attempts)-1]
-	if last.Node != "finalization" || last.Status != store.GraphSucceeded || last.Outcome != "revalidate" {
+	// A declared sync traversal can sit between delivery and its fresh check.
+	// Stop at any other activity or unsuccessful sync; evidence never grants permission.
+	for i := len(attempts) - 1; i >= 0; i-- {
+		last = attempts[i]
+		if last.Status != store.GraphSucceeded {
+			return reason, nil
+		}
+		if last.Node == "finalization" && last.Outcome == "revalidate" {
+			break
+		}
+		outputs, err := db.ListGraphOutputs(ctx, last.ID)
+		if err != nil {
+			return "", err
+		}
+		sync := false
+		for _, output := range outputs {
+			var evidence syncBaseOutput
+			if output.Kind == store.GraphOutputJSON && json.Unmarshal(output.Payload, &evidence) == nil && evidence.Working != "" && evidence.Base != "" && evidence.Result == last.Outcome && (last.Outcome == "synced" || last.Outcome == "current" || last.Outcome == "retry") {
+				sync = true
+			}
+		}
+		if !sync || i == 0 {
+			return reason, nil
+		}
+	}
+	if last.Node != "finalization" || last.Outcome != "revalidate" {
 		return reason, nil
 	}
 	outputs, err := db.ListGraphOutputs(ctx, last.ID)
@@ -295,6 +320,11 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 	if e = policy.Register(&specs, &activities); e != nil {
 		return finish(e)
 	}
+	var prerequisite *store.BugSyncPrerequisite
+	if gate, ok := graphexec.BugFixerSyncGate(r.definition.Profile); ok {
+		fixer, _ := graphexec.Decide(r.definition.Profile, gate.Name, "synced")
+		prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer}
+	}
 	for {
 		if e = ctx.Err(); e != nil {
 			return finish(e)
@@ -323,35 +353,69 @@ func (r *BugRuntime) executeGraph(ctx context.Context, req Request, result Resul
 		if !ok {
 			return finish(errors.New("pinned Bug node absent"))
 		}
+		if prerequisite != nil && node.Name == prerequisite.SyncNode {
+			if _, e = GraphBugApprovedHandoff(ctx, r.opts.DB, instance.ID); e != nil {
+				return finish(e)
+			}
+			attempts, err := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
+			if err != nil {
+				return finish(err)
+			}
+			fixer, _ := r.definition.Profile.Node(prerequisite.FixerNode)
+			spent := 0
+			for _, attempt := range attempts {
+				if attempt.Node == fixer.Name && attempt.Attempt > spent {
+					spent = attempt.Attempt
+				}
+			}
+			if fixer.Limit > 0 && spent >= fixer.Limit {
+				allowed, err := r.opts.DB.GraphBugSyncEntryAllowance(ctx, instance.ID, *prerequisite)
+				if err != nil {
+					return finish(err)
+				}
+				if !allowed {
+					reason, err := graphBugExhaustionReason(ctx, r.opts.DB, fixer, attempts)
+					if err != nil {
+						return finish(err)
+					}
+					if err = r.opts.DB.RedirectGraphBugSyncToFixerStop(ctx, instance.ID, *prerequisite, r.opts.MCP.Now()); err != nil {
+						return finish(err)
+					}
+					_, err = parkGraphAction(ctx, r.opts, GraphNodeRequest{LaunchID: admission.LaunchID, Profile: r.definition.Profile, InstanceID: instance.ID, At: r.opts.MCP.Now()}, GraphNodeResult{InstanceID: instance.ID, Node: fixer.Name, NextNode: fixer.Name, Activity: ActivityResult{Diagnostic: reason}}, "exhausted", false)
+					return finish(err)
+				}
+			}
+		}
 		runID := int64(0)
 		allowanceSource := int64(0)
 		if node.Action == ResearchAgentAction {
-			if e = verifySyncHandoffBeforeAgent(ctx, r.opts, r.definition.Profile, instance, r.graphSyncBaseBinding(req.SessionID)); e != nil {
-				return finish(e)
-			}
-			if we == nil && wait.State == "allocated" && wait.AllowRunless && wait.AllowanceAttemptID == 0 {
-				source, e := r.opts.DB.GetGraphNodeAttempt(ctx, wait.ContinuationAttemptID)
-				if e != nil {
+			if prerequisite != nil && node.Name == prerequisite.FixerNode {
+				if _, e = GraphBugApprovedHandoff(ctx, r.opts.DB, instance.ID); e != nil {
 					return finish(e)
 				}
-				if source.Status == store.GraphSucceeded && source.RunID == 0 {
-					transitions, e := r.opts.DB.ListGraphTransitions(ctx, instance.ID)
-					if e != nil {
+				freshErr := graphBugFreshSync(ctx, r.opts.DB, r.definition.Profile, instance.ID, 0)
+				if we == nil && wait.State == "claimed" && wait.OriginNode == node.Name {
+					freshErr = errors.New("owner restart requires fresh base synchronization")
+				}
+				if freshErr == nil {
+					freshErr = verifySyncHandoffBeforeAgent(ctx, r.opts, r.definition.Profile, instance, r.graphSyncBaseBinding(req.SessionID))
+				}
+				if freshErr != nil {
+					if e = r.opts.DB.RedirectGraphBugFixerToSync(ctx, instance.ID, *prerequisite, r.opts.MCP.Now()); e != nil {
 						return finish(e)
 					}
-					for _, tr := range transitions {
-						if tr.FromNode == source.Node && tr.ToNode == node.Name && tr.OnOutcome == source.Outcome && tr.At.Equal(source.FinishedAt) {
-							allowanceSource = source.ID
-						}
-					}
+					continue
 				}
+			} else if e = verifySyncHandoffBeforeAgent(ctx, r.opts, r.definition.Profile, instance, r.graphSyncBaseBinding(req.SessionID)); e != nil {
+				return finish(e)
+			}
+			allowanceSource, e = r.opts.DB.GraphBugMechanicalAllowance(ctx, instance.ID, node.Name, prerequisite)
+			if e != nil {
+				return finish(e)
 			}
 			attempts, readErr := r.opts.DB.ListGraphNodeAttempts(ctx, instance.ID)
 			if readErr != nil {
 				return finish(readErr)
-			}
-			if allowanceSource != 0 && (len(attempts) == 0 || attempts[len(attempts)-1].ID != allowanceSource) {
-				allowanceSource = 0
 			}
 			maximum := 0
 			for _, attempt := range attempts {

@@ -40,7 +40,7 @@ func TestExplicitBugSyncHandsSuccessfulCheckoutToDependentAgent(t *testing.T) {
 			binding := SyncBaseBinding{Repo: g.bindings.Repo, Bind: func(context.Context, Options, ActivityRequest) (SyncBaseTarget, error) {
 				return SyncBaseTarget{Working: implementFeature, Base: gittest.DefaultBranch, Checkout: GitSyncBaseCheckout{Worktree: retained.Worktree, Author: git.Author{Name: "Test", Email: "test@example.invalid"}}, Lock: func(context.Context) (func() error, bool, error) { return func() error { return nil }, true, nil }}, nil
 			}}
-			raw, err := os.ReadFile("../teamsource/bug/bug.dot")
+			raw, err := os.ReadFile("testdata/bug_before_sync.profile")
 			mustProgress(t, err)
 			dot := strings.Replace(string(raw), `conversation -> analyst`, `conversation -> sync`, 1)
 			dot = strings.Replace(dot, `completed [lf_terminal="true"];`, `completed [lf_terminal="true"];

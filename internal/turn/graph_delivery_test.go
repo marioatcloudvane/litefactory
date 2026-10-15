@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/gittest"
-	"github.com/cloudvane/litefactory/internal/teamsource"
 	"os/exec"
 	"strings"
 	"testing"
@@ -474,7 +473,7 @@ func TestInterruptedDispatchResumesRetainedBugFinalization(t *testing.T) {
 			}
 			specs, err := SimplifiedBugSpecs()
 			mustProgress(t, err)
-			definition, err := teamsource.CaptureBugParent(ctx, specs)
+			definition, err := captureLegacyConversation(ctx, specs)
 			mustProgress(t, err)
 			activities := ActivityRegistry{}
 			mustProgress(t, activities.Register("lf_bug_finalize", h))

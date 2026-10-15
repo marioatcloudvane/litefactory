@@ -68,7 +68,7 @@ func (p SimplifiedBugPolicy) Register(specs *graphexec.Registry, activities *Act
 			if p.SyncBase.Repo == nil || p.SyncBase.Bind == nil {
 				return errors.New("explicit Bug base sync requires trusted repository and target bindings")
 			}
-			if e = activities.Register(graphexec.SyncBaseAction, SyncBaseActivity{p.SyncBase}); e != nil {
+			if e = activities.Register(graphexec.SyncBaseAction, graphBugSyncActivity{profile: p.Profile, binding: p.SyncBase}); e != nil {
 				return e
 			}
 			break
@@ -97,6 +97,9 @@ func (h graphBugRoleActivity) Execute(ctx context.Context, opts Options, req Act
 		}
 		if approval == nil {
 			return ActivityResult{}, store.ErrBugRepairUnauthorized
+		}
+		if e = graphBugFreshSync(ctx, opts.DB, h.p.Profile, req.InstanceID, req.NodeAttemptID); e != nil {
+			return ActivityResult{}, e
 		}
 		return h.p.Fixer.Execute(ctx, opts, req)
 	}
