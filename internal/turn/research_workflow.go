@@ -196,10 +196,17 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			if nodeReq, err = applyNodeAccess(policy, node, nodeReq); err != nil {
 				return w.finish(ctx, w.failed(ctx, scope, GraphNodeResult{}, err, true))
 			}
+			if policy.BeforeAgent != nil {
+				if err = policy.BeforeAgent(ctx, instance); err != nil {
+					return w.finish(ctx, err)
+				}
+			}
 			syncRuntime := &BugRuntime{opts: opts, definition: definition}
 			syncBinding := syncRuntime.graphSyncBaseBinding(req.SessionID)
 			if handler, exists := activities.Resolve(graphexec.SyncBaseAction); exists {
 				if sync, registered := handler.(SyncBaseActivity); registered {
+					syncBinding = sync.b
+				} else if sync, registered := handler.(workerSyncActivity); registered {
 					syncBinding = sync.b
 				}
 			}
