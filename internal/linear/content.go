@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -524,7 +525,7 @@ func comparableScaffoldProse(line string) string {
 			}
 		}
 	}
-	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")").Replace(prose)
+	decoded := decodePunctuationEntities(prose)
 	if !plainScaffoldProse(decoded) || strings.ContainsAny(prose, "\\`[]<>*_!|@") {
 		return line
 	}
@@ -547,11 +548,30 @@ func managedStoryDocument(lines []string) bool {
 	return scaffoldRequestMarker.MatchString(lines[request])
 }
 
+var punctuationEntity = regexp.MustCompile(`&#([0-9]{2,3});`)
+
+// decodePunctuationEntities turns the renderer's decimal entities for ASCII
+// punctuation (&#46; &#123; …) back into the characters Linear stores. Letters,
+// digits and anything outside ASCII punctuation stay encoded.
+func decodePunctuationEntities(s string) string {
+	return punctuationEntity.ReplaceAllStringFunc(s, func(entity string) string {
+		n, err := strconv.ParseUint(entity[2:len(entity)-1], 10, 7)
+		if err != nil {
+			return entity
+		}
+		c := rune(n)
+		if c > ' ' && c < 127 && (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			return string(c)
+		}
+		return entity
+	})
+}
+
 func comparableTableCell(cell string) string {
 	if strings.ContainsAny(cell, "[]`\\") {
 		return cell
 	}
-	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")", "&#95;", "_", "&#60;", "<", "&#62;", ">").Replace(cell)
+	decoded := decodePunctuationEntities(cell)
 	if strings.Trim(decoded, "-:. ") == "" {
 		return cell
 	}
@@ -568,7 +588,8 @@ func plainScaffoldProse(s string) bool {
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
 		case '.':
-			if i == 0 || !letter(s[i-1]) || (i+1 < len(s) && s[i+1] != ' ') {
+			// After a word, a number or a closing quote/parenthesis ('back'.).
+			if i == 0 || (!alnum(s[i-1]) && !strings.ContainsRune(`'")`, rune(s[i-1]))) || (i+1 < len(s) && s[i+1] != ' ') {
 				return false
 			}
 		case '-':
