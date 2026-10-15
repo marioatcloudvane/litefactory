@@ -80,7 +80,7 @@ func TestSyncBaseRetainedWorkDefersPublication(t *testing.T) {
 			retainedHead := g.repo.GitIn(wt.Path(), "rev-parse", "HEAD")
 			g.advance(gittest.DefaultBranch, "fix.txt", "base fix\n")
 			res, out, err := executeRecoverySync(t, g, b)
-			if err != nil || res.Outcome != "retry" || out.Reason == "" {
+			if err != nil || res.Outcome != "conflict" || out.Result != "conflict" || len(out.Conflicts) != 0 || out.Reason == "" {
 				t.Fatalf("%s %+v %v", res.Outcome, out, err)
 			}
 			if g.remoteFeature() != before || g.repo.GitIn(wt.Path(), "rev-parse", "HEAD") != retainedHead {
@@ -142,10 +142,30 @@ func TestSyncBaseDefersIncomingReservedTransport(t *testing.T) {
 	before := g.remoteFeature()
 	g.advance(gittest.DefaultBranch, ".litefactory-plan-proposal.json", "incoming transport\n")
 	res, out, err := executeRecoverySync(t, g, b)
-	if err != nil || res.Outcome != "retry" || !strings.Contains(out.Reason, "reserved") {
+	if err != nil || res.Outcome != "conflict" || out.Result != "conflict" || len(out.Conflicts) != 0 || !strings.Contains(out.Reason, "reserved") {
 		t.Fatalf("%s %+v %v", res.Outcome, out, err)
 	}
 	if g.remoteFeature() != before || g.repo.GitIn(wt.Path(), "rev-parse", "HEAD") != before {
 		t.Fatal("reserved transport deferral changed history")
+	}
+}
+
+func TestSyncBaseProposedHandoffPreservesIgnoredWork(t *testing.T) {
+	g, wt, b := retainedSyncFixture(t)
+	before := g.remoteFeature()
+	g.advance(gittest.DefaultBranch, "incoming.txt", "incoming tracked bytes\n")
+	g.repo.GitIn(wt.Path(), "config", "core.excludesFile", os.DevNull)
+	exclude := g.repo.GitIn(wt.Path(), "rev-parse", "--git-path", "info/exclude")
+	mustProgress(t, os.WriteFile(exclude, []byte("incoming.txt\n"), 0600))
+	path := filepath.Join(wt.Path(), "incoming.txt")
+	mustProgress(t, os.WriteFile(path, []byte("retained ignored bytes\n"), 0600))
+	res, out, err := executeRecoverySync(t, g, b)
+	if err != nil || res.Outcome != "conflict" || out.Result != "conflict" || len(out.Conflicts) != 0 || out.Reason != "incoming tracked paths overlap ignored retained work" {
+		t.Fatalf("handoff refusal: %+v %+v %v", res, out, err)
+	}
+	data, err := os.ReadFile(path)
+	mustProgress(t, err)
+	if string(data) != "retained ignored bytes\n" || g.remoteFeature() != before || g.repo.GitIn(wt.Path(), "rev-parse", "HEAD") != before {
+		t.Fatal("handoff refusal changed retained work or published")
 	}
 }
