@@ -30,6 +30,9 @@ func (r *Runner) ConversationIsolation(ctx context.Context, state string) (strin
 	env := append(providerprocess.DoctorEnvironment(r.environ, home), "CODEX_HOME="+home)
 	help, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"exec", "--help"}, env, scratch)
 	if err != nil {
+		if errors.Is(err, providerprocess.ErrProbeTransient) || ctx.Err() != nil {
+			return "", err
+		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
 	}
 	for _, flag := range []string{"--strict-config", "--ignore-user-config", "--ignore-rules", "--json"} {
@@ -45,8 +48,14 @@ func (r *Runner) ConversationIsolation(ctx context.Context, state string) (strin
 	script := `/bin/cat "$1" >/dev/null 2>&1 && exit 1; ( : > "$2" ) 2>/dev/null && exit 1; : > "$3" || exit 1; /bin/rm "$3" || exit 1; /bin/echo conversation-isolation-verified`
 	args := []string{"sandbox", "-c", conversationPermissions(scratch), "-P", "conversation", "--", "/bin/sh", "-c", script, "conversation-probe", sentinel, filepath.Join(home, "isolation-write"), filepath.Join(scratch, "isolation-write")}
 	output, err := providerprocess.ConversationProbe(ctx, r.binary.Path, args, env, scratch)
-	if err != nil || strings.TrimSpace(output) != "conversation-isolation-verified" {
+	if err != nil {
+		if errors.Is(err, providerprocess.ErrProbeTransient) || ctx.Err() != nil {
+			return "", err
+		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
+	}
+	if strings.TrimSpace(output) != "conversation-isolation-verified" {
+		return "", agent.ErrConversationIsolation
 	}
 	return "codex-conversation-named-deny-root-sandbox-v1", nil
 }

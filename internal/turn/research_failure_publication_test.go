@@ -3,6 +3,10 @@ package turn
 import (
 	"context"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/providerprocess"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -219,5 +223,51 @@ func TestResearchPrelaunchFailureOwnerRetry(t *testing.T) {
 	mustProgress(t, err)
 	if !reflect.DeepEqual(attempts, after) || !reflect.DeepEqual(delivery, afterDelivery) {
 		t.Fatal("retry altered predecessor attempts or delivery identity")
+	}
+}
+
+// The graph keeps one invocation while the pre-process boundary waits for the
+// same configured executable; it receives a real process result on recovery.
+func TestResearchTransientExecutableRecovery(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "recorded-provider")
+	calls, starts := 0, 0
+	runner := lifecycleMCPHost(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		restored := make(chan error, 1)
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			restored <- os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700)
+		}()
+		var cmd *exec.Cmd
+		err := providerprocess.Start(ctx, binary, req.WorktreePath, func() error {
+			starts++
+			cmd = exec.CommandContext(ctx, binary)
+			cmd.Dir = req.WorktreePath
+			if err := agent.VerifyRequestDelivery(ctx, req); err != nil {
+				return err
+			}
+			return cmd.Start()
+		})
+		if restoreErr := <-restored; restoreErr != nil {
+			t.Fatal(restoreErr)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if err = cmd.Wait(); err != nil {
+			return nil, err
+		}
+		submitLiveResult(t, req, researchDoneJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ExitCode: cmd.ProcessState.ExitCode(), FinishedAt: time.Now()}, nil
+	})
+	f, forge, req := assembledResearchFixture(t, runner)
+	out, err := Execute(t.Context(), f.opts, req)
+	if err != nil || out.Run.Status == store.RunFailed || calls != 1 || starts != 2 {
+		t.Fatalf("recovery: %+v %v calls=%d starts=%d", out, err, calls, starts)
+	}
+	for _, post := range forge.all() {
+		if strings.Contains(post.body, "could not finish") || strings.Contains(post.body, "no process result") {
+			t.Fatalf("intermediate failure: %s", post.body)
+		}
 	}
 }
