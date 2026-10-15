@@ -113,6 +113,21 @@ type TickResult struct {
 	Cursor store.PollCursor
 }
 
+// tickPhaseContext bounds synchronous provider work, never a dispatched worker.
+func (d *Daemon) tickPhaseContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := d.tickPhaseTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (d *Daemon) tickPhase(ctx context.Context, run func(context.Context) error) error {
+	phase, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
+	return run(phase)
+}
+
 // Tick runs one poll cycle: discover what has work, then dispatch as much of it
 // as there are free slots for.
 //
@@ -151,10 +166,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	ctx, checks := withContainerChecks(ctx)
 	defer checks.close()
 	d.doctorTick(ctx, startedAt)
-	d.refreshRecoveries(ctx, startedAt)
+	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.refreshRecoveries(ctx, startedAt); return nil })
 	// Stopped execution debt is independent of discovery/storage availability.
 	stoppedDispatched := d.retryStoppedResults(ctx, startedAt)
-	if err := d.reconcileGraphDispatches(ctx, startedAt); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.reconcileGraphDispatches(ctx, startedAt) }); err != nil {
 		return TickResult{StartedAt: startedAt}, err
 	}
 	if !d.autoResumeOnSessionLimit {
@@ -176,7 +191,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		}
 	}
 
-	d.refreshWebhookSecrets(ctx, startedAt)
+	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.refreshWebhookSecrets(ctx, startedAt); return nil })
 
 	if retryAt, held := d.connectionHold(ctx, startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
@@ -186,7 +201,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		return TickResult{StartedAt: startedAt, Skipped: true, RetryAt: retryAt}, nil
 	}
 
-	if err := d.pollPublications(ctx, startedAt); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.pollPublications(ctx, startedAt) }); err != nil {
 		d.log.ErrorContext(ctx, "publication observation remains pending", slog.Any("error", err))
 		if providerRateLimited(err) {
 			if d.connections == nil {
@@ -197,7 +212,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	}
 	// Progress is reconciled even while the sole turn worker is occupied.
 	if progress, ok := d.turn.(interface{ PollStoryProgress(context.Context) error }); ok {
-		if err := progress.PollStoryProgress(ctx); err != nil {
+		if err := d.tickPhase(ctx, progress.PollStoryProgress); err != nil {
 			d.log.ErrorContext(ctx, "story progress remains pending", slog.Any("error", err))
 			if providerRateLimited(err) {
 				if d.connections == nil {
@@ -210,7 +225,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	// Code-host controls have their own sources and must be polled even when
 	// work-management replies come from Linear.
-	if err := d.PollCodeDeliveryControls(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.PollCodeDeliveryControls(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
 		if providerRateLimited(err) {
 			if d.connections == nil {
@@ -242,10 +257,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	result = TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor, Dispatched: stoppedDispatched}
 
-	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.replayContinuationCancellations(ctx, repos) }); err != nil {
 		return result, d.observe(ctx, startedAt, err)
 	}
-	if err := d.replayInterruptionReports(ctx, repos); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.replayInterruptionReports(ctx, repos) }); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(ctx, startedAt, err)
 	}
@@ -257,7 +272,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		}
 	}
 
-	d.researchReminders(ctx, startedAt)
+	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.researchReminders(ctx, startedAt); return nil })
 
 	// The heartbeat runs every local source each time; only the forge listing is
 	// scheduled. A tick that does not list still dispatches and reconciles.
@@ -270,7 +285,9 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 			d.schedule.Forget(id)
 		}
 	}
-	queues, err := d.discover(ctx, repos, startedAt, &result)
+	discoveryCtx, cancelDiscovery := d.tickPhaseContext(ctx)
+	queues, err := d.discover(discoveryCtx, repos, startedAt, &result)
+	cancelDiscovery()
 	defer finishCandidateReservations(queues)
 	discoveryDeferred := errors.Is(err, ErrDiscoveryDeferred)
 	hb.deferred = discoveryDeferred
@@ -307,7 +324,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 			return result, err
 		}
 	}
-	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.replayContinuationCancellations(ctx, repos) }); err != nil {
 		return result, d.observe(ctx, startedAt, err)
 	}
 	if lowDisk {
@@ -1392,6 +1409,9 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		}
 	}()
 	ctx = sessionContext(ctx, c.session.ID)
+	workerCtx := ctx
+	ctx, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
 	if d.observeCandidateHold(ctx, c, tickAt) {
 		return offerSkipped
 	}
@@ -1520,7 +1540,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	// the shared pool and in-flight lifetime through terminal diagnostics.
 	t.discoveryReservation = c.discoveryReservation
 	c.discoveryReservation = nil
-	go d.runTicketPollingWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
+	go d.runTicketPollingWorker(workerCtx, t, func(ctx context.Context) { d.work(ctx, t) })
 
 	result.Dispatched++
 	return offerDispatched

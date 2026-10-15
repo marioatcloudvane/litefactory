@@ -407,6 +407,8 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	tickPhaseTimeout time.Duration // zero uses the internal 30-second bound
+
 	doctorHostOptions *DoctorHostOptions
 	doctorHost        *DoctorRepairHost
 	doctor            doctorLane

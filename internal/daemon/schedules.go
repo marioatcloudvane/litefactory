@@ -44,6 +44,9 @@ func (d *Daemon) dispatchSchedules(ctx context.Context, repos map[int64]store.Re
 // the dispatch pass may inspect another row; false means the shared capacity is
 // full, not that this individual row was invalid or already in flight.
 func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, scheduled store.Schedule, tickAt time.Time, result *TickResult) bool {
+	workerCtx := ctx
+	ctx, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
 	ctx = sessionContext(ctx, scheduled.SessionID)
 	session, err := d.db.GetSession(ctx, scheduled.SessionID)
 	if err != nil {
@@ -117,7 +120,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 	t.issue = issue
 	t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"due_schedule"}), slog.Time("tick_at", tickAt))
 	t.workerLog.DebugContext(ctx, "worker dispatched")
-	go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.runScheduled(ctx, t, reserved) })
+	go d.runDoctorGuardedWorker(sessionContext(workerCtx, scheduled.SessionID), t, func(ctx context.Context) { d.runScheduled(ctx, t, reserved) })
 	result.Dispatched++
 	return true
 }
