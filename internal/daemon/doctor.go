@@ -43,34 +43,34 @@ func (d *Daemon) doctorTick(ctx context.Context, at time.Time) {
 	if d.doctor.service == nil {
 		return
 	}
-	if err := d.recoverDoctorRepairs(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.recoverDoctorRepairs(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor repair recovery remains pending", slog.Any("error", err))
 	}
-	if err := d.recoverDoctor(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.recoverDoctor(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor recovery remains pending", slog.Any("error", err))
 	}
-	if err := d.doctorControls(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.doctorControls(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor controls remain pending", slog.Any("error", err))
 	}
 	d.dispatchDoctor(ctx)
 	if _, held := d.connectionHold(ctx, at); held {
 		return
 	}
-	if err := d.discoverDoctor(ctx, at); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.discoverDoctor(ctx, at) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor discovery remains pending", slog.Any("error", err))
 		var rate *github.RateLimitError
 		if errors.As(err, &rate) {
 			d.rateLimited(ctx, d.log, at, err)
 		}
 	}
-	if err := d.doctorControls(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.doctorControls(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor controls remain pending", slog.Any("error", err))
 	}
 	d.dispatchDoctor(ctx)
 	if _, held := d.connectionHold(ctx, at); held {
 		return
 	}
-	if err := d.publishDoctor(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.publishDoctor(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor publication remains pending", slog.Any("error", err))
 		var rate *github.RateLimitError
 		if errors.As(err, &rate) {
@@ -480,6 +480,9 @@ func (d *Daemon) doctorControls(ctx context.Context) error {
 	return nil
 }
 func (d *Daemon) dispatchDoctor(ctx context.Context) {
+	workerCtx := ctx
+	ctx, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
 	if !d.doctor.pool.try() {
 		return
 	}
@@ -496,7 +499,7 @@ func (d *Daemon) dispatchDoctor(ctx context.Context) {
 	// this goroutine's lifetime. It never waits for a workflow worker.
 	go func() {
 		defer d.doctor.pool.done()
-		if err := d.runDoctor(ctx, c); err != nil {
+		if err := d.runDoctor(workerCtx, c); err != nil {
 			d.log.ErrorContext(ctx, "doctor outcome remains pending", slog.Int64("command_id", c.ID), slog.Any("error", err))
 		}
 	}()

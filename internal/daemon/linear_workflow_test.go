@@ -534,7 +534,6 @@ func linearTicketWorkflow(t *testing.T, setApproval bool) {
 		t.Fatal("restart changed the retained child index")
 	}
 	remote.mu.Lock()
-	defer remote.mu.Unlock()
 	if remote.posts != confirmedPosts {
 		t.Fatalf("restart repeated a confirmed workflow publication: before=%d after=%d", confirmedPosts, remote.posts)
 	}
@@ -555,6 +554,8 @@ func linearTicketWorkflow(t *testing.T, setApproval bool) {
 	if !questionSeen || !reportSeen {
 		t.Fatalf("confirmed publications omitted their prepared contents: question=%t report=%t", questionSeen, reportSeen)
 	}
+	remote.mu.Unlock()
+	linearScopeFreeze(t, db, session, ref, bridge, renderer, reporter, redactor, logger, remote)
 	t.Log("Linear verified instruction, published question, answer, exact Plan approval, managed child and report confirmed through HTTP and SQLite")
 }
 
@@ -1006,4 +1007,58 @@ func (linearApprovalNoAgent) Acquire(context.Context, string) (func(), error) {
 }
 func (linearApprovalNoAgent) Run(context.Context, agent.Request) (*agent.RunResult, error) {
 	return nil, errors.New("set approval unexpectedly requested an agent")
+}
+
+// Stop graph admission after scope preparation, before any worker or git effect.
+func linearScopeFreeze(t *testing.T, db *store.DB, session store.Session, ref naming.Ref, bridge *turn.TicketWorkflowBridge, renderer *report.Reporter, reporter *turn.Reporter, redactor *redact.Redactor, logger *slog.Logger, remote *linearWorkflowServer) {
+	ctx := t.Context()
+	if _, err := db.GetIdentity(ctx, "linear", store.RoleBot); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("fixture has global Linear bot: %v", err)
+	}
+	linearWorkflowCheck(t, db.SetManagedFeatureReady(ctx, ref.String(), 1, true))
+	paths := config.NewPaths(t.TempDir())
+	linearWorkflowCheck(t, paths.EnsureHome())
+	binary, err := git.Resolve(ctx)
+	linearWorkflowCheck(t, err)
+	stop := errors.New("scope prepared; stop before graph execution")
+	opts := turn.Options{DB: db, Git: binary, Paths: paths, InstanceID: "linear-scope-test", Logger: logger, CloneGate: linearApprovalNoAgent{}, Runners: turn.RunnerSet{"claude": linearApprovalNoAgent{}}, ResearchReporter: reporter, SubIssueCreator: bridge, SubIssueRenderer: renderer, MCP: &turn.MCPRuntime{Paths: paths, Redactor: redactor, Now: time.Now}}
+	opts.WorkflowSource = func(context.Context, store.Repo, agent.Workflow, graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		return nil, stop
+	}
+	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
+	linearWorkflowCheck(t, err)
+	remote.mu.Lock()
+	before := remote.posts
+	remote.mu.Unlock()
+	for range 2 {
+		_, err := turn.Execute(ctx, opts, turn.Request{SessionID: session.ID, Mode: agent.ModeImplement, Agent: "claude", Issue: turn.Issue{Number: ref.Issue, Title: issue.Title, Body: issue.Body}, Trigger: turn.Trigger{CommentID: 9999999999999999, Body: "/implement approved stories"}, Command: turn.ParseCommand("/implement approved stories")})
+		if !errors.Is(err, stop) {
+			t.Fatalf("scope preparation failed before graph boundary: %v", err)
+		}
+		feature, err := db.GetManagedFeature(ctx, ref.String())
+		linearWorkflowCheck(t, err)
+		delivered, err := db.StoryScopeNoticeDelivered(ctx, ref.String(), 1, "story-001", "freeze")
+		linearWorkflowCheck(t, err)
+		if feature.State != "implementing" || !delivered {
+			t.Fatalf("scope not activated: %+v delivered=%t", feature, delivered)
+		}
+	}
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
+	if remote.posts != before+1 {
+		t.Fatalf("scope notice duplicated: before=%d after=%d", before, remote.posts)
+	}
+	found := false
+	for _, reply := range remote.comments {
+		body, _ := reply["body"].(string)
+		if strings.Contains(body, "litefactory:scope:") {
+			found = true
+			if linearWorkflowObject(t, reply["user"])["id"] != "publisher-uuid" || linearWorkflowObject(t, reply["issue"])["id"] == "parent-uuid" {
+				t.Fatal("scope notice used wrong publisher or target")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("scope notice missing")
+	}
 }

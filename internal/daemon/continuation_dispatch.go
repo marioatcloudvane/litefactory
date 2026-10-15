@@ -16,6 +16,9 @@ import (
 // Inspect every pending action, including future deadlines. Cancellation is
 // durable so reopening an issue or enabling the option cannot resurrect work.
 func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]store.Repo, at time.Time, result *TickResult) error {
+	workerCtx := ctx
+	ctx, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
 	pending, err := d.db.ListPendingContinuations(ctx, 0)
 	if err != nil {
 		return err
@@ -93,7 +96,7 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		t.workerLog.DebugContext(ctx, "worker dispatched")
 		// This worker belongs to the same bounded pool and Quiesce lifetime as
 		// ordinary and manually scheduled turns.
-		go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.runContinuation(ctx, t, reserved) })
+		go d.runDoctorGuardedWorker(sessionContext(workerCtx, c.SessionID), t, func(ctx context.Context) { d.runContinuation(ctx, t, reserved) })
 		result.Dispatched++
 	}
 	return nil
