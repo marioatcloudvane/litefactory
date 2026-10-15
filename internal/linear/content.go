@@ -588,8 +588,10 @@ func plainScaffoldProse(s string) bool {
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
 		case '.':
-			// After a word, a number or a closing quote/parenthesis ('back'.).
-			if i == 0 || (!alnum(s[i-1]) && !strings.ContainsRune(`'")`, rune(s[i-1]))) || (i+1 < len(s) && s[i+1] != ' ') {
+			// A period forms Markdown only as an ordered-list marker at the
+			// start ("1. "); elsewhere (sentence ends, .legend, file.js) it is
+			// plain text.
+			if i == 0 {
 				return false
 			}
 		case '-':
