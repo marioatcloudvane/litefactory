@@ -347,6 +347,16 @@ func comparableContent(body string) string {
 		}
 		lines[i] = line
 	}
+	if story {
+		fence = ""
+		for i, line := range lines {
+			next := nextContentFence(fence, line)
+			if fence == "" && next == "" && strings.HasPrefix(line, "|") {
+				lines[i] = storyTableRowText(line)
+			}
+			fence = next
+		}
+	}
 	return strings.Join(withoutProseBlankLines(lines), "\n")
 }
 
@@ -565,6 +575,26 @@ func decodePunctuationEntities(s string) string {
 		}
 		return entity
 	})
+}
+
+// storyTableRowText compares a factory story table row by its text. Linear
+// stores an escaped cell pipe (\| or &#124;) as a bare "|", which changes the
+// cell count, so rows are reduced to their cell texts in order, with rule cells
+// canonical and the renderer's punctuation entities decoded.
+func storyTableRowText(line string) string {
+	line = strings.NewReplacer(`\|`, "|", `\_`, "_").Replace(decodePunctuationEntities(line))
+	var cells []string
+	for _, cell := range strings.Split(line, "|") {
+		cell = strings.Join(strings.Fields(cell), " ")
+		if cell == "" {
+			continue
+		}
+		if contentTableRule.MatchString(cell) {
+			cell = "---"
+		}
+		cells = append(cells, cell)
+	}
+	return "|" + strings.Join(cells, " ") + "|"
 }
 
 func comparableTableCell(cell string) string {

@@ -139,3 +139,18 @@ func TestContentEquivalentForLaterStageEntitiesTablesAndLists(t *testing.T) {
 		t.Fatal("a changed table cell must not be equivalent")
 	}
 }
+
+// Linear stores an escaped pipe inside a table cell as a bare "|" (MAR-13's
+// technical draft), which changes the cell count. Factory story table rows are
+// compared by their text.
+func TestContentEquivalentStoryTableRowWithCellPipe(t *testing.T) {
+	head := "<!-- lf:plan-story parent=1 key=story-002 -->\n<!-- lf:plan-request digest=" + strings.Repeat("a", 64) + " -->\n"
+	expected := head + "| Element | Contract |\n| -- | -- |\n| PATCH body | &#123; direction: 'incoming' &#124; 'outgoing' &#125; only&#46; |"
+	observed := head + "| Element | Contract |\n| -- | -- |\n| PATCH body | { direction: 'incoming' | 'outgoing' } only. |"
+	if !ContentEquivalent(expected, observed) {
+		t.Fatalf("Linear's unescaped cell pipe must stay equivalent:\n%s\n---\n%s", comparableContent(expected), comparableContent(observed))
+	}
+	if ContentEquivalent(expected, strings.Replace(observed, "only.", "always.", 1)) {
+		t.Fatal("a changed table cell must not be equivalent")
+	}
+}
