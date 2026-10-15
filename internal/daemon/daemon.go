@@ -464,6 +464,9 @@ type Daemon struct {
 	lock         *Lock
 	now          func() time.Time
 	ticks        <-chan time.Time
+	// tick replaces [Daemon.Tick] in the heartbeat loop when set. Only a test
+	// sets it; nil runs the real tick.
+	tick func(context.Context) (TickResult, error)
 
 	// chatBeat, chatWait, chatHandler and chatStatus carry chat that may be
 	// built after start: chatBeat is set in New when chat is configured,
@@ -982,6 +985,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time, immediate bool) {
 	defer d.pool.wait()
 	defer d.doctor.pool.wait()
+	// Deferred last so it runs first: the line is written before the join,
+	// which can wait hours on dispatched workers. A nil error means the tick
+	// source closed.
+	defer func() {
+		d.log.Info("heartbeat loop ended; waiting for dispatched workers", slog.Any("error", ctx.Err()))
+	}()
 
 	if immediate && !d.beat(ctx, wakeTimer) {
 		return
@@ -1022,11 +1031,18 @@ func (d *Daemon) beat(ctx context.Context, source string) bool {
 		return false
 	}
 	d.chatWake()
-	if _, err := d.Tick(withWakeSource(ctx, source)); err != nil {
+	tick := d.Tick
+	if d.tick != nil {
+		tick = d.tick
+	}
+	if _, err := tick(withWakeSource(ctx, source)); err != nil {
 		if isRecoveryPending(err) {
 			return true
 		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// Only the daemon's own context ends the loop. A phase deadline or
+		// cancellation inside the tick, under a live context, is an ordinary
+		// failed tick.
+		if ctx.Err() != nil {
 			return false
 		}
 		d.log.ErrorContext(ctx, "tick failed; the poll cursor is unchanged and the next tick redoes it",
