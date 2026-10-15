@@ -75,9 +75,9 @@ type syncBaseOutput struct {
 //
 //	synced    the base was merged and the working branch was pushed
 //	current   the working branch already holds the base; nothing was pushed
-//	conflict  the base conflicts with the working branch, which is unchanged;
-//	          the output names the conflicting paths
-//	retry     retained work is unsafe, the lock is busy or the branch moved
+//	conflict  merge conflict or retained-work safety blockage; reason is specific
+//	          and paths are included only for merge conflicts
+//	retry     the lock is busy or the branch moved
 //
 // A cancelled context, a git outage or a forge outage is an error.
 func (h SyncBaseActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (res ActivityResult, err error) {
@@ -120,8 +120,8 @@ func (h SyncBaseActivity) Execute(ctx context.Context, opts Options, req Activit
 			return ActivityResult{}, fmt.Errorf("inspect retained checkout: %w", guardErr)
 		}
 		if reason != "" {
-			out.Result, out.Reason = "retry", reason
-			return implementResult("retry", out)
+			out.Result, out.Reason = "conflict", reason
+			return implementResult("conflict", out)
 		}
 	}
 
@@ -141,8 +141,8 @@ func (h SyncBaseActivity) Execute(ctx context.Context, opts Options, req Activit
 		merged = true
 		out.Reason, out.Conflicts = "", nil
 	case errors.Is(err, git.ErrReservedTransportChange) && target.Checkout != nil:
-		out.Result, out.Reason = "retry", "reserved factory transport differs from the fetched base; retained content was preserved"
-		return implementResult("retry", out)
+		out.Result, out.Reason = "conflict", "reserved factory transport differs from the fetched base; retained content was preserved"
+		return implementResult("conflict", out)
 	case err != nil:
 		return ActivityResult{}, fmt.Errorf("merge %s into %s: %w", target.Base, target.Working, err)
 	}
@@ -156,8 +156,8 @@ func (h SyncBaseActivity) Execute(ctx context.Context, opts Options, req Activit
 			return ActivityResult{}, fmt.Errorf("inspect proposed checkout handoff: %w", guardErr)
 		}
 		if reason != "" {
-			out.Result, out.Reason = "retry", reason
-			return implementResult("retry", out)
+			out.Result, out.Reason = "conflict", reason
+			return implementResult("conflict", out)
 		}
 	}
 	out.Commit = head
