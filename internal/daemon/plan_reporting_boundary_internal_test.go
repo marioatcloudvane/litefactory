@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -10,8 +11,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -257,4 +260,60 @@ func TestPlanHeldEffectNoticeSurvivesSettlement(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPlanUnboundSummaryDeduplicatesAndClears(t *testing.T) {
+	f := newPublicationIO(t)
+	ctx := t.Context()
+	parent, err := naming.ParseRef(f.session.TaskRef)
+	publicationMust(t, err)
+	state := planbrief.PlanState{SharedRevision: "shared", Stories: []planbrief.PlanStoryState{{Key: "story-002", Stage: "story"}}}
+	_, err = f.db.ReservePlanStory(ctx, parent.String(), "story-002")
+	publicationMust(t, err)
+	_, err = f.db.SavePlanWorkflowState(ctx, parent.String(), 0, state)
+	publicationMust(t, err)
+	baseForge, ok := f.runtime.Comments.(turn.PlanStoryForge)
+	if !ok {
+		t.Fatal("fixture lacks story forge")
+	}
+	forge := &unboundSummaryForge{PlanStoryForge: baseForge}
+	renderer, err := report.New(report.Options{Redactor: f.runtime.Redactor, Limit: github.CommentSizeLimit, Logger: f.d.log})
+	publicationMust(t, err)
+	reporter, err := turn.NewReporter(turn.ReporterOptions{DB: f.db, Forge: forge, Renderer: renderer, Logger: f.d.log, BotUserID: 20})
+	publicationMust(t, err)
+	for range 2 {
+		publicationMust(t, reporter.ReportPlanSummary(ctx, parent, f.session.ID))
+	}
+	if f.posts != 1 || !strings.Contains(f.bodies[0], "story-002") || !strings.Contains(f.bodies[0], "cannot draft") || !strings.Contains(f.bodies[0], "plan assembly is blocked") || !strings.Contains(f.bodies[0], "MAR-13") {
+		t.Fatalf("summary: %v", f.bodies)
+	}
+	publicationMust(t, f.db.BindPlanStoryShell(ctx, parent.String(), "story-002", 4010, 401, "shell"))
+	for range 2 {
+		publicationMust(t, reporter.ReportPlanSummary(ctx, parent, f.session.ID))
+	}
+	if len(forge.edits) != 1 || strings.Contains(forge.edits[0], "cannot draft") {
+		t.Fatalf("warning not cleared: %v", forge.edits)
+	}
+}
+
+type unboundSummaryForge struct {
+	turn.PlanStoryForge
+	edits []string
+}
+
+func (f *unboundSummaryForge) ListFollowupIssues(context.Context, github.Repo) ([]github.Issue, error) {
+	return []github.Issue{{ID: 4010, Number: 401, Body: "<!-- lf:plan-story parent=2780 key=story-002 -->\nShell"}}, nil
+}
+func (f *unboundSummaryForge) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	if number != 401 {
+		return f.PlanStoryForge.GetIssue(ctx, repo, number)
+	}
+	return github.Issue{ID: 4010, Number: 401, Body: "<!-- lf:plan-story parent=2780 key=story-002 -->\nShell", QualifiedSnapshot: &ticket.Snapshot{Ref: ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear}}, DisplayKey: "MAR-13", BrowserURL: "https://linear.app/test/issue/MAR-13"}}, nil
+}
+func (f *unboundSummaryForge) GetParentIssue(context.Context, github.Repo, int) (github.Issue, error) {
+	return github.Issue{ID: 2780, Number: 278}, nil
+}
+func (f *unboundSummaryForge) EditComment(_ context.Context, _ github.Repo, _ int64, body redact.Body) error {
+	f.edits = append(f.edits, body.String())
+	return nil
 }
