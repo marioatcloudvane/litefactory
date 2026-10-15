@@ -616,6 +616,9 @@ func (r *planGraphRuntime) effect(ctx context.Context, _ Options, a ActivityRequ
 }
 
 func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityRequest) (ActivityResult, error) {
+	if a.Attrs["lf_kind"] == "advisory" {
+		return executeAdvisoryComment(ctx, r.opts, a, r.definition.Profile, r.opts.ResearchReporter)
+	}
 	if a.Attrs["lf_kind"] == "failure" {
 		return r.failureComment(ctx, a)
 	}

@@ -13,18 +13,20 @@ import (
 
 // JudgeRequest retains one qualified command and its immutable admission evidence.
 type JudgeRequest struct {
-	ID, SessionID, TriggerCommentID int64
-	Task, TicketKey, CommentID      string
-	Source                          JudgeSource
-	Configuration, Evidence, Report []byte
+	ID, SessionID, TriggerCommentID                          int64
+	Task, TicketKey, CommentID                               string
+	CallerKind, SourceNode                                   string
+	GraphInstanceID, JudgeNodeAttemptID, SourceNodeAttemptID int64
+	Source                                                   JudgeSource
+	Configuration, Evidence, Report                          []byte
 }
 
-const judgeRequestColumns = `id,session_id,trigger_comment_id,task,ticket_key,comment_id,source_json,configuration,evidence,report`
+const judgeRequestColumns = `id,session_id,trigger_comment_id,task,ticket_key,comment_id,source_json,configuration,evidence,report,caller_kind,COALESCE(graph_instance_id,0),COALESCE(judge_node_attempt_id,0),source_node,COALESCE(source_node_attempt_id,0)`
 
 func scanJudgeRequest(row interface{ Scan(...any) error }) (JudgeRequest, error) {
 	var r JudgeRequest
 	var source []byte
-	err := row.Scan(&r.ID, &r.SessionID, &r.TriggerCommentID, &r.Task, &r.TicketKey, &r.CommentID, &source, &r.Configuration, &r.Evidence, &r.Report)
+	err := row.Scan(&r.ID, &r.SessionID, &r.TriggerCommentID, &r.Task, &r.TicketKey, &r.CommentID, &source, &r.Configuration, &r.Evidence, &r.Report, &r.CallerKind, &r.GraphInstanceID, &r.JudgeNodeAttemptID, &r.SourceNode, &r.SourceNodeAttemptID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -40,6 +42,12 @@ func (db *DB) AdmitJudgeRequest(ctx context.Context, r JudgeRequest) (JudgeReque
 	if r.Task == "" || r.TicketKey == "" || r.CommentID == "" || r.SessionID < 1 || r.Source.Task != r.Task || r.Source.Reference == "" || len(r.Configuration) > MaxResultInputBytes || len(r.Evidence) > 128<<20 {
 		return JudgeRequest{}, errors.New("invalid judge request")
 	}
+	if r.CallerKind == "" {
+		r.CallerKind = "manual"
+	}
+	if r.CallerKind != "manual" && r.CallerKind != "workflow" {
+		return JudgeRequest{}, errors.New("invalid judge caller")
+	}
 	source, err := json.Marshal(r.Source)
 	if err != nil {
 		return JudgeRequest{}, err
@@ -48,7 +56,7 @@ func (db *DB) AdmitJudgeRequest(ctx context.Context, r JudgeRequest) (JudgeReque
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		old, e := scanJudgeRequest(tx.QueryRowContext(ctx, `SELECT `+judgeRequestColumns+` FROM judge_requests WHERE ticket_key=? AND comment_id=?`, r.TicketKey, r.CommentID))
 		if e == nil {
-			if old.Task != r.Task || old.SessionID != r.SessionID {
+			if old.Task != r.Task || old.SessionID != r.SessionID || old.CallerKind != r.CallerKind || old.GraphInstanceID != r.GraphInstanceID || old.JudgeNodeAttemptID != r.JudgeNodeAttemptID || old.SourceNode != r.SourceNode || old.SourceNodeAttemptID != r.SourceNodeAttemptID {
 				return ErrResultCorrelation
 			}
 			out = old
@@ -57,6 +65,18 @@ func (db *DB) AdmitJudgeRequest(ctx context.Context, r JudgeRequest) (JudgeReque
 		if !errors.Is(e, ErrNotFound) {
 			return e
 		}
+		if r.CallerKind == "workflow" {
+			var valid int
+			e = tx.QueryRowContext(ctx, `SELECT count(*) FROM graph_node_attempts j JOIN graph_instances i ON i.id=j.instance_id JOIN graph_node_attempts s ON s.instance_id=i.id WHERE j.id=? AND i.id=? AND i.session_id=? AND j.status='running' AND s.id=? AND s.node=? AND s.status='succeeded'`, r.JudgeNodeAttemptID, r.GraphInstanceID, r.SessionID, r.SourceNodeAttemptID, r.SourceNode).Scan(&valid)
+			if e != nil {
+				return e
+			}
+			if valid != 1 {
+				return ErrResultAuthority
+			}
+		} else if r.GraphInstanceID != 0 || r.JudgeNodeAttemptID != 0 || r.SourceNodeAttemptID != 0 || r.SourceNode != "" {
+			return ErrResultAuthority
+		}
 		var task string
 		if e = tx.QueryRowContext(ctx, `SELECT task_ref FROM sessions WHERE id=?`, r.SessionID).Scan(&task); e != nil {
 			return e
@@ -64,7 +84,7 @@ func (db *DB) AdmitJudgeRequest(ctx context.Context, r JudgeRequest) (JudgeReque
 		if task != r.Task {
 			return ErrResultAuthority
 		}
-		res, e := tx.ExecContext(ctx, `INSERT INTO judge_requests(task,ticket_key,comment_id,session_id,trigger_comment_id,source_json,configuration,evidence,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, r.Task, r.TicketKey, r.CommentID, r.SessionID, r.TriggerCommentID, source, r.Configuration, r.Evidence, FormatTime(nowUTC()))
+		res, e := tx.ExecContext(ctx, `INSERT INTO judge_requests(task,ticket_key,comment_id,session_id,trigger_comment_id,source_json,configuration,evidence,created_at,caller_kind,graph_instance_id,judge_node_attempt_id,source_node,source_node_attempt_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.Task, r.TicketKey, r.CommentID, r.SessionID, r.TriggerCommentID, source, r.Configuration, r.Evidence, FormatTime(nowUTC()), r.CallerKind, nullID(r.GraphInstanceID), nullID(r.JudgeNodeAttemptID), r.SourceNode, nullID(r.SourceNodeAttemptID))
 		if e != nil {
 			return e
 		}
@@ -90,7 +110,7 @@ func (db *DB) FindJudgeRequest(ctx context.Context, ticketKey, commentID string)
 
 // PendingJudgeRequests includes saved reports until their publication is reconciled by the caller.
 func (db *DB) PendingJudgeRequests(ctx context.Context) ([]JudgeRequest, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+judgeRequestColumns+` FROM judge_requests ORDER BY id`)
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+judgeRequestColumns+` FROM judge_requests WHERE caller_kind='manual' ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -331,4 +351,9 @@ func (db *DB) LockJudgeRequest(ctx context.Context, ticketKey, commentID, lockDi
 		return nil, errors.New("judge command identity is required")
 	}
 	return db.lockParentStatus(ctx, ticketKey+"\x00"+commentID, lockDir, "judge-request", true)
+}
+
+// FindWorkflowJudgeRequest returns the immutable binding of a reserved judge node.
+func (db *DB) FindWorkflowJudgeRequest(ctx context.Context, instanceID, attemptID int64) (JudgeRequest, error) {
+	return scanJudgeRequest(db.sql.QueryRowContext(ctx, `SELECT `+judgeRequestColumns+` FROM judge_requests WHERE caller_kind='workflow' AND graph_instance_id=? AND judge_node_attempt_id=?`, instanceID, attemptID))
 }

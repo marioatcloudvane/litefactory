@@ -18,7 +18,10 @@ var ErrJudgeSourceUnavailable = errors.New("saved judge source unavailable")
 type JudgeSource struct {
 	Reference, Task, Kind, Provider, Digest string
 	ID, Revision, Sequence                  int64
+	AcceptedResultID, AcceptedRevision      int64
 	Snapshot                                []byte
+	PlanContext                             []byte
+	PlanContextGap                          string
 }
 
 func judgeSubstantive(raw []byte, mode string) bool {
