@@ -13,8 +13,8 @@ const SyncBaseAction = "lf_sync_base"
 //
 //	synced    the base was merged and the working branch was published
 //	current   the working branch already holds the base; checkout is refreshed
-//	conflict  the base conflicts with the working branch, which is unchanged
-//	retry     retained work is unsafe, or the working branch is busy or moved
+//	conflict  merge conflict or retained-work safety blockage requiring owner action
+//	retry     the working branch is busy or moved
 func SyncBaseSpec(mode agent.Mode) ActionSpec {
 	return ActionSpec{Name: SyncBaseAction, Mode: mode, Outcomes: []string{"synced", "current", "conflict", "retry"}}
 }
