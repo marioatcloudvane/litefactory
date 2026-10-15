@@ -349,3 +349,132 @@ func TestPlanRetryUpstreamIneligibleRefusal(t *testing.T) {
 		t.Fatal("refusal changed state or launched work")
 	}
 }
+
+func TestPlanDiscussion_RetryPreservesApprovedEarlierStages(t *testing.T) {
+	for _, stage := range []string{"technical", "acceptance"} {
+		for _, failure := range []string{"readback", "before effect"} {
+			t.Run(stage+"/"+failure, func(t *testing.T) {
+				failing := false
+				var drafted []string
+				f, remote, base, calls, forge := graphPlanFixtureWithForge(t, "agent", func(a *graphPlanAnswer) {
+					drafted = append(drafted, a.Stage)
+					if failing && failure == "before effect" {
+						a.Stop, a.Reason = agent.OutcomeFailed, "fixture failed before publication"
+					}
+				})
+				executeGraphPlan(t, f, base)
+				if stage == "acceptance" {
+					executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
+				}
+				failing = true
+				remote.losePatch = failure == "readback"
+				req := asStoryTask(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+2), "story-001")
+				out, err := Execute(t.Context(), f.opts, req)
+				if err == nil || out.Run.Status != store.RunFailed {
+					t.Fatalf("expected failure: %+v %v", out, err)
+				}
+				before := graphPlanState(t, f)
+				if before.Stories[0].Stage != stage || before.Stories[0].Wait != nil {
+					t.Fatalf("wrong failed state: %+v", before)
+				}
+				if failure == "readback" {
+					mustProgress(t, f.db.ObservePlanStoryLifecycle(t.Context(), f.ref().String(), "story-001", planbrief.PlanLifecycle{}, childContentHold))
+					held := graphPlanState(t, f)
+					if held.Stories[0].Stage != stage || !reflect.DeepEqual(held.Stories[0].Approvals, before.Stories[0].Approvals) {
+						t.Fatal("hold erased progress")
+					}
+					// Discovery verifies the same bound content; effect recovery still owns
+					// the interrupted publication and must settle it before drafting again.
+					mustProgress(t, f.db.ObservePlanStoryLifecycle(t.Context(), f.ref().String(), "story-001", planbrief.PlanLifecycle{State: "open"}, ""))
+				}
+				failing = false
+				priorCalls, priorPosts := *calls, len(forge.all())
+				req = asStoryTask(t, f, nextTrigger(base, 9995, "Retry"), "story-001")
+				executeGraphPlan(t, f, req)
+				after := graphPlanState(t, f).Stories[0]
+				if *calls != priorCalls+1 || drafted[len(drafted)-1] != stage || after.Stage != stage || after.Wait == nil || after.Wait.Stage != stage || after.Wait.Kind != "review" || after.Blocked() {
+					t.Fatalf("retry did not draft only %s: calls=%v state=%+v", stage, drafted, after)
+				}
+				if !reflect.DeepEqual(after.Approvals, before.Stories[0].Approvals) || after.Approvals[stage] != "" {
+					t.Fatal("retry changed approvals")
+				}
+				for _, post := range forge.all()[priorPosts:] {
+					if strings.Contains(post.body, "/approve-plan story-001 story ") || (stage == "acceptance" && strings.Contains(post.body, "/approve-plan story-001 technical ")) {
+						t.Fatal("retry requested earlier approval")
+					}
+				}
+				posts := len(forge.all())
+				executeGraphPlan(t, f, req)
+				if *calls != priorCalls+1 || len(forge.all()) != posts {
+					t.Fatal("replayed reply duplicated draft or review")
+				}
+			})
+		}
+	}
+}
+
+func TestPlanDiscussion_RetryExplainsChangedReviewBasis(t *testing.T) {
+	for _, change := range []string{"story", "technical", "dependency", "shared"} {
+		t.Run(change, func(t *testing.T) {
+			f, _, base, _, forge := graphPlanFixtureWithForge(t, "agent", func(a *graphPlanAnswer) {
+				if a.Stage == "acceptance" {
+					a.Stop, a.Reason = agent.OutcomeFailed, "before effect"
+				}
+			})
+			executeGraphPlan(t, f, base)
+			executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
+			req := asStoryTask(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+2), "story-001")
+			if _, err := Execute(t.Context(), f.opts, req); err == nil {
+				t.Fatal("expected acceptance failure")
+			}
+			wantStage, wantBasis := "story", "story content changed"
+			mustProgress(t, f.db.UpdatePlanWorkflowState(t.Context(), f.ref().String(), func(s *planbrief.PlanState) (bool, error) {
+				d := s.Stories[0].Draft
+				switch change {
+				case "story":
+					d.Problem = "Changed intent"
+				case "technical":
+					// Copy the architecture before modifying the proposed draft.
+					raw, err := json.Marshal(d)
+					if err != nil {
+						return false, err
+					}
+					d.Architecture = nil
+					if err = json.Unmarshal(raw, &d); err != nil {
+						return false, err
+					}
+					d.Architecture.General[0].Decision = "Changed technical design"
+					wantStage, wantBasis = "technical", "technical content changed"
+				case "dependency":
+					d.Dependencies.IssueRefs = []string{"https://example.test/prerequisite"}
+					wantBasis = "story dependencies changed"
+				case "shared":
+					wantBasis = "shared decisions changed"
+					return true, s.SetSharedRevision("changed-shared")
+				}
+				return true, s.PutCandidate(d, wantStage, "owner-changed")
+			}))
+			changed := graphPlanState(t, f)
+			if changed.Stories[0].Stage != wantStage || changed.Stories[0].Approvals[wantStage] != "" {
+				t.Fatal("changed basis did not invalidate earliest stage")
+			}
+			if change == "technical" && changed.Stories[0].Approvals["story"] == "" {
+				t.Fatal("technical edit invalidated story approval")
+			}
+			// The next draft can be unchanged; the explanation must come from retained
+			// state and the previous immutable request, not from agent commentary.
+			priorPosts := len(forge.all())
+			req = asStoryTask(t, f, nextTrigger(base, 9996, "Retry"), "story-001")
+			executeGraphPlan(t, f, req)
+			found := false
+			for _, post := range forge.all()[priorPosts:] {
+				if strings.Contains(post.body, "Review resumes at the "+wantStage+" stage because "+wantBasis) {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("missing %s rewind explanation: %+v", change, forge.all()[priorPosts:])
+			}
+		})
+	}
+}
