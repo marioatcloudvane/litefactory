@@ -212,13 +212,13 @@ func TestBugRuntimeRestartReturnsThroughSyncBeforeFixerPermissions(t *testing.T)
 				}
 				if attempt.Node == gate.Name {
 					syncs++
-					if syncs > 1 && (attempt.Status != store.GraphSucceeded || attempt.Outcome != "retry") {
+					if syncs > 1 && (attempt.Status != store.GraphSucceeded || attempt.Outcome != "conflict") {
 						t.Fatalf("unsafe checkout sync=%+v", attempt)
 					}
 				}
 			}
-			if syncs != gate.Limit {
-				t.Fatalf("sync dispatches=%d want cumulative bound %d", syncs, gate.Limit)
+			if syncs != 2 {
+				t.Fatalf("sync dispatches=%d want prior success plus one safety refusal", syncs)
 			}
 			transitions, err := f.db.ListGraphTransitions(ctx, instance.ID)
 			mustProgress(t, err)

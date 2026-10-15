@@ -24,7 +24,7 @@ func (h workerSyncActivity) Execute(ctx context.Context, opts Options, a Activit
 	result, err := h.SyncBaseActivity.Execute(ctx, opts, a)
 	var deferred *workerSyncDeferred
 	if errors.As(err, &deferred) {
-		return implementResult("retry", syncBaseOutput{Working: deferred.working, Base: deferred.base, Result: "retry", Reason: deferred.reason})
+		return implementResult("conflict", syncBaseOutput{Working: deferred.working, Base: deferred.base, Result: "conflict", Reason: deferred.reason})
 	}
 	return result, err
 }

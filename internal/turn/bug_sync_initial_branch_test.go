@@ -67,7 +67,7 @@ func TestBugInitialUnpublishedBranchSynchronizesWithoutPublication(t *testing.T)
 			head, err := retained.Worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
 			mustProgress(t, err)
 			if divergent {
-				if result.Outcome != "retry" || head != before || evidence.CheckoutVerified {
+				if result.Outcome != "conflict" || evidence.Result != "conflict" || head != before || evidence.CheckoutVerified {
 					t.Fatalf("unpublished repair was changed: result=%+v evidence=%+v head=%s want=%s", result, evidence, head, before)
 				}
 				if evidence.Reason == "" {
