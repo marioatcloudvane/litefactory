@@ -31,6 +31,7 @@ var everyReplyKind = []report.ReplyKind{
 	report.ReplyMissingModeMapping,
 	report.ReplyMissingTeam,
 	report.ReplyUnsupportedWorkflow,
+	report.ReplyDoctorUnsupported,
 	report.ReplyLegacyToolLabel,
 	report.ReplyScheduleInvalid,
 	report.ReplyScheduleConfirmed,
