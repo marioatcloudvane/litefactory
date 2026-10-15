@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/secrets"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"runtime"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
 )
@@ -228,5 +232,72 @@ func TestPollingCacheHTTPChangedTailAndFailure(t *testing.T) {
 	}
 	if requests.Load() != 10 {
 		t.Fatalf("requests %d want 10, two per traversal", requests.Load())
+	}
+}
+
+func TestStalledBodyTimeoutComparison(t *testing.T) {
+	t.Logf("runtime: %s", runtime.Version())
+	for _, h2 := range []bool{false, true} {
+		for _, endpoint := range []string{"sub_issues", "issue"} {
+			for _, explicit := range []bool{false, true} {
+				t.Run(fmt.Sprintf("http2=%t/%s/context=%t", h2, endpoint, explicit), func(t *testing.T) {
+					cancelled := make(chan struct{})
+					server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if (r.ProtoMajor == 2) != h2 {
+							t.Errorf("protocol %s", r.Proto)
+						}
+						if r.Header.Get("Authorization") == "" {
+							t.Error("missing auth")
+						}
+						w.Header().Set("Content-Type", "application/json")
+						w.Header().Set("ETag", `"stalled"`)
+						w.WriteHeader(http.StatusOK)
+						if err := http.NewResponseController(w).Flush(); err != nil {
+							t.Error(err)
+							return
+						}
+						select {
+						case <-r.Context().Done():
+							close(cancelled)
+						case <-t.Context().Done():
+						}
+					}))
+					server.EnableHTTP2 = h2
+					server.StartTLS()
+					defer server.Close()
+					hc := server.Client()
+					hc.Timeout = 200 * time.Millisecond
+					ctx := t.Context()
+					if explicit {
+						hc.Timeout = 3 * time.Second
+						var cancel context.CancelFunc
+						ctx, cancel = context.WithTimeout(ctx, 200*time.Millisecond)
+						defer cancel()
+					}
+					c, err := github.New(github.Options{APIBase: server.URL, HTTPClient: hc, Token: secrets.NewToken("offline-token")})
+					if err != nil {
+						t.Fatal(err)
+					}
+					start := time.Now()
+					if endpoint == "sub_issues" {
+						_, err = c.ListSubIssues(ctx, testRepo, 7)
+					} else {
+						_, err = c.GetIssue(ctx, testRepo, 7)
+					}
+					if err == nil {
+						t.Fatal("stalled read succeeded")
+					}
+					if elapsed := time.Since(start); elapsed > 2*time.Second {
+						t.Fatalf("read took %s: %v", elapsed, err)
+					}
+					select {
+					case <-cancelled:
+					case <-time.After(time.Second):
+						t.Fatal("server did not observe cancellation")
+					}
+					t.Logf("cancelled: %v", err)
+				})
+			}
+		}
 	}
 }
