@@ -25,6 +25,9 @@ const graphDispatchLimit = 8
 // back into a run. Owner comments keep priority: a session already busy is
 // skipped and its dispatch stays pending for the next tick.
 func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.Repo, at time.Time, result *TickResult) error {
+	workerCtx := ctx
+	ctx, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
 	pending, err := d.db.ListDueGraphDispatches(ctx, at.UTC(), graphDispatchLimit)
 	if err != nil {
 		return err
@@ -99,7 +102,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		}
 		t.workerLog = log.With(slog.Any("dispatch_sources", []string{"graph_step"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")
-		go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })
+		go d.runDoctorGuardedWorker(sessionContext(workerCtx, dispatch.SessionID), t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })
 		result.Dispatched++
 	}
 	return nil
