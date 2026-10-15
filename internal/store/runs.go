@@ -732,10 +732,11 @@ type Reconciliation struct {
 // ReconcileOrphans repairs the state a killed daemon left behind, and is the
 // first thing a starting daemon does (D-B).
 //
-// Two kinds of wreckage, one transaction because they describe the same event:
+// Execution wreckage is repaired in one transaction:
 // runs still marked running are failed with the [ReasonAbandoned] reason and
 // their sessions marked failed, and per-task locks held by any instance other
-// than instanceID are released.
+// than instanceID are released. Running session flags without a lock or an
+// executing/prelaunch run are also failed, even when their runs already finished.
 //
 // Without this the daemon would violate its own (session, trigger comment)
 // uniqueness the first time it was rebooted mid-run, and the task would stay
@@ -851,6 +852,19 @@ WHERE lock_owner IS NOT NULL AND lock_owner <> ? AND id NOT IN (SELECT session_i
 			if err != nil {
 				return fmt.Errorf("release stale locks: %w", err)
 			}
+		}
+		// Run completion and session settlement are separate writes. A crash
+		// between them must not leave a finished session blocking worker recovery.
+		_, err = tx.ExecContext(ctx, `
+UPDATE sessions
+SET state = ?, updated_at = ?
+WHERE state = ? AND COALESCE(lock_owner, '') = ''
+  AND NOT EXISTS (SELECT 1 FROM runs WHERE session_id = sessions.id AND status IN (?, ?))
+  AND id NOT IN (SELECT session_id FROM doctor_held_session_owners)
+  AND id NOT IN `+unsupportedLegacyBugSessions,
+			string(SessionFailed), FormatTime(now), string(SessionRunning), string(RunPrelaunch), string(RunRunning))
+		if err != nil {
+			return fmt.Errorf("fail stale running sessions: %w", err)
 		}
 		result.ReclaimedLocks = locks
 		return nil
