@@ -84,7 +84,7 @@ func TestFreezeNoticesRecoverOriginalRevisionAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := Options{DB: db, SubIssueCreator: forge, SubIssueRenderer: renderer}
-	if _, err := scopeNoticePublisher(ctx, Options{DB: db, ProjectApprovers: true}, 0, ref); err == nil {
+	if _, err := ticketPublisherID(ctx, Options{DB: db, ProjectApprovers: true}, forge, 0, ref); err == nil {
 		t.Fatal("connected GitHub session without snapshot used global bot")
 	}
 	req := Request{Mode: agent.ModeImplement}

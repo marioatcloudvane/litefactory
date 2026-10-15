@@ -2782,6 +2782,9 @@ func (d *Daemon) run(
 		if trigger.PlanReply != nil && errors.As(err, &planRefusal) {
 			return err
 		}
+		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && errors.Is(err, turn.ErrRequiredTicketPublisher) {
+			return d.refuseMode(ctx, t, trigger, report.ReplyMissingTicketPublisher, "")
+		}
 		var refusal *workflowRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind, mode)
