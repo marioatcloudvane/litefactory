@@ -567,3 +567,225 @@ func TestValidateSuiteNoSpaceLeftIsBlocked(t *testing.T) {
 		})
 	}
 }
+
+// Drive the actual admitted workflow repeatedly while a distinct commit owns
+// the real suite lock. A busy visit must never become a graph attempt.
+func TestValidateSuiteBusyWorkflowWaitsBeyondDispatchLimit(t *testing.T) {
+	a := newAdoptFlow(t)
+	ctx := t.Context()
+	now := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+	a.f.opts.MCP.Now = func() time.Time { return now }
+	a.f.opts.GraphRetryDelay = time.Minute
+	bindings, _, err := a.f.opts.Validate.Bind(ctx, a.f.opts, Request{}, store.ValidateEntry{Commit: validateHeadB})
+	mustProgress(t, err)
+	// The first suite runs on a separate instance and remains inside its runner.
+	entered, release := make(chan struct{}), make(chan struct{})
+	original := bindings.Run
+	bindings.Run = func(ctx context.Context, path string, command config.BugCheckCommand, started func(bugchecks.CommandResult) error) bugchecks.CommandResult {
+		if command.Argv[0] == "full-one" {
+			close(entered)
+			<-release
+		}
+		return original(ctx, path, command, started)
+	}
+	definition := captureValidate(t)
+	profile := definition.Profile
+	repo, err := a.f.db.GetRepo(ctx, a.f.session.RepoID)
+	mustProgress(t, err)
+	firstSession, err := a.f.db.GetOrCreateSession(ctx, repo, 999)
+	mustProgress(t, err)
+	pin, err := a.f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: profile.Team, Mode: "validate", ProfileVersion: profile.ProfileVersion, Path: "validate/validate.dot", Digest: profile.Digest})
+	mustProgress(t, err)
+	topology, err := graphexec.SemanticDigest(profile)
+	mustProgress(t, err)
+	files, err := json.Marshal(definition.Files)
+	mustProgress(t, err)
+	_, err = a.f.db.AdmitWorkflowPath(ctx, firstSession.ID, "graph")
+	mustProgress(t, err)
+	first, err := a.f.db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: "validate", SessionID: firstSession.ID, TriggerID: 6000, DefinitionID: pin.ID, Start: "suite", ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin)})
+	mustProgress(t, err)
+	firstReq := GraphNodeRequest{Profile: profile, InstanceID: first.Instance.ID, LaunchID: first.LaunchID, At: now}
+	mustProgress(t, firstReq.Activities.Register("lf_validate_suite", ValidateSuiteActivity{bindings}))
+	done := make(chan error, 1)
+	go func() {
+		_, err := ExecuteNodeAction(ctx, a.f.opts, firstReq)
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("first suite ended before entering runner: %v", err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+			<-done
+		}
+	}()
+	_, err = a.manual(t, 6001)
+	mustProgress(t, err)
+	instance, err := a.f.db.LatestWorkflowInstance(ctx, a.f.session.ID, "validate")
+	mustProgress(t, err)
+	for range 20 {
+		instance, err = a.f.db.GetGraphInstance(ctx, instance.ID)
+		mustProgress(t, err)
+		if instance.Status != store.GraphRunning || instance.CurrentNode != "suite" || !instance.NextDueAt.After(now) {
+			t.Fatalf("not waiting: %+v", instance)
+		}
+		if n := a.visits(t, instance.ID, "suite"); n != 0 {
+			t.Fatalf("busy suite spent %d attempts", n)
+		}
+		pending, err := a.f.db.ListDueGraphDispatches(ctx, instance.NextDueAt, 100)
+		mustProgress(t, err)
+		if len(pending) != 1 {
+			t.Fatalf("pending = %+v", pending)
+		}
+		early, err := a.f.db.ListDueGraphDispatches(ctx, now, 100)
+		mustProgress(t, err)
+		if len(early) != 0 {
+			t.Fatalf("early dispatch: %+v", early)
+		}
+		if _, fresh, err := a.f.db.NextFreshGraphDispatch(ctx, a.f.session.ID); err != nil || fresh {
+			t.Fatalf("same-worker chaining: %v %v", fresh, err)
+		}
+		now = instance.NextDueAt
+		dispatch, reserved, err := a.f.db.ReserveGraphDispatch(ctx, pending[0].ID, now)
+		mustProgress(t, err)
+		if !reserved {
+			t.Fatal("dispatch not reserved")
+		}
+		req := a.request(dispatch.TriggerID(), 0, "Continue the workflow at its suite stage.")
+		_, err = Execute(ctx, a.f.opts, req)
+		mustProgress(t, err)
+	}
+	if a.suiteRepo.begun != 1 {
+		t.Fatalf("busy workflow started scratch: %d", a.suiteRepo.begun)
+	}
+	close(release)
+	mustProgress(t, <-done)
+	released = true
+	dispatch, err := a.f.db.LatestGraphDispatch(ctx, instance.ID)
+	mustProgress(t, err)
+	now = dispatch.DueAt
+	_, reserved, err := a.f.db.ReserveGraphDispatch(ctx, dispatch.ID, now)
+	mustProgress(t, err)
+	if !reserved {
+		t.Fatal("final dispatch not reserved")
+	}
+	_, err = Execute(ctx, a.f.opts, a.request(dispatch.TriggerID(), 0, "Continue the workflow at its suite stage."))
+	mustProgress(t, err)
+	if n := a.visits(t, instance.ID, "suite"); n != 1 {
+		t.Fatalf("suite executions = %d", n)
+	}
+	if got := a.reached(t); got.Wait != "waiting" || got.Outcome != store.ValidateAssessed {
+		t.Fatalf("did not resume to normal outcome: %+v", got)
+	}
+}
+
+func TestValidateRetrySelfTransitionParksAfterOneAttempt(t *testing.T) {
+	a := newAdoptFlow(t)
+	ctx := t.Context()
+	now := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+	a.f.opts.MCP.Now = func() time.Time { return now }
+	a.f.opts.GraphRetryDelay = time.Minute
+	bind := a.f.opts.Validate.Bind
+	slots := &flowSlots{}
+	a.f.opts.Validate.Bind = func(ctx context.Context, opts Options, req Request, entry store.ValidateEntry) (ValidateSuiteBindings, ValidateFlowBindings, error) {
+		suite, flow, err := bind(ctx, opts, req, entry)
+		flow.Slots = slots
+		return suite, flow, err
+	}
+	_, err := a.manual(t, 6001)
+	mustProgress(t, err)
+	instance, err := a.f.db.LatestWorkflowInstance(ctx, a.f.session.ID, "validate")
+	mustProgress(t, err)
+	if instance.CurrentNode != "review" || !instance.NextDueAt.After(now) || a.visits(t, instance.ID, "review") != 1 {
+		t.Fatalf("retry did not yield: %+v", instance)
+	}
+	dispatch, err := a.f.db.LatestGraphDispatch(ctx, instance.ID)
+	mustProgress(t, err)
+	if !dispatch.DueAt.Equal(instance.NextDueAt) || dispatch.Status != "pending" {
+		t.Fatalf("continuation = %+v", dispatch)
+	}
+	early, err := a.f.db.ListDueGraphDispatches(ctx, now, 100)
+	mustProgress(t, err)
+	if len(early) != 0 {
+		t.Fatalf("retry selected before due: %+v", early)
+	}
+	if _, fresh, err := a.f.db.NextFreshGraphDispatch(ctx, a.f.session.ID); err != nil || fresh {
+		t.Fatalf("same-worker chaining: %v %v", fresh, err)
+	}
+	slots.free = 3
+	now = dispatch.DueAt
+	_, reserved, err := a.f.db.ReserveGraphDispatch(ctx, dispatch.ID, now)
+	mustProgress(t, err)
+	if !reserved {
+		t.Fatal("continuation not reserved")
+	}
+	_, err = Execute(ctx, a.f.opts, a.request(dispatch.TriggerID(), 0, "Continue the workflow at its review stage."))
+	mustProgress(t, err)
+	if got := a.reached(t); got.Wait != "waiting" || got.Outcome != store.ValidateAssessed {
+		t.Fatalf("retry did not resume: %+v", got)
+	}
+}
+
+func TestValidateSuiteGraphAdmissionReleasesLockOnErrors(t *testing.T) {
+	for _, failure := range []string{"limit", "reservation", "execution", "cancellation"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newFixture(t, nil)
+			suite := newSuiteFixture(t)
+			suite.b.DB = f.db
+			profile := captureValidate(t).Profile
+			pin, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: profile.Team, Mode: "validate", ProfileVersion: profile.ProfileVersion, Path: "validate/validate.dot", Digest: profile.Digest})
+			mustProgress(t, err)
+			instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: pin.ID, CurrentNode: "suite", StartedAt: suiteClock})
+			mustProgress(t, err)
+			req := GraphNodeRequest{Profile: profile, InstanceID: instance.ID, At: suiteClock}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			switch failure {
+			case "limit":
+				for range 16 {
+					attempt, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", Limit: 16, StartedAt: suiteClock})
+					mustProgress(t, err)
+					mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, attempt.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "retry", FinishedAt: suiteClock, InstanceStatus: store.GraphRunning}))
+				}
+			case "reservation":
+				_, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: instance.ID, Node: "suite", Limit: 16, StartedAt: suiteClock})
+				mustProgress(t, err)
+			case "execution", "cancellation":
+				suite.b.Bind = func(ctx context.Context, _ Options, _ ActivityRequest) (ValidateSuiteAuthority, error) {
+					unlock, err := f.db.LockSuite(ctx, suite.lockDir)
+					if err == nil {
+						_ = unlock()
+						t.Error("lock not held through execution")
+					}
+					if !errors.Is(err, store.ErrSuiteBusy) {
+						t.Errorf("lock: %v", err)
+					}
+					if failure == "cancellation" {
+						cancel()
+						return ValidateSuiteAuthority{}, ctx.Err()
+					}
+					return ValidateSuiteAuthority{}, errors.New("binding failed")
+				}
+			}
+			mustProgress(t, req.Activities.Register("lf_validate_suite", ValidateSuiteActivity{suite.b}))
+			out, err := ExecuteNodeAction(ctx, f.opts, req)
+			if failure == "limit" {
+				if err != nil || out.Status != store.GraphFailed || out.AttemptID != 0 {
+					t.Fatalf("limit no longer enforced: %+v %v", out, err)
+				}
+			} else if err == nil {
+				t.Fatal("expected execution error")
+			}
+			unlock, err := f.db.LockSuite(t.Context(), suite.lockDir)
+			mustProgress(t, err)
+			mustProgress(t, unlock())
+			if suite.repo.begun != 0 {
+				t.Fatal("error started suite scratch")
+			}
+		})
+	}
+}
