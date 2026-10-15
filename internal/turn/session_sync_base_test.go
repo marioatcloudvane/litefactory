@@ -26,7 +26,7 @@ func TestSessionSyncBindingUsesFactoryTargetsAndRetainedCheckout(t *testing.T) {
 		return BugRolePermissions{Tools: []string{"Read"}, AllowedTools: []string{"Read"}}, nil
 	}})
 	mustProgress(t, err)
-	raw, err := os.ReadFile("../teamsource/bug/bug.dot")
+	raw, err := os.ReadFile("testdata/bug_before_sync.profile")
 	mustProgress(t, err)
 	dot := strings.Replace(string(raw), `conversation -> analyst`, `conversation -> sync`, 1)
 	dot = strings.Replace(dot, `completed [lf_terminal="true"];`, `completed [lf_terminal="true"];

@@ -54,8 +54,10 @@ func validateOwnerStop(node Node, workflow agent.Workflow) error {
 	}
 	faults = append(faults, validateListAttribute(node.Name, "lf_stop", node.Attrs["lf_stop"], values)...)
 	required := []string{"blocked", "failed", "invalid", "exhausted"}
+	// Sync retry can be routed through a bounded gate instead of parking.
+	// Outcome edge validation and the workflow policy check that route.
 	if node.Action == SyncBaseAction {
-		required = []string{"conflict", "retry", "failed", "invalid", "exhausted"}
+		required = []string{"conflict", "failed", "invalid", "exhausted"}
 	}
 	for _, outcome := range required {
 		if !ParksOutcome(node, outcome) {

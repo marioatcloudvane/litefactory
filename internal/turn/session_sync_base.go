@@ -25,7 +25,49 @@ func (b sessionGraphSyncRepo) Begin(ctx context.Context, branch string) (Impleme
 	if s.Branch != branch {
 		return nil, errors.New("base sync working branch differs from factory session")
 	}
+	// A new Bug analyst creates a local branch without publishing it. When
+	// that branch has no fetched remote ref, start the gate from its selected
+	// base. The retained-checkout guard still rejects dirty work or local
+	// commits outside that base; the activity does not publish a new branch.
+	if b.runtime.definition != nil {
+		if _, gated := graphexec.BugFixerSyncGate(b.runtime.definition.Profile); gated {
+			branch, err = b.initialBugSyncBranch(ctx, s, branch)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	return (bugDeliveryRepo{runtime: b.runtime, session: s}).Begin(ctx, branch)
+}
+
+func (b sessionGraphSyncRepo) initialBugSyncBranch(ctx context.Context, session store.Session, working string) (string, error) {
+	opts := b.runtime.opts
+	repo, err := executionRepository(ctx, opts.DB, session)
+	if err != nil {
+		return "", err
+	}
+	release, err := opts.CloneGate.Acquire(ctx, repo.Path)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	clone, err := opts.Git.Open(ctx, repo.Path)
+	if err != nil {
+		return "", err
+	}
+	if err = verifyExecutionClone(ctx, opts, session, clone); err != nil {
+		return "", err
+	}
+	if err = clone.Fetch(ctx, opts.remote()); err != nil {
+		return "", err
+	}
+	if _, err = clone.ShowRef(ctx, "refs/remotes/"+opts.remote()+"/"+working); err == nil {
+		return working, nil
+	}
+	if !errors.Is(err, git.ErrRefNotFound) {
+		return "", err
+	}
+	return storyBaseBranch(ctx, opts, clone, session, repo), nil
 }
 
 func (r *BugRuntime) graphSyncBaseBinding(sessionID int64) SyncBaseBinding {

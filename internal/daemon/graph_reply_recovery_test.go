@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +51,10 @@ func stoppedGraphFixture(t *testing.T, bug ...bool) (*fixture, store.GraphInstan
 		if err != nil {
 			t.Fatal(err)
 		}
-		capture, err := teamsource.CaptureBugParent(t.Context(), specs)
+		// These recovery fixtures retain the released pre-sync topology.
+		// Their synthetic histories model its direct conversation/fixer routes,
+		// not a newly approved canonical Bug execution.
+		capture, err := teamsource.CaptureWorkflowIdentity(t.Context(), os.DirFS("../../teams/go-development/v1.0.2/bug"), "bug.dot", "go-development", agent.WorkflowBug, specs)
 		if err != nil {
 			t.Fatal(err)
 		}

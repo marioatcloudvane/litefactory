@@ -114,10 +114,22 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 				return out, err
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		var prerequisite *store.BugSyncPrerequisite
+		if gate, exists := graphexec.BugFixerSyncGate(req.Profile); exists {
+			if fixer, valid := graphexec.Decide(req.Profile, gate.Name, "synced"); valid {
+				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer}
+			}
+		}
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
+		if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction {
+			out.Activity.Diagnostic, err = graphBugSyncExhaustionDiagnostic(context.WithoutCancel(ctx), opts.DB, instance.ID, node.Name, out.Activity.Diagnostic)
+			if err != nil {
+				return out, err
+			}
+		}
 		if graphexec.ParksOutcome(node, "exhausted") {
 			return parkGraphAction(ctx, opts, req, out, "exhausted", false)
 		}
@@ -150,6 +162,9 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	})
 	activity.Output = slices.Clone(activity.Output)
 	out.Activity = activity
+	if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction && (dispatchErr != nil || (activity.Outcome != "synced" && activity.Outcome != "current")) {
+		out.Activity.Diagnostic = graphBugSyncDiagnostic(activity)
+	}
 	// Owner cancellation must park even when private result submission completed
 	// before process cleanup; a stopped run cannot enter successful delivery.
 	if workflow == agent.WorkflowBug && req.RunID != 0 {

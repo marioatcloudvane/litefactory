@@ -253,6 +253,9 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if w == "bug" {
+			current = legacyBugSourceWithoutSyncGate(t, current)
+		}
 		normalized := bytes.ReplaceAll(current, []byte(`team="go-development"`), []byte(`team="builtin"`))
 		normalized = bytes.ReplaceAll(normalized, []byte(",litefactory-rules"), nil)
 		for _, role := range []string{"architect", "code-reviewer", "implementation-engineer", "unit-test-engineer", "integration-test-engineer"} {
@@ -518,4 +521,25 @@ func TestPublicationFailureRestoresEntireBatch(t *testing.T) {
 	if !reflect.DeepEqual(before, snapshot(t, repo)) {
 		t.Fatal("partial publication damaged prior output")
 	}
+}
+
+// Released Bug definitions retain their direct repair routes. Admit only the
+// exact new canonical sync gate when comparing editable sources with releases.
+func legacyBugSourceWithoutSyncGate(t *testing.T, source []byte) []byte {
+	t.Helper()
+	changes := []struct{ current, legacy string }{
+		{` sync_before_fixer [lf_action="lf_sync_base",lf_outcomes="synced,current,conflict,retry",lf_limit="8",lf_park="owner",lf_stop="conflict,failed,invalid,exhausted"];` + "\n", ""},
+		{` conversation -> sync_before_fixer [lf_on="approved"];`, ` conversation -> fixer [lf_on="approved"];`},
+		{` finalization -> sync_before_fixer [lf_on="revalidate"];`, ` finalization -> fixer [lf_on="revalidate"];`},
+		{` sync_before_fixer -> fixer [lf_on="synced"];` + "\n", ""},
+		{` sync_before_fixer -> fixer [lf_on="current"];` + "\n", ""},
+		{` sync_before_fixer -> sync_before_fixer [lf_on="retry"];` + "\n", ""},
+	}
+	for _, change := range changes {
+		if bytes.Count(source, []byte(change.current)) != 1 {
+			t.Fatalf("canonical Bug sync gate differs from approved source delta: %s", change.current)
+		}
+		source = bytes.Replace(source, []byte(change.current), []byte(change.legacy), 1)
+	}
+	return source
 }

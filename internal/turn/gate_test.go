@@ -190,7 +190,10 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"prepareClone":                     {},
 		"sessionSyncCheckout.withCheckout": {},
 		"BugRuntime.syncBaseBranch":        {},
-		"commitAndPush":                    {},
+		// Observe an unpublished Bug branch before opening its base scratch,
+		// releasing this section before the scratch takes its own gate.
+		"sessionGraphSyncRepo.initialBugSyncBranch": {},
+		"commitAndPush": {},
 		// Standalone doctor sync releases its snapshot section before advisory work,
 		// then revalidates and performs merge, publication and rollback in one section.
 		"prepareDoctorSync": {},
