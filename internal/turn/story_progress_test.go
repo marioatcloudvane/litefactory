@@ -428,3 +428,57 @@ func TestStoryFeatureCompletesOnlyAfterAggregateAndAllStories(t *testing.T) {
 		t.Fatalf("aggregate gate did not complete feature: %s", feature.State)
 	}
 }
+
+type heldProgressForge struct {
+	*deliveryTestForge
+	entered chan struct{}
+	release chan struct{}
+	calls   int
+}
+
+func (f *heldProgressForge) ListSubIssues(ctx context.Context, repo github.Repo, n int) ([]github.Issue, error) {
+	f.calls++
+	if f.calls == 1 {
+		close(f.entered)
+		select {
+		case <-f.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return f.deliveryTestForge.ListSubIssues(ctx, repo, n)
+}
+
+func TestHeartbeatProgressDefersBusyMutex(t *testing.T) {
+	f, base := featureDeliveryFixture(t, false)
+	p := f.opts.StoryProgress
+	forge := &heldProgressForge{deliveryTestForge: base, entered: make(chan struct{}), release: make(chan struct{})}
+	p.forge = forge
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	foreground := make(chan error, 1)
+	// Foreground owns the existing mutex while its provider request is held.
+	go func() { foreground <- p.ApplyDelivery(ctx, deliveryControl(f.session.TaskRef, "/deliver 1")) }()
+	select {
+	case <-forge.entered:
+	case <-ctx.Done():
+		t.Fatal("foreground did not reach provider")
+	}
+	done := make(chan error, 1)
+	go func() { done <- errors.Join(p.RecoverSubmissions(ctx), p.Poll(ctx)) }()
+	select {
+	case err := <-done:
+		mustProgress(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("heartbeat waited for foreground progress mutex")
+	}
+	close(forge.release)
+	select {
+	case err := <-foreground:
+		mustProgress(t, err)
+	case <-ctx.Done():
+		t.Fatal("foreground did not finish")
+	}
+	mustProgress(t, p.RecoverSubmissions(ctx))
+	mustProgress(t, p.Poll(ctx))
+}

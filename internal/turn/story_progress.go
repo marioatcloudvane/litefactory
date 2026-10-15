@@ -111,7 +111,10 @@ func (p *StoryProgress) Register(ctx context.Context, b *agent.ApprovedBundle, w
 // (AC-004) so that one run stuck on broken pending work does not permanently
 // block reconciliation for an otherwise-healthy, unrelated parent.
 func (p *StoryProgress) Poll(ctx context.Context) error {
-	p.mu.Lock()
+	// Foreground reconciliation owns the pending work; retry on the next tick.
+	if !p.mu.TryLock() {
+		return nil
+	}
 	defer p.mu.Unlock()
 	return p.poll(ctx)
 }
