@@ -265,16 +265,21 @@ func (h ValidateSuiteActivity) run(ctx context.Context, opts Options, req Activi
 			err = errors.Join(err, fmt.Errorf("discard suite checkout: %w", closeErr))
 		}
 	}()
-	before, err := scratch.Observe(ctx)
-	if err != nil {
-		return ActivityResult{}, fmt.Errorf("observe suite snapshot: %w", err)
+	before, observeErr := scratch.Observe(ctx)
+	var refusal *git.SourceSymlinkError
+	if observeErr != nil && (!errors.As(observeErr, &refusal) || ctx.Err() != nil) {
+		return ActivityResult{}, fmt.Errorf("observe suite snapshot: %w", errors.Join(observeErr, ctx.Err()))
 	}
-	recipeRaw, recipeErr := scratch.Recipe(ctx)
+	var recipeRaw []byte
+	var recipeErr error
+	if refusal == nil {
+		recipeRaw, recipeErr = scratch.Recipe(ctx)
+	}
 	if recipeErr != nil && !errors.Is(recipeErr, git.ErrBugCheckRecipe) {
 		return ActivityResult{}, fmt.Errorf("read build check recipe: %w", recipeErr)
 	}
 	digest := ""
-	if recipeErr == nil {
+	if recipeErr == nil && refusal == nil {
 		digest = config.BugRecipeDigest(recipeRaw)
 	}
 	run, err := b.DB.BeginSuiteRun(ctx, store.SuiteRun{InstanceID: req.InstanceID, Node: req.Node, Commit: commit, RecipeDigest: digest, TreeBefore: before, StartedAt: h.now(opts)})
@@ -297,6 +302,9 @@ func (h ValidateSuiteActivity) run(ctx context.Context, opts Options, req Activi
 	}
 	blocked := func(reason string) (ActivityResult, error) { return finish(store.SuiteBlocked, before, reason) }
 
+	if refusal != nil {
+		return blocked(refusal.Error())
+	}
 	if recipeErr != nil {
 		return blocked("no build check recipe in the tested commit")
 	}
