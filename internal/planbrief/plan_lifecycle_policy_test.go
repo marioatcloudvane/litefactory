@@ -62,8 +62,22 @@ func TestPlanLifecycle_DependencyAndApprovalInvalidation(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, i := range []int{0, 1, 2} {
-				if len(s.Stories[i].Approvals) != 0 {
+				if hold == "" && len(s.Stories[i].Approvals) != 0 {
 					t.Fatalf("story %s retained stale approval", s.Stories[i].Key)
+				}
+			}
+			if hold != "" {
+				for i := range s.Stories {
+					got := s.Stories[i]
+					got.LifecycleHold = before.Stories[i].LifecycleHold
+					if !reflect.DeepEqual(got, before.Stories[i]) {
+						t.Fatalf("hold changed progress for %s", got.Key)
+					}
+					if i < 3 {
+						if _, err := s.ReviewRevision(got.Key, got.Stage); err == nil {
+							t.Fatalf("held dependency remained reviewable: %s", got.Key)
+						}
+					}
 				}
 			}
 			if !reflect.DeepEqual(s.Stories[3], before.Stories[3]) {
@@ -78,6 +92,19 @@ func TestPlanLifecycle_DependencyAndApprovalInvalidation(t *testing.T) {
 			}
 			if hold != "" && s.Stories[0].Lifecycle.State != "" {
 				t.Fatal("unverified child inferred closed")
+			}
+			if hold != "" {
+				if err := s.OpenPlanWait("a", "blocked-review", "review", 10); err == nil {
+					t.Fatal("hold allowed a new review")
+				}
+				if _, err := s.ObserveLifecycle("a", planbrief.PlanLifecycle{}, ""); err != nil {
+					t.Fatal(err)
+				}
+				for i := range s.Stories {
+					if !reflect.DeepEqual(s.Stories[i], before.Stories[i]) {
+						t.Fatal("clearing hold changed progress")
+					}
+				}
 			}
 		})
 	}
@@ -165,5 +192,34 @@ func TestPlanLifecycle_ReadinessRemainingSet(t *testing.T) {
 				t.Fatalf("PlanReady=%v want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPlanLifecycle_HoldPreservesReviewAndRecovery(t *testing.T) {
+	t.Parallel()
+	s := workflowFixture(t, "a", "b")
+	approveWorkflowStory(t, &s, 0, 10)
+	delete(s.Stories[0].Approvals, "acceptance")
+	if err := s.OpenPlanWait("a", "acceptance-review", "review", 10); err != nil {
+		t.Fatal(err)
+	}
+	before := cloneWorkflow(t, s)
+	for _, hold := range []string{"Child content cannot be reconciled", ""} {
+		if _, err := s.ObserveLifecycle("a", planbrief.PlanLifecycle{}, hold); err != nil {
+			t.Fatal(err)
+		}
+		got := s.Stories[0]
+		got.LifecycleHold = ""
+		if !reflect.DeepEqual(got, before.Stories[0]) {
+			t.Fatal("observation changed stage, approval or review")
+		}
+		if hold != "" && !s.Stories[0].Blocked() {
+			t.Fatal("unresolved observation did not block")
+		}
+	}
+	s.Stories[0].Wait = nil
+	stage, _, ok := s.StoryNextStep("a")
+	if !ok || stage != "acceptance" {
+		t.Fatalf("recovery selected %s (%v)", stage, ok)
 	}
 }

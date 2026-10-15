@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -122,6 +124,9 @@ func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
 		}
 		if !item.Active() || item.Wait != nil {
 			return false, nil
+		}
+		if r.rewindReason, err = r.storyRewindReason(ctx, s, item); err != nil {
+			return false, err
 		}
 		if item.Blocked() {
 			return true, r.releaseOwnerEditConflicts(ctx, item)
@@ -301,4 +306,51 @@ func (r *planGraphRuntime) unappliedReply(ctx context.Context) error {
 		break
 	}
 	return &PlanReplyRefusal{Reason: reason, Err: errors.New(reason)}
+}
+
+// storyRewindReason uses the immutable prior effect request, never candidate
+// labels, to explain an earlier stage whose review basis really changed.
+func (r *planGraphRuntime) storyRewindReason(ctx context.Context, s planbrief.PlanState, item planbrief.PlanStoryState) (string, error) {
+	if item.EffectRequest == "" {
+		return "", nil
+	}
+	candidate, err := r.opts.DB.GetPlanStoryCandidate(ctx, r.parentRef.String(), item.EffectRequest)
+	if err != nil {
+		return "", err
+	}
+	prior, err := graphexec.ParsePlanStoryRequest([]byte(candidate.RequestJSON))
+	if err != nil {
+		return "", err
+	}
+	basis := ""
+	if prior.SharedRevision != s.SharedRevision {
+		basis = "shared decisions changed"
+	}
+	if basis == "" && (!slices.Equal(prior.Draft.Dependencies.StoryKeys, item.Draft.Dependencies.StoryKeys) || !slices.Equal(prior.Draft.Dependencies.IssueRefs, item.Draft.Dependencies.IssueRefs)) {
+		basis = "story dependencies changed"
+	}
+	if basis == "" {
+		complete, err := r.opts.DB.PlanStoryCompleted(ctx, r.parentRef.String(), item.EffectRequest)
+		if err != nil {
+			return "", err
+		}
+		for _, stage := range []string{"story", "technical", "acceptance"} {
+			// An unconfirmed draft may contain new content at its failed stage;
+			// that alone is not a change to an earlier approved stage.
+			if stage == prior.Stage && !complete {
+				break
+			}
+			if prior.Draft.StageRevision(stage) != item.Draft.StageRevision(stage) {
+				basis = stage + " content changed"
+				break
+			}
+			if stage == prior.Stage {
+				break
+			}
+		}
+	}
+	if basis == "" {
+		return "", nil
+	}
+	return fmt.Sprintf("Review resumes at the %s stage because %s. Approvals from that stage must be renewed.", item.Stage, basis), nil
 }
