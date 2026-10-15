@@ -122,7 +122,13 @@ func TestLinearPlanShellDiscoveryAndManagedReview(t *testing.T) {
 			remote.mu.Unlock()
 			for _, mapped := range []bool{false, true} {
 				if mapped {
-					linearWorkflowCheck(t, db.BindPlanStoryShell(ctx, parent.TaskRef, key, child.ID, child.Number, turn.PlanIssueRevision(child.Title, child.Body)))
+					shells := turn.PlanStoryActivity{DB: db, Forge: bridge, Redactor: redactor, LockDir: t.TempDir()}
+					linearWorkflowCheck(t, shells.ReconcileShells(ctx, turn.PlanStoryAuthority{Parent: parent.TaskRef, Repo: q.forgeRepo, ParentNumber: parent.IssueNumber, ParentID: int64(parent.IssueNumber)}))
+					binding, e := db.GetPlanStoryDraft(ctx, parent.TaskRef, key)
+					linearWorkflowCheck(t, e)
+					if binding.IssueID != child.ID || binding.IssueNumber != child.Number || binding.Revision != turn.PlanIssueRevision(child.Title, child.Body) {
+						t.Fatalf("recovered binding: %+v", binding)
+					}
 				}
 				for _, webhook := range []bool{false, true} {
 					if webhook {
