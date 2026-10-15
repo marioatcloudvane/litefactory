@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
 // This executable records the protocol only; its sandbox response is simulated.
@@ -145,5 +146,51 @@ func TestRecordedCodexInterruptionRetainsNativeState(t *testing.T) {
 	}
 	if data, e := os.ReadFile(filepath.Join(request.StateDirectory, "home", "native-state")); e != nil || string(data) != "retained context\n" {
 		t.Fatalf("native state lost: %q %v", data, e)
+	}
+}
+
+func TestRecordedCodexProbeRecovery(t *testing.T) {
+	for _, failure := range []string{"kill -KILL $$", "exec /bin/sleep 30"} {
+		t.Run(failure, func(t *testing.T) {
+			runner, request := recordedCodexConversation(t, "normal")
+			binary := runner.binary.Path
+			original, err := os.ReadFile(binary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := "#!/bin/sh\nif [ ! -f \"$0.once\" ]; then touch \"$0.once\"; " + failure + "; fi\n" + string(original)
+			if err = os.WriteFile(binary, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			identities := 0
+			request.OnSession = func(context.Context, agent.SessionRef) error { identities++; return nil }
+			result, err := runner.RunConversation(t.Context(), request)
+			if err != nil || identities != 1 || string(result.Answer) != "recorded answer" {
+				t.Fatalf("recovery: %+v %v identities=%d", result, err, identities)
+			}
+			count, err := os.ReadFile(filepath.Join(request.StateDirectory, "home", "launch.count"))
+			if err != nil || string(count) != "launch\n" {
+				t.Fatalf("model launches: %q %v", count, err)
+			}
+			prompt, err := os.ReadFile(filepath.Join(request.StateDirectory, "home", "prompt"))
+			if err != nil || string(prompt) != request.Prompt {
+				t.Fatalf("original prompt lost: %q %v", prompt, err)
+			}
+
+		})
+	}
+}
+
+func TestRecordedCodexProbeExhaustion(t *testing.T) {
+	runner, request := recordedCodexConversation(t, "normal")
+	if err := os.WriteFile(runner.binary.Path, []byte("#!/bin/sh\nkill -KILL $$\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runner.RunConversation(t.Context(), request)
+	if !errors.Is(err, providerprocess.ErrProbeTransient) || errors.Is(err, agent.ErrConversationIsolation) {
+		t.Fatalf("transient cause lost: %v", err)
+	}
+	if _, err = os.Stat(filepath.Join(request.StateDirectory, "home", "launch.count")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("launched after exhausted probe: %v", err)
 	}
 }
