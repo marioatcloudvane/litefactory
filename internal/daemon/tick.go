@@ -1818,9 +1818,10 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 		return
 	}
 	d.rateLimited(ctx, t.log, t.tickAt, err)
-	t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
-		slog.Any("error", err))
-	d.prepareFailed(ctx, t, err)
+	if d.prepareFailed(ctx, t, err) {
+		t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
+			slog.Any("error", err))
+	}
 }
 
 // prepareFailed counts a turn that ended without consuming its trigger, and
@@ -1829,9 +1830,9 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 //
 // A worker can expose the same error through leave and stopped. Count that
 // attempt once; report recovery owns its own independent deadline.
-func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
+func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) bool {
 	if t.prepareFailureRecorded || isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) || ctx.Err() != nil {
-		return
+		return false
 	}
 	t.prepareFailureRecorded = true
 	reason := err.Error()
@@ -1841,14 +1842,15 @@ func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
 		}
 	}
 	state, announce := d.prepFailures.record(t.session.ID, reason, t.tickAt, d.recoveryInterval())
-	if !announce || state.Attempts < prepareEscalationAttempts {
-		return
+	if state.Attempts != prepareEscalationAttempts {
+		return announce
 	}
 	t.log.ErrorContext(ctx, "this task has failed every turn since it last made progress; "+
 		"the trigger is still unconsumed and retries use capped exponential backoff",
 		slog.Int("consecutive_failures", state.Attempts),
 		slog.Bool("escalated", state.Escalated),
 		slog.String("reason", reason))
+	return announce
 }
 
 // bootstrap plants the watermark of a task seen for the first time at the
@@ -3131,9 +3133,10 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	}
 	d.commentFate(ctx, t, t.commentUnderWay, fateDeferred, "deferred, "+what+"; it is retried on a later heartbeat")
 	d.rateLimited(ctx, log, t.tickAt, err)
-	d.prepareFailed(ctx, t, err)
-	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
-		slog.Any("error", err))
+	if d.prepareFailed(ctx, t, err) {
+		log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
+			slog.Any("error", err))
+	}
 	if store.IsGraphTrigger(t.commentUnderWay) || t.scheduled != nil {
 		// Dispatches and schedules need the actual cause for accounting and
 		// bounded retry; no owner-comment drain retains their errors.
