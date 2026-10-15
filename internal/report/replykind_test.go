@@ -32,6 +32,7 @@ var everyReplyKind = []report.ReplyKind{
 	report.ReplyMissingTicketPublisher,
 	report.ReplyMissingTeam,
 	report.ReplyUnsupportedWorkflow,
+	report.ReplyDoctorUnsupported,
 	report.ReplyLegacyToolLabel,
 	report.ReplyScheduleInvalid,
 	report.ReplyScheduleConfirmed,

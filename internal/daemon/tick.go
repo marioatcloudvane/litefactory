@@ -2228,6 +2228,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	} else if held {
 		return errors.New("issue held for doctor repair")
 	}
+	if routed, err := d.refuseUnsupportedDoctor(ctx, t, c, qualifiedReply); routed {
+		return err
+	}
 	if routed, err := d.admitDoctor(ctx, t.repo, t.issue, c); routed {
 		if err != nil {
 			return err

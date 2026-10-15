@@ -1587,3 +1587,78 @@ func TestConcurrentAccessorsDoNotDeadlock(t *testing.T) {
 		t.Fatalf("database unusable after the concurrent run: %v", err)
 	}
 }
+
+func TestReconcileOrphansStaleSession(t *testing.T) {
+	for _, protection := range []string{"none", "stale lock", "current lock", "prelaunch", "doctor", "legacy bug"} {
+		t.Run(protection, func(t *testing.T) {
+			t.Parallel()
+			db := newTestDB(t)
+			ctx := t.Context()
+			session := testSession(t, db, 509)
+			for i := int64(1); i <= 5; i++ {
+				run := testRun(t, db, session.ID, i)
+				if _, err := db.FinishRun(ctx, run.ID, RunOutcome{Status: RunSucceeded}); err != nil {
+					t.Fatal(err)
+				}
+				if err := db.SetRunPublication(ctx, run.ID, true, "published evidence"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.SetSessionState(ctx, session.ID, SessionRunning); err != nil {
+				t.Fatal(err)
+			}
+			switch protection {
+			case "stale lock", "current lock":
+				owner := "old-instance"
+				if protection == "current lock" {
+					owner = "replacement"
+				}
+				if ok, err := db.AcquireSessionLock(ctx, session.ID, owner); err != nil || !ok {
+					t.Fatal(ok, err)
+				}
+			case "prelaunch":
+				segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "claude-session-id", AgentClaude)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = db.AllocateRun(ctx, AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: ModeSpike, Agent: AgentClaude, TriggerCommentID: 6, Prelaunch: true, LogPath: func(int) string { return "/prelaunch.log" }}); err != nil {
+					t.Fatal(err)
+				}
+			case "doctor":
+				schedule := typedSchedule(t, db, session, false)
+				typedRowApproval(t, db, session, "cancel_schedule", fmt.Sprintf("schedule:%d", schedule.ID), "pending", "failed")
+			case "legacy bug":
+				definition, err := db.CreateGraphDefinition(ctx, GraphDefinition{Team: "builtin", Workflow: "bug", ProfileVersion: 1, Path: "bug/bug.dot", Digest: strings.Repeat("b", 64), CreatedAt: graphTestTime()})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = db.CreateGraphInstance(ctx, GraphInstance{SessionID: session.ID, DefinitionID: definition.ID, CurrentNode: "legacy", StartedAt: graphTestTime()}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := archiveLogicalRows(t, db, "SELECT * FROM runs")
+			for round := 0; round < 2; round++ {
+				result, err := db.ReconcileOrphans(ctx, "replacement")
+				if err != nil || len(result.AbandonedRuns) != 0 {
+					t.Fatalf("reconcile: %+v %v", result, err)
+				}
+				want := SessionRunning
+				if protection == "none" || protection == "stale lock" {
+					want = SessionFailed
+				}
+				got, err := db.GetSession(ctx, session.ID)
+				if err != nil || got.State != want || got.NeedsPoll {
+					t.Fatalf("session: %+v, want %s: %v", got, want, err)
+				}
+				if after := archiveLogicalRows(t, db, "SELECT * FROM runs"); after != before {
+					t.Fatal("reconciliation changed completed run or publication evidence")
+				}
+				if round == 0 {
+					session = got
+				} else if !got.UpdatedAt.Equal(session.UpdatedAt) || len(result.ReclaimedLocks) != 0 {
+					t.Fatal("second reconciliation changed settled state")
+				}
+			}
+		})
+	}
+}
