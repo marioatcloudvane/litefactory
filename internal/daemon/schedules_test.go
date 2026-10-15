@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -123,13 +124,13 @@ func TestImplementPrepareFailureRetriesAndParks(t *testing.T) {
 	opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "prepare-failure", Logger: f.logger,
 		CloneGate: unusedRecoveryCloneGate{}, Runners: turn.RunnerSet{agent.Kind(store.AgentClaude): runner}, ResearchReporter: f.reporter,
 		MCP: &turn.MCPRuntime{Authority: authority, Paths: f.paths, Executable: "/factory/litefactory", Now: f.clock.Now}}
-	// This fixture isolates preparation: supply an owned installed definition
+	// This fixture isolates legacy preparation: supply the pinned released definition
 	// so admission succeeds before the deliberately broken clone is opened.
 	opts.WorkflowSource = func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
 		if repo.ID != session.RepoID || workflow != agent.WorkflowImplement {
 			t.Fatal("preparation fixture selected another repository or workflow")
 		}
-		definition, err := teamsource.CaptureImplement(ctx, specs)
+		definition, err := teamsource.CaptureWorkflow(ctx, os.DirFS("../../teams/go-development/v1.0.2/implement"), "implement.dot", "go-development", agent.ModeImplement, specs)
 		if err != nil {
 			return nil, err
 		}

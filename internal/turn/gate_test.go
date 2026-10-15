@@ -187,9 +187,12 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 
 	// sections is every function in this package that may take the clone gate.
 	sections := map[string]struct{}{
-		"prepareClone":                     {},
-		"sessionSyncCheckout.withCheckout": {},
-		"BugRuntime.syncBaseBranch":        {},
+		"prepareClone": {},
+		// Worker gate setup fetches, allocates and initializes its retained
+		// checkout under one clone acquisition before reusable synchronization.
+		"implementRuntime.prepareWorkerSyncCheckout": {},
+		"sessionSyncCheckout.withCheckout":           {},
+		"BugRuntime.syncBaseBranch":                  {},
 		// Observe an unpublished Bug branch before opening its base scratch,
 		// releasing this section before the scratch takes its own gate.
 		"sessionGraphSyncRepo.initialBugSyncBranch": {},
@@ -234,7 +237,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 	// mapped to the sections it may appear in.
 	gated := map[string][]string{
 		"fetch":          {"prepareClone"},
-		"freezeSlug":     {"prepareClone"},
+		"freezeSlug":     {"prepareClone", "implementRuntime.prepareWorkerSyncCheckout"},
 		"ensureWorktree": {"prepareClone"},
 		// syncBase runs inside the existing prepareClone gate, not a new
 		// section — TEST-10. It is the fourth step of that critical section,
@@ -256,7 +259,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"CompleteMerge":      {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
 		// Confirmed proposal application also pushes inside prepareClone's
 		// existing acquisition.
-		"Push": {"commitAndPush", "prepareClone", "BugRuntime.pushGraphDelivery", "applyDoctorSync"},
+		"Push": {"commitAndPush", "prepareClone", "BugRuntime.pushGraphDelivery", "applyDoctorSync", "implementRuntime.prepareWorkerSyncCheckout"},
 	}
 
 	funcs := packageFuncs(t)
