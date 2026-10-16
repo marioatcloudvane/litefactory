@@ -70,6 +70,22 @@ func TestDeliveryPRInventoryIncludesClosedAcrossPages(t *testing.T) {
 		}
 	}
 }
+
+// GitHub's pull request list omits "merged"; only "merged_at" marks a merged PR
+// there. A PR merged by hand must still read as merged so delivery adopts it.
+func TestDeliveryPRInventoryReadsMergedFromMergedAt(t *testing.T) {
+	f := newFixture(t, pagedHandler([]string{`[{"id":3,"number":4,"state":"closed","merged_at":"2026-10-16T11:04:00Z"},{"id":4,"number":5,"state":"closed"}]`}))
+	got, err := f.Client.ListDeliveryPRs(t.Context(), testRepo, "lf/195-task")
+	if err != nil || len(got) != 2 {
+		t.Fatalf("inventory %+v err=%v", got, err)
+	}
+	if !got[0].Merged || got[0].MergedAt.IsZero() {
+		t.Fatalf("PR with merged_at not read as merged: %+v", got[0])
+	}
+	if got[1].Merged {
+		t.Fatalf("closed PR without merged_at read as merged: %+v", got[1])
+	}
+}
 func TestDeliveryParentIdentityMustMatchBeforeClose(t *testing.T) {
 	f := newFixture(t, respondJSON(200, `{"id":100,"number":7,"state":"open"}`))
 	if err := f.Client.CloseDeliveredParent(t.Context(), testRepo, 7, 999); err == nil {
