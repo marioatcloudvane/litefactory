@@ -291,6 +291,24 @@ func (s *PlanState) StoryNextStep(key string) (stage string, create, ok bool) {
 	if slices.Contains(s.EligiblePlanStories(), key) {
 		return item.Stage, false, true
 	}
+	// A story that lost an earlier stage's approval without returning to that
+	// stage, and has no review waiting, re-offers the earliest unapproved stage
+	// so an owner reply can move it again instead of leaving it stranded.
+	if item.Wait != nil {
+		return "", false, false
+	}
+	for _, up := range planStages[:max(0, slices.Index(planStages, item.Stage))] {
+		ref, err := s.ReviewRevision(key, up)
+		if err != nil {
+			return "", false, false
+		}
+		if item.Approvals[up] != ref {
+			if !s.UpstreamApproved(key, up) {
+				return "", false, false
+			}
+			return up, false, true
+		}
+	}
 	return "", false, false
 }
 
