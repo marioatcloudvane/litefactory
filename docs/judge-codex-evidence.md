@@ -1,9 +1,9 @@
 # Codex judge transport evidence
 
-The manual judge uses a private native Codex invocation, separate from workflow,
-Doctor and conversation sessions. The factory supplies a model catalogue for the
-requested model with command execution disabled, no patch tool and no optional
-model tools. Native feature gates disable the other execution, browser, image,
+Manual and workflow judging use a private native Codex invocation, separate
+from source, Doctor and conversation sessions. The factory supplies a model
+catalogue for the requested model with command execution disabled, no patch tool
+and no optional model tools. Native feature gates disable the other execution, browser, image,
 agent, application and plugin surfaces. Evidence and report operations use the
 attempt's five scoped broker tools. The broker provides no MCP resources. The
 factory preserves the exact model's bundled wire-protocol settings, context
