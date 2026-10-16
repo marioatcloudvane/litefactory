@@ -272,6 +272,9 @@ func unableJudge(reason string) agentresult.JudgeReport {
 
 func (s *JudgeService) save(ctx context.Context, q store.JudgeRequest, cfg judgeConfiguration, e JudgeEvidenceSnapshot, r agentresult.JudgeReport, status string) (string, error) {
 	p := JudgePresentation{SourceName: judgeSourceName(q.Source), SourceReference: q.Source.Reference, Provider: string(cfg.Effective.Provider), Model: cfg.Effective.Model, Thinking: string(cfg.Effective.Thinking), FallbackReason: cfg.Effective.FallbackReason, Commit: e.Commit, LocalDigest: e.LocalDigest, Report: r, Evidence: e.Evidence, ObservedModel: cfg.ObservedModel, ProviderVersion: cfg.ProviderVersion, Cutoff: e.Cutoff.Format(time.RFC3339)}
+	if q.Source.NewestLegacy {
+		p.SourceReference += "; chosen as the newest legacy save (older saves have no verified commit order; use --target to pick another)"
+	}
 	if q.CallerKind == "workflow" {
 		p.SourceReference = fmt.Sprintf("graph instance %d, node %s, attempt %d; %s", q.GraphInstanceID, q.SourceNode, q.SourceNodeAttemptID, q.Source.Reference)
 	}
