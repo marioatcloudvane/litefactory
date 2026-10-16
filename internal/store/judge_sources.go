@@ -22,6 +22,9 @@ type JudgeSource struct {
 	Snapshot                                []byte
 	PlanContext                             []byte
 	PlanContextGap                          string
+	// NewestLegacy marks a plain selection among mixed-family legacy saves
+	// whose order is the listed order, not a verified commit order.
+	NewestLegacy bool
 }
 
 func judgeSubstantive(raw []byte, mode string) bool {
@@ -254,7 +257,7 @@ func (db *DB) ResolveJudgeSource(ctx context.Context, task, target string) (Judg
 			families[s.Kind] = true
 		}
 		if len(families) > 1 {
-			return JudgeSource{}, fmt.Errorf("%w: legacy saved sources have no verifiable shared commit order; select an explicit saved reference.%s", ErrJudgeSourceUnavailable, judgeSourceChoices(sources))
+			last.NewestLegacy = true
 		}
 	}
 	return last, nil
