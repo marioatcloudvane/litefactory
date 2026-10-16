@@ -129,6 +129,9 @@ func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
 			return false, err
 		}
 		if item.Blocked() {
+			if item.Hold == "" && item.LifecycleHold == "" && item.EffectHold == "" && len(item.EffectHolds) == 0 {
+				return true, r.clearSettledEffect(ctx, item)
+			}
 			return true, r.releaseOwnerEditConflicts(ctx, item)
 		}
 		instance, err := r.opts.DB.LatestWorkflowInstance(ctx, r.req.SessionID, "plan")
@@ -145,6 +148,36 @@ func (r *planGraphRuntime) retryFailedStory(ctx context.Context) (bool, error) {
 		return r.opts.DB.GraphFailureReported(ctx, source.RunID, PlanFailureNode)
 	}
 	return false, nil
+}
+
+// clearSettledEffect drops a stale Effect marker from a story that has no hold
+// of any kind. Recovery never revisits a request once it is completed, so a
+// marker left behind by settling its holds would refuse every reply (#908).
+// A request still owed recovery keeps its marker: recovery owns that debt.
+func (r *planGraphRuntime) clearSettledEffect(ctx context.Context, item planbrief.PlanStoryState) error {
+	parent := r.parentRef.String()
+	if item.EffectRequest != "" {
+		complete, err := r.opts.DB.PlanStoryCompleted(ctx, parent, item.EffectRequest)
+		if err != nil || !complete {
+			return err
+		}
+	}
+	return r.opts.DB.UpdatePlanWorkflowState(ctx, parent, func(s *planbrief.PlanState) (bool, error) {
+		for i := range s.Stories {
+			current := &s.Stories[i]
+			if current.Key != item.Key {
+				continue
+			}
+			// Only the same shape is cleared; anything changed since is left to
+			// recovery and normal selection.
+			if current.Effect != item.Effect || current.EffectRequest != item.EffectRequest || current.Hold != "" || current.LifecycleHold != "" || current.EffectHold != "" || len(current.EffectHolds) > 0 {
+				return false, nil
+			}
+			current.Effect = ""
+			return true, nil
+		}
+		return false, nil
+	})
 }
 
 // ownerEditConflict is the hold a story gets when a write's readback differs
