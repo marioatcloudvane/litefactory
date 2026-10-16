@@ -107,7 +107,7 @@ func (d *Daemon) observeContinuation(ctx context.Context, t *task, c store.Conti
 	cancel := func(reason string) (bool, error) {
 		return false, d.db.CancelContinuation(ctx, c.ID, reason+"; resume manually", t.tickAt)
 	}
-	issue, err := d.readIssue(ctx, t.forgeRepo, t.session.IssueNumber)
+	issue, err := d.readScheduledIssue(ctx, t)
 	if err != nil {
 		return false, err
 	}

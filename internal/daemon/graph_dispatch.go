@@ -59,7 +59,11 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			slog.Int64("session_id", session.ID),
 			slog.Int64("graph_dispatch_id", dispatch.ID),
 			slog.String("graph_node", dispatch.Node))
-		issue, err := d.readIssue(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, session.IssueNumber)
+		// The read is pinned to the session's retained ticket container and
+		// code target, as scheduled work is; a Linear ticket never lives at
+		// the code repository.
+		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: log, tickAt: at}
+		issue, err := d.readScheduledIssue(ctx, t)
 		if err != nil {
 			d.rateLimited(ctx, log, at, err)
 			log.ErrorContext(ctx, "graph step issue observation failed; deferring", slog.Any("error", err))
@@ -78,7 +82,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			}
 			continue
 		}
-		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, issue: issue, log: log, tickAt: at}
+		t.issue = issue
 		if _, held := d.connectionHold(ctx, at); held {
 			continue
 		}
