@@ -83,6 +83,9 @@ const (
 	// is the whole trimmed body, because the Validate resolve step matches the
 	// exact grammar and the report revision itself.
 	KindValidateControl
+
+	// KindJudge requests an isolated advisory assessment of saved work.
+	KindJudge
 )
 
 // String renders the kind for logs and test failures.
@@ -106,6 +109,8 @@ func (k CommandKind) String() string {
 		return "plan_control"
 	case KindValidateControl:
 		return "validate_control"
+	case KindJudge:
+		return "judge"
 	default:
 		return "invalid"
 	}
@@ -165,7 +170,7 @@ func (c Command) NeedsReply() bool {
 	switch c.Kind {
 	case KindSpikeEmpty, KindUnknown:
 		return true
-	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm, KindPlanControl, KindValidateControl:
+	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm, KindPlanControl, KindValidateControl, KindJudge:
 		return false
 	default:
 		return false
@@ -247,6 +252,8 @@ func ParseCommand(body string) Command {
 			return Command{Kind: KindSpikeEmpty, Name: name, Tagged: tagged}
 		}
 		return Command{Kind: KindSpike, Name: name, Text: text, Tagged: tagged}
+	case "/judge":
+		return Command{Kind: KindJudge, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case ScheduleCommand:
 		return Command{Kind: KindSchedule, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case ConfirmCommand:

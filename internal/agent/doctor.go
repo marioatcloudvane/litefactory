@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/config"
 )
 
 // ErrDoctorIsolationUnverified forbids launching a diagnosis with unknown tools.
@@ -16,6 +18,7 @@ var ErrDoctorIsolationUnverified = errors.New("doctor provider isolation lacks a
 type DoctorRequest struct {
 	Attempt          string
 	Model            string
+	Thinking         config.Thinking
 	Prompt           string
 	WorkingDirectory string
 	UsageAttemptID   string

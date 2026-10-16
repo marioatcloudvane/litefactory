@@ -35,6 +35,9 @@ func (r *Runner) runRepairTransport(ctx context.Context, request agent.RepairReq
 }
 
 func validateScopedDoctorRequest(request agent.DoctorRequest, operation string) error {
+	if operation == "judge" {
+		return (agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}).Validate()
+	}
 	if operation == "" {
 		return request.Validate()
 	}
@@ -44,6 +47,9 @@ func validateScopedDoctorRequest(request agent.DoctorRequest, operation string) 
 func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, operation string, timeout time.Duration, observe func([]byte)) error {
 	if operation == "" {
 		return providerprocess.RunDoctorProcess(ctx, binary, args, env, request, timeout, observe)
+	}
+	if operation == "judge" {
+		return providerprocess.RunJudgeProcess(ctx, binary, args, env, agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}, timeout, observe)
 	}
 	return providerprocess.RunRepairProcess(ctx, binary, args, env, agent.RepairRequest{Invocation: request, Operation: operation}, timeout, observe)
 }

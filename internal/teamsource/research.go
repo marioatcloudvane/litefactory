@@ -176,6 +176,32 @@ func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamN
 			}
 		}
 	}
+	for _, declared := range profile.Nodes {
+		if declared.Action != graphexec.JudgeAction {
+			continue
+		}
+		role, err := JudgeInstructions()
+		if retained, ok := source.(RetainedFiles); ok {
+			captured, exists := retained["judge/challenger.md"]
+			if !exists {
+				err = errors.New("retained judge instructions are missing")
+			} else {
+				role = slices.Clone(captured)
+				err = nil
+			}
+		}
+		if err != nil {
+			faults = append(faults, err)
+			break
+		}
+		if len(role) > MaxSnapshotBytes-r.total {
+			faults = append(faults, errors.New("judge resource exceeds capture bounds"))
+			break
+		}
+		result.Files["judge/challenger.md"] = slices.Clone(role)
+		r.total += len(role)
+		break
+	}
 	if len(result.Nodes) == 0 {
 		faults = append(faults, errors.New("research definition has no resolved agent nodes"))
 	}

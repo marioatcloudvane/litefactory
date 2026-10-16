@@ -31,6 +31,7 @@ type ResultAttempt struct {
 // are rechecked against the store; constructing one does not grant authority.
 type ResultBinding struct {
 	DoctorAttemptID string
+	JudgeAttemptID  string
 	Workflow        string
 
 	ResultID, RunID                                   int64
@@ -111,7 +112,7 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 		if err := tx.QueryRowContext(ctx, `SELECT id FROM application_results WHERE task=? AND mode=? AND context_hash=? AND workflow=?`, a.Task, a.Mode, hash, a.Workflow).Scan(&id); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE result_id IN (SELECT id FROM application_results WHERE task=? AND workflow<>'doctor')`, a.Task); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE application_result_attempts SET active=0 WHERE result_id IN (SELECT id FROM application_results WHERE task=? AND workflow NOT IN ('doctor','judge'))`, a.Task); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_attempts(run_id,attempt,result_id,active) VALUES(?,?,?,1)`, a.RunID, a.Attempt, id); err != nil {
@@ -124,11 +125,11 @@ func (db *DB) BindResultAttempt(ctx context.Context, a ResultAttempt) (ResultBin
 }
 func readResultBinding(ctx context.Context, tx *sql.Tx, runID int64, attempt string, active bool) (ResultBinding, error) {
 	var b ResultBinding
-	query := `SELECT r.id,COALESCE(a.run_id,0),r.task,r.mode,r.work_context,r.context_hash,a.attempt,r.schema_version,r.workflow_version,r.submission_version,r.workflow,COALESCE(a.doctor_attempt_id,'') FROM application_results r JOIN application_result_attempts a ON a.result_id=r.id WHERE COALESCE(a.run_id,0)=? AND a.attempt=?`
+	query := `SELECT r.id,COALESCE(a.run_id,0),r.task,r.mode,r.work_context,r.context_hash,a.attempt,r.schema_version,r.workflow_version,r.submission_version,r.workflow,COALESCE(a.doctor_attempt_id,''),COALESCE(a.judge_attempt_id,'') FROM application_results r JOIN application_result_attempts a ON a.result_id=r.id WHERE COALESCE(a.run_id,0)=? AND a.attempt=?`
 	if active {
 		query += ` AND a.active=1`
 	}
-	err := tx.QueryRowContext(ctx, query, runID, attempt).Scan(&b.ResultID, &b.RunID, &b.Task, &b.Mode, &b.WorkContext, &b.ContextHash, &b.Attempt, &b.SchemaVersion, &b.WorkflowVersion, &b.SubmissionVersion, &b.Workflow, &b.DoctorAttemptID)
+	err := tx.QueryRowContext(ctx, query, runID, attempt).Scan(&b.ResultID, &b.RunID, &b.Task, &b.Mode, &b.WorkContext, &b.ContextHash, &b.Attempt, &b.SchemaVersion, &b.WorkflowVersion, &b.SubmissionVersion, &b.Workflow, &b.DoctorAttemptID, &b.JudgeAttemptID)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -153,6 +154,9 @@ func checkResultAccess(ctx context.Context, tx *sql.Tx, b ResultBinding, write b
 	}
 	if old != b {
 		return ErrResultAuthority
+	}
+	if write && b.JudgeAttemptID != "" {
+		return checkJudgeResultWriter(ctx, tx, b)
 	}
 	if write && b.DoctorAttemptID != "" {
 		return checkDoctorResultWriter(ctx, tx, b)

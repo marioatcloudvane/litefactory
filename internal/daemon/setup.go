@@ -419,6 +419,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
+	judgeProviders := make(map[agent.Kind]agent.JudgeRunner)
+	for kind, runner := range runners {
+		if native, ok := runner.(agent.JudgeRunner); ok {
+			judgeProviders[kind] = native
+		}
+	}
+	judgeService := &turn.JudgeService{DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
 	turnOpts := turn.Options{
 		ProjectApprovers: true,
 		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {
@@ -432,6 +439,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		WorkflowSource:           workflowSource,
 		ResearchDriver:           turn.ExecuteResearchWorkflow,
 		ResearchReporter:         reporter,
+		Judge:                    judgeService,
 		MCP:                      mcpRuntime,
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		StoryProgress:            storyProgress,
@@ -638,6 +646,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
 	daemon.doctorHostOptions = s.DoctorHost
+	daemon.judge = judgeService
 	diagnosisProviders := make(map[string]agent.DoctorRunner)
 	repairProviders := make(map[string]agent.DoctorRepairRunner)
 	for kind, runner := range runners {

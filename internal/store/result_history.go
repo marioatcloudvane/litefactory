@@ -209,7 +209,7 @@ func (db *DB) RecordResult(ctx context.Context, q ResultRecord) (ResultReceipt, 
 			}
 			association = q.SubmissionReceiptID
 		}
-		res, err := tx.ExecContext(ctx, `INSERT INTO application_result_requests(result_id,run_id,attempt,request_id,request_hash,payload,diagnostics,input_state,applied_revision,submission_receipt_id,doctor_attempt_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, q.Binding.ResultID, nullID(q.Binding.RunID), q.Binding.Attempt, q.RequestID, submissionDigest(q.Payload), q.Payload, q.Diagnostics, state, revision, association, nullString(q.Binding.DoctorAttemptID))
+		res, err := tx.ExecContext(ctx, `INSERT INTO application_result_requests(result_id,run_id,attempt,request_id,request_hash,payload,diagnostics,input_state,applied_revision,submission_receipt_id,doctor_attempt_id,judge_attempt_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, q.Binding.ResultID, nullID(q.Binding.RunID), q.Binding.Attempt, q.RequestID, submissionDigest(q.Payload), q.Payload, q.Diagnostics, state, revision, association, nullString(q.Binding.DoctorAttemptID), nullString(q.Binding.JudgeAttemptID))
 		if err != nil {
 			return err
 		}
@@ -218,7 +218,7 @@ func (db *DB) RecordResult(ctx context.Context, q ResultRecord) (ResultReceipt, 
 			return err
 		}
 		if q.Accepted && q.Aggregate == nil && !q.DoctorToolReceipt {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_revisions(result_id,revision,run_id,attempt,request_row,snapshot,snapshot_hash,retired,doctor_attempt_id) VALUES(?,?,?,?,?,?,?,?,?)`, q.Binding.ResultID, revision, nullID(q.Binding.RunID), q.Binding.Attempt, id, q.Snapshot, submissionDigest(q.Snapshot), q.Retired, nullString(q.Binding.DoctorAttemptID)); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_revisions(result_id,revision,run_id,attempt,request_row,snapshot,snapshot_hash,retired,doctor_attempt_id,judge_attempt_id) VALUES(?,?,?,?,?,?,?,?,?,?)`, q.Binding.ResultID, revision, nullID(q.Binding.RunID), q.Binding.Attempt, id, q.Snapshot, submissionDigest(q.Snapshot), q.Retired, nullString(q.Binding.DoctorAttemptID), nullString(q.Binding.JudgeAttemptID)); err != nil {
 				return err
 			}
 			res, err := tx.ExecContext(ctx, `UPDATE application_results SET revision=? WHERE id=? AND revision=? AND context_hash=?`, revision, q.Binding.ResultID, current, q.Binding.ContextHash)
@@ -233,7 +233,7 @@ func (db *DB) RecordResult(ctx context.Context, q ResultRecord) (ResultReceipt, 
 				return &ResultRevisionConflict{Expected: q.ExpectedRevision, Current: current}
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_observations(request_row,sequence,run_id,attempt,dimension,state,doctor_attempt_id) VALUES(?,1,?,?,'received','received',?),(?,2,?,?,'input',?,?)`, id, nullID(q.Binding.RunID), q.Binding.Attempt, nullString(q.Binding.DoctorAttemptID), id, nullID(q.Binding.RunID), q.Binding.Attempt, state, nullString(q.Binding.DoctorAttemptID)); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_observations(request_row,sequence,run_id,attempt,dimension,state,doctor_attempt_id,judge_attempt_id) VALUES(?,1,?,?,'received','received',?,?),(?,2,?,?,'input',?,?,?)`, id, nullID(q.Binding.RunID), q.Binding.Attempt, nullString(q.Binding.DoctorAttemptID), nullString(q.Binding.JudgeAttemptID), id, nullID(q.Binding.RunID), q.Binding.Attempt, state, nullString(q.Binding.DoctorAttemptID), nullString(q.Binding.JudgeAttemptID)); err != nil {
 			return err
 		}
 		r, err = resultReceiptTx(ctx, tx, q.Binding.ResultID, q.Binding.RunID, q.RequestID)

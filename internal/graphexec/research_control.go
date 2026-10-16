@@ -274,6 +274,19 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 		visiting["generated:"+source] = true
 		return validateResearchResponsePath(p, next, response, source, visiting, policy)
 	}
+	if node.Action == JudgeAction || (node.Action == "lf_comment" && node.Attrs["lf_kind"] == "advisory") {
+		outcomes := node.Outcomes
+		for _, outcome := range outcomes {
+			next, exists := Decide(p, name, outcome)
+			if !exists {
+				return fmt.Errorf("advisory step %q lacks %q edge", name, outcome)
+			}
+			if err := validateResearchResponsePath(p, next, response, source, visiting, policy); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	switch node.Action {
 	case "lf_agent":
 		if policy.Mode == agent.ModeResearch && response == "continue" && name == source && visiting["generated:"+source] {
@@ -409,13 +422,21 @@ func ResearchResponseReaches(p *Profile, name, response string) (string, error) 
 			return "", nil
 		}
 		switch node.Action {
-		case "lf_research_brief":
+		case "lf_research_brief", JudgeAction:
 			next, ok := Decide(p, name, "success")
 			if !ok {
 				return "", nil
 			}
 			name = next
 		case "lf_comment", "lf_ask":
+			if node.Action == "lf_comment" && node.Attrs["lf_kind"] == "advisory" {
+				next, exists := Decide(p, name, "published")
+				if !exists {
+					return "", nil
+				}
+				name = next
+				continue
+			}
 			if response == "continue" {
 				return "", nil
 			}
@@ -476,7 +497,7 @@ func reachesOwnerWait(p *Profile, name string, policy ControlPolicy, seen map[st
 	case node.Action == "lf_comment":
 		next, exists := Decide(p, name, "published")
 		return exists && reachesOwnerWait(p, next, policy, seen)
-	case slices.Contains(policy.MeasureActions, node.Action):
+	case node.Action == JudgeAction || slices.Contains(policy.MeasureActions, node.Action):
 		for _, outcome := range node.Outcomes {
 			if next, exists := Decide(p, name, outcome); exists && reachesOwnerWait(p, next, policy, seen) {
 				return true

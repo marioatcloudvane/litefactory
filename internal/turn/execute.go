@@ -101,6 +101,8 @@ type Options struct {
 	ResearchDriver   ResearchLaunchDriver
 	Bug              *BugRuntime
 	ResearchReporter *Reporter
+	// Judge is the shared isolated advisory service, enabled only by opted-in nodes.
+	Judge *JudgeService
 	// spikeRunCommand replaces the sandboxed recipe runner. It exists so a test can
 	// supply command results without a sandbox; production leaves it nil.
 	spikeRunCommand func(ctx context.Context, worktree string, command config.BugCheckCommand) bugchecks.CommandResult
