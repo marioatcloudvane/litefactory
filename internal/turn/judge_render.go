@@ -51,10 +51,14 @@ func JudgeText(p JudgePresentation) string {
 			writeJudgeReference(&b, e, 0, 0)
 		}
 	}
+	unavailable := 0
 	for _, e := range p.Evidence {
 		if !e.Available {
-			fmt.Fprintf(&b, "- Unavailable %s: %s\n", judgeOneLine(e.ID), judgeOneLine(e.Gap))
+			unavailable++
 		}
+	}
+	if unavailable > 0 {
+		fmt.Fprintf(&b, "- %d other captured inventory entries were unavailable; the full inventory is retained locally with this request.\n", unavailable)
 	}
 	if len(p.Report.Uncertainty) > 0 {
 		b.WriteString("\nUncertainty:\n")
