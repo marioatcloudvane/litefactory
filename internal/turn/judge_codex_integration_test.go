@@ -249,7 +249,11 @@ func TestJudgeCodexNativeFixture(t *testing.T) {
 	}
 	call("evidence_list", map[string]any{})
 	source := call("evidence_read", map[string]any{"id": "source", "start": 1, "count": 1})
-	if !strings.Contains(string(source.Result), "Saved conclusion") {
+	expectedSource := "Saved conclusion"
+	if os.Args[marker+1] == "plan-success" {
+		expectedSource = `\"name\":\"Saved plan\"`
+	}
+	if !strings.Contains(string(source.Result), expectedSource) {
 		t.Fatalf("pinned source missing: %s", source.Result)
 	}
 	input := agentresult.JudgeInput{Report: agentresult.JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: "Native Codex captured source inspected", Coverage: []string{"source"}, Uncertainty: []string{"Repository snapshot is unavailable."}, Findings: []agentresult.JudgeFinding{}}}
