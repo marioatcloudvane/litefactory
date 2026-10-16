@@ -168,6 +168,9 @@ func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int
 			line += ": " + planTableCell(clipText(reason, 300))
 		}
 		recovery := " It clears only on a new tested snapshot."
+		if f.acceptable() {
+			recovery = " It clears on a new tested snapshot, or when you accept it as a deliberate deviation."
+		}
 		if f.checkable() {
 			recovery = " A later evidenced /validate-check verdict can clear it."
 		}
@@ -194,6 +197,9 @@ func renderValidateStoryComment(st ValidateState, s ValidateIssueRef, parent int
 			choices := "repair|issue bug|issue story"
 			if f.Optional {
 				choices += "|defer"
+			}
+			if f.acceptable() {
+				choices += "|accept -- <reason>"
 			}
 			kind := "optional finding"
 			if f.Blocking {

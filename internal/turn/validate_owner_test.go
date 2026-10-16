@@ -2,6 +2,7 @@ package turn
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
@@ -1141,5 +1143,151 @@ func TestTurnCodeAuthorityAdmitsTheLinearTicketOwner(t *testing.T) {
 		if err := verifyTurnCodeAuthority(ctx, opts, session, tr); !errors.Is(err, store.ErrApproverUnauthorized) {
 			t.Fatalf("%s gained code authority: %v", name, err)
 		}
+	}
+}
+
+// deviationReview makes the architecture review of every story a blocking
+// unmet finding, as the MAR-11 reviewer did.
+func deviationReview(req ValidateReviewRequest) (*agentresult.Result, error) {
+	res := goodReview(req)
+	for si := range res.Payload.Validate.Stories {
+		for i := range res.Payload.Validate.Stories[si].Reviews {
+			r := &res.Payload.Validate.Stories[si].Reviews[i]
+			if r.Name == "architecture" {
+				r.Status, r.Classification = "unmet", "blocking"
+				r.Evidence = []agent.EvidenceExplanation{{Summary: "The design says to keep the icon legend; the whole legend is removed.", CheckIDs: []string{}}}
+			}
+		}
+	}
+	return res, nil
+}
+
+// prBodyForge records the body of each pull request it creates.
+type prBodyForge struct {
+	*ownerForge
+	bodies []string
+}
+
+func (f *prBodyForge) CreateDeliveryPR(ctx context.Context, repo github.Repo, branch, base string, title, body redact.Body) (github.DeliveryPR, error) {
+	f.bodies = append(f.bodies, body.String())
+	return f.ownerForge.CreateDeliveryPR(ctx, repo, branch, base, title, body)
+}
+
+// #942 C1, C2, C4, C6: the owner accepts a blocking review finding as a
+// deliberate deviation with a reason; the run becomes ready, the report and
+// the pull request show the acceptance, and a replay writes nothing twice.
+func TestOwnerAcceptsABlockingReviewFindingAsADeliberateDeviation(t *testing.T) {
+	o := newOwnerFixture(t)
+	code := &prBodyForge{ownerForge: o.forge}
+	o.delivery.Code = code
+	o.registry = ActivityRegistry{}
+	o.register()
+	o.reviewers.run = deviationReview
+	o.toOwner()
+	const id, reason = "story-002:architecture", "the owner chose tooltips over the legend in MAR-14"
+	before := o.state()
+	f, _ := before.finding(id)
+	if before.Ready || f.State != findingOpen || !f.acceptable() {
+		t.Fatalf("expected an open blocking review: %+v %v", f, before.Open)
+	}
+	accept := ValidateFindingCommand + " " + before.Revision + " " + id + " accept -- <reason>"
+	if next := strings.Join(before.NextCommands(nil), "\n"); !strings.Contains(next, accept) {
+		t.Fatalf("NextCommands offers no accept: %s", next)
+	}
+	if body := renderValidateStoryComment(before, ValidateIssueRef{Key: "story-002"}, 843); !strings.Contains(body, "|accept -- <reason>") || !strings.Contains(body, "accept it as a deliberate deviation") {
+		t.Fatalf("the story comment offers no accept:\n%s", body)
+	}
+	if !strings.Contains(strings.Join(before.Open, " "), "accept -- <reason>") {
+		t.Fatalf("readiness does not name accept: %v", before.Open)
+	}
+
+	o.say(o.command(ValidateFindingCommand, id, "accept", "-- "+reason))
+	after := o.state()
+	f, _ = after.finding(id)
+	if f.State != findingOwnerPassed || f.Verdict == nil || f.Verdict.Evidence != reason || f.Verdict.CommentID == 0 || f.Verdict.AuthorID != o.owner || !f.acceptedDeviation() {
+		t.Fatalf("accept not recorded: %+v %+v notice %q", f, f.Verdict, o.notice())
+	}
+	if strings.Contains(strings.Join(after.Open, " "), id) || !after.Ready || len(after.shipBlockers()) != 0 {
+		t.Fatalf("the accepted finding still blocks: %v", after.Open)
+	}
+	body := renderValidateStoryComment(after, ValidateIssueRef{Key: "story-002"}, 843)
+	if !strings.Contains(body, "Architecture: 1 finding (owner accepted: "+reason+")") || strings.Contains(body, "**Blocks**") {
+		t.Fatalf("story comment:\n%s", body)
+	}
+	if cell := reviewCell(after, after.Findings, agent.ReviewRoleArchitecture); !strings.Contains(cell, "owner accepted: "+reason) {
+		t.Fatalf("review cell %q", cell)
+	}
+
+	// A replay of the same reply writes nothing twice.
+	all, _ := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, after.Commit, true)
+	if outcome, ok := replayedValidateReply(t.Context(), o.opts, after, f.Verdict.CommentID, false); !ok || outcome != "wait" || len(all) != 1 {
+		t.Fatalf("replay %q %v verdicts %d", outcome, ok, len(all))
+	}
+
+	o.reply(o.owner, o.ship())
+	nodes := o.toOwner()
+	if o.final() != "delivered" {
+		t.Fatalf("final %s path %s notice %q", o.final(), joinNodes(nodes), o.notice())
+	}
+	if len(code.bodies) != 1 || !strings.Contains(code.bodies[0], "Accepted deviations") || !strings.Contains(code.bodies[0], "`"+id+"`: "+reason) {
+		t.Fatalf("pull request body: %q", code.bodies)
+	}
+}
+
+// #942 C3: accept is refused for criteria, optional findings and non-owners,
+// and a refusal records nothing.
+func TestOwnerAcceptRefusals(t *testing.T) {
+	for _, mode := range []string{"criterion", "optional", "non-owner", "stale"} {
+		t.Run(mode, func(t *testing.T) {
+			o := newOwnerFixture(t)
+			id := "story-002:architecture"
+			switch mode {
+			case "criterion":
+				id = "story-002:AC-002"
+				o.reviewers.run = func(req ValidateReviewRequest) (*agentresult.Result, error) {
+					res, err := deviationReview(req)
+					for si := range res.Payload.Validate.Stories {
+						for i := range res.Payload.Validate.Stories[si].Criteria {
+							if c := &res.Payload.Validate.Stories[si].Criteria[i]; c.Name == "AC-002" {
+								c.Status = "unmet"
+							}
+						}
+					}
+					return res, err
+				}
+			case "optional":
+				id = "story-002:code"
+				o.reviewers.run = mixedReview
+			default:
+				o.reviewers.run = deviationReview
+			}
+			o.toOwner()
+			before := o.state()
+			if f, _ := before.finding(id); mode != "optional" && mode != "criterion" && !f.acceptable() {
+				t.Fatalf("fixture: %+v", f)
+			}
+			body := o.command(ValidateFindingCommand, id, "accept", "-- deliberate")
+			switch mode {
+			case "stale":
+				body = strings.Replace(body, before.Revision, "000000000000", 1)
+			case "criterion":
+				if next := strings.Join(before.NextCommands(nil), "\n"); strings.Contains(next, id+" accept") {
+					t.Fatalf("accept offered for a criterion: %s", next)
+				}
+			}
+			if mode == "non-owner" {
+				o.reply(o.owner+1, body)
+				o.toOwner()
+			} else {
+				o.say(body)
+			}
+			all, err := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, before.Commit, true)
+			if err != nil || len(all) != 0 || o.state().Revision != before.Revision || o.notice() == "" {
+				t.Fatalf("refusal changed state: %v %v %q", all, err, o.notice())
+			}
+			if (mode == "criterion" || mode == "optional") && !strings.Contains(o.notice(), "Accept is only for blocking review findings") {
+				t.Fatalf("notice %q", o.notice())
+			}
+		})
 	}
 }

@@ -147,6 +147,15 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 			return refuse("wait", fmt.Sprintf("`%s` awaits your check first: record pass or fail with evidence.", f.ID))
 		case !f.needsChoice():
 			return refuse("wait", fmt.Sprintf("`%s` is %s and takes no choice.", f.ID, f.State))
+		case cmd.Choice == validateChoiceAccept && !f.acceptable():
+			return refuse("wait", fmt.Sprintf("`%s` cannot be accepted. Accept is only for blocking review findings (architecture, plan, code), not criteria or the suite.", f.ID))
+		case cmd.Choice == validateChoiceAccept:
+			// The owner accepts a deliberate deviation: an owner pass verdict on
+			// the tested commit, with the reason as its evidence.
+			if _, err := opts.DB.PutValidateVerdict(ctx, store.ValidateVerdict{InstanceID: req.InstanceID, Commit: st.Commit, Criterion: f.ID, Verdict: store.VerdictPass, Evidence: cmd.Evidence, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, CreatedAt: now}); err != nil {
+				return ActivityResult{Diagnostic: err.Error()}, err
+			}
+			return h.accept(ctx, opts, req, st, now, "wait", "deviation accepted")
 		case cmd.Choice == store.ChoiceDefer && !f.Optional:
 			return refuse("wait", fmt.Sprintf("`%s` is blocking. Defer is allowed only for optional suggestions; choose repair or issue.", f.ID))
 		}
