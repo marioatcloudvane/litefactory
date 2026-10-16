@@ -63,6 +63,16 @@ type ValidateDeliveryTarget struct {
 	Generation int
 }
 
+// ticketRepo is the container the ticket bridge addresses for this delivery:
+// the task ref's own container (a Linear team/project for a Linear session),
+// falling back to the code repository when the task names none.
+func (t ValidateDeliveryTarget) ticketRepo() github.Repo {
+	if t.Task.Owner != "" {
+		return github.RepoFromRef(t.Task)
+	}
+	return t.Repo
+}
+
 // CloseSet is the issue numbers a close command lists: the parent and the
 // accepted story issues.
 func (t ValidateDeliveryTarget) CloseSet() []int {

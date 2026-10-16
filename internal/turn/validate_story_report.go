@@ -84,7 +84,7 @@ func tickValidateStory(ctx context.Context, opts Options, forge ValidateTickets,
 		return skip("the acceptance renderer is unavailable")
 	}
 	decision := store.AcceptanceDecision{Parent: task.String(), Generation: target.Generation, Story: s.Key, Revision: s.Revision, FrozenBody: s.Body}
-	repo := target.Repo
+	repo := target.ticketRepo()
 	live, err := forge.GetIssue(ctx, repo, s.Number)
 	if err != nil {
 		return err

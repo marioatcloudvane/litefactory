@@ -132,7 +132,7 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 	fail := func(state string, err error) error {
 		return r.settle(ctx, e, state, map[string]any{}, "The follow-up issue was not confirmed: "+err.Error())
 	}
-	issues, err := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.Repo)
+	issues, err := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.ticketRepo())
 	if err != nil {
 		return fail(store.EffectUncertain, err)
 	}
@@ -150,10 +150,10 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 		if err != nil {
 			return fail(store.EffectFailed, err)
 		}
-		created, createErr := createTicketEffect(ctx, r.b.Delivery.tickets(), "validate-issue:"+marker, r.target.Repo, 0, title, body)
+		created, createErr := createTicketEffect(ctx, r.b.Delivery.tickets(), "validate-issue:"+marker, r.target.ticketRepo(), 0, title, body)
 		if createErr != nil {
 			// A lost reply may still have created it: look before saying it failed.
-			again, listErr := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.Repo)
+			again, listErr := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.ticketRepo())
 			if listErr != nil {
 				return fail(store.EffectUncertain, errors.Join(createErr, listErr))
 			}
@@ -463,7 +463,7 @@ func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req Ac
 	var failures []string
 	forge := r.b.Delivery.tickets()
 	for _, s := range r.target.Stories {
-		if err := forge.SetStoryState(ctx, r.target.Repo, r.target.Parent.Number, r.target.Parent.ID, s.Number, s.ID, true); err != nil {
+		if err := forge.SetStoryState(ctx, r.target.ticketRepo(), r.target.Parent.Number, r.target.Parent.ID, s.Number, s.ID, true); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %s", s.display().Reference(), err.Error()))
 			continue
 		}
@@ -471,7 +471,7 @@ func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req Ac
 	}
 	// The parent closes last, so it never looks done while a story is open.
 	if len(failures) == 0 {
-		if err := forge.CloseDeliveredParent(ctx, r.target.Repo, r.target.Parent.Number, r.target.Parent.ID); err != nil {
+		if err := forge.CloseDeliveredParent(ctx, r.target.ticketRepo(), r.target.Parent.Number, r.target.Parent.ID); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %s", r.target.Parent.display().Reference(), err.Error()))
 		} else {
 			closed = append(closed, r.target.Parent.Number)
