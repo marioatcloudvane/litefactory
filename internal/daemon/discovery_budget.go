@@ -47,8 +47,12 @@ type discoveryBudget struct {
 	fallbackAt                                time.Time
 	fallbackRecovery, fallbackPending         bool
 	fallbackWorker                            bool
-	deferrals                                 int
-	lists                                     chan struct{}
+	// linear marks a budget fed by Linear observations. Linear's allowance
+	// refills continuously while its reset header points about an hour ahead,
+	// so a stale depleted record understates real capacity (#912).
+	linear    bool
+	deferrals int
+	lists     chan struct{}
 }
 
 type discoveryReservation struct {
@@ -102,6 +106,7 @@ func (b *discoveryBudget) observeLocked(o github.RequestObservation) {
 func (b *discoveryBudget) observeLinear(o linear.RequestObservation) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.linear = true
 	b.observeRequestLocked(o.RequestRateValid, o.Limit, o.Remaining, o.Reset, true)
 	if b.freshLocked() {
 		// Fallback lanes no longer run with fresh evidence. Their rotation
@@ -187,8 +192,10 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 		if b.freshLocked() || cost != 1 || (!b.probeAt.IsZero() && b.now.Sub(b.probeAt) < time.Minute) {
 			return deny()
 		}
-		// An observed depleted allowance is not permission to probe before reset.
-		if b.limit > 0 && b.now.Before(b.reset) && (b.remaining <= b.floorLocked() || b.spent >= b.discoveryShareLocked()) {
+		// An observed depleted allowance is not permission to probe before reset,
+		// except for Linear: its allowance refills continuously, and only a fresh
+		// response can show that capacity has returned (#912).
+		if !b.linear && b.limit > 0 && b.now.Before(b.reset) && (b.remaining <= b.floorLocked() || b.spent >= b.discoveryShareLocked()) {
 			return deny()
 		}
 	} else if b.limit > 0 && b.now.Before(b.reset) {
