@@ -831,7 +831,7 @@ func TestValidateSuiteSymlinkRefusalReportAndReplay(t *testing.T) {
 	}
 }
 
-func TestGitValidateSuiteSymlinkRefusal(t *testing.T) {
+func TestGitValidateSuiteEscapingSymlinkRuns(t *testing.T) {
 	repo := gittest.New(t)
 	repo.WriteFile(".litefactory/bug-checks.yaml", suiteRecipe)
 	if err := os.MkdirAll(filepath.Join(repo.Dir, ".venv/bin"), 0700); err != nil {
@@ -856,12 +856,11 @@ func TestGitValidateSuiteSymlinkRefusal(t *testing.T) {
 	f.b.Bind = func(context.Context, Options, ActivityRequest) (ValidateSuiteAuthority, error) {
 		return ValidateSuiteAuthority{Commit: commit}, nil
 	}
+	// A committed virtualenv link is identified by its target string and never
+	// resolved, so the suite runs the recipe instead of blocking.
 	res, out, err := f.exec(1)
-	if err != nil || res.Outcome != store.SuiteBlocked || len(f.commands) != 0 {
-		t.Fatalf("%+v %v", out, err)
-	}
-	if !strings.Contains(renderValidateReport(ValidateState{Commit: commit, Suite: out}, nil, ""), ".venv/bin/python is a symlink outside the repository") {
-		t.Fatalf("%+v", out)
+	if err != nil || res.Outcome != store.SuitePassed || len(f.commands) == 0 {
+		t.Fatalf("%q %+v %v", res.Outcome, out, err)
 	}
 	dirs, err := os.ReadDir(scratchRoot)
 	if err != nil || len(dirs) != 0 {

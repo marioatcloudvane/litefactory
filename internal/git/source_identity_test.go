@@ -169,16 +169,16 @@ func TestSourceIdentitySymlinkTargets(t *testing.T) {
 	}
 }
 
-func TestSourceIdentityRefusesUnsafeSymlinks(t *testing.T) {
-	for _, tc := range []struct{ name, target, intermediate, reason string }{
-		{"absolute", "/etc/passwd", "", "outside the repository"},
-		{"escape", "../outside", "", "outside the repository"},
-		{"chain", "hop", "../outside", "outside the repository"},
-		{"directory", "hop/file", "../outside", "outside the repository"},
-		{"absolute chain", "hop", "/etc", "outside the repository"},
-		{"dangling", "missing", "", "unresolved target"},
-		{"cycle", "link", "", "cyclic symlink"},
-		{"nondirectory", "tracked.txt/file", "", "nondirectory"},
+func TestSourceIdentityRecordsUnresolvedSymlinkTargets(t *testing.T) {
+	for _, tc := range []struct{ name, target, intermediate string }{
+		{"absolute", "/etc/passwd", ""},
+		{"escape", "../outside", ""},
+		{"chain", "hop", "../outside"},
+		{"directory", "hop/file", "../outside"},
+		{"absolute chain", "hop", "/etc"},
+		{"dangling", "missing", ""},
+		{"cycle", "link", ""},
+		{"nondirectory", "tracked.txt/file", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, w := sourceWorktree(t)
@@ -190,11 +190,46 @@ func TestSourceIdentityRefusesUnsafeSymlinks(t *testing.T) {
 			if err := os.Symlink(tc.target, filepath.Join(w.Path(), "link")); err != nil {
 				t.Fatal(err)
 			}
-			_, err := w.ObserveSource(t.Context(), git.SourceOptions{NonInputs: []string{"hop"}})
-			var refusal *git.SourceSymlinkError
-			if !errors.As(err, &refusal) || refusal.Path != "link" || !strings.Contains(refusal.Reason, tc.reason) {
-				t.Fatalf("got %v", err)
+			got, err := w.ObserveSource(t.Context(), git.SourceOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]string{"link": tc.target}
+			if tc.intermediate != "" {
+				want["hop"] = tc.intermediate
+			}
+			for _, entry := range got.Entries {
+				target, ok := want[entry.Path]
+				if !ok {
+					continue
+				}
+				delete(want, entry.Path)
+				sum := sha256.Sum256([]byte(target))
+				if entry.Mode != "120000" || entry.Target != target || entry.SHA256 != hex.EncodeToString(sum[:]) {
+					t.Fatalf("entry %+v", entry)
+				}
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing symlink entries %v in %+v", want, got.Entries)
 			}
 		})
+	}
+}
+
+func TestSourceIdentityRefusesSymlinkSourceParent(t *testing.T) {
+	_, w := sourceWorktree(t)
+	if err := os.Mkdir(filepath.Join(w.Path(), "real"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(w.Path(), "real", "file"), []byte("input\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(w.Path(), "alias")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := w.ObserveSource(t.Context(), git.SourceOptions{IgnoredInputs: []string{"alias/file"}})
+	var refusal *git.SourceSymlinkError
+	if !errors.As(err, &refusal) || refusal.Path != "alias/file" || !strings.Contains(refusal.Reason, "symlink source parent") {
+		t.Fatalf("got %v", err)
 	}
 }

@@ -255,9 +255,6 @@ func observeSourceSymlink(root *os.Root, path string, info fs.FileInfo) (SourceE
 	if len(target) > 64<<20 {
 		return SourceEntry{}, 0, errors.New("oversized source symlink")
 	}
-	if err := resolveSourceSymlink(root, path); err != nil {
-		return SourceEntry{}, 0, err
-	}
 	final, err := root.Lstat(path)
 	if err != nil {
 		return SourceEntry{}, 0, err
@@ -271,70 +268,6 @@ func observeSourceSymlink(root *os.Root, path string, info fs.FileInfo) (SourceE
 	}
 	sum := sha256.Sum256([]byte(target))
 	return SourceEntry{Path: path, Mode: "120000", SHA256: hex.EncodeToString(sum[:]), Target: target}, int64(len(target)), nil
-}
-
-// Resolve components before cleaning '..': a preceding link can change its
-// meaning. Every filesystem operation remains confined by the open os.Root,
-// including if a directory is replaced while resolution is in progress.
-func resolveSourceSymlink(root *os.Root, path string) error {
-	pending := strings.Split(path, "/")
-	var resolved []string
-	links := 0
-	refuse := func(reason string) error { return &SourceSymlinkError{Path: path, Reason: reason} }
-	for len(pending) > 0 {
-		part := pending[0]
-		pending = pending[1:]
-		switch part {
-		case "", ".":
-			continue
-		case "..":
-			if len(resolved) == 0 {
-				return refuse("is a symlink outside the repository")
-			}
-			resolved = resolved[:len(resolved)-1]
-			continue
-		}
-		name := strings.Join(append(append([]string{}, resolved...), part), "/")
-		info, err := root.Lstat(name)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return refuse("is a symlink with an unresolved target")
-			}
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			links++
-			if links > 40 {
-				return refuse("is a cyclic symlink or exceeds the link traversal limit")
-			}
-			target, err := root.Readlink(name)
-			if err != nil {
-				return err
-			}
-			if filepath.IsAbs(target) {
-				return refuse("is a symlink outside the repository")
-			}
-			pending = append(strings.Split(target, "/"), pending...)
-			continue
-		}
-		if len(pending) > 0 && !info.IsDir() {
-			return refuse("is a symlink with a nondirectory target component")
-		}
-		resolved = append(resolved, part)
-	}
-	// Recheck the original chain through the kernel's confined resolver; the
-	// component walk supplies precise findings but never replaces containment.
-	info, err := root.Stat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return refuse("is a symlink with an unresolved target")
-	}
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() && !info.IsDir() {
-		return refuse("is a symlink with an unsupported target type")
-	}
-	return nil
 }
 
 func openSourceRoot(path string) (*os.Root, fs.FileInfo, error) {

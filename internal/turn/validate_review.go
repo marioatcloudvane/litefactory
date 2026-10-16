@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -208,6 +209,26 @@ func (h ValidateReviewActivity) start(ctx context.Context, opts Options, req Act
 	}
 	defer func() { _ = scratch.Close(context.WithoutCancel(ctx)) }()
 	tree, err := scratch.Observe(ctx)
+	var refusal *git.SourceSymlinkError
+	if err != nil && ctx.Err() == nil && errors.As(err, &refusal) {
+		// A symlink refusal is a repository finding: each granted reviewer is
+		// recorded as failed with the reason, and no reviewer runs, so Validate
+		// ends blocked with an owner-visible reason instead of a stopped turn.
+		for _, g := range granted {
+			attempt := validateReviewAttempt(req.InstanceID, g.role, suite.Output.Commit)
+			row, _, err := opts.DB.BeginValidateReview(ctx, store.ValidateReview{InstanceID: req.InstanceID, Role: g.role, Commit: suite.Output.Commit, SuiteRunID: suite.Output.RunID, Attempt: attempt, StartedAt: b.now(opts)})
+			if err != nil {
+				return err
+			}
+			if row.State != store.ReviewPending {
+				continue
+			}
+			if err := opts.DB.FinishValidateReview(ctx, row.ID, store.ReviewFailed, clipText(refusal.Error(), 500), nil, b.now(opts)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("observe the review checkout: %w", err)
 	}
