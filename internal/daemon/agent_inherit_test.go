@@ -1,8 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -24,6 +28,15 @@ func (f *inheritForge) AddIssueLabel(_ context.Context, _ github.Repo, issue int
 	f.added[issue] = append(f.added[issue], label)
 	return nil
 }
+
+// refusingInheritForge refuses every label write, as Linear refuses labels
+// without a mode mapping.
+type refusingInheritForge struct{ inheritForge }
+
+func (f *refusingInheritForge) AddIssueLabel(context.Context, github.Repo, int, string) error {
+	return errors.New("ticket: label: refused: explicit mode label mapping is required")
+}
+
 func (f *inheritForge) RemoveIssueLabel(context.Context, github.Repo, int, string) error { return nil }
 
 func TestStoryIssueInheritsItsParentsAgent(t *testing.T) {
@@ -66,5 +79,33 @@ func TestStoryIssueInheritsItsParentsAgent(t *testing.T) {
 				t.Fatalf("resolved %+v, want codex", choice)
 			}
 		})
+	}
+}
+
+func TestStoryInheritsItsParentsAgentWhenTheLabelWriteIsRefused(t *testing.T) {
+	f := newImplementDaemonFixture(t)
+	story, err := f.d.db.GetOrCreateSession(t.Context(), f.repo, 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = f.d.db.SetImplementWorkerSession(t.Context(), implementDaemonParent, 1, "story-001", story.ID, implementDaemonClock); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	f.d.log = slog.New(slog.NewTextHandler(&logs, nil))
+	f.d.forge = &refusingInheritForge{inheritForge{parent: github.Issue{Number: 1, Labels: []string{"Coding Agent: Codex"}}, added: map[int][]string{}}}
+	f.d.agents = turn.RunnerSet{agent.Kind("claude"): nil, agent.Kind("codex"): nil}
+	tk := &task{repo: f.repo, forgeRepo: github.Repo{Owner: "acme", Name: "api"}, issue: github.Issue{Number: 11, Labels: []string{"Mode: Implement"}}, session: story}
+	if err := f.d.inheritParentAgent(t.Context(), tk); err != nil {
+		t.Fatalf("a refused label write stopped the story: %v", err)
+	}
+	if !slices.Contains(tk.issue.Labels, "Coding Agent: Codex") {
+		t.Fatalf("task labels %v, want the parent's agent label", tk.issue.Labels)
+	}
+	if choice := f.d.resolveAgent(tk.issue.Labels); choice.Agent != "codex" {
+		t.Fatalf("resolved %+v, want codex", choice)
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "explicit mode label mapping is required") {
+		t.Fatalf("logs %q, want a warning naming the refused write", logs.String())
 	}
 }
