@@ -96,7 +96,7 @@ func TestDiscoveryCall_OverlappingHistories(t *testing.T) {
 					default:
 						t.Fatal("cancelled waiter did not terminate")
 					}
-					if d.discovery.reserved != 100 || d.discovery.tokens != float64(discoveryBurst-100) {
+					if d.discovery.reserved != listAdmission || d.discovery.tokens != float64(discoveryBurst-listAdmission) {
 						t.Fatalf("cancel affected first reservation: reserved=%d tokens=%v", d.discovery.reserved, d.discovery.tokens)
 					}
 				}
