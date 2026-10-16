@@ -270,6 +270,14 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 		if c.ID <= after {
 			continue
 		}
+		if routed, err := d.dispatchJudgeChild(ctx, t, child, c); err != nil {
+			return err
+		} else if routed {
+			if err := d.db.AdvanceStoryDiscovery(ctx, t.session.ID, s.IssueNumber, c.ID); err != nil {
+				return err
+			}
+			continue
+		}
 		routed, err := d.admitDoctor(ctx, t.repo, child, c)
 		if err != nil {
 			return err

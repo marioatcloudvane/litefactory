@@ -21,6 +21,8 @@ Start with an owner comment:
 
 You get a run report and, for Research, a saved brief. Moving on is always your decision: ask for `/plan <instruction>`, then `/implement <instruction>` when the plan is approved, then `/validate <instruction>`. A successful run never moves the issue to the next mode by itself. (The one optional exception is `validate.auto_start` in the [configuration](../configuration/config-yaml.md), which starts Validate once Implement has merged every story.)
 
+Workflow authors can opt into [private advisory judging](workflow-judging.md) in Research and Plan, with a separate activity for publication.
+
 ## How the mode is chosen
 
 - An explicit command (`/research`, `/plan`, `/implement`, `/validate`, `/spike`) picks the mode for that comment.

@@ -25,6 +25,20 @@ func retainedRowProposal(t *testing.T, db *DB, session Session, proposal []byte)
 	if err = db.PrepareDoctorAttempt(ctx, DoctorAttempt{ID: "repair-proposer", Provider: "claude", ConfiguredModel: "test", Evidence: string(evidence)}); err != nil {
 		t.Fatal(err)
 	}
+
+	// Historical migration fixtures seed the ledger schema that existed then;
+	// current result accessors intentionally require the fully migrated schema.
+	var hasJudge int
+	if err = db.sql.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('application_result_attempts') WHERE name='judge_attempt_id'`).Scan(&hasJudge); err != nil {
+		t.Fatal(err)
+	}
+	if hasJudge == 0 {
+		id := retainPreJudgeDoctorProposal(t, db, c, proposal)
+		if err = db.PresentDoctorProposal(ctx, session.TaskRef, "presentation", id); err != nil {
+			t.Fatal(err)
+		}
+		return id, "presentation"
+	}
 	b, err := db.BindDoctorResultAttempt(ctx, "repair-proposer")
 	if err != nil {
 		t.Fatal(err)

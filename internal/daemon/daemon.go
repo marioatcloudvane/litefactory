@@ -187,6 +187,9 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Judge is the isolated advisory service; nil explains unavailability.
+	Judge *turn.JudgeService
+
 	// Connections selects saved project and execution versions; nil supports legacy callers.
 	Connections *projectconnection.Factory
 
@@ -407,6 +410,7 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	judge            *turn.JudgeService
 	tickPhaseTimeout time.Duration // zero uses the internal 30-second bound
 
 	doctorHostOptions *DoctorHostOptions
@@ -546,6 +550,7 @@ func New(opts Options) (*Daemon, error) {
 	}
 
 	d := &Daemon{
+		judge:                    opts.Judge,
 		db:                       opts.DB,
 		bug:                      opts.Bug,
 		forge:                    opts.Forge,
@@ -711,6 +716,14 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 				return Reconciled{}, err
 			}
 			d.log.WarnContext(ctx, "some Bug instances could not be reconciled at startup; their work is preserved", slog.Any("error", err))
+		}
+	}
+
+	if recovery, ok := d.turn.(interface {
+		RecoverWorkflowJudges(context.Context, time.Time) error
+	}); ok {
+		if err := recovery.RecoverWorkflowJudges(ctx, reconciliation.At); err != nil {
+			return Reconciled{}, err
 		}
 	}
 

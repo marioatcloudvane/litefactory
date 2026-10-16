@@ -115,8 +115,9 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	var attempt store.GraphNodeAttempt
 	switch {
 	case req.ResumeAttemptID != 0:
-		if workflow != agent.WorkflowBug || node.Action == ResearchAgentAction || req.RunID != 0 {
-			return out, errors.New("only Bug factory effects may resume an attempt")
+		judgeRecovery := (workflow == agent.WorkflowResearch || workflow == agent.WorkflowPlan) && node.Action == graphexec.JudgeAction
+		if (!judgeRecovery && workflow != agent.WorkflowBug) || node.Action == ResearchAgentAction || req.RunID != 0 {
+			return out, errors.New("only bounded factory effects may resume an attempt")
 		}
 		attempt, err = opts.DB.GetGraphNodeAttempt(ctx, req.ResumeAttemptID)
 		if err == nil && (attempt.InstanceID != instance.ID || attempt.Node != node.Name || attempt.RunID != 0 || (attempt.Status != store.GraphRunning && attempt.Status != store.GraphPending)) {
@@ -173,7 +174,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	}
 	activity, dispatchErr := handler.Execute(ctx, handlerOpts, ActivityRequest{
 		Team: req.Profile.Team, Mode: req.Profile.Mode, Workflow: workflow, Node: node.Name, Attrs: node.Attrs,
-		InstanceID: instance.ID, NodeAttemptID: attempt.ID, RunID: req.RunID, ResumeRef: req.ResumeRef,
+		InstanceID: instance.ID, NodeAttemptID: attempt.ID, RunID: req.RunID, ResumeRef: req.ResumeRef, Recovery: req.ResumeAttemptID != 0,
 	})
 	activity.Output = slices.Clone(activity.Output)
 	out.Activity = activity
