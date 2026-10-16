@@ -2210,6 +2210,22 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 	}
 }
 
+// ownCodeComment says a refused delivery command is litefactory's own comment:
+// its publisher, its retained ticket actor or a marker. Those stay unanswered.
+func (d *Daemon) ownCodeComment(ctx context.Context, sessionID int64, c github.Comment) (bool, error) {
+	if c.Author.ID == d.filter.Identities().BotUserID || turn.HasMarker(c.Body) {
+		return true, nil
+	}
+	if d.connections == nil {
+		return false, nil
+	}
+	saved, err := d.db.GetExecutionSnapshot(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	return c.Author.ID == saved.ActorID, nil
+}
+
 // handleComment classifies one comment and does whatever it asks for.
 //
 // The error return is reserved for failures that end the whole tick: a database
@@ -2248,8 +2264,19 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 			if recordErr := d.recordCodeObservation(ctx, t.session.ID, c, qualifiedReply, false); recordErr != nil {
 				return recordErr
 			}
-			_, consumeErr := d.reporter.Consume(ctx, t.session.ID, c.ID)
-			return consumeErr
+			own, ownErr := d.ownCodeComment(ctx, t.session.ID, c)
+			if ownErr != nil {
+				return ownErr
+			}
+			if own {
+				_, consumeErr := d.reporter.Consume(ctx, t.session.ID, c.ID)
+				return consumeErr
+			}
+			// Anyone else is answered, so a refused delivery command is never
+			// consumed silently. The reply path consumes only after delivery.
+			log.InfoContext(ctx, "delivery command refused; answering it", slog.Any("error", err))
+			d.commentFate(ctx, t, c.ID, fateIgnored, "refused, only the task owner can give delivery commands")
+			return d.refuseMode(ctx, t, turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID, CreatedAt: c.CreatedAt}, report.ReplyCodeControlRefused, "")
 		}
 		if err := d.recordCodeObservation(ctx, t.session.ID, c, qualifiedReply, true); err != nil {
 			return err

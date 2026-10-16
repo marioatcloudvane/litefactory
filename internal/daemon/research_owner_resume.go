@@ -21,7 +21,8 @@ func (d *Daemon) claimGraphReply(ctx context.Context, t *task, trigger turn.Trig
 		if err := d.authorizeCodeControl(ctx, t.session.ID, c); err != nil {
 			return err
 		}
-		ownerID = d.filter.Identities().OwnerUserID
+		// The gate admitted exactly this author as the task's code authority.
+		ownerID = trigger.AuthorID
 	} else {
 		ownerID = d.ticketIdentities(ctx).OwnerUserID
 	}

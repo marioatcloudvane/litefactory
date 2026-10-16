@@ -21,8 +21,10 @@ func (e turnExecutor) ApplyDelivery(ctx context.Context, c turn.DeliveryControl)
 	return e.opts.StoryProgress.ApplyDelivery(ctx, c)
 }
 func (d *Daemon) handleDelivery(ctx context.Context, t *task, c github.Comment, log *slog.Logger) error {
-	owner := d.filter.Identities().OwnerUserID
-	if owner < 1 || c.Author.ID != owner {
+	// Reached only after authorizeCodeControl: the author is the code owner,
+	// or the verified owner of the task's own non-GitHub ticket connection.
+	owner := c.Author.ID
+	if owner < 1 {
 		return fmt.Errorf("delivery requires numeric owner identity")
 	}
 	applier, ok := d.turn.(interface {
@@ -45,15 +47,24 @@ func isCodeAuthorityControl(name string) bool {
 
 func (d *Daemon) authorizeCodeControl(ctx context.Context, sessionID int64, c github.Comment) error {
 	ids := d.filter.Identities()
-	if c.Author.ID <= 0 || c.Author.ID != ids.OwnerUserID || c.Author.ID == ids.BotUserID || c.Author.IsBot || turn.HasMarker(c.Body) {
+	if c.Author.ID <= 0 || c.Author.ID == ids.BotUserID || c.Author.IsBot || turn.HasMarker(c.Body) {
+		return errors.New("code delivery requires its authenticated human authority")
+	}
+	var mapping store.SessionTicket
+	if d.connections != nil {
+		var err error
+		if mapping, err = d.db.GetSessionTicket(ctx, sessionID); err != nil {
+			return err
+		}
+		if mapping.Locator.Provider != ticket.GitHub {
+			return d.authorizeTicketOwnerCodeControl(ctx, sessionID, c)
+		}
+	}
+	if c.Author.ID != ids.OwnerUserID {
 		return errors.New("code delivery requires its authenticated human authority")
 	}
 	if d.connections == nil {
 		return nil
-	}
-	mapping, err := d.db.GetSessionTicket(ctx, sessionID)
-	if err != nil {
-		return err
 	}
 	saved, err := d.db.GetExecutionSnapshot(ctx, sessionID)
 	if err != nil {
@@ -70,6 +81,38 @@ func (d *Daemon) authorizeCodeControl(ctx context.Context, sessionID int64, c gi
 	// Legacy gh identity discovery is explicitly pinned to public GitHub.
 	if owner.Source != store.SourceGH || code.Provider != ticket.GitHub || code.Origin != "https://api.github.com" || mapping.Locator.Provider != code.Provider || mapping.Locator.Origin != code.Origin || c.Author.ID == saved.ActorID {
 		return errors.New("ticket actor does not match the qualified code authority")
+	}
+	return nil
+}
+
+// authorizeTicketOwnerCodeControl admits the six delivery commands from the
+// verified owner of the task's own non-GitHub ticket connection (#922). It
+// never covers /doctor apply, the publisher or a stale comment.
+func (d *Daemon) authorizeTicketOwnerCodeControl(ctx context.Context, sessionID int64, c github.Comment) error {
+	refused := errors.New("ticket actor is not the verified owner of this task's ticket connection")
+	if !isCodeAuthorityControl(turn.ParseCommand(c.Body).Name) {
+		return refused
+	}
+	ids, err := d.projectTicketIdentities(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if ids.OwnerIdentity.Provider == ticket.GitHub || c.Author.ID != ids.OwnerUserID || c.Author.ID == ids.BotUserID {
+		return refused
+	}
+	if c.QualifiedReply != nil && !c.QualifiedReply.Author.Identity.Equal(ids.OwnerIdentity) {
+		return refused
+	}
+	session, err := d.db.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	appointment, err := d.db.CurrentApprover(ctx, session.RepoID)
+	if err != nil {
+		return err
+	}
+	if appointment.RequireFresh && !c.CreatedAt.After(appointment.ActivatedAt) {
+		return refused
 	}
 	return nil
 }

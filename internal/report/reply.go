@@ -232,6 +232,11 @@ const (
 	ReplyMissingTicketPublisher
 	// ReplyDoctorUnsupported answers Doctor commands on unsupported ticket providers.
 	ReplyDoctorUnsupported
+	// ReplyCodeControlRefused answers a delivery command (/validate-ship,
+	// /validate-push, /validate-merge, /validate-close, /deliver or /merge)
+	// from an author without code authority on this task. It is posted and the
+	// comment is consumed, so the command is never dropped silently.
+	ReplyCodeControlRefused
 )
 
 // String renders the kind for logs and test failures.
@@ -281,6 +286,8 @@ func (k ReplyKind) String() string {
 		return "missing_team"
 	case ReplyDoctorUnsupported:
 		return "doctor_unsupported"
+	case ReplyCodeControlRefused:
+		return "code_control_refused"
 	case ReplyUnsupportedWorkflow:
 		return "unsupported_workflow"
 	case ReplyMissingModeMapping:
@@ -351,7 +358,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyMissingTicketPublisher, ReplyDoctorUnsupported, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
-	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
+	case ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -391,7 +398,7 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // [ReplyGraphReplyBetweenQuestions], a Research reply-admission refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyMissingTicketPublisher, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused:
+	case ReplyMissingTicketPublisher, ReplyMissingTeam, ReplyUnsupportedWorkflow, ReplyBugModeSwitch, ReplyBugUnavailable, ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyMissingModeMapping, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyGraphReplyBetweenQuestions, ReplyBugCommentNotApplied, ReplyGraphOwnerWaitRefused, ReplyImplementCommentNotApplied, ReplyGraphResumeRefused, ReplyCodeControlRefused:
 		return true
 	default:
 		return false
@@ -959,6 +966,8 @@ func (r Reply) body() string {
 		b.WriteString(sectionGap)
 		b.WriteString("A question that is already answered cannot accept another answer. ")
 		b.WriteString("If it still applies, please post it again after the workflow has posted its next update.")
+	case ReplyCodeControlRefused:
+		b.WriteString("This delivery command was set aside and nothing was recorded, pushed, merged or closed, because only the task's owner can give it.")
 	case ReplyConflictingModeSelection:
 		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")
 		b.WriteString(sectionGap)

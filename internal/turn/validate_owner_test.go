@@ -2,13 +2,16 @@ package turn
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // mixedReview satisfies AC-001, leaves AC-002 unverified and reports the code
@@ -954,5 +957,120 @@ func TestOwnerShipRecordsLiveReviewVerdicts(t *testing.T) {
 	}
 	if !effectDone(after.Effects.Close) {
 		t.Fatal("ship did not complete")
+	}
+}
+
+// #922: the verified owner of the task's own Linear ticket connection ships
+// from one reply, like the GitHub code owner. Another Linear user, and the
+// appointed approver of a GitHub ticket connection, are still refused.
+func TestOwnerShipFromTheLinearTicketOwner(t *testing.T) {
+	linearOwner := ticket.Identity{Provider: ticket.Linear, Origin: "https://api.linear.app", RemoteID: "owner-uuid"}
+	for _, tc := range []struct {
+		name     string
+		approver ticket.Identity
+		author   ticket.Identity
+		ships    bool
+	}{
+		{"linear ticket owner", linearOwner, linearOwner, true},
+		{"another linear user", linearOwner, ticket.Identity{Provider: ticket.Linear, Origin: "https://api.linear.app", RemoteID: "other-uuid"}, false},
+		{"github ticket approver", ticket.Identity{Provider: ticket.GitHub, Origin: "https://api.github.com", RemoteID: "42"}, ticket.Identity{Provider: ticket.GitHub, Origin: "https://api.github.com", RemoteID: "42"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := newOwnerFixture(t)
+			o.mixed()
+			author := int64(42)
+			if tc.author.Provider == ticket.Linear {
+				var err error
+				if author, err = o.db.LocalTicketSlot(t.Context(), "actor", tc.author); err != nil {
+					t.Fatal(err)
+				}
+			}
+			approver := store.ApproverAppointment{Actor: tc.approver}
+			o.opts.ProjectApprovers, o.opts.TicketApprover = true, &approver
+			before := o.records()
+			o.reply(author, o.ship())
+			nodes := o.toOwner()
+			st := o.state()
+			if !tc.ships {
+				if !strings.Contains(o.notice(), "Only the owner can give Validate commands.") || o.records() != before || len(o.forge.pushes) != 0 {
+					t.Fatalf("a refused author shipped: notice %q path %s", o.notice(), joinNodes(nodes))
+				}
+				return
+			}
+			if outcomes := o.resolveOutcomes(); !strings.Contains(" "+strings.Join(outcomes, " ")+" ", " push ") {
+				t.Fatalf("outcomes %v final %s notice %q", outcomes, o.final(), o.notice())
+			}
+			if st.Effects.Push == nil || !effectDone(st.Effects.Push) || st.Effects.Push.ConfirmCommentID == 0 || len(o.forge.pushes) != 1 {
+				t.Fatalf("push effect %+v pushes %v path %s", st.Effects.Push, o.forge.pushes, joinNodes(nodes))
+			}
+		})
+	}
+}
+
+// #922: the turn gate admits the verified Linear ticket owner for each of the
+// six delivery commands and refuses everyone else.
+func TestTurnCodeAuthorityAdmitsTheLinearTicketOwner(t *testing.T) {
+	ctx := t.Context()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "authority.db"))
+	mustProgress(t, err)
+	defer func() { mustProgress(t, db.Close()) }()
+	mustProgress(t, db.Migrate(ctx))
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: "/linear-code", Forge: store.ForgeGitHub, Owner: "owner", Name: "code", RemoteURL: "git@github.com:owner/code.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: "/linear-trees"})
+	mustProgress(t, err)
+	code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: repo.Slug(), CredentialSource: "env", CredentialEnv: "TOKEN", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, RemoteURL: repo.RemoteURL, BaseBranch: repo.BaseBranch, FeaturePrefix: repo.FeaturePrefix, WorktreeRoot: repo.WorktreeRoot}, 0)
+	mustProgress(t, err)
+	tickets, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team/project", CredentialSource: "env", CredentialEnv: "LINEAR", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"label-plan"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
+	mustProgress(t, err)
+	owner := ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "owner-uuid"}
+	ownerSlot, err := db.LocalTicketSlot(ctx, "actor", owner)
+	mustProgress(t, err)
+	other := ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "other-uuid"}
+	otherSlot, err := db.LocalTicketSlot(ctx, "actor", other)
+	mustProgress(t, err)
+	bot := ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "publisher-uuid"}
+	botSlot, err := db.LocalTicketSlot(ctx, "actor", bot)
+	mustProgress(t, err)
+	a, err := db.SetApprover(ctx, store.ApproverAppointment{RepoID: repo.ID, Actor: owner, Handle: "owner", VerifiedAt: time.Now(), Provenance: "explicit"}, tickets.Revision, 0)
+	mustProgress(t, err)
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "issue-uuid"}, Locator: ticket.Locator{Provider: ticket.Linear, Origin: tickets.Origin, Container: tickets.Destination, Key: "issue-uuid"}}
+	_, err = db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: tickets.ID, Ref: ref, Enabled: true, Provenance: "explicit"})
+	mustProgress(t, err)
+	session, err := db.AdmitSession(ctx, repo, ref, code.Revision, tickets.Revision, botSlot, "publisher", "linear:team/project#1")
+	mustProgress(t, err)
+	opts := Options{DB: db, ProjectApprovers: true}
+	fresh := a.ActivatedAt.Add(time.Second)
+	source := ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "reply-uuid"}
+	for _, command := range []string{"/validate-ship rev -- ok", "/validate-push rev", "/validate-merge rev", "/validate-close rev", "/deliver", "/merge"} {
+		trigger := Trigger{CommentID: 101, AuthorID: ownerSlot, Actor: owner, Source: source, CreatedAt: fresh, Body: command}
+		if err := verifyTurnCodeAuthority(ctx, opts, session, trigger); err != nil {
+			t.Fatalf("%s: the Linear ticket owner was refused: %v", command, err)
+		}
+	}
+	trigger := Trigger{CommentID: 101, AuthorID: ownerSlot, Actor: owner, Source: source, CreatedAt: fresh, Body: "/validate-ship rev -- ok"}
+	claim, err := db.ClaimProjectCodeAuthority(ctx, store.AuthorityClaim{SessionID: session.ID, RepoID: repo.ID, AppointmentID: a.ID, Revision: a.Revision, Actor: owner, Source: source, CreatedAt: fresh, Kind: "code-control", Key: "turn:101"})
+	if err != nil {
+		t.Fatalf("the Linear ticket owner's code claim: %v", err)
+	}
+	mustProgress(t, db.CompleteProjectAuthority(ctx, claim.ID))
+	if _, err := db.ClaimProjectCodeAuthority(ctx, store.AuthorityClaim{SessionID: session.ID, RepoID: repo.ID, AppointmentID: a.ID, Revision: a.Revision, Actor: owner, Source: source, CreatedAt: a.ActivatedAt, Kind: "code-control", Key: "turn:102"}); !errors.Is(err, store.ErrApproverReplay) {
+		t.Fatalf("a stale Linear code claim was admitted: %v", err)
+	}
+	if _, err := db.ClaimProjectCodeAuthority(ctx, store.AuthorityClaim{SessionID: session.ID, RepoID: repo.ID, AppointmentID: a.ID, Revision: a.Revision, Actor: other, Source: source, CreatedAt: fresh, Kind: "code-control", Key: "turn:103"}); !errors.Is(err, store.ErrApproverUnauthorized) {
+		t.Fatalf("another Linear user's code claim was admitted: %v", err)
+	}
+	for name, change := range map[string]func(*Trigger){
+		"another linear user": func(tr *Trigger) { tr.AuthorID, tr.Actor = otherSlot, other },
+		"the publisher":       func(tr *Trigger) { tr.AuthorID, tr.Actor = botSlot, bot },
+		"slot mismatch":       func(tr *Trigger) { tr.AuthorID = otherSlot },
+		"foreign source":      func(tr *Trigger) { tr.Source.Origin = "https://linear.example" },
+		"github source": func(tr *Trigger) {
+			tr.Source = ticket.Identity{Provider: ticket.GitHub, Origin: "https://api.github.com", RemoteID: "1"}
+		},
+	} {
+		tr := trigger
+		change(&tr)
+		if err := verifyTurnCodeAuthority(ctx, opts, session, tr); !errors.Is(err, store.ErrApproverUnauthorized) {
+			t.Fatalf("%s gained code authority: %v", name, err)
+		}
 	}
 }
