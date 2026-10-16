@@ -1456,7 +1456,7 @@ func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
 					if ordinary.Load() {
 						b := &f.d.quotas.forVersion(v).discovery
 						b.mu.Lock()
-						if b.reserved != linearHistoryBound || len(b.lists) != 1 {
+						if b.reserved != listAdmission || len(b.lists) != 1 {
 							t.Errorf("ordinary history reserved=%d list gate=%d", b.reserved, len(b.lists))
 						}
 						b.mu.Unlock()

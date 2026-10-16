@@ -12,11 +12,13 @@ import (
 
 // graphPlanParents admits retained drafts even before managed publication and
 // without owner comments. The existing worker scheduler supplies capacity/backoff.
+// A Linear parent is re-added only on its repository's listing ticks (#920).
 func (d *Daemon) graphPlanParents(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
 	sessions, err := d.db.ListGraphPlanSessions(ctx)
 	if err != nil {
 		return err
 	}
+	linearRepo := map[int64]bool{}
 	for _, s := range sessions {
 		q := byRepo[s.RepoID]
 		if q == nil {
@@ -24,6 +26,11 @@ func (d *Daemon) graphPlanParents(ctx context.Context, byRepo map[int64]*repoQue
 		}
 		if prior := seen[s.ID]; prior != nil {
 			prior.addSource("plan_recovery")
+			continue
+		}
+		if skip, err := d.linearOffListing(ctx, q, s.RepoID, linearRepo); err != nil {
+			return err
+		} else if skip {
 			continue
 		}
 		ref, err := naming.ParseRef(s.TaskRef)

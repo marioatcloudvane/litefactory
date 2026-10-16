@@ -469,7 +469,7 @@ func TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory(t *testing.T) {
 	f.d.discovery.mu.Lock()
 	reserved, remaining := f.d.discovery.reserved, f.d.discovery.remaining
 	f.d.discovery.mu.Unlock()
-	if reserved != discoveryListBound || remaining != 4998 {
+	if reserved != listAdmission || remaining != 4998 {
 		t.Errorf("active response must update quota without consuming background reservation: reserved=%d remaining=%d", reserved, remaining)
 	}
 	unblock()

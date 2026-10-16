@@ -2921,8 +2921,12 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		}
 		// Explicit graph comment activities own publication. Consuming an input
 		// here acknowledges handling only; it never rewrites the run outcome.
-		if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {
-			return d.leave(ctx, t, log, "could not consume Research graph input", err)
+		// An issue-body trigger (CommentID 0) has no comment to consume;
+		// bootstrap records its handling through CompleteTicketBody.
+		if trigger.CommentID != 0 {
+			if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {
+				return d.leave(ctx, t, log, "could not consume Research graph input", err)
+			}
 		}
 		// After the consume, never before: the presentation must not be the first
 		// thing to advance the watermark. Its failure leaves the consumed input
