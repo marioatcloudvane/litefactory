@@ -87,6 +87,8 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 	owner, err := h.b.Delivery.OwnerID(ctx, opts)
 	if opts.ProjectApprovers && !isValidateCodeControlBody(wait.ReplyBody) {
 		owner, err = ticketOwnerID(ctx, opts)
+	} else if alt, ok := ticketCodeOwnerID(ctx, opts); ok && wait.ReplyAuthorID == alt {
+		owner, err = alt, nil
 	}
 	if err != nil || owner < 1 {
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
@@ -296,6 +298,9 @@ func isValidateShipReply(body string) bool {
 // because the ship's own records and effects have moved it since the command.
 func (h ValidateResolveActivity) continueShip(ctx context.Context, opts Options, req ActivityRequest, st ValidateState, wait store.GraphOwnerWait, now time.Time, refuse func(outcome, why string) (ActivityResult, error)) (ActivityResult, error) {
 	owner, err := h.b.Delivery.OwnerID(ctx, opts)
+	if alt, ok := ticketCodeOwnerID(ctx, opts); ok && wait.ReplyAuthorID == alt {
+		owner, err = alt, nil
+	}
 	if err != nil || owner < 1 {
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
 	}

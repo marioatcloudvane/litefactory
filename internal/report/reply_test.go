@@ -90,6 +90,26 @@ func TestRenderReplyGraphOwnerWaitRefused(t *testing.T) {
 	}
 }
 
+// A refused delivery command is answered through the mode-refusal path, which
+// consumes it, and says nothing was recorded, pushed, merged or closed (#922).
+func TestRenderReplyCodeControlRefused(t *testing.T) {
+	rep := newReporter(t)
+	kind := report.ReplyCodeControlRefused
+	body, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: kind})
+	if err != nil {
+		t.Fatalf("RenderReply: %v", err)
+	}
+	text := body.String()
+	for _, want := range []string{report.ReplyMarker(testRef), "set aside", "nothing was recorded, pushed, merged or closed", "only the task's owner"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("reply lacks %q:\n%s", want, text)
+		}
+	}
+	if kind.String() != "code_control_refused" || !kind.RefusesMode() || kind.RefusesTools() || kind.RefusesAgent() || kind.RefusesSwitch() || kind.RefusesSync() || kind.IsConfirmationReply() {
+		t.Fatalf("kind = %q in the wrong refusal family", kind.String())
+	}
+}
+
 func TestRenderReplyImplementCommentNotApplied(t *testing.T) {
 	rep := newReporter(t)
 	kind := report.ReplyImplementCommentNotApplied
