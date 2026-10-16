@@ -5,7 +5,9 @@ import (
 	"errors"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
@@ -191,6 +193,14 @@ func (b *TicketPlanBridge) CreateIssueEffect(ctx context.Context, key string, re
 	if _, err := b.DB.BindTicketEffect(ctx, key, locator, b.Bot); err != nil {
 		return github.Issue{}, err
 	}
+	// A retained preparation means an earlier attempt may already have created
+	// the issue under its UUID. Linear rejects a repeated create with that ID, so
+	// a retry only reads the retained UUID back and never dispatches again.
+	if _, err := b.DB.GetTicketEffectPreparation(ctx, key); err == nil {
+		return b.recoverIssueEffect(ctx, key, repo, parent, title.String(), body.String())
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return github.Issue{}, err
+	}
 	p, err := b.DB.PrepareTicketEffect(ctx, key, "linear-markdown/v1", title.String()+"\n"+body.String(), true)
 	if err != nil {
 		return github.Issue{}, err
@@ -199,7 +209,7 @@ func (b *TicketPlanBridge) CreateIssueEffect(ctx context.Context, key string, re
 	if err != nil {
 		return github.Issue{}, err
 	}
-	if snapshot.Ref.Identity.RemoteID != p.CreationUUID || snapshot.Title != title.String() || snapshot.Body != body.String() || snapshot.Representation != p.Representation || !snapshot.Author.Identity.Equal(b.Bot) {
+	if snapshot.Ref.Identity.RemoteID != p.CreationUUID || snapshot.Title != title.String() || !linear.ContentEquivalent(body.String(), snapshot.Body) || snapshot.Representation != p.Representation || !snapshot.Author.Identity.Equal(b.Bot) {
 		return github.Issue{}, &ticket.Failure{Kind: ticket.Uncertain, Operation: "creation correlation", Cause: errors.New("created issue UUID, content or publisher differs")}
 	}
 	if err = b.DB.ConfirmTicketEffectRepresentation(ctx, key, snapshot.Title+"\n"+snapshot.ProviderBody); err != nil {
@@ -224,58 +234,64 @@ func (b *TicketWorkflowBridge) RecoverIssueEffect(ctx context.Context, key strin
 	if workflowProvider(bridge.Tickets) == ticket.GitHub {
 		return github.Issue{}, false, nil
 	}
-	prepared, err := bridge.DB.GetTicketEffectPreparation(ctx, key)
+	issue, err := bridge.recoverIssueEffect(ctx, key, repo, parent, title, body)
+	return issue, true, err
+}
+
+// recoverIssueEffect confirms a Linear creation by reading back only the exact
+// retained UUID; it never dispatches a create.
+func (b *TicketPlanBridge) recoverIssueEffect(ctx context.Context, key string, repo github.Repo, parent int, title, body string) (github.Issue, error) {
+	prepared, err := b.DB.GetTicketEffectPreparation(ctx, key)
 	if err != nil {
-		return github.Issue{}, true, err
+		return github.Issue{}, err
 	}
-	bound, err := bridge.DB.GetTicketEffect(ctx, key)
+	bound, err := b.DB.GetTicketEffect(ctx, key)
 	if err != nil {
-		return github.Issue{}, true, err
+		return github.Issue{}, err
 	}
-	if prepared.CreationUUID == "" || prepared.AuthoredContent != title+"\n"+body || prepared.Representation != "linear-markdown/v1" || bound.Actor.Validate() != nil || !bound.Actor.Equal(bridge.Bot) {
-		return github.Issue{}, true, errors.New("retained issue creation content or publisher differs")
+	if prepared.CreationUUID == "" || prepared.AuthoredContent != title+"\n"+body || prepared.Representation != "linear-markdown/v1" || bound.Actor.Validate() != nil || !bound.Actor.Equal(b.Bot) {
+		return github.Issue{}, errors.New("retained issue creation content or publisher differs")
 	}
 	var parentRef *ticket.Ref
 	if parent > 0 {
-		observedParent, readErr := bridge.read(ctx, repo, parent)
+		observedParent, readErr := b.read(ctx, repo, parent)
 		if readErr != nil {
-			return github.Issue{}, true, readErr
+			return github.Issue{}, readErr
 		}
 		if observedParent.Ref.Locator != bound.Locator {
-			return github.Issue{}, true, errors.New("retained issue creation parent destination differs")
+			return github.Issue{}, errors.New("retained issue creation parent destination differs")
 		}
 		parentRef = &observedParent.Ref
 	} else if bound.Locator.Key != "creation:"+key {
-		return github.Issue{}, true, errors.New("retained issue creation destination differs")
+		return github.Issue{}, errors.New("retained issue creation destination differs")
 	}
 	locator := bound.Locator
 	locator.Key = prepared.CreationUUID
-	if locator.Provider != workflowProvider(bridge.Tickets) || locator.Origin != bridge.Tickets.Origin() || locator.Container != repo.String() {
-		return github.Issue{}, true, errors.New("retained issue creation connection differs")
+	if locator.Provider != workflowProvider(b.Tickets) || locator.Origin != b.Tickets.Origin() || locator.Container != repo.String() {
+		return github.Issue{}, errors.New("retained issue creation connection differs")
 	}
-	snapshot, err := bridge.Tickets.Resolve(ctx, locator)
+	snapshot, err := b.Tickets.Resolve(ctx, locator)
 	if err != nil {
-		return github.Issue{}, true, err
+		return github.Issue{}, err
 	}
-	if snapshot.Ref.Locator != locator || snapshot.Ref.Identity.RemoteID != prepared.CreationUUID || snapshot.Title != title || snapshot.Body != body || snapshot.Representation != prepared.Representation || !snapshot.Author.Identity.Equal(bound.Actor) {
-		return github.Issue{}, true, errors.New("exact issue creation correlation did not confirm publication")
+	if snapshot.Ref.Locator != locator || snapshot.Ref.Identity.RemoteID != prepared.CreationUUID || snapshot.Title != title || !linear.ContentEquivalent(body, snapshot.Body) || snapshot.Representation != prepared.Representation || !snapshot.Author.Identity.Equal(bound.Actor) {
+		return github.Issue{}, errors.New("exact issue creation correlation did not confirm publication")
 	}
 	if parentRef != nil {
-		observedParent, parentErr := bridge.Tickets.Parent(ctx, snapshot.Ref)
+		observedParent, parentErr := b.Tickets.Parent(ctx, snapshot.Ref)
 		if parentErr != nil {
-			return github.Issue{}, true, parentErr
+			return github.Issue{}, parentErr
 		}
 		if !observedParent.Ref.Equal(*parentRef) {
-			return github.Issue{}, true, errors.New("created issue direct parent differs")
+			return github.Issue{}, errors.New("created issue direct parent differs")
 		}
 	}
-	if err = bridge.DB.ConfirmTicketEffectRepresentation(ctx, key, snapshot.Title+"\n"+snapshot.ProviderBody); err != nil {
-		return github.Issue{}, true, err
+	if err = b.DB.ConfirmTicketEffectRepresentation(ctx, key, snapshot.Title+"\n"+snapshot.ProviderBody); err != nil {
+		return github.Issue{}, err
 	}
-	snapshot, err = bridge.bind(ctx, snapshot)
+	snapshot, err = b.bind(ctx, snapshot)
 	if err != nil {
-		return github.Issue{}, true, err
+		return github.Issue{}, err
 	}
-	issue, err := compatibilityIssue(ctx, bridge.DB, snapshot)
-	return issue, true, err
+	return compatibilityIssue(ctx, b.DB, snapshot)
 }
