@@ -169,6 +169,7 @@ func TestScaffoldEntities(t *testing.T) {
 		{"Plain prose&#46; Next sentence&#46;", "Plain prose. Next sentence.", true},
 		{"A layout&#45;only change", "A layout-only change", true},
 		{"Text &#40;separate story&#41;", "Text (separate story)", true},
+		{"- Changing the Open and Closed filters or the Ignore action &#40;story&#45;001&#41;", "- Changing the Open and Closed filters or the Ignore action (story-001)", true},
 		{"1&#46; item", "1. item", false},
 		{"1&#41; item", "1) item", false},
 		{"&#45; item", "- item", false},
