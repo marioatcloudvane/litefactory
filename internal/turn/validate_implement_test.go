@@ -318,7 +318,14 @@ func TestParseValidateImplementCommand(t *testing.T) {
 	if err != nil || c.Name != ValidateImplementCommand || c.Revision != "0123456789ab" {
 		t.Fatalf("%+v %v", c, err)
 	}
-	for _, bad := range []string{"/validate-implement", "/validate-implement 0123456789ab story-002", "/validate-implement 0123456789ab -- why"} {
+	if c.Guidance != "" {
+		t.Fatalf("no guidance without ` -- `: %+v", c)
+	}
+	c, err = ParseValidateCommand("/validate-implement 0123456789ab -- keep the tooltips, no legend")
+	if err != nil || c.Name != ValidateImplementCommand || c.Guidance != "keep the tooltips, no legend" {
+		t.Fatalf("guidance: %+v %v", c, err)
+	}
+	for _, bad := range []string{"/validate-implement", "/validate-implement 0123456789ab story-002", "/validate-implement 0123456789ab story-002 -- why", "/validate-implement 0123456789ab -- "} {
 		if _, err := ParseValidateCommand(bad); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
@@ -418,5 +425,54 @@ func TestValidateAdvanceStoryFastForwardsOnly(t *testing.T) {
 	}
 	if moved, err := h.advanceStory(ctx, "lf/story-404", tested.Head); err != nil || moved || remote("lf/story-404") != "" {
 		t.Fatalf("a missing branch is not created: %v %v", moved, err)
+	}
+}
+
+// #942 C5, C6: the owner's guidance after ` -- ` reaches every reopened
+// story's worker, labelled as the owner's, alongside the findings; a replay
+// of the step reopens nothing twice.
+func TestValidateImplementCarriesTheOwnerGuidance(t *testing.T) {
+	f := newImplementBackFixture(t)
+	f.toOwner()
+	const guidance = "keep the tooltips, no legend"
+	f.reply(f.owner, f.command(ValidateImplementCommand, "--", guidance))
+	for range 4 {
+		if inst, _ := f.db.GetGraphInstance(t.Context(), f.instance.ID); inst.CurrentNode == "owner_implement" {
+			break
+		}
+		if res, err := f.step(); err != nil {
+			t.Fatalf("%v (%s)", err, res.Activity.Diagnostic)
+		}
+	}
+	attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: f.instance.ID, Node: "owner_implement", Limit: 4, StartedAt: f.clock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := ActivityRequest{Mode: agent.ModeValidate, Node: "owner_implement", InstanceID: f.instance.ID, NodeAttemptID: attempt.ID}
+	if res, err := (ValidateImplementActivity{f.b}).Execute(t.Context(), f.opts, req); err != nil || res.Outcome != "started" {
+		t.Fatalf("first pass: %+v %v", res, err)
+	}
+	for _, key := range []string{"story-002", "story-003"} {
+		row := f.row(key)
+		if row.State != store.ImplementWaiting || !strings.Contains(row.Guidance, "The owner's guidance for this repair (it overrides the approved design where they conflict):\n"+guidance) || !strings.Contains(row.Guidance, "finding: "+key+":AC-002") {
+			t.Fatalf("%s guidance:\n%s", key, row.Guidance)
+		}
+		if strings.Index(row.Guidance, guidance) > strings.Index(row.Guidance, "- finding:") {
+			t.Fatalf("%s: the owner's guidance comes before the findings:\n%s", key, row.Guidance)
+		}
+	}
+	before := f.rows()
+	second, err := ValidateImplementActivity{f.b}.Execute(t.Context(), f.opts, req)
+	var out validateImplementOutput
+	if err != nil || second.Outcome != "started" || json.Unmarshal(second.Output, &out) != nil || !out.Replayed {
+		t.Fatalf("replay: %+v %v", second, err)
+	}
+	for i, row := range f.rows() {
+		if row.Revision != before[i].Revision || row.Guidance != before[i].Guidance {
+			t.Fatalf("a replay moved %s: %+v", row.Key, row)
+		}
+	}
+	if f.schedules() != 1 || len(f.advanced) != 2 {
+		t.Fatalf("schedules=%d moves=%v", f.schedules(), f.advanced)
 	}
 }

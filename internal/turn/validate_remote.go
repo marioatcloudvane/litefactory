@@ -337,7 +337,16 @@ func (r *validateRemote) openPR(ctx context.Context, e store.ValidateEffect) err
 		if err != nil {
 			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, err.Error())
 		}
-		body, err := r.b.Delivery.Redactor.Apply(ctx, fmt.Sprintf("Validated and confirmed by the owner. Tested commit `%s` of issue %s.\n\n<!-- lf:validate-pr run=%d -->", commit, r.target.Parent.display().Reference(), r.req.InstanceID), 65536)
+		accepted := ""
+		for _, f := range r.st.Findings {
+			if f.acceptedDeviation() {
+				accepted += fmt.Sprintf("- `%s`: %s\n", f.ID, strings.Join(strings.Fields(clipText(f.Verdict.Evidence, 1000)), " "))
+			}
+		}
+		if accepted != "" {
+			accepted = "Accepted deviations (blocking review findings the owner accepted):\n\n" + accepted + "\n"
+		}
+		body, err := r.b.Delivery.Redactor.Apply(ctx, fmt.Sprintf("Validated and confirmed by the owner. Tested commit `%s` of issue %s.\n\n%s<!-- lf:validate-pr run=%d -->", commit, r.target.Parent.display().Reference(), accepted, r.req.InstanceID), 65536)
 		if err != nil {
 			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, err.Error())
 		}

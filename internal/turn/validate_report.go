@@ -276,6 +276,9 @@ func reviewCell(st ValidateState, findings []ValidateFinding, role string) strin
 
 // reviewState is the short state of one open review finding.
 func reviewState(f ValidateFinding) string {
+	if f.acceptedDeviation() {
+		return "owner accepted: " + strings.Join(strings.Fields(clipText(f.Verdict.Evidence, 160)), " ")
+	}
 	switch f.State {
 	case findingAwaitingCheck, findingOwnerPassed, findingOwnerFailed:
 		return f.State
