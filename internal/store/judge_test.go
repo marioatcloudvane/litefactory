@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"strings"
 	"testing"
 )
 
@@ -266,5 +267,45 @@ func TestJudgeInterruptedRecoverySettlesOnlyItsUnfinishedMeter(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+func TestJudgePlainResolveChoosesNewestListedLegacySource(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	session := testSession(t, db, 940)
+	attempt := resultRun(t, db, session, "research", "legacy", 1)
+	binding, err := db.BindResultAttempt(ctx, attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := resultRecord(binding, "legacy-research", 0)
+	record.Snapshot = []byte(`{"result":{"outcome":"completed","payload":{"research":{"findings":[{"id":"f1","text":"saved finding"}]}}}}`)
+	if _, err = db.RecordResult(ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	state := planbrief.PlanState{SharedRevision: "shared", Stories: []planbrief.PlanStoryState{{Key: "s1", Draft: planbrief.PlanDraft{Key: "s1", Name: "Saved Plan", UserStory: planbrief.UserStoryContent{Want: "inspect saved work"}}}}}
+	if _, err = db.SavePlanWorkflowState(ctx, session.TaskRef, 0, state); err != nil {
+		t.Fatal(err)
+	}
+	// Legacy saves predate the commit ledger.
+	if _, err = db.sql.ExecContext(ctx, `DELETE FROM judge_source_commits`); err != nil {
+		t.Fatal(err)
+	}
+	sources, err := db.ListJudgeSources(ctx, session.TaskRef)
+	if err != nil || len(sources) != 2 || sources[0].Kind == sources[1].Kind || sources[1].Sequence != 0 {
+		t.Fatalf("legacy fixture %+v %v", sources, err)
+	}
+	first := strings.Fields(judgeSourceChoices(sources))[3]
+	got, err := db.ResolveJudgeSource(ctx, session.TaskRef, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Reference != first || !got.NewestLegacy {
+		t.Fatalf("plain resolve=%+v, want newest listed %s", got, first)
+	}
+	explicit, err := db.ResolveJudgeSource(ctx, session.TaskRef, sources[0].Reference)
+	if err != nil || explicit.Reference != sources[0].Reference || explicit.NewestLegacy {
+		t.Fatalf("explicit legacy target %+v %v", explicit, err)
 	}
 }

@@ -59,7 +59,12 @@ func ParseJudgeOptions(text string) (JudgeCommandOptions, error) {
 		words = append(words, word.String())
 	}
 	seen := map[string]bool{}
+	var free []string
 	for i := 0; i < len(words); i++ {
+		if !strings.HasPrefix(words[i], "--") {
+			free = append(free, words[i])
+			continue
+		}
 		name, value, equal := strings.Cut(words[i], "=")
 		switch name {
 		case "--target", "--agent", "--model", "--thinking", "--focus":
@@ -92,6 +97,12 @@ func ParseJudgeOptions(text string) (JudgeCommandOptions, error) {
 		case "--focus":
 			out.Focus = value
 		}
+	}
+	if len(free) > 0 {
+		if seen["--focus"] {
+			return out, errors.New("duplicate judge focus: give free text or --focus, not both")
+		}
+		out.Focus = strings.Join(free, " ")
 	}
 	if out.Agent != "" && out.Agent != "claude" && out.Agent != "codex" && out.Agent != "other" {
 		return out, errors.New("judge agent must be claude, codex or other")
