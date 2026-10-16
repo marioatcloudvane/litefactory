@@ -222,8 +222,13 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 	if b.tokens < float64(cost) {
 		return deny()
 	}
-	b.tokens -= float64(cost)
-	b.reserved += cost
+	// Hold only what admission checked. Pages a list actually fetches lower
+	// remaining as each response lands and are charged at finish; holding the
+	// list's whole worst case kept every other read deferred while one short
+	// comment read was in flight (#920). The lists gate still serializes lists.
+	hold := admissionCost(cost)
+	b.tokens -= float64(hold)
+	b.reserved += hold
 	if probe {
 		b.probeAt = b.now
 	}
@@ -233,7 +238,7 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 			break
 		}
 	}
-	return &discoveryReservation{budget: b, bound: cost, reset: b.reset, probe: probe}, nil
+	return &discoveryReservation{budget: b, bound: hold, reset: b.reset, probe: probe}, nil
 }
 
 // A fallback pass reserves the complete operation, including prerequisites and
@@ -482,6 +487,7 @@ func (b *discoveryBudget) view() discoveryView {
 // Why discovery is deferred, in the words the log uses.
 const (
 	pauseReasonStale   = "stale rate-limit data"
+	pauseReasonHeld    = "allowance held by in-progress requests"
 	pauseReasonSpent   = "spent allowance until reset"
 	pauseReasonBackoff = "rate-limit backoff"
 )
@@ -489,10 +495,14 @@ const (
 // deferral says why background discovery is being held back and when that is
 // expected to end; a zero time means "when fresh rate-limit data arrives".
 // A spent allowance is reported before staleness because a probe is refused
-// until the reset in that state too.
+// until the reset in that state too. Fresh data with allowance left means
+// requests in flight hold what admission needs, never staleness (#920).
 func (v discoveryView) deferral() (reason string, resumeAt time.Time) {
 	if v.Limit > 0 && v.now.Before(v.Reset) && (v.Remaining <= v.Reserve || v.Spent >= v.Share) {
 		return pauseReasonSpent, v.Reset
+	}
+	if v.Fresh {
+		return pauseReasonHeld, time.Time{}
 	}
 	return pauseReasonStale, time.Time{}
 }
@@ -520,8 +530,8 @@ func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, 
 		return zero, err
 	}
 	if cost == discoveryListBound || cost == linearHistoryBound {
-		// A list reserves the entire supported history before its first page.
-		// Serialize these reservations until unused pages are returned, rather
+		// A list may spend its entire supported history beyond its admission
+		// hold. Serialize these reads until their pages are charged, rather
 		// than deferring another worker solely because a short fetch is in
 		// flight. This waits only for existing HTTP work, never for a quota
 		// refill; execution and reporting do not enter this discovery gate.

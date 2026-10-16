@@ -23,12 +23,15 @@ type storyRelationForge interface {
 
 // managedParents joins the registry into the ordinary fair parent dispatch.
 // This does not depend on GitHub updating the parent's timestamp when a child
-// changes. Closed children are inspected by the same parent worker.
+// changes. Closed children are inspected by the same parent worker. A Linear
+// parent is re-added only on its repository's listing ticks (#920); new input
+// still reaches it through webhooks, observations, listings and the backlog.
 func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
 	features, err := d.db.ListManagedFeatures(ctx)
 	if err != nil {
 		return err
 	}
+	linearRepo := map[int64]bool{}
 	for _, f := range features {
 		s, err := d.db.GetSessionByTaskRef(ctx, f.ParentTask)
 		if err != nil {
@@ -40,6 +43,11 @@ func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue
 		}
 		if existing := seen[s.ID]; existing != nil {
 			existing.addSource("managed_registry")
+			continue
+		}
+		if skip, err := d.linearOffListing(ctx, q, s.RepoID, linearRepo); err != nil {
+			return err
+		} else if skip {
 			continue
 		}
 		ref, err := naming.ParseRef(s.TaskRef)
