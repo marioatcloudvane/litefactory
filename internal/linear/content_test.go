@@ -170,26 +170,26 @@ func TestScaffoldEntities(t *testing.T) {
 		{"A layout&#45;only change", "A layout-only change", true},
 		{"Text &#40;separate story&#41;", "Text (separate story)", true},
 		{"- Changing the Open and Closed filters or the Ignore action &#40;story&#45;001&#41;", "- Changing the Open and Closed filters or the Ignore action (story-001)", true},
-		{"1&#46; item", "1. item", false},
-		{"1&#41; item", "1) item", false},
-		{"&#45; item", "- item", false},
-		{"&#45;&#45;&#45;", "---", false},
-		{"Text [link]&#40;url&#41;", "Text [link](url)", false},
-		{"Text ![image]&#40;url&#41;", "Text ![image](url)", false},
+		{"1&#46; item", "1. item", true},
+		{"1&#41; item", "1) item", true},
+		{"&#45; item", "- item", true},
+		{"&#45;&#45;&#45;", "---", true},
+		{"Text [link]&#40;url&#41;", "Text [link](url)", true},
+		{"Text ![image]&#40;url&#41;", "Text ![image](url)", true},
 		{"<https://example&#46;com>", "<https://example.com>", false},
-		{"Text www&#46;example.com", "Text www.example.com", false},
+		{"Text www&#46;example.com", "Text www.example.com", true},
 		{"`Text&#46;`", "`Text.`", false},
 		{"```\nText&#46;\n```", "```\nText.\n```", false},
 		{"    Text&#46;", "    Text.", false},
-		{`Text\&#46;`, `Text\.`, false},
+		{`Text\&#46;`, `Text\.`, true},
 		{"Text&#46;", `Text\.`, false},
 		{"Text&amp;#46;", "Text&#46;", false},
-		{"Text&period;", "Text.", false},
-		{"Text&#x2e;", "Text.", false},
+		{"Text&period;", "Text.", true},
+		{"Text&#x2e;", "Text.", true},
 		{"Text&unknown;", "Text.", false},
 		{"Text&#46;", "Text!", false},
-		{"Text **bold&#46;**", "Text **bold.**", false},
-		{"Text\n\n&#45; item", "Text\n\n- item", false},
+		{"Text **bold&#46;**", "Text **bold.**", true},
+		{"Text\n\n&#45; item", "Text\n\n- item", true},
 	} {
 		t.Run(tt.a, func(t *testing.T) {
 			a, b := wrap(tt.a), wrap(tt.b)
@@ -200,6 +200,42 @@ func TestScaffoldEntities(t *testing.T) {
 	}
 	if ContentEquivalent("Plain&#46;", "Plain.") {
 		t.Fatal("decoded outside scaffold")
+	}
+	story := func(body string) string {
+		return "<!-- lf:plan-story parent=1 key=story-001 -->\n<!-- lf:plan-request digest=" + strings.Repeat("a", 64) + " -->\n# Task\n\n" + body + "\n"
+	}
+	mar24 := "- [ ] AC-003: &#40;Manual&#41; The server lets POST /matches/no&#45;invoice&#45;expected with expected=false turn only a no&#95;invoice&#95;expected line into missing&#95;invoice; …"
+	mar24Observed := "- [ ] AC-003: (Manual) The server lets POST /matches/no-invoice-expected with expected=false turn only a no_invoice_expected line into missing_invoice; …"
+	if !ContentEquivalent(story(mar24), story(mar24Observed)) || !ContentEquivalent(story(mar24Observed), story(mar24)) {
+		t.Fatal("MAR-24 checklist line differs")
+	}
+	references := []struct{ encoded, decoded string }{
+		{"no&#95;invoice &#40;x&#41; &#42;", "no_invoice (x) *"},
+		{"no&#x5f;invoice &#x28;x&#x29; &#x2A;", "no_invoice (x) *"},
+		{"a &amp; b &quot;d&quot; &#39;e&#39;", `a & b "d" 'e'`},
+		// A raw "<" outside a table falls back to byte comparison (a separate,
+		// excluded issue), so &lt; and &gt; are shown equal to their numeric form.
+		{"&lt;c&gt;", "&#60;c&#x3E;"},
+	}
+	shapes := []struct {
+		name string
+		line func(string) string
+	}{
+		{"prose", func(s string) string { return "Text " + s }},
+		{"list", func(s string) string { return "- Item " + s }},
+		{"checklist", func(s string) string { return "- [ ] AC-001: " + s }},
+		{"table", func(s string) string { return "| ID | Text |\n|---|---|\n| C-1 | " + s + " |" }},
+	}
+	for _, shape := range shapes {
+		for _, ref := range references {
+			a, b := story(shape.line(ref.encoded)), story(shape.line(ref.decoded))
+			if !ContentEquivalent(a, b) || !ContentEquivalent(b, a) {
+				t.Fatalf("%s %q not equivalent to %q", shape.name, ref.encoded, ref.decoded)
+			}
+		}
+	}
+	if a, b := story(shapes[3].line("&lt;c&gt;")), story(shapes[3].line("<c>")); !ContentEquivalent(a, b) || !ContentEquivalent(b, a) {
+		t.Fatal("table &lt; &gt; not decoded")
 	}
 	if ContentEquivalent(expected, strings.Replace(expected, `"frontend":true`, `"frontend":false`, 1)) {
 		t.Fatal("metadata edit accepted")
