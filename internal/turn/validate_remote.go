@@ -53,6 +53,10 @@ func (r *validateRemote) settle(ctx context.Context, e store.ValidateEffect, sta
 	if err != nil {
 		return err
 	}
+	if (state == store.EffectFailed || state == store.EffectUncertain) && r.opts.Logger != nil {
+		r.opts.Logger.Warn("validate effect did not succeed",
+			"instance", r.req.InstanceID, "effect", e.Kind, "commit", r.st.Commit, "state", state, "reason", reason)
+	}
 	return r.opts.DB.SettleValidateEffect(ctx, e.ID, state, raw, reason, r.b.now(r.opts))
 }
 
@@ -280,6 +284,15 @@ func (r *validateRemote) push(ctx context.Context, e store.ValidateEffect) error
 	}
 	if remote == commit {
 		return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Head: commit}, "")
+	}
+	// A pull request from the branch merged at the tested commit already
+	// delivered it (the merge may have deleted the remote branch): nothing to push.
+	if prs, err := r.b.Delivery.code().ListDeliveryPRs(ctx, r.target.Repo, r.target.Branch); err == nil {
+		for _, p := range prs {
+			if p.Merged && p.Number > 0 && p.Branch == r.target.Branch && p.Target == r.target.Base && p.Head == commit {
+				return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Head: commit}, "")
+			}
+		}
 	}
 	pushErr := r.b.Delivery.Publish(ctx, commit, remote)
 	after, readErr := r.b.Delivery.code().GetDeliveryHead(ctx, r.target.Repo, r.target.Branch)
