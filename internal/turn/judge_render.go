@@ -26,6 +26,9 @@ func JudgeText(p JudgePresentation) string {
 		fmt.Fprintf(&b, "Observed model: %s; provider version: %s\n", judgeOneLine(p.ObservedModel), judgeOneLine(p.ProviderVersion))
 	} else {
 		b.WriteString("Observed model: unavailable; the model above is the configured native request.\n")
+		if p.ProviderVersion != "" {
+			fmt.Fprintf(&b, "Provider version: %s\n", judgeOneLine(p.ProviderVersion))
+		}
 	}
 	if p.FallbackReason != "" {
 		fmt.Fprintf(&b, "Availability fallback: %s\n", judgeOneLine(p.FallbackReason))
