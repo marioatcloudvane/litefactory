@@ -680,6 +680,22 @@ func TestReadbackDifferenceDiagnostic(t *testing.T) {
 			t.Fatal("wrong title difference")
 		}
 	}
+	output.Reset()
+	prefix := strings.Repeat("y", 300)
+	c.logContentDifference(t.Context(), ref, "Title", "same\n"+prefix+"EXPECTED-TAIL sensitive-token", ticket.Snapshot{Title: "Title", Body: "same\n" + prefix + "OBSERVED-TAIL sensitive-token"})
+	var got struct {
+		Expected, Observed string
+		Line, Column       int
+	}
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "sensitive-token") || len(got.Expected) > 256 || len(got.Observed) > 256 {
+		t.Fatalf("unsafe diagnostic: %s", output.String())
+	}
+	if got.Line != 2 || got.Column != len(prefix)+1 || !strings.Contains(got.Expected, "EXPECTED-TAIL") || !strings.Contains(got.Observed, "OBSERVED-TAIL") {
+		t.Fatalf("difference window missing: %s", output.String())
+	}
 }
 
 func TestMetadataFooterProviderReadWriteRecovery(t *testing.T) {
