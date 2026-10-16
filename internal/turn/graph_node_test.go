@@ -354,7 +354,7 @@ func TestResearchBudgetFailureBoundary(t *testing.T) {
 		{Name: "report", Action: ResearchCommentAction},
 		{Name: "investigate", Action: ResearchAgentAction, Attrs: map[string]string{"lf_agent_markdown": "research.md"}},
 	} {
-		for _, variant := range []string{"failed", "failed then topology", "topology only"} {
+		for _, variant := range []string{"failed", "failed then topology", "topology only", "succeeded"} {
 			t.Run(node.Name+"/"+variant, func(t *testing.T) {
 				ctx := t.Context()
 				f := newFixture(t, nil)
@@ -369,8 +369,11 @@ func TestResearchBudgetFailureBoundary(t *testing.T) {
 				spent, err := f.db.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{InstanceID: first.Instance.ID, Node: node.Name, Limit: 1, StartedAt: at})
 				mustProgress(t, err)
 				status := store.GraphFailed
-				if variant == "topology only" {
+				switch variant {
+				case "topology only":
 					status = store.GraphRunning
+				case "succeeded":
+					status = store.GraphSucceeded
 				}
 				mustProgress(t, f.db.CompleteGraphNodeAttempt(ctx, spent.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: at, InstanceStatus: status}))
 				before, err := f.db.ListGraphNodeAttempts(ctx, first.Instance.ID)
