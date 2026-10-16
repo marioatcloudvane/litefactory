@@ -218,6 +218,20 @@ func TestJudgeOwnerBareCommandDurableAdvisory(t *testing.T) {
 	if current.Stories[0].Candidate != "saved-candidate" {
 		t.Fatal("judging changed saved Plan")
 	}
+	// A refused setting shows the accepted form.
+	f.forge.addComment(testIssue, 883, owner(), "/judge --unknown x")
+	f.clock.advance(time.Minute)
+	f.settle()
+	bodies, _, _ = f.forge.snapshot()
+	usage := false
+	for _, body := range bodies {
+		if strings.Contains(body, "unknown judge setting") && strings.Contains(body, "Usage: /judge") {
+			usage = true
+		}
+	}
+	if !usage || runner.calls.Load() != 1 {
+		t.Fatalf("parse refusal without usage line (calls=%d): %v", runner.calls.Load(), bodies)
+	}
 }
 
 func TestJudgeNonOwnerDoesNotLaunchAdvisory(t *testing.T) {

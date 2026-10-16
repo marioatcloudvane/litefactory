@@ -150,6 +150,23 @@ Doctor only reads and explains. Comments from anyone but the owner are ignored.
 `/doctor` with nothing after it, or extra words after `stop` or `apply`, gets a
 usage reminder. See [doctor](../operations/doctor.md).
 
+## Judge
+
+| Syntax | What it causes |
+| --- | --- |
+| `/judge` | Challenges the latest eligible saved research result or Plan on this ticket. |
+| `/judge <focus text>` | Same, with the free text as the focus. It is the same as `--focus "<focus text>"`. |
+| `--target <saved-reference>` | Judges that exact saved source. An invalid reference is explained and never replaced. |
+| `--agent claude\|codex\|other` | Chooses the judging provider. `other` picks the opposite of the source's provider. |
+| `--model <model>` | Chooses the model. |
+| `--thinking <level>` | Chooses the provider thinking level. |
+| `--focus <text>` | Names what to check. Giving both free text and `--focus` is refused. |
+
+When older saves have no verified order, a plain `/judge` picks the newest listed
+save and the report says so; use `--target` to pick another. Unknown or duplicate
+options get a refusal with a usage line. The judge only advises and changes no
+saved work. See [Challenge saved work](judge.md).
+
 ## Labels the factory reads
 
 | Label | Meaning |

@@ -31,7 +31,7 @@ func (d *Daemon) handleJudge(ctx context.Context, t *task, c github.Comment, qua
 	var text string
 	switch {
 	case parseErr != nil:
-		text = "Unable to assess saved work: " + parseErr.Error()
+		text = "Unable to assess saved work: " + parseErr.Error() + "\nUsage: /judge [focus text] [--target <saved-reference>] [--agent claude|codex|other] [--model <model>] [--thinking <level>]"
 	case d.judge == nil:
 		text = "Unable to assess saved work: the judge service is unavailable."
 	case !qualified:
