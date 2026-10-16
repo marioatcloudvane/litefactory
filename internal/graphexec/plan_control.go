@@ -66,6 +66,11 @@ var planFailureOutcomes = []string{"failed", "conflict", "uncertain"}
 // Effect outcomes differ from Research document generation; no Research policy
 // or evidence gate is changed to accommodate Plan.
 func ValidatePlanControlGraph(p *Profile) error {
+	var syncErr error
+	p, syncErr = withoutExplicitSync(p)
+	if syncErr != nil {
+		return syncErr
+	}
 	if p == nil || p.Mode != agent.ModePlan {
 		return errors.New("invalid Plan graph entry")
 	}

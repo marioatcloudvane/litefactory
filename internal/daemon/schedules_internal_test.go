@@ -399,3 +399,179 @@ func TestScheduledLinearRejectsChangedRemoteIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestLinearDoctorRefusalRetainsIdentityAndRecovers(t *testing.T) {
+	for _, lost := range []bool{false, true} {
+		t.Run(fmt.Sprintf("lost_reply=%t", lost), func(t *testing.T) {
+			f, remote, v, sub, q := linearObservationFixture(t)
+			ctx, db := t.Context(), f.d.db
+			handoffLinearObservation(t, f, v, sub)
+			seen := map[int64]*candidate{}
+			linearWorkflowCheck(t, f.d.drainTicketObservations(ctx, map[int64]*repoQueue{v.RepoID: q}, seen))
+			for _, c := range seen {
+				if c.discoveryReservation != nil {
+					c.discoveryReservation.finish()
+				}
+			}
+			session, err := db.GetSessionByTicket(ctx, ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: "parent-uuid"})
+			linearWorkflowCheck(t, err)
+			snapshot, err := db.GetExecutionSnapshot(ctx, session.ID)
+			linearWorkflowCheck(t, err)
+			binding, err := db.GetSessionTicket(ctx, session.ID)
+			linearWorkflowCheck(t, err)
+			clients, err := f.d.connections.Clients(ctx, v, snapshot.ActorID)
+			linearWorkflowCheck(t, err)
+			bridge, err := turn.NewTicketWorkflow(ctx, db, clients.Linear, snapshot.ActorID)
+			linearWorkflowCheck(t, err)
+			renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: github.CommentSizeLimit, Logger: f.d.log})
+			linearWorkflowCheck(t, err)
+			reporter, err := turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: f.d.log, BotUserID: snapshot.ActorID})
+			linearWorkflowCheck(t, err)
+			f.d.reporter = reporter
+			ref, err := naming.ParseRef(session.TaskRef)
+			linearWorkflowCheck(t, err)
+			issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
+			linearWorkflowCheck(t, err)
+			task := &task{repo: q.repo, session: session, ref: ref, forgeRepo: github.RepoFromRef(ref), issue: issue, log: f.d.log, tickAt: f.now}
+			// Advance the current connection twice; the session must keep its admitted version.
+			v, err = db.DisableConnection(ctx, v.RepoID, store.TicketConnection, v.Revision)
+			linearWorkflowCheck(t, err)
+			v.Enabled = true
+			v, err = db.SetConnection(ctx, v, v.Revision)
+			linearWorkflowCheck(t, err)
+			if v.ID == snapshot.TicketVersionID {
+				t.Fatal("fixture did not advance the current connection")
+			}
+			scope := planbrief.ReleaseScope([]string{"implementation-engineer"}, []string{"agent-setup"})
+			state := approvedPlanState(t, "go-implementation-engineer", true)
+			if lost {
+				_, err = state.OpenAssembledReview(scope)
+				linearWorkflowCheck(t, err)
+			}
+			_, err = db.SavePlanWorkflowState(ctx, session.TaskRef, 0, state)
+			linearWorkflowCheck(t, err)
+			_, _, err = db.BootstrapTicketWatermark(ctx, session.ID, 0)
+			linearWorkflowCheck(t, err)
+			remote.addReply("self-doctor", "/doctor diagnose", "publisher-uuid")
+			remote.addReply("foreign-doctor", "/doctor apply", "stranger-uuid")
+			remote.addReply("owner-doctor", "/doctor diagnose", "human-uuid")
+			remote.mu.Lock()
+			remote.loseReply = lost
+			remote.mu.Unlock()
+			ctx = context.WithValue(sessionContext(ctx, session.ID), recoveryTickKey{}, f.now)
+			comments, err := f.d.readComments(ctx, task.forgeRepo, issue.Number, 0)
+			linearWorkflowCheck(t, err)
+			var owner github.Comment
+			for _, c := range comments {
+				if c.Author.Login == "human-uuid" {
+					owner = c
+				}
+			}
+			if owner.ID == 0 {
+				t.Fatal("owner source missing")
+			}
+			_, err = f.d.drain(ctx, task, 0)
+			if lost {
+				if err == nil {
+					t.Fatal("lost response reported success")
+				}
+				consumed, e := f.d.consumed(ctx, session.ID, owner.ID)
+				linearWorkflowCheck(t, e)
+				if consumed {
+					t.Fatal("uncertain response consumed source")
+				}
+				// A new reporter reconciles the retained delivery without posting again.
+				reporter, err = turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: f.d.log, BotUserID: snapshot.ActorID})
+				linearWorkflowCheck(t, err)
+				_, pending, e := reporter.ReportPending(ctx, session.ID, owner.ID)
+				linearWorkflowCheck(t, e)
+				if !pending {
+					t.Fatal("missing retained delivery")
+				}
+				f.d.reporter = reporter
+			} else {
+				linearWorkflowCheck(t, err)
+			}
+			ctx = context.WithValue(ctx, recoveryTickKey{}, f.now.Add(24*time.Hour))
+			linearWorkflowCheck(t, f.d.handleComment(ctx, task, owner))
+			consumed, err := f.d.consumed(ctx, session.ID, owner.ID)
+			linearWorkflowCheck(t, err)
+			if !consumed {
+				t.Fatal("confirmed refusal left owner source pending")
+			}
+			afterSnapshot, err := db.GetExecutionSnapshot(ctx, session.ID)
+			linearWorkflowCheck(t, err)
+			afterBinding, err := db.GetSessionTicket(ctx, session.ID)
+			linearWorkflowCheck(t, err)
+			if !reflect.DeepEqual(snapshot, afterSnapshot) || !reflect.DeepEqual(binding, afterBinding) {
+				t.Fatal("Doctor refusal changed retained identity or snapshot")
+			}
+			retained, revision, err := db.GetPlanWorkflowState(ctx, session.TaskRef)
+			linearWorkflowCheck(t, err)
+			if !reflect.DeepEqual(state, retained) || revision != 1 {
+				t.Fatal("Doctor command changed the retained Plan review or approvals")
+			}
+			_, due := parentWorkIDWithScope(retained, scope)
+			if due == lost {
+				t.Fatal("new assembly blocked or retained assembled review offered twice")
+			}
+			if !lost {
+				_, err = retained.OpenAssembledReview(scope)
+				linearWorkflowCheck(t, err)
+			}
+			if retained.AssembledApproval != "" || retained.PlanReady(scope) {
+				t.Fatal("Doctor command approved Plan")
+			}
+			if err = retained.ApproveAssembled(owner.Author.ID, owner.Author.ID, owner.ID+1, "/approve-plan-set stale", scope); !errors.Is(err, planbrief.ErrPlanAssembledStale) {
+				t.Fatalf("stale Plan approval accepted: %v", err)
+			}
+			_, err = db.SavePlanWorkflowState(ctx, session.TaskRef, revision, retained)
+			linearWorkflowCheck(t, err)
+			_, err = db.AdmitPlanWorkflowPath(ctx, session.ID, "graph")
+			linearWorkflowCheck(t, err)
+			linearWorkflowCheck(t, bridge.AddIssueLabel(ctx, task.forgeRepo, issue.Number, "Mode: Plan"))
+			task.issue, err = bridge.GetIssue(ctx, task.forgeRepo, issue.Number)
+			linearWorkflowCheck(t, err)
+			f.d.defaultAgent = agent.Kind(store.AgentClaude)
+			f.d.classifiers = map[agent.Kind]agent.Classifier{f.d.defaultAgent: explicitWorkflowClassifier{t}}
+			f.d.toolProfiles = config.DefaultToolProfiles().Permissions
+			calls := 0
+			f.d.turn = scheduledExecutor(func(_ context.Context, req turn.Request) (turn.Result, error) {
+				calls++
+				if req.Mode != agent.ModePlan || req.Trigger.AuthorID != owner.Author.ID || req.SessionID != session.ID {
+					t.Fatalf("wrong subsequent Plan authority: %+v", req.Trigger)
+				}
+				linearWorkflowCheck(t, retained.ApproveAssembled(owner.Author.ID, req.Trigger.AuthorID, req.Trigger.CommentID, req.Trigger.Body, scope))
+				return turn.Result{Disposition: turn.DispositionLocked}, nil
+			})
+			remote.addReply("plan-approval", "/approve-plan-set "+retained.AssembledWait, "human-uuid")
+			comments, err = f.d.readComments(ctx, task.forgeRepo, issue.Number, owner.ID)
+			linearWorkflowCheck(t, err)
+			for _, c := range comments {
+				if strings.HasPrefix(c.Body, "/approve-plan-set ") {
+					linearWorkflowCheck(t, f.d.handleComment(ctx, task, c))
+				}
+			}
+			if calls != 1 || retained.AssembledApproval == "" {
+				t.Fatalf("subsequent exact Plan approval did not reach the Plan executor: calls=%d logs=%s", calls, f.logs.String())
+			}
+			remote.mu.Lock()
+			defer remote.mu.Unlock()
+			if remote.posts != 1 {
+				t.Fatalf("posts=%d, want one authenticated refusal", remote.posts)
+			}
+			found := false
+			for _, c := range remote.comments {
+				if strings.Contains(linearPlanCommentBody(t, c), "Doctor is currently supported only on GitHub") {
+					found = true
+					if linearWorkflowObject(t, c["issue"])["id"] != "parent-uuid" {
+						t.Fatal("refusal sent to wrong ticket")
+					}
+				}
+			}
+			if !found {
+				t.Fatal("missing unsupported Doctor response")
+			}
+		})
+	}
+}

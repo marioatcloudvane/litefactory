@@ -424,10 +424,62 @@ func TestLinearRequestQuotaFreshnessAndCharging(t *testing.T) {
 	}
 	valid.Remaining = 100
 	b.observeLinear(valid)
-	b.tick(now.Add(4 * time.Minute))
+	b.tick(now.Add(3 * time.Minute))
 	if _, err := b.acquire("probe", 1, true); !errors.Is(err, ErrDiscoveryDeferred) {
-		t.Fatal("depleted window allowed probe")
+		t.Fatal("depleted window allowed probe while fresh")
 	}
+	// Linear refills continuously: stale depleted data permits the probe (#912).
+	b.tick(now.Add(4 * time.Minute))
+	if r, err := b.acquire("probe", 1, true); err != nil {
+		t.Fatalf("stale depleted Linear window refused probe: %v", err)
+	} else {
+		r.finish()
+	}
+}
+
+// A spent Linear window must not silence Linear until the recorded reset: once
+// its data is stale, one probe a minute may learn that capacity returned (#912).
+func TestDiscoveryBudget_LinearSpentWindowProbes(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 16, 2, 22, 0, 0, time.UTC)
+	b := &discoveryBudget{}
+	b.tick(now)
+	spent := linear.RequestObservation{StatusCode: 200, RequestRateValid: true, Limit: 5000, Remaining: 5000 / discoveryReserveDivisor, Reset: now.Add(time.Hour)}
+	b.observeLinear(spent)
+	if reason, _ := b.view().deferral(); reason != pauseReasonSpent {
+		t.Fatalf("deferral = %q, want %q", reason, pauseReasonSpent)
+	}
+	budgetDenied(t, b, "history", 1, false)
+	// Fresh depleted data still refuses the probe.
+	budgetDenied(t, b, "probe", 1, true)
+	// C1: stale data admits one cost-1 probe, at most one per minute.
+	b.tick(now.Add(2*time.Minute + time.Second))
+	budgetDenied(t, b, "probe", 2, true)
+	r := budgetAcquire(t, b, "probe", 1, true)
+	b.tick(now.Add(2*time.Minute + 59*time.Second))
+	budgetDenied(t, b, "probe", 1, true)
+	// C2: the probe's fresh response shows restored capacity and a later reset.
+	restored := linear.RequestObservation{StatusCode: 200, RequestRateValid: true, Limit: 5000, Remaining: 4000, Reset: now.Add(time.Hour + 3*time.Minute)}
+	b.observeLinear(restored)
+	r.observeLinear(restored)
+	r.finish()
+	budgetAcquire(t, b, "history", 1, false).finish()
+	if reason, _ := b.view().deferral(); reason == pauseReasonSpent {
+		t.Fatalf("view still reports %q: %+v", reason, b.view())
+	}
+}
+
+// C3: GitHub keeps its fixed window; a spent stale window permits no probe
+// before reset.
+func TestDiscoveryBudget_GitHubSpentWindowNoProbe(t *testing.T) {
+	t.Parallel()
+	b, now := budgetFixture(5000, 5000/discoveryReserveDivisor)
+	for _, d := range []time.Duration{2 * time.Minute, 10 * time.Minute, 59 * time.Minute} {
+		b.tick(now.Add(d))
+		budgetDenied(t, b, "probe", 1, true)
+	}
+	b.tick(now.Add(time.Hour))
+	budgetAcquire(t, b, "probe", 1, true).finish()
 }
 
 func TestLinearFallbackReservationLifetime(t *testing.T) {

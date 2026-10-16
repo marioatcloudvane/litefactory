@@ -88,13 +88,21 @@ type GraphTransition struct {
 	At                          time.Time
 }
 
+// BugSyncPrerequisite is supplied only by the factory after validating the pinned
+// Bug graph. It names the single declared sync gate and its fixer destination.
+type BugSyncPrerequisite struct {
+	SyncNode, FixerNode string
+}
+
 // GraphAttemptStart reserves the next attempt. Limit zero is unbounded; a
 // positive limit caps total dispatches of this node across the entire instance.
 type GraphAttemptStart struct {
+	BugSyncPrerequisite *BugSyncPrerequisite
 	// ResearchPriorNodes maps captured ancestor stages to this shipped stage.
 	ResearchPriorNodes map[int64]string
 	// OwnerAllowanceSource binds a successfully allocated mechanical owner
-	// continuation to one immediately declared substantive invocation.
+	// continuation to one declared substantive invocation, through its trusted
+	// sync prerequisite when present.
 	OwnerAllowanceSource int64
 	InstanceID           int64
 	LaunchID             int64

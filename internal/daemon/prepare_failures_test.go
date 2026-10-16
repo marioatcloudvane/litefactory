@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -8,6 +9,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 	"io"
 	"log/slog"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -28,7 +31,7 @@ func TestPrepareFailuresEscalateOnceAndOnChange(t *testing.T) {
 	}
 
 	state, announce := p.record(7, "origin unreachable", time.Time{}, DefaultInterval)
-	if !announce || !state.Escalated || state.Attempts != prepareEscalationAttempts {
+	if announce || !state.Escalated || state.Attempts != prepareEscalationAttempts {
 		t.Fatalf("threshold did not escalate: %+v announce=%v", state, announce)
 	}
 
@@ -114,5 +117,73 @@ func TestReportRecoveryPreservesTicketQuotaHold(t *testing.T) {
 	}
 	if d.prepFailures.held(7, at) {
 		t.Fatal("report debt also counted as preparation failure")
+	}
+}
+
+func TestPreparationDiagnosticsOncePerReasonAndAttempt(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "failures.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	check := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	check(db.Migrate(t.Context()))
+	repo, err := db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "o", Name: "r", RemoteURL: "git@github.com:o/r.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	check(err)
+	session, err := db.GetOrCreateSession(t.Context(), repo, 1)
+	check(err)
+	check(db.SetSessionNeedsPoll(t.Context(), session.ID))
+	watermark, _, err := db.BootstrapWatermark(t.Context(), session.ID, 100)
+	check(err)
+	d := &Daemon{db: db, log: logger, interval: DefaultInterval}
+	at := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	delay := DefaultInterval
+	for attempt := 1; attempt <= 10; attempt++ {
+		work := &task{session: store.Session{ID: session.ID, NeedsPoll: true}, log: logger, tickAt: at}
+		err := errors.New("missing retained publisher")
+		if e := d.leave(t.Context(), work, logger, "prepare", err); e != nil {
+			t.Fatal(e)
+		}
+		d.stopped(t.Context(), work, "prepare", err)
+		state := d.prepFailures.items[session.ID]
+		if state.Attempts != attempt || !state.NextAt.Equal(at.Add(delay)) || !work.session.NeedsPoll {
+			t.Fatalf("attempt %d: %+v", attempt, state)
+		}
+		if !d.prepFailures.held(session.ID, state.NextAt.Add(-time.Nanosecond)) || d.prepFailures.held(session.ID, state.NextAt) || d.prepFailures.held(session.ID+1, at) {
+			t.Fatal("admission hold changed")
+		}
+		saved, err := db.GetSession(t.Context(), session.ID)
+		check(err)
+		mark, _, err := db.GetWatermark(t.Context(), session.ID)
+		check(err)
+		if !saved.NeedsPoll || mark != watermark {
+			t.Fatal("failure consumed the trigger or cleared backlog")
+		}
+		at = state.NextAt
+		delay = min(delay*2, MaxBackoff)
+	}
+	if got := strings.Count(output.String(), "queue stops here"); got != 1 {
+		t.Fatalf("detailed errors=%d: %s", got, output.String())
+	}
+	if strings.Contains(output.String(), "a later tick comes back") || strings.Count(output.String(), "failed every turn") != 1 {
+		t.Fatalf("duplicate stopped/escalation: %s", output.String())
+	}
+	changed := &task{session: store.Session{ID: session.ID}, log: logger, tickAt: at}
+	d.stopped(t.Context(), changed, "prepare", errors.New("different cause"))
+	if strings.Count(output.String(), "a later tick comes back") != 1 || strings.Count(output.String(), "failed every turn") != 1 {
+		t.Fatalf("changed reason not reported once: %s", output.String())
+	}
+	d.prepFailures.clear(session.ID)
+	fresh := &task{session: store.Session{ID: session.ID}, log: logger, tickAt: at}
+	d.stopped(t.Context(), fresh, "prepare", errors.New("missing retained publisher"))
+	if d.prepFailures.items[session.ID].Attempts != 1 || strings.Count(output.String(), "a later tick comes back") != 2 {
+		t.Fatal("recovery did not reset diagnostic spell")
 	}
 }

@@ -101,6 +101,8 @@ func TestContentEquivalentForLaterStageEntitiesTablesAndLists(t *testing.T) {
 		"The screen shows two bands&#46; The first, Band A &#40;invoices waiting&#41;, is confusing&#46;",
 		"",
 		"- [ ] AC-001: &#40;Manual&#41; The table shows no Confidence column&#46;",
+		"- [ ] AC-002: &#40;Manual&#41; No ignored list or 'Bring it back'&#46; The band sits at the top&#46;",
+		"- [ ] AC-003: &#40;Manual&#41; The &#46;legend CSS rules are gone, while &#46;csub and &#46;warn&#45;ic stay&#46;",
 		"",
 		"## Architecture - General",
 		"",
@@ -120,6 +122,8 @@ func TestContentEquivalentForLaterStageEntitiesTablesAndLists(t *testing.T) {
 		"The screen shows two bands. The first, Band A (invoices waiting), is confusing.",
 		"",
 		"* [ ] AC-001: (Manual) The table shows no Confidence column.",
+		"* [ ] AC-002: (Manual) No ignored list or 'Bring it back'. The band sits at the top.",
+		"* [ ] AC-003: (Manual) The .legend CSS rules are gone, while .csub and .warn-ic stay.",
 		"",
 		"## Architecture - General",
 		"",
@@ -133,5 +137,40 @@ func TestContentEquivalentForLaterStageEntitiesTablesAndLists(t *testing.T) {
 	}
 	if ContentEquivalent(expected, strings.Replace(observed, "No new", "Some new", 1)) {
 		t.Fatal("a changed table cell must not be equivalent")
+	}
+}
+
+// Linear stores an escaped pipe inside a table cell as a bare "|" (MAR-13's
+// technical draft), which changes the cell count. Factory story table rows are
+// compared by their text.
+func TestContentEquivalentStoryTableRowWithCellPipe(t *testing.T) {
+	head := "<!-- lf:plan-story parent=1 key=story-002 -->\n<!-- lf:plan-request digest=" + strings.Repeat("a", 64) + " -->\n"
+	expected := head + "| Element | Contract |\n| -- | -- |\n| PATCH body | &#123; direction: 'incoming' &#124; 'outgoing' &#125; only&#46; |"
+	observed := head + "| Element | Contract |\n| -- | -- |\n| PATCH body | { direction: 'incoming' | 'outgoing' } only. |"
+	if !ContentEquivalent(expected, observed) {
+		t.Fatalf("Linear's unescaped cell pipe must stay equivalent:\n%s\n---\n%s", comparableContent(expected), comparableContent(observed))
+	}
+	if ContentEquivalent(expected, strings.Replace(observed, "only.", "always.", 1)) {
+		t.Fatal("a changed table cell must not be equivalent")
+	}
+}
+
+func TestContentEquivalentStoryTableRowWithEscapedInlineMarker(t *testing.T) {
+	head := "<!-- lf:plan-story parent=1 key=story-001 -->\n<!-- lf:plan-request digest=" + strings.Repeat("a", 64) + " -->\n"
+	row := "| Element | Contract |\n| -- | -- |\n| Shared styles | Generic names like %s, checkbox-label and btn-success showed no other users. |"
+	for _, tc := range []struct{ written, readback string }{
+		{"wizard-*", `wizard-\*`},
+		{"wizard_x", `wizard\_x`},
+		{"`wizard`", "\\`wizard\\`"},
+		{"[wizard]", `\[wizard\]`},
+	} {
+		expected := head + strings.Replace(row, "%s", tc.written, 1)
+		observed := head + strings.Replace(row, "%s", tc.readback, 1)
+		if !ContentEquivalent(expected, observed) {
+			t.Fatalf("Linear's escaped %q must stay equivalent:\n%s\n---\n%s", tc.written, comparableContent(expected), comparableContent(observed))
+		}
+		if ContentEquivalent(expected, head+strings.Replace(row, "%s", "wizard-x", 1)) {
+			t.Fatalf("a changed table cell must not be equivalent to %q", tc.written)
+		}
 	}
 }

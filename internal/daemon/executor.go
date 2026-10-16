@@ -36,6 +36,9 @@ type turnExecutor struct {
 }
 
 func newTurnExecutor(opts turn.Options, factories []*projectconnection.Factory) turnExecutor {
+	if opts.GraphRetryDelay <= 0 {
+		opts.GraphRetryDelay = 30 * time.Second
+	}
 	e := turnExecutor{opts: opts}
 	if len(factories) > 0 {
 		e.connections = factories[0]

@@ -34,8 +34,8 @@ type prepareFailure struct {
 }
 
 // record counts one failure and returns the session's state along with whether
-// this failure is the one that should be announced — the first, the one that
-// crosses the escalation threshold, or one that fails for a new reason.
+// this failure is the one that should be announced — the first or one that
+// fails for a new reason. Escalation is reported separately.
 func (p *prepareFailures) record(sessionID int64, reason string, at time.Time, interval time.Duration) (prepareFailure, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -61,7 +61,7 @@ func (p *prepareFailures) record(sessionID int64, reason string, at time.Time, i
 		current.Escalated = true
 	}
 	p.items[sessionID] = current
-	return current, !existed || escalate || previous.Reason != reason
+	return current, !existed || previous.Reason != reason
 }
 
 // clear forgets a session, called where a turn completes without failing. The

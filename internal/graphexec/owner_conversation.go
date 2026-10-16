@@ -25,14 +25,16 @@ func BugFinalizationSpec() ActionSpec {
 }
 
 // ValidateOwnerConversationGraph checks the declared structure by capability,
-// independent of node names. The only autonomous cycle is analyst discussion.
+// independent of node names. Autonomous cycles are analyst discussion and the
+// optional bounded base-sync retry; neither grants repair permission.
 // A stale revalidation edge is explicitly released by a claimed owner reply.
 func ValidateOwnerConversationGraph(p *Profile) error {
 	if p == nil || p.Workflow != agent.WorkflowBug || p.Mode != "" {
 		return errors.New("owner conversation requires standalone Bug identity")
 	}
 	var loop, analyst, fixer, final Node
-	var loops, analysts, fixers, finals int
+	var loops, analysts, fixers, finals, syncs int
+	gate, gated := BugFixerSyncGate(p)
 	var faults []error
 	for _, n := range p.Nodes {
 		if n.Terminal {
@@ -65,6 +67,16 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 			default:
 				faults = append(faults, errors.New("bug graph contains unauthorized agent role"))
 			}
+		case SyncBaseAction:
+			syncs++
+			if len(n.Outcomes) != 4 || !slices.Contains(n.Outcomes, "synced") || !slices.Contains(n.Outcomes, "current") || !slices.Contains(n.Outcomes, "conflict") || !slices.Contains(n.Outcomes, "retry") {
+				faults = append(faults, fmt.Errorf("base sync %q requires its four outcomes", n.Name))
+			}
+			for _, outcome := range []string{"conflict", "retry"} {
+				if next, ok := Decide(p, n.Name, outcome); ok && (!gated || n.Name != gate.Name || outcome != "retry" || next != n.Name) {
+					faults = append(faults, fmt.Errorf("base sync %q must park on %s", n.Name, outcome))
+				}
+			}
 		case "lf_bug_finalize":
 			finals++
 			final = n
@@ -78,12 +90,54 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 	if loops != 1 || analysts != 1 || fixers != 1 || finals != 1 {
 		return errors.Join(append(faults, errors.New("bug requires one conversation, analyst, fixer and finalization"))...)
 	}
+	if gated {
+		if syncs != 1 {
+			faults = append(faults, errors.New("gated bug requires exactly one base sync"))
+		}
+		for _, source := range []struct {
+			node    Node
+			outcome string
+		}{{loop, "approved"}, {final, "revalidate"}} {
+			if next, ok := Decide(p, source.node.Name, source.outcome); !ok || next != gate.Name {
+				faults = append(faults, errors.New("every repair entry requires the declared base sync gate"))
+			}
+		}
+		for _, outcome := range []string{"synced", "current"} {
+			if next, ok := Decide(p, gate.Name, outcome); !ok || next != fixer.Name {
+				faults = append(faults, errors.New("base sync gate must lead directly to fixer"))
+			}
+		}
+	}
 	if p.Start != loop.Name {
 		faults = append(faults, errors.New("bug starts at owner conversation"))
 	}
+	// Sync success chains are transparent to the existing authority routes.
+	resolve := func(name string) (string, bool) {
+		seen := map[string]bool{}
+		for {
+			n, ok := p.Node(name)
+			if !ok {
+				return "", false
+			}
+			if n.Action != SyncBaseAction {
+				return name, true
+			}
+			if seen[name] {
+				return "", false
+			}
+			seen[name] = true
+			synced, a := Decide(p, name, "synced")
+			current, b := Decide(p, name, "current")
+			if !a || !b || synced != current {
+				return "", false
+			}
+			name = synced
+		}
+	}
 	route := func(from Node, outcome, to string) {
 		next, ok := Decide(p, from.Name, outcome)
-		if !ok || next != to {
+		resolved, valid := resolve(next)
+		if !ok || !valid || resolved != to {
 			faults = append(faults, fmt.Errorf("%q %q must route to declared capability %q", from.Name, outcome, to))
 		}
 	}
@@ -111,15 +165,46 @@ func ValidateOwnerConversationGraph(p *Profile) error {
 	route(final, "revalidate", fixer.Name)
 	next, ok := Decide(p, final.Name, "completed")
 	target, found := p.Node(next)
+	if resolved, valid := resolve(next); valid {
+		target, found = p.Node(resolved)
+	}
 	if !ok || !found || !target.Terminal {
 		faults = append(faults, errors.New("confirmed finalization must lead to terminal"))
 	}
 	// No other edge can bypass approval, repeat repair, or create an extra loop.
 	for _, edge := range p.Edges {
 		allowed := edge.From == loop.Name && (edge.On == "analyse" || edge.On == "approved") || edge.From == analyst.Name && (edge.On == "ask" || edge.On == "done") || edge.From == fixer.Name && (edge.On == "reshape" || edge.On == "succeeded") || edge.From == final.Name && (edge.On == "completed" || edge.On == "revalidate")
+		if node, exists := p.Node(edge.From); exists && node.Action == SyncBaseAction {
+			allowed = edge.On == "synced" || edge.On == "current" || gated && node.Name == gate.Name && edge.On == "retry" && edge.To == gate.Name
+		}
 		if !allowed {
 			faults = append(faults, fmt.Errorf("edge %q to %q bypasses conversation authority", edge.From, edge.To))
 		}
 	}
 	return errors.Join(faults...)
+}
+
+// BugFixerSyncGate finds the explicit retrying prerequisite in a captured Bug
+// profile. Legacy success-only synchronization keeps its established behavior.
+// Callers must validate the profile before using this capability as authority.
+func BugFixerSyncGate(p *Profile) (Node, bool) {
+	if p == nil || p.Workflow != agent.WorkflowBug || p.Mode != "" {
+		return Node{}, false
+	}
+	var gate Node
+	found := false
+	for _, n := range p.Nodes {
+		if n.Action != SyncBaseAction {
+			continue
+		}
+		next, ok := Decide(p, n.Name, "retry")
+		if !ok || next != n.Name {
+			continue
+		}
+		if found {
+			return Node{}, false
+		}
+		gate, found = n, true
+	}
+	return gate, found
 }

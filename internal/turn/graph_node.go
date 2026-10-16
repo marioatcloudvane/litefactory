@@ -29,11 +29,14 @@ type GraphNodeRequest struct {
 	OwnerAllowanceSource int64
 	ResumeRef            string
 	At, NextDueAt        time.Time
+	RetryDueAt           time.Time
 }
 
 // GraphNodeResult describes the recorded step. AttemptID is zero for terminals
 // and exhausted limits. Status is the instance status, not the activity outcome.
 type GraphNodeResult struct {
+	// Deferred means suite admission was busy; no attempt was reserved.
+	Deferred               bool
 	InstanceID, AttemptID  int64
 	Node, NextNode, Status string
 	Activity               ActivityResult
@@ -42,8 +45,8 @@ type GraphNodeResult struct {
 // ExecuteNodeAction performs at most one activity. Reservation commits before
 // dispatch; completion atomically writes its output, transition and progress.
 // The Research driver supplies the registered mode activities in production.
-func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) (GraphNodeResult, error) {
-	out := GraphNodeResult{InstanceID: req.InstanceID}
+func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) (out GraphNodeResult, err error) {
+	out = GraphNodeResult{InstanceID: req.InstanceID}
 	if opts.DB == nil || req.Profile == nil || req.InstanceID <= 0 || req.RunID < 0 || req.At.IsZero() {
 		return out, errors.New("execute graph node: database, profile, instance and timestamp are required; run ID must be nonnegative")
 	}
@@ -96,6 +99,19 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		out.Status = store.GraphSucceeded
 		return out, nil
 	}
+	handler, registered := req.Activities.Resolve(node.Action)
+	if suite, ok := handler.(ValidateSuiteActivity); ok {
+		unlock, lockErr := suite.b.DB.LockSuite(ctx, suite.b.LockDir)
+		if errors.Is(lockErr, store.ErrSuiteBusy) {
+			out.Deferred = true
+			return out, nil
+		}
+		if lockErr != nil {
+			return out, fmt.Errorf("admit validate suite: %w", lockErr)
+		}
+		defer func() { err = errors.Join(err, unlock()) }()
+		handler = admittedValidateSuite{suite}
+	}
 	var attempt store.GraphNodeAttempt
 	switch {
 	case req.ResumeAttemptID != 0:
@@ -115,10 +131,22 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 				return out, err
 			}
 		}
-		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
+		var prerequisite *store.BugSyncPrerequisite
+		if gate, exists := graphexec.BugFixerSyncGate(req.Profile); exists {
+			if fixer, valid := graphexec.Decide(req.Profile, gate.Name, "synced"); valid {
+				prerequisite = &store.BugSyncPrerequisite{SyncNode: gate.Name, FixerNode: fixer}
+			}
+		}
+		attempt, err = opts.DB.StartGraphNodeAttempt(ctx, store.GraphAttemptStart{BugSyncPrerequisite: prerequisite, ResearchPriorNodes: ancestors, InstanceID: instance.ID, LaunchID: req.LaunchID, Node: node.Name, RunID: req.RunID, OwnerAllowanceSource: req.OwnerAllowanceSource, Limit: node.Limit, StartedAt: req.At})
 	}
 	if errors.Is(err, store.ErrGraphAttemptLimit) {
 		out.Activity.Diagnostic = fmt.Sprintf("node %q dispatch limit %d exhausted", node.Name, node.Limit)
+		if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction {
+			out.Activity.Diagnostic, err = graphBugSyncExhaustionDiagnostic(context.WithoutCancel(ctx), opts.DB, instance.ID, node.Name, out.Activity.Diagnostic)
+			if err != nil {
+				return out, err
+			}
+		}
 		if graphexec.ParksOutcome(node, "exhausted") {
 			return parkGraphAction(ctx, opts, req, out, "exhausted", false)
 		}
@@ -132,8 +160,7 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		return out, fmt.Errorf("reserve graph node: %w", err)
 	}
 	out.AttemptID = attempt.ID
-	handler, ok := req.Activities.Resolve(node.Action)
-	if !ok {
+	if !registered {
 		out.Activity.Diagnostic = fmt.Sprintf("unknown graph activity %q", node.Action)
 		return finishGraphAction(ctx, opts, req, out, false)
 	}
@@ -151,6 +178,9 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 	})
 	activity.Output = slices.Clone(activity.Output)
 	out.Activity = activity
+	if workflow == agent.WorkflowBug && node.Action == graphexec.SyncBaseAction && (dispatchErr != nil || (activity.Outcome != "synced" && activity.Outcome != "current")) {
+		out.Activity.Diagnostic = graphBugSyncDiagnostic(activity)
+	}
 	// Owner cancellation must park even when private result submission completed
 	// before process cleanup; a stopped run cannot enter successful delivery.
 	if workflow == agent.WorkflowBug && req.RunID != 0 {
@@ -203,6 +233,9 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		return finishGraphAction(ctx, opts, req, out, false)
 	}
 	out.NextNode = next
+	if activity.Outcome == "retry" && next == node.Name && req.RetryDueAt.After(req.At) {
+		req.NextDueAt = req.RetryDueAt
+	}
 	return finishGraphAction(ctx, opts, req, out, true)
 }
 
@@ -239,7 +272,12 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 	if out.Activity.Diagnostic != "" {
 		completion.Outputs = append(completion.Outputs, store.GraphOutput{Kind: store.GraphOutputDiagnostic, Payload: []byte(out.Activity.Diagnostic)})
 	}
-	if err := opts.DB.CompleteGraphNodeAttempt(ctx, out.AttemptID, completion); err != nil {
+	completionCtx := ctx
+	if node, ok := req.Profile.Node(out.Node); !succeeded && ok && node.Action == graphexec.SyncBaseAction {
+		// Preserve commit evidence from a possibly published sync despite cancellation.
+		completionCtx = context.WithoutCancel(ctx)
+	}
+	if err := opts.DB.CompleteGraphNodeAttempt(completionCtx, out.AttemptID, completion); err != nil {
 		return out, fmt.Errorf("complete graph activity: %w", err)
 	}
 	return out, nil

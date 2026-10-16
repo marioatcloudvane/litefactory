@@ -51,6 +51,15 @@ func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
 			return specs, err
 		}
 	}
+	if _, exists := specs.Resolve(graphexec.SyncBaseAction); !exists {
+		workflow, err := agent.ResolveWorkflow(policy.Workflow, policy.Mode)
+		if err != nil {
+			return specs, err
+		}
+		if err = specs.Register(graphexec.SyncBaseWorkflowSpec(workflow, policy.Mode)); err != nil {
+			return specs, err
+		}
+	}
 	return specs, nil
 }
 

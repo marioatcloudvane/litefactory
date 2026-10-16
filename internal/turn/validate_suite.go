@@ -125,6 +125,11 @@ func replayable(state string) bool {
 // unchanged without running anything, and a passed suite of another instance
 // on the same commit is copied instead of run again. A cancelled context is an error.
 func (h ValidateSuiteActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (res ActivityResult, err error) {
+	return h.execute(ctx, opts, req, false)
+}
+
+// execute keeps graph admission's lock through recovery and command cleanup.
+func (h ValidateSuiteActivity) execute(ctx context.Context, opts Options, req ActivityRequest, locked bool) (res ActivityResult, err error) {
 	b := h.b
 	if req.Mode != agent.ModeValidate || b.Bind == nil {
 		return ActivityResult{}, errors.New("validate suite activity requires admitted Validate authority")
@@ -144,14 +149,16 @@ func (h ValidateSuiteActivity) Execute(ctx context.Context, opts Options, req Ac
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return ActivityResult{}, err
 	}
-	unlock, err := b.DB.LockSuite(ctx, b.LockDir)
-	if errors.Is(err, store.ErrSuiteBusy) {
-		return suiteResult("retry", validateSuiteOutput{Outcome: "retry", Commit: auth.Commit, Reason: "another suite is running"})
+	if !locked {
+		unlock, err := b.DB.LockSuite(ctx, b.LockDir)
+		if errors.Is(err, store.ErrSuiteBusy) {
+			return suiteResult("retry", validateSuiteOutput{Outcome: "retry", Commit: auth.Commit, Reason: "another suite is running"})
+		}
+		if err != nil {
+			return ActivityResult{}, fmt.Errorf("validate suite lock: %w", err)
+		}
+		defer func() { err = errors.Join(err, unlock()) }()
 	}
-	if err != nil {
-		return ActivityResult{}, fmt.Errorf("validate suite lock: %w", err)
-	}
-	defer func() { err = errors.Join(err, unlock()) }()
 
 	if done, ok, err := h.finished(ctx, req.InstanceID, auth.Commit); err != nil || ok {
 		return done, err
@@ -258,16 +265,21 @@ func (h ValidateSuiteActivity) run(ctx context.Context, opts Options, req Activi
 			err = errors.Join(err, fmt.Errorf("discard suite checkout: %w", closeErr))
 		}
 	}()
-	before, err := scratch.Observe(ctx)
-	if err != nil {
-		return ActivityResult{}, fmt.Errorf("observe suite snapshot: %w", err)
+	before, observeErr := scratch.Observe(ctx)
+	var refusal *git.SourceSymlinkError
+	if observeErr != nil && (!errors.As(observeErr, &refusal) || ctx.Err() != nil) {
+		return ActivityResult{}, fmt.Errorf("observe suite snapshot: %w", errors.Join(observeErr, ctx.Err()))
 	}
-	recipeRaw, recipeErr := scratch.Recipe(ctx)
+	var recipeRaw []byte
+	var recipeErr error
+	if refusal == nil {
+		recipeRaw, recipeErr = scratch.Recipe(ctx)
+	}
 	if recipeErr != nil && !errors.Is(recipeErr, git.ErrBugCheckRecipe) {
 		return ActivityResult{}, fmt.Errorf("read build check recipe: %w", recipeErr)
 	}
 	digest := ""
-	if recipeErr == nil {
+	if recipeErr == nil && refusal == nil {
 		digest = config.BugRecipeDigest(recipeRaw)
 	}
 	run, err := b.DB.BeginSuiteRun(ctx, store.SuiteRun{InstanceID: req.InstanceID, Node: req.Node, Commit: commit, RecipeDigest: digest, TreeBefore: before, StartedAt: h.now(opts)})
@@ -290,6 +302,9 @@ func (h ValidateSuiteActivity) run(ctx context.Context, opts Options, req Activi
 	}
 	blocked := func(reason string) (ActivityResult, error) { return finish(store.SuiteBlocked, before, reason) }
 
+	if refusal != nil {
+		return blocked(refusal.Error())
+	}
 	if recipeErr != nil {
 		return blocked("no build check recipe in the tested commit")
 	}
@@ -442,4 +457,11 @@ func (s *gitSuiteScratch) Close(ctx context.Context) error {
 	}
 	removeErr := s.repo.Clone.WorktreeRemove(ctx, s.wt.Path(), git.WorktreeRemoveOptions{Force: true})
 	return errors.Join(removeErr, os.RemoveAll(s.dir))
+}
+
+// admittedValidateSuite executes only while ExecuteNodeAction owns the suite lock.
+type admittedValidateSuite struct{ ValidateSuiteActivity }
+
+func (h admittedValidateSuite) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+	return h.execute(ctx, opts, req, true)
 }

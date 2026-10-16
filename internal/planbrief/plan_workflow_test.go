@@ -416,3 +416,92 @@ func TestPlanWorkflowInlineApproval(t *testing.T) {
 		}
 	}
 }
+
+// strandedWorkflow builds the MAR-13 shape: story-002 depends on a fully
+// approved story-001, sits at technical with an applied candidate, and has lost
+// every approval with no review waiting.
+func strandedWorkflow(t *testing.T) planbrief.PlanState {
+	t.Helper()
+	s := workflowFixture(t, "story-001", "story-002")
+	s.Stories[1].Draft.Dependencies.StoryKeys = []string{"story-001"}
+	approveWorkflowStory(t, &s, 0, 10)
+	r := workflowReply(t, &s, 1, 20)
+	if ok, err := s.ApplyOwnerReply(r); err != nil || !ok {
+		t.Fatalf("approve story-002 story: %v %v", ok, err)
+	}
+	if s.Stories[1].Stage != "technical" || s.Stories[1].Wait != nil {
+		t.Fatalf("story-002 not at technical: %+v", s.Stories[1])
+	}
+	s.Stories[1].Approvals = map[string]string{}
+	return s
+}
+
+func TestPlanWorkflow_StrandedStoryReoffersEarliestUnapprovedStage(t *testing.T) {
+	t.Parallel()
+	s := strandedWorkflow(t)
+	if slices.Contains(s.EligiblePlanStories(), "story-002") {
+		t.Fatal("stranded story became eligible at its current stage")
+	}
+	stage, create, ok := s.StoryNextStep("story-002")
+	if stage != "story" || create || !ok {
+		t.Fatalf("StoryNextStep = (%q, %v, %v), want (story, false, true)", stage, create, ok)
+	}
+
+	// Re-running the story stage lowers the stage, opens a review at story and
+	// an exact approval moves it to technical again.
+	if err := s.PutCandidate(s.Stories[1].Draft, "story", "story-002-rerun"); err != nil {
+		t.Fatal(err)
+	}
+	if s.Stories[1].Stage != "story" {
+		t.Fatalf("rerun did not lower the stage: %+v", s.Stories[1])
+	}
+	r := workflowReply(t, &s, 1, 40)
+	if s.Stories[1].Wait == nil || s.Stories[1].Wait.Stage != "story" || !strings.Contains(r.Body, "/approve-plan story-002 story story-002-rerun") {
+		t.Fatalf("review wait not at story: %+v %q", s.Stories[1].Wait, r.Body)
+	}
+	if ok, err := s.ApplyOwnerReply(r); err != nil || !ok {
+		t.Fatalf("approve rerun: %v %v", ok, err)
+	}
+	if s.Stories[1].Stage != "technical" || s.Stories[1].Approvals["story"] == "" {
+		t.Fatalf("approval did not recover the story: %+v", s.Stories[1])
+	}
+	if stage, _, ok := s.StoryNextStep("story-002"); stage != "technical" || !ok {
+		t.Fatalf("recovered story next step = (%q, %v)", stage, ok)
+	}
+}
+
+func TestPlanWorkflow_StrandedStoryRuleLeavesOtherStatesAlone(t *testing.T) {
+	t.Parallel()
+	t.Run("current approvals keep the current stage", func(t *testing.T) {
+		t.Parallel()
+		s := workflowFixture(t, "story-001", "story-002")
+		s.Stories[1].Draft.Dependencies.StoryKeys = []string{"story-001"}
+		approveWorkflowStory(t, &s, 0, 10)
+		r := workflowReply(t, &s, 1, 20)
+		if ok, err := s.ApplyOwnerReply(r); err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		if stage, create, ok := s.StoryNextStep("story-002"); stage != "technical" || create || !ok {
+			t.Fatalf("StoryNextStep = (%q, %v, %v)", stage, create, ok)
+		}
+	})
+	cases := map[string]func(*planbrief.PlanState){
+		"waiting": func(s *planbrief.PlanState) {
+			if err := s.OpenPlanWait("story-002", "wait-q", "question", 101); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"effect held":           func(s *planbrief.PlanState) { s.Stories[1].EffectHold = "held" },
+		"upstream not approved": func(s *planbrief.PlanState) { delete(s.Stories[0].Approvals, "story") },
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := strandedWorkflow(t)
+			change(&s)
+			if stage, create, ok := s.StoryNextStep("story-002"); ok {
+				t.Fatalf("StoryNextStep = (%q, %v, %v), want not ok", stage, create, ok)
+			}
+		})
+	}
+}

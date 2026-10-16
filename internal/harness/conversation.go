@@ -17,6 +17,9 @@ import (
 func (r *Runner) ConversationIsolation(ctx context.Context) (string, error) {
 	help, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"--help"}, providerprocess.DoctorEnvironment(r.environ, os.TempDir()), os.TempDir())
 	if err != nil {
+		if errors.Is(err, providerprocess.ErrProbeTransient) || ctx.Err() != nil {
+			return "", err
+		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
 	}
 	for _, flag := range []string{"--tools", "--safe-mode", "--restricted", "--safe-mode", "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "--session-id", "--resume", "--system-prompt", "--settings", "--agents", "--no-chrome"} {
@@ -25,8 +28,14 @@ func (r *Runner) ConversationIsolation(ctx context.Context) (string, error) {
 		}
 	}
 	version, err := providerprocess.ConversationProbe(ctx, r.binary.Path, []string{"--version"}, providerprocess.DoctorEnvironment(r.environ, os.TempDir()), os.TempDir())
-	if err != nil || strings.TrimSpace(version) == "" {
+	if err != nil {
+		if errors.Is(err, providerprocess.ErrProbeTransient) || ctx.Err() != nil {
+			return "", err
+		}
 		return "", errors.Join(agent.ErrConversationIsolation, err)
+	}
+	if strings.TrimSpace(version) == "" {
+		return "", agent.ErrConversationIsolation
 	}
 	r.logConversationVersion(ctx, "probe", version)
 	return "claude-conversation-empty-tools-and-mcp-v1", nil

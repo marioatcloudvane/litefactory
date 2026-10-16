@@ -22,6 +22,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
 const (
@@ -318,44 +319,52 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	}
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	//nolint:gosec // binary/args are configuration; issue text is delivered on stdin.
-	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	stackEnv, err := req.StackEnvironment(codexEnv(r.environ))
 	if err != nil {
 		return nil, err
 	}
-	cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, stackEnv, strings.NewReader(req.Prompt)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-			return err
-		}
-		return nil
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
+	var cmd *exec.Cmd
+	var stdout io.ReadCloser
 	stderr := agent.NewTailBuffer(agent.StderrTailBytes)
-	cmd.Stderr = stderr
 	startLocation := machineLocation()
 	started := time.Now()
 	collector := newUsageCollector(runCtx, req)
-	collector.prepareRollouts(cmd.Env)
-	if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
-		_ = stdout.Close()
-		if pipe, ok := cmd.Stdout.(io.Closer); ok {
-			_ = pipe.Close()
+	collector.prepareRollouts(stackEnv)
+	err = providerprocess.Start(runCtx, r.binary.Path, req.WorktreePath, func() error {
+		//nolint:gosec // binary/args are configuration; issue text is delivered on stdin.
+		cmd = exec.CommandContext(runCtx, r.binary.Path, args...)
+		cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, stackEnv, strings.NewReader(req.Prompt)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error {
+			if cmd.Process == nil {
+				return os.ErrProcessDone
+			}
+			if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+				return err
+			}
+			return nil
 		}
+		stdout, err = cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		cmd.Stderr = stderr
+		if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
+			_ = stdout.Close()
+			if pipe, ok := cmd.Stdout.(io.Closer); ok {
+				_ = pipe.Close()
+			}
+			return err
+		}
+		if err := cmd.Start(); err != nil {
+			_ = stdout.Close()
+			return fmt.Errorf("codex did not start: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
 		collector.finish()
 		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		collector.finish()
-		return nil, fmt.Errorf("codex did not start: %w", err)
 	}
 	r.logger.Info("coding agent started", "agent", "codex", "task", req.Ref.String(), "run", req.RunOrdinal,
 		"binary", r.binary.Path, "sandbox", sandbox, "tool_profile", req.Permissions.Profile)

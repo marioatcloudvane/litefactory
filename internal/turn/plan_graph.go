@@ -49,6 +49,8 @@ type planGraphRuntime struct {
 	selected, stage string
 	// discussion binds ordinary owner input to its issue without advancing work.
 	discussion bool
+	// rewindReason explains verified changes against the retained prior request.
+	rewindReason string
 	// creating reports that the current pick is a promoted story still owed its
 	// first draft, which is what keeps the story creation cycle going.
 	creating bool
@@ -633,6 +635,9 @@ func (r *planGraphRuntime) comment(ctx context.Context, _ Options, a ActivityReq
 	target := r.result.Ref
 	kind := a.Attrs["lf_kind"]
 	text := node.Comment
+	if kind == "review" && r.rewindReason != "" {
+		text += "\n\n" + r.rewindReason
+	}
 	for _, q := range node.Questions {
 		text += "\n\n- " + q
 	}

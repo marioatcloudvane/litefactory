@@ -130,6 +130,15 @@ func ValidateResearchControlGraph(p *Profile) error {
 
 // ValidateControlGraph checks source bindings, generation prerequisites and owner-wait paths.
 func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
+	// Implement's dedicated checker owns coordinator resolver routes and
+	// explicit worker sync stops; generic control validation must retain them.
+	if policy.Mode != agent.ModeImplement {
+		var syncErr error
+		p, syncErr = withoutExplicitSync(p)
+		if syncErr != nil {
+			return syncErr
+		}
+	}
 	if p == nil {
 		return errors.New("research graph is nil")
 	}

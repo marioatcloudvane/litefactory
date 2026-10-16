@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -346,6 +347,16 @@ func comparableContent(body string) string {
 		}
 		lines[i] = line
 	}
+	if story {
+		fence = ""
+		for i, line := range lines {
+			next := nextContentFence(fence, line)
+			if fence == "" && next == "" && strings.HasPrefix(line, "|") {
+				lines[i] = storyTableRowText(line)
+			}
+			fence = next
+		}
+	}
 	return strings.Join(withoutProseBlankLines(lines), "\n")
 }
 
@@ -524,7 +535,7 @@ func comparableScaffoldProse(line string) string {
 			}
 		}
 	}
-	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")").Replace(prose)
+	decoded := decodePunctuationEntities(prose)
 	if !plainScaffoldProse(decoded) || strings.ContainsAny(prose, "\\`[]<>*_!|@") {
 		return line
 	}
@@ -547,11 +558,52 @@ func managedStoryDocument(lines []string) bool {
 	return scaffoldRequestMarker.MatchString(lines[request])
 }
 
+var punctuationEntity = regexp.MustCompile(`&#([0-9]{2,3});`)
+
+// decodePunctuationEntities turns the renderer's decimal entities for ASCII
+// punctuation (&#46; &#123; …) back into the characters Linear stores. Letters,
+// digits and anything outside ASCII punctuation stay encoded.
+func decodePunctuationEntities(s string) string {
+	return punctuationEntity.ReplaceAllStringFunc(s, func(entity string) string {
+		n, err := strconv.ParseUint(entity[2:len(entity)-1], 10, 7)
+		if err != nil {
+			return entity
+		}
+		c := rune(n)
+		if c > ' ' && c < 127 && (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			return string(c)
+		}
+		return entity
+	})
+}
+
+// storyTableRowText compares a factory story table row by its text. Linear
+// stores an escaped cell pipe (\| or &#124;) as a bare "|", which changes the
+// cell count, so rows are reduced to their cell texts in order, with rule cells
+// canonical and the renderer's punctuation entities decoded. Linear also
+// escapes literal inline markers in cells (\_, \*, \`, \[, \]), so those
+// escapes compare equal to the bare marker the factory wrote.
+func storyTableRowText(line string) string {
+	line = strings.NewReplacer(`\|`, "|", `\_`, "_", `\*`, "*", "\\`", "`", `\[`, "[", `\]`, "]").Replace(decodePunctuationEntities(line))
+	var cells []string
+	for _, cell := range strings.Split(line, "|") {
+		cell = strings.Join(strings.Fields(cell), " ")
+		if cell == "" {
+			continue
+		}
+		if contentTableRule.MatchString(cell) {
+			cell = "---"
+		}
+		cells = append(cells, cell)
+	}
+	return "|" + strings.Join(cells, " ") + "|"
+}
+
 func comparableTableCell(cell string) string {
 	if strings.ContainsAny(cell, "[]`\\") {
 		return cell
 	}
-	decoded := strings.NewReplacer("&#46;", ".", "&#45;", "-", "&#40;", "(", "&#41;", ")", "&#95;", "_", "&#60;", "<", "&#62;", ">").Replace(cell)
+	decoded := decodePunctuationEntities(cell)
 	if strings.Trim(decoded, "-:. ") == "" {
 		return cell
 	}
@@ -568,7 +620,10 @@ func plainScaffoldProse(s string) bool {
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
 		case '.':
-			if i == 0 || !letter(s[i-1]) || (i+1 < len(s) && s[i+1] != ' ') {
+			// A period forms Markdown only as an ordered-list marker at the
+			// start ("1. "); elsewhere (sentence ends, .legend, file.js) it is
+			// plain text.
+			if i == 0 {
 				return false
 			}
 		case '-':

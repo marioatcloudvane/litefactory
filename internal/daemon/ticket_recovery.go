@@ -292,6 +292,26 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 		if err != nil {
 			return err
 		}
+		// An observation from a disabled or replaced connection whose ticket has
+		// no admitted session can never be admitted; the current connection
+		// observes the same ticket itself. Drop it before any provider read:
+		// retaining it re-read Linear on every pass (most of the cockpit
+		// allowance on 2026-10-14) only to reject it again.
+		if current, currentErr := d.db.CurrentConnection(ctx, observation.RepoID, store.TicketConnection); currentErr == nil && (!current.Enabled || current.ID != version.ID) {
+			identity := ticket.Identity{Provider: observation.Provider, Origin: observation.Origin, RemoteID: observation.TicketID}
+			if _, sessionErr := d.db.GetSessionByTicket(ctx, identity); errors.Is(sessionErr, store.ErrNotFound) {
+				if !current.Enabled {
+					// The source is disabled: re-enabling may admit it later.
+					warnRejection("connection_disabled_or_replaced", "retained", nil)
+					continue
+				}
+				warnRejection("connection_disabled_or_replaced", "dropped", nil)
+				if err = d.db.ClearPendingTicketObservation(ctx, observation.ConnectionVersionID, observation.TicketID, observation.Generation); err != nil {
+					return err
+				}
+				continue
+			}
+		}
 		ctx := quotaVersionContext(ctx, version)
 		ctx, finish, err := d.linearFallback(ctx, version, true)
 		if err != nil {

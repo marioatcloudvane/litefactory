@@ -19,6 +19,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
 // Classify performs a stateless, tool-free routing invocation. The prompt is
@@ -816,55 +817,64 @@ func (r *Runner) exec(
 	// never on argv, so there is no shell and nothing here for it to influence.
 	// cmd.Env is the explicit allowlist buildEnv assembles, not the daemon's
 	// environment.
-	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	cmd.Dir = req.WorktreePath
+	var cmd *exec.Cmd
+	var stdoutR, stdoutW, stderrR, stderrW *os.File
 	stackEnv, err := req.StackEnvironment(buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir))
 	if err != nil {
 		return nil, err
 	}
-	cmd.Env = stackEnv
-	// The prompt goes on stdin (AC-3.12): out of ps, and past the ~1 MB macOS
-	// ARG_MAX ceiling that a large issue body would otherwise hit as E2BIG.
-	cmd.Stdin = strings.NewReader(req.Prompt)
-	// Setpgid, Cancel and WaitDelay are the outer safety net. They are not the
-	// kill mechanism: claude's Bash tool setsids out of this process group, so
-	// the mechanism is killSubtree's pgid sweep (SD-1).
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.WaitDelay = waitDelay
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		return killSubtree(killCtx, cmd.Process.Pid, logger)
-	}
-
-	stdoutR, stdoutW, err := os.Pipe()
-	if err != nil {
-		return nil, fmt.Errorf("%w: stdout pipe: %w", ErrStartFailed, err)
-	}
-	stderrR, stderrW, err := os.Pipe()
-	if err != nil {
-		closeAll(stdoutR, stdoutW)
-		return nil, fmt.Errorf("%w: stderr pipe: %w", ErrStartFailed, err)
-	}
-	// Assigning *os.File values means os/exec passes the descriptors straight
-	// to the child and starts no copier goroutines of its own for them — and,
-	// equally important, never closes the read ends behind this package's back.
-	cmd.Stdout = stdoutW
-	cmd.Stderr = stderrW
-
 	usage := newUsageCollector(runCtx, req)
 	if usage != nil {
 		usage.prepareTranscripts(r.claudeConfigDir, req.WorktreePath)
 	}
 	startedAt := time.Now()
-	if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
-		closeAll(stdoutR, stdoutW, stderrR, stderrW)
+	err = providerprocess.Start(runCtx, r.binary.Path, req.WorktreePath, func() error {
+		//nolint:gosec // Configured executable and validated arguments; prompt stays on stdin.
+		cmd = exec.CommandContext(runCtx, r.binary.Path, args...)
+		cmd.Dir = req.WorktreePath
+		cmd.Env = stackEnv
+		// The prompt goes on stdin (AC-3.12): out of ps, and past the ~1 MB macOS
+		// ARG_MAX ceiling that a large issue body would otherwise hit as E2BIG.
+		cmd.Stdin = strings.NewReader(req.Prompt)
+		// Setpgid, Cancel and WaitDelay are the outer safety net. They are not the
+		// kill mechanism: claude's Bash tool setsids out of this process group, so
+		// the mechanism is killSubtree's pgid sweep (SD-1).
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.WaitDelay = waitDelay
+		cmd.Cancel = func() error {
+			if cmd.Process == nil {
+				return os.ErrProcessDone
+			}
+			return killSubtree(killCtx, cmd.Process.Pid, logger)
+		}
+
+		stdoutR, stdoutW, err = os.Pipe()
+		if err != nil {
+			return fmt.Errorf("%w: stdout pipe: %w", ErrStartFailed, err)
+		}
+		stderrR, stderrW, err = os.Pipe()
+		if err != nil {
+			closeAll(stdoutR, stdoutW)
+			return fmt.Errorf("%w: stderr pipe: %w", ErrStartFailed, err)
+		}
+		// Assigning *os.File values means os/exec passes the descriptors straight
+		// to the child and starts no copier goroutines of its own for them — and,
+		// equally important, never closes the read ends behind this package's back.
+		cmd.Stdout = stdoutW
+		cmd.Stderr = stderrW
+
+		if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
+			closeAll(stdoutR, stdoutW, stderrR, stderrW)
+			return err
+		}
+		if err := cmd.Start(); err != nil {
+			closeAll(stdoutR, stdoutW, stderrR, stderrW)
+			return fmt.Errorf("%w: %s: %w", ErrStartFailed, r.binary.Path, err)
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		closeAll(stdoutR, stdoutW, stderrR, stderrW)
-		return nil, fmt.Errorf("%w: %s: %w", ErrStartFailed, r.binary.Path, err)
 	}
 	// The child holds its own copies now. Without this the read ends never see
 	// EOF, because this process would still hold a writer open.

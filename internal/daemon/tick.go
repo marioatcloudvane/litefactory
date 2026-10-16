@@ -113,6 +113,21 @@ type TickResult struct {
 	Cursor store.PollCursor
 }
 
+// tickPhaseContext bounds synchronous provider work, never a dispatched worker.
+func (d *Daemon) tickPhaseContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := d.tickPhaseTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (d *Daemon) tickPhase(ctx context.Context, run func(context.Context) error) error {
+	phase, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
+	return run(phase)
+}
+
 // Tick runs one poll cycle: discover what has work, then dispatch as much of it
 // as there are free slots for.
 //
@@ -151,10 +166,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	ctx, checks := withContainerChecks(ctx)
 	defer checks.close()
 	d.doctorTick(ctx, startedAt)
-	d.refreshRecoveries(ctx, startedAt)
+	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.refreshRecoveries(ctx, startedAt); return nil })
 	// Stopped execution debt is independent of discovery/storage availability.
 	stoppedDispatched := d.retryStoppedResults(ctx, startedAt)
-	if err := d.reconcileGraphDispatches(ctx, startedAt); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.reconcileGraphDispatches(ctx, startedAt) }); err != nil {
 		return TickResult{StartedAt: startedAt}, err
 	}
 	if !d.autoResumeOnSessionLimit {
@@ -176,7 +191,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		}
 	}
 
-	d.refreshWebhookSecrets(ctx, startedAt)
+	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.refreshWebhookSecrets(ctx, startedAt); return nil })
 
 	if retryAt, held := d.connectionHold(ctx, startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
@@ -186,7 +201,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		return TickResult{StartedAt: startedAt, Skipped: true, RetryAt: retryAt}, nil
 	}
 
-	if err := d.pollPublications(ctx, startedAt); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.pollPublications(ctx, startedAt) }); err != nil {
 		d.log.ErrorContext(ctx, "publication observation remains pending", slog.Any("error", err))
 		if providerRateLimited(err) {
 			if d.connections == nil {
@@ -197,7 +212,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	}
 	// Progress is reconciled even while the sole turn worker is occupied.
 	if progress, ok := d.turn.(interface{ PollStoryProgress(context.Context) error }); ok {
-		if err := progress.PollStoryProgress(ctx); err != nil {
+		if err := d.tickPhase(ctx, progress.PollStoryProgress); err != nil {
 			d.log.ErrorContext(ctx, "story progress remains pending", slog.Any("error", err))
 			if providerRateLimited(err) {
 				if d.connections == nil {
@@ -210,7 +225,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	// Code-host controls have their own sources and must be polled even when
 	// work-management replies come from Linear.
-	if err := d.PollCodeDeliveryControls(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.PollCodeDeliveryControls(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
 		if providerRateLimited(err) {
 			if d.connections == nil {
@@ -242,10 +257,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	result = TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor, Dispatched: stoppedDispatched}
 
-	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.replayContinuationCancellations(ctx, repos) }); err != nil {
 		return result, d.observe(ctx, startedAt, err)
 	}
-	if err := d.replayInterruptionReports(ctx, repos); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.replayInterruptionReports(ctx, repos) }); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(ctx, startedAt, err)
 	}
@@ -257,7 +272,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		}
 	}
 
-	d.researchReminders(ctx, startedAt)
+	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.researchReminders(ctx, startedAt); return nil })
 
 	// The heartbeat runs every local source each time; only the forge listing is
 	// scheduled. A tick that does not list still dispatches and reconciles.
@@ -270,7 +285,9 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 			d.schedule.Forget(id)
 		}
 	}
-	queues, err := d.discover(ctx, repos, startedAt, &result)
+	discoveryCtx, cancelDiscovery := d.tickPhaseContext(ctx)
+	queues, err := d.discover(discoveryCtx, repos, startedAt, &result)
+	cancelDiscovery()
 	defer finishCandidateReservations(queues)
 	discoveryDeferred := errors.Is(err, ErrDiscoveryDeferred)
 	hb.deferred = discoveryDeferred
@@ -307,7 +324,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 			return result, err
 		}
 	}
-	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.replayContinuationCancellations(ctx, repos) }); err != nil {
 		return result, d.observe(ctx, startedAt, err)
 	}
 	if lowDisk {
@@ -1392,6 +1409,9 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		}
 	}()
 	ctx = sessionContext(ctx, c.session.ID)
+	workerCtx := ctx
+	ctx, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
 	if d.observeCandidateHold(ctx, c, tickAt) {
 		return offerSkipped
 	}
@@ -1520,7 +1540,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	// the shared pool and in-flight lifetime through terminal diagnostics.
 	t.discoveryReservation = c.discoveryReservation
 	c.discoveryReservation = nil
-	go d.runTicketPollingWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
+	go d.runTicketPollingWorker(workerCtx, t, func(ctx context.Context) { d.work(ctx, t) })
 
 	result.Dispatched++
 	return offerDispatched
@@ -1679,7 +1699,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
 	if err := d.recoverPlanStories(ctx, t); err != nil {
-		d.stopped(ctx, t, "could not reconcile Plan stories", err)
+		d.stopped(ctx, t, "could not reconcile Plan stories", errors.Join(err, d.reportPlanProgress(ctx, t)))
 		return
 	}
 	handledPlan, err := d.refinePlanChildren(ctx, t)
@@ -1798,9 +1818,10 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 		return
 	}
 	d.rateLimited(ctx, t.log, t.tickAt, err)
-	t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
-		slog.Any("error", err))
-	d.prepareFailed(ctx, t, err)
+	if d.prepareFailed(ctx, t, err) {
+		t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
+			slog.Any("error", err))
+	}
 }
 
 // prepareFailed counts a turn that ended without consuming its trigger, and
@@ -1809,9 +1830,9 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 //
 // A worker can expose the same error through leave and stopped. Count that
 // attempt once; report recovery owns its own independent deadline.
-func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
+func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) bool {
 	if t.prepareFailureRecorded || isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) || ctx.Err() != nil {
-		return
+		return false
 	}
 	t.prepareFailureRecorded = true
 	reason := err.Error()
@@ -1821,14 +1842,15 @@ func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
 		}
 	}
 	state, announce := d.prepFailures.record(t.session.ID, reason, t.tickAt, d.recoveryInterval())
-	if !announce || state.Attempts < prepareEscalationAttempts {
-		return
+	if state.Attempts != prepareEscalationAttempts {
+		return announce
 	}
 	t.log.ErrorContext(ctx, "this task has failed every turn since it last made progress; "+
 		"the trigger is still unconsumed and retries use capped exponential backoff",
 		slog.Int("consecutive_failures", state.Attempts),
 		slog.Bool("escalated", state.Escalated),
 		slog.String("reason", reason))
+	return announce
 }
 
 // bootstrap plants the watermark of a task seen for the first time at the
@@ -2205,6 +2227,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return e
 	} else if held {
 		return errors.New("issue held for doctor repair")
+	}
+	if routed, err := d.refuseUnsupportedDoctor(ctx, t, c, qualifiedReply); routed {
+		return err
 	}
 	if routed, err := d.admitDoctor(ctx, t.repo, t.issue, c); routed {
 		if err != nil {
@@ -2761,6 +2786,9 @@ func (d *Daemon) run(
 		if trigger.PlanReply != nil && errors.As(err, &planRefusal) {
 			return err
 		}
+		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && errors.Is(err, turn.ErrRequiredTicketPublisher) {
+			return d.refuseMode(ctx, t, trigger, report.ReplyMissingTicketPublisher, "")
+		}
 		var refusal *workflowRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind, mode)
@@ -3115,9 +3143,10 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	}
 	d.commentFate(ctx, t, t.commentUnderWay, fateDeferred, "deferred, "+what+"; it is retried on a later heartbeat")
 	d.rateLimited(ctx, log, t.tickAt, err)
-	d.prepareFailed(ctx, t, err)
-	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
-		slog.Any("error", err))
+	if d.prepareFailed(ctx, t, err) {
+		log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
+			slog.Any("error", err))
+	}
 	if store.IsGraphTrigger(t.commentUnderWay) || t.scheduled != nil {
 		// Dispatches and schedules need the actual cause for accounting and
 		// bounded retry; no owner-comment drain retains their errors.
