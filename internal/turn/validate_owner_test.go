@@ -1,7 +1,9 @@
 package turn
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -340,6 +342,46 @@ func TestOwnerPushFailureStaysOpenAndRepeatingRetries(t *testing.T) {
 	}
 }
 
+// #926 c1: a pull request from the branch merged at the tested commit already
+// delivered it; the push succeeds without publishing even when the merge
+// deleted the remote branch.
+func TestOwnerPushOfAnAlreadyMergedCommitPublishesNothing(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.readyToPush()
+	commit := o.state().Commit
+	o.forge.remoteHead = ""
+	o.forge.prs = []github.DeliveryPR{{Number: 44, Head: commit, Branch: "lf/497-validate", Target: "main", State: "closed", Merged: true}}
+	o.say(o.command(ValidatePushCommand))
+	if e := o.effect(store.EffectPush, commit); e.State != store.EffectSucceeded || len(o.pushSeen) != 0 || len(o.forge.pushes) != 0 {
+		t.Fatalf("%+v published %v", e, o.pushSeen)
+	}
+	if len(o.forge.prCreates) != 0 || decodeEffectResult(o.state().Effects.PR).Number != 44 {
+		t.Fatalf("the merged pull request is the PR record: %v %+v", o.forge.prCreates, o.state().Effects.PR)
+	}
+}
+
+// #926 c4: a push that fails is logged with its effect kind and cause.
+func TestOwnerPushFailureIsLoggedWithItsCause(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.readyToPush()
+	var buf bytes.Buffer
+	o.opts.Logger = slog.New(slog.NewTextHandler(&buf, nil))
+	o.pushErr = errors.New("remote rejected the update")
+	o.say(o.command(ValidatePushCommand))
+	if e := o.effect(store.EffectPush, o.state().Commit); e.State != store.EffectFailed {
+		t.Fatalf("%+v", e)
+	}
+	var lines []string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(l, "level=WARN") && strings.Contains(l, "effect=push") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], "remote rejected the update") {
+		t.Fatalf("one warning with the cause: %q", buf.String())
+	}
+}
+
 func TestOwnerMovedHeadIsStaleAndNothingRemoteHappens(t *testing.T) {
 	o := newOwnerFixture(t)
 	o.readyToPush()
@@ -541,6 +583,33 @@ func TestOwnerShipDeliversFromOneReply(t *testing.T) {
 	}
 	if visits(nodes, "owner_ask") != 0 {
 		t.Fatalf("the ship did not wait for the owner in between: %s", joinNodes(nodes))
+	}
+}
+
+// #926 c2: a branch already merged by hand at the tested commit ships from one
+// reply: push, PR and merge are recorded as done without acting, and close runs.
+func TestOwnerShipOfAnAlreadyMergedBranchClosesTheIssues(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.mixed()
+	commit := o.state().Commit
+	o.forge.remoteHead = ""
+	o.forge.prs = []github.DeliveryPR{{Number: 44, Head: commit, Branch: "lf/497-validate", Target: "main", State: "closed", Merged: true, MergeSHA: strings.Repeat("d", 40)}}
+	o.reply(o.owner, o.ship())
+	nodes := o.toOwner()
+	if o.final() != "delivered" {
+		t.Fatalf("final %s path %s notice %q", o.final(), joinNodes(nodes), o.notice())
+	}
+	st := o.state()
+	for _, e := range []*store.ValidateEffect{st.Effects.Push, st.Effects.PR, st.Effects.Merge, st.Effects.Close} {
+		if !effectDone(e) {
+			t.Fatalf("effect %+v", e)
+		}
+	}
+	if decodeEffectResult(st.Effects.PR).Number != 44 || o.effect(store.EffectMerge, "44@"+commit).State != store.EffectSucceeded {
+		t.Fatalf("pr %+v merge %+v", st.Effects.PR, st.Effects.Merge)
+	}
+	if len(o.pushSeen) != 0 || len(o.forge.prCreates) != 0 || len(o.forge.merges) != 0 || strings.Join(o.forge.issueCloses, ",") != "520,497" {
+		t.Fatalf("pushes %v prs %v merges %v closes %v", o.pushSeen, o.forge.prCreates, o.forge.merges, o.forge.issueCloses)
 	}
 }
 
