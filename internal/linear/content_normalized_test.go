@@ -154,3 +154,23 @@ func TestContentEquivalentStoryTableRowWithCellPipe(t *testing.T) {
 		t.Fatal("a changed table cell must not be equivalent")
 	}
 }
+
+func TestContentEquivalentStoryTableRowWithEscapedInlineMarker(t *testing.T) {
+	head := "<!-- lf:plan-story parent=1 key=story-001 -->\n<!-- lf:plan-request digest=" + strings.Repeat("a", 64) + " -->\n"
+	row := "| Element | Contract |\n| -- | -- |\n| Shared styles | Generic names like %s, checkbox-label and btn-success showed no other users. |"
+	for _, tc := range []struct{ written, readback string }{
+		{"wizard-*", `wizard-\*`},
+		{"wizard_x", `wizard\_x`},
+		{"`wizard`", "\\`wizard\\`"},
+		{"[wizard]", `\[wizard\]`},
+	} {
+		expected := head + strings.Replace(row, "%s", tc.written, 1)
+		observed := head + strings.Replace(row, "%s", tc.readback, 1)
+		if !ContentEquivalent(expected, observed) {
+			t.Fatalf("Linear's escaped %q must stay equivalent:\n%s\n---\n%s", tc.written, comparableContent(expected), comparableContent(observed))
+		}
+		if ContentEquivalent(expected, head+strings.Replace(row, "%s", "wizard-x", 1)) {
+			t.Fatalf("a changed table cell must not be equivalent to %q", tc.written)
+		}
+	}
+}

@@ -580,9 +580,11 @@ func decodePunctuationEntities(s string) string {
 // storyTableRowText compares a factory story table row by its text. Linear
 // stores an escaped cell pipe (\| or &#124;) as a bare "|", which changes the
 // cell count, so rows are reduced to their cell texts in order, with rule cells
-// canonical and the renderer's punctuation entities decoded.
+// canonical and the renderer's punctuation entities decoded. Linear also
+// escapes literal inline markers in cells (\_, \*, \`, \[, \]), so those
+// escapes compare equal to the bare marker the factory wrote.
 func storyTableRowText(line string) string {
-	line = strings.NewReplacer(`\|`, "|", `\_`, "_").Replace(decodePunctuationEntities(line))
+	line = strings.NewReplacer(`\|`, "|", `\_`, "_", `\*`, "*", "\\`", "`", `\[`, "[", `\]`, "]").Replace(decodePunctuationEntities(line))
 	var cells []string
 	for _, cell := range strings.Split(line, "|") {
 		cell = strings.Join(strings.Fields(cell), " ")

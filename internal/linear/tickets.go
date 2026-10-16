@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/ticket"
@@ -706,12 +707,14 @@ func (c *Client) logContentDifference(ctx context.Context, ref ticket.Ref, title
 	if line < len(right) {
 		b = right[line]
 	}
+	// Redact whole lines first so a window never splits a secret, then show
+	// a bounded window around the first differing byte.
 	redactor := redact.New(redact.Options{Token: c.token})
-	safeA, err := redactor.Apply(ctx, a, 256)
+	safeA, err := redactor.Apply(ctx, a, 64<<10)
 	if err != nil {
 		return
 	}
-	safeB, err := redactor.Apply(ctx, b, 256)
+	safeB, err := redactor.Apply(ctx, b, 64<<10)
 	if err != nil {
 		return
 	}
@@ -719,9 +722,35 @@ func (c *Client) logContentDifference(ctx context.Context, ref ticket.Ref, title
 	if err != nil {
 		return
 	}
+	ra, rb := safeA.String(), safeB.String()
+	column := 0
+	for column < len(ra) && column < len(rb) && ra[column] == rb[column] {
+		column++
+	}
+	for column > 0 && column < len(ra) && !utf8.RuneStart(ra[column]) {
+		column--
+	}
+	for column > 0 && column < len(rb) && !utf8.RuneStart(rb[column]) {
+		column--
+	}
+	wa, wb := differenceWindow(ra, column), differenceWindow(rb, column)
 	if l := requestLogger.Load(); l != nil {
-		l.WarnContext(ctx, "linear content readback differs", "ticket", safeID.String(), "field", field, "line", line+1, "expected", safeA.String(), "observed", safeB.String())
+		l.WarnContext(ctx, "linear content readback differs", "ticket", safeID.String(), "field", field, "line", line+1, "column", column+1, "expected", wa, "observed", wb)
 		return
 	}
-	slog.DebugContext(ctx, "linear content readback differs", "ticket", safeID.String(), "field", field, "line", line+1, "expected", safeA.String(), "observed", safeB.String())
+	slog.DebugContext(ctx, "linear content readback differs", "ticket", safeID.String(), "field", field, "line", line+1, "column", column+1, "expected", wa, "observed", wb)
+}
+
+// differenceWindow returns at most 256 bytes of s around offset, about 80
+// before and 160 after, cut at UTF-8 rune starts.
+func differenceWindow(s string, offset int) string {
+	start := max(0, min(offset, len(s))-80)
+	for start > 0 && !utf8.RuneStart(s[start]) {
+		start--
+	}
+	end := min(len(s), start+256, max(offset, start)+160)
+	for end < len(s) && end > start && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[start:end]
 }
