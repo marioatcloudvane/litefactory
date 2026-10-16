@@ -670,3 +670,30 @@ func TestDoctorSyncDocsConflictResolvesOrNamesCategory(t *testing.T) {
 		})
 	}
 }
+
+func TestDoctorSyncSnapshotRefusalNamesPathsBeforeBackup(t *testing.T) {
+	repo := gittest.New(t)
+	w := newSyncWorktree(t, repo, 786, "snapshot refusal")
+	// Add/add has no ancestor baseline and is deliberately unsupported by
+	// region validation. Preparation must preserve its known path.
+	commitInSyncDir(t, repo, w.Path(), "unsupported.txt", "branch addition\n")
+	repo.WriteFile("unsupported.txt", "base addition\n")
+	repo.Commit("base addition")
+	repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+	repo.Git("fetch", "--quiet", "origin")
+	head := repo.GitIn(w.Path(), "rev-parse", "HEAD")
+	base := repo.Git("rev-parse", "origin/"+gittest.DefaultBranch)
+	backups := 0
+	advisor := &doctorSyncAdvisor{}
+	result, err := SyncDoctorBranch(t.Context(), DoctorSyncOptions{Worktree: w, CloneGate: newTestGate(), CloneRoot: w.ClonePath(), Branch: w.Branch(), BeforeHead: head, Base: "origin/" + gittest.DefaultBranch, BaseHead: base, Author: syncTestAuthor, Advisor: advisor, RecordBackup: func(context.Context, string) error { backups++; return nil }})
+	var refusal *doctor.RepairConflictError
+	if !errors.As(err, &refusal) || !errors.Is(err, doctor.ErrRepairConfirmationFailed) || len(refusal.Paths) != 1 || refusal.Paths[0] != "unsupported.txt" {
+		t.Fatalf("preparation lost conflict category/paths: %v", err)
+	}
+	if backups != 0 || advisor.calls != 0 || result.BackupHead != "" || result.Rechecked || repo.GitIn(w.Path(), "rev-parse", "HEAD") != head {
+		t.Fatalf("preparation fabricated progress or changed head: %+v backups=%d advisor=%d", result, backups, advisor.calls)
+	}
+	if changes, err := w.Status(t.Context()); err != nil || len(changes) != 0 {
+		t.Fatalf("preparation changed worktree: %v %v", changes, err)
+	}
+}

@@ -20,6 +20,9 @@ import (
 // WorkflowPolicy supplies domain contracts to the shared, admitted mechanisms.
 // It is factory-owned and frozen before dispatch; graph content cannot set it.
 type WorkflowPolicy struct {
+	// BeforeAgent verifies a mode-specific durable handoff before source preparation.
+	BeforeAgent func(context.Context, store.GraphInstance) error
+
 	// Handlers supplies a mode's own invocation preparation and node activities.
 	// It supplies no result format: every mode's application result travels the
 	// shared result route, judged by Decode, and Handlers only reads it back.

@@ -98,7 +98,7 @@ func preparePlanHandoff(ctx context.Context, o Options, ref naming.Ref, mode str
 			if issue.ID != story.IssueID {
 				return fmt.Errorf("story %s identity changed", story.Key)
 			}
-			fmt.Fprintf(&contextText, "Story %s; state %s (include completed stories with intent unchanged as read-only dependencies; new scope requires a successor); issue #%d; database ID %d; expected_base %s\nTitle: %s\n%s\n\n", story.Key, story.State, issue.Number, issue.ID, planbrief.StoryHash(issue.Title, issue.Body), issue.Title, issue.Body)
+			fmt.Fprintf(&contextText, "Story %s; state %s (include completed stories with intent unchanged as read-only dependencies; new scope requires a successor); issue %s; database ID %d; expected_base %s\nTitle: %s\n%s\n\n", story.Key, story.State, displayIssue(ref, issue).Link(), issue.ID, planbrief.StoryHash(issue.Title, issue.Body), issue.Title, issue.Body)
 			if contextText.Len() > planbrief.MaxProposalBytes {
 				return fmt.Errorf("managed Plan context exceeds supported size")
 			}
@@ -224,11 +224,11 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 	if renderer == nil {
 		return fail(fmt.Errorf("complete story renderer unavailable"))
 	}
-	bot, err := o.DB.GetIdentity(ctx, prep.ref.Forge, store.RoleBot)
+	bot, err := ticketPublisherID(ctx, o, forge, prep.session.ID, prep.ref)
 	if err != nil {
 		return fail(err)
 	}
-	publication := PublicationOptions{DB: o.DB, Forge: forge, Renderer: renderer, Parent: prep.ref, Generation: prep.promptInput.PlanGeneration, BotID: bot.UserID}
+	publication := PublicationOptions{DB: o.DB, Forge: forge, Renderer: renderer, Parent: prep.ref, Generation: prep.promptInput.PlanGeneration, BotID: bot}
 	if prep.typedPlan != nil {
 		publication.TypedContent = prep.typedPlan.content
 		publication.TypedScope = prep.typedPlan.scope

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+
+	"github.com/cloudvane/litefactory/internal/config"
 )
 
 // DeliveryPlugin is the plugin name a delivered bundle is rendered under, and
@@ -18,12 +20,13 @@ const DeliveryPlugin = "litefactory-workflow"
 // Delivery names a retained immutable instruction bundle. It contains no
 // credentials and no vendor-specific representation crossing this boundary.
 type Delivery struct {
-	MainRole  string   `json:"main_role,omitempty"`
-	MainModel string   `json:"main_model,omitempty"`
-	Root      string   `json:"root"`
-	Identity  string   `json:"identity"`
-	Roles     []string `json:"roles"`
-	Skills    []string `json:"skills"`
+	MainThinking config.Thinking `json:"main_thinking,omitempty"`
+	MainRole     string          `json:"main_role,omitempty"`
+	MainModel    string          `json:"main_model,omitempty"`
+	Root         string          `json:"root"`
+	Identity     string          `json:"identity"`
+	Roles        []string        `json:"roles"`
+	Skills       []string        `json:"skills"`
 	// RequiredSkills is the captured main role's selected native skill closure.
 	RequiredSkills []string `json:"required_skills,omitempty"`
 	// RenderedFiles hashes native output bytes, rather than captured source bytes.

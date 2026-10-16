@@ -17,6 +17,7 @@ func Validate(p *Profile, registry Registry) error {
 		return errors.New("graph profile is nil")
 	}
 	var faults []error
+	faults = append(faults, ValidateJudgeGraph(p))
 	if strings.TrimSpace(p.Team) == "" {
 		faults = append(faults, errors.New("graph team is empty"))
 	}

@@ -290,8 +290,18 @@ func (db *DB) claimProjectAuthority(ctx context.Context, c AuthorityClaim, codeA
 			if e != nil {
 				return e
 			}
-			if c.Actor.Validate() != nil || c.Actor.Provider != code.Provider || c.Actor.Origin != code.Origin {
+			if c.Actor.Validate() != nil {
 				return ErrApproverUnauthorized
+			}
+			if c.Actor.Provider != code.Provider || c.Actor.Origin != code.Origin {
+				// The verified owner of the task's own ticket connection, when
+				// that connection is not on the code provider (#922).
+				if c.SessionID <= 0 || c.Kind == "worker" || a.ID == 0 || !a.Actor.Equal(c.Actor) || a.Actor.Provider != connection.Provider || a.Actor.Origin != connection.Origin || connection.Provider == code.Provider {
+					return ErrApproverUnauthorized
+				}
+				if a.RequireFresh && (c.CreatedAt.IsZero() || !c.CreatedAt.After(a.ActivatedAt)) {
+					return ErrApproverReplay
+				}
 			}
 		} else if !a.Actor.Equal(c.Actor) {
 			return ErrApproverUnauthorized

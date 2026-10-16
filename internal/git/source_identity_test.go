@@ -2,8 +2,12 @@ package git_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/git"
@@ -115,7 +119,117 @@ func TestSourceIdentityIgnoredInputsAndSymlinks(t *testing.T) {
 	if e = os.Symlink("tracked.txt", filepath.Join(w.Path(), "link")); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = w.ObserveSource(t.Context(), opts); e == nil {
-		t.Fatal("symlink source certified")
+	if _, e = w.ObserveSource(t.Context(), opts); e != nil {
+		t.Fatal(e)
+	}
+}
+
+func TestSourceIdentitySymlinkTargets(t *testing.T) {
+	repo, w := sourceWorktree(t)
+	if err := os.Mkdir(filepath.Join(w.Path(), "nested"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"link": "nested/chain", "nested/chain": "../tracked.txt"} {
+		if err := os.Symlink(target, filepath.Join(w.Path(), name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dirty, err := w.ObserveSource(t.Context(), git.SourceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range dirty.Entries {
+		if entry.Path != "link" && entry.Path != "nested/chain" {
+			continue
+		}
+		target := "nested/chain"
+		if entry.Path == "nested/chain" {
+			target = "../tracked.txt"
+		}
+		sum := sha256.Sum256([]byte(target))
+		if entry.Mode != "120000" || entry.Target != target || entry.SHA256 != hex.EncodeToString(sum[:]) {
+			t.Fatalf("entry %+v", entry)
+		}
+	}
+	repo.GitIn(w.Path(), "add", "--all")
+	repo.GitIn(w.Path(), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "links")
+	saved, err := w.ObserveSource(t.Context(), git.SourceOptions{})
+	if err != nil || saved.Digest != dirty.Digest {
+		t.Fatalf("saved %+v: %v", saved, err)
+	}
+	if err := os.Remove(filepath.Join(w.Path(), "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("tracked.txt", filepath.Join(w.Path(), "link")); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := w.ObserveSource(t.Context(), git.SourceOptions{})
+	if err != nil || changed.Digest == saved.Digest {
+		t.Fatalf("target identity unchanged: %v", err)
+	}
+}
+
+func TestSourceIdentityRecordsUnresolvedSymlinkTargets(t *testing.T) {
+	for _, tc := range []struct{ name, target, intermediate string }{
+		{"absolute", "/etc/passwd", ""},
+		{"escape", "../outside", ""},
+		{"chain", "hop", "../outside"},
+		{"directory", "hop/file", "../outside"},
+		{"absolute chain", "hop", "/etc"},
+		{"dangling", "missing", ""},
+		{"cycle", "link", ""},
+		{"nondirectory", "tracked.txt/file", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, w := sourceWorktree(t)
+			if tc.intermediate != "" {
+				if err := os.Symlink(tc.intermediate, filepath.Join(w.Path(), "hop")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(tc.target, filepath.Join(w.Path(), "link")); err != nil {
+				t.Fatal(err)
+			}
+			got, err := w.ObserveSource(t.Context(), git.SourceOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]string{"link": tc.target}
+			if tc.intermediate != "" {
+				want["hop"] = tc.intermediate
+			}
+			for _, entry := range got.Entries {
+				target, ok := want[entry.Path]
+				if !ok {
+					continue
+				}
+				delete(want, entry.Path)
+				sum := sha256.Sum256([]byte(target))
+				if entry.Mode != "120000" || entry.Target != target || entry.SHA256 != hex.EncodeToString(sum[:]) {
+					t.Fatalf("entry %+v", entry)
+				}
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing symlink entries %v in %+v", want, got.Entries)
+			}
+		})
+	}
+}
+
+func TestSourceIdentityRefusesSymlinkSourceParent(t *testing.T) {
+	_, w := sourceWorktree(t)
+	if err := os.Mkdir(filepath.Join(w.Path(), "real"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(w.Path(), "real", "file"), []byte("input\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(w.Path(), "alias")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := w.ObserveSource(t.Context(), git.SourceOptions{IgnoredInputs: []string{"alias/file"}})
+	var refusal *git.SourceSymlinkError
+	if !errors.As(err, &refusal) || refusal.Path != "alias/file" || !strings.Contains(refusal.Reason, "symlink source parent") {
+		t.Fatalf("got %v", err)
 	}
 }

@@ -25,7 +25,7 @@ var planTableRule = regexp.MustCompile(`^:?-+:?$`)
 // hidden semantic links. The caller must verify remote parent, issue identity,
 // provenance, open state and expected observed revision before retaining it.
 // Unrecognized owner text returns an error and must remain untouched on the issue.
-func ReconcilePlanDraftEdit(prior PlanDraft, parentNumber, ordinal int64, title, body string, scope ContentScope) (PlanDraftEdit, error) {
+func ReconcilePlanDraftEdit(prior PlanDraft, parentNumber, ordinal int64, title, body string, scope ContentScope, parentKey ...string) (PlanDraftEdit, error) {
 	var out PlanDraftEdit
 	if parentNumber < 1 || ordinal < 1 || len(body) > MaxStoryBodyBytes || len(title) > 256 {
 		return out, errors.New("pending: invalid Plan edit bounds or identity")
@@ -34,6 +34,12 @@ func ReconcilePlanDraftEdit(prior PlanDraft, parentNumber, ordinal int64, title,
 		return out, errors.New("pending: draft shortened; reply with changes")
 	}
 	prefix := fmt.Sprintf("%d-%03d: ", parentNumber, ordinal)
+	if len(parentKey) > 0 {
+		displayPrefix := fmt.Sprintf("%s-%03d: ", parentKey[0], ordinal)
+		if strings.HasPrefix(title, displayPrefix) {
+			prefix = displayPrefix
+		}
+	}
 	if !strings.HasPrefix(title, prefix) {
 		return out, errors.New("pending: Plan title changed its reserved identity prefix")
 	}

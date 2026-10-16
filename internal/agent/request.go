@@ -51,6 +51,9 @@ func (p RunPath) Resuming() bool { return p == PathResume }
 // Request is one coding-agent-tool run: which task, which run number, where,
 // and what to say.
 type Request struct {
+	// Model and Thinking are resolved native invocation overrides.
+	Model    string
+	Thinking config.Thinking
 	// StackProfile is the admitted retained configuration shared by every consumer.
 	StackProfile *config.ResolvedStackProfile
 	// StackCaptureDigest links ordinary run metadata to its retained workflow artifact.

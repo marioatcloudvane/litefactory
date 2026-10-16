@@ -66,7 +66,7 @@ func (c Candidate) Validate(o Outcome) error {
 	cited := make(map[string]bool)
 	var failures []error
 	for _, claim := range c.Claims {
-		if strings.TrimSpace(claim.Text) == "" || len(claim.Text) > MaxClaimBytes || !utf8.ValidString(claim.Text) || strings.ContainsAny(claim.Text, "\r\n/\\`<>[]@\x00") || strings.Contains(strings.ToLower(claim.Text), "www.") || strings.Contains(claim.Text, "://") || protectedProse.MatchString(claim.Text) {
+		if strings.TrimSpace(claim.Text) == "" || len(claim.Text) > MaxClaimBytes || !utf8.ValidString(claim.Text) || strings.ContainsAny(claim.Text, "\r\n/\\`<>[]@\x00") || strings.Contains(strings.ToLower(claim.Text), "www.") || strings.Contains(claim.Text, "://") || protectedClaimProse(claim.Text) {
 			failures = append(failures, errors.New("presentation: invalid claim text"))
 		}
 		if thirdPerson.MatchString(claim.Text) {
@@ -107,6 +107,29 @@ func (c Candidate) Validate(o Outcome) error {
 		}
 	}
 	return errors.Join(failures...)
+}
+
+// protectedClaimProse exempts hash-like digit runs only within decimal tokens.
+// Source span selection still uses protectedProse without this exemption.
+func protectedClaimProse(text string) bool {
+	matches := protectedProse.FindAllStringIndex(text, -1)
+	if len(matches) == 0 {
+		return false
+	}
+	numbers := numberToken.FindAllStringIndex(text, -1)
+	for _, match := range matches {
+		decimal := false
+		for _, number := range numbers {
+			if number[0] <= match[0] && match[1] <= number[1] && strings.Contains(text[number[0]:number[1]], ".") {
+				decimal = true
+				break
+			}
+		}
+		if !decimal {
+			return true
+		}
+	}
+	return false
 }
 
 // DecodeCheck requires exactly one supported finding for each claim. A partial,

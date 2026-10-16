@@ -40,6 +40,14 @@ const implementTaskParent = "github:acme/acme-api#900"
 func assembledImplementFixture(t *testing.T, runner Runner) (*fixture, *fakeForge, Request) {
 	t.Helper()
 	f := newFixture(t, runner)
+	// Existing runtime regressions exercise supported pinned worker graphs,
+	// including their automatic preparation and conflict-resolution behavior.
+	f.opts.WorkflowSource = func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		if workflow != agent.WorkflowImplement {
+			return fixtureWorkflowSource(ctx, repo, workflow, specs)
+		}
+		return fixtureInstalled(teamsource.CaptureWorkflow(ctx, os.DirFS(filepath.Join("..", "..", "teams", "go-development", "v1.0.2", "implement")), "implement.dot", "go-development", agent.ModeImplement, specs))
+	}
 	authority, err := NewAttemptAuthority(t.Context(), f.db)
 	mustProgress(t, err)
 	t.Cleanup(func() { mustProgress(t, authority.Close(context.WithoutCancel(t.Context()))) })
@@ -52,6 +60,17 @@ func assembledImplementFixture(t *testing.T, runner Runner) (*fixture, *fakeForg
 	f.opts.ResearchReporter = newReporter(t, f, forge, nil)
 	f.opts.SubIssueCreator = forge.client
 	return f, forge, f.request()
+}
+
+// enableWorkerSyncFixture selects the editable canonical gate rather than the
+// released graph used by compatibility fixtures.
+func enableWorkerSyncFixture(f *fixture) {
+	f.opts.WorkflowSource = func(ctx context.Context, repo store.Repo, workflow agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		if workflow != agent.WorkflowImplement {
+			return fixtureWorkflowSource(ctx, repo, workflow, specs)
+		}
+		return fixtureInstalled(teamsource.CaptureImplement(ctx, specs))
+	}
 }
 
 // seedImplementStory makes the fixture's task the worker of a running story:
@@ -1015,6 +1034,8 @@ func mergeImplementStories(t *testing.T, f *fixture, parent string, commits map[
 	}
 	mustProgress(t, f.db.EnsureImplementStories(ctx, parent, 1, seeds, implementClock))
 	for i, key := range keys {
+		commits[key] = advanceRemote(t, f, "lf/123-feature", key+".txt", "round one\n")
+		f.repo.Git("push", "--quiet", "origin", commits[key]+":refs/heads/lf/"+key)
 		at := implementClock.Add(time.Duration(i+1) * time.Minute)
 		for _, move := range [][2]string{{store.ImplementWaiting, store.ImplementRunning}, {store.ImplementRunning, store.ImplementDone}, {store.ImplementDone, store.ImplementMerged}} {
 			row, err := f.db.GetImplementStory(ctx, parent, 1, key)
@@ -1293,7 +1314,8 @@ func TestImplementCoordinatorMergesMainAgainBeforeReportingDone(t *testing.T) {
 		row := implementStatesOf(t, f, parent)["story-001"]
 		in := store.ImplementTransition{Parent: parent, Generation: 1, Key: "story-001", From: move[0], To: move[1], ExpectedRevision: row.Revision, At: implementClock}
 		if move[1] == store.ImplementMerged {
-			in.MergeCommit = "1111111111aaaaaaaaaa"
+			in.MergeCommit = f.repo.Git("rev-parse", "origin/lf/123-feature")
+			f.repo.Git("push", "--quiet", "origin", in.MergeCommit+":refs/heads/"+row.Branch)
 		}
 		_, err := f.db.TransitionImplementStory(t.Context(), in)
 		mustProgress(t, err)
@@ -1309,8 +1331,8 @@ func TestImplementCoordinatorMergesMainAgainBeforeReportingDone(t *testing.T) {
 	if !remoteHolds(t, f, "lf/123-feature", fix) {
 		t.Fatal("the reported branch does not hold main's fix")
 	}
-	if replies := implementCompletionReplies(forge); len(replies) != 1 {
-		t.Fatalf("one completion reply: %q", replies)
+	if replies := implementCompletionReplies(forge); len(replies) != 1 || !strings.Contains(replies[0], "now at commit `"+f.repo.Git("rev-parse", "origin/lf/123-feature")+"`") {
+		t.Fatalf("one completion reply naming the final synced head: %q", replies)
 	}
 }
 
@@ -1445,7 +1467,8 @@ func TestImplementCoordinatorResolvesAConflictWithMainBeforeReportingDone(t *tes
 		row := implementStatesOf(t, f, parent)["story-001"]
 		in := store.ImplementTransition{Parent: parent, Generation: 1, Key: "story-001", From: move[0], To: move[1], ExpectedRevision: row.Revision, At: implementClock}
 		if move[1] == store.ImplementMerged {
-			in.MergeCommit = "1111111111aaaaaaaaaa"
+			in.MergeCommit = f.repo.Git("rev-parse", "origin/lf/123-feature")
+			f.repo.Git("push", "--quiet", "origin", in.MergeCommit+":refs/heads/"+row.Branch)
 		}
 		_, err := f.db.TransitionImplementStory(t.Context(), in)
 		mustProgress(t, err)
@@ -1466,7 +1489,139 @@ func TestImplementCoordinatorResolvesAConflictWithMainBeforeReportingDone(t *tes
 	if resolves != 1 || !remoteHolds(t, f, "lf/123-feature", mainTip) {
 		t.Fatalf("the resolver ran once (%d) and its merge reached the feature branch", resolves)
 	}
-	if replies := implementCompletionReplies(forge); len(replies) != 1 {
-		t.Fatalf("one completion reply: %q", replies)
+	if replies := implementCompletionReplies(forge); len(replies) != 1 || !strings.Contains(replies[0], "now at commit `"+f.repo.Git("rev-parse", "origin/lf/123-feature")+"`") {
+		t.Fatalf("one completion reply naming the final synced head: %q", replies)
+	}
+}
+
+func TestImplementCoordinatorRepairsStaleMergedLedger(t *testing.T) {
+	f, forge, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("a clean stale merge must not launch a worker")
+		return nil, nil
+	}))
+	parent := seedImplementParent(t, f,
+		store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001},
+		store.ManagedStory{Key: "story-002", IssueNumber: 202, IssueID: 7002})
+	commits := map[string]string{}
+	mergeImplementStories(t, f, parent, commits, "story-001", "story-002")
+	old := implementStatesOf(t, f, parent)
+	tips := map[string]string{}
+	for _, key := range []string{"story-001", "story-002"} {
+		tips[key] = advanceRemote(t, f, "lf/"+key, key+".txt", "round two\n")
+	}
+	// Completed stories disappear from bind's unfinished set, but their stored
+	// branch identity must still be reconciled and reported.
+	managed, err := f.db.ListManagedStories(t.Context(), parent, 1)
+	mustProgress(t, err)
+	for _, story := range managed {
+		previous := story.State
+		story.State = "completed"
+		mustProgress(t, f.db.CompareManagedStory(t.Context(), story, previous))
+	}
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	replies := implementCompletionReplies(forge)
+	if len(replies) != 1 {
+		t.Fatalf("completion replies: %q", replies)
+	}
+	head := f.repo.Git("rev-parse", "origin/lf/123-feature")
+	if !strings.Contains(replies[0], "now at commit `"+head+"`") {
+		t.Fatalf("wrong completion head: %s", replies[0])
+	}
+	rows := implementStatesOf(t, f, parent)
+	for key, tip := range tips {
+		row := rows[key]
+		if f.repo.Git("merge-base", tip, head) != tip || row.State != store.ImplementMerged || row.MergeCommit == old[key].MergeCommit || row.Revision != old[key].Revision+2 || row.WorkerSession != old[key].WorkerSession {
+			t.Fatalf("story work or ledger not reconciled: %+v", row)
+		}
+	}
+	rt := &implementRuntime{opts: f.opts, req: req, parentRef: mustParseRef(t, parent), generation: 1}
+	bindings, err := rt.bindings()
+	mustProgress(t, err)
+	for range 2 {
+		res, err := (ImplementMergeActivity{b: bindings}).Execute(t.Context(), f.opts, ActivityRequest{Mode: "implement"})
+		if err != nil || res.Outcome != "none" {
+			t.Fatalf("unchanged merge: %+v %v", res, err)
+		}
+	}
+	for key, row := range implementStatesOf(t, f, parent) {
+		if row != rows[key] {
+			t.Fatalf("unchanged refs revised ledger: %+v", row)
+		}
+	}
+	if f.repo.Git("rev-parse", "origin/lf/123-feature") != head {
+		t.Fatal("unchanged refs produced another merge")
+	}
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	// A later push after merge draining must suppress a completion replay.
+	advanceRemote(t, f, "lf/story-002", "late.txt", "late work\n")
+	before := len(forge.all())
+	if _, err := rt.reportDone(t.Context(), f.opts, ActivityRequest{InstanceID: instance.ID, Node: "report_done", Attrs: map[string]string{"lf_source": "merge"}}); err == nil {
+		t.Fatal("completion accepted a story head absent from the feature")
+	}
+	if len(forge.all()) != before {
+		t.Fatal("drift posted a false completion")
+	}
+}
+
+func TestImplementCoordinatorFinalVerificationAfterDrain(t *testing.T) {
+	for _, scenario := range []string{"story advanced", "story missing", "fetch failed", "base advanced"} {
+		t.Run(scenario, func(t *testing.T) {
+			f, forge, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+				t.Error("coordinator must not launch a worker")
+				return nil, nil
+			}))
+			parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+			mergeImplementStories(t, f, parent, map[string]string{}, "story-001")
+			before := implementStatesOf(t, f, parent)["story-001"]
+			changed := make(chan string, 1)
+			forge.afterPost = func() {
+				instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+				if err != nil {
+					return
+				}
+				attempt, err := f.db.LatestGraphNodeAttempt(t.Context(), instance.ID, "handoff")
+				if err != nil || attempt.Status != store.GraphRunning {
+					return
+				}
+				// The handoff runs after merge returned none and before sync_done.
+				forge.mu.Lock()
+				forge.afterPost = nil
+				forge.mu.Unlock()
+				tip := ""
+				switch scenario {
+				case "story advanced":
+					tip = advanceRemote(t, f, "lf/story-001", "late.txt", "late work\n")
+				case "story missing":
+					f.repo.Git("push", "--quiet", "origin", "--delete", "lf/story-001")
+				case "fetch failed":
+					f.repo.Git("remote", "set-url", "origin", filepath.Join(t.TempDir(), "absent.git"))
+				case "base advanced":
+					tip = advanceRemote(t, f, gittest.DefaultBranch, "base.txt", "late base fix\n")
+				}
+				changed <- tip
+			}
+			_, runErr := Execute(t.Context(), f.opts, req)
+			var tip string
+			select {
+			case tip = <-changed:
+			default:
+				t.Fatal("fixture did not change refs after merge draining")
+			}
+			replies := implementCompletionReplies(forge)
+			if scenario == "base advanced" {
+				head := f.repo.Git("rev-parse", "origin/lf/123-feature")
+				if runErr != nil || len(replies) != 1 || !strings.Contains(replies[0], "now at commit `"+head+"`") || head == before.MergeCommit || f.repo.Git("merge-base", tip, head) != tip || f.repo.Git("merge-base", before.MergeCommit, head) != before.MergeCommit {
+					t.Fatalf("final sync was not reflected in completion: %q %v", replies, runErr)
+				}
+			} else if len(replies) != 0 {
+				t.Fatalf("uncertain or stale Git evidence posted completion: %q", replies)
+			}
+			if row := implementStatesOf(t, f, parent)["story-001"]; row != before {
+				t.Fatalf("reporting changed ledger: %+v", row)
+			}
+		})
 	}
 }

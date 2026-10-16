@@ -8,6 +8,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/commandtext"
 )
 
 // PlanState is retained factory policy state, never an agent authority payload.
@@ -289,6 +291,24 @@ func (s *PlanState) StoryNextStep(key string) (stage string, create, ok bool) {
 	if slices.Contains(s.EligiblePlanStories(), key) {
 		return item.Stage, false, true
 	}
+	// A story that lost an earlier stage's approval without returning to that
+	// stage, and has no review waiting, re-offers the earliest unapproved stage
+	// so an owner reply can move it again instead of leaving it stranded.
+	if item.Wait != nil {
+		return "", false, false
+	}
+	for _, up := range planStages[:max(0, slices.Index(planStages, item.Stage))] {
+		ref, err := s.ReviewRevision(key, up)
+		if err != nil {
+			return "", false, false
+		}
+		if item.Approvals[up] != ref {
+			if !s.UpstreamApproved(key, up) {
+				return "", false, false
+			}
+			return up, false, true
+		}
+	}
 	return "", false, false
 }
 
@@ -369,7 +389,7 @@ func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
 		return false, errors.New("plan reply dependencies or shared decisions changed")
 	}
 	command := "/approve-plan " + r.Key + " " + r.Stage + " " + r.Candidate
-	if w.Kind != "review" || strings.TrimSpace(r.Body) != command {
+	if w.Kind != "review" || strings.TrimSpace(commandtext.Normalize(r.Body)) != command {
 		s.ConsumedReplies = append(s.ConsumedReplies, r.ID)
 		item.Wait = nil
 		return false, nil
@@ -402,7 +422,7 @@ func (s *PlanState) ConfirmRetirement(r PlanOwnerReply) error {
 		return err
 	}
 	w := item.Wait
-	if w == nil || w.Kind != "retire" || r.OwnerID < 1 || r.OwnerID != r.ActorID || r.ID < 1 || slices.Contains(s.ConsumedReplies, r.ID) || w.ID != r.WaitID || w.IssueID != r.IssueID || w.Candidate != r.Candidate || w.Stage != r.Stage || item.Candidate != r.Candidate || strings.TrimSpace(r.Body) != "/retire-plan "+r.Key+" "+r.Candidate {
+	if w == nil || w.Kind != "retire" || r.OwnerID < 1 || r.OwnerID != r.ActorID || r.ID < 1 || slices.Contains(s.ConsumedReplies, r.ID) || w.ID != r.WaitID || w.IssueID != r.IssueID || w.Candidate != r.Candidate || w.Stage != r.Stage || item.Candidate != r.Candidate || strings.TrimSpace(commandtext.Normalize(r.Body)) != "/retire-plan "+r.Key+" "+r.Candidate {
 		return errors.New("retirement requires exact current owner confirmation")
 	}
 	ref, err := s.ReviewRevision(item.Key, item.Stage)
@@ -505,7 +525,7 @@ func (s *PlanState) ApproveAssembled(ownerID, actorID, replyID int64, body strin
 		return err
 	}
 	ref := s.PlanSetRevision()
-	if s.AssembledWait != ref || strings.TrimSpace(body) != "/approve-plan-set "+ref {
+	if s.AssembledWait != ref || strings.TrimSpace(commandtext.Normalize(body)) != "/approve-plan-set "+ref {
 		return ErrPlanAssembledStale
 	}
 	s.AssembledApproval = ref

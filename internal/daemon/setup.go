@@ -23,6 +23,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -358,6 +359,21 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		}
 		chatOpts.ReplyModel = &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}
 		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
+		{
+			options := &messaging.ConversationOptions{Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string)}
+			for kind, runner := range runners {
+				if native, ok := runner.(messaging.ConversationProvider); ok {
+					options.Providers[string(kind)] = native
+				}
+				if model, ok := s.Config.Tiers.ResolveModel(config.Kind(kind), config.TierBalanced); ok {
+					options.Models[string(kind)] = model
+				}
+			}
+			for _, binding := range chatOpts.Settings.Conversations {
+				options.Bindings = append(options.Bindings, messaging.ConversationBinding{Channel: binding.ChannelID, Name: binding.Name, Provider: binding.Provider, Model: options.Models[binding.Provider]})
+			}
+			chatOpts.Conversations = options
+		}
 	}
 
 	// Built once and reused for both NewExecutor and NewConfirmApplier
@@ -403,6 +419,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
+	judgeProviders := make(map[agent.Kind]agent.JudgeRunner)
+	for kind, runner := range runners {
+		if native, ok := runner.(agent.JudgeRunner); ok {
+			judgeProviders[kind] = native
+		}
+	}
+	judgeService := &turn.JudgeService{DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
 	turnOpts := turn.Options{
 		ProjectApprovers: true,
 		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {
@@ -416,6 +439,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		WorkflowSource:           workflowSource,
 		ResearchDriver:           turn.ExecuteResearchWorkflow,
 		ResearchReporter:         reporter,
+		Judge:                    judgeService,
 		MCP:                      mcpRuntime,
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		StoryProgress:            storyProgress,
@@ -622,6 +646,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
 	daemon.doctorHostOptions = s.DoctorHost
+	daemon.judge = judgeService
 	diagnosisProviders := make(map[string]agent.DoctorRunner)
 	repairProviders := make(map[string]agent.DoctorRepairRunner)
 	for kind, runner := range runners {

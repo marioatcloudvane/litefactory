@@ -62,7 +62,10 @@ type archivePendingCheck struct {
 	query  string
 }
 
+const workflowJudgeArchiveReferenceSQL = `SELECT EXISTS(SELECT 1 FROM judge_requests WHERE caller_kind='workflow' AND (graph_instance_id IN ` + subInst + ` OR judge_node_attempt_id IN ` + subNodeAt + ` OR source_node_attempt_id IN ` + subNodeAt + `))`
+
 var archivePendingChecks = []archivePendingCheck{
+	{"workflow_judge_reference", workflowJudgeArchiveReferenceSQL},
 	{"graph_instance_unfinished", `SELECT EXISTS(SELECT 1 FROM graph_instances WHERE id IN ` + subInst + ` AND status='running') OR EXISTS(SELECT 1 FROM graph_node_attempts WHERE id IN ` + subNodeAt + ` AND status IN ('pending','running'))`},
 	{"graph_owner_wait_open", `SELECT EXISTS(SELECT 1 FROM graph_owner_waits WHERE instance_id IN ` + subInst + ` AND state IN ('waiting','claimed','allocated'))`},
 	{"graph_dispatch_open", `SELECT EXISTS(SELECT 1 FROM graph_dispatches WHERE (session_id IN ` + inFS + ` OR instance_id IN ` + subInst + `) AND status IN ('pending','reserved','running'))`},
@@ -83,7 +86,7 @@ func archivePendingArgs(f ArchiveFamily, now time.Time) []any {
 // archiveUndeletable names the pending checks that keep even a closed issue's
 // family: their rows cannot be deleted without a migration, so writing an
 // archive file would only end in a failed delete.
-var archiveUndeletable = map[string]bool{"bug_history_retained": true, "doctor_reference": true}
+var archiveUndeletable = map[string]bool{"bug_history_retained": true, "doctor_reference": true, "workflow_judge_reference": true}
 
 // archivePendingReason returns the first unfinished condition, "" when the
 // family is settled, and an error when any check cannot be read.
@@ -375,6 +378,13 @@ func recheckArchiveSettled(ctx context.Context, tx *sql.Tx, f ArchiveFamily, now
 		return fmt.Errorf("%w: active work", ErrArchiveNotSettled)
 	}
 	if f.IssueClosed {
+		var judgeReference bool
+		if err := tx.QueryRowContext(ctx, archiveCTE+workflowJudgeArchiveReferenceSQL, archiveNamed(f)...).Scan(&judgeReference); err != nil {
+			return fmt.Errorf("recheck workflow judge references: %w", err)
+		}
+		if judgeReference {
+			return fmt.Errorf("%w: workflow_judge_reference", ErrArchiveNotSettled)
+		}
 		return nil
 	}
 	var pending bool

@@ -2,7 +2,10 @@ package daemon_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/testutil"
 	"io"
 	"log/slog"
@@ -467,5 +470,106 @@ func TestNewInstanceIDIsFreshPerCall(t *testing.T) {
 	}
 	if first == "" {
 		t.Error("the instance id is empty")
+	}
+}
+
+func TestInterruptedGraphDispatchStartupAndTick(t *testing.T) {
+	for _, restart := range []bool{true, false} {
+		t.Run(map[bool]string{true: "restart", false: "periodic"}[restart], func(t *testing.T) {
+			f := newFixture(t)
+			f.plantCursor()
+			f.issueWithLabels("Interrupted graph stage", "Mode: Spike")
+			f.settle()
+			ctx := t.Context()
+			session := f.session()
+			specs, err := turn.SpikeSpecs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			def, err := teamsource.CaptureSpike(ctx, specs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = f.db.AdmitWorkflowPath(ctx, session.ID, "graph"); err != nil {
+				t.Fatal(err)
+			}
+			pin, err := f.db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: def.Profile.Team, Mode: "spike", ProfileVersion: def.Profile.ProfileVersion, Path: "spike.dot", Digest: def.Profile.Digest, TeamSnapshotDigest: def.Digest})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(def.Files)
+			if err != nil {
+				t.Fatal(err)
+			}
+			topology, err := graphexec.SemanticDigest(def.Profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			admitted, err := f.db.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{SessionID: session.ID, TriggerID: 22, DefinitionID: pin.ID, Mode: "spike", Start: def.Profile.Start, ContentDigest: def.Digest, TopologyDigest: topology, Files: raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+			at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			old, err := f.db.ParkGraphInstance(ctx, admitted.Instance.ID, admitted.Instance.CurrentNode, at, at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok, err := f.db.ReserveGraphDispatch(ctx, old.ID, at); err != nil || !ok {
+				t.Fatalf("reserve %v %v", ok, err)
+			}
+			orphan := f.allocateRunningRun(session, old.TriggerID())
+			if err = f.db.ClearSessionNeedsPoll(ctx, session.ID); err != nil {
+				t.Fatal(err)
+			}
+			if restart {
+				if ok, err := f.db.AcquireSessionLock(ctx, session.ID, "old-daemon"); err != nil || !ok {
+					t.Fatalf("lock %v %v", ok, err)
+				}
+				reconciled, err := f.daemon.Start(ctx)
+				if err != nil || reconciled.AbandonedRuns != 1 {
+					t.Fatalf("start %+v %v", reconciled, err)
+				}
+				next, err := f.db.LatestGraphDispatch(ctx, old.InstanceID)
+				if err != nil || next.ID == old.ID || next.Status != "pending" || next.LaunchID != old.LaunchID {
+					t.Fatalf("successor %+v %v", next, err)
+				}
+			} else {
+				if _, err = f.db.FinishRun(ctx, orphan.ID, store.RunOutcome{Status: store.RunFailed, Error: store.ReasonAbandoned}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			calls := 0
+			f.turns.fn = func(ctx context.Context, req turn.Request) (turn.Result, error) {
+				calls++
+				if !store.IsGraphTrigger(req.Trigger.CommentID) || req.Trigger.CommentID == old.TriggerID() {
+					t.Errorf("replayed old trigger %d", req.Trigger.CommentID)
+				}
+				out, err := f.ranSuccessfully(ctx, req)
+				if err == nil {
+					err = f.db.SetGraphInstanceStatus(ctx, old.InstanceID, store.GraphSucceeded, time.Time{}, time.Now().UTC())
+				}
+				out.ResearchGraph = true
+				return out, err
+			}
+			f.settle()
+			f.settle()
+			if calls != 1 {
+				t.Fatalf("ran %d times; logs %s", calls, f.logs)
+			}
+			instance, err := f.db.GetGraphInstance(ctx, old.InstanceID)
+			if err != nil || instance.Status != store.GraphSucceeded {
+				t.Fatalf("instance %+v %v", instance, err)
+			}
+			history, err := f.db.GetRun(ctx, orphan.ID)
+			if err != nil || history.Error != store.ReasonAbandoned {
+				t.Fatalf("history %+v %v", history, err)
+			}
+			if open, err := f.db.ListInterruptedGraphDispatches(ctx); err != nil || len(open) != 0 {
+				t.Fatalf("interrupted %+v %v", open, err)
+			}
+			if due, err := f.db.ListDueGraphDispatches(ctx, time.Now().UTC(), 10); err != nil || len(due) != 0 {
+				t.Fatalf("pending %+v %v", due, err)
+			}
+		})
 	}
 }

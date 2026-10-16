@@ -98,6 +98,9 @@ func isValidateCodeControlBody(body string) bool {
 }
 
 func verifyTurnCodeAuthority(ctx context.Context, opts Options, session store.Session, trigger Trigger) error {
+	if trigger.Actor.Provider != "" && trigger.Actor.Provider != ticket.GitHub {
+		return verifyTicketOwnerCodeAuthority(ctx, opts, session, trigger)
+	}
 	owner, err := opts.DB.GetIdentity(ctx, store.ForgeGitHub, store.RoleOwner)
 	if err != nil {
 		return err
@@ -120,4 +123,46 @@ func verifyTurnCodeAuthority(ctx context.Context, opts Options, session store.Se
 		return store.ErrApproverUnauthorized
 	}
 	return trigger.Source.Validate()
+}
+
+// verifyTicketOwnerCodeAuthority admits a delivery command from the verified
+// owner of the task's own non-GitHub ticket connection (#922). GitHub ticket
+// connections keep the GitHub code-owner rule above.
+func verifyTicketOwnerCodeAuthority(ctx context.Context, opts Options, session store.Session, trigger Trigger) error {
+	saved, err := opts.DB.GetExecutionSnapshot(ctx, session.ID)
+	if err != nil {
+		return err
+	}
+	code, err := opts.DB.GetConnectionVersion(ctx, saved.CodeVersionID)
+	if err != nil {
+		return err
+	}
+	if !code.Enabled {
+		return store.ErrConnectionDisabled
+	}
+	bound, err := bindProjectApprover(ctx, opts, session.ID)
+	if err != nil {
+		return err
+	}
+	a := bound.TicketApprover
+	if a == nil || a.Actor.Provider == ticket.GitHub || !a.Actor.Equal(trigger.Actor) || trigger.AuthorID <= 0 || trigger.AuthorID == saved.ActorID {
+		return store.ErrApproverUnauthorized
+	}
+	if identity, e := opts.DB.TicketIdentityForSlot(ctx, "actor", trigger.AuthorID); e != nil || !identity.Equal(trigger.Actor) {
+		return store.ErrApproverUnauthorized
+	}
+	if trigger.Source.Provider != a.Actor.Provider || trigger.Source.Origin != a.Actor.Origin {
+		return store.ErrApproverUnauthorized
+	}
+	return trigger.Source.Validate()
+}
+
+// ticketCodeOwnerID is the verified owner of the task's own non-GitHub ticket
+// connection, who may also give the delivery commands on that task (#922).
+func ticketCodeOwnerID(ctx context.Context, opts Options) (int64, bool) {
+	if !opts.ProjectApprovers || opts.TicketApprover == nil || opts.TicketApprover.Actor.Provider == ticket.GitHub {
+		return 0, false
+	}
+	id, err := ticketOwnerID(ctx, opts)
+	return id, err == nil && id > 0
 }

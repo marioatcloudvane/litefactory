@@ -95,6 +95,18 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			return result, err
 		}
 	}
+	if policy.Mode == agent.ModeResearch || policy.Mode == agent.ModePlan {
+		if err := activities.Register(graphexec.JudgeAction, JudgeActivity{Profile: definition.Profile, Service: opts.Judge, Context: func(ctx context.Context, a ActivityRequest) (JudgeRequest, error) {
+			input, err := workflowJudgeContext(ctx, opts, a)
+			if err != nil {
+				return input, err
+			}
+			input.Role, err = teamsource.WorkflowJudgeInstructions(definition)
+			return input, err
+		}}); err != nil {
+			return result, err
+		}
+	}
 	if policy.RegisterEffects != nil {
 		env := WorkflowEnv{StackProfile: definition.StackProfile, Ref: result.Ref, Worktree: func() (*git.Worktree, error) {
 			if w.prep == nil || w.prep.worktree == nil {
@@ -108,6 +120,16 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			}
 			return w.prep.worktree.Path(), w.artifactSession, nil
 		}, env); err != nil {
+			return result, err
+		}
+	}
+	if _, exists := specs.Resolve(graphexec.SyncBaseAction); !exists {
+		workflow, err := agent.ResolveWorkflow(policy.Workflow, policy.Mode)
+		if err != nil {
+			return result, err
+		}
+		runtime := &BugRuntime{opts: opts, definition: definition}
+		if err = RegisterSyncBase(&specs, &activities, policy.Mode, runtime.graphSyncBaseBinding(req.SessionID), workflow); err != nil {
 			return result, err
 		}
 	}
@@ -186,6 +208,23 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			if nodeReq, err = applyNodeAccess(policy, node, nodeReq); err != nil {
 				return w.finish(ctx, w.failed(ctx, scope, GraphNodeResult{}, err, true))
 			}
+			if policy.BeforeAgent != nil {
+				if err = policy.BeforeAgent(ctx, instance); err != nil {
+					return w.finish(ctx, err)
+				}
+			}
+			syncRuntime := &BugRuntime{opts: opts, definition: definition}
+			syncBinding := syncRuntime.graphSyncBaseBinding(req.SessionID)
+			if handler, exists := activities.Resolve(graphexec.SyncBaseAction); exists {
+				if sync, registered := handler.(SyncBaseActivity); registered {
+					syncBinding = sync.b
+				} else if sync, registered := handler.(workerSyncActivity); registered {
+					syncBinding = sync.b
+				}
+			}
+			if err = verifySyncHandoffBeforeAgent(ctx, opts, definition.Profile, instance, syncBinding); err != nil {
+				return w.finish(ctx, err)
+			}
 			w.prep, err = prepare(ctx, opts, nodeReq, result.Session, result.Ref, opts.Logger)
 			if err != nil {
 				return w.finish(ctx, err)
@@ -201,7 +240,18 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			w.result.LogPath, w.result.MetaPath = started.LogPath, w.prep.metaPath
 		}
 		executed = true
-		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: w.result.Run.ID, At: opts.MCP.Now()})
+		runID, resumeID := w.result.Run.ID, int64(0)
+		if node.Action == graphexec.JudgeAction {
+			runID = 0
+			prior, e := opts.DB.LatestGraphNodeAttempt(ctx, instance.ID, node.Name)
+			if e != nil && !errors.Is(e, store.ErrNotFound) {
+				return w.finish(ctx, e)
+			}
+			if e == nil && prior.Status == store.GraphRunning {
+				resumeID = prior.ID
+			}
+		}
+		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{ResumeAttemptID: resumeID, LaunchID: w.admission.LaunchID, StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: runID, At: opts.MCP.Now(), RetryDueAt: opts.MCP.Now().Add(opts.GraphRetryDelay)})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}
@@ -210,6 +260,15 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		}
 		if step.Status == store.GraphFailed {
 			return w.finish(ctx, w.failed(ctx, scope, step, errors.New(step.Activity.Diagnostic), false))
+		}
+		if step.Deferred || (step.Activity.Outcome == "retry" && step.NextNode == step.Node) {
+			if opts.GraphRetryDelay <= 0 {
+				return w.finish(ctx, errors.New("graph retry requires a positive host delay"))
+			}
+			now := opts.MCP.Now()
+			spent, _ := store.GraphTriggerDispatch(req.Trigger.CommentID)
+			_, parkErr := opts.DB.ParkCapturedGraphInstanceAfter(context.WithoutCancel(ctx), instance.ID, step.NextNode, now.Add(opts.GraphRetryDelay), now, spent, w.admission.LaunchID)
+			return w.finish(ctx, parkErr)
 		}
 		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" || step.Status == "waiting_child" {
 			return w.finish(ctx, nil)

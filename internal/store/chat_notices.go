@@ -234,12 +234,18 @@ func (db *DB) readNoticeRecord(ctx context.Context, source string, id int64) (No
 		} else {
 			r.At = r.Run.FinishedAt
 			r.Ready = !r.At.IsZero()
-			// A successful Bug analysis or fixer reshape only leads to an owner
-			// wait, which posts its own notice. The node attempt's outcome is
-			// recorded before the run settles.
+			// Successful intermediate stages have a durable successor dispatch,
+			// or a source-linked owner wait that will post its own notice.
+			// Launch and incoming dispatch identities keep later owner work
+			// distinct, even when it uses the same graph and workflow.
+			// These facts are retained before the run settles.
 			if r.Ready && r.Run.Succeeded() {
 				var waits bool
-				err = db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.run_id=? AND COALESCE(NULLIF(d.workflow,''),d.mode)='bug' AND a.outcome IN ('ask','done','reshape'))`, id).Scan(&waits)
+				err = db.sql.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.run_id=? AND (
+ (COALESCE(NULLIF(d.workflow,''),d.mode)='bug' AND a.outcome IN ('ask','done','reshape'))
+ OR EXISTS(SELECT 1 FROM graph_owner_waits w JOIN graph_comment_intents c ON c.delivery_key=w.delivery_key WHERE w.source_attempt_id=a.id AND c.kind IN ('question','review'))
+ OR EXISTS(SELECT 1 FROM graph_dispatches next WHERE next.instance_id=a.instance_id AND next.launch_id=a.launch_id AND next.id>COALESCE((SELECT MAX(prior.id) FROM graph_dispatches prior WHERE prior.allocated_run_id=a.run_id),0) AND COALESCE(next.allocated_run_id,0)<>a.run_id)
+))`, id).Scan(&waits)
 				if err != nil {
 					return r, err
 				}
@@ -342,7 +348,7 @@ type ChatNotice struct {
 
 // noticeColumns fills the command-only ChatReply fields with neutral values so
 // notices share scanChat without carrying the inbox's command state.
-const noticeColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,'','',0,0,'','','',0,0,'',''`
+const noticeColumns = `transport,message_id,channel_ref,command,arguments,state,reply_text,attempts,next_attempt_at,created_at,finished_at,last_error_at,'','',0,0,'','','',0,0,'','',''`
 
 // ClaimChatNotice uses the same lease and attempt fence as command replies.
 func (db *DB) ClaimChatNotice(ctx context.Context, transport string, at time.Time) (ChatReply, error) {

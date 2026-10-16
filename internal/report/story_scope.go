@@ -40,7 +40,10 @@ func (r *Reporter) RenderStoryScope(ctx context.Context, n StoryScopeNotice) (re
 	if n.Generation < 1 || !scopeKeyPattern.MatchString(n.Key) || (!n.Planning && !scopeDigestPattern.MatchString(n.Digest)) {
 		return redact.Body{}, fmt.Errorf("report: invalid scope notice")
 	}
-	parent := fmt.Sprintf("https://github.com/%s/%s/issues/%d", n.Parent.Owner, n.Parent.Repo, n.Parent.Issue)
+	parent := n.Parent.IssueURL()
+	if parent == "" {
+		parent = "this issue"
+	}
 	if n.ParentURL != "" {
 		if !ticketBrowserURL(n.ParentURL) {
 			return redact.Body{}, fmt.Errorf("report: invalid parent browser link")

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -333,5 +334,73 @@ func TestValidateShipCommentContinuesTheWaitingInstanceThroughTheTick(t *testing
 	}
 	if wait, err = f.db.GetGraphOwnerWait(ctx, instance.ID); err == nil && wait.State == "claimed" && wait.ReplyID == shipComment {
 		t.Fatalf("the claimed ship reply was consumed: %+v", wait)
+	}
+}
+
+// #922: a delivery command from an author without code authority is answered
+// once and logged with its fate, never consumed silently. litefactory's own
+// comments stay unanswered, and a reply that fails to post keeps the comment.
+func TestRefusedDeliveryCommandIsAnsweredOnce(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Delivery task")
+	f.settle()
+	refusals := func() int {
+		posted, _, _ := f.forge.snapshot()
+		n := 0
+		for _, body := range posted {
+			if strings.Contains(body, "only the task's owner can give it") {
+				n++
+			}
+		}
+		return n
+	}
+	foreignBot := fakeUser{ID: 4242, Login: "other-app[bot]", Type: "Bot"}
+	for _, input := range []struct {
+		id      int64
+		author  fakeUser
+		body    string
+		replies int
+	}{
+		{601, stranger(), turn.ValidateShipCommand + " 0123456789ab -- all good", 1},
+		{602, foreignBot, "/merge exact-target", 2},
+		{603, stranger(), turn.MarkerPrefix + "delivery -->\n/merge exact-target", 2},
+		{604, bot(), "/deliver 1", 2},
+	} {
+		f.forge.addComment(testIssue, input.id, input.author, input.body)
+		f.settle()
+		if f.watermark() != input.id || refusals() != input.replies {
+			t.Fatalf("comment %d: watermark %d refusals %d, want %d\n%s", input.id, f.watermark(), refusals(), input.replies, f.logs)
+		}
+	}
+	for _, id := range []string{"601", "602"} {
+		lines := logLines(f.logs, "level=INFO", "owner comment "+id+" on ", "fate=ignored")
+		if len(lines) != 1 || !strings.Contains(lines[0], "only the task owner can give delivery commands") {
+			t.Fatalf("fate lines for %s: %q", id, lines)
+		}
+	}
+	if len(logLines(f.logs, "owner comment 603 on ")) != 0 || len(logLines(f.logs, "owner comment 604 on ")) != 0 {
+		t.Fatalf("litefactory's own comment was answered or logged as refused\n%s", f.logs)
+	}
+
+	// The refusal does not post: the comment stays unconsumed for a later tick.
+	f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "boom"})
+		return true
+	}
+	f.forge.addComment(testIssue, 605, stranger(), turn.ValidatePushCommand+" 0123456789ab")
+	f.settle()
+	if f.watermark() != 604 {
+		t.Fatalf("a refusal that did not post consumed its comment: watermark %d\n%s", f.watermark(), f.logs)
+	}
+	f.forge.onPostComment = nil
+	f.restorePendingReport(605)
+	f.settle()
+	f.settle()
+	if f.watermark() < 605 || refusals() != 2 {
+		t.Fatalf("the recovered refusal: watermark %d refusals posted %d\n%s", f.watermark(), refusals(), f.logs)
+	}
+	if len(f.turns.calls()) != 0 {
+		t.Fatalf("a refused delivery command dispatched a run: %d", len(f.turns.calls()))
 	}
 }

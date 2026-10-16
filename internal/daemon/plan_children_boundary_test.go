@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -43,8 +44,14 @@ func planChildFixture(t *testing.T, fn func(context.Context, *fixture, turn.Requ
 		return fn(ctx, f, req)
 	}
 	f.daemon = f.newDaemon(daemon.Options{Forge: refinementForge{Client: f.client, parent: testIssue}})
+	return seedPlanChildFixture(t, f, 1230, 2000)
+}
+
+func seedPlanChildFixture(t *testing.T, f *fixture, parentID, childID int64) (*fixture, store.Session) {
+	t.Helper()
 	f.plantCursor()
-	f.forge.addIssue(fakeIssue{ID: 1230, Number: testIssue, Title: "Parent Plan", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+	f.forge.addIssue(fakeIssue{ID: parentID, Number: testIssue, Title: "Parent Plan", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+	f.clock.advance(scheduleInterval)
 	f.settle()
 	session := f.sessionOf(testIssue)
 	if _, err := f.db.AdmitPlanWorkflowPath(t.Context(), session.ID, "graph"); err != nil {
@@ -55,12 +62,12 @@ func planChildFixture(t *testing.T, fn func(context.Context, *fixture, turn.Requ
 	if err != nil {
 		t.Fatal(err)
 	}
-	body = "<!-- lf:plan-story parent=1230 key=story -->\n" + body
+	body = fmt.Sprintf("<!-- lf:plan-story parent=%d key=story -->\n", parentID) + body
 	binding, err := f.db.ReservePlanStory(t.Context(), session.TaskRef, draft.Key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = f.db.BindPlanStoryIssue(t.Context(), session.TaskRef, draft.Key, 2000, 200); err != nil {
+	if err = f.db.BindPlanStoryIssue(t.Context(), session.TaskRef, draft.Key, childID, 200); err != nil {
 		t.Fatal(err)
 	}
 	if err = f.db.PutPlanStoryCandidate(t.Context(), store.PlanStoryCandidate{Parent: session.TaskRef, Key: draft.Key, RequestID: "create", Candidate: "candidate", RequestJSON: `{"operation":"create"}`}); err != nil {
@@ -70,25 +77,25 @@ func planChildFixture(t *testing.T, fn func(context.Context, *fixture, turn.Requ
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding.IssueID = 2000
+	binding.IssueID = childID
 	binding.IssueNumber = 200
 	binding.Revision = turn.PlanIssueRevision(title, body)
 	binding.Candidate = "candidate"
 	binding.DraftJSON = string(raw)
-	if err = f.db.ApplyPlanStoryDraft(t.Context(), binding, "", store.PlanStoryEffect{Parent: session.TaskRef, RequestID: "create", Phase: "attach", Outcome: "applied", IssueID: 2000, IssueNumber: 200, Revision: binding.Revision}); err != nil {
+	if err = f.db.ApplyPlanStoryDraft(t.Context(), binding, "", store.PlanStoryEffect{Parent: session.TaskRef, RequestID: "create", Phase: "attach", Outcome: "applied", IssueID: childID, IssueNumber: 200, Revision: binding.Revision}); err != nil {
 		t.Fatal(err)
 	}
 	state := planbrief.PlanState{SharedRevision: "shared"}
 	if err = state.PutCandidate(draft, "story", "candidate"); err != nil {
 		t.Fatal(err)
 	}
-	if err = state.OpenPlanWait("story", "wait", "review", 2000); err != nil {
+	if err = state.OpenPlanWait("story", "wait", "review", childID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = f.db.SavePlanWorkflowState(t.Context(), session.TaskRef, 0, state); err != nil {
 		t.Fatal(err)
 	}
-	f.forge.addIssue(fakeIssue{ID: 2000, Number: 200, Title: title, Body: body, State: "open", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+	f.forge.addIssue(fakeIssue{ID: childID, Number: 200, Title: title, Body: body, State: "open", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
 	// The story issue is a task of its own: the daemon meets it before the owner
 	// comments on it, so that its comments are read rather than skipped as history.
 	story, err := f.db.GetOrCreateSession(t.Context(), f.repo, 200)
@@ -326,6 +333,24 @@ func TestPlanChildrenSweep_IdleParentReadsNoChildren(t *testing.T) {
 	// and each listing names it again. Past the window, nothing names it.
 	f.clock.advance(daemon.ListingOverlap + time.Minute)
 	f.settle()
+	// Quiesce joins workers, but a parent worker can leave a child poll owed
+	// after the child's worker has finished. Drain that durable backlog before
+	// measuring idle reads, without accepting renewed parent discovery debt.
+	const maxDrainTicks = 3
+	for drained := 0; ; drained++ {
+		owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		child := f.sessionOf(200)
+		if owed || (child.NeedsPoll && drained == maxDrainTicks) {
+			t.Fatalf("child not quiet after %d drain ticks: discovery owed=%v needs poll=%v\n%s", drained, owed, child.NeedsPoll, f.logs)
+		}
+		if !child.NeedsPoll {
+			break
+		}
+		f.settle()
+	}
 	swept := forge.childReads(200)
 	for tick := range 2 {
 		issue, comments := forge.parentReads()

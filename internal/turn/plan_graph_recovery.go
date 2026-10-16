@@ -33,6 +33,12 @@ func recoverPlanPublications(ctx context.Context, o Options, sessionID int64) er
 				return err
 			}
 			for _, intent := range page {
+				if intent.Kind == "advisory" {
+					if _, err := o.ResearchReporter.RecoverAdvisoryComment(ctx, intent.Key); err != nil {
+						return err
+					}
+					continue
+				}
 				delivery, err := o.DB.GetReportDelivery(ctx, intent.Key)
 				if err == nil {
 					if !delivery.Completed {

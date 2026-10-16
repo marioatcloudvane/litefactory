@@ -2,22 +2,39 @@ package daemon_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
+	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/teamsource"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
+	"reflect"
 )
 
 // planFailureTurn stands in for the graph Plan turn, and only for it. What the
@@ -574,4 +591,371 @@ func reportedPlanFixtureTurn(ctx context.Context, f *fixture, req turn.Request) 
 	out, err := f.ranSuccessfully(ctx, req)
 	out.ResearchGraph = true
 	return out, err
+}
+
+// This forge loses the first draft's update response after the mutation. Recovery
+// must observe that original request before the new owner instruction can draft.
+type retryPlanForge struct {
+	refinementForge
+	mu         sync.Mutex
+	f          *fixture
+	updates    int
+	lose       bool
+	historical bool
+}
+
+func (p *retryPlanForge) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	p.mu.Lock()
+	missing := number == 200 && p.lose && p.updates > 0
+	p.mu.Unlock()
+	if missing {
+		return github.Issue{}, github.ErrNotFound
+	}
+	issue, err := p.refinementForge.GetIssue(ctx, repo, number)
+	if p.historical && number == 200 {
+		issue.QualifiedSnapshot = &ticket.Snapshot{Ref: ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: "https://linear.example.test", RemoteID: "child"}}, Body: issue.Body, ProviderBody: linear.EncodeContent(issue.Body)}
+	}
+	return issue, err
+}
+
+func (p *retryPlanForge) UpdateIssue(ctx context.Context, repo github.Repo, number int, title, body redact.Body) (github.Issue, error) {
+	p.mu.Lock()
+	p.updates++
+	lose := p.lose
+	p.mu.Unlock()
+	p.f.forge.addIssue(fakeIssue{ID: int64(number * 10), Number: number, Title: title.String(), Body: body.String(), State: "open", User: stranger()})
+	if lose {
+		return github.Issue{}, errors.New("lost first draft update response")
+	}
+	return p.GetIssue(ctx, repo, number)
+}
+
+func (p *retryPlanForge) PlanContentEquivalent(expected string, observed github.Issue) bool {
+	return (&turn.TicketPlanBridge{}).PlanContentEquivalent(expected, observed)
+}
+
+type retryPlanRunner func(context.Context, agent.Request) (*agent.RunResult, error)
+
+func (retryPlanRunner) SupportsMCP() bool { return true }
+func (r retryPlanRunner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
+	return r(ctx, req)
+}
+
+func TestPlanFailureDaemon_OwnerReplyRunsFreshStoryDraft(t *testing.T) {
+	for _, scenario := range []string{"Retry", "Clarify the scope for the owner", "historical Linear readback", "unknown outcome"} {
+		body := scenario
+		t.Run(scenario, func(t *testing.T) {
+			f := newFixture(t)
+			realRepo := gittest.New(t)
+			if err := os.Rename(realRepo.Dir, f.repo.Path); err != nil {
+				t.Fatal(err)
+			}
+			f.repo.RemoteURL = realRepo.Origin
+			var err error
+			f.repo, err = f.db.UpsertRepo(t.Context(), f.repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.plantCursor()
+			f.forge.addIssue(fakeIssue{ID: 1230, Number: testIssue, Title: "Parent Plan", State: "open", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+			f.settle()
+			parent := f.sessionOf(testIssue)
+			if _, err = f.db.AdmitPlanWorkflowPath(t.Context(), parent.ID, "graph"); err != nil {
+				t.Fatal(err)
+			}
+			state := planbrief.PlanState{SharedRevision: "initial"}
+			revision, _, err := state.ProposeStorySet([]planbrief.PlanStorySetEntry{{ID: "one", Name: "Bounded story", Intent: "Clarify intent"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = state.PromoteStorySet(revision); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = f.db.SavePlanWorkflowState(t.Context(), parent.TaskRef, 0, state); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = f.db.ReservePlanStory(t.Context(), parent.TaskRef, "story-001"); err != nil {
+				t.Fatal(err)
+			}
+			if err = f.db.BindPlanStoryShell(t.Context(), parent.TaskRef, "story-001", 2000, 200, turn.PlanIssueRevision("Story shell", "<!-- lf:plan-story parent=1230 key=story-001 -->\nDraft pending")); err != nil {
+				t.Fatal(err)
+			}
+			f.forge.addIssue(fakeIssue{ID: 2000, Number: 200, Title: "Story shell", Body: "<!-- lf:plan-story parent=1230 key=story-001 -->\nDraft pending", State: "open", User: stranger()})
+			child, err := f.db.GetOrCreateSession(t.Context(), f.repo, 200)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err = f.db.BootstrapWatermark(t.Context(), child.ID, 0); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = f.db.AdmitPlanWorkflowPath(t.Context(), child.ID, "graph"); err != nil {
+				t.Fatal(err)
+			}
+			remote := &retryPlanForge{refinementForge: refinementForge{Client: f.client, parent: testIssue}, f: f, lose: true}
+			calls := 0
+			var attempts []int64
+			runner := retryPlanRunner(func(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
+				calls++
+				if req.Graph == nil || req.Graph.Node != "story_agent" || req.Delivery == nil || req.Delivery.Evidence.Team != "go-development" {
+					return nil, errors.New("missing admitted story graph")
+				}
+				attempts = append(attempts, req.Graph.AttemptID)
+				draft := planbrief.PlanDraft{Key: "story-001", Name: "Bounded story", UserStory: planbrief.UserStoryContent{Actor: "owner", Want: "clear intent", Benefit: "review", Notes: []string{}}, Problem: "Scope unclear", InScope: []string{"draft"}, NotInScope: []string{}, Dependencies: planbrief.DependencyContent{StoryKeys: []string{}, IssueRefs: []string{}}}
+				request := &agentresult.PlanStoryRequest{Operation: "create", Draft: draft}
+				if calls > 1 {
+					if !strings.Contains(req.Prompt, body) {
+						return nil, errors.New("owner instruction missing")
+					}
+					binding, err := f.db.GetPlanStoryDraft(ctx, parent.TaskRef, "story-001")
+					if err != nil {
+						return nil, err
+					}
+					request.Operation, request.ExpectedRevision = "update", binding.Revision
+					request.Draft.Problem = body
+					request.ChangedSections = []string{"intent"}
+				}
+				payload, err := json.Marshal(map[string]any{"result": agentresult.Result{Outcome: "completed", Comment: "Review the fresh story: " + request.Draft.Problem, Payload: agentresult.Payload{Plan: &agentresult.Plan{StoryRequest: request}}}})
+				if err != nil {
+					return nil, err
+				}
+				response, err := (submission.Client{DescriptorPath: req.MCPLaunch.DescriptorPath()}).Call(ctx, "communication_submit", payload)
+				if err != nil {
+					return nil, err
+				}
+				if response.Error != "" {
+					return nil, errors.New(response.Error)
+				}
+				var submitted turn.AgentResultSubmission
+				if err := json.Unmarshal(response.Result, &submitted); err != nil {
+					return nil, err
+				}
+				if !submitted.Validation.Valid || submitted.Receipt == nil {
+					return nil, fmt.Errorf("rejected result: %+v", submitted.Validation)
+				}
+				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, FinishedAt: time.Now()}, nil
+			})
+			binary, err := git.Resolve(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			authority, err := turn.NewAttemptAuthority(t.Context(), f.db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = authority.Close(context.WithoutCancel(t.Context())) })
+			mcpDir, err := os.MkdirTemp("/tmp", "lf-retry-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.RemoveAll(mcpDir); err != nil {
+					t.Error(err)
+				}
+			})
+			mcpDir, err = filepath.EvalSymlinks(mcpDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mcpPaths := config.NewPaths(mcpDir)
+			if err = os.MkdirAll(mcpPaths.StoryProgressLocksDir(), 0700); err != nil {
+				t.Fatal(err)
+			}
+			opts := turn.Options{DB: f.db, Git: binary, Paths: f.paths, InstanceID: "retry-test", Logger: f.logger, CloneGate: make(lifecycleCloneGate, 1), Runners: turn.RunnerSet{"claude": runner}, Author: git.Author{Name: "Test", Email: "test@example.invalid"}, ResearchReporter: f.reporter, SubIssueCreator: remote, MCP: &turn.MCPRuntime{Authority: authority, Paths: mcpPaths, Executable: "/factory/litefactory", Redactor: redact.New(redact.Options{}), Comments: f.client, BotID: botID, Now: time.Now}}
+			opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "test-model", "flagship": "test-model"}}
+			opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+				def, err := teamsource.CapturePlan(ctx, specs)
+				if err != nil {
+					return nil, err
+				}
+				configBytes := []byte("plan: plan/plan.dot\n")
+				digest := sha256.Sum256(configBytes)
+				def.Origin = teamsource.WorkflowOrigin{Kind: "local", Source: "local", Slug: "fixture", Version: "1.0.0", GraphPath: "plan/plan.dot", GraphFile: "plan.dot", Team: def.Profile.Team, TeamConfig: configBytes, ConfigDigest: hex.EncodeToString(digest[:])}
+				return def, nil
+			}
+			f.daemon = f.newDaemon(daemon.Options{Forge: remote, Turn: daemon.NewExecutor(opts), Agents: opts.Runners})
+			for range 3 {
+				f.clock.advance(time.Minute)
+				f.settle()
+			}
+			if calls != 1 || len(failureCommentsOnForge(f)) != 1 {
+				t.Fatalf("first draft did not fail once: calls=%d logs=%s", calls, f.logs)
+			}
+			requireFailureText(t, failureCommentsOnForge(f)[0], "lost first draft")
+			if err := f.db.UpdatePlanWorkflowState(t.Context(), parent.TaskRef, func(s *planbrief.PlanState) (bool, error) {
+				s.Stories = append(s.Stories, planbrief.PlanStoryState{Key: "sibling", Stage: "technical", Hold: "independent sibling hold", Approvals: map[string]string{"story": "retained sibling approval"}})
+				return true, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			before, _, err := f.db.GetPlanWorkflowState(t.Context(), parent.TaskRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before.Stories[0].Wait != nil || !before.Stories[0].Blocked() {
+				t.Fatalf("missing failure debt: %+v", before)
+			}
+			original, err := f.db.GetPlanStoryCandidate(t.Context(), parent.TaskRef, before.Stories[0].EffectRequest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			originalAuthority, err := f.db.PlanStoryAuthority(t.Context(), parent.TaskRef, original.RequestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "historical Linear readback" {
+				remote.historical = true
+				for _, effect := range []struct{ outcome, detail string }{
+					{"uncertain", "content readback differs"},
+					{"conflict", "owner edits conflict with expected content revision"},
+				} {
+					if err := f.db.AppendPlanStoryEffect(t.Context(), store.PlanStoryEffect{Parent: parent.TaskRef, RequestID: original.RequestID, Phase: "update", Outcome: effect.outcome, IssueID: 2000, IssueNumber: 200, Detail: effect.detail}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				f.forge.mu.Lock()
+				rs := f.forge.state(testOwnerName, testRepoName)
+				for i := range rs.issues {
+					if rs.issues[i].Number == 200 {
+						issue := &rs.issues[i]
+						lines := strings.Split(issue.Body, "\n")
+						for j, line := range lines {
+							if line != "" && !strings.HasPrefix(line, "<!--") {
+								lines[j] += " "
+							}
+						}
+						issue.Body = strings.Join(lines, "\n")
+					}
+				}
+				f.forge.mu.Unlock()
+			}
+			if scenario == "unknown outcome" {
+				f.forge.mu.Lock()
+				rs := f.forge.state(testOwnerName, testRepoName)
+				for i := range rs.issues {
+					if rs.issues[i].Number == 200 {
+						issue := &rs.issues[i]
+						issue.Body = strings.ReplaceAll(issue.Body, "Scope unclear", "Owner edited scope")
+					}
+				}
+				f.forge.mu.Unlock()
+			}
+			remote.lose = false
+			f.forge.addComment(200, 60, owner(), body)
+			for range 4 {
+				f.clock.advance(time.Minute)
+				f.settle()
+			}
+			after, _, err := f.db.GetPlanWorkflowState(t.Context(), parent.TaskRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before.Stories[1], after.Stories[1]) {
+				t.Fatal("retry changed sibling state or approvals")
+			}
+			retained, err := f.db.GetPlanStoryCandidate(t.Context(), parent.TaskRef, original.RequestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			retainedAuthority, err := f.db.PlanStoryAuthority(t.Context(), parent.TaskRef, original.RequestID)
+			if err != nil || !reflect.DeepEqual(original, retained) || originalAuthority != retainedAuthority {
+				t.Fatalf("original request or authority changed: %v", err)
+			}
+			item := after.Stories[0]
+			if scenario == "unknown outcome" {
+				if calls != 1 || remote.updates != 1 || !item.Blocked() || storyWatermark(f, 200) < 60 || len(item.Approvals) != 0 {
+					t.Fatalf("unresolved reply not refused safely: calls=%d state=%+v logs=%s", calls, after, f.logs)
+				}
+				explanation, err := f.db.PlanReplyExplanation(t.Context(), child.TaskRef, 60)
+				if err != nil || !strings.Contains(explanation.Reason, "owner edits") {
+					t.Fatalf("missing retained reason: %+v %v", explanation, err)
+				}
+				return
+			}
+			if calls != 2 || len(attempts) != 2 || attempts[0] == attempts[1] || item.Blocked() || item.Wait == nil || item.Wait.Kind != "review" || item.Candidate == before.Stories[0].Candidate || item.EffectRequest == before.Stories[0].EffectRequest || item.Draft.Problem != body || len(item.Approvals) != 0 || storyWatermark(f, 200) < 60 || remote.updates != 2 {
+				t.Fatalf("retry did not publish one fresh draft: calls=%d updates=%d state=%+v logs=%s", calls, remote.updates, after, f.logs)
+			}
+			f.forge.mu.Lock()
+			defer f.forge.mu.Unlock()
+			reviews := 0
+			for i, text := range f.forge.postedBodies {
+				if strings.Contains(text, "Review the fresh story: "+body) {
+					reviews++
+					if f.forge.postedIssues[i] != 200 {
+						t.Fatal("review sent to another issue")
+					}
+				}
+			}
+			if reviews != 1 {
+				t.Fatalf("fresh reviews=%d", reviews)
+			}
+		})
+	}
+}
+
+func TestPlanReplyDeferredFateEveryAttempt(t *testing.T) {
+	for _, kind := range []string{"no run", "locked", "transport", "unconfirmed explanation"} {
+		t.Run(kind, func(t *testing.T) {
+			calls := 0
+			f, _ := planChildFixture(t, func(_ context.Context, _ *fixture, req turn.Request) (turn.Result, error) {
+				calls++
+				switch kind {
+				case "locked":
+					return turn.Result{Disposition: turn.DispositionLocked}, nil
+				case "transport":
+					return turn.Result{}, errors.New("test transport unavailable")
+				case "unconfirmed explanation":
+					return turn.Result{}, &turn.PlanReplyRefusal{Reason: "Retained test effect is unresolved", Err: errors.New("unresolved")}
+				default:
+					return turn.Result{ResearchGraph: true, SessionID: req.SessionID, TriggerCommentID: req.Trigger.CommentID}, nil
+				}
+			})
+			if kind == "unconfirmed explanation" {
+				f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
+					http.Error(w, "lost reply", http.StatusInternalServerError)
+					return true
+				}
+			}
+			f.forge.addComment(200, 60, owner(), "Retry")
+			for range 3 {
+				start := len(f.logs.String())
+				f.clock.advance(time.Hour)
+				f.settle()
+				if storyWatermark(f, 200) >= 60 {
+					t.Fatal("pending reply consumed")
+				}
+				logs := f.logs.String()[start:]
+				found := false
+				for _, line := range strings.Split(logs, "\n") {
+					if strings.Contains(line, "fate=deferred") && strings.Contains(line, "comment_id=60") && strings.Contains(line, "session_id=") && strings.Contains(line, "reason=") {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("missing per-attempt pending fate: %s", logs)
+				}
+			}
+			if kind == "unconfirmed explanation" {
+				if calls != 1 {
+					t.Fatalf("refusal re-executed %d times", calls)
+				}
+				explanation, err := f.db.PlanReplyExplanation(t.Context(), f.sessionOf(200).TaskRef, 60)
+				if err != nil {
+					t.Fatal(err)
+				}
+				delivery, err := f.db.GetReportDelivery(t.Context(), explanation.DeliveryKey)
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.forge.onPostComment = nil
+				f.forge.addCommentAt(200, 900060, bot(), delivery.Body, f.clock.Now())
+				for range 2 {
+					f.clock.advance(time.Hour)
+					f.settle()
+				}
+				if storyWatermark(f, 200) < 60 || calls != 1 {
+					t.Fatalf("confirmed explanation not consumed once: calls=%d logs=%s", calls, f.logs)
+				}
+			}
+		})
+	}
 }

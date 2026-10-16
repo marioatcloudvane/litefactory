@@ -29,6 +29,9 @@ func DefaultFileContents() []byte {
 #     owner_id: "123456789"
 #     notice_channel_id: "" # Optional task notices; must be an allowed channel
 #     channel_ids: ["123456789"]
+#     # Opt in to a persistent, prompt-only native conversation:
+#     # conversations:
+#     #   - {channel_id: "123456789", name: "Owner work", provider: claude}
 #
 # Unknown keys and literal credentials are startup errors. Credentials are
 # references only: token_keychain names a Keychain item; token_env, shown as
@@ -51,6 +54,14 @@ webhook:
   # sends payloads unencrypted.
   public_url: %q
 
+# Optional shared manual advisory settings. Empty model uses the provider flagship tier.
+# judge:
+#   agent: other # claude, codex, other; omitted uses the task provider
+#   model: flagship
+#   thinking: high
+#   providers:
+#     claude: {thinking: high, aliases: {review: opus}}
+#     codex: {thinking: high, aliases: {}}
 settings:
   # Anonymous HTTPS catalogue for machine-level team installation.
   team_source: %q

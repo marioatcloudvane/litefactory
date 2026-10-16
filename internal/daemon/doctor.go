@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -43,34 +44,34 @@ func (d *Daemon) doctorTick(ctx context.Context, at time.Time) {
 	if d.doctor.service == nil {
 		return
 	}
-	if err := d.recoverDoctorRepairs(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.recoverDoctorRepairs(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor repair recovery remains pending", slog.Any("error", err))
 	}
-	if err := d.recoverDoctor(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.recoverDoctor(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor recovery remains pending", slog.Any("error", err))
 	}
-	if err := d.doctorControls(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.doctorControls(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor controls remain pending", slog.Any("error", err))
 	}
 	d.dispatchDoctor(ctx)
 	if _, held := d.connectionHold(ctx, at); held {
 		return
 	}
-	if err := d.discoverDoctor(ctx, at); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.discoverDoctor(ctx, at) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor discovery remains pending", slog.Any("error", err))
 		var rate *github.RateLimitError
 		if errors.As(err, &rate) {
 			d.rateLimited(ctx, d.log, at, err)
 		}
 	}
-	if err := d.doctorControls(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.doctorControls(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor controls remain pending", slog.Any("error", err))
 	}
 	d.dispatchDoctor(ctx)
 	if _, held := d.connectionHold(ctx, at); held {
 		return
 	}
-	if err := d.publishDoctor(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.publishDoctor(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "doctor publication remains pending", slog.Any("error", err))
 		var rate *github.RateLimitError
 		if errors.As(err, &rate) {
@@ -223,6 +224,30 @@ func (d *Daemon) discoverDoctor(ctx context.Context, at time.Time) error {
 		next = 0
 	}
 	return d.db.AdvanceDoctorScan(ctx, scan, next)
+}
+
+// refuseUnsupportedDoctor uses the qualified retained ticket before the GitHub-only
+// Doctor authority path can interpret a Linear compatibility slot as a remote ID.
+func (d *Daemon) refuseUnsupportedDoctor(ctx context.Context, t *task, c github.Comment, reply *ticket.Reply) (bool, error) {
+	if reply == nil || reply.Ticket.Identity.Provider != ticket.Linear {
+		return false, nil
+	}
+	if _, ok := doctor.ParseCommand(c.Body); !ok {
+		return false, nil
+	}
+	admission, err := d.admitReply(ctx, t.session.ID, c, reply)
+	if err != nil {
+		return true, err
+	}
+	if !admission.Triggers() {
+		_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
+		return true, err
+	}
+	_, err = d.reportReply(ctx, turn.ReplyRequest{
+		Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID,
+		Refusal: report.ReplyDoctorUnsupported,
+	})
+	return true, err
 }
 
 // admitDoctor is shared by priority discovery and normal ordered consumers.
@@ -480,6 +505,9 @@ func (d *Daemon) doctorControls(ctx context.Context) error {
 	return nil
 }
 func (d *Daemon) dispatchDoctor(ctx context.Context) {
+	workerCtx := ctx
+	ctx, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
 	if !d.doctor.pool.try() {
 		return
 	}
@@ -496,7 +524,7 @@ func (d *Daemon) dispatchDoctor(ctx context.Context) {
 	// this goroutine's lifetime. It never waits for a workflow worker.
 	go func() {
 		defer d.doctor.pool.done()
-		if err := d.runDoctor(ctx, c); err != nil {
+		if err := d.runDoctor(workerCtx, c); err != nil {
 			d.log.ErrorContext(ctx, "doctor outcome remains pending", slog.Int64("command_id", c.ID), slog.Any("error", err))
 		}
 	}()

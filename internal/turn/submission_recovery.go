@@ -78,7 +78,14 @@ type submissionRecoveryScope struct {
 }
 
 func (p *StoryProgress) recoverSubmissions(ctx context.Context, scope *submissionRecoveryScope) error {
-	p.mu.Lock()
+	if scope == nil {
+		// A heartbeat must not wait for foreground reconciliation.
+		if !p.mu.TryLock() {
+			return nil
+		}
+	} else {
+		p.mu.Lock()
+	}
 	defer p.mu.Unlock()
 	var pending []store.SubmissionReceipt
 	var err error

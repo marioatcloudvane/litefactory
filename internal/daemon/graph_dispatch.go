@@ -25,6 +25,9 @@ const graphDispatchLimit = 8
 // back into a run. Owner comments keep priority: a session already busy is
 // skipped and its dispatch stays pending for the next tick.
 func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.Repo, at time.Time, result *TickResult) error {
+	workerCtx := ctx
+	ctx, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
 	pending, err := d.db.ListDueGraphDispatches(ctx, at.UTC(), graphDispatchLimit)
 	if err != nil {
 		return err
@@ -56,7 +59,11 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			slog.Int64("session_id", session.ID),
 			slog.Int64("graph_dispatch_id", dispatch.ID),
 			slog.String("graph_node", dispatch.Node))
-		issue, err := d.readIssue(ctx, github.Repo{Owner: repo.Owner, Name: repo.Name}, session.IssueNumber)
+		// The read is pinned to the session's retained ticket container and
+		// code target, as scheduled work is; a Linear ticket never lives at
+		// the code repository.
+		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: log, tickAt: at}
+		issue, err := d.readScheduledIssue(ctx, t)
 		if err != nil {
 			d.rateLimited(ctx, log, at, err)
 			log.ErrorContext(ctx, "graph step issue observation failed; deferring", slog.Any("error", err))
@@ -75,7 +82,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			}
 			continue
 		}
-		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, issue: issue, log: log, tickAt: at}
+		t.issue = issue
 		if _, held := d.connectionHold(ctx, at); held {
 			continue
 		}
@@ -99,7 +106,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 		}
 		t.workerLog = log.With(slog.Any("dispatch_sources", []string{"graph_step"}), slog.Time("tick_at", at))
 		t.workerLog.DebugContext(ctx, "worker dispatched")
-		go d.runDoctorGuardedWorker(ctx, t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })
+		go d.runDoctorGuardedWorker(sessionContext(workerCtx, dispatch.SessionID), t, func(ctx context.Context) { d.runGraphStep(ctx, t, reserved) })
 		result.Dispatched++
 	}
 	return nil
@@ -390,4 +397,59 @@ func (d *Daemon) implementCoordinatorDispatch(ctx context.Context, dispatch stor
 		return false, err
 	}
 	return true, nil
+}
+
+// Reconciliation owns no execution: only an idle task can surrender its stale
+// dispatch. Both startup and ticks use the same durable and in-memory fences.
+func (d *Daemon) reconcileGraphDispatches(ctx context.Context, at time.Time) error {
+	interrupted, err := d.db.ListInterruptedGraphDispatches(ctx)
+	if err != nil {
+		return err
+	}
+	var faults error
+	for _, dispatch := range interrupted {
+		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
+			continue
+		}
+		err := d.reconcileGraphDispatch(ctx, dispatch, at)
+		d.inflight.leave(dispatch.SessionID)
+		faults = errors.Join(faults, err)
+	}
+	stranded, err := d.db.ListStrandedGraphDispatches(ctx)
+	if err != nil {
+		return errors.Join(faults, err)
+	}
+	for _, dispatch := range stranded {
+		if !d.enterDoctorGuarded(ctx, dispatch.SessionID) {
+			continue
+		}
+		err := d.reconcileGraphDispatch(ctx, dispatch, at)
+		d.inflight.leave(dispatch.SessionID)
+		faults = errors.Join(faults, err)
+	}
+	return faults
+}
+
+func (d *Daemon) reconcileGraphDispatch(ctx context.Context, dispatch store.GraphDispatch, at time.Time) (err error) {
+	locked, err := d.db.AcquireSessionLock(ctx, dispatch.SessionID, d.instanceID)
+	if err != nil || !locked {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, d.db.ReleaseSessionLock(context.WithoutCancel(ctx), dispatch.SessionID, d.instanceID))
+	}()
+	if dispatch.ID == 0 {
+		if err := turn.ValidateGraphDispatchRecovery(ctx, d.db, dispatch); err != nil {
+			d.log.WarnContext(ctx, "stranded graph capture cannot resume; retained work preserved", slog.Int64("instance_id", dispatch.InstanceID), slog.Any("error", err))
+			return nil
+		}
+		return d.db.ReconcileStrandedGraphDispatch(ctx, dispatch, at)
+	}
+	capture := int64(0)
+	if validationErr := turn.ValidateGraphDispatchRecovery(ctx, d.db, dispatch); validationErr == nil {
+		capture = dispatch.LaunchID
+	} else {
+		d.log.WarnContext(ctx, "interrupted graph dispatch capture cannot resume; retained work preserved", slog.Int64("dispatch_id", dispatch.ID), slog.Any("error", validationErr))
+	}
+	return d.db.ReconcileGraphDispatch(ctx, dispatch.ID, capture, at)
 }

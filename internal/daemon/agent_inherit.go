@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -13,7 +14,8 @@ import (
 // inheritParentAgent gives a story issue its parent's Coding Agent label when
 // the story has none of its own, so a parent labelled Codex builds its stories
 // with Codex. The label is written to the story issue, which keeps GitHub the
-// record and lets the owner change it per story. A story with its own label, an
+// record and lets the owner change it per story; when the write fails the
+// story still runs with its parent's agent for this tick. A story with its own label, an
 // issue that is not a story, or a parent without a label are left alone.
 func (d *Daemon) inheritParentAgent(ctx context.Context, t *task) error {
 	if hasAgentLabel(t.issue.Labels) {
@@ -36,12 +38,18 @@ func (d *Daemon) inheritParentAgent(ctx context.Context, t *task) error {
 		return nil
 	}
 	label := agentLabel(issue.Labels)
-	labels, ok := d.ticketLabels()
-	if !ok {
-		return errors.New("story agent labels unavailable")
+	// The write is best-effort: a ticket system that cannot write the label
+	// (Linear writes only mapped mode labels) still runs the story with its
+	// parent's agent, and the next tick resolves it from the parent again.
+	var writeErr error
+	if labels, ok := d.ticketLabels(); !ok {
+		writeErr = errors.New("story agent labels unavailable")
+	} else {
+		writeErr = labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, label)
 	}
-	if err := labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, label); err != nil {
-		return fmt.Errorf("give the story its parent's agent label: %w", err)
+	if writeErr != nil {
+		d.log.WarnContext(ctx, "could not write the parent's agent label to the story; using the parent's agent without it",
+			slog.String("task", t.forgeRepo.Ref(t.issue.Number).String()), slog.String("label", label), slog.Any("error", writeErr))
 	}
 	t.issue.Labels = append(t.issue.Labels, label)
 	return nil

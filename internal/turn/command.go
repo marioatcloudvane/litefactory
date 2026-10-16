@@ -5,6 +5,7 @@ import (
 	"unicode"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"github.com/cloudvane/litefactory/internal/doctor"
 )
 
@@ -82,6 +83,9 @@ const (
 	// is the whole trimmed body, because the Validate resolve step matches the
 	// exact grammar and the report revision itself.
 	KindValidateControl
+
+	// KindJudge requests an isolated advisory assessment of saved work.
+	KindJudge
 )
 
 // String renders the kind for logs and test failures.
@@ -105,6 +109,8 @@ func (k CommandKind) String() string {
 		return "plan_control"
 	case KindValidateControl:
 		return "validate_control"
+	case KindJudge:
+		return "judge"
 	default:
 		return "invalid"
 	}
@@ -164,7 +170,7 @@ func (c Command) NeedsReply() bool {
 	switch c.Kind {
 	case KindSpikeEmpty, KindUnknown:
 		return true
-	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm, KindPlanControl, KindValidateControl:
+	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm, KindPlanControl, KindValidateControl, KindJudge:
 		return false
 	default:
 		return false
@@ -176,7 +182,8 @@ func (c Command) NeedsReply() bool {
 // Only the first non-whitespace token is considered (AC-2.18). A "/spike"
 // halfway down a comment is prose, not an instruction — a comment discussing
 // what to spike must not become one. Leading whitespace and blank lines before
-// the token are skipped.
+// the token are skipped. A whole first-line single-backtick command span is
+// unwrapped for interpretation; provider and stored bodies remain unchanged.
 //
 // Matching is case-insensitive: phone keyboards capitalise the first word of a
 // message, and "/Spike" is a typo the tool should absorb rather than answer
@@ -218,6 +225,7 @@ func (c Command) NeedsReply() bool {
 // comment the daemon reads has to be disposed of one way or another — and the
 // tag parser cannot fail either, precisely so that contract still holds.
 func ParseCommand(body string) Command {
+	body = commandtext.Normalize(body)
 	if _, ok := doctor.ParseCommand(body); ok {
 		return Command{Kind: KindNone, Name: "/doctor"}
 	}
@@ -244,6 +252,8 @@ func ParseCommand(body string) Command {
 			return Command{Kind: KindSpikeEmpty, Name: name, Tagged: tagged}
 		}
 		return Command{Kind: KindSpike, Name: name, Text: text, Tagged: tagged}
+	case "/judge":
+		return Command{Kind: KindJudge, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case ScheduleCommand:
 		return Command{Kind: KindSchedule, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	case ConfirmCommand:

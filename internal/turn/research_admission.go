@@ -30,6 +30,13 @@ func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
 	comments, asks := ResearchCommentSpec(), ResearchAskSpec()
 	comments.Mode, asks.Mode = policy.Mode, policy.Mode
 	comments.Workflow, asks.Workflow = policy.Workflow, policy.Workflow
+	comments.Attributes["lf_kind"] = graphexec.AttributeSpec{Required: true, Values: []string{"final", "failure"}}
+	if policy.Mode == agent.ModeResearch || policy.Mode == agent.ModePlan {
+		comments.Attributes["lf_kind"] = graphexec.AttributeSpec{Required: true, Values: []string{"final", "failure", "advisory"}}
+		if err := specs.Register(graphexec.JudgeSpec(policy.Mode)); err != nil {
+			return specs, err
+		}
+	}
 	for _, spec := range []graphexec.ActionSpec{
 		{Name: ResearchAgentAction, Mode: policy.Mode, Workflow: policy.Workflow, Outcomes: []string{"success", "failed"}, Attributes: graphexec.AgentAttributes()},
 		graphexec.ControlSpec(graphexec.ResearchLoopAction, policy.Control),
@@ -41,6 +48,15 @@ func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
 	}
 	for _, spec := range policy.Specs {
 		if err := specs.Register(spec); err != nil {
+			return specs, err
+		}
+	}
+	if _, exists := specs.Resolve(graphexec.SyncBaseAction); !exists {
+		workflow, err := agent.ResolveWorkflow(policy.Workflow, policy.Mode)
+		if err != nil {
+			return specs, err
+		}
+		if err = specs.Register(graphexec.SyncBaseWorkflowSpec(workflow, policy.Mode)); err != nil {
 			return specs, err
 		}
 	}

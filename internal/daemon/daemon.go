@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -186,6 +187,9 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Judge is the isolated advisory service; nil explains unavailability.
+	Judge *turn.JudgeService
+
 	// Connections selects saved project and execution versions; nil supports legacy callers.
 	Connections *projectconnection.Factory
 
@@ -406,6 +410,9 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	judge            *turn.JudgeService
+	tickPhaseTimeout time.Duration // zero uses the internal 30-second bound
+
 	doctorHostOptions *DoctorHostOptions
 	doctorHost        *DoctorRepairHost
 	doctor            doctorLane
@@ -461,6 +468,9 @@ type Daemon struct {
 	lock         *Lock
 	now          func() time.Time
 	ticks        <-chan time.Time
+	// tick replaces [Daemon.Tick] in the heartbeat loop when set. Only a test
+	// sets it; nil runs the real tick.
+	tick func(context.Context) (TickResult, error)
 
 	// chatBeat, chatWait, chatHandler and chatStatus carry chat that may be
 	// built after start: chatBeat is set in New when chat is configured,
@@ -481,6 +491,9 @@ type Daemon struct {
 	diagnosticRedactor *redact.Redactor
 	pool               *pool
 
+	// holdDiagnostics is owned by candidate selection on the tick goroutine.
+	holdDiagnostics map[int64]candidateHold
+
 	// lastRepoID and repoSessionCursor are the two levels of the dispatch
 	// rotation (RD-1): the repository the last dispatch came from, and per
 	// repository the session id it last dispatched.
@@ -495,6 +508,7 @@ type Daemon struct {
 	lastRepoID               int64
 	repoSessionCursor        map[int64]int64
 	pendingObservationCursor map[int64]int
+	hookRecovery             map[int64]*hookRecoveryState
 }
 
 // New builds a daemon from its dependencies.
@@ -503,6 +517,7 @@ type Daemon struct {
 // rather than at the first tick — which happens thirty seconds after the
 // operator has stopped watching the terminal.
 func New(opts Options) (*Daemon, error) {
+	linear.SetRequestLogger(opts.Logger)
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
@@ -535,6 +550,7 @@ func New(opts Options) (*Daemon, error) {
 	}
 
 	d := &Daemon{
+		judge:                    opts.Judge,
 		db:                       opts.DB,
 		bug:                      opts.Bug,
 		forge:                    opts.Forge,
@@ -703,6 +719,14 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		}
 	}
 
+	if recovery, ok := d.turn.(interface {
+		RecoverWorkflowJudges(context.Context, time.Time) error
+	}); ok {
+		if err := recovery.RecoverWorkflowJudges(ctx, reconciliation.At); err != nil {
+			return Reconciled{}, err
+		}
+	}
+
 	if _, err := d.db.ReconcileResearchGraphs(ctx, reconciliation.At); err != nil {
 		return Reconciled{}, err
 	}
@@ -716,6 +740,9 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		return Reconciled{}, err
 	}
 	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "implement", reconciliation.At); err != nil {
+		return Reconciled{}, err
+	}
+	if err := d.reconcileGraphDispatches(ctx, reconciliation.At); err != nil {
 		return Reconciled{}, err
 	}
 	d.refreshRecoveries(ctx, time.Time{})
@@ -971,6 +998,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time, immediate bool) {
 	defer d.pool.wait()
 	defer d.doctor.pool.wait()
+	// Deferred last so it runs first: the line is written before the join,
+	// which can wait hours on dispatched workers. A nil error means the tick
+	// source closed.
+	defer func() {
+		d.log.Info("heartbeat loop ended; waiting for dispatched workers", slog.Any("error", ctx.Err()))
+	}()
 
 	if immediate && !d.beat(ctx, wakeTimer) {
 		return
@@ -1011,11 +1044,18 @@ func (d *Daemon) beat(ctx context.Context, source string) bool {
 		return false
 	}
 	d.chatWake()
-	if _, err := d.Tick(withWakeSource(ctx, source)); err != nil {
+	tick := d.Tick
+	if d.tick != nil {
+		tick = d.tick
+	}
+	if _, err := tick(withWakeSource(ctx, source)); err != nil {
 		if isRecoveryPending(err) {
 			return true
 		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// Only the daemon's own context ends the loop. A phase deadline or
+		// cancellation inside the tick, under a live context, is an ordinary
+		// failed tick.
+		if ctx.Err() != nil {
 			return false
 		}
 		d.log.ErrorContext(ctx, "tick failed; the poll cursor is unchanged and the next tick redoes it",

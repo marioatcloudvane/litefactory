@@ -142,7 +142,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("research_execution_paths", bySession),
 	archived("graph_instances", `id IN `+subInst),
 	// Application results.
-	archived("application_result_observations", byRun+` AND `+notDoctor),
+	archived("application_result_observations", `(run_id IN `+inFR+` OR request_row IN (SELECT id FROM application_result_requests WHERE result_id IN `+subResults+`)) AND `+notDoctor),
 	archived("application_result_aggregate_checks", `(run_id IN `+inFR+` OR result_id IN `+subResults+`)`),
 	archived("application_result_aggregates", `(run_id IN `+inFR+` OR result_id IN `+subResults+`)`),
 	archived("application_result_revisions", `(run_id IN `+inFR+` OR result_id IN `+subResults+`) AND `+notDoctor),
@@ -199,6 +199,7 @@ func isPlanArchiveTable(name string) bool { return strings.HasPrefix(name, "plan
 
 // archiveRetained classifies every table the archive never deletes from.
 var archiveRetained = map[string]ArchiveClass{
+	"judge_requests": ArchiveClassSkeleton, "judge_attempts": ArchiveClassSkeleton, "judge_source_commits": ArchiveClassGlobal,
 	// The family skeleton and the per-task structure that identifies it.
 	"sessions": ArchiveClassSkeleton, "segments": ArchiveClassSkeleton, "runs": ArchiveClassSkeleton,
 	"watermarks": ArchiveClassSkeleton, "retirement_intents": ArchiveClassSkeleton,
@@ -228,8 +229,19 @@ var archiveRetained = map[string]ArchiveClass{
 	// Not keyed by one task family. The doctor journal has delete triggers and
 	// holds; a family with doctor references is kept by the pending check.
 	"repos": ArchiveClassGlobal, "identities": ArchiveClassGlobal, "poll_cursor": ArchiveClassGlobal, "repo_poll_cursors": ArchiveClassGlobal, "repo_webhooks": ArchiveClassGlobal,
-	"chat_issue_previews": ArchiveClassGlobal,
-	"chat_inbox":          ArchiveClassGlobal,
+	"chat_issue_previews":     ArchiveClassGlobal,
+	"chat_inbox":              ArchiveClassGlobal,
+	"chat_conversations":      ArchiveClassGlobal,
+	"chat_conversation_turns": ArchiveClassGlobal,
+	// Conversation evidence and proposals span task families and follow their
+	// bounded chat retention rather than one family's archive lifecycle.
+	"chat_conversation_actions":       ArchiveClassGlobal,
+	"chat_conversation_exchanges":     ArchiveClassGlobal,
+	"chat_conversation_references":    ArchiveClassGlobal,
+	"chat_conversation_answers":       ArchiveClassGlobal,
+	"chat_conversation_answer_parts":  ArchiveClassGlobal,
+	"chat_conversation_details":       ArchiveClassGlobal,
+	"chat_conversation_details_parts": ArchiveClassGlobal,
 	// Owner/channel dialogue and replay positions span task families. Their
 	// short text and terminal retention belongs to PurgeNaturalChat; cursors
 	// survive archival to prevent old channel requests from being replayed.
@@ -274,9 +286,11 @@ var archiveRetained = map[string]ArchiveClass{
 }
 
 // archiveGuardedReferences are retained tables that may reference archived
-// tables. Families that reach them are kept by the doctor pending check, so a
+// tables. Families that reach them are kept by the doctor or workflow judge
+// reference checks, so a
 // reference never turns into a failed delete.
 var archiveGuardedReferences = map[string]bool{
+	"judge_requests":       true,
 	"doctor_conversations": true, "doctor_proposals": true, "doctor_attempts": true,
 	"doctor_inbox": true, "doctor_presentations": true, "doctor_repairs": true,
 	"doctor_local_presentations": true,

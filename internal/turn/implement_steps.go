@@ -73,6 +73,9 @@ func (rt *implementRuntime) registerEffects(specs *graphexec.Registry, activitie
 			step{graphexec.ImplementReportDoneSpec(), rt.reportDone},
 			step{graphexec.ImplementResolvedSpec(), rt.resolved})
 	} else {
+		if err := rt.registerWorkerSync(specs, activities); err != nil {
+			return err
+		}
 		steps = append(steps,
 			step{graphexec.ImplementBudgetSpec(), rt.budget},
 			step{graphexec.ImplementResultSpec(), rt.workerResult},
@@ -261,6 +264,15 @@ func (rt *implementRuntime) wake(ctx context.Context, opts Options, parent strin
 // answered blocked or incomplete, otherwise the last failed attempt's. It wakes
 // the parent, which asks the owner after the hand-off.
 func (rt *implementRuntime) parkStory(ctx context.Context, opts Options, a ActivityRequest) (ActivityResult, error) {
+	if a.InstanceID != 0 {
+		reason, err := rt.workerSyncBlockage(ctx, a.InstanceID, false)
+		if err != nil {
+			return ActivityResult{}, err
+		}
+		if reason != "" {
+			return rt.parkSyncStory(ctx, reason)
+		}
+	}
 	defer rt.refreshStatus(ctx, opts)
 	row, err := rt.workerRow(ctx, opts)
 	if err != nil {

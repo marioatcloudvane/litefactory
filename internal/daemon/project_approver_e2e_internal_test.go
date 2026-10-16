@@ -12,10 +12,13 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
@@ -330,10 +333,32 @@ func TestProjectCodeAuthorityWithoutTicketAppointment(t *testing.T) {
 	}
 	// Keep the qualified public GitHub origin while using controlled local HTTP
 	// responses. No production network call is made by this fixture.
+	var refusals []int64
+	var posts []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		var value any
 		switch r.URL.Path {
+		case "/repos/owner/repo/issues/1/comments":
+			if r.Method == http.MethodGet {
+				value = posts
+				break
+			}
+			// Refused delivery commands are answered (#922); nothing else posts.
+			var posted struct {
+				Body string `json:"body"`
+			}
+			if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&posted) != nil || !strings.Contains(posted.Body, "only the task's owner can give it") {
+				t.Errorf("unexpected comment request %s", r.Method)
+				http.NotFound(w, r)
+				return
+			}
+			id := int64(9000 + len(refusals))
+			refusals = append(refusals, id)
+			comment := map[string]any{"id": id, "body": posted.Body, "user": map[string]any{"id": 99, "login": "publisher", "type": "Bot"}, "created_at": time.Now().UTC().Format(time.RFC3339), "updated_at": time.Now().UTC().Format(time.RFC3339), "url": fmt.Sprintf("https://api.github.com/repos/owner/repo/issues/comments/%d", id), "issue_url": "https://api.github.com/repos/owner/repo/issues/1"}
+			posts = append(posts, comment)
+			value = comment
+			w.WriteHeader(http.StatusCreated)
 		case "/user":
 			value = map[string]any{"id": 99, "login": "publisher", "type": "Bot"}
 		case "/repos/owner/repo":
@@ -398,6 +423,9 @@ func TestProjectCodeAuthorityWithoutTicketAppointment(t *testing.T) {
 			t.Fatalf("code-control %d stalled polling: %+v %v %v", input.id, watermark, present, err)
 		}
 	}
+	if len(refusals) != 2 {
+		t.Fatalf("the two refused human delivery commands were not answered once each: %v", refusals)
+	}
 
 	// Retained session authority survives replacement or disabling of defaults.
 	if _, err := db.SetApprover(t.Context(), store.ApproverAppointment{RepoID: repo.ID, Actor: ticket.Identity{Provider: ticket.GitHub, Origin: connection.Origin, RemoteID: "42"}, Handle: "approver", VerifiedAt: time.Now().UTC(), Provenance: "explicit"}, connection.Revision, 0); err != nil {
@@ -448,6 +476,19 @@ func TestProjectCodeAuthorityWithoutTicketAppointment(t *testing.T) {
 	if executor.controls[0].CommentID != 102 || executor.controls[1].CommentID != 104 {
 		t.Fatalf("missing-appointment delivery routing: %+v", executor.controls)
 	}
+	// #922: the appointed approver of a GitHub ticket connection gains no code
+	// authority; the refusal is now answered instead of silent.
+	if err := d.authorizeCodeControl(t.Context(), session.ID, github.Comment{ID: 108, Author: github.User{ID: 42}, Body: "/validate-ship 0123456789ab -- ok", CreatedAt: time.Now().UTC()}); err == nil {
+		t.Fatal("the GitHub ticket approver gained code authority")
+	}
+	before := len(refusals)
+	approverShip := github.Comment{ID: 108, Author: github.User{ID: 42, Login: "approver"}, Body: "/validate-ship 0123456789ab -- ok", CreatedAt: time.Now().UTC(), APIURL: "https://api.github.com/repos/owner/repo/issues/comments/108", IssueAPIURL: "https://api.github.com/repos/owner/repo/issues/1"}
+	if err := d.handleComment(t.Context(), task, approverShip); err != nil {
+		t.Fatalf("approver ship routing: %v", err)
+	}
+	if len(refusals) != before+1 || len(executor.controls) != 3 {
+		t.Fatalf("the GitHub ticket approver's ship: refusals %v controls %+v", refusals, executor.controls)
+	}
 }
 
 // approverLoopbackTransport changes transport routing only. Provider identities
@@ -474,4 +515,183 @@ func (executor *approverCodeControlExecutor) Execute(context.Context, turn.Reque
 func (executor *approverCodeControlExecutor) ApplyDelivery(_ context.Context, control turn.DeliveryControl) error {
 	executor.controls = append(executor.controls, control)
 	return nil
+}
+
+// #922: on a Linear ticket connection the verified ticket owner may give the
+// six delivery commands on that task. The publisher, bots, marker comments,
+// other Linear users, stale comments and /doctor apply are still refused, and
+// a refused human is answered on the Linear ticket.
+func TestLinearTicketOwnerDeliveryCommands(t *testing.T) {
+	ctx := t.Context()
+	remote := newLinearWorkflowServer(t)
+	codeRemote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var response any
+		switch r.URL.Path {
+		case "/user":
+			response = map[string]any{"id": 99, "login": "github-publisher", "type": "Bot"}
+		case "/repos/code-owner/code":
+			response = map[string]any{"id": 101, "full_name": "code-owner/code"}
+		default:
+			t.Errorf("a Linear ticket command reached GitHub: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer codeRemote.Close()
+	codeURL, err := url.Parse(codeRemote.URL)
+	linearWorkflowCheck(t, err)
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "linear-delivery.db"))
+	linearWorkflowCheck(t, err)
+	defer func() { linearWorkflowCheck(t, db.Close()) }()
+	linearWorkflowCheck(t, db.Migrate(ctx))
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "code-owner", Name: "code", RemoteURL: "git@github.com:code-owner/code.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	linearWorkflowCheck(t, err)
+	code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: repo.Slug(), RemoteID: "101", CredentialSource: "env", CredentialEnv: "CODE_TOKEN", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, RemoteURL: repo.RemoteURL, BaseBranch: repo.BaseBranch, FeaturePrefix: repo.FeaturePrefix, WorktreeRoot: repo.WorktreeRoot}, 0)
+	linearWorkflowCheck(t, err)
+	version, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: ticket.Origin(remote.server.URL), Destination: "team-uuid/project-uuid", CredentialSource: "env", CredentialEnv: "LINEAR_TOKEN", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace-uuid", TeamID: "team-uuid", ProjectID: "project-uuid", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"label-plan"}`, LifecycleStatesJSON: `{"open":"state-open","completed":"state-completed","retired":"state-retired"}`}}, 0)
+	linearWorkflowCheck(t, err)
+	factory := projectconnection.NewFactory(projectconnection.Options{DB: db, HTTPClient: &http.Client{Transport: linearMixedProviderTransport{githubURL: codeURL}}, Resolver: secrets.Resolver{LookupEnv: func(name string) (string, bool) {
+		switch name {
+		case "LINEAR_TOKEN":
+			return "test-linear-token", true
+		case "CODE_TOKEN":
+			return "test-github-token", true
+		}
+		t.Errorf("unexpected credential reference %s", name)
+		return "", false
+	}}})
+	_, err = db.UpsertIdentity(ctx, store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 7, Handle: "code-owner", Source: store.SourceGH})
+	linearWorkflowCheck(t, err)
+	appointment, err := (projectconnection.ApproverService{DB: db, Factory: factory}).Set(ctx, repo.ID, "human-uuid", version.Revision, 0)
+	linearWorkflowCheck(t, err)
+	clients, err := factory.Clients(ctx, version, 0)
+	linearWorkflowCheck(t, err)
+	adapter := clients.Linear
+	parent, err := adapter.Resolve(ctx, ticket.Locator{Provider: ticket.Linear, Origin: version.Origin, Container: version.Destination, Key: "parent-uuid"})
+	linearWorkflowCheck(t, err)
+	_, err = db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: version.ID, Ref: parent.Ref, Enabled: true, Provenance: "explicit"})
+	linearWorkflowCheck(t, err)
+	session, err := AdmitProjectTicket(ctx, db, factory, repo, parent.Ref)
+	linearWorkflowCheck(t, err)
+	botSlot, err := db.LocalTicketSlot(ctx, "actor", clients.Publisher.Identity)
+	linearWorkflowCheck(t, err)
+	ownerSlot, err := db.LocalTicketSlot(ctx, "actor", appointment.Actor)
+	linearWorkflowCheck(t, err)
+	otherSlot, err := db.LocalTicketSlot(ctx, "actor", ticket.Identity{Provider: ticket.Linear, Origin: version.Origin, RemoteID: "other-human"})
+	linearWorkflowCheck(t, err)
+	issueSlot, err := db.LocalTicketSlot(ctx, "issue", parent.Ref.Identity)
+	linearWorkflowCheck(t, err)
+	ref := naming.Ref{Forge: "linear", Owner: "team-uuid", Repo: "project-uuid", Issue: int(issueSlot)}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// The installation's GitHub identities, distinct from the Linear slots.
+	filter, err := turn.NewFilter(db, turn.Identities{OwnerUserID: 7, BotUserID: 99, TicketOrigin: version.Origin}, logger)
+	linearWorkflowCheck(t, err)
+	d := &Daemon{db: db, connections: factory, filter: filter, log: logger}
+
+	fresh := time.Now().UTC().Add(time.Hour)
+	for _, tc := range []struct {
+		name    string
+		author  github.User
+		body    string
+		created time.Time
+		allowed bool
+	}{
+		{"ship", github.User{ID: ownerSlot}, "/validate-ship 0123456789ab -- ok", fresh, true},
+		{"push", github.User{ID: ownerSlot}, "/validate-push 0123456789ab", fresh, true},
+		{"merge", github.User{ID: ownerSlot}, "/validate-merge 0123456789ab", fresh, true},
+		{"close", github.User{ID: ownerSlot}, "/validate-close 0123456789ab", fresh, true},
+		{"deliver", github.User{ID: ownerSlot}, "/deliver 1", fresh, true},
+		{"legacy merge", github.User{ID: ownerSlot}, "/merge exact-target", fresh, true},
+		{"publisher", github.User{ID: botSlot}, "/validate-ship 0123456789ab -- ok", fresh, false},
+		{"bot identity", github.User{ID: ownerSlot, IsBot: true}, "/validate-ship 0123456789ab -- ok", fresh, false},
+		{"marker", github.User{ID: ownerSlot}, "<!-- lf:delivery -->\n/validate-ship 0123456789ab -- ok", fresh, false},
+		{"other linear user", github.User{ID: otherSlot}, "/validate-ship 0123456789ab -- ok", fresh, false},
+		{"github code owner", github.User{ID: 7}, "/validate-ship 0123456789ab -- ok", fresh, false},
+		{"stale", github.User{ID: ownerSlot}, "/validate-ship 0123456789ab -- ok", appointment.ActivatedAt, false},
+		{"doctor apply", github.User{ID: ownerSlot}, "/doctor apply", fresh, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := d.authorizeCodeControl(ctx, session.ID, github.Comment{ID: 1, Author: tc.author, Body: tc.body, CreatedAt: tc.created})
+			if (err == nil) != tc.allowed {
+				t.Fatalf("code authority allowed=%v, want %v: %v", err == nil, tc.allowed, err)
+			}
+		})
+	}
+
+	// Through handleComment: the owner's ship is admitted and dispatched as
+	// the qualified Linear actor; another Linear user's is answered once.
+	startupClients, err := factory.Clients(ctx, code, 99)
+	linearWorkflowCheck(t, err)
+	startupTickets, err := github.NewTickets(startupClients.Code)
+	linearWorkflowCheck(t, err)
+	bridge, err := turn.NewRoutedGitHubTicketWorkflow(db, startupTickets, 99, func(ctx context.Context, r github.Repo, number int, sessionID int64) (turn.WorkflowTickets, int64, error) {
+		return selectTicketConnection(ctx, db, factory, r, number, sessionID)
+	})
+	linearWorkflowCheck(t, err)
+	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Token: secrets.NewToken("test-linear-token"), Environ: []string{}}), Limit: github.CommentSizeLimit, Logger: logger})
+	linearWorkflowCheck(t, err)
+	reporter, err := turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: logger, BotUserID: 99})
+	linearWorkflowCheck(t, err)
+	executor := &linearDeliveryExecutor{}
+	d.reporter, d.turn, d.defaultAgent, d.toolProfiles = reporter, executor, "claude", config.DefaultToolProfiles().Permissions
+	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
+	linearWorkflowCheck(t, err)
+	task := &task{repo: repo, session: session, ref: ref, forgeRepo: github.RepoFromRef(ref), issue: issue, log: logger, tickAt: time.Now()}
+	read := func(id, body, actor string) github.Comment {
+		t.Helper()
+		remote.addReply(id, body, actor)
+		page, e := adapter.RepliesAfter(ctx, parent.Ref, linear.ReplyCursor(parent.Ref))
+		linearWorkflowCheck(t, e)
+		for _, reply := range page.Replies {
+			if reply.Identity.RemoteID == id {
+				c, e := d.legacyReply(ctx, reply)
+				linearWorkflowCheck(t, e)
+				return c
+			}
+		}
+		t.Fatalf("missing reply %s", id)
+		return github.Comment{}
+	}
+	refused := read("other-ship", "/validate-ship 0123456789ab -- all good", "other-human")
+	remote.mu.Lock()
+	postsBefore := remote.posts
+	remote.mu.Unlock()
+	linearWorkflowCheck(t, d.handleComment(ctx, task, refused))
+	remote.mu.Lock()
+	answered := 0
+	for _, reply := range remote.comments {
+		if body, _ := reply["body"].(string); strings.Contains(body, "only the task's owner can give it") && linearWorkflowObject(t, reply["issue"])["id"] == "parent-uuid" {
+			answered++
+		}
+	}
+	posts := remote.posts - postsBefore
+	remote.mu.Unlock()
+	if answered != 1 || posts != 1 || len(executor.requests) != 0 {
+		t.Fatalf("another Linear user's ship: answered=%d posts=%d dispatched=%d", answered, posts, len(executor.requests))
+	}
+	if watermark, present, err := db.GetWatermark(ctx, session.ID); err != nil || !present || watermark.LastCommentID != refused.ID {
+		t.Fatalf("the refused ship was not consumed: %+v %v %v", watermark, present, err)
+	}
+
+	ship := read("owner-ship", "/validate-ship 0123456789ab -- all good", "human-uuid")
+	_ = d.handleComment(ctx, task, ship)
+	if len(executor.requests) != 1 {
+		t.Fatalf("the Linear owner's ship was not dispatched: %+v", executor.requests)
+	}
+	trigger := executor.requests[0].Trigger
+	if trigger.CommentID != ship.ID || trigger.AuthorID != ownerSlot || !trigger.Actor.Equal(appointment.Actor) || trigger.Source.Provider != ticket.Linear {
+		t.Fatalf("the dispatched ship lost its qualified Linear owner: %+v", trigger)
+	}
+}
+
+// linearDeliveryExecutor records the dispatch and stops before any turn runs.
+type linearDeliveryExecutor struct{ requests []turn.Request }
+
+func (e *linearDeliveryExecutor) Execute(_ context.Context, req turn.Request) (turn.Result, error) {
+	e.requests = append(e.requests, req)
+	return turn.Result{}, errors.New("this test stops at dispatch")
 }

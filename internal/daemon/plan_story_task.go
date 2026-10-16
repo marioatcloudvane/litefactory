@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"hash/fnv"
 	"log/slog"
 	"strconv"
@@ -45,8 +44,10 @@ func storyWorkID(state planbrief.PlanState, key string) (int64, bool) {
 		}
 		return planWorkID("story", key, stage, candidate, strconv.FormatBool(create)), true
 	}
+	// Explicit effect holds need resolution through retained recovery, not a
+	// scheduled turn. Other waits must still admit unheld reconciliation debt.
 	for _, item := range state.Stories {
-		if item.Key == key && item.Active() && item.Effect != "" && item.Effect != "applied" {
+		if item.Key == key && item.Active() && item.Effect != "" && item.Effect != "applied" && item.EffectHold == "" && len(item.EffectHolds) == 0 {
 			return planWorkID("effect", key, item.EffectRequest), true
 		}
 	}
@@ -189,7 +190,22 @@ func (d *Daemon) planWorkSettled(ctx context.Context, t *task, scheduled store.S
 		return false
 	}
 	id, ok, err := d.planWorkFor(ctx, t)
-	return err == nil && (!ok || id != scheduled.SourceCommentID)
+	if err != nil || (ok && id == scheduled.SourceCommentID) {
+		return false
+	}
+	attrs := []any{slog.String("task", t.ref.String()), slog.Int64("session_id", t.session.ID), slog.Int64("schedule_id", scheduled.ID)}
+	if story, owned, err := d.db.GraphPlanStoryAt(ctx, t.repo.ID, t.issue.Number); err == nil && owned {
+		if state, _, err := d.db.GetPlanWorkflowState(ctx, story.Parent); err == nil {
+			for _, item := range state.Stories {
+				if item.Key == story.Key {
+					attrs = append(attrs, slog.String("story", item.Key), slog.String("request", item.EffectRequest),
+						slog.String("effect_hold", item.EffectHold), slog.Any("effect_holds", item.EffectHolds))
+				}
+			}
+		}
+	}
+	d.log.InfoContext(ctx, "Plan schedule has no eligible work; settling without a run", attrs...)
+	return true
 }
 
 // graphPlanStories offers every story task that has work: a stage it may run, or
@@ -233,7 +249,14 @@ func (d *Daemon) graphPlanStories(ctx context.Context, byRepo map[int64]*repoQue
 		}
 		session, err := d.managedChildSession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
 		if err != nil {
-			return fmt.Errorf("find the task of story %s: %w", story.Key, err)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// One story whose task cannot be resolved must not fail discovery for
+			// every other task and project; it is retried on the next tick.
+			q.log.WarnContext(ctx, "could not find the task of a story; skipping it this tick",
+				slog.String("parent", story.Parent), slog.String("story", story.Key), slog.Any("error", err))
+			continue
 		}
 		attempted, err := d.db.ScheduleAttempted(ctx, session.ID, id)
 		if err != nil {
@@ -267,21 +290,27 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 	if c.Author.ID != ids.OwnerUserID || turn.HasMarker(c.Body) {
 		d.commentFate(ctx, t, c.ID, fateIgnored, "ignored, only the owner's plain comments are Plan input")
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
+		if err != nil {
+			d.planReplyDeferred(ctx, t, c.ID, "could not consume a comment that is not Plan input: "+err.Error())
+		}
 		return d.leave(ctx, t, log, "could not consume a comment that is not Plan input", err)
 	}
 	d.acknowledge(ctx, t, c.ID)
 	parent := story.Parent
 	draft, err := d.db.GetPlanStoryDraft(ctx, parent, story.Key)
 	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, "could not read the story draft binding: "+err.Error())
 		return d.leave(ctx, t, log, "could not read the story draft binding", err)
 	}
 	state, _, err := d.db.GetPlanWorkflowState(ctx, parent)
 	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, "could not read the Plan state: "+err.Error())
 		return d.leave(ctx, t, log, "could not read the Plan state", err)
 	}
 	reason := state.PlanReplyReason(story.Key, c.Body)
 	explanation, explainErr := d.db.PlanReplyExplanation(ctx, t.ref.String(), c.ID)
 	if explainErr != nil && !errors.Is(explainErr, store.ErrNotFound) {
+		d.planReplyDeferred(ctx, t, c.ID, "could not read the retained reply explanation: "+explainErr.Error())
 		return d.leave(ctx, t, log, "could not read the retained reply explanation", explainErr)
 	}
 	if explainErr == nil {
@@ -303,6 +332,7 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 
 	trigger, triggerErr := d.projectTrigger(ctx, t.session.ID, c)
 	if triggerErr != nil {
+		d.planReplyDeferred(ctx, t, c.ID, triggerErr.Error())
 		return triggerErr
 	}
 	trigger.PlanReply = reply
@@ -313,6 +343,9 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 		// by the comment, so a retry resumes it; confirmed delivery consumes it.
 		return d.explainAndConsume(ctx, t, c, draft, refusal.Reason, log)
 	}
+	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, err.Error())
+	}
 	return err
 }
 
@@ -321,12 +354,17 @@ func (d *Daemon) handlePlanStoryComment(ctx context.Context, t *task, c github.C
 func (d *Daemon) explainAndConsume(ctx context.Context, t *task, c github.Comment, draft store.PlanStoryDraft, reason string, log *slog.Logger) error {
 	confirmed, err := d.explainPlanReply(ctx, t, draft, c.ID, reason)
 	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, "could not explain a refused Plan reply: "+err.Error())
 		return d.leave(ctx, t, log, "could not explain a refused Plan reply", err)
 	}
 	if !confirmed {
+		d.planReplyDeferred(ctx, t, c.ID, "Plan reply explanation delivery is unconfirmed: "+reason)
 		return nil
 	}
 	d.commentFate(ctx, t, c.ID, fateIgnored, "explained, the reply does not match the current review")
 	_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
+	if err != nil {
+		d.planReplyDeferred(ctx, t, c.ID, "could not consume an explained Plan reply: "+err.Error())
+	}
 	return d.leave(ctx, t, log, "could not consume an explained Plan reply", err)
 }

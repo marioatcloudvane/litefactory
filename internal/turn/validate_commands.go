@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -53,6 +54,8 @@ type ValidateCommand struct {
 	Finding   string
 	Choice    string
 	IssueKind string
+	// Implement: the owner's optional guidance for the repairing worker.
+	Guidance string
 	// Merge
 	PR   int
 	Head string
@@ -66,21 +69,27 @@ var (
 	validateHeadPattern     = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 )
 
+// validateChoiceAccept is the owner's acceptance of a blocking review finding
+// as a deliberate deviation. It is recorded as an owner pass verdict with the
+// reason as its evidence, never as a choice.
+const validateChoiceAccept = "accept"
+
 // ParseValidateCommand parses the exact grammar:
 //
-//	/validate-check   <revision> <criterion id> pass|fail -- <evidence>
+//	/validate-check   <revision> <criterion or review id> pass|fail -- <evidence>
 //	/validate-finding <revision> <finding id> repair|defer
 //	/validate-finding <revision> <finding id> issue bug|story
+//	/validate-finding <revision> <finding id> accept -- <reason>
 //	/validate-push    <revision>
 //	/validate-merge   <revision> <pr number> <head sha>
 //	/validate-close   <revision> <issue number>...
 //	/validate-ship    <revision> -- <evidence>
-//	/validate-implement <revision>
+//	/validate-implement <revision> [-- <guidance>]
 //
 // The whole comment is the command. Anything else is refused and changes
 // nothing.
 func ParseValidateCommand(body string) (ValidateCommand, error) {
-	body = strings.TrimSpace(body)
+	body = strings.TrimSpace(commandtext.Normalize(body))
 	var c ValidateCommand
 	if body == "" || len(body) > validateCommandLimit || strings.ContainsAny(body, "\r\n\x00") {
 		return c, errors.New("a Validate command is one line of at most 2048 characters")
@@ -99,29 +108,44 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 	}
 	c.Revision = fields[1]
 	args := fields[2:]
-	if hasEvidence != (c.Name == ValidateCheckCommand || c.Name == ValidateShipCommand) {
-		return c, errors.New("only /validate-check and /validate-ship take ` -- evidence`, and they require it")
+	evidence = strings.TrimSpace(evidence)
+	switch {
+	case c.Name == ValidateCheckCommand || c.Name == ValidateShipCommand:
+		if !hasEvidence {
+			return c, errors.New("/validate-check and /validate-ship require ` -- evidence`")
+		}
+	case c.Name == ValidateFindingCommand:
+		if hasEvidence != (len(args) > 1 && args[1] == validateChoiceAccept) {
+			return c, errors.New("/validate-finding takes ` -- <reason>` only with accept, and accept requires it")
+		}
+	case c.Name == ValidateImplementCommand:
+	case hasEvidence:
+		return c, errors.New("only /validate-check, /validate-ship, /validate-finding … accept and /validate-implement take ` -- text`")
 	}
 	switch c.Name {
 	case ValidateCheckCommand:
 		if len(args) != 2 || !validateFindingPattern.MatchString(args[0]) || args[1] != store.VerdictPass && args[1] != store.VerdictFail {
-			return c, errors.New("use /validate-check <revision> <criterion id> pass|fail -- <evidence>")
+			return c, errors.New("use /validate-check <revision> <criterion or review id> pass|fail -- <evidence>")
 		}
-		c.Criterion, c.Verdict, c.Evidence = args[0], args[1], strings.TrimSpace(evidence)
+		c.Criterion, c.Verdict, c.Evidence = args[0], args[1], evidence
 		if c.Evidence == "" {
 			return c, errors.New("a check needs evidence after ` -- `: text or a link")
 		}
 	case ValidateFindingCommand:
 		if len(args) < 2 || !validateFindingPattern.MatchString(args[0]) {
-			return c, errors.New("use /validate-finding <revision> <finding id> repair|issue bug|story|defer")
+			return c, errors.New("use /validate-finding <revision> <finding id> repair|issue bug|story|defer, or accept -- <reason>")
 		}
 		c.Finding, c.Choice = args[0], args[1]
 		switch {
+		case c.Choice == validateChoiceAccept && len(args) == 2:
+			if c.Evidence = evidence; c.Evidence == "" {
+				return c, errors.New("accept needs a reason after ` -- `: why the deviation is deliberate")
+			}
 		case (c.Choice == store.ChoiceRepair || c.Choice == store.ChoiceDefer) && len(args) == 2:
 		case c.Choice == store.ChoiceIssue && len(args) == 3 && (args[2] == "bug" || args[2] == "story"):
 			c.IssueKind = args[2]
 		default:
-			return c, errors.New("use /validate-finding <revision> <finding id> repair|issue bug|story|defer")
+			return c, errors.New("use /validate-finding <revision> <finding id> repair|issue bug|story|defer, or accept -- <reason>")
 		}
 	case ValidatePushCommand:
 		if len(args) != 0 {
@@ -129,7 +153,10 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		}
 	case ValidateImplementCommand:
 		if len(args) != 0 {
-			return c, errors.New("/validate-implement takes no argument after the revision")
+			return c, errors.New("/validate-implement takes no argument after the revision, only optional guidance after ` -- `")
+		}
+		if c.Guidance = evidence; hasEvidence && c.Guidance == "" {
+			return c, errors.New("/validate-implement needs guidance text after ` -- `, or no ` -- ` at all")
 		}
 	case ValidateMergeCommand:
 		if len(args) != 2 || !validateHeadPattern.MatchString(args[1]) {
@@ -144,7 +171,7 @@ func ParseValidateCommand(body string) (ValidateCommand, error) {
 		if len(args) != 0 {
 			return c, errors.New("use /validate-ship <revision> -- <what you checked by hand>")
 		}
-		c.Evidence = strings.TrimSpace(evidence)
+		c.Evidence = evidence
 		if c.Evidence == "" {
 			return c, errors.New("/validate-ship needs evidence after ` -- `: what you checked by hand")
 		}
@@ -172,12 +199,15 @@ func (s ValidateState) NextCommands(closeSet []int) []string {
 	rev := s.Revision
 	for _, f := range s.Findings {
 		switch {
-		case f.State == findingAwaitingCheck:
+		case f.State == findingAwaitingCheck || f.State == findingOwnerFailed && f.checkable():
 			out = append(out, fmt.Sprintf("`%s %s %s pass -- <what you checked>` or `%s %s %s fail -- <what you saw>`", ValidateCheckCommand, rev, f.ID, ValidateCheckCommand, rev, f.ID))
 		case f.needsChoice():
 			line := fmt.Sprintf("`%s %s %s repair`, `%s %s %s issue bug`, `%s %s %s issue story`", ValidateFindingCommand, rev, f.ID, ValidateFindingCommand, rev, f.ID, ValidateFindingCommand, rev, f.ID)
 			if f.Optional {
 				line += fmt.Sprintf(", `%s %s %s defer`", ValidateFindingCommand, rev, f.ID)
+			}
+			if f.acceptable() {
+				line += fmt.Sprintf(", or `%s %s %s accept -- <reason>` to accept a deliberate deviation", ValidateFindingCommand, rev, f.ID)
 			}
 			out = append(out, line)
 		}
@@ -208,7 +238,7 @@ func (s ValidateState) deliveryCommand(closeSet []int) string {
 
 // shipBlockers lists what keeps /validate-ship from being accepted: everything
 // in Open except the checks and choices the ship command itself records (a pass
-// for each criterion awaiting an owner check, a defer for each optional finding
+// for each eligible item awaiting an owner check, a defer for each optional finding
 // without a choice). It is empty when one /validate-ship can deliver.
 func (s ValidateState) shipBlockers() []string {
 	shipped := s

@@ -373,3 +373,162 @@ func TestBindingSourceImmutableEvidence(t *testing.T) {
 		})
 	}
 }
+
+// Retained bindings and execution versions can differ. Exercise them separately
+// so current configuration or binding provenance cannot mask a saved conflict.
+func TestManagedChildRetainedSource(t *testing.T) {
+	for _, change := range []string{"same", "workspace", "team", "project", "origin", "provider", "destination", "container", "recovery", "unproven", "actor", "code", "code-actor", "locator", "binding-owner", "snapshot-only"} {
+		t.Run(change, func(t *testing.T) {
+			db := newTestDB(t)
+			ctx := t.Context()
+			repo := testRepo(t, db, "code", "repo")
+			code, err := db.SetConnection(ctx, connectionFixture(repo, CodeConnection), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			old, err := db.SetConnection(ctx, linearConnectionFixture(repo), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := func(id string) ticket.Ref {
+				return ticket.Ref{Identity: ticket.Identity{Provider: old.Provider, Origin: old.Origin, RemoteID: id}, Locator: ticket.Locator{Provider: old.Provider, Origin: old.Origin, Container: old.Destination, Key: id}}
+			}
+			makeSession := func(number int, r ticket.Ref, bindingVersion, snapshotVersion ConnectionVersion, actor, codeID, codeActor int64, owner Repo) (Session, TicketBinding) {
+				t.Helper()
+				b, e := db.AddTicketBinding(ctx, TicketBinding{RepoID: owner.ID, ConnectionVersionID: bindingVersion.ID, Ref: r, Enabled: true, Provenance: "discovery"})
+				if e != nil {
+					t.Fatal(e)
+				}
+				s, e := db.GetOrCreateSession(ctx, owner, number)
+				if e != nil {
+					t.Fatal(e)
+				}
+				e = db.AttachExecutionSnapshot(ctx, ExecutionSnapshot{SessionID: s.ID, RepoID: owner.ID, BindingID: b.ID, CodeVersionID: codeID, TicketVersionID: snapshotVersion.ID, ActorID: actor, CodeActorID: codeActor})
+				if e != nil {
+					t.Fatal(e)
+				}
+				return s, b
+			}
+			parent, _ := makeSession(1, ref("parent"), old, old, 42, code.ID, 99, repo)
+			next, err := db.DisableConnection(ctx, repo.ID, TicketConnection, old.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			next.Enabled = true
+			next, err = db.SetConnection(ctx, next, next.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			childVersion := next
+			actor, codeID, codeActor := int64(42), code.ID, int64(99)
+			switch change {
+			case "workspace", "snapshot-only":
+				childVersion.Linear.WorkspaceID = "other"
+			case "team":
+				childVersion.Linear.TeamID = "other"
+			case "project":
+				childVersion.Linear.ProjectID = "other"
+			case "origin":
+				childVersion.Origin = "https://other.test"
+			case "provider":
+				childVersion.Provider = ticket.GitHub
+				childVersion.Linear = LinearConfiguration{}
+			case "destination":
+				childVersion.Destination = "another/project"
+			case "container":
+				childVersion.RemoteID = "different"
+			case "unproven":
+				childVersion.Linear.WorkspaceID = ""
+			case "actor":
+				actor++
+			case "code-actor":
+				codeActor++
+			case "code":
+				v := code
+				v.CredentialEnv = "OTHER"
+				v, err = db.SetConnection(ctx, v, v.Revision)
+				if err != nil {
+					t.Fatal(err)
+				}
+				codeID = v.ID
+			}
+			// Direct SQL creates contradictory historical evidence that normal
+			// configuration validation correctly prevents from being authored.
+			if change != "same" && change != "actor" && change != "code" && change != "code-actor" && change != "locator" && change != "binding-owner" && change != "recovery" {
+				config, _ := json.Marshal(childVersion.Linear)
+				_, err = db.sql.ExecContext(ctx, `INSERT INTO project_connection_versions(repo_id,revision,role,provider,api_origin,destination,remote_id,credential_source,credential_env,enabled,provenance,created_at,linear_configuration) VALUES(?,100,'ticket',?,?,?,?,'env','TEST_TOKEN',1,'test',?,?)`, repo.ID, childVersion.Provider, childVersion.Origin, childVersion.Destination, childVersion.RemoteID, FormatTime(time.Now()), string(config))
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = db.sql.QueryRowContext(ctx, `SELECT id FROM project_connection_versions WHERE repo_id=? AND role='ticket' AND revision=100`, repo.ID).Scan(&childVersion.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Admit a valid child first; snapshot-only uses a conflicting saved
+			// version with a same-source binding and current connection.
+			child, binding := makeSession(2, ref("child"), next, next, actor, codeID, codeActor, repo)
+			if childVersion.ID != next.ID {
+				// Retained snapshots are immutable in production. Rebuild the
+				// fixture before the call to model an imported historical record.
+
+				if _, err = db.sql.ExecContext(ctx, `UPDATE session_execution_snapshots SET ticket_version_id=? WHERE session_id=?`, childVersion.ID, child.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if change == "recovery" {
+				_, err = db.InitTicketRecoveryPosition(ctx, next, time.Now())
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = db.sql.ExecContext(ctx, `UPDATE ticket_recovery_positions SET document=json_set(document,'$.ContainerID','other') WHERE connection_version_id=?`, next.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			requested := ref("child")
+			if change == "locator" {
+				requested.Locator.Key = "wrong"
+			}
+			if change == "binding-owner" {
+				if _, err = db.sql.ExecContext(ctx, `UPDATE project_ticket_bindings SET repo_id=? WHERE id=?`, testRepo(t, db, "other", "repo").ID, binding.ID); err != nil {
+					t.Fatal(err)
+				}
+				binding, err = db.GetTicketBindingByID(ctx, binding.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := db.GetExecutionSnapshot(ctx, child.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := db.AdmitManagedChild(ctx, parent.ID, requested, "ignored")
+			if change == "same" {
+				if err != nil || got.ID != child.ID {
+					t.Fatalf("reuse: %+v %v", got, err)
+				}
+			} else if !errors.Is(err, ErrBindingConflict) {
+				t.Fatalf("conflict accepted: %+v %v", got, err)
+			}
+			after, e := db.GetExecutionSnapshot(ctx, child.ID)
+			if e != nil || before != after {
+				t.Fatalf("snapshot mutated: %v", e)
+			}
+			saved, e := db.GetTicketBindingByID(ctx, binding.ID)
+			if e != nil || saved != binding {
+				t.Fatalf("binding mutated: %v", e)
+			}
+			if change == "same" {
+				fresh, e := db.AdmitManagedChild(ctx, parent.ID, ref("fresh"), "fresh")
+				if e != nil {
+					t.Fatal(e)
+				}
+				snap, e := db.GetExecutionSnapshot(ctx, fresh.ID)
+				if e != nil || snap.TicketVersionID != old.ID || snap.CodeVersionID != code.ID || snap.ActorID != 42 {
+					t.Fatalf("fresh inheritance: %+v %v", snap, e)
+				}
+			}
+		})
+	}
+}

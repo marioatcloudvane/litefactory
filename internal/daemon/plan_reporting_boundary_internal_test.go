@@ -1,15 +1,20 @@
 package daemon
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -162,4 +167,153 @@ func TestPlanReportingBoundaryStaleReplyLossRetainsCursor(t *testing.T) {
 	if _, err = reporter.ReportPlanReply(t.Context(), parent, f.session.ID, "another-story", 201, 55, retained.Reason); err == nil || errors.Is(err, turn.ErrReportReceiptUncertain) {
 		t.Fatalf("changed input identity accepted: %v", err)
 	}
+}
+
+func TestPlanHeldEffectNoticeSurvivesSettlement(t *testing.T) {
+	for _, lost := range []bool{false, true} {
+		t.Run(fmt.Sprintf("lost=%v", lost), func(t *testing.T) {
+			f := newPublicationIO(t)
+			ctx := t.Context()
+			parent, err := naming.ParseRef(f.session.TaskRef)
+			publicationMust(t, err)
+			repo, err := f.db.GetRepo(ctx, f.session.RepoID)
+			publicationMust(t, err)
+			_, err = f.db.AdmitPlanWorkflowPath(ctx, f.session.ID, "graph")
+			publicationMust(t, err)
+			state := planbrief.PlanState{SharedRevision: "shared", Stories: []planbrief.PlanStoryState{{Key: "story-001", Stage: "story", Effect: "uncertain"}}}
+			state.Stories[0].SetEffectHold("plan-request-692-6680", "owner edits conflict with expected content revision")
+			_, err = f.db.ReservePlanStory(ctx, parent.String(), "story-001")
+			publicationMust(t, err)
+			publicationMust(t, f.db.BindPlanStoryShell(ctx, parent.String(), "story-001", 2000, 200, "original-content"))
+			_, err = f.db.SavePlanWorkflowState(ctx, parent.String(), 0, state)
+			publicationMust(t, err)
+			child, err := f.db.GetOrCreateSession(ctx, repo, 200)
+			publicationMust(t, err)
+			ref, err := naming.ParseRef(child.TaskRef)
+			publicationMust(t, err)
+			work := &task{repo: repo, session: child, ref: ref, issue: github.Issue{Number: 200}, log: f.d.log, tickAt: f.now}
+			scheduled, _, err := f.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{SessionID: child.ID, SourceCommentID: planWorkID("effect", "story-001", "plan-request-692-6680"), OwnerHandle: "owner", Payload: planWorkPayload, DueAt: f.now})
+			publicationMust(t, err)
+			reporter, ok := f.d.reporter.(*turn.Reporter)
+			if !ok {
+				t.Fatal("fixture reporter has unexpected type")
+			}
+			f.mu.Lock()
+			f.lost = lost
+			f.mu.Unlock()
+			_, err = reporter.ReportPlanNotices(ctx, parent, f.session.ID)
+			if lost == (err == nil) {
+				t.Fatalf("lost=%v report error=%v", lost, err)
+			}
+			notices, err := f.db.PendingPlanStoryNotices(ctx, parent.String())
+			publicationMust(t, err)
+			var noticeID int64
+			if lost {
+				if len(notices) != 1 {
+					t.Fatalf("pending notices=%+v", notices)
+				}
+				noticeID = notices[0].ID
+			} else if len(notices) != 0 {
+				t.Fatalf("delivered notice still pending: %+v", notices)
+			}
+			reserved, ok, err := f.db.ReserveSchedule(ctx, scheduled.ID, f.now)
+			publicationMust(t, err)
+			if !ok || !f.d.planWorkSettled(ctx, work, reserved) {
+				t.Fatal("held GitHub schedule not settled")
+			}
+			f.d.finishScheduled(ctx, work, reserved, store.ScheduleSucceeded, 0)
+			reporter = restartPlanReporter(t, f)
+			f.mu.Lock()
+			f.lost = false
+			f.mu.Unlock()
+			if lost {
+				notices, err = f.db.PendingPlanStoryNotices(ctx, parent.String())
+				publicationMust(t, err)
+				if len(notices) != 1 || notices[0].ID != noticeID {
+					t.Fatal("settlement replaced delivery identity")
+				}
+			}
+			for range 2 {
+				_, err = reporter.ReportPlanNotices(ctx, parent, f.session.ID)
+				publicationMust(t, err)
+				queue := &repoQueue{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, log: f.d.log}
+				publicationMust(t, f.d.graphPlanStories(ctx, map[int64]*repoQueue{repo.ID: queue}, map[int64]*candidate{}))
+				if len(queue.candidates) != 0 {
+					t.Fatal("held GitHub effect offered again")
+				}
+			}
+			retained, _, err := f.db.GetPlanWorkflowState(ctx, parent.String())
+			publicationMust(t, err)
+			if !reflect.DeepEqual(state, retained) {
+				t.Fatalf("notice changed conflict state: %+v", retained)
+			}
+			final, err := f.db.GetSchedule(ctx, scheduled.ID)
+			publicationMust(t, err)
+			if final.Status != store.ScheduleSucceeded || final.RunID != 0 {
+				t.Fatalf("settlement=%+v", final)
+			}
+			f.mu.Lock()
+			posts := f.posts
+			f.mu.Unlock()
+			if posts != 1 {
+				t.Fatalf("notice posted %d times", posts)
+			}
+		})
+	}
+}
+
+func TestPlanUnboundSummaryDeduplicatesAndClears(t *testing.T) {
+	f := newPublicationIO(t)
+	ctx := t.Context()
+	parent, err := naming.ParseRef(f.session.TaskRef)
+	publicationMust(t, err)
+	state := planbrief.PlanState{SharedRevision: "shared", Stories: []planbrief.PlanStoryState{{Key: "story-002", Stage: "story"}}}
+	_, err = f.db.ReservePlanStory(ctx, parent.String(), "story-002")
+	publicationMust(t, err)
+	_, err = f.db.SavePlanWorkflowState(ctx, parent.String(), 0, state)
+	publicationMust(t, err)
+	baseForge, ok := f.runtime.Comments.(turn.PlanStoryForge)
+	if !ok {
+		t.Fatal("fixture lacks story forge")
+	}
+	forge := &unboundSummaryForge{PlanStoryForge: baseForge}
+	renderer, err := report.New(report.Options{Redactor: f.runtime.Redactor, Limit: github.CommentSizeLimit, Logger: f.d.log})
+	publicationMust(t, err)
+	reporter, err := turn.NewReporter(turn.ReporterOptions{DB: f.db, Forge: forge, Renderer: renderer, Logger: f.d.log, BotUserID: 20})
+	publicationMust(t, err)
+	for range 2 {
+		publicationMust(t, reporter.ReportPlanSummary(ctx, parent, f.session.ID))
+	}
+	if f.posts != 1 || !strings.Contains(f.bodies[0], "story-002") || !strings.Contains(f.bodies[0], "cannot draft") || !strings.Contains(f.bodies[0], "plan assembly is blocked") || !strings.Contains(f.bodies[0], "MAR-13") {
+		t.Fatalf("summary: %v", f.bodies)
+	}
+	publicationMust(t, f.db.BindPlanStoryShell(ctx, parent.String(), "story-002", 4010, 401, "shell"))
+	for range 2 {
+		publicationMust(t, reporter.ReportPlanSummary(ctx, parent, f.session.ID))
+	}
+	if len(forge.edits) != 1 || strings.Contains(forge.edits[0], "cannot draft") {
+		t.Fatalf("warning not cleared: %v", forge.edits)
+	}
+}
+
+type unboundSummaryForge struct {
+	turn.PlanStoryForge
+	edits []string
+}
+
+func (f *unboundSummaryForge) ListFollowupIssues(context.Context, github.Repo) ([]github.Issue, error) {
+	return []github.Issue{{ID: 4010, Number: 401, Body: "<!-- lf:plan-story parent=2780 key=story-002 -->\nShell"}}, nil
+}
+func (f *unboundSummaryForge) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	if number != 401 {
+		return f.PlanStoryForge.GetIssue(ctx, repo, number)
+	}
+	return github.Issue{ID: 4010, Number: 401, Body: "<!-- lf:plan-story parent=2780 key=story-002 -->\nShell", QualifiedSnapshot: &ticket.Snapshot{Ref: ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear}}, DisplayKey: "MAR-13", BrowserURL: "https://linear.app/test/issue/MAR-13"}}, nil
+}
+func (f *unboundSummaryForge) GetParentIssue(context.Context, github.Repo, int) (github.Issue, error) {
+	return github.Issue{ID: 2780, Number: 278}, nil
+}
+func (f *unboundSummaryForge) EditComment(_ context.Context, _ github.Repo, _ int64, body redact.Body) error {
+	f.edits = append(f.edits, body.String())
+	return nil
 }

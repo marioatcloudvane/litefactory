@@ -221,7 +221,8 @@ type ReplyRequest struct {
 	Command Command
 
 	// Refusal, when set, makes this a metadata refusal rather than an answer to
-	// the command. This includes the retained obsolete lf:tools= refusal.
+	// the command. This includes unsupported Doctor providers and the retained
+	// obsolete lf:tools= refusal.
 	//
 	// It has to be a field of its own rather than another [CommandKind], because
 	// a refusal is drawn by precisely the commands that *do* spawn a run. Both
@@ -325,7 +326,7 @@ func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 		return req.ConfirmKind, req.ConfirmKind.IsConfirmationReply()
 	}
 	if req.refusing() {
-		return req.Refusal, req.Refusal.RefusesTools() || req.Refusal.RefusesAgent() ||
+		return req.Refusal, req.Refusal == report.ReplyDoctorUnsupported || req.Refusal.RefusesTools() || req.Refusal.RefusesAgent() ||
 			req.Refusal.RefusesSwitch() || req.Refusal.RefusesMode() || req.Refusal.RefusesSync()
 	}
 	return replyKind(req.Command.Kind)
@@ -342,10 +343,10 @@ func (req ReplyRequest) validate() error {
 	// Only explicit owner-fixable admission refusals may answer an issue body.
 	case req.CommentID < 0 || (req.CommentID == 0 && req.Refusal != report.ReplyBugUnavailable && req.Refusal != report.ReplyMissingModeMapping && req.Refusal != report.ReplyMissingTeam && req.Refusal != report.ReplyUnsupportedWorkflow):
 		return invalidRequest("a comment id is required to reply to a comment")
-	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
+	case req.refusing() && req.Refusal != report.ReplyDoctorUnsupported && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
 		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode() && !req.Refusal.RefusesSync():
 		return invalidRequest("reply kind %s is not a tool-permission, agent-selection, "+
-			"mode-selection, agent-switch or sync refusal", req.Refusal)
+			"mode-selection, agent-switch, Doctor-provider or sync refusal", req.Refusal)
 	case req.ScheduleKind != report.ReplyInvalid && req.ScheduleKind != report.ReplyScheduleInvalid &&
 		req.ScheduleKind != report.ReplyScheduleConfirmed && req.ScheduleKind != report.ReplyScheduleBlocked &&
 		req.ScheduleKind != report.ReplyScheduleProposalReady && req.ScheduleKind != report.ReplyScheduleProposalAccepted &&

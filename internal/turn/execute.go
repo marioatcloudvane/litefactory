@@ -84,6 +84,8 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// GraphRetryDelay is the host-supplied delay for busy admission and self-retry.
+	GraphRetryDelay time.Duration
 	// ProjectApprovers enables project-qualified production ticket authority.
 	ProjectApprovers bool
 	// TicketApprover is a per-invocation immutable authority snapshot.
@@ -99,6 +101,8 @@ type Options struct {
 	ResearchDriver   ResearchLaunchDriver
 	Bug              *BugRuntime
 	ResearchReporter *Reporter
+	// Judge is the shared isolated advisory service, enabled only by opted-in nodes.
+	Judge *JudgeService
 	// spikeRunCommand replaces the sandboxed recipe runner. It exists so a test can
 	// supply command results without a sandbox; production leaves it nil.
 	spikeRunCommand func(ctx context.Context, worktree string, command config.BugCheckCommand) bugchecks.CommandResult

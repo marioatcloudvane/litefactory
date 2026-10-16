@@ -1,14 +1,21 @@
 package turn
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"log/slog"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // mixedReview satisfies AC-001, leaves AC-002 unverified and reports the code
@@ -337,6 +344,46 @@ func TestOwnerPushFailureStaysOpenAndRepeatingRetries(t *testing.T) {
 	}
 }
 
+// #926 c1: a pull request from the branch merged at the tested commit already
+// delivered it; the push succeeds without publishing even when the merge
+// deleted the remote branch.
+func TestOwnerPushOfAnAlreadyMergedCommitPublishesNothing(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.readyToPush()
+	commit := o.state().Commit
+	o.forge.remoteHead = ""
+	o.forge.prs = []github.DeliveryPR{{Number: 44, Head: commit, Branch: "lf/497-validate", Target: "main", State: "closed", Merged: true}}
+	o.say(o.command(ValidatePushCommand))
+	if e := o.effect(store.EffectPush, commit); e.State != store.EffectSucceeded || len(o.pushSeen) != 0 || len(o.forge.pushes) != 0 {
+		t.Fatalf("%+v published %v", e, o.pushSeen)
+	}
+	if len(o.forge.prCreates) != 0 || decodeEffectResult(o.state().Effects.PR).Number != 44 {
+		t.Fatalf("the merged pull request is the PR record: %v %+v", o.forge.prCreates, o.state().Effects.PR)
+	}
+}
+
+// #926 c4: a push that fails is logged with its effect kind and cause.
+func TestOwnerPushFailureIsLoggedWithItsCause(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.readyToPush()
+	var buf bytes.Buffer
+	o.opts.Logger = slog.New(slog.NewTextHandler(&buf, nil))
+	o.pushErr = errors.New("remote rejected the update")
+	o.say(o.command(ValidatePushCommand))
+	if e := o.effect(store.EffectPush, o.state().Commit); e.State != store.EffectFailed {
+		t.Fatalf("%+v", e)
+	}
+	var lines []string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(l, "level=WARN") && strings.Contains(l, "effect=push") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], "remote rejected the update") {
+		t.Fatalf("one warning with the cause: %q", buf.String())
+	}
+}
+
 func TestOwnerMovedHeadIsStaleAndNothingRemoteHappens(t *testing.T) {
 	o := newOwnerFixture(t)
 	o.readyToPush()
@@ -538,6 +585,33 @@ func TestOwnerShipDeliversFromOneReply(t *testing.T) {
 	}
 	if visits(nodes, "owner_ask") != 0 {
 		t.Fatalf("the ship did not wait for the owner in between: %s", joinNodes(nodes))
+	}
+}
+
+// #926 c2: a branch already merged by hand at the tested commit ships from one
+// reply: push, PR and merge are recorded as done without acting, and close runs.
+func TestOwnerShipOfAnAlreadyMergedBranchClosesTheIssues(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.mixed()
+	commit := o.state().Commit
+	o.forge.remoteHead = ""
+	o.forge.prs = []github.DeliveryPR{{Number: 44, Head: commit, Branch: "lf/497-validate", Target: "main", State: "closed", Merged: true, MergeSHA: strings.Repeat("d", 40)}}
+	o.reply(o.owner, o.ship())
+	nodes := o.toOwner()
+	if o.final() != "delivered" {
+		t.Fatalf("final %s path %s notice %q", o.final(), joinNodes(nodes), o.notice())
+	}
+	st := o.state()
+	for _, e := range []*store.ValidateEffect{st.Effects.Push, st.Effects.PR, st.Effects.Merge, st.Effects.Close} {
+		if !effectDone(e) {
+			t.Fatalf("effect %+v", e)
+		}
+	}
+	if decodeEffectResult(st.Effects.PR).Number != 44 || o.effect(store.EffectMerge, "44@"+commit).State != store.EffectSucceeded {
+		t.Fatalf("pr %+v merge %+v", st.Effects.PR, st.Effects.Merge)
+	}
+	if len(o.pushSeen) != 0 || len(o.forge.prCreates) != 0 || len(o.forge.merges) != 0 || strings.Join(o.forge.issueCloses, ",") != "520,497" {
+		t.Fatalf("pushes %v prs %v merges %v closes %v", o.pushSeen, o.forge.prCreates, o.forge.merges, o.forge.issueCloses)
 	}
 }
 
@@ -801,5 +875,419 @@ func TestOwnerIssueChoiceStartsNoRepair(t *testing.T) {
 	nodes = o.say(o.command(ValidateFindingCommand, "story-002:code", "repair"))
 	if visits(nodes, "repair_agent") != 1 || strings.Contains(handoffs[0], "story-002:AC-002") || !strings.Contains(handoffs[0], "story-002:code") {
 		t.Fatalf("repair: %s %q", joinNodes(nodes), handoffs)
+	}
+}
+
+func ownerLiveReview(req ValidateReviewRequest) (*agentresult.Result, error) {
+	res := goodReview(req)
+	for si := range res.Payload.Validate.Stories {
+		for i := range res.Payload.Validate.Stories[si].Reviews {
+			r := &res.Payload.Validate.Stories[si].Reviews[i]
+			if r.Name == "architecture" {
+				r.Status, r.Classification = "unverified", "blocking"
+				r.Evidence = []agent.EvidenceExplanation{{Summary: "The owner must check installed-provider isolation and exact-session resume.", CheckIDs: []string{}}}
+			}
+		}
+	}
+	return res, nil
+}
+
+func TestOwnerLiveReviewVerdicts(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.stories = append(o.stories, ValidateStory{Key: "story-003", Title: "Second story", Revision: strings.Repeat("cd", 32), Criteria: []string{"AC-001"}})
+	o.reviewers.run = ownerLiveReview
+	o.toOwner()
+	before := o.state()
+	var ids []string
+	for _, f := range before.Findings {
+		if f.Name != "architecture" {
+			continue
+		}
+		ids = append(ids, f.ID)
+		body := renderValidateStoryComment(before, ValidateIssueRef{Key: f.Story}, 843)
+		if f.State != findingAwaitingCheck || !strings.Contains(body, ValidateCheckCommand+" "+before.Revision+" "+f.ID+" pass|fail -- <evidence>") || strings.Contains(body, "failed") || strings.Contains(body, "only on a new tested snapshot") {
+			t.Fatalf("awaiting review: %+v\n%s", f, body)
+		}
+	}
+	if len(ids) == 0 || before.Ready {
+		t.Fatal("expected pending architecture reviews")
+	}
+	id := ids[0]
+	o.say(o.command(ValidateCheckCommand, id, "fail", "-- provider continuity failed"))
+	failed := o.state()
+	f, _ := failed.finding(id)
+	body := renderValidateStoryComment(failed, ValidateIssueRef{Key: f.Story}, 843)
+	if f.State != findingOwnerFailed || failed.Ready || len(failed.shipBlockers()) == 0 || !strings.Contains(body, "provider continuity failed") || !strings.Contains(body, ValidateCheckCommand+" "+failed.Revision+" "+id) || strings.Contains(body, "only on a new tested snapshot") {
+		t.Fatalf("failed check: %+v\n%s", f, body)
+	}
+	for i, target := range ids {
+		o.say(o.command(ValidateCheckCommand, target, "pass", "-- both installed providers resumed the exact session"))
+		after := o.state()
+		got, _ := after.finding(target)
+		original, _ := before.finding(target)
+		v := got.Verdict
+		if got.State != findingOwnerPassed || got.Status != original.Status || got.Summary != original.Summary || v == nil || v.AuthorID != o.owner || v.CommentID == 0 || v.InstanceID != o.instance.ID || v.Commit != before.Commit || v.Evidence != "both installed providers resumed the exact session" || after.Revision == before.Revision {
+			t.Fatalf("retained owner check: %+v", got)
+		}
+		if i+1 < len(ids) {
+			next, _ := after.finding(ids[i+1])
+			if next.State != findingAwaitingCheck || after.Ready {
+				t.Fatal("one story's verdict settled another")
+			}
+		}
+		body = renderValidateStoryComment(after, ValidateIssueRef{Key: got.Story}, 843)
+		if !strings.Contains(body, "owner passed") || strings.Contains(body, "failed") || strings.Contains(body, "(blocking") {
+			t.Fatalf("passed review report: %s", body)
+		}
+	}
+	after := o.state()
+	if !after.Ready || !strings.Contains(after.NextStep(nil), ValidateShipCommand) {
+		t.Fatalf("settled reviews still block: %v", after.Open)
+	}
+	all, err := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, before.Commit, true)
+	if err != nil || len(all) != len(ids)+1 {
+		t.Fatalf("verdict history: %v %v", all, err)
+	}
+	other, err := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, strings.Repeat("f", 40), false)
+	if err != nil || len(other) != 0 {
+		t.Fatalf("verdict leaked to another commit: %v %v", other, err)
+	}
+	if _, ok := replayedValidateReply(t.Context(), o.opts, after, all[len(all)-1].CommentID, false); !ok {
+		t.Fatal("review verdict replay not recognized")
+	}
+}
+
+func TestOwnerLiveReviewRefusals(t *testing.T) {
+	for _, mode := range []string{"non-owner", "stale", "head", "evidence", "unknown", "unmet", "satisfied", "optional", "missing"} {
+		t.Run(mode, func(t *testing.T) {
+			o := newOwnerFixture(t)
+			o.reviewers.run = func(req ValidateReviewRequest) (*agentresult.Result, error) {
+				if mode == "missing" && req.Role == agent.ReviewRoleArchitecture {
+					return nil, errors.New("review unavailable")
+				}
+				res, err := ownerLiveReview(req)
+				for si := range res.Payload.Validate.Stories {
+					for i := range res.Payload.Validate.Stories[si].Reviews {
+						r := &res.Payload.Validate.Stories[si].Reviews[i]
+						if r.Name == "architecture" {
+							if mode == "unmet" || mode == "satisfied" {
+								r.Status = mode
+							}
+							if mode == "optional" {
+								r.Classification = "advisory"
+							}
+						}
+					}
+				}
+				return res, err
+			}
+			o.toOwner()
+			before := o.state()
+			body := o.command(ValidateCheckCommand, "story-002:architecture", "pass", "-- checked live")
+			switch mode {
+			case "stale":
+				body = strings.Replace(body, before.Revision, "000000000000", 1)
+			case "head":
+				o.write("app/extra.go", "package app\n")
+				if _, err := o.wt.Commit(t.Context(), gitCommitOptions()); err != nil {
+					t.Fatal(err)
+				}
+			case "evidence":
+				body = o.command(ValidateCheckCommand, "story-002:architecture", "pass")
+			case "unknown":
+				body = o.command(ValidateCheckCommand, "story-002:unknown", "pass", "-- checked live")
+			}
+			if mode == "non-owner" {
+				o.reply(o.owner+1, body)
+				o.toOwner()
+			} else {
+				o.say(body)
+			}
+			all, err := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, before.Commit, true)
+			if err != nil || len(all) != 0 || o.state().Revision != before.Revision || o.notice() == "" || len(o.forge.pushes)+len(o.forge.merges) != 0 {
+				t.Fatalf("refusal changed state: %v %v %s", all, err, o.notice())
+			}
+		})
+	}
+}
+
+func TestOwnerShipRecordsLiveReviewVerdicts(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.reviewers.run = ownerLiveReview
+	o.toOwner()
+	before := o.state()
+	if len(before.shipBlockers()) != 0 {
+		t.Fatal(before.shipBlockers())
+	}
+	o.say(o.command(ValidateShipCommand, "-- checked both installed providers"))
+	after := o.state()
+	for _, f := range after.Findings {
+		if f.Name == "architecture" && (f.State != findingOwnerPassed || f.Verdict == nil || f.Verdict.Evidence != "checked both installed providers") {
+			t.Fatalf("ship did not retain review verdict: %+v", f)
+		}
+	}
+	if !effectDone(after.Effects.Close) {
+		t.Fatal("ship did not complete")
+	}
+}
+
+// #922: the verified owner of the task's own Linear ticket connection ships
+// from one reply, like the GitHub code owner. Another Linear user, and the
+// appointed approver of a GitHub ticket connection, are still refused.
+func TestOwnerShipFromTheLinearTicketOwner(t *testing.T) {
+	linearOwner := ticket.Identity{Provider: ticket.Linear, Origin: "https://api.linear.app", RemoteID: "owner-uuid"}
+	for _, tc := range []struct {
+		name     string
+		approver ticket.Identity
+		author   ticket.Identity
+		ships    bool
+	}{
+		{"linear ticket owner", linearOwner, linearOwner, true},
+		{"another linear user", linearOwner, ticket.Identity{Provider: ticket.Linear, Origin: "https://api.linear.app", RemoteID: "other-uuid"}, false},
+		{"github ticket approver", ticket.Identity{Provider: ticket.GitHub, Origin: "https://api.github.com", RemoteID: "42"}, ticket.Identity{Provider: ticket.GitHub, Origin: "https://api.github.com", RemoteID: "42"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := newOwnerFixture(t)
+			o.mixed()
+			author := int64(42)
+			if tc.author.Provider == ticket.Linear {
+				var err error
+				if author, err = o.db.LocalTicketSlot(t.Context(), "actor", tc.author); err != nil {
+					t.Fatal(err)
+				}
+			}
+			approver := store.ApproverAppointment{Actor: tc.approver}
+			o.opts.ProjectApprovers, o.opts.TicketApprover = true, &approver
+			before := o.records()
+			o.reply(author, o.ship())
+			nodes := o.toOwner()
+			st := o.state()
+			if !tc.ships {
+				if !strings.Contains(o.notice(), "Only the owner can give Validate commands.") || o.records() != before || len(o.forge.pushes) != 0 {
+					t.Fatalf("a refused author shipped: notice %q path %s", o.notice(), joinNodes(nodes))
+				}
+				return
+			}
+			if outcomes := o.resolveOutcomes(); !strings.Contains(" "+strings.Join(outcomes, " ")+" ", " push ") {
+				t.Fatalf("outcomes %v final %s notice %q", outcomes, o.final(), o.notice())
+			}
+			if st.Effects.Push == nil || !effectDone(st.Effects.Push) || st.Effects.Push.ConfirmCommentID == 0 || len(o.forge.pushes) != 1 {
+				t.Fatalf("push effect %+v pushes %v path %s", st.Effects.Push, o.forge.pushes, joinNodes(nodes))
+			}
+		})
+	}
+}
+
+// #922: the turn gate admits the verified Linear ticket owner for each of the
+// six delivery commands and refuses everyone else.
+func TestTurnCodeAuthorityAdmitsTheLinearTicketOwner(t *testing.T) {
+	ctx := t.Context()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "authority.db"))
+	mustProgress(t, err)
+	defer func() { mustProgress(t, db.Close()) }()
+	mustProgress(t, db.Migrate(ctx))
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: "/linear-code", Forge: store.ForgeGitHub, Owner: "owner", Name: "code", RemoteURL: "git@github.com:owner/code.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: "/linear-trees"})
+	mustProgress(t, err)
+	code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: repo.Slug(), CredentialSource: "env", CredentialEnv: "TOKEN", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, RemoteURL: repo.RemoteURL, BaseBranch: repo.BaseBranch, FeaturePrefix: repo.FeaturePrefix, WorktreeRoot: repo.WorktreeRoot}, 0)
+	mustProgress(t, err)
+	tickets, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team/project", CredentialSource: "env", CredentialEnv: "LINEAR", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"label-plan"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
+	mustProgress(t, err)
+	owner := ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "owner-uuid"}
+	ownerSlot, err := db.LocalTicketSlot(ctx, "actor", owner)
+	mustProgress(t, err)
+	other := ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "other-uuid"}
+	otherSlot, err := db.LocalTicketSlot(ctx, "actor", other)
+	mustProgress(t, err)
+	bot := ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "publisher-uuid"}
+	botSlot, err := db.LocalTicketSlot(ctx, "actor", bot)
+	mustProgress(t, err)
+	a, err := db.SetApprover(ctx, store.ApproverAppointment{RepoID: repo.ID, Actor: owner, Handle: "owner", VerifiedAt: time.Now(), Provenance: "explicit"}, tickets.Revision, 0)
+	mustProgress(t, err)
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "issue-uuid"}, Locator: ticket.Locator{Provider: ticket.Linear, Origin: tickets.Origin, Container: tickets.Destination, Key: "issue-uuid"}}
+	_, err = db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: tickets.ID, Ref: ref, Enabled: true, Provenance: "explicit"})
+	mustProgress(t, err)
+	session, err := db.AdmitSession(ctx, repo, ref, code.Revision, tickets.Revision, botSlot, "publisher", "linear:team/project#1")
+	mustProgress(t, err)
+	opts := Options{DB: db, ProjectApprovers: true}
+	fresh := a.ActivatedAt.Add(time.Second)
+	source := ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "reply-uuid"}
+	for _, command := range []string{"/validate-ship rev -- ok", "/validate-push rev", "/validate-merge rev", "/validate-close rev", "/deliver", "/merge"} {
+		trigger := Trigger{CommentID: 101, AuthorID: ownerSlot, Actor: owner, Source: source, CreatedAt: fresh, Body: command}
+		if err := verifyTurnCodeAuthority(ctx, opts, session, trigger); err != nil {
+			t.Fatalf("%s: the Linear ticket owner was refused: %v", command, err)
+		}
+	}
+	trigger := Trigger{CommentID: 101, AuthorID: ownerSlot, Actor: owner, Source: source, CreatedAt: fresh, Body: "/validate-ship rev -- ok"}
+	claim, err := db.ClaimProjectCodeAuthority(ctx, store.AuthorityClaim{SessionID: session.ID, RepoID: repo.ID, AppointmentID: a.ID, Revision: a.Revision, Actor: owner, Source: source, CreatedAt: fresh, Kind: "code-control", Key: "turn:101"})
+	if err != nil {
+		t.Fatalf("the Linear ticket owner's code claim: %v", err)
+	}
+	mustProgress(t, db.CompleteProjectAuthority(ctx, claim.ID))
+	if _, err := db.ClaimProjectCodeAuthority(ctx, store.AuthorityClaim{SessionID: session.ID, RepoID: repo.ID, AppointmentID: a.ID, Revision: a.Revision, Actor: owner, Source: source, CreatedAt: a.ActivatedAt, Kind: "code-control", Key: "turn:102"}); !errors.Is(err, store.ErrApproverReplay) {
+		t.Fatalf("a stale Linear code claim was admitted: %v", err)
+	}
+	if _, err := db.ClaimProjectCodeAuthority(ctx, store.AuthorityClaim{SessionID: session.ID, RepoID: repo.ID, AppointmentID: a.ID, Revision: a.Revision, Actor: other, Source: source, CreatedAt: fresh, Kind: "code-control", Key: "turn:103"}); !errors.Is(err, store.ErrApproverUnauthorized) {
+		t.Fatalf("another Linear user's code claim was admitted: %v", err)
+	}
+	for name, change := range map[string]func(*Trigger){
+		"another linear user": func(tr *Trigger) { tr.AuthorID, tr.Actor = otherSlot, other },
+		"the publisher":       func(tr *Trigger) { tr.AuthorID, tr.Actor = botSlot, bot },
+		"slot mismatch":       func(tr *Trigger) { tr.AuthorID = otherSlot },
+		"foreign source":      func(tr *Trigger) { tr.Source.Origin = "https://linear.example" },
+		"github source": func(tr *Trigger) {
+			tr.Source = ticket.Identity{Provider: ticket.GitHub, Origin: "https://api.github.com", RemoteID: "1"}
+		},
+	} {
+		tr := trigger
+		change(&tr)
+		if err := verifyTurnCodeAuthority(ctx, opts, session, tr); !errors.Is(err, store.ErrApproverUnauthorized) {
+			t.Fatalf("%s gained code authority: %v", name, err)
+		}
+	}
+}
+
+// deviationReview makes the architecture review of every story a blocking
+// unmet finding, as the MAR-11 reviewer did.
+func deviationReview(req ValidateReviewRequest) (*agentresult.Result, error) {
+	res := goodReview(req)
+	for si := range res.Payload.Validate.Stories {
+		for i := range res.Payload.Validate.Stories[si].Reviews {
+			r := &res.Payload.Validate.Stories[si].Reviews[i]
+			if r.Name == "architecture" {
+				r.Status, r.Classification = "unmet", "blocking"
+				r.Evidence = []agent.EvidenceExplanation{{Summary: "The design says to keep the icon legend; the whole legend is removed.", CheckIDs: []string{}}}
+			}
+		}
+	}
+	return res, nil
+}
+
+// prBodyForge records the body of each pull request it creates.
+type prBodyForge struct {
+	*ownerForge
+	bodies []string
+}
+
+func (f *prBodyForge) CreateDeliveryPR(ctx context.Context, repo github.Repo, branch, base string, title, body redact.Body) (github.DeliveryPR, error) {
+	f.bodies = append(f.bodies, body.String())
+	return f.ownerForge.CreateDeliveryPR(ctx, repo, branch, base, title, body)
+}
+
+// #942 C1, C2, C4, C6: the owner accepts a blocking review finding as a
+// deliberate deviation with a reason; the run becomes ready, the report and
+// the pull request show the acceptance, and a replay writes nothing twice.
+func TestOwnerAcceptsABlockingReviewFindingAsADeliberateDeviation(t *testing.T) {
+	o := newOwnerFixture(t)
+	code := &prBodyForge{ownerForge: o.forge}
+	o.delivery.Code = code
+	o.registry = ActivityRegistry{}
+	o.register()
+	o.reviewers.run = deviationReview
+	o.toOwner()
+	const id, reason = "story-002:architecture", "the owner chose tooltips over the legend in MAR-14"
+	before := o.state()
+	f, _ := before.finding(id)
+	if before.Ready || f.State != findingOpen || !f.acceptable() {
+		t.Fatalf("expected an open blocking review: %+v %v", f, before.Open)
+	}
+	accept := ValidateFindingCommand + " " + before.Revision + " " + id + " accept -- <reason>"
+	if next := strings.Join(before.NextCommands(nil), "\n"); !strings.Contains(next, accept) {
+		t.Fatalf("NextCommands offers no accept: %s", next)
+	}
+	if body := renderValidateStoryComment(before, ValidateIssueRef{Key: "story-002"}, 843); !strings.Contains(body, "|accept -- <reason>") || !strings.Contains(body, "accept it as a deliberate deviation") {
+		t.Fatalf("the story comment offers no accept:\n%s", body)
+	}
+	if !strings.Contains(strings.Join(before.Open, " "), "accept -- <reason>") {
+		t.Fatalf("readiness does not name accept: %v", before.Open)
+	}
+
+	o.say(o.command(ValidateFindingCommand, id, "accept", "-- "+reason))
+	after := o.state()
+	f, _ = after.finding(id)
+	if f.State != findingOwnerPassed || f.Verdict == nil || f.Verdict.Evidence != reason || f.Verdict.CommentID == 0 || f.Verdict.AuthorID != o.owner || !f.acceptedDeviation() {
+		t.Fatalf("accept not recorded: %+v %+v notice %q", f, f.Verdict, o.notice())
+	}
+	if strings.Contains(strings.Join(after.Open, " "), id) || !after.Ready || len(after.shipBlockers()) != 0 {
+		t.Fatalf("the accepted finding still blocks: %v", after.Open)
+	}
+	body := renderValidateStoryComment(after, ValidateIssueRef{Key: "story-002"}, 843)
+	if !strings.Contains(body, "Architecture: 1 finding (owner accepted: "+reason+")") || strings.Contains(body, "**Blocks**") {
+		t.Fatalf("story comment:\n%s", body)
+	}
+	if cell := reviewCell(after, after.Findings, agent.ReviewRoleArchitecture); !strings.Contains(cell, "owner accepted: "+reason) {
+		t.Fatalf("review cell %q", cell)
+	}
+
+	// A replay of the same reply writes nothing twice.
+	all, _ := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, after.Commit, true)
+	if outcome, ok := replayedValidateReply(t.Context(), o.opts, after, f.Verdict.CommentID, false); !ok || outcome != "wait" || len(all) != 1 {
+		t.Fatalf("replay %q %v verdicts %d", outcome, ok, len(all))
+	}
+
+	o.reply(o.owner, o.ship())
+	nodes := o.toOwner()
+	if o.final() != "delivered" {
+		t.Fatalf("final %s path %s notice %q", o.final(), joinNodes(nodes), o.notice())
+	}
+	if len(code.bodies) != 1 || !strings.Contains(code.bodies[0], "Accepted deviations") || !strings.Contains(code.bodies[0], "`"+id+"`: "+reason) {
+		t.Fatalf("pull request body: %q", code.bodies)
+	}
+}
+
+// #942 C3: accept is refused for criteria, optional findings and non-owners,
+// and a refusal records nothing.
+func TestOwnerAcceptRefusals(t *testing.T) {
+	for _, mode := range []string{"criterion", "optional", "non-owner", "stale"} {
+		t.Run(mode, func(t *testing.T) {
+			o := newOwnerFixture(t)
+			id := "story-002:architecture"
+			switch mode {
+			case "criterion":
+				id = "story-002:AC-002"
+				o.reviewers.run = func(req ValidateReviewRequest) (*agentresult.Result, error) {
+					res, err := deviationReview(req)
+					for si := range res.Payload.Validate.Stories {
+						for i := range res.Payload.Validate.Stories[si].Criteria {
+							if c := &res.Payload.Validate.Stories[si].Criteria[i]; c.Name == "AC-002" {
+								c.Status = "unmet"
+							}
+						}
+					}
+					return res, err
+				}
+			case "optional":
+				id = "story-002:code"
+				o.reviewers.run = mixedReview
+			default:
+				o.reviewers.run = deviationReview
+			}
+			o.toOwner()
+			before := o.state()
+			if f, _ := before.finding(id); mode != "optional" && mode != "criterion" && !f.acceptable() {
+				t.Fatalf("fixture: %+v", f)
+			}
+			body := o.command(ValidateFindingCommand, id, "accept", "-- deliberate")
+			switch mode {
+			case "stale":
+				body = strings.Replace(body, before.Revision, "000000000000", 1)
+			case "criterion":
+				if next := strings.Join(before.NextCommands(nil), "\n"); strings.Contains(next, id+" accept") {
+					t.Fatalf("accept offered for a criterion: %s", next)
+				}
+			}
+			if mode == "non-owner" {
+				o.reply(o.owner+1, body)
+				o.toOwner()
+			} else {
+				o.say(body)
+			}
+			all, err := o.db.ListValidateVerdicts(t.Context(), o.instance.ID, before.Commit, true)
+			if err != nil || len(all) != 0 || o.state().Revision != before.Revision || o.notice() == "" {
+				t.Fatalf("refusal changed state: %v %v %q", all, err, o.notice())
+			}
+			if (mode == "criterion" || mode == "optional") && !strings.Contains(o.notice(), "Accept is only for blocking review findings") {
+				t.Fatalf("notice %q", o.notice())
+			}
+		})
 	}
 }

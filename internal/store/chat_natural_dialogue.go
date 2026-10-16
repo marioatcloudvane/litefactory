@@ -76,6 +76,16 @@ func (db *DB) BindNaturalPrompt(ctx context.Context, d NaturalDialogue, prompt s
 // AuthorizeNaturalDialogue consumes a live, delivered revision and creates one inbox invocation atomically.
 // Confirmation grammar, authenticated identity and reply/code binding are checked by the caller.
 func (db *DB) AuthorizeNaturalDialogue(ctx context.Context, d NaturalDialogue, confirmation string, r ChatReply, at time.Time) error {
+	return db.authorizeNaturalDialogue(ctx, nil, d, confirmation, r, at)
+}
+
+// AuthorizeConversationDialogue atomically fences the turn, consumes the exact
+// proposal and journals the conversation-owned execution before any effect.
+func (db *DB) AuthorizeConversationDialogue(ctx context.Context, t ConversationTurn, d NaturalDialogue, confirmation string, r ChatReply, at time.Time) error {
+	r.ConversationTurnID = t.ID
+	return db.authorizeNaturalDialogue(ctx, &t, d, confirmation, r, at)
+}
+func (db *DB) authorizeNaturalDialogue(ctx context.Context, t *ConversationTurn, d NaturalDialogue, confirmation string, r ChatReply, at time.Time) error {
 	sourceID, sourceErr := strconv.ParseUint(d.SourceID, 10, 64)
 	confirmationID, confirmationErr := strconv.ParseUint(confirmation, 10, 64)
 	if sourceErr != nil || confirmationErr != nil || confirmationID <= sourceID {
@@ -85,6 +95,21 @@ func (db *DB) AuthorizeNaturalDialogue(ctx context.Context, d NaturalDialogue, c
 		return errors.New("invalid natural authorization")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error {
+		if t != nil {
+			if err := conversationFence(ctx, tx, *t); err != nil {
+				return err
+			}
+			var transport, owner, channel string
+			if err := tx.QueryRowContext(ctx, `SELECT transport,owner_id,channel_ref FROM chat_conversations WHERE id=?`, t.ConversationID).Scan(&transport, &owner, &channel); err != nil {
+				return err
+			}
+			if transport != d.Transport || owner != d.OwnerID || channel != d.ChannelRef {
+				return errors.New("conversation authorization scope mismatch")
+			}
+			if err := saveConversationAction(ctx, tx, ConversationActionLink{TurnID: t.ID, DialogueID: d.Code, DialogueRevision: d.Revision, ExecutionID: r.MessageID, PayloadDigest: d.Digest}); err != nil {
+				return err
+			}
+		}
 		result, err := tx.ExecContext(ctx, `UPDATE chat_natural_dialogues SET state='authorized',updated_at=? WHERE transport=? AND owner_id=? AND channel_ref=? AND revision=? AND digest=? AND code=? AND payload=? AND prompt_id!='' AND state='awaiting_confirmation' AND expires_at>?`, FormatTime(at), d.Transport, d.OwnerID, d.ChannelRef, d.Revision, d.Digest, d.Code, d.Payload, FormatTime(at))
 		if err = chatAffected(result, err); err != nil {
 			return err
@@ -106,7 +131,7 @@ func (db *DB) AuthorizeNaturalDialogue(ctx context.Context, d NaturalDialogue, c
 		case "confirm":
 			state, question = "answering", r.Arguments["code"]
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO chat_inbox(transport,message_id,channel_ref,command,arguments,state,next_attempt_at,created_at,question,project_option,reply_text,presentation_state,outcome_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.Transport, r.MessageID, r.ChannelRef, r.Command, string(args), state, FormatTime(at), FormatTime(at), question, project, r.ReplyText, r.PresentationState, r.OutcomeStatus)
+		_, err = tx.ExecContext(ctx, `INSERT INTO chat_inbox(transport,message_id,channel_ref,command,arguments,state,next_attempt_at,created_at,question,project_option,reply_text,presentation_state,outcome_status,conversation_turn_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.Transport, r.MessageID, r.ChannelRef, r.Command, string(args), state, FormatTime(at), FormatTime(at), question, project, r.ReplyText, r.PresentationState, r.OutcomeStatus, r.ConversationTurnID)
 		return err
 	})
 }
@@ -179,11 +204,11 @@ func (db *DB) PurgeNaturalChat(ctx context.Context, at time.Time) error {
 			return e
 		}
 		// Expired intake keeps only replay identities, freeing bounded queue space.
-		_, e = tx.ExecContext(ctx, `UPDATE chat_natural_messages SET state='finished',content='',reply_to='',finished_at=? WHERE state IN ('staged','pending') AND created_at<=?`, FormatTime(at), FormatTime(at.Add(-24*time.Hour)))
+		_, e = tx.ExecContext(ctx, `UPDATE chat_natural_messages SET state='finished',content='',reply_to='',finished_at=? WHERE state IN ('staged','pending') AND created_at<=? AND NOT (state='pending' AND EXISTS(SELECT 1 FROM chat_conversations c WHERE c.channel_ref=chat_natural_messages.channel_ref AND c.transport='discord' AND c.active=1))`, FormatTime(at), FormatTime(at.Add(-24*time.Hour)))
 		if e != nil {
 			return e
 		}
-		for _, q := range []string{`DELETE FROM chat_natural_messages WHERE state='finished' AND finished_at<=?`, `DELETE FROM chat_natural_executions WHERE state IN ('finished','uncertain') AND finished_at<=?`, `DELETE FROM chat_natural_dialogues WHERE state IN ('cancelled','expired','finished','uncertain') AND updated_at<=?`} {
+		for _, q := range []string{`DELETE FROM chat_natural_messages WHERE state='finished' AND finished_at<=?`, `DELETE FROM chat_natural_executions WHERE state IN ('finished','uncertain') AND finished_at<=? AND NOT EXISTS(SELECT 1 FROM chat_conversation_actions a JOIN chat_conversation_turns t ON t.id=a.turn_id WHERE a.execution_id=chat_natural_executions.identity AND (t.delivered_at IS NULL OR EXISTS(SELECT 1 FROM chat_inbox i WHERE i.message_id=a.execution_id AND i.conversation_turn_id=t.id AND i.state IN ('working','pending','sent','answering'))))`, `DELETE FROM chat_natural_dialogues WHERE state IN ('cancelled','expired','finished','uncertain') AND updated_at<=?`} {
 			if _, e = tx.ExecContext(ctx, q, FormatTime(at.Add(-24*time.Hour))); e != nil {
 				return e
 			}

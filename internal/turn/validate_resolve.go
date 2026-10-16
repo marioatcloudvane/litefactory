@@ -87,6 +87,8 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 	owner, err := h.b.Delivery.OwnerID(ctx, opts)
 	if opts.ProjectApprovers && !isValidateCodeControlBody(wait.ReplyBody) {
 		owner, err = ticketOwnerID(ctx, opts)
+	} else if alt, ok := ticketCodeOwnerID(ctx, opts); ok && wait.ReplyAuthorID == alt {
+		owner, err = alt, nil
 	}
 	if err != nil || owner < 1 {
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
@@ -127,8 +129,8 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		if ok && f.State == findingNotReviewed {
 			return notReviewed(f.ID)
 		}
-		if !ok || !f.Criterion || f.Status != "unverified" {
-			return refuse("wait", fmt.Sprintf("`%s` is not a criterion that awaits an owner check.", cmd.Criterion))
+		if !ok || !f.checkable() {
+			return refuse("wait", fmt.Sprintf("`%s` does not await an eligible owner check.", cmd.Criterion))
 		}
 		if _, err := opts.DB.PutValidateVerdict(ctx, store.ValidateVerdict{InstanceID: req.InstanceID, Commit: st.Commit, Criterion: f.ID, Verdict: cmd.Verdict, Evidence: cmd.Evidence, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, CreatedAt: now}); err != nil {
 			return ActivityResult{Diagnostic: err.Error()}, err
@@ -145,6 +147,15 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 			return refuse("wait", fmt.Sprintf("`%s` awaits your check first: record pass or fail with evidence.", f.ID))
 		case !f.needsChoice():
 			return refuse("wait", fmt.Sprintf("`%s` is %s and takes no choice.", f.ID, f.State))
+		case cmd.Choice == validateChoiceAccept && !f.acceptable():
+			return refuse("wait", fmt.Sprintf("`%s` cannot be accepted. Accept is only for blocking review findings (architecture, plan, code), not criteria or the suite.", f.ID))
+		case cmd.Choice == validateChoiceAccept:
+			// The owner accepts a deliberate deviation: an owner pass verdict on
+			// the tested commit, with the reason as its evidence.
+			if _, err := opts.DB.PutValidateVerdict(ctx, store.ValidateVerdict{InstanceID: req.InstanceID, Commit: st.Commit, Criterion: f.ID, Verdict: store.VerdictPass, Evidence: cmd.Evidence, CommentID: wait.ReplyID, AuthorID: wait.ReplyAuthorID, CreatedAt: now}); err != nil {
+				return ActivityResult{Diagnostic: err.Error()}, err
+			}
+			return h.accept(ctx, opts, req, st, now, "wait", "deviation accepted")
 		case cmd.Choice == store.ChoiceDefer && !f.Optional:
 			return refuse("wait", fmt.Sprintf("`%s` is blocking. Defer is allowed only for optional suggestions; choose repair or issue.", f.ID))
 		}
@@ -296,6 +307,9 @@ func isValidateShipReply(body string) bool {
 // because the ship's own records and effects have moved it since the command.
 func (h ValidateResolveActivity) continueShip(ctx context.Context, opts Options, req ActivityRequest, st ValidateState, wait store.GraphOwnerWait, now time.Time, refuse func(outcome, why string) (ActivityResult, error)) (ActivityResult, error) {
 	owner, err := h.b.Delivery.OwnerID(ctx, opts)
+	if alt, ok := ticketCodeOwnerID(ctx, opts); ok && wait.ReplyAuthorID == alt {
+		owner, err = alt, nil
+	}
 	if err != nil || owner < 1 {
 		return ActivityResult{Diagnostic: "the owner identity cannot be resolved"}, errors.Join(errors.New("the owner identity cannot be resolved"), err)
 	}

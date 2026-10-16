@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -257,5 +258,56 @@ func TestSubmissionRootBecomesAddDirAndMustBeAbsolute(t *testing.T) {
 	bad.SubmissionRoot = "s/d5868bf912d89279"
 	if err := bad.Validate(); err == nil {
 		t.Error("a relative submission root was accepted; want a validation error")
+	}
+}
+
+func TestRunnerRecoversMissingExecutable(t *testing.T) {
+	runner, _ := fakeRunner(t, `printf '%s\n' '{"type":"thread.started","thread_id":"thread-123"}' '{"type":"turn.completed"}'`)
+	binary := runner.binary.Path
+	if err := os.Rename(binary, binary+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { time.Sleep(time.Second); done <- os.Rename(binary+".saved", binary) }()
+	result, err := runner.Run(t.Context(), request(t, agent.PathCold))
+	if restoreErr := <-done; restoreErr != nil {
+		t.Fatal(restoreErr)
+	}
+	if err != nil || result == nil || !result.Succeeded() {
+		t.Fatalf("recovery: %+v %v", result, err)
+	}
+}
+
+func TestRunnerRecoveryRechecksDelivery(t *testing.T) {
+	runner, argv := fakeRunner(t, `printf '%s\n' '{"type":"turn.completed"}'`)
+	req := request(t, agent.PathCold)
+	req.Delivery = &agent.Delivery{Root: t.TempDir(), Identity: strings.Repeat("a", 64), MainRole: "research", MainModel: "worker", Roles: []string{"research"}}
+	instruction := filepath.Join(req.Delivery.Root, "main-instructions.md")
+	if err := os.WriteFile(instruction, []byte("Selected role"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manifestDelivery(t, req.Delivery)
+	binary := runner.binary.Path
+	if err := os.Rename(binary, binary+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		time.Sleep(time.Second)
+		if err := os.WriteFile(instruction, []byte("changed"), 0600); err != nil {
+			done <- err
+			return
+		}
+		done <- os.Rename(binary+".saved", binary)
+	}()
+	result, err := runner.Run(t.Context(), req)
+	if restoreErr := <-done; restoreErr != nil {
+		t.Fatal(restoreErr)
+	}
+	if !errors.Is(err, agent.ErrDeliveryRefused) || result != nil {
+		t.Fatalf("changed delivery launched: %+v %v", result, err)
+	}
+	if _, err = os.Stat(argv); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("process launched: %v", err)
 	}
 }

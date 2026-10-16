@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -35,6 +36,9 @@ type turnExecutor struct {
 }
 
 func newTurnExecutor(opts turn.Options, factories []*projectconnection.Factory) turnExecutor {
+	if opts.GraphRetryDelay <= 0 {
+		opts.GraphRetryDelay = 30 * time.Second
+	}
 	e := turnExecutor{opts: opts}
 	if len(factories) > 0 {
 		e.connections = factories[0]
@@ -77,4 +81,9 @@ func (e turnExecutor) PollStoryProgress(ctx context.Context) error {
 		return nil
 	}
 	return errors.Join(e.opts.StoryProgress.RecoverSubmissions(ctx), e.opts.StoryProgress.Poll(ctx), e.opts.DB.ReconcileSubmissionEffects(ctx))
+}
+
+// RecoverWorkflowJudges settles advisory bookkeeping at quiescent startup.
+func (e turnExecutor) RecoverWorkflowJudges(ctx context.Context, at time.Time) error {
+	return turn.RecoverWorkflowJudges(ctx, e.opts, at)
 }

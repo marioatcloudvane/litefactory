@@ -18,6 +18,7 @@ type ActivityRequest struct {
 	Node                             string
 	Attrs                            map[string]string
 	InstanceID, NodeAttemptID, RunID int64
+	Recovery                         bool
 	ResumeRef                        string
 }
 

@@ -153,6 +153,7 @@ type webhookRepo struct {
 // on. The handler never reaches the keychain; only [webhookRuntime.refresh],
 // called at start-up and from the heartbeat, does.
 type webhookRuntime struct {
+	handler   *webhook.Handler
 	ln        net.Listener
 	resolver  secrets.Resolver
 	publicURL string
@@ -303,6 +304,9 @@ func (d *Daemon) webhookServe(ctx context.Context, wg *sync.WaitGroup) error {
 	if err != nil {
 		return err
 	}
+	d.webhook.mu.Lock()
+	d.webhook.handler = handler
+	d.webhook.mu.Unlock()
 	server := webhook.NewServer(d.webhook.ln, d.webhookRouter(handler))
 	d.log.InfoContext(ctx, "webhook listener serving", slog.String("addr", d.webhook.ln.Addr().String()), slog.String("path", webhook.Path))
 	wg.Add(2)
@@ -372,6 +376,7 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 				return err
 			}
 			if !valid {
+				d.log.WarnContext(ctx, "webhook source rejected", slog.String("subscription", hint.selector), slog.Int64("connection_version_id", hint.versionID), slog.String("reason", "subscription_revision"))
 				d.webhook.hints.resolve(hint)
 				continue
 			}
@@ -405,7 +410,7 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 		}
 		if hint.versionID != 0 {
 			if err := d.verifyWebhookSource(readCtx, hint, q); err != nil {
-				q.log.WarnContext(ctx, "webhook source verification deferred", slog.Any("error", err))
+				q.log.WarnContext(ctx, "webhook source verification deferred", slog.String("subscription", hint.selector), slog.Int64("connection_version_id", hint.versionID), slog.Any("error", err))
 				continue
 			}
 		}
@@ -421,10 +426,13 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 		}
 		if hint.ticketKey != "" {
 			if err := d.handoffOpaqueWebhook(readCtx, hint, q); err != nil {
-				q.log.WarnContext(ctx, "opaque webhook read deferred", slog.Any("error", err))
-				d.webhook.hints.failed(hint)
+				q.log.WarnContext(ctx, "opaque webhook read deferred", slog.String("subscription", hint.selector), slog.Int64("connection_version_id", hint.versionID), slog.Any("error", err))
+				if !d.scopedQuotaDeferred(readCtx, err) && ctx.Err() == nil {
+					d.webhook.hints.failed(hint)
+				}
 				continue
 			}
+			q.log.InfoContext(ctx, "webhook observation recorded", slog.String("subscription", hint.selector), slog.Int64("connection_version_id", hint.versionID))
 			d.webhook.hints.resolve(hint)
 			result.Hinted++
 			continue
@@ -463,6 +471,7 @@ func (d *Daemon) webhookHints(ctx context.Context, byRepo map[int64]*repoQueue, 
 				}
 				return err
 			}
+			q.log.InfoContext(ctx, "webhook observation recorded", slog.String("subscription", hint.selector), slog.Int64("connection_version_id", hint.versionID))
 			d.webhook.hints.resolve(hint)
 			result.Hinted++
 			continue

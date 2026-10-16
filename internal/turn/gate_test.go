@@ -187,12 +187,23 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 
 	// sections is every function in this package that may take the clone gate.
 	sections := map[string]struct{}{
-		"prepareClone":  {},
+		"prepareClone": {},
+		// Worker gate setup fetches, allocates and initializes its retained
+		// checkout under one clone acquisition before reusable synchronization.
+		"implementRuntime.prepareWorkerSyncCheckout": {},
+		"sessionSyncCheckout.withCheckout":           {},
+		"BugRuntime.syncBaseBranch":                  {},
+		// Observe an unpublished Bug branch before opening its base scratch,
+		// releasing this section before the scratch takes its own gate.
+		"sessionGraphSyncRepo.initialBugSyncBranch": {},
 		"commitAndPush": {},
 		// Standalone doctor sync releases its snapshot section before advisory work,
 		// then revalidates and performs merge, publication and rollback in one section.
 		"prepareDoctorSync": {},
 		"applyDoctorSync":   {},
+		// Bug delivery snapshots and applies validated advice in disposable scratch.
+		"prepareBugDeliveryConflict": {},
+		"applyBugDeliveryConflict":   {},
 		// A repair attempt merges fetched main into the idle task worktree,
 		// and a Bug check adds and later removes the detached target
 		// worktree its failing tests rerun on; each is one acquisition.
@@ -226,7 +237,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 	// mapped to the sections it may appear in.
 	gated := map[string][]string{
 		"fetch":          {"prepareClone"},
-		"freezeSlug":     {"prepareClone"},
+		"freezeSlug":     {"prepareClone", "implementRuntime.prepareWorkerSyncCheckout"},
 		"ensureWorktree": {"prepareClone"},
 		// syncBase runs inside the existing prepareClone gate, not a new
 		// section — TEST-10. It is the fourth step of that critical section,
@@ -243,12 +254,12 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// shape syncBase already has, and for the same reason: there is no
 		// claude run between ensureWorktree and this step for the agentless
 		// apply turn, so nothing needs the gate released and retaken.
-		"WriteResolvedFiles": {"prepareClone", "applyDoctorSync"},
-		"StageResolvedFiles": {"prepareClone", "applyDoctorSync"},
-		"CompleteMerge":      {"prepareClone", "applyDoctorSync"},
+		"WriteResolvedFiles": {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
+		"StageResolvedFiles": {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
+		"CompleteMerge":      {"prepareClone", "applyDoctorSync", "applyBugDeliveryConflict"},
 		// Confirmed proposal application also pushes inside prepareClone's
 		// existing acquisition.
-		"Push": {"commitAndPush", "prepareClone", "BugRuntime.pushGraphDelivery", "applyDoctorSync"},
+		"Push": {"commitAndPush", "prepareClone", "BugRuntime.pushGraphDelivery", "applyDoctorSync", "implementRuntime.prepareWorkerSyncCheckout"},
 	}
 
 	funcs := packageFuncs(t)
@@ -341,6 +352,12 @@ func TestTurnImposesNoAmbientDeadline(t *testing.T) {
 			// acquisitions and before any git write, so the merge, recheck and
 			// push fit inside the repair broker's tool deadline.
 			if name == "SyncDoctorBranch" && forbidden == "WithTimeout" {
+				continue
+			}
+			// Advisory judging captures repository evidence before starting its
+			// shared provider budget. Only the isolated launches use that context;
+			// it never encloses a git command or a clone-gate acquisition.
+			if name == "JudgeService.Execute" && forbidden == "WithTimeout" {
 				continue
 			}
 			if countCalls(fn.decl, forbidden) > 0 {

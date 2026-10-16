@@ -36,6 +36,9 @@ func (r *Runner) runRepairTransport(ctx context.Context, request agent.RepairReq
 }
 
 func validateScopedDoctorRequest(request agent.DoctorRequest, operation string) error {
+	if operation == "judge" {
+		return (agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}).Validate()
+	}
 	if operation == "" {
 		return request.Validate()
 	}
@@ -48,6 +51,9 @@ func runScopedDoctorProcess(ctx context.Context, binary string, args, env []stri
 			logger = slog.New(slog.DiscardHandler)
 		}
 		return providerprocess.RunDoctorProcess(ctx, binary, args, env, request, timeout, observe, func(pid int) error { return killSubtree(context.WithoutCancel(ctx), pid, logger) })
+	}
+	if operation == "judge" {
+		return providerprocess.RunJudgeProcess(ctx, binary, args, env, agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}, timeout, observe)
 	}
 	return providerprocess.RunRepairProcess(ctx, binary, args, env, agent.RepairRequest{Invocation: request, Operation: operation}, timeout, observe)
 }

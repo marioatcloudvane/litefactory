@@ -53,6 +53,10 @@ func (r *validateRemote) settle(ctx context.Context, e store.ValidateEffect, sta
 	if err != nil {
 		return err
 	}
+	if (state == store.EffectFailed || state == store.EffectUncertain) && r.opts.Logger != nil {
+		r.opts.Logger.Warn("validate effect did not succeed",
+			"instance", r.req.InstanceID, "effect", e.Kind, "commit", r.st.Commit, "state", state, "reason", reason)
+	}
 	return r.opts.DB.SettleValidateEffect(ctx, e.ID, state, raw, reason, r.b.now(r.opts))
 }
 
@@ -128,7 +132,7 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 	fail := func(state string, err error) error {
 		return r.settle(ctx, e, state, map[string]any{}, "The follow-up issue was not confirmed: "+err.Error())
 	}
-	issues, err := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.Repo)
+	issues, err := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.ticketRepo())
 	if err != nil {
 		return fail(store.EffectUncertain, err)
 	}
@@ -146,10 +150,10 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 		if err != nil {
 			return fail(store.EffectFailed, err)
 		}
-		created, createErr := createTicketEffect(ctx, r.b.Delivery.tickets(), "validate-issue:"+marker, r.target.Repo, 0, title, body)
+		created, createErr := createTicketEffect(ctx, r.b.Delivery.tickets(), "validate-issue:"+marker, r.target.ticketRepo(), 0, title, body)
 		if createErr != nil {
 			// A lost reply may still have created it: look before saying it failed.
-			again, listErr := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.Repo)
+			again, listErr := r.b.Delivery.tickets().ListFollowupIssues(ctx, r.target.ticketRepo())
 			if listErr != nil {
 				return fail(store.EffectUncertain, errors.Join(createErr, listErr))
 			}
@@ -168,7 +172,7 @@ func (r *validateRemote) createIssue(ctx context.Context, e store.ValidateEffect
 	if found.Number < 1 {
 		return fail(store.EffectFailed, errors.New("the created issue has no number"))
 	}
-	return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Issue: found.Number}, "")
+	return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Issue: found.Number, IssueReference: displayIssue(r.target.Task, found).Reference()}, "")
 }
 
 func bodyHasMarkerLine(body, marker string) bool {
@@ -191,7 +195,7 @@ func (r *validateRemote) issueContent(ctx context.Context, f ValidateFinding, ma
 		return redact.Body{}, redact.Body{}, err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Follow-up %s from Validate of issue #%d, tested commit `%s`.\n\nFinding `%s` is %s (%s).\n\n", kind, r.target.Parent.Number, r.st.Commit, f.ID, f.Status, f.Class)
+	fmt.Fprintf(&b, "Follow-up %s from Validate of issue %s, tested commit `%s`.\n\nFinding `%s` is %s (%s).\n\n", kind, r.target.Parent.display().Reference(), r.st.Commit, f.ID, f.Status, f.Class)
 	if f.Summary != "" {
 		b.WriteString(f.Summary + "\n\n")
 	}
@@ -281,6 +285,15 @@ func (r *validateRemote) push(ctx context.Context, e store.ValidateEffect) error
 	if remote == commit {
 		return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Head: commit}, "")
 	}
+	// A pull request from the branch merged at the tested commit already
+	// delivered it (the merge may have deleted the remote branch): nothing to push.
+	if prs, err := r.b.Delivery.code().ListDeliveryPRs(ctx, r.target.Repo, r.target.Branch); err == nil {
+		for _, p := range prs {
+			if p.Merged && p.Number > 0 && p.Branch == r.target.Branch && p.Target == r.target.Base && p.Head == commit {
+				return r.settle(ctx, e, store.EffectSucceeded, validateEffectResult{Head: commit}, "")
+			}
+		}
+	}
 	pushErr := r.b.Delivery.Publish(ctx, commit, remote)
 	after, readErr := r.b.Delivery.code().GetDeliveryHead(ctx, r.target.Repo, r.target.Branch)
 	switch {
@@ -319,12 +332,21 @@ func (r *validateRemote) openPR(ctx context.Context, e store.ValidateEffect) err
 		return r.settle(ctx, e, store.EffectUncertain, map[string]any{}, "The pull requests could not be listed: "+err.Error())
 	}
 	if !found {
-		titleText := graphDeliveryTitle(fmt.Sprintf("Deliver issue #%d", r.target.Parent.Number))
+		titleText := graphDeliveryTitle(fmt.Sprintf("Deliver issue %s", r.target.Parent.display().Label))
 		title, err := r.b.Delivery.Redactor.Apply(ctx, titleText, 256)
 		if err != nil {
 			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, err.Error())
 		}
-		body, err := r.b.Delivery.Redactor.Apply(ctx, fmt.Sprintf("Validated and confirmed by the owner. Tested commit `%s` of issue #%d.\n\n<!-- lf:validate-pr run=%d -->", commit, r.target.Parent.Number, r.req.InstanceID), 65536)
+		accepted := ""
+		for _, f := range r.st.Findings {
+			if f.acceptedDeviation() {
+				accepted += fmt.Sprintf("- `%s`: %s\n", f.ID, strings.Join(strings.Fields(clipText(f.Verdict.Evidence, 1000)), " "))
+			}
+		}
+		if accepted != "" {
+			accepted = "Accepted deviations (blocking review findings the owner accepted):\n\n" + accepted + "\n"
+		}
+		body, err := r.b.Delivery.Redactor.Apply(ctx, fmt.Sprintf("Validated and confirmed by the owner. Tested commit `%s` of issue %s.\n\n%s<!-- lf:validate-pr run=%d -->", commit, r.target.Parent.display().Reference(), accepted, r.req.InstanceID), 65536)
 		if err != nil {
 			return r.settle(ctx, e, store.EffectFailed, map[string]any{}, err.Error())
 		}
@@ -450,16 +472,16 @@ func (h ValidateCloseActivity) Execute(ctx context.Context, opts Options, req Ac
 	var failures []string
 	forge := r.b.Delivery.tickets()
 	for _, s := range r.target.Stories {
-		if err := forge.SetStoryState(ctx, r.target.Repo, r.target.Parent.Number, r.target.Parent.ID, s.Number, s.ID, true); err != nil {
-			failures = append(failures, fmt.Sprintf("#%d: %s", s.Number, err.Error()))
+		if err := forge.SetStoryState(ctx, r.target.ticketRepo(), r.target.Parent.Number, r.target.Parent.ID, s.Number, s.ID, true); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %s", s.display().Reference(), err.Error()))
 			continue
 		}
 		closed = append(closed, s.Number)
 	}
 	// The parent closes last, so it never looks done while a story is open.
 	if len(failures) == 0 {
-		if err := forge.CloseDeliveredParent(ctx, r.target.Repo, r.target.Parent.Number, r.target.Parent.ID); err != nil {
-			failures = append(failures, fmt.Sprintf("#%d: %s", r.target.Parent.Number, err.Error()))
+		if err := forge.CloseDeliveredParent(ctx, r.target.ticketRepo(), r.target.Parent.Number, r.target.Parent.ID); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %s", r.target.Parent.display().Reference(), err.Error()))
 		} else {
 			closed = append(closed, r.target.Parent.Number)
 		}

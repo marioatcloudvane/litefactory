@@ -40,6 +40,7 @@ type ValidateTickets interface {
 // also carries its story key, title and frozen approved revision and body, so
 // the report links its row and the story's criteria can be ticked.
 type ValidateIssueRef struct {
+	Display  ticketDisplay
 	Number   int
 	ID       int64
 	Key      string
@@ -51,6 +52,7 @@ type ValidateIssueRef struct {
 // ValidateDeliveryTarget is where an accepted run is delivered and which issues
 // its close completes: the parent and the accepted story issues.
 type ValidateDeliveryTarget struct {
+	Task    naming.Ref
 	Repo    github.Repo
 	Branch  string
 	Base    string
@@ -59,6 +61,16 @@ type ValidateDeliveryTarget struct {
 	BotID   int64
 	// Generation is the plan generation the stories were approved in.
 	Generation int
+}
+
+// ticketRepo is the container the ticket bridge addresses for this delivery:
+// the task ref's own container (a Linear team/project for a Linear session),
+// falling back to the code repository when the task names none.
+func (t ValidateDeliveryTarget) ticketRepo() github.Repo {
+	if t.Task.Owner != "" {
+		return github.RepoFromRef(t.Task)
+	}
+	return t.Repo
 }
 
 // CloseSet is the issue numbers a close command lists: the parent and the
@@ -339,4 +351,11 @@ func (d ValidateDelivery) tickets() ValidateTickets {
 		return d.Tickets
 	}
 	return d.Forge
+}
+
+func (s ValidateIssueRef) display() ticketDisplay {
+	if s.Display.Label != "" {
+		return s.Display
+	}
+	return ticketDisplay{Label: fmt.Sprintf("#%d", s.Number)}
 }

@@ -109,3 +109,17 @@ func TestEnsureHomeIsIdempotent(t *testing.T) {
 		t.Fatalf("%s is not a directory", paths.Home())
 	}
 }
+
+func TestScratchPathsAreCleanHomeSiblings(t *testing.T) {
+	for _, home := range []string{"/Users/operator/.litefactory", "/tmp/custom/state/", "/tmp/custom/other/../state"} {
+		paths := NewPaths(home)
+		for suffix, got := range map[string]string{"-suite": paths.ValidateScratchDir(), "-implement": paths.ImplementScratchDir()} {
+			if want := filepath.Clean(home) + suffix; got != want {
+				t.Errorf("scratch = %q, want %q", got, want)
+			}
+			if filepath.Dir(got) != filepath.Dir(paths.Home()) {
+				t.Errorf("scratch %q is not a sibling of %q", got, paths.Home())
+			}
+		}
+	}
+}

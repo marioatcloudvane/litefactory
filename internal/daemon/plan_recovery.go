@@ -12,11 +12,13 @@ import (
 
 // graphPlanParents admits retained drafts even before managed publication and
 // without owner comments. The existing worker scheduler supplies capacity/backoff.
+// A Linear parent is re-added only on its repository's listing ticks (#920).
 func (d *Daemon) graphPlanParents(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
 	sessions, err := d.db.ListGraphPlanSessions(ctx)
 	if err != nil {
 		return err
 	}
+	linearRepo := map[int64]bool{}
 	for _, s := range sessions {
 		q := byRepo[s.RepoID]
 		if q == nil {
@@ -24,6 +26,11 @@ func (d *Daemon) graphPlanParents(ctx context.Context, byRepo map[int64]*repoQue
 		}
 		if prior := seen[s.ID]; prior != nil {
 			prior.addSource("plan_recovery")
+			continue
+		}
+		if skip, err := d.linearOffListing(ctx, q, s.RepoID, linearRepo); err != nil {
+			return err
+		} else if skip {
 			continue
 		}
 		ref, err := naming.ParseRef(s.TaskRef)
@@ -68,5 +75,15 @@ func (d *Daemon) recoverPlanStories(ctx context.Context, t *task) error {
 		return err
 	}
 	h := turn.PlanStoryActivity{DB: d.db, Forge: forge, Redactor: runtime.Redactor, LockDir: runtime.Paths.StoryProgressLocksDir()}
-	return h.Reconcile(ctx, turn.PlanStoryAuthority{Parent: t.ref.String(), Repo: github.Repo{Owner: t.ref.Owner, Name: t.ref.Repo}, ParentNumber: t.issue.Number, ParentID: t.issue.ID, OwnerID: d.ticketIdentities(ctx).OwnerUserID, ContentScope: scope}, 8)
+	authority := turn.PlanStoryAuthority{Parent: t.ref.String(), Repo: github.Repo{Owner: t.ref.Owner, Name: t.ref.Repo}, ParentNumber: t.issue.Number, ParentID: t.issue.ID, OwnerID: d.ticketIdentities(ctx).OwnerUserID, ContentScope: scope}
+	frozen, err := d.planFrozen(ctx, t.ref.String())
+	if err != nil {
+		return err
+	}
+	if !frozen {
+		if err := h.ReconcileShells(ctx, authority); err != nil {
+			return err
+		}
+	}
+	return h.Reconcile(ctx, authority, 8)
 }

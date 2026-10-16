@@ -28,8 +28,11 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 		if err := tx.QueryRowContext(ctx, `SELECT a.instance_id,a.status,COALESCE(NULLIF(g.workflow,''),g.mode),i.status,COALESCE(a.run_id,0) FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions g ON g.id=i.definition_id WHERE a.id=?`, in.SourceAttemptID).Scan(&instance, &status, &workflow, &instanceStatus, &sourceRun); err != nil {
 			return err
 		}
+		if in.Kind == "advisory" && ((workflow != "research" && workflow != "plan") || sourceRun != 0) {
+			return errors.New("store: advisory source must be a runless Research or Plan activity")
+		}
 		exhaustedResearch := workflow == "research" && instanceStatus == GraphFailed && status == GraphSucceeded
-		if instance != in.InstanceID || ((in.Kind == "failure" && status != GraphFailed && !exhaustedResearch) || (in.Kind != "failure" && status != GraphSucceeded)) {
+		if instance != in.InstanceID || ((in.Kind == "advisory" && status != GraphSucceeded && status != GraphFailed) || (in.Kind == "failure" && status != GraphFailed && !exhaustedResearch) || (in.Kind != "failure" && in.Kind != "advisory" && status != GraphSucceeded)) {
 			return errors.New("store: graph comment source mismatch")
 		}
 		var old GraphCommentIntent
@@ -50,9 +53,15 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 		// A review waits like a question does: the agent has shown finished
 		// work and the stage does not advance until the owner answers.
 		if GraphCommentWaits(in.Kind) {
-			// The Implement coordinator runs no agent, so its question has no run and
-			// the reply that answers it resumes a runless step.
+			// Factory-only sources without a run already resume runlessly. Validate
+			// also carries the preceding agent run through its owner resolver.
 			runless := (workflow == "implement" || workflow == "validate") && sourceRun == 0
+			if !runless {
+				runless, err = validateResolverQuestionTx(ctx, tx, in.Key, in.InstanceID, in.SourceAttemptID)
+				if err != nil {
+					return err
+				}
+			}
 			if _, err = tx.ExecContext(ctx, `INSERT INTO graph_owner_waits(delivery_key,instance_id,source_attempt_id,state,allow_runless) VALUES(?,?,?,'waiting',?)`, in.Key, in.InstanceID, in.SourceAttemptID, runless); err != nil {
 				return err
 			}
@@ -87,6 +96,12 @@ func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (b
 	}
 	if err != nil {
 		return false, err
+	}
+	if kind == "advisory" {
+		if (workflow != "research" && workflow != "plan") || session != d.SessionID || d.RunID != 0 || run.Valid || (status != GraphSucceeded && status != GraphFailed) {
+			return false, errors.New("store: advisory graph report binding mismatch")
+		}
+		return true, nil
 	}
 	// Bug factory activities have no subprocess run. Their actual succeeded
 	// or failed source attempt remains the publication authority; never invent
@@ -149,7 +164,7 @@ func (db *DB) ListGraphComments(ctx context.Context, instanceID int64, afterKey 
 // "failure" an attempt that produced none.
 func GraphCommentKind(kind string) bool {
 	switch kind {
-	case "question", "review", "final", "failure":
+	case "question", "review", "final", "failure", "advisory":
 		return true
 	}
 	return false

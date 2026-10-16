@@ -3,6 +3,8 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -21,7 +24,10 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
@@ -30,6 +36,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -97,6 +104,9 @@ func (s *linearWorkflowServer) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(q, "reactionCreate("):
 		data = map[string]any{"reactionCreate": map[string]any{"success": true}}
 	case strings.Contains(q, "issueCreate("):
+		if input["teamId"] != "team-uuid" || input["projectId"] != "project-uuid" {
+			s.t.Error("child creation targeted the wrong team or project")
+		}
 		s.creates++
 		createdID, _ := input["id"].(string)
 		if createdID == "" {
@@ -128,6 +138,15 @@ func (s *linearWorkflowServer) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		data = map[string]any{"commentCreate": map[string]any{"success": true, "comment": reply}}
+	case strings.Contains(q, "commentUpdate("):
+		reply := s.comments[id]
+		if reply == nil {
+			s.t.Errorf("update of unknown comment %q", id)
+			http.Error(w, "unknown comment", http.StatusNotFound)
+			return
+		}
+		reply["body"] = input["body"]
+		data = map[string]any{"commentUpdate": map[string]any{"success": true, "comment": reply}}
 	case strings.Contains(q, "issueUpdate("):
 		issue := s.issues[id]
 		if issue == nil {
@@ -154,7 +173,11 @@ func (s *linearWorkflowServer) serve(w http.ResponseWriter, r *http.Request) {
 		if labels, ok := input["labelIds"].([]any); ok {
 			nodes := []any{}
 			for _, label := range labels {
-				nodes = append(nodes, map[string]any{"id": label, "name": "Mode: Plan"})
+				name := "Mode: Plan"
+				if label == "label-implement" {
+					name = "Mode: Implement"
+				}
+				nodes = append(nodes, map[string]any{"id": label, "name": name})
 			}
 			issue["labels"] = s.page(nodes)
 		}
@@ -190,7 +213,12 @@ func (s *linearWorkflowServer) serve(w http.ResponseWriter, r *http.Request) {
 		sort.Slice(nodes, func(i, j int) bool {
 			return fmt.Sprint(linearWorkflowObject(s.t, nodes[i])["createdAt"]) < fmt.Sprint(linearWorkflowObject(s.t, nodes[j])["createdAt"])
 		})
-		data = map[string]any{"comments": s.page(nodes), "issue": map[string]any{"id": id, "comments": s.page(nodes)}}
+		issue := make(map[string]any)
+		for key, value := range s.issues[id] {
+			issue[key] = value
+		}
+		issue["comments"] = s.page(nodes)
+		data = map[string]any{"comments": s.page(nodes), "issue": issue}
 	case strings.Contains(q, "issues("):
 		nodes := []any{}
 		for _, issue := range s.issues {
@@ -233,7 +261,12 @@ func linearFilterID(variables map[string]any, field string) string {
 // TestLinearTicketWorkflow follows qualified Linear sources through factory
 // project setup, daemon authority admission and the existing Plan question and
 // exact-review policy, then exercises the real managed-child and report ledgers.
-func TestLinearTicketWorkflow(t *testing.T) {
+func TestLinearTicketWorkflow(t *testing.T)      { linearTicketWorkflow(t, false, false) }
+func TestLinearSetApprovalWorkflow(t *testing.T) { linearTicketWorkflow(t, true, false) }
+
+func TestLinearImplementWithoutGlobalIdentity(t *testing.T) { linearTicketWorkflow(t, false, true) }
+
+func linearTicketWorkflow(t *testing.T, setApproval, implement bool) {
 	ctx := t.Context()
 	remote := newLinearWorkflowServer(t)
 	codeRemote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +300,21 @@ func TestLinearTicketWorkflow(t *testing.T) {
 	linearWorkflowCheck(t, err)
 	defer func() { linearWorkflowCheck(t, db.Close()) }()
 	linearWorkflowCheck(t, db.Migrate(ctx))
-	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "code-owner", Name: "code", RemoteURL: "git@github.com:code-owner/code.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	clonePath, remoteURL := t.TempDir(), "git@github.com:code-owner/code.git"
+	var gitRepo *gittest.Repo
+	if implement {
+		gitRepo = gittest.New(t)
+		clonePath = gitRepo.Dir
+		gitRepo.SetOriginURL(remoteURL)
+		// Preserve a verified GitHub-shaped remote while all Git transport stays
+		// inside this test's local bare repository.
+		ssh := filepath.Join(t.TempDir(), "ssh")
+		script := "#!/bin/sh\ncase \"$*\" in\n*git-upload-pack*) exec git upload-pack '" + gitRepo.Origin + "';;\n*git-receive-pack*) exec git receive-pack '" + gitRepo.Origin + "';;\n*) exit 1;;\nesac\n"
+		linearWorkflowCheck(t, os.WriteFile(ssh, []byte(script), 0700))
+		t.Setenv("PATH", filepath.Dir(ssh)+string(os.PathListSeparator)+os.Getenv("PATH"))
+		gitRepo.Git("config", "ssh.variant", "ssh")
+	}
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: clonePath, Forge: "github", Owner: "code-owner", Name: "code", RemoteURL: remoteURL, BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
 	linearWorkflowCheck(t, err)
 	code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: repo.Slug(), RemoteID: "101", CredentialSource: "env", CredentialEnv: "CODE_TOKEN", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, RemoteURL: repo.RemoteURL, BaseBranch: repo.BaseBranch, FeaturePrefix: repo.FeaturePrefix, WorktreeRoot: repo.WorktreeRoot}, 0)
 	linearWorkflowCheck(t, err)
@@ -392,6 +439,10 @@ func TestLinearTicketWorkflow(t *testing.T) {
 			t.Fatalf("another Linear user acquired project authority: %+v", admission)
 		}
 	}
+	incident := readAndAdmit("4503599627420835", "`/approve-plan set ab853aa4bf79081a5330b2499672434e34f380bd18013b75a5df1392c2bef64f`")
+	if got := turn.ParseCommand(incident.Comment.Body); got.Kind != turn.KindPlanControl {
+		t.Fatalf("incident approval classified as %+v", got)
+	}
 	instruction := readAndAdmit("instruction-uuid", "/plan connect Linear tickets")
 	command := turn.ParseCommand(instruction.Comment.Body)
 	if mode, ok := command.Mode(); !ok || mode != agent.ModePlan {
@@ -410,6 +461,10 @@ func TestLinearTicketWorkflow(t *testing.T) {
 	linearWorkflowCheck(t, err)
 	reporter, err := turn.NewReporter(turn.ReporterOptions{DB: db, Forge: bridge, Renderer: renderer, Logger: logger, BotUserID: 99})
 	linearWorkflowCheck(t, err)
+	if setApproval {
+		linearSetApproval(t, d, remote, adapter, parent.Ref, bridge, reporter, redactor, repo, session, ref)
+		return
+	}
 	proposal := planbrief.PlanProposal{Version: planbrief.ProposalVersion, Parent: ref.String(), Generation: 1, Stories: []planbrief.StoryProposal{{Key: "story-001", Intent: "create", Title: "Use Linear work tickets", Body: "## User Story\nOwners direct ticket work from Linear.\n## Acceptance Criteria\nQualified answers and exact approvals reach the intended ticket.\n## Tasks\nPreserve immutable provider identity.\n## Architecture\nUse the existing ledgers.\n## Dependencies\nNone.\n"}}}
 	index, err := turn.PublishPlan(ctx, turn.PublicationOptions{DB: db, Forge: bridge, Renderer: renderer, Parent: ref, Generation: 1, BotID: botSlot}, proposal)
 	linearWorkflowCheck(t, err)
@@ -432,6 +487,10 @@ func TestLinearTicketWorkflow(t *testing.T) {
 	remote.mu.Unlock()
 	if !parentAttached || childParent["id"] != "parent-uuid" || linearWorkflowObject(t, remoteChild["team"])["id"] != "team-uuid" || linearWorkflowObject(t, remoteChild["project"])["id"] != "project-uuid" {
 		t.Fatalf("managed child relationship differs from verified destination: %+v", remoteChild)
+	}
+	if implement {
+		linearImplementAdmission(t, d, remote, bridge, reporter, renderer, redactor, repo, session, ref, gitRepo)
+		return
 	}
 	state := planbrief.PlanState{SharedRevision: "linear-workflow-v1"}
 	linearWorkflowCheck(t, state.PutCandidate(planbrief.PlanDraft{Key: "story-001", Name: "Use Linear work tickets"}, "story", "candidate-1"))
@@ -509,7 +568,6 @@ func TestLinearTicketWorkflow(t *testing.T) {
 		t.Fatal("restart changed the retained child index")
 	}
 	remote.mu.Lock()
-	defer remote.mu.Unlock()
 	if remote.posts != confirmedPosts {
 		t.Fatalf("restart repeated a confirmed workflow publication: before=%d after=%d", confirmedPosts, remote.posts)
 	}
@@ -530,6 +588,8 @@ func TestLinearTicketWorkflow(t *testing.T) {
 	if !questionSeen || !reportSeen {
 		t.Fatalf("confirmed publications omitted their prepared contents: question=%t report=%t", questionSeen, reportSeen)
 	}
+	remote.mu.Unlock()
+	linearScopeFreeze(t, db, session, ref, bridge, renderer, reporter, redactor, logger, remote)
 	t.Log("Linear verified instruction, published question, answer, exact Plan approval, managed child and report confirmed through HTTP and SQLite")
 }
 
@@ -569,7 +629,7 @@ func (transport linearMixedProviderTransport) RoundTrip(request *http.Request) (
 // Exercise the real Linear adapter and durable report ledger for fresh and
 // retained selections, including a remote post whose receipt is lost.
 func TestLinearUnmappedModeRefusal(t *testing.T) {
-	for _, scenario := range []string{"fresh", "pending", "lost_receipt", "body/fresh", "body/lost_receipt", "team/fresh", "team/lost_receipt", "team/body/fresh", "team/body/lost_receipt", "workflow/fresh", "workflow/lost_receipt", "workflow/body/fresh", "workflow/body/lost_receipt"} {
+	for _, scenario := range []string{"fresh", "pending", "lost_receipt", "body/fresh", "body/lost_receipt", "team/fresh", "team/lost_receipt", "team/body/fresh", "team/body/lost_receipt", "workflow/fresh", "workflow/lost_receipt", "workflow/body/fresh", "workflow/body/lost_receipt", "publisher/fresh", "publisher/lost_receipt"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			remote := newLinearWorkflowServer(t)
@@ -703,6 +763,9 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			if strings.HasPrefix(scenario, "workflow/") {
 				refusalKind = report.ReplyUnsupportedWorkflow
 			}
+			if strings.HasPrefix(scenario, "publisher/") {
+				refusalKind = report.ReplyMissingTicketPublisher
+			}
 			if refusalKind != report.ReplyMissingModeMapping {
 				linearWorkflowCheck(t, bridge.AddIssueLabel(ctx, github.RepoFromRef(ref), ref.Issue, "Mode: Plan"))
 				d.turn = admissionRefusalExecutor{kind: refusalKind}
@@ -711,7 +774,11 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			d.reporter = reporter
 			d.defaultAgent = agent.Kind("claude")
 			d.classifiers = map[agent.Kind]agent.Classifier{d.defaultAgent: missingMappingClassifier{}}
-			instruction := readAndAdmit("unmapped-instruction", "Investigate this request")
+			instructionBody := "Investigate this request"
+			if refusalKind == report.ReplyMissingTicketPublisher {
+				instructionBody = "/implement the approved plan"
+			}
+			instruction := readAndAdmit("unmapped-instruction", instructionBody)
 			trigger := turn.Trigger{CommentID: instruction.Comment.ID}
 			if bodyTrigger {
 				trigger.CommentID = 0
@@ -830,6 +897,9 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			if refusalKind == report.ReplyMissingTeam {
 				wants = []string{"no linked installed team", "Link a suitable installed team", "Nothing was run", "comment again"}
 			}
+			if refusalKind == report.ReplyMissingTicketPublisher {
+				wants = []string{"linear ticket connection", "team-uuid/project-uuid", "verified publisher", "Restore and verify", "fresh `/implement"}
+			}
 			if refusalKind == report.ReplyUnsupportedWorkflow {
 				wants = []string{"does not provide the requested workflow", "Select a workflow supported", "Nothing was run", "comment again"}
 			}
@@ -843,6 +913,9 @@ func TestLinearUnmappedModeRefusal(t *testing.T) {
 			}
 			// No executor is installed: reaching execution in d.run would fail this
 			// fixture. A newly mapped label and new comment can now select Plan.
+			if refusalKind == report.ReplyMissingTicketPublisher {
+				linearWorkflowCheck(t, bridge.RemoveIssueLabel(ctx, github.RepoFromRef(ref), ref.Issue, "Mode: Implement"))
+			}
 			linearWorkflowCheck(t, bridge.AddIssueLabel(ctx, github.RepoFromRef(ref), ref.Issue, "Mode: Plan"))
 			next := readAndAdmit("next-instruction", "Continue with this mapped mode")
 			mode, err := d.admitMode(sessionContext(ctx, session.ID), task, turn.Trigger{CommentID: next.Comment.ID}, turn.ParseCommand(next.Comment.Body))
@@ -863,5 +936,303 @@ func (missingMappingClassifier) Classify(context.Context, agent.Classification) 
 type admissionRefusalExecutor struct{ kind report.ReplyKind }
 
 func (e admissionRefusalExecutor) Execute(context.Context, turn.Request) (turn.Result, error) {
+	if e.kind == report.ReplyMissingTicketPublisher {
+		return turn.Result{}, fmt.Errorf("admission: %w", turn.ErrRequiredTicketPublisher)
+	}
 	return turn.Result{}, fmt.Errorf("capture: %w", &workflowRefusal{kind: e.kind, cause: errors.New("configuration fixture")})
+}
+
+// The HTTP fixture seeds and publishes the proposal; approval, reservation and
+// child publication then run through handleComment and the real turn executor.
+func linearSetApproval(t *testing.T, d *Daemon, remote *linearWorkflowServer, adapter *linear.Client, parent ticket.Ref, bridge *turn.TicketWorkflowBridge, reporter *turn.Reporter, redactor *redact.Redactor, repo store.Repo, session store.Session, ref naming.Ref) {
+	t.Helper()
+	ctx := t.Context()
+	state := planbrief.PlanState{SharedRevision: "initial"}
+	revision, _, err := state.ProposeStorySet([]planbrief.PlanStorySetEntry{{ID: "ledger", Name: "Remove Band A", Intent: "Remove Band A from the Ledger review screen"}})
+	linearWorkflowCheck(t, err)
+	_, err = d.db.SavePlanWorkflowState(ctx, ref.String(), 0, state)
+	linearWorkflowCheck(t, err)
+	proposal, err := planbrief.RenderPlanStorySet(state.StorySet)
+	linearWorkflowCheck(t, err)
+	safe, err := redactor.Apply(ctx, proposal, github.CommentSizeLimit)
+	linearWorkflowCheck(t, err)
+	published, err := bridge.PostCommentEffect(ctx, "set-proposal", github.RepoFromRef(ref), ref.Issue, safe)
+	linearWorkflowCheck(t, err)
+	if published.ID == 0 || !strings.Contains(published.Body, revision) {
+		t.Fatal("proposal was not published")
+	}
+	_, err = d.db.AdmitPlanWorkflowPath(ctx, session.ID, "graph")
+	linearWorkflowCheck(t, err)
+	paths := config.NewPaths(t.TempDir())
+	linearWorkflowCheck(t, paths.EnsureHome())
+	linearWorkflowCheck(t, os.MkdirAll(paths.StoryProgressLocksDir(), 0700))
+	binary, err := git.Resolve(ctx)
+	linearWorkflowCheck(t, err)
+	opts := turn.Options{DB: d.db, Git: binary, Paths: paths, InstanceID: "linear-set-test", Logger: d.log, ProjectApprovers: true, CloneGate: linearApprovalNoAgent{}, Runners: turn.RunnerSet{"claude": linearApprovalNoAgent{}}, ResearchReporter: reporter, SubIssueCreator: bridge, MCP: &turn.MCPRuntime{Paths: paths, Redactor: redactor, Now: time.Now}}
+	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		definition, err := teamsource.CapturePlan(ctx, specs)
+		if err != nil {
+			return nil, err
+		}
+		configBytes := []byte("plan: plan/plan.dot\n")
+		digest := sha256.Sum256(configBytes)
+		definition.Origin = teamsource.WorkflowOrigin{Kind: "local", Source: "local", Slug: "fixture", Version: "1.0.0", GraphPath: "plan/plan.dot", GraphFile: "plan.dot", Team: definition.Profile.Team, TeamConfig: configBytes, ConfigDigest: hex.EncodeToString(digest[:])}
+		return definition, nil
+	}
+	d.reporter = reporter
+	d.defaultAgent = "claude"
+	d.toolProfiles = config.DefaultToolProfiles().Permissions
+	executor := &linearApprovalExecutor{t: t, opts: opts}
+	d.turn = executor
+	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
+	linearWorkflowCheck(t, err)
+	task := &task{repo: repo, session: session, ref: ref, forgeRepo: github.RepoFromRef(ref), issue: issue, log: d.log, tickAt: time.Now()}
+	body := "`" + planbrief.PlanSetPromotionCommand(revision) + "`"
+	remote.addReply("set-approval", body, "human-uuid")
+	page, err := adapter.RepliesAfter(ctx, parent, linear.ReplyCursor(parent))
+	linearWorkflowCheck(t, err)
+	var source github.Comment
+	for _, reply := range page.Replies {
+		if reply.Identity.RemoteID == "set-approval" {
+			if reply.Body != body || reply.ProviderBody != body {
+				t.Fatal("adapter changed raw approval")
+			}
+			source, err = d.legacyReply(ctx, reply)
+			linearWorkflowCheck(t, err)
+		}
+	}
+	if source.ID == 0 {
+		t.Fatal("approval absent")
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		linearWorkflowCheck(t, d.handleComment(ctx, task, source))
+		saved, _, err := d.db.GetPlanWorkflowState(ctx, ref.String())
+		linearWorkflowCheck(t, err)
+		if saved.StorySet == nil || !saved.StorySet.Promoted || saved.StorySet.PromotedRevision != revision || saved.StorySet.Keys["ledger"] != "story-001" || !slices.Contains(saved.ConsumedReplies, source.ID) {
+			t.Fatalf("approval not applied: %+v", saved)
+		}
+		drafts, err := d.db.ListPlanStoryDrafts(ctx, ref.String())
+		linearWorkflowCheck(t, err)
+		if len(drafts) != 1 || drafts[0].Key != "story-001" || drafts[0].Ordinal != 1 || drafts[0].IssueID == 0 {
+			t.Fatalf("unstable reservations: %+v", drafts)
+		}
+		child, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), drafts[0].IssueNumber)
+		linearWorkflowCheck(t, err)
+		remote.mu.Lock()
+		childRemote := remote.issues[child.QualifiedSnapshot.Ref.Identity.RemoteID]
+		valid := remote.creates == 1 && linearWorkflowObject(t, childRemote["parent"])["id"] == "parent-uuid" && linearWorkflowObject(t, childRemote["team"])["id"] == "team-uuid" && linearWorkflowObject(t, childRemote["project"])["id"] == "project-uuid"
+		remote.mu.Unlock()
+		if !valid {
+			t.Fatal("child duplicated or bound to wrong parent/team/project")
+		}
+	}
+	if executor.calls == 0 {
+		t.Fatal("production dispatch never executed")
+	}
+}
+
+type linearApprovalExecutor struct {
+	t     *testing.T
+	opts  turn.Options
+	calls int
+}
+
+func (e *linearApprovalExecutor) Execute(ctx context.Context, req turn.Request) (turn.Result, error) {
+	e.calls++
+	if req.Mode != agent.ModePlan || req.Command.Kind != turn.KindPlanControl || !strings.HasPrefix(req.Trigger.Body, "`/approve-plan set ") {
+		e.t.Fatalf("wrong dispatch: %+v", req)
+	}
+	out, err := turn.Execute(ctx, e.opts, req)
+	if err != nil || out.Err != nil {
+		e.t.Fatalf("approval turn failed: err=%v result=%+v", err, out)
+	}
+	return out, err
+}
+
+// A set approval creates shells and leaves drafting to child tasks.
+type linearApprovalNoAgent struct{}
+
+func (linearApprovalNoAgent) Acquire(context.Context, string) (func(), error) {
+	return nil, errors.New("set approval unexpectedly requested git")
+}
+func (linearApprovalNoAgent) Run(context.Context, agent.Request) (*agent.RunResult, error) {
+	return nil, errors.New("set approval unexpectedly requested an agent")
+}
+
+// Stop graph admission after scope preparation, before any worker or git effect.
+func linearScopeFreeze(t *testing.T, db *store.DB, session store.Session, ref naming.Ref, bridge *turn.TicketWorkflowBridge, renderer *report.Reporter, reporter *turn.Reporter, redactor *redact.Redactor, logger *slog.Logger, remote *linearWorkflowServer) {
+	ctx := t.Context()
+	if _, err := db.GetIdentity(ctx, "linear", store.RoleBot); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("fixture has global Linear bot: %v", err)
+	}
+	linearWorkflowCheck(t, db.SetManagedFeatureReady(ctx, ref.String(), 1, true))
+	paths := config.NewPaths(t.TempDir())
+	linearWorkflowCheck(t, paths.EnsureHome())
+	binary, err := git.Resolve(ctx)
+	linearWorkflowCheck(t, err)
+	stop := errors.New("scope prepared; stop before graph execution")
+	opts := turn.Options{DB: db, Git: binary, Paths: paths, InstanceID: "linear-scope-test", Logger: logger, CloneGate: linearApprovalNoAgent{}, Runners: turn.RunnerSet{"claude": linearApprovalNoAgent{}}, ResearchReporter: reporter, SubIssueCreator: bridge, SubIssueRenderer: renderer, MCP: &turn.MCPRuntime{Paths: paths, Redactor: redactor, Now: time.Now}}
+	opts.WorkflowSource = func(context.Context, store.Repo, agent.Workflow, graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		return nil, stop
+	}
+	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
+	linearWorkflowCheck(t, err)
+	remote.mu.Lock()
+	before := remote.posts
+	remote.mu.Unlock()
+	for range 2 {
+		_, err := turn.Execute(ctx, opts, turn.Request{SessionID: session.ID, Mode: agent.ModeImplement, Agent: "claude", Issue: turn.Issue{Number: ref.Issue, Title: issue.Title, Body: issue.Body}, Trigger: turn.Trigger{CommentID: 9999999999999999, Body: "/implement approved stories"}, Command: turn.ParseCommand("/implement approved stories")})
+		if !errors.Is(err, stop) {
+			t.Fatalf("scope preparation failed before graph boundary: %v", err)
+		}
+		feature, err := db.GetManagedFeature(ctx, ref.String())
+		linearWorkflowCheck(t, err)
+		delivered, err := db.StoryScopeNoticeDelivered(ctx, ref.String(), 1, "story-001", "freeze")
+		linearWorkflowCheck(t, err)
+		if feature.State != "implementing" || !delivered {
+			t.Fatalf("scope not activated: %+v delivered=%t", feature, delivered)
+		}
+	}
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
+	if remote.posts != before+1 {
+		t.Fatalf("scope notice duplicated: before=%d after=%d", before, remote.posts)
+	}
+	found := false
+	for _, reply := range remote.comments {
+		body, _ := reply["body"].(string)
+		if strings.Contains(body, "litefactory:scope:") {
+			found = true
+			if linearWorkflowObject(t, reply["user"])["id"] != "publisher-uuid" || linearWorkflowObject(t, reply["issue"])["id"] == "parent-uuid" {
+				t.Fatal("scope notice used wrong publisher or target")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("scope notice missing")
+	}
+}
+
+func linearImplementAdmission(t *testing.T, d *Daemon, remote *linearWorkflowServer, bridge *turn.TicketWorkflowBridge, reporter *turn.Reporter, renderer *report.Reporter, redactor *redact.Redactor, repo store.Repo, session store.Session, ref naming.Ref, gitRepo *gittest.Repo) {
+	t.Helper()
+	ctx := t.Context()
+	_, err := d.db.UpsertIdentity(ctx, store.Identity{Forge: "github", Role: store.RoleBot, UserID: 99})
+	linearWorkflowCheck(t, err)
+	if _, err = d.db.GetIdentity(ctx, "linear", store.RoleBot); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("fixture has global Linear identity: %v", err)
+	}
+	linearWorkflowCheck(t, d.db.PutManagedFeature(ctx, store.ManagedFeature{ParentTask: ref.String(), Generation: 1, State: "planning", WorkflowVersion: store.WorkflowSeparated}))
+	linearWorkflowCheck(t, d.db.SetManagedFeatureReady(ctx, ref.String(), 1, true))
+	_, err = d.db.FreezeSessionSlug(ctx, session.ID, "linear-feature", "lf/linear-feature")
+	linearWorkflowCheck(t, err)
+	gitRepo.Git("push", "--quiet", "origin", "HEAD:refs/heads/lf/linear-feature")
+	paths := config.NewPaths(t.TempDir())
+	linearWorkflowCheck(t, paths.EnsureHome())
+	binary, err := git.Resolve(ctx)
+	linearWorkflowCheck(t, err)
+	attemptAuthority, err := turn.NewAttemptAuthority(ctx, d.db)
+	linearWorkflowCheck(t, err)
+	t.Cleanup(func() { _ = attemptAuthority.Close(context.WithoutCancel(ctx)) })
+	opts := turn.Options{DB: d.db, Git: binary, Paths: paths, InstanceID: "linear-implement-test", Logger: d.log, ProjectApprovers: true, CloneGate: newCloneGate(), Runners: turn.RunnerSet{"claude": linearApprovalNoAgent{}}, ResearchReporter: reporter, SubIssueCreator: bridge, SubIssueRenderer: renderer, MCP: &turn.MCPRuntime{Paths: paths, Redactor: redactor, Now: time.Now}}
+	opts.MCP.Authority, opts.MCP.Executable = attemptAuthority, "/factory/litefactory"
+	status, err := turn.NewImplementStatusService(ctx, turn.ImplementStatusOptions{Now: time.Now, Wait: waitImplementStatus, Refresh: func(ctx context.Context, parent string, generation int64) (bool, error) {
+		return turn.RefreshImplementParentStatus(ctx, opts, parent, generation)
+	}})
+	linearWorkflowCheck(t, err)
+	defer status.Close()
+	opts.MCP.ImplementStatus = status
+	opts.WorkflowSource = func(ctx context.Context, _ store.Repo, _ agent.Workflow, specs graphexec.Registry) (*teamsource.WorkflowDefinition, error) {
+		definition, err := teamsource.CaptureImplement(ctx, specs)
+		if err != nil {
+			return nil, err
+		}
+		configBytes := []byte("implement: implement/implement.dot\n")
+		digest := sha256.Sum256(configBytes)
+		definition.Origin = teamsource.WorkflowOrigin{Kind: "local", Source: "local", Slug: "fixture", Version: "1.0.0", GraphPath: "implement/implement.dot", GraphFile: "implement.dot", Team: definition.Profile.Team, TeamConfig: configBytes, ConfigDigest: hex.EncodeToString(digest[:])}
+		return definition, nil
+	}
+	d.reporter, d.defaultAgent, d.toolProfiles = reporter, "claude", config.DefaultToolProfiles().Permissions
+	executor := &linearImplementExecutor{t: t, opts: opts, missingPublisher: true}
+	d.turn = executor
+	issue, err := bridge.GetIssue(ctx, github.RepoFromRef(ref), ref.Issue)
+	linearWorkflowCheck(t, err)
+	task := &task{repo: repo, session: session, ref: ref, forgeRepo: github.RepoFromRef(ref), issue: issue, log: d.log, tickAt: time.Now()}
+	// A definitive admission failure is consumed only after its refusal; a
+	// fresh command after verification is repaired must use the real executor.
+	remote.addReply("implement-before-verification", "/implement before verification", "human-uuid")
+	before, err := bridge.ListCommentsAfter(ctx, github.RepoFromRef(ref), ref.Issue, 0)
+	linearWorkflowCheck(t, err)
+	for _, comment := range before {
+		if comment.Body != "/implement before verification" {
+			continue
+		}
+		linearWorkflowCheck(t, d.handleComment(ctx, task, comment))
+		watermark, _, e := d.db.GetWatermark(ctx, session.ID)
+		linearWorkflowCheck(t, e)
+		if watermark.LastCommentID < comment.ID {
+			t.Fatal("confirmed refusal did not consume the command")
+		}
+		_, e = d.drain(sessionContext(ctx, session.ID), task, watermark.LastCommentID)
+		linearWorkflowCheck(t, e)
+	}
+	if executor.calls != 1 {
+		t.Fatalf("refused command retried: %d", executor.calls)
+	}
+	pending, err := d.db.ListImplementStories(ctx, ref.String(), 1)
+	linearWorkflowCheck(t, err)
+	if len(pending) != 0 {
+		t.Fatalf("missing publisher started workers: %+v", pending)
+	}
+	executor.missingPublisher = false
+	remote.addReply("implement-command", "/implement the approved plan", "human-uuid")
+	comments, err := bridge.ListCommentsAfter(ctx, github.RepoFromRef(ref), ref.Issue, 0)
+	linearWorkflowCheck(t, err)
+	for _, comment := range comments {
+		if comment.Body == "/implement the approved plan" {
+			linearWorkflowCheck(t, d.handleComment(ctx, task, comment))
+		}
+	}
+	if executor.calls != 2 {
+		t.Fatalf("implement dispatch count: %d", executor.calls)
+	}
+	stories, err := d.db.ListImplementStories(ctx, ref.String(), 1)
+	linearWorkflowCheck(t, err)
+	if len(stories) != 1 || stories[0].State != store.ImplementRunning {
+		t.Fatalf("first story did not start: %+v", stories)
+	}
+	published, err := bridge.ListCommentsAfter(ctx, github.RepoFromRef(ref), ref.Issue, 0)
+	linearWorkflowCheck(t, err)
+	snapshot, err := d.db.GetExecutionSnapshot(ctx, session.ID)
+	linearWorkflowCheck(t, err)
+	for _, comment := range published {
+		if strings.HasPrefix(comment.Body, report.ImplementHandoffMarker(ref)) {
+			if comment.Author.ID != snapshot.ActorID {
+				t.Fatalf("handoff used wrong publisher: %+v", comment)
+			}
+			return
+		}
+	}
+	t.Fatal("verified Linear publisher did not publish the handoff")
+}
+
+type linearImplementExecutor struct {
+	missingPublisher bool
+	t                *testing.T
+	opts             turn.Options
+	calls            int
+}
+
+func (e *linearImplementExecutor) Execute(ctx context.Context, req turn.Request) (turn.Result, error) {
+	e.calls++
+	if e.missingPublisher {
+		return turn.Result{}, turn.ErrRequiredTicketPublisher
+	}
+	if req.Mode != agent.ModeImplement {
+		e.t.Fatalf("wrong mode: %s", req.Mode)
+	}
+	out, err := turn.Execute(ctx, e.opts, req)
+	if err != nil || out.Err != nil {
+		e.t.Fatalf("Implement failed: %v result=%+v", err, out)
+	}
+	return out, err
 }

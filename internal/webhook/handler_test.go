@@ -478,3 +478,32 @@ func TestServerServesAndShutsDown(t *testing.T) {
 		t.Errorf("hints = %v", got)
 	}
 }
+
+func TestAcceptedDeliveryEvidenceIsQualifiedAndExpires(t *testing.T) {
+	t.Parallel()
+	source := webhook.Source{RepoID: 1, ConnectionVersionID: 4, Revision: 2, Selector: "one", Provider: "github", Origin: "https://api.github.com", Container: "acme/api", ContainerID: "10", Secret: testSecret}
+	now := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
+	sink := &qualifiedSink{}
+	handler, err := webhook.NewHandler(webhook.Options{Lookup: qualifiedLookup{"one": source}, Sink: sink, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"repository":{"id":10,"full_name":"acme/api"},"issue":{"number":7}}`)
+	for range 2 {
+		request := httptest.NewRequest(http.MethodPost, webhook.Path+"?subscription=one", bytes.NewReader(body))
+		request.Header.Set("X-GitHub-Event", "issue_comment")
+		request.Header.Set("X-GitHub-Delivery", "g")
+		request.Header.Set("X-Hub-Signature-256", webhook.Sign(testSecret, body))
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+	if len(sink.hints) != 1 || !handler.AcceptedDelivery(source.Provider, source.Origin, source.Selector, "g") {
+		t.Fatal("missing acceptance evidence or duplicate hint")
+	}
+	if handler.AcceptedDelivery(source.Provider, source.Origin, "other", "g") || handler.AcceptedDelivery(source.Provider, "https://other", source.Selector, "g") {
+		t.Fatal("acceptance leaked across qualified hooks")
+	}
+	now = now.Add(webhook.DeliveryIDTTL)
+	if handler.AcceptedDelivery(source.Provider, source.Origin, source.Selector, "g") {
+		t.Fatal("expired acceptance retained")
+	}
+}

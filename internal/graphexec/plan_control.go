@@ -66,6 +66,11 @@ var planFailureOutcomes = []string{"failed", "conflict", "uncertain"}
 // Effect outcomes differ from Research document generation; no Research policy
 // or evidence gate is changed to accommodate Plan.
 func ValidatePlanControlGraph(p *Profile) error {
+	var syncErr error
+	p, syncErr = withoutExplicitSync(p)
+	if syncErr != nil {
+		return syncErr
+	}
 	if p == nil || p.Mode != agent.ModePlan {
 		return errors.New("invalid Plan graph entry")
 	}
@@ -99,6 +104,9 @@ func (c *planCheck) next(n Node, outcome string) (Node, bool) {
 		return Node{}, false
 	}
 	target, ok := c.p.Node(to)
+	if ok {
+		target, ok = c.advisoryContinuation(target, map[string]bool{})
+	}
 	if !ok {
 		c.fail("plan node %s outcome %s reaches undeclared %s", n.Name, outcome, to)
 	}
@@ -122,7 +130,7 @@ func (c *planCheck) node(n Node) {
 		c.fail("plan node %s requires a positive bound of at most %d", n.Name, PlanNodeLimitMax)
 	}
 	for _, outcome := range planFailureOutcomes {
-		if slices.Contains(n.Outcomes, outcome) {
+		if n.Action != JudgeAction && slices.Contains(n.Outcomes, outcome) {
 			if target, ok := Decide(c.p, n.Name, outcome); !ok || target != PlanFailureNode {
 				c.fail("plan node %s outcome %s must reach %s", n.Name, outcome, PlanFailureNode)
 			}
@@ -137,14 +145,22 @@ func (c *planCheck) node(n Node) {
 		c.effect(n)
 	case "lf_ask":
 		c.ask(n)
+	case JudgeAction:
+		c.agentSource(n)
+		c.advisoryContinuation(n, map[string]bool{})
 	case "lf_comment":
-		if n.Attrs["lf_kind"] == "final" {
+		switch n.Attrs["lf_kind"] {
+		case "advisory":
+			c.advisoryContinuation(n, map[string]bool{})
+		case "final":
 			c.agentSource(n)
 			if target, ok := c.next(n, "published"); ok && !target.Terminal {
 				c.fail("plan answer %s must end at a terminal", n.Name)
 			}
-		} else if n.Attrs["lf_kind"] != "failure" || n.Name != PlanFailureNode {
-			c.fail("plan comment %s must be the %s failure comment", n.Name, PlanFailureNode)
+		default:
+			if n.Attrs["lf_kind"] != "failure" || n.Name != PlanFailureNode {
+				c.fail("plan comment %s must be the %s failure comment", n.Name, PlanFailureNode)
+			}
 		}
 	default:
 		c.fail("plan node %s uses action %s the Plan runtime does not implement", n.Name, n.Action)
@@ -344,4 +360,42 @@ func (c *planCheck) answer(n Node) {
 	if target, found := c.next(n, "false"); found && (target.Action != PlanStoryAction || target.Attrs["lf_source"] != source.Name) {
 		c.fail("plan answer decision %s must continue at its agent's story effect", n.Name)
 	}
+}
+
+// advisoryContinuation follows report-only steps without treating advice as an
+// answer, effect, measurement or approval. Every execution branch must resume
+// at the same existing control boundary.
+func (c *planCheck) advisoryContinuation(n Node, seen map[string]bool) (Node, bool) {
+	if n.Action != JudgeAction && (n.Action != "lf_comment" || n.Attrs["lf_kind"] != "advisory") {
+		return n, true
+	}
+	if seen[n.Name] {
+		c.fail("plan advisory path cycles at %s", n.Name)
+		return Node{}, false
+	}
+	seen[n.Name] = true
+	defer delete(seen, n.Name)
+	var continuation Node
+	for _, outcome := range n.Outcomes {
+		to, ok := Decide(c.p, n.Name, outcome)
+		if !ok {
+			c.fail("plan advisory %s lacks %s edge", n.Name, outcome)
+			return Node{}, false
+		}
+		next, ok := c.p.Node(to)
+		if !ok {
+			c.fail("plan advisory %s reaches missing %s", n.Name, to)
+			return Node{}, false
+		}
+		next, ok = c.advisoryContinuation(next, seen)
+		if !ok {
+			return Node{}, false
+		}
+		if continuation.Name != "" && continuation.Name != next.Name {
+			c.fail("plan advisory %s outcomes must preserve the same continuation", n.Name)
+			return Node{}, false
+		}
+		continuation = next
+	}
+	return continuation, continuation.Name != ""
 }

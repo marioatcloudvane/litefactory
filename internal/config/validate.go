@@ -111,6 +111,7 @@ var (
 // errors.Is(err, ErrLiteralSecret) — must exit 3 (AC-0.9).
 func (c *Config) Validate() error {
 	var errs []error
+	errs = append(errs, c.validateJudge()...)
 	if _, err := NormalizeTeamSource(c.Settings.TeamSource); err != nil {
 		errs = append(errs, err)
 	}

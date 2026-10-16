@@ -38,7 +38,7 @@ type CommentActivity struct {
 
 // ResearchCommentSpec declares the closed publication kinds and confirmed outcome.
 func ResearchCommentSpec() graphexec.ActionSpec {
-	return graphexec.ActionSpec{Name: ResearchCommentAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"final", "failure"}}}}
+	return graphexec.ActionSpec{Name: ResearchCommentAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"final", "failure", "advisory"}}}}
 }
 
 // ResearchAskSpec declares Research question and review publication kinds.
@@ -53,6 +53,9 @@ func RegisterComment(specs *graphexec.Registry, activities *ActivityRegistry, h 
 	}
 	for _, spec := range []graphexec.ActionSpec{ResearchCommentSpec(), ResearchAskSpec()} {
 		spec.Mode = h.Policy.Mode
+		if spec.Name == ResearchCommentAction && h.Policy.Mode != agent.ModeResearch && h.Policy.Mode != agent.ModePlan {
+			spec.Attributes["lf_kind"] = graphexec.AttributeSpec{Required: true, Values: []string{"final", "failure"}}
+		}
 		if err := specs.Register(spec); err != nil {
 			return err
 		}
@@ -86,6 +89,9 @@ func (h CommentActivity) Execute(ctx context.Context, opts Options, req Activity
 	}
 	if current.InstanceID != instance.ID || current.Node != req.Node || current.Status != store.GraphRunning || instance.CurrentNode != req.Node {
 		return ActivityResult{}, errors.New("research comment attempt binding mismatch")
+	}
+	if node.Attrs["lf_kind"] == "advisory" {
+		return executeAdvisoryComment(ctx, opts, req, h.Profile, h.Reporter)
 	}
 	source, err := latestResearchAgentAttempt(ctx, opts, h.Profile, instance.ID, graphexec.ResearchSource(node.Attrs))
 	if err != nil {
@@ -209,6 +215,9 @@ func (r *Reporter) RecoverWorkflowComment(ctx context.Context, key string, scope
 	intent, err := r.db.GetGraphComment(ctx, key)
 	if err != nil {
 		return Posted{}, err
+	}
+	if intent.Kind == "advisory" {
+		return r.RecoverAdvisoryComment(ctx, key)
 	}
 	var stop GraphStopQuestion
 	if json.Unmarshal(intent.Candidate, &stop) == nil && stop.Version == 1 && stop.Origin != "" {

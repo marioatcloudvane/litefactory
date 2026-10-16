@@ -10,6 +10,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -82,16 +83,31 @@ func (d *Daemon) researchReminder(ctx context.Context, reporter researchReminder
 		return err
 	}
 	// Verify the exact original receipt, not a copied marker or an edit timestamp.
+	// GitHub receipts carry their GitHub URL and exact body. Linear stores a
+	// normalized body under a Linear URL, so it is matched by identity, author
+	// and Linear-equivalent content.
+	onGitHub := ref.Forge == naming.ForgeGitHub
 	expectedURL := fmt.Sprintf("https://github.com/%s/%s/issues/%d#issuecomment-%d", ref.Owner, ref.Repo, ref.Issue, wait.CommentID)
 	var published time.Time
 	for _, comment := range comments {
-		if comment.ID == wait.CommentID && comment.Author.ID == wait.BotUserID && comment.Body == wait.Body && comment.HTMLURL == expectedURL {
-			published = comment.CreatedAt
-			break
+		if comment.ID != wait.CommentID || comment.Author.ID != wait.BotUserID {
+			continue
 		}
+		if onGitHub && (comment.Body != wait.Body || comment.HTMLURL != expectedURL) {
+			continue
+		}
+		if !onGitHub && !linear.ContentEquivalent(wait.Body, comment.Body) {
+			continue
+		}
+		published = comment.CreatedAt
+		break
 	}
 	if published.IsZero() {
-		return errors.New("original Research publication time cannot be verified; reminder deferred")
+		// Retrying re-reads the whole issue history every pass and can never
+		// succeed (it drained the cockpit Linear allowance for a day). A
+		// reminder is optional; stop it instead of looping.
+		d.log.WarnContext(ctx, "Research reminder stopped: original publication time cannot be verified", slog.String("wait", wait.WaitKey))
+		return d.db.SuppressResearchReminder(ctx, wait.WaitKey)
 	}
 	if err = d.db.VerifyResearchWaitPublication(ctx, wait.WaitKey, published); err != nil {
 		return err

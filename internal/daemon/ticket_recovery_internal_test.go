@@ -3,6 +3,9 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,11 +23,14 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/linear"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
+	"github.com/cloudvane/litefactory/internal/webhook"
 )
 
 func TestRecoveryObservationRejectsQualifiedCollisions(t *testing.T) {
@@ -1250,6 +1256,9 @@ func TestRecoveryObservationRereadWarnings(t *testing.T) {
 
 func TestLinearProbeOwnQuotaAndHiddenRefusal(t *testing.T) {
 	f, remote, version, _, _ := linearObservationFixture(t)
+	// Replace the approver fixture's warmed factory so the first probe must
+	// include client initialization in its single request.
+	f.d.connections = projectconnection.NewFactory(projectconnection.Options{DB: f.d.db, HTTPClient: remote.server.Client(), Logger: f.d.log, Resolver: secrets.Resolver{LookupEnv: func(string) (string, bool) { return "test-linear-token", true }}})
 	f.d.quotas.tick(f.now)
 	ctx := projectContext(f.d.discoveryContext(t.Context()), version.RepoID)
 	var requests atomic.Int64
@@ -1282,7 +1291,10 @@ func TestLinearProbeOwnQuotaAndHiddenRefusal(t *testing.T) {
 		t.Fatal(err)
 	}
 	view := q.discovery.view()
-	if !view.Fresh || view.Share != 500 || view.Reserve != 500 || view.Spent != int(requests.Load()) || view.InProgress != 0 || view.Burst != discoveryBurst-float64(requests.Load()) {
+	if requests.Load() != 1 {
+		t.Fatalf("cold probe requests=%d", requests.Load())
+	}
+	if !view.Fresh || view.Share != 900 || view.Reserve != 100 || view.Spent != int(requests.Load()) || view.InProgress != 0 || view.Burst != discoveryBurst-float64(requests.Load()) {
 		t.Fatalf("probe accounting: %+v requests=%d", view, requests.Load())
 	}
 	clients, err := f.d.connections.Clients(ctx, version, 0)
@@ -1306,7 +1318,14 @@ func TestLinearProbeOwnQuotaAndHiddenRefusal(t *testing.T) {
 	refuse.Store(true)
 	if err := f.d.discoveryProbe(ctx, githubRepo(version.Destination)); err != nil {
 		t.Fatal(err)
-	} // Optional webhook failure is deliberately hidden by Inspect.
+	}
+	if _, held := q.backoff.hold(f.now); held {
+		t.Fatal("probe called optional webhook administration")
+	}
+	if _, err := clients.Linear.Inspect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Explicit inspection still observes optional webhook quota refusal.
 	if _, held := q.backoff.hold(f.now); !held {
 		t.Fatal("optional subcall hid quota refusal")
 	}
@@ -1330,4 +1349,664 @@ func (w *linearQuotaResponseWriter) Write(body []byte) (int, error) {
 	w.Header().Set("X-RateLimit-Requests-Remaining", "900")
 	w.Header().Set("X-RateLimit-Requests-Reset", fmt.Sprint(w.reset.UnixMilli()))
 	return w.ResponseWriter.Write(body)
+}
+
+func TestPlanStoryHandoffResolutionFailureRetainsDebt(t *testing.T) {
+	f := newDiscoveryHTTPFixture(t)
+	parent, _ := f.task(t, "handoff")
+	ctx := t.Context()
+	var commentReads atomic.Int64
+	f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/comments") {
+			commentReads.Add(1)
+		}
+		f.serve(w, r)
+	})
+	if _, err := f.d.db.AdmitPlanWorkflowPath(ctx, parent.session.ID, "graph"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.d.db.ReservePlanStory(ctx, parent.ref.String(), "story"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.d.db.BindPlanStoryIssue(ctx, parent.ref.String(), "story", 2000, 200); err != nil {
+		t.Fatal(err)
+	}
+	state := planbrief.PlanState{SharedRevision: "shared", Stories: []planbrief.PlanStoryState{{Key: "story", Stage: "story"}}}
+	if _, err := f.d.db.SavePlanWorkflowState(ctx, parent.ref.String(), 0, state); err != nil {
+		t.Fatal(err)
+	}
+	child, err := f.d.db.GetOrCreateSession(ctx, parent.repo, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Inject a child-resolution failure: this legacy fixture has no saved
+	// project execution snapshot. The open-child observation itself succeeds.
+	f.d.connections = projectconnection.NewFactory(projectconnection.Options{Logger: f.d.log})
+	if ran, err := f.d.refinePlanChildren(ctx, parent); ran || !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("resolution failure was swallowed: ran=%v err=%v", ran, err)
+	}
+	if owed, err := f.d.db.StoryDiscoveryOwed(ctx, parent.session.ID, 200); err != nil || !owed {
+		t.Fatalf("failed handoff retired debt: %v %v", owed, err)
+	}
+	if strings.Contains(f.logs.String(), "plan story polling handed to child") {
+		t.Fatal("failed handoff logged success")
+	}
+	if saved, err := f.d.db.GetSession(ctx, child.ID); err != nil || saved.NeedsPoll {
+		t.Fatalf("failed resolution flagged child: %+v %v", saved, err)
+	}
+	// Restore the fixture's legacy resolver. Retained debt alone must retry;
+	// there is no new observation, comment or cursor reset.
+	f.d.connections = nil
+	if ran, err := f.d.refinePlanChildren(ctx, parent); ran || err != nil {
+		t.Fatalf("retained handoff did not recover: ran=%v err=%v", ran, err)
+	}
+	if saved, err := f.d.db.GetSession(ctx, child.ID); err != nil || !saved.NeedsPoll {
+		t.Fatalf("successful handoff lost polling responsibility: %+v %v", saved, err)
+	}
+	if owed, err := f.d.db.StoryDiscoveryOwed(ctx, parent.session.ID, 200); err != nil || owed {
+		t.Fatalf("successful handoff did not retire debt: %v %v", owed, err)
+	}
+	if commentReads.Load() != 0 {
+		t.Fatal("parent read child comments")
+	}
+}
+
+// Strip or corrupt only request allowance metadata; provider content stays real.
+type missingLinearQuotaWriter struct {
+	http.ResponseWriter
+	mode string
+	now  time.Time
+}
+
+func (w *missingLinearQuotaWriter) Write(body []byte) (int, error) {
+	for _, key := range []string{"Limit", "Remaining", "Reset"} {
+		w.Header().Del("X-RateLimit-Requests-" + key)
+	}
+	if w.mode == "malformed" {
+		w.Header().Set("X-RateLimit-Requests-Limit", "invalid")
+	}
+	if w.mode == "expired" {
+		w.Header().Set("X-RateLimit-Requests-Limit", "5000")
+		w.Header().Set("X-RateLimit-Requests-Remaining", "4900")
+		w.Header().Set("X-RateLimit-Requests-Reset", fmt.Sprint(w.now.Add(-time.Minute).UnixMilli()))
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func TestLinearFallbackRecoversWithoutQuotaEvidence(t *testing.T) {
+	for _, mode := range []string{"missing", "malformed", "expired"} {
+		for _, variant := range []string{"resolved", "unresolved", "delayed", "cancelled", "skipped", "refused"} {
+			t.Run(mode+"/"+variant, func(t *testing.T) {
+				f, remote, v, _, q := linearObservationFixture(t)
+				f.d.quotas.tick(f.now)
+				ctx := projectContext(f.d.discoveryContext(t.Context()), v.RepoID)
+				var calls, probes, historyCalls, containers, issues atomic.Int64
+				entered, release := make(chan struct{}), make(chan struct{})
+				var delay, ordinary, refuse atomic.Bool
+				defer func() {
+					select {
+					case <-release:
+					default:
+						close(release)
+					}
+				}()
+				original := remote.server.Config.Handler
+				remote.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					if ordinary.Load() {
+						b := &f.d.quotas.forVersion(v).discovery
+						b.mu.Lock()
+						if b.reserved != listAdmission || len(b.lists) != 1 {
+							t.Errorf("ordinary history reserved=%d list gate=%d", b.reserved, len(b.lists))
+						}
+						b.mu.Unlock()
+					}
+					body, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					if bytes.Contains(body, []byte("project(id:")) {
+						containers.Add(1)
+					}
+					if bytes.Contains(body, []byte("issue(id:")) && !bytes.Contains(body, []byte("comments(filter:")) {
+						issues.Add(1)
+					}
+					if bytes.Contains(body, []byte("viewer")) {
+						probes.Add(1)
+					}
+					if bytes.Contains(body, []byte("webhooks")) || bytes.Contains(body, []byte("issueLabel(")) {
+						t.Error("recovery performed full inspection")
+					}
+					if bytes.Contains(body, []byte("comments(filter:")) {
+						historyCalls.Add(1)
+						if delay.CompareAndSwap(true, false) {
+							close(entered)
+							select {
+							case <-release:
+							case <-r.Context().Done():
+								return
+							}
+						}
+						var request struct{ Variables map[string]any }
+						linearWorkflowCheck(t, json.Unmarshal(body, &request))
+						page := 1
+						if after, ok := request.Variables["after"].(string); ok {
+							previous, err := strconv.Atoi(after)
+							linearWorkflowCheck(t, err)
+							page = previous + 1
+						}
+						if page == 2 && refuse.CompareAndSwap(true, false) {
+							w.Header().Set("Retry-After", "60")
+							w.WriteHeader(http.StatusTooManyRequests)
+							_, _ = w.Write([]byte(`{"errors":[{"message":"rate limit"}]}`))
+							return
+						}
+						nodes := []any{}
+						if page == 100 {
+							remote.mu.Lock()
+							for _, reply := range remote.comments {
+								nodes = append(nodes, reply)
+							}
+							remote.mu.Unlock()
+						}
+						linearWorkflowCheck(t, json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issue": remote.issues["parent-uuid"], "comments": map[string]any{"nodes": nodes, "pageInfo": map[string]any{"hasNextPage": page < 100, "endCursor": strconv.Itoa(page)}}}}))
+						return
+					}
+					r.Body = io.NopCloser(bytes.NewReader(body))
+					original.ServeHTTP(&missingLinearQuotaWriter{w, mode, f.now}, r)
+				})
+				budget := f.d.quotas.forVersion(v)
+				budget.discovery.tick(f.now)
+				budget.discovery.observeLinear(linear.RequestObservation{RequestRateValid: true, Limit: 1000, Remaining: 0, Reset: f.now.Add(2 * time.Minute)})
+				budget.backoff.fail(f.now, time.Minute)
+				for range 4 {
+					if _, err := f.d.recoverSource(ctx, q, f.now); !errors.Is(err, ErrDiscoveryDeferred) {
+						t.Fatalf("hold: %v", err)
+					}
+					f.now = f.now.Add(30 * time.Second)
+					f.d.quotas.tick(f.now)
+				}
+				if calls.Load() != 0 {
+					t.Fatal("requests during hold or known depletion")
+				}
+				if _, err := f.d.recoverSource(ctx, q, f.now); err != nil {
+					t.Fatal(err)
+				}
+				pending, err := f.d.db.ListPendingTicketObservations(ctx, v.ID)
+				linearWorkflowCheck(t, err)
+				if len(pending) == 0 {
+					t.Fatal("fallback produced no generation")
+				}
+				seen := map[int64]*candidate{}
+				linearWorkflowCheck(t, f.d.drainTicketObservations(ctx, map[int64]*repoQueue{v.RepoID: q}, seen))
+				for _, c := range seen {
+					t.Logf("selected reservation after admission: requests=%d bound=%d", c.discoveryReservation.requests, c.discoveryReservation.bound)
+				}
+				if len(seen) != 1 {
+					t.Fatalf("fallback admission=%d", len(seen))
+				}
+				if probes.Load() != 1 || calls.Load() > 1+55+5 {
+					t.Fatalf("calls=%d probes=%d", calls.Load(), probes.Load())
+				}
+				if budget.discovery.view().Fresh {
+					t.Fatal("absent evidence fabricated freshness")
+				}
+				before := calls.Load()
+				for range 10 {
+					_, _ = f.d.recoverSource(ctx, q, f.now)
+					linearWorkflowCheck(t, f.d.drainTicketObservations(ctx, map[int64]*repoQueue{v.RepoID: q}, map[int64]*candidate{}))
+				}
+				if calls.Load() != before {
+					t.Fatalf("repeated same-minute work: %d -> %d", before, calls.Load())
+				}
+				f.now = f.now.Add(time.Minute)
+				f.d.quotas.tick(f.now)
+				if _, err := f.d.recoverSource(ctx, q, f.now); err != nil {
+					t.Fatal(err)
+				}
+				if probes.Load() != 2 {
+					t.Fatalf("warm probes=%d", probes.Load())
+				}
+				f.d.pool = newPool(1)
+				f.d.repoSessionCursor = make(map[int64]int64)
+				result := TickResult{}
+				var reservation *discoveryReservation
+				for _, c := range seen {
+					reservation = c.discoveryReservation
+					if variant == "unresolved" {
+						c.resolved = false
+					}
+				}
+				workerCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
+				var checks *containerChecks
+				if variant == "delayed" || variant == "cancelled" {
+					workerCtx, checks = withContainerChecks(workerCtx)
+					delay.Store(true)
+				}
+				if variant == "skipped" {
+					if !f.d.pool.try() {
+						t.Fatal("could not occupy worker slot")
+					}
+				}
+				if variant == "refused" {
+					refuse.Store(true)
+				}
+				beforeDispatch := calls.Load()
+				beforeHistory := historyCalls.Load()
+				beforeContainers, beforeIssues, beforeProbes := containers.Load(), issues.Load(), probes.Load()
+				f.d.dispatch(workerCtx, []*repoQueue{q}, f.now, &result)
+				if variant == "skipped" {
+					f.d.pool.done()
+					if result.Dispatched != 0 || calls.Load() != beforeDispatch || budget.discovery.view().InProgress != 0 {
+						t.Fatal("failed dispatch made calls or leaked reservation")
+					}
+					return
+				}
+				if checks != nil {
+					select {
+					case <-entered:
+					case <-time.After(10 * time.Second):
+						t.Fatal("waiting for first worker history page")
+					}
+					checks.close()
+					f.now = f.now.Add(time.Minute)
+					f.d.quotas.tick(f.now)
+					if budget.discovery.view().InProgress == 0 {
+						t.Fatal("delayed worker released capacity")
+					}
+					if _, err := budget.discovery.acquireFallback("competing-project", linearPendingBound, true); !errors.Is(err, ErrDiscoveryDeferred) {
+						t.Fatalf("competing worker: %v", err)
+					}
+					if variant == "cancelled" {
+						cancel()
+					}
+					close(release)
+				}
+				joinCtx, joinCancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer joinCancel()
+				linearWorkflowCheck(t, f.d.Quiesce(joinCtx))
+				if variant == "refused" {
+					if budget.discovery.view().InProgress != 0 {
+						t.Fatal("refused worker leaked reservation")
+					}
+					beforeHeld := calls.Load()
+					for _, c := range seen {
+						_, exists, err := f.d.db.GetWatermark(ctx, c.session.ID)
+						linearWorkflowCheck(t, err)
+						if exists {
+							t.Fatal("partial refused history advanced watermark")
+						}
+						_, err = f.d.discoveryComments(sessionContext(ctx, c.session.ID), q.forgeRepo, c.issue.Number, 0)
+						if !errors.Is(err, ErrDiscoveryDeferred) {
+							t.Fatalf("held history: %v", err)
+						}
+					}
+					if calls.Load() != beforeHeld {
+						t.Fatal("requests during renewed hold")
+					}
+					f.now = f.now.Add(2 * time.Minute)
+					f.d.quotas.tick(f.now)
+					q.next, q.taken = 0, 0
+					retry := TickResult{}
+					beforeRetryHistory := historyCalls.Load()
+					f.d.dispatch(ctx, []*repoQueue{q}, f.now, &retry)
+					linearWorkflowCheck(t, f.d.Quiesce(joinCtx))
+					if retry.Dispatched != 1 || historyCalls.Load()-beforeRetryHistory != 200 || budget.discovery.view().InProgress != 0 {
+						t.Fatalf("refusal retry: %+v histories=%d logs=%s", retry, historyCalls.Load()-beforeRetryHistory, f.logs.String())
+					}
+					for _, c := range seen {
+						_, exists, err := f.d.db.GetWatermark(ctx, c.session.ID)
+						linearWorkflowCheck(t, err)
+						if !exists {
+							t.Fatal("refusal retry did not bootstrap")
+						}
+					}
+					return
+				}
+				if variant == "cancelled" {
+					if budget.discovery.view().InProgress != 0 {
+						t.Fatal("cancelled worker leaked capacity")
+					}
+					for _, c := range seen {
+						_, exists, err := f.d.db.GetWatermark(ctx, c.session.ID)
+						linearWorkflowCheck(t, err)
+						if exists {
+							t.Fatal("cancelled incomplete history advanced watermark")
+						}
+					}
+					return
+				}
+				if result.Dispatched != 1 {
+					t.Fatalf("dispatched=%d; want selected fallback worker", result.Dispatched)
+				}
+				for _, c := range seen {
+					_, exists, err := f.d.db.GetWatermark(ctx, c.session.ID)
+					linearWorkflowCheck(t, err)
+					if !exists {
+						t.Fatalf("worker did not bootstrap: %s", f.logs.String())
+					}
+					bodyPending, err := f.d.db.TicketBodyPending(ctx, c.session.ID)
+					linearWorkflowCheck(t, err)
+					if bodyPending {
+						t.Fatal("worker left issue body pending")
+					}
+				}
+				if historyCalls.Load()-beforeHistory != 200 {
+					t.Fatalf("bootstrap plus drain calls=%d; want 200; total worker calls=%d; logs=%s", historyCalls.Load()-beforeHistory, calls.Load()-beforeDispatch, f.logs.String())
+				}
+				t.Logf("worker ledger: calls=%d history=%d container=%d issue=%d publisher=%d", calls.Load()-beforeDispatch, historyCalls.Load()-beforeHistory, containers.Load()-beforeContainers, issues.Load()-beforeIssues, probes.Load()-beforeProbes)
+				t.Logf("selected reservation charged %d of %d", reservation.requests, reservation.bound)
+				if got := calls.Load() - beforeDispatch + 4; got > 218 || reservation.requests != int(got) {
+					t.Fatalf("selected operation used %d requests; exceeds 218", got)
+				}
+				if view := budget.discovery.view(); view.InProgress != 0 {
+					t.Fatalf("worker leaked reservation: %+v", view)
+				}
+				if !strings.Contains(f.logs.String(), "first sight of a task") {
+					t.Fatal("missing first sight")
+				}
+				// Valid allowance on the next eligible probe restores ordinary discovery.
+				historyHandler := remote.server.Config.Handler
+				remote.server.Config.Handler = original
+				f.now = f.now.Add(time.Minute)
+				f.d.quotas.tick(f.now)
+				linearWorkflowCheck(t, f.d.discoveryProbe(ctx, q.forgeRepo))
+				if !budget.discovery.view().Fresh {
+					t.Fatal("fresh evidence did not restore budgeting")
+				}
+				remote.server.Config.Handler = historyHandler
+				ordinary.Store(true)
+				beforeOrdinary := calls.Load()
+				for _, c := range seen {
+					_, err := f.d.discoveryComments(sessionContext(ctx, c.session.ID), q.forgeRepo, c.issue.Number, 0)
+					linearWorkflowCheck(t, err)
+				}
+				ordinary.Store(false)
+				if got := calls.Load() - beforeOrdinary; got != 103 {
+					t.Fatalf("warm ordinary history requests=%d; want 103 within cold bound 104", got)
+				}
+				if budget.discovery.view().InProgress != 0 {
+					t.Fatal("ordinary history leaked reservation")
+				}
+				// Retry an already bootstrapped task after the evidence goes stale.
+				remote.addReply("later-owner-comment", "/spike process the later comment", "human-uuid")
+				requests := make(chan turn.Request, 2)
+				f.d.turn = recoveryHoldExecutor{requests}
+				f.d.reporter = stubReporter{}
+				f.d.defaultAgent = agent.Kind(store.AgentClaude)
+				f.d.agents = turn.RunnerSet{agent.Kind(store.AgentClaude): nil}
+				f.d.toolProfiles = config.DefaultToolProfiles().Permissions
+				f.d.classifiers = map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): explicitWorkflowClassifier{t}}
+				f.now = f.now.Add(3 * time.Minute)
+				f.d.quotas.tick(f.now)
+				q.next, q.taken = 0, 0
+				var retryReservation atomic.Pointer[discoveryReservation]
+				f.d.connections.SetRequestContext(func(ctx context.Context, version store.ConnectionVersion) (context.Context, func(error), error) {
+					if r, ok := ctx.Value(quotaReservationKey{}).(*discoveryReservation); ok && r.fallback {
+						retryReservation.Store(r)
+					}
+					return f.d.bindQuotaRequest(ctx, version)
+				})
+				beforeRetry, beforeRetryHistory := calls.Load(), historyCalls.Load()
+				retry := TickResult{}
+				f.d.dispatch(ctx, []*repoQueue{q}, f.now, &retry)
+				linearWorkflowCheck(t, f.d.Quiesce(joinCtx))
+				if retry.Dispatched != 1 || historyCalls.Load()-beforeRetryHistory != 200 || retryReservation.Load() == nil || retryReservation.Load().requests > 218 {
+					t.Fatalf("retry dispatched=%d calls=%d history=%d logs=%s", retry.Dispatched, calls.Load()-beforeRetry, historyCalls.Load()-beforeRetryHistory, f.logs.String())
+				}
+				select {
+				case req := <-requests:
+					if req.Command.Name != "/spike" {
+						t.Fatalf("wrong command: %+v", req)
+					}
+				default:
+					t.Fatalf("later comment did not reach executor: %s", f.logs.String())
+				}
+				t.Logf("bootstrapped retry: selected=%d total provider calls=%d (execution separately charged)", retryReservation.Load().requests, calls.Load()-beforeRetry)
+				if len(requests) != 0 || strings.Count(f.logs.String(), "first sight of a task") != 1 || budget.discovery.view().InProgress != 0 {
+					t.Fatal("retry duplicated bootstrap/execution or leaked reservation")
+				}
+
+			})
+		}
+	}
+}
+
+// Each history page validates the issue and lists comments in one request.
+func TestLinearHistoryActualRequestBound(t *testing.T) {
+	f, remote, v, _, _ := linearObservationFixture(t)
+	clients, err := f.d.connections.Clients(t.Context(), v, 0)
+	linearWorkflowCheck(t, err)
+	var calls atomic.Int64
+	original := remote.server.Config.Handler
+	remote.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		body, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			t.Error(readErr)
+			return
+		}
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if decodeErr := json.Unmarshal(body, &request); decodeErr != nil {
+			t.Error(decodeErr)
+			return
+		}
+		if strings.Contains(request.Query, "comments(") {
+			page := 1
+			if after, ok := request.Variables["after"].(string); ok {
+				previous, parseErr := strconv.Atoi(after)
+				if parseErr != nil {
+					t.Error(parseErr)
+					return
+				}
+				page = previous + 1
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if encodeErr := json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"issue": remote.issues["parent-uuid"], "comments": map[string]any{"nodes": []any{}, "pageInfo": map[string]any{"hasNextPage": page < 100, "endCursor": strconv.Itoa(page)}}}}); encodeErr != nil {
+				t.Error(encodeErr)
+			}
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		original.ServeHTTP(w, r)
+	})
+	ref := ticket.Ref{Identity: ticket.Identity{Provider: v.Provider, Origin: v.Origin, RemoteID: "parent-uuid"}, Locator: ticket.Locator{Provider: v.Provider, Origin: v.Origin, Container: v.Destination, Key: "parent-uuid"}}
+	page, err := clients.Tickets.RepliesAfter(t.Context(), ref, ticket.Cursor{})
+	linearWorkflowCheck(t, err)
+	if !page.Complete || calls.Load() != 100 {
+		t.Fatalf("complete=%t calls=%d; want complete supported history using 100 HTTP requests", page.Complete, calls.Load())
+	}
+	t.Logf("one supported 100-page history used %d HTTP calls; approved per-history reservation is %d", calls.Load(), discoveryListBound)
+}
+
+// HTTP acceptance and durable handoff are separate observations; no polling
+// recovery is invoked in this fixture.
+func TestLinearSignedWebhookDurableAdmission(t *testing.T) {
+	for _, mode := range []string{"accepted", "quota", "replaced", "signature", "project"} {
+		t.Run(mode, func(t *testing.T) {
+			f, _, v, sub, q := linearObservationFixture(t)
+			ctx := projectContext(f.d.discoveryContext(t.Context()), v.RepoID)
+			f.d.quotas.tick(f.now)
+			f.d.webhook = newWebhookRuntime(WebhookOptions{Now: func() time.Time { return f.now }, Secrets: secrets.Resolver{Keychain: func(context.Context, string, string) (string, error) { return "offline-signing-secret", nil }}}, f.d.log)
+			f.d.webhook.refreshSubscriptions(ctx, f.d.db, f.now)
+			handler, err := webhook.NewHandler(webhook.Options{Lookup: f.d.webhook, Sink: f.d.webhook, Logger: f.d.log, Now: func() time.Time { return f.now }})
+			linearWorkflowCheck(t, err)
+			project := "project-uuid"
+			if mode == "project" {
+				project = "foreign"
+			}
+			body := fmt.Sprintf(`{"type":"Issue","organizationId":"workspace-uuid","webhookTimestamp":%d,"data":{"id":"parent-uuid","teamId":"team-uuid","projectId":%q}}`, f.now.UnixMilli(), project)
+			mac := hmac.New(sha256.New, []byte("offline-signing-secret"))
+			_, _ = mac.Write([]byte(body))
+			signature := hex.EncodeToString(mac.Sum(nil))
+			if mode == "signature" {
+				signature = strings.Repeat("0", 64)
+			}
+			send := func() int {
+				req := httptest.NewRequest(http.MethodPost, webhook.Path+"?subscription="+sub.ID, strings.NewReader(body))
+				req.Header.Set("Linear-Event", "Issue")
+				req.Header.Set("Linear-Delivery", "offline-delivery")
+				req.Header.Set("Linear-Signature", signature)
+				out := httptest.NewRecorder()
+				handler.ServeHTTP(out, req)
+				return out.Code
+			}
+			status := send()
+			if mode == "signature" {
+				if status != http.StatusUnauthorized {
+					t.Fatalf("signature status=%d", status)
+				}
+			} else if status != http.StatusOK {
+				t.Fatalf("status=%d", status)
+			}
+			if mode == "signature" || mode == "project" {
+				if len(f.d.webhook.hints.pending()) != 0 {
+					t.Fatal("invalid delivery queued")
+				}
+				return
+			}
+			if send() != http.StatusOK || len(f.d.webhook.hints.pending()) != 1 {
+				t.Fatal("duplicate HTTP delivery changed hint count")
+			}
+			if mode == "replaced" {
+				replacement := v
+				replacement.Enabled = false
+				_, err = f.d.db.SetConnection(ctx, replacement, v.Revision)
+				linearWorkflowCheck(t, err)
+			}
+			seen := map[int64]*candidate{}
+			byRepo := map[int64]*repoQueue{v.RepoID: q}
+			result := &TickResult{}
+			if mode == "quota" {
+				f.d.quotas.forVersion(v).backoff.fail(f.now, time.Minute)
+				for range 12 {
+					linearWorkflowCheck(t, f.d.webhookHints(ctx, byRepo, seen, result))
+				}
+				if len(f.d.webhook.hints.pending()) != 1 {
+					t.Fatal("quota deferral lost hint")
+				}
+				f.now = f.now.Add(2 * time.Minute)
+				f.d.quotas.tick(f.now)
+			}
+			linearWorkflowCheck(t, f.d.webhookHints(ctx, byRepo, seen, result))
+			pending, err := f.d.db.ListPendingTicketObservations(ctx, v.ID)
+			linearWorkflowCheck(t, err)
+			if mode == "replaced" {
+				if len(pending) != 0 || result.Hinted != 0 || len(f.d.webhook.hints.pending()) != 0 {
+					t.Fatal("replaced revision handed off")
+				}
+				if !strings.Contains(f.logs.String(), `"subscription":"linear-current"`) || !strings.Contains(f.logs.String(), `"reason":"subscription_revision"`) {
+					t.Fatal("stale rejection missing source")
+				}
+				return
+			}
+			verified, err := f.d.db.GetTicketSubscription(ctx, sub.ID)
+			linearWorkflowCheck(t, err)
+			if verified.DeliveredAt.IsZero() || len(pending) != 1 || result.Hinted != 1 {
+				t.Fatalf("handoff pending=%d hinted=%d verified=%v logs=%s", len(pending), result.Hinted, verified.DeliveredAt, f.logs.String())
+			}
+			linearWorkflowCheck(t, f.d.drainTicketObservations(ctx, byRepo, seen))
+			if len(seen) != 1 {
+				t.Fatalf("admission=%d", len(seen))
+			}
+			f.d.pool = newPool(1)
+			f.d.repoSessionCursor = make(map[int64]int64)
+			f.d.dispatch(ctx, []*repoQueue{q}, f.now, result)
+			join, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			linearWorkflowCheck(t, f.d.Quiesce(join))
+			if result.Dispatched != 1 || !strings.Contains(f.logs.String(), "first sight of a task") {
+				t.Fatalf("no webhook first sight: %s", f.logs.String())
+			}
+			expectedStatus := http.StatusOK
+			if mode == "quota" {
+				expectedStatus = http.StatusUnauthorized
+			} // Original signed timestamp is now stale.
+			if send() != expectedStatus || len(f.d.webhook.hints.pending()) != 0 {
+				t.Fatal("duplicate admitted again")
+			}
+		})
+	}
+}
+
+func TestLinearFallbackScopeStatusAndRotation(t *testing.T) {
+	f, _, v, _, _ := linearObservationFixture(t)
+	f.d.quotas.tick(f.now)
+	q := f.d.quotas.forVersion(v)
+	q.discovery.tick(f.now)
+	same := v
+	same.ID++
+	same.RepoID++
+	if f.d.quotas.forVersion(same) != q {
+		t.Fatal("shared credential got independent quota")
+	}
+	other := v
+	other.ID += 2
+	other.CredentialEnv = "INDEPENDENT_TEST_KEY"
+	if f.d.quotas.forVersion(other) == q {
+		t.Fatal("independent credential shared quota")
+	}
+	q.backoff.fail(f.now, time.Minute)
+	summary := f.d.scopedPauseSummary(f.now)
+	if !strings.Contains(summary, "linear") || !strings.Contains(summary, pauseReasonBackoff) || !strings.Contains(summary, f.now.Add(time.Minute).UTC().Format(time.RFC3339)) {
+		t.Fatalf("backoff summary=%s", summary)
+	}
+	for range 10 {
+		f.d.scopedPauseSummary(f.now)
+	}
+	if strings.Count(f.logs.String(), "source discovery deferred") != 1 {
+		t.Fatalf("repeated warning: %s", f.logs.String())
+	}
+	f.now = f.now.Add(time.Minute)
+	f.d.quotas.tick(f.now)
+	q.discovery.probeAt = f.now
+	summary = f.d.scopedPauseSummary(f.now)
+	if !strings.Contains(summary, pauseReasonStale) {
+		t.Fatalf("stale summary=%s", summary)
+	}
+	r, err := q.discovery.acquireFallback("project-a", linearPendingBound, true)
+	linearWorkflowCheck(t, err)
+	if _, err := q.discovery.acquireFallback("project-b", linearPendingBound, true); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatalf("shared pending lane=%v", err)
+	}
+	summary = f.d.scopedPauseSummary(f.now)
+	if !strings.Contains(summary, "bounded fallback") {
+		t.Fatalf("fallback summary=%s", summary)
+	}
+	f.now = f.now.Add(time.Minute)
+	f.d.quotas.tick(f.now)
+	q.discovery.tick(f.now)
+	r.finish()
+	// A was already at the head when B arrived; its next pass rotates behind B.
+	r, err = q.discovery.acquireFallback("project-a", linearPendingBound, true)
+	linearWorkflowCheck(t, err)
+	r.finish()
+	f.now = f.now.Add(time.Minute)
+	f.d.quotas.tick(f.now)
+	q.discovery.tick(f.now)
+	if _, err := q.discovery.acquireFallback("project-a", linearPendingBound, true); !errors.Is(err, ErrDiscoveryDeferred) {
+		t.Fatalf("rotation starved project b: %v", err)
+	}
+	r, err = q.discovery.acquireFallback("project-b", linearPendingBound, true)
+	linearWorkflowCheck(t, err)
+	r.finish()
+	q.discovery.observeLinear(linear.RequestObservation{RequestRateValid: true, Limit: 1000, Remaining: 0, Reset: f.now.Add(time.Minute)})
+	if summary = f.d.scopedPauseSummary(f.now); !strings.Contains(summary, pauseReasonSpent) {
+		t.Fatalf("spent summary=%s", summary)
+	}
+	f.now = f.now.Add(time.Minute)
+	f.d.quotas.tick(f.now)
+	q.discovery.tick(f.now)
+	q.discovery.observeLinear(linear.RequestObservation{RequestRateValid: true, Limit: 1000, Remaining: 900, Reset: f.now.Add(time.Hour)})
+	if summary = f.d.scopedPauseSummary(f.now); summary != "" {
+		t.Fatalf("recovered summary=%s", summary)
+	}
+	if !strings.Contains(f.logs.String(), "source discovery recovered") || strings.Contains(f.logs.String(), "LINEAR_TOKEN") || strings.Contains(f.logs.String(), "INDEPENDENT_TEST_KEY") {
+		t.Fatalf("unsafe or missing transition: %s", f.logs.String())
+	}
 }

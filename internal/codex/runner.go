@@ -22,6 +22,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
 const (
@@ -318,44 +319,52 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	}
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	//nolint:gosec // binary/args are configuration; issue text is delivered on stdin.
-	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	stackEnv, err := req.StackEnvironment(codexEnv(r.environ))
 	if err != nil {
 		return nil, err
 	}
-	cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, stackEnv, strings.NewReader(req.Prompt)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-			return err
-		}
-		return nil
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
+	var cmd *exec.Cmd
+	var stdout io.ReadCloser
 	stderr := agent.NewTailBuffer(agent.StderrTailBytes)
-	cmd.Stderr = stderr
 	startLocation := machineLocation()
 	started := time.Now()
 	collector := newUsageCollector(runCtx, req)
-	collector.prepareRollouts(cmd.Env)
-	if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
-		_ = stdout.Close()
-		if pipe, ok := cmd.Stdout.(io.Closer); ok {
-			_ = pipe.Close()
+	collector.prepareRollouts(stackEnv)
+	err = providerprocess.Start(runCtx, r.binary.Path, req.WorktreePath, func() error {
+		//nolint:gosec // binary/args are configuration; issue text is delivered on stdin.
+		cmd = exec.CommandContext(runCtx, r.binary.Path, args...)
+		cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, stackEnv, strings.NewReader(req.Prompt)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error {
+			if cmd.Process == nil {
+				return os.ErrProcessDone
+			}
+			if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+				return err
+			}
+			return nil
 		}
+		stdout, err = cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		cmd.Stderr = stderr
+		if err := agent.VerifyRequestDelivery(runCtx, req); err != nil {
+			_ = stdout.Close()
+			if pipe, ok := cmd.Stdout.(io.Closer); ok {
+				_ = pipe.Close()
+			}
+			return err
+		}
+		if err := cmd.Start(); err != nil {
+			_ = stdout.Close()
+			return fmt.Errorf("codex did not start: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
 		collector.finish()
 		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		collector.finish()
-		return nil, fmt.Errorf("codex did not start: %w", err)
 	}
 	r.logger.Info("coding agent started", "agent", "codex", "task", req.Ref.String(), "run", req.RunOrdinal,
 		"binary", r.binary.Path, "sandbox", sandbox, "tool_profile", req.Permissions.Profile)
@@ -376,11 +385,18 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	if ctx.Err() == nil && runCtx.Err() == nil && stream.failed && !stream.completed {
 		result.Interruption = quotaInterruption(stream.quotaMessage, started, finished, startLocation, machineLocation())
 		if result.Interruption != nil {
+			result.Transient = nil
 			result.Outcome, result.Reason, result.HasResult = agent.OutcomeInterrupted, "session quota limit reached", true
 		}
 	}
+	if result.Transient != nil {
+		result.Transient.Model = r.model
+		if req.Delivery != nil && req.Delivery.MainRole != "" {
+			result.Transient.Model = req.Delivery.MainModel
+		}
+	}
 	r.logger.Info("coding agent finished", "agent", "codex", "outcome", result.Outcome.String(), "events", result.Events, "log_path", logPath)
-	if req.Path.Resuming() && result.Outcome == agent.OutcomeFailed && !stream.turnStarted && exitCode > 0 {
+	if result.Transient == nil && req.Path.Resuming() && result.Outcome == agent.OutcomeFailed && !stream.turnStarted && exitCode > 0 {
 		return result, fmt.Errorf("%w: codex thread %s", agent.ErrSessionNotResumable, req.Session.Resume)
 	}
 	_ = waitErr // ProcessState and stream provide the stable classification.
@@ -397,7 +413,7 @@ func classifyOutcome(result *agent.RunResult, stream streamState, callerErr, run
 		result.Outcome, result.Reason, result.ExitCode = agent.OutcomeAbandoned, "abandoned: caller cancelled the run", agent.SignalExitCode
 	case errors.Is(runErr, context.DeadlineExceeded):
 		result.Outcome, result.Reason, result.ExitCode = agent.OutcomeTimedOut, fmt.Sprintf("timed out after %s", timeout), agent.SignalExitCode
-	case result.ExitCode == 0 && stream.failed:
+	case stream.failed:
 		result.Outcome, result.Reason = agent.OutcomeFailed, "coding agent reported turn.failed"
 		if stream.failureDetail != "" {
 			result.Reason += ": " + stream.failureDetail
@@ -406,6 +422,12 @@ func classifyOutcome(result *agent.RunResult, stream streamState, callerErr, run
 		result.Outcome, result.Reason = agent.OutcomeNoResult, "coding agent exited 0 without a turn.completed event"
 	default:
 		result.Outcome, result.Reason = agent.OutcomeFailed, fmt.Sprintf("coding agent exited with status %d", result.ExitCode)
+	}
+	if result.Outcome == agent.OutcomeFailed && stream.failed && !stream.completed {
+		result.Transient = agent.ProviderCapacity(stream.failureDetail)
+		if result.Transient != nil {
+			result.Reason = result.Transient.Cause
+		}
 	}
 	// No stdout events is deliberately conservative: once the agent emits a
 	// stream, quoted tool output cannot establish a startup failure. Neither
@@ -516,8 +538,21 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	if req.Delivery != nil && req.Delivery.MainRole != "" {
 		model = req.Delivery.MainModel
 	}
+	if req.Model != "" {
+		model = req.Model
+	}
 	if model != "" {
 		args = append(args, "--model", model)
+	}
+	thinking := req.Thinking
+	if thinking == "" && req.Delivery != nil {
+		thinking = req.Delivery.MainThinking
+	}
+	if err := config.ValidateThinking(config.KindCodex, model, thinking); err != nil {
+		return nil, err
+	}
+	if thinking != "" {
+		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(string(thinking)))
 	}
 	if req.Path.Resuming() {
 		return append(args, "resume", req.Session.Resume, "-"), nil
@@ -575,10 +610,18 @@ func (s *streamState) consumeLine(line []byte) {
 	if json.Unmarshal(bytes.TrimSpace(line), &terminal) == nil && terminal.Type == "turn.failed" {
 		s.failed = true
 		var detail struct {
-			Message string `json:"message"`
+			Message    string `json:"message"`
+			Code       string `json:"code"`
+			StatusCode int    `json:"status_code"`
 		}
-		if json.Unmarshal(terminal.Error, &detail) == nil && strings.TrimSpace(detail.Message) != "" {
+		if json.Unmarshal(terminal.Error, &detail) == nil && (strings.TrimSpace(detail.Message) != "" || detail.Code != "" || detail.StatusCode != 0) {
 			s.failureDetail = detail.Message
+			if detail.Code != "" {
+				s.failureDetail += " " + detail.Code
+			}
+			if detail.StatusCode != 0 {
+				s.failureDetail += fmt.Sprintf(" HTTP %d", detail.StatusCode)
+			}
 		} else {
 			var message string
 			if json.Unmarshal(terminal.Message, &message) == nil && strings.TrimSpace(message) != "" {

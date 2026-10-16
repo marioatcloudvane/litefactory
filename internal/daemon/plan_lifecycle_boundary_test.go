@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -322,4 +323,40 @@ func TestPlanLifecycleBoundary_ClosureInvalidatesDependentAndRetainsEdge(t *test
 	if !slices.Equal(state.Stories[2].Draft.Dependencies.StoryKeys, []string{"affected"}) || len(state.Stories[2].Approvals) != 0 || slices.Contains(state.EligiblePlanStories(), "dependent") || state.PlanReady(planbrief.ContentScope{}) {
 		t.Fatalf("closure lost or silently satisfied dependency: %+v", state)
 	}
+}
+
+func TestPlanLifecycleBoundary_ContentHoldPreservesAcceptanceProgress(t *testing.T) {
+	x := newLifecycleBoundaryFixture(t)
+	if err := x.db.UpdatePlanWorkflowState(t.Context(), x.session.TaskRef, func(s *planbrief.PlanState) (bool, error) {
+		item := &s.Stories[0]
+		item.Stage = "acceptance"
+		ref, err := s.ReviewRevision(item.Key, "technical")
+		if err != nil {
+			return false, err
+		}
+		item.Approvals["technical"] = ref
+		return true, s.OpenPlanWait(item.Key, "acceptance-review", "review", x.children[0].ID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := x.state().Stories[0]
+	child := x.children[0]
+	child.Body = "Unreconciled readback"
+	x.forge.addIssue(child)
+	x.settle()
+	held := x.state().Stories[0]
+	if held.LifecycleHold == "" || !held.Blocked() || held.Stage != before.Stage || !reflect.DeepEqual(held.Approvals, before.Approvals) || !reflect.DeepEqual(held.Wait, before.Wait) {
+		t.Fatalf("discovery hold lost progress: %+v", held)
+	}
+	if x.state().AssembledApproval != "" {
+		t.Fatal("held content retained assembly approval")
+	}
+	x.forge.addIssue(x.children[0])
+	x.restart()
+	x.settle()
+	after := x.state().Stories[0]
+	if after.LifecycleHold != "" || after.Blocked() || after.Stage != before.Stage || !reflect.DeepEqual(after.Approvals, before.Approvals) || !reflect.DeepEqual(after.Wait, before.Wait) {
+		t.Fatalf("verified recovery lost progress: %+v", after)
+	}
+	x.assertNoChildMutation()
 }

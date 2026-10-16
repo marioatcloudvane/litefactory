@@ -13,9 +13,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/meterview"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 func TestRelativeBound(t *testing.T) {
@@ -146,22 +149,18 @@ func TestNaturalMeterResolvesYesterdayAndStatesRange(t *testing.T) {
 	}
 }
 
-func TestNaturalSingleProjectIsDefault(t *testing.T) {
+func TestNaturalSingleProjectDoesNotGuessUnknownTask(t *testing.T) {
 	at := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 	args, replies := naturalRead(t, []string{"app"}, "how much did we spend on feature 631?", spanInterpreter{command: "meter", values: [][2]string{{"task", "631"}}}, at)
-	if args["project"] != "acme/app" || args["task"] != "631" {
-		t.Fatalf("meter task project not defaulted: %v replies=%v", args, replies)
-	}
-	args, replies = naturalRead(t, []string{"app"}, "Is there an open research question on issue 12?", spanInterpreter{command: "question", values: [][2]string{{"issue", "12"}}}, at)
-	if args["project"] != "acme/app" || strings.Contains(strings.Join(replies, "\n"), "name a project") {
-		t.Fatalf("question project not defaulted: %v replies=%v", args, replies)
+	if args != nil || !strings.Contains(strings.Join(replies, "\n"), "No known task") {
+		t.Fatalf("unknown task guessed: %v replies=%v", args, replies)
 	}
 }
 
 func TestNaturalSeveralProjectsAsk(t *testing.T) {
 	at := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 	args, replies := naturalRead(t, []string{"app", "web"}, "Is there an open research question on issue 12?", spanInterpreter{command: "question", values: [][2]string{{"issue", "12"}}}, at)
-	if args != nil || len(replies) != 1 || !strings.Contains(replies[0], "Please name a project. Registered projects: acme/app, acme/web") {
+	if args != nil || len(replies) != 1 || !strings.Contains(replies[0], "No known task matches that number") {
 		t.Fatalf("several projects did not ask: %v replies=%v", args, replies)
 	}
 	args, _ = naturalRead(t, []string{"app", "web"}, "Is there an open research question on web issue 12?", spanInterpreter{command: "question", values: [][2]string{{"project", "web"}, {"issue", "12"}}}, at)
@@ -467,7 +466,7 @@ func TestNaturalIssueProjectInference(t *testing.T) {
 	}{
 		{"exact with empty", nil, []int{649}, "", "litefactory"},
 		{"exact with other tasks", []int{723}, []int{649}, "", "litefactory"},
-		{"single populated", nil, []int{726}, "", "litefactory"},
+		{"single populated", nil, []int{726}, "", ""},
 		{"duplicate", []int{649}, []int{649}, "", ""},
 		{"no tasks", nil, nil, "", ""},
 		{"explicit wins", []int{649}, []int{726}, "litefactory!", "litefactory"},
@@ -652,6 +651,18 @@ func TestStatusListsRunningAndOwnerDependentTasks(t *testing.T) {
 			}
 		}
 	}
+	// Relevant owner waits must survive the old newest-100 activity cutoff.
+	for n := 1000; n < 1105; n++ {
+		if _, err := db.GetOrCreateSession(ctx, repo, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, n := range []int{650, 651, 652} {
+		text, err := s.summary(ctx, Message{Arguments: map[string]string{"project": "acme/litefactory", "issue": strconv.Itoa(n)}}, at)
+		if err != nil || !strings.Contains(text, "#"+strconv.Itoa(n)+":") || !strings.Contains(text, "Waiting on: owner") {
+			t.Fatalf("selected wait: %s %v", text, err)
+		}
+	}
 	question := "Which tasks are running at the moment, and which ones are waiting on me?"
 	request := InterpretationRequest{Turns: []DialogueTurn{{SourceID: "101", Text: question}}, Commands: s.NaturalCommands()}
 	_, inv, err := DecodeInterpretation([]byte(`{"version":1,"kind":"propose","command":"health","arguments":[]}`), request)
@@ -668,7 +679,7 @@ func TestStatusListsRunningAndOwnerDependentTasks(t *testing.T) {
 		}
 	}
 	text = strings.Join(send.texts, "\n")
-	for _, want := range []string{"acme/litefactory #649: running", "#650: waiting on owner", "implement review", "#651: waiting on owner", "implement question", "#652: parked, waiting on owner", "Choose deployment target"} {
+	for _, want := range []string{"acme/litefactory#649: running", "#650: idle", "Waiting on: owner — implement review", "#651: idle", "Waiting on: owner — implement question", "#652: idle", "Waiting on: owner — parked", "Choose deployment target"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q: %s", want, text)
 		}
@@ -755,5 +766,410 @@ func TestReportedDiagnosisQueuesOnlyAfterConfirmation(t *testing.T) {
 	}
 	if diagnosis.calls != 1 || diagnosis.request.Target != "github:acme/litefactory#649" || diagnosis.request.Note != question {
 		t.Fatalf("wrong diagnosis: %+v", diagnosis)
+	}
+}
+
+// The missing arguments in the reported proposal are fixture data, not observed
+// owner content. Preserve the visible report text to exercise existing proposals.
+const reportedProposalCode = "a03a88fba8cffa35"
+const reportedProposal = "Proposed action: draft\nProject: marioatcloudvane/litefactory\n…\nConfirmation code: a03a88fba8cffa35\nReply directly to this message with yes, or send confirm a03a88fba8cffa35. Send cancel to cancel. Expires in 15 minutes."
+
+func proposalConversation(t *testing.T, at time.Time, change func(*store.NaturalDialogue, *naturalPayload)) (*naturalConversation, store.NaturalDialogue) {
+	t.Helper()
+	c := newNaturalConversation(t, func(InterpretationRequest) ([]byte, error) {
+		return []byte(`{"version":1,"kind":"ignore"}`), nil
+	})
+	c.s.EnableFeatures(nil, nil)
+	repo, err := c.db.UpsertRepo(t.Context(), store.Repo{Path: t.TempDir(), Forge: "github", Owner: "marioatcloudvane", Name: "litefactory", BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := naturalPayload{Invocation: Invocation{Command: "draft", Arguments: map[string]string{"project": repo.Slug(), "note": "Export report"}}, Project: repo.Slug(), RepoID: repo.ID, Channel: "3", Prompt: reportedProposal}
+	d := store.NaturalDialogue{Transport: "discord", OwnerID: "7", ChannelRef: "3", State: "awaiting_confirmation", SourceID: "100", Revision: 1, Code: reportedProposalCode, PromptID: "900", UpdatedAt: at, ExpiresAt: at.Add(15 * time.Minute)}
+	if change != nil {
+		change(&d, &p)
+	}
+	d.Payload, d.Digest, err = naturalDigest(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = c.db.SaveNaturalDialogue(t.Context(), d, 0); err != nil {
+		t.Fatal(err)
+	}
+	if d.PromptID != "" {
+		if err = c.db.BindNaturalPrompt(t.Context(), d, d.PromptID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return c, d
+}
+
+type proposalDraftModel struct{ calls int }
+
+func (m *proposalDraftModel) Answer(context.Context, int64, string) ([]byte, error) {
+	m.calls++
+	return json.Marshal(feature.Draft{Title: "Export report", Summary: "Export the report", Problem: "Manual copying", Wanted: "A downloadable file"})
+}
+
+func TestReportedProposalConfirmationForms(t *testing.T) {
+	at := time.Date(2026, 10, 12, 13, 57, 0, 0, time.UTC)
+	for _, text := range []string{reportedProposalCode, "confirm " + reportedProposalCode, "yes " + reportedProposalCode, "ok " + reportedProposalCode, "  A03A88FBA8CFFA35\n", " CONFIRM A03A88FBA8CFFA35 ", " Yes A03A88FBA8CFFA35 ", " OK A03A88FBA8CFFA35 "} {
+		t.Run(text, func(t *testing.T) {
+			c, d := proposalConversation(t, at, nil)
+			model := &proposalDraftModel{}
+			c.s.EnableFeatures(&feature.Drafter{Repositories: c.db, Model: model, Store: c.db, Redactor: redact.New(redact.Options{Environ: []string{}}), Now: func() time.Time { return at }}, nil)
+			c.say("101", text, at)
+			row, err := c.db.ReadChatReply(t.Context(), "discord", "nl-exec:"+d.Code)
+			if err != nil || row.Command != "draft" || row.Arguments["note"] != "Export report" || row.Arguments["project"] != "marioatcloudvane/litefactory" {
+				t.Fatalf("saved arguments lost: %+v %v", row, err)
+			}
+			for range 10 {
+				did, err := c.s.Step(t.Context(), at)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !did {
+					break
+				}
+			}
+			c.say("102", text, at)
+			preview, err := c.db.ChatIssuePreviewForMessage(t.Context(), "discord", "nl-exec:"+d.Code)
+			if err != nil || preview.State != "previewed" || preview.RepoID == 0 || preview.IssueNumber != 0 || preview.IssueLink != "" {
+				t.Fatalf("preview missing: %+v %v", preview, err)
+			}
+			execution, err := c.db.ReadNaturalExecution(t.Context(), "nl-exec:"+d.Code)
+			if err != nil || execution.State != "finished" || model.calls != 1 || len(c.requests) != 0 {
+				t.Fatalf("execution=%+v err=%v draft calls=%d interpreter calls=%d", execution, err, model.calls, len(c.requests))
+			}
+			// No issue-creation handler is installed; the saved command and
+			// resulting preview must remain draft-only.
+		})
+	}
+}
+
+func TestUnavailableProposalCodes(t *testing.T) {
+	at := time.Date(2026, 10, 12, 13, 57, 0, 0, time.UTC)
+	for _, state := range []string{"wrong", "replaced", "cancelled", "finished", "expired", "unknown"} {
+		for _, prefix := range []string{"", "confirm ", "yes ", "ok "} {
+			t.Run(state+"/"+prefix, func(t *testing.T) {
+				c, d := proposalConversation(t, at, nil)
+				code := d.Code
+				switch state {
+				case "wrong":
+					code = "0000000000000000"
+				case "replaced":
+					d.Revision++
+					d.Code = "0000000000000000"
+					if err := c.db.SaveNaturalDialogue(t.Context(), d, 1); err != nil {
+						t.Fatal(err)
+					}
+					if err := c.db.BindNaturalPrompt(t.Context(), d, "901"); err != nil {
+						t.Fatal(err)
+					}
+				case "cancelled", "finished":
+					if err := c.db.EndNaturalDialogue(t.Context(), d, state, at); err != nil {
+						t.Fatal(err)
+					}
+				case "unknown":
+					c = newNaturalConversation(t, func(InterpretationRequest) ([]byte, error) { return []byte(`{"version":1,"kind":"ignore"}`), nil })
+				}
+				now := at
+				if state == "expired" {
+					now = at.Add(16 * time.Minute)
+				}
+				before, _ := c.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3")
+				c.say("101", prefix+code, now)
+				reply, err := c.db.ReadChatReply(t.Context(), "discord", "nl:101")
+				if err != nil || reply.ReplyText != "This confirmation code is unknown or expired; request a fresh proposal." || len(c.requests) != 0 {
+					t.Fatalf("refusal=%q err=%v interpreter calls=%d", reply.ReplyText, err, len(c.requests))
+				}
+				if _, err = c.db.ReadNaturalExecution(t.Context(), "nl-exec:"+code); !errors.Is(err, store.ErrNotFound) {
+					t.Fatalf("unexpected execution: %v", err)
+				}
+				if state == "wrong" || state == "replaced" {
+					after, err := c.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3")
+					if err != nil || before != after {
+						t.Fatalf("wrong code changed proposal: %+v -> %+v (%v)", before, after, err)
+					}
+					c.say("102", d.Code, now)
+					if _, err := c.db.ReadNaturalExecution(t.Context(), "nl-exec:"+d.Code); err != nil {
+						t.Fatalf("correct code no longer works: %v", err)
+					}
+				}
+				if state == "expired" {
+					after, err := c.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3")
+					if err != nil || after.Code != "" || after.State != "expired" {
+						t.Fatalf("expiry purge not exercised: %+v %v", after, err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestProposalContextAndInstructions(t *testing.T) {
+	at := time.Date(2026, 10, 12, 13, 57, 0, 0, time.UTC)
+	for _, state := range []string{"live", "long", "undelivered", "expired"} {
+		t.Run(state, func(t *testing.T) {
+			c, _ := proposalConversation(t, at, func(d *store.NaturalDialogue, p *naturalPayload) {
+				if state == "undelivered" {
+					d.PromptID = ""
+				}
+				if state == "long" {
+					p.Prompt = strings.Repeat("ä", 4000) + reportedProposal
+				}
+			})
+			now := at
+			if state == "expired" {
+				now = at.Add(16 * time.Minute)
+			}
+			c.say("101", "change the draft", now)
+			if len(c.requests) != 1 {
+				t.Fatalf("requests=%v", c.requests)
+			}
+			previous := c.requests[0].PreviousReply
+			if state == "expired" || state == "undelivered" {
+				if previous != "" {
+					t.Fatalf("unavailable proposal represented as confirmable: %q", previous)
+				}
+				return
+			}
+			for _, want := range []string{"context only", "Proposed action: draft", "Project: marioatcloudvane/litefactory", "Confirmation code: " + reportedProposalCode} {
+				if !strings.Contains(previous, want) {
+					t.Errorf("context missing %q: %s", want, previous)
+				}
+			}
+			if len(previous) > 4096 || !utf8.ValidString(previous) {
+				t.Fatal("invalid context bound")
+			}
+			d, err := c.db.ReadNaturalDialogue(t.Context(), "discord", "7", "3")
+			if err != nil || d.Code != "" || d.PromptID != "" {
+				t.Fatalf("correction did not invalidate proposal: %+v %v", d, err)
+			}
+		})
+	}
+	s := New(nil, "discord", "7", nil, nil, nil)
+	text := s.naturalProposal(naturalPayload{Invocation: Invocation{Command: "draft"}, Project: "marioatcloudvane/litefactory"}, reportedProposalCode)
+	for _, want := range []string{"Reply directly to this message with yes", "send " + reportedProposalCode + " alone or prefixed by confirm, yes or ok", "Send cancel to cancel", "Expires in 15 minutes", "feature preview only", "Issue creation needs a separate confirmation"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("instructions missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestProposalConfirmationAuthority(t *testing.T) {
+	at := time.Date(2026, 10, 12, 13, 57, 0, 0, time.UTC)
+	for _, boundary := range []string{"wrong owner", "other channel", "disallowed channel", "undelivered", "stale source", "changed digest", "failed recheck", "quoted", "embedded", "unbound yes", "unbound ok", "reply yes"} {
+		t.Run(boundary, func(t *testing.T) {
+			c, d := proposalConversation(t, at, func(d *store.NaturalDialogue, p *naturalPayload) {
+				if boundary == "undelivered" {
+					d.PromptID = ""
+				}
+				if boundary == "stale source" {
+					d.SourceID = "200"
+				}
+				if boundary == "failed recheck" {
+					p.Project = "missing/project"
+				}
+			})
+			if boundary == "changed digest" {
+				d.Revision++
+				d.Digest = strings.Repeat("0", 64)
+				if err := c.db.SaveNaturalDialogue(t.Context(), d, 1); err != nil {
+					t.Fatal(err)
+				}
+				if err := c.db.BindNaturalPrompt(t.Context(), d, "900"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m := store.NaturalMessage{ChannelRef: "3", SourceID: "101", OwnerID: "7", Text: d.Code, CreatedAt: at}
+			switch boundary {
+			case "wrong owner":
+				m.OwnerID = "8"
+			case "other channel", "disallowed channel":
+				m.ChannelRef = "4"
+				if boundary == "other channel" {
+					c.s.channels["4"] = true
+				}
+				if err := c.db.ActivateNaturalScan(t.Context(), "4", "100"); err != nil {
+					t.Fatal(err)
+				}
+			case "quoted":
+				m.Text = "> " + d.Code
+			case "embedded":
+				m.Text = "please use " + d.Code + " now"
+			case "unbound yes":
+				m.Text = "yes"
+			case "unbound ok":
+				m.Text = "ok"
+			case "reply yes":
+				m.Text, m.ReplyTo = "yes", d.PromptID
+			}
+			// Stage directly to exercise NaturalStep's owner guard even if
+			// intake has not already filtered an unauthorized sender.
+			scan, err := c.db.ReadNaturalScan(t.Context(), m.ChannelRef)
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := scan
+			next.HighWater = m.SourceID
+			if err = c.db.StageNaturalScan(t.Context(), scan, next, []store.NaturalMessage{m}, true); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = c.s.NaturalStep(t.Context(), at); err != nil {
+				t.Fatal(err)
+			}
+			_, err = c.db.ReadNaturalExecution(t.Context(), "nl-exec:"+d.Code)
+			if boundary == "reply yes" {
+				if err != nil {
+					t.Fatalf("direct reply lost authorization: %v", err)
+				}
+			} else if !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("%s authorized: %v", boundary, err)
+			}
+			if boundary != "quoted" && boundary != "embedded" && boundary != "unbound ok" && len(c.requests) != 0 {
+				t.Fatalf("confirmation reached interpreter: %v", c.requests)
+			}
+		})
+	}
+}
+
+func TestNaturalExactNumberBeyondActivityWindow(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	for _, name := range []string{"litefactory", "cockpit"} {
+		repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name == "cockpit" {
+			code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: repo.Slug(), CredentialSource: "env", CredentialEnv: "TEST_TOKEN", Enabled: true, Provenance: "explicit", ClonePath: repo.Path, BaseBranch: "main"}, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			linear, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://api.linear.app", Destination: "team/project", CredentialSource: "env", CredentialEnv: "TEST_TOKEN", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"plan":"plan"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ref := ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: linear.Origin, RemoteID: "MAR-614"}, Locator: ticket.Locator{Provider: ticket.Linear, Origin: linear.Origin, Container: linear.Destination, Key: "MAR-614"}}
+			if _, err := db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: linear.ID, Ref: ref, Enabled: true, Provenance: "explicit"}); err != nil {
+				t.Fatal(err)
+			}
+			appointment, err := db.SetApprover(ctx, store.ApproverAppointment{RepoID: repo.ID, Actor: ticket.Identity{Provider: ticket.Linear, Origin: linear.Origin, RemoteID: "owner"}, Handle: "owner", VerifiedAt: time.Now(), Provenance: "explicit"}, linear.Revision, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.UpsertIdentity(ctx, store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 7, Handle: "owner", Source: store.SourceGH}); err != nil {
+				t.Fatal(err)
+			}
+			// Even a legacy numeric alias must not turn a Linear key into GitHub #614.
+			if _, err := db.AdmitSessionWithPublishers(ctx, repo, ref, code.Revision, linear.Revision, store.PublishingActor{ID: 42, Login: "linear-bot"}, store.PublishingActor{ID: 99, Login: "code-bot"}, store.TaskRef("github", "acme", "cockpit", 614), appointment.Revision, "code-id", "project"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if name == "litefactory" {
+			if _, err := db.GetOrCreateSession(ctx, repo, 614); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for n := 1000; n < 1105; n++ {
+			if _, err := db.GetOrCreateSession(ctx, repo, n); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	s := New(db, "discord", "7", nil, nil, nil)
+	for _, args := range []map[string]string{{"question": "where is #614?"}, {"task": "614"}, {"issue": "614"}} {
+		resolution, err := s.resolveNaturalProject(ctx, args)
+		if err != nil || resolution.Repository.Name != "litefactory" || resolution.Refusal != "" {
+			t.Fatalf("exact inference: %+v %v", resolution, err)
+		}
+	}
+	for _, args := range []map[string]string{{"task": "999"}, {"question": "where is MAR-614?"}} {
+		resolution, err := s.resolveNaturalProject(ctx, args)
+		if err != nil || resolution.Refusal == "" {
+			t.Fatalf("guessed: %+v %v", resolution, err)
+		}
+	}
+}
+
+func TestStatusSelectedTaskBeyondRecentWindow(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := db.GetOrCreateSession(ctx, repo, 614)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1000; n < 1105; n++ {
+		if _, err := db.GetOrCreateSession(ctx, repo, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := New(db, "discord", "7", nil, nil, FactoryStatus{DB: db})
+	text, err := s.summary(ctx, Message{Arguments: map[string]string{"task": "614"}}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"acme/litefactory#614: idle", "Mode: unavailable", "Stage: unavailable", "Waiting on: none recorded", "Recent runs (newest first, limit 3): unavailable"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q: %s", want, text)
+		}
+	}
+	segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "status", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "bug", Agent: "codex", TriggerCommentID: 1, StartedAt: at, LogPath: func(int) string { return "/tmp/status-fixture" }}); err != nil {
+		t.Fatal(err)
+	}
+	text, err = s.summary(ctx, Message{Arguments: map[string]string{"project": "acme/litefactory", "issue": "614"}}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"#614: running", "Mode: bug", "1: running (bug)"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q: %s", want, text)
+		}
+	}
+	text = s.taskSummary(ctx)
+	if !strings.Contains(text, "#614: running") || !strings.Contains(text, "Scope:") || strings.Contains(text, "left out") {
+		t.Fatalf("old task omitted: %s", text)
+	}
+}
+
+func TestStatusDisclosesOutputOmissions(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1; n <= 105; n++ {
+		session, err := db.GetOrCreateSession(ctx, repo, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		segment, err := db.GetOrCreateSegment(ctx, session.ID, 1, "status", "codex")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: "implement", Agent: "codex", TriggerCommentID: 1, StartedAt: at, LogPath: func(int) string { return "/tmp/status-fixture" }}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := New(db, "discord", "7", nil, nil, FactoryStatus{DB: db})
+	text := s.taskSummary(ctx)
+	if !strings.Contains(text, "additional entries left out") || !strings.Contains(text, "Scope:") {
+		t.Fatalf("undisclosed truncation: %s", text)
+	}
+	selected, err := s.summary(ctx, Message{Arguments: map[string]string{"task": "105"}}, at)
+	if err != nil || !strings.Contains(selected, "#105: running") {
+		t.Fatalf("selected lookup truncated: %s %v", selected, err)
 	}
 }

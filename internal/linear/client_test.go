@@ -1,10 +1,12 @@
 package linear
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -135,7 +137,7 @@ func TestDiscoveryContinuationBindsSourceAndCoverage(t *testing.T) {
 
 func mustBody(t *testing.T, text string) redact.Body {
 	t.Helper()
-	body, err := redact.New(redact.Options{}).Apply(context.Background(), text, 1000)
+	body, err := redact.New(redact.Options{}).Apply(context.Background(), text, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,6 +429,13 @@ func TestRequestObservationFailuresAndOptionalInspection(t *testing.T) {
 	if _, err := c.ContainerIdentity(ctx, "team/project"); err != nil {
 		t.Fatal(err)
 	}
+	if len(got) != 1 {
+		t.Fatalf("container read must use one request: %+v", got)
+	}
+	got = nil
+	if _, err := c.Inspect(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 3 || got[2].RetryAfter != time.Minute {
 		t.Fatalf("hidden refusal or missing attempt: %+v", got)
 	}
@@ -451,5 +460,360 @@ func TestRequestObservationTransportFailure(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != (RequestObservation{}) {
 		t.Fatalf("observations=%+v", got)
+	}
+}
+
+func TestReplyHistoryCombinedIdentity(t *testing.T) {
+	for _, mode := range []string{"complete", "later identity", "null issue", "project", "team", "labels", "partial error", "missing cursor", "repeated cursor", "excess", "over bound", "wrong comment", "foreign reference"} {
+		t.Run(mode, func(t *testing.T) {
+			calls := 0
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var request struct {
+					Query     string
+					Variables map[string]any
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				if !strings.Contains(request.Query, "issue(id: $id) { "+issueFields) || !strings.Contains(request.Query, "comments(filter: $filter") || !strings.Contains(request.Query, commentFields) || request.Variables["id"] != "uuid-ticket" {
+					t.Errorf("missing combined identity query: %+v", request)
+				}
+				filter, _ := json.Marshal(request.Variables["filter"])
+				if string(filter) != `{"issue":{"id":{"eq":"uuid-ticket"}}}` {
+					t.Errorf("filter=%s", filter)
+				}
+				issue := issueJSON("uuid-ticket", "project")
+				switch mode {
+				case "later identity":
+					if calls == 2 {
+						issue = issueJSON("other", "project")
+					}
+				case "null issue":
+					issue = "null"
+				case "project":
+					issue = issueJSON("uuid-ticket", "other")
+				case "team":
+					issue = strings.ReplaceAll(issue, `"team"`, `"other"`)
+				case "labels":
+					issue = strings.ReplaceAll(issue, `"hasNextPage":false`, `"hasNextPage":true`)
+				}
+				next := calls < 100 || mode == "over bound"
+				cursor := fmt.Sprint(calls)
+				if mode == "missing cursor" {
+					cursor = ""
+				}
+				if mode == "repeated cursor" {
+					cursor = "same"
+				}
+				nodes := []any{}
+				if mode == "excess" {
+					nodes = make([]any, 101)
+				}
+				if mode == "wrong comment" {
+					nodes = append(nodes, map[string]any{"id": "reply", "user": map[string]string{"id": "owner"}, "issue": map[string]any{"id": "other"}})
+				}
+				result := map[string]any{"data": map[string]any{"issue": json.RawMessage(issue), "comments": map[string]any{"nodes": nodes, "pageInfo": map[string]any{"hasNextPage": next, "endCursor": cursor}}}}
+				if mode == "partial error" {
+					result["errors"] = []any{map[string]string{"message": "failed"}}
+				}
+				if err := json.NewEncoder(w).Encode(result); err != nil {
+					t.Error(err)
+				}
+			})
+			ref := ticket.Ref{Identity: c.identity("uuid-ticket"), Locator: c.locator("uuid-ticket")}
+			if mode == "foreign reference" {
+				ref.Locator.Container = "foreign"
+			}
+			for _, paged := range []bool{false, true} {
+				calls = 0
+				var page ticket.ReplyPage
+				var err error
+				if paged {
+					page, err = c.RepliesPage(t.Context(), ref, 100, 100)
+				} else {
+					page, err = c.RepliesAfter(t.Context(), ref, ticket.Cursor{})
+				}
+				wantSuccess := mode == "complete" || (paged && mode == "over bound")
+				if (err == nil) != wantSuccess {
+					t.Fatalf("paged=%t error=%v", paged, err)
+				}
+				if mode == "complete" && (!page.Complete || calls != 100) {
+					t.Fatalf("complete=%t calls=%d", page.Complete, calls)
+				}
+				if mode == "foreign reference" && calls != 0 {
+					t.Fatal("foreign reference made a request")
+				}
+				if !wantSuccess && page.Complete {
+					t.Fatal("failed history claimed completion")
+				}
+			}
+		})
+	}
+}
+
+func TestUpdateContentNormalizedReadback(t *testing.T) {
+	marExpected, marObserved := mar12Pair(t)
+	metadata := "\n<!-- lf:plan-content v=1 data={} -->"
+	for _, tt := range []struct{ name, written, observed, title, failure string }{
+		{name: "MAR-12", written: marExpected, observed: marObserved},
+		{name: "CRLF", written: "a\r\nb", observed: "a\nb"},
+		{name: "trailing space", written: "a \nb", observed: "a\nb"},
+		{name: "table", written: "| A | B |\n| --- | :---: |\n| one | two |", observed: "|A|B|\n|-----|:-----:|\n|one|two|"},
+		{name: "escape", written: `Hello\!`, observed: "Hello!"},
+		{name: "combined metadata", written: "Hello\\! \r\n| A | B |\r\n| --- | :---: |\r\n| one | two |" + metadata, observed: "Hello!\n|A|B|\n|-----|:-----:|\n|one|two|" + metadata},
+		{name: "prose with matching metadata", written: "a" + metadata, observed: "b" + metadata, failure: "conflict"},
+		{name: "cell", written: "| A |\n| --- |\n| one |", observed: "| A |\n| --- |\n| two |", failure: "conflict"},
+		{name: "link", written: "[x](https://a.test)", observed: "[x](https://b.test)", failure: "conflict"},
+		{name: "code", written: "```\na \n```", observed: "```\na\n```", failure: "conflict"},
+		{name: "hard break", written: "a  \nb", observed: "a\nb", failure: "conflict"},
+		{name: "title", written: "a", observed: "a", title: "Edited", failure: "conflict"},
+		{name: "marker", written: "<!-- lf:plan-story key=a -->", observed: "<!-- lf:plan-story key=b -->", failure: "conflict"},
+		{name: "payload", written: metadata, observed: strings.ReplaceAll(metadata, "{}", "{ }"), failure: "conflict"},
+		{name: "malformed metadata", written: metadata, observed: metadataFence + "\nbroken", failure: "uncertain"},
+		{name: "stale base", written: "a", observed: "a", failure: "stale"},
+		{name: "missing confirmation", written: "a", observed: "a", failure: "confirmation"},
+		{name: "failed readback", written: "a", observed: "a", failure: "readback"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mutations := 0
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					Query     string
+					Variables map[string]json.RawMessage
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				if strings.Contains(req.Query, "issueUpdate") {
+					mutations++
+					var input struct{ Title, Description string }
+					if err := json.Unmarshal(req.Variables["input"], &input); err != nil {
+						t.Error(err)
+						return
+					}
+					if input.Description != EncodeContent(tt.written) || input.Title != "Title" {
+						t.Error("mutation did not contain prepared content")
+					}
+					_, _ = fmt.Fprintf(w, `{"data":{"issueUpdate":{"success":%t,"issue":{"id":"uuid-ticket"}}}}`, tt.failure != "confirmation")
+					return
+				}
+				raw := issueJSON("uuid-ticket", "project")
+				if mutations > 0 {
+					if tt.failure == "readback" {
+						http.Error(w, "unavailable", http.StatusServiceUnavailable)
+						return
+					}
+					body, err := json.Marshal(EncodeContent(tt.observed))
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					raw = strings.Replace(raw, `"description":"Body"`, `"description":`+string(body), 1)
+					if tt.title != "" {
+						raw = strings.Replace(raw, `"title":"Title"`, `"title":"Edited"`, 1)
+					}
+				}
+				_, _ = fmt.Fprintf(w, `{"data":{"issue":%s}}`, raw)
+			})
+			ref := ticket.Ref{Identity: c.identity("uuid-ticket"), Locator: c.locator("uuid-ticket")}
+			prior, err := c.Read(t.Context(), ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision := prior.Revision
+			if tt.failure == "stale" {
+				revision = "stale"
+			}
+			got, err := c.UpdateContent(t.Context(), ref, revision, mustBody(t, "Title"), mustBody(t, tt.written))
+			if tt.failure != "" {
+				kind := ticket.Conflict
+				if tt.failure == "uncertain" || tt.failure == "confirmation" || tt.failure == "readback" {
+					kind = ticket.Uncertain
+				}
+				var failure *ticket.Failure
+				if !errors.As(err, &failure) || failure.Kind != kind {
+					t.Fatalf("error = %v; want %s", err, kind)
+				}
+				if tt.failure == "stale" && mutations != 0 {
+					t.Fatal("stale revision dispatched")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			fetched, err := c.Read(t.Context(), ref)
+			if err != nil || got.Body != tt.observed || got.ProviderBody != EncodeContent(tt.observed) || got.Revision != fetched.Revision || mutations != 1 {
+				t.Fatalf("actual readback lost: %+v %v", got, err)
+			}
+		})
+	}
+}
+
+func TestReadbackDifferenceDiagnostic(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	c := testClient(t, func(http.ResponseWriter, *http.Request) {})
+	ref := ticket.Ref{Identity: ticket.Identity{RemoteID: "MAR-12"}}
+	for _, title := range []string{"Title", "Changed"} {
+		output.Reset()
+		c.logContentDifference(t.Context(), ref, "Title", "same\nsensitive-token"+strings.Repeat("x", 500), ticket.Snapshot{Title: title, Body: "same\nother"})
+		var got struct {
+			Ticket, Field, Expected, Observed string
+			Line                              int
+		}
+		if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Ticket != "MAR-12" || strings.Contains(output.String(), "sensitive-token") || len(got.Expected) > 256 {
+			t.Fatalf("unsafe diagnostic: %s", output.String())
+		}
+		if title == "Title" && (got.Field != "body" || got.Line != 2) {
+			t.Fatal("wrong body difference")
+		}
+		if title != "Title" && (got.Field != "title" || got.Line != 1) {
+			t.Fatal("wrong title difference")
+		}
+	}
+	output.Reset()
+	prefix := strings.Repeat("y", 300)
+	c.logContentDifference(t.Context(), ref, "Title", "same\n"+prefix+"EXPECTED-TAIL sensitive-token", ticket.Snapshot{Title: "Title", Body: "same\n" + prefix + "OBSERVED-TAIL sensitive-token"})
+	var got struct {
+		Expected, Observed string
+		Line, Column       int
+	}
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "sensitive-token") || len(got.Expected) > 256 || len(got.Observed) > 256 {
+		t.Fatalf("unsafe diagnostic: %s", output.String())
+	}
+	if got.Line != 2 || got.Column != len(prefix)+1 || !strings.Contains(got.Expected, "EXPECTED-TAIL") || !strings.Contains(got.Observed, "OBSERVED-TAIL") {
+		t.Fatalf("difference window missing: %s", output.String())
+	}
+}
+
+func TestMetadataFooterProviderReadWriteRecovery(t *testing.T) {
+	for _, initial := range []string{legacyStoryFixture, footerStoryFixture} {
+		t.Run(initial[:5], func(t *testing.T) {
+			providerBody := initial
+			mutations := 0
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					Query     string
+					Variables map[string]json.RawMessage
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				if strings.Contains(req.Query, "issueUpdate") || strings.Contains(req.Query, "commentUpdate") {
+					var input struct{ Description, Body string }
+					if err := json.Unmarshal(req.Variables["input"], &input); err != nil {
+						t.Error(err)
+						return
+					}
+					raw := input.Description
+					if input.Body != "" {
+						raw = input.Body
+					}
+					if raw != strings.Replace(footerStoryFixture, "Story.", `Story\. `, 1) {
+						t.Errorf("unexpected write: %q", raw)
+					}
+					// Normalize only the visible prose and wrapper spacing, never
+					// regenerate metadata from the authored canonical body.
+					providerBody = strings.Replace(raw, `Story\. `, "Story.", 1)
+					providerBody = strings.Replace(providerBody, "metadata\n```", "metadata\n\n```", 1)
+					providerBody = strings.Replace(providerBody, "\n```\n+++", "\n```\n\n+++\n", 1)
+					mutations++
+				}
+				encoded, _ := json.Marshal(providerBody)
+				comment := fmt.Sprintf(`{"id":"comment","body":%s,"user":{"id":"owner","active":true},"issue":{"id":"uuid-ticket","team":{"id":"team"},"project":{"id":"project"}}}`, encoded)
+				switch {
+				case strings.Contains(req.Query, "commentUpdate"):
+					_, _ = fmt.Fprintf(w, `{"data":{"commentUpdate":{"success":true,"comment":%s}}}`, comment)
+				case strings.Contains(req.Query, "comment(id:"):
+					_, _ = fmt.Fprintf(w, `{"data":{"comment":%s}}`, comment)
+				case strings.Contains(req.Query, "issueUpdate"):
+					_, _ = fmt.Fprint(w, `{"data":{"issueUpdate":{"success":true,"issue":{"id":"uuid-ticket"}}}}`)
+				default:
+					raw := strings.Replace(issueJSON("uuid-ticket", "project"), `"description":"Body"`, `"description":`+string(encoded), 1)
+					_, _ = fmt.Fprintf(w, `{"data":{"issue":%s}}`, raw)
+				}
+			})
+			ref := ticket.Ref{Identity: c.identity("uuid-ticket"), Locator: c.locator("uuid-ticket")}
+			prior, err := c.Read(t.Context(), ref)
+			if err != nil || prior.Body != canonicalStoryFixture || prior.ProviderBody != initial || prior.Representation != Representation {
+				t.Fatalf("issue read: %+v %v", prior, err)
+			}
+			reply, err := c.ReadReply(t.Context(), ref, "comment")
+			if err != nil || reply.Body != canonicalStoryFixture || reply.ProviderBody != initial || reply.Representation != Representation {
+				t.Fatalf("reply read: %+v %v", reply, err)
+			}
+			written := strings.Replace(canonicalStoryFixture, "Story.", `Story\. `, 1)
+			updated, err := c.UpdateContent(t.Context(), ref, prior.Revision, mustBody(t, "Title"), mustBody(t, written))
+			if err != nil || updated.Body != canonicalStoryFixture || updated.ProviderBody != providerBody {
+				t.Fatalf("update: %+v %v", updated, err)
+			}
+			if err := c.EditReply(t.Context(), reply, mustBody(t, written)); err != nil {
+				t.Fatal(err)
+			}
+			recovered, err := c.ReadReply(t.Context(), ref, "comment")
+			if err != nil || recovered.Body != canonicalStoryFixture || recovered.ProviderBody != providerBody || recovered.Representation != Representation {
+				t.Fatalf("recovery read: %+v %v", recovered, err)
+			}
+			// A raw-only provider edit still invalidates the recorded revision.
+			providerBody = strings.Replace(providerBody, "metadata\n\n```", "metadata\n```", 1)
+			_, err = c.UpdateContent(t.Context(), ref, updated.Revision, mustBody(t, "Title"), mustBody(t, written))
+			var failure *ticket.Failure
+			if !errors.As(err, &failure) || failure.Kind != ticket.Conflict || mutations != 2 {
+				t.Fatalf("stale raw revision dispatched: %v, mutations=%d", err, mutations)
+			}
+		})
+	}
+}
+
+func TestMetadataFooterCommentConfirmationRejectsEdits(t *testing.T) {
+	for _, altered := range []string{
+		strings.Replace(footerStoryFixture, "Story.", "Owner edit.", 1),
+		strings.Replace(footerStoryFixture, "key=def", "key=other", 1),
+		strings.TrimSuffix(footerStoryFixture, "+++"),
+	} {
+		c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			var req struct{ Query string }
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Error(err)
+				return
+			}
+			raw := legacyStoryFixture
+			if strings.Contains(req.Query, "commentUpdate") {
+				raw = altered
+			}
+			body, _ := json.Marshal(raw)
+			comment := fmt.Sprintf(`{"id":"comment","body":%s,"user":{"id":"owner"},"issue":{"id":"uuid-ticket","team":{"id":"team"},"project":{"id":"project"}}}`, body)
+			switch {
+			case strings.Contains(req.Query, "commentUpdate"):
+				_, _ = fmt.Fprintf(w, `{"data":{"commentUpdate":{"success":true,"comment":%s}}}`, comment)
+			case strings.Contains(req.Query, "comment(id:"):
+				_, _ = fmt.Fprintf(w, `{"data":{"comment":%s}}`, comment)
+			default:
+				_, _ = fmt.Fprintf(w, `{"data":{"issue":%s}}`, issueJSON("uuid-ticket", "project"))
+			}
+		})
+		ref := ticket.Ref{Identity: c.identity("uuid-ticket"), Locator: c.locator("uuid-ticket")}
+		reply, err := c.ReadReply(t.Context(), ref, "comment")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.EditReply(t.Context(), reply, mustBody(t, canonicalStoryFixture))
+		var failure *ticket.Failure
+		if !errors.As(err, &failure) || failure.Kind != ticket.Uncertain {
+			t.Fatalf("altered confirmation accepted: %v", err)
+		}
 	}
 }

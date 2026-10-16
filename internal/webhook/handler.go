@@ -153,31 +153,43 @@ type eventPayload struct {
 
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	isLinear := r.Header.Get("Linear-Signature") != "" || r.Header.Get("Linear-Event") != ""
+	if lookup, ok := h.lookup.(QualifiedLookup); ok {
+		if source, found := lookup.LookupSubscription(r.URL.Query().Get("subscription")); found && source.Provider == "linear" {
+			isLinear = true
+		}
+	}
+	earlyReject := func(status int, reason string) {
+		if isLinear {
+			h.linearOutcome(r, "rejected", reason)
+		}
+		h.reject(w, status, reason)
+	}
 	if r.URL.Path != Path {
-		h.reject(w, http.StatusNotFound, "not found")
+		earlyReject(http.StatusNotFound, "not found")
 		return
 	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		h.reject(w, http.StatusMethodNotAllowed, "method not allowed")
+		earlyReject(http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	if r.ContentLength > MaxBodyBytes {
-		h.reject(w, http.StatusRequestEntityTooLarge, "payload too large")
+		earlyReject(http.StatusRequestEntityTooLarge, "payload too large")
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			h.reject(w, http.StatusRequestEntityTooLarge, "payload too large")
+			earlyReject(http.StatusRequestEntityTooLarge, "payload too large")
 			return
 		}
-		h.reject(w, http.StatusBadRequest, "unreadable body")
+		earlyReject(http.StatusBadRequest, "unreadable body")
 		return
 	}
 
-	if r.Header.Get("Linear-Signature") != "" || r.Header.Get("Linear-Event") != "" {
+	if isLinear {
 		h.linear(w, r, body)
 		return
 	}
@@ -452,4 +464,10 @@ func referenceSegment(value string) bool {
 		return false
 	}
 	return true
+}
+
+// AcceptedDelivery reports bounded local acceptance evidence for this qualified
+// subscription. Absence is never proof that a delivery was not processed.
+func (h *Handler) AcceptedDelivery(provider, origin, selector, guid string) bool {
+	return h.seen.seen(provider+"\x00"+origin+"\x00"+selector+"\x00"+guid, h.now())
 }

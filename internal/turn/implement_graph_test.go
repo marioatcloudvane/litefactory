@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/config"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -462,12 +463,12 @@ func TestImplementCompletionReplyIsAFinalCommentWithTheNextStep(t *testing.T) {
 		{Key: "story-001", MergeCommit: "aaa111", StateAt: implementClock.Add(2 * time.Minute)},
 		{Key: "story-002", MergeCommit: "bbb222", StateAt: implementClock.Add(time.Minute)},
 	}
-	candidate := implementCompletionCandidate(rows, "lf/9-feature", false)
+	candidate := implementCompletionCandidate(rows, "lf/9-feature", "verified333", false)
 	if err := validateImplementComment(store.GraphNodeAttempt{}, "final", candidate, scope); err != nil {
 		t.Fatal(err)
 	}
 	text := renderImplementComment(candidate, "", naming.Ref{}, "")
-	for _, want := range []string{"all 2 stories are merged into `lf/9-feature`, now at commit `aaa111`", "**story-001**: merged as `aaa111`", "**story-002**: merged as `bbb222`", ValidateStartCommand} {
+	for _, want := range []string{"all 2 stories are merged into `lf/9-feature`, now at commit `verified333`", "**story-001**: merged as `aaa111`", "**story-002**: merged as `bbb222`", ValidateStartCommand} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the completion reply does not say %q:\n%s", want, text)
 		}
@@ -475,7 +476,7 @@ func TestImplementCompletionReplyIsAFinalCommentWithTheNextStep(t *testing.T) {
 	if strings.Index(text, "story-001") > strings.Index(text, "story-002") {
 		t.Errorf("stories are listed in ledger order:\n%s", text)
 	}
-	auto := implementCompletionCandidate(rows[:1], "lf/9-feature", true)
+	auto := implementCompletionCandidate(rows[:1], "lf/9-feature", "verified333", true)
 	if !strings.Contains(auto.Comment, "all 1 story is merged") || !strings.Contains(auto.Reason, "start automatically") || strings.Contains(auto.Reason, ValidateStartCommand) {
 		t.Fatalf("auto-start wording: %+v", auto)
 	}
@@ -578,5 +579,13 @@ func TestImplementEarlyReplyEligibilityAndUnusableTargets(t *testing.T) {
 				t.Fatalf("unusable input changed story: %+v", got)
 			}
 		})
+	}
+}
+
+func TestImplementScratchDirUsesSibling(t *testing.T) {
+	opts := Options{MCP: &MCPRuntime{}}
+	opts.MCP.Paths = config.NewPaths(filepath.Join(t.TempDir(), "home"))
+	if got, want := implementScratchDir(opts), opts.MCP.Paths.ImplementScratchDir(); got != want {
+		t.Fatalf("scratch = %q, want %q", got, want)
 	}
 }

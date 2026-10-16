@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -239,6 +240,49 @@ func TestValidateReviewOnADriftedCheckoutStartsNobody(t *testing.T) {
 		if row.State != store.ReviewFailed || !strings.Contains(row.Reason, "drift") {
 			t.Fatalf("%s %+v", role, row)
 		}
+	}
+}
+
+// #914: a symlink refusal while observing the review checkout is a repository
+// finding: every reviewer is recorded as failed with the reason, nobody runs,
+// and Validate ends blocked with that reason instead of an unconductable turn.
+func TestValidateReviewSymlinkRefusalEndsBlocked(t *testing.T) {
+	f := newFlowFixture(t)
+	refusal := &git.SourceSymlinkError{Path: "alias/file", Reason: "has a symlink source parent"}
+	f.suiteRepo.observeErr = refusal
+	nodes := f.runToEnd()
+	if f.final() != "blocked" || visits(nodes, "review") != 1 {
+		t.Fatalf("path %s final %s", joinNodes(nodes), f.final())
+	}
+	if len(f.reviewers.roles()) != 0 {
+		t.Fatalf("reviewers started on a refused checkout: %v", f.reviewers.roles())
+	}
+	rows := f.reviewRows()
+	if len(rows) != len(ValidateReviewRoles) {
+		t.Fatalf("rows %+v", rows)
+	}
+	for role, row := range rows {
+		if row.State != store.ReviewFailed || row.Reason != refusal.Error() {
+			t.Fatalf("%s %+v", role, row)
+		}
+	}
+	o := f.outcome(f.base)
+	if o.Outcome != store.ValidateBlocked || o.Reason != refusal.Error() {
+		t.Fatalf("outcome %+v", o)
+	}
+}
+
+// Observation failures other than a symlink refusal stay fatal for the review.
+func TestValidateReviewObservationFailureStaysFatal(t *testing.T) {
+	f := newFlowFixture(t)
+	f.stepTo("review")
+	cause := errors.New("I/O failure")
+	f.suiteRepo.observeErr = cause
+	if _, err := f.step(); !errors.Is(err, cause) {
+		t.Fatalf("got %v", err)
+	}
+	if len(f.reviewers.roles()) != 0 {
+		t.Fatalf("reviewers started: %v", f.reviewers.roles())
 	}
 }
 

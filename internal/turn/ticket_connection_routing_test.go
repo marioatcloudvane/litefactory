@@ -170,3 +170,106 @@ func TestTicketReceiptMetadataDistinguishesCollidingOrigins(t *testing.T) {
 		}
 	}
 }
+
+// This seam returns only a verified connection identity; global rows deliberately
+// disagree so any compatibility fallback changes the observed publisher.
+type contextualPublisherFixture struct {
+	actor ticket.Identity
+	err   error
+}
+
+func (f contextualPublisherFixture) BotIdentityFor(context.Context, github.Repo, int) (ticket.Identity, error) {
+	return f.actor, f.err
+}
+
+func TestTicketPublisherUsesQualifiedConnectionAndNeverFallsBack(t *testing.T) {
+	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "publisher.db"))
+	mustProgress(t, err)
+	defer func() { _ = db.Close() }()
+	mustProgress(t, db.Migrate(t.Context()))
+	_, err = db.UpsertIdentity(t.Context(), store.Identity{Forge: "github", Role: store.RoleBot, UserID: 9})
+	mustProgress(t, err)
+	ref := naming.Ref{Forge: "linear", Owner: "team", Repo: "project", Issue: 1}
+	var slots []int64
+	for _, origin := range []ticket.Origin{"https://first.example/graphql", "https://second.example/graphql"} {
+		actor := ticket.Identity{Provider: ticket.Linear, Origin: origin, RemoteID: "publisher"}
+		slot, e := ticketPublisherID(t.Context(), Options{DB: db}, contextualPublisherFixture{actor: actor}, 0, ref)
+		mustProgress(t, e)
+		retained, e := db.TicketIdentityForSlot(t.Context(), "actor", slot)
+		mustProgress(t, e)
+		if !retained.Equal(actor) {
+			t.Fatalf("publisher changed: %+v", retained)
+		}
+		slots = append(slots, slot)
+	}
+	if slots[0] == slots[1] {
+		t.Fatal("origins shared an actor slot")
+	}
+	for _, cause := range []error{store.ErrNotFound, store.ErrTicketIdentityConflict, context.Canceled, errors.New("transient transport failure")} {
+		slot, e := ticketPublisherID(t.Context(), Options{DB: db}, contextualPublisherFixture{err: cause}, 0, ref)
+		if slot != 0 || !errors.Is(e, cause) {
+			t.Fatalf("routed error fell back: %d %v", slot, e)
+		}
+		permanent := errors.Is(cause, store.ErrNotFound) || errors.Is(cause, store.ErrTicketIdentityConflict)
+		if errors.Is(e, ErrRequiredTicketPublisher) != permanent {
+			t.Fatalf("wrong retry classification: %v", e)
+		}
+	}
+	if _, e := ticketPublisherID(t.Context(), Options{DB: db}, contextualPublisherFixture{}, 0, ref); !errors.Is(e, ErrRequiredTicketPublisher) {
+		t.Fatalf("invalid identity: %v", e)
+	}
+	if _, e := ticketPublisherID(t.Context(), Options{DB: db}, struct{}{}, 0, ref); !errors.Is(e, ErrRequiredTicketPublisher) {
+		t.Fatalf("Linear used global identity: %v", e)
+	}
+	ref.Forge = "github"
+	if id, e := ticketPublisherID(t.Context(), Options{DB: db}, struct{}{}, 0, ref); e != nil || id != 9 {
+		t.Fatalf("legacy GitHub: %d %v", id, e)
+	}
+}
+
+func publisherSession(t *testing.T, db *store.DB, ref naming.Ref, actorID int64) store.Session {
+	t.Helper()
+	ctx := t.Context()
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "o", Name: "code", RemoteURL: "git@github.com:o/code.git", BaseBranch: "main", FeaturePrefix: "lf", WorktreeRoot: t.TempDir()})
+	mustProgress(t, err)
+	code, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.CodeConnection, Provider: ticket.GitHub, Origin: "https://api.github.com", Destination: "o/code", Enabled: true, Provenance: "explicit"}, 0)
+	mustProgress(t, err)
+	tickets, err := db.SetConnection(ctx, store.ConnectionVersion{RepoID: repo.ID, Role: store.TicketConnection, Provider: ticket.Linear, Origin: "https://linear.example/graphql", Destination: "team/project", Enabled: true, Provenance: "explicit", Linear: store.LinearConfiguration{WorkspaceID: "workspace", TeamID: "team", ProjectID: "project", AuthKind: "api_key", ModeLabelsJSON: `{"implement":"label"}`, LifecycleStatesJSON: `{"completed":"done","retired":"cancelled"}`}}, 0)
+	mustProgress(t, err)
+	qualified := ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: tickets.Origin, RemoteID: "parent"}, Locator: ticket.Locator{Provider: ticket.Linear, Origin: tickets.Origin, Container: tickets.Destination, Key: "parent"}}
+	_, err = db.AddTicketBinding(ctx, store.TicketBinding{RepoID: repo.ID, ConnectionVersionID: tickets.ID, Ref: qualified, Enabled: true, Provenance: "explicit"})
+	mustProgress(t, err)
+	session, err := db.AdmitSession(ctx, repo, qualified, code.Revision, tickets.Revision, actorID, "publisher", ref.String())
+	mustProgress(t, err)
+	return session
+}
+
+func TestTicketPublisherRetainsSnapshotAndRejectsRoutedReplacement(t *testing.T) {
+	ctx := t.Context()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "publisher.db"))
+	mustProgress(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	mustProgress(t, db.Migrate(ctx))
+	ref := naming.Ref{Forge: "linear", Owner: "team", Repo: "project", Issue: 1}
+	actor := ticket.Identity{Provider: ticket.Linear, Origin: "https://linear.example/graphql", RemoteID: "original"}
+	slot, err := db.LocalTicketSlot(ctx, "actor", actor)
+	mustProgress(t, err)
+	session := publisherSession(t, db, ref, slot)
+	opts := Options{DB: db, ProjectApprovers: true}
+	for _, forge := range []any{struct{}{}, contextualPublisherFixture{actor: actor}} {
+		got, err := ticketPublisherID(ctx, opts, forge, session.ID, ref)
+		if err != nil || got != slot {
+			t.Fatalf("snapshot publisher changed: %d %v", got, err)
+		}
+	}
+	actor.RemoteID = "replacement"
+	if _, err := ticketPublisherID(ctx, opts, contextualPublisherFixture{actor: actor}, session.ID, ref); !errors.Is(err, ErrRequiredTicketPublisher) {
+		t.Fatalf("replacement publisher accepted: %v", err)
+	}
+	for _, cause := range []error{store.ErrNotFound, context.Canceled, errors.New("temporary provider failure")} {
+		got, err := ticketPublisherID(ctx, opts, contextualPublisherFixture{err: cause}, session.ID, ref)
+		if got != 0 || !errors.Is(err, cause) || errors.Is(err, ErrRequiredTicketPublisher) != errors.Is(cause, store.ErrNotFound) {
+			t.Fatalf("snapshot bypassed routed failure: %d %v", got, err)
+		}
+	}
+}

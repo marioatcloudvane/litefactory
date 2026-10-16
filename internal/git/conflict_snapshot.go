@@ -86,12 +86,12 @@ func (w *Worktree) CollectConflictSnapshots(ctx context.Context, treeSHA, branch
 			faults = append(faults, fmt.Errorf("%q: read branch baseline: %w; resolve manually", path, e))
 			continue
 		}
-		_, otherMode, e := w.boundedConflictBlob(ctx, baseSHA, path)
+		other, otherMode, e := w.boundedConflictBlob(ctx, baseSHA, path)
 		if e != nil {
 			faults = append(faults, e)
 			continue
 		}
-		_, ancestorMode, e := w.boundedConflictBlob(ctx, ancestor, path)
+		ancestorContent, ancestorMode, e := w.boundedConflictBlob(ctx, ancestor, path)
 		if e != nil {
 			faults = append(faults, refuse(path, "rename/delete/add conflict requires manual resolution"))
 			continue
@@ -110,13 +110,19 @@ func (w *Worktree) CollectConflictSnapshots(ctx context.Context, treeSHA, branch
 			size += len(r.Content)
 		}
 		total += size
-		if size > MaxConflictRegionBytes {
-			faults = append(faults, refuse(path, fmt.Sprintf("complete conflict content exceeds %d bytes", MaxConflictRegionBytes)))
+		snapshots = append(snapshots, ConflictSnapshot{Path: path, Original: original, Baseline: baseline, Mode: mode, BranchSHA: branchSHA, Regions: regions, ancestor: ancestorContent, other: other, hasAncestor: true})
+	}
+	if total > totalMax {
+		reason := fmt.Sprintf("complete conflict content requires %d bytes; settings.conflict_content_max_bytes is %d", total, totalMax)
+		switch {
+		case len(faults) != 0:
+			reason += "; raising the setting does not resolve the independent safety refusals"
+		case total <= MaxConflictRegionBytes:
+			reason += fmt.Sprintf("; set settings.conflict_content_max_bytes to at least %d", max(total, 256))
+		default:
+			reason += fmt.Sprintf("; no supported setting suffices (maximum %d)", MaxConflictRegionBytes)
 		}
-		if total > totalMax {
-			faults = append(faults, refuse(path, "total conflict content budget exceeded"))
-		}
-		snapshots = append(snapshots, ConflictSnapshot{Path: path, Original: original, Baseline: baseline, Mode: mode, BranchSHA: branchSHA, Regions: regions})
+		faults = append(faults, refuse("", reason))
 	}
 	if err := errors.Join(faults...); err != nil {
 		return nil, err

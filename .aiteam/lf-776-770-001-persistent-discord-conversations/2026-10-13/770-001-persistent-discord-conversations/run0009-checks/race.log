@@ -1,0 +1,25 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	5.373s
+?   	github.com/cloudvane/litefactory/cmd/teamrelease	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agentresult	19.151s
+ok  	github.com/cloudvane/litefactory/internal/codex	185.498s
+ok  	github.com/cloudvane/litefactory/internal/doctor	634.855s
+ok  	github.com/cloudvane/litefactory/internal/github	11.729s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	11.830s
+ok  	github.com/cloudvane/litefactory/internal/harness	197.151s
+ok  	github.com/cloudvane/litefactory/internal/messaging	845.313s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	8.804s
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	147.494s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	6.449s
+?   	github.com/cloudvane/litefactory/internal/messaging/response	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/meterview	28.747s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	9.803s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	102.498s
+ok  	github.com/cloudvane/litefactory/internal/report	118.449s
+ok  	github.com/cloudvane/litefactory/internal/repos	17.472s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	55.636s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/teampackage	22.294s
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	205.737s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	13.189s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	58.542s

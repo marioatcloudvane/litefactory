@@ -2,11 +2,15 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 func pickEntry(id string, deps ...string) planbrief.PlanStorySetEntry {
@@ -151,5 +155,60 @@ func TestPlanRuntime_CreationPassSelectsFreshlyEachTime(t *testing.T) {
 	}
 	if outcome, _ := pass(); outcome != "false" {
 		t.Fatalf("a pass with every promoted story drafted continued: %q", outcome)
+	}
+}
+
+// A story whose holds were settled but whose Effect marker was left behind is
+// blocked by that marker alone (#908). An owner reply clears it once its request
+// is completed, and the story resumes at its current stage; open debt stays.
+func TestPlanRetry_StaleEffectAfterSettledRequest(t *testing.T) {
+	for _, completed := range []bool{true, false} {
+		for _, effect := range []string{"pending", "uncertain"} {
+			t.Run(fmt.Sprintf("%s completed=%v", effect, completed), func(t *testing.T) {
+				f, _, _, _ := graphPlanFixture(t, "agent")
+				ctx, parent := t.Context(), f.ref().String()
+				draft := planbrief.PlanDraft{Key: "story-001", Name: "A usable story", UserStory: planbrief.UserStoryContent{Actor: "owner", Want: "shape a story", Benefit: "retain intent"}, Problem: "Plans need discussion", InScope: []string{"Drafts"}, NotInScope: []string{"Implementation"}}
+				request := graphexec.PlanStoryRequest{RequestID: "request-one", Operation: "update", ExpectedRevision: strings.Repeat("0", 64), Stage: "story", Candidate: "candidate-one", SharedRevision: "initial", Draft: draft}
+				raw, err := json.Marshal(request)
+				mustProgress(t, err)
+				_, err = f.db.ReservePlanStory(ctx, parent, draft.Key)
+				mustProgress(t, err)
+				mustProgress(t, f.db.PutPlanStoryCandidate(ctx, store.PlanStoryCandidate{Parent: parent, RequestID: request.RequestID, Key: draft.Key, Candidate: request.Candidate, RequestJSON: string(raw)}))
+				state := planbrief.PlanState{SharedRevision: "initial", Stories: []planbrief.PlanStoryState{{Key: draft.Key, Stage: "technical", Candidate: request.Candidate, Draft: draft, Approvals: map[string]string{}}}}
+				approval, err := state.ReviewRevision(draft.Key, "story")
+				mustProgress(t, err)
+				state.Stories[0].Approvals["story"] = approval
+				state.Stories[0].Effect, state.Stories[0].EffectRequest = effect, request.RequestID
+				_, current, err := f.db.GetPlanWorkflowState(ctx, parent)
+				mustProgress(t, err)
+				revision, err := f.db.SavePlanWorkflowState(ctx, parent, current, state)
+				mustProgress(t, err)
+				if completed {
+					mustProgress(t, f.db.SettlePlanStoryDebt(ctx, parent, request.RequestID, state, revision, false))
+				}
+				r := &planGraphRuntime{opts: f.opts, req: f.request(), parentRef: f.ref(), story: draft.Key, discussion: true}
+				retry, err := r.retryFailedStory(ctx)
+				if err != nil || !retry {
+					t.Fatalf("retry=%v err=%v", retry, err)
+				}
+				saved, _, err := f.db.GetPlanWorkflowState(ctx, parent)
+				mustProgress(t, err)
+				item := saved.Stories[0]
+				if item.EffectRequest != request.RequestID {
+					t.Fatalf("effect request changed: %+v", item)
+				}
+				pick, err := pickPlanStep(saved, draft.Key, nil)
+				mustProgress(t, err)
+				if completed {
+					if item.Effect != "" || pick.Stage != "technical" || pick.Key != draft.Key {
+						t.Fatalf("settled story not resumed: effect=%q pick=%+v", item.Effect, pick)
+					}
+					return
+				}
+				if item.Effect != effect || pick.Stage != "" {
+					t.Fatalf("open debt changed: effect=%q pick=%+v", item.Effect, pick)
+				}
+			})
+		}
 	}
 }

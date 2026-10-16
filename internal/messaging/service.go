@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -148,6 +151,7 @@ type Service struct {
 	drafter          *feature.Drafter
 	confirmer        FeatureConfirmer
 	interpreter      Interpreter
+	conversations    atomic.Pointer[conversationRuntime]
 }
 
 // New copies admission rules and registers help, health, status and details.
@@ -158,8 +162,8 @@ func New(db *store.DB, transport, owner string, channels []string, sender Transp
 	}
 	s.RegisterCommand(CommandDefinition{Name: "help", NaturalLanguage: true, Effect: ReadEffect, Description: "List factory commands"}, s.help)
 	s.RegisterCommand(CommandDefinition{Name: "health", NaturalLanguage: true, Effect: ReadEffect, Description: "Read factory health"}, s.health)
-	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "List running tasks and work waiting on the owner, plus factory status"}, s.summary)
-	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show the raw details of your previous reply"}, s.details)
+	s.RegisterCommand(CommandDefinition{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Description: "Read a selected task, or factory health and running/owner-waiting tasks", Arguments: []Argument{{Name: "project", Type: TextArgument, Description: "Registered project"}, {Name: "issue", Type: IntegerArgument, Description: "Known GitHub issue number"}, {Name: "task", Type: IntegerArgument, Description: "Known GitHub task number"}}}, s.summary)
+	s.RegisterCommand(CommandDefinition{Name: "details", NaturalLanguage: true, Effect: ReadEffect, Description: "Show saved raw details for an answer or previous legacy reply", Arguments: []Argument{{Name: "answer", Type: TextArgument, Description: "Saved answer reference; omit for latest answer"}}}, s.details)
 	s.registerMeter()
 	return s
 }
@@ -235,6 +239,16 @@ func (s *Service) Admit(ctx context.Context, m Message, at time.Time) (allowed, 
 	if s.presentationEnabled {
 		r.PresentationState = "pending"
 	}
+	if m.Command == "details" {
+		if !validArguments(m.Arguments, []string{"answer"}) || len(m.Arguments["answer"]) > 128 || strings.ContainsAny(m.Arguments["answer"], "\r\n") {
+			r.ReplyText = "Please give the answer reference printed on the reply."
+			r.OutcomeStatus = string(presentation.Refusal)
+		} else {
+			inserted, err = s.db.AdmitConversationDetails(ctx, r, s.owner, m.Arguments["answer"], at)
+			return true, inserted, err
+		}
+	}
+
 	if m.Command == "ask" && (strings.TrimSpace(m.Arguments["question"]) == "" || len(m.Arguments["question"]) > 8192 || len(m.Arguments["project"]) > 256 || !validArguments(m.Arguments, []string{"question", "project"})) {
 		r.ReplyText = ask.TurnPrefix(m.Arguments["question"], m.Arguments["project"]) + "Please give a question up to 8192 bytes and an optional project up to 256 bytes."
 		r.Arguments = nil
@@ -292,6 +306,30 @@ func (s *Service) Step(ctx context.Context, at time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if r.Command == "details" && r.ReplyText == "" {
+		selected, e := s.db.ConversationDetailsSelection(ctx, r)
+		if e != nil && !errors.Is(e, store.ErrNotFound) {
+			return true, e
+		}
+		if selected != "" {
+			runtime := s.conversations.Load()
+			if runtime != nil && runtime.bindings[r.ChannelRef].Provider != "" {
+				// The request lease and attempt fence protect export persistence; slow
+				// access checks must not hold the ordinary command coordinator's lock.
+				s.stepMu.Unlock()
+				defer s.stepMu.Lock()
+				work, cancel := context.WithTimeout(ctx, response.Budget)
+				defer cancel()
+				return true, s.answerDetails(work, r, selected, at)
+			}
+			r.ReplyText = "Answer details are unavailable or access is denied."
+			r.OutcomeStatus = string(presentation.Refusal)
+			if err := s.db.SaveChatReply(ctx, r, r.ReplyText); err != nil {
+				return true, err
+			}
+		}
+	}
+
 	originalReply := r.ReplyText
 	if r.Command == "ask" || r.Command == "draft" || r.Command == "confirm" {
 		var cancel context.CancelFunc
@@ -465,7 +503,7 @@ func retryAt(r store.ChatReply, at time.Time, hint time.Duration) time.Time {
 
 // Purge removes finished reply state after the retention window.
 func (s *Service) Purge(ctx context.Context, at time.Time) error {
-	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at), s.db.PurgeNaturalChat(ctx, at))
+	return errors.Join(s.db.PurgeChatReplies(ctx, at), s.db.PurgeChatIssuePreviews(ctx, at), s.db.PurgeChatNotices(ctx, at), s.db.PurgeNaturalChat(ctx, at), s.db.PurgeConversationBodies(ctx, at), s.db.PurgeConversationEvidence(ctx, at))
 }
 func (s *Service) help(ctx context.Context, _ Message, _ time.Time) (string, error) {
 	return assessed(ctx, "/"+strings.Join(s.Commands(), ", /"), presentation.Success)
@@ -475,7 +513,7 @@ func (s *Service) health(ctx context.Context, _ Message, at time.Time) (string, 
 	if err != nil {
 		return "", err
 	}
-	return assessed(ctx, healthText(v), presentation.Success)
+	return assessed(ctx, healthText(v)+s.conversationHealth(ctx, at), presentation.Success)
 }
 func healthText(v Status) string {
 	age := "unknown"
@@ -484,7 +522,37 @@ func healthText(v Status) string {
 	}
 	return fmt.Sprintf("Running: %t. Heartbeat age: %s. Discovery paused: %t.", v.Running, age, v.DiscoveryPaused)
 }
-func (s *Service) summary(ctx context.Context, _ Message, at time.Time) (string, error) {
+func (s *Service) summary(ctx context.Context, m Message, at time.Time) (string, error) {
+	if m.Arguments["issue"] != "" || m.Arguments["task"] != "" {
+		resolution, err := s.resolveNaturalProject(ctx, m.Arguments)
+		if err != nil {
+			return "", err
+		}
+		if resolution.Refusal != "" {
+			return assessed(ctx, resolution.Refusal, presentation.Refusal)
+		}
+		number, _ := strconv.Atoi(m.Arguments["issue"])
+		if number == 0 {
+			number, _ = strconv.Atoi(m.Arguments["task"])
+		}
+		session, err := s.knownNumericTask(ctx, resolution.Repository, number)
+		if errors.Is(err, store.ErrNotFound) {
+			return assessed(ctx, "Requested task unavailable in that project.", presentation.Refusal)
+		}
+		if err != nil {
+			return "", err
+		}
+		tasks, err := (ask.StoreReader{Reader: s.db}).ReadTaskSessions(ctx, []store.Session{session})
+		if err != nil {
+			return "", err
+		}
+		text, err := s.taskStatus(ctx, session, tasks[0])
+		if err != nil {
+			return "", err
+		}
+		return assessed(ctx, text, presentation.Success)
+	}
+
 	v, err := s.status.Read(ctx, at)
 	if err != nil {
 		return "", err
@@ -523,37 +591,45 @@ func (s *Service) taskSummary(ctx context.Context) string {
 		if repo.Forge != "github" {
 			continue
 		}
-		tasks, cut, err := reader.ReadProjectTasks(ctx, repo.ID)
-		if err != nil {
-			complete = false
-			lines = append(lines, repo.Slug()+": task data could not be read.")
-			continue
-		}
-		if cut {
-			complete = false
-			lines = append(lines, repo.Slug()+": additional tasks left out.")
-		}
-		for _, task := range tasks {
-			label := fmt.Sprintf("%s #%d", repo.Slug(), task.IssueNumber)
-			if run := task.LatestRun; run != nil && (run.Status == store.RunRunning || run.Status == store.RunPrelaunch) {
-				found = true
-				lines = append(lines, label+": running ("+run.Mode+").")
+		var after int64
+		for {
+			sessions, err := s.db.ListTaskSessionsPage(ctx, repo.ID, after, 100)
+			if err != nil {
+				complete = false
+				lines = append(lines, repo.Slug()+": task data could not be read.")
+				break
 			}
-			if wait := task.OwnerWait; wait != nil {
-				found = true
-				lines = append(lines, fmt.Sprintf("%s: waiting on owner — %s %s. https://github.com/%s/issues/%d#issuecomment-%d", label, wait.Workflow, wait.Kind, repo.Slug(), task.IssueNumber, wait.CommentID))
+			if len(sessions) == 0 {
+				break
 			}
-			if task.OwnerBlocked != "" {
-				found = true
-				lines = append(lines, label+": parked, waiting on owner — "+task.OwnerBlocked)
+			after = sessions[len(sessions)-1].ID
+			tasks, err := reader.ReadTaskSessions(ctx, sessions)
+			if err != nil {
+				complete = false
+				lines = append(lines, repo.Slug()+": task data could not be read.")
+				break
+			}
+			for index, task := range tasks {
+				active := task.LatestRun != nil && (task.LatestRun.Status == store.RunRunning || task.LatestRun.Status == store.RunPrelaunch)
+				if active || task.OwnerWait != nil || task.OwnerBlocked != "" {
+					found = true
+					text, err := s.taskStatus(ctx, sessions[index], task)
+					if err != nil {
+						complete = false
+						lines = append(lines, task.Reference+": task data could not be read.")
+					} else {
+						lines = append(lines, text)
+					}
+				}
 			}
 		}
 	}
+
 	if complete && !found {
 		lines = append(lines, "Tasks: no running tasks or owner waits found.")
 	}
 	// Keep the factual source bounded; presentation retains it as details when needed.
-	text := "\n"
+	text := "\nScope: registered GitHub code projects; running tasks and owner waits, including parked work. Idle tasks require a task-specific status lookup.\n"
 	for i, line := range lines {
 		if len(text)+len(line) > 16000 {
 			text += fmt.Sprintf("Task listing: %d additional entries left out.\n", len(lines)-i)
@@ -562,4 +638,56 @@ func (s *Service) taskSummary(ctx context.Context) string {
 		text += line + "\n"
 	}
 	return strings.TrimRight(text, "\n")
+}
+
+// taskStatus uses retained state; absent facts stay explicitly unavailable.
+func (s *Service) taskStatus(ctx context.Context, session store.Session, task ask.Task) (string, error) {
+	mode, stage, waiting := "unavailable", "unavailable", "none recorded"
+	runs, err := s.db.RecentTaskRuns(ctx, session.ID, 3)
+	if err != nil {
+		return "", err
+	}
+	if len(runs) > 0 {
+		mode = runs[0].Mode
+		if mode == "" {
+			mode = runs[0].Workflow
+		}
+		if mode == "" {
+			mode = "unavailable"
+		}
+	}
+	instance, err := s.db.LatestSessionGraphInstance(ctx, session.ID)
+	if err == nil {
+		stage = instance.CurrentNode + " (" + instance.Status + ")"
+		definition, err := s.db.GetGraphDefinition(ctx, instance.DefinitionID)
+		if err != nil {
+			return "", err
+		}
+		mode = definition.Mode
+		if mode == "" {
+			mode = definition.Workflow
+		}
+		if mode == "" {
+			mode = "unavailable"
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	if len(task.PlanStages) > 0 {
+		stage += "; " + strings.Join(task.PlanStages, "; ")
+	}
+	if task.OwnerWait != nil {
+		waiting = "owner — " + task.OwnerWait.Workflow + " " + task.OwnerWait.Kind
+	}
+	if task.OwnerBlocked != "" {
+		waiting = "owner — parked: " + task.OwnerBlocked
+	}
+	text := fmt.Sprintf("%s: %s. Mode: %s. Stage: %s. Waiting on: %s. Recent runs (newest first, limit 3):", task.Reference, task.State, mode, stage, waiting)
+	if len(runs) == 0 {
+		text += " unavailable."
+	}
+	for _, run := range runs {
+		text += fmt.Sprintf(" %d: %s (%s);", run.Ordinal, run.Status, run.Mode)
+	}
+	return text, nil
 }

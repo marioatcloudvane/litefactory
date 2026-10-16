@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // ImplementRepo opens scratch worktrees on the integration branch. The merge
@@ -22,6 +23,8 @@ type ImplementRepo interface {
 type ImplementScratch interface {
 	// Head is the integration head the scratch tree was built on.
 	Head() string
+	// Contains checks the published story head against the fixed integration head.
+	Contains(ctx context.Context, storyBranch string) (bool, error)
 	// Path is the scratch worktree directory the checks run in.
 	Path() string
 	// Merge merges the story branch with a merge commit. A conflict is
@@ -29,7 +32,7 @@ type ImplementScratch interface {
 	// the story is already part of the integration head.
 	Merge(ctx context.Context, storyBranch string) (head string, merged bool, err error)
 	// Publish pushes the merge as the integration branch without force, only
-	// while the remote is still at expectedHead (git.ErrIntegrationHeadMoved otherwise).
+	// after observing expectedHead; the server refuses concurrent divergence.
 	Publish(ctx context.Context, integrationBranch, expectedHead string) error
 	// Close discards the scratch worktree.
 	Close(ctx context.Context) error
@@ -81,7 +84,11 @@ func (s *gitScratch) Head() string { return s.head }
 func (s *gitScratch) Path() string { return s.wt.Path() }
 
 func (s *gitScratch) Merge(ctx context.Context, storyBranch string) (string, bool, error) {
-	res, err := s.wt.MergeBase(ctx, "refs/remotes/"+s.repo.Remote+"/"+storyBranch, git.MergeOptions{Author: s.repo.Author})
+	base, err := s.wt.RevParse(ctx, "refs/remotes/"+s.repo.Remote+"/"+storyBranch, git.RevParseOptions{})
+	if err != nil {
+		return "", false, err
+	}
+	res, err := s.wt.MergeBase(ctx, base, git.MergeOptions{Author: s.repo.Author})
 	if err != nil {
 		return "", false, err
 	}
@@ -95,4 +102,36 @@ func (s *gitScratch) Publish(ctx context.Context, integrationBranch, expectedHea
 func (s *gitScratch) Close(ctx context.Context) error {
 	removeErr := s.repo.Clone.WorktreeRemove(ctx, s.wt.Path(), git.WorktreeRemoveOptions{Force: true})
 	return errors.Join(removeErr, os.RemoveAll(s.dir))
+}
+
+func (s *gitScratch) Contains(ctx context.Context, storyBranch string) (bool, error) {
+	head, err := s.wt.RevParse(ctx, "refs/remotes/"+s.repo.Remote+"/"+storyBranch, git.RevParseOptions{})
+	if err != nil {
+		return false, err
+	}
+	return s.wt.IsAncestor(ctx, head, s.head)
+}
+
+// inspectImplementMerged checks every merged ledger row, including stories no
+// longer in the unfinished authority set. All checks use one fetched feature SHA.
+func inspectImplementMerged(ctx context.Context, repo ImplementRepo, branch string, rows []store.ImplementStory) (head string, stale []store.ImplementStory, err error) {
+	scratch, err := repo.Begin(ctx, branch)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { err = errors.Join(err, scratch.Close(context.WithoutCancel(ctx))) }()
+	for _, row := range rows {
+		if row.State != store.ImplementMerged {
+			continue
+		}
+		contained, checkErr := scratch.Contains(ctx, row.Branch)
+		if checkErr != nil {
+			err = errors.Join(err, fmt.Errorf("verify merged story %s: %w", row.Key, checkErr))
+			continue
+		}
+		if !contained {
+			stale = append(stale, row)
+		}
+	}
+	return scratch.Head(), stale, err
 }

@@ -676,6 +676,51 @@ func TestABodyRunLeavesTheWatermarkWhereBootstrapPlantedIt(t *testing.T) {
 	}
 }
 
+// A Research-graph run started from a ticket body has trigger comment id 0 and
+// nothing to consume. It must complete the body through bootstrap and leave
+// the task's queue open for the next owner comment (issue #923, MAR-20).
+func TestAResearchGraphBodyRunCompletesTheBodyAndKeepsTheQueueOpen(t *testing.T) {
+	w := newWebhookFixture(t)
+	w.clock.mu.Lock()
+	w.clock.now = time.Now().UTC().Add(time.Minute)
+	w.clock.mu.Unlock()
+	origin := recoveryProvider(t, w.fixture)
+	configureRecoverySource(t, w, origin)
+	w.daemon = newRecoveryDaemon(t, w, origin, "graph-body", false)
+	w.plantCursor()
+	w.assignedIssue("Graph body", "/spike add a health endpoint")
+	w.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		result, err := w.ranSuccessfully(ctx, req)
+		result.ResearchGraph = true
+		return result, err
+	})
+	w.clock.advance(scheduleInterval)
+	w.settle()
+
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{0}) {
+		t.Fatalf("turns ran for %v, want [0]\nlogs:\n%s", got, w.fixture.logs)
+	}
+	if strings.Contains(w.fixture.logs.String(), "could not consume Research graph input") {
+		t.Fatalf("the body graph run tried to consume a comment\nlogs:\n%s", w.fixture.logs)
+	}
+	id := w.session().ID
+	if pending, err := w.db.TicketBodyPending(t.Context(), id); err != nil || pending {
+		t.Fatalf("body still pending after the graph run: pending=%t, %v\nlogs:\n%s", pending, err, w.fixture.logs)
+	}
+
+	w.forge.addComment(testIssue, 923_001, owner(), "/spike and now the readiness probe")
+	w.needsPoll(testIssue)
+	w.clock.advance(testInterval)
+	w.settle()
+
+	if got := w.turns.triggers(); !slices.Equal(got, []int64{0, 923_001}) {
+		t.Fatalf("turns ran for %v, want [0 923001]: the body run must not stop the queue\nlogs:\n%s", got, w.fixture.logs)
+	}
+	if got := w.watermark(); got != 923_001 {
+		t.Fatalf("watermark is %d, want 923001", got)
+	}
+}
+
 // TestABodyThatCommandsNothingStartsNothingAndPostsNothing is AC-2.16c.
 //
 // The silence is the point, and it is the one place the body path deliberately
@@ -997,14 +1042,9 @@ func TestRateLimitBacksOffAndResumes(t *testing.T) {
 	if resumed.Skipped {
 		t.Fatal("the daemon did not resume after the backoff expired")
 	}
-	// The remote hold ended, but fresh quota still requires the independently
-	// bounded scalar observation. Its one-minute cadence cannot be bypassed
-	// merely because the server supplied a shorter Retry-After.
-	if resumed.Dispatched != 0 {
-		t.Fatalf("dispatched %d before the next quota observation, want 0", resumed.Dispatched)
-	}
-	f.clock.advance(time.Minute)
-	resumed = f.settle()
+	// The remote hold ended. Without a usable quota window the token bucket
+	// bounds discovery, so polling resumes at once instead of waiting for fresh
+	// quota evidence (#793).
 	if resumed.Dispatched != 1 {
 		t.Errorf("dispatched %d tasks on resuming, want 1", resumed.Dispatched)
 	}

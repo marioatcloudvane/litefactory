@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -105,6 +104,9 @@ func admitImplementExecution(ctx context.Context, opts Options, req Request, res
 }
 
 func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
+	if recovered, err := rt.recoverWorkerSyncParking(ctx); recovered || err != nil {
+		return rt.idle("settled the retained worker base-sync blockage"), err
+	}
 	if store.IsGraphTrigger(rt.req.Trigger.CommentID) {
 		return rt.resumeDispatch(ctx)
 	}
@@ -216,6 +218,17 @@ func (rt *implementRuntime) execute(ctx context.Context, definition *teamsource.
 		return rt.result, err
 	}
 	out, err := ExecuteWorkflow(ctx, rt.opts, rt.req, rt.result, definition, admission, policy)
+	if err != nil && rt.worker != nil && ctx.Err() == nil {
+		reason, readErr := rt.workerSyncBlockage(ctx, admission.Instance.ID, true)
+		if readErr != nil {
+			return out, errors.Join(err, readErr)
+		}
+		if reason != "" {
+			_, parkErr := rt.parkSyncStory(ctx, reason)
+			out.Reason = reason
+			return out, parkErr
+		}
+	}
 	if err == nil || rt.worker == nil || out.Harness != nil || ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return out, err
 	}
@@ -250,6 +263,7 @@ func (rt *implementRuntime) policy() (WorkflowPolicy, error) {
 		return rt.registerEffects(specs, activities, bindings)
 	}
 	p.Park = rt.parkHook
+	p.BeforeAgent = rt.verifyWorkerSyncHandoff
 	p.AfterAgentFailure = implementAfterAgentFailure
 	p.ResultOverride = implementResultOverride
 	return p, nil
@@ -457,5 +471,5 @@ func wakeImplementParent(ctx context.Context, db *store.DB, parent string, at ti
 
 // implementScratchDir is where merge scratch worktrees are made.
 func implementScratchDir(opts Options) string {
-	return filepath.Join(opts.MCP.Paths.Home(), "implement-scratch")
+	return opts.MCP.Paths.ImplementScratchDir()
 }

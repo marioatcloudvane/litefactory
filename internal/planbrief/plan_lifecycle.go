@@ -43,7 +43,7 @@ func (s *PlanState) ObserveLifecycle(key string, observed PlanLifecycle, hold st
 	holdChanged := item.LifecycleHold != hold
 	item.Lifecycle = observed
 	item.LifecycleHold = hold
-	if lifecycleChanged || holdChanged {
+	if lifecycleChanged {
 		// Invalidate follows dependencies, but lifecycle cannot clear another owner's
 		// effect hold or replace its cause with the discovery outcome.
 		holds := make(map[string]string, len(s.Stories))
@@ -54,6 +54,11 @@ func (s *PlanState) ObserveLifecycle(key string, observed PlanLifecycle, hold st
 		for i := range s.Stories {
 			s.Stories[i].Hold = holds[s.Stories[i].Key]
 		}
+	}
+	if holdChanged {
+		// An unavailable observation blocks eligibility, but is not evidence
+		// that approved content changed. Keep progress for verified recovery.
+		s.invalidateAssembly()
 	}
 	return true, nil
 }

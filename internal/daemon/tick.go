@@ -113,6 +113,21 @@ type TickResult struct {
 	Cursor store.PollCursor
 }
 
+// tickPhaseContext bounds synchronous provider work, never a dispatched worker.
+func (d *Daemon) tickPhaseContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := d.tickPhaseTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (d *Daemon) tickPhase(ctx context.Context, run func(context.Context) error) error {
+	phase, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
+	return run(phase)
+}
+
 // Tick runs one poll cycle: discover what has work, then dispatch as much of it
 // as there are free slots for.
 //
@@ -151,9 +166,12 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	ctx, checks := withContainerChecks(ctx)
 	defer checks.close()
 	d.doctorTick(ctx, startedAt)
-	d.refreshRecoveries(ctx, startedAt)
+	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.refreshRecoveries(ctx, startedAt); return nil })
 	// Stopped execution debt is independent of discovery/storage availability.
 	stoppedDispatched := d.retryStoppedResults(ctx, startedAt)
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.reconcileGraphDispatches(ctx, startedAt) }); err != nil {
+		return TickResult{StartedAt: startedAt}, err
+	}
 	if !d.autoResumeOnSessionLimit {
 		pending, err := d.db.ListPendingContinuations(ctx, 0)
 		if err != nil {
@@ -173,7 +191,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		}
 	}
 
-	d.refreshWebhookSecrets(ctx, startedAt)
+	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.refreshWebhookSecrets(ctx, startedAt); return nil })
 
 	if retryAt, held := d.connectionHold(ctx, startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
@@ -183,7 +201,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		return TickResult{StartedAt: startedAt, Skipped: true, RetryAt: retryAt}, nil
 	}
 
-	if err := d.pollPublications(ctx, startedAt); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.pollPublications(ctx, startedAt) }); err != nil {
 		d.log.ErrorContext(ctx, "publication observation remains pending", slog.Any("error", err))
 		if providerRateLimited(err) {
 			if d.connections == nil {
@@ -194,7 +212,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 	}
 	// Progress is reconciled even while the sole turn worker is occupied.
 	if progress, ok := d.turn.(interface{ PollStoryProgress(context.Context) error }); ok {
-		if err := progress.PollStoryProgress(ctx); err != nil {
+		if err := d.tickPhase(ctx, progress.PollStoryProgress); err != nil {
 			d.log.ErrorContext(ctx, "story progress remains pending", slog.Any("error", err))
 			if providerRateLimited(err) {
 				if d.connections == nil {
@@ -207,7 +225,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	// Code-host controls have their own sources and must be polled even when
 	// work-management replies come from Linear.
-	if err := d.PollCodeDeliveryControls(ctx); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.PollCodeDeliveryControls(ctx) }); err != nil {
 		d.log.ErrorContext(ctx, "code delivery controls remain pending", slog.Any("error", err))
 		if providerRateLimited(err) {
 			if d.connections == nil {
@@ -239,10 +257,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 
 	result = TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor, Dispatched: stoppedDispatched}
 
-	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.replayContinuationCancellations(ctx, repos) }); err != nil {
 		return result, d.observe(ctx, startedAt, err)
 	}
-	if err := d.replayInterruptionReports(ctx, repos); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.replayInterruptionReports(ctx, repos) }); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(ctx, startedAt, err)
 	}
@@ -254,7 +272,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 		}
 	}
 
-	d.researchReminders(ctx, startedAt)
+	_ = d.tickPhase(ctx, func(ctx context.Context) error { d.researchReminders(ctx, startedAt); return nil })
 
 	// The heartbeat runs every local source each time; only the forge listing is
 	// scheduled. A tick that does not list still dispatches and reconciles.
@@ -267,7 +285,10 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 			d.schedule.Forget(id)
 		}
 	}
-	queues, err := d.discover(ctx, repos, startedAt, &result)
+	discoveryCtx, cancelDiscovery := d.tickPhaseContext(ctx)
+	queues, err := d.discover(discoveryCtx, repos, startedAt, &result)
+	cancelDiscovery()
+	defer finishCandidateReservations(queues)
 	discoveryDeferred := errors.Is(err, ErrDiscoveryDeferred)
 	hb.deferred = discoveryDeferred
 	for _, q := range queues {
@@ -303,7 +324,7 @@ func (d *Daemon) Tick(ctx context.Context) (result TickResult, err error) {
 			return result, err
 		}
 	}
-	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+	if err := d.tickPhase(ctx, func(ctx context.Context) error { return d.replayContinuationCancellations(ctx, repos) }); err != nil {
 		return result, d.observe(ctx, startedAt, err)
 	}
 	if lowDisk {
@@ -503,10 +524,25 @@ func (d *Daemon) discover(
 	queues := make([]*repoQueue, 0, len(repos))
 	byRepo := make(map[int64]*repoQueue, len(repos))
 	seen := make(map[int64]*candidate)
+	transferred := false
+	defer func() {
+		if !transferred {
+			finishCandidateReservations(queues)
+		}
+	}()
 
 	// Which repositories list this tick is decided before any of them is marked
 	// owed. An attempt is owed until it finishes, so a tick that fails midway
 	// leaves the repository due whatever webhooks arrive meanwhile.
+	liveRecovery := make(map[int64]bool, len(repos))
+	for _, repo := range repos {
+		liveRecovery[repo.ID] = true
+	}
+	for id := range d.hookRecovery {
+		if !liveRecovery[id] {
+			delete(d.hookRecovery, id)
+		}
+	}
 	due := make(map[int64]bool, len(repos))
 	for _, repo := range repos {
 		if repo.Forge == store.ForgeGitHub && d.schedule.Due(repo.ID, now) {
@@ -560,6 +596,21 @@ func (d *Daemon) discover(
 				return nil, err
 			}
 		}
+		if d.connections != nil {
+			if connectionEnabled {
+				if err := d.recoverHookDeliveries(ctx, q, now, due[repo.ID]); err != nil {
+					if ctx.Err() != nil {
+						return nil, ctx.Err()
+					}
+					repoLog.WarnContext(ctx, "webhook recovery deferred", slog.Any("error", err))
+					if providerRateLimited(err) {
+						d.rateLimited(ctx, repoLog, now, err)
+					}
+				}
+			} else {
+				delete(d.hookRecovery, repo.ID)
+			}
+		}
 		if !due[repo.ID] || !connectionEnabled {
 			if due[repo.ID] && !connectionEnabled {
 				q.finished = true
@@ -575,7 +626,9 @@ func (d *Daemon) discover(
 				if errors.Is(err, ErrDiscoveryDeferred) {
 					deferred = true
 				}
-				repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
+				if !d.scopedQuotaDeferred(ctx, err) {
+					repoLog.WarnContext(ctx, "ticket source quota or access probe deferred", slog.Any("error", err))
+				}
 				if providerRateLimited(err) {
 					d.rateLimited(ctx, repoLog, now, err)
 					continue
@@ -695,6 +748,7 @@ func (d *Daemon) discover(
 			return cmp.Compare(a.session.ID, b.session.ID)
 		})
 	}
+	transferred = true
 	if deferred {
 		return queues, ErrDiscoveryDeferred
 	}
@@ -767,6 +821,17 @@ func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen 
 // path re-checks the same thing in [Daemon.materialise], where the session
 // already exists and the only question left is whether to run.
 func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*candidate, error) {
+	if issue.QualifiedSnapshot != nil && issue.QualifiedSnapshot.Ref.Identity.Provider == ticket.Linear && d.connections != nil {
+		ref := issue.QualifiedSnapshot.Ref
+		version, err := d.db.CurrentConnection(ctx, q.repo.ID, store.TicketConnection)
+		if err != nil {
+			return nil, err
+		}
+		parent, err := d.observationParent(ctx, q, store.PendingTicketObservation{RepoID: q.repo.ID, ConnectionVersionID: version.ID, Provider: ref.Identity.Provider, Origin: ref.Identity.Origin, Container: ref.Locator.Container, ContainerID: version.Linear.ProjectID, TicketID: ref.Identity.RemoteID, TicketKey: ref.Locator.Key})
+		if err != nil || parent != nil {
+			return parent, err
+		}
+	}
 	if parent, err := d.db.ManagedParentForChild(ctx, q.repo.ID, issue.Number); err == nil {
 		same, e := d.sameTicketSource(ctx, q.repo.ID, parent)
 		if e != nil {
@@ -898,7 +963,9 @@ func (d *Daemon) markPlanChild(ctx context.Context, q *repoQueue, number int) er
 // been fetched yet: a session reached only through the backlog has no
 // [github.Issue] until [Daemon.materialise] reads one for it.
 type candidate struct {
-	observations []store.PendingTicketObservation
+	// Owned by discovery until offer transfers it to the worker.
+	discoveryReservation *discoveryReservation
+	observations         []store.PendingTicketObservation
 	// sources are ordered discovery evidence, not proof of actionable work.
 	sources   []string
 	repo      store.Repo
@@ -1107,12 +1174,16 @@ func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *re
 // owned by that worker, including sequential refinement copies. Nothing is
 // shared with another worker, so no lock is needed.
 type task struct {
+	discoveryReservation   *discoveryReservation
 	prepareFailureRecorded bool
 	observations           []store.PendingTicketObservation
 	enrollmentAt           time.Time
 	// workerLog holds immutable admission context for worker lifetime events.
 	workerLog *slog.Logger
 	worker    *workerState
+
+	// implementCoordinatorHandedOff records this scheduled call's successful graph return.
+	implementCoordinatorHandedOff bool
 
 	scheduled          *store.Schedule
 	continuation       *store.Continuation
@@ -1158,6 +1229,17 @@ type task struct {
 	tickAt time.Time
 }
 
+func finishCandidateReservations(queues []*repoQueue) {
+	for _, q := range queues {
+		for _, c := range q.candidates {
+			if c.discoveryReservation != nil {
+				c.discoveryReservation.finish()
+				c.discoveryReservation = nil
+			}
+		}
+	}
+}
+
 // dispatch is the second of the two phases a tick is made of: it decides which
 // of the eligible sessions get one of the free slots, and starts a worker for
 // each of them.
@@ -1185,6 +1267,7 @@ type task struct {
 // worker cannot reach them. There is deliberately no mutex, because adding one
 // would say the opposite.
 func (d *Daemon) dispatch(ctx context.Context, queues []*repoQueue, tickAt time.Time, result *TickResult) {
+	defer finishCandidateReservations(queues)
 	if len(queues) == 0 {
 		return
 	}
@@ -1319,8 +1402,17 @@ const (
 // above the `go`: the rate-limit backoff (AC-PAR-4.4). It is last rather than
 // first on purpose — see the comment at the check itself.
 func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
+	defer func() {
+		if c.discoveryReservation != nil {
+			c.discoveryReservation.finish()
+			c.discoveryReservation = nil
+		}
+	}()
 	ctx = sessionContext(ctx, c.session.ID)
-	if d.sessionRecoveryHeld(c.session.ID, tickAt) || d.prepFailures.held(c.session.ID, tickAt) {
+	workerCtx := ctx
+	ctx, cancel := d.tickPhaseContext(ctx)
+	defer cancel()
+	if d.observeCandidateHold(ctx, c, tickAt) {
 		return offerSkipped
 	}
 	if !d.enterDoctorGuarded(ctx, c.session.ID) {
@@ -1348,7 +1440,26 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		return offerFull
 	}
 
-	t, err := d.materialise(ctx, c, tickAt)
+	readCtx := ctx
+	if c.discoveryReservation == nil && d.connections != nil {
+		v, selected, err := d.quotaVersion(ctx, store.TicketConnection)
+		if err == nil && selected && v.Provider == ticket.Linear {
+			readCtx, _, err = d.linearFallback(ctx, v, true)
+			if r, ok := readCtx.Value(quotaReservationKey{}).(*discoveryReservation); ok && r.fallback {
+				c.discoveryReservation = r
+			}
+		}
+		if err != nil {
+			d.pool.done()
+			d.inflight.leave(c.session.ID)
+			result.Deferred++
+			return offerSkipped
+		}
+	}
+	if c.discoveryReservation != nil {
+		readCtx = context.WithValue(ctx, quotaReservationKey{}, c.discoveryReservation)
+	}
+	t, err := d.materialise(readCtx, c, tickAt)
 	if t == nil || err != nil {
 		// The one release that is not a worker's defer. It is exactly the undo
 		// of the [pool.try] above — the slot goes back and the join's count comes
@@ -1359,6 +1470,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		d.inflight.leave(c.session.ID)
 		if errors.Is(err, ErrDiscoveryDeferred) {
 			result.Deferred++
+			d.logDiscoveryDeferral(ctx, c)
 			return offerSkipped
 		}
 		if err != nil {
@@ -1426,7 +1538,9 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 
 	// The dispatch point uses the daemon's long-lived context. runWorker owns
 	// the shared pool and in-flight lifetime through terminal diagnostics.
-	go d.runTicketPollingWorker(ctx, t, func(ctx context.Context) { d.work(ctx, t) })
+	t.discoveryReservation = c.discoveryReservation
+	c.discoveryReservation = nil
+	go d.runTicketPollingWorker(workerCtx, t, func(ctx context.Context) { d.work(ctx, t) })
 
 	result.Dispatched++
 	return offerDispatched
@@ -1488,7 +1602,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		var fetched github.Issue
 		if len(pending) > 0 {
 			fetched, err = d.readIssue(ctx, c.forgeRepo, c.session.IssueNumber)
-		} else {
+		} else if err = d.drainAffordable(ctx); err == nil {
 			fetched, err = d.discoveryIssue(ctx, c.forgeRepo, c.session.IssueNumber)
 		}
 		if err != nil {
@@ -1558,6 +1672,9 @@ func (d *Daemon) taskComments(ctx context.Context, t *task, after int64) ([]gith
 			return d.readComments(ctx, t.forgeRepo, t.issue.Number, after)
 		})
 	}
+	if t.discoveryReservation != nil {
+		ctx = context.WithValue(ctx, quotaReservationKey{}, t.discoveryReservation)
+	}
 	return d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, after)
 }
 
@@ -1582,7 +1699,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
 	if err := d.recoverPlanStories(ctx, t); err != nil {
-		d.stopped(ctx, t, "could not reconcile Plan stories", err)
+		d.stopped(ctx, t, "could not reconcile Plan stories", errors.Join(err, d.reportPlanProgress(ctx, t)))
 		return
 	}
 	handledPlan, err := d.refinePlanChildren(ctx, t)
@@ -1701,9 +1818,10 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 		return
 	}
 	d.rateLimited(ctx, t.log, t.tickAt, err)
-	t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
-		slog.Any("error", err))
-	d.prepareFailed(ctx, t, err)
+	if d.prepareFailed(ctx, t, err) {
+		t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
+			slog.Any("error", err))
+	}
 }
 
 // prepareFailed counts a turn that ended without consuming its trigger, and
@@ -1712,9 +1830,9 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 //
 // A worker can expose the same error through leave and stopped. Count that
 // attempt once; report recovery owns its own independent deadline.
-func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
+func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) bool {
 	if t.prepareFailureRecorded || isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) || ctx.Err() != nil {
-		return
+		return false
 	}
 	t.prepareFailureRecorded = true
 	reason := err.Error()
@@ -1724,14 +1842,15 @@ func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
 		}
 	}
 	state, announce := d.prepFailures.record(t.session.ID, reason, t.tickAt, d.recoveryInterval())
-	if !announce || state.Attempts < prepareEscalationAttempts {
-		return
+	if state.Attempts != prepareEscalationAttempts {
+		return announce
 	}
 	t.log.ErrorContext(ctx, "this task has failed every turn since it last made progress; "+
 		"the trigger is still unconsumed and retries use capped exponential backoff",
 		slog.Int("consecutive_failures", state.Attempts),
 		slog.Bool("escalated", state.Escalated),
 		slog.String("reason", reason))
+	return announce
 }
 
 // bootstrap plants the watermark of a task seen for the first time at the
@@ -1757,7 +1876,7 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		if err != nil {
 			return err
 		}
-		position, err := d.db.GetTicketRecoveryPosition(ctx, snapshot.TicketVersionID)
+		position, err := d.snapshotTicketRecovery(ctx, snapshot)
 		if err != nil {
 			return err
 		}
@@ -2091,6 +2210,22 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 	}
 }
 
+// ownCodeComment says a refused delivery command is litefactory's own comment:
+// its publisher, its retained ticket actor or a marker. Those stay unanswered.
+func (d *Daemon) ownCodeComment(ctx context.Context, sessionID int64, c github.Comment) (bool, error) {
+	if c.Author.ID == d.filter.Identities().BotUserID || turn.HasMarker(c.Body) {
+		return true, nil
+	}
+	if d.connections == nil {
+		return false, nil
+	}
+	saved, err := d.db.GetExecutionSnapshot(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	return c.Author.ID == saved.ActorID, nil
+}
+
 // handleComment classifies one comment and does whatever it asks for.
 //
 // The error return is reserved for failures that end the whole tick: a database
@@ -2109,6 +2244,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	} else if held {
 		return errors.New("issue held for doctor repair")
 	}
+	if routed, err := d.refuseUnsupportedDoctor(ctx, t, c, qualifiedReply); routed {
+		return err
+	}
 	if routed, err := d.admitDoctor(ctx, t.repo, t.issue, c); routed {
 		if err != nil {
 			return err
@@ -2126,8 +2264,19 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 			if recordErr := d.recordCodeObservation(ctx, t.session.ID, c, qualifiedReply, false); recordErr != nil {
 				return recordErr
 			}
-			_, consumeErr := d.reporter.Consume(ctx, t.session.ID, c.ID)
-			return consumeErr
+			own, ownErr := d.ownCodeComment(ctx, t.session.ID, c)
+			if ownErr != nil {
+				return ownErr
+			}
+			if own {
+				_, consumeErr := d.reporter.Consume(ctx, t.session.ID, c.ID)
+				return consumeErr
+			}
+			// Anyone else is answered, so a refused delivery command is never
+			// consumed silently. The reply path consumes only after delivery.
+			log.InfoContext(ctx, "delivery command refused; answering it", slog.Any("error", err))
+			d.commentFate(ctx, t, c.ID, fateIgnored, "refused, only the task owner can give delivery commands")
+			return d.refuseMode(ctx, t, turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID, CreatedAt: c.CreatedAt}, report.ReplyCodeControlRefused, "")
 		}
 		if err := d.recordCodeObservation(ctx, t.session.ID, c, qualifiedReply, true); err != nil {
 			return err
@@ -2170,6 +2319,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 
 	t.commentUnderWay = c.ID
 	defer func() { t.commentUnderWay = 0 }()
+
+	if commandForCode.Kind == turn.KindJudge {
+		return d.handleJudge(ctx, t, c, qualifiedReply != nil)
+	}
 
 	// A graph Plan story issue that is a task of its own has its owner comments
 	// answered here, where they were written.
@@ -2656,6 +2809,13 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
+		var planRefusal *turn.PlanReplyRefusal
+		if trigger.PlanReply != nil && errors.As(err, &planRefusal) {
+			return err
+		}
+		if mode == agent.ModeImplement && workflow != agent.WorkflowBug && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && errors.Is(err, turn.ErrRequiredTicketPublisher) {
+			return d.refuseMode(ctx, t, trigger, report.ReplyMissingTicketPublisher, "")
+		}
 		var refusal *workflowRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind, mode)
@@ -2725,12 +2885,19 @@ func (d *Daemon) run(
 		// before its publication or domain operation has been confirmed.
 		return nil
 	}
-	return d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+	err = d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+	if err == nil && turnResult.Err == nil && mode == agent.ModeImplement &&
+		t.scheduled != nil && t.scheduled.Payload == turn.ValidateImplementPayload &&
+		trigger.CommentID == t.scheduled.TriggerID() && turnResult.ResearchGraph && turnResult.Run.ID == 0 {
+		t.implementCoordinatorHandedOff = true
+	}
+	return err
 }
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
 	if mode == agent.ModePlan && turnResult.ResearchGraph && trigger.CommentID > 0 && !store.IsPrivateTrigger(trigger.CommentID) && turn.ParseCommand(trigger.Body).Kind == turn.KindFreeText {
 		if err := d.requirePlanDiscussionReported(ctx, turnResult); err != nil {
+			d.planReplyDeferred(ctx, t, trigger.CommentID, err.Error())
 			return &recoveryPending{err}
 		}
 	}
@@ -2753,6 +2920,7 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 			return errors.New("plan child completion lacks graph admission")
 		}
 		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
+			d.planReplyDeferred(ctx, t, trigger.CommentID, err.Error())
 			return &recoveryPending{err}
 		}
 		// Handled, or answered with a published failure the owner can reply to:
@@ -2767,13 +2935,25 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		return nil
 	}
 	if turnResult.ResearchGraph {
+		if mode == agent.ModePlan && turnResult.Run.ID == 0 {
+			attrs := []any{slog.String("task", t.ref.String()), slog.Int64("session_id", t.session.ID),
+				slog.Int64("trigger_id", trigger.CommentID), slog.String("reason", turnResult.Reason)}
+			if t.scheduled != nil {
+				attrs = append(attrs, slog.Int64("schedule_id", t.scheduled.ID))
+			}
+			log.InfoContext(ctx, "Plan work returned without a run", attrs...)
+		}
 		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
 			return d.leave(ctx, t, log, "the failed Plan run has no published failure comment", err)
 		}
 		// Explicit graph comment activities own publication. Consuming an input
 		// here acknowledges handling only; it never rewrites the run outcome.
-		if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {
-			return d.leave(ctx, t, log, "could not consume Research graph input", err)
+		// An issue-body trigger (CommentID 0) has no comment to consume;
+		// bootstrap records its handling through CompleteTicketBody.
+		if trigger.CommentID != 0 {
+			if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {
+				return d.leave(ctx, t, log, "could not consume Research graph input", err)
+			}
 		}
 		// After the consume, never before: the presentation must not be the first
 		// thing to advance the watermark. Its failure leaves the consumed input
@@ -2994,9 +3174,10 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	}
 	d.commentFate(ctx, t, t.commentUnderWay, fateDeferred, "deferred, "+what+"; it is retried on a later heartbeat")
 	d.rateLimited(ctx, log, t.tickAt, err)
-	d.prepareFailed(ctx, t, err)
-	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
-		slog.Any("error", err))
+	if d.prepareFailed(ctx, t, err) {
+		log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
+			slog.Any("error", err))
+	}
 	if store.IsGraphTrigger(t.commentUnderWay) || t.scheduled != nil {
 		// Dispatches and schedules need the actual cause for accounting and
 		// bounded retry; no owner-comment drain retains their errors.
@@ -3115,5 +3296,33 @@ func (d *Daemon) lowDisk(ctx context.Context) bool {
 		slog.String("path", d.diskPath),
 		slog.Uint64("free_bytes", free),
 		slog.Uint64("required_bytes", d.minFreeDiskBytes))
+	return true
+}
+
+// candidateHold contains only the metadata defining an observed admission hold.
+// It never participates in eligibility or retry bookkeeping.
+type candidateHold struct {
+	kind, key, state, reason string
+	nextAt                   time.Time
+}
+
+func (d *Daemon) observeCandidateHold(ctx context.Context, c *candidate, at time.Time) bool {
+	var hold candidateHold
+	if row, held := d.sessionRecoveryHold(c.session.ID, at); held {
+		hold = candidateHold{kind: "report-recovery", key: row.Key, state: row.State, nextAt: row.NextAt}
+	} else if row, held := d.prepFailures.hold(c.session.ID, at); held {
+		hold = candidateHold{kind: "preparation", reason: row.Reason, nextAt: row.NextAt}
+	} else {
+		delete(d.holdDiagnostics, c.session.ID)
+		return false
+	}
+	previous, seen := d.holdDiagnostics[c.session.ID]
+	if !seen || previous.kind != hold.kind || previous.key != hold.key || previous.state != hold.state || previous.reason != hold.reason || !previous.nextAt.Equal(hold.nextAt) {
+		if d.holdDiagnostics == nil {
+			d.holdDiagnostics = make(map[int64]candidateHold)
+		}
+		d.holdDiagnostics[c.session.ID] = hold
+		d.log.InfoContext(ctx, "session admission held", slog.Int64("session_id", c.session.ID), slog.String("task", c.ref.String()), slog.String("hold_kind", hold.kind), slog.String("recovery", hold.key), slog.String("state", hold.state), slog.String("reason", hold.reason), slog.Time("next_eligible", hold.nextAt))
+	}
 	return true
 }

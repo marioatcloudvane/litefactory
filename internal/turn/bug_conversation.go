@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/buganalysis"
+	"github.com/cloudvane/litefactory/internal/commandtext"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -26,12 +27,13 @@ type SimplifiedBugPolicy struct {
 	Fixer        ActivityHandler
 	Finalization ActivityHandler
 	Reporter     *Reporter
+	SyncBase     SyncBaseBinding
 }
 
 // SimplifiedBugSpecs is capture-only; registration still needs real handlers.
 func SimplifiedBugSpecs() (graphexec.Registry, error) {
 	r := graphexec.Registry{Policy: graphexec.ValidateOwnerConversationGraph}
-	for _, s := range []graphexec.ActionSpec{graphexec.OwnerConversationSpec(), graphexec.BugFinalizationSpec(), {Name: ResearchAgentAction, Workflow: agent.WorkflowBug, Outcomes: graphexec.OwnerStopAgentOutcomes(), Attributes: graphexec.AgentAttributes()}} {
+	for _, s := range []graphexec.ActionSpec{graphexec.OwnerConversationSpec(), graphexec.BugFinalizationSpec(), graphexec.SyncBaseWorkflowSpec(agent.WorkflowBug, ""), {Name: ResearchAgentAction, Workflow: agent.WorkflowBug, Outcomes: graphexec.OwnerStopAgentOutcomes(), Attributes: graphexec.AgentAttributes()}} {
 		if e := r.Register(s); e != nil {
 			return r, e
 		}
@@ -61,6 +63,17 @@ func (p SimplifiedBugPolicy) Register(specs *graphexec.Registry, activities *Act
 	if e = activities.Register("lf_bug_finalize", p.Finalization); e != nil {
 		return e
 	}
+	for _, node := range p.Profile.Nodes {
+		if node.Action == graphexec.SyncBaseAction {
+			if p.SyncBase.Repo == nil || p.SyncBase.Bind == nil {
+				return errors.New("explicit Bug base sync requires trusted repository and target bindings")
+			}
+			if e = activities.Register(graphexec.SyncBaseAction, graphBugSyncActivity{profile: p.Profile, binding: p.SyncBase}); e != nil {
+				return e
+			}
+			break
+		}
+	}
 	return graphexec.Validate(p.Profile, *specs)
 }
 
@@ -84,6 +97,9 @@ func (h graphBugRoleActivity) Execute(ctx context.Context, opts Options, req Act
 		}
 		if approval == nil {
 			return ActivityResult{}, store.ErrBugRepairUnauthorized
+		}
+		if e = graphBugFreshSync(ctx, opts.DB, h.p.Profile, req.InstanceID, req.NodeAttemptID); e != nil {
+			return ActivityResult{}, e
 		}
 		return h.p.Fixer.Execute(ctx, opts, req)
 	}
@@ -390,7 +406,7 @@ func AdmitGraphBugOwnerReply(ctx context.Context, db *store.DB, reply store.Grap
 	if db == nil {
 		return store.GraphOwnerWait{}, errors.New("owner admission requires graph store")
 	}
-	body := strings.TrimSpace(reply.Body)
+	body := strings.TrimSpace(commandtext.Normalize(reply.Body))
 	if _, explicit := ParseCommand(body).Mode(); explicit {
 		return store.GraphOwnerWait{}, errors.New("explicit mode commands must be handled before Bug continuation")
 	}
