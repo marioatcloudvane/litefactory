@@ -165,26 +165,75 @@ func TestPlanReplyReason_CurrentState(t *testing.T) {
 	}
 }
 
+// acceptanceQuestionWait models #951: story and technical approved, the
+// acceptance draft saved, and an acceptance_ask question wait left open.
+func acceptanceQuestionWait(t *testing.T, change func(*planbrief.PlanStoryState)) planbrief.PlanState {
+	t.Helper()
+	s := workflowFixture(t, "a", "b")
+	for n := range 2 {
+		r := workflowReply(t, &s, 0, int64(10+n))
+		if ok, err := s.ApplyOwnerReply(r); err != nil || !ok {
+			t.Fatalf("approve %s: %v %v", r.Stage, ok, err)
+		}
+	}
+	if change != nil {
+		change(&s.Stories[0])
+	}
+	if err := s.OpenPlanWait("a", "plan-review:1013:9915:acceptance_ask", "question", 100); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 func TestPlanReplyReason_QuestionWaitNamesTheQuestion(t *testing.T) {
 	t.Parallel()
 	const nothing = "Nothing on this story is waiting for your approval right now"
 	const question = "This story is waiting for your answer to its latest question, not for an approval."
+	const exact = "/approve-plan a acceptance a-candidate"
 	s := workflowFixture(t, "a", "b")
 	_ = workflowReply(t, &s, 0, 10)
 	if reason := s.PlanReplyReason("a", "/approve-plan a story a-candidate"); reason != "" {
 		t.Fatalf("exact approval against matching review wait refused: %q", reason)
 	}
-	s.Stories[0].Wait.Kind = "question"
+	s = acceptanceQuestionWait(t, func(st *planbrief.PlanStoryState) { st.Draft.Tasks, st.Draft.Criteria = nil, nil })
 	before := cloneWorkflow(t, s)
-	reason := s.PlanReplyReason("a", "/approve-plan a story a-candidate")
+	reason := s.PlanReplyReason("a", exact)
 	if !strings.Contains(reason, question) || strings.Contains(reason, nothing) {
 		t.Fatalf("question wait refusal = %q", reason)
+	}
+	if got := s.PlanCurrentCommand("a"); got != "" {
+		t.Fatalf("unqualified question wait names command %q", got)
 	}
 	if !reflect.DeepEqual(s, before) {
 		t.Fatal("refusal mutated plan state")
 	}
+	s = acceptanceQuestionWait(t, func(st *planbrief.PlanStoryState) { st.Draft.Questions = []string{"Which owner?"} })
+	if reason := s.PlanReplyReason("a", exact); !strings.Contains(reason, "still has open questions") || strings.Contains(reason, nothing) {
+		t.Fatalf("open questions refusal = %q", reason)
+	}
+	if got := s.PlanCurrentCommand("a"); got != "" {
+		t.Fatalf("question wait with open questions names command %q", got)
+	}
 	s.Stories[0].Wait = nil
-	if reason := s.PlanReplyReason("a", "/approve-plan a story a-candidate"); !strings.Contains(reason, nothing) {
+	if reason := s.PlanReplyReason("a", exact); !strings.Contains(reason, nothing) {
 		t.Fatalf("missing wait refusal = %q", reason)
+	}
+}
+
+func TestPlanReplyReason_EmptyQuestionWaitAcceptsExactApproval(t *testing.T) {
+	t.Parallel()
+	s := acceptanceQuestionWait(t, nil)
+	if reason := s.PlanReplyReason("a", "/approve-plan a acceptance a-candidate"); reason != "" {
+		t.Fatalf("exact approval against empty question wait refused: %q", reason)
+	}
+	if got := s.PlanCurrentCommand("a"); got != "/approve-plan a acceptance a-candidate" {
+		t.Fatalf("current command = %q", got)
+	}
+	if reason := s.PlanReplyReason("a", "/approve-plan a acceptance other"); !strings.Contains(reason, "/approve-plan a acceptance a-candidate") {
+		t.Fatalf("mismatched approval refusal = %q", reason)
+	}
+	s.SharedRevision = "new-shared"
+	if reason := s.PlanReplyReason("a", "/approve-plan a acceptance a-candidate"); !strings.Contains(reason, "changed after the latest review") {
+		t.Fatalf("stale question wait refusal = %q", reason)
 	}
 }
