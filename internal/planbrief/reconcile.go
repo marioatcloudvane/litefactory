@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -255,8 +256,22 @@ func PreserveStoryText(source, rendered string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// storyLinkText is the [text](<url>) form the story renderer writes for a URL.
+var storyLinkText = regexp.MustCompile(`\[([^\[\]\n]+)\]\(<(https?://[^\s<>]*)>\)`)
+
 func editedText(s string) string {
-	return html.UnescapeString(strings.ReplaceAll(strings.TrimSpace(s), "<br>", "\n"))
+	s = strings.ReplaceAll(strings.TrimSpace(s), "<br>", "\n")
+	// Undo the renderer's link form: a bare URL was written as [url](<url>)
+	// and an input link [text](url) as [text](<url>).
+	s = storyLinkText.ReplaceAllStringFunc(s, func(link string) string {
+		m := storyLinkText.FindStringSubmatch(link)
+		if html.UnescapeString(m[1]) == m[2] {
+			return m[2]
+		}
+		return "[" + m[1] + "](" + m[2] + ")"
+	})
+	return html.UnescapeString(s)
 }
 func editedList(s string) []string {
 	if strings.TrimSpace(s) == "None." || strings.TrimSpace(s) == "" {
