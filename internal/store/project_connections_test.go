@@ -532,3 +532,102 @@ func TestManagedChildRetainedSource(t *testing.T) {
 		})
 	}
 }
+
+// A story discovery admitted first under another same-source code/ticket pair
+// is adopted by its managed parent; any other difference still conflicts.
+func TestManagedChildAdoptsDiscoveredSameSourceChild(t *testing.T) {
+	for _, change := range []string{"same", "actor", "code-remote", "empty-code-remote", "ticket-remote", "repo"} {
+		t.Run(change, func(t *testing.T) {
+			db := newTestDB(t)
+			ctx := t.Context()
+			repo := testRepo(t, db, "owner", "repo")
+			ref := func(key, id string) ticket.Ref {
+				return ticket.Ref{Identity: ticket.Identity{Provider: ticket.GitHub, Origin: "https://api.github.com", RemoteID: id}, Locator: ticket.Locator{Provider: ticket.GitHub, Origin: "https://api.github.com", Container: repo.Slug(), Key: key}}
+			}
+			codeA, err := db.SetConnection(ctx, connectionFixture(repo, CodeConnection), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tv := connectionFixture(repo, TicketConnection)
+			tv.RemoteID = "500"
+			ticketA, err := db.SetConnection(ctx, tv, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			childActor, childCode := int64(42), "900"
+			switch change {
+			case "actor":
+				childActor++
+			case "code-remote":
+				childCode = "901"
+			case "empty-code-remote":
+				childCode = ""
+			}
+			childRef := ref("950", "5897118535")
+			if _, err = db.AddTicketBinding(ctx, TicketBinding{RepoID: repo.ID, ConnectionVersionID: ticketA.ID, Ref: childRef, Enabled: true, Provenance: "discovery"}); err != nil {
+				t.Fatal(err)
+			}
+			child, err := db.AdmitSession(ctx, repo, childRef, codeA.Revision, ticketA.Revision, childActor, "bot", "child", childCode, "500")
+			if err != nil {
+				t.Fatal(err)
+			}
+			codeNext := codeA
+			codeNext.CredentialEnv = "OTHER"
+			codeB, err := db.SetConnection(ctx, codeNext, codeA.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ticketNext := ticketA
+			ticketNext.CredentialEnv = "OTHER"
+			ticketB, err := db.SetConnection(ctx, ticketNext, ticketA.Revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parentRef := ref("649", "649649")
+			if _, err = db.AddTicketBinding(ctx, TicketBinding{RepoID: repo.ID, ConnectionVersionID: ticketB.ID, Ref: parentRef, Enabled: true, Provenance: "discovery"}); err != nil {
+				t.Fatal(err)
+			}
+			parent, err := db.AdmitSession(ctx, repo, parentRef, codeB.Revision, ticketB.Revision, 42, "bot", "parent", "900", "500")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Admission proves the ticket container, so model a contradictory
+			// retained record directly, as an imported snapshot could carry.
+			if change == "ticket-remote" {
+				if _, err = db.sql.ExecContext(ctx, `UPDATE session_execution_snapshots SET ticket_remote_id='501' WHERE session_id=?`, child.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if change == "repo" {
+				other := testRepo(t, db, "other", "repo")
+				if _, err = db.sql.ExecContext(ctx, `UPDATE session_execution_snapshots SET repo_id=? WHERE session_id=?`, other.ID, child.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := db.GetExecutionSnapshot(ctx, child.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding, err := db.GetTicketBinding(ctx, childRef.Identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := db.AdmitManagedChild(ctx, parent.ID, childRef, "ignored")
+			if change == "same" {
+				if err != nil || got.ID != child.ID {
+					t.Fatalf("adopt: %+v %v", got, err)
+				}
+			} else if !errors.Is(err, ErrBindingConflict) {
+				t.Fatalf("conflict accepted: %+v %v", got, err)
+			}
+			after, err := db.GetExecutionSnapshot(ctx, child.ID)
+			if err != nil || before != after {
+				t.Fatalf("snapshot mutated: %+v %v", after, err)
+			}
+			saved, err := db.GetTicketBinding(ctx, childRef.Identity)
+			if err != nil || saved != binding {
+				t.Fatalf("binding mutated: %+v %v", saved, err)
+			}
+		})
+	}
+}
