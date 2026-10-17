@@ -336,7 +336,11 @@ func effectText(name string, e *store.ValidateEffect) string {
 	}
 	text := name + ": " + e.State
 	if e.State == store.EffectFailed || e.State == store.EffectUncertain {
-		text += " (" + clipText(e.Error, 160) + "; repeat your command to retry)"
+		retry := "repeat your command to retry"
+		if name == "merge" && (ValidateState{Effects: ValidateDeliveryRows{Merge: e}}).mergeConflicted() {
+			retry = "resolve the conflict and validate again"
+		}
+		text += " (" + clipText(e.Error, 160) + "; " + retry + ")"
 	}
 	return text
 }
