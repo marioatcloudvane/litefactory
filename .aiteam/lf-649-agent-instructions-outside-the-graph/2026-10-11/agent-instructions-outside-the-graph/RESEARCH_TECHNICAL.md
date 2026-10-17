@@ -218,3 +218,15 @@ Evidence:
 - `internal/daemon/chat.go:147`
 - `internal/daemon/chat.go:154`
 - `internal/messaging/conversation_feature.go:24`
+
+## f27
+
+Codex supports custom subagents (one TOML per agent with name, description, developer_instructions). They inherit the parent's sandbox and approvals and cannot override sandbox, approval, provider or MCP servers. Codex spawns them only when told. The factory already passes agents.<role>.description and .config_file as -c overrides for graph modes and switches subagents off with features.multi_agent=false for other main roles. Claude receives subagents through --agents, which the factory sets to {} to disable. Public Codex docs do not document -c overrides, nesting depth, or codex exec behaviour; no subagent was run.
+
+Evidence:
+
+- `internal/codex/runner.go:486`
+- `internal/codex/runner.go:506`
+- `internal/codex/runner.go:510`
+- `internal/harness/runner.go:44`
+- `internal/harness/conversation.go:166`
