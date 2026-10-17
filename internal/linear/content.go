@@ -248,6 +248,10 @@ func withoutProseBlankLines(lines []string) []string {
 	return out
 }
 
+// contentLinkDestination is an http(s) link destination in angle brackets,
+// the form the story renderer writes and Linear stores; its "<" opens no HTML.
+var contentLinkDestination = regexp.MustCompile(`\]\(<https?://[^\s<>]*>\)`)
+
 var contentTableRule = regexp.MustCompile(`^:?-{2,}:?$`)
 
 func comparableContent(body string) string {
@@ -261,7 +265,7 @@ func comparableContent(body string) string {
 		// A table row is one line, so inline code or HTML inside its cells
 		// cannot span lines; its cells keep those characters untouched.
 		if fence == "" && next == "" && !managedMarker(line) && !strings.HasPrefix(line, "|") &&
-			(strings.ContainsAny(line, "`<") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")) {
+			(strings.ContainsAny(contentLinkDestination.ReplaceAllString(line, "]()"), "`<") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t")) {
 			return body
 		}
 		// Classify scaffold headings after the already-supported single-space
@@ -341,6 +345,10 @@ func comparableContent(body string) string {
 		}
 		if depth, ok := contentListItem(line); ok {
 			line = line[:depth] + "-" + line[depth+1:]
+			// Linear stores a checked item as [X]; our tick writes [x].
+			if strings.HasPrefix(line[depth+2:], "[X] ") {
+				line = line[:depth+2] + "[x]" + line[depth+5:]
+			}
 		}
 		lines[i] = line
 	}
