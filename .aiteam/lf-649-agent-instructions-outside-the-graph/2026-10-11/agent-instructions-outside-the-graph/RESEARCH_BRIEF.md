@@ -6,13 +6,14 @@ Re-research all factory agent instruction sources for #649 (including judge and 
 
 ## Decisions
 
-- **d1** — Superseded by the owner's design: instructions ship as a versioned internal package in the binary, loaded like a team on first start and after an update, with a JSON catalogue mapping hardcoded role keys to agents and skills.
+- **d1** — Superseded by the owner's design: instructions ship as a versioned internal package in the binary, loaded like a team on first start and after an update, with a YAML catalogue of categories, each with a list of roles, naming the agents and skills for each role.
 - **d3** — Owner decision retained: capture text and digest at each unit of work; already-captured work keeps its bytes. A role is captured as one unit with all its agents and skills.
 - **d7** — Boundary retained: no change to agent behaviour, tools, models or supported project languages; no visual editor.
 - **d9** — Owner decision retained: graph extras and story protocol instructions stay internal for the later Book of Standards (#728).
-- **d11** — Role keys (for example judge/challenger_role) are hardcoded in the factory. The catalogue returns only the agents and skills for a key and cannot change tools, models, sandbox, schemas or other enforcement.
+- **d11** — Category and role names are hardcoded in the factory. The catalogue lists each category once with its roles and returns only the agents and skills for a role. It cannot change tools, models, sandbox, schemas or other enforcement. Unknown, missing or duplicate names fail at load.
 - **d12** — Calling a role loads its full set (role, agents, skills) in catalogue order as one captured unit; a missing or invalid member stops the call.
 - **d13** — Owner decision: operators edit the loaded files in place. Updates replace unedited files, keep edited ones with a notice, and compare exact bytes before replacing; invalid edits are saved with a .invalid name and the shipped file is loaded again.
+- **d14** — Owner decision: the catalogue is YAML, with categories each holding an array of roles.
 
 
 ## Assumptions

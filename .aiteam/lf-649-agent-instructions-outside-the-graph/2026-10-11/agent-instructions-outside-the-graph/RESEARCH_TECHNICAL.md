@@ -207,3 +207,14 @@ The judge's own evidence coverage was partial: 2027 inventory entries were unava
 Evidence:
 
 - `internal/agent/delivery_launch.go:33`
+
+## f26
+
+Chat and conversation coexist. A channel bound to a conversation is skipped by the natural-language step; every other channel uses the intent interpreter, reply writer and reply checker. /ask and /draft work on both paths, and the conversation path reaches draft through the factory.
+
+Evidence:
+
+- `internal/messaging/natural.go:54`
+- `internal/daemon/chat.go:147`
+- `internal/daemon/chat.go:154`
+- `internal/messaging/conversation_feature.go:24`
