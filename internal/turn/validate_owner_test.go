@@ -644,6 +644,36 @@ func TestOwnerShipResumesAtTheFailedStep(t *testing.T) {
 	}
 }
 
+// #948: a merge GitHub refuses with 405 "Pull Request has merge conflicts"
+// never tells the owner to repeat /validate-ship; it names the pull request and
+// the resolve, push and /validate way out.
+func TestOwnerShipMergeConflictOffersTheWayOut(t *testing.T) {
+	o := newOwnerFixture(t)
+	o.mixed()
+	commit := o.state().Commit
+	o.forge.mergeErr = errors.New("PUT https://api.github.com/repos/o/r/pulls/601/merge: 405 Method Not Allowed: Pull Request has merge conflicts")
+	o.say(o.ship())
+	if o.final() == "delivered" || o.effect(store.EffectMerge, "601@"+commit).State != store.EffectFailed || len(o.forge.issueCloses) != 0 {
+		t.Fatalf("final %s", o.final())
+	}
+	st := o.state()
+	if !st.mergeConflicted() {
+		t.Fatalf("merge effect %+v", st.Effects.Merge)
+	}
+	notice := o.notice()
+	if !strings.Contains(notice, "#601 has merge conflicts") || !strings.Contains(notice, ValidateStartCommand) || strings.Contains(notice, "Repeat") || strings.Contains(notice, ValidateShipCommand) {
+		t.Fatalf("notice %q", notice)
+	}
+	if st.implementLine() == "" && strings.Contains(notice, ValidateImplementCommand) {
+		t.Fatalf("notice offers %s the run would refuse: %q", ValidateImplementCommand, notice)
+	}
+	reports := o.forge.bodies("**Validate report**")
+	report := reports[len(reports)-1].Body
+	if !strings.Contains(report, st.mergeConflictStep()) || strings.Contains(report, st.shipLine()) || strings.Contains(report, "repeat your command to retry") {
+		t.Fatalf("report %s", report)
+	}
+}
+
 // #573 c-push-only: an individual /validate-push re-enters resolve after the
 // push and waits; it never continues to the merge.
 func TestOwnerIndividualPushStillStopsAfterThePush(t *testing.T) {
