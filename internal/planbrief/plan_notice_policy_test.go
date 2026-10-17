@@ -3,6 +3,7 @@ package planbrief_test
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
@@ -161,5 +162,29 @@ func TestPlanReplyReason_CurrentState(t *testing.T) {
 				t.Fatal("reply disposition mutated approval, request or consumption state")
 			}
 		})
+	}
+}
+
+func TestPlanReplyReason_QuestionWaitNamesTheQuestion(t *testing.T) {
+	t.Parallel()
+	const nothing = "Nothing on this story is waiting for your approval right now"
+	const question = "This story is waiting for your answer to its latest question, not for an approval."
+	s := workflowFixture(t, "a", "b")
+	_ = workflowReply(t, &s, 0, 10)
+	if reason := s.PlanReplyReason("a", "/approve-plan a story a-candidate"); reason != "" {
+		t.Fatalf("exact approval against matching review wait refused: %q", reason)
+	}
+	s.Stories[0].Wait.Kind = "question"
+	before := cloneWorkflow(t, s)
+	reason := s.PlanReplyReason("a", "/approve-plan a story a-candidate")
+	if !strings.Contains(reason, question) || strings.Contains(reason, nothing) {
+		t.Fatalf("question wait refusal = %q", reason)
+	}
+	if !reflect.DeepEqual(s, before) {
+		t.Fatal("refusal mutated plan state")
+	}
+	s.Stories[0].Wait = nil
+	if reason := s.PlanReplyReason("a", "/approve-plan a story a-candidate"); !strings.Contains(reason, nothing) {
+		t.Fatalf("missing wait refusal = %q", reason)
 	}
 }

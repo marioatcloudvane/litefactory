@@ -74,11 +74,14 @@ func (s *PlanState) PlanCurrentCommand(key string) string {
 	return ""
 }
 
-// withCurrentCommand appends the command that works now, or says that nothing
-// is waiting for one.
+// withCurrentCommand appends the command that works now, names an open
+// question, or says that nothing is waiting for one.
 func (s *PlanState) withCurrentCommand(key, reason string) string {
 	if command := s.PlanCurrentCommand(key); command != "" {
 		return reason + " The command that works now is `" + command + "`."
+	}
+	if item, err := s.story(key); err == nil && item.Wait != nil && item.Wait.Kind == "question" {
+		return reason + " This story is waiting for your answer to its latest question, not for an approval. Answer it on this issue; the review that follows shows the approval command."
 	}
 	return reason + " Nothing on this story is waiting for your approval right now; its next review will show the command to use."
 }
