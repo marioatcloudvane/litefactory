@@ -12,6 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // GraphNodeRequest supplies a validated, frozen profile and activity registry.
@@ -203,6 +204,22 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		}
 		out.Status, out.NextNode = "waiting_owner", node.Name
 		return out, dispatchErr
+	}
+	// A local discovery-budget deferral inside a Plan activity is transient
+	// scheduling pressure: the failed attempt stays bounded by the node limit,
+	// and the instance stays at the node for a later retry instead of failing.
+	if dispatchErr != nil && workflow == agent.WorkflowPlan && errors.Is(dispatchErr, ticket.ErrDiscoveryDeferred) {
+		if out.Activity.Diagnostic == "" {
+			out.Activity.Diagnostic = dispatchErr.Error()
+		}
+		req.StopOnFailure, req.NextDueAt = false, req.RetryDueAt
+		completion := store.GraphCompletion{Status: store.GraphFailed, FinishedAt: req.At, InstanceStatus: store.GraphRunning, NextDueAt: req.NextDueAt}
+		completion.Outputs = append(completion.Outputs, store.GraphOutput{Kind: store.GraphOutputDiagnostic, Payload: []byte(out.Activity.Diagnostic)})
+		if err := opts.DB.CompleteGraphNodeAttempt(ctx, out.AttemptID, completion); err != nil {
+			return out, fmt.Errorf("complete deferred graph activity: %w", err)
+		}
+		out.Deferred, out.NextNode = true, node.Name
+		return out, nil
 	}
 	if dispatchErr != nil {
 		if out.Activity.Diagnostic == "" {

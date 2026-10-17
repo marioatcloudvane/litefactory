@@ -91,7 +91,7 @@ func TestPlanWorkflow_ExactOwnerReply(t *testing.T) {
 		{"wrong wait", func(r *planbrief.PlanOwnerReply) { r.WaitID = "old-wait" }, false},
 		{"ambiguous prose", func(r *planbrief.PlanOwnerReply) { r.Body = "Looks fine" }, false},
 		{"mixed change and approval", func(r *planbrief.PlanOwnerReply) { r.Body += " but change actor" }, false},
-		{"question cannot promote", func(r *planbrief.PlanOwnerReply) {}, true},
+		{"question with open questions cannot promote", func(r *planbrief.PlanOwnerReply) {}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,6 +101,7 @@ func TestPlanWorkflow_ExactOwnerReply(t *testing.T) {
 			tt.change(&r)
 			if tt.question {
 				s.Stories[0].Wait.Kind = "question"
+				s.Stories[0].Draft.Questions = []string{"Which owner?"}
 			}
 			ok, _ := s.ApplyOwnerReply(r)
 			if ok || len(s.Stories[0].Approvals) != 0 || s.Stories[0].Stage != "story" {
@@ -504,4 +505,88 @@ func TestPlanWorkflow_StrandedStoryRuleLeavesOtherStatesAlone(t *testing.T) {
 			}
 		})
 	}
+}
+
+func questionWaitReply(t *testing.T, s *planbrief.PlanState) planbrief.PlanOwnerReply {
+	t.Helper()
+	for n := range 2 {
+		r := workflowReply(t, s, 0, int64(10+n))
+		if ok, err := s.ApplyOwnerReply(r); err != nil || !ok {
+			t.Fatalf("approve %s: %v %v", r.Stage, ok, err)
+		}
+	}
+	const id = "plan-review:1013:9915:acceptance_ask"
+	if err := s.OpenPlanWait("a", id, "question", 100); err != nil {
+		t.Fatal(err)
+	}
+	st := s.Stories[0]
+	return planbrief.PlanOwnerReply{ID: 50, OwnerID: 7, ActorID: 7, IssueID: 100, Key: "a", Stage: st.Stage, Candidate: st.Candidate, WaitID: id, Body: "/approve-plan a acceptance " + st.Candidate}
+}
+
+func TestPlanWorkflow_EmptyQuestionWaitAcceptsExactApproval(t *testing.T) {
+	t.Parallel()
+	s := workflowFixture(t, "a", "b")
+	r := questionWaitReply(t, &s)
+	if s.Stories[0].Stage != "acceptance" || s.Stories[0].Wait.Kind != "question" {
+		t.Fatalf("fixture is not an acceptance question wait: %+v", s.Stories[0])
+	}
+	ref, err := s.ReviewRevision("a", "acceptance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := s.ApplyOwnerReply(r)
+	if err != nil || !ok {
+		t.Fatalf("exact approval against question wait: %v %v", ok, err)
+	}
+	st := s.Stories[0]
+	if st.Approvals["acceptance"] != ref || st.Wait != nil || !slices.Contains(s.ConsumedReplies, r.ID) {
+		t.Fatalf("approval not applied like a review: %+v consumed=%v", st, s.ConsumedReplies)
+	}
+}
+
+func TestPlanWorkflow_QuestionWaitKeepsExactMatching(t *testing.T) {
+	t.Parallel()
+	t.Run("mismatched candidate", func(t *testing.T) {
+		s := workflowFixture(t, "a", "b")
+		r := questionWaitReply(t, &s)
+		r.Candidate, r.Body = "old", "/approve-plan a acceptance old"
+		if ok, err := s.ApplyOwnerReply(r); ok || err == nil || !strings.Contains(err.Error(), "stale or wrong-story") {
+			t.Fatalf("mismatched candidate: %v %v", ok, err)
+		}
+	})
+	t.Run("shared revision changed", func(t *testing.T) {
+		s := workflowFixture(t, "a", "b")
+		r := questionWaitReply(t, &s)
+		s.SharedRevision = "new-shared"
+		if ok, err := s.ApplyOwnerReply(r); ok || err == nil || !strings.Contains(err.Error(), "dependencies or shared decisions changed") {
+			t.Fatalf("stale revision: %v %v", ok, err)
+		}
+		if _, ok := s.Stories[0].Approvals["acceptance"]; ok {
+			t.Fatal("stale reply approved")
+		}
+	})
+	t.Run("prose stays feedback", func(t *testing.T) {
+		s := workflowFixture(t, "a", "b")
+		r := questionWaitReply(t, &s)
+		r.Body = "Please add a retry task"
+		ok, err := s.ApplyOwnerReply(r)
+		if ok || err != nil || s.Stories[0].Wait != nil || !slices.Contains(s.ConsumedReplies, r.ID) {
+			t.Fatalf("prose reply: %v %v %+v", ok, err, s.Stories[0])
+		}
+		if _, ok := s.Stories[0].Approvals["acceptance"]; ok {
+			t.Fatal("prose reply approved")
+		}
+	})
+	t.Run("missing stage content", func(t *testing.T) {
+		s := workflowFixture(t, "a", "b")
+		s.Stories[0].Draft.Tasks, s.Stories[0].Draft.Criteria = nil, nil
+		r := questionWaitReply(t, &s)
+		ok, err := s.ApplyOwnerReply(r)
+		if ok || err != nil {
+			t.Fatalf("question wait without acceptance content: %v %v", ok, err)
+		}
+		if _, ok := s.Stories[0].Approvals["acceptance"]; ok {
+			t.Fatal("question wait without content approved")
+		}
+	})
 }
