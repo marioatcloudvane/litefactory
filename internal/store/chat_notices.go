@@ -152,7 +152,7 @@ func (db *DB) ListNoticeRecords(ctx context.Context, transport, source string, a
 	// Archival may remove graph rows and SQLite can then reuse their IDs.
 	// Revisit fresh records whose identity differs from the saved position.
 	if source == "transitions" || source == "owner_waits" {
-		extra, err := db.freshNoticeIDs(ctx, source, p, seen, at)
+		extra, err := db.freshNoticeIDs(ctx, source, p, at)
 		if err != nil {
 			return p, nil, err
 		}
@@ -178,25 +178,35 @@ func (db *DB) ListNoticeRecords(ctx context.Context, transport, source string, a
 
 // The bounded fallback excludes already-read facts using position metadata,
 // never message history. This also works when the highest source row is archived.
-func (db *DB) freshNoticeIDs(ctx context.Context, source string, p NoticePosition, seen string, at time.Time) ([]int64, error) {
+//
+// Each candidate's fingerprint is compared with the already-parsed Seen map in
+// Go. Filtering in SQL with a correlated json_each over the seen JSON re-parsed
+// that document once per candidate row; on a busy day (about 1,000 transitions
+// against a 130 KB seen document) every pass held the store's only connection
+// long enough to starve the heartbeat.
+func (db *DB) freshNoticeIDs(ctx context.Context, source string, p NoticePosition, at time.Time) ([]int64, error) {
 	var query string
 	switch source {
 	case "transitions":
-		query = `SELECT t.id FROM graph_transitions t JOIN graph_instances i ON i.id=t.instance_id JOIN sessions s ON s.id=i.session_id WHERE t.id<=? AND t.at>=? AND t.at>? AND NOT EXISTS(SELECT 1 FROM json_each(?) e WHERE e.key=CAST(t.id AS TEXT) AND e.value=s.task_ref||'@'||t.at) ORDER BY t.id LIMIT 256`
+		query = `SELECT t.id, s.task_ref||'@'||t.at FROM graph_transitions t JOIN graph_instances i ON i.id=t.instance_id JOIN sessions s ON s.id=i.session_id WHERE t.id<=? AND t.at>=? AND t.at>? ORDER BY t.id`
 	case "owner_waits":
-		query = `SELECT w.rowid FROM graph_owner_waits w JOIN graph_comment_intents c ON c.delivery_key=w.delivery_key JOIN graph_instances i ON i.id=w.instance_id JOIN sessions s ON s.id=i.session_id LEFT JOIN graph_node_attempts a ON a.id=w.source_attempt_id WHERE w.rowid<=? AND COALESCE(c.created_at,a.finished_at,i.started_at)>=? AND COALESCE(c.created_at,a.finished_at,i.started_at)>? AND NOT EXISTS(SELECT 1 FROM json_each(?) e WHERE e.key=CAST(w.rowid AS TEXT) AND e.value=s.task_ref||'@'||COALESCE(c.created_at,a.finished_at,i.started_at)) ORDER BY w.rowid LIMIT 256`
+		query = `SELECT w.rowid, s.task_ref||'@'||COALESCE(c.created_at,a.finished_at,i.started_at) FROM graph_owner_waits w JOIN graph_comment_intents c ON c.delivery_key=w.delivery_key JOIN graph_instances i ON i.id=w.instance_id JOIN sessions s ON s.id=i.session_id LEFT JOIN graph_node_attempts a ON a.id=w.source_attempt_id WHERE w.rowid<=? AND COALESCE(c.created_at,a.finished_at,i.started_at)>=? AND COALESCE(c.created_at,a.finished_at,i.started_at)>? ORDER BY w.rowid`
 	default:
 		return nil, errors.New("invalid recyclable notice source")
 	}
-	rows, err := db.sql.QueryContext(ctx, query, p.LastID, FormatTime(at.Add(-24*time.Hour)), FormatTime(p.InitialAt), seen)
+	rows, err := db.sql.QueryContext(ctx, query, p.LastID, FormatTime(at.Add(-24*time.Hour)), FormatTime(p.InitialAt))
 	if err != nil {
 		return nil, err
 	}
 	var ids []int64
-	for rows.Next() {
+	for rows.Next() && len(ids) < 256 {
 		var id int64
-		if err = rows.Scan(&id); err != nil {
+		var fingerprint string
+		if err = rows.Scan(&id, &fingerprint); err != nil {
 			break
+		}
+		if p.Seen[strconv.FormatInt(id, 10)] == fingerprint {
+			continue
 		}
 		ids = append(ids, id)
 	}

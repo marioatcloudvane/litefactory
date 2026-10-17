@@ -854,11 +854,34 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 		return nil, nil
 	}
 
+	// A graph Plan story of a same-source parent is resolved through the
+	// parent's admitted connection versions, never as a root pinned to the
+	// version current at discovery.
+	var story store.GraphPlanStory
+	managedStory := false
+	if d.connections != nil {
+		found, ok, err := d.db.GraphPlanStoryAt(ctx, q.repo.ID, issue.Number)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			same, err := d.sameTicketSource(ctx, q.repo.ID, found.Parent)
+			if err != nil {
+				return nil, err
+			}
+			story, managedStory = found, same
+		}
+	}
+
 	var session store.Session
 	var err error
-	if d.connections == nil {
+	switch {
+	case d.connections == nil:
 		session, err = d.db.GetOrCreateSession(ctx, q.repo, issue.Number)
-	} else {
+	case managedStory:
+		ctx = projectContext(ctx, q.repo.ID)
+		session, err = d.managedChildSession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
+	default:
 		ctx = projectContext(ctx, q.repo.ID)
 		v, e := d.db.CurrentConnection(ctx, q.repo.ID, store.TicketConnection)
 		if e != nil {
