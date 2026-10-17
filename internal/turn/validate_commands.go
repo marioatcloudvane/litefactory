@@ -260,6 +260,29 @@ func (s ValidateState) shipLine() string {
 	return fmt.Sprintf("`%s %s -- <what you checked by hand>`", ValidateShipCommand, s.Revision)
 }
 
+// mergeConflicted reports a merge GitHub refused because the pull request
+// conflicts with its target (405 "Pull Request has merge conflicts"). Repeating
+// the ship cannot clear that.
+func (s ValidateState) mergeConflicted() bool {
+	e := s.Effects.Merge
+	if e == nil || e.State != store.EffectFailed {
+		return false
+	}
+	reason := strings.ToLower(e.Error)
+	return strings.Contains(reason, "405") && strings.Contains(reason, "merge conflict")
+}
+
+// mergeConflictStep is the way out of a conflicted merge: resolve on the
+// feature branch and validate the new head, or /validate-implement when this
+// run would accept it.
+func (s ValidateState) mergeConflictStep() string {
+	step := fmt.Sprintf("Pull request #%d has merge conflicts with its target branch, so repeating the ship cannot merge it. Merge the target branch into the feature branch, resolve the conflict, push, and comment `%s` to validate the new head.", decodeEffectResult(s.Effects.PR).Number, ValidateStartCommand)
+	if s.implementLine() != "" {
+		step += fmt.Sprintf(" Or comment `%s %s` to send the work back to Implement on the same feature branch; Validate runs again on the new head.", ValidateImplementCommand, s.Revision)
+	}
+	return step
+}
+
 // NextStep is the one next step the parent report and the owner wait name: the
 // retry when a reviewer has no usable result, /validate-ship when nothing
 // blocks and delivery is unfinished, the sub-issues while the owner has other
@@ -268,6 +291,9 @@ func (s ValidateState) shipLine() string {
 func (s ValidateState) NextStep(closeSet []int) string {
 	if s.Reimplementing {
 		return "Nothing here: the blocking findings were sent back to Implement on the same feature branch. Validate runs again on the new head when Implement finishes."
+	}
+	if s.mergeConflicted() {
+		return s.mergeConflictStep()
 	}
 	if len(s.shipBlockers()) == 0 && !effectDone(s.Effects.Close) {
 		return s.shipLine()

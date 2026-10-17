@@ -368,6 +368,9 @@ func (h ValidateResolveActivity) shipStep(ctx context.Context, opts Options, req
 		if pr.Number < 1 || pr.Head != st.Commit {
 			return stop(fmt.Sprintf("/validate-ship stopped at merge: pull request #%d is at head `%s`, not the tested commit `%s`.", pr.Number, short(pr.Head), short(st.Commit)))
 		}
+		if tried(st.Effects.Merge) && st.mergeConflicted() {
+			return stop("The ship stopped at merge: " + st.mergeConflictStep())
+		}
 		if tried(st.Effects.Merge) {
 			return stop("/validate-ship stopped at merge: the merge did not succeed." + retry)
 		}
