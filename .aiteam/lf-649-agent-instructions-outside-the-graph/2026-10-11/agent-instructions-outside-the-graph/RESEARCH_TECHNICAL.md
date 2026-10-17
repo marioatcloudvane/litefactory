@@ -4,57 +4,57 @@ _Technical detail behind [the brief](RESEARCH_BRIEF.md). Findings carry the sour
 
 ## f1
 
-Inventory, doctor: diagnosis role is the Go constant FixedPrompt. It is joined with an embedded field guide (field_guide_v2.txt, 3.4 KB) and a JSON context in BuildPrompt. Version strings PromptVersion=doctor-diagnosis-v2 and GuideVersion are stored per attempt in the database.
+Doctor diagnosis is the compiled FixedPrompt, then the embedded field guide (field_guide_v2.txt, 4.7 KB) and serialized context. Identity, memory count and byte limits are checked before redacted delivery; attempts record prompt and guide versions.
 
 Evidence:
 
 - `internal/doctor/prompt.go:13`
-- `internal/doctor/prompt.go:49`
-- `internal/doctor/service.go:28`
+- `internal/doctor/prompt.go:35`
+- `internal/doctor/field_guide_v2.txt:1`
 
 ## f2
 
-Inventory, doctor repair: FixedRepairPrompt is a Go constant. Line 210 builds the prompt from it, the field guide, and a fixed 'REPAIR AUTHORITY' paragraph inline in code.
+Doctor repair joins FixedRepairPrompt, FieldGuide and an inline REPAIR AUTHORITY sentence, plus a JSON manifest. Typed approved repair execution and independent effect checks stay factory authority.
 
 Evidence:
 
-- `internal/doctor/repair.go:483`
-- `internal/doctor/repair.go:210`
+- `internal/doctor/repair.go:271`
+- `internal/doctor/repair.go:544`
 
 ## f3
 
-Inventory, chat /ask: the prompt is an inline string. It mixes wording ('keep the answer short') with a JSON answer schema, the 'untrusted data' rule and the citation rule. A second correction text is appended on retry. Answers are decoded and checked against fact handles after the model returns (DecodeAnswer).
+Ask builds its instruction and correction string inline; the current text distinguishes delivery evidence, owner waits and active work. Answers are validated separately for JSON shape and citations.
 
 Evidence:
 
-- `internal/messaging/ask/service.go:107`
 - `internal/messaging/ask/service.go:122`
+- `internal/messaging/ask/service.go:137`
 
 ## f4
 
-Inventory, chat /draft: inline prompt string with 'no tools', size limits (120 and 1300 characters), 'no commands, markers or URLs' and a JSON shape. Code enforces size and content again afterwards (Sanitize, preview, redaction, 120 and 1500 rune limits), so the text and the checks overlap by design.
+Draft uses an inline role and correction. JSON shape, sanitization and size bounds are enforced in code after extraction.
 
 Evidence:
 
-- `internal/messaging/feature/draft.go:199`
-- `internal/messaging/feature/draft.go:242`
+- `internal/messaging/feature/draft.go:213`
+- `internal/messaging/feature/draft.go:247`
 
 ## f5
 
-Inventory, conflict advisor and schedule proposal advisor: two Go prompt builders, ConflictResolutionPrompt and ScheduleProposalPrompt. Both say 'do not call tools', define a JSON schema and put the untrusted data last under a 'data, not instructions' label. Both are called from the harness and Codex runners. Parsing and validation of the reply are separate Go code.
+Conflict and schedule advisors build compiled strings in their prompt builders, called by both the Claude (harness) and Codex runners.
 
 Evidence:
 
-- `internal/agent/conflict.go:139`
-- `internal/agent/proposal.go:62`
-- `internal/harness/runner.go:78`
-- `internal/harness/runner.go:132`
-- `internal/codex/runner.go:152`
-- `internal/codex/runner.go:202`
+- `internal/agent/conflict.go:134`
+- `internal/agent/proposal.go:58`
+- `internal/harness/runner.go:79`
+- `internal/harness/runner.go:133`
+- `internal/codex/runner.go:153`
+- `internal/codex/runner.go:203`
 
 ## f6
 
-Inventory, story progress: StoryEventInstructions and EngineeringEventInstructions are long constants appended to approved prompts. They hold the event file schema, byte limits (4096 events, 4 MiB, 64 MiB) and digest recipe. This is mostly a protocol contract the factory validates on read, so most of it is enforcement, with a small amount of explanatory wording.
+StoryEventInstructions and EngineeringEventInstructions are compiled protocol guidance with schema and byte limits. They sit inside the owner's graph/protocol boundary and stay in code.
 
 Evidence:
 
@@ -63,84 +63,147 @@ Evidence:
 
 ## f7
 
-Inventory, fixed text appended to graph-mode prompts: implementNodeInstructions and implementNodeHardRules (result shapes, no commit/push); implementDelegationRequest and the wall-clock limit sentence from implementAttemptGuidance; result-helper access, baseline and 'required final route' text in result_finalization.go; per-mode hints (validate, plan, research/spike, implement) in mcp_guidance.go; the untrusted-note wrapper for the story handoff; validate retry texts. The Research role file itself repeats parts of this text (e.g. how it is invoked), so there are already two sources for some rules.
+Graph extras stay compiled: node route and result-shape text per mode, headless/asking/worktree rules, plus the Implement story-scope text and the Validate read-only contract. Excluded from this migration by the owner's Book of Standards decision (#728).
 
 Evidence:
 
+- `internal/turn/research_agent.go:20`
 - `internal/turn/implement_policy.go:17`
-- `internal/turn/implement_policy.go:19`
-- `internal/turn/research_agent.go:441`
-- `internal/turn/research_agent.go:448`
-- `internal/turn/result_finalization.go:53`
-- `internal/turn/mcp_guidance.go:93`
-- `internal/turn/implement_steps.go:419`
-- `internal/turn/validate_flow.go:285`
-
-## f8
-
-Drift already happened: the Go hard rule said 'when you cannot finish, submit incomplete' while the 1.2.6 role said otherwise. Fix #643 changed Go (implement_policy.go) in PR #651 and added delegation and time-limit sentences, again in Go. A role edit alone cannot fix such a case today.
-
-Evidence:
-
-- `internal/turn/implement_policy.go:19`
-- `internal/turn/research_agent.go:448`
-
-## f9
-
-Graph roles are Markdown with frontmatter (name, description, tier, task) in teams/<team>/v<version>/<mode>/. Release metadata is in release.json, and a generator (go run ./cmd/teamrelease, -check) validates and produces the versioned directories and teams.json. Source exists in four copies (internal/teamsource, python-fastapi, swift-ios, teams/source/dotnet-web). Installed releases are immutable; changed bytes need a new version.
-
-Evidence:
-
-- `internal/teamsource/README.md:1`
-- `internal/teamsource/release.json:1`
-- `teams/go-development/v1.2.7/research/research.md:1`
+- `internal/turn/validate_flow.go:18`
+- `internal/turn/spike_workflow.go:124`
+- `internal/harness/prompt.go:741`
+- `internal/harness/stories.go:31`
+- `internal/harness/validation.go:26`
 
 ## f10
 
-Graph roles are loaded by capture. CaptureWorkflow reads the role, skills and graph from the selected source, hashes them, and keeps the bytes in the run so resume and retry reuse the same text. Research uses a built-in embedded package. Launch refuses a graph request whose delivered role, model, skills or rendered files disagree with the captured selection (ErrDeliveryRefused); advisory calls skip delivery verification.
+Graph launch verifies captured role, model, skills and resource manifests. Workflow capture also captures a judge role when lf_judge is present and refuses replay when retained judge bytes are missing. A new loader must feed fresh capture without replacing retained bytes.
 
 Evidence:
 
-- `internal/teamsource/research.go:58`
-- `internal/teamsource/research.go:129`
 - `internal/agent/delivery_launch.go:33`
-- `internal/agent/delivery_launch.go:45`
-
-## f11
-
-User editing today: teams install into a central catalog under $LF_HOME/teams. Operators can replace a single agent source with 'team manage team:TEAM:AGENT set source=PATH' (an operator-global override that survives upstream updates), and local clones exist (teampackage clone with origin record). Installed team status reports in-sync, locally-modified, upstream-updated or conflict, and update needs --force to overwrite local edits. Override and clone only cover graph-mode agents.
-
-Evidence:
-
-- `docs/cli/teams.md:29`
-- `docs/cli/teams.md:35`
-- `internal/teampackage/clone.go:1`
+- `internal/teamsource/research.go:179`
+- `internal/teamsource/judge.go:16`
 
 ## f12
 
-Non-graph agents have no capture, digest or role/skill delivery. Chat goes through NativeModel.Answer, which takes a plain prompt string, picks the first provider with verified isolation, uses the balanced tier in a private scratch directory and writes a meter attempt. ChatRequest has only Prompt, Model, WorkingDirectory and Usage fields: there is no role or skills field.
+Capture differs by family: judge saves role and digest in its request config; conversations journal protected provider inputs; ask, draft, interpretation, narration, advisors, classifier and doctor keep no instruction capture beyond doctor prompt/guide version labels. There is no uniform contract today.
 
 Evidence:
 
-- `internal/messaging/ask/native.go:39`
-- `internal/agent/chat.go:12`
-
-## f13
-
-Safety is partly in code already: the doctor and chat run only with verified isolation (DoctorIsolation proof, else ErrUnavailable); chat answers are decoded and checked against fact handles; drafts are sanitized, redacted and size-checked; the doctor prompt is size-bounded and checked for identity before send; conflict replies are parsed against exact region lists; doctor repair steps are executed and re-verified by typed code, not by prompt text. Prompt text repeats these limits ('no tools', 'untrusted data'), so editing the text cannot remove the code checks, but it can remove the defense-in-depth sentences.
-
-Evidence:
-
-- `internal/messaging/ask/native.go:43`
-- `internal/messaging/ask/service.go:126`
-- `internal/messaging/feature/draft.go:242`
-- `internal/doctor/prompt.go:36`
-- `internal/doctor/repair.go:461`
+- `internal/turn/judge.go:124`
+- `internal/messaging/conversation_factory.go:63`
+- `internal/messaging/response/native.go:30`
 
 ## f14
 
-Related work: #631 will add new chat agents (intent and reply) and #346 serves team definitions once per factory. #631 has research questions about the narrator having no tools and keeping numbers and links from the data. These new agents are the first natural users of the new file layout.
+Intent (NativeInterpreter) and reply (generation plus independent checking prompts) agents already exist with inline text; they are current migrations, not future #631 hooks.
 
 Evidence:
 
-- `internal/messaging/ask/native.go:23`
+- `internal/messaging/interpretation.go:48`
+- `internal/messaging/presentation.go:220`
+- `internal/messaging/presentation.go:225`
+
+## f15
+
+Judge's challenger role is a Markdown file embedded in the binary. Command requests persist Role and RoleDigest before launch. The builder then appends compiled pin/evidence/result text, so the Markdown alone does not cover all judge wording.
+
+Evidence:
+
+- `internal/teamsource/judge/challenger.md:1`
+- `internal/teamsource/judge.go:9`
+- `internal/turn/judge.go:364`
+
+## f16
+
+/judge and workflow judge share one service. Workflow capture reads the embedded role asset, not an operator-edited file; advisory status is preserved.
+
+Evidence:
+
+- `internal/turn/workflow_judge.go:22`
+- `internal/teamsource/research.go:183`
+
+## f17
+
+Judge authority is code-enforced: exactly five tools (communication_preflight/receipt/submit, evidence_list, evidence_read). Editing the role cannot widen it.
+
+Evidence:
+
+- `internal/agent/judge.go:17`
+- `internal/agent/judge.go:42`
+
+## f18
+
+Conversations carry instruction text in three places: ConversationInstructions inside the prompt JSON and as provider system prompt (Claude) or developer instructions (Codex) on every turn; factoryConversationInstructions with correction string; and the action-outcome suffix.
+
+Evidence:
+
+- `internal/agent/conversation.go:60`
+- `internal/harness/conversation.go:166`
+- `internal/codex/conversation.go:172`
+- `internal/messaging/conversation_factory.go:22`
+- `internal/messaging/conversation_factory.go:242`
+- `internal/messaging/conversation_actions.go:286`
+
+## f19
+
+Conversation inputs are size-checked, protected and journaled before launch; resume reconstructs saved prompts. Migration must keep this, plus deterministic confirmations and strict envelope validation.
+
+Evidence:
+
+- `internal/agent/conversation.go:29`
+- `internal/messaging/conversation_factory.go:159`
+- `internal/messaging/conversation_protocol.go:99`
+
+## f20
+
+The workflow mode classifier is an omitted agent: classificationPrompt in the daemon, run through a stateless Classify contract on both providers.
+
+Evidence:
+
+- `internal/daemon/mode.go:89`
+- `internal/harness/runner.go:25`
+- `internal/codex/runner.go:106`
+
+## f21
+
+Response-only calls meter generation and checking separately with a bounded budget. Narration may fall back to raw text; extraction errors must use these paths, not change command results.
+
+Evidence:
+
+- `internal/messaging/response/native.go:51`
+- `internal/messaging/presentation.go:148`
+
+## f22
+
+Source read at commit e9acd0a9 in a clean worktree. No providers or tests were run, so this shows source behaviour, not deployed extraction.
+
+Evidence:
+
+- `internal/teamsource/judge_test.go:14`
+
+## f23
+
+Judge concern 1 (high) holds: the standard launch check validates graph captures only, so a non-graph call could launch uncaptured or newer-edited text on retry. Judge and conversation have partial persistence before launch; ask, draft, advisors, classifier and doctor have none. A loader needs mandatory capture, a durable unit identity, persistence before launch, rejection of missing or mismatched capture, and retry/restart tests.
+
+Evidence:
+
+- `internal/agent/delivery_launch.go:33`
+- `internal/turn/judge.go:124`
+
+## f24
+
+Judge concern 2 (medium) holds as a design gap: no extraction code exists, so atomic publication, compare-exact-bytes before replacing, preserving competing edits, first-use races, crash-safe digest records and consistent capture of role plus field guide must all be specified and tested.
+
+Evidence:
+
+- `internal/doctor/repair.go:271`
+
+## f25
+
+The judge's own evidence coverage was partial: 2027 inventory entries were unavailable and it read only part of the launch code. Its verdict is a scope check, not an inventory audit.
+
+Evidence:
+
+- `internal/agent/delivery_launch.go:33`
