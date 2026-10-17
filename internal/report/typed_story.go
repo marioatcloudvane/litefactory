@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/planbrief"
@@ -134,10 +135,50 @@ func storyList(values []string) string {
 	return strings.Join(escaped, ", ")
 }
 
+// storyURLChars is the conservative URL character set written literally.
+const storyURLChars = `[A-Za-z0-9\-._~:/?#%=+@,;!$']`
+
+var (
+	storyLinkPattern = regexp.MustCompile(`\[([^\[\]\n]+)\]\((https?://[A-Za-z0-9]` + storyURLChars + `*)\)`)
+	storyURLPattern  = regexp.MustCompile(`https?://[A-Za-z0-9]` + storyURLChars + `*`)
+)
+
 // Encode Markdown punctuation as entities and every line separator explicitly.
 // Input cannot create literal headings, tables, checklists, HTML or fence markers.
 // Escaping ampersands first also prevents input entities from becoming structure.
+// http(s) URLs are the one exception: Linear's autolinker cuts a URL at the
+// first entity, so a URL is written as a whole link in Linear's own stored
+// form, [url](<url>), with only conservative URL characters written literally.
 func storyText(value string) string {
+	var b strings.Builder
+	for len(value) > 0 {
+		link := storyLinkPattern.FindStringSubmatchIndex(value)
+		bare := storyURLPattern.FindStringIndex(value)
+		switch {
+		case link != nil && (bare == nil || link[0] <= bare[0]):
+			b.WriteString(storyEntities(value[:link[0]]))
+			url := value[link[4]:link[5]]
+			fmt.Fprintf(&b, "[%s](<%s>)", storyEntities(value[link[2]:link[3]]), url)
+			value = value[link[1]:]
+		case bare != nil:
+			end := bare[1]
+			for end > bare[0] && strings.ContainsRune(".,;:!?'", rune(value[end-1])) {
+				end--
+			}
+			url := value[bare[0]:end]
+			b.WriteString(storyEntities(value[:bare[0]]))
+			fmt.Fprintf(&b, "[%s](<%s>)", url, url)
+			value = value[end:]
+		default:
+			b.WriteString(storyEntities(value))
+			value = ""
+		}
+	}
+	return b.String()
+}
+
+// storyEntities encodes Markdown punctuation and line separators.
+func storyEntities(value string) string {
 	var b strings.Builder
 	for _, r := range value {
 		switch {

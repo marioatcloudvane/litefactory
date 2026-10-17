@@ -2,6 +2,7 @@ package planbrief_test
 
 import (
 	"encoding/json"
+	"html"
 	"reflect"
 	"strings"
 	"testing"
@@ -228,5 +229,25 @@ func TestReconcileTypedStory_ReplacementRemapsMultipleReferences(t *testing.T) {
 	}
 	if !planbrief.TypedStoryBodyMatches(got.Story, got.Body) {
 		t.Fatalf("written body and references disagree: %s", got.Body)
+	}
+}
+
+// The renderer writes URLs as [url](<url>) links; an unchanged body, rendered
+// or as Linear stores it decoded, reconciles back to the original text.
+func TestReconcileTypedStory_URLLinksRoundTrip(t *testing.T) {
+	s := typedFixture().Stories[0]
+	s.AcceptanceCriteria = []planbrief.CriterionContent{{ID: "AC-001", Text: "See https://a.test/x, [doc](https://b.test/y_z) and https://c.test/<b>."}}
+	body, err := report.RenderTypedStory(s, typedScope())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "[https://a.test/x](<https://a.test/x>)") || !strings.Contains(body, "[doc](<https://b.test/y_z>)") {
+		t.Fatalf("links not rendered: %s", body)
+	}
+	for _, b := range []string{body, html.UnescapeString(body)} {
+		got, err := planbrief.ReconcileTypedStory(s, s.Title, b, nil, typedScope())
+		if err != nil || !got.PresentationOnly || got.Story.AcceptanceCriteria[0].Text != s.AcceptanceCriteria[0].Text {
+			t.Fatalf("round trip = %q, %v", got.Story.AcceptanceCriteria, err)
+		}
 	}
 }
