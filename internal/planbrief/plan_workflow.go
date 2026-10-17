@@ -364,6 +364,32 @@ func (s *PlanState) OpenPlanWait(key, id, kind string, issueID int64) error {
 	return nil
 }
 
+// approvableWait reports whether the story's open wait can accept an exact
+// approval. A review wait can. A question wait can too when it names the
+// story's current stage and candidate and the saved draft already holds that
+// stage's content; revision, question and upstream checks still apply.
+func approvableWait(item *PlanStoryState) bool {
+	w := item.Wait
+	if w == nil {
+		return false
+	}
+	if w.Kind == "review" {
+		return true
+	}
+	if w.Kind != "question" || w.Stage != item.Stage || item.Candidate == "" || w.Candidate != item.Candidate {
+		return false
+	}
+	switch item.Stage {
+	case "story":
+		return true
+	case "technical":
+		return item.Draft.Architecture != nil
+	case "acceptance":
+		return len(item.Draft.Tasks) > 0 && len(item.Draft.Criteria) > 0
+	}
+	return false
+}
+
 // ApplyOwnerReply consumes exact authenticated replies once. Only the exact
 // command promotes; questions, prose and mixed edit/approval text remain feedback.
 func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
@@ -389,7 +415,7 @@ func (s *PlanState) ApplyOwnerReply(r PlanOwnerReply) (bool, error) {
 		return false, errors.New("plan reply dependencies or shared decisions changed")
 	}
 	command := "/approve-plan " + r.Key + " " + r.Stage + " " + r.Candidate
-	if w.Kind != "review" || strings.TrimSpace(commandtext.Normalize(r.Body)) != command {
+	if !approvableWait(item) || strings.TrimSpace(commandtext.Normalize(r.Body)) != command {
 		s.ConsumedReplies = append(s.ConsumedReplies, r.ID)
 		item.Wait = nil
 		return false, nil

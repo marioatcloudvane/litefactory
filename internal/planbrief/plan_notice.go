@@ -65,20 +65,23 @@ func (s *PlanState) PlanCurrentCommand(key string) string {
 	if err != nil || item.Wait == nil || item.Candidate == "" || item.Wait.Candidate != item.Candidate {
 		return ""
 	}
-	switch item.Wait.Kind {
-	case "review":
+	switch {
+	case approvableWait(item) && (item.Wait.Kind == "review" || len(item.Draft.Questions) == 0):
 		return "/approve-plan " + key + " " + item.Stage + " " + item.Candidate
-	case "retire":
+	case item.Wait.Kind == "retire":
 		return "/retire-plan " + key + " " + item.Candidate
 	}
 	return ""
 }
 
-// withCurrentCommand appends the command that works now, or says that nothing
-// is waiting for one.
+// withCurrentCommand appends the command that works now, names an open
+// question, or says that nothing is waiting for one.
 func (s *PlanState) withCurrentCommand(key, reason string) string {
 	if command := s.PlanCurrentCommand(key); command != "" {
 		return reason + " The command that works now is `" + command + "`."
+	}
+	if item, err := s.story(key); err == nil && item.Wait != nil && item.Wait.Kind == "question" {
+		return reason + " This story is waiting for your answer to its latest question, not for an approval. Answer it on this issue; the review that follows shows the approval command."
 	}
 	return reason + " Nothing on this story is waiting for your approval right now; its next review will show the command to use."
 }
@@ -108,7 +111,7 @@ func (s *PlanState) PlanReplyReason(key, body string) string {
 		}
 	}
 	if len(parts) == 4 && parts[0] == "/approve-plan" {
-		if w == nil || w.Kind != "review" || parts[1] != key || parts[2] != item.Stage || parts[3] != item.Candidate || w.Candidate != item.Candidate {
+		if w == nil || !approvableWait(item) || parts[1] != key || parts[2] != item.Stage || parts[3] != item.Candidate || w.Candidate != item.Candidate {
 			return s.withCurrentCommand(key, "This approval does not match the latest review of this story, so nothing was approved.")
 		}
 		if len(item.Draft.Questions) > 0 {
