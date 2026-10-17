@@ -245,3 +245,35 @@ func TestRenderTypedStoryParts_OversizedIsShortenedWithParts(t *testing.T) {
 		t.Fatalf("fitting typed story changed: %v", err)
 	}
 }
+
+// Linear's autolinker cuts a URL at its first entity, so story URLs are written
+// whole in Linear's stored link form and everything else stays entity encoded.
+func TestStoryTextURLs(t *testing.T) {
+	render := func(text string) string {
+		s := renderFixture()
+		s.AcceptanceCriteria[0].Text = text
+		body, err := report.RenderTypedStory(s, renderScope())
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, line, _ := strings.Cut(body, "- [ ] AC-001: ")
+		line, _, _ = strings.Cut(line, "\n")
+		return line
+	}
+	const mdn = "https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/focus"
+	for _, tt := range []struct{ in, want string }{
+		{"Checked MDN focus documentation (" + mdn + "): ok.", "Checked MDN focus documentation &#40;[" + mdn + "](<" + mdn + ">)&#41;: ok&#46;"},
+		{"See [LiteLLM JSON mode documentation](https://docs.litellm.ai/docs/completion/json_mode).", "See [LiteLLM JSON mode documentation](<https://docs.litellm.ai/docs/completion/json_mode>)&#46;"},
+		{"Go to https://a.test/x?y=1, then stop!", "Go to [https://a.test/x?y=1](<https://a.test/x?y=1>), then stop&#33;"},
+		{"Run javascript:alert(1)", "Run javascript:alert&#40;1&#41;"},
+		{"[x](javascript:alert(1))", "&#91;x&#93;&#40;javascript:alert&#40;1&#41;&#41;"},
+		{"See https://a.test/<b>x", "See [https://a.test/](<https://a.test/>)&#60;b&#62;x"},
+		{"[x](https://a.test/a b)", "&#91;x&#93;&#40;[https://a.test/a](<https://a.test/a>) b&#41;"},
+		{"[# t*](https://a.test)", "[&#35; t&#42;](<https://a.test>)"},
+		{"https:// alone", "https:// alone"},
+	} {
+		if got := render(tt.in); got != tt.want {
+			t.Errorf("storyText(%q)\n got %q\nwant %q", tt.in, got, tt.want)
+		}
+	}
+}

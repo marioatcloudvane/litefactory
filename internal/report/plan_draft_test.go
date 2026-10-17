@@ -63,7 +63,7 @@ func TestRenderPlanDraft_ArchitectureApplicability(t *testing.T) {
 			if kind == "frontend" {
 				d.Frontend = true
 				d.Design = []string{"https://example.com/design"}
-				want = append(want, "# Design\n\n- https://example.com/design")
+				want = append(want, "# Design\n\n- [https://example.com/design](<https://example.com/design>)")
 			}
 			_, body, err := report.RenderPlanDraft(362, 1, d, "technical", planbrief.ContentScope{})
 			if err != nil {
