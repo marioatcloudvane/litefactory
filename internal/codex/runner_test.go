@@ -6,8 +6,12 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -309,5 +313,77 @@ func TestRunnerRecoveryRechecksDelivery(t *testing.T) {
 	}
 	if _, err = os.Stat(argv); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("process launched: %v", err)
+	}
+}
+
+// #968: codex's shell tool detaches each command from codex's process group,
+// so a kill(-pgid) aimed at codex left go test and compile processes running
+// under launchd after the daemon restarted. The fake codex starts a sleeper in
+// its own process group (set -m) and the test asserts it is gone once the run
+// context is cancelled.
+func TestRunCancelKillsDescendantsOutsideCodexProcessGroup(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		out, _ := exec.CommandContext(t.Context(), "/usr/bin/pgrep", "-P", strconv.Itoa(os.Getpid())).CombinedOutput()
+		if strings.Contains(string(out), "pgrep: Cannot get process list") {
+			t.Skip("macOS sandbox denies process-list access required by process-tree test")
+		}
+	}
+	root := t.TempDir()
+	sleeperPID := filepath.Join(root, "sleeper.pid")
+	sleeperPGID := filepath.Join(root, "sleeper.pgid")
+	codexPGID := filepath.Join(root, "codex.pgid")
+	ready := filepath.Join(root, "ready")
+	runner, _ := fakeRunner(t, `
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-968"}'
+printf '%s\n' '{"type":"turn.started"}'
+/bin/ps -o pgid= -p $$ | /usr/bin/tr -d ' ' > `+codexPGID+`
+/bin/sh -c 'set -m
+/bin/sleep 120 </dev/null >/dev/null 2>&1 &
+sleeper=$!
+printf "%s" "$sleeper" > `+sleeperPID+`
+/bin/ps -o pgid= -p "$sleeper" | /usr/bin/tr -d " " > `+sleeperPGID+`
+printf ready > `+ready+`
+wait
+' </dev/null >/dev/null 2>&1 &
+/bin/sleep 120
+`)
+	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
+	defer cancel()
+	go func() {
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if b, err := os.ReadFile(ready); err == nil && string(b) == "ready" {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		cancel()
+	}()
+	result, err := runner.Run(ctx, request(t, agent.PathCold))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.Outcome != agent.OutcomeAbandoned {
+		t.Fatalf("outcome = %s (%s)", result.Outcome, result.Reason)
+	}
+	if got := strings.TrimSpace(string(mustRead(t, ready))); got != "ready" {
+		t.Fatalf("fixture not ready before cancel: %q", got)
+	}
+	sleeperGroup := strings.TrimSpace(string(mustRead(t, sleeperPGID)))
+	codexGroup := strings.TrimSpace(string(mustRead(t, codexPGID)))
+	if sleeperGroup == "" || codexGroup == "" || sleeperGroup == codexGroup {
+		t.Fatalf("fixture did not leave codex's process group: sleeper pgid %q, codex pgid %q", sleeperGroup, codexGroup)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(mustRead(t, sleeperPID))))
+	if err != nil {
+		t.Fatalf("sleeper pid: %v", err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	deadline := time.Now().Add(10 * time.Second)
+	for !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		if time.Now().After(deadline) {
+			t.Fatalf("descendant %d outside codex's process group survived cancellation", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
