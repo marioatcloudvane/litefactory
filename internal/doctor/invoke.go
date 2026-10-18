@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/cloudvane/litefactory/internal/agent"
 	"os"
 	"sync/atomic"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorConversation, id, provider, model string, manifest PathManifest, instruction string, failure func(error) (Conversation, error)) (_ Conversation, err error) {
+func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorConversation, id, provider, model string, manifest PathManifest, instruction string, captured *instructionpackage.RoleCapture, failure func(error) (Conversation, error)) (_ Conversation, err error) {
 	memory, e := s.DB.DoctorAttempts(ctx, c.ID)
 	if e != nil {
 		return failure(e)
@@ -35,7 +36,7 @@ func (s *Service) invoke(ctx context.Context, r DiagnoseRequest, c store.DoctorC
 	if e != nil {
 		return failure(e)
 	}
-	prompt, e := BuildPrompt(PromptContext{Instructions: instruction, Target: r.Target.String(), Manifest: manifest, Memory: prior, CurrentDiagnosis: current, CurrentProposal: proposal, MemoryOmissions: "Latest 30 attempts only; prior evidence snapshots omitted; current findings and proposal retained separately"})
+	prompt, e := BuildPrompt(PromptContext{Instructions: instruction, Target: r.Target.String(), Manifest: manifest, Memory: prior, CurrentDiagnosis: current, CurrentProposal: proposal, MemoryOmissions: "Latest 30 attempts only; prior evidence snapshots omitted; current findings and proposal retained separately"}, captured)
 	if e != nil {
 		return failure(e)
 	}
