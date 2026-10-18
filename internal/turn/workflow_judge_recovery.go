@@ -85,8 +85,10 @@ func recoverWorkflowJudgeAttempt(ctx context.Context, opts Options, attempt stor
 			return input, err
 		}
 		input.RecoverOnly = true
-		input.Role, err = teamsource.WorkflowJudgeInstructions(definition)
-		return input, err
+		// Recovery only retrieves saved reports or records interruption; historical
+		// captures need not acquire instructions for a launch that cannot occur.
+		input.Instructions, _ = teamsource.WorkflowJudgeCapture(definition)
+		return input, nil
 	}}
 	var activities ActivityRegistry
 	if err := activities.Register(graphexec.JudgeAction, handler); err != nil {

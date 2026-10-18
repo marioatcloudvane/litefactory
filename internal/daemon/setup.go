@@ -425,7 +425,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			judgeProviders[kind] = native
 		}
 	}
-	judgeService := &turn.JudgeService{DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
+	judgeService := &turn.JudgeService{Logger: s.Logger, DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
 	turnOpts := turn.Options{
 		ProjectApprovers: true,
 		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {

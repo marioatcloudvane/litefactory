@@ -1,14 +1,16 @@
 // Package instructionpackage supplies a versioned, checked instruction baseline,
 // read-only owner overlays, and retained role captures. The production catalogue
-// includes merge-conflict-advisor, schedule-proposal-advisor, mode-classifier,
+// includes the judge challenger with its fixed pin/evidence resources, plus
+// merge-conflict-advisor, schedule-proposal-advisor, mode-classifier,
 // doctor-diagnosis and doctor-repair. Doctor roles select factory-fixed skills.
 // Change the shipped version whenever shipped bytes change. Agent names are
 // lowercase words joined by hyphens, without extensions, and select only
 // agents/<name>.md.
 //
 // Package metadata.yaml contains schema: 1 and a nonblank version string;
-// catalogue.yaml is a YAML sequence of registered role names. Files
-// are agents/<name>.md and skills/<name>/SKILL.md with declared requires/resources.
+// catalogue.yaml is a YAML sequence of registered role names. Role files are
+// agents/<name>.md; the challenger closure also includes resources/judge files.
+// Skill files are skills/<name>/SKILL.md with declared requires/resources.
 // Metadata and each text file are limited to 1 MiB, total
 // baseline/capture content to 16 MiB, and shipped inventory to 4096 files.
 // Identity hashes sorted paths and exact bytes using length framing; whitespace

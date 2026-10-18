@@ -117,19 +117,26 @@ func TestBaselineOwnsBytesAndDeterministicIdentity(t *testing.T) {
 	}
 }
 
-func TestEmbeddedCatalogueRegistersAdvisorsAndClassifier(t *testing.T) {
+func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 	pkg, err := New(t.Context(), config.NewPaths(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair"}
-	if !slices.Equal(pkg.Roles(), want) || pkg.Version() != "1.2.0" || pkg.Digest() == "" {
+	want := []string{JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair"}
+	if !slices.Equal(pkg.Roles(), want) || pkg.Version() != "1.3.0" || pkg.Digest() == "" {
 		t.Fatal("embedded package must register the migrated roles and advance its version")
 	}
 	for _, role := range want {
 		capture, _, err := pkg.Capture(t.Context(), role)
 		if err != nil || len(capture.Instructions()) == 0 {
 			t.Fatalf("capture %s: %v", role, err)
+		}
+		if role == JudgeRole {
+			for _, name := range []string{JudgeRolePath, JudgePinPrefixPath, JudgeEvidenceSuffixPath} {
+				if len(capture.Resource(name)) == 0 {
+					t.Fatalf("missing judge resource %s", name)
+				}
+			}
 		}
 	}
 }
