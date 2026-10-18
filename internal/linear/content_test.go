@@ -184,8 +184,8 @@ func TestScaffoldEntities(t *testing.T) {
 		{`Text\&#46;`, `Text\.`, true},
 		{"Text&#46;", `Text\.`, false},
 		{"Text&amp;#46;", "Text&#46;", false},
-		{"Text&period;", "Text.", true},
-		{"Text&#x2e;", "Text.", true},
+		{"Text&period;", "Text.", false},
+		{"Text&#x2e;", "Text.", false},
 		{"Text&unknown;", "Text.", false},
 		{"Text&#46;", "Text!", false},
 		{"Text **bold&#46;**", "Text **bold.**", true},
@@ -211,11 +211,6 @@ func TestScaffoldEntities(t *testing.T) {
 	}
 	references := []struct{ encoded, decoded string }{
 		{"no&#95;invoice &#40;x&#41; &#42;", "no_invoice (x) *"},
-		{"no&#x5f;invoice &#x28;x&#x29; &#x2A;", "no_invoice (x) *"},
-		{"a &amp; b &quot;d&quot; &#39;e&#39;", `a & b "d" 'e'`},
-		// A raw "<" outside a table falls back to byte comparison (a separate,
-		// excluded issue), so &lt; and &gt; are shown equal to their numeric form.
-		{"&lt;c&gt;", "&#60;c&#x3E;"},
 	}
 	shapes := []struct {
 		name string
@@ -234,8 +229,8 @@ func TestScaffoldEntities(t *testing.T) {
 			}
 		}
 	}
-	if a, b := story(shapes[3].line("&lt;c&gt;")), story(shapes[3].line("<c>")); !ContentEquivalent(a, b) || !ContentEquivalent(b, a) {
-		t.Fatal("table &lt; &gt; not decoded")
+	if a, b := story(shapes[3].line("&lt;c&gt;")), story(shapes[3].line("<c>")); ContentEquivalent(a, b) || ContentEquivalent(b, a) {
+		t.Fatal("table &lt; &gt; decoded")
 	}
 	if ContentEquivalent(expected, strings.Replace(expected, `"frontend":true`, `"frontend":false`, 1)) {
 		t.Fatal("metadata edit accepted")

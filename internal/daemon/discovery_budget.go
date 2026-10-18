@@ -16,8 +16,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
-// ErrDiscoveryDeferred is local scheduling pressure, not a remote refusal.
-var ErrDiscoveryDeferred = errors.New("background discovery deferred")
+// ErrDiscoveryDeferred is local scheduling pressure, not a remote refusal. It
+// is the ticket sentinel so graph execution can recognize it without the daemon.
+var ErrDiscoveryDeferred = ticket.ErrDiscoveryDeferred
 
 const (
 	discoveryBurst      = 400
