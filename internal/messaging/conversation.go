@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
@@ -33,6 +34,7 @@ type ConversationBinding struct{ Channel, Name, Provider, Model string }
 // ConversationOptions is installed before workers start. Context selection belongs
 // to the caller and conveys data only. Access is rechecked before every external effect.
 type ConversationOptions struct {
+	Instructions    *instructionpackage.Package
 	Factory         bool
 	Bindings        []ConversationBinding
 	StateRoot       string
@@ -51,6 +53,7 @@ type conversationRuntime struct {
 	root, worker string
 	check        func(context.Context, string) error
 	prepared     func(context.Context, string) (string, error)
+	instructions *instructionpackage.Package
 	factory      bool
 	next         int
 	accessMu     sync.Mutex
@@ -64,11 +67,18 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 	if !filepath.IsAbs(options.StateRoot) || options.CheckAccess == nil || s.Protect == nil {
 		return errors.New("conversation private root, protection and authorization are required")
 	}
+	if options.Instructions == nil {
+		var err error
+		options.Instructions, err = instructionpackage.ShippedConversationPackage(ctx)
+		if err != nil {
+			return err
+		}
+	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
 	}
-	r := &conversationRuntime{bindings: make(map[string]ConversationBinding), providers: make(map[string]ConversationProvider), models: make(map[string]string), accessAfter: make(map[string]time.Time), root: filepath.Clean(options.StateRoot), worker: hex.EncodeToString(nonce[:]), check: options.CheckAccess, prepared: options.PreparedContext, factory: options.Factory}
+	r := &conversationRuntime{bindings: make(map[string]ConversationBinding), providers: make(map[string]ConversationProvider), models: make(map[string]string), accessAfter: make(map[string]time.Time), root: filepath.Clean(options.StateRoot), worker: hex.EncodeToString(nonce[:]), check: options.CheckAccess, prepared: options.PreparedContext, factory: options.Factory, instructions: options.Instructions}
 	for name, provider := range options.Providers {
 		r.providers[name] = provider
 	}
@@ -82,13 +92,16 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 	}
 	defer s.conversations.Store(r)
 	var failures []error
+	if err := s.migrateConversationInstructions(ctx, at); err != nil {
+		failures = append(failures, err)
+	}
 	for _, b := range options.Bindings {
 		if !s.channels[b.Channel] || b.Name == "" || b.Model == "" || (b.Provider != "claude" && b.Provider != "codex") || r.bindings[b.Channel].Channel != "" {
 			failures = append(failures, errors.New("invalid conversation channel binding"))
 			continue
 		}
 		r.bindings[b.Channel] = b
-		if err := s.ensureConversation(ctx, r.root, b, at); err != nil {
+		if err := s.ensureConversation(ctx, r, b, at); err != nil {
 			failures = append(failures, err)
 		}
 	}
@@ -139,19 +152,38 @@ func (s *Service) conversationBound(channel string) bool {
 	return ok
 }
 
-func (s *Service) ensureConversation(ctx context.Context, root string, b ConversationBinding, at time.Time) error {
+func (s *Service) ensureConversation(ctx context.Context, r *conversationRuntime, b ConversationBinding, at time.Time) error {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
 	}
 	// The random directory is independent of the channel label and owner input.
-	state := filepath.Join(root, hex.EncodeToString(nonce[:]))
-	_, err := s.db.EnsureConversation(ctx, store.Conversation{Transport: s.transport, ChannelRef: b.Channel, OwnerID: s.owner, Name: b.Name, Provider: b.Provider, StateDir: state}, at)
+	state := filepath.Join(r.root, hex.EncodeToString(nonce[:]))
+	var raw []byte
+	old, readErr := s.db.ReadConversation(ctx, s.transport, b.Channel)
+	if readErr != nil && !errors.Is(readErr, store.ErrNotFound) {
+		return readErr
+	}
+	if readErr != nil || old.Provider != b.Provider {
+		capture, diagnostics, err := r.instructions.CaptureConversation(ctx)
+		if err != nil {
+			return err
+		}
+		s.logConversationInstructionDiagnostics(ctx, diagnostics)
+		raw, err = capture.Encode()
+		if err != nil {
+			return err
+		}
+	}
+	bound, err := s.db.EnsureConversationWithCapture(ctx, store.Conversation{Transport: s.transport, ChannelRef: b.Channel, OwnerID: s.owner, Name: b.Name, Provider: b.Provider, StateDir: state}, raw, at)
 	if err != nil {
 		c, e := s.db.ReadConversation(ctx, s.transport, b.Channel)
 		if e == nil && !errors.Is(err, store.ErrConversationDrain) {
 			err = errors.Join(err, s.db.SetConversationHealth(ctx, c.ID, "conversation configuration change refused; provider change requires drained work and the same owner", at))
 		}
+	}
+	if err == nil {
+		_, err = s.restoreConversationInstructions(ctx, bound.ID, at)
 	}
 	return err
 }
@@ -180,7 +212,7 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 			continue
 		}
 		if c.Provider != b.Provider {
-			if err = s.ensureConversation(ctx, r.root, b, at); err != nil && !errors.Is(err, store.ErrConversationDrain) {
+			if err = s.ensureConversation(ctx, r, b, at); err != nil && !errors.Is(err, store.ErrConversationDrain) {
 				return false, err
 			}
 			c, err = s.db.ReadConversation(ctx, s.transport, channel)
@@ -197,6 +229,10 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 		}
 		if c.HealthReason != "" {
 			continue
+		}
+		instructions, instructionErr := s.restoreConversationInstructions(ctx, c.ID, at)
+		if instructionErr != nil {
+			return false, instructionErr
 		}
 		if err = conversationAccess(ctx, r, channel, at); err != nil {
 			if accessRetry(err) > 0 {
@@ -288,7 +324,7 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 			if previousErr == nil && previous.State == "interrupted" {
 				recovery = "The previous turn was interrupted. Its input was not replayed. Continue available native context without claiming its answer completed."
 			}
-			prompt, err := agent.ConversationPrompt(input, prepared, recovery)
+			prompt, err := agent.ConversationPrompt(instructions.Native(), input, prepared, recovery)
 			if err != nil {
 				return false, err
 			}
@@ -324,6 +360,13 @@ func (s *Service) runConversation(ctx context.Context, c store.Conversation, b C
 		return s.runFactoryConversation(ctx, c, b, t, at)
 	}
 	r := s.conversations.Load()
+	instructions, err := s.restoreConversationInstructions(ctx, c.ID, at)
+	if err != nil {
+		return err
+	}
+	if err := s.validateConversationPrompt(ctx, c.ID, t.Prompt, instructions, false, at); err != nil {
+		return err
+	}
 	provider := r.providers[c.Provider]
 	if provider == nil {
 		s.logConversationFailure(ctx, c, t, agent.ConversationError(agent.ErrConversationIsolation, "preparation", true))
@@ -350,7 +393,7 @@ func (s *Service) runConversation(ctx context.Context, c store.Conversation, b C
 	defer cancel()
 	// Identity uses the factory UUID for cold launch and only the exact native
 	// handle for resume. Never select latest or retry uncertain input.
-	result, runErr := provider.RunConversation(turnCtx, agent.ConversationRequest{ConversationID: c.ID, TurnID: t.ID, Model: b.Model, StateDirectory: c.StateDir, Prompt: t.Prompt, Session: agent.SessionRef{Ref: sessionRef, Resume: c.SessionHandle}, BeforeLaunch: func(callback context.Context) error {
+	result, runErr := provider.RunConversation(turnCtx, agent.ConversationRequest{ConversationID: c.ID, TurnID: t.ID, Model: b.Model, StateDirectory: c.StateDir, Prompt: t.Prompt, NativeInstructions: instructions.Native(), Session: agent.SessionRef{Ref: sessionRef, Resume: c.SessionHandle}, BeforeLaunch: func(callback context.Context) error {
 		if err := conversationAccess(callback, r, c.ChannelRef, at); err != nil {
 			return err
 		}

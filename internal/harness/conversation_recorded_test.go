@@ -59,7 +59,7 @@ printf '{"type":"result","session_id":"%s","result":"recorded answer","is_error"
 		t.Fatal(err)
 	}
 	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=secret", "ANTHROPIC_API_KEY=secret"}}
-	request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "fixture-model", StateDirectory: state, Prompt: "prepared owner input", Session: agent.SessionRef{Ref: "factory-session"}, BeforeLaunch: func(context.Context) error { return nil }, OnSession: func(context.Context, agent.SessionRef) error { return nil }}
+	request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "fixture-model", StateDirectory: state, Prompt: "prepared owner input", NativeInstructions: "captured fixture instructions", Session: agent.SessionRef{Ref: "factory-session"}, BeforeLaunch: func(context.Context) error { return nil }, OnSession: func(context.Context, agent.SessionRef) error { return nil }}
 	return runner, request
 }
 
@@ -115,7 +115,7 @@ func TestRecordedClaudeResumeAndMissingState(t *testing.T) {
 					t.Fatalf("missing launch control %s", flag)
 				}
 			}
-			for flag, want := range map[string]string{"--resume": "native-session", "--tools": "", "--setting-sources": "", "--settings": `{"disableAllHooks":true}`, "--agents": "{}", "--system-prompt": agent.ConversationInstructions} {
+			for flag, want := range map[string]string{"--resume": "native-session", "--tools": "", "--setting-sources": "", "--settings": `{"disableAllHooks":true}`, "--agents": "{}", "--system-prompt": request.NativeInstructions} {
 				i := slices.Index(args, flag)
 				if i < 0 || i+1 == len(args) || args[i+1] != want {
 					t.Fatalf("unsafe %s: %v", flag, args)
@@ -227,5 +227,27 @@ func TestRecordedClaudeProbeExhaustion(t *testing.T) {
 	}
 	if _, err = os.Stat(filepath.Join(request.StateDirectory, "home", "launch.count")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("launched after exhausted probe: %v", err)
+	}
+}
+
+func TestConversationArgumentsReapplyCapturedNativeInstructions(t *testing.T) {
+	for _, resume := range []string{"", "native-session"} {
+		request := agent.ConversationRequest{Model: "model", NativeInstructions: "captured instructions with \"quotes\"\nand exact spaces ", Session: agent.SessionRef{Ref: "factory-session", Resume: resume}}
+		args := conversationArguments(request, "/private/mcp.json")
+		i := slices.Index(args, "--system-prompt")
+		if i < 0 || i+1 >= len(args) || args[i+1] != request.NativeInstructions {
+			t.Fatal("native instructions changed")
+		}
+	}
+}
+
+func TestRecordedClaudeMissingNativeInstructionsRefusesLaunch(t *testing.T) {
+	runner, request := recordedClaudeConversation(t, "normal")
+	request.NativeInstructions = ""
+	if _, err := runner.RunConversation(t.Context(), request); err == nil {
+		t.Fatal("missing retained instructions accepted")
+	}
+	if _, err := os.Stat(filepath.Join(request.StateDirectory, "home", "launch.count")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid request launched model: %v", err)
 	}
 }

@@ -1,0 +1,162 @@
+[
+  {
+    "path": "Makefile",
+    "sha256": "23315d984725ebf9ae90ad7d8f7f8ba2eb4bba64823f9c287e6cd765d32126de"
+  },
+  {
+    "path": "internal/agent/conversation.go",
+    "sha256": "29493967acb3e04392f586aceda124d71ddb1817f9943d89154352e8cf69146c"
+  },
+  {
+    "path": "internal/agent/conversation_test.go",
+    "sha256": "10b816eae9c4df910187912ca8f5df7ca769d1fee407bf14b15629321ae0ceda"
+  },
+  {
+    "path": "internal/codex/conversation.go",
+    "sha256": "7dd011a8779b702601a3bfc1e30f54fbca8bc57a256614accecd40fe96dded99"
+  },
+  {
+    "path": "internal/codex/conversation_recorded_test.go",
+    "sha256": "0f71caae7b82048497b9fbc0bc15ab448c3c9ed19ec7cd863bb708d44b9ededf"
+  },
+  {
+    "path": "internal/daemon/setup.go",
+    "sha256": "abf8e79dd53e4dac2ed2da383c28a67f7c1485ebb1dc9f5f4714b84b84c23da7"
+  },
+  {
+    "path": "internal/harness/conversation.go",
+    "sha256": "2c6e6b583d273ee5446324c677116b4c91422ae9ca9522a51950fc920d1751ef"
+  },
+  {
+    "path": "internal/harness/conversation_recorded_test.go",
+    "sha256": "911cf537628cd3059d07986d2b48dbe3ed311fb980325e5caa9ccd590adf8dc1"
+  },
+  {
+    "path": "internal/instructionpackage/baseline_test.go",
+    "sha256": "91570b71b732e48746321ae92997be3a85c8f50c0e02ed0040e7a56dc724c534"
+  },
+  {
+    "path": "internal/instructionpackage/conversation.go",
+    "sha256": "d86aef0a6f56e111bfa2e9f8b1bc460c73653ee46021b735396294fab8b295b8"
+  },
+  {
+    "path": "internal/instructionpackage/conversation_test.go",
+    "sha256": "1622202ccfe6b09efc75ef093fd0d8bbdea2b145a73035691233c49bc1d9b926"
+  },
+  {
+    "path": "internal/instructionpackage/doc.go",
+    "sha256": "026a1a0eaea1aa089a733630ec952b947c1239270b00b6d09633b87ba8b78529"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/agents/conversation-action-outcome.md",
+    "sha256": "301d365df47496d7a10c614bcf5ef2ff402741b4755204a17b3ed31a333b8e96"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/agents/conversation-correction.md",
+    "sha256": "7c9ce3f8fb77e71d798a2900dec0f0806d1bbbd750ea92a588085b6c311271ce"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/agents/conversation-factory.md",
+    "sha256": "e1c19fa77eeda20e042c047ec68e177c5470f6184ad6ce789ac1497b00dbb53d"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/agents/conversation-native.md",
+    "sha256": "d60dc41b8d3934a99b9596375d44d12f1e79e3c55e99e1a7ec05024cce0e5ffe"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/catalogue.yaml",
+    "sha256": "bf33b13e0b4bf19324ed7974557731150a7e0940c5f33f0475fac302469d06a6"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/metadata.yaml",
+    "sha256": "01d3933e497e14deb05ec5c48233e842a1ab4363c80ca904f283562d93903eec"
+  },
+  {
+    "path": "internal/instructionpackage/legacy-conversation-v1/agents/conversation-action-outcome.md",
+    "sha256": "301d365df47496d7a10c614bcf5ef2ff402741b4755204a17b3ed31a333b8e96"
+  },
+  {
+    "path": "internal/instructionpackage/legacy-conversation-v1/agents/conversation-correction.md",
+    "sha256": "7c9ce3f8fb77e71d798a2900dec0f0806d1bbbd750ea92a588085b6c311271ce"
+  },
+  {
+    "path": "internal/instructionpackage/legacy-conversation-v1/agents/conversation-factory.md",
+    "sha256": "e1c19fa77eeda20e042c047ec68e177c5470f6184ad6ce789ac1497b00dbb53d"
+  },
+  {
+    "path": "internal/instructionpackage/legacy-conversation-v1/agents/conversation-native.md",
+    "sha256": "d60dc41b8d3934a99b9596375d44d12f1e79e3c55e99e1a7ec05024cce0e5ffe"
+  },
+  {
+    "path": "internal/instructionpackage/legacy-conversation-v1/catalogue.yaml",
+    "sha256": "bf33b13e0b4bf19324ed7974557731150a7e0940c5f33f0475fac302469d06a6"
+  },
+  {
+    "path": "internal/instructionpackage/legacy-conversation-v1/metadata.yaml",
+    "sha256": "20946b21892c949041939e1deba72ae48bce647a0c370f72c6958104b5fe28bc"
+  },
+  {
+    "path": "internal/messaging/conversation.go",
+    "sha256": "7299552810210f1161151fb45ed8d8bf369c468a1892d9140f9523534901b2b9"
+  },
+  {
+    "path": "internal/messaging/conversation_actions.go",
+    "sha256": "0de10a27e0be55968c3710d4ec390b0e162ad7cb3704a6ab3291da3512b8ea9c"
+  },
+  {
+    "path": "internal/messaging/conversation_factory.go",
+    "sha256": "82d90d18a99773a63ac2cb208932b24a8fc6a5298251eb4e99c047a395aaa748"
+  },
+  {
+    "path": "internal/messaging/conversation_instruction_fixture_test.go",
+    "sha256": "5eb2076b01b8f0d8b27b0ecace211db70530fe69899f602df4d5bb3bbb2d41b5"
+  },
+  {
+    "path": "internal/messaging/conversation_instruction_identity_test.go",
+    "sha256": "dbedf59868d121fb36748ca2f047e3dd4d6937b76daefd2b191fa440420b909f"
+  },
+  {
+    "path": "internal/messaging/conversation_instructions.go",
+    "sha256": "e948605532f70402d79e6544a5e47c6b908976886c2aee6a05d96206258b74c1"
+  },
+  {
+    "path": "internal/messaging/conversation_instructions_e2e_test.go",
+    "sha256": "e7790a231a55299b16f21cc919ac71b0993145da698d8a5eafc1333ee359a5db"
+  },
+  {
+    "path": "internal/messaging/conversation_instructions_test.go",
+    "sha256": "91fff9760051d581279720468333668b223be5b8b398c164bc4773a5d4552c79"
+  },
+  {
+    "path": "internal/messaging/conversation_recorded_recovery_test.go",
+    "sha256": "bfb421ea60e379da4af7d6da9bb7351f63c8170c411901f883dc40c05f58f6a6"
+  },
+  {
+    "path": "internal/messaging/conversation_recovery_fixture_test.go",
+    "sha256": "0c5925d96422f65c99e1213bf3a0c4e392242c9a9be971447b4b97151fecbc48"
+  },
+  {
+    "path": "internal/providerprocess/conversation_test.go",
+    "sha256": "3a0c914a66b070aefc5c4b03c11c254d19aec32fb8094cf0600e6f5c4be7c34a"
+  },
+  {
+    "path": "internal/store/archive_registry.go",
+    "sha256": "1834dc1ec080dcb605a7cfbd2816503b19c1c5795c7d8a138b7c8384c3f3b5d2"
+  },
+  {
+    "path": "internal/store/conversation_instructions.go",
+    "sha256": "cd99ea168e882bcf384b849b3bdb4158c2956b34e99c2d98dec6aa0cb9bfed72"
+  },
+  {
+    "path": "internal/store/conversation_instructions_test.go",
+    "sha256": "ad3677ae868bd7fd56a5aa54636991ec7f758daa9aede123db44e1a8b2cd70e7"
+  },
+  {
+    "path": "internal/store/conversations.go",
+    "sha256": "1abffeb478295b3d753481ab19814e67966ccace78f693f7efefb05058904817"
+  },
+  {
+    "path": "internal/store/migrations/20261018020939585_conversation_instructions.sql",
+    "sha256": "8c35be06ff44e4db04984fe2fea5f4f18e40e5df6dcee490531ecb891dd6f0c8"
+  }
+]
