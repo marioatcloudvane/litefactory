@@ -1,12 +1,12 @@
 // Package instructionpackage supplies a versioned, checked instruction baseline,
 // read-only owner overlays, and retained role captures. The production catalogue
-// is explicitly empty: this foundation migrates no live prompt callers or text.
-// Add real catalogue entries with the later role migrations and change the shipped
-// version whenever shipped bytes change. Agent names are lowercase words joined
+// contains the native conversation, factory envelope, correction and action-outcome
+// roles. Change the shipped version whenever shipped bytes change. Agent names
+// are lowercase words joined
 // by hyphens, without extensions, and select only agents/<name>.md.
 //
 // Package metadata.yaml contains schema: 1 and a nonblank version string;
-// catalogue.yaml is a YAML sequence (the embedded foundation ships []). Files
+// catalogue.yaml is a YAML sequence of the shipped role names. Files
 // are agents/<name>.md. Metadata and each text file are limited to 1 MiB, total
 // baseline/capture content to 16 MiB, and shipped inventory to 4096 files.
 // Identity hashes sorted paths and exact bytes using length framing; whitespace
@@ -32,7 +32,12 @@
 // On replay call Restore(retainedBytes) without opening current sources.
 // Integrity covers retained identity, provenance, diagnostics, and file hashes;
 // it detects corruption but does not authenticate externally supplied records.
-// Persistence belongs to each later caller migration. Later appended resources or
+// Conversations retain all four roles atomically through their binding, including
+// aggregate integrity and explicit legacy-baseline provenance. Legacy migration
+// uses separately pinned files without owner overlays; new conversations capture
+// the current package. Restored conversations never consult current sources. The
+// encoded conversation aggregate is limited to 16 MiB before decoding.
+// Persistence belongs to each caller. Later appended resources or
 // skills must join the same validated captured closure and effective digest; they
 // must not be reread live during execution. This package grants no tools, modes,
 // credentials, gates, retries, result schemas, or execution authority: existing

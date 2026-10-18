@@ -49,7 +49,7 @@ func TestConversationFenceRefusesProcessBeforeLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	fenced := errors.New("stale worker")
-	request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "model", StateDirectory: state, Prompt: "owner", Session: agent.SessionRef{Ref: "session"}, OnSession: func(context.Context, agent.SessionRef) error { return nil }, BeforeLaunch: func(context.Context) error { return fenced }}
+	request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "model", StateDirectory: state, Prompt: "owner", NativeInstructions: "Captured native instructions.", Session: agent.SessionRef{Ref: "session"}, OnSession: func(context.Context, agent.SessionRef) error { return nil }, BeforeLaunch: func(context.Context) error { return fenced }}
 	marker := filepath.Join(scratch, "launched")
 	err := RunConversationProcess(t.Context(), "/bin/sh", []string{"-c", `touch "$1"`, "provider", marker}, nil, request, scratch, time.Second, func([]byte) {})
 	if !errors.Is(err, fenced) {
@@ -66,7 +66,7 @@ func TestConversationFailureStartBoundary(t *testing.T) {
 			state := conversationTestDirectory(t)
 			scratch := state
 			sentinel := errors.New("fence refused")
-			request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "model", StateDirectory: state, Prompt: "owner", Session: agent.SessionRef{Ref: "session"}, OnSession: func(context.Context, agent.SessionRef) error { return nil }, BeforeLaunch: func(context.Context) error {
+			request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "model", StateDirectory: state, Prompt: "owner", NativeInstructions: "Captured native instructions.", Session: agent.SessionRef{Ref: "session"}, OnSession: func(context.Context, agent.SessionRef) error { return nil }, BeforeLaunch: func(context.Context) error {
 				if mode == "fence" {
 					return sentinel
 				}

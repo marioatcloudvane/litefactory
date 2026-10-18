@@ -1,0 +1,21 @@
+# github.com/cloudvane/litefactory/internal/projectconnection [github.com/cloudvane/litefactory/internal/store.test]
+internal/projectconnection/approver.go:4:2: could not import context (open ../../../Library/Caches/go-build/c0/c0aa55d8dca4f97ff0110a001d345e140d7be1f5b6e600bb822d691392b02fa1-d: no such file or directory)
+internal/projectconnection/approver.go:5:2: could not import errors (open ../../../Library/Caches/go-build/e0/e0d1fd2733470e42c944950ab4179bca27bbb0b5592409f558ee55e403a9927b-d: no such file or directory)
+internal/projectconnection/approver.go:6:2: could not import fmt (open ../../../Library/Caches/go-build/aa/aae54b967f01100bd0f7c688efe6cc6cee751abc52321de800bbe542dc5eab09-d: no such file or directory)
+internal/projectconnection/approver.go:7:2: could not import strconv (open ../../../Library/Caches/go-build/cc/cc796451f9d29b59004c271729832bbae7baeababbcad3911cc3095318c653be-d: no such file or directory)
+internal/projectconnection/approver.go:8:2: could not import strings (open ../../../Library/Caches/go-build/55/55e1b2af19557294138947eb8e4c22ee7ce75d2c5db5fb7ef858c3b4ba3def6d-d: no such file or directory)
+internal/projectconnection/approver.go:9:2: could not import time (open ../../../Library/Caches/go-build/d9/d9b09d82cbc039aed0684a2497ae85bd019304b710ee24030d0395294024d272-d: no such file or directory)
+internal/projectconnection/approver.go:11:2: could not import github.com/cloudvane/litefactory/internal/github (open ../../../Library/Caches/go-build/e8/e8500b6a3e32a22e0f41b0e72d8e91ed05d32b59143fdab89fe04a719c37a91d-d: no such file or directory)
+internal/projectconnection/approver.go:13:2: could not import github.com/cloudvane/litefactory/internal/ticket (open ../../../Library/Caches/go-build/c2/c291d029a4f744fbfb86e70b911e88ad3bd7e73321652d22663a79cea1258beb-d: no such file or directory)
+internal/projectconnection/factory.go:7:2: could not import log/slog (open ../../../Library/Caches/go-build/44/444d9e9a39b0a5e077954612b8a388a73973a02462d3e7575b12c2a0d5aa723a-d: no such file or directory)
+internal/projectconnection/factory.go:8:2: could not import net/http (open ../../../Library/Caches/go-build/40/401ea09874eaa31b9fa3396b40a9461baa7e57ea1dc0c526c3e8b339bb75d2a1-d: no such file or directory)
+internal/projectconnection/factory.go:8:2: too many errors
+# github.com/cloudvane/litefactory/internal/resultservice [github.com/cloudvane/litefactory/internal/store.test]
+internal/resultservice/submit.go:6:2: could not import context (open ../../../Library/Caches/go-build/c0/c0aa55d8dca4f97ff0110a001d345e140d7be1f5b6e600bb822d691392b02fa1-d: no such file or directory)
+internal/resultservice/submit.go:7:2: could not import errors (open ../../../Library/Caches/go-build/e0/e0d1fd2733470e42c944950ab4179bca27bbb0b5592409f558ee55e403a9927b-d: no such file or directory)
+internal/resultservice/submit.go:8:2: could not import fmt (open ../../../Library/Caches/go-build/aa/aae54b967f01100bd0f7c688efe6cc6cee751abc52321de800bbe542dc5eab09-d: no such file or directory)
+# github.com/cloudvane/litefactory/internal/store
+# [github.com/cloudvane/litefactory/internal/store]
+vet: internal/store/acceptance.go:4:2: could not import context (open ../../../Library/Caches/go-build/c0/c0aa55d8dca4f97ff0110a001d345e140d7be1f5b6e600bb822d691392b02fa1-d: no such file or directory)
+FAIL	github.com/cloudvane/litefactory/internal/store [build failed]
+FAIL

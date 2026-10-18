@@ -105,7 +105,7 @@ func TestConversationRecordedCrashBeforeIdentityRetainsAndFences(t *testing.T) {
 			if err = db.StageNaturalScan(ctx, scan, store.NaturalScan{ChannelRef: "3", Cursor: "100", HighWater: "102"}, []store.NaturalMessage{{ChannelRef: "3", SourceID: "101", OwnerID: "7", Text: "uncertain original input", CreatedAt: oldAt}, {ChannelRef: "3", SourceID: "102", OwnerID: "7", Text: "queued follow-up", CreatedAt: oldAt}}, true); err != nil {
 				t.Fatal(err)
 			}
-			prompt, err := agent.ConversationPrompt("uncertain original input", "", "")
+			prompt, err := agent.ConversationPrompt(retainedNativeInstructions(t, db, binding.ID), "uncertain original input", "", "")
 			if err != nil {
 				t.Fatal(err)
 			}

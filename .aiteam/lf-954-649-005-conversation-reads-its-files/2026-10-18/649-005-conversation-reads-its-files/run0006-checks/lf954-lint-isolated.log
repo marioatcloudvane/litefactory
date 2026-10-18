@@ -1,0 +1,4 @@
+golangci-lint v2.13.1 (installed)
+level=error msg="Running error: context loading failed: failed to load packages: failed to load packages: failed to load with go/packages: context deadline exceeded"
+level=error msg="Timeout exceeded: try increasing it by passing --timeout option"
+make: *** [lint] Error 4

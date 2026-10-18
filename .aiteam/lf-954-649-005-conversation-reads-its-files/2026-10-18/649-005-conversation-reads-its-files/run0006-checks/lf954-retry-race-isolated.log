@@ -1,0 +1,14 @@
+--- FAIL: TestRecordedClaudePatchVersionEvidence (29.59s)
+    conversation_recorded_test.go:178: patch rejected: {Answer:[114 101 99 111 114 100 101 100 32 97 110 115 119 101 114] Session:{Ref:factory-session Resume:factory-session}} context deadline exceeded
+--- FAIL: TestRecordedClaudeProbeRecovery (52.29s)
+    --- FAIL: TestRecordedClaudeProbeRecovery/kill_-KILL_$$ (18.63s)
+        conversation_recorded_test.go:204: recovery: {Answer:[114 101 99 111 114 100 101 100 32 97 110 115 119 101 114] Session:{Ref:factory-session Resume:factory-session}} context deadline exceeded identities=1
+    --- FAIL: TestRecordedClaudeProbeRecovery/exec_/bin/sleep_30 (32.97s)
+        conversation_recorded_test.go:204: recovery: {Answer:[114 101 99 111 114 100 101 100 32 97 110 115 119 101 114] Session:{Ref:factory-session Resume:factory-session}} context deadline exceeded identities=1
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/harness	693.730s
+--- FAIL: TestConversationFailureStartBoundary (6.75s)
+    --- FAIL: TestConversationFailureStartBoundary/wait (6.33s)
+        conversation_test.go:96: lost wait cause: &agent.ConversationFailure{Phase:"process_wait", NoProcessStarted:false, Cause:context.deadlineExceededError{}}
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/providerprocess	43.581s

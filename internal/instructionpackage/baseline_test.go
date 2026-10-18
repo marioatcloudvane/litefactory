@@ -117,16 +117,13 @@ func TestBaselineOwnsBytesAndDeterministicIdentity(t *testing.T) {
 	}
 }
 
-func TestEmbeddedCatalogueIsExplicitlyEmpty(t *testing.T) {
+func TestEmbeddedCatalogueContainsConversationRoles(t *testing.T) {
 	pkg, err := New(t.Context(), config.NewPaths(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.Roles()) != 0 || pkg.Version() == "" || pkg.Digest() == "" {
-		t.Fatal("embedded foundation must have a versioned empty catalogue")
-	}
-	if !bytes.Equal(bytes.TrimSpace(pkg.files[CataloguePath]), []byte("[]")) {
-		t.Fatal("embedded empty catalogue is not explicit")
+	if !slices.Equal(pkg.Roles(), ConversationRoles()) || pkg.Version() == "" || pkg.Digest() == "" {
+		t.Fatal("embedded conversation inventory is incomplete")
 	}
 }
 

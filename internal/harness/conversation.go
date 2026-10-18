@@ -163,7 +163,7 @@ func (r *Runner) RunConversation(ctx context.Context, request agent.Conversation
 }
 
 func conversationArguments(request agent.ConversationRequest, mcp string) []string {
-	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--safe-mode", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcp, "--agents", "{}", "--settings", `{"disableAllHooks":true}`, "--system-prompt", agent.ConversationInstructions, "--model", request.Model}
+	args := []string{"-p", "--verbose", "--output-format", "stream-json", "--restricted", "--safe-mode", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", "", "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcp, "--agents", "{}", "--settings", `{"disableAllHooks":true}`, "--system-prompt", request.NativeInstructions, "--model", request.Model}
 	if request.Session.Resume != "" {
 		return append(args, "--resume", request.Session.Resume)
 	}

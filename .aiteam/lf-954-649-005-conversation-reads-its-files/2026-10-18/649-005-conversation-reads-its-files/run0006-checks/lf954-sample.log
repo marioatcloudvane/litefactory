@@ -1,0 +1,1 @@
+sample[32271]: sample cannot examine process 20607 (go) because you do not have appropriate privileges to examine it; try running with `sudo`.
