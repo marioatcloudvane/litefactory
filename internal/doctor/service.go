@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,17 +18,17 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
-
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// PromptVersion identifies the fixed diagnosis authority.
+// PromptVersion preserves the historical diagnosis format label; captures identify instruction bytes.
 const PromptVersion = "doctor-diagnosis-v2"
 
-// GuideVersion identifies the separately maintained factory guide.
+// GuideVersion preserves the historical field guide label; captures identify instruction bytes.
 const GuideVersion = "doctor-field-guide-v2"
 
 // ErrIsolationUnavailable refuses unverified adapters without a weaker fallback.
@@ -36,6 +37,8 @@ var ErrIsolationUnavailable = errors.New("doctor provider isolation is not verif
 // Service shares durable history and control between CLI and future forge intake.
 // No provider is enabled until its tool isolation has authentic evidence.
 type Service struct {
+	Instructions      instructionpackage.CaptureSource
+	Logger            *slog.Logger
 	RestartRoute      RestartRoute
 	RepairEnvironment RepairEnvironment
 	RepairRunner      RepairRunner
@@ -122,6 +125,13 @@ func (s *Service) Diagnose(ctx context.Context, r DiagnoseRequest) (out Conversa
 		saved, readErr := s.ReadConversation(cleanup, r.Target)
 		return saved, &safeFailure{cause: errors.Join(cause, redactionErr, finishErr, readErr), message: reason}
 	}
+	captured, e := s.captureInstructions(ctx, "doctor-diagnosis")
+	if e != nil {
+		return failure(e)
+	}
+	if e = s.retainInstructions(ctx, id, captured); e != nil {
+		return failure(e)
+	}
 	manifest, preferred, e := s.pathManifest(ctx, r.Target)
 	if e != nil {
 		return failure(e)
@@ -148,7 +158,7 @@ func (s *Service) Diagnose(ctx context.Context, r DiagnoseRequest) (out Conversa
 	if isolationErr != nil {
 		return failure(isolationErr)
 	}
-	return s.invoke(ctx, r, c, id, string(provider), model, manifest, body.String(), failure)
+	return s.invoke(ctx, r, c, id, string(provider), model, manifest, body.String(), captured, failure)
 }
 
 // selectProvider tries the issue's own agent first, then every configured
@@ -396,6 +406,9 @@ func (s *Service) recoverResult(ctx context.Context, ref naming.Ref) error {
 		return nil
 	}
 	if err != nil {
+		return err
+	}
+	if err := s.checkRetainedInstructions(ctx, attempt.ID); err != nil {
 		return err
 	}
 	var evidence store.DoctorEvidence

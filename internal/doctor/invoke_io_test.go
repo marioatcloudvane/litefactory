@@ -27,7 +27,7 @@ func (r *retainedResultRunner) Run(ctx context.Context, in Invocation, results *
 	if info.Mode().Perm() != 0700 || in.MeterAttempt.RunID != 0 || in.MeterAttempt.DoctorAttemptID != in.ID || in.ConfiguredModel == "" {
 		r.t.Fatalf("unsafe invocation: %+v mode=%v", in, info.Mode())
 	}
-	if !strings.Contains(in.Prompt, FieldGuide) {
+	if !strings.Contains(in.Prompt, testDoctorGuide(r.t)) {
 		r.t.Fatal("missing field guide")
 	}
 	d := Diagnosis{Findings: []Finding{{Explanation: "No workflow session is available.", Uncertainty: "Diagnosis is limited by missing sources."}}, CoverageGaps: append([]string(nil), results.evidence.Gaps...)}

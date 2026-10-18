@@ -51,7 +51,7 @@ func (p *liveProviderFixture) RunDoctor(ctx context.Context, r agent.DoctorReque
 	if err := r.Validate(); err != nil {
 		return agent.DoctorRunResult{}, err
 	}
-	if !strings.Contains(r.Prompt, FieldGuide) || strings.Contains(r.Prompt, "untrusted_evidence") || strings.Contains(r.Prompt, "pre-read-canary") || strings.Contains(r.Prompt, "no filesystem, shell") {
+	if !strings.Contains(r.Prompt, testDoctorGuide(p.t)) || strings.Contains(r.Prompt, "untrusted_evidence") || strings.Contains(r.Prompt, "pre-read-canary") || strings.Contains(r.Prompt, "no filesystem, shell") {
 		p.t.Fatal("legacy evidence reached diagnosis prompt")
 	}
 	p.manifest = promptManifest(p.t, r.Prompt)
@@ -266,12 +266,12 @@ func TestDoctorSandboxStartupFailureKeepsInputWithoutFallback(t *testing.T) {
 
 func TestDoctorFieldGuideAndPromptDescribeLiveSourcesOnly(t *testing.T) {
 	for _, name := range []string{"daemon_log", "runs.log_path", "worktree", "sessions", "runs", "graph_instances", "graph_dispatches", "graph_node_attempts", "implement_stories", "schedules", "comments", "watermarks", "report_deliveries"} {
-		if !strings.Contains(FieldGuide, name) {
+		if !strings.Contains(testDoctorGuide(t), name) {
 			t.Errorf("field guide omits %s", name)
 		}
 	}
 	context := PromptContext{Instructions: "Inspect this stuck case", Target: "github:acme/api#406", Manifest: PathManifest{Live: true, TaskRef: "github:acme/api#406", DaemonLog: "/factory/logs/daemon.log", RunLogs: []string{"/factory/run.jsonl"}, Worktree: "/worktree", Tools: []string{"shell", "database_query", "issue_comments"}}, Memory: []store.DoctorAttempt{{OwnerText: "Previous owner input"}}, MemoryOmissions: "older attempts omitted"}
-	prompt, err := BuildPrompt(context)
+	prompt, err := BuildPrompt(context, testDoctorCapture(t, "doctor-diagnosis"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +572,7 @@ func liveSyncBranchProposal(t *testing.T, mode string) {
 
 func TestDoctorFieldGuideMissingPlanOwnersContract(t *testing.T) {
 	for _, want := range []string{"plan scope: release declares no task owners", "task_owner: true", "implementation-engineer", "integration-test-engineer", "unit-test-engineer", "linked", "retained Plan capture", "go-development 1.0.0", "cut and link a new go-development release", "Relinking alone does not replace", "source-versus-live uncertainty", "without claiming a repair"} {
-		if !strings.Contains(FieldGuide, want) {
+		if !strings.Contains(testDoctorGuide(t), want) {
 			t.Errorf("field guide missing %q", want)
 		}
 	}

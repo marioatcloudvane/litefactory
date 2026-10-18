@@ -11,6 +11,8 @@ import (
 	"io"
 	"slices"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/skillclosure"
 )
 
 // CapturedFile owns exact selected bytes and their origin and SHA-256 hash.
@@ -49,12 +51,19 @@ func (p *Package) Capture(ctx context.Context, role string) (*RoleCapture, []Dia
 	if !slices.Contains(p.roles, role) {
 		return nil, nil, unknownRole(role)
 	}
-	files, sources, diagnostics, err := p.selectFiles(ctx, role)
+	selectFiles := p.selectFiles
+	if len(selectedSkills(role)) != 0 {
+		selectFiles = p.selectSkillFiles
+	}
+	files, sources, diagnostics, err := selectFiles(ctx, role)
 	if err != nil {
 		return nil, nil, err
 	}
 	data := CaptureData{Schema: SchemaVersion, Role: role, ShippedVersion: p.version, ShippedDigest: p.digest, EffectiveDigest: contentDigest(files), Diagnostics: slices.Clone(diagnostics)}
-	names := []string{CataloguePath, rolePath(role)}
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
 	slices.Sort(names)
 	for _, name := range names {
 		data.Files = append(data.Files, CapturedFile{name, bytes.Clone(files[name]), sources[name], hashBytes(files[name])})
@@ -148,15 +157,23 @@ func validateCapture(data CaptureData) error {
 	if !validDigest(data.ShippedDigest) || !validDigest(data.EffectiveDigest) || !validDigest(data.Integrity) {
 		return fmt.Errorf("invalid capture digest")
 	}
-	if len(data.Files) != 2 {
-		return fmt.Errorf("capture must contain exactly catalogue and role")
+	expectedPaths := capturePaths(data.Role)
+	hasSkills := len(selectedSkills(data.Role)) != 0
+	if len(data.Files) < 2 || len(data.Files) > MaxFiles {
+		return fmt.Errorf("invalid capture file count")
+	}
+	if !hasSkills && len(data.Files) != len(expectedPaths) {
+		return fmt.Errorf("capture must contain complete role resource closure")
 	}
 	files := make(map[string][]byte, 2)
 	sources := make(map[string]Source, 2)
 	total := 0
 	previous := ""
 	for _, file := range data.Files {
-		if file.Path != CataloguePath && file.Path != rolePath(data.Role) {
+		if !skillclosure.SafePath(file.Path) {
+			return fmt.Errorf("unsafe captured file")
+		}
+		if !hasSkills && !slices.Contains(expectedPaths, file.Path) {
 			return fmt.Errorf("unexpected captured file")
 		}
 		if file.Path <= previous {
@@ -183,13 +200,42 @@ func validateCapture(data CaptureData) error {
 	if !slices.Contains(roles, data.Role) {
 		return fmt.Errorf("captured role absent from catalogue")
 	}
-	if err := validateText(files[rolePath(data.Role)]); err != nil {
-		return fmt.Errorf("captured role: %w", err)
+	for _, name := range expectedPaths {
+		if name == CataloguePath {
+			continue
+		}
+		if err := validateText(files[name]); err != nil {
+			return fmt.Errorf("captured resource %s: %w", name, err)
+		}
+		if sources[CataloguePath] == SourceShipped && sources[name] == SourceOwner {
+			return fmt.Errorf("owner resource requires validated owner catalogue")
+		}
 	}
-	if sources[CataloguePath] == SourceShipped && sources[rolePath(data.Role)] == SourceOwner {
-		return fmt.Errorf("owner role requires validated owner catalogue")
+	if hasSkills {
+		closure, err := roleClosure(data.Role, func(name string) ([]byte, error) {
+			raw, ok := files[name]
+			if !ok {
+				return nil, fmt.Errorf("missing captured closure file %s", name)
+			}
+			return raw, nil
+		})
+		if err != nil {
+			return fmt.Errorf("captured closure: %w", err)
+		}
+		if len(closure) != len(files) {
+			return fmt.Errorf("unexpected captured file")
+		}
+		for _, source := range sources {
+			if source != sources[CataloguePath] {
+				return fmt.Errorf("mixed-source skill closure")
+			}
+		}
 	}
-	if len(data.Diagnostics) > 2 {
+	maxDiagnostics := len(expectedPaths)
+	if hasSkills {
+		maxDiagnostics = 2
+	}
+	if len(data.Diagnostics) > maxDiagnostics {
 		return fmt.Errorf("too many capture diagnostics")
 	}
 	seen := map[string]bool{}
@@ -209,6 +255,19 @@ func validateCapture(data CaptureData) error {
 	}
 	if captureIntegrity(data) != data.Integrity {
 		return fmt.Errorf("capture integrity mismatch")
+	}
+	return nil
+}
+
+// Role returns the captured catalogue role.
+func (c *RoleCapture) Role() string { return c.data.Role }
+
+// Resource returns an owned copy of a selected resource, or nil if absent.
+func (c *RoleCapture) Resource(path string) []byte {
+	for _, file := range c.data.Files {
+		if file.Path == path {
+			return bytes.Clone(file.Content)
+		}
 	}
 	return nil
 }

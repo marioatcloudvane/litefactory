@@ -117,13 +117,30 @@ func TestBaselineOwnsBytesAndDeterministicIdentity(t *testing.T) {
 	}
 }
 
-func TestEmbeddedCatalogueContainsConversationRoles(t *testing.T) {
+func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 	pkg, err := New(t.Context(), config.NewPaths(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(pkg.Roles(), ConversationRoles()) || pkg.Version() == "" || pkg.Digest() == "" {
-		t.Fatal("embedded conversation inventory is incomplete")
+	want := append(ConversationRoles(), JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair")
+	if !slices.Equal(pkg.Roles(), want) || pkg.Version() != "1.4.0" || pkg.Digest() == "" {
+		t.Fatal("embedded package must register the migrated roles and advance its version")
+	}
+	if len(pkg.files) != 16 {
+		t.Fatalf("embedded inventory has %d files, want ten roles, metadata, catalogue, two judge resources and two doctor skills", len(pkg.files))
+	}
+	for _, role := range want {
+		capture, _, err := pkg.Capture(t.Context(), role)
+		if err != nil || len(capture.Instructions()) == 0 {
+			t.Fatalf("capture %s: %v", role, err)
+		}
+		if role == JudgeRole {
+			for _, name := range []string{JudgeRolePath, JudgePinPrefixPath, JudgeEvidenceSuffixPath} {
+				if len(capture.Resource(name)) == 0 {
+					t.Fatalf("missing judge resource %s", name)
+				}
+			}
+		}
 	}
 }
 

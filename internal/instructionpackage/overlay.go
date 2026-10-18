@@ -191,9 +191,13 @@ func (r contextReader) Read(p []byte) (int, error) {
 }
 
 func (p *Package) selectFiles(ctx context.Context, role string) (map[string][]byte, map[string]Source, []Diagnostic, error) {
-	name := rolePath(role)
-	files := map[string][]byte{CataloguePath: bytes.Clone(p.files[CataloguePath]), name: bytes.Clone(p.files[name])}
-	sources := map[string]Source{CataloguePath: SourceShipped, name: SourceShipped}
+	names := capturePaths(role)
+	files := make(map[string][]byte, len(names))
+	sources := make(map[string]Source, len(names))
+	for _, name := range names {
+		files[name] = bytes.Clone(p.files[name])
+		sources[name] = SourceShipped
+	}
 	var diagnostics []Diagnostic
 	fallback := func(file string, err error) {
 		diagnostics = append(diagnostics, Diagnostic{role, file, failureCategory(err), SourceShipped})
@@ -229,24 +233,29 @@ func (p *Package) selectFiles(ctx context.Context, role string) (map[string][]by
 	}
 	files[CataloguePath] = catalogue
 	sources[CataloguePath] = SourceOwner
-	raw, err := owner.read(ctx, name)
-	if err == nil {
-		if validation := validateText(raw); validation != nil {
-			err = ownerError("invalid", validation)
+	for _, name := range names {
+		if name == CataloguePath {
+			continue
 		}
-	}
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, nil, nil, ctx.Err()
+		raw, err := owner.read(ctx, name)
+		if err == nil {
+			if validation := validateText(raw); validation != nil {
+				err = ownerError("invalid", validation)
+			}
 		}
-		fallback(name, err)
-	} else {
-		files[name] = raw
-		sources[name] = SourceOwner
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, nil, ctx.Err()
+			}
+			fallback(name, err)
+		} else {
+			files[name] = raw
+			sources[name] = SourceOwner
+		}
 	}
 	// Recheck all selected owner bytes before accepting the capture. Each file is
 	// individually stable; this does not promise an atomic edit across files.
-	for _, file := range []string{CataloguePath, name} {
+	for _, file := range names {
 		if sources[file] != SourceOwner {
 			continue
 		}
@@ -261,7 +270,7 @@ func (p *Package) selectFiles(ctx context.Context, role string) (map[string][]by
 			readErr = ownerError("changed", nil)
 		}
 		if file == CataloguePath {
-			for _, key := range []string{CataloguePath, name} {
+			for _, key := range names {
 				files[key] = bytes.Clone(p.files[key])
 				sources[key] = SourceShipped
 			}

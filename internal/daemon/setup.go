@@ -430,7 +430,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			judgeProviders[kind] = native
 		}
 	}
-	judgeService := &turn.JudgeService{DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
+	judgeService := &turn.JudgeService{Logger: s.Logger, DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
 	turnOpts := turn.Options{
 		ProjectApprovers: true,
 		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {
@@ -563,7 +563,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	mcpRuntime.ImplementStatus = status
 	daemon, err := New(Options{
-		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
+		Paths:      s.Paths,
+		Doctor:     &doctor.Service{Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
 		Bug:        bugRuntime,
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
