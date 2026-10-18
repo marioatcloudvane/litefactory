@@ -16,7 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/render"
-	"gopkg.in/yaml.v3"
+	"github.com/cloudvane/litefactory/internal/skillclosure"
 )
 
 //go:embed research
@@ -112,7 +112,7 @@ func (r *researchReader) read(name string) ([]byte, error) {
 }
 
 func safeResearchPath(name string) bool {
-	return name != "." && fs.ValidPath(name) && !strings.ContainsAny(name, "\\:\x00")
+	return skillclosure.SafePath(name)
 }
 
 func captureResearch(ctx context.Context, source fs.FS, registry graphexec.Registry) (*ResearchDefinition, error) {
@@ -135,7 +135,7 @@ func CaptureWorkflow(ctx context.Context, source fs.FS, graphPath, teamName stri
 }
 
 // CaptureWorkflowIdentity captures a package using its distinct workflow identity.
-func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamName string, workflow agent.Workflow, registry graphexec.Registry) (*WorkflowDefinition, error) {
+func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamName string, workflow agent.Workflow, registry graphexec.Registry, instructionPaths ...config.Paths) (*WorkflowDefinition, error) {
 	r := researchReader{ctx: ctx, source: source, files: map[string][]byte{}}
 	raw, err := r.read(graphPath)
 	if err != nil {
@@ -180,26 +180,9 @@ func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamN
 		if declared.Action != graphexec.JudgeAction {
 			continue
 		}
-		role, err := JudgeInstructions()
-		if retained, ok := source.(RetainedFiles); ok {
-			captured, exists := retained["judge/challenger.md"]
-			if !exists {
-				err = errors.New("retained judge instructions are missing")
-			} else {
-				role = slices.Clone(captured)
-				err = nil
-			}
-		}
-		if err != nil {
+		if err := captureWorkflowJudge(ctx, source, result, &r.total, instructionPaths); err != nil {
 			faults = append(faults, err)
-			break
 		}
-		if len(role) > MaxSnapshotBytes-r.total {
-			faults = append(faults, errors.New("judge resource exceeds capture bounds"))
-			break
-		}
-		result.Files["judge/challenger.md"] = slices.Clone(role)
-		r.total += len(role)
 		break
 	}
 	if len(result.Nodes) == 0 {
@@ -323,25 +306,11 @@ func (r *researchReader) skill(id string) error {
 	if err != nil {
 		return err
 	}
-	src, err := parseAgentSource(raw)
+	header, _, err := skillclosure.Parse(raw, id)
 	if err != nil {
 		return err
 	}
-	rest := strings.TrimPrefix(string(raw), "---\n")
-	end := strings.Index(rest, "\n---")
-	if end < 0 {
-		return fmt.Errorf("invalid Research skill header %s", id)
-	}
-	var header skillHeader
-	decoder := yaml.NewDecoder(strings.NewReader(rest[:end]))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&header); err != nil {
-		return fmt.Errorf("research skill %s: %w", id, err)
-	}
 	var faults []error
-	if header.Name != native || strings.TrimSpace(header.Description) == "" || strings.TrimSpace(src.Body) == "" {
-		faults = append(faults, fmt.Errorf("invalid Research skill metadata/body %s", id))
-	}
 	seen := map[string]bool{}
 	for _, dep := range header.Requires {
 		if seen[dep] {

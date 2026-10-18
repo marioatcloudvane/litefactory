@@ -91,7 +91,9 @@ func TestNarrationInstructionFailurePreventsLaunch(t *testing.T) {
 	}
 	db := database(t)
 	model := &replyModel{}
-	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{Confirmed: true}}}
+	// Keep delivery pending so confirmation cleanup does not erase the
+	// presentation state and durable call flags under inspection.
+	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{}}}
 	s := messaging.New(db, "discord", "2", []string{"3"}, send, messaging.FactoryStatus{DB: db})
 	s.Instructions = refusingChecker{resolver}
 	s.EnablePresentation(model, nil)
@@ -106,7 +108,7 @@ func TestNarrationInstructionFailurePreventsLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if model.calls != 0 || row.PresentationGeneration || row.PresentationCheck || row.PresentationState != "raw_fallback" || row.ReplyAttachment == "" {
+	if row.State != "pending" || model.calls != 0 || row.PresentationGeneration || row.PresentationCheck || row.PresentationState != "raw_fallback" || row.ReplyAttachment == "" {
 		t.Fatalf("instruction failure launched or lost source: %+v", row)
 	}
 }

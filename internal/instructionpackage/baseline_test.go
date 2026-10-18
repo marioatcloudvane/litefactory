@@ -117,6 +117,33 @@ func TestBaselineOwnsBytesAndDeterministicIdentity(t *testing.T) {
 	}
 }
 
+func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
+	pkg, err := New(t.Context(), config.NewPaths(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair"}
+	if pkg.Version() != "1.4.0" || pkg.Digest() == "" {
+		t.Fatal("embedded package must register the migrated roles and advance its version")
+	}
+	for _, role := range want {
+		if !slices.Contains(pkg.Roles(), role) {
+			t.Fatalf("embedded catalogue missing role %s", role)
+		}
+		capture, _, err := pkg.Capture(t.Context(), role)
+		if err != nil || capture == nil || len(capture.Instructions()) == 0 {
+			t.Fatalf("capture %s: %v", role, err)
+		}
+		if role == JudgeRole {
+			for _, name := range []string{JudgeRolePath, JudgePinPrefixPath, JudgeEvidenceSuffixPath} {
+				if len(capture.Resource(name)) == 0 {
+					t.Fatalf("missing judge resource %s", name)
+				}
+			}
+		}
+	}
+}
+
 func TestEmbeddedCatalogueIncludesChatRoles(t *testing.T) {
 	pkg, err := New(t.Context(), config.NewPaths(t.TempDir()))
 	if err != nil {

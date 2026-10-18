@@ -101,7 +101,10 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 			if err != nil {
 				return input, err
 			}
-			input.Role, err = teamsource.WorkflowJudgeInstructions(definition)
+			input.Instructions, err = teamsource.WorkflowJudgeCapture(definition)
+			if errors.Is(err, teamsource.ErrHistoricalJudgeCapture) {
+				err = nil
+			}
 			return input, err
 		}}); err != nil {
 			return result, err

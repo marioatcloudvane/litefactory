@@ -1,12 +1,19 @@
 // Package instructionpackage supplies a versioned, checked instruction baseline,
 // read-only owner overlays, and retained role captures. The production catalogue
-// includes the five chat roles. Change the shipped version whenever shipped bytes
-// change. Agent names are lowercase words joined
-// by hyphens, without extensions, and select only agents/<name>.md.
+// includes the judge challenger with its fixed pin/evidence resources, plus
+// merge-conflict-advisor, schedule-proposal-advisor, mode-classifier,
+// doctor-diagnosis and doctor-repair, and the five chat roles: chat-ask, chat-draft,
+// chat-intent-interpreter, chat-reply-writer and chat-reply-checker. Doctor roles
+// select factory-fixed skills.
+// Change the shipped version whenever shipped bytes change. Agent names are
+// lowercase words joined by hyphens, without extensions, and select only
+// agents/<name>.md.
 //
 // Package metadata.yaml contains schema: 1 and a nonblank version string;
-// catalogue.yaml is a YAML sequence of registered role names. Files
-// are agents/<name>.md. Metadata and each text file are limited to 1 MiB, total
+// catalogue.yaml is a YAML sequence of registered role names. Role files are
+// agents/<name>.md; the challenger closure also includes resources/judge files.
+// Skill files are skills/<name>/SKILL.md with declared requires/resources.
+// Metadata and each text file are limited to 1 MiB, total
 // baseline/capture content to 16 MiB, and shipped inventory to 4096 files.
 // Identity hashes sorted paths and exact bytes using length framing; whitespace
 // changes therefore change the digest. The shipped version is release-managed.
@@ -33,7 +40,10 @@
 // it detects corruption but does not authenticate externally supplied records.
 // Persistence belongs to each later caller migration. Later appended resources or
 // skills must join the same validated captured closure and effective digest; they
-// must not be reread live during execution. This package grants no tools, modes,
+// must not be reread live during execution. Doctor captures validate the complete
+// selected skill/resource closure; any invalid owner member selects the complete
+// shipped closure with a structured diagnostic. SkillInstructions assembles only
+// captured bytes. This package grants no tools, modes,
 // credentials, gates, retries, result schemas, or execution authority: existing
 // factory code continues to own those safeguards.
 package instructionpackage
