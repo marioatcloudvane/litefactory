@@ -8,6 +8,9 @@ import (
 // ErrInvalidCursor permits restarting a rejected read continuation from durable coverage.
 var ErrInvalidCursor = errors.New("ticket discovery cursor is invalid")
 
+// ErrDiscoveryDeferred is local scheduling pressure, not a remote refusal.
+var ErrDiscoveryDeferred = errors.New("background discovery deferred")
+
 // FailureKind distinguishes dispatch uncertainty from a confirmed refusal.
 type FailureKind string
 

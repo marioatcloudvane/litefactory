@@ -157,3 +157,9 @@ func (p Paths) ValidateScratchDir() string { return p.home + "-suite" }
 
 // ImplementScratchDir holds merge checkouts outside the denied factory home.
 func (p Paths) ImplementScratchDir() string { return p.home + "-implement" }
+
+// InternalInstructionsDir contains optional owner instruction overrides, separate
+// from the embedded shipped package. Package updates never write this directory.
+func (p Paths) InternalInstructionsDir() string {
+	return filepath.Join(p.home, "internal-instructions")
+}
