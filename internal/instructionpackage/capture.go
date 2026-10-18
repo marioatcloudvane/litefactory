@@ -11,6 +11,8 @@ import (
 	"io"
 	"slices"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/skillclosure"
 )
 
 // CapturedFile owns exact selected bytes and their origin and SHA-256 hash.
@@ -49,12 +51,19 @@ func (p *Package) Capture(ctx context.Context, role string) (*RoleCapture, []Dia
 	if !slices.Contains(p.roles, role) {
 		return nil, nil, unknownRole(role)
 	}
-	files, sources, diagnostics, err := p.selectFiles(ctx, role)
+	selectFiles := p.selectFiles
+	if len(selectedSkills(role)) != 0 {
+		selectFiles = p.selectSkillFiles
+	}
+	files, sources, diagnostics, err := selectFiles(ctx, role)
 	if err != nil {
 		return nil, nil, err
 	}
 	data := CaptureData{Schema: SchemaVersion, Role: role, ShippedVersion: p.version, ShippedDigest: p.digest, EffectiveDigest: contentDigest(files), Diagnostics: slices.Clone(diagnostics)}
-	names := capturePaths(role)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
 	slices.Sort(names)
 	for _, name := range names {
 		data.Files = append(data.Files, CapturedFile{name, bytes.Clone(files[name]), sources[name], hashBytes(files[name])})
@@ -149,7 +158,11 @@ func validateCapture(data CaptureData) error {
 		return fmt.Errorf("invalid capture digest")
 	}
 	expectedPaths := capturePaths(data.Role)
-	if len(data.Files) != len(expectedPaths) {
+	hasSkills := len(selectedSkills(data.Role)) != 0
+	if len(data.Files) < 2 || len(data.Files) > MaxFiles {
+		return fmt.Errorf("invalid capture file count")
+	}
+	if !hasSkills && len(data.Files) != len(expectedPaths) {
 		return fmt.Errorf("capture must contain complete role resource closure")
 	}
 	files := make(map[string][]byte, 2)
@@ -157,7 +170,10 @@ func validateCapture(data CaptureData) error {
 	total := 0
 	previous := ""
 	for _, file := range data.Files {
-		if !slices.Contains(expectedPaths, file.Path) {
+		if !skillclosure.SafePath(file.Path) {
+			return fmt.Errorf("unsafe captured file")
+		}
+		if !hasSkills && !slices.Contains(expectedPaths, file.Path) {
 			return fmt.Errorf("unexpected captured file")
 		}
 		if file.Path <= previous {
@@ -195,7 +211,31 @@ func validateCapture(data CaptureData) error {
 			return fmt.Errorf("owner resource requires validated owner catalogue")
 		}
 	}
-	if len(data.Diagnostics) > len(expectedPaths) {
+	if hasSkills {
+		closure, err := roleClosure(data.Role, func(name string) ([]byte, error) {
+			raw, ok := files[name]
+			if !ok {
+				return nil, fmt.Errorf("missing captured closure file %s", name)
+			}
+			return raw, nil
+		})
+		if err != nil {
+			return fmt.Errorf("captured closure: %w", err)
+		}
+		if len(closure) != len(files) {
+			return fmt.Errorf("unexpected captured file")
+		}
+		for _, source := range sources {
+			if source != sources[CataloguePath] {
+				return fmt.Errorf("mixed-source skill closure")
+			}
+		}
+	}
+	maxDiagnostics := len(expectedPaths)
+	if hasSkills {
+		maxDiagnostics = 2
+	}
+	if len(data.Diagnostics) > maxDiagnostics {
 		return fmt.Errorf("too many capture diagnostics")
 	}
 	seen := map[string]bool{}

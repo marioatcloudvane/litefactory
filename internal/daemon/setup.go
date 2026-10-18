@@ -559,7 +559,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	mcpRuntime.ImplementStatus = status
 	daemon, err := New(Options{
 		Paths:      s.Paths,
-		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
+		Doctor:     &doctor.Service{Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
 		Bug:        bugRuntime,
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{

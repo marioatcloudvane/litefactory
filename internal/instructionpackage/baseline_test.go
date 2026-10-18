@@ -122,8 +122,8 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier"}
-	if !slices.Equal(pkg.Roles(), want) || pkg.Version() != "1.2.0" || pkg.Digest() == "" {
+	want := []string{JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair"}
+	if !slices.Equal(pkg.Roles(), want) || pkg.Version() != "1.3.0" || pkg.Digest() == "" {
 		t.Fatal("embedded package must register the migrated roles and advance its version")
 	}
 	for _, role := range want {

@@ -120,6 +120,23 @@ func Load(ctx context.Context, baseline fs.FS, ownerDir string) (*Package, error
 				}
 			}
 		}
+
+		for _, role := range roles {
+			closure, err := roleClosure(role, func(name string) ([]byte, error) {
+				raw, ok := files[name]
+				if !ok {
+					return nil, fmt.Errorf("missing shipped instruction %s", name)
+				}
+				return raw, nil
+			})
+			if err != nil {
+				failures = append(failures, fmt.Errorf("baseline %s closure: %w", role, err))
+				continue
+			}
+			for name := range closure {
+				expected[name] = true
+			}
+		}
 		names := make([]string, 0, len(files))
 		for name := range files {
 			names = append(names, name)
