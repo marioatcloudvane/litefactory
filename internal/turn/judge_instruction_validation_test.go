@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"os"
 	"strings"
 	"testing"
 
@@ -128,16 +130,49 @@ func TestJudgeCaptureAdmissionBoundaries(t *testing.T) {
 	}
 }
 
+// judgeCaptureLogHandler supplies a synchronous fault boundary after package
+// selection succeeds and before the resulting request reaches durable admission.
+type judgeCaptureLogHandler struct {
+	onFallback func()
+}
+
+func (h judgeCaptureLogHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h judgeCaptureLogHandler) Handle(_ context.Context, record slog.Record) error {
+	if record.Message == "judge instruction fallback" {
+		h.onFallback()
+	}
+	return nil
+}
+func (h judgeCaptureLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h judgeCaptureLogHandler) WithGroup(string) slog.Handler      { return h }
+
 func TestJudgePersistenceFailurePreventsProvider(t *testing.T) {
 	service, request, _ := judgeRecoveryFixture(t)
 	runner := &recoveryJudgeRunner{}
 	service.Providers[agent.Kind("codex")] = runner
 	service.Providers[agent.Kind("claude")] = runner
-	if err := service.DB.Close(); err != nil {
+	// An existing empty owner directory yields a successful shipped capture and
+	// a missing-catalogue diagnostic after source lookup and settings resolution.
+	if err := os.MkdirAll(service.Paths.InternalInstructionsDir(), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Execute(t.Context(), request); err == nil {
-		t.Fatal("closed durable store accepted execution")
+	observed := false
+	var closeErr error
+	service.Logger = slog.New(judgeCaptureLogHandler{onFallback: func() {
+		if !observed {
+			observed = true
+			closeErr = service.DB.Close()
+		}
+	}})
+	_, err := service.Execute(t.Context(), request)
+	if !observed {
+		t.Fatal("capture fallback was not observed before admission")
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "database is closed") {
+		t.Fatalf("expected durable admission failure after capture, got %v", err)
 	}
 	if len(runner.calls) != 0 {
 		t.Fatal("launched without durable admission")

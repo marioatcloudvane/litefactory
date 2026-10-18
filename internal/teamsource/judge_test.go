@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 )
 
@@ -147,6 +148,68 @@ func TestWorkflowJudgeControlGraphAdmission(t *testing.T) {
 			}
 			if err := graphexec.Validate(profile, registry); err == nil {
 				t.Fatal("advisory publication bypassed required source publication or owner gate")
+			}
+		})
+	}
+}
+
+func TestFreshJudgeCaptureFromRootRetainedFiles(t *testing.T) {
+	for _, withJudge := range []bool{false, true} {
+		name := "without judge"
+		if withJudge {
+			name = "with judge"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture := researchTestSource()
+			registry := researchTestRegistry(t)
+			if withJudge {
+				replaceResearchFixture(fixture, "research.dot", `work -> end [lf_on="success"];`, `work -> challenge [lf_on="success"];
+ challenge [lf_action="lf_judge",lf_source="work",lf_limit="1",lf_outcomes="success,failed"];
+ challenge -> end [lf_on="success"];
+ challenge -> end [lf_on="failed"];`)
+				if err := registry.Register(graphexec.JudgeSpec(agent.ModeResearch)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			source := RetainedFiles{}
+			for path, file := range fixture {
+				source[path] = bytes.Clone(file.Data)
+			}
+			root, err := fs.Sub(source, ".")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := root.(RetainedFiles); !ok {
+				t.Fatal("fixture does not preserve root retained filesystem type")
+			}
+			paths := config.NewPaths(t.TempDir())
+			if withJudge {
+				if _, err := CaptureWorkflowIdentity(t.Context(), root, "research.dot", "builtin", agent.WorkflowResearch, registry, paths); err == nil {
+					t.Fatal("retained source without judge closure accepted as fresh")
+				}
+			}
+			freshSource := struct{ fs.FS }{root}
+			fresh, err := CaptureWorkflowIdentity(t.Context(), freshSource, "research.dot", "builtin", agent.WorkflowResearch, registry, paths)
+			if err != nil {
+				t.Fatalf("fresh root capture: %v", err)
+			}
+			if withJudge {
+				if _, err := WorkflowJudgeCapture(fresh); err != nil {
+					t.Fatalf("fresh judge closure: %v", err)
+				}
+			} else {
+				for path := range fresh.Files {
+					if strings.HasPrefix(path, "judge/") {
+						t.Fatalf("nonjudge workflow captured %s", path)
+					}
+				}
+			}
+			restored, err := CaptureWorkflowIdentity(t.Context(), RetainedFiles(fresh.Files), "research.dot", "builtin", agent.WorkflowResearch, registry)
+			if err != nil {
+				t.Fatalf("restored root capture: %v", err)
+			}
+			if fresh.Digest != restored.Digest {
+				t.Fatal("restore changed root capture identity")
 			}
 		})
 	}

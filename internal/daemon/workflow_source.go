@@ -71,7 +71,10 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 				if e != nil {
 					return e
 				}
-				definition, e = teamsource.CaptureWorkflowIdentity(ctx, root, path.Base(graph), profile.Team, workflow, specs, paths)
+				// An installed snapshot is fresh input even when a root-level graph
+				// makes fs.Sub preserve its RetainedFiles representation. Only saved
+				// workflow reconstruction may select the retained capture path.
+				definition, e = teamsource.CaptureWorkflowIdentity(ctx, struct{ fs.FS }{root}, path.Base(graph), profile.Team, workflow, specs, paths)
 				if e != nil {
 					return e
 				}

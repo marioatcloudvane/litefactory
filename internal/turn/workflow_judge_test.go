@@ -324,6 +324,17 @@ advice -> brief [lf_on="published"];`, 1)
 			role, err := teamsource.JudgeInstructions()
 			mustProgress(t, err)
 			files["judge/challenger.md"] = role
+			if retained {
+				pkg, err := instructionpackage.LoadShipped(t.Context(), "")
+				mustProgress(t, err)
+				capture, _, err := pkg.Capture(t.Context(), instructionpackage.JudgeRole)
+				mustProgress(t, err)
+				files["judge/instructions.json"], err = capture.Encode()
+				mustProgress(t, err)
+				for _, resource := range capture.Snapshot().Files {
+					files["judge/"+resource.Path] = resource.Content
+				}
+			}
 			definition, err = teamsource.CaptureWorkflowIdentity(t.Context(), files, "research.dot", definition.Profile.Team, agent.WorkflowResearch, specs)
 			mustProgress(t, err)
 			topology, err := graphexec.SemanticDigest(definition.Profile)
@@ -349,7 +360,14 @@ advice -> brief [lf_on="published"];`, 1)
 			attempt, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: source.InstanceID, LaunchID: admitted.LaunchID, Node: "challenge", Limit: 1, StartedAt: at})
 			mustProgress(t, err)
 			if retained {
-				handler := JudgeActivity{Profile: definition.Profile, Service: service}
+				handler := JudgeActivity{Profile: definition.Profile, Service: service, Context: func(ctx context.Context, request ActivityRequest) (JudgeRequest, error) {
+					input, err := workflowJudgeContext(ctx, f.opts, request)
+					if err != nil {
+						return input, err
+					}
+					input.Instructions, err = teamsource.WorkflowJudgeCapture(definition)
+					return input, err
+				}}
 				result, err := handler.Execute(t.Context(), f.opts, ActivityRequest{Mode: agent.ModeResearch, Workflow: agent.WorkflowResearch, Node: "challenge", InstanceID: source.InstanceID, NodeAttemptID: attempt.ID})
 				mustProgress(t, err)
 				if result.Outcome != "success" {
