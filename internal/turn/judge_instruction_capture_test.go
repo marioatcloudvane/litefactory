@@ -34,7 +34,13 @@ func TestWorkflowJudgeInstructionsSurvivePackageEditsAndRestore(t *testing.T) {
 		mustProgress(t, os.MkdirAll(filepath.Dir(filename), 0700))
 		mustProgress(t, os.WriteFile(filename, []byte(body), 0600))
 	}
-	write(instructionpackage.CataloguePath, "- challenger\n")
+	shipped, err := instructionpackage.LoadShipped(ctx, "")
+	mustProgress(t, err)
+	var catalogue strings.Builder
+	for _, role := range shipped.Roles() {
+		catalogue.WriteString("- " + role + "\n")
+	}
+	write(instructionpackage.CataloguePath, catalogue.String())
 	original := map[string]string{
 		instructionpackage.JudgeRolePath:           "Captured challenger role.\n",
 		instructionpackage.JudgePinPrefixPath:      "\nCaptured invocation: ",
