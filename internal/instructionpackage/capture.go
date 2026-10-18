@@ -271,3 +271,14 @@ func (c *RoleCapture) Resource(path string) []byte {
 	}
 	return nil
 }
+
+// CaptureShipped captures a complete role from this package's validated baseline,
+// ignoring owner overrides. Consumers use it when their role-specific format
+// validation rejects an otherwise valid owner file. The capture includes the
+// same factory-selected resource and skill closure as Capture.
+func (p *Package) CaptureShipped(ctx context.Context, role string) (*RoleCapture, error) {
+	baseline := *p
+	baseline.ownerDir = ""
+	capture, _, err := baseline.Capture(ctx, role)
+	return capture, err
+}

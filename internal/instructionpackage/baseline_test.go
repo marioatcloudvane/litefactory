@@ -123,15 +123,18 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := append(ConversationRoles(), JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair")
-	if !slices.Equal(pkg.Roles(), want) || pkg.Version() != "1.4.0" || pkg.Digest() == "" {
+	if pkg.Version() != "1.5.0" || pkg.Digest() == "" {
 		t.Fatal("embedded package must register the migrated roles and advance its version")
 	}
-	if len(pkg.files) != 16 {
-		t.Fatalf("embedded inventory has %d files, want ten roles, metadata, catalogue, two judge resources and two doctor skills", len(pkg.files))
+	if len(pkg.files) != 21 {
+		t.Fatalf("embedded inventory has %d files, want fifteen roles, metadata, catalogue, two judge resources and two doctor skills", len(pkg.files))
 	}
 	for _, role := range want {
+		if !slices.Contains(pkg.Roles(), role) {
+			t.Fatalf("embedded catalogue missing role %s", role)
+		}
 		capture, _, err := pkg.Capture(t.Context(), role)
-		if err != nil || len(capture.Instructions()) == 0 {
+		if err != nil || capture == nil || len(capture.Instructions()) == 0 {
 			t.Fatalf("capture %s: %v", role, err)
 		}
 		if role == JudgeRole {
@@ -140,6 +143,26 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 					t.Fatalf("missing judge resource %s", name)
 				}
 			}
+		}
+	}
+}
+
+func TestEmbeddedCatalogueIncludesChatRoles(t *testing.T) {
+	pkg, err := New(t.Context(), config.NewPaths(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"chat-ask", "chat-draft", "chat-intent-interpreter", "chat-reply-writer", "chat-reply-checker"}
+	if pkg.Version() == "" || pkg.Digest() == "" {
+		t.Fatal("embedded chat catalogue identity mismatch")
+	}
+	for _, role := range want {
+		if !slices.Contains(pkg.Roles(), role) {
+			t.Fatalf("embedded catalogue missing chat role %s", role)
+		}
+		capture, err := pkg.CaptureShipped(t.Context(), role)
+		if err != nil || capture == nil || len(capture.Instructions()) == 0 {
+			t.Fatalf("capture %s: %v", role, err)
 		}
 	}
 }

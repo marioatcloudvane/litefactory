@@ -18,6 +18,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/discord"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
+	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
@@ -25,6 +26,9 @@ import (
 // ChatOptions supplies immutable resolved chat settings. Only daemon wiring
 // imports the adapter; the service and store know no Discord types.
 type ChatOptions struct {
+	// Instructions supplies the shared read-only chat instruction package.
+	Instructions           prompts.Resolver
+	InstructionDiagnostics prompts.Sink
 	// Answers supplies read-only context and response-only model wiring.
 	Diagnoser     ChatDiagnoser
 	Answers       *ask.Service
@@ -124,6 +128,8 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	a := discord.New(discord.Options{ApplicationID: o.Settings.ApplicationID, PublicKey: key, Token: token, APIURL: o.APIURL, Client: o.Client})
 	s := messaging.New(d.db, "discord", o.Settings.OwnerID, o.Settings.ChannelIDs, a, messaging.FactoryStatus{DB: d.db})
 	s.Logger = d.log
+	s.Instructions = o.Instructions
+	s.InstructionDiagnostics = o.InstructionDiagnostics
 	sanitizer := redact.New(redact.Options{Logger: d.log, Token: token})
 	s.Protect = func(ctx context.Context, text string) (string, error) {
 		body, err := sanitizer.Apply(ctx, text, max(4096, len(text)+redact.Margin))
@@ -132,6 +138,12 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	answers := ask.Service{Repositories: d.db, Collector: ask.Collector{Factory: ask.StoreReader{Reader: d.db}}, Redactor: sanitizer}
 	if o.Answers != nil {
 		answers = *o.Answers
+	}
+	if o.Instructions != nil {
+		answers.Instructions = o.Instructions
+	}
+	if o.InstructionDiagnostics != nil {
+		answers.InstructionDiagnostics = o.InstructionDiagnostics
 	}
 	if answers.Redactor == nil {
 		answers.Redactor = sanitizer
@@ -144,12 +156,12 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 	s.EnablePresentation(o.ReplyModel, history)
 	interpreter := o.Interpreter
 	if interpreter == nil && o.ReplyModel != nil {
-		interpreter = &messaging.NativeInterpreter{Model: o.ReplyModel}
+		interpreter = &messaging.NativeInterpreter{Model: o.ReplyModel, Instructions: o.Instructions, InstructionDiagnostics: o.InstructionDiagnostics}
 	}
 	s.EnableNatural(interpreter)
 
 	writer, _ := d.forge.(ChatIssueForge)
-	s.EnableFeatures(&feature.Drafter{Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
+	s.EnableFeatures(&feature.Drafter{Instructions: answers.Instructions, InstructionDiagnostics: answers.InstructionDiagnostics, Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
 	d.chat = &chatRuntime{service: s, adapter: a, heartbeat: d.chatBeat, diagnoser: o.Diagnoser, redactor: sanitizer, notes: make(map[string]string)}
 	if o.Conversations != nil {
 		options := *o.Conversations
