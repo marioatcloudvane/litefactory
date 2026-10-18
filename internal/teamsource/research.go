@@ -16,7 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/render"
-	"gopkg.in/yaml.v3"
+	"github.com/cloudvane/litefactory/internal/skillclosure"
 )
 
 //go:embed research
@@ -112,7 +112,7 @@ func (r *researchReader) read(name string) ([]byte, error) {
 }
 
 func safeResearchPath(name string) bool {
-	return name != "." && fs.ValidPath(name) && !strings.ContainsAny(name, "\\:\x00")
+	return skillclosure.SafePath(name)
 }
 
 func captureResearch(ctx context.Context, source fs.FS, registry graphexec.Registry) (*ResearchDefinition, error) {
@@ -323,25 +323,11 @@ func (r *researchReader) skill(id string) error {
 	if err != nil {
 		return err
 	}
-	src, err := parseAgentSource(raw)
+	header, _, err := skillclosure.Parse(raw, id)
 	if err != nil {
 		return err
 	}
-	rest := strings.TrimPrefix(string(raw), "---\n")
-	end := strings.Index(rest, "\n---")
-	if end < 0 {
-		return fmt.Errorf("invalid Research skill header %s", id)
-	}
-	var header skillHeader
-	decoder := yaml.NewDecoder(strings.NewReader(rest[:end]))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&header); err != nil {
-		return fmt.Errorf("research skill %s: %w", id, err)
-	}
 	var faults []error
-	if header.Name != native || strings.TrimSpace(header.Description) == "" || strings.TrimSpace(src.Body) == "" {
-		faults = append(faults, fmt.Errorf("invalid Research skill metadata/body %s", id))
-	}
 	seen := map[string]bool{}
 	for _, dep := range header.Requires {
 		if seen[dep] {
