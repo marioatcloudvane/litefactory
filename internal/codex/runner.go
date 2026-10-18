@@ -319,6 +319,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	}
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	killCtx := context.WithoutCancel(ctx)
 	stackEnv, err := req.StackEnvironment(codexEnv(r.environ))
 	if err != nil {
 		return nil, err
@@ -335,14 +336,15 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		cmd = exec.CommandContext(runCtx, r.binary.Path, args...)
 		cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, stackEnv, strings.NewReader(req.Prompt)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		// Codex's shell tool detaches each command into its own process group
+		// or session, so a kill(-pgid) aimed at codex's group leaves them
+		// running under launchd (#968). Sweep the whole tree instead; the
+		// sweep runs after runCtx is done, so it gets an uncancelled context.
 		cmd.Cancel = func() error {
 			if cmd.Process == nil {
 				return os.ErrProcessDone
 			}
-			if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-				return err
-			}
-			return nil
+			return providerprocess.KillSubtree(killCtx, cmd.Process.Pid, r.logger)
 		}
 		stdout, err = cmd.StdoutPipe()
 		if err != nil {
