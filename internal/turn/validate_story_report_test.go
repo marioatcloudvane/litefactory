@@ -102,6 +102,17 @@ func TestValidateStorySubIssueWriteRetriedOnNextRefresh(t *testing.T) {
 	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
 		t.Fatal(err)
 	}
+	// #971: the failed story write never suppresses the parent report.
+	if n := len(o.forge.bodies("**Validate report**")); n != 1 {
+		t.Fatalf("the parent report is posted despite the story failure: %d", n)
+	}
+	if r, err := o.db.GetValidateReport(t.Context(), o.instance.ID); err != nil || r.CommentID == 0 {
+		t.Fatalf("the report row keeps the comment id: %+v %v", r, err)
+	}
+	o.forge.updateErr = errors.New("GitHub is down")
+	if _, err := o.b.RefreshValidateReport(t.Context(), o.opts, ActivityRequest{InstanceID: o.instance.ID}); err == nil || !strings.Contains(err.Error(), "GitHub is down") {
+		t.Fatalf("the story failure is surfaced: %v", err)
+	}
 	changed, err := o.b.RefreshValidateReport(t.Context(), o.opts, ActivityRequest{InstanceID: o.instance.ID})
 	if err != nil || !changed {
 		t.Fatalf("the next refresh catches up: %v %v", changed, err)
@@ -111,5 +122,8 @@ func TestValidateStorySubIssueWriteRetriedOnNextRefresh(t *testing.T) {
 	}
 	if len(o.forge.commentsOn(ownerStoryNum)) != 1 {
 		t.Fatal("one sub-issue comment")
+	}
+	if n := len(o.forge.bodies("**Validate report**")); n != 1 {
+		t.Fatalf("the parent report is edited in place: %d", n)
 	}
 }
