@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/cloudvane/litefactory/internal/testutil"
 	"reflect"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 const graphTestDOT = `digraph {team=test;mode=implement;profile_version=1;start=work;
@@ -439,5 +441,70 @@ func TestResearchFailedRetryWaitsForPublicationDebt(t *testing.T) {
 	mustProgress(t, err)
 	if latest.ID != first.Instance.ID || latest.Status != store.GraphFailed {
 		t.Fatalf("blocked retry changed instance: %+v", latest)
+	}
+}
+
+// A discovery-budget deferral inside a Plan activity is transient: the
+// instance stays running at the node with a later due time instead of failing.
+func TestGraphNodePlanDiscoveryDeferralRetries(t *testing.T) {
+	f := newFixture(t, nil)
+	const dot = `digraph {team=test;mode=plan;profile_version=1;start=story;
+ story [lf_action=lf_plan_story,lf_outcomes="done",lf_limit=3];
+ end [lf_terminal=true]; story -> end [on=done];}`
+	p, err := graphexec.ParseProfile([]byte(dot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var registry graphexec.Registry
+	if err = registry.Register(graphexec.ActionSpec{Name: "lf_plan_story", Mode: agent.ModePlan, Outcomes: []string{"done"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = graphexec.Validate(p, registry); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 17, 20, 50, 40, 0, time.UTC)
+	def, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: p.Team, Mode: string(p.Mode), ProfileVersion: p.ProfileVersion, Path: "test/plan.dot", Digest: p.Digest, CreatedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, Status: store.GraphRunning, CurrentNode: p.Start, StartedAt: at, NextDueAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deferred := fmt.Errorf("ticket: read container: %w", fmt.Errorf("github: inspect repository: %w", ticket.ErrDiscoveryDeferred))
+	h := &graphTestHandler{errs: map[string]error{"story": deferred}}
+	req := GraphNodeRequest{Profile: p, InstanceID: instance.ID, At: at, StopOnFailure: true, RetryDueAt: at.Add(time.Minute)}
+	if err = req.Activities.Register("lf_plan_story", h); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ExecuteNodeAction(t.Context(), f.opts, req)
+	if err != nil {
+		t.Fatalf("deferral returned run error: %v", err)
+	}
+	if !result.Deferred || result.NextNode != "story" || result.Status == store.GraphFailed {
+		t.Fatalf("result: %+v", result)
+	}
+	got, err := f.db.GetGraphInstance(t.Context(), instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != store.GraphRunning || got.CurrentNode != "story" || !got.NextDueAt.After(at) {
+		t.Fatalf("instance: %+v", got)
+	}
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 1 || attempts[0].Status != store.GraphFailed {
+		t.Fatalf("attempts: %+v", attempts)
+	}
+	// Other dispatch errors keep the existing terminal failure.
+	h.errs["story"] = errors.New("transport unavailable")
+	req.At = at.Add(2 * time.Minute)
+	if _, err = ExecuteNodeAction(t.Context(), f.opts, req); err == nil {
+		t.Fatal("ordinary dispatch error was not reported")
+	}
+	if got, err = f.db.GetGraphInstance(t.Context(), instance.ID); err != nil || got.Status != store.GraphFailed {
+		t.Fatalf("ordinary failure instance: %+v %v", got, err)
 	}
 }
