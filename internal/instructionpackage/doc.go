@@ -1,6 +1,7 @@
 // Package instructionpackage supplies a versioned, checked instruction baseline,
 // read-only owner overlays, and retained role captures. The production catalogue
-// includes the judge challenger with its fixed pin/evidence resources, plus
+// contains the native conversation, factory envelope, correction and action-outcome
+// roles, the judge challenger with its fixed pin/evidence resources, plus
 // merge-conflict-advisor, schedule-proposal-advisor, mode-classifier,
 // doctor-diagnosis and doctor-repair. Doctor roles select factory-fixed skills.
 // Change the shipped version whenever shipped bytes change. Agent names are
@@ -36,7 +37,12 @@
 // On replay call Restore(retainedBytes) without opening current sources.
 // Integrity covers retained identity, provenance, diagnostics, and file hashes;
 // it detects corruption but does not authenticate externally supplied records.
-// Persistence belongs to each later caller migration. Later appended resources or
+// Conversations retain all four roles atomically through their binding, including
+// aggregate integrity and explicit legacy-baseline provenance. Legacy migration
+// uses separately pinned files without owner overlays; new conversations capture
+// the current package. Restored conversations never consult current sources. The
+// encoded conversation aggregate is limited to 16 MiB before decoding.
+// Persistence belongs to each caller. Later appended resources or
 // skills must join the same validated captured closure and effective digest; they
 // must not be reread live during execution. Doctor captures validate the complete
 // selected skill/resource closure; any invalid owner member selects the complete

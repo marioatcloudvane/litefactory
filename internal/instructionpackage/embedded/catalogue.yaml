@@ -1,3 +1,7 @@
+- conversation-native
+- conversation-factory
+- conversation-correction
+- conversation-action-outcome
 - challenger
 - merge-conflict-advisor
 - schedule-proposal-advisor

@@ -72,7 +72,15 @@ func factoryUnitRun(t *testing.T, p *factoryUnitProvider, input ...string) (*fac
 	if err = db.StageNaturalScan(t.Context(), scan, store.NaturalScan{ChannelRef: "2", Cursor: "100", HighWater: "101"}, []store.NaturalMessage{{ChannelRef: "2", SourceID: "101", OwnerID: "1", Text: text, CreatedAt: at}}, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.AdmitConversationTurn(t.Context(), c.ID, "101", "protected prompt", at); err != nil {
+	instructions, err := service.restoreConversationInstructions(t.Context(), c.ID, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := agent.ConversationPrompt(instructions.Native(), text, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.AdmitConversationTurn(t.Context(), c.ID, "101", prompt, at); err != nil {
 		t.Fatal(err)
 	}
 	turn, err := db.ClaimConversationTurn(t.Context(), c.ID, "unit-worker", at, time.Minute)

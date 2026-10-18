@@ -1,0 +1,5 @@
+# github.com/cloudvane/litefactory/internal/messaging.test
+/opt/homebrew/Cellar/go/1.27.0/libexec/pkg/tool/darwin_arm64/link: /Users/mariomh/Library/Caches/go-build/6b/6bb5195fb6083bd43a8256e8b96e875836461550cc04b38355bb873b409f7d51-d: failed to open host object: open /Users/mariomh/Library/Caches/go-build/6b/6bb5195fb6083bd43a8256e8b96e875836461550cc04b38355bb873b409f7d51-d: no such file or directory
+
+FAIL	github.com/cloudvane/litefactory/internal/messaging [build failed]
+FAIL

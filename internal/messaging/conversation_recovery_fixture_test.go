@@ -99,7 +99,7 @@ func TestConversationUnfinishedLaunchRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			admit("102", "Interrupt before answering this input.")
-			prompt, err := agent.ConversationPrompt("Interrupt before answering this input.", "", "")
+			prompt, err := agent.ConversationPrompt(retainedNativeInstructions(t, db, original.ID), "Interrupt before answering this input.", "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -114,7 +114,7 @@ func TestConversationUnfinishedLaunchRecovery(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = adapter.RunConversation(ctx, agent.ConversationRequest{ConversationID: original.ID, TurnID: turn.ID, Model: "fixture", StateDirectory: original.StateDir, Prompt: prompt, Session: agent.SessionRef{Ref: ref, Resume: original.SessionHandle}, BeforeLaunch: func(callback context.Context) error { return db.RenewConversationTurn(callback, turn, at, time.Minute) }, OnSession: func(callback context.Context, session agent.SessionRef) error {
+			_, err = adapter.RunConversation(ctx, agent.ConversationRequest{ConversationID: original.ID, TurnID: turn.ID, Model: "fixture", StateDirectory: original.StateDir, Prompt: prompt, NativeInstructions: retainedNativeInstructions(t, db, original.ID), Session: agent.SessionRef{Ref: ref, Resume: original.SessionHandle}, BeforeLaunch: func(callback context.Context) error { return db.RenewConversationTurn(callback, turn, at, time.Minute) }, OnSession: func(callback context.Context, session agent.SessionRef) error {
 				return db.SaveConversationSession(callback, turn, session.Resume)
 			}})
 			if err == nil || errors.Is(err, agent.ErrConversationSessionMissing) || errors.Is(err, agent.ErrConversationIsolation) {
