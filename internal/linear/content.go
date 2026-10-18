@@ -3,8 +3,8 @@ package linear
 import (
 	"encoding/json"
 	"errors"
-	"html"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -535,16 +535,30 @@ func managedStoryDocument(lines []string) bool {
 	return scaffoldRequestMarker.MatchString(lines[request])
 }
 
-// decodeEntities turns HTML character references (&#NN;, &#xNN; and named
-// ones) back into the characters Linear stores.
+var punctuationEntity = regexp.MustCompile(`&#([0-9]{2,3});`)
+
+// decodeEntities turns the renderer's decimal entities for ASCII punctuation
+// (&#46; &#123; …) back into the characters Linear stores. Hex and named
+// references, letters, digits and anything outside ASCII punctuation stay
+// encoded.
 func decodeEntities(s string) string {
-	return html.UnescapeString(s)
+	return punctuationEntity.ReplaceAllStringFunc(s, func(entity string) string {
+		n, err := strconv.ParseUint(entity[2:len(entity)-1], 10, 7)
+		if err != nil {
+			return entity
+		}
+		c := rune(n)
+		if c > ' ' && c < 127 && (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			return string(c)
+		}
+		return entity
+	})
 }
 
 // storyTableRowText compares a factory story table row by its text. Linear
 // stores an escaped cell pipe (\| or &#124;) as a bare "|", which changes the
 // cell count, so rows are reduced to their cell texts in order, with rule cells
-// canonical and character references decoded. Linear also
+// canonical and the renderer's punctuation entities decoded. Linear also
 // escapes literal inline markers in cells (\_, \*, \`, \[, \]), so those
 // escapes compare equal to the bare marker the factory wrote.
 func storyTableRowText(line string) string {
