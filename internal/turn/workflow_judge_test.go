@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
@@ -82,6 +83,10 @@ func workflowJudgeFixture(t *testing.T, mode agent.Mode) (*fixture, *fakeForge, 
 	forge := newFakeForge(t)
 	service, judgeContext, _ := judgeRecoveryFixture(t)
 	service.DB = f.db
+	pkg, err := instructionpackage.LoadShipped(t.Context(), "")
+	mustProgress(t, err)
+	judgeContext.Instructions, _, err = pkg.Capture(t.Context(), instructionpackage.JudgeRole)
+	mustProgress(t, err)
 	judgeContext.Ref = f.ref()
 	judgeContext.SessionID = f.session.ID
 	runner := &recoveryJudgeRunner{}

@@ -1,13 +1,14 @@
 // Package instructionpackage supplies a versioned, checked instruction baseline,
 // read-only owner overlays, and retained role captures. The production catalogue
-// is explicitly empty: this foundation migrates no live prompt callers or text.
-// Add real catalogue entries with the later role migrations and change the shipped
-// version whenever shipped bytes change. Agent names are lowercase words joined
+// includes the judge challenger and its fixed pin/evidence resources. Add catalogue
+// entries with later migrations and change the shipped version when bytes change.
+// Agent names are lowercase words joined
 // by hyphens, without extensions, and select only agents/<name>.md.
 //
 // Package metadata.yaml contains schema: 1 and a nonblank version string;
-// catalogue.yaml is a YAML sequence (the embedded foundation ships []). Files
-// are agents/<name>.md. Metadata and each text file are limited to 1 MiB, total
+// catalogue.yaml is a YAML sequence. Role files are agents/<name>.md; the
+// challenger closure also includes resources/judge files. Metadata and each
+// text file are limited to 1 MiB, total
 // baseline/capture content to 16 MiB, and shipped inventory to 4096 files.
 // Identity hashes sorted paths and exact bytes using length framing; whitespace
 // changes therefore change the digest. The shipped version is release-managed.

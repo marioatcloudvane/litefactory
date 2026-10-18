@@ -117,16 +117,22 @@ func TestBaselineOwnsBytesAndDeterministicIdentity(t *testing.T) {
 	}
 }
 
-func TestEmbeddedCatalogueIsExplicitlyEmpty(t *testing.T) {
+func TestEmbeddedCatalogueIncludesJudge(t *testing.T) {
 	pkg, err := New(t.Context(), config.NewPaths(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.Roles()) != 0 || pkg.Version() == "" || pkg.Digest() == "" {
-		t.Fatal("embedded foundation must have a versioned empty catalogue")
+	if !slices.Equal(pkg.Roles(), []string{JudgeRole}) || pkg.Version() != "1.1.0" || pkg.Digest() == "" {
+		t.Fatal("embedded judge catalogue identity is missing")
 	}
-	if !bytes.Equal(bytes.TrimSpace(pkg.files[CataloguePath]), []byte("[]")) {
-		t.Fatal("embedded empty catalogue is not explicit")
+	capture, _, err := pkg.Capture(t.Context(), JudgeRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{JudgeRolePath, JudgePinPrefixPath, JudgeEvidenceSuffixPath} {
+		if len(capture.Resource(name)) == 0 {
+			t.Fatalf("missing judge resource %s", name)
+		}
 	}
 }
 

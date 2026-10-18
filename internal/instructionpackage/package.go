@@ -28,11 +28,17 @@ type Package struct {
 // New loads the embedded baseline with the owner's configured overlay location.
 // It neither creates nor modifies the owner directory.
 func New(ctx context.Context, paths config.Paths) (*Package, error) {
+	return LoadShipped(ctx, paths.InternalInstructionsDir())
+}
+
+// LoadShipped validates embedded instructions with an optional owner overlay.
+// An empty ownerDir selects shipped resources without filesystem access.
+func LoadShipped(ctx context.Context, ownerDir string) (*Package, error) {
 	baseline, err := fs.Sub(embedded, "embedded")
 	if err != nil {
 		return nil, fmt.Errorf("open embedded instructions: %w", err)
 	}
-	return Load(ctx, baseline, paths.InternalInstructionsDir())
+	return Load(ctx, baseline, ownerDir)
 }
 
 // Load validates the entire baseline before exposing any roles. ownerDir is optional;
@@ -99,15 +105,19 @@ func Load(ctx context.Context, baseline fs.FS, ownerDir string) (*Package, error
 	if catalogueErr == nil {
 		expected := map[string]bool{MetadataPath: true, CataloguePath: true}
 		for _, role := range roles {
-			name := rolePath(role)
-			expected[name] = true
-			raw, ok := files[name]
-			if !ok {
-				failures = append(failures, fmt.Errorf("baseline missing %q", name))
-				continue
-			}
-			if err := validateText(raw); err != nil {
-				failures = append(failures, fmt.Errorf("baseline %s: %w", name, err))
+			for _, name := range capturePaths(role) {
+				expected[name] = true
+				if name == CataloguePath {
+					continue
+				}
+				raw, ok := files[name]
+				if !ok {
+					failures = append(failures, fmt.Errorf("baseline missing %q", name))
+					continue
+				}
+				if err := validateText(raw); err != nil {
+					failures = append(failures, fmt.Errorf("baseline %s: %w", name, err))
+				}
 			}
 		}
 		names := make([]string, 0, len(files))

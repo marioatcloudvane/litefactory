@@ -135,7 +135,7 @@ func CaptureWorkflow(ctx context.Context, source fs.FS, graphPath, teamName stri
 }
 
 // CaptureWorkflowIdentity captures a package using its distinct workflow identity.
-func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamName string, workflow agent.Workflow, registry graphexec.Registry) (*WorkflowDefinition, error) {
+func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamName string, workflow agent.Workflow, registry graphexec.Registry, instructionPaths ...config.Paths) (*WorkflowDefinition, error) {
 	r := researchReader{ctx: ctx, source: source, files: map[string][]byte{}}
 	raw, err := r.read(graphPath)
 	if err != nil {
@@ -180,26 +180,9 @@ func CaptureWorkflowIdentity(ctx context.Context, source fs.FS, graphPath, teamN
 		if declared.Action != graphexec.JudgeAction {
 			continue
 		}
-		role, err := JudgeInstructions()
-		if retained, ok := source.(RetainedFiles); ok {
-			captured, exists := retained["judge/challenger.md"]
-			if !exists {
-				err = errors.New("retained judge instructions are missing")
-			} else {
-				role = slices.Clone(captured)
-				err = nil
-			}
-		}
-		if err != nil {
+		if err := captureWorkflowJudge(ctx, source, result, &r.total, instructionPaths); err != nil {
 			faults = append(faults, err)
-			break
 		}
-		if len(role) > MaxSnapshotBytes-r.total {
-			faults = append(faults, errors.New("judge resource exceeds capture bounds"))
-			break
-		}
-		result.Files["judge/challenger.md"] = slices.Clone(role)
-		r.total += len(role)
 		break
 	}
 	if len(result.Nodes) == 0 {

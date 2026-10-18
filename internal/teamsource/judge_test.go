@@ -3,6 +3,7 @@ package teamsource
 import (
 	"bytes"
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -35,19 +36,40 @@ func TestWorkflowJudgeResourceCapture(t *testing.T) {
 		t.Fatal("judge role absent from captured identity")
 	}
 	retained := RetainedFiles(def.Files)
-	retained["judge/challenger.md"] = []byte("previously captured challenger")
 	replay, err := CaptureWorkflow(t.Context(), retained, "research.dot", "builtin", agent.ModeResearch, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.Digest != def.Digest {
+		t.Fatal("retained identity changed")
+	}
+	retained[judgeLegacyRolePath] = []byte("damaged role")
+	if _, err := CaptureWorkflow(t.Context(), retained, "research.dot", "builtin", agent.ModeResearch, registry); err == nil {
+		t.Fatal("damaged role accepted")
+	}
+	// Historical captures keep their exact identity but cannot launch again.
+	for name := range retained {
+		if strings.HasPrefix(name, "judge/") {
+			delete(retained, name)
+		}
+	}
+	retained[judgeLegacyRolePath] = []byte("previously captured challenger")
+	replay, err = CaptureWorkflow(t.Context(), retained, "research.dot", "builtin", agent.ModeResearch, registry)
 	if err != nil {
 		t.Fatal(err)
 	}
 	role, err = WorkflowJudgeInstructions(replay)
 	if err != nil || string(role) != "previously captured challenger" {
-		t.Fatalf("replay changed role: %s, %v", role, err)
+		t.Fatalf("historical role changed: %s, %v", role, err)
 	}
-	delete(retained, "judge/challenger.md")
-	if _, err = CaptureWorkflow(t.Context(), retained, "research.dot", "builtin", agent.ModeResearch, registry); err == nil {
+	if _, err := WorkflowJudgeCapture(replay); err == nil {
+		t.Fatal("historical capture allowed launch")
+	}
+	delete(retained, judgeLegacyRolePath)
+	if _, err := CaptureWorkflow(t.Context(), retained, "research.dot", "builtin", agent.ModeResearch, registry); err == nil {
 		t.Fatal("missing retained instructions silently replaced")
 	}
+
 }
 
 // The full shipped graphs remain unchanged; authors can add report-only steps

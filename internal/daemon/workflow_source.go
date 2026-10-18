@@ -71,7 +71,7 @@ func repositoryWorkflowSource(paths config.Paths, db *store.DB) (turn.WorkflowSo
 				if e != nil {
 					return e
 				}
-				definition, e = teamsource.CaptureWorkflowIdentity(ctx, root, path.Base(graph), profile.Team, workflow, specs)
+				definition, e = teamsource.CaptureWorkflowIdentity(ctx, root, path.Base(graph), profile.Team, workflow, specs, paths)
 				if e != nil {
 					return e
 				}
