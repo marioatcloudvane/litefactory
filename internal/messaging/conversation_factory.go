@@ -271,6 +271,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 					if e != nil {
 						return e
 					}
+					if e = s.validateConversationPrompt(work, c.ID, protected, instructions, true, at); e != nil {
+						return run.failed(ctx, e)
+					}
 					run.ordinal++
 					if e = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "correction", Request: protected, CapturedAt: at, Complete: true}); e != nil {
 						return e

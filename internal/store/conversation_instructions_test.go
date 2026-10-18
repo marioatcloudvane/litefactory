@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -127,7 +126,7 @@ func TestConversationLegacyCaptureConflictsAndNewBindingExclusion(t *testing.T) 
 	if _, err = db.sql.ExecContext(ctx, `INSERT INTO chat_conversation_instruction_legacy(conversation_id) VALUES(?)`, c.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.sql.ExecContext(ctx, `INSERT INTO chat_conversation_turns(id,conversation_id,source_id,sequence,prompt,created_at) VALUES('legacy-turn',?,'source',1,?,?)`, c.ID, `{"Instructions":"conflicting"}`, FormatTime(at)); err != nil {
+	if _, err = db.sql.ExecContext(ctx, `INSERT INTO chat_conversation_turns(id,conversation_id,source_id,sequence,prompt,created_at) VALUES('legacy-turn',?,'source',1,?,?)`, c.ID, `{"Instructions":"factory"}`, FormatTime(at)); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.BackfillLegacyConversationCapture(ctx, c.ID, []byte(`{}`), baseline, at); err == nil {
@@ -142,6 +141,23 @@ func TestConversationLegacyCaptureConflictsAndNewBindingExclusion(t *testing.T) 
 	}
 	if _, err = db.sql.ExecContext(ctx, `UPDATE chat_conversation_turns SET prompt=? WHERE id='legacy-turn'`, `{"Instructions":"native"}`); err != nil {
 		t.Fatal(err)
+	}
+	for _, test := range []struct{ kind, prompt string }{
+		{"provider", `{"instructions":"native"}`},
+		{"correction", `{"instructions":"native","correction":"correction"}`},
+	} {
+		if _, err = db.sql.ExecContext(ctx, `INSERT INTO chat_conversation_exchanges(turn_id,ordinal,kind,request,captured_at) VALUES('legacy-turn',1,?,?,?)`, test.kind, test.prompt, FormatTime(at)); err != nil {
+			t.Fatal(err)
+		}
+		if err = db.BackfillLegacyConversationCapture(ctx, c.ID, []byte(`{"baseline":true}`), baseline, at); err == nil {
+			t.Fatalf("role-swapped %s instructions accepted", test.kind)
+		}
+		if _, _, err = db.ReadConversationCapture(ctx, c.ID); !errors.Is(err, ErrNotFound) {
+			t.Fatal("conflicting exchange retained baseline")
+		}
+		if _, err = db.sql.ExecContext(ctx, `DELETE FROM chat_conversation_exchanges WHERE turn_id='legacy-turn'`); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err = db.BackfillLegacyConversationCapture(ctx, c.ID, []byte(`{"baseline":true}`), baseline, at); err != nil {
 		t.Fatal(err)
@@ -164,14 +180,29 @@ func TestConversationLegacyCaptureConflictsAndNewBindingExclusion(t *testing.T) 
 
 func TestLegacyInstructionEvidence(t *testing.T) {
 	baseline := ConversationLegacyInstructions{Native: "native", Factory: "factory", Correction: "correction", ActionOutcome: "outcome"}
-	for _, prompt := range []string{`{"Instructions":"native"}`, `{"instructions":"factory","correction":"correction"}`, `{"instructions":"factory outcome"}`, `{"OwnerInput":"untrusted owner instructions"}`} {
-		if legacyPromptConflict(prompt, baseline) {
-			t.Fatalf("known baseline prompt rejected: %s", prompt)
-		}
-	}
-	for _, prompt := range []string{`{"Instructions":"other native"}`, `{"instructions":"factory changed outcome"}`, `{"correction":"changed"}`, `{"instructions":42}`} {
-		if !legacyPromptConflict(prompt, baseline) {
-			t.Fatalf("conflicting saved instruction accepted: %s", prompt)
+	for _, test := range []struct {
+		kind, prompt string
+		conflict     bool
+	}{
+		{"turn", `{"Instructions":"native"}`, false},
+		{"provider", `{"instructions":"factory","correction":"correction"}`, false},
+		{"provider", `{"instructions":"factory outcome"}`, false},
+		{"correction", `{"instructions":"factory","correction":"correction"}`, false},
+		{"turn", `{"OwnerInput":"untrusted owner instructions"}`, false},
+		{"turn", `{"Instructions":"other native"}`, true},
+		{"provider", `{"instructions":"factory changed outcome"}`, true},
+		{"provider", `{"correction":"changed"}`, true},
+		{"turn", `{"instructions":42}`, true},
+		{"turn", `{"Instructions":"factory"}`, true},
+		{"turn", `{"Instructions":"factory outcome"}`, true},
+		{"provider", `{"instructions":"native"}`, true},
+		{"correction", `{"instructions":"native","correction":"correction"}`, true},
+		{"correction", `{"instructions":"factory outcome","correction":"correction"}`, true},
+		{"correction", `{"instructions":"factory","correction":""}`, true},
+		{"turn", `{"Instructions":"native","Correction":"correction"}`, true},
+	} {
+		if got := legacyPromptConflict(test.kind, test.prompt, baseline); got != test.conflict {
+			t.Errorf("%s %s: conflict=%v want %v", test.kind, test.prompt, got, test.conflict)
 		}
 	}
 }
@@ -192,10 +223,17 @@ func TestConversationInstructionMigrationMarksOnlyExistingBindings(t *testing.T)
 		t.Fatal(err)
 	}
 	var prior []migration
+	excluded := 0
 	for _, m := range migrations {
-		if !strings.Contains(m.name, "_conversation_instructions.sql") {
-			prior = append(prior, m)
+		// Migration names omit the numeric prefix and .sql extension.
+		if m.name == "conversation_instructions" {
+			excluded++
+			continue
 		}
+		prior = append(prior, m)
+	}
+	if excluded != 1 {
+		t.Fatalf("excluded %d instruction migrations; want exactly one", excluded)
 	}
 	if err = db.migrateAll(ctx, prior); err != nil {
 		t.Fatal(err)

@@ -1,0 +1,26 @@
+ok  	github.com/cloudvane/litefactory/internal/cli	268.768s
+--- FAIL: TestArchiveIntegrationSuiteRowsRetained (3.49s)
+    archive_integration_test.go:977: registry problems [chat_conversation_instruction_legacy is not classified chat_conversation_instructions is not classified] <nil>
+    archive_integration_test.go:74: archive logs:
+--- FAIL: TestRetirementSweepRealFailureFairness (64.52s)
+    --- FAIL: TestRetirementSweepRealFailureFairness/task_contention (47.14s)
+        retirement_sweep_real_test.go:201: retirement storage failure
+            store: read retirement intent: context deadline exceeded
+--- FAIL: TestTickStoryHTTP2DeadlineAndRetry (3.65s)
+    tick_phase_internal_test.go:115: HTTP/2 request was not cancelled
+--- FAIL: TestAdmissionPhasePreservesStoppedWorkerLifetime (0.03s)
+    tick_phase_internal_test.go:185: dispatched 0
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/daemon	3367.351s
+--- FAIL: TestArchiveIntegrationRegistryIsCompleteOnMigratedDatabase (0.33s)
+    archive_integration_test.go:54: problems [chat_conversation_instruction_legacy is not classified chat_conversation_instructions is not classified] <nil>
+2026/10/18 12:46:31 ERROR stale Plan archive grants removed rows=1 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestArchivePlanIntegrationStaleGrantsPurgedOnOpen568893480/001/litefactory.db
+--- FAIL: TestConversationInstructionMigrationMarksOnlyExistingBindings (24.45s)
+    conversation_instructions_test.go:258: migration lost active/historical identity: []
+--- FAIL: TestWorkflowJudgeArchivePreservesFinishedBindingOnClosedIssue (0.69s)
+    workflow_judge_archive_test.go:66: unguarded archive foreign keys: [chat_conversation_instruction_legacy is not classified chat_conversation_instructions is not classified] <nil>
+--- FAIL: TestArchiveRegistryProblems_MigratedDatabaseIsClean (0.70s)
+    archive_unit_test.go:59: registry problems: [chat_conversation_instruction_legacy is not classified chat_conversation_instructions is not classified]
+2026/10/18 13:16:26 ERROR stale Plan archive grants removed rows=2 database=/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestOpen_ClearsLeftoverPlanArchiveGrants2210454987/001/litefactory.db
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/store	1864.792s

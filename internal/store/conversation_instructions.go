@@ -91,16 +91,16 @@ func (db *DB) BackfillLegacyConversationCapture(ctx context.Context, id string, 
 			}
 			return errors.New("conversation instruction baseline conflicts with retained capture")
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT prompt FROM chat_conversation_turns WHERE conversation_id=? UNION ALL SELECT e.request FROM chat_conversation_exchanges e JOIN chat_conversation_turns t ON t.id=e.turn_id WHERE t.conversation_id=? AND e.kind IN ('provider','correction')`, id, id)
+		rows, err := tx.QueryContext(ctx, `SELECT 'turn',prompt FROM chat_conversation_turns WHERE conversation_id=? UNION ALL SELECT e.kind,e.request FROM chat_conversation_exchanges e JOIN chat_conversation_turns t ON t.id=e.turn_id WHERE t.conversation_id=? AND e.kind IN ('provider','correction')`, id, id)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
-			var prompt string
-			if err = rows.Scan(&prompt); err != nil {
+			var kind, prompt string
+			if err = rows.Scan(&kind, &prompt); err != nil {
 				break
 			}
-			if legacyPromptConflict(prompt, expected) {
+			if legacyPromptConflict(kind, prompt, expected) {
 				conflict = true
 			}
 		}
@@ -144,7 +144,7 @@ func (db *DB) BackfillLegacyConversationCapture(ctx context.Context, id string, 
 	return nil
 }
 
-func legacyPromptConflict(prompt string, expected ConversationLegacyInstructions) bool {
+func legacyPromptConflict(kind, prompt string, expected ConversationLegacyInstructions) bool {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal([]byte(prompt), &fields) != nil {
 		return false
@@ -153,11 +153,43 @@ func legacyPromptConflict(prompt string, expected ConversationLegacyInstructions
 		var value string
 		switch strings.ToLower(key) {
 		case "instructions":
-			if json.Unmarshal(raw, &value) != nil || (value != expected.Native && value != expected.Factory && value != expected.Factory+" "+expected.ActionOutcome) {
+			if json.Unmarshal(raw, &value) != nil {
+				return true
+			}
+			switch kind {
+			case "turn":
+				if value != expected.Native {
+					return true
+				}
+			case "provider":
+				if value != expected.Factory && value != expected.Factory+" "+expected.ActionOutcome {
+					return true
+				}
+			case "correction":
+				if value != expected.Factory {
+					return true
+				}
+			default:
 				return true
 			}
 		case "correction":
-			if json.Unmarshal(raw, &value) != nil || (value != "" && value != expected.Correction) {
+			if json.Unmarshal(raw, &value) != nil {
+				return true
+			}
+			switch kind {
+			case "turn":
+				if value != "" {
+					return true
+				}
+			case "provider":
+				if value != "" && value != expected.Correction {
+					return true
+				}
+			case "correction":
+				if value != expected.Correction {
+					return true
+				}
+			default:
 				return true
 			}
 		}

@@ -1,0 +1,11 @@
+ok  	github.com/cloudvane/litefactory/internal/agent	19.018s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	22.920s
+ok  	github.com/cloudvane/litefactory/internal/codex	547.448s
+ok  	github.com/cloudvane/litefactory/internal/doctor	1172.741s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	14.754s
+--- FAIL: TestRecordedClaudeProbeRecovery (36.67s)
+    --- FAIL: TestRecordedClaudeProbeRecovery/exec_/bin/sleep_30 (26.80s)
+        conversation_recorded_test.go:204: recovery: {Answer:[114 101 99 111 114 100 101 100 32 97 110 115 119 101 114] Session:{Ref:factory-session Resume:factory-session}} context deadline exceeded identities=1
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/harness	350.671s
+ok  	github.com/cloudvane/litefactory/internal/instructionpackage	23.175s

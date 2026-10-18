@@ -169,6 +169,9 @@ func TestConversationInstructionsRetainedAcrossPackageEditAndRestart(t *testing.
 						t.Fatal(e)
 					}
 					if !work && !delivery {
+						if len(sent.texts) == 0 || !strings.Contains(sent.texts[len(sent.texts)-1], "Recorded instruction fixture reply.") {
+							t.Fatalf("instruction turn %s/%s did not complete the recorded main path: replies=%q", channel, id, sent.texts)
+						}
 						return
 					}
 				}
@@ -262,6 +265,9 @@ func TestConversationInstructionsRetainedAcrossPackageEditAndRestart(t *testing.
 						t.Fatalf("factory composition changed: %q", factory)
 					}
 					if step == 2 {
+						if len(fields["correction"]) == 0 {
+							t.Fatalf("%s launch %d has no correction boundary; prompt=%s", provider, step, prompt)
+						}
 						var correction string
 						if e = json.Unmarshal(fields["correction"], &correction); e != nil {
 							t.Fatal(e)

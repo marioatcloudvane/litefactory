@@ -95,3 +95,29 @@ func TestConversationRedactionCannotChangeCapturedInstructionIdentity(t *testing
 		t.Fatal("changed instructions were journaled")
 	}
 }
+
+func TestConversationRedactionCannotJournalChangedCorrection(t *testing.T) {
+	provider := &factoryUnitProvider{outputs: []string{"invalid envelope"}}
+	run, _ := factoryUnitRun(t, provider)
+	run.s.Protect = func(_ context.Context, text string) (string, error) {
+		return strings.ReplaceAll(text, "Previous output failed strict validation.", "Changed correction instructions."), nil
+	}
+	if err := run.s.runFactoryConversation(t.Context(), run.c, run.b, run.t, run.at); err == nil || !strings.Contains(err.Error(), "conflicts with retained instructions") {
+		t.Fatalf("changed correction instructions accepted: %v", err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("changed correction reached further model call: calls=%d", provider.calls)
+	}
+	exchanges, err := run.s.db.ListConversationExchanges(t.Context(), run.t.ID)
+	if err != nil || len(exchanges) != 1 || exchanges[0].Kind != "provider" {
+		t.Fatalf("changed correction was journaled: %+v %v", exchanges, err)
+	}
+	saved, err := run.s.db.ReadConversation(t.Context(), run.c.Transport, run.c.ChannelRef)
+	if err != nil || !strings.Contains(saved.HealthReason, "model calls paused") {
+		t.Fatalf("changed correction did not pause conversation: %+v %v", saved, err)
+	}
+	turn, err := run.s.db.LatestConversationTurn(t.Context(), run.c.ID)
+	if err != nil || turn.State != run.t.State {
+		t.Fatalf("changed correction consumed unfinished input: %+v %v", turn, err)
+	}
+}
