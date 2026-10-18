@@ -79,7 +79,7 @@ func TestRegionResponseRejectsIncompleteCoverageAtEqualCardinality(t *testing.T)
 func TestRegionRequestAdmitsSupportedContentBudget(t *testing.T) {
 	for _, size := range []int{8193, maxConflictFileBytes, maxConflictFileBytes + 1} {
 		req := ConflictResolutionRequest{Branch: "task", Base: "main", Files: []ConflictFileContent{{Path: "f", Regions: []ConflictRegionContent{{ID: "r", Content: strings.Repeat("x", size)}}}}}
-		_, err := ConflictResolutionPrompt(req)
+		_, err := ConflictResolutionPrompt(shippedRoleText(t, "merge-conflict-advisor"), req)
 		if (err == nil) != (size <= maxConflictFileBytes) {
 			t.Fatalf("size %d: %v", size, err)
 		}

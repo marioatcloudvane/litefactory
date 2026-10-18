@@ -117,16 +117,20 @@ func TestBaselineOwnsBytesAndDeterministicIdentity(t *testing.T) {
 	}
 }
 
-func TestEmbeddedCatalogueIsExplicitlyEmpty(t *testing.T) {
+func TestEmbeddedCatalogueRegistersAdvisorsAndClassifier(t *testing.T) {
 	pkg, err := New(t.Context(), config.NewPaths(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.Roles()) != 0 || pkg.Version() == "" || pkg.Digest() == "" {
-		t.Fatal("embedded foundation must have a versioned empty catalogue")
+	want := []string{"merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier"}
+	if !slices.Equal(pkg.Roles(), want) || pkg.Version() != "1.1.0" || pkg.Digest() == "" {
+		t.Fatal("embedded package must register the migrated roles and advance its version")
 	}
-	if !bytes.Equal(bytes.TrimSpace(pkg.files[CataloguePath]), []byte("[]")) {
-		t.Fatal("embedded empty catalogue is not explicit")
+	for _, role := range want {
+		capture, _, err := pkg.Capture(t.Context(), role)
+		if err != nil || len(capture.Instructions()) == 0 {
+			t.Fatalf("capture %s: %v", role, err)
+		}
 	}
 }
 
