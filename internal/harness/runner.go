@@ -18,6 +18,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
@@ -76,7 +77,11 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 // no session id, run ordinal, or worktree and therefore cannot become an
 // ordinary coding workflow or create its run artefacts.
 func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposalRequest) (agent.ScheduleProposal, error) {
-	prompt, err := agent.ScheduleProposalPrompt(req)
+	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "schedule-proposal-advisor")
+	if err != nil {
+		return agent.ScheduleProposal{}, err
+	}
+	prompt, err := agent.ScheduleProposalPrompt(string(capture.Instructions()), req)
 	if err != nil {
 		return agent.ScheduleProposal{}, err
 	}
@@ -130,7 +135,11 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 // budget already in play for this turn (see internal/turn's
 // attemptConflictSuggestion, which passes ctx through unbounded on purpose).
 func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
-	prompt, err := agent.ConflictResolutionPrompt(req)
+	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "merge-conflict-advisor")
+	if err != nil {
+		return agent.ConflictResolution{}, err
+	}
+	prompt, err := agent.ConflictResolutionPrompt(string(capture.Instructions()), req)
 	if err != nil {
 		return agent.ConflictResolution{}, err
 	}
@@ -239,6 +248,8 @@ const (
 // the environment in particular, because a test that could not choose the
 // parent environment could not assert the boundary that AC-3.13 is about.
 type Options struct {
+	// Instructions supplies per-invocation role captures; nil uses the shared package.
+	Instructions instructionpackage.CaptureSource
 	// Paths is the resolved $LF_HOME layout. Run artefacts are written beneath
 	// it and the default claude settings file lives in it.
 	Paths config.Paths
@@ -270,6 +281,8 @@ type Options struct {
 // invariants: internal/turn declares whatever narrow interface it needs at its
 // own point of consumption.
 type Runner struct {
+	instructions instructionpackage.CaptureSource
+	paths        config.Paths
 	binary       config.Executable
 	home         string
 	tools        []string
@@ -375,7 +388,7 @@ func New(opts Options) (*Runner, error) {
 		ceiling = opts.Claude.Tools
 	}
 
-	return &Runner{
+	return &Runner{instructions: opts.Instructions, paths: opts.Paths,
 		binary:       binary,
 		home:         home,
 		tools:        append([]string(nil), opts.Claude.Tools...),
