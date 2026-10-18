@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/feature"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
+	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -127,10 +128,12 @@ type Handler func(context.Context, Message, time.Time) (string, error)
 
 // Service owns one transport. A single daemon sender calls Step.
 type Service struct {
-	stepMu              sync.Mutex
-	presentationEnabled bool
-	replyModel          ReplyModel
-	replyHistory        ask.HistoryReader
+	Instructions           prompts.Resolver
+	InstructionDiagnostics prompts.Sink
+	stepMu                 sync.Mutex
+	presentationEnabled    bool
+	replyModel             ReplyModel
+	replyHistory           ask.HistoryReader
 	// Protect sanitizes generated text before persistence and delivery.
 	Protect func(context.Context, string) (string, error)
 	// Logger records terminal failures without remote response bodies.

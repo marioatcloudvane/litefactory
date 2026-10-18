@@ -117,16 +117,23 @@ func TestBaselineOwnsBytesAndDeterministicIdentity(t *testing.T) {
 	}
 }
 
-func TestEmbeddedCatalogueIsExplicitlyEmpty(t *testing.T) {
+func TestEmbeddedCatalogueIncludesChatRoles(t *testing.T) {
 	pkg, err := New(t.Context(), config.NewPaths(t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.Roles()) != 0 || pkg.Version() == "" || pkg.Digest() == "" {
-		t.Fatal("embedded foundation must have a versioned empty catalogue")
+	want := []string{"chat-ask", "chat-draft", "chat-intent-interpreter", "chat-reply-writer", "chat-reply-checker"}
+	if pkg.Version() == "" || pkg.Digest() == "" {
+		t.Fatal("embedded chat catalogue identity mismatch")
 	}
-	if !bytes.Equal(bytes.TrimSpace(pkg.files[CataloguePath]), []byte("[]")) {
-		t.Fatal("embedded empty catalogue is not explicit")
+	for _, role := range want {
+		if !slices.Contains(pkg.Roles(), role) {
+			t.Fatalf("embedded catalogue missing chat role %s", role)
+		}
+		capture, err := pkg.CaptureShipped(t.Context(), role)
+		if err != nil || capture == nil || len(capture.Instructions()) == 0 {
+			t.Fatalf("capture %s: %v", role, err)
+		}
 	}
 }
 

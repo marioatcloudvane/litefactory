@@ -23,8 +23,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -351,6 +353,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(chatErr, lock.Close())
 	}
 	if chatOpts != nil {
+		instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
+		if instructionErr != nil {
+			return nil, Startup{}, errors.Join(instructionErr, lock.Close())
+		}
+		chatOpts.Instructions = instructions
+		chatOpts.InstructionDiagnostics = func(ctx context.Context, diagnostic prompts.Diagnostic) {
+			s.Logger.WarnContext(ctx, "chat instruction fallback", "role", diagnostic.Role, "source", diagnostic.Source, "digest", diagnostic.Digest, "category", diagnostic.Category)
+		}
 		providers := make(map[string]ask.ChatRunner)
 		for kind, runner := range runners {
 			if native, ok := runner.(ask.ChatRunner); ok {
