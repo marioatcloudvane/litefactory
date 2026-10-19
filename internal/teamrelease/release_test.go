@@ -256,6 +256,9 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 		if w == "bug" {
 			current = legacyBugSourceWithoutSyncGate(t, current)
 		}
+		if w == "implement" {
+			current = legacyImplementSourceWithoutOwnerResumeSync(t, current)
+		}
 		normalized := bytes.ReplaceAll(current, []byte(`team="go-development"`), []byte(`team="builtin"`))
 		normalized = bytes.ReplaceAll(normalized, []byte(",litefactory-rules"), nil)
 		for _, role := range []string{"architect", "code-reviewer", "implementation-engineer", "unit-test-engineer", "integration-test-engineer"} {
@@ -525,6 +528,25 @@ func TestPublicationFailureRestoresEntireBatch(t *testing.T) {
 
 // Released Bug definitions retain their direct repair routes. Admit only the
 // exact new canonical sync gate when comparing editable sources with releases.
+// legacyImplementSourceWithoutOwnerResumeSync reverts the unreleased source
+// change that resumes the Implement coordinator's owner wait at its base sync
+// (#966), so released snapshots stay byte-identical until a new team release.
+func legacyImplementSourceWithoutOwnerResumeSync(t *testing.T, source []byte) []byte {
+	t.Helper()
+	changes := []struct{ current, legacy string }{
+		{"(main) into the feature branch, so stories build on a current base. An owner\n// reply that resumes parked stories enters at this base sync again, so a fix\n// that reached main while the stories waited reaches them too. Then it\n", "(main) into the feature branch, so stories build on a current base. Then it\n"},
+		{`lf_action="lf_implement_ask", lf_outcomes="published", lf_source="sync_start"`, `lf_action="lf_implement_ask", lf_outcomes="published", lf_source="merge"`},
+		{`sync_start          [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="32"]`, `sync_start          [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"]`},
+	}
+	for _, change := range changes {
+		if bytes.Count(source, []byte(change.current)) != 1 {
+			t.Fatalf("canonical Implement owner resume differs from approved source delta: %s", change.current)
+		}
+		source = bytes.Replace(source, []byte(change.current), []byte(change.legacy), 1)
+	}
+	return source
+}
+
 func legacyBugSourceWithoutSyncGate(t *testing.T, source []byte) []byte {
 	t.Helper()
 	changes := []struct{ current, legacy string }{

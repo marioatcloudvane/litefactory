@@ -397,6 +397,32 @@ func TestImplementGraphValidatesWithTheBaseSyncAndRefusesBrokenSyncs(t *testing.
 	}
 }
 
+// TestImplementGraphAcceptsAnOwnerWaitAtTheBaseSync keeps the owner reply
+// resuming at the coordinator base sync valid, so main reaches the feature
+// branch before resumed stories start, and refuses a sync that cannot reach the
+// merge step.
+func TestImplementGraphAcceptsAnOwnerWaitAtTheBaseSync(t *testing.T) {
+	dot := strings.Replace(implementSyncDOT(t), `lf_implement_ask", lf_outcomes="published", lf_source="merge"`, `lf_implement_ask", lf_outcomes="published", lf_source="sync_start"`, 1)
+	if !strings.Contains(dot, `lf_source="sync_start"`) {
+		t.Fatal("the owner wait was not moved to the base sync")
+	}
+	if err := validateImplementDOT(t, dot); err != nil {
+		t.Fatalf("an owner wait at the base sync: %v", err)
+	}
+	for name, tc := range map[string]struct{ old, new string }{
+		"a sync whose success skips the merge step": {` sync_start -> merge [lf_on="synced"];`, ` sync_start -> ready [lf_on="synced"];`},
+		"a sync whose success paths differ":         {` sync_start -> merge [lf_on="current"];`, ` sync_start -> await [lf_on="current"];`},
+	} {
+		broken := strings.Replace(dot, tc.old, tc.new, 1)
+		if broken == dot {
+			t.Fatalf("%s: the mutation changed nothing", name)
+		}
+		if err := validateImplementDOT(t, broken); err == nil || !strings.Contains(err.Error(), "owner reply resumes at") {
+			t.Errorf("%s: err = %v, want the owner reply source refused", name, err)
+		}
+	}
+}
+
 // TestSyncBaseIsOneGenericStep keeps lf_sync_base a generic step any graph can
 // declare under its own mode, with the same outcomes.
 func TestSyncBaseIsOneGenericStep(t *testing.T) {
