@@ -237,7 +237,7 @@ func (h ValidateResolveActivity) Execute(ctx context.Context, opts Options, req 
 		case !st.Assessed:
 			return refuse("wait", "/validate-implement is refused: the assessment of this commit is not recorded yet.")
 		case len(st.implementTargets()) == 0:
-			return refuse("wait", fmt.Sprintf("/validate-implement is refused: no story has a failed or unverified criterion or a blocking review on commit `%s`, so Implement has nothing to repair.", short(st.Commit)))
+			return refuse("wait", fmt.Sprintf("/validate-implement is refused: no story has a failed or unverified criterion or a blocking review, and Validate handed back no failed suite, on commit `%s`, so Implement has nothing to repair.", short(st.Commit)))
 		}
 		return h.accept(ctx, opts, req, st, now, "implement", "implement confirmed")
 	case ValidateShipCommand:

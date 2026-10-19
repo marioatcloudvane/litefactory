@@ -100,6 +100,10 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// Spike fix check: the unique paths changed since a saved commit
 		// (committed, staged, unstaged, untracked); read-only, takes no index lock.
 		"ChangedSince",
+		// Validate implement (#974): the paths one exact commit changed against
+		// its first parent, to pick the story a failed suite goes back to;
+		// read-only, takes no index lock.
+		"FilesChangedBy",
 		// Validate repair: the textual change of the worktree against an exact
 		// commit (committed, staged, unstaged, untracked); read-only, so the
 		// factory can retain what a rejected repair did.
