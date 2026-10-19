@@ -41,3 +41,13 @@ Plan runtime binds a story task to the parent's plan state and runs one stage of
 Evidence:
 
 - `internal/turn/plan_graph.go:246`
+
+## f6
+
+Plan is set up as one agent per stage (set, story, technical), each with its own shaping skill (story shaping, acceptance shaping, story set). A fast-track agent can load these skills together.
+
+Evidence:
+
+- `teams/swift-ios/v1.0.1/plan/plan-story.md`
+- `teams/swift-ios/v1.0.1/plan/plan-technical.md`
+- `teams/swift-ios/v1.0.1/plan/skills/plan-acceptance-shaping/SKILL.md`
