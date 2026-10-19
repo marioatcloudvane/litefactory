@@ -60,3 +60,50 @@ func (w *Worktree) ChangedSince(ctx context.Context, base string) ([]string, err
 	sort.Strings(out)
 	return out, nil
 }
+
+// FilesChangedBy lists, once each and sorted, the paths one commit changed
+// against its first parent; a root commit lists nothing. A rename counts both
+// of its paths. It reads only. A commit that is not a full commit object, or a
+// listing beyond the bound, is an error rather than a partial answer.
+func (w *Worktree) FilesChangedBy(ctx context.Context, commit string) ([]string, error) {
+	if err := w.check(); err != nil {
+		return nil, err
+	}
+	if !fullBugObject(commit) {
+		return nil, errors.New("files-changed-by commit must be a full commit object")
+	}
+	actual, err := w.runner.run(ctx, readTimeout, "rev-parse", "--verify", commit+"^{commit}")
+	if err != nil {
+		return nil, err
+	}
+	if actual != commit {
+		return nil, errors.New("files-changed-by commit is not the exact commit")
+	}
+	parents, err := w.runner.run(ctx, readTimeout, "rev-list", "--parents", "--max-count=1", commit)
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Fields(parents)
+	if len(fields) < 2 {
+		return []string{}, nil
+	}
+	names, err := w.runner.runRaw(ctx, readTimeout, "diff-tree", "-r", "--no-commit-id", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", fields[1], commit, "--")
+	if err != nil {
+		return nil, err
+	}
+	unique := map[string]bool{}
+	for _, path := range strings.Split(names, "\x00") {
+		if path != "" {
+			unique[path] = true
+		}
+	}
+	if len(unique) > maxChangedSince {
+		return nil, fmt.Errorf("files-changed-by lists more than %d paths", maxChangedSince)
+	}
+	out := make([]string, 0, len(unique))
+	for path := range unique {
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out, nil
+}

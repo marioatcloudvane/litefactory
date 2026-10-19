@@ -366,7 +366,14 @@ func (db *DB) AdmitManagedChild(ctx context.Context, parentID int64, ref ticket.
 			if err != nil {
 				return err
 			}
-			if snapshot.RepoID != parent.RepoID || snapshot.CodeVersionID != parent.CodeVersionID || snapshot.ActorID != parent.ActorID || snapshot.CodeActorID != parent.CodeActorID || snapshot.CodeRemoteID != parent.CodeRemoteID || snapshot.TicketRemoteID != parent.TicketRemoteID {
+			// A child discovery admitted first may carry another code version of
+			// the same source. It is adopted only when a non-empty code remote ID
+			// proves the same code repository and actor, remotes and the ticket
+			// source proofs below match the parent's.
+			if snapshot.CodeVersionID != parent.CodeVersionID && snapshot.CodeRemoteID == "" {
+				return ErrBindingConflict
+			}
+			if snapshot.RepoID != parent.RepoID || snapshot.ActorID != parent.ActorID || snapshot.CodeActorID != parent.CodeActorID || snapshot.CodeRemoteID != parent.CodeRemoteID || snapshot.TicketRemoteID != parent.TicketRemoteID {
 				return ErrBindingConflict
 			}
 			mapping, err := scanSessionTicket(tx.QueryRowContext(ctx, `SELECT `+sessionTicketColumns+` FROM session_ticket_identities WHERE session_id=?`, existing.ID))

@@ -3,10 +3,14 @@ package daemon
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
+	"github.com/cloudvane/litefactory/internal/turn"
 )
 
 type retirementSweepIssueFunc func(context.Context, github.Repo, int) (github.Issue, error)
@@ -74,5 +78,58 @@ func TestRetirementBudgetIssues_PreservesFailures(t *testing.T) {
 				t.Fatalf("failed read = %+v, %v; want %v", got, err, failure)
 			}
 		})
+	}
+}
+
+type retirementLinearIngress struct {
+	origin ticket.Origin
+	state  string
+}
+
+func (retirementLinearIngress) Provider() ticket.Provider { return ticket.Linear }
+func (i retirementLinearIngress) Resolve(_ context.Context, l ticket.Locator) (ticket.Snapshot, error) {
+	return ticket.Snapshot{Ref: ticket.Ref{Locator: l, Identity: ticket.Identity{Provider: ticket.Linear, Origin: i.origin, RemoteID: l.Key}}, Title: "linear task", State: i.state, StateReason: "completed"}, nil
+}
+func (retirementLinearIngress) QualifyReply(ticket.Ref, github.Comment) (ticket.Reply, error) {
+	return ticket.Reply{}, errors.New("unused")
+}
+
+// Issue #975: without an injected reader, retirement reads a Linear task's
+// state through the ticket connection (d.readIssue), never the raw forge.
+func TestRetirementTicketIssues_LinearConnection(t *testing.T) {
+	t.Parallel()
+	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	origin := ticket.Origin("https://api.linear.app")
+	slot, err := db.LocalTicketSlot(t.Context(), "issue", ticket.Identity{Provider: ticket.Linear, Origin: origin, RemoteID: "linear-issue-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter, err := turn.NewFilter(db, turn.Identities{OwnerUserID: 42, BotUserID: 99, TicketOrigin: origin}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := github.Repo{Owner: "owner", Name: "repo"}
+	for _, tt := range []struct {
+		state  string
+		closed bool
+	}{{"closed", true}, {"open", false}} {
+		d := &Daemon{db: db, tickets: retirementLinearIngress{origin: origin, state: tt.state}, filter: filter}
+		issue, err := retirementTicketIssues{d: d}.GetIssue(t.Context(), repo, int(slot))
+		if err != nil {
+			t.Fatalf("%s: %v", tt.state, err)
+		}
+		if issue.State != tt.state || issue.QualifiedSnapshot == nil || issue.QualifiedSnapshot.Ref.Identity.Provider != ticket.Linear {
+			t.Fatalf("%s: issue not read through Linear connection: %+v", tt.state, issue)
+		}
+		if got := RetirementIssueClosed(store.Repo{Owner: "owner", Name: "repo"}, int(slot), issue); got != tt.closed {
+			t.Fatalf("%s: closed = %v, want %v", tt.state, got, tt.closed)
+		}
 	}
 }

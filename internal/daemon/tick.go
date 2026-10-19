@@ -854,11 +854,34 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 		return nil, nil
 	}
 
+	// A graph Plan story of a same-source parent is resolved through the
+	// parent's admitted connection versions, never as a root pinned to the
+	// version current at discovery.
+	var story store.GraphPlanStory
+	managedStory := false
+	if d.connections != nil {
+		found, ok, err := d.db.GraphPlanStoryAt(ctx, q.repo.ID, issue.Number)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			same, err := d.sameTicketSource(ctx, q.repo.ID, found.Parent)
+			if err != nil {
+				return nil, err
+			}
+			story, managedStory = found, same
+		}
+	}
+
 	var session store.Session
 	var err error
-	if d.connections == nil {
+	switch {
+	case d.connections == nil:
 		session, err = d.db.GetOrCreateSession(ctx, q.repo, issue.Number)
-	} else {
+	case managedStory:
+		ctx = projectContext(ctx, q.repo.ID)
+		session, err = d.managedChildSession(ctx, q.repo, story.Parent, story.IssueNumber, story.IssueID)
+	default:
 		ctx = projectContext(ctx, q.repo.ID)
 		v, e := d.db.CurrentConnection(ctx, q.repo.ID, store.TicketConnection)
 		if e != nil {
@@ -1355,6 +1378,16 @@ func (d *Daemon) dispatch(ctx context.Context, queues []*repoQueue, tickAt time.
 				// sessions — eligible, not run, still carrying needs_poll.
 				d.deferRest(ctx, queues, result)
 				return
+			case offerTimedOut:
+				// One candidate spent its whole tick-phase deadline, so the
+				// next one would most likely spend another: end the pass the
+				// way offerFull does, so a slow environment costs a tick one
+				// deadline rather than one per backlog session. The cursor
+				// moves past the timed-out session so the next tick starts
+				// after it and the drain keeps rotating.
+				d.repoSessionCursor[q.repo.ID] = c.session.ID
+				d.deferRest(ctx, queues, result)
+				return
 			case offerSkipped:
 			}
 		}
@@ -1377,6 +1410,10 @@ const (
 	// dispatch pass exactly as offerFull does; it is a separate value because
 	// the reason is different and the log line has to say which it was.
 	offerHeld
+	// offerTimedOut: materialising this candidate failed because its
+	// tick-phase deadline expired. It ends the dispatch pass as offerFull
+	// does, so one slow candidate does not cost every later one a deadline.
+	offerTimedOut
 )
 
 // offer tries to turn one candidate into a running turn.
@@ -1479,6 +1516,9 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 			c.log.ErrorContext(ctx, "could not materialise a task that still needs a poll; "+
 				"it keeps its backlog flag and the next tick tries again",
 				slog.Any("error", err))
+			if ctx.Err() != nil {
+				return offerTimedOut
+			}
 		}
 		return offerSkipped
 	}

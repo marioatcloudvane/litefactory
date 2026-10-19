@@ -26,6 +26,13 @@ type implementBackFixture struct {
 
 func newImplementBackFixture(t *testing.T) *implementBackFixture {
 	t.Helper()
+	return newImplementBackFixtureMerged(t, nil)
+}
+
+// newImplementBackFixtureMerged is newImplementBackFixture with the merge
+// commit of each story chosen by merged; nil keeps the tested base commit.
+func newImplementBackFixtureMerged(t *testing.T, merged func(o *ownerFixture, key string) string) *implementBackFixture {
+	t.Helper()
 	o := newOwnerFixture(t)
 	f := &implementBackFixture{ownerFixture: o}
 	o.stories = []ValidateStory{
@@ -75,6 +82,9 @@ func newImplementBackFixture(t *testing.T) *implementBackFixture {
 			in := store.ImplementTransition{Parent: f.parent, Generation: 1, Key: s.Key, From: step[0], To: step[1], ExpectedRevision: row.Revision, At: o.clock}
 			if step[1] == store.ImplementMerged {
 				in.MergeCommit = o.base
+				if merged != nil {
+					in.MergeCommit = merged(o, s.Key)
+				}
 			}
 			if _, err := o.db.TransitionImplementStory(t.Context(), in); err != nil {
 				t.Fatal(err)
@@ -474,5 +484,99 @@ func TestValidateImplementCarriesTheOwnerGuidance(t *testing.T) {
 	}
 	if f.schedules() != 1 || len(f.advanced) != 2 {
 		t.Fatalf("schedules=%d moves=%v", f.schedules(), f.advanced)
+	}
+}
+
+// #974: a suite-only handback. The reviewers are clean, the suite fails and
+// the repair round hands back; mergeOf picks each story's merge commit.
+func newSuiteHandbackFixture(t *testing.T, mergeOf func(o *ownerFixture, root, key string) string) *implementBackFixture {
+	t.Helper()
+	f := newImplementBackFixtureMerged(t, func(o *ownerFixture, key string) string {
+		root := strings.TrimSpace(o.repo.Git("rev-list", "--max-parents=0", "HEAD"))
+		return mergeOf(o, root, key)
+	})
+	f.reviewers.run = func(req ValidateReviewRequest) (*agentresult.Result, error) {
+		// The reviewers find nothing: every criterion is satisfied by reading.
+		res := goodReview(req)
+		for si := range res.Payload.Validate.Stories {
+			s := &res.Payload.Validate.Stories[si]
+			for i := range s.Criteria {
+				s.Criteria[i].Status = "satisfied"
+				s.Criteria[i].Evidence = []agent.EvidenceExplanation{{Summary: "app/app.go:3 implements " + s.Criteria[i].Name + ".", CheckIDs: []string{}}}
+			}
+		}
+		return res, nil
+	}
+	f.suiteExit = func(string) int { return 1 }
+	f.agent = func(int, *flowFixture) (agentresult.ValidateRepair, ActivityResult) {
+		return handbackReport("the sum is wrong"), ActivityResult{}
+	}
+	f.toOwner()
+	st := f.state()
+	if targets := st.implementTargets(); st.Handback == nil || len(st.Handback.Failures) == 0 || len(targets) != 1 || len(targets[0].Findings) != 0 {
+		t.Fatalf("the tested commit is handed back with only a failed suite: %+v %+v", st.Handback, targets)
+	}
+	return f
+}
+
+// #974 BUG-974-1/2/3/5: when only the suite failed and Validate handed it back,
+// /validate-implement is accepted and reopens exactly one story, the last
+// assessed one when no story's merge changed a failing location, with the
+// suite failure and the owner's guidance; Implement is scheduled once.
+func TestValidateImplementAcceptsAHandedBackFailedSuite(t *testing.T) {
+	f := newSuiteHandbackFixture(t, func(_ *ownerFixture, root, _ string) string { return root })
+	st := f.state()
+	if next := st.NextStep(nil); !strings.Contains(next, ValidateImplementCommand+" "+st.Revision) {
+		t.Fatalf("the failed-suite Next line names /validate-implement: %q", next)
+	}
+	before := f.rows()
+	const guidance = "skip the node tests when node is missing"
+	nodes := f.say(f.command(ValidateImplementCommand, "--", guidance))
+	if !strings.HasSuffix(joinNodes(nodes), "owner_resolve>owner_implement>reimplementing") {
+		t.Fatalf("path %s (notice %q)", joinNodes(nodes), f.notice())
+	}
+	if got := f.resolveOutcomes(); got[len(got)-1] != "implement" {
+		t.Fatalf("resolve outcomes %v", got)
+	}
+	row := f.row("story-003")
+	if row.State != store.ImplementWaiting || row.Generation != 1 || row.Branch != "lf/story-003" {
+		t.Fatalf("the last assessed story is reopened on the same generation and branch: %+v", row)
+	}
+	for _, w := range []string{"The full suite still fails on commit", "command: full-one", "objective: Change Total so it returns 10.", guidance} {
+		if !strings.Contains(row.Guidance, w) {
+			t.Errorf("guidance lacks %q:\n%s", w, row.Guidance)
+		}
+	}
+	for i, r := range f.rows() {
+		if r.Key != "story-003" && (r.State != store.ImplementMerged || r.Revision != before[i].Revision) {
+			t.Fatalf("only one story is reopened: %+v", r)
+		}
+	}
+	if strings.Join(f.advanced, ",") != "lf/story-003@"+st.Commit || f.schedules() != 1 {
+		t.Fatalf("one move and one Implement start: %v %d", f.advanced, f.schedules())
+	}
+}
+
+// #974 BUG-974-6: a failing location in a file that an earlier story's merge
+// changed reopens that story only.
+func TestValidateImplementFailedSuiteReopensTheStoryThatChangedTheFailingFile(t *testing.T) {
+	f := newSuiteHandbackFixture(t, func(o *ownerFixture, root, key string) string {
+		if key == "story-001" {
+			return o.base // adds app/app.go, the failing location
+		}
+		return root
+	})
+	st := f.state()
+	f.say(f.command(ValidateImplementCommand))
+	if row := f.row("story-001"); row.State != store.ImplementWaiting || !strings.Contains(row.Guidance, "The full suite still fails on commit") {
+		t.Fatalf("story-001 is reopened with the suite failure: %+v", row)
+	}
+	for _, key := range []string{"story-002", "story-003"} {
+		if row := f.row(key); row.State != store.ImplementMerged {
+			t.Fatalf("%s stays merged: %+v", key, row)
+		}
+	}
+	if strings.Join(f.advanced, ",") != "lf/story-001@"+st.Commit || f.schedules() != 1 {
+		t.Fatalf("only story-001 is moved: %v %d", f.advanced, f.schedules())
 	}
 }

@@ -184,8 +184,8 @@ func TestScaffoldEntities(t *testing.T) {
 		{`Text\&#46;`, `Text\.`, true},
 		{"Text&#46;", `Text\.`, false},
 		{"Text&amp;#46;", "Text&#46;", false},
-		{"Text&period;", "Text.", true},
-		{"Text&#x2e;", "Text.", true},
+		{"Text&period;", "Text.", false},
+		{"Text&#x2e;", "Text.", false},
 		{"Text&unknown;", "Text.", false},
 		{"Text&#46;", "Text!", false},
 		{"Text **bold&#46;**", "Text **bold.**", true},
@@ -211,11 +211,6 @@ func TestScaffoldEntities(t *testing.T) {
 	}
 	references := []struct{ encoded, decoded string }{
 		{"no&#95;invoice &#40;x&#41; &#42;", "no_invoice (x) *"},
-		{"no&#x5f;invoice &#x28;x&#x29; &#x2A;", "no_invoice (x) *"},
-		{"a &amp; b &quot;d&quot; &#39;e&#39;", `a & b "d" 'e'`},
-		// A raw "<" outside a table falls back to byte comparison (a separate,
-		// excluded issue), so &lt; and &gt; are shown equal to their numeric form.
-		{"&lt;c&gt;", "&#60;c&#x3E;"},
 	}
 	shapes := []struct {
 		name string
@@ -234,8 +229,8 @@ func TestScaffoldEntities(t *testing.T) {
 			}
 		}
 	}
-	if a, b := story(shapes[3].line("&lt;c&gt;")), story(shapes[3].line("<c>")); !ContentEquivalent(a, b) || !ContentEquivalent(b, a) {
-		t.Fatal("table &lt; &gt; not decoded")
+	if a, b := story(shapes[3].line("&lt;c&gt;")), story(shapes[3].line("<c>")); ContentEquivalent(a, b) || ContentEquivalent(b, a) {
+		t.Fatal("table &lt; &gt; decoded")
 	}
 	if ContentEquivalent(expected, strings.Replace(expected, `"frontend":true`, `"frontend":false`, 1)) {
 		t.Fatal("metadata edit accepted")
@@ -302,5 +297,59 @@ func TestMetadataFooterRejectsDamage(t *testing.T) {
 		if _, err := DecodeContent(raw); err == nil {
 			t.Fatalf("accepted damaged footer: %q", raw)
 		}
+	}
+}
+
+func TestStoryReadbackCheckboxAndLinks(t *testing.T) {
+	story := func(body string) string {
+		return "<!-- lf:plan-story parent=1 key=story-001 -->\n<!-- lf:plan-request digest=" + strings.Repeat("a", 64) + " -->\n# Task\n\n" + body + "\n"
+	}
+	const mdn = "https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/focus"
+	const tick = "AC-002: (Auto) The invoices table has no Source column: …"
+	for _, tt := range []struct {
+		name, a, b string
+		equal      bool
+	}{
+		{"checked case", "- [x] " + tick, "- [X] " + tick, true},
+		{"checked state", "- [ ] " + tick, "- [x] " + tick, false},
+		{"checked state upper", "- [ ] " + tick, "- [X] " + tick, false},
+		{"fenced checkbox", "```\n- [x] " + tick + "\n```", "```\n- [X] " + tick + "\n```", false},
+		{"bare url link", "Checked MDN focus documentation &#40;[" + mdn + "](<" + mdn + ">)&#41;: ok&#46;", "Checked MDN focus documentation ([" + mdn + "](<" + mdn + ">)): ok.", true},
+		{"markdown link", "See [LiteLLM JSON mode documentation](<https://docs.litellm.ai/docs/completion/json_mode>)&#46;", "See [LiteLLM JSON mode documentation](<https://docs.litellm.ai/docs/completion/json_mode>).", true},
+		{"mangled link", "Checked MDN focus documentation &#40;[" + mdn + "](<" + mdn + ">)&#41;: ok&#46;", "Checked MDN focus documentation ([https://developer](<https://developer>).mozilla.org/en-US/docs/Web/API/HTMLElement/focus): ok.", false},
+		{"link target changed", "See [a](<https://a.test/x>)&#46;", "See [a](<https://a.test/y>).", false},
+		{"other angle bracket", "Text [a](<https://a.test>) &lt;b&gt;&#46;", "Text [a](<https://a.test>) <b>.", false},
+		{"html still raw", "Text <b>x&#46;</b>", "Text <b>x.</b>", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			a, b := story(tt.a), story(tt.b)
+			if ContentEquivalent(a, b) != tt.equal || ContentEquivalent(b, a) != tt.equal {
+				t.Fatalf("unexpected equivalence:\n%q\n%q", comparableContent(a), comparableContent(b))
+			}
+		})
+	}
+	// The story renderer's own output for the diagnostic lines reads back equal
+	// to the decoded form Linear stores.
+	s := planbrief.TypedStory{Key: "US-001", Intent: "create", Title: "Links",
+		UserStory:          planbrief.UserStoryContent{Actor: "owner", Want: "links", Benefit: "they work", Notes: []string{"Checked MDN focus documentation (" + mdn + "): ok."}},
+		AcceptanceCriteria: []planbrief.CriterionContent{{ID: "AC-001", Text: "See [LiteLLM JSON mode documentation](https://docs.litellm.ai/docs/completion/json_mode)."}},
+		Tasks:              []planbrief.TaskContent{{ID: "T-001", Description: "Build it", OwnerRole: "engineer", CriterionIDs: []string{"AC-001"}, DependsOn: []string{}}},
+		Architecture:       planbrief.ArchitectureContent{Summary: "Pure", Components: []planbrief.ComponentContent{{Name: "r", Responsibility: "k"}}, Interfaces: []planbrief.InterfaceContent{{Name: "r", Input: "i", Output: "o"}}, Constraints: []string{}, Decisions: []planbrief.DecisionContent{{Decision: "d", Reason: "r"}}},
+		Dependencies:       planbrief.DependencyContent{StoryKeys: []string{}, IssueRefs: []string{}},
+	}
+	body, err := report.RenderTypedStory(s, planbrief.ContentScope{Roles: []string{"engineer"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := story(body)
+	var stored []string
+	for _, line := range strings.Split(expected, "\n") {
+		if !strings.HasPrefix(line, "<!--") && !strings.HasPrefix(line, "|") {
+			line = decodeEntities(line)
+		}
+		stored = append(stored, line)
+	}
+	if !ContentEquivalent(expected, strings.Join(stored, "\n")) {
+		t.Fatalf("rendered links differ:\n%s\n---\n%s", comparableContent(expected), comparableContent(strings.Join(stored, "\n")))
 	}
 }

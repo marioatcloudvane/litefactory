@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // GraphNodeRequest supplies a validated, frozen profile and activity registry.
@@ -204,6 +206,22 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		out.Status, out.NextNode = "waiting_owner", node.Name
 		return out, dispatchErr
 	}
+	// A local discovery-budget deferral inside a Plan activity is transient
+	// scheduling pressure: the failed attempt stays bounded by the node limit,
+	// and the instance stays at the node for a later retry instead of failing.
+	if dispatchErr != nil && workflow == agent.WorkflowPlan && errors.Is(dispatchErr, ticket.ErrDiscoveryDeferred) {
+		if out.Activity.Diagnostic == "" {
+			out.Activity.Diagnostic = dispatchErr.Error()
+		}
+		req.StopOnFailure, req.NextDueAt = false, req.RetryDueAt
+		completion := store.GraphCompletion{Status: store.GraphFailed, FinishedAt: req.At, InstanceStatus: store.GraphRunning, NextDueAt: req.NextDueAt}
+		completion.Outputs = append(completion.Outputs, store.GraphOutput{Kind: store.GraphOutputDiagnostic, Payload: []byte(out.Activity.Diagnostic)})
+		if err := opts.DB.CompleteGraphNodeAttempt(ctx, out.AttemptID, completion); err != nil {
+			return out, fmt.Errorf("complete deferred graph activity: %w", err)
+		}
+		out.Deferred, out.NextNode = true, node.Name
+		return out, nil
+	}
 	if dispatchErr != nil {
 		if out.Activity.Diagnostic == "" {
 			out.Activity.Diagnostic = dispatchErr.Error()
@@ -249,6 +267,24 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 			return parkGraphAction(ctx, opts, req, out, cause, false)
 		}
 	}
+	completionCtx := ctx
+	ownerStopped := false
+	if !succeeded && req.RunID != 0 && ctx.Err() != nil {
+		// An owner stop cancels the worker context; settle the attempt anyway so
+		// the instance is not left running at this node until restart recovery.
+		run, err := opts.DB.GetRun(context.WithoutCancel(ctx), req.RunID)
+		if err != nil {
+			return out, fmt.Errorf("read graph run: %w", err)
+		}
+		if _, ownerStopped = run.OwnerStop(); ownerStopped {
+			completionCtx = context.WithoutCancel(ctx)
+			if out.Activity.Diagnostic == "" {
+				out.Activity.Diagnostic = store.ReasonOwnerStop
+			} else if !strings.Contains(out.Activity.Diagnostic, store.ReasonOwnerStop) {
+				out.Activity.Diagnostic = store.ReasonOwnerStop + "\n" + out.Activity.Diagnostic
+			}
+		}
+	}
 	completion := store.GraphCompletion{Status: store.GraphFailed, FinishedAt: req.At, InstanceStatus: store.GraphRunning, NextDueAt: req.NextDueAt}
 	// Research never retries a failed activity without new owner authority.
 	// Terminalizing only graph execution leaves the original run, authored
@@ -257,6 +293,13 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 		completion.InstanceStatus = store.GraphFailed
 		completion.NextDueAt = time.Time{}
 		out.Status = store.GraphFailed
+	}
+	// Match restart reconciliation: an owner-stopped Implement story is
+	// cancelled, not failed, so the stop does not count as a story failure.
+	if ownerStopped && req.Profile.Mode == agent.ModeImplement {
+		completion.InstanceStatus = store.GraphCancelled
+		completion.NextDueAt = time.Time{}
+		out.Status = store.GraphCancelled
 	}
 	if succeeded {
 		completion.Status, completion.Outcome = store.GraphSucceeded, out.Activity.Outcome
@@ -272,7 +315,6 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 	if out.Activity.Diagnostic != "" {
 		completion.Outputs = append(completion.Outputs, store.GraphOutput{Kind: store.GraphOutputDiagnostic, Payload: []byte(out.Activity.Diagnostic)})
 	}
-	completionCtx := ctx
 	if node, ok := req.Profile.Node(out.Node); !succeeded && ok && node.Action == graphexec.SyncBaseAction {
 		// Preserve commit evidence from a possibly published sync despite cancellation.
 		completionCtx = context.WithoutCancel(ctx)

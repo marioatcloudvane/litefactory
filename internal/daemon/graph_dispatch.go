@@ -205,6 +205,21 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		return
 	}
 	t.validating = validating
+	// A Validate dispatch whose node is no longer where the instance rests
+	// (it moved on, finished, or was replaced) is stale. Drop it quietly:
+	// running it would offer its synthetic trigger to the open owner wait.
+	if validating {
+		if staleErr := d.db.ValidateGraphDispatchTarget(ctx, dispatch.SessionID, dispatch.TriggerID()); errors.Is(staleErr, store.ErrGraphInvariant) {
+			t.log.InfoContext(ctx, "dropped a stale graph dispatch", slog.Int64("graph_dispatch_id", dispatch.ID), slog.String("graph_node", dispatch.Node), slog.String("cause", staleErr.Error()))
+			if finishErr := d.db.FinishGraphDispatch(ctx, dispatch.ID, t.tickAt.UTC()); finishErr != nil {
+				t.recordWorkerError(finishErr)
+			}
+			return
+		} else if staleErr != nil {
+			t.recordWorkerError(staleErr)
+			return
+		}
+	}
 	trigger, command := graphStepRequest(dispatch, d.ticketIdentities(ctx).OwnerHandle)
 	previousTrigger := t.commentUnderWay
 	t.commentUnderWay = trigger.CommentID
@@ -246,12 +261,17 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		return
 	}
 	// The Implement coordinator runs no agent, so a step of it has no run by design.
-	// It ran if it did not fail; the instance records where it rests.
+	// Validate factory stages run no agent either. Either ran if it did not
+	// fail; the instance records where it rests.
 	if !exists && err == nil {
-		runless, runlessErr := d.implementCoordinatorDispatch(ctx, dispatch)
-		if runlessErr != nil {
-			t.recordWorkerError(runlessErr)
-			return
+		runless := validating
+		if !runless {
+			var runlessErr error
+			runless, runlessErr = d.implementCoordinatorDispatch(ctx, dispatch)
+			if runlessErr != nil {
+				t.recordWorkerError(runlessErr)
+				return
+			}
 		}
 		if runless {
 			if finishErr := d.db.FinishGraphDispatch(ctx, dispatch.ID, t.tickAt.UTC()); finishErr != nil {

@@ -35,7 +35,7 @@ type RetirementGit interface {
 // OpenGit is optional; nil uses the registered Git clone capability.
 type RetirementExecutionOptions struct {
 	// Issues optionally decorates every closure lookup with request admission.
-	// Nil uses the daemon forge. The same client is used for initial/final reads.
+	// Nil reads through the ticket connection. The same client is used for initial/final reads.
 	Issues     RetirementIssues
 	CloneGate  turn.CloneGate
 	LockDir    string
@@ -99,7 +99,7 @@ func (d *Daemon) executeRetirement(ctx context.Context, sweepID string, ownerID 
 	}()
 	issues := o.Issues
 	if issues == nil {
-		issues = d.forge
+		issues = retirementTicketIssues{d: d}
 	}
 	owner, err := d.db.GetRetirementOwner(ctx, ownerID)
 	if err != nil {
