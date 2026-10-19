@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
@@ -248,5 +250,102 @@ func TestTickDiscoveryDeadlineRetainsCursor(t *testing.T) {
 	publicationMust(t, err)
 	if before != after {
 		t.Fatalf("cursor advanced: before=%+v after=%+v", before, after)
+	}
+}
+
+// backlogReadForge records every backlog issue read. With stall set, a read
+// blocks until its tick-phase context ends; otherwise it fails at once.
+type backlogReadForge struct {
+	Forge
+	stall bool
+	reads []int
+}
+
+func (f *backlogReadForge) GetIssue(ctx context.Context, _ github.Repo, number int) (github.Issue, error) {
+	f.reads = append(f.reads, number)
+	if f.stall {
+		<-ctx.Done()
+		return github.Issue{}, ctx.Err()
+	}
+	return github.Issue{}, errors.New("forge answered 502")
+}
+
+// backlogDispatch builds a daemon over three backlog sessions and returns a
+// function that runs one dispatch pass over all of them.
+func backlogDispatch(t *testing.T, forge *backlogReadForge) (*Daemon, []store.Session, func() TickResult) {
+	t.Helper()
+	f := newPublicationIO(t)
+	d := f.d
+	d.forge = forge
+	d.schedule = newDiscoverySchedule(time.Minute)
+	d.pool = newPool(1)
+	d.repoSessionCursor = make(map[int64]int64)
+	d.tickPhaseTimeout = 100 * time.Millisecond
+	d.discovery.tick(f.now)
+	d.discovery.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: f.now.Add(time.Hour), StatusCode: http.StatusOK})
+	repo, err := f.db.GetRepo(t.Context(), f.session.RepoID)
+	publicationMust(t, err)
+	var sessions []store.Session
+	for _, number := range []int{301, 302, 303} {
+		s, err := f.db.GetOrCreateSession(t.Context(), repo, number)
+		publicationMust(t, err)
+		publicationMust(t, f.db.SetSessionNeedsPoll(t.Context(), s.ID))
+		sessions = append(sessions, s)
+	}
+	return d, sessions, func() TickResult {
+		q := &repoQueue{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, log: d.log}
+		for _, s := range sessions {
+			ref, err := naming.ParseRef(s.TaskRef)
+			publicationMust(t, err)
+			q.candidates = append(q.candidates, q.candidate(s, ref))
+		}
+		var result TickResult
+		d.dispatch(t.Context(), []*repoQueue{q}, f.now, &result)
+		return result
+	}
+}
+
+// A backlog candidate whose materialise spends its whole tick-phase deadline
+// ends the dispatch pass: the rest keep their backlog flag and are deferred,
+// and the next pass starts after the timed-out session (#967).
+func TestDispatchEndsPassAfterMaterialiseDeadline(t *testing.T) {
+	forge := &backlogReadForge{stall: true}
+	d, sessions, dispatch := backlogDispatch(t, forge)
+	start := time.Now()
+	result := dispatch()
+	if elapsed := time.Since(start); elapsed > 5*d.tickPhaseTimeout {
+		t.Fatalf("dispatch took %s, want about one %s deadline", elapsed, d.tickPhaseTimeout)
+	}
+	if want := []int{301}; !slices.Equal(forge.reads, want) {
+		t.Fatalf("offered %v, want %v", forge.reads, want)
+	}
+	if result.Deferred != 2 || result.Dispatched != 0 {
+		t.Fatalf("deferred %d dispatched %d, want 2 and 0", result.Deferred, result.Dispatched)
+	}
+	for _, s := range sessions {
+		got, err := d.db.GetSession(t.Context(), s.ID)
+		publicationMust(t, err)
+		if !got.NeedsPoll {
+			t.Fatalf("session %d lost its backlog flag", s.ID)
+		}
+	}
+	forge.reads = nil
+	dispatch()
+	if len(forge.reads) == 0 || forge.reads[0] != 302 {
+		t.Fatalf("second pass offered %v first, want 302", forge.reads)
+	}
+}
+
+// A materialise error that is not a spent deadline still lets the pass offer
+// the next candidate in the same tick.
+func TestDispatchContinuesAfterOtherMaterialiseError(t *testing.T) {
+	forge := &backlogReadForge{}
+	_, _, dispatch := backlogDispatch(t, forge)
+	result := dispatch()
+	if want := []int{301, 302, 303}; !slices.Equal(forge.reads, want) {
+		t.Fatalf("offered %v, want %v", forge.reads, want)
+	}
+	if result.Deferred != 0 || result.Dispatched != 0 {
+		t.Fatalf("deferred %d dispatched %d, want 0 and 0", result.Deferred, result.Dispatched)
 	}
 }

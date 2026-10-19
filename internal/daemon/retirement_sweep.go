@@ -101,7 +101,7 @@ func (d *Daemon) RunRetirementBatch(ctx context.Context, now time.Time) (err err
 	opts := d.retirement
 	issues := opts.Issues
 	if issues == nil {
-		issues = d.forge
+		issues = retirementTicketIssues{d: d}
 	}
 	opts.Issues = retirementBudgetIssues{d: d, issues: issues, now: now}
 	var evaluation RetirementEvaluation

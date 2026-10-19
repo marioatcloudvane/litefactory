@@ -348,10 +348,11 @@ func (s ValidateState) blockingIDs() []string {
 const validateNewSnapshotStep = "It clears only on a new tested snapshot: push a fix to the feature branch, then comment `" + ValidateStartCommand + "` to validate the new head."
 
 // implementLine offers /validate-implement when the graph declares the step and
-// a story has a blocking finding on the tested commit. It is empty otherwise.
+// a story has a blocking finding on the tested commit, or the commit was handed
+// back with suite failures. It is empty otherwise.
 func (s ValidateState) implementLine() string {
 	if !s.Reimplement || s.Reimplementing || !s.Assessed || len(s.implementTargets()) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("To send the blocking findings back to Implement on the same feature branch, comment `%s %s`; Validate runs again on the new head. Or push a fix to the feature branch yourself and comment `%s`.", ValidateImplementCommand, s.Revision, ValidateStartCommand)
+	return fmt.Sprintf("To send the blocking findings or the failed suite back to Implement on the same feature branch, comment `%s %s`; Validate runs again on the new head. Or push a fix to the feature branch yourself and comment `%s`.", ValidateImplementCommand, s.Revision, ValidateStartCommand)
 }

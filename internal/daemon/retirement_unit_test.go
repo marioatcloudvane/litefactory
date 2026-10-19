@@ -10,6 +10,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 type retirementIssueStub struct {
@@ -225,6 +226,92 @@ func TestEvaluateRetirement_ClosureAndEvidence(t *testing.T) {
 				if got.Git.BaseSHA != "base" || got.Decisions[0].ExpectedSHA != "local" || got.Decisions[2].ExpectedSHA != "remote" {
 					t.Error("exact SHA evidence lost")
 				}
+			}
+		})
+	}
+}
+
+func linearRetirementFixture() (store.RetirementOwner, daemon.RetirementOptions, git.RetirementObservation) {
+	owner, opts, obs := retirementUnitFixture()
+	owner.Session.TaskRef = "linear:team-id/project-id#42"
+	opts.Issues = retirementIssueStub{issue: linearClosedIssue()}
+	return owner, opts, obs
+}
+
+func linearClosedIssue() github.Issue {
+	snapshot := &ticket.Snapshot{Ref: ticket.Ref{Identity: ticket.Identity{Provider: ticket.Linear, Origin: "https://api.linear.app", RemoteID: "issue-uuid"}}}
+	return github.Issue{QualifiedSnapshot: snapshot, ID: 42, Number: 42, State: "closed", StateReason: "completed"}
+}
+
+func TestRetirementIssueClosed_LinearSnapshot(t *testing.T) {
+	t.Parallel()
+	owner, _, _ := linearRetirementFixture()
+	issue := linearClosedIssue()
+	if !daemon.RetirementIssueClosed(owner.Repo, 42, issue) {
+		t.Fatal("closed Linear snapshot not treated as closed")
+	}
+	for name, change := range map[string]func(*github.Issue){
+		"open":             func(i *github.Issue) { i.State = "open" },
+		"different number": func(i *github.Issue) { i.Number = 43 },
+		"missing ID":       func(i *github.Issue) { i.ID = 0 },
+		"github snapshot without URL": func(i *github.Issue) {
+			s := *i.QualifiedSnapshot
+			s.Ref.Identity.Provider = ticket.GitHub
+			i.QualifiedSnapshot = &s
+		},
+	} {
+		changed := issue
+		change(&changed)
+		if daemon.RetirementIssueClosed(owner.Repo, 42, changed) {
+			t.Errorf("%s: treated as closed", name)
+		}
+	}
+}
+
+func TestEvaluateRetirement_LinearTask(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		change  func(*store.RetirementOwner, *daemon.RetirementOptions)
+		actions [3]string
+		reason  string
+	}{
+		{"closed expired", func(*store.RetirementOwner, *daemon.RetirementOptions) {}, [3]string{"would_remove", "would_remove", "would_remove"}, ""},
+		{"open", func(_ *store.RetirementOwner, p *daemon.RetirementOptions) {
+			issue := linearClosedIssue()
+			issue.State = "open"
+			p.Issues = retirementIssueStub{issue: issue}
+		}, [3]string{"kept", "kept", "kept"}, "issue_open"},
+		{"closed within retention", func(o *store.RetirementOwner, p *daemon.RetirementOptions) {
+			o.LastFinishedAt = p.Now.Add(-time.Hour)
+		}, [3]string{"kept", "kept", "would_remove"}, ""},
+		{"qualified ref", func(o *store.RetirementOwner, _ *daemon.RetirementOptions) {
+			o.Session.TaskRef = "linear:team-id/project-id#42~2"
+		}, [3]string{"kept", "kept", "kept"}, "uncertain_ownership"},
+		{"other slot", func(o *store.RetirementOwner, _ *daemon.RetirementOptions) {
+			o.Session.TaskRef = "linear:team-id/project-id#43"
+		}, [3]string{"kept", "kept", "kept"}, "uncertain_ownership"},
+		{"other provider", func(o *store.RetirementOwner, _ *daemon.RetirementOptions) {
+			o.Session.TaskRef = "jira:team-id/project-id#42"
+		}, [3]string{"kept", "kept", "kept"}, "uncertain_ownership"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			o, p, g := linearRetirementFixture()
+			tt.change(&o, &p)
+			p.ObserveGit = func(context.Context, store.RetirementOwner) (git.RetirementObservation, error) { return g, nil }
+			got := daemon.EvaluateRetirement(context.Background(), p, o)
+			if len(got.Decisions) != 3 {
+				t.Fatalf("decisions = %+v", got)
+			}
+			for i, d := range got.Decisions {
+				if d.Action != tt.actions[i] || (tt.reason != "" && d.Reason != tt.reason) {
+					t.Errorf("%s = %s (%s), want %s (%s)", d.Kind, d.Action, d.Reason, tt.actions[i], tt.reason)
+				}
+			}
+			if tt.name == "closed within retention" && got.Decisions[0].Reason != "retention_not_expired" {
+				t.Errorf("worktree reason = %s, want retention_not_expired", got.Decisions[0].Reason)
 			}
 		})
 	}

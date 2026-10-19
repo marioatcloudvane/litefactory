@@ -147,7 +147,7 @@ func (d *Daemon) RunArchiveBatch(ctx context.Context, now time.Time) (err error)
 		issues = d.retirement.Issues
 	}
 	if issues == nil {
-		issues = d.forge
+		issues = retirementTicketIssues{d: d}
 	}
 	issues = retirementBudgetIssues{d: d, issues: issues, now: now}
 

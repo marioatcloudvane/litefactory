@@ -177,14 +177,23 @@ func (b ValidateFlowBindings) RefreshValidateReport(ctx context.Context, opts Op
 	}
 	text := renderValidateReport(st, target, report.Notice)
 	// The story sub-issues follow the parent report: they are written only when
-	// the report changed, and a failure returns before the report row is saved,
-	// so the next refresh retries them.
+	// the report changed. A failed story write never suppresses the parent
+	// report; the report is still posted or edited, and its saved digest is
+	// cleared so the next refresh retries the stories and edits it in place.
+	var storyErr error
 	if target != nil && (report.CommentID == 0 || report.Digest != fmt.Sprintf("%x", sha256.Sum256([]byte(text)))) {
-		if err := b.refreshValidateStories(ctx, opts, req, st, *target); err != nil {
-			return false, err
-		}
+		storyErr = b.refreshValidateStories(ctx, opts, req, st, *target)
 	}
-	return opts.ResearchReporter.ReportValidate(ctx, req.InstanceID, st.Revision, report.Notice, text, b.now(opts))
+	changed, reportErr := opts.ResearchReporter.ReportValidate(ctx, req.InstanceID, st.Revision, report.Notice, text, b.now(opts))
+	if storyErr != nil && reportErr == nil {
+		saved, err := opts.DB.GetValidateReport(ctx, req.InstanceID)
+		if err == nil {
+			saved.Digest = ""
+			err = opts.DB.PutValidateReport(ctx, saved)
+		}
+		reportErr = err
+	}
+	return changed, errors.Join(storyErr, reportErr)
 }
 
 // ReportValidate posts the Validate report once under a stable identity and then
