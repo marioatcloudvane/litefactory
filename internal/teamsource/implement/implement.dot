@@ -5,7 +5,9 @@
 // does not stop the others.
 //
 // Coordinator (parent issue). It first brings the repository's base branch
-// (main) into the feature branch, so stories build on a current base. Then it
+// (main) into the feature branch, so stories build on a current base. An owner
+// reply that resumes parked stories enters at this base sync again, so a fix
+// that reached main while the stories waited reaches them too. Then it
 // merges finished stories until none is left and starts every story that is
 // ready. While stories build it rests at await
 // and ends the run; it wakes when a story changes state. When no story can start
@@ -44,11 +46,11 @@ digraph implement {
  await      [lf_action="lf_implement_await", lf_outcomes="go", lf_limit="64"];
  handoff    [lf_action="lf_implement_handoff", lf_outcomes="posted", lf_limit="16"];
  any_parked [lf_action="lf_implement_any_parked", lf_outcomes="true,false", lf_limit="16"];
- ask_owner  [lf_action="lf_implement_ask", lf_outcomes="published", lf_source="merge", lf_limit="16"];
+ ask_owner  [lf_action="lf_implement_ask", lf_outcomes="published", lf_source="sync_start", lf_limit="16"];
  report_done [lf_action="lf_implement_report_done", lf_outcomes="published", lf_source="merge", lf_limit="16"];
 
  // ---- Base sync ------------------------------------------------------------------
- sync_start          [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"];
+ sync_start          [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="32"];
  sync_start_resolve  [lf_action="lf_agent", lf_outcomes="success,failed", lf_agent_markdown="sync-resolver", lf_skills="implement-result,litefactory-rules", lf_limit="3"];
  sync_start_resolved [lf_action="lf_implement_resolved", lf_outcomes="resolved,blocked,retry", lf_source="sync_start_resolve", lf_limit="3"];
  sync_done           [lf_action="lf_sync_base", lf_outcomes="synced,current,conflict,retry", lf_limit="8"];

@@ -1625,3 +1625,144 @@ func TestImplementCoordinatorFinalVerificationAfterDrain(t *testing.T) {
 		})
 	}
 }
+
+// parkAndAskImplementOwner runs the canonical coordinator until its one story
+// is parked and the owner is asked, and returns the open owner wait.
+func parkAndAskImplementOwner(t *testing.T, f *fixture, req Request) (string, store.GraphInstance, store.GraphOwnerWait) {
+	t.Helper()
+	enableWorkerSyncFixture(f)
+	parent := seedImplementParent(t, f, store.ManagedStory{Key: "story-001", IssueNumber: 201, IssueID: 7001})
+	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.ResearchGraph {
+		t.Fatalf("%+v %v", out, err)
+	}
+	row := implementStatesOf(t, f, parent)["story-001"]
+	_, err := f.db.TransitionImplementStory(t.Context(), store.ImplementTransition{Parent: parent, Generation: 1, Key: "story-001", From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: "The worker stopped with a blocked answer: main is red.", At: implementClock})
+	mustProgress(t, err)
+	mustProgress(t, wakeImplementParent(t.Context(), f.db, parent, time.Now()))
+	runOwedImplementStages(t, f, req)
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "implement")
+	mustProgress(t, err)
+	wait, err := f.db.GetGraphOwnerWait(t.Context(), instance.ID)
+	if err != nil || wait.State != "waiting" {
+		t.Fatalf("the owner has one open question: %+v %v", wait, err)
+	}
+	return parent, instance, wait
+}
+
+// replyToImplementOwner claims the owner's reply restarting story-001 and runs
+// the coordinator on it.
+func replyToImplementOwner(t *testing.T, f *fixture, req Request, parent string, instance store.GraphInstance, wait store.GraphOwnerWait) {
+	t.Helper()
+	delivery, err := f.db.GetReportDelivery(t.Context(), wait.DeliveryKey)
+	mustProgress(t, err)
+	const reply = "story-001: main is fixed now, try again."
+	_, err = f.db.ClaimGraphOwnerReply(t.Context(), store.GraphOwnerReply{InstanceID: instance.ID, OwnerID: 77, AuthorID: 77, CommentID: delivery.CommentID + 100, QuestionCommentID: delivery.CommentID, TaskRef: parent, SourceRef: parent, Mode: "implement", Workflow: "implement", DeliveryKey: wait.DeliveryKey, Body: reply, At: time.Now()})
+	mustProgress(t, err)
+	answer := req
+	answer.Trigger.CommentID, answer.Trigger.Body = delivery.CommentID+100, reply
+	if out, err := Execute(t.Context(), f.opts, answer); err != nil {
+		t.Fatalf("%+v %v", out, err)
+	}
+}
+
+// afterAsk is the coordinator trail after its owner question.
+func afterAsk(t *testing.T, trail []string) []string {
+	t.Helper()
+	asked := trailIndex(trail, "ask_owner:published")
+	if asked < 0 {
+		t.Fatalf("the owner was never asked: %v", trail)
+	}
+	return trail[asked+1:]
+}
+
+// #966: a fix that reaches main while a story is parked reaches the feature
+// branch before the owner's reply restarts the story.
+func TestImplementCoordinatorMergesMainIntoTheFeatureBranchBeforeResumedStoriesStart(t *testing.T) {
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("a clean base sync needs no agent")
+		return nil, nil
+	}))
+	parent, instance, wait := parkAndAskImplementOwner(t, f, req)
+	fix := advanceRemote(t, f, gittest.DefaultBranch, "fix.txt", "fixed on main\n")
+	if remoteHolds(t, f, "lf/123-feature", fix) {
+		t.Fatal("the feature branch must be behind main before the reply")
+	}
+
+	replyToImplementOwner(t, f, req, parent, instance, wait)
+	resumed := afterAsk(t, implementTrail(t, f))
+	synced, started := trailIndex(resumed, "sync_start:synced"), trailIndex(resumed, "ready:started")
+	if synced < 0 || started < 0 || synced > started {
+		t.Fatalf("main is merged into the feature branch before the resumed story starts: %v", resumed)
+	}
+	if !remoteHolds(t, f, "lf/123-feature", fix) {
+		t.Fatal("the feature branch does not hold main's fix")
+	}
+	if row := implementStatesOf(t, f, parent)["story-001"]; row.State != store.ImplementRunning {
+		t.Fatalf("the story restarted: %+v", row)
+	}
+}
+
+// #966: with main unchanged, the resumed sync is current and moves nothing.
+func TestImplementCoordinatorResumeWithMainUnchangedLeavesTheFeatureBranch(t *testing.T) {
+	f, _, req := assembledImplementFixture(t, lifecycleMCPHost(func(context.Context, agent.Request) (*agent.RunResult, error) {
+		t.Error("a clean base sync needs no agent")
+		return nil, nil
+	}))
+	parent, instance, wait := parkAndAskImplementOwner(t, f, req)
+	f.repo.Git("fetch", "--quiet", "origin")
+	before := f.repo.Git("rev-parse", "origin/lf/123-feature")
+
+	replyToImplementOwner(t, f, req, parent, instance, wait)
+	resumed := afterAsk(t, implementTrail(t, f))
+	current, started := trailIndex(resumed, "sync_start:current"), trailIndex(resumed, "ready:started")
+	if current < 0 || started < 0 || current > started || trailIndex(resumed, "sync_start:synced") >= 0 {
+		t.Fatalf("the resumed sync is current before the story restarts: %v", resumed)
+	}
+	f.repo.Git("fetch", "--quiet", "origin")
+	if after := f.repo.Git("rev-parse", "origin/lf/123-feature"); after != before {
+		t.Fatalf("the feature branch moved from %s to %s", before, after)
+	}
+	if row := implementStatesOf(t, f, parent)["story-001"]; row.State != store.ImplementRunning {
+		t.Fatalf("the story restarted: %+v", row)
+	}
+}
+
+// #966: a conflict with main on resume goes to the resolver before any story
+// restarts.
+func TestImplementCoordinatorResumeResolvesAConflictWithMainBeforeStoriesStart(t *testing.T) {
+	var f *fixture
+	var startedBeforeResolve bool
+	var parent string
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		startedBeforeResolve = implementStatesOf(t, f, parent)["story-001"].State == store.ImplementRunning
+		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "shared.go"), []byte("package api // main and merged stories\n"), 0o600))
+		submitLiveResult(t, req, syncResolvedJSON)
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
+	})
+	f, _, req := assembledImplementFixture(t, runner)
+	var instance store.GraphInstance
+	var wait store.GraphOwnerWait
+	parent, instance, wait = parkAndAskImplementOwner(t, f, req)
+	mainTip := seedMainFeatureConflict(t, f)
+
+	replyToImplementOwner(t, f, req, parent, instance, wait)
+	resumed := afterAsk(t, implementTrail(t, f))
+	want := []string{"sync_start:conflict", "sync_start_resolve:success", "sync_start_resolved:resolved", "sync_start:current"}
+	for i, step := range want {
+		if i >= len(resumed) || resumed[i] != step {
+			t.Fatalf("trail after the reply = %v, want it to begin %v", resumed, want)
+		}
+	}
+	if started := trailIndex(resumed, "ready:started"); started < len(want) {
+		t.Fatalf("no story restarts before the conflict is resolved: %v", resumed)
+	}
+	if startedBeforeResolve {
+		t.Fatal("the story restarted before the resolver ran")
+	}
+	if !remoteHolds(t, f, "lf/123-feature", mainTip) {
+		t.Fatal("the resolved merge was not pushed to the feature branch")
+	}
+	if row := implementStatesOf(t, f, parent)["story-001"]; row.State != store.ImplementRunning {
+		t.Fatalf("the story restarts once main is in: %+v", row)
+	}
+}
