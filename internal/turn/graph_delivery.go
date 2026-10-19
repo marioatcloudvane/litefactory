@@ -30,6 +30,7 @@ type GraphDeliveryBinding struct {
 	IssueNumber                           int
 	IssueReference                        string
 	Repository                            github.Repo
+	TicketRepository                      github.Repo
 	Branch, Target, Marker, Predecessor   string
 	Eligibility                           GraphBugRepairEligibility
 }
@@ -176,7 +177,11 @@ func (h GraphBugFinalization) Execute(ctx context.Context, opts Options, req Act
 	out.PR = pr
 	out.Integration = true
 
-	if e = h.Tickets.CloseDeliveredParent(ctx, repo, binding.IssueNumber, binding.IssueID); e != nil {
+	ticketRepo := binding.TicketRepository
+	if ticketRepo.Owner == "" {
+		ticketRepo = repo
+	}
+	if e = h.Tickets.CloseDeliveredParent(ctx, ticketRepo, binding.IssueNumber, binding.IssueID); e != nil {
 		return finish("blocked", fmt.Sprintf("Merged PR #%d, but closing issue %s failed: %s", pr.Number, binding.displayReference(), e.Error()))
 	}
 	out.Closed = true
