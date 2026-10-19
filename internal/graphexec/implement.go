@@ -111,7 +111,8 @@ func ImplementAnyParkedSpec() ActionSpec {
 }
 
 // ImplementAskSpec declares the one batched owner question on the parent. Its
-// lf_source names the node an owner reply resumes the coordinator at.
+// lf_source names the node an owner reply resumes the coordinator at: the
+// coordinator base sync, or in older graphs the merge step.
 func ImplementAskSpec() ActionSpec {
 	return ActionSpec{Name: ImplementAskAction, Mode: agent.ModeImplement, Outcomes: []string{"published"}}
 }
@@ -322,9 +323,21 @@ func (c *implementCheck) storyDone(n Node) {
 	}
 }
 
+// ask accepts an owner reply that resumes at the merge step, or at a
+// coordinator base sync whose success reaches the merge step, so main reaches
+// the feature branch before resumed stories start.
 func (c *implementCheck) ask(n Node) {
-	if source, ok := c.p.Node(n.Attrs["lf_source"]); !ok || source.Action != ImplementMergeAction {
-		c.fail("implement node %s lf_source %q must name the merge step an owner reply resumes at", n.Name, n.Attrs["lf_source"])
+	source, ok := c.p.Node(n.Attrs["lf_source"])
+	if ok && source.Action == SyncBaseAction {
+		synced, a := Decide(c.p, source.Name, "synced")
+		current, b := Decide(c.p, source.Name, "current")
+		target, exists := c.p.Node(synced)
+		ok = a && b && synced == current && exists && target.Action == ImplementMergeAction
+	} else if ok {
+		ok = source.Action == ImplementMergeAction
+	}
+	if !ok {
+		c.fail("implement node %s lf_source %q must name the merge step an owner reply resumes at, or a base sync whose success reaches it", n.Name, n.Attrs["lf_source"])
 	}
 	c.edge(n, "published", func(t Node) bool { return t.Terminal }, "must end at a terminal owner wait")
 }

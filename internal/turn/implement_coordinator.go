@@ -111,8 +111,10 @@ func implementQuestionCandidate(parked []store.ImplementStory) agentresult.Resul
 }
 
 // ask publishes the one batched owner question on the parent, listing every
-// parked story, and opens the owner wait. The wait rests on the merge step, so
-// the owner's reply resumes the coordinator where it merges and starts stories.
+// parked story, and opens the owner wait. The wait rests on the coordinator base
+// sync (the merge step in older graphs), so the owner's reply resumes the
+// coordinator where it brings main into the feature branch, then merges and
+// starts stories.
 func (rt *implementRuntime) ask(ctx context.Context, opts Options, a ActivityRequest) (ActivityResult, error) {
 	rows, err := opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)
 	if err != nil {
