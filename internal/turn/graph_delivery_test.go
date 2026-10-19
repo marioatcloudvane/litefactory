@@ -27,6 +27,7 @@ type graphDeliveryForge struct {
 	creates, merges, closes                             int
 	loseMerge, raceMain, losePR, loseClose, refuseMerge bool
 	beforeMerge                                         func() error
+	listRepo, createRepo, mergeRepo, closeRepo          github.Repo
 }
 
 func (f *graphDeliveryForge) BaseURL() string { return "https://github.com" }
@@ -39,7 +40,8 @@ func (f *graphDeliveryForge) GetDeliveryHead(_ context.Context, _ github.Repo, b
 	}
 	return f.remote, nil
 }
-func (f *graphDeliveryForge) ListDeliveryPRs(context.Context, github.Repo, string) ([]github.DeliveryPR, error) {
+func (f *graphDeliveryForge) ListDeliveryPRs(_ context.Context, repo github.Repo, _ string) ([]github.DeliveryPR, error) {
+	f.listRepo = repo
 	if f.pr.ID == 0 {
 		return nil, nil
 	}
@@ -48,7 +50,8 @@ func (f *graphDeliveryForge) ListDeliveryPRs(context.Context, github.Repo, strin
 func (f *graphDeliveryForge) GetDeliveryPR(context.Context, github.Repo, int) (github.DeliveryPR, error) {
 	return f.pr, nil
 }
-func (f *graphDeliveryForge) CreateDeliveryPR(_ context.Context, _ github.Repo, branch, target string, title, body redact.Body) (github.DeliveryPR, error) {
+func (f *graphDeliveryForge) CreateDeliveryPR(_ context.Context, repo github.Repo, branch, target string, title, body redact.Body) (github.DeliveryPR, error) {
+	f.createRepo = repo
 	f.creates++
 	f.pr = github.DeliveryPR{ID: 80, Number: 4, CreatorID: f.binding.BotID, Head: f.remote, Branch: branch, Target: target, HeadRepo: "acme/acme-api", BaseRepo: "acme/acme-api", State: "open", Body: body.String()}
 	if f.losePR {
@@ -56,7 +59,8 @@ func (f *graphDeliveryForge) CreateDeliveryPR(_ context.Context, _ github.Repo, 
 	}
 	return f.pr, nil
 }
-func (f *graphDeliveryForge) MergeDeliveryPR(_ context.Context, _ github.Repo, _ int, head string) error {
+func (f *graphDeliveryForge) MergeDeliveryPR(_ context.Context, repo github.Repo, _ int, head string) error {
+	f.mergeRepo = repo
 	f.merges++
 	if f.beforeMerge != nil {
 		if err := f.beforeMerge(); err != nil {
@@ -86,7 +90,8 @@ func (f *graphDeliveryForge) GetDeliveryCommit(context.Context, github.Repo, str
 	}
 	return github.DeliveryCommit{SHA: f.pr.MergeSHA, Parents: []string{base, f.pr.Head}}, nil
 }
-func (f *graphDeliveryForge) CloseDeliveredParent(context.Context, github.Repo, int, int64) error {
+func (f *graphDeliveryForge) CloseDeliveredParent(_ context.Context, repo github.Repo, _ int, _ int64) error {
+	f.closeRepo = repo
 	f.closes++
 	if f.loseClose {
 		f.loseClose = false
@@ -624,5 +629,38 @@ func settleStrandedFixtureRuns(t *testing.T, f *fixture, instanceID int64) {
 			_, err = f.db.FinishRun(t.Context(), a.RunID, store.RunOutcome{Status: store.RunSucceeded})
 			mustProgress(t, err)
 		}
+	}
+}
+
+func TestGraphDeliveryTicketContainer(t *testing.T) {
+	for _, linear := range []bool{false, true} {
+		t.Run(fmt.Sprintf("linear=%t", linear), func(t *testing.T) {
+			f, h, req, forge, head := graphFinalizationFixture(t)
+			binding := forge.binding
+			wantTicketRepo := binding.Repository
+			if linear {
+				binding.TicketRepository = github.Repo{Owner: "team", Name: "project"}
+				binding.IssueReference = "MAR-52"
+				wantTicketRepo = binding.TicketRepository
+			}
+			h.Resolve = func(context.Context, Options, ActivityRequest, GraphBugRepairEligibility) (GraphDeliveryBinding, error) {
+				return binding, nil
+			}
+			var syncRepo github.Repo
+			h.SyncBase = func(_ context.Context, _ Options, _ ActivityRequest, b GraphDeliveryBinding, _ string) (syncBaseOutput, error) {
+				syncRepo = b.Repository
+				return syncBaseOutput{Result: "current", Commit: head}, nil
+			}
+			out, err := h.Execute(t.Context(), f.opts, req)
+			mustProgress(t, err)
+			var progress graphDeliveryProgress
+			mustProgress(t, json.Unmarshal(out.Output, &progress))
+			if out.Outcome != "completed" || !progress.Closed || forge.closes != 1 || forge.closeRepo != wantTicketRepo {
+				t.Fatalf("out=%+v closed=%t close repo=%+v want=%+v", out, progress.Closed, forge.closeRepo, wantTicketRepo)
+			}
+			if forge.listRepo != binding.Repository || forge.createRepo != binding.Repository || forge.mergeRepo != binding.Repository || syncRepo != binding.Repository {
+				t.Fatalf("code repos: list=%+v create=%+v merge=%+v sync=%+v", forge.listRepo, forge.createRepo, forge.mergeRepo, syncRepo)
+			}
+		})
 	}
 }
