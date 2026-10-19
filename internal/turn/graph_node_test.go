@@ -508,3 +508,50 @@ func TestGraphNodePlanDiscoveryDeferralRetries(t *testing.T) {
 		t.Fatalf("ordinary failure instance: %+v %v", got, err)
 	}
 }
+
+// An owner stop cancels the worker context mid-activity. The attempt must still
+// settle, and an Implement instance must be cancelled as restart recovery does,
+// so the story is not stuck behind a running attempt until a daemon restart.
+func TestGraphNodeOwnerStopSettlesCancelledAttempt(t *testing.T) {
+	f := newFixture(t, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	segment, err := f.db.GetOrCreateSegment(t.Context(), f.session.ID, 1, "owner-stop-worker", store.AgentClaude)
+	mustProgress(t, err)
+	run, err := f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: segment.ID, Mode: string(agent.ModeImplement), Agent: store.AgentClaude, TriggerCommentID: 973, LogPath: func(int) string { return "stop.log" }})
+	mustProgress(t, err)
+	h := &graphTestHandler{
+		errs: map[string]error{"work": context.Canceled},
+		hook: func(context.Context, Options, ActivityRequest) {
+			_, err := f.db.RequestOwnerStop(t.Context(), f.session.TaskRef)
+			mustProgress(t, err)
+			cancel()
+		},
+	}
+	req := f.graphRequest(graphTestDOT, h)
+	req.RunID = run.ID
+	result, err := ExecuteNodeAction(ctx, f.opts, req)
+	if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "complete graph activity") {
+		t.Fatalf("error = %v", err)
+	}
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), req.InstanceID)
+	mustProgress(t, err)
+	if len(attempts) != 1 || attempts[0].Status != store.GraphFailed {
+		t.Fatalf("attempt not settled: %+v", attempts)
+	}
+	outputs, err := f.db.ListGraphOutputs(t.Context(), result.AttemptID)
+	mustProgress(t, err)
+	if len(outputs) != 1 || outputs[0].Kind != store.GraphOutputDiagnostic || !strings.Contains(string(outputs[0].Payload), store.ReasonOwnerStop) {
+		t.Fatalf("owner-stop diagnostic lost: %+v", outputs)
+	}
+	instance, err := f.db.GetGraphInstance(t.Context(), req.InstanceID)
+	mustProgress(t, err)
+	if instance.Status != store.GraphCancelled || result.Status != store.GraphCancelled {
+		t.Fatalf("instance = %+v result = %+v", instance, result)
+	}
+	stopped, err := f.db.GetRun(t.Context(), run.ID)
+	mustProgress(t, err)
+	if _, ok := stopped.OwnerStop(); !ok {
+		t.Fatalf("run lost owner stop: %+v", stopped)
+	}
+}
