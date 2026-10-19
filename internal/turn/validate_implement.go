@@ -62,7 +62,11 @@ func implementBlocks(f ValidateFinding) bool {
 }
 
 // implementTargets lists, in assessment order, the stories with a blocking
-// finding on the tested commit and those findings.
+// finding on the tested commit and those findings. When no story has one but
+// the tested commit was handed back with suite failures, it is the last
+// assessed story alone, with no findings: one worker repairs the suite, so
+// parallel workers never fix the same failure. The implement step may move
+// that one target to the story whose merge changed a failing location.
 func (s ValidateState) implementTargets() []validateImplementTarget {
 	var out []validateImplementTarget
 	for _, story := range s.Stories {
@@ -76,7 +80,62 @@ func (s ValidateState) implementTargets() []validateImplementTarget {
 			out = append(out, t)
 		}
 	}
+	if len(out) == 0 && s.suiteOnlyRepair() {
+		out = append(out, validateImplementTarget{Story: s.Stories[len(s.Stories)-1].Story})
+	}
 	return out
+}
+
+// suiteOnlyRepair says the tested commit was handed back with suite failures
+// and has assessed stories to give them to.
+func (s ValidateState) suiteOnlyRepair() bool {
+	return s.Handback != nil && len(s.Handback.Failures) > 0 && len(s.Stories) > 0
+}
+
+// suiteOnlyTarget chooses the one story a suite-only repair reopens: the last
+// assessed story whose merge commit changed a failing location of the
+// handback, otherwise the last assessed story. A story already reopened with
+// this repair's guidance is a replay and keeps the choice. Merge commits never
+// change, so the choice is stable.
+func (h ValidateImplementActivity) suiteOnlyTarget(ctx context.Context, st ValidateState, rows []store.ImplementStory, owner string) (validateImplementTarget, error) {
+	fallback := validateImplementTarget{Story: st.Stories[len(st.Stories)-1].Story}
+	failing := map[string]bool{}
+	for _, f := range st.Handback.Failures {
+		for _, l := range f.Locations {
+			if p := strings.TrimSpace(l.Path); p != "" {
+				failing[p] = true
+			}
+		}
+	}
+	for _, story := range st.Stories {
+		t := validateImplementTarget{Story: story.Story}
+		if i := slices.IndexFunc(rows, func(r store.ImplementStory) bool { return r.Key == story.Story }); i >= 0 &&
+			rows[i].State == store.ImplementWaiting && rows[i].Guidance == validateImplementGuidance(st, t, owner) {
+			return t, nil
+		}
+	}
+	if len(failing) == 0 {
+		return fallback, nil
+	}
+	worktree, _, err := openValidateWorktree(h.b)
+	if err != nil {
+		return validateImplementTarget{}, err
+	}
+	chosen := fallback
+	for _, story := range st.Stories {
+		i := slices.IndexFunc(rows, func(r store.ImplementStory) bool { return r.Key == story.Story })
+		if i < 0 || rows[i].MergeCommit == "" {
+			continue
+		}
+		paths, err := worktree.FilesChangedBy(ctx, rows[i].MergeCommit)
+		if err != nil {
+			return validateImplementTarget{}, fmt.Errorf("list the files story %s changed: %w", story.Story, err)
+		}
+		if slices.ContainsFunc(paths, func(p string) bool { return failing[p] }) {
+			chosen = validateImplementTarget{Story: story.Story}
+		}
+	}
+	return chosen, nil
 }
 
 // validateImplementTarget is one story the implement step reopens.
@@ -242,7 +301,15 @@ func (h ValidateImplementActivity) Execute(ctx context.Context, opts Options, re
 	}
 	now := h.b.now(opts)
 	out.Skipped = map[string]string{}
-	for _, t := range st.implementTargets() {
+	targets := st.implementTargets()
+	if len(targets) == 1 && len(targets[0].Findings) == 0 {
+		chosen, err := h.suiteOnlyTarget(ctx, st, rows, ownerGuidance)
+		if err != nil {
+			return ActivityResult{Diagnostic: err.Error()}, err
+		}
+		targets[0] = chosen
+	}
+	for _, t := range targets {
 		guidance := validateImplementGuidance(st, t, ownerGuidance)
 		i := slices.IndexFunc(rows, func(r store.ImplementStory) bool { return r.Key == t.Story })
 		if i < 0 {
@@ -278,7 +345,7 @@ func (h ValidateImplementActivity) Execute(ctx context.Context, opts Options, re
 	}
 	if len(out.Reopened) == 0 {
 		why := "no story with a blocking finding could be reopened:"
-		for _, t := range st.implementTargets() {
+		for _, t := range targets {
 			why += fmt.Sprintf(" %s (%s);", t.Story, out.Skipped[t.Story])
 		}
 		return ActivityResult{Diagnostic: why}, errors.New(why)
@@ -293,7 +360,7 @@ func (h ValidateImplementActivity) Execute(ctx context.Context, opts Options, re
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
 	notice := "Reopened " + strings.Join(out.Reopened, ", ") + "."
-	for _, t := range st.implementTargets() {
+	for _, t := range targets {
 		if why, ok := out.Skipped[t.Story]; ok {
 			notice += fmt.Sprintf(" Not reopened: %s, because %s.", t.Story, why)
 		}

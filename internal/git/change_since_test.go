@@ -74,3 +74,60 @@ func TestChangedSinceIsTheUniqueUnionOfCommittedStagedUnstagedAndUntracked(t *te
 		}
 	}
 }
+
+func TestFilesChangedByListsAMergeAgainstItsFirstParentAndNothingForARoot(t *testing.T) {
+	repo := gittest.New(t)
+	repo.WriteFile("shared.go", "package a\n")
+	repo.Commit("baseline")
+	repo.Git("push", "origin", "main")
+	binary, err := git.Resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone, err := binary.Open(t.Context(), repo.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch, dir := task(t, worktreeRoot(repo), 974, "files changed by")
+	result, err := git.EnsureWorktree(t.Context(), clone, git.EnsureWorktreeOptions{Dir: dir, Branch: branch, BaseBranch: gittest.DefaultBranch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktree := result.Worktree
+	write := func(name string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("package a\n// changed "+name+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo.GitIn(dir, "checkout", "--quiet", "-b", "story")
+	write("story/one.go")
+	write("story/two.go")
+	repo.GitIn(dir, "add", "--all")
+	repo.GitIn(dir, "commit", "--quiet", "-m", "story work")
+	repo.GitIn(dir, "checkout", "--quiet", branch)
+	write("feature.go")
+	repo.GitIn(dir, "add", "--all")
+	repo.GitIn(dir, "commit", "--quiet", "-m", "feature work")
+	repo.GitIn(dir, "merge", "--quiet", "--no-ff", "--no-edit", "story")
+	merge := repo.GitIn(dir, "rev-parse", "HEAD")
+	got, err := worktree.FilesChangedBy(t.Context(), merge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"story/one.go", "story/two.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("merge changed = %v, want %v", got, want)
+	}
+	root := repo.GitIn(dir, "rev-list", "--max-parents=0", "HEAD")
+	if got, err := worktree.FilesChangedBy(t.Context(), root); err != nil || len(got) != 0 {
+		t.Fatalf("root commit changed = %v %v, want nothing", got, err)
+	}
+	for _, bad := range []string{"", "HEAD", "abc", merge[:12]} {
+		if _, err := worktree.FilesChangedBy(t.Context(), bad); err == nil {
+			t.Fatalf("commit %q was accepted", bad)
+		}
+	}
+}
