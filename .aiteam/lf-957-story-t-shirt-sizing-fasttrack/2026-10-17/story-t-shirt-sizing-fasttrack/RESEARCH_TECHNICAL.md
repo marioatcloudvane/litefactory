@@ -4,7 +4,7 @@ _Technical detail behind [the brief](RESEARCH_BRIEF.md). Findings carry the sour
 
 ## f1
 
-Plan control policy declares closed responses set, story, technical, acceptance, create, ask, answer, review-ready, approved; the defaults are story, technical, acceptance.
+Plan control policy declares a closed list of responses (set, story, technical, acceptance, create, ask, answer, review-ready, approved) in code; a graph can only compare against these.
 
 Evidence:
 
@@ -20,7 +20,7 @@ Evidence:
 
 ## f3
 
-Graph validation does not pin the node set or edges; stages are declared by the graph definition. A new sizing node is therefore possible without changing the validator, as long as the listed properties hold.
+Graph validation does not pin the node set or edges; which stages exist and how they connect is the definition's to declare. The stage names a graph may use and the stage order are still fixed in code.
 
 Evidence:
 
