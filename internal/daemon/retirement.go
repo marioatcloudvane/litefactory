@@ -12,11 +12,20 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // RetirementIssues is the narrow consumer interface shared by preview and sweep.
 type RetirementIssues interface {
 	GetIssue(context.Context, github.Repo, int) (github.Issue, error)
+}
+
+// retirementTicketIssues reads closure through the repository's ticket
+// connection (Linear or GitHub), falling back to the forge without one.
+type retirementTicketIssues struct{ d *Daemon }
+
+func (r retirementTicketIssues) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	return r.d.readIssue(ctx, repo, number)
 }
 
 // RetirementOptions supplies time and observations, keeping preview independent
@@ -81,12 +90,26 @@ func RetirementIssueClosed(repo store.Repo, number int, issue github.Issue) bool
 	if issue.ID <= 0 || issue.Number != number || issue.State != "closed" {
 		return false
 	}
+	// A Linear snapshot's slot identity and locator were verified by readIssue.
+	if issue.QualifiedSnapshot != nil && issue.QualifiedSnapshot.Ref.Identity.Provider == ticket.Linear {
+		return true
+	}
 	parsed, err := url.Parse(issue.APIURL)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
 		return false
 	}
 	want := fmt.Sprintf("/repos/%s/%s/issues/%d", repo.Owner, repo.Name, number)
 	return strings.HasSuffix(parsed.Path, want) && parsed.RawQuery == "" && parsed.Fragment == ""
+}
+
+// retirementTaskRefOwned accepts the repository's GitHub task ref or an
+// unqualified Linear task ref for the session's local ticket slot.
+func retirementTaskRefOwned(r store.Repo, s store.Session) bool {
+	if s.TaskRef == store.TaskRef(r.Forge, r.Owner, r.Name, s.IssueNumber) {
+		return true
+	}
+	ref, err := naming.ParseRef(s.TaskRef)
+	return err == nil && ref.Forge == string(ticket.Linear) && ref.Issue == s.IssueNumber && ref.Qualification == ""
 }
 
 // EvaluateRetirement is advisory and side-effect free except fresh Git fetches
@@ -115,7 +138,7 @@ func EvaluateRetirement(ctx context.Context, opts RetirementOptions, owner store
 	}
 	s, r := owner.Session, owner.Repo
 	branch, err := naming.Branch(r.FeaturePrefix, s.IssueNumber, s.FeatureSlug)
-	if err != nil || !owner.Canonical || r.Forge != store.ForgeGitHub || s.TaskRef != store.TaskRef(r.Forge, r.Owner, r.Name, s.IssueNumber) || s.Branch == "" || branch != s.Branch {
+	if err != nil || !owner.Canonical || r.Forge != store.ForgeGitHub || !retirementTaskRefOwned(r, s) || s.Branch == "" || branch != s.Branch {
 		return keep("kept", "uncertain_ownership")
 	}
 	if s.WorktreePath != "" {
