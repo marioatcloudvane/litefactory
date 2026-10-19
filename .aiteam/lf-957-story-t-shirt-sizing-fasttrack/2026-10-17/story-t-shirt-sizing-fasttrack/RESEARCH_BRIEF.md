@@ -7,42 +7,20 @@ Add t-shirt sizing of stories as a workflow activity; small sizes should change 
 ## Decisions
 
 - **d1** — The agent proposes the size after reasoning about the story's complexity; the owner can change it at review.
-- **d2** — Sizes are S, M and L. Only S is fast-tracked. Detail scales up with size: fewer acceptance criteria and lighter technical design for S, more for M, most for L.
+- **d2** — Sizes are S, M and L. Only S is fast-tracked.
 - **d3** — Fast-tracked stories still go through the same owner review gate.
+- **d4** — Sizing is a new step per story, right before its story step.
+- **d5** — Keep the stage agents for M and L; add one fast-track agent that loads the story, technical and acceptance shaping skills in one run.
+- **d6** — Size caps technical depth: S writes Architecture - General only; M adds at most two of Data Model, Service Design and Solution Design where needed; L adds all that apply. Acceptance criteria scale likewise.
+- **d7** — The workflow gets a sizing block, a decision on size, and a fast-track block; the allowed stage names gain two entries in code.
 
 
 ## Assumptions
 
 - **a1** — The 'three steps' in the issue are the story, technical and acceptance stages.
-- **a2** — Sizing is a new Plan activity before or while the story set is proposed; the size is stored on the story.
-- **a3** — Fast-tracked stories still end at the owner review gate.
-
-
-## Open questions
-
-### q6 — You said S only gets the 'architecture session', M one more, L all. What are those sessions?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Read it as depth: S gets a short architecture note only; M adds data model and interfaces; L adds permissions, validation rules, edge cases and out-of-scope detail.  *(recommended)*
-- **b** — It means design review sessions held with people. Tell me the list and who attends.
-- **c** — Drop it. Depth scaling by criteria count and design detail is enough.
-
-### q4 — Where does sizing happen in the flow?
-
-_Asked of: Technical Questions_
-
-- **a** — A new small step per story, right before its story step (informed, visible, path known up front).  *(recommended)*
-- **b** — In the parent task, sizing all stories at once from titles only (cheap, but least informed).
-- **c** — Inside the story step, no new step (best informed, but the path is only known mid-run).
-
-### q5 — How do we build the S fast-track agent?
-
-_Asked of: Technical Questions_
-
-- **a** — Keep the three stage agents for M and L. Add one fast-track agent that loads the three shaping skills in one run.  *(recommended)*
-- **b** — Replace the three agents with one agent and skills for all sizes.
-- **c** — Keep the three agents and run them back to back in one run for S.
+- **a2** — The size is stored on the story and survives re-runs.
+- **a3** — A single story request can carry story, architecture and acceptance content in one run; to be confirmed when building.
+- **a4** — The owner's 'architecture session' means the four design parts of the technical stage: general, data model, service design, solution design.
 
 ## Research documents
 

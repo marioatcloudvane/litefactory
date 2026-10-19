@@ -44,10 +44,27 @@ Evidence:
 
 ## f6
 
-Plan is set up as one agent per stage (set, story, technical), each with its own shaping skill (story shaping, acceptance shaping, story set). A fast-track agent can load these skills together.
+Plan is set up as one agent per stage (set, story, technical, acceptance), each with its own shaping skill. A fast-track agent can load these skills together.
 
 Evidence:
 
 - `teams/swift-ios/v1.0.1/plan/plan-story.md`
 - `teams/swift-ios/v1.0.1/plan/plan-technical.md`
 - `teams/swift-ios/v1.0.1/plan/skills/plan-acceptance-shaping/SKILL.md`
+
+## f7
+
+The Plan dot file has one block per stage (set, story, technical, acceptance); the factory picks the stage from stored state via select_* decisions on the response value, and the story stage runs a bounded pick cycle.
+
+Evidence:
+
+- `teams/swift-ios/v1.0.1/plan/plan.dot`
+
+## f8
+
+The technical agent already writes Architecture - General always, and Data Model, Service Design and Solution Design only where applicable.
+
+Evidence:
+
+- `teams/swift-ios/v1.0.1/plan/plan-technical.md`
+- `teams/swift-ios/v1.0.1/plan/skills/plan-technical-shaping/SKILL.md`
