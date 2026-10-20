@@ -340,7 +340,8 @@ func TestDispatchEndsPassAfterMaterialiseDeadline(t *testing.T) {
 // the next candidate in the same tick.
 func TestDispatchContinuesAfterOtherMaterialiseError(t *testing.T) {
 	forge := &backlogReadForge{}
-	_, _, dispatch := backlogDispatch(t, forge)
+	d, _, dispatch := backlogDispatch(t, forge)
+	d.tickPhaseTimeout = 5 * time.Second
 	result := dispatch()
 	if want := []int{301, 302, 303}; !slices.Equal(forge.reads, want) {
 		t.Fatalf("offered %v, want %v", forge.reads, want)
