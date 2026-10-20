@@ -105,3 +105,14 @@ The doctor role explicitly uses sandboxed shell reads for logs and scoped tools 
 Evidence:
 
 - `internal/instructionpackage/embedded/agents/doctor-diagnosis.md:1`
+
+## f12
+
+Discord documentation specifies owner-only commands in allowed channels, existing draft/confirmation patterns, a 15-minute natural-language confirmation and no general work-control authority, so standards approvals require a deliberate extension.
+
+Evidence:
+
+- `docs/discord.md:5`
+- `docs/discord.md:124`
+- `docs/discord.md:150`
+- `docs/discord.md:225`

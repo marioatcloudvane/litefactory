@@ -9,13 +9,13 @@ Shape the Book of Standards scope covering MUST-based rules, MCP discovery, CLI 
 - **d1** — The owner explicitly requests category-queryable MCP retrieval, a MUST-based standard format, CLI management and evidence-based standards agents. The supplied example is explicitly described as potentially excessive, so its fields are not a settled mandatory schema.
 - **d2** — The issue requires stack-neutral support, identifiable standards versions per run, continued mandatory factory enforcement and avoidance of conflicting migrated copies. This research pass does not authorize implementation or publication.
 - **d3** — The primary user story is applicable MUST-rule retrieval by an agent with an operator-auditable immutable version.
-- **d4** — The proposed model includes categories, standard revisions, immutable books, evidence-backed proposals with hashes and expiry, exceptions, recurring schedules and retained analysis executions.
+- **d4** — The local SQL model includes categories, standard revisions and applicability, immutable books, resumable authoring sessions, proposals and approvals, exceptions, schedules, analysis results and run-version references.
 - **d5** — Applicability uses repository, stack, stage and role with OR within dimensions and AND across dimensions, while universal standards always apply.
 - **d6** — MCP provides pinned standards discovery and authorized run/log reads, while CLI and Discord provide administration, human hash approval and manual or scheduled analysis controls.
 - **d7** — New runs capture a complete book and resumed work uses the same capture, while explicit adoption of another book starts a new run.
 - **d8** — Migration moves shared behavioral guidance atomically and preserves factory-owned authority, submission contracts and validation.
 - **d9** — The owner requires drift, bug and log analysis to support both CLI invocation and schedules.
-- **d10** — Acceptance covers CLI and Discord parity, rejection of issue-tracker standards control, MCP log access, hash approval and expiry, scheduled recovery, immutable replay, empty-book continuation and mandatory factory enforcement.
+- **d10** — Acceptance additionally covers assisted creation and resumption, SQL durability and atomic publication, standards-specific Discord authorization and cross-interface proposal identity.
 - **d11** — Proposed standard fields are permanent ID, MUST or MUST NOT title, description and purpose, categories, applicability, owner, compliance evidence, check type, exception policy and lifecycle status.
 - **d12** — Published books contain only approved active standards and category metadata, while drafts and retired revisions remain available in administrative history.
 - **d13** — Check type is automated, semi-automated or manual, and denotes evidence evaluation rather than a promise to add an executable checker.
@@ -36,12 +36,20 @@ Shape the Book of Standards scope covering MUST-based rules, MCP discovery, CLI 
 - **d28** — Scheduled scans cover from the last successful watermark with one-day overlap up to 30 days, reporting gaps and avoiding overlapping executions or duplicate proposals.
 - **d29** — Service outages use a verified retained copy or continue with explicit unavailable provenance, while corrupted pinned captures never silently become empty books.
 - **d30** — Proposal approval expires from first presentation and rejects stale bases, changed content, unauthorized identities and duplicate publication.
-- **d31** — The owner selected local deployment for the Book of Standards.
+- **d31** — The owner selected local SQL storage for the Book of Standards.
 - **d32** — The owner restricts standards reachability to CLI and Discord rather than the issue tracker.
-- **d33** — CLI and Discord expose the same standards and schedule operations using the same permissions, retained proposals and approval outcomes.
+- **d33** — CLI and Discord expose the same standards, authoring-session and schedule operations using shared SQL records, permissions and approval outcomes.
 - **d34** — Issue-tracker standards commands, approvals, notifications and proposal publication are excluded from this feature.
 - **d35** — Discord operations require a bound or explicit repository and authorization mapped to an existing operator identity.
 - **d36** — Cross-interface inspection and approval never reset proposal expiry or produce duplicate publication.
+- **d37** — The owner requires an assisted standard-creation agent exposed as a CLI create function.
+- **d38** — The proposed agent surface contains four focused roles: an authoring assistant and drift, bug and log analysts.
+- **d39** — Assisted creation retains sessions and unanswered questions in SQL and resumes through either CLI or Discord without requiring an interactive terminal.
+- **d40** — Retain one proposal SHA-256 hash for the earlier exact-hash approval requirement while recognizing that immutable SQL proposal IDs and revisions could provide equivalent binding.
+- **d41** — Discord adds a standards-specific typed command family and approval action without granting generic work-control authority.
+- **d42** — Natural-language action confirmation and standard publication approval remain separate gates with distinct lifetimes.
+- **d43** — SQL publication atomically retains the human approval and new immutable book version.
+- **d44** — CLI functions cover discovery, categories, assisted creation/editing, validation, proposal review and approval, retirement, analysis results, schedules, versions, run provenance, exceptions and standards configuration.
 
 
 ## Assumptions
@@ -57,7 +65,9 @@ Shape the Book of Standards scope covering MUST-based rules, MCP discovery, CLI 
 - **a9** — The preset times, opt-in enablement, UTC default, overlap and catch-up policies are shaping proposals rather than owner-specified settings.
 - **a10** — Treat the owner's continued-work answer as allowing unavailable-service continuation with explicit provenance while preserving capture integrity checks.
 - **a11** — Interpret issue-tracker reachability as a restriction on the human control and reporting surface, preserving read-only issue evidence and authorized factory-agent MCP access.
-- **a12** — Discord uses existing authenticated operator permissions and requires repository disambiguation rather than introducing a separate role system.
+- **a12** — Discord retains its configured single-owner and allowed-channel authorization while adding standards-specific control rather than assuming general approvals already exist.
+- **a13** — Interpret create one as assisted creation of an individual standard inside the book, with category proposals allowed in the same change.
+- **a14** — The owner's hashing question requests explanation rather than revoking the earlier explicit hash-approval requirement, so retain the simple hash recommendation for review.
 
 ## Research documents
 
