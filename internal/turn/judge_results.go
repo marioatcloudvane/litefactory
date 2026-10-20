@@ -89,7 +89,7 @@ func (s *JudgeResultService) accepted(ctx context.Context) (agentresult.JudgeRep
 func (s *JudgeResultService) handle(ctx context.Context, q submission.Request) (json.RawMessage, error) {
 	method, data := q.Method, q.Payload
 	if method == "tools/list" {
-		input := json.RawMessage(`{"type":"object","properties":{"report":{"type":"object","description":"Version 1 advisory report: verdict, summary, coverage evidence IDs, uncertainty strings, findings with severity, concern, evidence citations, impact and correction."}},"required":["report"],"additionalProperties":false}`)
+		input := json.RawMessage(`{"type":"object","properties":{"report":{"type":"object","description":"Version 1 advisory report: verdict, summary, coverage evidence IDs, uncertainty strings, findings with title, severity, concern, evidence citations, impact and correction."}},"required":["report"],"additionalProperties":false}`)
 		receipt := json.RawMessage(`{"type":"object","properties":{"request_id":{"type":"string"}},"required":["request_id"],"additionalProperties":false}`)
 		return json.Marshal(map[string]any{"tools": []submission.ToolSpec{
 			{Name: "communication_preflight", Description: "Validate the advisory report without saving", InputSchema: input},
