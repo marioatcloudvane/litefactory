@@ -20,6 +20,7 @@ func Commands() []*Command {
 		newSubmissionCommand("submit"),
 		newSubmissionCommand("receipt"),
 		newMCPServeCommand(),
+		newMCPLogsCommand(),
 		newRepoAddCommand(),
 		newRepoListCommand(),
 		newRepoDeliveryCommand(),
