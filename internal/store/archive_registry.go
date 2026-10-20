@@ -280,8 +280,14 @@ var archiveRetained = map[string]ArchiveClass{
 	// Rights are keyed by repository, never archived or deleted.
 	"rights_grants": ArchiveClassGlobal, "reviewer_assignments": ArchiveClassGlobal, "rights_history": ArchiveClassGlobal,
 	"meter_price_revisions": ArchiveClassGlobal, "meter_price_rates": ArchiveClassGlobal,
-	"graph_definitions": ArchiveClassGlobal,
-	"doctor_attempts":   ArchiveClassGlobal, "doctor_conversations": ArchiveClassGlobal,
+	// The standards book and its immutable proposals span every task family.
+	"standards_book": ArchiveClassGlobal, "standards_revisions": ArchiveClassGlobal,
+	"standards_categories": ArchiveClassGlobal, "standards_standards": ArchiveClassGlobal,
+	"standards_memberships": ArchiveClassGlobal, "standards_proposals": ArchiveClassGlobal,
+	"standards_proposal_versions": ArchiveClassGlobal, "standards_approvals": ArchiveClassGlobal,
+	"standards_publications": ArchiveClassGlobal,
+	"graph_definitions":      ArchiveClassGlobal,
+	"doctor_attempts":        ArchiveClassGlobal, "doctor_conversations": ArchiveClassGlobal,
 	"doctor_instruction_captures": ArchiveClassGlobal,
 	"doctor_inbox":                ArchiveClassGlobal, "doctor_local_presentations": ArchiveClassGlobal,
 	"doctor_presentations": ArchiveClassGlobal, "doctor_proposals": ArchiveClassGlobal,
