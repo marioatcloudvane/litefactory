@@ -29,12 +29,14 @@ func TestJudgeEvidenceCapturedReadDoesNotRetarget(t *testing.T) {
 }
 
 func TestJudgeCredentialPathCeiling(t *testing.T) {
-	for _, path := range []string{".env", "service/.env.local", ".aws/config", "id.key", ".aiteam/result"} {
+	for _, path := range []string{".env", "service/.env.local", ".aws/config", "id.key", ".git/config"} {
 		if !judgeSensitivePath(path) {
 			t.Fatalf("accepted %s", path)
 		}
 	}
-	if judgeSensitivePath("internal/config/config.go") {
-		t.Fatal("ordinary source excluded")
+	for _, path := range []string{"internal/config/config.go", ".aiteam/lf-728-book/2026-10-20/book/RESEARCH_TECHNICAL.md"} {
+		if judgeSensitivePath(path) {
+			t.Fatalf("excluded %s", path)
+		}
 	}
 }

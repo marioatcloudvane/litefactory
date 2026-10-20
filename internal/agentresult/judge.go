@@ -25,9 +25,10 @@ type JudgeCitation struct {
 	EndLine    int    `json:"end_line,omitempty"`
 }
 
-// JudgeFinding explains one concern and its supporting captured evidence.
 // JudgeFinding explains a concern, its captured evidence, impact and correction.
+// Title is a short name for the finding; reports saved before it existed omit it.
 type JudgeFinding struct {
+	Title      string          `json:"title,omitempty"`
 	Severity   string          `json:"severity"`
 	Concern    string          `json:"concern"`
 	Evidence   []JudgeCitation `json:"evidence"`
@@ -93,8 +94,13 @@ func ValidateJudge(r JudgeReport, evidence []JudgeEvidence) Diagnostics {
 	captured := map[string]JudgeEvidence{}
 	for _, e := range evidence {
 		captured[e.ID] = e
-		if e.Essential && !e.Available && r.Verdict != "unable_to_assess" {
-			fail("$.report.verdict", "Essential evidence is unavailable; use unable_to_assess.")
+		// Missing essential evidence rules out a clean verdict, not the concerns
+		// that the available evidence already supports.
+		if e.Essential && !e.Available && r.Verdict == "no_material_concerns" {
+			fail("$.report.verdict", "Essential evidence is unavailable; report concerns_found or unable_to_assess.")
+		}
+		if e.Essential && !e.Available && r.Verdict == "concerns_found" && len(r.Uncertainty) == 0 {
+			fail("$.report.uncertainty", "Essential evidence is unavailable; say what could not be checked.")
 		}
 	}
 	if len(r.Coverage) == 0 {
@@ -118,6 +124,9 @@ func ValidateJudge(r JudgeReport, evidence []JudgeEvidence) Diagnostics {
 		case "low", "medium", "high", "critical":
 		default:
 			fail(p+".severity", "Choose low, medium, high or critical.")
+		}
+		if len(f.Title) > 120 || strings.ContainsAny(f.Title, "\n\r") {
+			fail(p+".title", "Use a one-line title of at most 120 characters.")
 		}
 		if strings.TrimSpace(f.Concern) == "" || strings.TrimSpace(f.Impact) == "" || strings.TrimSpace(f.Correction) == "" {
 			fail(p, "Each concern needs an explanation, impact and suggested correction.")
