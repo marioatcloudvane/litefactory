@@ -92,11 +92,11 @@ func TestRestrictedPlaceholder(t *testing.T) {
 // Framing separators remain consumer-owned and are covered by consumer fixtures.
 func TestShippedBodies(t *testing.T) {
 	expected := map[string]string{
-		"chat-ask":                "e82620891bbc5628744a7891839dda255cbf7ca80970f9330d6e96ea687d8a25",
-		"chat-draft":              "a51fd332a7de1f92c39aa5c1cf69715f4e696ba25f71c1bf8a11403917e1f255",
-		"chat-intent-interpreter": "eb38d21cb4416a042a21648c9f854e18119d14aec724946fe55fcad84b25e013",
-		"chat-reply-writer":       "81207446abb140b8282b45971394ee8dc7f1fe18d199a01f12fd9bee1dbffae4",
-		"chat-reply-checker":      "06829db1a24cdddeac303b6961dae37c974d70898d3ccdf96d88a974134749dd",
+		"chat-ask":                "59a708928dbc59d595cbfb5a60d7c0ee5086249ce05cb81ddc92095a29e2a1b9",
+		"chat-draft":              "124e691a2d73cecc310403d59114772a0b05d3e6e60b8205616a2656940e322d",
+		"chat-intent-interpreter": "6daef9a24d7dbf99ece755d1d454bfa0d64587efbf74f4ae24754e71cba736eb",
+		"chat-reply-writer":       "9983b7b59c127c3b89ae48df6c87b61ba4d2df8242b52a3f925bcc18011076e6",
+		"chat-reply-checker":      "b00c055570f37bca1e3903ebe9c9ce32ab9ae5bfbef91d94f7250d8bdedecdc2",
 	}
 	for role, want := range expected {
 		body, err := Load(t.Context(), nil, role, nil)
