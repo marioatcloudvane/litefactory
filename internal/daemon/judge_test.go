@@ -185,12 +185,12 @@ func TestJudgeOwnerBareCommandDurableAdvisory(t *testing.T) {
 	bodies, _, _ := f.forge.snapshot()
 	found := false
 	for i, body := range bodies {
-		if strings.Contains(body, source.Reference) && strings.Contains(body, "Advisory challenge") {
+		if strings.Contains(body, source.Reference) && strings.Contains(body, "**Challenged:**") {
 			found = true
 			f.forge.mu.Lock()
 			destination := f.forge.postedIssues[i]
 			f.forge.mu.Unlock()
-			if !strings.Contains(body, "Verdict: no material concerns") {
+			if !strings.Contains(body, "**Verdict:** no material concerns") {
 				t.Fatalf("main path did not complete an assessment: %s", body)
 			}
 			if destination != testIssue {
