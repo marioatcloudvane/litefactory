@@ -11,11 +11,11 @@ Shape the Book of Standards scope covering MUST-based rules, MCP discovery, CLI 
 - **d3** — The primary user story is applicable MUST-rule retrieval by an agent with an operator-auditable immutable version.
 - **d4** — The proposed model includes categories, standard revisions, immutable books, evidence-backed proposals with hashes and expiry, exceptions, recurring schedules and retained analysis executions.
 - **d5** — Applicability uses repository, stack, stage and role with OR within dimensions and AND across dimensions, while universal standards always apply.
-- **d6** — MCP provides pinned standards discovery and authorized run/log reads, while CLI provides administration, exact-hash human approval and manual or scheduled analysis controls.
+- **d6** — MCP provides pinned standards discovery and authorized run/log reads, while CLI and Discord provide administration, human hash approval and manual or scheduled analysis controls.
 - **d7** — New runs capture a complete book and resumed work uses the same capture, while explicit adoption of another book starts a new run.
 - **d8** — Migration moves shared behavioral guidance atomically and preserves factory-owned authority, submission contracts and validation.
 - **d9** — The owner requires drift, bug and log analysis to support both CLI invocation and schedules.
-- **d10** — Acceptance additionally covers MCP log access, proposal-hash approval and expiry, recurrence and restart recovery, empty-book continuation and unavailable-service provenance.
+- **d10** — Acceptance covers CLI and Discord parity, rejection of issue-tracker standards control, MCP log access, hash approval and expiry, scheduled recovery, immutable replay, empty-book continuation and mandatory factory enforcement.
 - **d11** — Proposed standard fields are permanent ID, MUST or MUST NOT title, description and purpose, categories, applicability, owner, compliance evidence, check type, exception policy and lifecycle status.
 - **d12** — Published books contain only approved active standards and category metadata, while drafts and retired revisions remain available in administrative history.
 - **d13** — Check type is automated, semi-automated or manual, and denotes evidence evaluation rather than a promise to add an executable checker.
@@ -36,6 +36,12 @@ Shape the Book of Standards scope covering MUST-based rules, MCP discovery, CLI 
 - **d28** — Scheduled scans cover from the last successful watermark with one-day overlap up to 30 days, reporting gaps and avoiding overlapping executions or duplicate proposals.
 - **d29** — Service outages use a verified retained copy or continue with explicit unavailable provenance, while corrupted pinned captures never silently become empty books.
 - **d30** — Proposal approval expires from first presentation and rejects stale bases, changed content, unauthorized identities and duplicate publication.
+- **d31** — The owner selected local deployment for the Book of Standards.
+- **d32** — The owner restricts standards reachability to CLI and Discord rather than the issue tracker.
+- **d33** — CLI and Discord expose the same standards and schedule operations using the same permissions, retained proposals and approval outcomes.
+- **d34** — Issue-tracker standards commands, approvals, notifications and proposal publication are excluded from this feature.
+- **d35** — Discord operations require a bound or explicit repository and authorization mapped to an existing operator identity.
+- **d36** — Cross-interface inspection and approval never reset proposal expiry or produce duplicate publication.
 
 
 ## Assumptions
@@ -44,22 +50,14 @@ Shape the Book of Standards scope covering MUST-based rules, MCP discovery, CLI 
 - **a2** — The owner settled publication authority: agents propose and humans approve exact proposal hashes with a configurable 36-hour validity window.
 - **a3** — Flat many-to-many categories and exact applicability matching are proposed to keep discovery predictable without a taxonomy or precedence engine.
 - **a4** — The existing bounded inventory identifies migration families but is not an exhaustive semantic classification of graph extras or a verified reconstruction of issue #649.
-- **a5** — Deployment remains unresolved as q2, while the owner's reply settles continued work in the absence of standards.
+- **a5** — The owner selected one local factory-managed book with CLI and Discord as the human entry surfaces.
 - **a6** — No authentic mining corpus was evaluated, so effectiveness and proposal quality remain acceptance obligations rather than demonstrated results.
 - **a7** — Book ownership defaults to the factory operator, with a required accountable role on every standard and explicitly designated maintainers for edits.
 - **a8** — Thirty days and bounded evidence counts are proposed defaults rather than owner-specified definitions of recent.
 - **a9** — The preset times, opt-in enablement, UTC default, overlap and catch-up policies are shaping proposals rather than owner-specified settings.
 - **a10** — Treat the owner's continued-work answer as allowing unavailable-service continuation with explicit provenance while preserving capture integrity checks.
-
-
-## Open questions
-
-### q2 — Where should the first standards book live and which agents must be able to query it?
-
-_Asked of: Technical Questions_
-
-- **local** — Recommended: one factory-managed local book with repository-scoped rules, queried by factory-launched agents through authorized MCP; defer remote synchronization and independent clients.  *(recommended)*
-- **shared** — A shared network service for multiple factories and independent MCP clients; remote authentication, service ownership and deployment must also be settled.
+- **a11** — Interpret issue-tracker reachability as a restriction on the human control and reporting surface, preserving read-only issue evidence and authorized factory-agent MCP access.
+- **a12** — Discord uses existing authenticated operator permissions and requires repository disambiguation rather than introducing a separate role system.
 
 ## Research documents
 
