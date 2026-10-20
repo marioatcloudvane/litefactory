@@ -367,7 +367,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 				providers[string(kind)] = native
 			}
 		}
-		chatOpts.ReplyModel = &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}
 		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
 		{
 			instructions, instructionErr := instructionpackage.New(ctx, s.Paths)

@@ -187,15 +187,6 @@ No command was found that the parser used to accept and now refuses. The old
 
 ## Discord commands
 
-Discord has its own commands, typed in Discord and not on GitHub issues. They
-are described in [Discord](../discord.md).
-
-| Command | Purpose |
-| --- | --- |
-| `/help`, `/health`, `/status` | Read factory state. |
-| `/ask`, `/draft`, `/confirm` | Ask about a project; preview and create a feature issue. |
-| `/diagnose`, `/question`, `/answer` | Diagnose an issue; read and answer a Research question. |
-| `/meter`, `/prices` | Usage, cost estimates and price catalogue. |
-
-Note that Discord `/confirm code:<code>` is a different command from the GitHub
-`/confirm <proposal-id> apply this resolution`.
+Discord is driven by ordinary messages in a channel bound to a conversation,
+not by GitHub comments. Its only slash command is `/details`, which shows saved
+raw details for a conversation answer. See [Discord](../discord.md).
