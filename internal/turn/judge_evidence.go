@@ -185,10 +185,13 @@ func CaptureJudgeEvidence(ctx context.Context, binary *git.Binary, repositoryRoo
 	return s, nil
 }
 
+// judgeSensitivePath keeps credentials and repository internals out of judge
+// evidence. Factory artifacts under .aiteam (research and plan reports) stay
+// readable: judging a Plan against its research needs them.
 func judgeSensitivePath(name string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(name), "/") {
 		lower := strings.ToLower(part)
-		if lower == ".git" || lower == ".env" || strings.HasPrefix(lower, ".env.") || lower == "credentials" || lower == ".aws" || lower == ".ssh" || lower == ".aiteam" || strings.HasSuffix(lower, ".pem") || strings.HasSuffix(lower, ".key") {
+		if lower == ".git" || lower == ".env" || strings.HasPrefix(lower, ".env.") || lower == "credentials" || lower == ".aws" || lower == ".ssh" || strings.HasSuffix(lower, ".pem") || strings.HasSuffix(lower, ".key") {
 			return true
 		}
 	}

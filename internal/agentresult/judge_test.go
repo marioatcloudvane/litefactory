@@ -43,3 +43,20 @@ func TestJudgeRequiresPinnedSourceCoverage(t *testing.T) {
 		t.Fatal("clean assessment omitted pinned source")
 	}
 }
+
+func TestJudgeConcernsSurviveMissingEssentialEvidence(t *testing.T) {
+	evidence := []JudgeEvidence{{ID: "source", Available: true, Lines: 3}, {ID: "comment:9", Essential: true}}
+	r := JudgeReport{Version: 1, Verdict: "concerns_found", Summary: "Two stories lack acceptance proof.", Coverage: []string{"source"},
+		Findings: []JudgeFinding{{Title: "No proof that learning works", Severity: "high", Concern: "c", Impact: "i", Correction: "x", Evidence: []JudgeCitation{{EvidenceID: "source", StartLine: 1, EndLine: 2}}}}}
+	if d := ValidateJudge(r, evidence); d.Valid {
+		t.Fatal("concerns with an undisclosed essential gap were accepted")
+	}
+	r.Uncertainty = []string{"comment:9 was too long to capture, so its requirements were not checked."}
+	if d := ValidateJudge(r, evidence); !d.Valid {
+		t.Fatalf("concerns with a disclosed gap were refused: %+v", d)
+	}
+	r.Findings[0].Title = "line one\nline two"
+	if d := ValidateJudge(r, evidence); d.Valid {
+		t.Fatal("multi-line title accepted")
+	}
+}
