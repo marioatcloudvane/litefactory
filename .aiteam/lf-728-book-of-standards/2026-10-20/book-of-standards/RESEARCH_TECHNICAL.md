@@ -79,3 +79,29 @@ Evidence:
 
 - `internal/cli/cmd_logs.go:24`
 - `internal/cli/cmd_logs.go:48`
+
+## f9
+
+Existing schedule persistence models due times or prerequisite delays, durable execution states and idempotent source identities; this is a reuse precedent rather than evidence of recurring standards scans.
+
+Evidence:
+
+- `internal/store/schedules.go:12`
+- `internal/store/schedules.go:53`
+- `internal/daemon/schedules.go:18`
+
+## f10
+
+Existing issue-proposal documentation requires exact SHA-256 approval and renewed approval when content changes, but describes issue creation rather than standards publication.
+
+Evidence:
+
+- `docs/guides/mcp.md:35`
+
+## f11
+
+The doctor role explicitly uses sandboxed shell reads for logs and scoped tools for database and issue-comment reads, so its log-consumption contract does not meet the owner's MCP-only log requirement.
+
+Evidence:
+
+- `internal/instructionpackage/embedded/agents/doctor-diagnosis.md:1`
