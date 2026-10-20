@@ -15,7 +15,7 @@ Shape the Book of Standards scope covering MUST-based rules, MCP discovery, CLI 
 - **d7** — New runs capture a complete book and resumed work uses the same capture, while explicit adoption of another book starts a new run.
 - **d8** — Migration moves shared behavioral guidance atomically and preserves factory-owned authority, submission contracts and validation.
 - **d9** — The owner requires drift, bug and log analysis to support both CLI invocation and schedules.
-- **d10** — Acceptance additionally covers assisted creation and resumption, SQL durability and atomic publication, standards-specific Discord authorization and cross-interface proposal identity.
+- **d10** — Acceptance additionally covers normal Discord creation and follow-up, exact proposal approval replies, ambiguous and stale replies, cancellation, restart recovery and SQL/CLI parity.
 - **d11** — Proposed standard fields are permanent ID, MUST or MUST NOT title, description and purpose, categories, applicability, owner, compliance evidence, check type, exception policy and lifecycle status.
 - **d12** — Published books contain only approved active standards and category metadata, while drafts and retired revisions remain available in administrative history.
 - **d13** — Check type is automated, semi-automated or manual, and denotes evidence evaluation rather than a promise to add an executable checker.
@@ -46,10 +46,15 @@ Shape the Book of Standards scope covering MUST-based rules, MCP discovery, CLI 
 - **d38** — The proposed agent surface contains four focused roles: an authoring assistant and drift, bug and log analysts.
 - **d39** — Assisted creation retains sessions and unanswered questions in SQL and resumes through either CLI or Discord without requiring an interactive terminal.
 - **d40** — Retain one proposal SHA-256 hash for the earlier exact-hash approval requirement while recognizing that immutable SQL proposal IDs and revisions could provide equivalent binding.
-- **d41** — Discord adds a standards-specific typed command family and approval action without granting generic work-control authority.
-- **d42** — Natural-language action confirmation and standard publication approval remain separate gates with distinct lifetimes.
+- **d41** — Discord integrates standards operations into ordinary conversation without adding standards slash commands or generic work-control authority.
+- **d42** — Conversational action confirmation and standard publication approval remain separate gates, while valid publication approval needs no additional confirmation of itself.
 - **d43** — SQL publication atomically retains the human approval and new immutable book version.
 - **d44** — CLI functions cover discovery, categories, assisted creation/editing, validation, proposal review and approval, retirement, analysis results, schedules, versions, run provenance, exceptions and standards configuration.
+- **d45** — The owner requires standards to be part of normal Discord interaction rather than slash commands.
+- **d46** — Conversational publication approval must identify the proposal hash or explicitly reply to its exact retained proposal message.
+- **d47** — Ambiguous replies, old drafts, quoted text, bot messages and inferred agreement cannot authorize publication.
+- **d48** — Persist project/session/proposal-message associations and clarify unresolved targets after restart rather than guessing.
+- **d49** — No Discord standards slash commands are included in this feature.
 
 
 ## Assumptions
