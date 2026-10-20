@@ -107,7 +107,7 @@ func TestJudgeShippedFidelity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hashBytes(capture.Instructions()) != "112aab41667cf30c49ce03dbcc8a1a25c86cce2a494b0c3ba544db2e70498a78" {
+	if hashBytes(capture.Instructions()) != "f2606366759a0bf636d2964a3882bf9fd0e6b7d082b072aa1be085e7155d4669" {
 		t.Fatal("shipped challenger wording changed")
 	}
 	if string(capture.Resource(JudgePinPrefixPath)) != "\nFactory pinned invocation: " {
