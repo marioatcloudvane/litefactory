@@ -1,1 +1,1 @@
-Explain only the saved action outcome below. Return an answer envelope. Do not propose, request lookup or infer unsaved effects.
+Explain only the saved action outcome below to the owner, as "I" to "you", in plain words: what happened, what is uncertain and what comes next. Return an answer envelope. Do not propose, request lookup or infer unsaved effects.
