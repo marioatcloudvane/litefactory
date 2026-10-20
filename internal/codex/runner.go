@@ -21,6 +21,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
@@ -32,18 +33,22 @@ const (
 
 // Options configures a Runner.
 type Options struct {
-	Paths   config.Paths
-	Codex   config.Codex
-	Model   string
-	Environ []string
-	Logger  *slog.Logger
+	// Instructions supplies per-invocation role captures; nil uses the shared package.
+	Instructions instructionpackage.CaptureSource
+	Paths        config.Paths
+	Codex        config.Codex
+	Model        string
+	Environ      []string
+	Logger       *slog.Logger
 }
 
 // Runner executes the Codex CLI for work and classification requests.
 type Runner struct {
-	binary config.Executable
-	home   string
-	model  string
+	instructions instructionpackage.CaptureSource
+	paths        config.Paths
+	binary       config.Executable
+	home         string
+	model        string
 	// writable are the operator-configured directories added to the
 	// sandbox alongside the worktree, one --add-dir each. Copied at
 	// construction so a later mutation of the config cannot change what an
@@ -90,7 +95,7 @@ func New(opts Options) (*Runner, error) {
 			return nil, fmt.Errorf("invalid codex options: writable root %q must be absolute", root)
 		}
 	}
-	return &Runner{binary: binary, home: opts.Paths.Home(),
+	return &Runner{instructions: opts.Instructions, paths: opts.Paths, binary: binary, home: opts.Paths.Home(),
 		model: model, writable: append([]string(nil), opts.Codex.WritableRoots...),
 		network: opts.Codex.NetworkAccess, userConfig: opts.Codex.AllowUserConfig,
 		timeout: time.Duration(opts.Codex.TimeoutSeconds) * time.Second,
@@ -150,7 +155,11 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 // ProposeSchedule performs a stateless read-only advisory invocation. It does
 // not allocate a normal run, create run artefacts, or attach to a worktree.
 func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposalRequest) (agent.ScheduleProposal, error) {
-	prompt, err := agent.ScheduleProposalPrompt(req)
+	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "schedule-proposal-advisor")
+	if err != nil {
+		return agent.ScheduleProposal{}, err
+	}
+	prompt, err := agent.ScheduleProposalPrompt(string(capture.Instructions()), req)
 	if err != nil {
 		return agent.ScheduleProposal{}, err
 	}
@@ -200,7 +209,11 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 // turn (see internal/turn's attemptConflictSuggestion, which passes ctx
 // through unbounded on purpose).
 func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
-	prompt, err := agent.ConflictResolutionPrompt(req)
+	capture, err := instructionpackage.CaptureRole(ctx, r.instructions, r.paths, r.logger, "merge-conflict-advisor")
+	if err != nil {
+		return agent.ConflictResolution{}, err
+	}
+	prompt, err := agent.ConflictResolutionPrompt(string(capture.Instructions()), req)
 	if err != nil {
 		return agent.ConflictResolution{}, err
 	}

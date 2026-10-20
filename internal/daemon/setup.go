@@ -23,8 +23,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
+	"github.com/cloudvane/litefactory/internal/messaging/prompts"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -351,6 +353,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(chatErr, lock.Close())
 	}
 	if chatOpts != nil {
+		instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
+		if instructionErr != nil {
+			return nil, Startup{}, errors.Join(instructionErr, lock.Close())
+		}
+		chatOpts.Instructions = instructions
+		chatOpts.InstructionDiagnostics = func(ctx context.Context, diagnostic prompts.Diagnostic) {
+			s.Logger.WarnContext(ctx, "chat instruction fallback", "role", diagnostic.Role, "source", diagnostic.Source, "digest", diagnostic.Digest, "category", diagnostic.Category)
+		}
 		providers := make(map[string]ask.ChatRunner)
 		for kind, runner := range runners {
 			if native, ok := runner.(ask.ChatRunner); ok {
@@ -360,7 +370,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		chatOpts.ReplyModel = &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}
 		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
 		{
-			options := &messaging.ConversationOptions{Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string)}
+			instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
+			if instructionErr != nil {
+				return nil, Startup{}, errors.Join(instructionErr, lock.Close())
+			}
+			options := &messaging.ConversationOptions{Instructions: instructions, Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string)}
 			for kind, runner := range runners {
 				if native, ok := runner.(messaging.ConversationProvider); ok {
 					options.Providers[string(kind)] = native
@@ -425,7 +439,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			judgeProviders[kind] = native
 		}
 	}
-	judgeService := &turn.JudgeService{DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
+	judgeService := &turn.JudgeService{Logger: s.Logger, DB: s.DB, Config: s.Config, Providers: judgeProviders, Paths: s.Paths, Executable: mcpRuntime.Executable, Git: gitBinary, Redactor: sharedRedactor}
 	turnOpts := turn.Options{
 		ProjectApprovers: true,
 		VerifyExecutionConnection: func(ctx context.Context, session store.Session) error {
@@ -558,7 +572,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	mcpRuntime.ImplementStatus = status
 	daemon, err := New(Options{
-		Doctor:     &doctor.Service{DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
+		Paths:      s.Paths,
+		Doctor:     &doctor.Service{Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
 		Bug:        bugRuntime,
 		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{

@@ -61,6 +61,22 @@ func (db *DB) ListConversations(ctx context.Context) ([]Conversation, error) {
 // EnsureConversation retains identity on rename. A drained provider switch creates
 // a fresh binding and keeps the former provider's native state untouched.
 func (db *DB) EnsureConversation(ctx context.Context, c Conversation, at time.Time) (Conversation, error) {
+	return db.ensureConversation(ctx, c, nil, false, at)
+}
+
+// EnsureConversationWithCapture atomically retains a complete, caller-validated
+// instruction capture with a newly created binding. A concurrent winner keeps
+// its own capture; rename never replaces it.
+func (db *DB) EnsureConversationWithCapture(ctx context.Context, c Conversation, capture []byte, at time.Time) (Conversation, error) {
+	if capture != nil {
+		if err := validConversationCapture(capture); err != nil {
+			return Conversation{}, err
+		}
+	}
+	return db.ensureConversation(ctx, c, capture, true, at)
+}
+
+func (db *DB) ensureConversation(ctx context.Context, c Conversation, capture []byte, requireCapture bool, at time.Time) (Conversation, error) {
 	if c.Transport == "" || c.ChannelRef == "" || c.OwnerID == "" || c.Name == "" || len(c.Name) > 256 || c.StateDir == "" || (c.Provider != "claude" && c.Provider != "codex") || at.IsZero() {
 		return c, errors.New("invalid conversation binding")
 	}
@@ -92,6 +108,9 @@ func (db *DB) EnsureConversation(ctx context.Context, c Conversation, at time.Ti
 		} else if !errors.Is(e, ErrNotFound) {
 			return e
 		}
+		if requireCapture && capture == nil {
+			return errors.New("new conversation requires instruction capture")
+		}
 		if c.ID == "" {
 			c.ID, e = conversationID()
 			if e != nil {
@@ -101,6 +120,11 @@ func (db *DB) EnsureConversation(ctx context.Context, c Conversation, at time.Ti
 		_, e = tx.ExecContext(ctx, `INSERT INTO chat_conversations(id,transport,channel_ref,owner_id,name,provider,state_dir,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, c.ID, c.Transport, c.ChannelRef, c.OwnerID, c.Name, c.Provider, c.StateDir, FormatTime(at), FormatTime(at))
 		if e != nil {
 			return e
+		}
+		if capture != nil {
+			if _, e = tx.ExecContext(ctx, `INSERT INTO chat_conversation_instructions(conversation_id,capture,legacy_baseline,created_at) VALUES(?,?,0,?)`, c.ID, capture, FormatTime(at)); e != nil {
+				return e
+			}
 		}
 		out, e = scanConversation(tx.QueryRowContext(ctx, `SELECT `+conversationColumns+` FROM chat_conversations WHERE id=?`, c.ID))
 		return e

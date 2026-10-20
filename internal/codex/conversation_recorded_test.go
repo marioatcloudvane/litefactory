@@ -56,7 +56,7 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"r
 		t.Fatal(err)
 	}
 	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=secret", "CODEX_API_KEY=secret"}}
-	request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "fixture-model", StateDirectory: state, Prompt: "prepared owner input", Session: agent.SessionRef{Ref: "factory-session"}, BeforeLaunch: func(context.Context) error { return nil }, OnSession: func(context.Context, agent.SessionRef) error { return nil }}
+	request := agent.ConversationRequest{ConversationID: "conversation", TurnID: "turn", Model: "fixture-model", StateDirectory: state, Prompt: "prepared owner input", NativeInstructions: "captured fixture instructions", Session: agent.SessionRef{Ref: "factory-session"}, BeforeLaunch: func(context.Context) error { return nil }, OnSession: func(context.Context, agent.SessionRef) error { return nil }}
 	return runner, request
 }
 
@@ -113,7 +113,7 @@ func TestRecordedCodexResumeAndMissingState(t *testing.T) {
 					t.Fatalf("missing launch control %s", flag)
 				}
 			}
-			for _, setting := range []string{`default_permissions="conversation"`, `approval_policy="never"`, `web_search="disabled"`, `mcp_servers={}`, `project_doc_max_bytes=0`, `features.apps=false`, `features.plugins=false`, `features.shell_tool=false`, `features.unified_exec=false`, `features.view_image=false`, `features.image_generation=false`, `features.multi_agent=false`, `developer_instructions=` + strconv.Quote(agent.ConversationInstructions)} {
+			for _, setting := range []string{`default_permissions="conversation"`, `approval_policy="never"`, `web_search="disabled"`, `mcp_servers={}`, `project_doc_max_bytes=0`, `features.apps=false`, `features.plugins=false`, `features.shell_tool=false`, `features.unified_exec=false`, `features.view_image=false`, `features.image_generation=false`, `features.multi_agent=false`, `developer_instructions=` + strconv.Quote(request.NativeInstructions)} {
 				if !slices.Contains(args, setting) {
 					t.Fatalf("missing prompt-only policy %s", setting)
 				}
@@ -192,5 +192,26 @@ func TestRecordedCodexProbeExhaustion(t *testing.T) {
 	}
 	if _, err = os.Stat(filepath.Join(request.StateDirectory, "home", "launch.count")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("launched after exhausted probe: %v", err)
+	}
+}
+
+func TestConversationArgumentsReapplyCapturedNativeInstructions(t *testing.T) {
+	for _, resume := range []string{"", "native-session"} {
+		request := agent.ConversationRequest{Model: "model", NativeInstructions: "captured instructions with \"quotes\"\nand exact spaces ", Session: agent.SessionRef{Ref: "factory-session", Resume: resume}}
+		args := conversationArguments(request, "/private/scratch")
+		if !slices.Contains(args, "developer_instructions="+strconv.Quote(request.NativeInstructions)) {
+			t.Fatal("native instructions changed")
+		}
+	}
+}
+
+func TestRecordedCodexMissingNativeInstructionsRefusesLaunch(t *testing.T) {
+	runner, request := recordedCodexConversation(t, "normal")
+	request.NativeInstructions = ""
+	if _, err := runner.RunConversation(t.Context(), request); err == nil {
+		t.Fatal("missing retained instructions accepted")
+	}
+	if _, err := os.Stat(filepath.Join(request.StateDirectory, "home", "launch.count")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid request launched model: %v", err)
 	}
 }

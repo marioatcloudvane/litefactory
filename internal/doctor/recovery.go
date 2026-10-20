@@ -24,6 +24,9 @@ func (s *Service) RecoverSource(ctx context.Context, ref naming.Ref, source stri
 	if err != nil {
 		return out, err
 	}
+	if err := s.checkRetainedInstructions(ctx, a.ID); err != nil {
+		return out, err
+	}
 	owner, err := s.DB.DoctorConversationByID(ctx, a.ConversationID)
 	if err != nil {
 		return out, err

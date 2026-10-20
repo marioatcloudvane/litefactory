@@ -1,0 +1,96 @@
+panic: test timed out after 10m0s
+	running tests:
+		TestConversationInstructionsRetainedAcrossPackageEditAndRestart (10m1s)
+		TestConversationInstructionsRetainedAcrossPackageEditAndRestart/claude (10m1s)
+
+goroutine 543 [running]:
+testing.(*M).startAlarm.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2959 +0x490
+created by time.goFunc
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/time/sleep.go:182 +0x44
+
+goroutine 1 [chan receive, 10 minutes]:
+testing.(*T).Run(0xc0006ba008, {0x1014945e3, 0x3f}, 0x101c5f088)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2266 +0x7dc
+testing.runTests.func1(0xc0006ba008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2742 +0x78
+testing.tRunner(0xc0006ba008, 0xc00025fa28)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0x168
+testing.runTests({0x10147f248, 0x20}, {0x10148f3d0, 0x33}, 0xc0006b4000, {0x101cd4b38, 0x71, 0x71}, {0x0?, 0xc0000e6708?, ...})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2740 +0x7a4
+testing.(*M).Run(0xc0001da460)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2600 +0xb3c
+main.main()
+	_testmain.go:272 +0x104
+
+goroutine 49 [chan receive, 10 minutes]:
+testing.(*T).Run(0xc0006ba248, {0x10146901c, 0x6}, 0xc0006b4078)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2266 +0x7dc
+github.com/cloudvane/litefactory/internal/messaging_test.TestConversationInstructionsRetainedAcrossPackageEditAndRestart(0xc0006ba248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/messaging/conversation_instructions_e2e_test.go:83 +0x78
+testing.tRunner(0xc0006ba248, 0x101c5f088)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0x168
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x7c0
+
+goroutine 50 [runnable]:
+database/sql.driverArgsConnLocked({0x101c5de00, 0xc00009c300}, 0x0, {0xc0005c2b18, 0x3, 0x10095ec38?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/convert.go:112 +0x50
+database/sql.(*DB).execDC.func2()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1714 +0xb0
+database/sql.withLock({0x101c5cea8, 0xc00026a180}, 0xc0005c28f8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:3615 +0x90
+database/sql.(*DB).execDC(0xc00048e000?, {0x101c5e200, 0xc0001b21e0}, 0xc00026a180, 0xc0000363c0, {0x1014975e5, 0x4a}, {0xc0005c2b18, 0x3, 0x3})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1713 +0x284
+database/sql.(*Tx).ExecContext(0xc00048e000, {0x101c5e200, 0xc0001b21e0}, {0x1014975e5, 0x4a}, {0xc0005c2b18, 0x3, 0x3})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:2521 +0xc4
+github.com/cloudvane/litefactory/internal/store.(*DB).applyMigration.func1(0xc00048e000)
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/store/migrate.go:135 +0x248
+github.com/cloudvane/litefactory/internal/store.(*DB).withTx(0xc0005c3048, {0x101c5e200, 0xc0001b21e0}, 0xc0005c2cf8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/store/store.go:195 +0x1b4
+github.com/cloudvane/litefactory/internal/store.(*DB).applyMigration(0xc0005c3048, {0x101c5e200, 0xc0001b21e0}, {0x69, {0x1014842cd, 0x10}, {0xc00029e500, 0x497}})
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/store/migrate.go:126 +0xbc
+github.com/cloudvane/litefactory/internal/store.(*DB).migrateAll(0xc0005c3048, {0x101c5e200, 0xc0001b21e0}, {0xc000496808, 0x8c, 0x101479721?})
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/store/migrate.go:67 +0x14c
+github.com/cloudvane/litefactory/internal/store.buildTemplate({0x101c5e200, 0xc0001b21e0}, {0xc000496808, 0x8c, 0x8c})
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/store/migrate_template.go:122 +0x750
+github.com/cloudvane/litefactory/internal/store.templatePath.func1()
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/store/migrate_template.go:93 +0x58
+sync.(*Once).doSlow(0x101cd9a00, 0xc000765340)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/sync/once.go:78 +0x98
+sync.(*Once).Do(0x101cd9a00, 0xc000765340)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/sync/once.go:69 +0x38
+github.com/cloudvane/litefactory/internal/store.templatePath(...)
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/store/migrate_template.go:92
+github.com/cloudvane/litefactory/internal/store.(*DB).migrateEmptyFromTemplate(0xc0006b40c0, {0x101c5e200, 0xc0001b21e0}, {0xc000496808, 0x8c, 0x8c})
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/store/migrate_template.go:62 +0x26c
+github.com/cloudvane/litefactory/internal/store.(*DB).Migrate(0xc0006b40c0, {0x101c5e200, 0xc0001b21e0})
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/store/migrate.go:47 +0xa4
+github.com/cloudvane/litefactory/internal/messaging_test.TestConversationInstructionsRetainedAcrossPackageEditAndRestart.func1.3()
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/messaging/conversation_instructions_e2e_test.go:125 +0x1bc
+github.com/cloudvane/litefactory/internal/messaging_test.TestConversationInstructionsRetainedAcrossPackageEditAndRestart.func1(0xc0006ba488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-954/internal/messaging/conversation_instructions_e2e_test.go:129 +0x758
+testing.tRunner(0xc0006ba488, 0xc0006b4078)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0x168
+created by testing.(*T).Run in goroutine 49
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x7c0
+
+goroutine 51 [select, 10 minutes]:
+database/sql.(*DB).connectionOpener(0xc0006b0dd0, {0x101c5e200, 0xc0001b2410})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1266 +0xbc
+created by database/sql.OpenDB in goroutine 50
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:846 +0x250
+
+goroutine 70 [select, 10 minutes]:
+database/sql.(*DB).connectionOpener(0xc0006b04e0, {0x101c5e200, 0xc000022230})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1266 +0xbc
+created by database/sql.OpenDB in goroutine 50
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:846 +0x250
+
+goroutine 380 [chan receive]:
+database/sql.(*Tx).awaitDone(0xc00048e000)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:2217 +0x4c
+created by database/sql.(*DB).beginDC in goroutine 50
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1930 +0x33c
+FAIL	github.com/cloudvane/litefactory/internal/messaging	618.791s
+FAIL

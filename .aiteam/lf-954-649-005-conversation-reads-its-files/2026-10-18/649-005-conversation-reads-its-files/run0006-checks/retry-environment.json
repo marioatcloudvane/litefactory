@@ -1,0 +1,17 @@
+{
+  "GOCACHE": "/private/tmp/lf954-gocache",
+  "GOMAXPROCS": "2",
+  "GOMEMLIMIT": "512MiB",
+  "GOFLAGS": "-trimpath",
+  "test_scope_file": "/tmp/lf954-affected.txt",
+  "pending_logs": [
+    "lf954-turn.log",
+    "lf954-store-isolated.log",
+    "lf954-messaging-isolated.log",
+    "lf954-cli-isolated.log",
+    "lf954-daemon-isolated.log",
+    "lf954-codex-isolated.log",
+    "lf954-build-isolated.log",
+    "lf954-retry-race-isolated.log"
+  ]
+}

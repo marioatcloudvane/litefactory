@@ -1,0 +1,16 @@
+# github.com/cloudvane/litefactory/internal/turn
+vet: internal/turn/acceptance.go:10:2: could not import github.com/cloudvane/litefactory/internal/agent (open ../../../Library/Caches/go-build/09/09da7cb117da7ce9605eeb7fe87fba0286fd058740239f4bca969dacfe762c70-d: no such file or directory)
+# github.com/cloudvane/litefactory/internal/daemon [github.com/cloudvane/litefactory/internal/daemon.test]
+internal/daemon/agent.go:7:2: could not import github.com/cloudvane/litefactory/internal/agent (open ../../../Library/Caches/go-build/09/09da7cb117da7ce9605eeb7fe87fba0286fd058740239f4bca969dacfe762c70-d: no such file or directory)
+internal/daemon/agent.go:8:2: could not import github.com/cloudvane/litefactory/internal/report (open ../../../Library/Caches/go-build/db/dbd09cef72fff8aae9c839bee357215908f012f962bed5325902a772aae7d951-d: no such file or directory)
+internal/daemon/agent_inherit.go:10:2: could not import github.com/cloudvane/litefactory/internal/naming (open ../../../Library/Caches/go-build/0e/0e4d8ad0289f7ed8c564444bf296e9c76426c9736c29a77626c99d771011a9c2-d: no such file or directory)
+internal/daemon/archive_expiry.go:15:2: could not import github.com/cloudvane/litefactory/internal/archive (open ../../../Library/Caches/go-build/19/197a1fc38bce008ce3276c800cbfec646c22471c4cdda861e6824982e8375c95-d: no such file or directory)
+internal/daemon/archive_forget.go:13:2: could not import github.com/cloudvane/litefactory/internal/git (open ../../../Library/Caches/go-build/65/65434c7b96920addd337ef349a6576a5d58e5c8e4201d030980dfce729e7e3d2-d: no such file or directory)
+internal/daemon/archive_sweep.go:13:2: could not import github.com/cloudvane/litefactory/internal/github (open ../../../Library/Caches/go-build/e8/e8500b6a3e32a22e0f41b0e72d8e91ed05d32b59143fdab89fe04a719c37a91d-d: no such file or directory)
+internal/daemon/bug_permissions.go:8:2: could not import github.com/cloudvane/litefactory/internal/config (open ../../../Library/Caches/go-build/eb/ebb35ef4e100b0877be2f6be7055bdf182689a1fcf1872f794fa0f6b3cf027fb-d: no such file or directory)
+internal/daemon/chat.go:21:2: could not import github.com/cloudvane/litefactory/internal/redact (open ../../../Library/Caches/go-build/9c/9c9820bb8a4a6a83abbc1d93397b15d843fa82a6419a07a4129e47965d87a0fb-d: no such file or directory)
+internal/daemon/chat.go:22:2: could not import github.com/cloudvane/litefactory/internal/secrets (open ../../../Library/Caches/go-build/72/727cafff1d7b4e054edb7c098bd8b93c43b39cf966c953458b083d8d9dc681ac-d: no such file or directory)
+internal/daemon/chat_issue.go:11:2: could not import github.com/cloudvane/litefactory/internal/messaging/presentation (open ../../../Library/Caches/go-build/8f/8f7db74630b04de19a476e48650132e8c8f6c44f11159bcbbde6895e0b64ed32-d: no such file or directory)
+internal/daemon/chat_issue.go:11:2: too many errors
+FAIL	github.com/cloudvane/litefactory/internal/daemon [build failed]
+FAIL

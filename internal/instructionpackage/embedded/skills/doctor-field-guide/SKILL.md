@@ -1,3 +1,7 @@
+---
+name: doctor-field-guide
+description: Factory Doctor field guide.
+---
 Factory field guide v2 (source-backed; real stuck-case reconciliation requires an owner observation).
 
 Find the live sources
