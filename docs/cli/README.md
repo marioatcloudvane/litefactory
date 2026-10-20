@@ -6,6 +6,7 @@ Use the terminal to register repositories, manage teams, run the daemon and look
 | --- | --- |
 | [Repositories](repositories.md) | Register a clone and choose its base branch, branch prefix and worktree folder. |
 | [Teams](teams.md) | Install, copy, link and remove team packages of agent instructions. |
+| [Standards book](standards.md) | Propose, review, approve and publish shared guidance with retained history. |
 | [Command reference](command-reference.md) | Every command, argument, flag, default and exit code. |
 | [Usage and costs](../meter.md) | What `litefactory meter` shows and the CSV export. |
 
