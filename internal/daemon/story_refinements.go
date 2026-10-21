@@ -114,8 +114,11 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 		if err := d.db.SetStoryDiscoveryRotation(ctx, t.session.ID, s.IssueNumber); err != nil {
 			return true, err
 		}
+		// A child-specific failure must not starve the parent's own comments
+		// either (#1010). Its sweep debt stays, so it is retried next turn.
 		if discoveryErr != nil {
-			return true, discoveryErr
+			t.log.WarnContext(ctx, "could not sweep a managed story's comments; skipping it this turn",
+				slog.Int("story_issue", s.IssueNumber), slog.Any("error", discoveryErr))
 		}
 	}
 	pending, err := d.db.ListPendingStoryRefinements(ctx, t.session.ID)

@@ -143,15 +143,6 @@ func noNativeIdentityPause(reason string) bool {
 	return reason == "turn unfinished with no saved native identity; no replacement session created" || reason == "interrupted turn has no saved native session; continuity unavailable"
 }
 
-func (s *Service) conversationBound(channel string) bool {
-	r := s.conversations.Load()
-	if r == nil {
-		return false
-	}
-	_, ok := r.bindings[channel]
-	return ok
-}
-
 func (s *Service) ensureConversation(ctx context.Context, r *conversationRuntime, b ConversationBinding, at time.Time) error {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {

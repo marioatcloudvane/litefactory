@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/logreader"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -362,10 +362,7 @@ func loadLogTarget(ctx context.Context, paths config.Paths, issue int, owner, na
 // wins, because that is the file the run actually wrote; deriving it is the
 // fallback for a row that carries none.
 func (t logTarget) logPath(run store.Run) (string, error) {
-	if run.LogPath != "" {
-		return run.LogPath, nil
-	}
-	return naming.RunLogPath(t.home, t.ref, run.Ordinal)
+	return logreader.ResolvePath(t.home, t.session.TaskRef, run)
 }
 
 // metaPath is where a run's NNNN.meta.json lives. It is derived rather than
@@ -620,21 +617,15 @@ func streamLog(path string, sink logSink) (err error) {
 		}
 	}()
 
-	reader := bufio.NewReaderSize(f, followReadSize)
-	for {
-		line, readErr := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			if _, writeErr := sink.write(line); writeErr != nil {
-				return writeErr
-			}
-		}
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				return nil
-			}
-			return fmt.Errorf("read %s: %w", path, readErr)
-		}
+	var sinkErr error
+	err = logreader.Stream(f, func(line []byte) error {
+		_, sinkErr = sink.write(line)
+		return sinkErr
+	})
+	if err != nil && sinkErr == nil {
+		return fmt.Errorf("read %s: %w", path, err)
 	}
+	return err
 }
 
 // copyLog writes the run's JSONL to out byte for byte (AC-5.5).
