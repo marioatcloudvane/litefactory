@@ -36,36 +36,12 @@ type NativeModel struct {
 	Meter     MeterWriter
 }
 
-// Budget bounds one interpretation or narration call, including the five-second
+// Budget bounds one chat request, including the five-second
 // usage cleanup reserve. It is a variable so tests can shorten it.
 var Budget = 60 * time.Second
 
 // ErrUnavailable means no response-only provider has verified isolation.
 var ErrUnavailable = errors.New("ask answers unavailable")
-
-// PresentationMeter owns real presentation attempts, including factory-wide usage.
-type PresentationMeter interface {
-	StartPresentationMeterAttempt(context.Context, int64, string, string, string) (store.MeterAttempt, error)
-}
-
-// Present shares response-only setup but uses presentation-specific usage ownership.
-func (m *NativeModel) Present(ctx context.Context, repoID int64, identity, phase, prompt string) ([]byte, error) {
-	// Reserve the existing five-second usage cleanup inside the caller's
-	// shared deadline, rather than extending narration beyond that deadline.
-	deadline := time.Now().Add(Budget)
-	if caller, ok := ctx.Deadline(); ok && caller.Before(deadline) {
-		deadline = caller
-	}
-	work, cancel := context.WithDeadline(ctx, deadline.Add(-5*time.Second))
-	defer cancel()
-	ledger, ok := m.Meter.(PresentationMeter)
-	if !ok {
-		return nil, ErrUnavailable
-	}
-	return m.run(work, prompt, func(ctx context.Context, provider string) (store.MeterAttempt, error) {
-		return ledger.StartPresentationMeterAttempt(ctx, repoID, identity, phase, provider)
-	})
-}
 
 // Answer never falls back to a workflow runner or an unverified provider.
 func (m *NativeModel) Answer(ctx context.Context, repoID int64, prompt string) ([]byte, error) {

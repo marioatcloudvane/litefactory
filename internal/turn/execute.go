@@ -368,8 +368,12 @@ type Trigger struct {
 
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
-	workflowPolicy *WorkflowPolicy
-	bugAdmitted    bool
+	// StandardsHandoff and StandardsRootRunID are factory-only worker scheduling context.
+	// Owner comments never populate them. A missing handoff root stays unavailable.
+	StandardsHandoff   bool
+	StandardsRootRunID int64
+	workflowPolicy     *WorkflowPolicy
+	bugAdmitted        bool
 	// graphBugPreparation defers synchronization until the exact agent allocation
 	// can retain preservation intent. Only the simplified factory sets it.
 	graphBugPreparation  bool
