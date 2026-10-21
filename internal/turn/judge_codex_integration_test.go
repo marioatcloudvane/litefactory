@@ -214,8 +214,8 @@ func TestJudgeCodexNativeFixture(t *testing.T) {
 		t.Fatalf("native catalog: %s %v", encodedCatalog, err)
 	}
 	model := nativeCatalog.Models[0]
-	// The native shell stays (the read-only sandbox confines it); patching and experimental tools go.
-	if model.Slug != "gpt-6-astra" || !model.ResponsesLite || model.Shell != "shell_command" || model.Patch != nil || len(model.Experimental) != 0 || !slices.Contains(args, "read-only") {
+	// The native shell stays (the read-confined permissions profile governs it); patching and experimental tools go.
+	if model.Slug != "gpt-6-astra" || !model.ResponsesLite || model.Shell != "shell_command" || model.Patch != nil || len(model.Experimental) != 0 || !slices.Contains(args, `default_permissions="factory_judge"`) {
 		t.Fatalf("native wire metadata or tool ceiling changed: %s", encodedCatalog)
 	}
 	client := submission.Client{DescriptorPath: descriptor}

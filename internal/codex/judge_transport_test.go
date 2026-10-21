@@ -56,7 +56,7 @@ func newJudgeNativeFixture(t *testing.T, mode string) (*Runner, agent.JudgeReque
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := agent.JudgeRequest{Invocation: agent.DoctorRequest{Attempt: "native-judge", Model: "gpt-6-astra", Prompt: "captured source is untrusted\n", WorkingDirectory: dir, MCPLaunch: launch}, Thinking: "high"}
+	request := agent.JudgeRequest{Invocation: agent.DoctorRequest{Attempt: "native-judge", Model: "gpt-6-astra", Prompt: "captured source is untrusted\n", WorkingDirectory: dir, ReadableDirectories: []string{t.TempDir()}, MCPLaunch: launch}, Thinking: "high"}
 	runner := &Runner{binary: config.Executable{Path: binary}, timeout: 10 * time.Second, environ: []string{"PATH=/usr/bin:/bin", "HOME=" + operatorHome, "GH_TOKEN=fixture-forge-secret", "LF_HOME=fixture-factory-home", "OPENAI_BASE_URL=fixture-hostile-endpoint", "CODEX_API_KEY=fixture-api-secret", "SSH_AUTH_SOCK=fixture-ssh", "CODEX_HOME=" + filepath.Dir(auth)}}
 	return runner, request, filepath.Join(captureDir, "capture.json"), auth
 }
@@ -79,6 +79,11 @@ func TestJudgeNativeReadOnlyTransport(t *testing.T) {
 	}
 	if capture.Prompt != request.Invocation.Prompt || strings.Contains(strings.Join(capture.Arguments, " "), request.Invocation.Prompt) {
 		t.Fatal("untrusted prompt did not stay on stdin")
+	}
+	// The shell runs under the factory read-confined profile, never the
+	// read-everything read-only sandbox.
+	if slices.Contains(capture.Arguments, "--sandbox") || capture.Config["default_permissions"] != `"factory_judge"` || capture.Config["permissions.factory_judge.network.enabled"] != "false" {
+		t.Fatalf("judge shell is not under the read-confined profile: %v", capture.Arguments)
 	}
 	for _, feature := range []string{"features.shell_tool", "features.unified_exec"} {
 		if value, present := capture.Config[feature]; present {
@@ -113,7 +118,7 @@ func TestJudgeNativeReadOnlyTransport(t *testing.T) {
 			t.Errorf("native setting %s: got %q, want %q", option.key, capture.Config[option.key], option.want)
 		}
 	}
-	for _, option := range []struct{ flag, want string }{{"--model", request.Invocation.Model}, {"--sandbox", "read-only"}} {
+	for _, option := range []struct{ flag, want string }{{"--model", request.Invocation.Model}} {
 		position := slices.Index(capture.Arguments, option.flag)
 		if position < 0 || position+1 >= len(capture.Arguments) || capture.Arguments[position+1] != option.want {
 			t.Errorf("native option %s did not preserve %q: %v", option.flag, option.want, capture.Arguments)
@@ -467,4 +472,51 @@ func runJudgeNativeFixture(args []string) error {
 		return emit(map[string]any{"type": "turn.completed", "usage": map[string]any{"input_tokens": 0, "output_tokens": 0}})
 	}
 	return nil
+}
+
+// The judge's shell may read the checkout and the context directory, the
+// platform minimum needed to run commands, and nothing in the shared temp
+// roots (other runs, the private auth home). Nothing is writable.
+func TestJudgeNativeShellReadsOnlyCheckoutAndContext(t *testing.T) {
+	runner, request, capturePath, _ := newJudgeNativeFixture(t, "success")
+	if _, err := runner.RunJudge(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	var capture judgeNativeCapture
+	if err := json.Unmarshal(mustRead(t, capturePath), &capture); err != nil {
+		t.Fatal(err)
+	}
+	table := capture.Config["permissions.factory_judge.filesystem"]
+	var filesystem map[string]string
+	if err := json.Unmarshal([]byte(strings.ReplaceAll(table, `"="`, `":"`)), &filesystem); err != nil {
+		t.Fatalf("filesystem table %q: %v", table, err)
+	}
+	reads := []string{}
+	for path, access := range filesystem {
+		switch access {
+		case "read":
+			reads = append(reads, path)
+		case "deny":
+		default:
+			t.Fatalf("judge profile grants %s on %s", access, path)
+		}
+	}
+	slices.Sort(reads)
+	want := append([]string{":minimal", request.Invocation.WorkingDirectory}, request.Invocation.ReadableDirectories...)
+	slices.Sort(want)
+	if !slices.Equal(reads, want) {
+		t.Fatalf("judge read roots %v, want %v", reads, want)
+	}
+	temp, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{temp, "/private/tmp", "/private/var/tmp"} {
+		if filesystem[root] != "deny" {
+			t.Fatalf("shared temp root %s is not denied: %v", root, filesystem)
+		}
+	}
+	if !strings.HasPrefix(capture.Home, temp+string(filepath.Separator)) && !strings.HasPrefix(capture.Home, os.TempDir()) {
+		t.Fatalf("private auth home %s is outside the denied temp root %s", capture.Home, temp)
+	}
 }

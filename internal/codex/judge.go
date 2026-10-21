@@ -14,9 +14,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
-// RunJudge starts a fresh native turn with a factory-owned model catalogue in
-// the read-only sandbox: the judge reads the pinned checkout and the context
-// files with shell commands that cannot write or reach the network. The
+// RunJudge starts a fresh native turn with a factory-owned model catalogue and
+// a factory permissions profile: the judge reads only the pinned checkout and
+// the context files, with shell commands that cannot write or reach the network. The
 // catalogue removes model-owned apply_patch before Codex builds its registry.
 func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (_ agent.JudgeRunResult, err error) {
 	if err = request.Validate(); err != nil {
