@@ -30,6 +30,9 @@ import (
 const Path = "/litefactory/discord"
 const maxBody = 64 << 10
 
+// retiredCommand answers any slash command other than /details.
+const retiredCommand = "Only /details is a command here. Write ordinary messages in the channel instead."
+
 // maxErrorMessage caps Discord's error message before it is logged.
 const maxErrorMessage = 200
 
@@ -196,8 +199,9 @@ func (a *Adapter) Handler(intake Intake) http.Handler {
 			writeCallback(w, callback{Type: 4, Data: &replyData{Content: "no access", Flags: 64}})
 			return
 		}
-		if !inserted && in.Data.Name == "answer" {
-			writeCallback(w, callback{Type: 4, Data: &replyData{Content: "This /answer command was already received.\n\nRaw result.", Flags: 64}})
+		if !inserted && in.Data.Name != "details" {
+			// Only /details is a command; a client may still show retired ones.
+			writeCallback(w, callback{Type: 4, Data: &replyData{Content: retiredCommand, Flags: 64}})
 			return
 		}
 		if inserted {

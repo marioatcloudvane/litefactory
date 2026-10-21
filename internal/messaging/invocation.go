@@ -1,7 +1,6 @@
 package messaging
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -30,7 +29,7 @@ type Invocation struct {
 var ErrInvalidInvocation = errors.New("messaging: invalid natural-language invocation")
 
 // NaturalCommands returns only explicitly classified live catalogue entries.
-// Slash declarations continue to include entries without routing metadata.
+// Declarations continue to include entries without routing metadata.
 func (s *Service) NaturalCommands() []CommandDefinition {
 	var out []CommandDefinition
 	for _, def := range s.Declarations() {
@@ -119,40 +118,4 @@ func argumentLimit(command, name string) int {
 type DialogueTurn struct {
 	SourceID string
 	Text     string
-}
-
-// InterpretationRequest supplies bounded data and the factory's command choices.
-// It exposes no store, forge client, runner resume state or execution capability.
-// PreviousReply is the bot's last question or offer in this channel; it is
-// untrusted context only and never a source for argument spans.
-type InterpretationRequest struct {
-	Turns         []DialogueTurn
-	Commands      []CommandDefinition
-	PreviousReply string `json:"previous_reply,omitempty"`
-}
-
-// Interpreter suggests one action or asks for clarification. Its output is
-// untrusted until strict decoding, source binding and domain validation succeed.
-type Interpreter interface {
-	Interpret(context.Context, InterpretationRequest) ([]byte, error)
-}
-
-// Interpretation is a versioned suggestion. Confirmation is deliberately not
-// an output kind: only a separate deterministic owner protocol can authorize it.
-type Interpretation struct {
-	Version   int           `json:"version"`
-	Kind      string        `json:"kind"` // ignore, unsupported, clarify, propose
-	Question  string        `json:"question,omitempty"`
-	Command   string        `json:"command,omitempty"`
-	Arguments []SourceValue `json:"arguments,omitempty"`
-}
-
-// SourceValue identifies original owner bytes rather than model-authored
-// executable content. Start is inclusive, End exclusive, measured in UTF-8 bytes.
-// A span is evidence of origin; it is never evidence of permission or intent.
-type SourceValue struct {
-	Name     string `json:"name"`
-	SourceID string `json:"source_id"`
-	Start    int    `json:"start"`
-	End      int    `json:"end"`
 }

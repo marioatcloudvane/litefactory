@@ -43,16 +43,16 @@ func TestFormatFallbackIsWholeRole(t *testing.T) {
 		"owner main", MainMarker + "\nowner main\n", MainMarker + "\nowner main\n" + CorrectionMarker + "\n", MainMarker + "\nowner main {{Other}}\n" + CorrectionMarker + "\nowner correction\n", MainMarker + "\nowner main\n" + CorrectionMarker + "\nowner correction\n" + CorrectionMarker + "\nextra",
 	} {
 		t.Run(owner, func(t *testing.T) {
-			pkg := fixture(t, Ask, shipped, owner)
+			pkg := fixture(t, Draft, shipped, owner)
 			var diagnostics []Diagnostic
-			role, err := Load(t.Context(), pkg, Ask, func(_ context.Context, d Diagnostic) { diagnostics = append(diagnostics, d) })
+			role, err := Load(t.Context(), pkg, Draft, func(_ context.Context, d Diagnostic) { diagnostics = append(diagnostics, d) })
 			if err != nil {
 				t.Fatal(err)
 			}
 			if role.Main != "shipped main" || role.Correction != "shipped correction" {
 				t.Fatalf("mixed fallback: %#v", role)
 			}
-			if len(diagnostics) != 1 || diagnostics[0].Category != "format" || diagnostics[0].Role != Ask || diagnostics[0].Source != instructionpackage.SourceOwner || len(diagnostics[0].Digest) != 64 {
+			if len(diagnostics) != 1 || diagnostics[0].Category != "format" || diagnostics[0].Role != Draft || diagnostics[0].Source != instructionpackage.SourceOwner || len(diagnostics[0].Digest) != 64 {
 				t.Fatalf("diagnostics: %#v", diagnostics)
 			}
 		})
@@ -60,13 +60,13 @@ func TestFormatFallbackIsWholeRole(t *testing.T) {
 }
 
 func TestInvalidShippedAndCancellationFail(t *testing.T) {
-	pkg := fixture(t, Ask, "no sections", "invalid owner")
-	if _, err := Load(t.Context(), pkg, Ask, nil); err == nil {
+	pkg := fixture(t, Draft, "no sections", "invalid owner")
+	if _, err := Load(t.Context(), pkg, Draft, nil); err == nil {
 		t.Fatal("invalid shipped format accepted")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := Load(ctx, pkg, Ask, nil); !errors.Is(err, context.Canceled) {
+	if _, err := Load(ctx, pkg, Draft, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation: %v", err)
 	}
 }
@@ -76,7 +76,7 @@ func TestRestrictedPlaceholder(t *testing.T) {
 		role, body string
 		valid      bool
 	}{
-		{ReplyWriter, "limit {{MaxClaims}}", true}, {ReplyWriter, "{{.MaxClaims}}", false}, {ReplyWriter, "{{MaxClaims}} {{Other}}", false}, {IntentInterpreter, "{{MaxClaims}}", false}, {ReplyChecker, "plain text", true},
+		{Draft, MainMarker + "\nmain\n" + CorrectionMarker + "\nfix\n", true}, {Draft, MainMarker + "\nlimit {{MaxClaims}}\n" + CorrectionMarker + "\nfix\n", false}, {Draft, MainMarker + "\nmain\n" + CorrectionMarker + "\n{{Other}}\n", false}, {"chat-reply-writer", "plain text", false},
 	} {
 		got, err := parse(tc.role, tc.body)
 		if (err == nil) != tc.valid {
@@ -92,11 +92,7 @@ func TestRestrictedPlaceholder(t *testing.T) {
 // Framing separators remain consumer-owned and are covered by consumer fixtures.
 func TestShippedBodies(t *testing.T) {
 	expected := map[string]string{
-		"chat-ask":                "e82620891bbc5628744a7891839dda255cbf7ca80970f9330d6e96ea687d8a25",
-		"chat-draft":              "a51fd332a7de1f92c39aa5c1cf69715f4e696ba25f71c1bf8a11403917e1f255",
-		"chat-intent-interpreter": "eb38d21cb4416a042a21648c9f854e18119d14aec724946fe55fcad84b25e013",
-		"chat-reply-writer":       "81207446abb140b8282b45971394ee8dc7f1fe18d199a01f12fd9bee1dbffae4",
-		"chat-reply-checker":      "06829db1a24cdddeac303b6961dae37c974d70898d3ccdf96d88a974134749dd",
+		"chat-draft": "124e691a2d73cecc310403d59114772a0b05d3e6e60b8205616a2656940e322d",
 	}
 	for role, want := range expected {
 		body, err := Load(t.Context(), nil, role, nil)
