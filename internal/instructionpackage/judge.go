@@ -15,6 +15,9 @@ const (
 
 func capturePaths(role string) []string {
 	paths := []string{CataloguePath, rolePath(role)}
+	if role == StandardsAuthorRole {
+		paths = append(paths, StandardsAuthorSchemaPath)
+	}
 	if role == JudgeRole {
 		paths = append(paths, JudgePinPrefixPath, JudgeEvidenceSuffixPath)
 	}

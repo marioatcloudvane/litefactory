@@ -367,7 +367,6 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 				providers[string(kind)] = native
 			}
 		}
-		chatOpts.ReplyModel = &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}
 		chatOpts.Answers = &ask.Service{Repositories: s.DB, Collector: ask.Collector{Factory: ask.StoreReader{Reader: s.DB}, Issues: ticketWorkflow}, Model: &ask.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}, Redactor: sharedRedactor}
 		{
 			instructions, instructionErr := instructionpackage.New(ctx, s.Paths)
@@ -571,11 +570,18 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	mcpRuntime.ImplementStatus = status
+	analystSchedules, err := newAnalystScheduleRuntime(ctx, s, connections, sharedRedactor, gitBinary)
+	if err != nil {
+		status.Close()
+		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
+		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
+	}
 	daemon, err := New(Options{
-		Paths:      s.Paths,
-		Doctor:     &doctor.Service{Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
-		Bug:        bugRuntime,
-		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
+		AnalystSchedules: analystSchedules,
+		Paths:            s.Paths,
+		Doctor:           &doctor.Service{Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
+		Bug:              bugRuntime,
+		Retirement:       RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
 			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,
 		})}},

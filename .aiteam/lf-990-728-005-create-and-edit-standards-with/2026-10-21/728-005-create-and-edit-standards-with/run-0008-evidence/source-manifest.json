@@ -1,0 +1,114 @@
+[
+  {
+    "path": "docs/cli/standards.md",
+    "sha256": "7c8bf7f05f8052f5670c8361450faa45f532baeec8abfcf9005868102d4a1416"
+  },
+  {
+    "path": "internal/cli/cmd_standards_author.go",
+    "sha256": "bdf0d8dc048c2d6d550b463e9fbad2ad682a7d80ce7778a8dfb630ca947e0add"
+  },
+  {
+    "path": "internal/cli/cmd_standards_author_provider.go",
+    "sha256": "2b0fa9ade5981c7917290dd4f0fe095f3480b75b8e6b43f8838857969bc486c3"
+  },
+  {
+    "path": "internal/cli/commands.go",
+    "sha256": "3486effa2e81b6940391cddac03f1e974312f97574c7076f3e7d3daf1b5cd8a2"
+  },
+  {
+    "path": "internal/cli/standards_author_endtoend_test.go",
+    "sha256": "062dda49b98bbbbb17998e4446afad6aa6a344d7e8ad877d77c9ca89622fa4e0"
+  },
+  {
+    "path": "internal/instructionpackage/authoring.go",
+    "sha256": "59057a6518f6e12987a83996eacecd8958efe6daa13f519c23cdf2b134a371ae"
+  },
+  {
+    "path": "internal/instructionpackage/baseline_test.go",
+    "sha256": "95a773da8f072946a4b7944e58bb5bc32a7741af6f39e5404608645a4fe15152"
+  },
+  {
+    "path": "internal/instructionpackage/doc.go",
+    "sha256": "898ae0cc0f98ec8833c1a59ca0560916063a16617b4fe1b7dce16df1304c9220"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/agents/standards-author.md",
+    "sha256": "03e1fe6ee7c76a7b5285d8cb82f746bec9d2974090aee4cfd5ef509c0ba90724"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/catalogue.yaml",
+    "sha256": "3f9e64b8bcd1664ffe76c4fcb5bea69b4f45850df26b6fc2548b031cd2939cd0"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/metadata.yaml",
+    "sha256": "ccb85ca7d41120d555829161523677d8cdd96fc5dad23a98a91ea8ab8262da34"
+  },
+  {
+    "path": "internal/instructionpackage/embedded/resources/standards-author/schema.md",
+    "sha256": "63474cb0873a0e490b2b9d9a5e196fa2ce729cb1656e64f8eb639094e15a6ba3"
+  },
+  {
+    "path": "internal/instructionpackage/judge.go",
+    "sha256": "c7de724213cba1f14c8fa2dd7e75f726ccff73d9d6b3efed89a71fcfc1c77131"
+  },
+  {
+    "path": "internal/messaging/response/authoring.go",
+    "sha256": "eae48320e67765378d0ca7db22ae4d038759ddc48f467a1dbcc735ff918e2b55"
+  },
+  {
+    "path": "internal/messaging/response/authoring_test.go",
+    "sha256": "79b1c6203bffe323e355c6a65be35f05607faf680e474562c519124c737edae0"
+  },
+  {
+    "path": "internal/messaging/response/native.go",
+    "sha256": "bf719095b13ccf449de83af14f69ed718a523386dbdf2cf2be6a60c162c515f3"
+  },
+  {
+    "path": "internal/standards/authoring.go",
+    "sha256": "526d41228166b6947a0896a41f1c39488e11e1f6904c77782dd6d72225c986dd"
+  },
+  {
+    "path": "internal/standards/authoring_test.go",
+    "sha256": "33d03eaaafe72f9de6de9a1ac9a44b2721eafa87abe09770d2494a5de212c033"
+  },
+  {
+    "path": "internal/store/archive_registry.go",
+    "sha256": "c73babcb9fcb94a3986dd5d99d76a8db933c7956d90208f61a67a99b6a038cd5"
+  },
+  {
+    "path": "internal/store/chat_ask_test.go",
+    "sha256": "6f7cf6ccf64fd4db669794e966e1d550fc7947906a81c098fca11b42d19857f3"
+  },
+  {
+    "path": "internal/store/meter.go",
+    "sha256": "34943a11fa8bb46f224e1fd09d8229abab66533da91075f28efb95bc400e1ed9"
+  },
+  {
+    "path": "internal/store/meter_authoring.go",
+    "sha256": "e529f2daaf5567cd17213b6718da4362105ca10757773d52014ba49157e834cb"
+  },
+  {
+    "path": "internal/store/meter_authoring_test.go",
+    "sha256": "f1948e55f3fad93000e26e7d5a4789692bc52eeded9deacb700e17f975088b46"
+  },
+  {
+    "path": "internal/store/meter_snapshot.go",
+    "sha256": "e3d769bbbb0efc6ce3ce0cb363fc3364efcb3bf5474d33eb546b63bf07eeafef"
+  },
+  {
+    "path": "internal/store/migrations/20261021064118632_standards_authoring.sql",
+    "sha256": "ce5b6471e9f225154e8b24907cc1f9235efafece669a48afb7968d3b6235d938"
+  },
+  {
+    "path": "internal/store/migrations/20261021064432614_authoring_meter.sql",
+    "sha256": "2bce7816d2b7d2785ac1251e6a3444470dae9069b9f9b3b654c68547f0046ca9"
+  },
+  {
+    "path": "internal/store/standards_authoring.go",
+    "sha256": "d60c238e6a941c47322f5c9230d47e4009254117056a40245c07d766f15373fe"
+  },
+  {
+    "path": "internal/store/standards_authoring_test.go",
+    "sha256": "870fc664528bcc2bea1e74452f75f0a4e3baf0c2d1ca39448faea9dc710ba40c"
+  }
+]

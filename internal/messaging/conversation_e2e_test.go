@@ -252,3 +252,22 @@ fi
 	}
 	return executable
 }
+
+// journeySender records delivered texts and confirms each with a fresh prompt ID.
+type journeySender struct{ texts []string }
+
+func (p *journeySender) Deliver(_ context.Context, _ messaging.Target, text string) messaging.Delivery {
+	p.texts = append(p.texts, text)
+	return messaging.Delivery{Confirmed: true, PromptID: fmt.Sprintf("%d", 900+len(p.texts))}
+}
+
+// A newest-first external page exercises the production ordered collector.
+type journeyReader struct{ messages []store.NaturalMessage }
+
+func (*journeyReader) CheckIntakeCapability(context.Context, string) error { return nil }
+func (r *journeyReader) ReadIntakePage(_ context.Context, channel, owner, before string) (messaging.IntakePage, error) {
+	if before != "" || len(r.messages) == 0 {
+		return messaging.IntakePage{}, nil
+	}
+	return messaging.IntakePage{Messages: r.messages, HighID: r.messages[0].SourceID, LowID: r.messages[len(r.messages)-1].SourceID, Count: len(r.messages)}, nil
+}
