@@ -54,10 +54,13 @@ type conversationRuntime struct {
 	check        func(context.Context, string) error
 	prepared     func(context.Context, string) (string, error)
 	instructions *instructionpackage.Package
-	factory      bool
-	next         int
-	accessMu     sync.Mutex
-	accessAfter  map[string]time.Time
+	// current is the capture of instructions as this daemon started; retained
+	// bindings move onto it at their next turn boundary.
+	current     *instructionpackage.ConversationCapture
+	factory     bool
+	next        int
+	accessMu    sync.Mutex
+	accessAfter map[string]time.Time
 }
 
 // EnableConversations installs an exclusive ordinary-message route. Failed
@@ -91,6 +94,12 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 		}
 	}
 	defer s.conversations.Store(r)
+	if current, diagnostics, err := r.instructions.CaptureConversation(ctx); err == nil {
+		r.current = current
+		s.logConversationInstructionDiagnostics(ctx, diagnostics)
+	} else if s.Logger != nil {
+		s.Logger.WarnContext(ctx, "conversation instruction capture unavailable; retained bindings keep their instructions")
+	}
 	var failures []error
 	if err := s.migrateConversationInstructions(ctx, at); err != nil {
 		failures = append(failures, err)
@@ -221,6 +230,7 @@ func (s *Service) ConversationStep(ctx context.Context, at time.Time) (bool, err
 		if c.HealthReason != "" {
 			continue
 		}
+		s.refreshConversationInstructions(ctx, r, c.ID, at)
 		instructions, instructionErr := s.restoreConversationInstructions(ctx, c.ID, at)
 		if instructionErr != nil {
 			return false, instructionErr

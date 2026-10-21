@@ -29,11 +29,24 @@ type factoryConversationPrompt struct {
 	Context       string                   `json:"context,omitempty"`
 	RecentReplies []conversationPriorReply `json:"recent_factory_replies,omitempty"`
 	Evidence      *conversationReadResult  `json:"evidence,omitempty"`
-	Correction    string                   `json:"correction,omitempty"`
+	// EarlierEvidence keeps this turn's previous lookup results, so an answer
+	// that needs several lookups can use all of them.
+	EarlierEvidence []conversationReadResult `json:"earlier_evidence,omitempty"`
+	// Focus is the project and issue this conversation discussed last.
+	Focus      *conversationFocus `json:"focus,omitempty"`
+	Correction string             `json:"correction,omitempty"`
 	// CorrectionReason is the factory's plain reason the previous output was
 	// rejected, so the one correction can fix the actual defect.
 	CorrectionReason string `json:"correction_reason,omitempty"`
 	SavedOutcome     string `json:"saved_outcome,omitempty"`
+}
+
+// addEvidence makes result the current evidence and keeps the previous one.
+func (p *factoryConversationPrompt) addEvidence(result conversationReadResult) {
+	if p.Evidence != nil {
+		p.EarlierEvidence = append(p.EarlierEvidence, *p.Evidence)
+	}
+	p.Evidence = &result
 }
 
 type conversationReadResult struct {
@@ -61,6 +74,8 @@ type factoryConversationRun struct {
 	calls, ordinal int
 	savedOutcomes  string
 	safe           bool
+	// focus is the newest project and issue this conversation resolved.
+	focus *conversationFocus
 }
 
 // invoke journals every input before crossing the prompt-only native boundary.
@@ -237,7 +252,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err != nil {
 		return err
 	}
-	prompt := factoryConversationPrompt{RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes}
+	if run.focus, err = run.loadFocus(work); err != nil {
+		return err
+	}
+	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes}
 	corrected, lookups, pendingLookup, err := run.resumeBoundary(work, &prompt)
 	if err != nil {
 		return run.failed(ctx, err)
@@ -352,7 +370,8 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				return s.conversationOutcome(ctx, t, "completed", result.Clarification, at)
 			}
 			prompt.References = refs
-			prompt.Evidence = &result
+			prompt.Focus = run.focus
+			prompt.addEvidence(result)
 		}
 	}
 	return s.conversationOutcome(ctx, t, "completed", "The lookup budget was reached before a completed answer. Current evidence is retained, but the answer is unavailable. Please narrow the question.", at)
@@ -453,6 +472,9 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 		return result, nil, ErrConversationEnvelope
 	}
 	p := naturalPayload{Invocation: validated, Channel: r.c.ChannelRef}
+	if r.focus != nil {
+		p.focus = r.focus.Project
+	}
 	clarification, err := s.resolveNatural(ctx, &p, r.at)
 	if err != nil {
 		return result, nil, err
@@ -493,10 +515,31 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			break
 		}
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		if len(request.By) > 0 {
+			breakdown, readErr := meterview.ReadBreakdown(bounded, s.db, request, request.By)
+			if readErr != nil {
+				result.Gaps = append(result.Gaps, "Current cost breakdown unavailable.")
+				break
+			}
+			lines := breakdown.Lines()
+			if request.Task > 0 && breakdown.Records > 0 {
+				lines = append([]string{"Scope: the task including its stories."}, lines...)
+			}
+			text = strings.Join(lines, "\n")
+			if _, known := breakdown.TotalAmount(); !known && breakdown.Records > 0 {
+				result.Gaps = append(result.Gaps, "No amount available.")
+			}
+			break
+		}
 		view, readErr := meterview.Read(bounded, s.db, request)
-		cancel()
 		if readErr != nil {
 			result.Gaps = append(result.Gaps, "Current cost unavailable.")
+			break
+		}
+		if len(view.Groups) == 0 {
+			// No recorded usage is a fact about the filter, not a gap.
+			text = "No usage is recorded for this filter."
 			break
 		}
 		amount := view.Summary.EstimatedUSD
@@ -576,6 +619,10 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 	if err = s.db.SaveConversationReference(ctx, r.t, saved); err != nil {
 		return result, nil, err
 	}
+	r.focus = &conversationFocus{Project: p.Project, Issue: args["task"]}
+	if r.focus.Issue == "" {
+		r.focus.Issue = args["issue"]
+	}
 	return result, &ConversationReference{ID: saved.ID, OwnerID: s.owner, ChannelID: r.c.ChannelRef, OriginTurn: r.t.ID, RepoID: p.RepoID, Revision: p.Revision, ExpiresAt: saved.ExpiresAt, Arguments: args}, nil
 }
 
@@ -636,7 +683,8 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		if err != nil {
 			return false, 0, nil, err
 		}
-		prompt.Evidence, prompt.Correction, prompt.CorrectionReason = &result, "", ""
+		prompt.addEvidence(result)
+		prompt.Correction, prompt.CorrectionReason = "", ""
 		refs, err := r.references(ctx)
 		if err != nil {
 			return false, 0, nil, err
