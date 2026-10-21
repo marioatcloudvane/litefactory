@@ -126,7 +126,10 @@ func (db *DB) CreatePreventionAnalysis(ctx context.Context, a PreventionAnalysis
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO prevention_analyses(id,request_key,scope_digest,repository,attempt_id,status,record_json) VALUES(?,?,?,?,?,?,?)`, a.ID, a.RequestKey, a.ScopeDigest, a.Repository, a.AttemptID, a.Status, string(raw))
 		created = err == nil
-		return err
+		if err != nil {
+			return err
+		}
+		return attachAnalystAllocation(ctx, tx, "bugs", a.ID, a.RequestKey)
 	})
 	return a, created, err
 }
