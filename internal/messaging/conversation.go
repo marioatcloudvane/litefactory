@@ -31,15 +31,22 @@ type ConversationProvider interface {
 // ConversationBinding names an opted-in channel and its explicitly selected provider.
 type ConversationBinding struct{ Channel, Name, Provider, Model string }
 
+// ConversationReasoner is the model and native effort a consult runs with.
+type ConversationReasoner struct{ Model, Effort string }
+
 // ConversationOptions is installed before workers start. Context selection belongs
 // to the caller and conveys data only. Access is rechecked before every external effect.
 type ConversationOptions struct {
-	Instructions    *instructionpackage.Package
-	Factory         bool
-	Bindings        []ConversationBinding
-	StateRoot       string
-	Providers       map[string]ConversationProvider
-	Models          map[string]string
+	Instructions *instructionpackage.Package
+	Factory      bool
+	Bindings     []ConversationBinding
+	StateRoot    string
+	Providers    map[string]ConversationProvider
+	Models       map[string]string
+	// Reasoners selects the consult model per provider kind, normally the
+	// flagship tier with high effort. A missing entry falls back to the
+	// binding's model with the native default effort.
+	Reasoners       map[string]ConversationReasoner
 	CheckAccess     func(context.Context, string) error
 	PreparedContext func(context.Context, string) (string, error)
 }
@@ -50,6 +57,7 @@ type conversationRuntime struct {
 	channels     []string
 	providers    map[string]ConversationProvider
 	models       map[string]string
+	reasoners    map[string]ConversationReasoner
 	root, worker string
 	check        func(context.Context, string) error
 	prepared     func(context.Context, string) (string, error)
@@ -87,6 +95,10 @@ func (s *Service) EnableConversations(ctx context.Context, options ConversationO
 	}
 	for name, model := range options.Models {
 		r.models[name] = model
+	}
+	r.reasoners = make(map[string]ConversationReasoner, len(options.Reasoners))
+	for name, reasoner := range options.Reasoners {
+		r.reasoners[name] = reasoner
 	}
 	for _, b := range options.Bindings {
 		if b.Model != "" {

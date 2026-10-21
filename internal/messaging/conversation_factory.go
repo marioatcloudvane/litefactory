@@ -39,6 +39,8 @@ type factoryConversationPrompt struct {
 	// rejected, so the one correction can fix the actual defect.
 	CorrectionReason string `json:"correction_reason,omitempty"`
 	SavedOutcome     string `json:"saved_outcome,omitempty"`
+	// ConsultNote says why a consult is not available now.
+	ConsultNote string `json:"consult_note,omitempty"`
 }
 
 // addEvidence makes result the current evidence and keeps the previous one.
@@ -76,6 +78,19 @@ type factoryConversationRun struct {
 	safe           bool
 	// focus is the newest project and issue this conversation resolved.
 	focus *conversationFocus
+	// consults counts this turn's reasoner consults; at most one runs.
+	consults int
+	// refSuffix keeps the references of reasoner lookups distinct.
+	refSuffix string
+}
+
+// maxCalls is the turn's conversation invocation budget. A consult adds one
+// invocation, so the model can still answer from the consult's evidence.
+func (r *factoryConversationRun) maxCalls() int {
+	if r.consults > 0 {
+		return 5
+	}
+	return 4
 }
 
 // invoke journals every input before crossing the prompt-only native boundary.
@@ -94,7 +109,7 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 	if err := r.s.validateConversationPrompt(ctx, r.c.ID, prompt, instructions, true, r.at); err != nil {
 		return nil, err
 	}
-	if r.calls >= 4 {
+	if r.calls >= r.maxCalls() {
 		return nil, errors.New("conversation invocation budget exhausted")
 	}
 	runtime := r.s.conversations.Load()
@@ -184,7 +199,12 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 
 func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversation, b ConversationBinding, t store.ConversationTurn, at time.Time) error {
 	work, cancel := context.WithTimeout(ctx, response.Budget)
-	defer cancel()
+	cancels := []context.CancelFunc{cancel}
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+	}()
 	instructions, err := s.restoreConversationInstructions(work, c.ID, at)
 	if err != nil {
 		return err
@@ -260,7 +280,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err != nil {
 		return run.failed(ctx, err)
 	}
-	for run.calls < 4 {
+	for run.calls < run.maxCalls() {
 		var envelope ConversationEnvelope
 		var inv Invocation
 		var requestText string
@@ -279,7 +299,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			}
 			envelope, inv, err = DecodeConversationEnvelope(raw, ConversationDecodeRequest{Turns: turns, Commands: s.ConversationCommands(), References: refs, OwnerID: s.owner, ChannelID: c.ChannelRef, Now: at})
 			if err != nil {
-				if !corrected && run.calls < 4 {
+				if !corrected && run.calls < run.maxCalls() {
 					corrected = true
 					prompt.Correction = instructions.Correction()
 					prompt.CorrectionReason = conversationEnvelopeReason(err)
@@ -337,7 +357,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		case "propose":
 			return run.propose(work, inv, envelope, turns)
 		case "lookup":
-			if lookups >= 3 || run.calls >= 4 {
+			if lookups >= 3 || run.calls >= run.maxCalls() {
 				break
 			}
 			lookups++
@@ -371,6 +391,43 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			}
 			prompt.References = refs
 			prompt.Focus = run.focus
+			prompt.addEvidence(result)
+		case "consult":
+			if run.consults > 0 {
+				prompt.ConsultNote = conversationReasonerNote
+				break
+			}
+			run.consults++
+			// The consult has its own wall-clock limit; the answer afterwards
+			// keeps the time the turn had left, and at least half a turn.
+			deadline, _ := work.Deadline()
+			remaining := time.Until(deadline)
+			result, consulted := run.consult(ctx, envelope, &prompt, turns, refs)
+			if err := ctx.Err(); err != nil {
+				return run.failed(ctx, err)
+			}
+			cancels[len(cancels)-1]()
+			next, cancelNext := context.WithTimeout(ctx, max(remaining, response.Budget/2))
+			work, cancels = next, append(cancels, cancelNext)
+			run.ordinal++
+			result.FactID = fmt.Sprintf("%s-fact-%d", t.ID, run.ordinal)
+			result.Status = "complete"
+			if !result.Complete {
+				result.Status = "incomplete"
+			}
+			result.Target = conversationEvidenceTarget(result.Arguments)
+			encoded, _ := json.Marshal(result)
+			resultText, err := s.Protect(work, string(encoded))
+			if err != nil {
+				return err
+			}
+			if err = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "evidence", Request: requestText, Result: resultText, CapturedAt: at, Complete: result.Complete, Gaps: strings.Join(result.Gaps, "\n")}); err != nil {
+				return err
+			}
+			refs = consulted
+			prompt.References = refs
+			prompt.Focus = run.focus
+			prompt.ConsultNote = ""
 			prompt.addEvidence(result)
 		}
 	}
@@ -615,7 +672,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 		}
 	}
 	raw, _ := json.Marshal(args)
-	saved := store.ConversationReference{ID: fmt.Sprintf("%s-target-%d", r.t.ID, r.ordinal), TurnID: r.t.ID, Kind: "target", Repository: strconv.FormatInt(p.RepoID, 10), Revision: p.Revision, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+	saved := store.ConversationReference{ID: fmt.Sprintf("%s-target-%d%s", r.t.ID, r.ordinal, r.refSuffix), TurnID: r.t.ID, Kind: "target", Repository: strconv.FormatInt(p.RepoID, 10), Revision: p.Revision, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
 	if err = s.db.SaveConversationReference(ctx, r.t, saved); err != nil {
 		return result, nil, err
 	}
@@ -657,6 +714,9 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		if x.Kind == "lookup" {
 			lookups++
 		}
+		if x.Kind == "consult" {
+			r.consults++
+		}
 	}
 	last := exchanges[len(exchanges)-1]
 	switch last.Kind {
@@ -664,7 +724,9 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		if r.calls == 0 {
 			return corrected, lookups, nil, nil
 		}
-	case "lookup":
+	case "lookup", "consult":
+		// A saved consult without its evidence runs again: the reasoner is
+		// stateless and read-only, so a repeat cannot double an effect.
 		var pending conversationPendingLookup
 		if !last.Complete {
 			return false, 0, nil, errors.New("incomplete saved lookup")
@@ -672,11 +734,15 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		if err := json.Unmarshal([]byte(last.Request), &pending); err != nil {
 			return false, 0, nil, err
 		}
-		if pending.Envelope.Kind != "lookup" {
+		if pending.Envelope.Kind != last.Kind {
 			return false, 0, nil, errors.New("invalid saved lookup")
 		}
 		pending.Request = last.Request
 		prompt.Correction, prompt.CorrectionReason = "", ""
+		if last.Kind == "consult" {
+			r.consults--
+			return corrected, lookups, &pending, nil
+		}
 		return corrected, lookups - 1, &pending, nil
 	case "evidence":
 		result, err := decodeConversationEvidence(last)

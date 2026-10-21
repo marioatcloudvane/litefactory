@@ -89,6 +89,10 @@ type ConversationEnvelope struct {
 	Blocks    []presentation.AnswerBlock `json:"blocks,omitempty"`
 	Command   string                     `json:"command,omitempty"`
 	Arguments []ConversationArgument     `json:"arguments,omitempty"`
+	// Question and Tried form a consult: the owner's question restated, and
+	// what was tried and why it is not enough.
+	Question string `json:"question,omitempty"`
+	Tried    string `json:"tried,omitempty"`
 }
 
 // ConversationArgument selects exactly one original owner span, factory-issued
@@ -228,15 +232,23 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 		}
 	case "lookup", "propose":
 		required = append(required, "command", "arguments")
+	case "consult":
+		required = append(required, "question", "tried")
+		reason = "consult needs a non-empty question and tried of at most 4000 bytes each"
+		for _, text := range []string{envelope.Question, envelope.Tried} {
+			if strings.TrimSpace(text) == "" || len(text) > 4000 || strings.ContainsRune(text, 0) {
+				return bad()
+			}
+		}
 	default:
-		reason = "kind must be answer, clarify, lookup or propose"
+		reason = "kind must be answer, clarify, lookup, consult or propose"
 		return bad()
 	}
 	if !exactConversationFields(fields, required...) {
 		reason = "the object must have exactly the fields " + strings.Join(required, ", ")
 		return bad()
 	}
-	if envelope.Kind == "answer" || envelope.Kind == "clarify" {
+	if envelope.Kind == "answer" || envelope.Kind == "clarify" || envelope.Kind == "consult" {
 		return envelope, Invocation{}, nil
 	}
 	var def *CommandDefinition
