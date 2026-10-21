@@ -14,6 +14,8 @@ import (
 // selectedSkills is factory-owned selection; package bytes cannot add entry points.
 func selectedSkills(role string) []string {
 	switch role {
+	case LogAnalystRole:
+		return []string{"go-guidance", "agent-setup-guidance"}
 	case "doctor-diagnosis":
 		return []string{"doctor-field-guide"}
 	case "doctor-repair":

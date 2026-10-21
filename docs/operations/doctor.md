@@ -12,7 +12,7 @@ Doctor is separate from the workflow modes. It never starts a Research, Plan, Im
 | --- | --- |
 | Terminal | `litefactory doctor <owner/name> <issue> "<what to check>"`. Also `doctor status`, `doctor stop` and `doctor apply` with the same repository and issue. See the [CLI reference](../cli/command-reference.md). |
 | GitHub issue | Comment `/doctor <what to check>` on the stuck issue. `/doctor stop` ends the conversation and keeps its history. `/doctor apply` approves the current proposal. See [owner commands](../guides/owner-commands.md). |
-| Discord | `/diagnose`. See [Discord](../discord.md). |
+| Discord | Ask the conversation to diagnose the issue and confirm its proposal. See [Discord](../discord.md). |
 
 Rules for the GitHub commands:
 

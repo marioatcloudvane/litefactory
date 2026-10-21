@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -174,6 +175,9 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 	// sources already keep hooks, plugins, memory and CLAUDE.md out.
 	tools := ""
 	args := []string{}
+	if operation == "prevention" {
+		args = append(args, "--max-turns", strconv.Itoa(request.TurnLimit))
+	}
 	if operation != "" {
 		args = append(args, "--no-session-persistence")
 	}

@@ -1,0 +1,31 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	5.420s
+ok  	github.com/cloudvane/litefactory/internal/agent	2.197s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	3.592s
+ok  	github.com/cloudvane/litefactory/internal/codex	185.131s
+ok  	github.com/cloudvane/litefactory/internal/doctor	45.700s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	4.387s
+ok  	github.com/cloudvane/litefactory/internal/harness	115.633s
+ok  	github.com/cloudvane/litefactory/internal/instructionpackage	4.279s
+ok  	github.com/cloudvane/litefactory/internal/loganalysis	12.912s
+ok  	github.com/cloudvane/litefactory/internal/logevidence	13.593s
+ok  	github.com/cloudvane/litefactory/internal/logreader	5.974s
+ok  	github.com/cloudvane/litefactory/internal/messaging	147.951s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	4.791s
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	9.140s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	4.458s
+ok  	github.com/cloudvane/litefactory/internal/messaging/prompts	2.856s
+?   	github.com/cloudvane/litefactory/internal/messaging/response	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/meter	2.483s
+ok  	github.com/cloudvane/litefactory/internal/meterview	4.194s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	8.611s
+ok  	github.com/cloudvane/litefactory/internal/providerprocess	25.753s
+ok  	github.com/cloudvane/litefactory/internal/report	9.657s
+ok  	github.com/cloudvane/litefactory/internal/repos	4.187s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	7.054s
+ok  	github.com/cloudvane/litefactory/internal/standards	11.008s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/submission	2.409s
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	61.557s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	3.659s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	10.478s
