@@ -59,6 +59,12 @@ func RunChatProcess(ctx context.Context, binary string, args, env []string, requ
 }
 
 func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) error {
+	return runScopedProcess(ctx, binary, args, env, request.Prompt, request.WorkingDirectory, timeout, observe, cancelProcess...)
+}
+
+// runScopedProcess owns bounded I/O and process-group cancellation without a
+// domain request or authority. The public entry point validates its own contract.
+func runScopedProcess(ctx context.Context, binary string, args, env []string, prompt, directory string, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) error {
 	if timeout <= 0 {
 		return errors.New("doctor provider timeout must be positive")
 	}
@@ -66,9 +72,9 @@ func runScopedDoctorProcess(ctx context.Context, binary string, args, env []stri
 	defer cancel()
 	//nolint:gosec // Resolved provider executable and adapter-owned arguments; owner text is stdin only.
 	cmd := exec.CommandContext(runCtx, binary, args...)
-	cmd.Dir = request.WorkingDirectory
+	cmd.Dir = directory
 	cmd.Env = env
-	cmd.Stdin = strings.NewReader(request.Prompt)
+	cmd.Stdin = strings.NewReader(prompt)
 	output := &doctorLines{observe: observe, cancel: cancel}
 	cmd.Stdout = output
 	cmd.Stderr = io.Discard

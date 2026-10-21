@@ -208,35 +208,41 @@ func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVers
 	p.Version = expected + 1
 	p.CreatedAt = nowUTC().Truncate(time.Millisecond)
 	err = db.standardsWrite(ctx, func(tx *sql.Tx) error {
-		if expected == 0 {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO standards_proposals(id,current_version) VALUES(?,?) ON CONFLICT(id) DO NOTHING`, p.ProposalID, p.Version); err != nil {
-				return err
-			}
-			var n int64
-			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM standards_proposal_versions WHERE proposal_id=?`, p.ProposalID).Scan(&n); err != nil {
-				return err
-			}
-			if n != 0 {
-				return ErrStandardsConflict
-			}
-		} else {
-			res, err := tx.ExecContext(ctx, `UPDATE standards_proposals SET current_version=? WHERE id=? AND current_version=? AND published_version IS NULL`, p.Version, p.ProposalID, expected)
-			if err != nil {
-				return err
-			}
-			n, err := res.RowsAffected()
-			if err != nil {
-				return err
-			}
-			if n != 1 {
-				return ErrStandardsConflict
-			}
-		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt))
-		return err
+		return saveStandardsProposalTx(ctx, tx, p, expected, ops)
 	})
 	return p, err
 }
+
+// saveStandardsProposalTx appends an upstream proposal version inside the caller transaction.
+func saveStandardsProposalTx(ctx context.Context, tx *sql.Tx, p StandardsProposalVersion, expected int64, ops []byte) error {
+	if expected == 0 {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO standards_proposals(id,current_version) VALUES(?,?) ON CONFLICT(id) DO NOTHING`, p.ProposalID, p.Version); err != nil {
+			return err
+		}
+		var n int64
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM standards_proposal_versions WHERE proposal_id=?`, p.ProposalID).Scan(&n); err != nil {
+			return err
+		}
+		if n != 0 {
+			return ErrStandardsConflict
+		}
+	} else {
+		res, err := tx.ExecContext(ctx, `UPDATE standards_proposals SET current_version=? WHERE id=? AND current_version=? AND published_version IS NULL`, p.Version, p.ProposalID, expected)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return ErrStandardsConflict
+		}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt))
+	return err
+}
+
 func standardsBinding(p StandardsProposalVersion, a StandardsApproval) bool {
 	return p.ProposalID == a.ProposalID && p.Version == a.Version && p.BaseRevision == a.BaseRevision && p.ChangeDigest == a.ChangeDigest && p.ResultDigest == a.ResultDigest
 }
