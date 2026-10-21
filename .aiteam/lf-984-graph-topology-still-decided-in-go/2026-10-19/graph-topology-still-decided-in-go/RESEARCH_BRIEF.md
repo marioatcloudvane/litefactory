@@ -2,50 +2,20 @@
 
 ## Request
 
-Inventory where Go code, rather than the DOT graph, decides topology (nodes, edges, resume points, order) in each mode, and establish what is true today as a map for follow-up work.
+Inventory where Go decides topology and where hard states block orchestration, then settle a light-guardrails scope for follow-up work.
 
 ## Decisions
 
-_No decisions have been settled yet._
+- **d1** — Split into small issues: B1 retry and lifetime rules, B2 heal-instead-of-block checks, B3 no silent stops plus the Plan-to-Implement story case, B4 doctor repair, and A1-A4 for topology. Decided by me from the owner's direction.
+- **d2** — Owner-reply resume is a named DOT edge; without one the current origin-node behaviour remains the fallback. Decided by me (my earlier recommendation).
+- **d3** — Bug digest pin is replaced by the existing structural check; the shipped graph passes it. Decided by me (my earlier recommendation).
+- **d4** — Plan stage configurability (#957) is out of this issue. Decided by me (my earlier recommendation).
+- **d5** — Track B ships before Track A, because its faults are blocking sessions now. From the owner's principles 1-4 and 6.
+
 
 ## Assumptions
 
 - **a1** — Line numbers in the issue are approximate and may have drifted; the file and symbol references are assumed correct.
-
-
-## Open questions
-
-### q1 — How should this map be split into follow-up work?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Four issues in the issue's order: explicit hidden transitions, DOT resume edge, Bug structural validation, then per-mode vocabularies. Recommended: each step ships alone.  *(recommended)*
-- **b** — One issue per mode, covering everything for that mode.
-- **c** — Do only steps 1-3 now; leave vocabularies until a real need appears.
-
-### q4 — Should Plan stages become configurable in the DOT (#957)?
-
-_Asked of: Product Owner Questions_
-
-- **a** — Not in this issue. Decide separately after steps 1-3; Plan stage names are wired into drafts, approval and completion, so it is a design project of its own. Recommended.  *(recommended)*
-- **b** — Yes, make Plan stage names and order DOT-driven as part of step 4.
-- **c** — No, Plan stages stay fixed permanently.
-
-### q2 — How should the DOT name the owner-reply resume point?
-
-_Asked of: Technical Questions_
-
-- **a** — A named edge out of the wait node that the executor follows; with no such edge, keep today's origin-node behaviour so existing graphs still work. Recommended.  *(recommended)*
-- **b** — Require every graph to declare the resume edge and refuse graphs that do not.
-- **c** — Keep resume in Go and only document it.
-
-### q3 — What replaces the Bug digest pin?
-
-_Asked of: Technical Questions_
-
-- **a** — Drop the digest and version equality; keep the existing structural check (one loop, analyst, fixer, finalize, allowed edges). The shipped graph passes the same checks, so running Bug tasks survive a deploy. Recommended.  *(recommended)*
-- **b** — Keep the digest as an allow-list and add a way to register new digests.
-- **c** — Keep the pin; Bug graphs stay frozen.
 
 ## Research documents
 

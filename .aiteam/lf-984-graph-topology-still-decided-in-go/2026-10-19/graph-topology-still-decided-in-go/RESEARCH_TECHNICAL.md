@@ -28,6 +28,12 @@ Evidence:
 
 ## f4
 
-Remaining per-mode items were taken from the issue's survey and not individually re-verified.
+Remaining per-mode topology items were taken from the issue's survey and not individually re-verified.
+
+_No source reference was recorded for this finding._
+
+## f5
+
+The hard-state evidence (#1006-#1012, #989, unconsumed story refinements after Plan to Implement) comes from the owner's 2026-10-21 comment and was not re-verified in source.
 
 _No source reference was recorded for this finding._
