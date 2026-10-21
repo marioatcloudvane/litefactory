@@ -3,6 +3,7 @@ package messaging
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -521,8 +522,16 @@ func TestFactoryConversationCorrectionAccessRetry(t *testing.T) {
 	if worked, err := r.s.ConversationStep(t.Context(), at.Add(time.Minute)); err != nil || !worked {
 		t.Fatalf("retry: %t %v", worked, err)
 	}
-	if p.calls != 2 || !strings.Contains(p.prompts[1], "Previous output failed strict validation") {
+	capture, err := r.s.restoreConversationInstructions(t.Context(), r.c.ID, r.at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.calls != 2 {
 		t.Fatalf("correction replay: %+v", p)
+	}
+	var replayed factoryConversationPrompt
+	if err := json.Unmarshal([]byte(p.prompts[1]), &replayed); err != nil || replayed.Correction == "" || replayed.Correction != capture.Correction() {
+		t.Fatalf("correction replay: %+v %v", p, err)
 	}
 }
 

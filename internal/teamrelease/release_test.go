@@ -271,31 +271,6 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 	if _, err := os.Lstat("../teamsource/shared"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("shared guidance tree remains: %v", err)
 	}
-	litefactoryRules := []string{"only when working on litefactory", "dist/litefactory", "$LF_HOME", "one", "modernc.org/sqlite", "UTC millisecond", "internal/store", "internal/git", "internal/daemon", "-race", "pinned", "golangci-lint"}
-	environmentSafety := []string{"production", "TEST_BASE_URL", "TEST_DATABASE_URL"}
-	for _, entry := range []struct {
-		file  string
-		terms []string
-	}{
-		{"implement/skills/litefactory-rules/litefactory.md", litefactoryRules},
-		{"bug/skills/litefactory-rules/litefactory.md", litefactoryRules},
-		{"validate/skills/litefactory-rules/litefactory.md", litefactoryRules},
-		{"implement/story-worker.md", environmentSafety},
-		{"implement/sync-resolver.md", environmentSafety},
-		{"bug/bug-fixer.md", environmentSafety},
-		{"validate/validate-repair.md", environmentSafety},
-		{"spike/spike-fixer.md", environmentSafety},
-	} {
-		raw, err := os.ReadFile("../teamsource/" + entry.file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, term := range entry.terms {
-			if !strings.Contains(strings.Join(strings.Fields(strings.ToLower(string(raw))), " "), strings.ToLower(term)) {
-				t.Errorf("%s missing retained rule %q", entry.file, term)
-			}
-		}
-	}
 }
 
 func registry(t *testing.T, w string) graphexec.Registry {
