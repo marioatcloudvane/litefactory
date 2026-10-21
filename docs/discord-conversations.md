@@ -1,8 +1,8 @@
 # Persistent Discord conversations
 
 An allowed channel can opt into one named conversation. Ordinary owner messages
-then go exclusively to that conversation; slash commands and confirmation controls
-keep their existing behavior. Unbound channels keep their ordinary-message route.
+then go exclusively to that conversation. Unbound channels do not read ordinary
+messages; `/details` is the only slash command.
 The bot still needs Message Content, channel visibility and message history access.
 
 ```yaml
@@ -39,8 +39,7 @@ with a 15-minute proposal code. Only a later owner reply to the delivered propos
 or its exact code can authorize it. Cancellation, replacement, expiry and repeat
 confirmation cannot run it again. A draft only prepares a feature preview, which
 still requires separate confirmation. Missing exact owner content or unclear
-targets require clarification. Slash commands, including `/details`, retain their
-existing behavior.
+targets require clarification.
 
 Each ordinary turn allows at most three lookups and four provider invocations,
 including one response correction. All continuations use the selected native
@@ -65,7 +64,7 @@ factory waits for the launch lease and establishes that its old provider process
 has exited before recording an interruption. Uncertain input is never replayed.
 A saved session can then continue with the next owner message. Missing session
 identity or files produce a visible pause rather than a replacement conversation.
-The `/health` command reports durable conversation health reasons. A removed owner
+A health lookup reports durable conversation health reasons. A removed owner
 or channel and permanent Discord refusal preserve queued work and saved answers.
 Paused state needs explicit administrative resolution; restarting alone does not
 clear a permanent refusal or invent a lost native session.
@@ -97,7 +96,6 @@ to choose the latest answer with at least one acknowledged part in your current
 owner/channel scope; that selection is fixed when the command is admitted. An
 answer with no reads reports that no tool results were obtained. Unknown,
 unauthorized and expired references never substitute another answer's evidence.
-Legacy command details remain available as labelled legacy source text.
 
 Free explanation is shown with **Unverified** on every continuation: its wording
 has not been established by this answer's current tool evidence. This also warns

@@ -93,13 +93,15 @@ type ImplementStorySeed struct {
 // ImplementTransition is one guarded move of one story. Reason is required to
 // park and MergeCommit to merge; neither is accepted for any other move.
 type ImplementTransition struct {
-	Parent           string
-	Generation       int64
-	Key              string
-	From, To         string
-	ExpectedRevision int64
-	Reason           string
-	MergeCommit      string
+	// StandardsRootRunID carries a factory-owned immutable invocation into a story start.
+	StandardsRootRunID int64
+	Parent             string
+	Generation         int64
+	Key                string
+	From, To           string
+	ExpectedRevision   int64
+	Reason             string
+	MergeCommit        string
 	// Guidance is the owner's reply; only a move to waiting (a resume from
 	// parked, or a reopen of a merged story) takes it.
 	Guidance string
@@ -257,6 +259,11 @@ func (db *DB) TransitionImplementStory(ctx context.Context, in ImplementTransiti
 				return ErrImplementCap
 			}
 			return ErrImplementConflict
+		}
+		if in.To == ImplementRunning && in.StandardsRootRunID != 0 {
+			if err := saveStandardsStoryInvocationTx(ctx, tx, in.Parent, in.Generation, in.Key, row.StateAt, in.StandardsRootRunID); err != nil {
+				return fmt.Errorf("%w: %w", ErrStandardsHandoffPersistence, err)
+			}
 		}
 		out = row
 		return nil

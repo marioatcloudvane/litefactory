@@ -20,6 +20,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/standards"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
 )
@@ -66,12 +67,13 @@ func (r *MCPRuntime) Validate() error {
 }
 
 type preparedMCP struct {
-	runtime      *MCPRuntime
-	service      *AgentResultService
-	guard        *AttemptGuard
-	broker       *submission.Broker
-	resultBroker *submission.Broker
-	activity     *ActivityService
+	standardsGuidance string
+	runtime           *MCPRuntime
+	service           *AgentResultService
+	guard             *AttemptGuard
+	broker            *submission.Broker
+	resultBroker      *submission.Broker
+	activity          *ActivityService
 }
 
 func (p *preparedMCP) close(ctx context.Context) error {
@@ -95,7 +97,8 @@ func (p *preparedMCP) closeTransports(ctx context.Context) error {
 func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (result *agent.RunResult, err error) {
 	runtime := prep.mcpRuntime
 	if runtime == nil {
-		return prep.runner.Run(ctx, req)
+		req.Prompt += refreshStandardsGuidance(ctx, prep, "")
+		return runPreparedProvider(ctx, prep, req)
 	}
 	supported, ok := prep.runner.(interface{ SupportsMCP() bool })
 	native := ok && supported.SupportsMCP() && !runtime.DisableMCP
@@ -108,8 +111,13 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	// Legacy/unmanaged engineering has no checkpoint owner. It must retain the
 	// legacy tool behavior rather than inventing managed story identities.
 	if (req.Mode == "implement" || req.Mode == "validate" || (req.Mode == "plan" && prep.planSubmission != nil)) && session == nil {
+		standardsGuidance := refreshStandardsGuidance(ctx, prep, "")
+		req.Prompt += standardsGuidance
+		if standardsGuidance != "" {
+			req.Prompt += standardsDeliveryGuidance(nil)
+		}
 		req.Prompt += "\nCompatibility route: this unmanaged or submission-v1 scope retains its existing frozen workflow and required output. Use the supported owner story-contract upgrade/admission flow before adopting shared completion; this launch does not implicitly upgrade persisted versions.\n"
-		return prep.runner.Run(ctx, req)
+		return runPreparedProvider(ctx, prep, req)
 	}
 	p, spec, err := prepareMCP(ctx, prep, req, session)
 	if err != nil {
@@ -123,12 +131,28 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	if err != nil {
 		return nil, fmt.Errorf("prepare MCP guidance: %w", err)
 	}
+	req.Prompt += p.standardsGuidance
+	if p.standardsGuidance != "" {
+		var tools []string
+		if req.MCPLaunch != nil {
+			tools = req.MCPLaunch.PermittedTools()
+		}
+		req.Prompt += standardsDeliveryGuidance(tools)
+	}
 	req.Prompt += guidance
 	if err := p.bindFinalRoute(ctx, &req, session); err != nil {
 		return nil, err
 	}
-	result, err = prep.runner.Run(ctx, req)
+	result, err = runPreparedProvider(ctx, prep, req)
 	return p.finalize(ctx, prep, session, result, err)
+}
+
+// runPreparedProvider records the exact prompt sent to the provider, including
+// per-attempt standards guidance and the cold-fallback path.
+func runPreparedProvider(ctx context.Context, prep *preparation, req agent.Request) (*agent.RunResult, error) {
+	prep.request.Prompt = req.Prompt
+	prep.prompt = req.Prompt
+	return prep.runner.Run(ctx, req)
 }
 
 func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (*preparedMCP, *agent.MCPLaunchSpec, error) {
@@ -270,7 +294,7 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 	if err != nil {
 		return nil, nil, err
 	}
-	p := &preparedMCP{runtime: runtime, service: service}
+	p := &preparedMCP{runtime: runtime, service: service, standardsGuidance: refreshStandardsGuidance(ctx, prep, attempt)}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, p.close(context.WithoutCancel(ctx)))
@@ -334,6 +358,24 @@ func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, s
 		return nil, nil, err
 	}
 	families := FamilyDispatcherOptions{Service: service, Receipts: receipts, Feedback: feedback, Evidence: evidence, WithoutEvidence: withoutEvidence}
+	root, consumer := prep.standardsRoot, prep.standardsConsumer
+	if root == "" {
+		root = fmt.Sprint(prep.run.ID)
+	}
+	if consumer == "" {
+		consumer = standardsSessionConsumerKey(prep.session.ID, req.Mode, "")
+		if req.Graph != nil {
+			consumer = standardsSessionConsumerKey(prep.session.ID, req.Mode, req.Graph.Node)
+		}
+	}
+	standardsService, standardsErr := NewStandardsToolService(&standards.Runtime{Store: o.DB, RootRunID: root, ConsumerKey: consumer, AttemptID: attempt}, service.Binding())
+	if standardsErr != nil {
+		return nil, nil, standardsErr
+	}
+	if !runtime.DisableMCP {
+		families.Registrations = append(families.Registrations, standardsService.Registrations()...)
+	}
+
 	now := runtime.Now()
 	activity, err := NewActivityService(ActivityOptions{Receipts: receipts, Now: now, Status: runtime.ImplementStatus})
 	if err != nil {

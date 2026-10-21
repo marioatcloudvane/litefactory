@@ -2,22 +2,16 @@ package messaging
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
-	"github.com/cloudvane/litefactory/internal/messaging/presentation"
-	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -31,61 +25,6 @@ type naturalPayload struct {
 	ProjectPending                             bool `json:"project_pending,omitempty"`
 }
 
-// EnableNatural installs suggestion-only interpretation before the worker starts.
-func (s *Service) EnableNatural(i Interpreter) { s.interpreter = i }
-
-// NaturalStep processes one ordered owner message. Delivery and execution stay
-// in Step, so a slow model cannot hold up intake's independent polling loop.
-func (s *Service) NaturalStep(ctx context.Context, at time.Time) (bool, error) {
-	s.stepMu.Lock()
-	defer s.stepMu.Unlock()
-	if s.interpreter == nil {
-		return false, nil
-	}
-	if err := s.db.PurgeNaturalChat(ctx, at); err != nil {
-		return false, err
-	}
-	channels := make([]string, 0, len(s.channels))
-	for c := range s.channels {
-		channels = append(channels, c)
-	}
-	sort.Strings(channels)
-	for _, c := range channels {
-		if s.conversationBound(c) {
-			continue
-		}
-		messages, err := s.db.PendingNaturalMessages(ctx, c, 1)
-		if err != nil {
-			return false, err
-		}
-		if len(messages) == 0 {
-			continue
-		}
-		m := messages[0]
-		if m.OwnerID != s.owner || !s.channels[m.ChannelRef] || (m.Transport != "" && m.Transport != s.transport) || !at.Before(m.CreatedAt.Add(24*time.Hour)) {
-			return true, s.db.FinishNaturalMessage(ctx, c, m.SourceID, at)
-		}
-		stop := s.typing(ctx, m.ChannelRef)
-		defer stop()
-		if err = s.naturalTurn(ctx, m, at); err != nil {
-			return true, err
-		}
-		return true, s.db.FinishNaturalMessage(ctx, c, m.SourceID, at)
-	}
-	return false, nil
-}
-
-func (s *Service) naturalReply(ctx context.Context, m store.NaturalMessage, text string, status presentation.Status, at time.Time) error {
-	if s.Protect != nil {
-		var err error
-		text, err = s.Protect(ctx, text)
-		if err != nil {
-			return err
-		}
-	}
-	_, err := s.db.AdmitChatReply(ctx, store.ChatReply{Transport: s.transport, MessageID: "nl:" + m.SourceID, ChannelRef: m.ChannelRef, Command: "natural", ReplyText: text, CreatedAt: at, PresentationState: "pending", OutcomeStatus: string(status)})
-	return err
-}
 func naturalDigest(p naturalPayload) (string, string, error) {
 	raw, err := json.Marshal(p)
 	if err != nil {
@@ -125,272 +64,12 @@ func naturalConfirmationCode(text string) string {
 	return text
 }
 
-// capPreviousReply bounds the bot's last reply to a few KB of valid UTF-8.
-func capPreviousReply(text string) string {
-	const limit = 4096
-	if len(text) <= limit {
-		return text
-	}
-	text = text[:limit]
-	for !utf8.ValidString(text) {
-		text = text[:len(text)-1]
-	}
-	return text
-}
 func naturalCancel(text string) bool {
 	switch strings.ToLower(strings.TrimSpace(text)) {
 	case "cancel", "no", "never mind", "nevermind":
 		return true
 	}
 	return false
-}
-func (s *Service) naturalTurn(ctx context.Context, m store.NaturalMessage, at time.Time) error {
-	d, err := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, m.ChannelRef)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return err
-	}
-	if errors.Is(err, store.ErrNotFound) {
-		d = store.NaturalDialogue{Transport: s.transport, OwnerID: s.owner, ChannelRef: m.ChannelRef}
-	}
-	var p naturalPayload
-	if d.Payload != "" {
-		if err = json.Unmarshal([]byte(d.Payload), &p); err != nil {
-			return err
-		}
-	}
-	// Restart after a saved revision reuses its exact prompt and never calls the model again.
-	if d.SourceID == m.SourceID {
-		if p.Prompt != "" {
-			return s.naturalReply(ctx, m, p.Prompt, presentation.Success, at)
-		}
-		return s.naturalReply(ctx, m, "This request was interrupted before a proposal was saved. Nothing was authorized; please send it again or use /help.", presentation.Uncertain, at)
-	}
-	if d.State == "authorized" || d.State == "executing" {
-		return s.naturalReply(ctx, m, "The confirmed action is already in progress. Check its outcome before sending another request.", presentation.Uncertain, at)
-	}
-	if naturalCancel(m.Text) {
-		if d.State == "clarifying" || d.State == "awaiting_confirmation" {
-			if err = s.db.EndNaturalDialogue(ctx, d, "cancelled", at); err != nil {
-				return err
-			}
-		}
-		return s.naturalReply(ctx, m, "Cancelled the pending request.", presentation.Success, at)
-	}
-	if d.State == "awaiting_confirmation" && naturalConfirmation(m.Text, d, m.ReplyTo) {
-		if d.PromptID == "" || !at.Before(d.ExpiresAt) || !naturalLater(m.SourceID, d.SourceID) {
-			return s.naturalReply(ctx, m, "This proposal is not available for confirmation. Please request a fresh proposal.", presentation.Refusal, at)
-		}
-		_, digest, e := naturalDigest(p)
-		if e != nil {
-			return e
-		}
-		if digest != d.Digest {
-			return s.naturalReply(ctx, m, "The proposal changed; please request it again.", presentation.Refusal, at)
-		}
-		if refusal, e := s.recheckNatural(ctx, p, at); e != nil {
-			return e
-		} else if refusal != "" {
-			if e = s.db.EndNaturalDialogue(ctx, d, "cancelled", at); e != nil {
-				return e
-			}
-			return s.naturalReply(ctx, m, refusal, presentation.Refusal, at)
-		}
-		invocation, effect, e := s.ValidateInvocation(p.Invocation)
-		if e != nil || effect != ChangeEffect {
-			return s.naturalReply(ctx, m, "This action is no longer available; try /help.", presentation.Refusal, at)
-		}
-		r := store.ChatReply{Transport: s.transport, ChannelRef: m.ChannelRef, MessageID: "nl-exec:" + d.Code, Command: invocation.Command, Arguments: invocation.Arguments, CreatedAt: at, PresentationState: "pending", ResolvedRepoID: p.RepoID}
-		return s.db.AuthorizeNaturalDialogue(ctx, d, m.SourceID, r, at)
-	}
-	if naturalConfirmationCode(m.Text) != "" {
-		return s.naturalReply(ctx, m, "This confirmation code is unknown or expired; request a fresh proposal.", presentation.Refusal, at)
-	}
-	// Bare and stale confirmations cannot become a new interpreted action.
-	// A plain yes is refused only while a change proposal awaits confirmation;
-	// otherwise it answers the bot's previous question or offer.
-	lower := strings.ToLower(strings.TrimSpace(m.Text))
-	if (lower == "yes" && d.State == "awaiting_confirmation") || lower == "confirm" || strings.HasPrefix(lower, "confirm ") {
-		return s.naturalReply(ctx, m, "Reply directly to the current delivered proposal with yes, or use its exact confirmation code. Nothing was authorized.", presentation.Refusal, at)
-	}
-	// Only a live, delivered project clarification may resume saved arguments.
-	var resumed Invocation
-	if d.State == "clarifying" && p.ProjectPending && at.Before(d.ExpiresAt) && naturalLater(m.SourceID, d.SourceID) && !quotedSpan(m.Text, 0, len(m.Text)) {
-		option := strings.TrimRight(strings.TrimSpace(m.Text), "!?.,;: ")
-		resolution, e := ask.ResolveProject(ctx, s.db, option, nil)
-		if e != nil {
-			return e
-		}
-		reply, deliveryErr := s.db.ReadChatReply(ctx, s.transport, "nl:"+d.SourceID)
-		_, digest, digestErr := naturalDigest(p)
-		if deliveryErr != nil && !errors.Is(deliveryErr, store.ErrNotFound) {
-			return deliveryErr
-		}
-		if option != "" && resolution.Refusal == "" && deliveryErr == nil && reply.State == "confirmed" && digestErr == nil && digest == d.Digest {
-			resumed = p.Invocation
-			resumed.Arguments["project"] = resolution.Repository.Slug()
-		}
-	}
-	if (d.State == "clarifying" || d.State == "awaiting_confirmation") && !at.Before(d.ExpiresAt) {
-		p = naturalPayload{}
-		d.State = "expired"
-	}
-	previous := ""
-	if d.State == "clarifying" {
-		previous = p.Prompt
-	} else if d.State == "awaiting_confirmation" && d.PromptID != "" && at.Before(d.ExpiresAt) {
-		// Put identity before potentially long protected arguments so the cap
-		// cannot drop the code. This context grants no execution authority.
-		previous = fmt.Sprintf("Delivered proposal (context only):\nConfirmation code: %s\nProposed action: %s\nProject: %s\n%s", d.Code, p.Invocation.Command, p.Project, p.Prompt)
-	} else if replies, e := s.db.ReadAskReplies(ctx, s.transport, m.ChannelRef, 1); e == nil && len(replies) == 1 && !replies[0].FinishedAt.IsZero() && !at.After(replies[0].FinishedAt.Add(15*time.Minute)) {
-		previous = replies[0].ReplyText
-	}
-	previous = capPreviousReply(previous)
-	if d.State != "clarifying" && d.State != "awaiting_confirmation" {
-		p = naturalPayload{}
-	}
-	p.Turns = append(p.Turns, DialogueTurn{SourceID: m.SourceID, Text: m.Text})
-	if len(p.Turns) > 8 {
-		p.Turns = p.Turns[len(p.Turns)-8:]
-	}
-	// Invalidating a proposal happens before a correction reaches any provider.
-	p.Invocation = Invocation{}
-	p.ProjectPending = false
-	p.Prompt = ""
-	p.PreviewID = ""
-	p.PreviewHash = ""
-	p.Question = ""
-	p.Revision = ""
-	p.RepoID = 0
-	payload, _, err := naturalDigest(p)
-	if err != nil {
-		return err
-	}
-	if len(payload) > 32768 {
-		if d.State == "clarifying" || d.State == "awaiting_confirmation" {
-			if err = s.db.EndNaturalDialogue(ctx, d, "cancelled", at); err != nil {
-				return err
-			}
-		}
-		return s.naturalReply(ctx, m, "This dialogue is too large to retain safely. Please send one shorter request or use /help.", presentation.Refusal, at)
-	}
-	old := d.Revision
-	d.Revision++
-	d.State = "clarifying"
-	d.SourceID = m.SourceID
-	d.Payload = payload
-	d.Digest = ""
-	d.Code = ""
-	d.PromptID = ""
-	d.UpdatedAt = at
-	d.ExpiresAt = at.Add(15 * time.Minute)
-	if err = s.db.SaveNaturalDialogue(ctx, d, old); err != nil {
-		return err
-	}
-	request := InterpretationRequest{Turns: p.Turns, Commands: s.NaturalCommands(), PreviousReply: previous}
-	work, cancel := context.WithTimeout(ctx, response.Budget)
-	defer cancel()
-	started := time.Now()
-	var interpretation Interpretation
-	var invocation Invocation
-	var modelErr, decodeErr error
-	if resumed.Command != "" {
-		invocation, _, decodeErr = s.ValidateInvocation(resumed)
-		interpretation = Interpretation{Version: 1, Kind: "propose", Command: resumed.Command}
-	} else {
-		var raw []byte
-		raw, modelErr = s.interpreter.Interpret(work, request)
-		interpretation, invocation, decodeErr = DecodeInterpretation(raw, request)
-	}
-	if modelErr != nil || decodeErr != nil || work.Err() != nil {
-		reason := "decode"
-		if work.Err() != nil {
-			reason = "timeout"
-		} else if modelErr != nil {
-			reason = "model_error"
-		}
-		if s.Logger != nil {
-			s.Logger.WarnContext(ctx, "natural interpretation fallback", slog.String("reason", reason), slog.Duration("elapsed", time.Since(started)), slog.String("source_id", m.SourceID))
-		}
-		if err = s.db.EndNaturalDialogue(ctx, d, "finished", at); err != nil {
-			return err
-		}
-		if reason == "timeout" {
-			return s.naturalReply(ctx, m, "The factory is busy, please try again in a minute. Nothing was applied.", presentation.Refusal, at)
-		}
-		return s.naturalReply(ctx, m, "I could not safely understand this request. Nothing was applied; please use /help or send one clear action and target.", presentation.Refusal, at)
-	}
-	if interpretation.Kind == "ignore" || interpretation.Kind == "unsupported" {
-		if err = s.db.EndNaturalDialogue(ctx, d, "finished", at); err != nil {
-			return err
-		}
-		if interpretation.Kind == "ignore" {
-			return nil
-		}
-		return s.naturalReply(ctx, m, "That action is not enabled here. Try /help.", presentation.Refusal, at)
-	}
-	if interpretation.Kind == "clarify" {
-		p.Prompt = interpretation.Question
-	} else {
-		p.Invocation = invocation
-		p.Channel = m.ChannelRef
-		question, e := s.resolveNatural(ctx, &p, at)
-		if e != nil {
-			return e
-		}
-		if question != "" {
-			p.Prompt = question
-		} else {
-			_, effect, e := s.ValidateInvocation(p.Invocation)
-			if e != nil {
-				return e
-			}
-			if effect == ReadEffect {
-				if e = s.db.EndNaturalDialogue(ctx, d, "finished", at); e != nil {
-					return e
-				}
-				_, _, e = s.Admit(ctx, Message{Transport: s.transport, ID: "nl-read:" + m.SourceID, Channel: m.ChannelRef, Sender: s.owner, Command: p.Invocation.Command, Arguments: p.Invocation.Arguments}, at)
-				return e
-			}
-			var code [8]byte
-			if _, e = rand.Read(code[:]); e != nil {
-				return e
-			}
-			d.Code = hex.EncodeToString(code[:])
-			d.State = "awaiting_confirmation"
-			p.Prompt = s.naturalProposal(p, d.Code)
-			if replySize(p.Prompt) > s.ReplyLimit()-32 {
-				if e = s.db.EndNaturalDialogue(ctx, d, "finished", at); e != nil {
-					return e
-				}
-				return s.naturalReply(ctx, m, "The exact proposal is too large to show safely here. Please shorten the request or use the slash command.", presentation.Refusal, at)
-			}
-		}
-	}
-	if s.Protect != nil {
-		protected, protectErr := s.Protect(ctx, p.Prompt)
-		err = protectErr
-		if err != nil {
-			return err
-		}
-		if d.State == "awaiting_confirmation" && protected != p.Prompt {
-			// Whole-prompt protection may not silently change displayed payload.
-			if err = s.db.EndNaturalDialogue(ctx, d, "cancelled", at); err != nil {
-				return err
-			}
-			return s.naturalReply(ctx, m, "I could not preserve the exact protected proposal. Nothing was authorized; please shorten the request.", presentation.Refusal, at)
-		}
-		p.Prompt = protected
-	}
-	old = d.Revision
-	d.Revision++
-	d.Payload, d.Digest, err = naturalDigest(p)
-	if err != nil {
-		return err
-	}
-	if err = s.db.SaveNaturalDialogue(ctx, d, old); err != nil {
-		return err
-	}
-	return s.naturalReply(ctx, m, p.Prompt, presentation.Success, at)
 }
 
 func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time.Time) (string, error) {

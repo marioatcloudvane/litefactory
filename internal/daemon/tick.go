@@ -2802,11 +2802,21 @@ func (d *Daemon) run(
 	if t.worker != nil {
 		t.worker.executionRequests++
 	}
+	// Only private story-work identities carry the coordinator book. An owner
+	// schedule with matching prose remains a new owner invocation.
+	standardsHandoff := t.scheduled != nil && t.scheduled.Payload == implementWorkPayload &&
+		t.scheduled.SourceCommentID >= 1<<56 && t.scheduled.SourceCommentID < 1<<57
+	var standardsRootRunID int64
+	if standardsHandoff {
+		standardsRootRunID, _ = d.db.GetStandardsScheduledInvocation(ctx, t.session.ID, t.scheduled.TriggerID())
+	}
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
-		Continuation: t.continuation,
-		Mode:         mode,
-		Workflow:     workflow,
-		SessionID:    t.session.ID,
+		StandardsHandoff:   standardsHandoff,
+		StandardsRootRunID: standardsRootRunID,
+		Continuation:       t.continuation,
+		Mode:               mode,
+		Workflow:           workflow,
+		SessionID:          t.session.ID,
 		Issue: turn.Issue{
 			Number: t.issue.Number,
 			Title:  t.issue.Title,
