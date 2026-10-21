@@ -162,7 +162,9 @@ Continuation uses configured response-only providers with verified isolation,
 no native or MCP tools, and separate usage attribution. Unsupported providers
 remain unavailable. Each continuation has at most two calls and a 120-second
 deadline, with 256 KiB prompts and 32 KiB responses. The retained book capture
-limit is 16 MiB. Oversized context stays explicit; use `--categories ID,ID` at
+limit is 16 MiB. Each serialized saved session version is capped at 64 MiB to
+retain that base together with the original edit target, draft, questions, answers
+and context. Oversized context stays explicit; use `--categories ID,ID` at
 start or edit `context_category_ids` to narrow it. There is no silent truncation
 or automatic repair loop.
 

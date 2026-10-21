@@ -73,7 +73,12 @@ func (db *DB) GetStandardsAuthoring(ctx context.Context, id string, version int6
 }
 
 func saveAuthoring(ctx context.Context, tx *sql.Tx, s *StandardsAuthoringSession, expected int64) error {
-	if s.ID == "" || s.TargetID == "" || (s.Status != "draft" && s.Status != "needs-context") || (s.Mode != "create" && s.Mode != "edit") || expected < 0 || !json.Valid(s.Data) || len(s.Data) > 20<<20 {
+	// The retained base, original target and draft can each approach the 16 MiB
+	// snapshot ceiling; allow their saved copies plus authoring metadata.
+	if len(s.Data) > 64<<20 {
+		return errors.New("standards: saved authoring state exceeds 64 MiB; shorten draft or authoring input")
+	}
+	if s.ID == "" || s.TargetID == "" || (s.Status != "draft" && s.Status != "needs-context") || (s.Mode != "create" && s.Mode != "edit") || expected < 0 || !json.Valid(s.Data) {
 		return errors.New("standards: invalid authoring state")
 	}
 	stamp := nowUTC().Truncate(time.Millisecond)
@@ -197,13 +202,16 @@ func writeAuthoringAttempt(ctx context.Context, tx *sql.Tx, a StandardsAuthoring
 
 // BeginStandardsAuthoringAttempt acquires ownership without holding a transaction during model work.
 func (db *DB) BeginStandardsAuthoringAttempt(ctx context.Context, a StandardsAuthoringAttempt) (StandardsAuthoringAttempt, error) {
-	now := nowUTC()
-	if a.ID == "" || a.Token == "" || a.InputVersion < 1 || !a.LeaseUntil.After(now) || a.LeaseUntil.After(now.Add(3*time.Minute)) {
+	if a.ID == "" || a.Token == "" || a.InputVersion < 1 {
 		return a, errors.New("standards: invalid authoring attempt lease")
 	}
-	a.CreatedAt = now
 	a.Outcome = "running"
 	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+		now := nowUTC()
+		if !a.LeaseUntil.After(now) || a.LeaseUntil.After(now.Add(3*time.Minute)) {
+			return errors.New("standards: invalid authoring attempt lease")
+		}
+		a.CreatedAt = now
 		s, e := readAuthoring(ctx, tx, a.SessionID, 0)
 		if e != nil {
 			return e

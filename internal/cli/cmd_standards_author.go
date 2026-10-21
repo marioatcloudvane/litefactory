@@ -28,7 +28,9 @@ All commands accept --json. Start also accepts --file FILE|- for intent text.
 Inspect the saved version before completion. Completion creates an unapproved proposal;
 review, approval and publication remain separate commands.
 Continuation uses at most two isolated calls, a 120-second deadline, 256 KiB prompts
-and 32 KiB responses. Use --categories at start or edit context_category_ids to narrow oversized context.
+and 32 KiB responses. Retained book capture is limited to 16 MiB; each serialized
+saved session version is limited to 64 MiB, including its base, original target and draft.
+Use --categories at start or edit context_category_ids to narrow oversized context.
 After interruption, show the session and explicitly retry continuation when its lease expires.
 Retries may charge again and return different text. Stale bases need deliberate rebase.
 SQLite NORMAL protects ordinary process interruption; power loss can lose recent writes.
@@ -249,6 +251,11 @@ func writeAuthorText(out io.Writer, result any) error {
 		}
 		for _, d := range v.Diagnostics {
 			if _, err := fmt.Fprintf(out, "Problem %s: %s\n", d.Field, d.Message); err != nil {
+				return err
+			}
+		}
+		for _, attempt := range v.Attempts {
+			if _, err := fmt.Fprintf(out, "Attempt %s (%s), input version %d, result version %d\n  Provider: %s; model: %s; usage: %s\n  Lease until: %s\n  Diagnostic: %s\n", attempt.ID, attempt.Outcome, attempt.InputVersion, attempt.ResultVersion, attempt.Provider, attempt.Model, attempt.UsageReference, logsTime(attempt.LeaseUntil), attempt.Diagnostic); err != nil {
 				return err
 			}
 		}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -400,6 +399,9 @@ func authorOps(v AuthoringSession) []Operation {
 }
 func authorValidate(v AuthoringSession) (Snapshot, []Problem) {
 	problems := []Problem{}
+	if e := authorCategories(v.Base, v.CategoryFilter); e != nil {
+		problems = append(problems, Problem{"category_filter", e.Error() + "; revise context_category_ids"})
+	}
 	for _, q := range v.Questions {
 		if q.State == "pending" {
 			problems = append(problems, Problem{"questions." + q.ID, "answer this blocking question"})
@@ -492,9 +494,6 @@ func (s *Authoring) Rebase(ctx context.Context, id string, expected int64, chose
 	v.BaseDigest = d
 	v.Context = AuthoringContext{}
 	_, v.Diagnostics = authorValidate(v)
-	if e = authorCategories(base, v.CategoryFilter); e != nil {
-		v.Diagnostics = append(v.Diagnostics, Problem{"category_filter", e.Error() + "; revise context_category_ids"})
-	}
 	for _, c := range changes {
 		if c.Entity == "standard" && c.ID == v.TargetID || c.Entity == "category" && slices.Contains(v.Draft.CategoryIDs, c.ID) {
 			v.Questions = append(v.Questions, AuthoringQuestion{ID: authorID("q-"), Text: "Confirm the retained draft remains appropriate after rebase change to " + c.Entity + " " + c.ID, State: "pending", CreatedVersion: v.Version + 1})
@@ -627,6 +626,7 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 			role += "\nCaptured response schema:\n" + string(f.Content)
 		}
 	}
+	inputRecord := authorRecord(v)
 	attempt := store.StandardsAuthoringAttempt{ID: authorID("attempt-"), SessionID: id, InputVersion: expected, Token: authorID("fence-"), LeaseUntil: time.Now().UTC().Add(125 * time.Second), InputDigest: digest(v), RoleVersion: v.RoleVersion}
 	attempt, err = s.Store.BeginStandardsAuthoringAttempt(ctx, attempt)
 	if err != nil {
@@ -636,11 +636,17 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 		if err != nil {
 			var saved *store.StandardsAuthoringSession
 			if strings.Contains(err.Error(), "needs-context:") {
-				v.Status = "needs-context"
-				v.Diagnostics = []Problem{{"context", err.Error()}}
-				v.Version = expected + 1
-				r := authorRecord(v)
-				saved = &r
+				recovery, e := authorDecode(inputRecord)
+				if e != nil {
+					err = errors.Join(err, e)
+				} else {
+					recovery.Status = "needs-context"
+					recovery.Diagnostics = []Problem{{"context", err.Error()}}
+					recovery.Version = expected + 1
+					v = recovery
+					r := authorRecord(recovery)
+					saved = &r
+				}
 			}
 			attempt.Outcome = "failed"
 			attempt.Diagnostic = boundedReason(err.Error())
@@ -774,6 +780,12 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 		}
 		if slices.ContainsFunc(v.Questions, func(x AuthoringQuestion) bool { return x.Text == q.Text && reflect.DeepEqual(x.Options, q.Options) }) {
 			continue
+		}
+		if slices.ContainsFunc(v.Questions, func(x AuthoringQuestion) bool {
+			return x.State == "answered" && x.Text == q.Text && q.FollowUpTo != x.ID
+		}) {
+			err = fmt.Errorf("invalid model response: an answered question requires an explicitly linked follow-up")
+			return
 		}
 		v.Questions = append(v.Questions, AuthoringQuestion{ID: authorID("q-"), Text: q.Text, Options: q.Options, FollowUpTo: q.FollowUpTo, State: "pending", CreatedVersion: expected + 1})
 	}

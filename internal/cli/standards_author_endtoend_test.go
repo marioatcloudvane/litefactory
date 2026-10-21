@@ -118,6 +118,11 @@ func TestStandardsAuthorEndToEndNoninteractiveProposal(t *testing.T) {
 		if !reflect.DeepEqual(proposal, retry) || proposal.ProposalID == "" || proposal.ChangeDigest == "" || proposal.BaseRevision != published.ID || len(proposal.Operations) != 1 || proposal.Operations[0].Standard == nil || !reflect.DeepEqual(*proposal.Operations[0].Standard, inspected.Draft) {
 			t.Fatalf("proposal differs from exact inspected draft: %+v draft=%+v", proposal, inspected.Draft)
 		}
+		var completed standards.AuthoringSession
+		decode(run("", "standards", "author", "show", id, "--json"), &completed)
+		if completed.Status != "completed" || completed.Version != inspected.Version || completed.Proposal == nil || !reflect.DeepEqual(*completed.Proposal, proposal) || !reflect.DeepEqual(completed.Draft, inspected.Draft) {
+			t.Fatalf("saved completion lost exact proposal handoff: %+v", completed)
+		}
 		kind := "standard.add"
 		if mode == "edit" {
 			kind = "standard.replace"
