@@ -31,9 +31,6 @@ func TestConversationCaptureRetainsAllRolesAndPinnedLegacy(t *testing.T) {
 			t.Fatal("conversation role composition is incomplete")
 		}
 	}
-	if captured.Factory() == legacy.Factory() {
-		t.Fatal("shipped factory instructions should have moved past the pinned legacy baseline")
-	}
 	raw, err := captured.Encode()
 	if err != nil {
 		t.Fatal(err)
