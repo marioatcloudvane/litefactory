@@ -1,0 +1,180 @@
+{
+  "implementation_digest": "af771ae9b08c9d94adb67a67217933410f1c507be6fe43cd77ad84ecec853525",
+  "files": [
+    {
+      "path": "docs/probes/log-analyst-controls.md",
+      "sha256": "5b821aa8900b09e9757b699e34e20769ea9d787571d90b1d2842cf26f48365ec",
+      "deleted": false
+    },
+    {
+      "path": "internal/agent/log_analyst.go",
+      "sha256": "5b493869b55b0282ba94845a47d45efce9dd57e3efe055bb8421471a76f7a93d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agent/log_analyst_test.go",
+      "sha256": "828c305e6ead2a439265f6f6596c633eb1daf710caa9d6565a297ad3f260d271",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/cmd_log_analysis.go",
+      "sha256": "e1b65413d56f3d77338576600cbb8b7ee9adda89f75aa3ad348f6787b6dc4332",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/cmd_standards.go",
+      "sha256": "1204c56c512142bc35e3f4d65aaecc9a8243b9a89aa8d6a5e635f50d28d5895a",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/command.go",
+      "sha256": "df697b1c699b60687bc3dbc514d45bbd0f6fed8ef4b310ccf4637478d269a606",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/commands.go",
+      "sha256": "a36faf00a75a1e341a1587c9b6db819851c784af83c32f58ab999c6d81d2329c",
+      "deleted": false
+    },
+    {
+      "path": "internal/cli/log_analysis_endtoend_test.go",
+      "sha256": "048c35eba9f23646d3142dd76e78306151e39e8e34b16330651f8d328fcc70a0",
+      "deleted": false
+    },
+    {
+      "path": "internal/codex/log_analyst.go",
+      "sha256": "0d4acd585b7e8506d6f7f402fd0c98a4bb0c562fa6eaf27b66975b8d5d2cd0e2",
+      "deleted": false
+    },
+    {
+      "path": "internal/harness/log_analyst.go",
+      "sha256": "0e1bf360478a6f6aa7a4687ebfc09be62ce765d577d85293ef5aa2407a8ff1ff",
+      "deleted": false
+    },
+    {
+      "path": "internal/harness/log_analyst_test.go",
+      "sha256": "66aa309a3712cc3a626ad2eee37e06710eeff7e23aa3a14ccb50444f5bd47d21",
+      "deleted": false
+    },
+    {
+      "path": "internal/instructionpackage/baseline_test.go",
+      "sha256": "90b427777d112e15a74d62a52751c9766c8a58529025e553b56b825102658b0f",
+      "deleted": false
+    },
+    {
+      "path": "internal/instructionpackage/embedded/agents/log-analyst.md",
+      "sha256": "d0fb11df09dd393eb45e43e29b4c23cde3f799ab96db450b3223fcd080bfacaf",
+      "deleted": false
+    },
+    {
+      "path": "internal/instructionpackage/embedded/catalogue.yaml",
+      "sha256": "ec7682041f44c8ad2c47512d8fd3b53d856cd5633f03f982c1fbf65bd2e22bb7",
+      "deleted": false
+    },
+    {
+      "path": "internal/instructionpackage/embedded/skills/agent-setup-guidance/SKILL.md",
+      "sha256": "2198da9509571725ec68e4e67cac4609100f1f6ccc1d3266e15b5976edff47a2",
+      "deleted": false
+    },
+    {
+      "path": "internal/instructionpackage/embedded/skills/go-guidance/SKILL.md",
+      "sha256": "a841acc7177cf2c7d02ab658b15959b9f6b18d2b2cdd45e951b7a623bd7f9eb2",
+      "deleted": false
+    },
+    {
+      "path": "internal/instructionpackage/log_analyst.go",
+      "sha256": "c80efb0e8624bb259d969cb718c223a82e753b7ea388bc3dd08be78db7decd65",
+      "deleted": false
+    },
+    {
+      "path": "internal/instructionpackage/log_analyst_test.go",
+      "sha256": "5f0720d433e376ea85245a82060533b596447b9e70b1aac8e6336dc493cb4e48",
+      "deleted": false
+    },
+    {
+      "path": "internal/instructionpackage/skills.go",
+      "sha256": "36b0ee3a81b925b679aca483d1a9542219f8e8eb8f73c5a99f60f43097cd7544",
+      "deleted": false
+    },
+    {
+      "path": "internal/loganalysis/result.go",
+      "sha256": "b7a015481351b7085e39cbf8a012e969842ab90fb7008d3c578cbba477d68762",
+      "deleted": false
+    },
+    {
+      "path": "internal/loganalysis/service.go",
+      "sha256": "c367eebbf34e122cb35f49e4ea76b609479edbd63f5f2f8ca4c2aab38c4489c2",
+      "deleted": false
+    },
+    {
+      "path": "internal/loganalysis/service_test.go",
+      "sha256": "6d65e4a19e5ee772ae67d9d67606af22411e6a1b7163d8c4786e6a2f14702b41",
+      "deleted": false
+    },
+    {
+      "path": "internal/loganalysis/types.go",
+      "sha256": "98b885acbd9f8a630e297256d03ea5d47063c5071b9b7e1f56ee74da1fe2e65d",
+      "deleted": false
+    },
+    {
+      "path": "internal/logevidence/analysis_scope_test.go",
+      "sha256": "bb0e3fe814941f7cf0a43d1f5fdbedc3a86b6abe48a333ed27d9341efd0cb667",
+      "deleted": false
+    },
+    {
+      "path": "internal/logevidence/compose.go",
+      "sha256": "70a05a0de52514afee45e6ae648f4eb8243d9d176a9dbc0233be7cb1953f75e8",
+      "deleted": false
+    },
+    {
+      "path": "internal/logevidence/read.go",
+      "sha256": "bd6b859ddd8a46d7687e4094c3b094bdb957ed3141a92e8bf504feb567c376db",
+      "deleted": false
+    },
+    {
+      "path": "internal/logevidence/types.go",
+      "sha256": "8b7dc7bf3fbeb78673bcf73bdc463acd90ac82d87c9394b26c9c5a5b03b28cb3",
+      "deleted": false
+    },
+    {
+      "path": "internal/providerprocess/doctor.go",
+      "sha256": "19c33a71a2e0d379241d65e82a8ccc419af580b3605c393e342b811321dde355",
+      "deleted": false
+    },
+    {
+      "path": "internal/providerprocess/log_analyst.go",
+      "sha256": "9e864c9dc79e9a15fdae87f540f95e48dd2578241182659f9e5e91508dff13c5",
+      "deleted": false
+    },
+    {
+      "path": "internal/standards/service.go",
+      "sha256": "50040bfbc8c43bbeee1b6c9e2472e2d1f9b657bc91d1f52feb761080776ad1ce",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/archive_registry.go",
+      "sha256": "fd193daeff29dc6d33f79d402f1caf31ecebc676cafc4092957256009638aa2a",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/log_analysis.go",
+      "sha256": "01a9e5ce6246ffef285cbc10a2f9f887a52c389a4f802bd8e2368c6433296eeb",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/log_analysis_test.go",
+      "sha256": "af30c89230912d5222ce116bcd7f55d12bf1db45d02ea82f7233171af4f11c2b",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/migrations/20261021064122729_log_analysis.sql",
+      "sha256": "06a531f5d0f140eca48d21aff55193798f1e3b498b9abb5016a6a1bc0698b81f",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/standards.go",
+      "sha256": "291c384e1650ebf18b70ec34cb94fb1cc784c98af97f750baf15156591619d2f",
+      "deleted": false
+    }
+  ]
+}

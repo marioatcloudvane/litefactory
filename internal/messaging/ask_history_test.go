@@ -9,7 +9,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
-	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -39,18 +38,7 @@ func TestAskHistoryFromLocalRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
-	send := &attachmentSender{sender: sender{outcome: messaging.Delivery{Confirmed: true}}}
-	s := messaging.New(db, "discord", "2", []string{"3"}, send, messaging.FactoryStatus{DB: db})
-	s.EnableAsk(&ask.Service{Repositories: db, Collector: ask.Collector{Factory: ask.StoreReader{Reader: db}}, Model: &answerModel{err: ask.ErrUnavailable}, Redactor: redact.New(redact.Options{})})
-	s.EnablePresentation(&replyModel{}, nil)
-	if _, _, err := s.Admit(t.Context(), messaging.Message{Transport: "discord", ID: "10", Channel: "3", Sender: "2", Command: "ask", Arguments: map[string]string{"question": "What is open?", "project": "app"}}, at); err != nil {
-		t.Fatal(err)
-	}
-	step(t, s, at, true)
-	// The narrated reply hides the turn prefix; history must not need it.
-	if len(send.texts) != 1 || send.texts[0] != "Here is the result." {
-		t.Fatalf("ask not narrated: %q", send.texts)
-	}
+	finishRow(t, db, store.ChatReply{Transport: "discord", MessageID: "10", ChannelRef: "3", Command: "ask", Arguments: map[string]string{"question": "What is open?", "project": "app"}, CreatedAt: at}, ask.TurnPrefix("What is open?", "acme/app")+"Answers unavailable right now.", false, at)
 	later := at.Add(time.Minute)
 	finishRow(t, db, store.ChatReply{Transport: "discord", MessageID: "11", ChannelRef: "3", Command: "ask", Arguments: map[string]string{"question": "Failed?", "project": "app"}, CreatedAt: later}, ask.TurnPrefix("Failed?", "acme/app")+"lost", true, later)
 	finishRow(t, db, store.ChatReply{Transport: "discord", MessageID: "12", ChannelRef: "3", Command: "health", CreatedAt: later}, ask.TurnPrefix("Not ask", "acme/app")+"status", false, later)

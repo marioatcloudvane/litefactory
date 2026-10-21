@@ -50,6 +50,9 @@ func mcpGuidance(ctx context.Context, spec *agent.MCPLaunchSpec, service *AgentR
 	if checkpoint {
 		b.WriteString("\nCheckpoints: feedback_preflight({\"kind\":\"checkpoint\",\"input\":C}) → evidence_submit(C) → receipts_get({\"request_id\":ID}). C uses the supplied stage contribution contract, separately from application result P. Engineering completion requires actual captured checks; assessment references retained evidence. Keep complete terminal findings; partial live checkpoints never excuse omissions.\n")
 	}
+	if has("standards_categories_list", "standards_select", "standards_read") {
+		b.WriteString("\nStandards: standards_categories_list({}) discovers retained categories and the current selection reference; standards_select({\"expected_version\":0,\"category_ids\":[],\"reason\":TEXT}) records an explicit choice. standards_read({\"selection_version\":V,\"selection_digest\":D}) returns paged manifest/body content; follow next_cursor without changing the reference. A final complete=true acknowledges that every selected range was offered. Tools reverify retained bytes on retries; failures are degraded status, never an empty book. Category pages default to 25, maximum 100; encoded replies are at most 32 KiB. Selection is advisory and grants no management authority.\n")
+	}
 	if has("issues_list") {
 		b.WriteString("\nIssue lookup: issues_list({\"state\":\"open\",\"page\":1,\"per_page\":20}) returns repository-local summaries, not full bodies or comments.\n")
 	}
