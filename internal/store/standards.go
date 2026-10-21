@@ -210,6 +210,7 @@ func (db *DB) ListStandardsProposals(ctx context.Context) ([]StandardsProposalVe
 
 // SaveStandardsProposal appends a version only when expected still identifies the unpublished current version.
 func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVersion, expected int64) (StandardsProposalVersion, error) {
+	p.CreatedAt = nowUTC().Truncate(time.Millisecond)
 	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
 		var err error
 		p, err = saveStandardsProposalTx(ctx, tx, p, expected)
@@ -259,7 +260,6 @@ func saveStandardsProposalTx(ctx context.Context, tx *sql.Tx, p StandardsProposa
 	return p, err
 }
 
-// saveStandardsProposalTx appends an upstream proposal version inside the caller transaction.
 func standardsBinding(p StandardsProposalVersion, a StandardsApproval) bool {
 	return p.ProposalID == a.ProposalID && p.Version == a.Version && p.BaseRevision == a.BaseRevision && p.ChangeDigest == a.ChangeDigest && p.ResultDigest == a.ResultDigest
 }
