@@ -1,0 +1,41 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.462s
+ok  	github.com/cloudvane/litefactory/internal/agent	2.098s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	4.859s
+ok  	github.com/cloudvane/litefactory/internal/codex	154.976s
+ok  	github.com/cloudvane/litefactory/internal/doctor	55.170s
+ok  	github.com/cloudvane/litefactory/internal/drift	23.300s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	3.936s
+ok  	github.com/cloudvane/litefactory/internal/harness	97.626s
+ok  	github.com/cloudvane/litefactory/internal/instructionpackage	4.890s
+ok  	github.com/cloudvane/litefactory/internal/loganalysis	16.860s
+ok  	github.com/cloudvane/litefactory/internal/logevidence	18.992s
+ok  	github.com/cloudvane/litefactory/internal/logreader	3.736s
+ok  	github.com/cloudvane/litefactory/internal/messaging	155.253s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	3.430s
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	9.008s
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	4.734s
+ok  	github.com/cloudvane/litefactory/internal/messaging/prompts	4.324s
+ok  	github.com/cloudvane/litefactory/internal/messaging/response	1.569s
+ok  	github.com/cloudvane/litefactory/internal/meter	1.500s
+ok  	github.com/cloudvane/litefactory/internal/meterview	3.252s
+ok  	github.com/cloudvane/litefactory/internal/prevention	10.489s
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	9.758s
+--- FAIL: TestProbeTransientRecoveryAndBounds (16.86s)
+    --- FAIL: TestProbeTransientRecoveryAndBounds/exit_70 (3.62s)
+        conversation_capability_test.go:35: ordinary exit retried: [1s] conversation capability probe failed: exit status 7
+    --- FAIL: TestProbeTransientRecoveryAndBounds/exit_71 (3.26s)
+        conversation_capability_test.go:35: ordinary exit retried: [1s] <nil>
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/providerprocess	25.133s
+ok  	github.com/cloudvane/litefactory/internal/report	8.607s
+ok  	github.com/cloudvane/litefactory/internal/repos	3.303s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	4.955s
+ok  	github.com/cloudvane/litefactory/internal/standards	29.656s
+ok  	github.com/cloudvane/litefactory/internal/standardsexceptions	8.287s
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/submission	3.014s
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	51.371s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	5.148s
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	12.572s
+FAIL
