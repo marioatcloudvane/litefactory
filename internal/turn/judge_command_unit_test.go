@@ -69,7 +69,13 @@ func TestJudgeReportNamesNewestLegacySource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(text, source.Reference) || !strings.Contains(text, "newest legacy save") {
-		t.Fatalf("report does not name the chosen legacy source: %s", text)
+	saved, err := service.DB.GetJudgeRequest(t.Context(), q.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
+	report := decodeJudgeSavedReport(t, saved.Report)
+	if !strings.HasPrefix(report.Presentation.SourceReference, source.Reference) || !strings.Contains(report.Presentation.SourceReference, "newest legacy save") {
+		t.Fatalf("saved report does not name the chosen legacy source: %s", saved.Report)
+	}
+	assertJudgeTextWithoutProvenance(t, text)
 }

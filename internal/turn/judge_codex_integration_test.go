@@ -51,13 +51,15 @@ func TestJudgeNativeCodexSharedService(t *testing.T) {
 			if tc.refused {
 				execution = "failed"
 			}
-			if !strings.Contains(body, "Execution: "+execution) || !strings.Contains(body, "Target: ") {
-				t.Fatalf("native request did not produce an accepted, source-identified advisory: %s", body)
-			}
 			saved, err := service.DB.FindJudgeRequest(t.Context(), request.TicketKey, request.RemoteCommentID)
 			if err != nil {
 				t.Fatal(err)
 			}
+			report := decodeJudgeSavedReport(t, saved.Report)
+			if body == "" || report.Execution != execution || report.Presentation.SourceReference == "" {
+				t.Fatalf("native request did not produce an accepted, source-identified advisory: %s", saved.Report)
+			}
+			assertJudgeTextWithoutProvenance(t, body)
 			attempts, err := service.DB.ListJudgeAttempts(t.Context(), saved.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -71,21 +73,21 @@ func TestJudgeNativeCodexSharedService(t *testing.T) {
 			}
 			switch {
 			case tc.refused:
-				if len(fallback.calls) != 0 || attempts[0].State != "failed" || strings.Contains(body, "Availability fallback:") || !strings.Contains(body, "unable to assess") {
-					t.Fatalf("unsupported client granted fallback or clean verdict: %+v %s", attempts, body)
+				if len(fallback.calls) != 0 || attempts[0].State != "failed" || report.Presentation.FallbackReason != "" || !strings.Contains(body, "unable to assess") {
+					t.Fatalf("unsupported client granted fallback or clean verdict: %+v %s", attempts, saved.Report)
 				}
 			case tc.fallback:
-				if len(fallback.calls) != 1 || !strings.Contains(body, "Availability fallback:") || attempts[1].Provider != "claude" {
-					t.Fatalf("fallback not bounded: %+v %s", attempts, body)
+				if len(fallback.calls) != 1 || report.Presentation.FallbackReason == "" || report.Presentation.Provider != "claude" || attempts[1].Provider != "claude" {
+					t.Fatalf("fallback not bounded: %+v %s", attempts, saved.Report)
 				}
-			case len(fallback.calls) != 0 || !strings.Contains(body, "Provider: codex;") || !strings.Contains(body, "Native Codex captured source inspected"):
-				t.Fatalf("native Codex assessment replaced: %s", body)
+			case len(fallback.calls) != 0 || report.Presentation.Provider != "codex" || !strings.Contains(body, "Native Codex captured source inspected"):
+				t.Fatalf("native Codex assessment replaced: %s %s", body, saved.Report)
 			}
 			if !tc.refused && attempts[0].ProviderVersion != "0.160.0" {
 				t.Fatalf("native version provenance missing: %+v", attempts[0])
 			}
-			if !tc.refused && !tc.fallback && !strings.Contains(body, "Provider version: 0.160.0") {
-				t.Fatalf("native version omitted from advisory: %s", body)
+			if !tc.refused && !tc.fallback && report.Presentation.ProviderVersion != "0.160.0" {
+				t.Fatalf("native version omitted from saved advisory: %s", saved.Report)
 			}
 			executed, executionErr := os.ReadFile(nativeExecution)
 			if tc.refused {
