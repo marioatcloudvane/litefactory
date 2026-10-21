@@ -70,7 +70,7 @@ func TestJudgeHistoricalCaptureRefusesLaunchAndAllowsRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence, err := json.Marshal(JudgeEvidenceSnapshot{})
+	evidence, err := json.Marshal(judgeContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestJudgeCaptureAdmissionBoundaries(t *testing.T) {
 	if _, err := validateJudgeInstructions(cfg); err == nil {
 		t.Fatal("oversized retained capture accepted")
 	}
-	if _, err := service.launch(t.Context(), store.JudgeRequest{}, &cfg, JudgeEvidenceSnapshot{}, config.JudgeInvocation{}); err == nil {
+	if _, err := service.launch(t.Context(), store.JudgeRequest{}, &cfg, nil, config.JudgeInvocation{}); err == nil {
 		t.Fatal("invalid capture reached launch allocation")
 	}
 }

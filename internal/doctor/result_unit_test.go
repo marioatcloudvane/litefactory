@@ -117,7 +117,7 @@ func TestDoctorBuildPrompt(t *testing.T) {
 			if strings.Contains(got, attack) {
 				t.Fatal("memory injection escaped JSON boundary")
 			}
-			i := strings.Index(got, "\n{\"")
+			i := strings.LastIndex(got, "\n{\"")
 			if i < 0 {
 				t.Fatal("missing prepared JSON context")
 			}

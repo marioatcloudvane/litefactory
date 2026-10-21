@@ -2,9 +2,10 @@
 
 [Documentation](README.md) · [Getting started](getting-started/README.md)
 
-Discord chat is optional. It lets the owner ask about factory state, preview and
-create feature issues, diagnose a stuck issue, answer Research questions, read
-usage, and receive task notices. Chat cannot start, approve, stop or repair
+Discord chat is optional. In a channel bound to a conversation, the owner writes
+ordinary messages to ask about factory state, preview and create feature issues,
+diagnose a stuck issue, answer Research questions and read usage. A notice
+channel can receive task notices. Chat cannot start, approve, stop or repair
 work, and nothing typed in Discord reaches the GitHub comment parser.
 
 Set up GitHub first, including its webhook listener: [GitHub setup](getting-started/github-setup.md).
@@ -18,7 +19,7 @@ For Linear tickets, also complete [Linear setup](project-connections.md#linear-t
    **Application ID** and its **Public Key** (64 hex characters).
 2. Add a bot to the application and copy the **bot token**.
 3. Under the bot settings, turn on **Message Content Intent**. It is needed for
-   ordinary (natural language) messages. The factory checks the application
+   ordinary conversation messages. The factory checks the application
    flags and a channel history read; if either fails, ordinary messages are
    switched off and chat health reports it.
 4. Under Installation, configure Guild Install with `bot` and
@@ -69,6 +70,10 @@ chat:
     owner_id: "OWNER_USER_ID"
     channel_ids: ["CHANNEL_ID"]
     notice_channel_id: ""    # optional, must be one of channel_ids
+    conversations:
+      - channel_id: "CHANNEL_ID"
+        name: "Owner work"
+        provider: claude       # or codex
 ```
 
 | Key | Meaning |
@@ -80,6 +85,7 @@ chat:
 | `owner_id` | Numeric user ID of the only person the factory obeys. |
 | `channel_ids` | Allowed channels (at least one, unique, numeric). |
 | `notice_channel_id` | Channel for task notices. Empty means no notices. |
+| `conversations` | Binds an allowed channel to one named conversation and its provider. See [persistent conversations](discord-conversations.md). |
 
 Unknown keys and literal tokens are startup errors. The full key table is in the
 [config.yaml reference](configuration/config-yaml.md).
@@ -106,8 +112,8 @@ must pass Discord's signed endpoint verification. See the
 [Discord setup guide](https://docs.discord.com/developers/quick-start/getting-started)
 for portal installation and endpoint verification.
 
-Slash commands are registered with Discord; if Discord is
-unavailable, registration is retried later. If the bot token cannot be read, the
+The `/details` command is registered with Discord; it replaces any older
+command set. If Discord is unavailable, registration is retried later. If the bot token cannot be read, the
 daemon still starts with chat unavailable. It logs an error naming the token
 setting, `litefactory daemon status` shows the reason on its `chat` line, and the
 token is tried again on later heartbeats, so storing it later works without a
@@ -115,80 +121,28 @@ restart.
 
 ### 6. Check it
 
-As the owner, in an allowed channel, run `/help`, `/health` and `/status`. Each
-should give one answer. Another user, or a command from a channel not on the
-list, gets only a private "no access" reply.
+As the owner, write a message such as `What is the factory health?` in a bound
+channel. The conversation should answer. Another user, or a channel not on the
+list, gets no answer; `/details` from them gets only a private "no access" reply.
 
-## Slash commands
+## Using chat
 
-All commands are owner-only and work only in allowed channels.
+Only the owner can use chat, and only in allowed channels.
 
-| Command | What it does |
-| --- | --- |
-| `/help`, `/health`, `/status` | List commands; read factory health and status. |
-| `/ask question:... [project:OWNER/REPO]` | Ask about a project and its open work. Question up to 8192 bytes. A follow-up without `project` uses the newest bot answer in the same channel or thread. |
-| `/details [answer:]` | Inspect saved tool results for a conversation answer reference, or the latest acknowledged answer. Legacy command replies retain their source-text details. |
-| `/draft [project:...] [note:...]` | Preview a feature issue (note up to 2000 bytes). Shows project, title, body and an 8-character code. Creates nothing. |
-| `/confirm code:CODE` | Create the previewed issue. Valid for 24 hours. A new `/draft` replaces the old preview and code. Confirming twice returns the same issue. |
-| `/diagnose issue:N [project:...] [note:...]` | Explain a stuck issue. Never repairs or posts to the issue. |
-| `/question issue:N [project:...]` | Show the current Research question and its 12-character token. |
-| `/answer issue:N revision:TOKEN text:... [project:...]` | Answer that Research question (up to 65536 bytes, redacted). An old token or closed issue is refused. A repeat says `already answered`. The answer is copied once to the issue as a factory note. |
-| `/meter [project:] [task:] [mode:] [agent:] [model:] [from:] [to:] [details:] [page:]` | Usage, cost estimates and coverage. Dates are UTC (`YYYY-MM-DD` or RFC3339); `from` is inclusive, `to` exclusive. Paging commands are in the reply footer. |
-| `/prices [agent:] [model:] [page:]` | Read the recorded price catalogue (USD per million tokens). |
-
-`project` can be `OWNER/REPO`, or just the repository name when it is unique. For
-`/question`, `/answer` and `/diagnose` it may be left out when only one project is
-registered. `/answer` only works for published Research questions; answer
-reviews and approvals on the issue. These commands cannot change prices or
-accounting settings. Details: [usage and costs](meter.md).
-
-`/ask` answers come from fresh open issues and current task data, cite the
-facts used and give an as-of time. They use the doctor's isolation gate with all
-tools off; if no provider is verified, answers are unavailable. At most the
-latest 20 bot `/ask` turns (32 KiB) are used as history.
-
-## Natural language
-
-The owner can also write ordinary messages in an allowed channel. Slash commands
-stay available.
-
-- Reads run once the action and target are clear. If something is missing or
-  ambiguous, the bot asks a question. Unsupported requests do nothing.
-- A change (such as drafting, creating an issue, diagnosing or answering) always
-  needs a separate confirmation. The bot first shows the exact action, target and
-  content, with a confirmation code. Reply directly to that bot message with
-  `yes`, or send `confirm <code>`. A casual "yes", a quote, or a "yes" with extra
-  instructions does not count. A proposal expires after 15 minutes.
-- Send a correction as a new message; a changed proposal gets a new code. Send
-  `cancel` to cancel. Editing or deleting your message is not cancellation, and
-  an action that has already started cannot be undone.
-- Only newly sent owner text counts. Bots, webhook messages, system messages,
-  attachments, embeds and forwarded messages cannot give requests. Old history is
-  not replayed when chat is first enabled, and requests older than 24 hours are
-  not run.
+- **Ordinary messages** in a channel bound under `conversations` go to that
+  channel's conversation. It reads factory state, project facts, usage and
+  Research questions, and proposes changes (feature draft and issue creation,
+  diagnosis, Research answers) that need a separate confirmation. Allowed
+  channels without a binding do not read ordinary messages. Details:
+  [persistent conversations](discord-conversations.md).
+- **`/details [answer:]`** is the only slash command. It shows the saved raw
+  tool results for a conversation answer reference, or for the latest
+  acknowledged answer in the channel. Without a saved answer it says that no
+  details are available. Other slash commands that a Discord client may still
+  show are refused with a private note.
 
 Existing review and approval gates still apply to everything chat starts.
-
-## English examples
-
-Replace `OWNER/REPO` with the registered repository and `N` with the issue/task
-number shown by the factory.
-
-- `/ask question:What is waiting for my review? project:OWNER/REPO`
-- `/details`, or `show details` after the answer.
-- `Draft a feature for OWNER/REPO to add a keyboard shortcut for search.`
-  Read the proposed action, then send `confirm <code>` with its displayed code,
-  or reply directly to that proposal with `yes`. If a further creation preview
-  is returned, confirm that exact preview before expecting an issue.
-- `/draft project:OWNER/REPO note:Add a keyboard shortcut for search`, followed
-  by `/confirm code:CODE` using the returned draft code.
-- `/question issue:N project:OWNER/REPO`, then
-  `/answer issue:N revision:TOKEN text:Use the existing search index. project:OWNER/REPO`
-  using the returned Research token.
-- `/meter project:OWNER/REPO` and `/diagnose issue:N project:OWNER/REPO`.
-
-Verify the resulting issue link or Research answer receipt. A preview alone
-creates nothing; approvals for subsequent work still belong on the ticket.
+Usage and costs are described in [usage and costs](meter.md).
 
 ## Task notices
 
@@ -196,18 +150,9 @@ Set `notice_channel_id` to one of your allowed channels to get one message when 
 task starts or changes mode, when it waits for you (a question or review), and
 when it finishes, fails or stops. Notices name the issue number and title and
 link to it. A waiting notice is sent once per wait. For a question it shows a
-shortened version; answer on the issue (or with `/answer`). Final notices include
+shortened version; answer on the issue or in the conversation. Final notices include
 available usage and estimated cost. On first enable, existing history is skipped,
 and events already over 24 hours old are skipped and logged.
-
-## Reading replies
-
-A reply has a short explanation checked against the full result. Exact values,
-links, codes and paging commands stay unchanged, and the original redacted result
-is attached as `raw-details.txt`. The reply language follows your current `/ask`
-question or the latest `/ask` turn in the channel or thread, otherwise English.
-If the explanation fails its checks, the reply is marked raw and still has the
-details.
 
 ## Limits
 
@@ -235,8 +180,8 @@ details.
 | `User interaction is not allowed` | Unlock the login Keychain in Terminal.app or an interactive SSH shell as the daemon user, then retry storing the token. |
 | Portal endpoint verification fails | Start the configured listener first; check public HTTPS, exact `/litefactory/discord` path, raw body, signature headers and the application public key. |
 | Config refused at startup | `chat.discord` needs `webhook.listen`, an HTTPS `webhook.public_url`, numeric IDs, a 64-hex public key and exactly one token reference. |
-| Commands do not appear | Restart the daemon; check the Interactions Endpoint URL and that the proxy forwards `/litefactory/discord`. |
-| Plain messages ignored | Enable Message Content; give the bot channel visibility and history; check `/health`. |
+| `/details` does not appear | Restart the daemon; check the Interactions Endpoint URL and that the proxy forwards `/litefactory/discord`. |
+| Plain messages ignored | Bind the channel under `conversations`; enable Message Content; give the bot channel visibility and history; check the `chat` line of `litefactory daemon status`. |
 | "no access" | Wrong user, or the channel is not in `channel_ids`. |
 
 See also [owner commands](guides/owner-commands.md) for the GitHub comment commands.

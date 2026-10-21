@@ -1,6 +1,8 @@
 # Challenge saved work
 
-An issue owner can comment `/judge` to challenge the latest eligible saved research result or Plan for that ticket. Saved substantive review drafts are eligible before approval. The source revision is pinned when the request is admitted; newer work does not change a pending challenge.
+An issue owner can comment `/judge` to challenge the latest eligible saved research result, Plan or Bug analysis for that ticket. Saved substantive review drafts are eligible before approval.
+
+On a Bug issue the sources are the analyst's saved diagnoses, named "Bug analysis rev 1", "rev 2" and so on in save order; the fixer's repair results are not judged. The challenge runs only when the owner asks for it: it is not a step of the Bug workflow, does not answer or wait on a Bug question, and leaves the Bug graph where it is. The source revision is pinned when the request is admitted; newer work does not change a pending challenge.
 
 Use the target reference printed in a previous advisory report to select that exact local saved source:
 

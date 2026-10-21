@@ -24,6 +24,12 @@ come first. Use `depends_on` only for a real prerequisite: an entry that cannot
 start, or cannot be accepted, before another. It names ids from this set, never the
 entry itself, and never forms a cycle. Independent entries stay independent.
 
+Shared places: entries without a dependency are built at the same time, so two of
+them must not extend the same shared place (a command list, a route or menu table,
+a schema or migration sequence, a config file, one documentation page). If they
+would, the entry that creates the shared place comes first and the others depend
+on it, or the entries become one.
+
 Size: a set has 1 to 12 entries. More than 12 means the parent is too large for
 one plan; ask the owner to split the parent instead of squeezing the list.
 

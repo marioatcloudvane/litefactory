@@ -48,10 +48,17 @@ func TestResearchCommandResolutionAndPrivateInput(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	send := &sender{outcome: messaging.Delivery{Confirmed: true}}
-	s := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
+	s := messaging.New(db, "test", "owner", []string{"channel"}, nil, messaging.FactoryStatus{DB: db})
 	ports := &researchPorts{}
 	s.EnableResearch(ports, ports)
+	run := func(id, command string, args map[string]string) string {
+		t.Helper()
+		text, _, err := s.RunCommand(ctx, messaging.Message{Transport: "test", ID: id, Channel: "channel", Sender: "owner", Command: command, Arguments: args}, at)
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		return text
+	}
 	for _, tc := range []struct{ id, command, project, issue, want string }{
 		{"bad", "diagnose", "acme/app", "0", "positive"},
 		{"unknown", "diagnose", "unknown", "1", "Unknown"},
@@ -59,13 +66,8 @@ func TestResearchCommandResolutionAndPrivateInput(t *testing.T) {
 		{"no-task", "question", "acme/app", "1", "no factory task"},
 		{"no-answer-task", "answer", "acme/app", "1", "no factory task"},
 	} {
-		_, _, err := s.Admit(ctx, messaging.Message{Transport: "test", ID: tc.id, Channel: "channel", Sender: "owner", Command: tc.command, Arguments: map[string]string{"project": tc.project, "issue": tc.issue}}, at)
-		if err != nil {
-			t.Fatal(err)
-		}
-		step(t, s, at, true)
-		if !strings.Contains(strings.ToLower(send.texts[len(send.texts)-1]), strings.ToLower(tc.want)) {
-			t.Fatalf("%s: %v", tc.id, send.texts)
+		if text := run(tc.id, tc.command, map[string]string{"project": tc.project, "issue": tc.issue}); !strings.Contains(strings.ToLower(text), strings.ToLower(tc.want)) {
+			t.Fatalf("%s: %q", tc.id, text)
 		}
 	}
 	if ports.calls != 0 {
@@ -83,54 +85,17 @@ func TestResearchCommandResolutionAndPrivateInput(t *testing.T) {
 		}
 	}
 	ports.question = messaging.Question{Text: strings.Repeat("Long question 🐧 ", 400), Token: "123456789abc"}
-	_, _, err = s.Admit(ctx, messaging.Message{Transport: "test", ID: "long-question", Channel: "channel", Sender: "owner", Command: "question", Arguments: map[string]string{"project": "acme/app", "issue": "1"}}, at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step(t, s, at, true)
-	text := send.texts[len(send.texts)-1]
+	text := run("long-question", "question", map[string]string{"project": "acme/app", "issue": "1"})
 	if len(utf16.Encode([]rune(text))) > 2000 || !strings.Contains(text, "[shortened]") || !strings.Contains(text, "Token: 123456789abc") {
 		t.Fatalf("long question lost binding: %q", text)
 	}
 	ports.fail = true
-	_, _, err = s.Admit(ctx, messaging.Message{Transport: "test", ID: "storage-error", Channel: "channel", Sender: "owner", Command: "answer", Arguments: map[string]string{"project": "acme/app", "issue": "1", "revision": "123456789abc", "text": "private answer"}}, at)
-	if err != nil {
-		t.Fatal(err)
+	if text := run("storage-error", "answer", map[string]string{"project": "acme/app", "issue": "1", "revision": "123456789abc", "text": "private answer"}); text != "your answer was not recorded; nothing was applied" {
+		t.Fatalf("storage error: %q", text)
 	}
-	answerRow, err := db.ReadChatReply(ctx, "test", "storage-error")
-	if err != nil || answerRow.Arguments["text"] != "" {
-		t.Fatalf("raw answer persisted: %+v %v", answerRow, err)
-	}
-	step(t, s, at, true)
-	if send.texts[len(send.texts)-1] != "your answer was not recorded; nothing was applied" {
-		t.Fatalf("storage error: %v", send.texts)
-	}
-	_, _, err = s.Admit(ctx, messaging.Message{Transport: "test", ID: "interrupted-answer", Channel: "channel", Sender: "owner", Command: "answer", Arguments: map[string]string{"project": "acme/app", "issue": "1", "revision": "old-token", "text": "private answer"}}, at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	restarted := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
-	restarted.EnableResearch(ports, ports)
 	before := ports.calls
-	step(t, restarted, at, true)
-	if ports.calls != before+1 || !strings.Contains(send.texts[len(send.texts)-1], "could not be confirmed") || !strings.Contains(send.texts[len(send.texts)-1], "123456789abc") {
-		t.Fatalf("lost input guessed a result: %v", send.texts)
-	}
-	_, _, err = s.Admit(ctx, messaging.Message{Transport: "test", ID: "diagnosis", Channel: "channel", Sender: "owner", Command: "diagnose", Arguments: map[string]string{"project": "acme/app", "issue": "1", "note": "private owner note"}}, at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r, err := db.ReadChatReply(ctx, "test", "diagnosis")
-	if err != nil || r.Arguments["note"] != "" {
-		t.Fatalf("persisted note: %+v %v", r, err)
-	}
-	step(t, s, at, true)
-	r, err = db.ReadChatReply(ctx, "test", "diagnosis")
-	if err != nil || r.State != "working" || r.TargetRef != "github:acme/app#1" || len(r.Arguments) != 0 {
-		t.Fatalf("deferred diagnosis: %+v %v", r, err)
-	}
-	if ports.request.Note != "private owner note" || ports.request.SourceID != "chat:test:diagnosis" {
-		t.Fatalf("diagnosis request: %+v", ports.request)
+	if text := run("interrupted-answer", "answer", map[string]string{"project": "acme/app", "issue": "1", "revision": "old-token"}); ports.calls != before+1 || !strings.Contains(text, "could not be confirmed") || !strings.Contains(text, "123456789abc") {
+		t.Fatalf("lost input guessed a result: %q", text)
 	}
 }
 
@@ -141,7 +106,7 @@ func TestDiagnosisSummaryKeepsEverySection(t *testing.T) {
 	}
 }
 
-// TestQuestionOutcomeStatus checks that /question keeps the status assessed
+// TestQuestionOutcomeStatus checks that the question reader assesses the status
 // for the current research question: refusal when none is open.
 func TestQuestionOutcomeStatus(t *testing.T) {
 	t.Parallel()
@@ -164,18 +129,12 @@ func TestQuestionOutcomeStatus(t *testing.T) {
 			if _, err = db.GetOrCreateSession(ctx, repo, 1); err != nil {
 				t.Fatal(err)
 			}
-			// An unconfirmed delivery keeps the row and its outcome status.
-			send := &sender{}
-			s := messaging.New(db, "test", "owner", []string{"channel"}, send, messaging.FactoryStatus{DB: db})
+			s := messaging.New(db, "test", "owner", []string{"channel"}, nil, messaging.FactoryStatus{DB: db})
 			ports := &researchPorts{question: tc.question}
 			s.EnableResearch(ports, ports)
-			if _, _, err = s.Admit(ctx, messaging.Message{Transport: "test", ID: "q", Channel: "channel", Sender: "owner", Command: "question", Arguments: map[string]string{"project": "acme/app", "issue": "1"}}, at); err != nil {
-				t.Fatal(err)
-			}
-			step(t, s, at, true)
-			r, err := db.ReadChatReply(ctx, "test", "q")
-			if err != nil || r.OutcomeStatus != tc.want {
-				t.Fatalf("outcome status: %q %v; want %q (texts %v)", r.OutcomeStatus, err, tc.want, send.texts)
+			text, status, err := s.RunCommand(ctx, messaging.Message{Transport: "test", ID: "q", Channel: "channel", Sender: "owner", Command: "question", Arguments: map[string]string{"project": "acme/app", "issue": "1"}}, at)
+			if err != nil || string(status) != tc.want {
+				t.Fatalf("outcome status: %q %v; want %q (text %q)", status, err, tc.want, text)
 			}
 		})
 	}
