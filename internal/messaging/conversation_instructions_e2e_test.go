@@ -78,7 +78,10 @@ fi
 	return executable
 }
 
-func TestConversationInstructionsRetainedAcrossPackageEditAndRestart(t *testing.T) {
+// A retained binding keeps its capture within a turn and moves onto the
+// instructions a restarted daemon loaded at its next turn boundary, keeping
+// its conversation and native session.
+func TestConversationInstructionsRefreshAtTurnBoundaryAfterRestart(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
 			ctx := t.Context()
@@ -216,9 +219,13 @@ func TestConversationInstructionsRetainedAcrossPackageEditAndRestart(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			if before.ID != after.ID || before.SessionHandle != after.SessionHandle || after.Name != "renamed" || !bytes.Equal(rawBefore, rawAfter) {
-				t.Fatal("restart changed retained capture or native identity")
+			if before.ID != after.ID || before.SessionHandle != after.SessionHandle || after.Name != "renamed" || after.HealthReason != "" {
+				t.Fatal("restart changed the conversation or its native identity")
 			}
+			if bytes.Equal(rawBefore, rawAfter) {
+				t.Fatal("new instructions did not reach the retained binding")
+			}
+			verifyCapture(rawAfter, "Edited")
 			if err := db.ActivateNaturalScan(ctx, "4", "200"); err != nil {
 				t.Fatal(err)
 			}
@@ -233,15 +240,16 @@ func TestConversationInstructionsRetainedAcrossPackageEditAndRestart(t *testing.
 			}
 			verifyCapture(freshRaw, "Edited")
 			for _, check := range []struct {
-				state, version string
-				count          int
-			}{{before.StateDir, "Original", 3}, {fresh.StateDir, "Edited", 2}} {
-				for step := 1; step <= check.count; step++ {
+				state    string
+				versions []string
+			}{{before.StateDir, []string{"Original", "Original", "Edited"}}, {fresh.StateDir, []string{"Edited", "Edited"}}} {
+				for step := 1; step <= len(check.versions); step++ {
+					version := check.versions[step-1]
 					args, e := os.ReadFile(filepath.Join(check.state, fmt.Sprintf("instruction-args-%d", step)))
 					if e != nil {
 						t.Fatal(e)
 					}
-					native := check.version + " conversation-native.\n\n"
+					native := version + " conversation-native.\n\n"
 					want := "--system-prompt\n" + native + "\n"
 					if provider == "codex" {
 						want = "developer_instructions=" + strconv.Quote(native) + "\n"
@@ -261,7 +269,7 @@ func TestConversationInstructionsRetainedAcrossPackageEditAndRestart(t *testing.
 					if e = json.Unmarshal(fields["instructions"], &factory); e != nil {
 						t.Fatal(e)
 					}
-					if factory != check.version+" conversation-factory.\n\n" {
+					if factory != version+" conversation-factory.\n\n" {
 						t.Fatalf("factory composition changed: %q", factory)
 					}
 					if step == 2 {
@@ -272,7 +280,7 @@ func TestConversationInstructionsRetainedAcrossPackageEditAndRestart(t *testing.
 						if e = json.Unmarshal(fields["correction"], &correction); e != nil {
 							t.Fatal(e)
 						}
-						if correction != check.version+" conversation-correction.\n\n" {
+						if correction != version+" conversation-correction.\n\n" {
 							t.Fatalf("correction composition changed: %q", correction)
 						}
 					}

@@ -373,13 +373,22 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			if instructionErr != nil {
 				return nil, Startup{}, errors.Join(instructionErr, lock.Close())
 			}
-			options := &messaging.ConversationOptions{Instructions: instructions, Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string)}
+			options := &messaging.ConversationOptions{Instructions: instructions, Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string), Reasoners: make(map[string]messaging.ConversationReasoner)}
 			for kind, runner := range runners {
 				if native, ok := runner.(messaging.ConversationProvider); ok {
 					options.Providers[string(kind)] = native
 				}
 				if model, ok := s.Config.Tiers.ResolveModel(config.Kind(kind), config.TierBalanced); ok {
 					options.Models[string(kind)] = model
+				}
+				// The consult reasoner runs on the flagship tier, with high effort
+				// where that model's effort capability is verified.
+				if model, ok := s.Config.Tiers.ResolveModel(config.Kind(kind), config.TierFlagship); ok && model != "" {
+					reasoner := messaging.ConversationReasoner{Model: model}
+					if config.ValidateThinking(config.Kind(kind), model, "high") == nil {
+						reasoner.Effort = "high"
+					}
+					options.Reasoners[string(kind)] = reasoner
 				}
 			}
 			for _, binding := range chatOpts.Settings.Conversations {
