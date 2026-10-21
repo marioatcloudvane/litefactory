@@ -315,7 +315,9 @@ func TestValidateImplementScheduleHandsOffUntilWorkerParks(t *testing.T) {
 	}
 	_, err = f.db.TransitionImplementStory(ctx, store.ImplementTransition{Parent: parent, Generation: 1, Key: row.Key, From: store.ImplementRunning, To: store.ImplementParked, ExpectedRevision: row.Revision, Reason: "Sandbox launch blocked", At: f.clock.peek()})
 	check(err)
-	_, err = f.db.WakeGraphInstance(ctx, instance.ID, "await", f.clock.peek())
+	// The parent turn now succeeds while its stories cannot be swept (#1010),
+	// so the woken step runs chained after it, which checks the store clock.
+	_, err = f.db.WakeGraphInstance(ctx, instance.ID, "await", time.Now())
 	check(err)
 	f.settle()
 	wait, err := f.db.GetGraphOwnerWait(ctx, instance.ID)
