@@ -297,6 +297,7 @@ var archiveRetained = map[string]ArchiveClass{
 	"standards_authoring_attempts": ArchiveClassGlobal, "standards_authoring_completions": ArchiveClassGlobal,
 	"standards_exception_policies": ArchiveClassGlobal, "standards_exception_proposals": ArchiveClassGlobal,
 	"standards_exception_approvals": ArchiveClassGlobal, "standards_exception_revocations": ArchiveClassGlobal,
+	"prevention_analyses": ArchiveClassGlobal, "prevention_analysis_proposals": ArchiveClassGlobal,
 	"graph_definitions": ArchiveClassGlobal,
 	"doctor_attempts":   ArchiveClassGlobal, "doctor_conversations": ArchiveClassGlobal,
 	"doctor_instruction_captures": ArchiveClassGlobal,

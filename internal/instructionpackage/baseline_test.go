@@ -122,12 +122,12 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := append(ConversationRoles(), JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair", StandardsAuthorRole)
+	want := append(ConversationRoles(), JudgeRole, "merge-conflict-advisor", "schedule-proposal-advisor", "mode-classifier", "doctor-diagnosis", "doctor-repair", StandardsAuthorRole, "prevention-analyst")
 	if pkg.Version() != "1.9.0" || pkg.Digest() == "" {
 		t.Fatal("embedded package must register the migrated roles and advance its version")
 	}
-	if len(pkg.files) != 19 {
-		t.Fatalf("embedded inventory has %d files, want twelve roles, metadata, catalogue, two judge resources, two doctor skills and the authoring schema", len(pkg.files))
+	if len(pkg.files) != 20 {
+		t.Fatalf("embedded inventory has %d files, want thirteen roles, metadata, catalogue, two judge resources, two doctor skills and the authoring schema", len(pkg.files))
 	}
 	for _, role := range want {
 		if !slices.Contains(pkg.Roles(), role) {
