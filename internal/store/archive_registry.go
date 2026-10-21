@@ -138,6 +138,7 @@ var archiveRegistry = []ArchiveTable{
 	archived("validate_entries", bySession),
 	archived("research_successors", `(instance_id IN `+subInst+` OR predecessor_id IN `+subInst+`)`),
 	archived("graph_node_attempts", `id IN `+subNodeAt),
+	archived("standards_graph_run_aliases", byRun),
 	archived("research_launch_definitions", `(session_id IN `+inFS+` OR instance_id IN `+subInst+`)`),
 	archived("research_execution_paths", bySession),
 	archived("graph_instances", `id IN `+subInst),
@@ -202,6 +203,9 @@ var archiveRetained = map[string]ArchiveClass{
 	"judge_requests": ArchiveClassSkeleton, "judge_attempts": ArchiveClassSkeleton, "judge_source_commits": ArchiveClassGlobal,
 	// The family skeleton and the per-task structure that identifies it.
 	"sessions": ArchiveClassSkeleton, "segments": ArchiveClassSkeleton, "runs": ArchiveClassSkeleton,
+	"standards_run_bindings": ArchiveClassSkeleton, "standards_run_selections": ArchiveClassSkeleton,
+	"standards_run_observations": ArchiveClassSkeleton, "standards_run_aliases": ArchiveClassSkeleton,
+	"standards_graph_invocations": ArchiveClassSkeleton, "standards_story_invocations": ArchiveClassSkeleton,
 	"watermarks": ArchiveClassSkeleton, "retirement_intents": ArchiveClassSkeleton,
 	"session_ticket_identities": ArchiveClassSkeleton, "ticket_effect_identities": ArchiveClassSkeleton,
 	"session_execution_snapshots": ArchiveClassSkeleton,

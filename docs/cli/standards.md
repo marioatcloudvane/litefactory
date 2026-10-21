@@ -1,7 +1,8 @@
 # Standards book
 
 `litefactory standards` manages one shared book in the initialized factory database.
-Commands work without a terminal and emit JSON. Category changes belong to explicit
+Commands work without a terminal. Book and proposal commands emit JSON; run
+inspection supports text and JSON. Category changes belong to explicit
 proposals; nothing changes the published book until publication succeeds.
 
 Create a proposal using a file, or `--file -` to read stdin. Input must be one
@@ -70,3 +71,48 @@ SQLite uses WAL with `synchronous=NORMAL`. It preserves database consistency, bu
 power loss can lose a recently committed transaction. Immutable history protects
 against later application edits, not disk loss or database administrator
 tampering. Back up the database using appropriate SQLite backup procedures.
+
+## Standards retained for a run
+
+`litefactory standards run github:acme/api#123 --run 2` inspects a run's retained
+standards. Omit `--run` for the newest run; use `--repo owner/name` to disambiguate
+a bare issue number. Add `--json` for machine-readable output. Inspection is read
+only: it verifies retained bytes afresh and shows the pinned revision, source,
+digest, capture outcome, each consumer's choices and reasons, and retrieval gaps.
+Automatic recovery resolves the original invocation. Inspection never repairs a
+binding or selects a newer book.
+Normal archival keeps these retained records while the run remains inspectable.
+The existing explicit forget operation removes them together with the forgotten
+runs, so a later reused run identity cannot inherit old guidance. It leaves the
+shared published book intact.
+
+Before substantive work, agents use `standards_categories_list` to discover the
+retained categories, `standards_select` to record relevant category IDs and a
+short reason, and `standards_read` to retrieve the selected standards. Category
+choice is an agent assertion; it grants no permissions. An explicit empty choice
+is valid and differs from unavailable guidance or no selection. Additions retain
+previous choices and use the expected version returned by the service. On a lost
+reply, recover the retained selection reference and reread the same revision.
+Damaged retained selections have a separate corruption status. Tools refuse to
+read or extend them and never replace their book.
+
+One owner request and its graph, fallback and automatic recovery launches share
+one immutable book. A coordinator that starts work mechanically before any agent
+run uses its immutable graph launch as the invocation anchor (shown as a negative
+invocation ID). Factory-launched story workers inherit that anchor across their
+separate sessions; each work item keeps its own selection. A new owner
+request binds anew and supersedes standards from the prior conversation context.
+On resume, agents restore selections and reread bodies from the retained book.
+Unavailable, corrupt, unsupported or oversized books remain explicit while work
+continues under existing controls; failures never mean an empty book. Disabled
+MCP is reported as unavailable delivery, without enabling tools.
+
+Category pages default to 25 entries and permit at most 100. Results are bounded
+to 32 KiB including both MCP content copies; follow explicit cursors until
+complete. Body ranges use UTF-8-safe byte offsets, total lengths and digests.
+Initial canonical snapshot capture is capped at 16 MiB; calls retain the existing
+30-second broker timeout. No automatic unbounded fetch loop runs. Selection is
+separate from delivery: offered ranges show what the server supplied, and a
+completion acknowledgment records the agent's report, not comprehension or
+guaranteed receipt. Interrupted or partial retrieval stays visible. SQLite's
+power-loss and administrator-tampering limits above apply to retained books too.
