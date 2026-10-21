@@ -1,0 +1,8 @@
+ok  	github.com/cloudvane/litefactory/internal/agent	2.640s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	2.691s
+ok  	github.com/cloudvane/litefactory/internal/codex	167.470s
+ok  	github.com/cloudvane/litefactory/internal/doctor	75.900s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	2.356s
+ok  	github.com/cloudvane/litefactory/internal/harness	70.394s
+ok  	github.com/cloudvane/litefactory/internal/instructionpackage	2.332s
+ok  	github.com/cloudvane/litefactory/internal/providerprocess	18.261s

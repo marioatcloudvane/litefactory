@@ -233,6 +233,10 @@ var archiveRetained = map[string]ArchiveClass{
 	"chat_inbox":              ArchiveClassGlobal,
 	"chat_conversations":      ArchiveClassGlobal,
 	"chat_conversation_turns": ArchiveClassGlobal,
+	// Instruction captures and legacy migration eligibility follow durable
+	// conversation identity, including inactive historical bindings.
+	"chat_conversation_instructions":       ArchiveClassGlobal,
+	"chat_conversation_instruction_legacy": ArchiveClassGlobal,
 	// Conversation evidence and proposals span task families and follow their
 	// bounded chat retention rather than one family's archive lifecycle.
 	"chat_conversation_actions":       ArchiveClassGlobal,
@@ -278,7 +282,8 @@ var archiveRetained = map[string]ArchiveClass{
 	"meter_price_revisions": ArchiveClassGlobal, "meter_price_rates": ArchiveClassGlobal,
 	"graph_definitions": ArchiveClassGlobal,
 	"doctor_attempts":   ArchiveClassGlobal, "doctor_conversations": ArchiveClassGlobal,
-	"doctor_inbox": ArchiveClassGlobal, "doctor_local_presentations": ArchiveClassGlobal,
+	"doctor_instruction_captures": ArchiveClassGlobal,
+	"doctor_inbox":                ArchiveClassGlobal, "doctor_local_presentations": ArchiveClassGlobal,
 	"doctor_presentations": ArchiveClassGlobal, "doctor_proposals": ArchiveClassGlobal,
 	"doctor_repair_holds": ArchiveClassGlobal, "doctor_repair_steps": ArchiveClassGlobal,
 	"doctor_repair_write_permits": ArchiveClassGlobal, "doctor_repairs": ArchiveClassGlobal,

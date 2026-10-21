@@ -60,6 +60,11 @@ func capturedWorkflow(ctx context.Context, o Options, req Request, workflow agen
 	if definition.Origin.Kind != "local" && definition.Origin.Kind != "fetched" {
 		return fail(errors.New("fresh workflow requires local or fetched installed provenance"))
 	}
+	if capture, captureErr := teamsource.WorkflowJudgeCapture(definition); captureErr == nil && o.Logger != nil {
+		for _, diagnostic := range capture.Snapshot().Diagnostics {
+			o.Logger.WarnContext(ctx, "judge instruction fallback", "role", diagnostic.Role, "file", diagnostic.File, "category", diagnostic.Category, "source", diagnostic.SelectedSource)
+		}
+	}
 	if definition.StackProfile != nil {
 		if err := admitStackProfile(ctx, o, session, repo, definition); err != nil {
 			return fail(err)

@@ -1,0 +1,1 @@
+Previous output failed strict validation. Return one fresh JSON object that follows the turn protocol. Answers are natural prose with text in every block; remove raw source or status records, internal labels, fact IDs, paging, cost caveats and reminders of prior questions. Use only supplied sources and references. Missing exact content or target requires clarify.

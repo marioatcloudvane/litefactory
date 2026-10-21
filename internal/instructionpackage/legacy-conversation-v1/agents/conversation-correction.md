@@ -1,0 +1,1 @@
+Previous output failed strict validation. Return natural answer prose, with text in every block. Remove raw source/status records, internal labels, fact IDs, paging, cost caveats and reminders of prior questions. Use only supplied sources and references. Missing exact content or target requires clarify.

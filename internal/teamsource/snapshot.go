@@ -5,10 +5,3 @@ const MaxSourceBytes int64 = 1 << 20
 
 // MaxSnapshotBytes bounds all source and resource bytes in one capture.
 const MaxSnapshotBytes = 16 << 20
-
-type skillHeader struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Requires    []string `yaml:"requires"`
-	Resources   []string `yaml:"resources"`
-}

@@ -283,12 +283,17 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 }
 
 func (r *factoryConversationRun) narrate(ctx context.Context, outcome string) error {
-	prompt := factoryConversationPrompt{Instructions: factoryConversationInstructions + " Explain only the saved action outcome below. Return an answer envelope. Do not propose, request lookup or infer unsaved effects.", SavedOutcome: outcome, OwnerSources: []DialogueTurn{{SourceID: r.t.SourceID, Text: r.t.Source}}, Commands: r.s.ConversationCommands()}
-	raw, err := json.Marshal(prompt)
-	if err != nil {
-		return err
+	instructions, runErr := r.s.restoreConversationInstructions(ctx, r.c.ID, r.at)
+	var prompt factoryConversationPrompt
+	var response []byte
+	if runErr == nil {
+		prompt = factoryConversationPrompt{Instructions: instructions.Factory() + " " + instructions.ActionOutcome(), SavedOutcome: outcome, OwnerSources: []DialogueTurn{{SourceID: r.t.SourceID, Text: r.t.Source}}, Commands: r.s.ConversationCommands()}
+		raw, err := json.Marshal(prompt)
+		if err != nil {
+			return err
+		}
+		response, runErr = r.invoke(ctx, string(raw))
 	}
-	response, runErr := r.invoke(ctx, string(raw))
 	blocks := []presentation.AnswerBlock{{Text: "Saved action outcome:\n" + outcome}}
 	if runErr == nil {
 		envelope, _, decodeErr := DecodeConversationEnvelope(response, ConversationDecodeRequest{Turns: prompt.OwnerSources, Commands: prompt.Commands})

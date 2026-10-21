@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/doctor"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/linear"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
@@ -187,6 +188,11 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Paths locates the owner instruction package.
+	Paths config.Paths
+	// Instructions supplies per-invocation captures; nil uses the shared package.
+	Instructions instructionpackage.CaptureSource
+
 	// Judge is the isolated advisory service; nil explains unavailability.
 	Judge *turn.JudgeService
 
@@ -410,6 +416,9 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	instructionPaths config.Paths
+	instructions     instructionpackage.CaptureSource
+
 	judge            *turn.JudgeService
 	tickPhaseTimeout time.Duration // zero uses the internal 30-second bound
 
@@ -582,17 +591,19 @@ func New(opts Options) (*Daemon, error) {
 		// Copied like every other tool/agent registry that crosses this
 		// boundary: the caller keeps its own map, and nothing here may reach
 		// back into the registry the process was built with.
-		agents:       maps.Clone(opts.Agents),
-		classifiers:  maps.Clone(opts.Classifiers),
-		defaultAgent: defaultAgent,
-		interval:     interval,
-		schedule:     newDiscoverySchedule(opts.DiscoveryInterval),
-		grace:        grace,
-		log:          opts.Logger,
-		lock:         opts.Lock,
-		now:          now,
-		ticks:        opts.Ticks,
-		pool:         newPool(maxRuns),
+		agents:           maps.Clone(opts.Agents),
+		classifiers:      maps.Clone(opts.Classifiers),
+		instructionPaths: opts.Paths,
+		instructions:     opts.Instructions,
+		defaultAgent:     defaultAgent,
+		interval:         interval,
+		schedule:         newDiscoverySchedule(opts.DiscoveryInterval),
+		grace:            grace,
+		log:              opts.Logger,
+		lock:             opts.Lock,
+		now:              now,
+		ticks:            opts.Ticks,
+		pool:             newPool(maxRuns),
 
 		repoSessionCursor: make(map[int64]int64),
 	}

@@ -1,0 +1,196 @@
+ok  	github.com/cloudvane/litefactory/internal/agent	303.162s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	21.749s
+# github.com/cloudvane/litefactory/internal/webhookreg.test
+/opt/homebrew/Cellar/go/1.27.0/libexec/pkg/tool/darwin_arm64/link: /Users/mariomh/Library/Caches/go-build/6b/6bb5195fb6083bd43a8256e8b96e875836461550cc04b38355bb873b409f7d51-d: failed to open host object: open /Users/mariomh/Library/Caches/go-build/6b/6bb5195fb6083bd43a8256e8b96e875836461550cc04b38355bb873b409f7d51-d: no such file or directory
+
+--- FAIL: TestDoctorNativeTransportKeepsUnknownModelAndInclusiveUsage (11.96s)
+    doctor_transport_test.go:54: doctor provider process or bounded output failed
+--- FAIL: TestJudgeNativeEvidenceOnlyTransport (27.83s)
+    judge_transport_test.go:71: context deadline exceeded
+--- FAIL: TestJudgeNativeCatalogPreservesProviderProtocolAndUnsetThinking (42.02s)
+    judge_transport_test.go:175: judge provider cannot enforce the evidence-only native tool ceiling
+        judge client version could not be verified
+--- FAIL: TestJudgeNativeCapabilityProbesRefuseUnknownOrFailedClients (224.90s)
+    --- FAIL: TestJudgeNativeCapabilityProbesRefuseUnknownOrFailedClients/failed-version (58.95s)
+        judge_transport_test.go:230: open /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestJudgeNativeCapabilityProbesRefuseUnknownOrFailedClientsfail768993034/002/probe.json: no such file or directory
+    --- FAIL: TestJudgeNativeCapabilityProbesRefuseUnknownOrFailedClients/malformed-version (41.85s)
+        judge_transport_test.go:230: open /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestJudgeNativeCapabilityProbesRefuseUnknownOrFailedClientsmalf1673756620/002/probe.json: no such file or directory
+    --- FAIL: TestJudgeNativeCapabilityProbesRefuseUnknownOrFailedClients/failed-metadata (48.64s)
+        judge_transport_test.go:230: open /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestJudgeNativeCapabilityProbesRefuseUnknownOrFailedClientsfail427577314/002/metadata-probe.json: no such file or directory
+    --- FAIL: TestJudgeNativeCapabilityProbesRefuseUnknownOrFailedClients/malformed-metadata (48.78s)
+        judge_transport_test.go:230: open /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestJudgeNativeCapabilityProbesRefuseUnknownOrFailedClientsmalf577045777/002/metadata-probe.json: no such file or directory
+--- FAIL: TestJudgeNativeInstalledModelEffortBoundary (106.51s)
+    --- FAIL: TestJudgeNativeInstalledModelEffortBoundary/unsupported-bundled-effort (43.55s)
+        judge_transport_test.go:257: installed client did not reject unverifiable explicit thinking: judge provider cannot enforce the evidence-only native tool ceiling
+            judge client version could not be verified
+    --- FAIL: TestJudgeNativeInstalledModelEffortBoundary/missing-bundled-model (55.37s)
+        judge_transport_test.go:257: installed client did not reject unverifiable explicit thinking: judge provider cannot enforce the evidence-only native tool ceiling
+            judge client version could not be verified
+--- FAIL: TestJudgeNativeFailureClassification (510.99s)
+    --- FAIL: TestJudgeNativeFailureClassification/capacity (46.15s)
+        judge_transport_test.go:292: availability=true error=judge provider cannot enforce the evidence-only native tool ceiling
+            judge client bundled catalogue could not be read
+    --- FAIL: TestJudgeNativeFailureClassification/sticky-failure (71.68s)
+        judge_transport_test.go:292: availability=true error=judge provider cannot enforce the evidence-only native tool ceiling
+            judge client version could not be verified
+--- FAIL: TestJudgeNativeCancellationIsNotAvailability (58.61s)
+    judge_transport_test.go:311: native cancellation became availability: judge provider cannot enforce the evidence-only native tool ceiling
+        judge client version could not be verified
+--- FAIL: TestCodexRecordsReleasedPythonFastAPIProfile (64.28s)
+    python_fastapi_test.go:25: codex did not start: context deadline exceeded
+--- FAIL: TestDoctorRepairTransportUsesExactScopedToolsAndOpenGate (35.57s)
+    repair_transport_test.go:33: context deadline exceeded
+--- FAIL: TestFilesystemEvidenceFinalDiscoverySettlesOnlyTransientGap (0.11s)
+    --- FAIL: TestFilesystemEvidenceFinalDiscoverySettlesOnlyTransientGap/false (2263.45s)
+        usage_filesystem_evidence_test.go:334: coverage &{Status:partial Diagnostics:[descendant_finalization_incomplete usage_source_read_incomplete] Version:synthetic SourceFormat:exec-jsonl+rollout-token-usage-record-v1}
+--- FAIL: TestFilesystemEvidenceCompletedRunWithSubagentIsComplete (3.40s)
+    usage_filesystem_evidence_test.go:278: coverage &{Status:partial Diagnostics:[usage_source_discovery_deadline usage_source_scan_incomplete] Version:synthetic SourceFormat:exec-jsonl+rollout-token-usage-record-v1}
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/codex	4358.894s
+# github.com/cloudvane/litefactory/internal/teamrelease [github.com/cloudvane/litefactory/internal/teamrelease.test]
+internal/teamrelease/release.go:6:2: could not import bytes (open ../../../Library/Caches/go-build/3b/3bde689f0119d81bd3b904f3a0c1fccae001552bee0d52b3ac9012f2f3e23a8f-d: no such file or directory)
+internal/teamrelease/release.go:7:2: could not import context (open ../../../Library/Caches/go-build/e1/e171c2c4023c90da6c1b546ce618094b420af2fe71a428fccfcdc2f7a06b77cb-d: no such file or directory)
+internal/teamrelease/release.go:8:2: could not import crypto/sha256 (open ../../../Library/Caches/go-build/b1/b19b60fc18307afe3a824969633132763ef208fb234ddb684bc1f6019bfa4ed7-d: no such file or directory)
+internal/teamrelease/release.go:9:2: could not import encoding/hex (open ../../../Library/Caches/go-build/3a/3a82e9ebbc61fd70fa14e5821989cf1f60c52cd493f6c7fd7f063d860139b851-d: no such file or directory)
+internal/teamrelease/release.go:10:2: could not import encoding/json (open ../../../Library/Caches/go-build/16/16f869b852f0ea2a41fa60587f262570be26664e7173e8291bdc4c99f2dfb7ae-d: no such file or directory)
+internal/teamrelease/release.go:11:2: could not import errors (open ../../../Library/Caches/go-build/28/28eec474e08d9d378833b64375b8b453712d9c4feb72629bc2aa8da614eaec3c-d: no such file or directory)
+internal/teamrelease/release.go:12:2: could not import fmt (open ../../../Library/Caches/go-build/43/43f82550b48a24133e606842760555574dc92d847dcf72b04d9a54c9e37be1f6-d: no such file or directory)
+internal/teamrelease/release.go:13:2: could not import io (open ../../../Library/Caches/go-build/70/70e9e9db8ee6b430b1de2481f21cf8407bc1133ba829130a26796786946d2229-d: no such file or directory)
+internal/teamrelease/release.go:14:2: could not import io/fs (open ../../../Library/Caches/go-build/fd/fdeadd08bee3df7baf5f840b9af66bdd36d1e8416328970f1e17660d3da0fc6b-d: no such file or directory)
+internal/teamrelease/release.go:15:2: could not import os (open ../../../Library/Caches/go-build/d3/d390405b8e02a7fd019bd4b537cbd74a61be406aa162f75c7978194e080ae787-d: no such file or directory)
+internal/teamrelease/release.go:15:2: too many errors
+# github.com/cloudvane/litefactory/internal/daemon [github.com/cloudvane/litefactory/internal/messaging/discord.test]
+internal/daemon/agent.go:4:2: could not import regexp (open ../../../Library/Caches/go-build/17/175dea3f117e3b85d560354a2b4bc9248932a91cd29e3cfb6ca7ef35f7001749-d: no such file or directory)
+internal/daemon/agent.go:5:2: could not import strings (open ../../../Library/Caches/go-build/43/43a4c23ef37488a75b138a4f3c70d476d06ff847627d66061aa9ed52085c9c58-d: no such file or directory)
+internal/daemon/agent.go:7:2: could not import github.com/cloudvane/litefactory/internal/agent (open ../../../Library/Caches/go-build/01/01996ba39472f85f681dc5064f5d82b46d059a42bbddd4237bf433e81b011109-d: no such file or directory)
+internal/daemon/agent.go:8:2: could not import github.com/cloudvane/litefactory/internal/report (open ../../../Library/Caches/go-build/6d/6dec13e6968ba805accb4c98ead748b785b28326ae58cd0654efaf34e33f12b9-d: no such file or directory)
+internal/daemon/agent_inherit.go:4:2: could not import context (open ../../../Library/Caches/go-build/e1/e171c2c4023c90da6c1b546ce618094b420af2fe71a428fccfcdc2f7a06b77cb-d: no such file or directory)
+internal/daemon/agent_inherit.go:5:2: could not import errors (open ../../../Library/Caches/go-build/28/28eec474e08d9d378833b64375b8b453712d9c4feb72629bc2aa8da614eaec3c-d: no such file or directory)
+internal/daemon/agent_inherit.go:6:2: could not import fmt (open ../../../Library/Caches/go-build/43/43f82550b48a24133e606842760555574dc92d847dcf72b04d9a54c9e37be1f6-d: no such file or directory)
+internal/daemon/agent_inherit.go:7:2: could not import log/slog (open ../../../Library/Caches/go-build/3e/3e4b8bcf1341eca86d899bd53e4869ddc4ad02a9766a40d01f10afa5633f7a71-d: no such file or directory)
+internal/daemon/agent_inherit.go:10:2: could not import github.com/cloudvane/litefactory/internal/naming (open ../../../Library/Caches/go-build/25/251ebc265b8721af99bb37e9883b8f32d3a83d7d217d023f30b4daef8fbe7dff-d: no such file or directory)
+internal/daemon/agent_inherit.go:11:2: could not import github.com/cloudvane/litefactory/internal/store (open ../../../Library/Caches/go-build/70/7082ac2f87dccc14ab451915203ff0c9e80f5305229650f62e69bbb1c406582e-d: no such file or directory)
+internal/daemon/agent_inherit.go:11:2: too many errors
+# github.com/cloudvane/litefactory/internal/rights
+internal/rights/catalogue.go:4:2: could not import context (open ../../../Library/Caches/go-build/e1/e171c2c4023c90da6c1b546ce618094b420af2fe71a428fccfcdc2f7a06b77cb-d: no such file or directory)
+internal/rights/catalogue.go:5:2: could not import errors (open ../../../Library/Caches/go-build/28/28eec474e08d9d378833b64375b8b453712d9c4feb72629bc2aa8da614eaec3c-d: no such file or directory)
+internal/rights/catalogue.go:6:2: could not import fmt (open ../../../Library/Caches/go-build/43/43f82550b48a24133e606842760555574dc92d847dcf72b04d9a54c9e37be1f6-d: no such file or directory)
+internal/rights/catalogue.go:7:2: could not import slices (open ../../../Library/Caches/go-build/ef/efa5b9975bc4ae2357e2f0c2f526f419e7805b31d970d401b4bde77b5c1a9122-d: no such file or directory)
+internal/rights/catalogue.go:8:2: could not import strings (open ../../../Library/Caches/go-build/43/43a4c23ef37488a75b138a4f3c70d476d06ff847627d66061aa9ed52085c9c58-d: no such file or directory)
+internal/rights/catalogue.go:10:2: could not import github.com/cloudvane/litefactory/internal/agent (open ../../../Library/Caches/go-build/01/01996ba39472f85f681dc5064f5d82b46d059a42bbddd4237bf433e81b011109-d: no such file or directory)
+internal/rights/catalogue.go:11:2: could not import github.com/cloudvane/litefactory/internal/graphexec (open ../../../Library/Caches/go-build/97/97bf8ce67fff80d46293b633c016529ba6167bf2981e0a2baf814facc82a0e84-d: no such file or directory)
+internal/rights/catalogue.go:12:2: could not import github.com/cloudvane/litefactory/internal/store (open ../../../Library/Caches/go-build/70/7082ac2f87dccc14ab451915203ff0c9e80f5305229650f62e69bbb1c406582e-d: no such file or directory)
+internal/rights/check.go:7:2: could not import time (open ../../../Library/Caches/go-build/35/358253b35f929a77a5eee9e1dbdb0b783ff7d5d2351e5d7bd7f3d04740a0ccb1-d: no such file or directory)
+# github.com/cloudvane/litefactory/internal/turn
+vet: internal/turn/acceptance.go:4:2: could not import context (open ../../../Library/Caches/go-build/e1/e171c2c4023c90da6c1b546ce618094b420af2fe71a428fccfcdc2f7a06b77cb-d: no such file or directory)
+--- FAIL: TestDoctorMissingPlanOwnersDiagnosisPresentation (93.60s)
+    adapters.go:68: live query: {RequestID:211ca3b6572cff04bb887a1d9b38b324 Result:null Error:} submission: reply unavailable; query retained request correlation
+--- FAIL: TestDoctorSandboxStartupFailureKeepsInputWithoutFallback (164.43s)
+    live_diagnosis_io_test.go:263: refusal lost input or fell back: {ProposalID:0 Repair:<nil> RepairSteps:[] Restart:<nil> CurrentProposal:[] Conversation:{ID:0 TaskRef: Generation:0 State: Revision:0} Attempts:[] HistoryWindow: Diagnosis:<nil> ApplyAvailable:false} calls=1 err=doctor provider isolation is not verified; diagnosis unavailable; input retained
+--- FAIL: TestDoctorLiveDiagnosisProposesSyncBranchForBehindBranch (1044.43s)
+    --- FAIL: TestDoctorLiveDiagnosisProposesSyncBranchForBehindBranch/fetch_fails (214.47s)
+        live_diagnosis_io_test.go:530: look up local branch lf/406-case: /usr/bin/git show-ref --verify -- refs/heads/lf/406-case: timed out after 15s: fatal: 'refs/heads/lf/406-case' - not a valid ref
+--- FAIL: TestDoctorBrokerReadToolsExactCatalogAndRedactedQuery (214.72s)
+    read_tools_io_test.go:94: query disclosure: {"valid":false,"error":"database query timed out or was cancelled"} database query timed out or was cancelled
+--- FAIL: TestDoctorRepairAdapterRetainsFailedUsageAndBrokerScope (1278.87s)
+    repair_adapters_test.go:39: catalog: {RequestID: Result:null Error:} submission: reply unavailable; query retained request correlation
+--- FAIL: TestTypedApplyRetainsToolRefusalReason (871.01s)
+    --- FAIL: TestTypedApplyRetainsToolRefusalReason/advisor_failed (176.58s)
+        typed_apply_flow_test.go:403: refused sync: calls 1 err context canceled
+            begin transaction: context deadline exceeded
+            context deadline exceeded, want reason "conflict advisor refused or failed: docs/stack-profiles.md"
+--- FAIL: TestTypedToolRefusalFencesFollowingCalls (89.06s)
+    --- FAIL: TestTypedToolRefusalFencesFollowingCalls/unknown-step (43.62s)
+        typed_execution_test.go:92: tool continued after refusal
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/doctor	10781.896s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	162.897s
+--- FAIL: TestChatNativeTransportDisablesToolsAndDiscardsAmbientSecrets (34.55s)
+    chat_test.go:31: chat transport: {Answer:[123 34 112 111 105 110 116 115 34 58 91 93 125] Usage:<nil>} doctor provider process or bounded output failed
+--- FAIL: TestRecordedClaudeIsolationRefusals (249.22s)
+    --- FAIL: TestRecordedClaudeIsolationRefusals/omitted (34.37s)
+        conversation_recorded_test.go:74: unsafe invocation accepted: result={Answer:[] Session:{Ref:factory-session Resume:}} err=context deadline exceeded identities=0
+    --- FAIL: TestRecordedClaudeIsolationRefusals/mcp (42.47s)
+        conversation_recorded_test.go:74: unsafe invocation accepted: result={Answer:[] Session:{Ref:factory-session Resume:}} err=context deadline exceeded identities=0
+    --- FAIL: TestRecordedClaudeIsolationRefusals/tool_use (58.05s)
+        conversation_recorded_test.go:74: unsafe invocation accepted: result={Answer:[] Session:{Ref:factory-session Resume:}} err=context deadline exceeded identities=0
+--- FAIL: TestRecordedClaudeResumeAndMissingState (72.66s)
+    --- FAIL: TestRecordedClaudeResumeAndMissingState/normal (26.19s)
+        conversation_recorded_test.go:106: resume failed: {Answer:[] Session:{Ref:factory-session Resume:native-session}} saved conversation session is missing
+            context deadline exceeded
+--- FAIL: TestRecordedClaudeInterruptionRetainsNativeState (28.57s)
+    conversation_recorded_test.go:144: interruption fabricated completion: {Answer:[] Session:{Ref:factory-session Resume:factory-session}} context deadline exceeded
+--- FAIL: TestRecordedClaudePatchVersionEvidence (18.63s)
+    conversation_recorded_test.go:178: patch rejected: {Answer:[114 101 99 111 114 100 101 100 32 97 110 115 119 101 114] Session:{Ref:factory-session Resume:factory-session}} context deadline exceeded
+--- FAIL: TestRecordedClaudeProbeRecovery (50.67s)
+    --- FAIL: TestRecordedClaudeProbeRecovery/kill_-KILL_$$ (27.11s)
+        conversation_recorded_test.go:204: recovery: {Answer:[114 101 99 111 114 100 101 100 32 97 110 115 119 101 114] Session:{Ref:factory-session Resume:factory-session}} context deadline exceeded identities=1
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/harness	1525.841s
+ok  	github.com/cloudvane/litefactory/internal/instructionpackage	150.617s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	24.129s
+FAIL	github.com/cloudvane/litefactory/internal/messaging/discord [build failed]
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	10.370s
+?   	github.com/cloudvane/litefactory/internal/messaging/response	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/meter	23.856s
+ok  	github.com/cloudvane/litefactory/internal/meterview	239.304s
+--- FAIL: TestApproverVerificationAndImmutableRefresh (53.74s)
+    approver_test.go:60: begin transaction: context deadline exceeded
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/projectconnection	647.263s
+--- FAIL: TestProbeTransientRecoveryAndBounds (60.72s)
+    --- FAIL: TestProbeTransientRecoveryAndBounds/kill_-KILL_$$1 (7.12s)
+        conversation_capability_test.go:39: recovery: "" conversation capability probe temporarily unavailable: signal: killed
+            context deadline exceeded [1s 2s]
+    --- FAIL: TestProbeTransientRecoveryAndBounds/exec_/bin/sleep_301 (18.25s)
+        conversation_capability_test.go:39: recovery: "" conversation capability probe temporarily unavailable: signal: killed
+            context deadline exceeded [1s 2s]
+    --- FAIL: TestProbeTransientRecoveryAndBounds/exit_70 (5.00s)
+        conversation_capability_test.go:35: ordinary exit retried: [1s 2s] conversation capability probe failed: exit status 7
+    --- FAIL: TestProbeTransientRecoveryAndBounds/exit_71 (7.82s)
+        conversation_capability_test.go:35: ordinary exit retried: [1s 2s] <nil>
+--- FAIL: TestConversationFailureStartBoundary (11.37s)
+    --- FAIL: TestConversationFailureStartBoundary/wait (10.53s)
+        conversation_test.go:96: lost wait cause: &agent.ConversationFailure{Phase:"process_wait", NoProcessStarted:false, Cause:context.deadlineExceededError{}}
+--- FAIL: TestDoctorProcessUsesAdapterOwnedCancellation (3.07s)
+    doctor_test.go:98: adapter subtree cancellation was not called
+--- FAIL: TestStartRecovery (37.00s)
+    --- FAIL: TestStartRecovery/recovered (23.12s)
+        start_test.go:45: attempts=2 err=fork/exec /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestStartRecoveryrecovered3871975638/001/provider: exec format error
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/providerprocess	215.998s
+ok  	github.com/cloudvane/litefactory/internal/report	102.037s
+ok  	github.com/cloudvane/litefactory/internal/repos	239.973s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+FAIL	github.com/cloudvane/litefactory/internal/rights [build failed]
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+--- FAIL: TestFamilyJournalSocketIdentityAndCommunicationCompatibility (39.14s)
+    family_journal_transport_test.go:44: issues_list: {RequestID:d25320d8d7494ee9441e60135607c743 Result:null Error:} submission: reply unavailable; query retained request correlation
+--- FAIL: TestBrokerLostReplyKeepsRequestIdentityForRetry (51.34s)
+    broker_test.go:452: handler did not receive persisted request
+--- FAIL: TestBrokerAuthorizedMethodsAndCapabilityIsolation (51.31s)
+    broker_test.go:74: preflight: {RequestID: Result:null Error:} submission: reply unavailable; query retained request correlation
+--- FAIL: TestBrokerPersistsCorrelationAcrossRetryAndCorrection (58.27s)
+    broker_test.go:135: first {RequestID:de45d65c9b794a3f1e7e31ce59223861 Result:null Error:} submission: reply unavailable; query retained request correlation
+--- FAIL: TestBrokerCloseCancelsAndJoinsHandlers (63.18s)
+    broker_test.go:170: handler not entered
+--- FAIL: TestBrokerWorkerBound (79.71s)
+    broker_test.go:511: bounded workers did not enter
+--- FAIL: TestBrokerConcurrentSubmissionsReuseStableCorrelation (79.74s)
+    broker_test.go:401: submission: send interrupted; retain request correlation
+    broker_test.go:401: submission: send interrupted; retain request correlation
+    broker_test.go:401: submission: send interrupted; retain request correlation
+    broker_test.go:401: submission: send interrupted; retain request correlation
+    broker_test.go:401: submission: send interrupted; retain request correlation
+    broker_test.go:401: submission: send interrupted; retain request correlation
+    broker_test.go:401: submission: send interrupted; retain request correlation
+    broker_test.go:401: submission: reply unavailable; query retained request correlation
+    broker_test.go:416: no correlated response
+--- FAIL: TestBrokerDeadlineCancelsHandler (82.62s)
+    broker_test.go:209: request deadline did not cancel handler
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/submission	199.930s
+FAIL	github.com/cloudvane/litefactory/internal/teamrelease [build failed]
+ok  	github.com/cloudvane/litefactory/internal/teamsource	69.122s
+FAIL	github.com/cloudvane/litefactory/internal/webhookreg [build failed]
+FAIL

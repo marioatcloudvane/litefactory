@@ -391,6 +391,23 @@ func TestPlanChildrenSweep_NamedChildIsSweptThenQuiet(t *testing.T) {
 	if owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200); err != nil || owed {
 		t.Fatalf("child still owed after a complete sweep: %v %v", owed, err)
 	}
+	// A parent sweep can hand polling to a child whose worker already finished.
+	// Drain that durable backlog before measuring idle reads, as above.
+	const maxDrainTicks = 3
+	for drained := 0; ; drained++ {
+		owed, err := f.db.StoryDiscoveryOwed(t.Context(), session.ID, 200)
+		if err != nil {
+			t.Fatal(err)
+		}
+		child := f.sessionOf(200)
+		if owed || (child.NeedsPoll && drained == maxDrainTicks) {
+			t.Fatalf("child not quiet after %d drain ticks: discovery owed=%v needs poll=%v\n%s", drained, owed, child.NeedsPoll, f.logs)
+		}
+		if !child.NeedsPoll {
+			break
+		}
+		f.settle()
+	}
 	settled := forge.childReads(200)
 	f.settle()
 	if got := forge.childReads(200); got != settled {
