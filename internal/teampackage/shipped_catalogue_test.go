@@ -157,15 +157,16 @@ func pendingWorkerSyncMatchesRelease(live, released []byte) bool {
 }
 
 func TestPendingWorkerSyncSourceParityRejectsUnrelatedChanges(t *testing.T) {
-	live, err := os.ReadFile("../teamsource/implement/implement.dot")
-	if err != nil {
-		t.Fatal(err)
-	}
 	released, err := os.ReadFile("../../teams/go-development/v1.0.2/implement/implement.dot")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !pendingWorkerSyncMatchesRelease(live, released) {
+	// The canonical worker gate is now released. Keep testing the narrow
+	// historical pending-change exception against its ungated baseline rather
+	// than comparing later, independently released coordinator changes to it.
+	live := strings.Replace(string(released), " // ---- Worker", " sync_before_worker [lf_action=\"lf_sync_base\", lf_outcomes=\"synced,current,conflict,retry\", lf_limit=\"8\"];\n // ---- Worker", 1)
+	live = strings.Replace(live, "budget        -> worker_agent  [lf_on=\"run\"];", "budget -> sync_before_worker [lf_on=\"run\"];\n sync_before_worker -> worker_agent [lf_on=\"synced\"];\n sync_before_worker -> worker_agent [lf_on=\"current\"];\n sync_before_worker -> sync_before_worker [lf_on=\"retry\"];\n sync_before_worker -> park_story [lf_on=\"conflict\"];", 1)
+	if !pendingWorkerSyncMatchesRelease([]byte(live), released) {
 		t.Fatal("source worker gate did not preserve released behavior")
 	}
 	for _, mutation := range [][2]string{
@@ -173,8 +174,8 @@ func TestPendingWorkerSyncSourceParityRejectsUnrelatedChanges(t *testing.T) {
 		{`lf_limit="3"`, `lf_limit="2"`},
 		{`lf_limit="8"]`, `lf_limit="7"]`},
 	} {
-		changed := strings.Replace(string(live), mutation[0], mutation[1], 1)
-		if changed == string(live) {
+		changed := strings.Replace(live, mutation[0], mutation[1], 1)
+		if changed == live {
 			t.Fatalf("mutation did not change source: %v", mutation)
 		}
 		if pendingWorkerSyncMatchesRelease([]byte(changed), released) {
