@@ -605,3 +605,6 @@ func (s *Service) Reread(ctx context.Context, id string, c logevidence.Citation)
 	}
 	return out, e
 }
+
+// NormalizeRequest validates and fills lower-only limits without launching work.
+func NormalizeRequest(q Request) (Request, error) { return normalized(q) }

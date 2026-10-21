@@ -300,7 +300,10 @@ var archiveRetained = map[string]ArchiveClass{
 	"prevention_analyses": ArchiveClassGlobal, "prevention_analysis_proposals": ArchiveClassGlobal,
 	// Standalone log analyses span selected prior task families and retain their
 	// own reports and evidence metadata independently of source-run archival.
-	"log_analyses": ArchiveClassGlobal, "log_analysis_books": ArchiveClassGlobal,
+	"analyst_schedules": ArchiveClassGlobal, "analyst_schedule_versions": ArchiveClassGlobal,
+	"analyst_occurrences": ArchiveClassGlobal, "analyst_source_work": ArchiveClassGlobal,
+	"analyst_proposal_notices": ArchiveClassGlobal,
+	"log_analyses":             ArchiveClassGlobal, "log_analysis_books": ArchiveClassGlobal,
 	"log_analysis_evidence": ArchiveClassGlobal, "log_analysis_reports": ArchiveClassGlobal,
 	"log_analysis_proposals": ArchiveClassGlobal,
 	"graph_definitions":      ArchiveClassGlobal,

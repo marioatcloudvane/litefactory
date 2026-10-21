@@ -152,7 +152,10 @@ func (db *DB) CreateLogAnalysis(ctx context.Context, a LogAnalysis) (LogAnalysis
 			key = a.StartKey
 		}
 		_, e := tx.ExecContext(ctx, `INSERT INTO log_analyses(id,start_key,request_digest,scope_json,limits_json,grant_digest,provenance_json,generation,state,disposition,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, key, a.RequestDigest, string(a.Scope), string(a.Limits), a.GrantDigest, string(a.Provenance), a.Generation, a.State, a.Disposition, FormatTime(a.CreatedAt), FormatTime(a.UpdatedAt))
-		return e
+		if e != nil {
+			return e
+		}
+		return attachAnalystAllocation(ctx, tx, "logs", a.ID, a.StartKey)
 	})
 	return a, err
 }

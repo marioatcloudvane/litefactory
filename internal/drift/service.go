@@ -258,3 +258,6 @@ func (s *Service) ExpireEvidence(ctx context.Context, id string) (failure error)
 	_, err = s.Store.ExpireDriftEvidence(ctx, id)
 	return err
 }
+
+// NormalizeRequest validates and fills lower-only limits without launching work.
+func NormalizeRequest(q Request) (Request, error) { return normalize(q) }
