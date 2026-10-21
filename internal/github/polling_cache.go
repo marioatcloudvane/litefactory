@@ -61,7 +61,13 @@ func (t *pollingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 	}
 	start := t.client.clock()
-	resp, err := t.next.RoundTrip(request)
+	var resp *http.Response
+	var err error
+	if budget, ok := req.Context().Value(analysisBudgetKey{}).(*AnalysisBudget); ok && budget != nil {
+		resp, err = budget.read(t.next, request)
+	} else {
+		resp, err = t.next.RoundTrip(request)
+	}
 	observation := networkObservation(request, resp, endpoint, page)
 	if t.observe != nil {
 		t.observe(observation)

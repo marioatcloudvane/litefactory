@@ -198,6 +198,16 @@ func (db *DB) ListStandardsProposals(ctx context.Context) ([]StandardsProposalVe
 
 // SaveStandardsProposal appends a version only when expected still identifies the unpublished current version.
 func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVersion, expected int64) (StandardsProposalVersion, error) {
+	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+		var err error
+		p, err = saveStandardsProposalTx(ctx, tx, p, expected)
+		return err
+	})
+	return p, err
+}
+
+// saveStandardsProposalTx is shared by standalone edits and atomic analysis batches.
+func saveStandardsProposalTx(ctx context.Context, tx *sql.Tx, p StandardsProposalVersion, expected int64) (StandardsProposalVersion, error) {
 	if p.ProposalID == "" || expected < 0 || p.SchemaVersion != 1 || p.ChangeDigest == "" || p.ResultDigest == "" {
 		return p, errors.New("standards: invalid proposal metadata")
 	}
@@ -207,34 +217,31 @@ func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVers
 	}
 	p.Version = expected + 1
 	p.CreatedAt = nowUTC().Truncate(time.Millisecond)
-	err = db.standardsWrite(ctx, func(tx *sql.Tx) error {
-		if expected == 0 {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO standards_proposals(id,current_version) VALUES(?,?) ON CONFLICT(id) DO NOTHING`, p.ProposalID, p.Version); err != nil {
-				return err
-			}
-			var n int64
-			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM standards_proposal_versions WHERE proposal_id=?`, p.ProposalID).Scan(&n); err != nil {
-				return err
-			}
-			if n != 0 {
-				return ErrStandardsConflict
-			}
-		} else {
-			res, err := tx.ExecContext(ctx, `UPDATE standards_proposals SET current_version=? WHERE id=? AND current_version=? AND published_version IS NULL`, p.Version, p.ProposalID, expected)
-			if err != nil {
-				return err
-			}
-			n, err := res.RowsAffected()
-			if err != nil {
-				return err
-			}
-			if n != 1 {
-				return ErrStandardsConflict
-			}
+	if expected == 0 {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO standards_proposals(id,current_version) VALUES(?,?) ON CONFLICT(id) DO NOTHING`, p.ProposalID, p.Version); err != nil {
+			return p, err
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt))
-		return err
-	})
+		var n int64
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM standards_proposal_versions WHERE proposal_id=?`, p.ProposalID).Scan(&n); err != nil {
+			return p, err
+		}
+		if n != 0 {
+			return p, ErrStandardsConflict
+		}
+	} else {
+		res, err := tx.ExecContext(ctx, `UPDATE standards_proposals SET current_version=? WHERE id=? AND current_version=? AND published_version IS NULL`, p.Version, p.ProposalID, expected)
+		if err != nil {
+			return p, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return p, err
+		}
+		if n != 1 {
+			return p, ErrStandardsConflict
+		}
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt))
 	return p, err
 }
 func standardsBinding(p StandardsProposalVersion, a StandardsApproval) bool {

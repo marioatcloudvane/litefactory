@@ -303,6 +303,8 @@ category add|replace ID --proposal ID --expected-version N --name NAME [--descri
 category remove ID --proposal ID --expected-version N; category list [--proposal ID --version N]
 book current; book history; book show REVISION; book diff FROM TO
 run TASK [--run N] [--repo owner/name] [--json] (read-only retained standards inspection)
+analyze bugs start --repo owner/name --issues 123,124 --request-key KEY [--json]
+analyze bugs list|show|evidence|result (see command --help for retained inspection)
 Book and proposal results are JSON; run inspection defaults to text. Proposal input: {"base_revision":0,"operations":[...]}; edits replace the full change set.
 Review shows complete before/after changes. Approve and publish require the exact reviewed version and digest.
 Local machine access implies the configured owner. Standards text grants no factory permissions.

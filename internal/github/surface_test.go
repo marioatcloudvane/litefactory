@@ -92,7 +92,10 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"ListRepositoryCommentsPage", // bounded doctor routing metadata; no issue history expansion
 		"ListCommentsPage",           // GET one bounded /repos/{o}/{r}/issues/{n}/comments page for observation
 		"GetDeliveryHead",
-		"GetDeliveryCommit", // GET exact commit and ordered parents for Bug integration
+		"ListAnalysisPRFiles",        // GET bounded PR file observations
+		"ListAnalysisReviewComments", // GET bounded PR review discussion
+		"GetAnalysisCommit",          // GET bounded exact commit evidence
+		"GetDeliveryCommit",          // GET exact commit and ordered parents for Bug integration
 		"ListDeliveryPRs",
 		"GetDeliveryPR",
 		"CreateDeliveryPR",

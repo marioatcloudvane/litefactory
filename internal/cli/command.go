@@ -35,9 +35,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/prevention"
 	"github.com/cloudvane/litefactory/internal/rights"
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // Handler runs a command. args holds the positional arguments, validated
@@ -56,6 +59,10 @@ type Handler func(ctx context.Context, env *Env, args []string) error
 // Fields may be added as later stories need them (config, store, clock).
 // Adding a field is not a breaking change for existing commands.
 type Env struct {
+	// PreventionService supplies controlled source and isolated runner adapters in tests.
+	// Nil constructs the registered production runtime.
+	PreventionService func(context.Context, *store.DB, *config.Config, config.Paths) (*prevention.Service, error)
+
 	// TeamTransport is an HTTP test seam. Nil uses normal system TLS validation.
 	TeamTransport http.RoundTripper
 	// Stdout is where command *results* go. Printing results with
