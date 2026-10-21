@@ -39,25 +39,38 @@ func applyNodeAccess(policy WorkflowPolicy, node graphexec.Node, req Request) (R
 		if err != nil {
 			return req, fmt.Errorf("node %q read access: %w", node.Name, err)
 		}
-		// A Validate reviewer keeps Bash when its resolved profile grants it,
-		// limited to the fixed read-only reviewer rules. Every other read node
+		// A Validate reviewer or Spike investigator keeps Bash when its
+		// resolved profile grants it, as the read-only shell: the fixed
+		// read-only rules (which include the project checks), refused
+		// everything else and run in a sandbox that keeps the worktree
+		// unwritable. The profile's Bash grant is the operator's opt-in; the
+		// rule list itself is the factory's, so a reviewer is never left
+		// with a shell too narrow to run the tests. Every other read node
 		// stays shell-free.
 		var shellRules []string
-		if req.ToolProfile == "validate" && slices.Contains(req.Tools, "Bash") {
+		if readOnlyShellProfile(req.ToolProfile) && slices.Contains(req.Tools, "Bash") {
 			tools = append(tools, "Bash")
 			shellRules = config.ValidateReviewerShellRules()
 		}
-		allowed := make([]string, 0, len(req.AllowedTools))
+		allowed := make([]string, 0, len(req.AllowedTools)+len(shellRules))
 		for _, tool := range req.AllowedTools {
-			if slices.Contains(readOnlyClaudeTools, tool) || slices.Contains(shellRules, tool) {
+			if slices.Contains(readOnlyClaudeTools, tool) {
 				allowed = append(allowed, tool)
 			}
 		}
+		allowed = append(allowed, shellRules...)
 		req.Tools, req.AllowedTools = tools, allowed
 	default:
 		return req, fmt.Errorf("node %q read access is undefined for agent %q", node.Name, req.Agent)
 	}
 	return req, nil
+}
+
+// readOnlyShellProfile reports whether a read node of this resolved profile
+// may hold the read-only shell: a Validate reviewer, or a Spike investigator
+// (Spike nodes resolve under the mode's own profile name).
+func readOnlyShellProfile(profile string) bool {
+	return profile == "validate" || profile == string(agent.ModeSpike)
 }
 
 // nodeAccessLevel is the access level an agent node runs under: what its graph
@@ -90,7 +103,8 @@ func narrowTools(resolved []string) ([]string, error) {
 }
 
 // applyWriteAccess maps write access onto the tool surface a Spike fixer gets:
-// it edits files, and has no shell, delegation or network. The set is the
+// it edits files and runs the build and tests in its worktree, with no
+// delegation or network tools. The set is the
 // existing role mapping, not a copy. The result is capped by the mode's ceiling: a
 // resolved profile that grants none of the editing tools, or a read-only Codex
 // sandbox, refuses the node instead of widening the run.
@@ -117,7 +131,7 @@ func applyWriteAccess(node graphexec.Node, req Request) (Request, error) {
 				}
 			}
 		}
-		if !slices.ContainsFunc(tools, func(tool string) bool { return !slices.Contains(readOnlyClaudeTools, tool) }) {
+		if !slices.ContainsFunc(tools, func(tool string) bool { return tool == "Edit" || tool == "MultiEdit" || tool == "Write" }) {
 			return req, fmt.Errorf("node %q write access exceeds the mode ceiling: the resolved profile grants no editing tool", node.Name)
 		}
 		allowed := make([]string, 0, len(req.AllowedTools))
