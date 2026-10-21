@@ -20,6 +20,7 @@ type PreventionAnalysis struct {
 	DeadlineAt        time.Time                  `json:"deadline_at"`
 	DeliveredEvidence []string                   `json:"delivered_evidence,omitempty"`
 	Draft             json.RawMessage            `json:"draft,omitempty"`
+	Drafts            []PreventionDraft          `json:"drafts,omitempty"`
 	ID                string                     `json:"id"`
 	RequestKey        string                     `json:"request_key"`
 	ScopeDigest       string                     `json:"scope_digest"`
@@ -35,6 +36,13 @@ type PreventionAnalysis struct {
 	CreatedAt         time.Time                  `json:"created_at"`
 	UpdatedAt         time.Time                  `json:"updated_at"`
 	Proposals         []StandardsProposalVersion `json:"proposals,omitempty"`
+}
+
+// PreventionDraft preserves one invalid submission and its validation diagnostics.
+type PreventionDraft struct {
+	Draft       json.RawMessage `json:"draft"`
+	Diagnostics json.RawMessage `json:"diagnostics"`
+	CreatedAt   time.Time       `json:"created_at"`
 }
 
 // PreventionProposal is an upstream proposal and its retained causal provenance.
@@ -93,6 +101,9 @@ func (db *DB) CreatePreventionAnalysis(ctx context.Context, a PreventionAnalysis
 	a.Result = nil
 	a.Proposals = nil
 	a.ResultDigest = ""
+	a.Draft = nil
+	a.Drafts = nil
+	a.Diagnostics = nil
 	created := false
 	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
 		old, err := readPreventionAnalysis(ctx, tx, "request_key", a.RequestKey)
@@ -302,7 +313,7 @@ func (db *DB) AppendPreventionDelivery(ctx context.Context, id, attempt, evidenc
 
 // SavePreventionDraft retains invalid bounded typed submissions for inspection.
 func (db *DB) SavePreventionDraft(ctx context.Context, id, attempt string, draft, diagnostics json.RawMessage) error {
-	if len(draft) > 256*1024 || !json.Valid(draft) || len(diagnostics) > 65536 || !json.Valid(diagnostics) {
+	if len(draft) > 65536 || !json.Valid(draft) || len(diagnostics) > 65536 || !json.Valid(diagnostics) {
 		return errors.New("prevention analysis: invalid draft or diagnostics")
 	}
 	return db.standardsWrite(ctx, func(tx *sql.Tx) error {
@@ -313,6 +324,10 @@ func (db *DB) SavePreventionDraft(ctx context.Context, id, attempt string, draft
 		if err = preventionWriter(a, attempt); err != nil {
 			return err
 		}
+		if len(a.Drafts) >= 4 {
+			return errors.New("prevention analysis: correction submissions exhausted")
+		}
+		a.Drafts = append(a.Drafts, PreventionDraft{Draft: draft, Diagnostics: diagnostics, CreatedAt: nowUTC()})
 		a.Draft = draft
 		a.Diagnostics = diagnostics
 		return writePreventionAnalysis(ctx, tx, a)

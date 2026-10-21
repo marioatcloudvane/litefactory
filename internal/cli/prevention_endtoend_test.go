@@ -50,7 +50,7 @@ func TestPreventionAnalysisMainPath(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			mutations++
-			http.Error(w, "no mutation", 405)
+			http.Error(w, "no mutation", http.StatusMethodNotAllowed)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

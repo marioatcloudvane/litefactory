@@ -3,10 +3,60 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+func TestPreventionInvalidDraftHistoryRetainsEveryCorrection(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	a, _, err := db.CreatePreventionAnalysis(ctx, PreventionAnalysis{ID: "draft-history", AttemptID: "writer", RequestKey: "draft-history", ScopeDigest: "scope", Repository: "owner/repo", Scope: json.RawMessage(`{}`), Limits: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.FreezePreventionAnalysis(ctx, a.ID, a.AttemptID, json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 4 {
+		draft := json.RawMessage(fmt.Sprintf(`{"correction":%d}`, i))
+		diagnostics := json.RawMessage(fmt.Sprintf(`["diagnostic-%d"]`, i))
+		if err = db.SavePreventionDraft(ctx, a.ID, "stale", draft, diagnostics); !errors.Is(err, ErrPreventionConflict) {
+			t.Fatal("stale draft write", err)
+		}
+		if err = db.SavePreventionDraft(ctx, a.ID, a.AttemptID, draft, diagnostics); err != nil {
+			t.Fatal(err)
+		}
+	}
+	saved, err := db.GetPreventionAnalysis(ctx, a.ID)
+	if err != nil || len(saved.Drafts) != 4 {
+		t.Fatalf("retained drafts: %d, %v", len(saved.Drafts), err)
+	}
+	for i, retained := range saved.Drafts {
+		if string(retained.Draft) != fmt.Sprintf(`{"correction":%d}`, i) || string(retained.Diagnostics) != fmt.Sprintf(`["diagnostic-%d"]`, i) || retained.CreatedAt.IsZero() {
+			t.Fatalf("changed draft %d: %+v", i, retained)
+		}
+	}
+	latest := saved.Drafts[3]
+	if string(saved.Draft) != string(latest.Draft) || string(saved.Diagnostics) != string(latest.Diagnostics) {
+		t.Fatal("latest-draft compatibility fields changed")
+	}
+	if err = db.SavePreventionDraft(ctx, a.ID, a.AttemptID, json.RawMessage(`{}`), json.RawMessage(`[]`)); err == nil {
+		t.Fatal("fifth submission was accepted")
+	}
+	after, err := db.GetPreventionAnalysis(ctx, a.ID)
+	if err != nil || !reflect.DeepEqual(saved.Drafts, after.Drafts) {
+		t.Fatal("exhausted submission altered history", err)
+	}
+	if err = db.UpdatePreventionAnalysis(ctx, a.ID, a.AttemptID, "failed", json.RawMessage(`{"reason":"provider exited"}`)); err != nil {
+		t.Fatal(err)
+	}
+	after, err = db.GetPreventionAnalysis(ctx, a.ID)
+	if err != nil || !reflect.DeepEqual(saved.Drafts, after.Drafts) {
+		t.Fatal("terminal diagnostic erased draft history", err)
+	}
+}
 
 func TestPreventionAtomicFinalizationAndRecovery(t *testing.T) {
 	db := newTestDB(t)

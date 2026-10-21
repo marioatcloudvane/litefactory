@@ -254,7 +254,7 @@ func (c Collector) Collect(ctx context.Context, scope Scope) (Manifest, error) {
 		sum := sha256.Sum256([]byte(text))
 		digest := hex.EncodeToString(sum[:])
 		for _, e := range m.Evidence {
-			if e.Kind == kind && e.Locator == locator && e.Digest == digest {
+			if e.Issue == issue && e.Kind == kind && e.Locator == locator && e.Digest == digest {
 				return
 			}
 		}
@@ -312,6 +312,10 @@ func (c Collector) Collect(ctx context.Context, scope Scope) (Manifest, error) {
 		}
 		if stopped {
 			gap(issue, "issue_and_discussion", "limited", "remote collection stopped at earlier ceiling")
+			continue
+		}
+		if c.GitHub == nil {
+			gap(issue, "issue_and_discussion", "unavailable", "remote evidence adapter unavailable")
 			continue
 		}
 		report, err := c.GitHub.GetIssue(ctx, repo, issue)

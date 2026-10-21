@@ -14,6 +14,80 @@ import (
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
 
+func TestCollectorRetainsLocalEvidenceWithoutRemoteAdapter(t *testing.T) {
+	collector := Collector{
+		Redactor: redact.New(redact.Options{Environ: []string{}}),
+		Local: localEvidenceFunc(func(_ context.Context, _ string, issue, _ int) ([]LocalObservation, error) {
+			return []LocalObservation{{Kind: "diagnosis", Locator: "local cause", Body: "recorded cause", ReviewStatus: "reviewed"}}, nil
+		}),
+	}
+	manifest, err := collector.Collect(t.Context(), Scope{Repository: "o/r", Issues: []int{1, 2}, Limits: DefaultLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manifest.Frozen || manifest.Requests != 0 || len(manifest.Evidence) != 2 {
+		t.Fatalf("local evidence was not retained: %+v", manifest)
+	}
+	for _, issue := range []int{1, 2} {
+		found := false
+		for _, gap := range manifest.Coverage {
+			if gap.Issue == issue && gap.Source == "issue_and_discussion" && gap.Status == "unavailable" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("missing remote coverage gap for issue %d", issue)
+		}
+	}
+}
+
+func TestCollectorRetainsSharedFixForEachBug(t *testing.T) {
+	sha := strings.Repeat("a", 40)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/o/r/issues/1", "/repos/o/r/issues/2":
+			_ = json.NewEncoder(w).Encode(map[string]any{"body": "https://github.com/o/r/pull/3", "html_url": "https://github.com" + r.URL.Path})
+		case "/repos/o/r/issues/1/comments", "/repos/o/r/issues/2/comments", "/repos/o/r/pulls/3/comments":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/o/r/pulls/3":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 3, "number": 3, "body": "shared cause and fix", "head": map[string]any{"sha": sha}})
+		case "/repos/o/r/pulls/3/files":
+			_, _ = w.Write([]byte(`[{"filename":"file.go","patch":"+ guard"}]`))
+		default:
+			t.Errorf("unexpected source %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	client, err := github.New(github.Options{APIBase: server.URL, Token: secrets.NewToken("fixture-token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := (Collector{GitHub: client, Redactor: redact.New(redact.Options{Environ: []string{}})}).Collect(t.Context(), Scope{Repository: "o/r", Issues: []int{1, 2}, Limits: DefaultLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"fix_pr", "patch"} {
+		var first, second *Evidence
+		for i := range manifest.Evidence {
+			e := &manifest.Evidence[i]
+			if e.Kind == kind && e.Issue == 1 {
+				first = e
+			}
+			if e.Kind == kind && e.Issue == 2 {
+				second = e
+			}
+		}
+		if first == nil || second == nil {
+			t.Fatalf("shared %s evidence missing for a selected bug: %+v", kind, manifest.Evidence)
+		}
+		if first.ID == second.ID || first.Digest != second.Digest || first.Locator != second.Locator {
+			t.Errorf("shared %s evidence lost separate bug membership: %+v %+v", kind, first, second)
+		}
+	}
+}
+
 func TestCollectorStopsAtRateLimitAndRetainsSanitizedReport(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
