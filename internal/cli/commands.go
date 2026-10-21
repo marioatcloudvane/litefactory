@@ -9,6 +9,7 @@ func Commands() []*Command {
 	return []*Command{
 		newInitCommand(),
 		newStandardsCommand("", ""),
+		newStandardsRunCommand(),
 		newStandardsCommand("proposal", "create"),
 		newStandardsCommand("proposal", "edit"),
 		newStandardsCommand("proposal", "list"),

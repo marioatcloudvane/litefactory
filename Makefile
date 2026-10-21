@@ -38,6 +38,7 @@ empty :=
 space := $(empty) $(empty)
 MIXED_PACKAGES := ./internal/turn ./internal/store ./internal/cli
 RACE_TESTS_store := \
+	TestStandardsRunCompetingBindingsAndSelectionVersions \
 	TestStandardsCompetingPublications \
 	TestConversationCaptureConcurrentWinnerAndReplacement \
 	TestApprovalIsAtomicAndExcludesPendingRefinements \
@@ -145,6 +146,9 @@ RACE_TESTS_store := \
 	TestWorkflowBoundaryAmbiguousPriorEvidenceStops \
 	TestWorkflowBoundaryWorktreeCleanupRetainsAdmission
 RACE_TESTS_turn := \
+	TestStandardsEndToEndRetainedAcrossAttempts \
+	TestStandardsToolsRejectForgedScopeAndReverifyReplay \
+	TestStandardsEncodedMetadataPaging \
 	TestActivitySocketBoundsAndOrdering \
 	TestActivitySocketDurableRetryAndLifecycle \
 	TestActivitySocketConcurrentRetry \
