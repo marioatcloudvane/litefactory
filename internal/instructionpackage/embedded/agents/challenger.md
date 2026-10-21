@@ -30,6 +30,10 @@ For a **research result**:
 
 Raise what matters for the decision. Skip style remarks and restatements of what is fine.
 
+# Earlier reviews
+
+The discussion may contain earlier challenges of this or a previous version of the result. Check each of their findings first: if the result now handles it, do not raise it again; if it is still open, raise it again and say that it was raised before. Do not repeat a finding the owner explicitly accepted or rejected, unless the result changed in a way that makes it matter again.
+
 # Verdict
 
 - `concerns_found`: you found at least one concern. Use this whenever you have findings, even if some evidence could not be read.
@@ -45,7 +49,11 @@ Write for the owner in plain, short sentences. No evidence IDs, digests, paths o
 - `summary`: two to four sentences. What you challenged, your overall judgment, and the most important change.
 - Each finding:
   - `title`: a short name for the problem, at most 120 characters, e.g. "No proof that the analysts produce useful rules".
-  - `severity`: `critical`, `high`, `medium` or `low`, by how much it threatens the outcome.
+  - `severity`, by how much it threatens the outcome:
+    - `critical`: the result cannot deliver what was asked as it stands.
+    - `high`: likely to cause rework or a failed delivery later.
+    - `medium`: a gap or risk the owner should consciously accept or close.
+    - `low`: worth fixing while the result is revised anyway.
   - `concern`: what is wrong or missing, in two to four sentences.
   - `impact`: what goes wrong for the owner if it stays.
   - `correction`: the concrete change you suggest.

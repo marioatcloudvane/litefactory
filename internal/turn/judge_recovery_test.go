@@ -209,9 +209,15 @@ func TestJudgeInterruptedAndAcceptedLaunchRecovery(t *testing.T) {
 			if len(runner.calls) != 0 {
 				t.Fatal("recovery relaunched model")
 			}
-			if accepted && !strings.Contains(body, "observed-recovery-model") {
-				t.Fatal("recovery lost invocation provenance", body)
+			saved, err := service.DB.GetJudgeRequest(t.Context(), q.ID)
+			if err != nil {
+				t.Fatal(err)
 			}
+			report := decodeJudgeSavedReport(t, saved.Report)
+			if accepted && (report.Presentation.ObservedModel != "observed-recovery-model" || report.Presentation.ProviderVersion != "version-recovery" || report.Execution != "completed") {
+				t.Fatalf("recovery lost invocation provenance: %s", saved.Report)
+			}
+			assertJudgeTextWithoutProvenance(t, body)
 			if !accepted && !strings.Contains(body, "unable to assess") {
 				t.Fatal("interruption became clean verdict", body)
 			}
@@ -287,18 +293,18 @@ func TestJudgeFailedFallbackRecoveryRetainsLastInvocation(t *testing.T) {
 			if len(runner.calls) != 0 {
 				t.Fatal("failed fallback recovery launched another model")
 			}
-			for _, required := range []string{"unable to assess", "Provider: claude; model: fallback-model; thinking: medium", "fallback-observed-model", "fallback-client-version", "Availability fallback:"} {
-				if !strings.Contains(body, required) {
-					t.Fatalf("recovery lost last invocation %q: %s", required, body)
-				}
+			if !strings.Contains(body, "unable to assess") {
+				t.Fatalf("recovery became a clean verdict: %s", body)
 			}
+			assertJudgeTextWithoutProvenance(t, body)
 			saved, err := service.DB.GetJudgeRequest(t.Context(), q.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			var report judgeSavedReport
-			if err = json.Unmarshal(saved.Report, &report); err != nil {
-				t.Fatal(err)
+			report := decodeJudgeSavedReport(t, saved.Report)
+			p := report.Presentation
+			if p.Model != "fallback-model" || p.Thinking != "medium" || p.ObservedModel != "fallback-observed-model" || p.ProviderVersion != "fallback-client-version" || p.FallbackReason == "" {
+				t.Fatalf("recovery lost last invocation: %s", saved.Report)
 			}
 			if report.Presentation.Provider != "claude" || report.Presentation.Report.Verdict != "unable_to_assess" {
 				t.Fatalf("retained recovery misattributed or clean: %+v", report)

@@ -316,7 +316,7 @@ func savedJudgeText(raw []byte) (string, error) {
 	if err := json.Unmarshal(raw, &saved); err != nil {
 		return "", err
 	}
-	return JudgeText(saved.Presentation) + "\nExecution: " + saved.Execution + "\n", nil
+	return JudgeText(saved.Presentation), nil
 }
 
 func (s *JudgeService) cleanEvidence(ctx context.Context, e *JudgeEvidenceSnapshot) error {
