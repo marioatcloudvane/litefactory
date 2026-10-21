@@ -26,6 +26,8 @@ type Scope struct {
 	RepositoryIDs []int64
 	TaskRefs      []string
 	RunIDs        []int64
+	StartedAfter  time.Time
+	StartedBefore time.Time
 }
 
 // Limits may only lower the invocation defaults. Zero selects the default.
@@ -93,18 +95,19 @@ type runRepository interface {
 
 // Service owns immutable authorization and invocation-bound signed cursors.
 type Service struct {
-	db          runRepository
-	root        string
-	scope       store.PriorRunScope
-	redactor    *redact.Redactor
-	budget      *Budget
-	cutoff      time.Time
-	highWater   int64
-	key         [32]byte
-	scopeDigest string
-	ctx         context.Context
-	cancel      context.CancelFunc
-	expires     time.Time
+	db                          runRepository
+	root                        string
+	scope                       store.PriorRunScope
+	redactor                    *redact.Redactor
+	budget                      *Budget
+	cutoff                      time.Time
+	highWater                   int64
+	key                         [32]byte
+	scopeDigest                 string
+	ctx                         context.Context
+	cancel                      context.CancelFunc
+	expires                     time.Time
+	startedAfter, startedBefore time.Time
 }
 
 // New constructs a reader from trusted authority and an existing invocation budget.
@@ -114,7 +117,8 @@ func New(ctx context.Context, o Options) (*Service, error) {
 	}
 	s := &Service{db: o.Store, root: filepath.Clean(o.RunsRoot), redactor: o.Redactor, budget: o.Budget, expires: o.ExpiresAt}
 	s.scope = store.PriorRunScope{RepositoryIDs: append([]int64(nil), o.Scope.RepositoryIDs...), TaskRefs: append([]string(nil), o.Scope.TaskRefs...), RunIDs: append([]int64(nil), o.Scope.RunIDs...)}
-	s.scopeDigest = digestJSON(s.scope)
+	s.startedAfter, s.startedBefore = o.Scope.StartedAfter, o.Scope.StartedBefore
+	s.scopeDigest = digestJSON(o.Scope)
 	if _, err := rand.Read(s.key[:]); err != nil {
 		return nil, errors.New("reader unavailable")
 	}

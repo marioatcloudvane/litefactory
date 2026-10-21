@@ -22,6 +22,9 @@ type Category = store.StandardsCategory
 // Standard contains Markdown guidance and category memberships.
 type Standard = store.StandardsStandard
 
+// ExceptionPolicy is an immutable published exception eligibility policy.
+type ExceptionPolicy = store.StandardsExceptionPolicy
+
 // Snapshot is the complete contents of a retained book revision.
 type Snapshot = store.StandardsSnapshot
 
@@ -100,6 +103,7 @@ func canonical(in Snapshot) Snapshot {
 	for i := range out.Standards {
 		out.Standards[i].CategoryIDs = append([]string{}, out.Standards[i].CategoryIDs...)
 		sort.Strings(out.Standards[i].CategoryIDs)
+		out.Standards[i].ExceptionPolicy = canonicalPolicy(out.Standards[i].ExceptionPolicy)
 	}
 	sort.Slice(out.Categories, func(i, j int) bool { return out.Categories[i].ID < out.Categories[j].ID })
 	sort.Slice(out.Standards, func(i, j int) bool { return out.Standards[i].ID < out.Standards[j].ID })
@@ -122,6 +126,7 @@ func canonicalOps(ops []Operation) []Operation {
 			s := *out[i].Standard
 			s.CategoryIDs = append([]string{}, s.CategoryIDs...)
 			sort.Strings(s.CategoryIDs)
+			s.ExceptionPolicy = canonicalPolicy(s.ExceptionPolicy)
 			out[i].Standard = &s
 		}
 	}
@@ -290,6 +295,9 @@ func (s *Service) Revision(ctx context.Context, id int64) (store.StandardsRevisi
 	if r.Publication == nil {
 		return r, fmt.Errorf("%w: revision %d missing publication", store.ErrStandardsCorrupt, id)
 	}
+	if err := VerifyRevision(r); err != nil {
+		return r, err
+	}
 	proposal, err := s.Store.GetStandardsProposal(ctx, r.Publication.ProposalID, r.Publication.Version)
 	if err != nil {
 		return r, fmt.Errorf("%w: revision %d proposal: %w", store.ErrStandardsCorrupt, id, err)
@@ -433,4 +441,55 @@ func (s *Service) Inspect(ctx context.Context, id string, version int64) (Inspec
 		}
 	}
 	return out, nil
+}
+
+func canonicalPolicy(in *ExceptionPolicy) *ExceptionPolicy {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.RepositoryIDs = append([]int64(nil), in.RepositoryIDs...)
+	out.TaskRefs = append([]string(nil), in.TaskRefs...)
+	sort.Slice(out.RepositoryIDs, func(i, j int) bool { return out.RepositoryIDs[i] < out.RepositoryIDs[j] })
+	sort.Strings(out.TaskRefs)
+	return &out
+}
+
+// PolicyDigest identifies the canonical published policy, including its version.
+func PolicyDigest(policy *ExceptionPolicy) string { return digest(canonicalPolicy(policy)) }
+
+// VerifyRevision verifies a retained revision without making storage calls.
+// Callers may use it while holding a consistent store transaction.
+func VerifyRevision(r store.StandardsRevision) error {
+	if r.SchemaVersion != 1 || snapshotDigest(r.Snapshot) != r.Digest {
+		return fmt.Errorf("%w: revision %d digest/schema mismatch", store.ErrStandardsCorrupt, r.ID)
+	}
+	if err := validateSnapshot(r.Snapshot); err != nil {
+		return fmt.Errorf("%w: revision invalid: %w", store.ErrStandardsCorrupt, err)
+	}
+	if r.Publication == nil {
+		return fmt.Errorf("%w: missing publication", store.ErrStandardsCorrupt)
+	}
+	p := r.Publication
+	a := p.Approval
+	if p.RevisionID != r.ID || p.BaseRevision != r.ParentRevision || p.ResultDigest != r.Digest || p.Owner == "" || p.Provenance != "local-cli" || a.ProposalID != p.ProposalID || a.Version != p.Version || a.BaseRevision != p.BaseRevision || a.ChangeDigest != p.ChangeDigest || a.ResultDigest != p.ResultDigest || a.Owner != p.Owner || a.Provenance != "local-cli" {
+		return fmt.Errorf("%w: publication binding mismatch", store.ErrStandardsCorrupt)
+	}
+	return nil
+}
+
+// Prepare validates an unapproved proposal against an already verified retained
+// snapshot, without writing or resolving a later published head.
+func Prepare(id string, base int64, before Snapshot, ops []Operation, author string) (store.StandardsProposalVersion, error) {
+	if strings.TrimSpace(id) == "" || base < 1 {
+		return store.StandardsProposalVersion{}, ErrInvalid
+	}
+	if err := validateSnapshot(before); err != nil {
+		return store.StandardsProposalVersion{}, err
+	}
+	after, err := apply(before, ops)
+	if err != nil {
+		return store.StandardsProposalVersion{}, err
+	}
+	return store.StandardsProposalVersion{ProposalID: id, Version: 1, BaseRevision: base, SchemaVersion: 1, Operations: canonicalOps(ops), ChangeDigest: changeDigest(base, ops), ResultDigest: snapshotDigest(after), Author: author}, nil
 }
