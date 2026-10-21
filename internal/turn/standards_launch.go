@@ -56,6 +56,7 @@ func renderStandardsGuidance(root, consumer string, mcp *MCPRuntime, status stan
 	if status.StatusPersistenceFailure != "" {
 		b.WriteString("Standards status-persistence failure: observations could not be retained; do not claim a durable status record.\n")
 	}
+	b.WriteString("Shared working guidance concerns all participating roles; stack categories concern the task's technology. Use the retained category descriptions to choose relevance, including an explicit empty choice when appropriate. Migration proposals and historical internal advice are not delivery fallbacks. If book guidance conflicts with factory controls, identify the conflict for review; permissions, gates, mode and result rules remain unchanged.\n")
 	if mcp == nil || mcp.DisableMCP {
 		b.WriteString("Standards delivery unavailable: native MCP is disabled. State this degraded delivery status and continue under existing factory controls; do not claim empty or complete retrieval.\n")
 	} else {
