@@ -90,9 +90,13 @@ func (d *Daemon) recoverSource(ctx context.Context, q *repoQueue, now time.Time)
 	if err != nil {
 		return false, err
 	}
-	container, err := discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "recovery-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
-		return clients.Tickets.ContainerIdentity(ctx, version.Destination)
-	})
+	// A settled scope observation spends no discovery budget step.
+	container, hit, err := cachedContainerIdentity(ctx, version.ID, 0)
+	if !hit {
+		container, err = discoveryCall(ctx, d, discoveryKey(q.forgeRepo, "recovery-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
+			return tickContainerIdentity(ctx, clients.Tickets, version.ID, 0, version.Destination)
+		})
+	}
 	if err != nil {
 		return false, err
 	}
@@ -420,9 +424,13 @@ func (d *Daemon) drainTicketObservations(ctx context.Context, byRepo map[int64]*
 				q.log.WarnContext(ctx, "pending source credentials unavailable")
 				continue
 			}
-			container, e = discoveryCall(readCtx, d, discoveryKey(targetQueue.forgeRepo, "pending-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
-				return clients.Tickets.ContainerIdentity(ctx, version.Destination)
-			})
+			var hit bool
+			container, hit, e = cachedContainerIdentity(readCtx, version.ID, actorID)
+			if !hit {
+				container, e = discoveryCall(readCtx, d, discoveryKey(targetQueue.forgeRepo, "pending-container", 0), 1, func(ctx context.Context) (ticket.Identity, error) {
+					return tickContainerIdentity(ctx, clients.Tickets, version.ID, actorID, version.Destination)
+				})
+			}
 			if e != nil {
 				failedSources[observation.ConnectionVersionID] = true
 				if !d.scopedQuotaDeferred(readCtx, e) {

@@ -50,6 +50,11 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		return false, errors.New("plan child routing requires direct parent observation")
 	}
 	ids := d.ticketIdentities(ctx)
+	// One repository inspection serves this pass's child observation and
+	// handoff reads. Judge, doctor, explanation and turn steps keep ctx, which
+	// has no live scope, so their ticket effects check freshly.
+	obsCtx, checks := withContainerChecks(ctx)
+	defer checks.close()
 	for _, draft := range drafts {
 		if draft.IssueNumber < 1 {
 			continue
@@ -72,7 +77,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		if err != nil {
 			return false, err
 		}
-		child, available, err := d.observePlanChild(ctx, t, draft, relation)
+		child, available, err := d.observePlanChild(obsCtx, t, draft, relation)
 		if err != nil {
 			return false, err
 		}
@@ -129,7 +134,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		} else if task && child.State == "open" {
 			// Transfer durable polling responsibility before retiring the parent's
 			// discovery debt, including observations received while awaiting review.
-			session, err := d.managedChildSession(ctx, t.repo, story.Parent, story.IssueNumber, story.IssueID)
+			session, err := d.managedChildSession(obsCtx, t.repo, story.Parent, story.IssueNumber, story.IssueID)
 			if err != nil {
 				return false, err
 			}
@@ -166,7 +171,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		if err != nil {
 			return false, err
 		}
-		comments, err := d.discoveryComments(ctx, t.forgeRepo, draft.IssueNumber, after)
+		comments, err := d.discoveryComments(obsCtx, t.forgeRepo, draft.IssueNumber, after)
 		if err != nil {
 			return false, err
 		}
