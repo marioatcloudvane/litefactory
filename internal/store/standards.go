@@ -198,6 +198,14 @@ func (db *DB) ListStandardsProposals(ctx context.Context) ([]StandardsProposalVe
 
 // SaveStandardsProposal appends a version only when expected still identifies the unpublished current version.
 func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVersion, expected int64) (StandardsProposalVersion, error) {
+	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+		var e error
+		p, e = saveStandardsProposalTx(ctx, tx, p, expected)
+		return e
+	})
+	return p, err
+}
+func saveStandardsProposalTx(ctx context.Context, tx *sql.Tx, p StandardsProposalVersion, expected int64) (StandardsProposalVersion, error) {
 	if p.ProposalID == "" || expected < 0 || p.SchemaVersion != 1 || p.ChangeDigest == "" || p.ResultDigest == "" {
 		return p, errors.New("standards: invalid proposal metadata")
 	}
@@ -207,7 +215,7 @@ func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVers
 	}
 	p.Version = expected + 1
 	p.CreatedAt = nowUTC().Truncate(time.Millisecond)
-	err = db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err = func() error {
 		if expected == 0 {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO standards_proposals(id,current_version) VALUES(?,?) ON CONFLICT(id) DO NOTHING`, p.ProposalID, p.Version); err != nil {
 				return err
@@ -234,7 +242,7 @@ func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVers
 		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt))
 		return err
-	})
+	}()
 	return p, err
 }
 func standardsBinding(p StandardsProposalVersion, a StandardsApproval) bool {
