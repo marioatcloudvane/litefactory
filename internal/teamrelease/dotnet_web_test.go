@@ -241,6 +241,9 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if mode == "implement" {
 			shared = legacyImplementSourceWithoutOwnerResumeSync(t, shared)
 		}
+		if mode == "spike" {
+			shared = legacySpikeSourceWithoutRepair(t, shared)
+		}
 		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
 		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))
 		if !bytes.Equal(want, released) && (mode != "implement" || !pendingWorkerSyncMatchesRelease(want, released)) {
