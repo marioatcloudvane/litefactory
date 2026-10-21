@@ -200,6 +200,9 @@ func isPlanArchiveTable(name string) bool { return strings.HasPrefix(name, "plan
 
 // archiveRetained classifies every table the archive never deletes from.
 var archiveRetained = map[string]ArchiveClass{
+	// Standalone bounded analyses are not members of an issue-task archive.
+	"drift_analyses": ArchiveClassGlobal, "drift_analyst_runs": ArchiveClassGlobal,
+	"drift_evidence": ArchiveClassGlobal, "drift_receipts": ArchiveClassGlobal, "drift_proposal_links": ArchiveClassGlobal,
 	"judge_requests": ArchiveClassSkeleton, "judge_attempts": ArchiveClassSkeleton, "judge_source_commits": ArchiveClassGlobal,
 	// The family skeleton and the per-task structure that identifies it.
 	"sessions": ArchiveClassSkeleton, "segments": ArchiveClassSkeleton, "runs": ArchiveClassSkeleton,
@@ -289,7 +292,12 @@ var archiveRetained = map[string]ArchiveClass{
 	"standards_categories": ArchiveClassGlobal, "standards_standards": ArchiveClassGlobal,
 	"standards_memberships": ArchiveClassGlobal, "standards_proposals": ArchiveClassGlobal,
 	"standards_proposal_versions": ArchiveClassGlobal, "standards_approvals": ArchiveClassGlobal,
-	"standards_publications": ArchiveClassGlobal,
+	"standards_publications":       ArchiveClassGlobal,
+	"standards_authoring_sessions": ArchiveClassGlobal, "standards_authoring_versions": ArchiveClassGlobal,
+	"standards_authoring_attempts": ArchiveClassGlobal, "standards_authoring_completions": ArchiveClassGlobal,
+	"standards_exception_policies": ArchiveClassGlobal, "standards_exception_proposals": ArchiveClassGlobal,
+	"standards_exception_approvals": ArchiveClassGlobal, "standards_exception_revocations": ArchiveClassGlobal,
+	"prevention_analyses": ArchiveClassGlobal, "prevention_analysis_proposals": ArchiveClassGlobal,
 	// Standalone log analyses span selected prior task families and retain their
 	// own reports and evidence metadata independently of source-run archival.
 	"log_analyses": ArchiveClassGlobal, "log_analysis_books": ArchiveClassGlobal,

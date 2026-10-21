@@ -24,6 +24,7 @@ type MeterTokens struct {
 
 // MeterAttempt identifies one execution, including an unsuccessful launch.
 type MeterAttempt struct {
+	AuthoringSessionID              string
 	DoctorAttemptID                 string
 	JudgeAttemptID                  string
 	ChatRepoID                      int64
@@ -399,6 +400,6 @@ func readMeterLedger(ctx context.Context, tx *sql.Tx, o MeterObservation) (Meter
 // GetMeterAttempt reads an attempt outcome without reconstructing run logs.
 func (db *DB) GetMeterAttempt(ctx context.Context, id string) (MeterAttempt, error) {
 	var a MeterAttempt
-	err := db.sql.QueryRowContext(ctx, `SELECT id,COALESCE(run_id,0),ordinal,coding_agent,price_revision_id,outcome,provider_reported_zero_cost_refusal,COALESCE(doctor_attempt_id,''),COALESCE(chat_repo_id,0),COALESCE(judge_attempt_id,'') FROM meter_attempts WHERE id=?`, id).Scan(&a.ID, &a.RunID, &a.Ordinal, &a.CodingAgent, &a.PriceRevisionID, &a.Outcome, &a.ProviderReportedZeroCostRefusal, &a.DoctorAttemptID, &a.ChatRepoID, &a.JudgeAttemptID)
+	err := db.sql.QueryRowContext(ctx, `SELECT id,COALESCE(run_id,0),ordinal,coding_agent,price_revision_id,outcome,provider_reported_zero_cost_refusal,COALESCE(doctor_attempt_id,''),COALESCE(chat_repo_id,0),COALESCE(judge_attempt_id,''),COALESCE(authoring_session_id,'') FROM meter_attempts WHERE id=?`, id).Scan(&a.ID, &a.RunID, &a.Ordinal, &a.CodingAgent, &a.PriceRevisionID, &a.Outcome, &a.ProviderReportedZeroCostRefusal, &a.DoctorAttemptID, &a.ChatRepoID, &a.JudgeAttemptID, &a.AuthoringSessionID)
 	return a, err
 }

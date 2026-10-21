@@ -19,7 +19,7 @@ import (
 )
 
 func newLogAnalysisCommand(action string) *Command {
-	name := "standards analysis " + action
+	name := "standards analyze logs " + action
 	if action == "start" {
 		name = "standards analyze logs"
 	}
@@ -223,7 +223,7 @@ func newLogAnalysisCommand(action string) *Command {
 					}
 				}
 				svc.Started = func(id string) error {
-					_, e := fmt.Fprintf(env.Stderr, "Saved analysis %s; inspect with standards analysis show %s\n", id, id)
+					_, e := fmt.Fprintf(env.Stderr, "Saved analysis %s; inspect with standards analyze logs show %s\n", id, id)
 					return e
 				}
 				a, e := svc.Start(ctx, q)
@@ -243,9 +243,9 @@ func newLogAnalysisCommand(action string) *Command {
 }
 
 const logAnalysisUsage = `Start: standards analyze logs --repo forge:owner/name (--run ID [--run ID] | --after UTC --before UTC).
-Inspect: standards analysis list; standards analysis show ID [--json] [--after ROW --limit N].
-Reread: standards analysis reread ID --citation JSON. This is a separate bounded owner-authorized pass.
-Recovery: standards analysis recover ID after its deadline; accepted results remain unchanged. A start-key retry only returns the original invocation.
+Inspect: standards analyze logs list; standards analyze logs show ID [--json] [--after ROW --limit N].
+Reread: standards analyze logs reread ID --citation JSON. This is a separate bounded owner-authorized pass.
+Recovery: standards analyze logs recover ID after its deadline; accepted results remain unchanged. A start-key retry only returns the original invocation.
 Defaults: five evidence runs, 100 records, 50 discovery rows, ten data calls, 32 KiB encoded evidence; one model invocation, ten minutes, 40 broker calls, 256 KiB encoded outbound data, 128 KiB report, ten proposals. Limits may only be lowered.
 Requested, discovered, offered and cited evidence differ; unread runs, unknown interval remainder, omissions and exhausted limits are coverage gaps. EOF describes retained source only.
 Retained references do not extend log retention. Rereads may report missing or changed sources. Known-secret redaction cannot remove every unknown secret or personal detail.

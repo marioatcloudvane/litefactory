@@ -121,7 +121,7 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 	if receipt.AnalysisID == "" || receipt.Disposition != "proposals" || len(receipt.Proposals) != 1 {
 		t.Fatalf("receipt=%+v; start=%s", receipt, started)
 	}
-	viewJSON := runCommand("standards", "analysis", "show", receipt.AnalysisID, "--json")
+	viewJSON := runCommand("standards", "analyze", "logs", "show", receipt.AnalysisID, "--json")
 	view := analysisDecode[loganalysis.Inspection](t, []byte(viewJSON))
 	if view.Invocation.ID != receipt.AnalysisID || view.Invocation.State != "completed" || view.Invocation.Disposition != "proposals" {
 		t.Fatalf("reopened invocation=%+v", view.Invocation)
@@ -152,13 +152,13 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 	if strings.Contains(viewJSON, secret) || strings.Contains(viewJSON, logPath) || strings.Contains(viewJSON, "A package check caught a regression before review.") {
 		t.Fatalf("inspection retained secret, private path or source body: %s", viewJSON)
 	}
-	text := runCommand("standards", "analysis", "show", receipt.AnalysisID)
+	text := runCommand("standards", "analyze", "logs", "show", receipt.AnalysisID)
 	for _, want := range []string{receipt.AnalysisID, "proposals", "relevant-checks", receipt.Proposals[0].ProposalID, receipt.Proposals[0].ChangeDigest, receipt.Proposals[0].ResultDigest, view.Standards.Status.Binding.Digest, "categories [quality]", "Limits:", report.Findings[0].Observation} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text inspection missing %q: %s", want, text)
 		}
 	}
-	listed := runCommand("standards", "analysis", "list", "--json")
+	listed := runCommand("standards", "analyze", "logs", "list", "--json")
 	if !strings.Contains(listed, receipt.AnalysisID) {
 		t.Fatalf("list missing analysis: %s", listed)
 	}
@@ -170,7 +170,7 @@ func TestLogAnalysisEndToEndNoninteractiveRetainedProposal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rereadJSON := runCommand("standards", "analysis", "reread", receipt.AnalysisID, "--citation", string(citationJSON))
+	rereadJSON := runCommand("standards", "analyze", "logs", "reread", receipt.AnalysisID, "--citation", string(citationJSON))
 	reread := analysisDecode[logevidence.Result](t, []byte(rereadJSON))
 	if len(reread.Records) != 1 || reread.Records[0].Citation != report.Findings[0].Citations[0] || strings.Contains(rereadJSON, secret) {
 		t.Fatalf("separate citation reread lost provenance or redaction: %+v", reread)

@@ -31,6 +31,7 @@ type RuntimeStore interface {
 
 // Runtime is constructed with factory-owned invocation and consumer identities.
 type Runtime struct {
+	OutputLimit                       int // Optional lower encoded MCP page limit for standalone consumers.
 	Store                             RuntimeStore
 	RootRunID, ConsumerKey, AttemptID string
 }
@@ -435,7 +436,7 @@ func (r *Runtime) Categories(ctx context.Context, size int, cursor string) (Cate
 		} else {
 			out.NextCursor = ""
 		}
-		if !FitsMCPResult(out) {
+		if !r.fitsResult(out) {
 			out.Categories = out.Categories[:len(out.Categories)-1]
 			delete(out.StandardCounts, candidate.ID)
 			if selected {
@@ -634,7 +635,7 @@ func (r *Runtime) Read(ctx context.Context, version int64, selectionDigest, curs
 		} else {
 			out.NextCursor = ""
 		}
-		if FitsMCPResult(out) {
+		if r.fitsResult(out) {
 			break
 		}
 		if end == c.Offset {
@@ -709,4 +710,16 @@ func verifyRunSelection(selection store.StandardsRunSelection, snapshot Snapshot
 		return "retained selection digest mismatch"
 	}
 	return ""
+}
+
+func (r *Runtime) fitsResult(v any) bool {
+	if r.OutputLimit == 0 {
+		return FitsMCPResult(v)
+	}
+	b, e := json.Marshal(v)
+	if e != nil {
+		return false
+	}
+	t, _ := json.Marshal(string(b))
+	return len(b)+len(t)+1024 <= min(r.OutputLimit, 32<<10)
 }

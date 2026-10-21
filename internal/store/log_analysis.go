@@ -387,16 +387,13 @@ func (db *DB) FinalizeLogAnalysis(ctx context.Context, f LogAnalysisFinalization
 				return errors.New("log analysis: invalid prepared proposal")
 			}
 			seen[c.Key] = true
-			ops, e := json.Marshal(p.Operations)
-			if e != nil {
-				return e
-			}
 			p.Version = 1
+			var e error
 			p.CreatedAt, e = ParseTime(stamp)
 			if e != nil {
 				return e
 			}
-			if e = saveStandardsProposalTx(ctx, tx, p, 0, ops); e != nil {
+			if _, e = saveStandardsProposalTx(ctx, tx, p, 0); e != nil {
 				return e
 			}
 			r.Proposals = append(r.Proposals, LogAnalysisProposalLink{CandidateKey: c.Key, ProposalID: p.ProposalID, Version: 1, BaseRevision: p.BaseRevision, ChangeDigest: p.ChangeDigest, ResultDigest: p.ResultDigest})

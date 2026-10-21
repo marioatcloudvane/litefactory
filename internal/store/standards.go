@@ -26,12 +26,24 @@ type StandardsCategory struct {
 	Description string `json:"description"`
 }
 
+// StandardsExceptionPolicy is the reviewed revision-specific limit on exceptions.
+// A missing policy denies exceptions.
+type StandardsExceptionPolicy struct {
+	Version                   int      `json:"version"`
+	Mode                      string   `json:"mode"`
+	AllRegisteredRepositories bool     `json:"all_registered_repositories,omitempty"`
+	RepositoryIDs             []int64  `json:"repository_ids,omitempty"`
+	TaskRefs                  []string `json:"task_refs,omitempty"`
+	MaxLifetimeSeconds        int64    `json:"max_lifetime_seconds,omitempty"`
+}
+
 // StandardsStandard retains guidance and its category memberships together.
 type StandardsStandard struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Body        string   `json:"body"`
-	CategoryIDs []string `json:"category_ids"`
+	ID              string                    `json:"id"`
+	Title           string                    `json:"title"`
+	Body            string                    `json:"body"`
+	CategoryIDs     []string                  `json:"category_ids"`
+	ExceptionPolicy *StandardsExceptionPolicy `json:"exception_policy,omitempty"`
 }
 
 // StandardsSnapshot is a complete book, independent of later edits.
@@ -198,6 +210,16 @@ func (db *DB) ListStandardsProposals(ctx context.Context) ([]StandardsProposalVe
 
 // SaveStandardsProposal appends a version only when expected still identifies the unpublished current version.
 func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVersion, expected int64) (StandardsProposalVersion, error) {
+	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+		var err error
+		p, err = saveStandardsProposalTx(ctx, tx, p, expected)
+		return err
+	})
+	return p, err
+}
+
+// saveStandardsProposalTx is shared by standalone edits and atomic analysis batches.
+func saveStandardsProposalTx(ctx context.Context, tx *sql.Tx, p StandardsProposalVersion, expected int64) (StandardsProposalVersion, error) {
 	if p.ProposalID == "" || expected < 0 || p.SchemaVersion != 1 || p.ChangeDigest == "" || p.ResultDigest == "" {
 		return p, errors.New("standards: invalid proposal metadata")
 	}
@@ -206,43 +228,38 @@ func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVers
 		return p, err
 	}
 	p.Version = expected + 1
-	p.CreatedAt = nowUTC().Truncate(time.Millisecond)
-	err = db.standardsWrite(ctx, func(tx *sql.Tx) error {
-		return saveStandardsProposalTx(ctx, tx, p, expected, ops)
-	})
-	return p, err
-}
-
-// saveStandardsProposalTx appends an upstream proposal version inside the caller transaction.
-func saveStandardsProposalTx(ctx context.Context, tx *sql.Tx, p StandardsProposalVersion, expected int64, ops []byte) error {
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = nowUTC().Truncate(time.Millisecond)
+	}
 	if expected == 0 {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO standards_proposals(id,current_version) VALUES(?,?) ON CONFLICT(id) DO NOTHING`, p.ProposalID, p.Version); err != nil {
-			return err
+			return p, err
 		}
 		var n int64
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM standards_proposal_versions WHERE proposal_id=?`, p.ProposalID).Scan(&n); err != nil {
-			return err
+			return p, err
 		}
 		if n != 0 {
-			return ErrStandardsConflict
+			return p, ErrStandardsConflict
 		}
 	} else {
 		res, err := tx.ExecContext(ctx, `UPDATE standards_proposals SET current_version=? WHERE id=? AND current_version=? AND published_version IS NULL`, p.Version, p.ProposalID, expected)
 		if err != nil {
-			return err
+			return p, err
 		}
 		n, err := res.RowsAffected()
 		if err != nil {
-			return err
+			return p, err
 		}
 		if n != 1 {
-			return ErrStandardsConflict
+			return p, ErrStandardsConflict
 		}
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt))
-	return err
+	_, err = tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt))
+	return p, err
 }
 
+// saveStandardsProposalTx appends an upstream proposal version inside the caller transaction.
 func standardsBinding(p StandardsProposalVersion, a StandardsApproval) bool {
 	return p.ProposalID == a.ProposalID && p.Version == a.Version && p.BaseRevision == a.BaseRevision && p.ChangeDigest == a.ChangeDigest && p.ResultDigest == a.ResultDigest
 }
@@ -367,6 +384,33 @@ func readStandardsRevision(ctx context.Context, tx *sql.Tx, id int64) (Standards
 	indices := map[string]int{}
 	for i, s := range r.Snapshot.Standards {
 		indices[s.ID] = i
+	}
+	rows, err = tx.QueryContext(ctx, `SELECT standard_id,policy_json FROM standards_exception_policies WHERE revision_id=? ORDER BY standard_id`, id)
+	if err != nil {
+		return r, err
+	}
+	for rows.Next() {
+		var sid, payload string
+		if err := rows.Scan(&sid, &payload); err != nil {
+			_ = rows.Close()
+			return r, err
+		}
+		i, ok := indices[sid]
+		if !ok {
+			_ = rows.Close()
+			return r, ErrStandardsCorrupt
+		}
+		var policy StandardsExceptionPolicy
+		if err := json.Unmarshal([]byte(payload), &policy); err != nil {
+			_ = rows.Close()
+			return r, fmt.Errorf("%w: policy: %w", ErrStandardsCorrupt, err)
+		}
+		r.Snapshot.Standards[i].ExceptionPolicy = &policy
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	if err != nil {
+		return r, err
 	}
 	rows, err = tx.QueryContext(ctx, `SELECT standard_id,category_id FROM standards_memberships WHERE revision_id=? ORDER BY standard_id,category_id`, id)
 	if err != nil {
@@ -542,6 +586,15 @@ func (db *DB) PublishStandardsProposal(ctx context.Context, p StandardsProposalV
 		for _, s := range snapshot.Standards {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO standards_standards(revision_id,id,title,body) VALUES(?,?,?,?)`, id, s.ID, s.Title, s.Body); err != nil {
 				return err
+			}
+			if s.ExceptionPolicy != nil {
+				payload, err := json.Marshal(s.ExceptionPolicy)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.ExecContext(ctx, `INSERT INTO standards_exception_policies(revision_id,standard_id,policy_json) VALUES(?,?,?)`, id, s.ID, string(payload)); err != nil {
+					return err
+				}
 			}
 			for _, cid := range s.CategoryIDs {
 				if _, err := tx.ExecContext(ctx, `INSERT INTO standards_memberships(revision_id,standard_id,category_id) VALUES(?,?,?)`, id, s.ID, cid); err != nil {

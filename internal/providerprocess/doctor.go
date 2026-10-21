@@ -58,6 +58,14 @@ func RunChatProcess(ctx context.Context, binary string, args, env []string, requ
 	return runScopedDoctorProcess(ctx, binary, args, env, agent.DoctorRequest{Prompt: request.Prompt, WorkingDirectory: request.WorkingDirectory}, timeout, observe)
 }
 
+// RunDriftProcess is bounded transport; the provider owns restricted admission.
+func RunDriftProcess(ctx context.Context, binary string, args, env []string, request agent.DriftRequest, timeout time.Duration, observe func([]byte)) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	return runScopedDoctorProcess(ctx, binary, args, env, request.Invocation, timeout, observe)
+}
+
 func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) error {
 	return runScopedProcess(ctx, binary, args, env, request.Prompt, request.WorkingDirectory, timeout, observe, cancelProcess...)
 }
@@ -167,4 +175,12 @@ func DoctorEnvironment(parent []string, privateHome string) []string {
 		}
 	}
 	return result
+}
+
+// RunPreventionProcess validates the exact advisory catalog before bounded I/O.
+func RunPreventionProcess(ctx context.Context, binary string, args, env []string, request agent.PreventionRequest, timeout time.Duration, observe func([]byte)) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	return runScopedDoctorProcess(ctx, binary, args, env, request.Invocation, timeout, observe)
 }

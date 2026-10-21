@@ -387,11 +387,11 @@ func TestEveryEndpointGoesThroughTheSDK(t *testing.T) {
 		for i, line := range strings.Split(string(contents), "\n") {
 			for _, needle := range handRolled {
 				if strings.Contains(line, needle) {
-					// Polling revalidation wraps the SDK's existing authenticated
-					// transport. This single delegation cannot construct endpoints
-					// or introduce a second credential path; keep every other
-					// hand-written request and RoundTrip call prohibited.
-					if name == "polling_cache.go" && needle == ".RoundTrip(" && strings.TrimSpace(line) == "resp, err := t.next.RoundTrip(request)" {
+					// Polling revalidation and bounded analysis wrap the SDK's
+					// authenticated transport without constructing endpoints. Keep
+					// all other hand-written requests and delegations prohibited.
+					if needle == ".RoundTrip(" && ((name == "polling_cache.go" && strings.TrimSpace(line) == "resp, err = t.next.RoundTrip(request)") ||
+						(name == "analysis_bounds.go" && strings.TrimSpace(line) == "resp, err := next.RoundTrip(req)")) {
 						continue
 					}
 					t.Errorf("%s:%d builds or sends an HTTP request by hand (%s): %s\n\n"+
