@@ -27,6 +27,16 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 	if route != "graph" {
 		return false, nil
 	}
+	// Handing polling to a story's own Plan task belongs to planning. Once the
+	// feature is promoted the stories are locked; re-handing every child on every
+	// parent turn kept the parent from its own comments. Lifecycle observation
+	// below still runs.
+	planning := true
+	if f, err := d.db.GetManagedFeature(ctx, t.ref.String()); err == nil {
+		planning = f.State == "planning"
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
 	state, _, err := d.db.GetPlanWorkflowState(ctx, t.ref.String())
 	if err != nil {
 		return false, err
@@ -40,6 +50,11 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		return false, errors.New("plan child routing requires direct parent observation")
 	}
 	ids := d.ticketIdentities(ctx)
+	// One repository inspection serves this pass's child observation and
+	// handoff reads. Judge, doctor, explanation and turn steps keep ctx, which
+	// has no live scope, so their ticket effects check freshly.
+	obsCtx, checks := withContainerChecks(ctx)
+	defer checks.close()
 	for _, draft := range drafts {
 		if draft.IssueNumber < 1 {
 			continue
@@ -62,7 +77,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		if err != nil {
 			return false, err
 		}
-		child, available, err := d.observePlanChild(ctx, t, draft, relation)
+		child, available, err := d.observePlanChild(obsCtx, t, draft, relation)
 		if err != nil {
 			return false, err
 		}
@@ -111,10 +126,15 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		// own stages; the parent only observes its issue.
 		if story, task, taskErr := d.db.GraphPlanStoryAt(ctx, t.repo.ID, draft.IssueNumber); taskErr != nil {
 			return false, taskErr
+		} else if task && child.State == "open" && !planning {
+			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
+				return false, err
+			}
+			continue
 		} else if task && child.State == "open" {
 			// Transfer durable polling responsibility before retiring the parent's
 			// discovery debt, including observations received while awaiting review.
-			session, err := d.managedChildSession(ctx, t.repo, story.Parent, story.IssueNumber, story.IssueID)
+			session, err := d.managedChildSession(obsCtx, t.repo, story.Parent, story.IssueNumber, story.IssueID)
 			if err != nil {
 				return false, err
 			}
@@ -151,7 +171,7 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		if err != nil {
 			return false, err
 		}
-		comments, err := d.discoveryComments(ctx, t.forgeRepo, draft.IssueNumber, after)
+		comments, err := d.discoveryComments(obsCtx, t.forgeRepo, draft.IssueNumber, after)
 		if err != nil {
 			return false, err
 		}

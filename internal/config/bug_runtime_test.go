@@ -31,9 +31,17 @@ func TestBugRuntimeOptionalRoleConfiguration(t *testing.T) {
 	if errs := validateBugRoleProfile(&c, "bug-analyst", analystShell); len(errs) == 0 {
 		t.Fatal("Claude analyst shell accepted")
 	}
-	spikeShell := ToolProfile{Claude: &ToolProfileClaude{Tools: []string{"Read", "Edit", "Bash"}}}
-	if errs := validateBugRoleProfile(&c, SpikeFixerProfile, spikeShell); len(errs) == 0 {
-		t.Fatal("Claude Spike fixer shell accepted")
+	spikeShell := ToolProfile{Claude: &ToolProfileClaude{Tools: []string{"Read", "Edit", "Bash"}, AllowedTools: []string{"Read", "Edit", "Bash(go test:*)"}}}
+	if errs := validateBugRoleProfile(&c, SpikeFixerProfile, spikeShell); len(errs) != 0 {
+		t.Fatalf("Claude Spike fixer contained shell refused: %v", errs)
+	}
+	spikeDelegation := ToolProfile{Claude: &ToolProfileClaude{Tools: []string{"Read", "Edit", "Bash", "Task"}}}
+	if errs := validateBugRoleProfile(&c, SpikeFixerProfile, spikeDelegation); len(errs) == 0 {
+		t.Fatal("Claude Spike fixer delegation accepted")
+	}
+	investigatorEdit := ToolProfile{Claude: &ToolProfileClaude{Tools: []string{"Read", "Bash", "Edit"}}}
+	if errs := validateBugRoleProfile(&c, SpikeInvestigatorProfile, investigatorEdit); len(errs) == 0 {
+		t.Fatal("Claude Spike investigator edit accepted")
 	}
 	c.Agents.Claude = nil
 	c.ToolProfiles.Permissions["bug-fixer"] = ToolProfile{Codex: &ToolProfileCodex{Sandbox: "workspace-write"}}

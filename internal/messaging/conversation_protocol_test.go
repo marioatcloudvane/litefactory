@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 	"strings"
 	"testing"
@@ -83,5 +84,60 @@ func TestConversationExplicitTargetWinsHistory(t *testing.T) {
 	raw := []byte(`{"version":1,"kind":"propose","command":"diagnose","arguments":[{"name":"issue","source_id":"old","start":0,"end":2}]}`)
 	if _, _, err := DecodeConversationEnvelope(raw, request); err == nil {
 		t.Fatal("previous target replaced current explicit target")
+	}
+}
+
+func TestConversationEnvelopeGuardsRecordsNotWords(t *testing.T) {
+	request := ConversationDecodeRequest{Turns: []DialogueTurn{{SourceID: "s1", Text: "where is 728 at?"}}, Commands: []CommandDefinition{{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Arguments: []Argument{{Name: "issue", Type: IntegerArgument}}}}}
+	answer := func(text string) string {
+		raw, _ := json.Marshal(ConversationEnvelope{Version: 1, Kind: "answer", Blocks: []presentation.AnswerBlock{{Text: text, FactRefs: []string{"t1-fact-3"}}}})
+		return string(raw)
+	}
+	for _, text := range []string{
+		"The three most recent runs (8, 9 and 10) were all planning runs.",
+		"It is in implement mode, at a stage that is still listed as running.",
+		"There is no evidence of a failure; the research question is still unanswered.",
+		"Story #990 is merged; see the page for the details.",
+	} {
+		if _, _, err := DecodeConversationEnvelope([]byte(answer(text)), request); err != nil {
+			t.Errorf("plain answer rejected: %q: %v", text, err)
+		}
+	}
+	for _, text := range []string{
+		"github:acme/litefactory#728: failed.",
+		"Stage: await (running); story-001: acceptance.",
+		"Recent runs (newest first, limit 3): 10: succeeded (plan);",
+		"See dd8754eb1070a35be1e0fa6b1beac0f3-fact-3.",
+		"Source: factory:status.",
+		"Results are on page 1 of 3.",
+	} {
+		_, _, err := DecodeConversationEnvelope([]byte(answer(text)), request)
+		if !errors.Is(err, ErrConversationEnvelope) || conversationEnvelopeReason(err) == "" {
+			t.Errorf("raw record accepted or unexplained: %q: %v", text, err)
+		}
+	}
+}
+
+func TestConversationEnvelopeExtractsSingleObject(t *testing.T) {
+	request := ConversationDecodeRequest{Turns: []DialogueTurn{{SourceID: "s1", Text: "where is 728 at?"}}, Commands: []CommandDefinition{{Name: "status", NaturalLanguage: true, Effect: ReadEffect, Arguments: []Argument{{Name: "issue", Type: IntegerArgument}}}}}
+	lookup := `{"version":1,"kind":"lookup","command":"status","arguments":[{"name":"issue","value":"728"}]}`
+	for _, raw := range []string{
+		"<invoke name=\"x\">\n</invoke>\n```\n\nLet me read the current status first.\n\n" + lookup,
+		"```json\n" + lookup + "\n```",
+		"  " + lookup + "\n",
+	} {
+		_, inv, err := DecodeConversationEnvelope([]byte(raw), request)
+		if err != nil || inv.Command != "status" || inv.Arguments["issue"] != "728" {
+			t.Errorf("single object not extracted from %q: %+v %v", raw, inv, err)
+		}
+	}
+	for _, raw := range []string{
+		lookup + "\n" + `{"version":1,"kind":"answer","text":"done"}`,
+		"First {\"note\":1} then " + lookup,
+		"no protocol object here",
+	} {
+		if _, _, err := DecodeConversationEnvelope([]byte(raw), request); !errors.Is(err, ErrConversationEnvelope) {
+			t.Errorf("ambiguous output accepted: %q: %v", raw, err)
+		}
 	}
 }
