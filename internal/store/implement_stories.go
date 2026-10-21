@@ -172,6 +172,19 @@ func (db *DB) ListImplementStories(ctx context.Context, parent string, generatio
 	return out, nil
 }
 
+// LatestImplementStories returns the ledger of the parent's newest generation
+// in plan order, or none when the parent never reached Implement.
+func (db *DB) LatestImplementStories(ctx context.Context, parent string) ([]ImplementStory, error) {
+	var generation sql.NullInt64
+	if err := db.sql.QueryRowContext(ctx, `SELECT MAX(generation) FROM implement_stories WHERE parent=?`, parent).Scan(&generation); err != nil {
+		return nil, fmt.Errorf("store: latest implement generation: %w", err)
+	}
+	if !generation.Valid {
+		return nil, nil
+	}
+	return db.ListImplementStories(ctx, parent, generation.Int64)
+}
+
 // CountImplementRunning counts the stories of one parent generation that are running.
 func (db *DB) CountImplementRunning(ctx context.Context, parent string, generation int64) (int, error) {
 	var n int

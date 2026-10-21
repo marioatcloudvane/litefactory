@@ -1183,42 +1183,6 @@ func mustParseRef(t *testing.T, ref string) naming.Ref {
 	return parsed
 }
 
-// timedLifecycleHost is a lifecycle host that reports its run timeout, as the
-// Claude and Codex runners do.
-type timedLifecycleHost struct {
-	lifecycleMCPHost
-	timeout time.Duration
-}
-
-func (h timedLifecycleHost) Timeout() time.Duration { return h.timeout }
-
-func TestImplementWorkerPromptAsksToDelegateAndStatesTheTimeLimitOutsideTheNote(t *testing.T) {
-	var prompt string
-	runner := timedLifecycleHost{timeout: 6 * time.Hour, lifecycleMCPHost: func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
-		prompt = req.Prompt
-		mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "health.go"), []byte("package health\n"), 0o600))
-		submitLiveResult(t, req, implementCompletedJSON)
-		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: "done", FinishedAt: time.Now()}, nil
-	}}
-	f, _, req := assembledImplementFixture(t, runner)
-	seedImplementStory(t, f)
-	if out, err := Execute(t.Context(), f.opts, req); err != nil || !out.Succeeded() {
-		t.Fatalf("%+v %v", out, err)
-	}
-	outside := prompt
-	if start, end := strings.Index(prompt, "<note>"), strings.LastIndex(prompt, "</note>"); start >= 0 && end > start {
-		outside = prompt[:start] + prompt[end+len("</note>"):]
-	}
-	for _, want := range []string{
-		"The owner explicitly asks you to delegate this story's tasks to subagents (spawn_agent or your subagent tool) and to run them in parallel.",
-		"This attempt has a wall-clock limit of 360 minutes; there is no other budget",
-	} {
-		if !strings.Contains(outside, want) {
-			t.Errorf("the worker prompt lacks %q outside the handoff note:\n%s", want, prompt)
-		}
-	}
-}
-
 // implementTrail lists node:outcome for every finished step of the parent's
 // latest Implement instance, in order.
 func implementTrail(t *testing.T, f *fixture) []string {

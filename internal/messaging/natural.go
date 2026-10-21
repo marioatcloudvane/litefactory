@@ -23,6 +23,9 @@ type naturalPayload struct {
 	RepoID                                     int64
 	Project, Channel                           string
 	ProjectPending                             bool `json:"project_pending,omitempty"`
+	// focus is the conversation's last discussed project. It only breaks ties
+	// and fills a missing project for reads; it is never part of the digest.
+	focus string
 }
 
 func naturalDigest(p naturalPayload) (string, string, error) {
@@ -117,7 +120,7 @@ func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time
 		}
 	}
 	if p.Invocation.Command == "ask" || p.Invocation.Command == "draft" || p.Invocation.Command == "diagnose" || p.Invocation.Command == "question" || p.Invocation.Command == "answer" || (p.Invocation.Command == "meter" || p.Invocation.Command == "status") && (args["task"] != "" || args["issue"] != "") || args["project"] != "" {
-		resolution, err := s.resolveNaturalProject(ctx, args)
+		resolution, err := s.resolveNaturalProjectFocus(ctx, args, p.focus)
 		if err != nil {
 			return "", err
 		}
@@ -333,6 +336,13 @@ func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.
 // Explicit project names win. Task inference requires complete reads across all
 // registered projects, so an unavailable project can never create uniqueness.
 func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]string) (ask.Resolution, error) {
+	return s.resolveNaturalProjectFocus(ctx, args, "")
+}
+
+// resolveNaturalProjectFocus also takes the conversation's last discussed
+// project: it picks among several projects holding the same task number, and
+// stands in when the number is unknown everywhere or no project is named.
+func (s *Service) resolveNaturalProjectFocus(ctx context.Context, args map[string]string, focus string) (ask.Resolution, error) {
 	option := strings.TrimRight(strings.TrimSpace(args["project"]), "!?.,;: ")
 	resolution, err := ask.ResolveProject(ctx, s.db, option, nil)
 	if err != nil || option != "" {
@@ -352,15 +362,23 @@ func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]str
 	if err != nil {
 		return resolution, err
 	}
+	var focused *store.Repo
+	for i := range repos {
+		if focus != "" && repos[i].Forge == "github" && repos[i].Slug() == focus {
+			focused = &repos[i]
+		}
+	}
 	if issue > 0 {
 		var exact []store.Repo
+		var sessions []store.Session
 		for _, repo := range repos {
 			if repo.Forge != "github" {
 				continue
 			}
-			_, e := s.knownNumericTask(ctx, repo, issue)
+			session, e := s.knownNumericTask(ctx, repo, issue)
 			if e == nil {
 				exact = append(exact, repo)
+				sessions = append(sessions, session)
 			} else if !errors.Is(e, store.ErrNotFound) {
 				return ask.Resolution{Refusal: "Task lookup failed; project could not be inferred."}, e
 			}
@@ -369,13 +387,34 @@ func (s *Service) resolveNaturalProject(ctx context.Context, args map[string]str
 		case 1:
 			return ask.Resolution{Repository: exact[0]}, nil
 		case 0:
+			if focused != nil {
+				return ask.Resolution{Repository: *focused}, nil
+			}
 			return ask.Resolution{Refusal: "No known task matches that number. Please name a project and task."}, nil
 		default:
-			return ask.Resolution{Refusal: "That task number exists in multiple projects. Please name a project."}, nil
+			if focused != nil {
+				for _, repo := range exact {
+					if repo.ID == focused.ID {
+						return ask.Resolution{Repository: repo}, nil
+					}
+				}
+			}
+			names := make([]string, 0, len(exact))
+			for i, repo := range exact {
+				name := fmt.Sprintf("%s #%d", repo.Slug(), issue)
+				if title := strings.TrimSpace(strings.ReplaceAll(sessions[i].FeatureSlug, "-", " ")); title != "" {
+					name += " (" + title + ")"
+				}
+				names = append(names, name)
+			}
+			return ask.Resolution{Refusal: "Task " + strconv.Itoa(issue) + " exists in more than one project: " + strings.Join(names, " and ") + ". Which one do you mean?"}, nil
 		}
 	}
 	if resolution.Refusal == "" {
 		return resolution, nil
+	}
+	if focused != nil {
+		return ask.Resolution{Repository: *focused}, nil
 	}
 	var active []store.Repo
 	for _, repo := range repos {

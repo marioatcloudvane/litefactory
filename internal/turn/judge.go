@@ -316,7 +316,7 @@ func savedJudgeText(raw []byte) (string, error) {
 	if err := json.Unmarshal(raw, &saved); err != nil {
 		return "", err
 	}
-	return JudgeText(saved.Presentation) + "\nExecution: " + saved.Execution + "\n", nil
+	return JudgeText(saved.Presentation), nil
 }
 
 func (s *JudgeService) cleanEvidence(ctx context.Context, e *JudgeEvidenceSnapshot) error {
@@ -452,11 +452,15 @@ func judgeSourceName(source store.JudgeSource) string {
 	if source.Kind == "plan" {
 		return "saved Plan"
 	}
+	if source.Label != "" {
+		return "saved " + source.Label
+	}
 	var snapshot struct {
 		Result struct {
 			Payload struct {
 				Research *json.RawMessage `json:"research"`
 				Plan     *json.RawMessage `json:"plan"`
+				Bug      *json.RawMessage `json:"bug"`
 			} `json:"payload"`
 		} `json:"result"`
 	}
@@ -466,6 +470,9 @@ func judgeSourceName(source store.JudgeSource) string {
 		}
 		if snapshot.Result.Payload.Plan != nil {
 			return "saved Plan"
+		}
+		if snapshot.Result.Payload.Bug != nil {
+			return "saved Bug analysis"
 		}
 	}
 	return "saved " + source.Kind

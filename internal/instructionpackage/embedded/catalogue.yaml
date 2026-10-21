@@ -2,6 +2,7 @@
 - conversation-factory
 - conversation-correction
 - conversation-action-outcome
+- conversation-reasoner
 - challenger
 - merge-conflict-advisor
 - schedule-proposal-advisor

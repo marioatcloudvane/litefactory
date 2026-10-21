@@ -2,6 +2,7 @@ package presentation
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -95,16 +96,35 @@ func RenderConversation(answerID string, blocks []AnswerBlock, facts []CurrentFa
 	return parts, nil
 }
 
-// ConversationDiagnostics recognizes internal report syntax that needs rewriting.
-func ConversationDiagnostics(text string) bool {
-	lower := strings.ToLower(text)
-	for _, marker := range []string{"source:", "target:", "evidence", "fact-", "page ", "lower bound", "collection", "helper overhead", "still unanswered", "remains unanswered", "the meter output:", "at recorded rates", "total unknown", "total is unknown", "stage:", "mode:", "story-", "recent runs (", "caveat:"} {
-		if strings.Contains(lower, marker) {
-			return true
+// conversationRecordSyntax matches raw factory record syntax only: internal
+// identifiers, record labels and lookup paging. Ordinary English words such as
+// "evidence", "page", "mode" or "recent runs (8, 9 and 10)" stay acceptable; the
+// guardrail keeps raw records and internal identifiers out of owner replies, it
+// does not police prose.
+var conversationRecordSyntax = []*regexp.Regexp{
+	regexp.MustCompile(`[0-9a-f]{8,}-(?:fact|target)-[0-9]+`),
+	regexp.MustCompile(`(?i)\b(?:source|target|stage|mode|waiting on|caveats?)\s*:`),
+	regexp.MustCompile(`(?i)\bfactory:[a-z_]+`),
+	regexp.MustCompile(`(?i)\bgithub:[\w.-]+/[\w.-]+#[0-9]+`),
+	regexp.MustCompile(`(?i)\bstory-[0-9]+\s*:`),
+	regexp.MustCompile(`(?i)recent runs \(newest first`),
+	regexp.MustCompile(`(?i)\bpage [0-9]+ of [0-9]+`),
+	regexp.MustCompile(`(?i)the meter output:`),
+}
+
+// ConversationRecordSyntax returns the first raw record fragment in text, or ""
+// when the text reads as ordinary prose.
+func ConversationRecordSyntax(text string) string {
+	for _, pattern := range conversationRecordSyntax {
+		if match := pattern.FindString(text); match != "" {
+			return match
 		}
 	}
-	return false
+	return ""
 }
+
+// ConversationDiagnostics recognizes internal report syntax that needs rewriting.
+func ConversationDiagnostics(text string) bool { return ConversationRecordSyntax(text) != "" }
 
 // plain escapes Discord formatting while preserving every source character.
 func plain(text string) string {

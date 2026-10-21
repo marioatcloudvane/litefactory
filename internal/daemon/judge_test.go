@@ -185,7 +185,7 @@ func TestJudgeOwnerBareCommandDurableAdvisory(t *testing.T) {
 	bodies, _, _ := f.forge.snapshot()
 	found := false
 	for i, body := range bodies {
-		if strings.Contains(body, source.Reference) && strings.Contains(body, "**Challenged:**") {
+		if strings.Contains(body, "**Challenged:**") { // the posted report holds only the judgment; the reference is checked on the durable request above
 			found = true
 			f.forge.mu.Lock()
 			destination := f.forge.postedIssues[i]

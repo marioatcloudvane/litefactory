@@ -48,6 +48,9 @@ type Request struct {
 	Task                         int64
 	Mode, Agent, Model, From, To string
 	Details                      bool
+	// By selects breakdown dimensions (see BreakdownDimensions); empty means
+	// the plain total.
+	By []string
 }
 
 // Validate returns the corresponding meter view or wording.

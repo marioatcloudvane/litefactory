@@ -56,9 +56,11 @@ func TestWorkflowJudgePrivateThenExplicitPublication(t *testing.T) {
 				t.Fatalf("explicit publication failed: %+v posts=%d", step, forge.attemptCount())
 			}
 			body := forge.only(t).body
-			if !strings.Contains(body, "Captured source inspected") || !strings.Contains(body, "node source, attempt 1; graph:") {
-				t.Fatalf("published report lacks source or retained assessment: %s", body)
+			report := decodeJudgeSavedReport(t, pinned.Report)
+			if !strings.Contains(body, "Captured source inspected") || !strings.Contains(report.Presentation.SourceReference, "node source, attempt 1; graph:") {
+				t.Fatalf("published report lacks source or retained assessment: %s %s", body, pinned.Report)
 			}
+			assertJudgeTextWithoutProvenance(t, body)
 			if _, err = f.db.GetGraphOwnerWait(t.Context(), req.InstanceID); !errors.Is(err, store.ErrNotFound) {
 				t.Fatalf("advisory publication opened owner wait: %v", err)
 			}

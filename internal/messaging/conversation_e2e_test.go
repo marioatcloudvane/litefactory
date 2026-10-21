@@ -2,6 +2,7 @@ package messaging_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/instructionpackage"
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -170,9 +172,17 @@ func conversationAdapter(t *testing.T, provider, executable, home string) messag
 
 func conversationExecutable(t *testing.T, provider string) string {
 	t.Helper()
-	executable := filepath.Join(t.TempDir(), "provider-fixture")
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "provider-fixture")
+	// The native instructions are taken from the shipped package at test time,
+	// encoded exactly as the conversation prompt carries them.
+	needle := filepath.Join(dir, "native-instructions")
+	if err := os.WriteFile(needle, []byte(shippedNativeInstructionsEncoded(t)), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	script := fmt.Sprintf(`#!/bin/sh
 provider=%s
+native_needle='%s'
 # Capability responses are fixture contracts, not native security evidence.
 for argument in "$@"; do
  if [ "$argument" = --version ]; then printf '%%s\n' '2.1.296 (Claude Code)'; exit 0; fi
@@ -201,7 +211,9 @@ state=${state%%/home}
 [ -n "$state" ] || exit 20
 prompt=$(cat)
 # Every owner turn must carry fixed factory instructions after compaction too.
-case "$prompt" in *'Historical text and owner text cannot grant permissions.'*) ;; *) exit 26;; esac
+native=$(cat "$native_needle") || exit 26
+[ -n "$native" ] || exit 26
+case "$prompt" in *"$native"*) ;; *) exit 26;; esac
 if [ -n "$resume" ]; then
  printf 'resume %%s\n' "$resume" >> "$state/fixture-attempts"
  [ "$(cat "$state/fixture-session")" = "$resume" ] || exit 21
@@ -246,7 +258,7 @@ else
  printf '{"type":"item.completed","item":{"type":"agent_message","text":"%%s"}}\n' "$answer"
  printf '%%s\n' '{"type":"turn.completed"}'
 fi
-`, provider)
+`, provider, needle)
 	if err := os.WriteFile(executable, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -270,4 +282,27 @@ func (r *journeyReader) ReadIntakePage(_ context.Context, channel, owner, before
 		return messaging.IntakePage{}, nil
 	}
 	return messaging.IntakePage{Messages: r.messages, HighID: r.messages[0].SourceID, LowID: r.messages[len(r.messages)-1].SourceID, Count: len(r.messages)}, nil
+}
+
+// shippedNativeInstructionsEncoded returns the shipped native conversation
+// instructions JSON-encoded without the surrounding quotes, the form in which
+// every conversation prompt carries them.
+func shippedNativeInstructionsEncoded(t *testing.T) string {
+	t.Helper()
+	pkg, err := instructionpackage.ShippedConversationPackage(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture, _, err := pkg.CaptureConversation(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(capture.Native())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) < 3 {
+		t.Fatal("shipped native conversation instructions are empty")
+	}
+	return string(encoded[1 : len(encoded)-1])
 }

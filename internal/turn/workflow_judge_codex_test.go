@@ -70,9 +70,11 @@ func TestWorkflowJudgeNativeCodex(t *testing.T) {
 				if unavailable {
 					expected = "Captured source inspected"
 				}
-				if !strings.Contains(body, expected) || !strings.Contains(body, "node source, attempt 1; graph:") || strings.Contains(body, "Availability fallback:") != unavailable {
-					t.Fatalf("native advisory provenance missing: %s", body)
+				report := decodeJudgeSavedReport(t, pinned.Report)
+				if !strings.Contains(body, expected) || !strings.Contains(report.Presentation.SourceReference, "node source, attempt 1; graph:") || (report.Presentation.FallbackReason != "") != unavailable {
+					t.Fatalf("native advisory provenance missing: %s %s", body, pinned.Report)
 				}
+				assertJudgeTextWithoutProvenance(t, body)
 				mustProgress(t, f.db.RetainGraphComment(t.Context(), store.GraphCommentIntent{Key: "required-native-owner-review", InstanceID: req.InstanceID, SourceAttemptID: source.ID, Node: "gate", Kind: "review", Candidate: []byte(`{"comment":"Review saved source"}`)}))
 				blocked, err := ExecuteNodeAction(t.Context(), f.opts, req)
 				mustProgress(t, err)

@@ -479,7 +479,7 @@ func (s *Service) taskSummary(ctx context.Context) string {
 
 // taskStatus uses retained state; absent facts stay explicitly unavailable.
 func (s *Service) taskStatus(ctx context.Context, session store.Session, task ask.Task) (string, error) {
-	mode, stage, waiting := "unavailable", "unavailable", "none recorded"
+	mode, stage, waiting, state := "unavailable", "unavailable", "none recorded", task.State
 	runs, err := s.db.RecentTaskRuns(ctx, session.ID, 3)
 	if err != nil {
 		return "", err
@@ -507,11 +507,42 @@ func (s *Service) taskStatus(ctx context.Context, session store.Session, task as
 		if mode == "" {
 			mode = "unavailable"
 		}
+		if instance.Status == store.GraphRunning {
+			// A running graph supersedes the failed flag an earlier attempt left.
+			if state == string(store.SessionFailed) {
+				state = "in progress (an earlier attempt failed; work resumed)"
+			}
+			dispatch, err := s.db.LatestGraphDispatch(ctx, instance.ID)
+			switch {
+			case err == nil && dispatch.Status == "pending":
+				stage += ", next step due " + dispatch.DueAt.UTC().Format(time.RFC3339)
+			case err == nil && (dispatch.Status == "reserved" || dispatch.Status == "running"):
+				stage += ", next step starting"
+			case err != nil && !errors.Is(err, store.ErrNotFound):
+				return "", err
+			}
+		}
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}
-	if len(task.PlanStages) > 0 {
-		stage += "; " + strings.Join(task.PlanStages, "; ")
+	var stories []store.ImplementStory
+	if mode == "implement" {
+		if stories, err = s.db.LatestImplementStories(ctx, session.TaskRef); err != nil {
+			return "", err
+		}
+	}
+	progress := ""
+	if len(stories) > 0 {
+		var parked string
+		progress, parked, err = s.implementProgress(ctx, stories)
+		if err != nil {
+			return "", err
+		}
+		if parked != "" {
+			waiting = "owner — " + parked
+		}
+	} else if len(task.PlanStages) > 0 {
+		stage += "; plan stories: " + strings.Join(task.PlanStages, "; ")
 	}
 	if task.OwnerWait != nil {
 		waiting = "owner — " + task.OwnerWait.Workflow + " " + task.OwnerWait.Kind
@@ -519,7 +550,7 @@ func (s *Service) taskStatus(ctx context.Context, session store.Session, task as
 	if task.OwnerBlocked != "" {
 		waiting = "owner — parked: " + task.OwnerBlocked
 	}
-	text := fmt.Sprintf("%s: %s. Mode: %s. Stage: %s. Waiting on: %s. Recent runs (newest first, limit 3):", task.Reference, task.State, mode, stage, waiting)
+	text := fmt.Sprintf("%s: %s. Mode: %s. Stage: %s.%s Waiting on: %s. Recent runs on this task (newest first, limit 3):", task.Reference, state, mode, stage, progress, waiting)
 	if len(runs) == 0 {
 		text += " unavailable."
 	}
@@ -527,4 +558,73 @@ func (s *Service) taskStatus(ctx context.Context, session store.Session, task as
 		text += fmt.Sprintf(" %d: %s (%s);", run.Ordinal, run.Status, run.Mode)
 	}
 	return text, nil
+}
+
+// implementProgress reports a feature's Implement ledger from the local store:
+// per-story state of the newest generation with story issue numbers, failed
+// attempts and the latest failure, plus active runs on the story tasks. It
+// also returns the first parked story, which waits on the owner.
+func (s *Service) implementProgress(ctx context.Context, stories []store.ImplementStory) (string, string, error) {
+	counts := map[string]int{}
+	var lines, active []string
+	parked := ""
+	for _, story := range stories {
+		counts[story.State]++
+		label, latest := story.Key, ""
+		if story.WorkerSession > 0 {
+			worker, err := s.db.GetSession(ctx, story.WorkerSession)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return "", "", err
+			}
+			if err == nil {
+				label += fmt.Sprintf(" (#%d)", worker.IssueNumber)
+				run, err := s.db.LatestTaskRun(ctx, worker.ID)
+				if err != nil && !errors.Is(err, store.ErrNotFound) {
+					return "", "", err
+				}
+				switch {
+				case err == nil && (run.Status == store.RunRunning || run.Status == store.RunPrelaunch):
+					active = append(active, fmt.Sprintf("#%d run %d (%s) running since %s", worker.IssueNumber, run.Ordinal, run.Mode, run.StartedAt.UTC().Format(time.RFC3339)))
+				case err == nil && story.State == store.ImplementRunning:
+					latest = fmt.Sprintf(", no active run (latest run %d %s)", run.Ordinal, run.Status)
+				}
+			}
+		}
+		line := label + " " + story.State + latest
+		if story.Attempts > 0 {
+			line += fmt.Sprintf(", %d failed attempts", story.Attempts)
+		}
+		if story.State == store.ImplementParked {
+			line += ", parked: " + statusExcerpt(story.Reason)
+			if parked == "" {
+				parked = label + " parked: " + statusExcerpt(story.Reason)
+			}
+		}
+		if story.LastFailure != "" && story.State != store.ImplementMerged {
+			line += ", last failure: " + statusExcerpt(story.LastFailure)
+		}
+		lines = append(lines, line)
+	}
+	var tally []string
+	for _, state := range []string{store.ImplementMerged, store.ImplementDone, store.ImplementRunning, store.ImplementWaiting, store.ImplementParked} {
+		if counts[state] > 0 {
+			tally = append(tally, fmt.Sprintf("%d %s", counts[state], state))
+		}
+	}
+	text := fmt.Sprintf(" Implementation stories (generation %d, %d total): %s. Per story: %s.", stories[0].Generation, len(stories), strings.Join(tally, ", "), strings.Join(lines, "; "))
+	if len(active) == 0 {
+		text += " Active story runs: none."
+	} else {
+		text += " Active story runs: " + strings.Join(active, "; ") + "."
+	}
+	return text, parked, nil
+}
+
+// statusExcerpt keeps a ledger reason on one bounded line.
+func statusExcerpt(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if bounded, cut := boundedConversationText(text, 200); cut {
+		return bounded + "…"
+	}
+	return text
 }
