@@ -238,3 +238,5 @@ report and exact proposal references. It is unavailable to the analyst. Evidence
 inspection marks expired bodies as gaps and never replaces them with current
 remote content. The SQLite power-loss and administrator limits above also apply to
 analysis receipts and reports.
+
+Temporary exact-task departures use the separate [standards exception commands](standards-exceptions.md).

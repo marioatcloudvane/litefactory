@@ -26,12 +26,24 @@ type StandardsCategory struct {
 	Description string `json:"description"`
 }
 
+// StandardsExceptionPolicy is the reviewed revision-specific limit on exceptions.
+// A missing policy denies exceptions.
+type StandardsExceptionPolicy struct {
+	Version                   int      `json:"version"`
+	Mode                      string   `json:"mode"`
+	AllRegisteredRepositories bool     `json:"all_registered_repositories,omitempty"`
+	RepositoryIDs             []int64  `json:"repository_ids,omitempty"`
+	TaskRefs                  []string `json:"task_refs,omitempty"`
+	MaxLifetimeSeconds        int64    `json:"max_lifetime_seconds,omitempty"`
+}
+
 // StandardsStandard retains guidance and its category memberships together.
 type StandardsStandard struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Body        string   `json:"body"`
-	CategoryIDs []string `json:"category_ids"`
+	ID              string                    `json:"id"`
+	Title           string                    `json:"title"`
+	Body            string                    `json:"body"`
+	CategoryIDs     []string                  `json:"category_ids"`
+	ExceptionPolicy *StandardsExceptionPolicy `json:"exception_policy,omitempty"`
 }
 
 // StandardsSnapshot is a complete book, independent of later edits.
@@ -370,6 +382,33 @@ func readStandardsRevision(ctx context.Context, tx *sql.Tx, id int64) (Standards
 	for i, s := range r.Snapshot.Standards {
 		indices[s.ID] = i
 	}
+	rows, err = tx.QueryContext(ctx, `SELECT standard_id,policy_json FROM standards_exception_policies WHERE revision_id=? ORDER BY standard_id`, id)
+	if err != nil {
+		return r, err
+	}
+	for rows.Next() {
+		var sid, payload string
+		if err := rows.Scan(&sid, &payload); err != nil {
+			_ = rows.Close()
+			return r, err
+		}
+		i, ok := indices[sid]
+		if !ok {
+			_ = rows.Close()
+			return r, ErrStandardsCorrupt
+		}
+		var policy StandardsExceptionPolicy
+		if err := json.Unmarshal([]byte(payload), &policy); err != nil {
+			_ = rows.Close()
+			return r, fmt.Errorf("%w: policy: %w", ErrStandardsCorrupt, err)
+		}
+		r.Snapshot.Standards[i].ExceptionPolicy = &policy
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	if err != nil {
+		return r, err
+	}
 	rows, err = tx.QueryContext(ctx, `SELECT standard_id,category_id FROM standards_memberships WHERE revision_id=? ORDER BY standard_id,category_id`, id)
 	if err != nil {
 		return r, err
@@ -544,6 +583,15 @@ func (db *DB) PublishStandardsProposal(ctx context.Context, p StandardsProposalV
 		for _, s := range snapshot.Standards {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO standards_standards(revision_id,id,title,body) VALUES(?,?,?,?)`, id, s.ID, s.Title, s.Body); err != nil {
 				return err
+			}
+			if s.ExceptionPolicy != nil {
+				payload, err := json.Marshal(s.ExceptionPolicy)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.ExecContext(ctx, `INSERT INTO standards_exception_policies(revision_id,standard_id,policy_json) VALUES(?,?,?)`, id, s.ID, string(payload)); err != nil {
+					return err
+				}
 			}
 			for _, cid := range s.CategoryIDs {
 				if _, err := tx.ExecContext(ctx, `INSERT INTO standards_memberships(revision_id,standard_id,category_id) VALUES(?,?,?)`, id, s.ID, cid); err != nil {
