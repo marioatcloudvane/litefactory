@@ -4,20 +4,24 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/presentation"
-	"time"
-	"unicode/utf8"
 )
 
 const conversationEnvelopeLimit = 65536
 
 // ErrConversationEnvelope indicates unsafe or malformed provider output.
 var ErrConversationEnvelope = errors.New("messaging: invalid conversation envelope")
+
+var errInterpretation = errors.New("messaging: invalid interpretation")
 
 // ConversationEnvelope is a suggestion or response, never execution authority.
 type ConversationEnvelope struct {
@@ -96,7 +100,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	if len(raw) == 0 || len(raw) > conversationEnvelopeLimit || !utf8.Valid(raw) || uniqueJSON(raw) != nil {
 		return bad()
 	}
-	if validateInterpretationRequest(InterpretationRequest{Turns: request.Turns, Commands: request.Commands}) != nil || len(request.References) > 32 {
+	if validateConversationTurns(request.Turns, request.Commands) != nil || len(request.References) > 32 {
 		return bad()
 	}
 	var envelope ConversationEnvelope
@@ -286,4 +290,93 @@ func (a ConversationArgument) MarshalJSON() ([]byte, error) {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	}{a.Name, a.Value})
+}
+
+// validateConversationTurns bounds the owner turns and command choices a
+// provider request may carry.
+func validateConversationTurns(turns []DialogueTurn, commands []CommandDefinition) error {
+	if len(turns) == 0 || len(turns) > 8 || len(commands) > 32 {
+		return errInterpretation
+	}
+	seen := map[string]bool{}
+	total := 0
+	for _, t := range turns {
+		total += len(t.Text)
+		if t.SourceID == "" || len(t.SourceID) > 128 || seen[t.SourceID] || !utf8.ValidString(t.Text) || strings.ContainsRune(t.Text, 0) || total > 32768 {
+			return errInterpretation
+		}
+		seen[t.SourceID] = true
+	}
+	return nil
+}
+
+func quotedSpan(text string, start, end int) bool {
+	// Fenced payloads and forwarded snapshots are never independent instructions.
+	if strings.Contains(text, "```") || strings.Contains(text, "~~~") {
+		return true
+	}
+	lineStart := strings.LastIndex(text[:start], "\n") + 1
+	for _, line := range strings.Split(text[lineStart:end], "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ">") || strings.HasPrefix(strings.ToLower(trimmed), "forwarded:") {
+			return true
+		}
+	}
+	trimmed := strings.TrimSpace(text)
+	return len(trimmed) > 1 && ((strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"")) || (strings.HasPrefix(trimmed, "“") && strings.HasSuffix(trimmed, "”")))
+}
+
+// uniqueJSON catches duplicate keys at every depth and disallows null and trailing data.
+func uniqueJSON(raw []byte) error {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	var walk func() error
+	walk = func() error {
+		t, err := d.Token()
+		if err != nil {
+			return err
+		}
+		if t == nil {
+			return errInterpretation
+		}
+		delimiter, ok := t.(json.Delim)
+		if !ok {
+			return nil
+		}
+		switch delimiter {
+		case '{':
+			keys := map[string]bool{}
+			for d.More() {
+				key, err := d.Token()
+				if err != nil {
+					return err
+				}
+				s, ok := key.(string)
+				if !ok || keys[s] {
+					return errInterpretation
+				}
+				keys[s] = true
+				if err := walk(); err != nil {
+					return err
+				}
+			}
+		case '[':
+			for d.More() {
+				if err := walk(); err != nil {
+					return err
+				}
+			}
+		default:
+			return errInterpretation
+		}
+		_, err = d.Token()
+		return err
+	}
+	if err := walk(); err != nil {
+		return err
+	}
+	if _, err := d.Token(); err != io.EOF {
+		return fmt.Errorf("%w: trailing input", errInterpretation)
+	}
+	return nil
 }

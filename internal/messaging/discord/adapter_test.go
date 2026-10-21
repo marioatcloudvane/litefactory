@@ -119,10 +119,10 @@ func TestOwnerCommands(t *testing.T) {
 			t.Fatalf("step %t, %v", more, err)
 		}
 	}
-	for i, cmd := range []string{"help", "health", "status", "unknown"} {
+	for i := range 2 {
 		id := strconv.Itoa(i + 10)
 		for range 2 {
-			w := signed(t, handler, private, at, body(id, "3", "2", cmd))
+			w := signed(t, handler, private, at, body(id, "3", "2", "details"))
 			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":5`) {
 				t.Fatalf("ack: %d %s", w.Code, w.Body)
 			}
@@ -134,8 +134,17 @@ func TestOwnerCommands(t *testing.T) {
 			t.Fatalf("reply: %+v %v", r, err)
 		}
 	}
-	if len(sent) != 4 || sent[0] != "/details, /health, /help, /meter, /prices, /status" || !strings.Contains(sent[1], "Running: true") || !strings.Contains(sent[2], "Polling:") || sent[3] != "unknown command, try /help" {
+	if len(sent) != 2 || sent[0] != "No answer details are available here." || sent[1] != sent[0] {
 		t.Fatalf("answers: %v", sent)
+	}
+	for _, cmd := range []string{"help", "status", "ask"} {
+		w := signed(t, handler, private, at, body("20", "3", "2", cmd))
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":4`) || !strings.Contains(w.Body.String(), "/details") || !strings.Contains(w.Body.String(), `"flags":64`) {
+			t.Fatalf("retired %s: %s", cmd, w.Body)
+		}
+		if _, err := db.ReadChatReply(ctx, "discord", "20"); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("retired command persisted: %v", err)
+		}
 	}
 	for _, who := range []struct{ channel, owner string }{{"4", "2"}, {"3", "4"}} {
 		w := signed(t, handler, private, at, body("99", who.channel, who.owner, "status"))
@@ -147,7 +156,7 @@ func TestOwnerCommands(t *testing.T) {
 		}
 	}
 	rateLimit = true
-	signed(t, handler, private, at, body("50", "3", "2", "help"))
+	signed(t, handler, private, at, body("50", "3", "2", "details"))
 	runStep(true)
 	retry, err := db.ReadChatReply(ctx, "discord", "50")
 	if err != nil || retry.State != "pending" || !retry.NextAttemptAt.Equal(at.Add(10*time.Second)) {
@@ -163,7 +172,7 @@ func TestOwnerCommands(t *testing.T) {
 	service = messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
 	runStep(true)
 	runStep(false)
-	if len(sent) != 5 || nonce == "" || routes[4] != "/channels/3/messages" {
+	if len(sent) != 3 || nonce == "" || routes[2] != "/channels/3/messages" {
 		t.Fatalf("restart delivery: %v %v", sent, routes)
 	}
 	if bytes.Contains([]byte(retry.ReplyText), []byte("interaction-secret")) {
@@ -291,7 +300,7 @@ func TestDeferredEdit(t *testing.T) {
 			service := messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
 			var logs bytes.Buffer
 			service.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
-			w := signed(t, adapter.Handler(service), private, at, body("10", "3", "2", "health"))
+			w := signed(t, adapter.Handler(service), private, at, body("10", "3", "2", "details"))
 			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":5`) {
 				t.Fatalf("ack: %d %s", w.Code, w.Body)
 			}
@@ -327,10 +336,10 @@ func TestDeferredEdit(t *testing.T) {
 				if strings.HasPrefix(routes[len(routes)-1], "/channels/") {
 					route = "channel"
 				}
-				if record.Command != "health" || record.Outcome != test.outcome[i] || record.Status != test.status[i] || record.Route != route {
+				if record.Command != "details" || record.Outcome != test.outcome[i] || record.Status != test.status[i] || record.Route != route {
 					t.Fatalf("step %d log: %s", i, lines[0])
 				}
-				if strings.Contains(lines[0], "Running:") || strings.Contains(lines[0], "interaction-secret") {
+				if strings.Contains(lines[0], "No answer details") || strings.Contains(lines[0], "interaction-secret") {
 					t.Fatalf("log carries reply or token: %s", lines[0])
 				}
 			}
@@ -338,7 +347,7 @@ func TestDeferredEdit(t *testing.T) {
 				t.Fatalf("routes: %v", routes)
 			}
 			for _, content := range contents {
-				if !strings.Contains(content, "Running: ") {
+				if content != "No answer details are available here." {
 					t.Fatalf("reply: %q", content)
 				}
 			}
@@ -396,7 +405,7 @@ func TestRefusedEditLogged(t *testing.T) {
 			service := messaging.New(db, "discord", "2", []string{"3"}, adapter, messaging.FactoryStatus{DB: db})
 			var logs bytes.Buffer
 			service.Logger = slog.New(slog.NewJSONHandler(&logs, nil))
-			w := signed(t, adapter.Handler(service), private, at, body("10", "3", "2", "health"))
+			w := signed(t, adapter.Handler(service), private, at, body("10", "3", "2", "details"))
 			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"type":5`) {
 				t.Fatalf("ack: %d %s", w.Code, w.Body)
 			}

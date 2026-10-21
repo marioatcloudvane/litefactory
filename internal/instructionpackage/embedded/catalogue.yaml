@@ -8,8 +8,4 @@
 - mode-classifier
 - doctor-diagnosis
 - doctor-repair
-- chat-ask
 - chat-draft
-- chat-intent-interpreter
-- chat-reply-writer
-- chat-reply-checker
