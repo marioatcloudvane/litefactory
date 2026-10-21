@@ -9,6 +9,12 @@ func Commands() []*Command {
 	return []*Command{
 		newInitCommand(),
 		newStandardsCommand("", ""),
+		newStandardsRunCommand(),
+		newStandardsDriftCommand(configureDriftCLI),
+		newStandardsAnalysisCommand("list"),
+		newStandardsAnalysisCommand("show"),
+		newStandardsAnalysisCommand("evidence"),
+		newStandardsAnalysisCommand("expire-evidence"),
 		newStandardsCommand("proposal", "create"),
 		newStandardsCommand("proposal", "edit"),
 		newStandardsCommand("proposal", "list"),

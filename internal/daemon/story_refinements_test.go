@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -219,5 +220,87 @@ func TestQuietStoriesCostNothingPerTick(t *testing.T) {
 	calls := f.turns.calls()
 	if len(calls) != 1 || calls[0].Trigger.CommentID != 90 {
 		t.Fatalf("the child's comment did not reach the parent: %+v\n%s", calls, f.logs)
+	}
+}
+
+// conflictingStoryForge refuses the parent link of one story the way a retained
+// ticket identity check does; every other read goes through the HTTP client.
+type conflictingStoryForge struct {
+	refinementForge
+	failing int
+}
+
+func (f conflictingStoryForge) GetParentIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	if number == f.failing {
+		return github.Issue{}, fmt.Errorf("read story parent: %w", store.ErrTicketIdentityConflict)
+	}
+	return f.refinementForge.GetParentIssue(ctx, repo, number)
+}
+
+// TestFailingStorySweepDoesNotHoldParentComments is the regression for #1010:
+// one story whose sweep hits a retained identity conflict failed every parent
+// turn, so owner comments on the parent were never admitted.
+func TestFailingStorySweepDoesNotHoldParentComments(t *testing.T) {
+	f := newFixture(t)
+	f.daemon = f.newDaemon(daemon.Options{Forge: conflictingStoryForge{refinementForge: refinementForge{Client: f.client, parent: testIssue}, failing: 200}})
+	f.plantCursor()
+	f.forge.addIssue(fakeIssue{ID: 1230, Number: testIssue, Title: "Parent feature", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+	f.settle()
+	s := f.sessionOf(testIssue)
+	if err := f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: s.TaskRef, Generation: 1, State: "planning"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, story := range []store.ManagedStory{
+		{ParentTask: s.TaskRef, Generation: 1, Key: "US-1", IssueNumber: 200, IssueID: 2000, BodyHash: "hash", State: "planning"},
+		{ParentTask: s.TaskRef, Generation: 1, Key: "US-2", IssueNumber: 201, IssueID: 2010, BodyHash: "hash", State: "planning"},
+	} {
+		if err := f.db.PutManagedStory(t.Context(), story); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.db.CompareManagedFeature(t.Context(), store.ManagedFeature{ParentTask: s.TaskRef, Generation: 1, State: "implementing"}, "planning"); err != nil {
+		t.Fatal(err)
+	}
+	f.forge.addIssue(fakeIssue{ID: 2000, Number: 200, Title: "Story 1", Body: "criteria", User: stranger()})
+	f.forge.addIssue(fakeIssue{ID: 2010, Number: 201, Title: "Story 2", Body: "criteria", User: stranger()})
+	f.forge.addComment(200, 50, stranger(), "worker progress on story 1")
+	f.forge.addComment(201, 60, stranger(), "worker progress on story 2")
+	f.forge.addComment(testIssue, 70, owner(), "resume the parked story")
+	f.settle()
+
+	// C1: the parent's own comment is admitted in the same turn.
+	calls := f.turns.calls()
+	if len(calls) != 1 || calls[0].Issue.Number != testIssue || calls[0].Trigger.CommentID != 70 {
+		t.Fatalf("parent comment not admitted: %+v\n%s", calls, f.logs)
+	}
+	if f.watermark() != 70 {
+		t.Fatalf("parent watermark = %d, want 70\n%s", f.watermark(), f.logs)
+	}
+	logs := f.logs.String()
+	if strings.Contains(logs, "could not refine managed stories") {
+		t.Fatalf("a story-specific failure still failed the parent turn\n%s", logs)
+	}
+	// C4: the skipped story is named at warning level with the error.
+	var warned bool
+	for line := range strings.SplitSeq(logs, "\n") {
+		if strings.Contains(line, "WARN") && strings.Contains(line, "could not sweep a managed story") &&
+			strings.Contains(line, "200") && strings.Contains(line, store.ErrTicketIdentityConflict.Error()) {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("no warning names the skipped story and its error\n%s", logs)
+	}
+
+	// C2: the failing story stays owed with an unmoved cursor; the other is swept.
+	awaiting, err := f.db.ListStoriesAwaitingDiscovery(t.Context(), s.ID, s.TaskRef, 1)
+	if err != nil || len(awaiting) != 1 || awaiting[0] != 200 {
+		t.Fatalf("stories awaiting discovery = %v, %v", awaiting, err)
+	}
+	if cursor, err := f.db.StoryDiscoveryCursor(t.Context(), s.ID, 200); err != nil || cursor != 0 {
+		t.Fatalf("failing story cursor = %d, %v", cursor, err)
+	}
+	if cursor, err := f.db.StoryDiscoveryCursor(t.Context(), s.ID, 201); err != nil || cursor != 60 {
+		t.Fatalf("swept story cursor = %d, %v", cursor, err)
 	}
 }

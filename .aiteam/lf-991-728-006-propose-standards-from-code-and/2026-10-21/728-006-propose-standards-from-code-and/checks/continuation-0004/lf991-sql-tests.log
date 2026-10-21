@@ -1,0 +1,4 @@
+# github.com/cloudvane/litefactory/internal/drift
+internal/drift/service.go:120:20: s.ownAnalysis undefined (type *Service has no field or method ownAnalysis)
+internal/drift/service.go:131:15: s.reconcile undefined (type *Service has no field or method reconcile)
+internal/drift/service.go:220:14: s.reconcile undefined (type *Service has no field or method reconcile)

@@ -58,6 +58,14 @@ func RunChatProcess(ctx context.Context, binary string, args, env []string, requ
 	return runScopedDoctorProcess(ctx, binary, args, env, agent.DoctorRequest{Prompt: request.Prompt, WorkingDirectory: request.WorkingDirectory}, timeout, observe)
 }
 
+// RunDriftProcess is bounded transport; the provider owns restricted admission.
+func RunDriftProcess(ctx context.Context, binary string, args, env []string, request agent.DriftRequest, timeout time.Duration, observe func([]byte)) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	return runScopedDoctorProcess(ctx, binary, args, env, request.Invocation, timeout, observe)
+}
+
 func runScopedDoctorProcess(ctx context.Context, binary string, args, env []string, request agent.DoctorRequest, timeout time.Duration, observe func([]byte), cancelProcess ...func(int) error) error {
 	if timeout <= 0 {
 		return errors.New("doctor provider timeout must be positive")

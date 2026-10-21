@@ -43,7 +43,8 @@ func (t *pollingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	page = page && req.Method == http.MethodGet
 	key, safe := representationKey(req)
 	unconditional, _ := req.Context().Value(unconditionalCacheKey{}).(bool)
-	eligible = eligible && safe && !unconditional && req.Method == http.MethodGet
+	_, driftBounded := req.Context().Value(driftResponseKey{}).(*driftResponseBound)
+	eligible = eligible && safe && !unconditional && !driftBounded && req.Method == http.MethodGet
 	var cached cachedRepresentation
 	var found bool
 	if eligible {
@@ -73,6 +74,9 @@ func (t *pollingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		slog.String("method", req.Method), slog.String("url", req.URL.String()),
 		slog.Int("status", observation.StatusCode), slog.Duration("duration", t.client.clock().Sub(start)),
 		slog.Int("rate_limit_remaining", observation.Remaining))
+	if bound, ok := req.Context().Value(driftResponseKey{}).(*driftResponseBound); ok && err == nil {
+		return boundDriftResponse(resp, bound)
+	}
 	if !eligible {
 		return resp, err
 	}
@@ -184,7 +188,8 @@ func (t *pollingTransport) put(key [32]byte, entry cachedRepresentation) {
 
 func representationKey(req *http.Request) ([32]byte, bool) {
 	// Never mix this cache's validators with a caller's conditional/range request.
-	if req.Header.Get("If-None-Match") != "" || req.Header.Get("If-Modified-Since") != "" || req.Header.Get("Range") != "" || req.Header.Get("Cookie") != "" {
+	if req.Header.Get("If-None-Match") != "" || req.Header.Get("If-Modified-Since") != "" || req.Header.Get("Range") != "" ||
+		req.Header.Get("Cookie") != "" || req.Header.Get("X-Github-Otp") != "" || req.Header.Get("X-Requested-With") != "" {
 		return [32]byte{}, false
 	}
 	raw := strings.Join([]string{req.Method, req.URL.String(), req.Header.Get("Authorization"), strings.Join(req.Header.Values("Accept"), ","), strings.Join(req.Header.Values("Accept-Encoding"), ","), strings.Join(req.Header.Values("X-Github-Api-Version"), ",")}, "\x00")
@@ -209,7 +214,10 @@ func safeResponse(h http.Header) bool {
 	for _, vary := range h.Values("Vary") {
 		for _, name := range strings.Split(vary, ",") {
 			switch strings.ToLower(strings.TrimSpace(name)) {
-			case "", "accept", "accept-encoding", "authorization", "x-github-api-version":
+			// GitHub always varies on cookie, x-github-otp and x-requested-with;
+			// representationKey refuses requests carrying them, so they cannot
+			// select a different representation for a cached request.
+			case "", "accept", "accept-encoding", "authorization", "x-github-api-version", "cookie", "x-github-otp", "x-requested-with":
 			default:
 				return false
 			}

@@ -302,7 +302,8 @@ proposal approve|publish ID --version N --digest HASH
 category add|replace ID --proposal ID --expected-version N --name NAME [--description TEXT]
 category remove ID --proposal ID --expected-version N; category list [--proposal ID --version N]
 book current; book history; book show REVISION; book diff FROM TO
-All results are JSON. Proposal input: {"base_revision":0,"operations":[...]}; edits replace the full change set.
+run TASK [--run N] [--repo owner/name] [--json] (read-only retained standards inspection)
+Book and proposal results are JSON; run inspection defaults to text. Proposal input: {"base_revision":0,"operations":[...]}; edits replace the full change set.
 Review shows complete before/after changes. Approve and publish require the exact reviewed version and digest.
 Local machine access implies the configured owner. Standards text grants no factory permissions.
 After a lost publish response, inspect or retry the same proposal version and digest.

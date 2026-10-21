@@ -27,6 +27,16 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 	if route != "graph" {
 		return false, nil
 	}
+	// Handing polling to a story's own Plan task belongs to planning. Once the
+	// feature is promoted the stories are locked; re-handing every child on every
+	// parent turn kept the parent from its own comments. Lifecycle observation
+	// below still runs.
+	planning := true
+	if f, err := d.db.GetManagedFeature(ctx, t.ref.String()); err == nil {
+		planning = f.State == "planning"
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
 	state, _, err := d.db.GetPlanWorkflowState(ctx, t.ref.String())
 	if err != nil {
 		return false, err
@@ -111,6 +121,11 @@ func (d *Daemon) refinePlanChildren(ctx context.Context, t *task) (bool, error) 
 		// own stages; the parent only observes its issue.
 		if story, task, taskErr := d.db.GraphPlanStoryAt(ctx, t.repo.ID, draft.IssueNumber); taskErr != nil {
 			return false, taskErr
+		} else if task && child.State == "open" && !planning {
+			if err = d.sweptPlanChild(ctx, t, draft.IssueNumber, start); err != nil {
+				return false, err
+			}
+			continue
 		} else if task && child.State == "open" {
 			// Transfer durable polling responsibility before retiring the parent's
 			// discovery debt, including observations received while awaiting review.
