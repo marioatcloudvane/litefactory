@@ -35,6 +35,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -63,6 +64,8 @@ type Env struct {
 	// Nil constructs the registered production runtime.
 	PreventionService func(context.Context, *store.DB, *config.Config, config.Paths) (*prevention.Service, error)
 
+	// LogAnalyst replaces only the restricted provider boundary in controlled tests.
+	LogAnalyst agent.LogAnalystRunner
 	// TeamTransport is an HTTP test seam. Nil uses normal system TLS validation.
 	TeamTransport http.RoundTripper
 	// Stdout is where command *results* go. Printing results with

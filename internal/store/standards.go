@@ -228,7 +228,9 @@ func saveStandardsProposalTx(ctx context.Context, tx *sql.Tx, p StandardsProposa
 		return p, err
 	}
 	p.Version = expected + 1
-	p.CreatedAt = nowUTC().Truncate(time.Millisecond)
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = nowUTC().Truncate(time.Millisecond)
+	}
 	if expected == 0 {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO standards_proposals(id,current_version) VALUES(?,?) ON CONFLICT(id) DO NOTHING`, p.ProposalID, p.Version); err != nil {
 			return p, err
@@ -256,6 +258,8 @@ func saveStandardsProposalTx(ctx context.Context, tx *sql.Tx, p StandardsProposa
 	_, err = tx.ExecContext(ctx, `INSERT INTO standards_proposal_versions(proposal_id,version,base_revision,schema_version,operations_json,change_digest,result_digest,author,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, p.ProposalID, p.Version, nullID(p.BaseRevision), p.SchemaVersion, string(ops), p.ChangeDigest, p.ResultDigest, p.Author, FormatTime(p.CreatedAt))
 	return p, err
 }
+
+// saveStandardsProposalTx appends an upstream proposal version inside the caller transaction.
 func standardsBinding(p StandardsProposalVersion, a StandardsApproval) bool {
 	return p.ProposalID == a.ProposalID && p.Version == a.Version && p.BaseRevision == a.BaseRevision && p.ChangeDigest == a.ChangeDigest && p.ResultDigest == a.ResultDigest
 }
