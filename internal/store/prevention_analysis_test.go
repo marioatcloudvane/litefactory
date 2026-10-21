@@ -6,8 +6,64 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestPreventionAggregateRecordRetainsBoundedComponentsAfterReopen(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "bounded-analysis.db")
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialDB := db
+	t.Cleanup(func() { _ = initialDB.Close() })
+	if err = db.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a, _, err := db.CreatePreventionAnalysis(ctx, PreventionAnalysis{ID: "bounded-components", AttemptID: "writer", RequestKey: "bounded-components", ScopeDigest: "scope", Repository: "owner/repo", Scope: json.RawMessage(`{}`), Limits: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each JSON string occupies exactly its component's existing byte ceiling.
+	boundedJSON := func(size int) json.RawMessage {
+		return json.RawMessage(`"` + strings.Repeat("a", size-2) + `"`)
+	}
+	manifest := boundedJSON(512 << 10)
+	if err = db.FreezePreventionAnalysis(ctx, a.ID, a.AttemptID, manifest); err != nil {
+		t.Fatal(err)
+	}
+	draft, diagnostics := boundedJSON(64<<10), boundedJSON(64<<10)
+	for range 4 {
+		if err = db.SavePreventionDraft(ctx, a.ID, a.AttemptID, draft, diagnostics); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result := boundedJSON(256 << 10)
+	if _, err = db.FinalizePreventionAnalysis(ctx, a.ID, a.AttemptID, "bounded-result", result, nil); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := db.GetPreventionAnalysis(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	reopened, err := db.RecoverPreventionAnalysis(ctx, a.ID)
+	if err != nil || !reflect.DeepEqual(saved, reopened) {
+		t.Fatalf("reopened bounded analysis changed: %v", err)
+	}
+	if reopened.Status != "completed" || len(reopened.Drafts) != 4 || string(reopened.Manifest) != string(manifest) || string(reopened.Result) != string(result) {
+		t.Fatal("bounded components or draft history were lost")
+	}
+}
 
 func TestPreventionInvalidDraftHistoryRetainsEveryCorrection(t *testing.T) {
 	db := newTestDB(t)
