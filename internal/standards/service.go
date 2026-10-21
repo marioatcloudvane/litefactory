@@ -54,6 +54,8 @@ type Store interface {
 type Service struct {
 	Store   Store
 	OwnerID int64
+	// Provenance is supplied only by authenticated host adapters; empty means local CLI.
+	Provenance string
 }
 
 // Change shows the complete before and after values of an entity.
@@ -268,7 +270,7 @@ func (s *Service) Approve(ctx context.Context, id string, version int64, d strin
 		return store.StandardsApproval{}, err
 	}
 	p := r.Proposal
-	return s.Store.ApproveStandardsProposal(ctx, store.StandardsApproval{ProposalID: id, Version: version, BaseRevision: p.BaseRevision, ChangeDigest: p.ChangeDigest, ResultDigest: p.ResultDigest, Owner: strconv.FormatInt(s.OwnerID, 10), Provenance: "local-cli"})
+	return s.Store.ApproveStandardsProposal(ctx, store.StandardsApproval{ProposalID: id, Version: version, BaseRevision: p.BaseRevision, ChangeDigest: p.ChangeDigest, ResultDigest: p.ResultDigest, Owner: strconv.FormatInt(s.OwnerID, 10), Provenance: s.provenance()})
 }
 
 // Publish atomically publishes the exact approved proposal or recovers its retry.
@@ -276,6 +278,15 @@ func (s *Service) Publish(ctx context.Context, id string, version int64, d strin
 	r, err := s.exact(ctx, id, version, d)
 	if err != nil {
 		return store.StandardsRevision{}, err
+	}
+	if s.Provenance != "" {
+		host, ok := s.Store.(interface {
+			PublishStandardsProposalWithProvenance(context.Context, store.StandardsProposalVersion, Snapshot, string, string) (store.StandardsRevision, error)
+		})
+		if !ok {
+			return store.StandardsRevision{}, ErrOwnerRequired
+		}
+		return host.PublishStandardsProposalWithProvenance(ctx, r.Proposal, r.After, strconv.FormatInt(s.OwnerID, 10), s.provenance())
 	}
 	return s.Store.PublishStandardsProposal(ctx, r.Proposal, r.After, strconv.FormatInt(s.OwnerID, 10))
 }
@@ -421,7 +432,7 @@ func (s *Service) Inspect(ctx context.Context, id string, version int64) (Inspec
 	out := Inspection{Proposal: p}
 	a, err := s.Store.GetStandardsApproval(ctx, id, p.Version)
 	if err == nil {
-		if a.ProposalID != p.ProposalID || a.Version != p.Version || a.BaseRevision != p.BaseRevision || a.ChangeDigest != p.ChangeDigest || a.ResultDigest != p.ResultDigest || a.Owner == "" || a.Provenance != "local-cli" {
+		if a.ProposalID != p.ProposalID || a.Version != p.Version || a.BaseRevision != p.BaseRevision || a.ChangeDigest != p.ChangeDigest || a.ResultDigest != p.ResultDigest || a.Owner == "" || !store.StandardsProvenanceValid(a.Provenance) {
 			return Inspection{}, fmt.Errorf("%w: approval binding mismatch", store.ErrStandardsCorrupt)
 		}
 		out.Approval = &a
@@ -472,7 +483,7 @@ func VerifyRevision(r store.StandardsRevision) error {
 	}
 	p := r.Publication
 	a := p.Approval
-	if p.RevisionID != r.ID || p.BaseRevision != r.ParentRevision || p.ResultDigest != r.Digest || p.Owner == "" || p.Provenance != "local-cli" || a.ProposalID != p.ProposalID || a.Version != p.Version || a.BaseRevision != p.BaseRevision || a.ChangeDigest != p.ChangeDigest || a.ResultDigest != p.ResultDigest || a.Owner != p.Owner || a.Provenance != "local-cli" {
+	if p.RevisionID != r.ID || p.BaseRevision != r.ParentRevision || p.ResultDigest != r.Digest || p.Owner == "" || !store.StandardsProvenanceValid(p.Provenance) || a.ProposalID != p.ProposalID || a.Version != p.Version || a.BaseRevision != p.BaseRevision || a.ChangeDigest != p.ChangeDigest || a.ResultDigest != p.ResultDigest || a.Owner != p.Owner || !store.StandardsProvenanceValid(a.Provenance) {
 		return fmt.Errorf("%w: publication binding mismatch", store.ErrStandardsCorrupt)
 	}
 	return nil
@@ -492,4 +503,11 @@ func Prepare(id string, base int64, before Snapshot, ops []Operation, author str
 		return store.StandardsProposalVersion{}, err
 	}
 	return store.StandardsProposalVersion{ProposalID: id, Version: 1, BaseRevision: base, SchemaVersion: 1, Operations: canonicalOps(ops), ChangeDigest: changeDigest(base, ops), ResultDigest: snapshotDigest(after), Author: author}, nil
+}
+
+func (s *Service) provenance() string {
+	if s.Provenance == "" {
+		return "local-cli"
+	}
+	return s.Provenance
 }

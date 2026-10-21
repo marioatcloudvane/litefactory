@@ -27,11 +27,14 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/secrets"
+	"github.com/cloudvane/litefactory/internal/standards"
+	"github.com/cloudvane/litefactory/internal/standardsexceptions"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -575,6 +578,21 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		status.Close()
 		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
 		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
+	}
+	if chatOpts != nil && chatOpts.Conversations != nil {
+		instructions, captureErr := instructionpackage.New(ctx, s.Paths)
+		if captureErr != nil {
+			return nil, Startup{}, errors.Join(captureErr, lock.Close())
+		}
+		providers := make(map[string]response.ChatRunner)
+		for kind, runner := range runners {
+			if native, ok := runner.(response.ChatRunner); ok {
+				providers[string(kind)] = native
+			}
+		}
+		book := &standards.Service{Store: s.DB, OwnerID: identities.OwnerUserID}
+		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Runner: &conversationStandardsAuthoring{model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}}}
+		chatOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Schedules: analystSchedules}
 	}
 	daemon, err := New(Options{
 		AnalystSchedules: analystSchedules,

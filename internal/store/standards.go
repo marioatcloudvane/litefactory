@@ -112,7 +112,7 @@ type StandardsRevision struct {
 
 // standardsWrite reports contention after rollback; callers decide when to retry.
 func (db *DB) standardsWrite(ctx context.Context, fn func(*sql.Tx) error) error {
-	err := db.withTx(ctx, fn)
+	err := db.withTx(ctx, func(tx *sql.Tx) error { return standardsConversationWrite(ctx, tx, fn) })
 	if err != nil && (strings.Contains(err.Error(), "SQLITE_BUSY") || strings.Contains(err.Error(), "database is locked")) {
 		return fmt.Errorf("%w: %w", ErrStandardsConflict, err)
 	}
@@ -211,7 +211,9 @@ func (db *DB) ListStandardsProposals(ctx context.Context) ([]StandardsProposalVe
 // SaveStandardsProposal appends a version only when expected still identifies the unpublished current version.
 func (db *DB) SaveStandardsProposal(ctx context.Context, p StandardsProposalVersion, expected int64) (StandardsProposalVersion, error) {
 	p.CreatedAt = nowUTC().Truncate(time.Millisecond)
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "proposal", ID: p.ProposalID, Version: p.Version}
+	}), func(tx *sql.Tx) error {
 		var err error
 		p, err = saveStandardsProposalTx(ctx, tx, p, expected)
 		return err
@@ -292,11 +294,13 @@ func (db *DB) GetStandardsApproval(ctx context.Context, id string, version int64
 
 // ApproveStandardsProposal records exact local approval after checking the current version and book head.
 func (db *DB) ApproveStandardsProposal(ctx context.Context, a StandardsApproval) (StandardsApproval, error) {
-	if a.Owner == "" || a.Provenance != "local-cli" {
+	if a.Owner == "" || !StandardsProvenanceValid(a.Provenance) {
 		return a, ErrStandardsApprovalRequired
 	}
 	a.CreatedAt = nowUTC().Truncate(time.Millisecond)
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "approval", ID: a.ProposalID, Version: a.Version}
+	}), func(tx *sql.Tx) error {
 		p, err := readStandardsProposal(ctx, tx, a.ProposalID, 0)
 		if err != nil {
 			return err
@@ -521,11 +525,18 @@ func (db *DB) ListStandardsRevisions(ctx context.Context) ([]StandardsRevision, 
 // PublishStandardsProposal makes the complete snapshot, provenance and head visible
 // together. A committed identity is recovered before checking a now-stale head.
 func (db *DB) PublishStandardsProposal(ctx context.Context, p StandardsProposalVersion, snapshot StandardsSnapshot, owner string) (StandardsRevision, error) {
+	return db.PublishStandardsProposalWithProvenance(ctx, p, snapshot, owner, "local-cli")
+}
+
+// PublishStandardsProposalWithProvenance records authenticated adapter provenance.
+func (db *DB) PublishStandardsProposalWithProvenance(ctx context.Context, p StandardsProposalVersion, snapshot StandardsSnapshot, owner, provenance string) (StandardsRevision, error) {
 	var out StandardsRevision
-	if owner == "" {
+	if owner == "" || !StandardsProvenanceValid(provenance) {
 		return out, ErrStandardsApprovalRequired
 	}
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "book", ID: p.ProposalID, Version: p.Version, Revision: out.ID}
+	}), func(tx *sql.Tx) error {
 		stored, err := readStandardsProposal(ctx, tx, p.ProposalID, p.Version)
 		if err != nil {
 			return err
@@ -566,7 +577,7 @@ func (db *DB) PublishStandardsProposal(ctx context.Context, p StandardsProposalV
 		if err != nil {
 			return err
 		}
-		if !standardsBinding(p, a) || a.Owner != owner || a.Provenance != "local-cli" {
+		if !standardsBinding(p, a) || a.Owner != owner || !StandardsProvenanceValid(a.Provenance) {
 			return ErrStandardsApprovalRequired
 		}
 		now := FormatTime(nowUTC())
@@ -602,7 +613,7 @@ func (db *DB) PublishStandardsProposal(ctx context.Context, p StandardsProposalV
 				}
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO standards_publications(revision_id,proposal_id,version,base_revision,change_digest,result_digest,owner,provenance,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, p.ProposalID, p.Version, nullID(p.BaseRevision), p.ChangeDigest, p.ResultDigest, owner, "local-cli", now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO standards_publications(revision_id,proposal_id,version,base_revision,change_digest,result_digest,owner,provenance,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, p.ProposalID, p.Version, nullID(p.BaseRevision), p.ChangeDigest, p.ResultDigest, owner, provenance, now); err != nil {
 			return err
 		}
 		res, err = tx.ExecContext(ctx, `UPDATE standards_proposals SET published_version=? WHERE id=? AND current_version=? AND published_version IS NULL`, p.Version, p.ProposalID, p.Version)

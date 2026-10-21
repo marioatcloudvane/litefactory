@@ -90,6 +90,10 @@ func (r *factoryConversationRun) referenceCurrent(ctx context.Context, reference
 		return false, nil
 	}
 	switch reference.Kind {
+	case "standards":
+		// Exact saved identities remain references even when stale. The domain
+		// adapter checks their versions; never silently advance them to latest.
+		return r.s.standards != nil, nil
 	case "preview":
 		preview, err := r.s.db.CurrentChatIssuePreview(ctx, r.c.Transport, r.c.ChannelRef)
 		if errors.Is(err, store.ErrNotFound) {

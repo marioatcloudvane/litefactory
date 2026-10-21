@@ -628,7 +628,7 @@ func (s *Authoring) Continue(ctx context.Context, id string, expected int64) (v 
 	}
 	inputRecord := authorRecord(v)
 	attempt := store.StandardsAuthoringAttempt{ID: authorID("attempt-"), SessionID: id, InputVersion: expected, Token: authorID("fence-"), LeaseUntil: time.Now().UTC().Add(125 * time.Second), InputDigest: digest(v), RoleVersion: v.RoleVersion}
-	attempt, err = s.Store.BeginStandardsAuthoringAttempt(ctx, attempt)
+	attempt, err = s.Store.BeginStandardsAuthoringAttempt(store.WithoutStandardsConversationOperation(ctx), attempt)
 	if err != nil {
 		return
 	}

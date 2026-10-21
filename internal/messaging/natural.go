@@ -73,6 +73,36 @@ func naturalCancel(text string) bool {
 }
 
 func (s *Service) resolveNatural(ctx context.Context, p *naturalPayload, at time.Time) (string, error) {
+	if standardsCommand(p.Invocation.Command) {
+		op, err := standardsOperation(p.Invocation)
+		if err != nil {
+			return err.Error(), nil //nolint:nilerr // Invalid selections are owner-visible clarifications, not retryable failures.
+		}
+		if s.standards == nil {
+			return "Standards operations are unavailable.", nil
+		}
+		args := p.Invocation.Arguments
+		if args["project"] != "" && args["repository_id"] == "" {
+			resolution, e := s.resolveNaturalProject(ctx, args)
+			if e != nil {
+				return "", e
+			}
+			if resolution.Refusal != "" {
+				return resolution.Refusal, nil
+			}
+			p.RepoID = resolution.Repository.ID
+			p.Project = resolution.Repository.Slug()
+			args["project"] = p.Project
+			args["repository_id"] = strconv.FormatInt(p.RepoID, 10)
+		}
+		if strings.HasPrefix(op, "schedule.") && args["interval_seconds"] != "" {
+			args["interval_seconds"] = standardsInterval(args["interval_seconds"])
+		}
+		if p.Invocation.Command != "standards" {
+			return standardsMissingTerms(op, p.Invocation.Arguments), nil
+		}
+		return "", nil
+	}
 	args := p.Invocation.Arguments
 	if p.Invocation.Command == "meter" {
 		now := at.In(time.Local)
@@ -216,6 +246,33 @@ func (s *Service) naturalProposal(p naturalPayload, code string) string {
 	return fmt.Sprintf("Proposed action: %s\nProject: %s\n%s\nExact protected arguments: %s\nConfirmation code: %s\nReply directly to this message with yes, or send %s alone or prefixed by confirm, yes or ok. Send cancel to cancel. Expires in 15 minutes.", p.Invocation.Command, p.Project, scope, args, code, code)
 }
 func (s *Service) recheckNatural(ctx context.Context, p naturalPayload, at time.Time) (string, error) {
+	if standardsCommand(p.Invocation.Command) {
+		if s.standards == nil {
+			return "Standards operations are unavailable.", nil
+		}
+		if _, err := standardsOperation(p.Invocation); err != nil {
+			return err.Error(), nil //nolint:nilerr // A retired selection is a saved refusal, not retryable work.
+		}
+		if p.RepoID > 0 {
+			resolution, e := ask.ResolveProject(ctx, s.db, p.Project, nil)
+			if e != nil {
+				return "", e
+			}
+			if resolution.Refusal != "" || resolution.Repository.ID != p.RepoID {
+				return "The registered standards project changed. Request a fresh proposal.", nil
+			}
+		}
+		for _, value := range p.Invocation.Arguments {
+			protected, err := s.Protect(ctx, value)
+			if err != nil {
+				return "", err
+			}
+			if protected != value {
+				return "Protection changed the exact standards request. Request a fresh proposal.", nil
+			}
+		}
+		return "", nil
+	}
 	_, _, err := s.ValidateInvocation(p.Invocation)
 	if err != nil {
 		return "This action is no longer enabled; request a fresh proposal.", nil //nolint:nilerr // A stale catalogue entry is a saved refusal, not retryable execution work.

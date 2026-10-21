@@ -98,6 +98,9 @@ func validateInvocation(def CommandDefinition, in Invocation) (Invocation, Comma
 }
 
 func argumentLimit(command, name string) int {
+	if standardsCommand(command) && conversationProtectedContent(name) {
+		return 32768
+	}
 	switch name {
 	case "question":
 		return 8192
