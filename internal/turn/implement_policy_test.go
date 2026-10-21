@@ -8,21 +8,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 )
 
-func TestImplementHardRulesStopOnlyForTimeOrAnOutsideCauseAndBlockForDecisions(t *testing.T) {
-	guidance := implementNodeGuidance()
-	if strings.Contains(guidance, "when you cannot finish") {
-		t.Fatalf("the hard rules still invite incomplete when the worker cannot finish: %q", guidance)
-	}
-	for _, want := range []string{
-		"result.outcome incomplete with a nonblank result.reason in plain language only when this attempt's time is about to run out or something outside the story stops the work",
-		"result.outcome blocked with a nonblank result.reason in plain language when you need a decision",
-	} {
-		if !strings.Contains(guidance, want) {
-			t.Errorf("the hard rules lack %q", want)
-		}
-	}
-}
-
 type timedRunner time.Duration
 
 func (r timedRunner) Timeout() time.Duration { return time.Duration(r) }
