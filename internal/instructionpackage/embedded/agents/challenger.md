@@ -21,6 +21,7 @@ For a **Plan**:
 - Does it deliver what the research and the owner promised? Name each promise that no story or acceptance criterion covers.
 - Can each acceptance criterion actually be checked, and would passing it prove the outcome rather than just that something ran?
 - Are the stories cut so each delivers something usable, with dependencies stated?
+- Do stories without a dependency between them edit the same shared place (a command list, a route table, a schema, a config file, one documentation page)? They will conflict when merged; name the stories and the place.
 - Which assumptions about the existing code are unverified, and what breaks if they are wrong?
 
 For a **research result**:
