@@ -126,8 +126,8 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 	if pkg.Version() == "" || pkg.Digest() == "" {
 		t.Fatal("embedded package must declare a version and digest")
 	}
-	if len(pkg.files) != 18 {
-		t.Fatalf("embedded inventory has %d files, want twelve roles, metadata, catalogue, two judge resources and two doctor skills", len(pkg.files))
+	if len(pkg.files) != 16 {
+		t.Fatalf("embedded inventory has %d files, want twelve roles, metadata, catalogue and two doctor skills", len(pkg.files))
 	}
 	for _, role := range want {
 		if !slices.Contains(pkg.Roles(), role) {
@@ -138,7 +138,7 @@ func TestEmbeddedCatalogueRegistersMigratedRoles(t *testing.T) {
 			t.Fatalf("capture %s: %v", role, err)
 		}
 		if role == JudgeRole {
-			for _, name := range []string{JudgeRolePath, JudgePinPrefixPath, JudgeEvidenceSuffixPath} {
+			for _, name := range []string{JudgeRolePath} {
 				if len(capture.Resource(name)) == 0 {
 					t.Fatalf("missing judge resource %s", name)
 				}
