@@ -26,9 +26,9 @@ func TestChatMigrationPreservesExistingInboxAndLedger(t *testing.T) {
 	}
 	var prior []migration
 	for _, m := range migrations {
-		// Judge extends the presentation meter ledger, so it cannot precede the
-		// intentionally omitted chat migrations in this historical fixture.
-		if (m.name == "judge" || m.name == "workflow_judge") || strings.HasPrefix(m.name, "chat_presentation") || strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") || strings.Contains(m.name, "_chat_research.sql") {
+		// Judge and authoring extend the presentation meter ledger, so they cannot
+		// precede the intentionally omitted chat migrations in this historical fixture.
+		if (m.name == "judge" || m.name == "workflow_judge" || m.name == "authoring_meter") || strings.HasPrefix(m.name, "chat_presentation") || strings.Contains(m.name, "_chat_ask.sql") || strings.Contains(m.name, "_chat_answer_meter.sql") || strings.Contains(m.name, "_chat_research.sql") {
 			continue
 		}
 		prior = append(prior, m)

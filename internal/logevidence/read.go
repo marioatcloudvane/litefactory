@@ -62,7 +62,7 @@ func (s *Service) unsign(token string) (cursor, bool) {
 	return c, true
 }
 func (s *Service) query() store.PriorRunQuery {
-	return store.PriorRunQuery{Scope: s.scope, Cutoff: s.cutoff, HighWater: s.highWater}
+	return store.PriorRunQuery{Scope: s.scope, Cutoff: s.cutoff, HighWater: s.highWater, StartedAfter: s.startedAfter, StartedBefore: s.startedBefore}
 }
 func (s *Service) list(ctx context.Context, r ListRequest) Result {
 	if r.Limit == 0 {
@@ -78,6 +78,12 @@ func (s *Service) list(ctx context.Context, r ListRequest) Result {
 	q.TaskRef = r.TaskRef
 	q.StartedAfter = r.StartedAfter
 	q.StartedBefore = r.StartedBefore
+	if !s.startedAfter.IsZero() && (q.StartedAfter.IsZero() || q.StartedAfter.Before(s.startedAfter)) {
+		q.StartedAfter = s.startedAfter
+	}
+	if !s.startedBefore.IsZero() && (q.StartedBefore.IsZero() || q.StartedBefore.After(s.startedBefore)) {
+		q.StartedBefore = s.startedBefore
+	}
 	q.Status = r.Status
 	filter := r
 	filter.Cursor = ""

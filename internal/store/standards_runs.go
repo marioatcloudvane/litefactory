@@ -95,6 +95,12 @@ func (db *DB) SaveStandardsRunBinding(ctx context.Context, b StandardsRunBinding
 		return b, err
 	}
 	err = db.standardsWrite(ctx, func(tx *sql.Tx) error {
+		if lease, ok := ctx.Value(preventionWriterKey{}).(preventionWriterLease); ok && b.RootRunID != "analysis:"+lease.id {
+			return ErrPreventionConflict
+		}
+		if e := checkPreventionLease(ctx, tx); e != nil {
+			return e
+		}
 		if _, e := tx.ExecContext(ctx, `INSERT INTO standards_run_bindings(root_run_id,binding_json) VALUES(?,?) ON CONFLICT(root_run_id) DO NOTHING`, b.RootRunID, string(raw)); e != nil {
 			return e
 		}
@@ -141,6 +147,9 @@ func (db *DB) ListStandardsRunSelections(ctx context.Context, root, consumer str
 func (db *DB) SaveStandardsRunSelection(ctx context.Context, s StandardsRunSelection, expected int64) (StandardsRunSelection, error) {
 	s.CreatedAt = nowUTC()
 	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+		if lease, ok := ctx.Value(preventionWriterKey{}).(preventionWriterLease); ok && s.RootRunID != "analysis:"+lease.id {
+			return ErrPreventionConflict
+		}
 		if e := checkStandardsRunLease(ctx, tx, s.AttemptID); e != nil {
 			return e
 		}
@@ -187,6 +196,9 @@ func (db *DB) AppendStandardsRunObservation(ctx context.Context, o StandardsRunO
 		return err
 	}
 	return db.standardsWrite(ctx, func(tx *sql.Tx) error {
+		if lease, ok := ctx.Value(preventionWriterKey{}).(preventionWriterLease); ok && o.RootRunID != "analysis:"+lease.id {
+			return ErrPreventionConflict
+		}
 		if e := checkStandardsRunLease(ctx, tx, o.AttemptID); e != nil {
 			return e
 		}
@@ -342,6 +354,14 @@ func (db *DB) LinkStandardsGraphRun(ctx context.Context, runID, graphAttemptID i
 }
 
 func checkStandardsRunLease(ctx context.Context, tx *sql.Tx, attempt string) error {
+	if lease, ok := ctx.Value(preventionWriterKey{}).(preventionWriterLease); ok {
+		if attempt != lease.attempt {
+			return ErrPreventionConflict
+		}
+		if err := checkPreventionLease(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if lease, ok := ctx.Value(mcpLeaseKey{}).(MCPLease); ok {
 		if attempt != lease.Binding.Attempt {
 			return ErrResultAuthority

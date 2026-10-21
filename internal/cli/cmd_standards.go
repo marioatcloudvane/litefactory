@@ -304,7 +304,10 @@ category remove ID --proposal ID --expected-version N; category list [--proposal
 book current; book history; book show REVISION; book diff FROM TO
 exception propose --operation-key KEY --file FILE|-; exception list [--limit N --offset N]
 exception show|review ID; exception approve ID --digest HASH; exception revoke ID [--reason TEXT]
+analyze logs --repo forge:owner/name (--run ID | --after UTC --before UTC); analyze logs list|show|reread|recover
 run TASK [--run N] [--repo owner/name] [--json] (read-only retained standards inspection)
+analyze bugs start --repo owner/name --issues 123,124 --request-key KEY [--json]
+analyze bugs list|show|evidence|result (see command --help for retained inspection)
 Book and proposal results are JSON; run and exception inspection default to text (use --json for JSON). Proposal input: {"base_revision":0,"operations":[...]}; edits replace the full change set.
 Review shows complete before/after changes. Approve and publish require the exact reviewed version and digest.
 Local machine access implies the configured owner. Standards text grants no factory permissions.

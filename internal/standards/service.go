@@ -477,3 +477,19 @@ func VerifyRevision(r store.StandardsRevision) error {
 	}
 	return nil
 }
+
+// Prepare validates an unapproved proposal against an already verified retained
+// snapshot, without writing or resolving a later published head.
+func Prepare(id string, base int64, before Snapshot, ops []Operation, author string) (store.StandardsProposalVersion, error) {
+	if strings.TrimSpace(id) == "" || base < 1 {
+		return store.StandardsProposalVersion{}, ErrInvalid
+	}
+	if err := validateSnapshot(before); err != nil {
+		return store.StandardsProposalVersion{}, err
+	}
+	after, err := apply(before, ops)
+	if err != nil {
+		return store.StandardsProposalVersion{}, err
+	}
+	return store.StandardsProposalVersion{ProposalID: id, Version: 1, BaseRevision: base, SchemaVersion: 1, Operations: canonicalOps(ops), ChangeDigest: changeDigest(base, ops), ResultDigest: snapshotDigest(after), Author: author}, nil
+}
