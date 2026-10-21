@@ -14,9 +14,10 @@ import (
 	"github.com/cloudvane/litefactory/internal/providerprocess"
 )
 
-// RunJudge starts a fresh native turn with a factory-owned model catalogue.
-// Disabling shell features alone leaves model-owned apply_patch available; the
-// catalogue removes that authority before Codex constructs its tool registry.
+// RunJudge starts a fresh native turn with a factory-owned model catalogue in
+// the read-only sandbox: the judge reads the pinned checkout and the context
+// files with shell commands that cannot write or reach the network. The
+// catalogue removes model-owned apply_patch before Codex builds its registry.
 func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (_ agent.JudgeRunResult, err error) {
 	if err = request.Validate(); err != nil {
 		return agent.JudgeRunResult{}, err
@@ -33,7 +34,9 @@ func (r *Runner) RunJudge(ctx context.Context, request agent.JudgeRequest) (_ ag
 		}
 		return agent.JudgeRunResult{}, errors.New("judge client cannot be inspected")
 	}
-	home, err := os.MkdirTemp(request.Invocation.WorkingDirectory, "codex-judge-private-")
+	// The judge reads its working directory, so the private home (with the auth
+	// link and the factory catalogue) lives in the system temp directory.
+	home, err := os.MkdirTemp("", "codex-judge-private-")
 	if err != nil {
 		return agent.JudgeRunResult{}, err
 	}

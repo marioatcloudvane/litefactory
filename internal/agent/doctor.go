@@ -25,6 +25,9 @@ type DoctorRequest struct {
 	Usage            *UsageCapture
 	MCPLaunch        *MCPLaunchSpec
 	Sandbox          *DoctorSandbox
+	// ReadableDirectories is judge only: directories beside WorkingDirectory
+	// the provider may read but never write (the factory context files).
+	ReadableDirectories []string
 }
 
 // Validate enforces the only permitted diagnosis communication surface.

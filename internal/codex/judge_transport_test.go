@@ -61,7 +61,7 @@ func newJudgeNativeFixture(t *testing.T, mode string) (*Runner, agent.JudgeReque
 	return runner, request, filepath.Join(captureDir, "capture.json"), auth
 }
 
-func TestJudgeNativeEvidenceOnlyTransport(t *testing.T) {
+func TestJudgeNativeReadOnlyTransport(t *testing.T) {
 	runner, request, capturePath, auth := newJudgeNativeFixture(t, "success")
 	var events []agent.UsageEvent
 	request.Invocation.UsageAttemptID = "native-meter"
@@ -80,6 +80,14 @@ func TestJudgeNativeEvidenceOnlyTransport(t *testing.T) {
 	if capture.Prompt != request.Invocation.Prompt || strings.Contains(strings.Join(capture.Arguments, " "), request.Invocation.Prompt) {
 		t.Fatal("untrusted prompt did not stay on stdin")
 	}
+	for _, feature := range []string{"features.shell_tool", "features.unified_exec"} {
+		if value, present := capture.Config[feature]; present {
+			t.Errorf("judge shell must stay available inside the read-only sandbox: %s=%s", feature, value)
+		}
+	}
+	if strings.HasPrefix(capture.Home, request.Invocation.WorkingDirectory+string(filepath.Separator)) {
+		t.Fatalf("private home with the auth link sits inside the judge's readable checkout: %s", capture.Home)
+	}
 	if capture.Home == "" || capture.Home != capture.CodexHome || capture.Home == envValue(runner.environ, "HOME") || capture.AuthLink != auth {
 		t.Fatalf("private authentication boundary: %+v", capture)
 	}
@@ -94,7 +102,6 @@ func TestJudgeNativeEvidenceOnlyTransport(t *testing.T) {
 		}
 	}
 	for _, option := range []struct{ key, want string }{
-		{"features.shell_tool", "false"}, {"features.unified_exec", "false"},
 		{"features.multi_agent", "false"}, {"features.view_image", "false"},
 		{"features.image_generation", "false"}, {"web_search", `"disabled"`},
 		{"model_reasoning_effort", `"high"`}, {"approval_policy", `"never"`},
@@ -145,7 +152,8 @@ func TestJudgeNativeEvidenceOnlyTransport(t *testing.T) {
 		t.Fatalf("catalog admitted other models: %s", capture.Catalog)
 	}
 	model := catalog.Models[0]
-	if model.Slug != request.Invocation.Model || model.ShellType != "disabled" || string(model.ApplyPatchToolType) != "null" || model.ExperimentalSupportedTools == nil || len(model.ExperimentalSupportedTools) != 0 || model.ToolMode != "direct" || !model.NodeREPLDisabled {
+	// The shell reads files inside the read-only sandbox; patching stays removed.
+	if model.Slug != request.Invocation.Model || model.ShellType != "shell_command" || string(model.ApplyPatchToolType) != "null" || model.ExperimentalSupportedTools == nil || len(model.ExperimentalSupportedTools) != 0 || model.ToolMode != "direct" || !model.NodeREPLDisabled {
 		t.Fatalf("native catalog permits execution or edits: %s", capture.Catalog)
 	}
 	if _, err := os.Stat(capture.Home); !errors.Is(err, os.ErrNotExist) {
@@ -198,7 +206,7 @@ func TestJudgeNativeCatalogPreservesProviderProtocolAndUnsetThinking(t *testing.
 	if !model.UseResponsesLite || model.ContextWindow != 272000 || model.DefaultReasoningLevel != "low" {
 		t.Fatalf("tool restriction changed provider protocol or native defaults: %s", capture.Catalog)
 	}
-	if model.ShellType != "disabled" || string(model.ApplyPatchToolType) != "null" || model.ExperimentalSupportedTools == nil || len(model.ExperimentalSupportedTools) != 0 {
+	if model.ShellType != "shell_command" || string(model.ApplyPatchToolType) != "null" || model.ExperimentalSupportedTools == nil || len(model.ExperimentalSupportedTools) != 0 {
 		t.Fatalf("provider metadata restored native tools: %s", capture.Catalog)
 	}
 	if _, present := capture.Config["model_reasoning_effort"]; present {
