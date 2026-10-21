@@ -33,6 +33,7 @@ type ChatOptions struct {
 	Diagnoser     ChatDiagnoser
 	Answers       *ask.Service
 	Conversations *messaging.ConversationOptions
+	Standards     *ConversationStandards
 	Settings      config.DiscordChat
 	Token         secrets.Token
 	// Resolve, when set, resolves the bot token again. A Token that is empty at
@@ -170,6 +171,30 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 				return &messaging.ConversationAccessError{Permanent: failure.Capability, RetryAfter: failure.RetryAfter}
 			}
 			return err
+		}
+		if o.Standards != nil {
+			operations := *o.Standards
+			operations.OwnerID = o.Settings.OwnerID
+			operations.Authorized = func(ctx context.Context, request messaging.StandardsRequest) error {
+				allowed := false
+				for _, channel := range o.Settings.ChannelIDs {
+					if channel == request.ChannelID {
+						allowed = true
+					}
+				}
+				bound := false
+				for _, binding := range options.Bindings {
+					if binding.Channel == request.ChannelID {
+						bound = true
+					}
+				}
+				if !allowed || !bound {
+					return errors.New("standards: conversation no longer authorized")
+				}
+				return options.CheckAccess(ctx, request.ChannelID)
+			}
+			s.EnableStandards(&operations)
+			s.EnableStandardsNotices(o.Settings.NoticeChannelID)
 		}
 		d.chat.conversations = &options
 		// Ordinary messages feed only conversations, so intake reads only

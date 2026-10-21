@@ -194,7 +194,7 @@ func validate(rec store.StandardsExceptionRecord, r store.StandardsRevision, rep
 		return fmt.Errorf("%w: lifetime exceeds published maximum", ErrPolicy)
 	}
 
-	if rec.Approval != nil && (rec.Approval.Digest != p.Digest || rec.Approval.Owner == "" || rec.Approval.Provenance != "local-cli" || rec.Approval.CreatedAt.Before(p.CreatedAt) || !rec.Approval.CreatedAt.Before(t.ExpiresAt)) {
+	if rec.Approval != nil && (rec.Approval.Digest != p.Digest || rec.Approval.Owner == "" || !store.StandardsProvenanceValid(rec.Approval.Provenance) || rec.Approval.CreatedAt.Before(p.CreatedAt) || !rec.Approval.CreatedAt.Before(t.ExpiresAt)) {
 		return ErrDigest
 	}
 	return nil

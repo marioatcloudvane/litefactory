@@ -125,7 +125,9 @@ func (db *DB) CreateStandardsException(ctx context.Context, p StandardsException
 	}
 	p.CreatedAt = p.CreatedAt.UTC().Truncate(time.Millisecond)
 	p.ExpiresAt = p.ExpiresAt.UTC().Truncate(time.Millisecond)
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "exception", ID: p.ID}
+	}), func(tx *sql.Tx) error {
 		var id string
 		err := tx.QueryRowContext(ctx, `SELECT id FROM standards_exception_proposals WHERE operation_key=?`, p.OperationKey).Scan(&id)
 		if err == nil {
@@ -199,11 +201,13 @@ func (db *DB) ListStandardsExceptions(ctx context.Context, limit, offset int) ([
 // ApproveStandardsException rechecks references and expiry atomically before recording approval.
 func (db *DB) ApproveStandardsException(ctx context.Context, id, digest, owner string, now time.Time, validate StandardsExceptionValidator) (StandardsExceptionRecord, error) {
 	var r StandardsExceptionRecord
-	if owner == "" || now.IsZero() {
+	if owner == "" || now.IsZero() || !StandardsProvenanceValid(standardsProvenance(ctx)) {
 		return r, ErrStandardsExceptionApprovalRequired
 	}
 	now = now.UTC().Truncate(time.Millisecond)
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "exception", ID: r.Proposal.ID}
+	}), func(tx *sql.Tx) error {
 		var err error
 		r, err = readStandardsException(ctx, tx, id)
 		if err != nil {
@@ -227,11 +231,11 @@ func (db *DB) ApproveStandardsException(ctx context.Context, id, digest, owner s
 		if err := validateStandardsException(ctx, tx, r, validate); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO standards_exception_approvals(proposal_id,digest,owner,provenance,created_at) VALUES(?,?,?,'local-cli',?)`, id, digest, owner, FormatTime(now))
+		_, err = tx.ExecContext(ctx, `INSERT INTO standards_exception_approvals(proposal_id,digest,owner,provenance,created_at) VALUES(?,?,?,?,?)`, id, digest, owner, standardsProvenance(ctx), FormatTime(now))
 		if err != nil {
 			return err
 		}
-		r.Approval = &StandardsExceptionApproval{ProposalID: id, Digest: digest, Owner: owner, Provenance: "local-cli", CreatedAt: now}
+		r.Approval = &StandardsExceptionApproval{ProposalID: id, Digest: digest, Owner: owner, Provenance: standardsProvenance(ctx), CreatedAt: now}
 		return nil
 	})
 	return r, err
@@ -240,11 +244,13 @@ func (db *DB) ApproveStandardsException(ctx context.Context, id, digest, owner s
 // RevokeStandardsException records terminal revocation and recovers identical retries.
 func (db *DB) RevokeStandardsException(ctx context.Context, id, owner, reason string, now time.Time) (StandardsExceptionRecord, error) {
 	var r StandardsExceptionRecord
-	if owner == "" || now.IsZero() {
+	if owner == "" || now.IsZero() || !StandardsProvenanceValid(standardsProvenance(ctx)) {
 		return r, ErrStandardsExceptionApprovalRequired
 	}
 	now = now.UTC().Truncate(time.Millisecond)
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "exception", ID: r.Proposal.ID}
+	}), func(tx *sql.Tx) error {
 		var err error
 		r, err = readStandardsException(ctx, tx, id)
 		if err != nil {
@@ -262,11 +268,11 @@ func (db *DB) RevokeStandardsException(ctx context.Context, id, owner, reason st
 		if now.Before(r.Approval.CreatedAt) {
 			return ErrStandardsExceptionConflict
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO standards_exception_revocations(proposal_id,owner,provenance,reason,created_at) VALUES(?,?,'local-cli',?,?)`, id, owner, reason, FormatTime(now))
+		_, err = tx.ExecContext(ctx, `INSERT INTO standards_exception_revocations(proposal_id,owner,provenance,reason,created_at) VALUES(?,?,?,?,?)`, id, owner, standardsProvenance(ctx), reason, FormatTime(now))
 		if err != nil {
 			return err
 		}
-		r.Revocation = &StandardsExceptionRevocation{ProposalID: id, Owner: owner, Provenance: "local-cli", Reason: reason, CreatedAt: now}
+		r.Revocation = &StandardsExceptionRevocation{ProposalID: id, Owner: owner, Provenance: standardsProvenance(ctx), Reason: reason, CreatedAt: now}
 		return nil
 	})
 	return r, err

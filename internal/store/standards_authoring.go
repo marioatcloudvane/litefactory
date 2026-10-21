@@ -135,7 +135,9 @@ func saveAuthoring(ctx context.Context, tx *sql.Tx, s *StandardsAuthoringSession
 
 // SaveStandardsAuthoring appends with a compare-and-swap and fences prior output.
 func (db *DB) SaveStandardsAuthoring(ctx context.Context, s StandardsAuthoringSession, expected int64) (StandardsAuthoringSession, error) {
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error { return saveAuthoring(ctx, tx, &s, expected) })
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "author", ID: s.ID, Version: s.Version}
+	}), func(tx *sql.Tx) error { return saveAuthoring(ctx, tx, &s, expected) })
 	return s, err
 }
 
@@ -253,7 +255,16 @@ func (db *DB) BeginStandardsAuthoringAttempt(ctx context.Context, a StandardsAut
 
 // FinishStandardsAuthoringAttempt applies only a still-current fenced result. A nil state records failure.
 func (db *DB) FinishStandardsAuthoringAttempt(ctx context.Context, a StandardsAuthoringAttempt, s *StandardsAuthoringSession) (StandardsAuthoringAttempt, error) {
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		if s == nil {
+			return StandardsConversationEffect{}
+		}
+		kind := "author"
+		if a.Outcome != "accepted" && a.Outcome != "succeeded" {
+			kind = "author-interrupted"
+		}
+		return StandardsConversationEffect{DomainKind: kind, ID: s.ID, Version: s.Version}
+	}), func(tx *sql.Tx) error {
 		old, e := readAuthoringAttempt(ctx, tx, a.ID)
 		if e != nil {
 			return e
@@ -320,7 +331,9 @@ func (db *DB) ListStandardsAuthoringAttempts(ctx context.Context, id string) ([]
 
 // CompleteStandardsAuthoring atomically creates an unapproved proposal and its unique recovery link.
 func (db *DB) CompleteStandardsAuthoring(ctx context.Context, id string, expected int64, p StandardsProposalVersion) (StandardsProposalVersion, error) {
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "proposal", ID: p.ProposalID, Version: p.Version}
+	}), func(tx *sql.Tx) error {
 		var linked string
 		var version, sessionVersion int64
 		e := tx.QueryRowContext(ctx, `SELECT proposal_id,proposal_version,version FROM standards_authoring_completions WHERE session_id=?`, id).Scan(&linked, &version, &sessionVersion)

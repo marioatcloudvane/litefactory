@@ -122,3 +122,36 @@ conversation answers wait. Remote duplicates remain possible. Permanent refusal
 or access loss preserves pending parts and reports a channel health reason.
 Completed answer details expire 24 hours after the entire answer is delivered;
 pending answer evidence and pending exports survive outages.
+
+## Standards in the owner conversation
+
+Ask what standards operations are available, then ask to start or inspect a saved
+standard draft. Authoring questions have saved session, version and question
+references. Answers and edits use a preview and a separate confirmation; answering
+a question never approves the resulting proposal. The same saved work is visible
+through the standards CLI.
+
+Request a complete review of one exact proposal version before approving it.
+Continue the saved review when it spans several batches. Only after every review
+part has been acknowledged does the factory offer an approval code. Explicitly
+approve that code; a bare “yes”, a reaction, a summary or an analyst notice does
+not approve standards. Approval expires after 15 minutes, and changed terms need
+a fresh review. Publication is a separate request and confirmation for that exact
+approved proposal. Its result identifies the published book revision.
+
+After an interrupted reply, inspect the saved operation or draft before trying
+again. A committed operation can succeed even when delivery fails; recovery uses
+its original receipt. Interrupted generation requires explicit continuation.
+Selected references and operation receipts survive ordinary restart and delivered
+chat-body cleanup. Missing references never silently select the latest proposal.
+SQLite uses NORMAL synchronization: this recovery covers ordinary process
+interruption, not power loss, storage loss or administrator changes.
+
+Recurring analysis is opt-in: a newly created schedule is disabled until separately
+enabled. Inspect schedules and retained notices to see their exact analysis and
+original unapproved proposal references, activity, coverage gaps and outcomes.
+Notices do not approve or publish anything. They use the configured notice channel
+only when it is an authorized owner conversation. Otherwise notices remain retained
+with delivery unconfigured; permanent refusal pauses delivery, while temporary
+failures defer it. Delayed retries can display duplicate replies. Delivery does not
+extend source-evidence retention or promise uninterrupted Discord availability.

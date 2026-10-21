@@ -82,6 +82,9 @@ func conversationCommand(def CommandDefinition) bool {
 	if !def.NaturalLanguage {
 		return false
 	}
+	if standardsCommand(def.Name) {
+		return true
+	}
 	switch def.Name {
 	case "help", "health", "status", "meter", "prices", "ask", "question":
 		return def.Effect == ReadEffect
@@ -221,7 +224,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 				return bad()
 			}
 		case exactConversationFields(f, "name", "value"):
-			if envelope.Kind != "lookup" || conversationProtectedContent(arg.Name) || arg.Value == "" {
+			if (envelope.Kind != "lookup" && (!standardsCommand(envelope.Command) || arg.Name != "action")) || conversationProtectedContent(arg.Name) || arg.Value == "" {
 				return bad()
 			}
 			value = arg.Value
@@ -233,6 +236,11 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	validated, _, err := validateInvocation(*def, inv)
 	if err != nil {
 		return bad()
+	}
+	if standardsCommand(validated.Command) {
+		if _, err := standardsOperation(validated); err != nil {
+			return bad()
+		}
 	}
 	// A current explicit issue target cannot be replaced by a remembered target.
 	latest := request.Turns[len(request.Turns)-1].Text
@@ -256,7 +264,13 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	return envelope, validated, nil
 }
 
-func conversationProtectedContent(name string) bool { return name == "text" || name == "note" }
+func conversationProtectedContent(name string) bool {
+	switch name {
+	case "text", "note", "intent", "title", "body", "operations", "request", "reason", "config", "departure", "name":
+		return true
+	}
+	return false
+}
 func exactConversationFields(fields map[string]json.RawMessage, names ...string) bool {
 	if len(fields) != len(names) {
 		return false

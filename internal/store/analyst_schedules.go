@@ -158,7 +158,9 @@ func (db *DB) CreateAnalystSchedule(ctx context.Context, a AnalystSchedule) (Ana
 	a.NextDue = time.Time{}
 	a.Anchor = time.Time{}
 	a.PausedAt = a.CreatedAt
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "schedule", ID: a.ID, Version: a.Version}
+	}), func(tx *sql.Tx) error {
 		var id string
 		err := tx.QueryRowContext(ctx, `SELECT id FROM analyst_schedules WHERE creation_key=?`, a.CreationKey).Scan(&id)
 		if err == nil {
@@ -243,7 +245,9 @@ func (db *DB) ListAnalystSchedules(ctx context.Context, after string, limit int)
 // MutateAnalystSchedule atomically applies an expected-version owner edit.
 func (db *DB) MutateAnalystSchedule(ctx context.Context, id string, expected int64, m AnalystScheduleMutation, now time.Time) (AnalystSchedule, error) {
 	var a AnalystSchedule
-	err := db.standardsWrite(ctx, func(tx *sql.Tx) error {
+	err := db.standardsWrite(withStandardsConversationEffect(ctx, func() StandardsConversationEffect {
+		return StandardsConversationEffect{DomainKind: "schedule", ID: a.ID, Version: a.Version}
+	}), func(tx *sql.Tx) error {
 		var e error
 		a, e = readAnalystSchedule(ctx, tx, id)
 		if e != nil {
