@@ -38,6 +38,7 @@ empty :=
 space := $(empty) $(empty)
 MIXED_PACKAGES := ./internal/turn ./internal/store ./internal/cli
 RACE_TESTS_store := \
+	TestStandardsExceptionsTransitionsIndependentConnections \
 	TestStandardsRunCompetingBindingsAndSelectionVersions \
 	TestStandardsCompetingPublications \
 	TestConversationCaptureConcurrentWinnerAndReplacement \
