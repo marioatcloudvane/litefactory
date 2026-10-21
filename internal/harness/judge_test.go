@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +15,12 @@ import (
 
 func TestJudgeScopedTransport(t *testing.T) {
 	dir := t.TempDir()
+	contextDir := t.TempDir()
+	observed := filepath.Join(t.TempDir(), "config-dir")
 	binary := filepath.Join(t.TempDir(), "fixture")
 	script := `#!/bin/sh
 if [ "$1" = "--help" ]; then printf '%s\n' '--effort <level> (choices: low, medium, high, xhigh, max)'; exit 0; fi
+printf '%s' "$CLAUDE_CONFIG_DIR" > ` + observed + `
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"judge-session","claude_code_version":"fixture"}' '{"type":"assistant","session_id":"judge-session","message":{"id":"m","model":"opus","usage":{"input_tokens":4,"output_tokens":2}}}' '{"type":"result","is_error":false}'
 `
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
@@ -26,7 +30,7 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"judge-session","c
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := agent.JudgeRequest{Invocation: agent.DoctorRequest{Attempt: "judge-attempt", Model: "opus", Prompt: "challenge saved evidence", WorkingDirectory: dir, MCPLaunch: launch}, Thinking: "high"}
+	request := agent.JudgeRequest{Invocation: agent.DoctorRequest{Attempt: "judge-attempt", Model: "opus", Prompt: "challenge saved work", WorkingDirectory: dir, ReadableDirectories: []string{contextDir}, MCPLaunch: launch}, Thinking: "high"}
 	runner := &Runner{binary: config.Executable{Path: binary}, timeout: time.Second * 10, environ: []string{"PATH=/usr/bin:/bin"}}
 	result, err := runner.RunJudge(t.Context(), request)
 	if err != nil {
@@ -35,24 +39,49 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"judge-session","c
 	if result.ObservedModel != "opus" {
 		t.Fatalf("model: %+v", result)
 	}
+	// The private home holds the credentials link; it must not sit in a root the judge reads.
+	home, err := os.ReadFile(observed)
+	if err != nil || len(home) == 0 {
+		t.Fatalf("config dir not observed: %v", err)
+	}
+	for _, root := range []string{dir, contextDir} {
+		if strings.HasPrefix(string(home), root+string(filepath.Separator)) {
+			t.Fatalf("private home %s is readable by the judge under %s", home, root)
+		}
+	}
 	request.Invocation.Thinking = request.Thinking
 	args, err := scopedDoctorArguments(request.Invocation, "/private/mcp.json", "judge")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, arg := range args {
-		if arg == "--tools" && args[i+1] != "" {
-			t.Fatal("judge exposes native tools")
+	value := func(flag string) string {
+		for i, arg := range args {
+			if arg == flag && i+1 < len(args) {
+				return args[i+1]
+			}
 		}
+		t.Fatalf("missing %s: %v", flag, args)
+		return ""
+	}
+	if tools := value("--tools"); tools != "Read,Grep,Glob" {
+		t.Fatalf("judge native tools are not read-only: %q", tools)
+	}
+	if value("--permission-mode") != "dontAsk" || value("--add-dir") != contextDir {
+		t.Fatalf("judge cannot read context or may ask: %v", args)
+	}
+	allowed := strings.Split(value("--allowedTools"), ",")
+	want := []string{"Read(/" + dir + "/**)", "Read(/" + contextDir + "/**)"}
+	for _, tool := range agent.JudgeToolNames() {
+		want = append(want, "mcp__litefactory__"+tool)
+	}
+	slices.Sort(allowed)
+	slices.Sort(want)
+	if !slices.Equal(allowed, want) {
+		t.Fatalf("judge allowlist %v, want %v", allowed, want)
 	}
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "--effort high") || !strings.Contains(joined, "--no-session-persistence") {
+	if !strings.Contains(joined, "--effort high") || !strings.Contains(joined, "--no-session-persistence") || strings.Contains(joined, "--settings") {
 		t.Fatalf("missing effort/isolation: %s", joined)
-	}
-	for _, tool := range agent.JudgeToolNames() {
-		if !strings.Contains(joined, "mcp__litefactory__"+tool) {
-			t.Fatal("missing scoped tool", tool)
-		}
 	}
 	if _, err = runner.RunDoctorRepair(t.Context(), agent.RepairRequest{Invocation: request.Invocation, Operation: "judge"}); err == nil {
 		t.Fatal("judge accepted as repair")

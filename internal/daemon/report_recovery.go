@@ -371,6 +371,18 @@ func (d *Daemon) observeRecoveryAttempt(ctx context.Context, source store.Report
 	}
 }
 
+// settleDoctorConsume drops a stopped repair's unconfirmed consume reply and
+// releases the recovery hold it kept on its session.
+func (d *Daemon) settleDoctorConsume(ctx context.Context, source store.ReportRecovery, key string, lookupEmpty bool) (bool, error) {
+	settlement, settled, err := d.db.SettleFencedDoctorConsumeDelivery(ctx, key, lookupEmpty)
+	if err != nil || !settled {
+		return false, err
+	}
+	d.log.InfoContext(ctx, "doctor consume reply settled", slog.String("repair_id", settlement.RepairID), slog.Int("step", settlement.Step), slog.String("delivery", key), slog.String("task", source.Task))
+	d.recoverySucceeded(ctx, source.Key)
+	return true, nil
+}
+
 func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bool, error) {
 	pendingDelivery, deliveryFound, deliveryErr := d.db.FindPendingReportDelivery(ctx, t.session.ID, triggerID)
 	if deliveryErr != nil {
@@ -403,6 +415,19 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 		return false, nil
 	}
 	source := store.ReportRecovery{Key: recoveryKey(t.session.ID, triggerID), SessionID: t.session.ID, TriggerID: triggerID, Task: t.ref.String()}
+	// A stopped repair's consume reply that provably was not sent is dropped
+	// before recovery could dispatch, and so post, it.
+	doctorConsume := deliveryFound && strings.HasPrefix(pendingDelivery.Key, "doctor-consume:")
+	if doctorConsume {
+		settled, settleErr := d.settleDoctorConsume(ctx, source, pendingDelivery.Key, false)
+		if settleErr != nil {
+			d.recoveryFailure(ctx, source, t.tickAt, settleErr)
+			return true, &recoveryPending{settleErr}
+		}
+		if settled {
+			return false, nil
+		}
+	}
 	allowed, err := d.guardedRecoveryAllowed(ctx, source, t.tickAt)
 	if err != nil {
 		d.recoveryFailure(ctx, source, t.tickAt, err)
@@ -413,6 +438,15 @@ func (d *Daemon) resumeReport(ctx context.Context, t *task, triggerID int64) (bo
 	}
 	finish := d.observeRecoveryAttempt(ctx, source)
 	_, pending, err := reporter.ReportPending(ctx, t.session.ID, triggerID)
+	if err != nil && doctorConsume && errors.Is(err, turn.ErrReportReceiptAbsent) {
+		// A complete lookup found no trace of a stopped repair's reply.
+		settled, settleErr := d.settleDoctorConsume(ctx, source, pendingDelivery.Key, true)
+		if settled {
+			finish("resolved")
+			return false, nil
+		}
+		err = errors.Join(err, settleErr)
+	}
 	if err != nil {
 		d.recoveryFailure(ctx, source, t.tickAt, err)
 		finish("failed")

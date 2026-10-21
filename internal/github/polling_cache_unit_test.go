@@ -123,6 +123,59 @@ func TestPollingCacheUnit_BypassIsComplete(t *testing.T) {
 	}
 }
 
+// githubVary is the exact Vary value GitHub's REST API sends.
+const githubVary = "Accept, Authorization, Cookie, X-GitHub-OTP,Accept-Encoding, Accept, X-Requested-With"
+
+func githubVaryResponse(status int, body string) *http.Response {
+	resp := cacheUnitResponse(status, body)
+	resp.Header.Set("Etag", `W/"x"`)
+	resp.Header.Set("Cache-Control", "private, max-age=60, s-maxage=60")
+	resp.Header.Set("Vary", githubVary)
+	return resp
+}
+
+func TestPollingCacheUnit_GitHubVaryIsRetained(t *testing.T) {
+	t.Parallel()
+	var conditional []string
+	tr := cacheUnitClient(func(r *http.Request) (*http.Response, error) {
+		conditional = append(conditional, r.Header.Get("If-None-Match"))
+		if r.Header.Get("If-None-Match") != "" {
+			return githubVaryResponse(http.StatusNotModified, ""), nil
+		}
+		return githubVaryResponse(http.StatusOK, "cached body"), nil
+	})
+	for i := range 2 {
+		meta, got := cacheUnitRead(t, tr, cacheUnitRequest(t))
+		if meta.StatusCode != http.StatusOK || got != "cached body" {
+			t.Fatalf("read %d: status %d body %q", i, meta.StatusCode, got)
+		}
+	}
+	if len(conditional) != 2 || conditional[0] != "" || conditional[1] != `W/"x"` {
+		t.Fatalf("If-None-Match sent = %q, want [\"\" W/\"x\"]", conditional)
+	}
+}
+
+func TestPollingCacheUnit_GitHubVaryRequestHeadersBypass(t *testing.T) {
+	for _, name := range []string{"Cookie", "X-GitHub-OTP", "X-Requested-With"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			tr := cacheUnitClient(func(r *http.Request) (*http.Response, error) {
+				if r.Header.Get("If-None-Match") != "" {
+					return nil, errors.New("validator injected into ineligible request")
+				}
+				return githubVaryResponse(http.StatusOK, "body"), nil
+			})
+			for range 2 {
+				req := cacheUnitRequest(t)
+				req.Header.Set(name, "value")
+				if _, got := cacheUnitRead(t, tr, req); got != "body" {
+					t.Fatalf("body %q", got)
+				}
+			}
+		})
+	}
+}
+
 func TestPollingCacheUnit_EvictionAndRestart(t *testing.T) {
 	for _, tt := range []struct {
 		name  string

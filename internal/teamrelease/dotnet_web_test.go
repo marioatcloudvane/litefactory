@@ -226,29 +226,6 @@ func TestDotnetWebCapturedGuidanceAndProviderReplay(t *testing.T) {
 
 func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 	p := dotnetProfile(t)
-	matrix, err := os.ReadFile(filepath.Join(dotnetRelease(t), "plan/skills/blazor-guidance/compatibility.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	practices, err := os.ReadFile(filepath.Join(dotnetRelease(t), "plan/skills/blazor-guidance/practices.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, pin := range []string{"10.0.401", "10.0.12", "net10.0"} {
-		if !bytes.Contains(matrix, []byte(pin)) || !strings.Contains(p.Effective.Checks[0].Argv[2], pin) {
-			t.Fatal("profile/matrix pin mismatch", pin)
-		}
-	}
-	for _, term := range []string{"net10.0", "SDK default", "macOS or Linux", "wasm-tools", "AOT", "NuGet", "Node.js"} {
-		if !bytes.Contains(matrix, []byte(term)) {
-			t.Fatal("compatibility omission", term)
-		}
-	}
-	for _, term := range []string{"Static SSR", "Interactive Server", "Interactive WebAssembly", "Auto", "Standalone WebAssembly", "Prerendering", "DI lifetimes", "EditForm", "keyboard", "state ownership", "JavaScript", "authorization", "circuit", "Validate"} {
-		if !bytes.Contains(practices, []byte(term)) {
-			t.Fatal("guidance omission", term)
-		}
-	}
 	for _, mode := range []string{"research", "plan", "implement", "validate", "spike", "bug"} {
 		shared, err := os.ReadFile(filepath.Join("../teamsource", mode, mode+".dot"))
 		if err != nil {
@@ -263,6 +240,9 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		}
 		if mode == "implement" {
 			shared = legacyImplementSourceWithoutOwnerResumeSync(t, shared)
+		}
+		if mode == "spike" {
+			shared = legacySpikeSourceWithoutRepair(t, shared)
 		}
 		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
 		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))

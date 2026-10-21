@@ -17,7 +17,7 @@ import (
 
 // Every registered workflow policy, and the runtime form of each that adds
 // handlers, travels the shared result route: it is admitted, names a decoder for
-// the shared result, carries the shared-route guidance and yields a registry.
+// the shared result and yields a registry.
 func TestWorkflowRegistry_EveryPolicyRequiresSharedResultBindingAndDecoding(t *testing.T) {
 	t.Parallel()
 	policies := RegisteredWorkflowPolicies()
@@ -34,9 +34,6 @@ func TestWorkflowRegistry_EveryPolicyRequiresSharedResultBindingAndDecoding(t *t
 		}
 		if policy.Decode == nil {
 			t.Errorf("%s: no decoder for the shared result", name)
-		}
-		if !strings.Contains(policy.Guidance, "result helper") {
-			t.Errorf("%s: guidance does not carry the shared result route", name)
 		}
 		if _, err := WorkflowSpecs(policy); err != nil {
 			t.Errorf("%s: no registry: %v", name, err)

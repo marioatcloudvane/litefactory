@@ -2,44 +2,54 @@ package agentresult
 
 import "testing"
 
-func TestJudgeRefusesUnverifiedEvidenceAndCleanGaps(t *testing.T) {
-	evidence := []JudgeEvidence{{ID: "source", Available: true, Essential: true, Lines: 4}}
-	r := JudgeReport{Version: 1, Verdict: "concerns_found", Summary: "Concern", Coverage: []string{"source"}, Findings: []JudgeFinding{{Severity: "high", Concern: "Unsupported claim", Impact: "Wrong decision", Correction: "Add evidence", Evidence: []JudgeCitation{{EvidenceID: "source", StartLine: 2, EndLine: 3}}}}}
-	if d := ValidateJudge(r, evidence); !d.Valid {
-		t.Fatalf("valid report: %+v", d)
+func judgeConcern(c JudgeCitation) JudgeReport {
+	return JudgeReport{Version: 1, Verdict: "concerns_found", Summary: "Concern", Findings: []JudgeFinding{{Severity: "high", Concern: "Unsupported claim", Impact: "Wrong decision", Correction: "Add evidence", Evidence: []JudgeCitation{c}}}}
+}
+
+func TestJudgeCitationsNameRepositoryOrContextFiles(t *testing.T) {
+	for _, c := range []JudgeCitation{{Path: "internal/turn/judge.go", StartLine: 2, EndLine: 3}, {Path: "result.md"}, {Path: ".aiteam/plan/PLAN.md", StartLine: 4}} {
+		if d := ValidateJudge(judgeConcern(c)); !d.Valid {
+			t.Fatalf("refused %+v: %+v", c, d)
+		}
 	}
-	r.Findings[0].Evidence[0].EndLine = 5
-	if d := ValidateJudge(r, evidence); d.Valid {
-		t.Fatal("accepted line beyond captured bytes")
+	for _, c := range []JudgeCitation{{Path: ""}, {Path: "/etc/passwd"}, {Path: "../outside.go"}, {Path: "a/../../b"}, {Path: `dir\file.go`}, {Path: "a.go", StartLine: 5, EndLine: 2}, {Path: "a.go", EndLine: 2}} {
+		if d := ValidateJudge(judgeConcern(c)); d.Valid {
+			t.Fatalf("accepted %+v", c)
+		}
 	}
-	r.Verdict = "no_material_concerns"
-	r.Findings = nil
-	evidence = append(evidence, JudgeEvidence{ID: "repository", Essential: true})
-	if d := ValidateJudge(r, evidence); d.Valid {
-		t.Fatal("essential missing evidence became clean")
-	}
-	r.Verdict = "unable_to_assess"
-	r.Uncertainty = []string{"Repository unavailable"}
-	if d := ValidateJudge(r, evidence); !d.Valid {
-		t.Fatalf("gap assessment: %+v", d)
+	r := judgeConcern(JudgeCitation{Path: "a.go"})
+	r.Coverage = []string{"a.go", "/abs.go"}
+	if d := ValidateJudge(r); d.Valid {
+		t.Fatal("accepted absolute coverage path")
 	}
 }
 
 func TestDecodeJudgeRejectsAuthorityAndDuplicateFields(t *testing.T) {
 	for _, raw := range []string{
-		`{"report":{"version":1,"verdict":"no_material_concerns","summary":"ok","coverage":["source"],"uncertainty":[],"findings":[],"approval":true}}`,
-		`{"report":{"version":1,"version":1,"verdict":"no_material_concerns","summary":"ok","coverage":["source"],"uncertainty":[],"findings":[]}}`,
+		`{"report":{"version":1,"verdict":"no_material_concerns","summary":"ok","uncertainty":[],"findings":[],"approval":true}}`,
+		`{"report":{"version":1,"version":1,"verdict":"no_material_concerns","summary":"ok","uncertainty":[],"findings":[]}}`,
 	} {
-		if _, d := DecodeJudge([]byte(raw), []JudgeEvidence{{ID: "source", Available: true}}); d.Valid {
+		if _, d := DecodeJudge([]byte(raw)); d.Valid {
 			t.Fatal("accepted invalid authored envelope")
 		}
 	}
+	if _, d := DecodeJudge([]byte(`{"report":{"version":1,"verdict":"no_material_concerns","summary":"ok","uncertainty":[],"findings":[]}}`)); !d.Valid {
+		t.Fatalf("refused a clean report without coverage: %+v", d)
+	}
 }
 
-func TestJudgeRequiresPinnedSourceCoverage(t *testing.T) {
-	r := JudgeReport{Version: 1, Verdict: "no_material_concerns", Summary: "Reviewed code", Coverage: []string{"code"}}
-	evidence := []JudgeEvidence{{ID: "source", Available: true, Essential: true}, {ID: "code", Available: true}}
-	if d := ValidateJudge(r, evidence); d.Valid {
-		t.Fatal("clean assessment omitted pinned source")
+func TestJudgeVerdictShape(t *testing.T) {
+	r := judgeConcern(JudgeCitation{Path: "a.go"})
+	r.Findings[0].Title = "line one\nline two"
+	if d := ValidateJudge(r); d.Valid {
+		t.Fatal("multi-line title accepted")
+	}
+	r = JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: "Blind"}
+	if d := ValidateJudge(r); d.Valid {
+		t.Fatal("unable to assess without uncertainty accepted")
+	}
+	r.Uncertainty = []string{"The repository could not be checked out."}
+	if d := ValidateJudge(r); !d.Valid {
+		t.Fatalf("refused: %+v", d)
 	}
 }

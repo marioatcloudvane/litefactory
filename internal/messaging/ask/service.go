@@ -2,9 +2,7 @@ package ask
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -98,66 +96,6 @@ func (s *Service) Prepare(ctx context.Context, question, project, channel string
 	}
 	prepared.Bundle, err = s.Collector.collect(ctx, resolution.Repository, at, target)
 	return prepared, err
-}
-
-// ReplyPrepared uses only the current factory-owned facts and returns the reply.
-func (s *Service) ReplyPrepared(ctx context.Context, prepared Prepared) (string, int64, error) {
-	if prepared.Refusal != "" {
-		return prepared.Refusal, 0, nil
-	}
-	repo, bundle, opts, history := prepared.Repository, prepared.Bundle, prepared.Options, prepared.History
-	question := opts.Question
-	if bundle.TargetIssue > 0 && len(bundle.Facts) == 0 {
-		return s.notice(ctx, opts, bundle, fmt.Sprintf("No evidence found for issue #%d in the available factory data. This does not establish whether it exists or was delivered. %s", bundle.TargetIssue, strings.Join(bundle.Gaps, " ")), repo.ID)
-	}
-	if s.Model == nil {
-		return s.notice(ctx, opts, bundle, "Answers unavailable right now.", repo.ID)
-	}
-	data := struct {
-		Question string `json:"question"`
-		Facts    Bundle `json:"facts"`
-		History  []Turn `json:"recent_ask_turns"`
-	}{question, bundle, history.Turns}
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		return "", repo.ID, err
-	}
-	instructions, err := prompts.Load(ctx, s.Instructions, prompts.Ask, s.InstructionDiagnostics)
-	if err != nil {
-		return "", repo.ID, err
-	}
-	prompt := instructions.Main + "\nUNTRUSTED_CONTEXT_JSON\n" + string(encoded)
-	for attempt := 0; attempt < 2; attempt++ {
-		raw, err := s.Model.Answer(ctx, repo.ID, prompt)
-		if errors.Is(err, ErrUnavailable) {
-			return s.notice(ctx, opts, bundle, "Answers unavailable right now.", repo.ID)
-		}
-		if err != nil {
-			return "", repo.ID, err
-		}
-		answer, err := DecodeAnswer(raw, bundle)
-		if err == nil {
-			text, e := RenderAnswer(ctx, answer, bundle, opts)
-			return text, repo.ID, e
-		}
-		// Never reuse rejected model text as instructions or as prior evidence.
-		prompt += "\n" + instructions.Correction
-	}
-	return "", repo.ID, errors.New("ask: second answer failed validation")
-}
-
-func (s *Service) notice(ctx context.Context, opts RenderOptions, bundle Bundle, message string, repoID int64) (string, int64, error) {
-	if opts.InheritedProject {
-		message += "\nProject carried over from the newest /ask turn."
-	}
-	if opts.HistoryUnavailable {
-		message += "\nHistory unavailable; answered without it."
-	}
-	if opts.OlderContextCut {
-		message += "\nOlder context left out."
-	}
-	text, err := RenderNotice(ctx, opts.Question, bundle.Project, message, s.Redactor)
-	return text, repoID, err
 }
 
 // RenderNotice uses the same turn prefix for refusals and provider failures.

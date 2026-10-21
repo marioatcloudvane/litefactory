@@ -169,7 +169,7 @@ func (f *FactoryDoctorRepairEffects) consume(ctx context.Context, target naming.
 	}
 	session, e := f.DB.PrepareDoctorConsumeComment(ctx, op.ID, step.Number)
 	if e != nil {
-		return step, e
+		return step, consumeStateFailure(e)
 	}
 	source, e := strconv.ParseInt(step.After, 10, 64)
 	if e != nil {
@@ -186,22 +186,43 @@ func (f *FactoryDoctorRepairEffects) consume(ctx context.Context, target naming.
 	}
 	delivery, claimed, e := f.DB.ClaimDoctorConsumeDelivery(ctx, op.ID, step.Number, store.ReportDelivery{Key: key, Version: 1, SessionID: session, Task: target.String(), Destination: target.String(), TriggerID: source, TriggerNamespace: "comment", Purpose: "reply", BotUserID: f.BotID, Body: body.String(), Marker: marker})
 	if e != nil {
-		return step, e
+		return step, consumeStateFailure(e)
 	}
 	if !claimed || !delivery.PossiblySent {
-		return step, errors.New("doctor reply outcome uncertain; refusing replay")
+		return step, doctor.ErrRepairReplyUncertain
 	}
 	comment, e := f.Comments.PostComment(ctx, github.Repo{Owner: target.Owner, Name: target.Repo}, target.Issue, body)
 	if e != nil {
-		return step, e
+		// A typed rate-limit refusal proves nothing was posted: the retained
+		// reply is no longer possibly sent, so it can be settled and dropped.
+		if errors.Is(e, github.ErrRateLimited) {
+			e = errors.Join(e, f.DB.UnmarkDoctorConsumeDelivery(context.WithoutCancel(ctx), op.ID, step.Number, key))
+		}
+		return step, fmt.Errorf("%w: %w", doctor.ErrRepairReplyNotPosted, e)
 	}
 	if comment.ID <= 0 || comment.Author.ID != f.BotID {
-		return step, errors.New("doctor reply lacks trusted bot receipt")
+		return step, fmt.Errorf("%w: doctor reply lacks trusted bot receipt", doctor.ErrRepairReplyUncertain)
 	}
 	if e = f.DB.ConfirmDoctorConsumeDelivery(ctx, op.ID, step.Number, key, comment.ID); e != nil {
-		return step, e
+		return step, consumeStateFailure(e)
 	}
-	return f.DB.ApplyDoctorConsumeComment(ctx, op.ID, step.Number, key)
+	applied, e := f.DB.ApplyDoctorConsumeComment(ctx, op.ID, step.Number, key)
+	if e != nil {
+		return applied, consumeStateFailure(e)
+	}
+	return applied, nil
+}
+
+// consumeStateFailure gives a store refusal of the consume step its fixed
+// category; any other error is returned unchanged.
+func consumeStateFailure(e error) error {
+	switch {
+	case errors.Is(e, store.ErrDoctorWatermarkDrift):
+		return fmt.Errorf("%w: %w", doctor.ErrRepairCommentDrifted, e)
+	case errors.Is(e, store.ErrDoctorFenced):
+		return fmt.Errorf("%w: %w", doctor.ErrRepairStateChanged, e)
+	}
+	return e
 }
 
 // Verify rereads the external after-state without repeating an effect.

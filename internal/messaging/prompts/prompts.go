@@ -1,38 +1,27 @@
 // Package prompts assembles captured chat wording without granting it authority.
-// Ask and draft files contain exactly one <!-- main --> line followed by exactly
-// one <!-- correction --> line. Both sections must be nonempty. Marker lines
-// are framing, not prompt text. Other roles contain only their main body.
-// Only the reply writer permits the scalar token {{MaxClaims}}; no other
-// template tokens are accepted. Runtime context is appended by the consumer.
+// Draft files contain exactly one <!-- main --> line followed by exactly one
+// <!-- correction --> line. Both sections must be nonempty. Marker lines are
+// framing, not prompt text. No template tokens are accepted. Runtime context is
+// appended by the consumer.
 package prompts
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/instructionpackage"
-	"github.com/cloudvane/litefactory/internal/messaging/presentation"
 )
 
 // Chat role names select only registered instruction-package roles.
 const (
-	// Ask selects the read-only project answer role.
-	Ask = "chat-ask"
 	// Draft selects the feature draft role.
 	Draft = "chat-draft"
-	// IntentInterpreter selects the admitted-message interpreter role.
-	IntentInterpreter = "chat-intent-interpreter"
-	// ReplyWriter selects the command narration writer role.
-	ReplyWriter = "chat-reply-writer"
-	// ReplyChecker selects the independent narration checker role.
-	ReplyChecker = "chat-reply-checker"
-	// MainMarker begins the main section in ask and draft files.
+	// MainMarker begins the main section in draft files.
 	MainMarker = "<!-- main -->"
-	// CorrectionMarker begins the correction section in ask and draft files.
+	// CorrectionMarker begins the correction section in draft files.
 	CorrectionMarker = "<!-- correction -->"
 )
 
@@ -141,7 +130,7 @@ func emit(ctx context.Context, sink Sink, capture *instructionpackage.RoleCaptur
 func parse(role, text string) (Role, error) {
 	var result Role
 	switch role {
-	case Ask, Draft:
+	case Draft:
 		// Require marker lines and no content outside the two framed sections.
 		if strings.Count(text, MainMarker) != 1 || strings.Count(text, CorrectionMarker) != 1 || !strings.HasPrefix(text, MainMarker+"\n") {
 			return result, errors.New("invalid section markers")
@@ -151,25 +140,16 @@ func parse(role, text string) (Role, error) {
 			return result, errors.New("invalid section order")
 		}
 		result = Role{Main: parts[0], Correction: strings.TrimSuffix(parts[1], "\n")}
-	case IntentInterpreter, ReplyWriter, ReplyChecker:
-		if strings.Contains(text, MainMarker) || strings.Contains(text, CorrectionMarker) {
-			return result, errors.New("unexpected sections")
-		}
-		result.Main = strings.TrimSuffix(text, "\n")
 	default:
 		return result, errors.New("unknown chat role")
 	}
-	if strings.TrimSpace(result.Main) == "" || ((role == Ask || role == Draft) && strings.TrimSpace(result.Correction) == "") {
+	if strings.TrimSpace(result.Main) == "" || strings.TrimSpace(result.Correction) == "" {
 		return Role{}, errors.New("empty instruction section")
 	}
 	for _, value := range []string{result.Main, result.Correction} {
-		if role == ReplyWriter {
-			value = strings.ReplaceAll(value, "{{MaxClaims}}", "")
-		}
 		if strings.Contains(value, "{{") || strings.Contains(value, "}}") {
 			return Role{}, errors.New("unsupported placeholder")
 		}
 	}
-	result.Main = strings.ReplaceAll(result.Main, "{{MaxClaims}}", strconv.Itoa(presentation.MaxClaims))
 	return result, nil
 }

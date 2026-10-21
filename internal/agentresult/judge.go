@@ -2,32 +2,24 @@ package agentresult
 
 import (
 	"fmt"
+	"path"
 	"strings"
 )
 
-// JudgeEvidence is factory-captured evidence. Authored output references only its ID.
-type JudgeEvidence struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Reference string `json:"reference"`
-	Digest    string `json:"digest"`
-	Path      string `json:"path,omitempty"`
-	Lines     int    `json:"lines,omitempty"`
-	Available bool   `json:"available"`
-	Essential bool   `json:"essential"`
-	Gap       string `json:"gap,omitempty"`
-}
-
-// JudgeCitation names captured bytes, never an arbitrary URL or a live file.
+// JudgeCitation names a file the judge read: a path relative to the repository
+// root at the pinned commit, or the file name of one of the factory context
+// files, optionally narrowed to a line range. It is provenance for the saved
+// report, never a link the factory follows.
 type JudgeCitation struct {
-	EvidenceID string `json:"evidence_id"`
-	StartLine  int    `json:"start_line,omitempty"`
-	EndLine    int    `json:"end_line,omitempty"`
+	Path      string `json:"path"`
+	StartLine int    `json:"start_line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
 }
 
-// JudgeFinding explains one concern and its supporting captured evidence.
-// JudgeFinding explains a concern, its captured evidence, impact and correction.
+// JudgeFinding explains a concern, the files it rests on, impact and correction.
+// Title is a short name for the finding; reports saved before it existed omit it.
 type JudgeFinding struct {
+	Title      string          `json:"title,omitempty"`
 	Severity   string          `json:"severity"`
 	Concern    string          `json:"concern"`
 	Evidence   []JudgeCitation `json:"evidence"`
@@ -36,11 +28,12 @@ type JudgeFinding struct {
 }
 
 // JudgeReport is advisory content without source or workflow authority.
+// Coverage optionally lists the files the judge read, as citation paths.
 type JudgeReport struct {
 	Version     int            `json:"version"`
 	Verdict     string         `json:"verdict"`
 	Summary     string         `json:"summary"`
-	Coverage    []string       `json:"coverage"`
+	Coverage    []string       `json:"coverage,omitempty"`
 	Uncertainty []string       `json:"uncertainty"`
 	Findings    []JudgeFinding `json:"findings"`
 }
@@ -50,22 +43,32 @@ type JudgeInput struct {
 	Report JudgeReport `json:"report"`
 }
 
-// DecodeJudge rejects unknown fields, duplicate fields and unchecked citations.
-func DecodeJudge(data []byte, evidence []JudgeEvidence) (JudgeReport, Diagnostics) {
+// DecodeJudge rejects unknown fields, duplicate fields and malformed citations.
+func DecodeJudge(data []byte) (JudgeReport, Diagnostics) {
 	var input JudgeInput
 	d := Decode(data, &input)
 	if !d.Valid {
 		return JudgeReport{}, d
 	}
-	d = ValidateJudge(input.Report, evidence)
+	d = ValidateJudge(input.Report)
 	if !d.Valid {
 		return JudgeReport{}, d
 	}
 	return input.Report, d
 }
 
-// ValidateJudge keeps unavailable essential evidence and execution gaps from a clean verdict.
-func ValidateJudge(r JudgeReport, evidence []JudgeEvidence) Diagnostics {
+// judgePath accepts a slash-separated path inside the repository or a context
+// file name. Absolute paths, parent traversal and backslashes are refused.
+func judgePath(p string) bool {
+	if strings.TrimSpace(p) != p || p == "" || len(p) > 1024 || strings.ContainsAny(p, "\\\x00\r\n") || strings.HasPrefix(p, "/") {
+		return false
+	}
+	clean := path.Clean(p)
+	return clean == p && clean != "." && clean != ".." && !strings.HasPrefix(clean, "../")
+}
+
+// ValidateJudge checks the report shape; what the judge read is its own call.
+func ValidateJudge(r JudgeReport) Diagnostics {
 	d := newDiagnostics()
 	fail := func(path, message string) { add(&d, path, "judge", "valid advisory assessment", "invalid", message) }
 	if r.Version != 1 {
@@ -90,27 +93,10 @@ func ValidateJudge(r JudgeReport, evidence []JudgeEvidence) Diagnostics {
 	default:
 		fail("$.report.verdict", "Choose no_material_concerns, concerns_found or unable_to_assess.")
 	}
-	captured := map[string]JudgeEvidence{}
-	for _, e := range evidence {
-		captured[e.ID] = e
-		if e.Essential && !e.Available && r.Verdict != "unable_to_assess" {
-			fail("$.report.verdict", "Essential evidence is unavailable; use unable_to_assess.")
+	for i, p := range r.Coverage {
+		if !judgePath(p) {
+			fail(fmt.Sprintf("$.report.coverage[%d]", i), "Name a file by its path relative to the repository root, or a context file by its file name.")
 		}
-	}
-	if len(r.Coverage) == 0 {
-		fail("$.report.coverage", "Name the captured evidence examined.")
-	}
-	sourceCovered := false
-	for i, id := range r.Coverage {
-		if id == "source" {
-			sourceCovered = true
-		}
-		if e, ok := captured[id]; !ok || !e.Available {
-			fail(fmt.Sprintf("$.report.coverage[%d]", i), "Coverage must identify available captured evidence.")
-		}
-	}
-	if !sourceCovered && r.Verdict != "unable_to_assess" {
-		fail("$.report.coverage", "Assess the pinned source before issuing an advisory verdict.")
 	}
 	for i, f := range r.Findings {
 		p := fmt.Sprintf("$.report.findings[%d]", i)
@@ -119,20 +105,21 @@ func ValidateJudge(r JudgeReport, evidence []JudgeEvidence) Diagnostics {
 		default:
 			fail(p+".severity", "Choose low, medium, high or critical.")
 		}
+		if len(f.Title) > 120 || strings.ContainsAny(f.Title, "\n\r") {
+			fail(p+".title", "Use a one-line title of at most 120 characters.")
+		}
 		if strings.TrimSpace(f.Concern) == "" || strings.TrimSpace(f.Impact) == "" || strings.TrimSpace(f.Correction) == "" {
 			fail(p, "Each concern needs an explanation, impact and suggested correction.")
 		}
 		if len(f.Evidence) == 0 {
-			fail(p+".evidence", "Support each concern with captured evidence.")
+			fail(p+".evidence", "Cite the files each concern rests on.")
 		}
 		for j, c := range f.Evidence {
-			e, ok := captured[c.EvidenceID]
-			if !ok || !e.Available {
-				fail(fmt.Sprintf("%s.evidence[%d]", p, j), "Citations must identify available captured evidence.")
-				continue
+			if !judgePath(c.Path) {
+				fail(fmt.Sprintf("%s.evidence[%d].path", p, j), "Name a file by its path relative to the repository root, or a context file by its file name.")
 			}
-			if c.StartLine < 0 || c.EndLine < 0 || (c.StartLine == 0 && c.EndLine != 0) || (c.StartLine > 0 && (c.EndLine < c.StartLine || c.EndLine > e.Lines)) {
-				fail(fmt.Sprintf("%s.evidence[%d]", p, j), "Use a valid line range in the captured evidence.")
+			if c.StartLine < 0 || c.EndLine < 0 || (c.StartLine == 0 && c.EndLine != 0) || (c.StartLine > 0 && c.EndLine != 0 && c.EndLine < c.StartLine) {
+				fail(fmt.Sprintf("%s.evidence[%d]", p, j), "Use a valid line range: start_line, then an end_line that is not before it.")
 			}
 		}
 	}

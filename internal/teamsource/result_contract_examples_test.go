@@ -605,6 +605,12 @@ func TestPlanContractSectionRestrictionsMatchTheValidator(t *testing.T) {
 	for _, f := range checkSectionRestrictions(doc) {
 		t.Error(f)
 	}
+	// The checker's self-test runs against a fixed fixture, not the shipped
+	// document, so rewording the Markdown cannot turn a mutation into a no-op.
+	fixture := sectionRestrictionsFixture
+	if fails := checkSectionRestrictions(fixture); len(fails) != 0 {
+		t.Fatalf("fixture baseline must be clean: %v", fails)
+	}
 	for name, mutate := range map[string]func(string) string{
 		"story loosened": func(d string) string {
 			return strings.Replace(d, "- story may select intent, dependencies and conversation only.", "- story may select intent, architecture, dependencies and conversation only.", 1)
@@ -616,8 +622,30 @@ func TestPlanContractSectionRestrictionsMatchTheValidator(t *testing.T) {
 		"a section name lost":   func(d string) string { return strings.ReplaceAll(d, "guidance", "hints") },
 		"restriction line lost": func(d string) string { return strings.Replace(d, "- technical may select", "- technical selects", 1) },
 	} {
-		if got := checkSectionRestrictions(mutate(doc)); len(got) == 0 {
+		mutated := mutate(fixture)
+		if mutated == fixture {
+			t.Fatalf("%s: mutation did not change the fixture", name)
+		}
+		if got := checkSectionRestrictions(mutated); len(got) == 0 {
 			t.Errorf("%s: the checker accepted a document that disagrees with the validator", name)
 		}
 	}
 }
+
+// sectionRestrictionsFixture mirrors the shape of the restriction section the
+// checker reads, with the stage rules the validator enforces.
+const sectionRestrictionsFixture = `# Fixture
+
+## Sections and stage restrictions
+
+changed_sections selects intent, architecture, criteria, tasks, dependencies,
+design, guidance or conversation.
+
+Stage restrictions the validator enforces:
+- story may select intent, dependencies and conversation only.
+- technical may select any section except criteria and tasks; intent changes belong
+  to the story stage.
+- acceptance may select any section.
+
+## Next
+`
