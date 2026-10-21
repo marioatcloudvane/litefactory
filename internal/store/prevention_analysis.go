@@ -76,8 +76,8 @@ func writePreventionAnalysis(ctx context.Context, tx *sql.Tx, a PreventionAnalys
 	if err != nil {
 		return err
 	}
-	if len(raw) > 1024*1024 {
-		return errors.New("prevention analysis: record exceeds 1 MiB")
+	if len(raw) > 2*1024*1024 {
+		return errors.New("prevention analysis: record exceeds 2 MiB")
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE prevention_analyses SET status=?,record_json=? WHERE id=?`, a.Status, string(raw), a.ID)
 	return err
