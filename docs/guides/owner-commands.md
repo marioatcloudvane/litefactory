@@ -154,7 +154,7 @@ usage reminder. See [doctor](../operations/doctor.md).
 
 | Syntax | What it causes |
 | --- | --- |
-| `/judge` | Challenges the latest eligible saved research result or Plan on this ticket. |
+| `/judge` | Challenges the latest eligible saved research result, Plan or Bug analysis on this ticket. |
 | `/judge <focus text>` | Same, with the free text as the focus. It is the same as `--focus "<focus text>"`. |
 | `--target <saved-reference>` | Judges that exact saved source. An invalid reference is explained and never replaced. |
 | `--agent claude\|codex\|other` | Chooses the judging provider. `other` picks the opposite of the source's provider. |
