@@ -200,6 +200,9 @@ func isPlanArchiveTable(name string) bool { return strings.HasPrefix(name, "plan
 
 // archiveRetained classifies every table the archive never deletes from.
 var archiveRetained = map[string]ArchiveClass{
+	// Standalone bounded analyses are not members of an issue-task archive.
+	"drift_analyses": ArchiveClassGlobal, "drift_analyst_runs": ArchiveClassGlobal,
+	"drift_evidence": ArchiveClassGlobal, "drift_receipts": ArchiveClassGlobal, "drift_proposal_links": ArchiveClassGlobal,
 	"judge_requests": ArchiveClassSkeleton, "judge_attempts": ArchiveClassSkeleton, "judge_source_commits": ArchiveClassGlobal,
 	// The family skeleton and the per-task structure that identifies it.
 	"sessions": ArchiveClassSkeleton, "segments": ArchiveClassSkeleton, "runs": ArchiveClassSkeleton,
