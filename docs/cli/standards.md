@@ -117,6 +117,64 @@ completion acknowledgment records the agent's report, not comprehension or
 guaranteed receipt. Interrupted or partial retrieval stays visible. SQLite's
 power-loss and administrator-tampering limits above apply to retained books too.
 
+## Assisted authoring
+
+`standards author` saves work after each command and needs no interactive
+terminal. Start a new standard with an intent, or add `--target STANDARD_ID` to
+edit an existing standard. The session fixes that target and retains the verified
+published book used at the start. It uses existing categories.
+
+```sh
+litefactory standards author start safe-tests --intent 'Explain how to isolate test data'
+litefactory standards author continue safe-tests --expected-version 1
+litefactory standards author questions safe-tests --json
+litefactory standards author answer safe-tests --expected-version 2 --question QUESTION_ID --answer 'Use dedicated test data'
+litefactory standards author show safe-tests --json
+```
+
+Use the version returned by the preceding command for each mutation. `start`
+also accepts intent text through `--file FILE` or `--file -` for stdin. `answer`
+accepts a JSON array through `--file`, with `question_id`, `text` and optional
+`replace` fields. Existing answers require explicit `--replace` (or
+`"replace": true`). Question IDs and earlier answers survive restarts.
+
+`edit SESSION --expected-version N --file FILE|-` accepts a JSON object with
+optional `title`, `body`, `category_ids` and `context_category_ids`. Title, body
+and category edits remain authoritative on later continuations. The context
+filter narrows what the assistant receives; it does not change category IDs by
+name. `list`, `show` and `questions` inspect saved work; `show --version N`
+reads an earlier version. Add `--json` for full structured state, including
+retained context, questions, diagnostics, attempts and completion references.
+
+Run `validate SESSION --expected-version N`, inspect its resulting version, then
+explicitly `complete SESSION --expected-version N`. Completion atomically links
+one exact validated, unapproved proposal. It prints the proposal ID, version and
+digest for the existing proposal review process. Repeating completion for that
+same version recovers the same proposal. Authoring never approves or publishes.
+
+If publication moved the book, completion refuses the stale base. Inspect
+`standards book current`, then explicitly use `author rebase SESSION
+--expected-version N --revision NEW_HEAD`. Rebase retains draft text and answers,
+shows old/new target and category changes, and asks for affected choices to be
+resolved. A removed edit target requires a separate new session.
+
+Continuation uses configured response-only providers with verified isolation,
+no native or MCP tools, and separate usage attribution. Unsupported providers
+remain unavailable. Each continuation has at most two calls and a 120-second
+deadline, with 256 KiB prompts and 32 KiB responses. The retained book capture
+limit is 16 MiB. Each serialized saved session version is capped at 64 MiB to
+retain that base together with the original edit target, draft, questions, answers
+and context. Oversized context stays explicit; use `--categories ID,ID` at
+start or edit `context_category_ids` to narrow it. There is no silent truncation
+or automatic repair loop.
+
+After interruption, inspect the session and explicitly continue once its finite
+lease expires. An edit fences the previous continuation; late output cannot
+overwrite newer saved work. A retry can charge again and return different text.
+SQLite WAL with synchronous NORMAL protects ordinary process interruption, but
+power loss can lose recent writes. Disk loss and administrator modification are
+outside this guarantee.
+
 ## Bounded drift analysis
 
 Start a foreground analysis without a terminal:
