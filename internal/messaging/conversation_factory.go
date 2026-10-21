@@ -30,7 +30,10 @@ type factoryConversationPrompt struct {
 	RecentReplies []conversationPriorReply `json:"recent_factory_replies,omitempty"`
 	Evidence      *conversationReadResult  `json:"evidence,omitempty"`
 	Correction    string                   `json:"correction,omitempty"`
-	SavedOutcome  string                   `json:"saved_outcome,omitempty"`
+	// CorrectionReason is the factory's plain reason the previous output was
+	// rejected, so the one correction can fix the actual defect.
+	CorrectionReason string `json:"correction_reason,omitempty"`
+	SavedOutcome     string `json:"saved_outcome,omitempty"`
 }
 
 type conversationReadResult struct {
@@ -261,6 +264,7 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				if !corrected && run.calls < 4 {
 					corrected = true
 					prompt.Correction = instructions.Correction()
+					prompt.CorrectionReason = conversationEnvelopeReason(err)
 					// The provider completed, but its invalid envelope cannot serve as
 					// the retry boundary. Retain the factory's next prompt instead.
 					encoded, e := json.Marshal(prompt)
@@ -281,9 +285,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 					run.safe = true
 					continue
 				}
-				return s.conversationOutcome(ctx, t, "completed", "I couldn't get a clear answer. Please try again.", at)
+				s.logConversationFailure(ctx, c, t, agent.ConversationError(err, "validation", false))
+				return s.conversationOutcome(ctx, t, "completed", conversationCauseReply(err, at), at)
 			}
-			prompt.Correction = ""
+			prompt.Correction, prompt.CorrectionReason = "", ""
 			run.ordinal++
 			request, _ := json.Marshal(struct {
 				Envelope   ConversationEnvelope `json:"envelope"`
@@ -373,6 +378,9 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 		return r.s.db.DeferConversationTurn(cleanup, r.t)
 	}
 	if conversationPreStartRetry(cause) {
+		if reply := conversationSpecificCause(cause, r.at); reply != "" {
+			return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply, r.at)
+		}
 		return r.s.conversationPreStartOutcome(cleanup, r.t, r.at)
 	}
 	if errors.Is(cause, agent.ErrConversationBusy) || errors.Is(cause, agent.ErrConversationSessionMissing) || errors.Is(cause, agent.ErrConversationIsolation) {
@@ -386,6 +394,9 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 		return r.s.conversationUnavailable(cleanup, r.c, r.t, "turn unfinished with no saved native identity; no replacement session created", r.at)
 	}
 	// Even a correction or continuation can have uncertain provider completion.
+	if reply := conversationCauseReply(cause, r.at); reply != "" {
+		return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply+" Your next message continues the same conversation.", r.at)
+	}
 	return r.s.conversationOutcome(cleanup, r.t, "interrupted", "The conversation turn was interrupted or unavailable before a completed answer was saved. Its provider input will not be replayed. Your next message will resume the retained session.", r.at)
 }
 
@@ -464,7 +475,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			prepared, e := s.ask.Prepare(ctx, p.Invocation.Arguments["question"], p.Project, r.c.ChannelRef, r.at)
 			switch {
 			case e != nil:
-				result.Gaps = append(result.Gaps, "Project facts could not be read.")
+				result.Gaps = append(result.Gaps, "Project facts could not be read."+githubBudgetGap(e, r.at))
 			case prepared.Refusal != "":
 				text = prepared.Refusal
 				result.Clarification = prepared.Refusal
@@ -529,7 +540,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			text, err = handler(read, Message{Transport: s.transport, Channel: r.c.ChannelRef, Sender: s.owner, Arguments: p.Invocation.Arguments, Command: inv.Command}, r.at)
 			if err != nil {
 				text = ""
-				result.Gaps = append(result.Gaps, "Factory lookup failed; no result available.")
+				result.Gaps = append(result.Gaps, "Factory lookup failed; no result available."+githubBudgetGap(err, r.at))
 			} else if assessment.Status != presentation.Success {
 				result.Gaps = append(result.Gaps, "Lookup coverage may be incomplete.")
 			}
@@ -618,14 +629,14 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 			return false, 0, nil, errors.New("invalid saved lookup")
 		}
 		pending.Request = last.Request
-		prompt.Correction = ""
+		prompt.Correction, prompt.CorrectionReason = "", ""
 		return corrected, lookups - 1, &pending, nil
 	case "evidence":
 		result, err := decodeConversationEvidence(last)
 		if err != nil {
 			return false, 0, nil, err
 		}
-		prompt.Evidence, prompt.Correction = &result, ""
+		prompt.Evidence, prompt.Correction, prompt.CorrectionReason = &result, "", ""
 		refs, err := r.references(ctx)
 		if err != nil {
 			return false, 0, nil, err

@@ -176,7 +176,7 @@ func TestStatusSelectedTaskBeyondRecentWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"acme/litefactory#614: idle", "Mode: unavailable", "Stage: unavailable", "Waiting on: none recorded", "Recent runs (newest first, limit 3): unavailable"} {
+	for _, want := range []string{"acme/litefactory#614: idle", "Mode: unavailable", "Stage: unavailable", "Waiting on: none recorded", "Recent runs on this task (newest first, limit 3): unavailable"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q: %s", want, text)
 		}
@@ -232,5 +232,76 @@ func TestStatusDisclosesOutputOmissions(t *testing.T) {
 	selected, err := s.summary(ctx, Message{Arguments: map[string]string{"task": "105"}}, at)
 	if err != nil || !strings.Contains(selected, "#105: running") {
 		t.Fatalf("selected lookup truncated: %s %v", selected, err)
+	}
+}
+
+// A feature in Implement reports its real progress from the local ledger, not
+// the stale failed flag of an earlier attempt or its plan stages.
+func TestStatusReportsImplementProgress(t *testing.T) {
+	db := naturalExecutionDB(t)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 21, 16, 0, 0, 0, time.UTC)
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: "github", Owner: "acme", Name: "litefactory", BaseBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := db.GetOrCreateSession(ctx, repo, 728)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetSessionState(ctx, parent.ID, store.SessionFailed); err != nil {
+		t.Fatal(err)
+	}
+	def, err := db.CreateGraphDefinition(ctx, store.GraphDefinition{Team: "chat", Mode: "implement", ProfileVersion: 1, Path: "implement.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := db.CreateGraphInstance(ctx, store.GraphInstance{SessionID: parent.ID, DefinitionID: def.ID, CurrentNode: "await", StartedAt: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ParkGraphInstance(ctx, instance.ID, "await", at.Add(time.Hour), at); err != nil {
+		t.Fatal(err)
+	}
+	ref := parent.TaskRef
+	seeds := []store.ImplementStorySeed{{Key: "story-001", Position: 0, Branch: "lf/1"}, {Key: "story-002", Position: 1, Branch: "lf/2"}, {Key: "story-003", Position: 2, Branch: "lf/3"}}
+	if err := db.EnsureImplementStories(ctx, ref, 1, seeds, at); err != nil {
+		t.Fatal(err)
+	}
+	for i, key := range []string{"story-001", "story-002"} {
+		if _, err := db.TransitionImplementStory(ctx, store.ImplementTransition{Parent: ref, Generation: 1, Key: key, From: store.ImplementWaiting, To: store.ImplementRunning, ExpectedRevision: 1, At: at}); err != nil {
+			t.Fatal(err)
+		}
+		worker, err := db.GetOrCreateSession(ctx, repo, 990+i)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.SetImplementWorkerSession(ctx, ref, 1, key, worker.ID, at); err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			seg, err := db.GetOrCreateSegment(ctx, worker.ID, 1, "session", "codex")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: worker.ID, SegmentID: seg.ID, Mode: "implement", Agent: "codex", TriggerCommentID: 1, StartedAt: at, LogPath: func(int) string { return "/tmp/story-run" }}); err != nil {
+				t.Fatal(err)
+			}
+		} else if _, err := db.RecordImplementFailure(ctx, ref, 1, key, "agent invocation exceeded its wall clock", at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := New(db, "discord", "7", []string{"3"}, nil, FactoryStatus{DB: db})
+	text, err := s.summary(ctx, Message{Arguments: map[string]string{"project": "acme/litefactory", "issue": "728"}}, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"#728: in progress", "Mode: implement", "await (running), next step due 2026-10-21T17:00:00Z", "2 running, 1 waiting", "story-001 (#990) running", "story-002 (#991) running", "1 failed attempts, last failure: agent invocation exceeded its wall clock", "story-003 waiting", "Active story runs: #990 run 1 (implement) running since 2026-10-21T16:00:00Z", "Waiting on: none recorded"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "#728: failed") {
+		t.Errorf("stale failed state: %s", text)
 	}
 }
