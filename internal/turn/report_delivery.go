@@ -21,6 +21,10 @@ import (
 // ErrReportReceiptUncertain means lookup succeeded but no unique trustworthy receipt exists.
 var ErrReportReceiptUncertain = errors.New("report receipt uncertain")
 
+// ErrReportReceiptAbsent is the uncertain outcome of a complete lookup that found
+// no trace of the delivery. It still does not prove non-delivery.
+var ErrReportReceiptAbsent = fmt.Errorf("%w: no trustworthy receipt found; empty lookup does not prove non-delivery", ErrReportReceiptUncertain)
+
 // DeliveryError identifies durable pending work without exposing retained body
 // text. The daemon owns retry timing; a turn makes only one delivery attempt.
 type DeliveryError struct {
@@ -223,6 +227,14 @@ func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDe
 	delivery.PossiblySent = true
 	comment, err := r.postEffect(ctx, "report:"+delivery.Key, destination, body, r.log)
 	if err != nil {
+		// A typed rate-limit refusal proves the POST created nothing, so the
+		// delivery is pending again and the next due recovery reposts it.
+		if errors.Is(err, github.ErrRateLimited) {
+			if unmarkErr := r.db.UnmarkReportDeliverySent(context.WithoutCancel(ctx), delivery.Key); unmarkErr != nil {
+				return Posted{}, errors.Join(err, unmarkErr)
+			}
+			delivery.PossiblySent = false
+		}
 		return Posted{}, err
 	}
 	posted.CommentID = comment.ID
@@ -327,7 +339,7 @@ func (r *Reporter) recoverDelivery(ctx context.Context, delivery store.ReportDel
 		return 0, fmt.Errorf("%w: matching delivery identity has conflicting remote content", ErrReportReceiptUncertain)
 	}
 	if lowest == 0 {
-		return 0, fmt.Errorf("%w: no trustworthy receipt found; empty lookup does not prove non-delivery", ErrReportReceiptUncertain)
+		return 0, ErrReportReceiptAbsent
 	}
 	return lowest, nil
 }
