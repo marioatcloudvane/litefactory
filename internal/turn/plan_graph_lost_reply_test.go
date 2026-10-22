@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -367,6 +368,7 @@ func (p deferringPublisher) BindPublication(context.Context, string, int64, nami
 // scheduled retry that, in these tests, never runs.
 type parkedPlanStory struct {
 	f      *fixture
+	forge  *fakeForge
 	base   Request
 	now    time.Time
 	parked store.GraphInstance
@@ -375,7 +377,7 @@ type parkedPlanStory struct {
 func newParkedPlanStory(t *testing.T) *parkedPlanStory {
 	t.Helper()
 	f, _, base, _, forge := graphPlanFixtureWithForge(t, "agent")
-	p := &parkedPlanStory{f: f, base: base, now: time.Now().UTC()}
+	p := &parkedPlanStory{f: f, forge: forge, base: base, now: time.Now().UTC()}
 	f.opts.MCP.Now = func() time.Time { return p.now }
 	on := &atomic.Bool{}
 	reporter, err := NewReporter(ReporterOptions{BotUserID: 77, DB: f.db, Forge: deferringPublisher{forge.client, on}, Renderer: f.opts.ResearchReporter.renderer, Logger: f.opts.Logger})
@@ -531,7 +533,9 @@ func TestPlanFinishedLaunch_StoryReplyRetiredThenSuccessor(t *testing.T) {
 	}
 }
 
-// C3: a non-story trigger replaying a finished launch returns its reason.
+// C3, #1007 C7: a non-story trigger replaying a finished launch is refused
+// before launch with its reason, so the daemon reports it and consumes the
+// comment instead of deferring a run-less graph result forever.
 func TestPlanFinishedLaunch_NonStoryTriggerReturnsReason(t *testing.T) {
 	p := newParkedPlanStory(t)
 	req := p.answer(t, 9972, "1A, 2A")
@@ -539,7 +543,7 @@ func TestPlanFinishedLaunch_NonStoryTriggerReturnsReason(t *testing.T) {
 	attempts := p.attempts(t, p.parked.ID)
 	req.Trigger.PlanReply = nil
 	out, err := Execute(t.Context(), p.f.opts, req)
-	if err != nil || out.Err != nil || !out.ResearchGraph || out.Reason != planAnswerNotApplied {
+	if err != nil || out.Err != nil || out.ResearchGraph || out.Disposition != DispositionPrepareFailed || out.Reason != planAnswerNotApplied {
 		t.Fatalf("non-story replay: out=%+v err=%v", out, err)
 	}
 	if p.attempts(t, p.parked.ID) != attempts {
@@ -576,9 +580,203 @@ func TestPlanFinishedLaunch_RetiredBeforeCaptureRestore(t *testing.T) {
 			}
 			req.Trigger.PlanReply = nil
 			out, err := Execute(t.Context(), p.f.opts, req)
-			if err != nil || !out.ResearchGraph || out.Reason != planAnswerNotApplied {
+			if err != nil || out.ResearchGraph || out.Disposition != DispositionPrepareFailed || out.Reason != planAnswerNotApplied {
 				t.Fatalf("non-story replay: out=%+v err=%v", out, err)
 			}
 		})
+	}
+}
+
+// #1007 C4: an owner reply that failed-story retry routing turns into a fresh
+// pass (discussion becomes false) is held and released like any other reply
+// while the latest instance is parked at a non-agent step: it is never bound
+// to the parked instance, and past the hold a successor's agent pass runs.
+func TestPlanParkedWithoutAgent_FailedStoryRetryRoutingIsReleased(t *testing.T) {
+	p := newParkedPlanStory(t)
+	// A stale settled effect marker makes retryFailedStory route the reply as
+	// a retry of failed work instead of a discussion.
+	mustProgress(t, p.f.db.UpdatePlanWorkflowState(t.Context(), p.f.ref().String(), func(s *planbrief.PlanState) (bool, error) {
+		for i := range s.Stories {
+			if s.Stories[i].Key == "story-001" {
+				s.Stories[i].Wait = nil
+				s.Stories[i].Effect, s.Stories[i].EffectRequest = "stale", ""
+			}
+		}
+		return true, nil
+	}))
+	req := p.answer(t, 9962, "Retry")
+	calls := 0
+	p.f.opts.Runners = runnerSet(lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+		calls++
+		if req.Graph == nil || req.Graph.Node != "technical_agent" {
+			t.Fatalf("retry reached another node: %+v", req.Graph)
+		}
+		return nil, errors.New("scripted retry agent stops here")
+	}))
+
+	_, err := Execute(t.Context(), p.f.opts, req)
+	if !errors.Is(err, errPlanStepFinishing) {
+		t.Fatalf("retry was not held behind the parked step: %v", err)
+	}
+	if _, found, e := p.f.db.WorkflowLaunchInstance(t.Context(), req.SessionID, req.Trigger.CommentID); e != nil || found {
+		t.Fatalf("held retry has a launch row: found=%v err=%v", found, e)
+	}
+	if still := p.latest(t); still.ID != p.parked.ID || still.Status != store.GraphRunning || calls != 0 {
+		t.Fatalf("hold changed the parked instance: %+v calls=%d", still, calls)
+	}
+
+	p.now = p.now.Add(planParkedHold + time.Minute)
+	_, _ = Execute(t.Context(), p.f.opts, req)
+	if state := graphPlanState(t, p.f); state.Stories[0].Effect != "" {
+		t.Fatalf("reply was not routed through failed-story retry: %+v", state.Stories[0])
+	}
+	cancelled, err := p.f.db.GetGraphInstance(t.Context(), p.parked.ID)
+	mustProgress(t, err)
+	if cancelled.Status != store.GraphCancelled {
+		t.Fatalf("parked instance was not released: %+v", cancelled)
+	}
+	bound, found, err := p.f.db.WorkflowLaunchInstance(t.Context(), req.SessionID, req.Trigger.CommentID)
+	mustProgress(t, err)
+	if !found || bound == p.parked.ID {
+		t.Fatalf("retry was bound to the parked instance: found=%v instance=%d", found, bound)
+	}
+	predecessor, _, err := p.f.db.WorkflowPredecessor(t.Context(), bound)
+	mustProgress(t, err)
+	if predecessor != p.parked.ID || calls != 1 {
+		t.Fatalf("successor did not run one agent pass: predecessor=%d calls=%d", predecessor, calls)
+	}
+}
+
+// discussionNodes are the nodes whose confirmed publication lets the daemon
+// consume an owner discussion comment (daemon requirePlanDiscussionReported).
+var discussionNodes = []string{"failed", "set_reply", "set_review", "set_ask", "story_reply", "story_review", "story_ask", "technical_reply", "technical_review", "technical_ask", "acceptance_reply", "acceptance_review", "acceptance_ask"}
+
+func discussionReported(t *testing.T, f *fixture, runID int64) bool {
+	t.Helper()
+	for _, node := range discussionNodes {
+		reported, err := f.db.GraphFailureReported(t.Context(), runID, node)
+		mustProgress(t, err)
+		if reported {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *parkedPlanStory) answerPosts(t *testing.T) int {
+	t.Helper()
+	n := 0
+	for _, post := range p.forge.all() {
+		if strings.Contains(post.body, "This plan delivers bounded story shaping.") {
+			n++
+		}
+	}
+	return n
+}
+
+// #1007 C5: after the hold, the successor answers the owner reply with a
+// confirmed publication from the run whose trigger is that reply, which is
+// exactly what lets the daemon consume it.
+func TestPlanParkedWithoutAgent_SuccessorPublishesReplyFromItsRun(t *testing.T) {
+	p := newParkedPlanStory(t)
+	reply := "1A, 2A"
+	req := p.answer(t, 9963, reply)
+	calls := discussionRunner(t, p.f, "technical", reply)
+	p.now = p.now.Add(planParkedHold + time.Minute)
+	before := p.answerPosts(t)
+	out, err := Execute(t.Context(), p.f.opts, req)
+	if err != nil || out.Err != nil {
+		t.Fatalf("successor pass failed: %v / %v", err, out.Err)
+	}
+	run, found, err := p.f.db.GetRunByTrigger(t.Context(), req.SessionID, req.Trigger.CommentID)
+	mustProgress(t, err)
+	if !found || out.Run.ID != run.ID || *calls != 1 {
+		t.Fatalf("no run for the reply: found=%v out=%d run=%d calls=%d", found, out.Run.ID, run.ID, *calls)
+	}
+	reported, err := p.f.db.GraphFailureReported(t.Context(), run.ID, "technical_reply")
+	mustProgress(t, err)
+	if !reported || !discussionReported(t, p.f, run.ID) {
+		t.Fatal("successor answer is not a confirmed publication of the reply's run")
+	}
+	if got := p.answerPosts(t) - before; got < 1 {
+		t.Fatalf("answer not posted: %d", got)
+	}
+	posts := len(p.forge.all())
+	again, err := Execute(t.Context(), p.f.opts, req)
+	if err != nil || again.Run.ID != run.ID || *calls != 1 || len(p.forge.all()) != posts {
+		t.Fatalf("replay of the handled reply repeated work: err=%v run=%d calls=%d", err, again.Run.ID, *calls)
+	}
+}
+
+// #1007 C6: an uncertain first delivery of the successor's answer leaves the
+// reply unreported with its own run on the successor; the retry reconciles the
+// same delivery key, so exactly one answer is posted and no second agent runs.
+func TestPlanParkedWithoutAgent_UncertainSuccessorDeliveryCompletesOnRetry(t *testing.T) {
+	p := newParkedPlanStory(t)
+	reply := "1A, 2A"
+	req := p.answer(t, 9964, reply)
+	calls := discussionRunner(t, p.f, "technical", reply)
+	answer := p.f.opts.Runners
+	p.f.opts.Runners = runnerSet(lifecycleMCPHost(func(ctx context.Context, r agent.Request) (*agent.RunResult, error) {
+		// Only the successor's own answer meets the failing forge; the parked
+		// instance's retained comment is recovered before this pass starts.
+		p.forge.failWith(503)
+		return answer[agent.Kind("claude")].Run(ctx, r)
+	}))
+	p.now = p.now.Add(planParkedHold + time.Minute)
+	out, err := Execute(t.Context(), p.f.opts, req)
+	if err == nil && out.Err == nil {
+		t.Fatal("failed publication completed")
+	}
+	if errors.Is(err, store.ErrGraphInstanceTerminal) || errors.Is(out.Err, store.ErrGraphInstanceTerminal) {
+		t.Fatalf("reply was bound to an ended instance: %v / %v", err, out.Err)
+	}
+	run, found, err := p.f.db.GetRunByTrigger(t.Context(), req.SessionID, req.Trigger.CommentID)
+	mustProgress(t, err)
+	if !found || *calls != 1 || discussionReported(t, p.f, run.ID) {
+		t.Fatalf("uncertain answer counted as reported: found=%v calls=%d", found, *calls)
+	}
+	// The reply has its own run, so a retry replays that run and reconciles its
+	// retained delivery; it never re-enters admission for the successor.
+	bound, found, err := p.f.db.WorkflowLaunchInstance(t.Context(), req.SessionID, req.Trigger.CommentID)
+	mustProgress(t, err)
+	if !found || bound == p.parked.ID || run.ID == 0 {
+		t.Fatalf("pending reply is not on a successor with its own run: instance=%d run=%d", bound, run.ID)
+	}
+	pending, err := p.f.db.ListPendingReportDeliveries(t.Context())
+	mustProgress(t, err)
+	var held store.ReportDelivery
+	for _, d := range pending {
+		if strings.Contains(d.Body, "This plan delivers bounded story shaping.") {
+			held = d
+		}
+	}
+	if held.Key == "" || held.Completed {
+		t.Fatal("answer publication not retained")
+	}
+	// The first post reached the forge though its response was lost.
+	p.forge.mu.Lock()
+	p.forge.posts = append(p.forge.posts, forgePost{path: fmt.Sprintf("/repos/acme/acme-api/issues/%d/comments", req.Issue.Number), body: held.Body, id: 6101})
+	p.forge.mu.Unlock()
+	p.forge.recover()
+	var replayed Result
+	if out.Repair != nil {
+		replayed, err = out.Repair(t.Context())
+	} else {
+		replayed, err = Execute(t.Context(), p.f.opts, req)
+	}
+	if err != nil || replayed.Err != nil {
+		t.Fatalf("retry failed: %v / %v", err, replayed.Err)
+	}
+	delivery, err := p.f.db.GetReportDelivery(t.Context(), held.Key)
+	mustProgress(t, err)
+	keyed := 0
+	for _, post := range p.forge.all() {
+		if strings.Contains(post.body, "key="+held.Key) {
+			keyed++
+		}
+	}
+	if !delivery.Completed || *calls != 1 || keyed != 1 || !discussionReported(t, p.f, run.ID) {
+		t.Fatalf("retry duplicated or lost the answer: delivery=%+v calls=%d posts=%d", delivery, *calls, keyed)
 	}
 }
