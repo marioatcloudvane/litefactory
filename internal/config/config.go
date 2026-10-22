@@ -532,9 +532,10 @@ func DefaultToolProfiles() ToolProfiles {
 	}
 	researchTools := append(slices.Clone(artifactTools), "Edit", "WebSearch", "WebFetch")
 	researchAllowed := append(slices.Clone(artifactAllowed), "Edit", "WebSearch", "WebFetch")
-	// Claude Validate gets Bash only with the fixed read-only reviewer rules;
-	// a reviewer holding it runs in a permission mode that refuses everything
-	// else. Codex Validate keeps its independently enforced read-only sandbox.
+	// Claude Validate gets Bash only with the fixed read-only shell rules; a
+	// reviewer holding it runs in a permission mode that refuses everything
+	// else, inside a sandbox that keeps the worktree unwritable. Codex
+	// Validate keeps its independently enforced read-only sandbox.
 	readTools := []string{"Read", "Glob", "Grep", "Task", "Bash"}
 	readAllowed := append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
 	profile := func(tools, allowed []string, sandbox string, attachments bool) ToolProfile {
@@ -545,16 +546,21 @@ func DefaultToolProfiles() ToolProfiles {
 		}
 	}
 	// The default operator ceiling does not list MultiEdit, so the default
-	// fixer grant is the role surface inside that ceiling.
+	// fixer grant is the role surface inside that ceiling. The fixer runs
+	// commands like an Implement engineer, with Implement's Bash rules; the
+	// investigator holds the read-only shell.
 	fixerTools := slices.DeleteFunc(BugRoleClaudeTools(SpikeFixerProfile), func(tool string) bool { return !slices.Contains(implementTools, tool) })
+	fixerAllowed := slices.DeleteFunc(slices.Clone(implementAllowed), func(rule string) bool { return !slices.Contains(fixerTools, ClaudeToolName(rule)) })
+	investigatorTools := BugRoleClaudeTools(SpikeInvestigatorProfile)
+	investigatorAllowed := append([]string{"Read", "Glob", "Grep"}, ValidateReviewerShellRules()...)
 	return ToolProfiles{Permissions: map[string]ToolProfile{
 		"research":  profile(researchTools, researchAllowed, "workspace-write", true),
 		"plan":      profile(artifactTools, artifactAllowed, "workspace-write", true),
 		"implement": profile(implementTools, implementAllowed, "workspace-write", false),
 		"validate":  profile(readTools, readAllowed, "read-only", false),
 		// Spike graph roles are explicit grants, never an alias of implement.
-		SpikeInvestigatorProfile: profile(BugRoleClaudeTools(SpikeInvestigatorProfile), BugRoleClaudeTools(SpikeInvestigatorProfile), "read-only", false),
-		SpikeFixerProfile:        profile(fixerTools, fixerTools, "workspace-write", false),
+		SpikeInvestigatorProfile: profile(investigatorTools, investigatorAllowed, "read-only", false),
+		SpikeFixerProfile:        profile(fixerTools, fixerAllowed, "workspace-write", false),
 	}}
 }
 

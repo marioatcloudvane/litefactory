@@ -51,13 +51,15 @@ func TestJudgeNativeCodexSharedService(t *testing.T) {
 			if tc.refused {
 				execution = "failed"
 			}
-			if !strings.Contains(body, "Execution: "+execution) || !strings.Contains(body, "Target: ") {
-				t.Fatalf("native request did not produce an accepted, source-identified advisory: %s", body)
-			}
 			saved, err := service.DB.FindJudgeRequest(t.Context(), request.TicketKey, request.RemoteCommentID)
 			if err != nil {
 				t.Fatal(err)
 			}
+			report := decodeJudgeSavedReport(t, saved.Report)
+			if body == "" || report.Execution != execution || report.Presentation.SourceReference == "" {
+				t.Fatalf("native request did not produce an accepted, source-identified advisory: %s", saved.Report)
+			}
+			assertJudgeTextWithoutProvenance(t, body)
 			attempts, err := service.DB.ListJudgeAttempts(t.Context(), saved.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -71,21 +73,21 @@ func TestJudgeNativeCodexSharedService(t *testing.T) {
 			}
 			switch {
 			case tc.refused:
-				if len(fallback.calls) != 0 || attempts[0].State != "failed" || strings.Contains(body, "Availability fallback:") || !strings.Contains(body, "unable to assess") {
-					t.Fatalf("unsupported client granted fallback or clean verdict: %+v %s", attempts, body)
+				if len(fallback.calls) != 0 || attempts[0].State != "failed" || report.Presentation.FallbackReason != "" || !strings.Contains(body, "unable to assess") {
+					t.Fatalf("unsupported client granted fallback or clean verdict: %+v %s", attempts, saved.Report)
 				}
 			case tc.fallback:
-				if len(fallback.calls) != 1 || !strings.Contains(body, "Availability fallback:") || attempts[1].Provider != "claude" {
-					t.Fatalf("fallback not bounded: %+v %s", attempts, body)
+				if len(fallback.calls) != 1 || report.Presentation.FallbackReason == "" || report.Presentation.Provider != "claude" || attempts[1].Provider != "claude" {
+					t.Fatalf("fallback not bounded: %+v %s", attempts, saved.Report)
 				}
-			case len(fallback.calls) != 0 || !strings.Contains(body, "Provider: codex;") || !strings.Contains(body, "Native Codex captured source inspected"):
-				t.Fatalf("native Codex assessment replaced: %s", body)
+			case len(fallback.calls) != 0 || report.Presentation.Provider != "codex" || !strings.Contains(body, "Native Codex captured source inspected"):
+				t.Fatalf("native Codex assessment replaced: %s %s", body, saved.Report)
 			}
 			if !tc.refused && attempts[0].ProviderVersion != "0.160.0" {
 				t.Fatalf("native version provenance missing: %+v", attempts[0])
 			}
-			if !tc.refused && !tc.fallback && !strings.Contains(body, "Provider version: 0.160.0") {
-				t.Fatalf("native version omitted from advisory: %s", body)
+			if !tc.refused && !tc.fallback && report.Presentation.ProviderVersion != "0.160.0" {
+				t.Fatalf("native version omitted from saved advisory: %s", saved.Report)
 			}
 			executed, executionErr := os.ReadFile(nativeExecution)
 			if tc.refused {
@@ -212,7 +214,8 @@ func TestJudgeCodexNativeFixture(t *testing.T) {
 		t.Fatalf("native catalog: %s %v", encodedCatalog, err)
 	}
 	model := nativeCatalog.Models[0]
-	if model.Slug != "gpt-6-astra" || !model.ResponsesLite || model.Shell != "disabled" || model.Patch != nil || len(model.Experimental) != 0 {
+	// The native shell stays (the read-confined permissions profile governs it); patching and experimental tools go.
+	if model.Slug != "gpt-6-astra" || !model.ResponsesLite || model.Shell != "shell_command" || model.Patch != nil || len(model.Experimental) != 0 || !slices.Contains(args, `default_permissions="factory_judge"`) {
 		t.Fatalf("native wire metadata or tool ceiling changed: %s", encodedCatalog)
 	}
 	client := submission.Client{DescriptorPath: descriptor}
@@ -247,16 +250,29 @@ func TestJudgeCodexNativeFixture(t *testing.T) {
 		}
 		return response
 	}
-	call("evidence_list", map[string]any{})
-	source := call("evidence_read", map[string]any{"id": "source", "start": 1, "count": 1})
+	// The judge reads the pinned result from the context file the prompt names.
+	prompt, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultPath := ""
+	for _, field := range strings.Fields(string(prompt)) {
+		if filepath.IsAbs(field) && filepath.Base(field) == "result.md" {
+			resultPath = field
+		}
+	}
+	source, err := os.ReadFile(resultPath)
+	if err != nil {
+		t.Fatalf("pinned result file named in the prompt is unreadable: %q %v", resultPath, err)
+	}
 	expectedSource := "Saved conclusion"
 	if os.Args[marker+1] == "plan-success" {
-		expectedSource = `\"name\":\"Saved plan\"`
+		expectedSource = `"name": "Saved plan"`
 	}
-	if !strings.Contains(string(source.Result), expectedSource) {
-		t.Fatalf("pinned source missing: %s", source.Result)
+	if !strings.Contains(string(source), expectedSource) {
+		t.Fatalf("pinned source missing: %s", source)
 	}
-	input := agentresult.JudgeInput{Report: agentresult.JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: "Native Codex captured source inspected", Coverage: []string{"source"}, Uncertainty: []string{"Repository snapshot is unavailable."}, Findings: []agentresult.JudgeFinding{}}}
+	input := agentresult.JudgeInput{Report: agentresult.JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: "Native Codex captured source inspected", Coverage: []string{"result.md"}, Uncertainty: []string{"The repository is not available."}, Findings: []agentresult.JudgeFinding{}}}
 	preflight := call("communication_preflight", input)
 	var diagnostics agentresult.Diagnostics
 	if err = json.Unmarshal(preflight.Result, &diagnostics); err != nil || !diagnostics.Valid {

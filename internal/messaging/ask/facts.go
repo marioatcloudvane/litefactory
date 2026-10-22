@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -283,9 +282,4 @@ func ExplicitIssues(text string) []int {
 		}
 	}
 	return out
-}
-
-func factTargets(f Fact, issue int) bool {
-	_, suffix, ok := strings.Cut(f.Handle, ":")
-	return ok && (suffix == strconv.Itoa(issue) || strings.HasPrefix(suffix, strconv.Itoa(issue)+"/"))
 }
