@@ -1,0 +1,31 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	(cached)
+ok  	github.com/cloudvane/litefactory/internal/agent	(cached)
+ok  	github.com/cloudvane/litefactory/internal/agentresult	(cached)
+ok  	github.com/cloudvane/litefactory/internal/codex	(cached)
+ok  	github.com/cloudvane/litefactory/internal/doctor	44.431s
+ok  	github.com/cloudvane/litefactory/internal/drift	15.509s
+ok  	github.com/cloudvane/litefactory/internal/git	71.518s
+ok  	github.com/cloudvane/litefactory/internal/github	(cached)
+ok  	github.com/cloudvane/litefactory/internal/graphexec	1.663s
+ok  	github.com/cloudvane/litefactory/internal/harness	(cached)
+ok  	github.com/cloudvane/litefactory/internal/logevidence	(cached)
+ok  	github.com/cloudvane/litefactory/internal/logreader	(cached)
+ok  	github.com/cloudvane/litefactory/internal/messaging	125.137s
+ok  	github.com/cloudvane/litefactory/internal/messaging/ask	(cached)
+ok  	github.com/cloudvane/litefactory/internal/messaging/discord	(cached)
+ok  	github.com/cloudvane/litefactory/internal/messaging/feature	(cached)
+?   	github.com/cloudvane/litefactory/internal/messaging/response	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/meter	(cached)
+ok  	github.com/cloudvane/litefactory/internal/meterview	(cached)
+ok  	github.com/cloudvane/litefactory/internal/projectconnection	(cached)
+ok  	github.com/cloudvane/litefactory/internal/providerprocess	(cached)
+ok  	github.com/cloudvane/litefactory/internal/report	(cached)
+ok  	github.com/cloudvane/litefactory/internal/repos	3.358s
+?   	github.com/cloudvane/litefactory/internal/resultservice	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/rights	(cached)
+ok  	github.com/cloudvane/litefactory/internal/standards	(cached)
+?   	github.com/cloudvane/litefactory/internal/store/storetest	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/submission	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teamrelease	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teamsource	(cached)
+ok  	github.com/cloudvane/litefactory/internal/webhookreg	(cached)

@@ -31,6 +31,8 @@ type ConversationEnvelopeError struct{ Reason string }
 func (e *ConversationEnvelopeError) Error() string {
 	return ErrConversationEnvelope.Error() + ": " + e.Reason
 }
+
+// Is matches the shared invalid-envelope error.
 func (e *ConversationEnvelopeError) Is(target error) bool { return target == ErrConversationEnvelope }
 
 // conversationEnvelopeReason returns the plain rejection reason, if any.
@@ -143,6 +145,9 @@ func (s *Service) ConversationCommands() []CommandDefinition {
 func conversationCommand(def CommandDefinition) bool {
 	if !def.NaturalLanguage {
 		return false
+	}
+	if standardsCommand(def.Name) {
+		return true
 	}
 	switch def.Name {
 	case "help", "health", "status", "meter", "prices", "ask", "question":
@@ -316,7 +321,7 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 				return bad()
 			}
 		case exactConversationFields(f, "name", "value"):
-			if envelope.Kind != "lookup" || conversationProtectedContent(arg.Name) || arg.Value == "" {
+			if (envelope.Kind != "lookup" && (!standardsCommand(envelope.Command) || arg.Name != "action")) || conversationProtectedContent(arg.Name) || arg.Value == "" {
 				return bad()
 			}
 			value = arg.Value
@@ -329,6 +334,11 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	if err != nil {
 		reason = "the command arguments are invalid"
 		return bad()
+	}
+	if standardsCommand(validated.Command) {
+		if _, err := standardsOperation(validated); err != nil {
+			return bad()
+		}
 	}
 	reason = "the current message names an explicit issue; use that target"
 	// A current explicit issue target cannot be replaced by a remembered target.
@@ -353,7 +363,13 @@ func DecodeConversationEnvelope(raw []byte, request ConversationDecodeRequest) (
 	return envelope, validated, nil
 }
 
-func conversationProtectedContent(name string) bool { return name == "text" || name == "note" }
+func conversationProtectedContent(name string) bool {
+	switch name {
+	case "text", "note", "intent", "title", "body", "operations", "request", "reason", "config", "departure", "name":
+		return true
+	}
+	return false
+}
 func exactConversationFields(fields map[string]json.RawMessage, names ...string) bool {
 	if len(fields) != len(names) {
 		return false

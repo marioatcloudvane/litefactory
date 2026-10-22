@@ -3,7 +3,8 @@
 // contains the native conversation, factory envelope, correction and action-outcome
 // roles, the judge challenger, plus
 // merge-conflict-advisor, schedule-proposal-advisor, mode-classifier,
-// doctor-diagnosis and doctor-repair, and the chat-draft role. Doctor roles
+// doctor-diagnosis and doctor-repair, the chat-draft role, and the response-only
+// standards-author role with its retained response schema. Doctor roles
 // select factory-fixed skills.
 // Change the shipped version whenever shipped bytes change. Agent names are
 // lowercase words joined by hyphens, without extensions, and select only

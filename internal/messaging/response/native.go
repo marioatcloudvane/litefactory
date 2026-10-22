@@ -30,10 +30,11 @@ type MeterWriter interface {
 // NativeModel reuses configured provider order and doctor isolation, choosing
 // the balanced tier. Each call, including correction, has its own meter attempt.
 type NativeModel struct {
-	Config    *config.Config
-	Paths     config.Paths
-	Providers map[string]ChatRunner
-	Meter     MeterWriter
+	Config        *config.Config
+	Paths         config.Paths
+	Providers     map[string]ChatRunner
+	Meter         MeterWriter
+	AuthoringCall func(provider, model, usageReference string)
 }
 
 // Budget bounds one chat request, including the five-second
@@ -48,12 +49,12 @@ func (m *NativeModel) Answer(ctx context.Context, repoID int64, prompt string) (
 	if m.Meter == nil {
 		return nil, ErrUnavailable
 	}
-	return m.run(ctx, prompt, func(ctx context.Context, provider string) (store.MeterAttempt, error) {
+	return m.run(ctx, prompt, func(ctx context.Context, provider, _ string) (store.MeterAttempt, error) {
 		return m.Meter.StartChatMeterAttempt(ctx, repoID, provider)
 	})
 }
 
-func (m *NativeModel) run(ctx context.Context, prompt string, start func(context.Context, string) (store.MeterAttempt, error)) (_ []byte, err error) {
+func (m *NativeModel) run(ctx context.Context, prompt string, start func(context.Context, string, string) (store.MeterAttempt, error)) (_ []byte, err error) {
 	if m.Config == nil || m.Meter == nil {
 		return nil, ErrUnavailable
 	}
@@ -85,7 +86,7 @@ func (m *NativeModel) run(ctx context.Context, prompt string, start func(context
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
-	attempt, err := start(ctx, provider)
+	attempt, err := start(ctx, provider, model)
 	if err != nil {
 		return nil, err
 	}

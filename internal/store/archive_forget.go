@@ -21,10 +21,11 @@ type forgetStep struct {
 }
 
 const (
-	forgetBySessions = `session_id IN (%s)`
-	forgetByTasks    = `parent_task IN (%s)`
-	forgetBySegments = `segment_id IN (SELECT id FROM segments WHERE session_id IN (%s))`
-	forgetByID       = `id IN (%s)`
+	forgetBySessions         = `session_id IN (%s)`
+	forgetByTasks            = `parent_task IN (%s)`
+	forgetBySegments         = `segment_id IN (SELECT id FROM segments WHERE session_id IN (%s))`
+	forgetByID               = `id IN (%s)`
+	forgetStandardsByParents = `parent IN (%s)`
 )
 
 // forgetSteps delete the family skeleton children first. Every table that holds
@@ -42,6 +43,9 @@ var forgetSteps = []forgetStep{
 	{"workflow_admissions", forgetBySessions},
 	{"watermarks", forgetBySessions},
 	{"retirement_intents", forgetBySessions},
+	{"standards_graph_invocations", forgetBySessions},
+	{"standards_story_invocations", forgetStandardsByParents},
+	{"standards_run_aliases", `run_id IN (SELECT id FROM runs WHERE session_id IN (%s))`},
 	{"runs", forgetBySessions},
 	{"segments", forgetBySessions},
 	{"approved_story_revisions", forgetByTasks},
@@ -109,6 +113,10 @@ func (db *DB) ForgetArchivedFamily(ctx context.Context, f ArchiveFamily, now tim
 		if err != nil {
 			return err
 		}
+		runIDs, err := forgetStandardsRunIDs(ctx, tx, f)
+		if err != nil {
+			return err
+		}
 		tasks, err := planArchiveParents(ctx, tx, f)
 		if err != nil {
 			return err
@@ -120,7 +128,7 @@ func (db *DB) ForgetArchivedFamily(ctx context.Context, f ArchiveFamily, now tim
 			var args []any
 			var list string
 			switch s.by {
-			case forgetByTasks:
+			case forgetByTasks, forgetStandardsByParents:
 				list = placeholders(len(tasks))
 				for _, t := range tasks {
 					args = append(args, t)
@@ -144,6 +152,36 @@ func (db *DB) ForgetArchivedFamily(ctx context.Context, f ArchiveFamily, now tim
 				deleted[s.table] = n
 			}
 		}
+		if len(runIDs) > 0 {
+			args := []any{}
+			for _, root := range runIDs {
+				var retained bool
+				err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM runs WHERE id=?) OR EXISTS(SELECT 1 FROM standards_run_aliases WHERE root_run_id=?) OR EXISTS(SELECT 1 FROM standards_graph_invocations WHERE root_run_id=?) OR EXISTS(SELECT 1 FROM standards_story_invocations WHERE root_run_id=?)`, root, root, root, root).Scan(&retained)
+				if err != nil {
+					return err
+				}
+				if !retained {
+					args = append(args, fmt.Sprint(root))
+				}
+			}
+			if len(args) == 0 {
+				return nil
+			}
+			for _, table := range []string{"standards_run_observations", "standards_run_selections", "standards_run_bindings"} {
+				//nolint:gosec // G202: table names are the fixed retained standards tables; run IDs are bound parameters.
+				res, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE root_run_id IN (`+placeholders(len(args))+`)`, args...)
+				if err != nil {
+					return fmt.Errorf("forget %s: %w", table, err)
+				}
+				n, err := res.RowsAffected()
+				if err != nil {
+					return fmt.Errorf("forget %s: %w", table, err)
+				}
+				if n > 0 {
+					deleted[table] = n
+				}
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -163,6 +201,23 @@ func forgetFamilyIDs(ctx context.Context, q archiveQuerier, f ArchiveFamily) ([]
 		var id int64
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("read family session: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func forgetStandardsRunIDs(ctx context.Context, q archiveQuerier, f ArchiveFamily) ([]int64, error) {
+	rows, err := q.QueryContext(ctx, archiveCTE+`SELECT id FROM fr UNION SELECT root_run_id FROM standards_run_aliases WHERE run_id IN (SELECT id FROM fr) UNION SELECT root_run_id FROM standards_graph_invocations WHERE session_id IN (SELECT id FROM fs) UNION SELECT root_run_id FROM standards_story_invocations WHERE parent IN (SELECT task_ref FROM sessions WHERE id IN (SELECT id FROM fs)) ORDER BY 1`, archiveNamed(f)...)
+	if err != nil {
+		return nil, fmt.Errorf("read standards runs: %w", err)
+	}
+	defer rows.Close()
+	ids := []int64{}
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			return nil, err
 		}
 		ids = append(ids, id)
 	}

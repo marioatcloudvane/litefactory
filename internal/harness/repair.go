@@ -36,6 +36,9 @@ func (r *Runner) runRepairTransport(ctx context.Context, request agent.RepairReq
 }
 
 func validateScopedDoctorRequest(request agent.DoctorRequest, operation string) error {
+	if operation == "prevention" {
+		return (agent.PreventionRequest{Invocation: request, MaxTurns: request.TurnLimit}).Validate()
+	}
 	if operation == "judge" {
 		return (agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}).Validate()
 	}
@@ -51,6 +54,9 @@ func runScopedDoctorProcess(ctx context.Context, binary string, args, env []stri
 			logger = slog.New(slog.DiscardHandler)
 		}
 		return providerprocess.RunDoctorProcessObserved(ctx, binary, args, env, request, timeout, observe, failure, func(pid int) error { return killSubtree(context.WithoutCancel(ctx), pid, logger) })
+	}
+	if operation == "prevention" {
+		return providerprocess.RunPreventionProcess(ctx, binary, args, env, agent.PreventionRequest{Invocation: request, MaxTurns: request.TurnLimit}, timeout, observe)
 	}
 	if operation == "judge" {
 		return providerprocess.RunJudgeProcessObserved(ctx, binary, args, env, agent.JudgeRequest{Invocation: request, Thinking: request.Thinking}, timeout, observe, failure)

@@ -218,8 +218,39 @@ func TestPythonFastAPIProfileAndGuidanceBoundaries(t *testing.T) {
 	}
 	source := os.DirFS("../teamsource/python-fastapi")
 	guidance, err := teamsource.CaptureStackGuidance(t.Context(), source, p)
-	if err != nil || len(guidance) == 0 {
-		t.Fatal("stack guidance not captured", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := []byte{}
+	for _, raw := range guidance {
+		combined = append(combined, raw...)
+	}
+	for _, id := range []string{"factory-python-api", "factory-react-vite"} {
+		if !bytes.Contains(combined, []byte(id)) {
+			t.Fatal("missing retained-book pointer", id)
+		}
+	}
+	advice := append(migrationStandardBody(t, "factory-python-api"), migrationStandardBody(t, "factory-react-vite")...)
+	for _, topic := range []string{"request", "response", "lifespan", "blocking", "error", "pytest", "OpenAPI", "typed API", "loading", "accessible", "Vitest", "strict"} {
+		if !bytes.Contains(bytes.ToLower(advice), []byte(strings.ToLower(topic))) {
+			t.Fatal("missing migrated stack guidance", topic)
+		}
+	}
+	for _, topic := range []string{"read-only", "uv sync --locked", "npm ci", "package-only"} {
+		// The evidence boundary is stated as package compatibility, not application proof.
+		if topic == "package-only" {
+			topic = "does not prove an example application"
+		}
+		if !bytes.Contains(bytes.ToLower(combined), []byte(strings.ToLower(topic))) {
+			t.Fatal("missing stack guidance", topic)
+		}
+	}
+	for name, raw := range snapshot(t, "../teamsource/python-fastapi/implement/skills/python-fastapi-stack") {
+		for _, bad := range []string{"go test", "gofmt", "golangci-lint", "multiple Go modules", "aws-sdk-go", "All SQL lives"} {
+			if bytes.Contains(raw, []byte(bad)) {
+				t.Fatal("inherited application instruction", name, bad)
+			}
+		}
 	}
 	for _, command := range append(p.Setup, p.Checks...) {
 		if command.CWD != "." || command.Argv[0] != "python3" {

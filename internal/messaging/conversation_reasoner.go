@@ -72,14 +72,14 @@ func (r *factoryConversationRun) consult(ctx context.Context, envelope Conversat
 			result.Gaps = append(result.Gaps, "Reasoner result exceeded the conversation evidence limit; additional data omitted.")
 		}
 	} else {
-		result.Gaps = append(result.Gaps, "The reasoner consult failed: "+reasonerCause(err, bounded, r.at)+" Answer with the evidence you have and say what is missing.")
+		result.Gaps = append(result.Gaps, "The reasoner consult failed: "+reasonerCause(bounded, err, r.at)+" Answer with the evidence you have and say what is missing.")
 	}
 	result.Complete = len(result.Gaps) == 0
 	outcome := "answered"
 	if err != nil {
 		outcome = "failed"
 	}
-	r.logReasoner(ctx, "conversation reasoner consult finished", "outcome", outcome, "lookups", len(lookups), "duration_ms", time.Since(started).Milliseconds(), "cause", reasonerCauseCode(err, bounded))
+	r.logReasoner(ctx, "conversation reasoner consult finished", "outcome", outcome, "lookups", len(lookups), "duration_ms", time.Since(started).Milliseconds(), "cause", reasonerCauseCode(bounded, err))
 	return result, refs
 }
 
@@ -277,7 +277,7 @@ func reasonerEvidenceText(findings string, lookups []conversationReadResult) str
 
 // reasonerCause names why a consult failed, in plain words for the
 // conversation model.
-func reasonerCause(err error, ctx context.Context, at time.Time) string {
+func reasonerCause(ctx context.Context, err error, at time.Time) string {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return "it took longer than the consult time limit."
@@ -290,7 +290,7 @@ func reasonerCause(err error, ctx context.Context, at time.Time) string {
 	return "the reasoner provider failed."
 }
 
-func reasonerCauseCode(err error, ctx context.Context) string {
+func reasonerCauseCode(ctx context.Context, err error) string {
 	switch {
 	case err == nil:
 		return ""

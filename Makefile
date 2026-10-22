@@ -38,6 +38,9 @@ empty :=
 space := $(empty) $(empty)
 MIXED_PACKAGES := ./internal/turn ./internal/store ./internal/cli
 RACE_TESTS_store := \
+	TestStandardsExceptionsTransitionsIndependentConnections \
+	TestStandardsRunCompetingBindingsAndSelectionVersions \
+	TestStandardsCompetingPublications \
 	TestConversationCaptureConcurrentWinnerAndReplacement \
 	TestApprovalIsAtomicAndExcludesPendingRefinements \
 	TestReplanPreservesCompletedAndOldApprovedScope \
@@ -147,6 +150,9 @@ RACE_TESTS_turn := \
 	TestSlotCapacityStaysReservedThroughWorkflowFinalization \
 	TestWorkflowJudgeStartupRecoveryBeforeGenericReconciliation \
 	TestSlotCapacityWorkflowWaitsAndResumesWithoutReplay \
+	TestStandardsEndToEndRetainedAcrossAttempts \
+	TestStandardsToolsRejectForgedScopeAndReverifyReplay \
+	TestStandardsEncodedMetadataPaging \
 	TestActivitySocketBoundsAndOrdering \
 	TestActivitySocketDurableRetryAndLifecycle \
 	TestActivitySocketConcurrentRetry \

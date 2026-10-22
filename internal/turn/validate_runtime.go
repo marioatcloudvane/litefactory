@@ -489,7 +489,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		return nil, err
 	}
 	var pathErr error
-	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{SessionID: h.session.ID, SegmentID: segment.ID, Mode: string(agent.ModeValidate), Agent: segment.Agent, TriggerCommentID: trigger, LogPath: func(ordinal int) string {
+	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{Prelaunch: true, SessionID: h.session.ID, SegmentID: segment.ID, Mode: string(agent.ModeValidate), Agent: segment.Agent, TriggerCommentID: trigger, LogPath: func(ordinal int) string {
 		path, err := naming.RunLogPath(opts.Paths.Home(), h.ref, ordinal)
 		pathErr = err
 		return path
@@ -513,6 +513,19 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		err = errors.Join(err, finishErr)
 	}()
 
+	standardsLinkErr := opts.DB.LinkStandardsGraphRun(ctx, run.ID, vr.NodeAttemptID)
+	standardsRoot, standardsConsumer := fmt.Sprint(run.ID), standardsSessionConsumerKey(run.SessionID, string(agent.ModeValidate), nodeName)
+	var standardsGuidance string
+	if standardsLinkErr == nil {
+		standardsRoot, standardsConsumer, standardsGuidance = prepareStandards(ctx, opts.DB, opts.MCP, run, nodeName, string(agent.ModeValidate))
+	} else {
+		standardsGuidance = "\nStandards delivery unavailable: invocation identity status-persistence failure. Continue under existing controls without claiming verified or complete retrieval.\n"
+	}
+	started, err := opts.DB.StartRun(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	run = started
 	request := agent.Request{
 		Delivery:       delivery,
 		Ref:            h.ref,
@@ -537,7 +550,7 @@ func (r *validateReviewers) Run(ctx context.Context, vr ValidateReviewRequest) (
 		prompt += policy.Guidance
 	}
 	request.Prompt = prompt
-	prep := &preparation{mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
+	prep := &preparation{standardsRoot: standardsRoot, standardsConsumer: standardsConsumer, standardsGuidance: standardsGuidance, mcpRuntime: opts.MCP, meterDB: opts.DB, repo: h.repo, session: h.session, ref: h.ref, segment: segment, run: run, runner: runner, request: request}
 	w := &researchWorkflow{opts: opts, req: nodeReq, policy: policy, prep: prep}
 	scope := cloneResultContext(vr.Scope)
 	route, err := w.openResultRoute(ctx, &request, &resultOverride{
