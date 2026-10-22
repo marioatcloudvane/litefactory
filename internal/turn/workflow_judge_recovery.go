@@ -65,8 +65,45 @@ func RecoverWorkflowJudges(ctx context.Context, opts Options, at time.Time) erro
 			if !ok || node.Action != graphexec.JudgeAction {
 				continue
 			}
-			if _, err = recoverWorkflowJudgeAttempt(ctx, opts, attempt, definition, at); err != nil {
+			recoveryAt := at
+			if recoveryAt.Before(attempt.StartedAt) {
+				recoveryAt = attempt.StartedAt
+			}
+			step, err := recoverWorkflowJudgeAttempt(ctx, opts, attempt, definition, recoveryAt)
+			if err != nil {
 				return err
+			}
+			if step.Deferred {
+				if opts.Logger != nil && step.Activity.Diagnostic != "" {
+					opts.Logger.InfoContext(ctx, step.Activity.Diagnostic)
+				}
+				if attempt.Status == store.GraphRunning {
+					if err := opts.DB.DeferGraphNodeAttempt(ctx, attempt.ID, recoveryAt); err != nil {
+						return err
+					}
+				}
+				if _, err := opts.DB.ParkCapturedGraphInstanceAfter(ctx, instance.ID, attempt.Node, recoveryAt.Add(opts.GraphRetryDelay), recoveryAt, 0, attempt.LaunchID); err != nil {
+					return err
+				}
+				continue
+			}
+			// A previously deferred recovery owns an owed dispatch at the old
+			// node. Replace it after bookkeeping advances, keeping its capture.
+			if attempt.Status == store.GraphPending {
+				dispatch, err := opts.DB.LatestGraphDispatch(ctx, instance.ID)
+				if err != nil && !errors.Is(err, store.ErrNotFound) {
+					return err
+				}
+				if err == nil && dispatch.Node == attempt.Node && step.Status != store.GraphRunning {
+					if err := opts.DB.FinishGraphDispatch(ctx, dispatch.ID, recoveryAt); err != nil {
+						return err
+					}
+				}
+				if err == nil && dispatch.Node == attempt.Node && step.NextNode != attempt.Node && step.Status == store.GraphRunning {
+					if _, err := opts.DB.ParkCapturedGraphInstanceAfter(ctx, instance.ID, step.NextNode, recoveryAt, recoveryAt, dispatch.ID, attempt.LaunchID); err != nil {
+						return err
+					}
+				}
 			}
 		}
 		if len(attempts) < 100 {
@@ -94,5 +131,5 @@ func recoverWorkflowJudgeAttempt(ctx context.Context, opts Options, attempt stor
 	if err := activities.Register(graphexec.JudgeAction, handler); err != nil {
 		return GraphNodeResult{}, err
 	}
-	return ExecuteNodeAction(ctx, opts, GraphNodeRequest{Profile: definition.Profile, Activities: activities, InstanceID: attempt.InstanceID, ResumeAttemptID: attempt.ID, At: at, NextDueAt: at, StopOnFailure: true})
+	return ExecuteNodeAction(ctx, opts, GraphNodeRequest{LaunchID: attempt.LaunchID, Profile: definition.Profile, Activities: activities, InstanceID: attempt.InstanceID, ResumeAttemptID: attempt.ID, At: at, NextDueAt: at, StopOnFailure: true})
 }

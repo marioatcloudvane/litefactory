@@ -376,8 +376,46 @@ advice -> brief [lf_on="published"];`, 1)
 					t.Fatalf("initial report not retained: %+v", result)
 				}
 			}
-			mustProgress(t, RecoverWorkflowJudges(t.Context(), f.opts, at.Add(time.Second)))
-			_, err = f.db.ReconcileResearchGraphs(t.Context(), at.Add(2*time.Second))
+			pool := &slotStoryPool{total: 1}
+			busy, ok, err := pool.acquire(1)
+			if err != nil || !ok {
+				t.Fatal("occupy startup capacity")
+			}
+			capacity := &slotStoryParent{pool: pool}
+			ctx := WithStepCapacity(t.Context(), capacity)
+			// Busy startup retains the exact existing identity and leaves generic
+			// crash reconciliation no failed execution to record.
+			for round := range 2 {
+				recoveredAt := at.Add(time.Duration(round+1) * time.Second)
+				mustProgress(t, RecoverWorkflowJudges(ctx, f.opts, recoveredAt))
+				pending, err := f.db.GetGraphNodeAttempt(t.Context(), attempt.ID)
+				mustProgress(t, err)
+				if pending.Status != store.GraphPending || pending.Attempt != 1 {
+					t.Fatalf("capacity spent startup attempt: %+v", pending)
+				}
+				reconciled, err := f.db.ReconcileResearchGraphs(t.Context(), recoveredAt)
+				mustProgress(t, err)
+				if reconciled != 0 {
+					t.Fatalf("capacity wait reconciled as interrupted work: %d", reconciled)
+				}
+				owed, err := f.db.LatestGraphDispatch(t.Context(), source.InstanceID)
+				mustProgress(t, err)
+				if owed.Status != "pending" || owed.Node != "challenge" || owed.LaunchID != admitted.LaunchID || owed.Attempts != 0 {
+					t.Fatalf("lost startup continuation: %+v", owed)
+				}
+			}
+			busy()
+			mustProgress(t, RecoverWorkflowJudges(ctx, f.opts, at.Add(3*time.Second)))
+			used, _ := pool.Capacity()
+			if used != 0 {
+				t.Fatalf("startup reservation leaked: %d", used)
+			}
+			owed, err := f.db.LatestGraphDispatch(t.Context(), source.InstanceID)
+			mustProgress(t, err)
+			if owed.Status != "pending" || owed.Node != "advice" || owed.LaunchID != admitted.LaunchID {
+				t.Fatalf("startup continuation retained completed judge cost: %+v", owed)
+			}
+			_, err = f.db.ReconcileResearchGraphs(t.Context(), at.Add(4*time.Second))
 			mustProgress(t, err)
 			instance, err := f.db.GetGraphInstance(t.Context(), source.InstanceID)
 			mustProgress(t, err)

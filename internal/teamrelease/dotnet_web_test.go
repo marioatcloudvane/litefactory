@@ -239,6 +239,7 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 			shared = legacyBugSourceWithoutSyncGate(t, shared)
 		}
 		if mode == "implement" {
+			shared = withoutGoStoryWorkerSlotPolicy(t, shared)
 			shared = legacyImplementSourceWithoutOwnerResumeSync(t, shared)
 		}
 		if mode == "spike" {

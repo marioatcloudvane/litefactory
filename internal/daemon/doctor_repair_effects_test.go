@@ -289,7 +289,7 @@ func (r *liveSyncRunner) IsolationEvidence(context.Context, string) (string, err
 	return "controlled-fixture-only", nil
 }
 func (r *liveSyncRunner) Run(ctx context.Context, inv doctor.Invocation, results *doctor.ResultService) (doctor.InvocationOutcome, error) {
-	i := strings.Index(inv.Prompt, "\n{\"")
+	i := strings.LastIndex(inv.Prompt, "\n{\"")
 	var prepared doctor.PromptContext
 	if i < 0 || json.Unmarshal([]byte(inv.Prompt[i+1:]), &prepared) != nil {
 		r.t.Fatal("missing JSON context")

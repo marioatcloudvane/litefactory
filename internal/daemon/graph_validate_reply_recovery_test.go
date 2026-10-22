@@ -51,7 +51,7 @@ func stoppedValidateFixture(t *testing.T, launched bool) (*fixture, store.GraphI
 	}
 	var instance store.GraphInstance
 	if launched {
-		admitted, err := f.db.AdmitWorkflowLaunch(t.Context(), store.WorkflowLaunch{Mode: "validate", SessionID: session.ID, TriggerID: 22, DefinitionID: validate.ID, Start: "repair_agent", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: []byte(`{"validate.dot":"eA=="}`)})
+		admitted, err := f.db.AdmitWorkflowLaunch(t.Context(), store.WorkflowLaunch{Mode: "validate", SessionID: session.ID, TriggerID: 22, DefinitionID: validate.ID, Start: "repair_agent", ContentDigest: strings.Repeat("b", 64), TopologyDigest: strings.Repeat("c", 64), Files: graphCapacityFiles(t, "validate", "repair_agent")})
 		if err != nil {
 			t.Fatal(err)
 		}
