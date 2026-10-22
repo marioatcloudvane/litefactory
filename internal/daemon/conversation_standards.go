@@ -487,35 +487,6 @@ func (a *ConversationStandards) recoverEffect(ctx context.Context, r messaging.S
 	return result, e
 }
 
-// Notices projects immutable retained analyst notices without inspecting mutable
-// proposal state or invoking a provider. The delivery worker owns its cursor.
-func (a *ConversationStandards) Notices(ctx context.Context, r messaging.StandardsRequest) ([]messaging.StandardsNotice, error) {
-	if e := a.authorize(ctx, r); e != nil {
-		return nil, e
-	}
-	after := int64(0)
-	if raw := r.Arguments["after"]; raw != "" {
-		var e error
-		after, e = strconv.ParseInt(raw, 10, 64)
-		if e != nil || after < 0 {
-			return nil, errors.New("standards: invalid notice cursor")
-		}
-	}
-	notices, e := a.DB.ListAnalystProposalNotices(ctx, "", after, 25)
-	if e != nil {
-		return nil, e
-	}
-	out := make([]messaging.StandardsNotice, 0, len(notices))
-	for _, notice := range notices {
-		payload, e := json.MarshalIndent(notice, "", "  ")
-		if e != nil {
-			return nil, e
-		}
-		out = append(out, messaging.StandardsNotice{ID: notice.ID, Payload: "Retained standards analyst notice. Proposal was unapproved at origin; this notice grants no approval. Inspect current status separately.\n" + string(payload)})
-	}
-	return out, nil
-}
-
 // Recover consults the original receipt without rerunning committed work. A new
 // delivery source can inspect the same exact action, but cannot rewrite it.
 func (a *ConversationStandards) Recover(ctx context.Context, r messaging.StandardsRequest) (messaging.StandardsResult, bool, error) {

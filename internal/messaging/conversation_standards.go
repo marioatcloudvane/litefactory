@@ -272,9 +272,6 @@ func (r *factoryConversationRun) lookupStandards(ctx context.Context, inv Invoca
 		result.Gaps = append(result.Gaps, "Shared standards read failed")
 	}
 	result.Result = output.Text
-	if request.Operation == "notice.list" {
-		result.Result += "\n" + r.s.standardsNoticeStatus(ctx)
-	}
 	if bounded, cut := boundedConversationText(result.Result, 16384); cut {
 		result.Result = bounded + "\nAdditional retained content omitted from this bounded lookup; inspect the exact saved target through the shared CLI or request a narrower page."
 		result.Complete = false

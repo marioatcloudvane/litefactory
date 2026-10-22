@@ -29,7 +29,7 @@ func (d *Daemon) startConversations(ctx context.Context, wg *sync.WaitGroup, at 
 				for range 32 {
 					more, err := step(ctx, time.Now())
 					if err != nil {
-						d.log.WarnContext(ctx, "conversation processing deferred; durable state retained")
+						d.log.WarnContext(ctx, "conversation processing deferred; durable state retained", "error", err)
 						break
 					}
 					if !more {
