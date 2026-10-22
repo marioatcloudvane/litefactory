@@ -743,7 +743,14 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 	if recovery, ok := d.turn.(interface {
 		RecoverWorkflowJudges(context.Context, time.Time) error
 	}); ok {
-		if err := recovery.RecoverWorkflowJudges(ctx, reconciliation.At); err != nil {
+		// Startup bookkeeping is synchronous, but still consumes the declared
+		// step cost in the same shared pool as ordinary execution.
+		reservation := &stepReservation{pool: d.pool}
+		err := func() error {
+			defer reservation.Release()
+			return recovery.RecoverWorkflowJudges(turn.WithStepCapacity(ctx, reservation), reconciliation.At)
+		}()
+		if err != nil {
 			return Reconciled{}, err
 		}
 	}

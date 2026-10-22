@@ -257,6 +257,7 @@ func TestCanonicalMigrationAndGraphContracts(t *testing.T) {
 			current = legacyBugSourceWithoutSyncGate(t, current)
 		}
 		if w == "implement" {
+			current = withoutGoStoryWorkerSlotPolicy(t, current)
 			current = legacyImplementSourceWithoutOwnerResumeSync(t, current)
 		}
 		if w == "spike" {

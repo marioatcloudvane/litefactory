@@ -267,6 +267,9 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if mode == "implement" {
+			shared = withoutGoStoryWorkerSlotPolicy(t, shared)
+		}
 		if mode == "spike" {
 			shared = legacySpikeSourceWithoutRepair(t, shared)
 		}

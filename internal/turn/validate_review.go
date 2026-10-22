@@ -79,7 +79,99 @@ type ValidateSlots interface {
 //
 // A step that runs again keeps every recorded answer and starts only the
 // reviewers that have none. A reviewer is never started twice for one commit.
-type ValidateReviewActivity struct{ b ValidateFlowBindings }
+type ValidateReviewActivity struct {
+	b              ValidateFlowBindings
+	initialRelease func()
+}
+
+// admit reserves the first missing child's capacity before an attempt is spent.
+// The held grant is handed to Execute; later children are acquired without waiting.
+func (h ValidateReviewActivity) admit(ctx context.Context, opts Options, req ActivityRequest) (bool, func(), error) {
+	if h.b.Slots == nil {
+		return true, nil, nil
+	}
+	suite, err := latestValidateSuite(ctx, opts, req.InstanceID, req.Attrs["lf_suite"])
+	if err != nil {
+		return false, nil, err
+	}
+	rows, err := opts.DB.ListValidateReviews(ctx, req.InstanceID, suite.Output.Commit)
+	if err != nil {
+		return false, nil, err
+	}
+	finished := map[string]bool{}
+	for _, row := range rows {
+		finished[row.Role] = row.State != store.ReviewPending
+		if finished[row.Role] || row.Attempt == "" || h.b.Reviewers == nil {
+			continue
+		}
+		result, found, err := h.b.Reviewers.Recover(ctx, row.Attempt)
+		if err != nil {
+			return false, nil, err
+		}
+		if !found {
+			continue
+		}
+		if h.b.Stories == nil {
+			continue
+		}
+		stories, err := h.b.Stories(ctx, opts, req)
+		if err != nil {
+			return false, nil, err
+		}
+		if err = h.record(ctx, opts, row, row.Role, stories, suite, result, nil); err != nil {
+			return false, nil, err
+		}
+		finished[row.Role] = true
+	}
+	needed := false
+	for _, role := range ValidateReviewRoles {
+		if !finished[role] {
+			needed = true
+			break
+		}
+	}
+	if !needed {
+		return true, nil, nil
+	}
+	if weighted, ok := h.b.Slots.(WeightedValidateSlots); ok {
+		_, total := weighted.Capacity()
+		parent := 0
+		if stepCapacity(ctx) != nil {
+			parent, err = graphexec.SlotCost(h.b.Profile, req.Node)
+			if err != nil {
+				return false, nil, err
+			}
+		}
+		if parent >= total {
+			return false, nil, nil
+		}
+	}
+	var release func()
+	var ok bool
+	if weighted, supports := h.b.Slots.(WeightedValidateSlots); supports {
+		release, ok, err = weighted.TryAcquireWeighted(ctx, 1)
+	} else {
+		release, ok, err = h.b.Slots.TryAcquire(ctx)
+	}
+	if !ok || err != nil {
+		return ok, nil, err
+	}
+	return true, sync.OnceFunc(release), nil
+}
+
+func (h ValidateReviewActivity) capacityDiagnostic(ctx context.Context, profile *graphexec.Profile, node string) string {
+	used, total := 0, 0
+	if weighted, ok := h.b.Slots.(WeightedValidateSlots); ok {
+		used, total = weighted.Capacity()
+	}
+	cost := 1
+	if stepCapacity(ctx) != nil {
+		if parent, err := graphexec.SlotCost(profile, node); err == nil {
+			cost += parent
+		}
+	}
+	return capacityDiagnostic("shared", "validate", node+"/reviewer", cost, used, total)
+}
 
 // ValidateReviewRoles are the reviewer role names the graph's review step names,
 // in order, mapped to their review roles.
@@ -157,7 +249,10 @@ func (h ValidateReviewActivity) Execute(ctx context.Context, opts Options, req A
 	}
 	for _, role := range ValidateReviewRoles {
 		if !finished[role] {
-			return h.result("retry", suite, rows)
+			result, err := h.result("retry", suite, rows)
+			result.Deferred = true
+			result.Diagnostic = h.capacityDiagnostic(ctx, b.Profile, req.Node)
+			return result, err
 		}
 	}
 	return h.result("done", suite, rows)
@@ -186,8 +281,17 @@ func (h ValidateReviewActivity) start(ctx context.Context, opts Options, req Act
 			s.release()
 		}
 	}
-	for _, role := range roles {
-		release, ok, err := b.Slots.TryAcquire(ctx)
+	for index, role := range roles {
+		var release func()
+		var ok bool
+		var err error
+		if index == 0 && h.initialRelease != nil {
+			release, ok = h.initialRelease, true
+		} else if weighted, supports := b.Slots.(WeightedValidateSlots); supports {
+			release, ok, err = weighted.TryAcquireWeighted(ctx, 1)
+		} else {
+			release, ok, err = b.Slots.TryAcquire(ctx)
+		}
 		if err != nil {
 			releaseAll()
 			return fmt.Errorf("take a run slot for the %s reviewer: %w", role, err)

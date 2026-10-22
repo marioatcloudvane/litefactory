@@ -1210,7 +1210,9 @@ type task struct {
 	workerLog *slog.Logger
 	worker    *workerState
 	// slot is the pool this task's worker holds; nil means the run pool.
-	slot *pool
+	slot          *pool
+	capacity      *stepReservation
+	graphDeferred bool
 
 	// implementCoordinatorHandedOff records this scheduled call's successful graph return.
 	implementCoordinatorHandedOff bool
@@ -1476,12 +1478,14 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	// thing that will find it.
 	d.markBacklog(ctx, c.log, c.session.ID)
 
-	if !d.pool.try() {
+	reservation, reason := d.reserveInput()
+	if reservation == nil {
+		c.log.InfoContext(ctx, "work deferred for capacity", slog.String("reason", reason))
 		d.inflight.leave(c.session.ID)
 		result.Deferred++
 		c.log.InfoContext(ctx, "no free slot for this task; it keeps its backlog flag and the "+
 			"next tick reconsiders it against fresh state")
-		return offerFull
+		return offerSkipped
 	}
 
 	readCtx := ctx
@@ -1494,7 +1498,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 			}
 		}
 		if err != nil {
-			d.pool.done()
+			reservation.abandon()
 			d.inflight.leave(c.session.ID)
 			result.Deferred++
 			return offerSkipped
@@ -1510,7 +1514,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		// down — and it is here rather than inside a goroutine because there is
 		// no turn to run: the issue is not open, the forge would not say, or
 		// retiring its backlog flag failed.
-		d.pool.done()
+		reservation.abandon()
 		d.inflight.leave(c.session.ID)
 		if errors.Is(err, ErrDiscoveryDeferred) {
 			result.Deferred++
@@ -1571,7 +1575,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		// The same undo as the materialise branch above, for the same reason:
 		// [pool.try] said yes and no worker will run, so the slot goes back
 		// here, on this goroutine, before anything else can be refused one.
-		d.pool.done()
+		reservation.abandon()
 		d.inflight.leave(c.session.ID)
 		result.Deferred++
 		c.log.InfoContext(ctx, "a rate limit armed the backoff while this tick was still "+
@@ -1581,6 +1585,7 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		return offerHeld
 	}
 
+	t.capacity = reservation
 	t.workerLog.DebugContext(ctx, "worker dispatched")
 
 	// The dispatch point uses the daemon's long-lived context. runWorker owns
@@ -2683,6 +2688,9 @@ func (d *Daemon) run(
 	log *slog.Logger,
 ) error {
 	ctx = sessionContext(ctx, t.session.ID)
+	if t.capacity != nil {
+		ctx = turn.WithStepCapacity(ctx, t.capacity)
+	}
 	if d.bug != nil {
 		if err := d.bug.CheckExistingAdmission(ctx, t.session.ID); err != nil {
 			return d.leave(ctx, t, log, "unsupported pinned Bug work preserved", err)
@@ -2852,6 +2860,7 @@ func (d *Daemon) run(
 		AttachmentsAllowed: attachmentsAllowed,
 		SyncOverride:       syncOverride,
 	})
+	t.graphDeferred = turnResult.GraphDeferred
 	if turnResult.Repair != nil {
 		d.retainStoppedResult(t, turnResult.Repair, trigger, mode)
 		source := store.ReportRecovery{Key: "stopped:" + recoveryKey(t.session.ID, trigger.CommentID), SessionID: t.session.ID, TriggerID: trigger.CommentID, Task: t.ref.String(), RunID: turnResult.Run.ID, State: "stopped"}
