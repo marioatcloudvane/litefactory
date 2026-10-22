@@ -598,6 +598,9 @@ func (s *Service) implementProgress(ctx context.Context, stories []store.Impleme
 				parked = label + " parked: " + statusExcerpt(story.Reason)
 			}
 		}
+		if story.State != store.ImplementParked && story.State != store.ImplementMerged && story.GuidanceQuestion != "" && story.Guidance == "" {
+			line += ", restarted after: " + statusExcerpt(story.GuidanceQuestion)
+		}
 		if story.LastFailure != "" && story.State != store.ImplementMerged {
 			line += ", last failure: " + statusExcerpt(story.LastFailure)
 		}
