@@ -75,6 +75,11 @@ func (s *Service) reconcile(ctx context.Context, o store.AnalystOccurrence, now 
 				if ev.Status != "ok" || (ev.Coverage.Incomplete && !ev.Coverage.RetentionOnly) || len(ev.Coverage.Omissions) > 0 {
 					failed = true
 				}
+				for _, event := range ev.Events {
+					if event.Truncated {
+						failed = true
+					}
+				}
 				if len(ev.Citations) > 0 {
 					w.Offered = true
 				}
