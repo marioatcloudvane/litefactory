@@ -50,9 +50,6 @@ func (s *Service) ConversationDeliveryStep(ctx context.Context, at time.Time) (b
 	d := s.sender.Deliver(deliveryCtx, Target{Transport: r.Transport, MessageID: r.MessageID, Channel: r.ChannelRef, Protected: true}, r.ReplyText)
 	switch {
 	case d.Confirmed:
-		if err := s.acknowledgeStandardsReview(ctx, r, d.PromptID, at); err != nil {
-			return true, err
-		}
 		if runtime.factory && d.PromptID != "" {
 			proposal, e := s.db.ReadNaturalDialogue(ctx, s.transport, s.owner, r.ChannelRef)
 			if e != nil && !errors.Is(e, store.ErrNotFound) {
