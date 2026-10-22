@@ -12,6 +12,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 const (
@@ -39,10 +40,31 @@ type implementMergeOutput struct {
 //	        unchanged. A content conflict moves the story back to waiting so
 //	        its worker resolves it; the others wait for the owner
 //	none    no story is done
-//	retry   the lock is busy or the integration branch moved; nothing changed
+//	retry   the lock is busy, the integration branch moved, or discovery was
+//	        deferred or rate limited; nothing changed
 //
 // A cancelled context, a git outage or a forge outage is an error, never a park.
 func (h ImplementMergeActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (res ActivityResult, err error) {
+	res, err = h.execute(ctx, opts, req)
+	if reason, ok := implementMergeTransient(err); ok {
+		return implementResult("retry", implementMergeOutput{Result: "retry", Reason: reason})
+	}
+	return res, err
+}
+
+// implementMergeTransient reports whether err is a deferral the merge step
+// waits out: local discovery-budget pressure or a forge rate limit.
+func implementMergeTransient(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ticket.ErrDiscoveryDeferred):
+		return "repository discovery was deferred; the merge is tried again shortly", true
+	case errors.Is(err, github.ErrRateLimited):
+		return "the forge is rate limiting requests; the merge is tried again shortly", true
+	}
+	return "", false
+}
+
+func (h ImplementMergeActivity) execute(ctx context.Context, opts Options, req ActivityRequest) (res ActivityResult, err error) {
 	a, err := h.b.bind(ctx, opts, req)
 	if err != nil {
 		return ActivityResult{}, err

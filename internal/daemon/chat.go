@@ -32,8 +32,6 @@ type ChatOptions struct {
 	// Answers supplies read-only context and response-only model wiring.
 	Diagnoser     ChatDiagnoser
 	Answers       *ask.Service
-	ReplyModel    messaging.ReplyModel
-	Interpreter   messaging.Interpreter
 	Conversations *messaging.ConversationOptions
 	Settings      config.DiscordChat
 	Token         secrets.Token
@@ -153,12 +151,6 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 		answers.History = history
 	}
 	s.EnableAsk(&answers)
-	s.EnablePresentation(o.ReplyModel, history)
-	interpreter := o.Interpreter
-	if interpreter == nil && o.ReplyModel != nil {
-		interpreter = &messaging.NativeInterpreter{Model: o.ReplyModel, Instructions: o.Instructions, InstructionDiagnostics: o.InstructionDiagnostics}
-	}
-	s.EnableNatural(interpreter)
 
 	writer, _ := d.forge.(ChatIssueForge)
 	s.EnableFeatures(&feature.Drafter{Instructions: answers.Instructions, InstructionDiagnostics: answers.InstructionDiagnostics, Repositories: answers.Repositories, History: answers.History, Model: answers.Model, Redactor: answers.Redactor, Store: d.db, Protect: s.Protect, Now: time.Now}, &ChatIssueCreator{DB: d.db, Forge: writer, BotUserID: d.filter.Identities().BotUserID, Redactor: answers.Redactor, Now: time.Now})
@@ -180,9 +172,20 @@ func (d *Daemon) buildChat(o *ChatOptions, key ed25519.PublicKey, token secrets.
 			return err
 		}
 		d.chat.conversations = &options
-	}
-	if interpreter != nil || o.Conversations != nil {
-		d.chat.intake = &messaging.Intake{DB: d.db, Reader: a, Owner: o.Settings.OwnerID, Channels: append([]string(nil), o.Settings.ChannelIDs...), Transport: "discord", Protect: s.Protect}
+		// Ordinary messages feed only conversations, so intake reads only
+		// allowed channels that a conversation is bound to.
+		var channels []string
+		for _, channel := range o.Settings.ChannelIDs {
+			for _, binding := range options.Bindings {
+				if binding.Channel == channel {
+					channels = append(channels, channel)
+					break
+				}
+			}
+		}
+		if len(channels) > 0 {
+			d.chat.intake = &messaging.Intake{DB: d.db, Reader: a, Owner: o.Settings.OwnerID, Channels: channels, Transport: "discord", Protect: s.Protect}
+		}
 	}
 	s.EnableResearch(chatResearch{d}, chatResearch{d})
 	if o.Settings.NoticeChannelID != "" {
@@ -263,7 +266,7 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 			if registered {
 				return
 			}
-			if err := d.chat.adapter.Register(ctx, d.chat.service.Declarations()...); err != nil {
+			if err := d.chat.adapter.Register(ctx, d.chat.service.SlashCommands()...); err != nil {
 				d.log.WarnContext(ctx, "chat commands could not be registered; retrying on a later heartbeat", slog.Any("error", err))
 			} else {
 				registered = true
@@ -290,16 +293,6 @@ func (d *Daemon) chatServe(ctx context.Context, wg *sync.WaitGroup) {
 					if !more {
 						break
 					}
-				}
-			}
-			for range 32 {
-				more, err := d.chat.service.NaturalStep(ctx, time.Now())
-				if err != nil {
-					d.log.WarnContext(ctx, "ordinary message processing failed; retained work will be retried")
-					break
-				}
-				if !more {
-					break
 				}
 			}
 			for range 32 {

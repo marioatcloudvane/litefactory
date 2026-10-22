@@ -2,21 +2,29 @@ package turn
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	ar "github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
+	"github.com/cloudvane/litefactory/internal/ticket"
 )
 
 // lostReplyPlan is one graph Plan attempt served by the real shared result
@@ -337,5 +345,240 @@ func TestPlanNodeGuidance_TellsAgentToRecoverBeforeRetry(t *testing.T) {
 		if !strings.Contains(planNodeGuidance, want) {
 			t.Errorf("graph Plan guidance lacks %q", want)
 		}
+	}
+}
+
+// deferringPublisher refuses publication with the discovery-budget deferral the
+// incident saw, before anything is marked sent, while on is set.
+type deferringPublisher struct {
+	*github.Client
+	on *atomic.Bool
+}
+
+func (p deferringPublisher) BindPublication(context.Context, string, int64, naming.Ref, int64) error {
+	if p.on.Load() {
+		return fmt.Errorf("graph step issue observation failed: %w", ticket.ErrDiscoveryDeferred)
+	}
+	return nil
+}
+
+// parkedPlanStory is a Plan story whose technical_reply publication was
+// deferred: its instance is running, parked on that final comment node with a
+// scheduled retry that, in these tests, never runs.
+type parkedPlanStory struct {
+	f      *fixture
+	base   Request
+	now    time.Time
+	parked store.GraphInstance
+}
+
+func newParkedPlanStory(t *testing.T) *parkedPlanStory {
+	t.Helper()
+	f, _, base, _, forge := graphPlanFixtureWithForge(t, "agent")
+	p := &parkedPlanStory{f: f, base: base, now: time.Now().UTC()}
+	f.opts.MCP.Now = func() time.Time { return p.now }
+	on := &atomic.Bool{}
+	reporter, err := NewReporter(ReporterOptions{BotUserID: 77, DB: f.db, Forge: deferringPublisher{forge.client, on}, Renderer: f.opts.ResearchReporter.renderer, Logger: f.opts.Logger})
+	mustProgress(t, err)
+	f.opts.ResearchReporter = reporter
+	f.opts.GraphRetryDelay = time.Minute
+	executeGraphPlan(t, f, base)
+	executeGraphPlan(t, f, graphPlanApprove(t, f, base, base.Trigger.CommentID+1))
+	question := "Explain the technical stage"
+	discussionRunner(t, f, "technical", question)
+	on.Store(true)
+	executeGraphPlan(t, f, p.answer(t, 9951, question))
+	// The forge works again, but nothing drives the parked instance.
+	on.Store(false)
+	p.parked = p.latest(t)
+	if p.parked.Status != store.GraphRunning || p.parked.CurrentNode != "technical_reply" || p.parked.NextDueAt.IsZero() {
+		t.Fatalf("instance is not parked on technical_reply with a retry: %+v", p.parked)
+	}
+	return p
+}
+
+func (p *parkedPlanStory) answer(t *testing.T, id int64, body string) Request {
+	t.Helper()
+	req := asStoryTask(t, p.f, nextTrigger(p.base, id, body), "story-001")
+	binding, err := p.f.db.GetPlanStoryDraft(t.Context(), p.f.ref().String(), "story-001")
+	mustProgress(t, err)
+	req.Trigger.CreatedAt = p.now
+	req.Trigger.PlanReply = &planbrief.PlanOwnerReply{ID: id, OwnerID: 7, ActorID: 7, IssueID: binding.IssueID, Key: "story-001", Body: body}
+	return req
+}
+
+func (p *parkedPlanStory) latest(t *testing.T) store.GraphInstance {
+	t.Helper()
+	session := p.answer(t, 1, "x").SessionID
+	instance, err := p.f.db.LatestWorkflowInstance(t.Context(), session, "plan")
+	mustProgress(t, err)
+	return instance
+}
+
+func (p *parkedPlanStory) attempts(t *testing.T, instance int64) int {
+	t.Helper()
+	attempts, err := p.f.db.ListGraphNodeAttempts(t.Context(), instance)
+	mustProgress(t, err)
+	return len(attempts)
+}
+
+// bindFinished reproduces the defect's state without the prevention: the
+// comment's launch is bound to the parked instance, and replaying it finishes
+// that instance at 'waiting' without any agent pass.
+func (p *parkedPlanStory) bindFinished(t *testing.T, req Request) {
+	t.Helper()
+	capture, err := p.f.db.WorkflowCaptureForAdmission(t.Context(), req.SessionID, req.Trigger.CommentID, "plan")
+	mustProgress(t, err)
+	_, err = p.f.db.AdmitWorkflowLaunch(t.Context(), store.WorkflowLaunch{Mode: "plan", SessionID: req.SessionID, TriggerID: req.Trigger.CommentID, DefinitionID: p.parked.DefinitionID, Start: "select_set", ContentDigest: capture.ContentDigest, TopologyDigest: capture.TopologyDigest, Files: capture.Files, Provenance: capture.Provenance, Reply: req.Trigger.Body})
+	mustProgress(t, err)
+	calls := discussionRunner(t, p.f, "technical", req.Trigger.Body)
+	executeGraphPlan(t, p.f, req)
+	if finished := p.latest(t); finished.ID != p.parked.ID || finished.Status != store.GraphSucceeded || finished.CurrentNode != "waiting" || *calls != 0 {
+		t.Fatalf("bound replay did not finish the parked instance without an agent: %+v calls=%d", finished, *calls)
+	}
+}
+
+func (p *parkedPlanStory) probe(t *testing.T, query string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", store.DSN(p.f.db.Path()))
+	mustProgress(t, err)
+	defer func() { mustProgress(t, db.Close()) }()
+	_, err = db.ExecContext(t.Context(), query, args...)
+	mustProgress(t, err)
+}
+
+// C10: an owner answer that arrives while the latest instance is parked at a
+// non-agent step is held for a bounded time, never bound to that instance, and
+// then starts a successor whose agent pass receives it.
+func TestPlanParkedWithoutAgent_HoldIsBoundedAndSuccessorReceivesReply(t *testing.T) {
+	p := newParkedPlanStory(t)
+	reply := "1A, 2A"
+	req := p.answer(t, 9960, reply)
+	calls := discussionRunner(t, p.f, "technical", reply)
+
+	// (a) Within the bound the answer waits and nothing is bound or changed.
+	_, err := Execute(t.Context(), p.f.opts, req)
+	if !errors.Is(err, errPlanStepFinishing) {
+		t.Fatalf("answer was not held behind the parked step: %v", err)
+	}
+	if _, found, e := p.f.db.WorkflowLaunchInstance(t.Context(), req.SessionID, req.Trigger.CommentID); e != nil || found {
+		t.Fatalf("held answer has a launch row: found=%v err=%v", found, e)
+	}
+	if still := p.latest(t); still.ID != p.parked.ID || still.Status != store.GraphRunning || *calls != 0 {
+		t.Fatalf("hold changed the parked instance: %+v calls=%d", still, *calls)
+	}
+
+	// (b) Past the bound, with the instance never driven in between, the parked
+	// instance is cancelled and a successor's agent receives the answer.
+	p.now = p.now.Add(planParkedHold + time.Minute)
+	executeGraphPlan(t, p.f, req)
+	cancelled, err := p.f.db.GetGraphInstance(t.Context(), p.parked.ID)
+	mustProgress(t, err)
+	if cancelled.Status != store.GraphCancelled || cancelled.CurrentNode != "technical_reply" {
+		t.Fatalf("parked instance was not released: %+v", cancelled)
+	}
+	bound, found, err := p.f.db.WorkflowLaunchInstance(t.Context(), req.SessionID, req.Trigger.CommentID)
+	mustProgress(t, err)
+	if !found || bound == p.parked.ID {
+		t.Fatalf("answer was bound to the parked instance: found=%v instance=%d", found, bound)
+	}
+	predecessor, _, err := p.f.db.WorkflowPredecessor(t.Context(), bound)
+	mustProgress(t, err)
+	if predecessor != p.parked.ID || *calls != 1 {
+		t.Fatalf("successor did not run an agent pass with the answer: predecessor=%d calls=%d", predecessor, *calls)
+	}
+}
+
+// C10 (c): without a scheduled retry the parked instance cannot move on its own,
+// so the first attempt does not hold.
+func TestPlanParkedWithoutAgent_NoScheduledRetryDoesNotHold(t *testing.T) {
+	p := newParkedPlanStory(t)
+	p.probe(t, `UPDATE graph_instances SET next_due_at=NULL WHERE id=?`, p.parked.ID)
+	reply := "1A, 2A"
+	req := p.answer(t, 9961, reply)
+	calls := discussionRunner(t, p.f, "technical", reply)
+	executeGraphPlan(t, p.f, req)
+	bound, found, err := p.f.db.WorkflowLaunchInstance(t.Context(), req.SessionID, req.Trigger.CommentID)
+	mustProgress(t, err)
+	if !found || bound == p.parked.ID || *calls != 1 {
+		t.Fatalf("answer was held or bound to the parked instance: instance=%d calls=%d", bound, *calls)
+	}
+}
+
+// C1, C2: a story reply whose launch is bound to a finished instance is refused
+// visibly instead of retried; a later comment launches a successor.
+func TestPlanFinishedLaunch_StoryReplyRetiredThenSuccessor(t *testing.T) {
+	p := newParkedPlanStory(t)
+	req := p.answer(t, 9970, "1A, 2A")
+	p.bindFinished(t, req)
+	attempts := p.attempts(t, p.parked.ID)
+	_, err := Execute(t.Context(), p.f.opts, req)
+	var refusal *PlanReplyRefusal
+	if !errors.As(err, &refusal) || refusal.Reason != "This answer was not applied; please post it again." {
+		t.Fatalf("finished binding was not retired: %v", err)
+	}
+	if p.attempts(t, p.parked.ID) != attempts || p.latest(t).ID != p.parked.ID {
+		t.Fatal("retirement executed graph work")
+	}
+	next := p.answer(t, 9971, "1A, 2A again")
+	calls := discussionRunner(t, p.f, "technical", next.Trigger.Body)
+	executeGraphPlan(t, p.f, next)
+	successor := p.latest(t)
+	predecessor, _, err := p.f.db.WorkflowPredecessor(t.Context(), successor.ID)
+	mustProgress(t, err)
+	if successor.ID == p.parked.ID || predecessor != p.parked.ID || *calls != 1 {
+		t.Fatalf("later comment did not launch a successor: %+v predecessor=%d calls=%d", successor, predecessor, *calls)
+	}
+}
+
+// C3: a non-story trigger replaying a finished launch returns its reason.
+func TestPlanFinishedLaunch_NonStoryTriggerReturnsReason(t *testing.T) {
+	p := newParkedPlanStory(t)
+	req := p.answer(t, 9972, "1A, 2A")
+	p.bindFinished(t, req)
+	attempts := p.attempts(t, p.parked.ID)
+	req.Trigger.PlanReply = nil
+	out, err := Execute(t.Context(), p.f.opts, req)
+	if err != nil || out.Err != nil || !out.ResearchGraph || out.Reason != planAnswerNotApplied {
+		t.Fatalf("non-story replay: out=%+v err=%v", out, err)
+	}
+	if p.attempts(t, p.parked.ID) != attempts {
+		t.Fatal("non-story replay executed graph work")
+	}
+}
+
+// C11, C14: the finished binding is retired before any capture restore, so
+// changed retained instructions or an unrestorable capture never surface as an
+// invariant failure.
+func TestPlanFinishedLaunch_RetiredBeforeCaptureRestore(t *testing.T) {
+	for name, corrupt := range map[string]func(*parkedPlanStory, *testing.T, int64){
+		"instructions differ": func(p *parkedPlanStory, t *testing.T, trigger int64) {
+			files := []byte(`{"plan.dot":"ZGlncmFwaCB7fQ=="}`)
+			sum := sha256.Sum256(files)
+			p.probe(t, `UPDATE research_launch_definitions SET files=?,files_digest=? WHERE trigger_id=?`, files, hex.EncodeToString(sum[:]), trigger)
+		},
+		"capture unrestorable": func(p *parkedPlanStory, t *testing.T, trigger int64) {
+			p.probe(t, `UPDATE research_launch_definitions SET files_digest='0000' WHERE trigger_id=?`, trigger)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := newParkedPlanStory(t)
+			req := p.answer(t, 9973, "1A, 2A")
+			p.bindFinished(t, req)
+			corrupt(p, t, req.Trigger.CommentID)
+			if _, err := p.f.db.WorkflowCaptureForAdmission(t.Context(), req.SessionID, req.Trigger.CommentID, "plan"); name == "capture unrestorable" && !errors.Is(err, store.ErrGraphInvariant) {
+				t.Fatalf("capture is still restorable: %v", err)
+			}
+			_, err := Execute(t.Context(), p.f.opts, req)
+			var refusal *PlanReplyRefusal
+			if !errors.As(err, &refusal) || refusal.Reason != planAnswerNotApplied || errors.Is(err, store.ErrGraphInvariant) {
+				t.Fatalf("finished binding was not retired before restore: %v", err)
+			}
+			req.Trigger.PlanReply = nil
+			out, err := Execute(t.Context(), p.f.opts, req)
+			if err != nil || !out.ResearchGraph || out.Reason != planAnswerNotApplied {
+				t.Fatalf("non-story replay: out=%+v err=%v", out, err)
+			}
+		})
 	}
 }

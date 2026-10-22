@@ -170,6 +170,9 @@ func conversationArguments(request agent.ConversationRequest, scratch string) []
 		args = append(args, "resume")
 	}
 	args = append(args, "--json", "--strict-config", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--model", request.Model, "-c", conversationPermissions(scratch), "-c", `default_permissions="conversation"`, "-c", `approval_policy="never"`, "-c", `web_search="disabled"`, "-c", `mcp_servers={}`, "-c", `project_doc_max_bytes=0`, "-c", `developer_instructions=`+strconv.Quote(request.NativeInstructions))
+	if request.Effort != "" {
+		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(request.Effort))
+	}
 	for _, feature := range []string{"shell_tool", "unified_exec", "view_image", "image_generation", "multi_agent", "apps", "plugins", "browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use", "code_mode", "code_mode_host", "in_app_browser", "enable_mcp_apps", "auth_elicitation"} {
 		args = append(args, "-c", "features."+feature+"=false")
 	}

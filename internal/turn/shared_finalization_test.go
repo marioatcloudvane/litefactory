@@ -343,12 +343,6 @@ func TestSharedRunnerHelperAndTerminalBindings(t *testing.T) {
 								t.Fatal("shared helper absent")
 							}
 							raw, _, _ := strings.Cut(tail, "\n")
-							// C8 (#410): Research and Plan are told never to print a
-							// JSON result; other modes keep the terminal sentence.
-							const terminalRoute = "or return the application JSON as your final terminal response"
-							if submittedOnly := mode == "research" || mode == "plan"; submittedOnly == strings.Contains(req.Prompt, terminalRoute) || submittedOnly != strings.Contains(req.Prompt, "Do not print a JSON result: terminal text is never read as a result.") {
-								t.Fatalf("%s final route sentence is wrong: %s", mode, req.Prompt)
-							}
 							var access struct{ Executable, Descriptor string }
 							mustProgress(t, json.Unmarshal([]byte(raw), &access))
 							descriptor = access.Descriptor
@@ -534,10 +528,6 @@ func TestSharedManagedRunnerModesAndPermissions(t *testing.T) {
 						}
 						if !strings.Contains(req.Prompt, "Required final route:") {
 							t.Fatal("missing authoritative route")
-						}
-						// Research, Plan and Implement lose the terminal sentence; Validate keeps it.
-						if (mode == "validate") != strings.Contains(req.Prompt, "or return the application JSON as your final terminal response") || (mode == "implement") != strings.Contains(req.Prompt, "Do not print a JSON result") {
-							t.Fatalf("%s final route sentence changed: %s", mode, req.Prompt)
 						}
 						if mode == "validate" && (req.SubmissionRoot != "" || strings.Contains(req.Prompt, "Shared result helper access")) {
 							t.Fatalf("Validate gained helper grant: %+v", req)

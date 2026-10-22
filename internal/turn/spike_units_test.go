@@ -227,7 +227,7 @@ func TestNodeAccessMapsTheDeclaredLevelToATightenedProfile(t *testing.T) {
 	}{
 		{"spike absent is read (claude)", spike, "", claude, "Read,Glob,Grep", "Read", ""},
 		{"spike read (claude)", spike, "read", claude, "Read,Glob,Grep", "Read", ""},
-		{"spike write maps to the fixer tools without a shell", spike, "write", claude, "Read,Glob,Grep,Edit,Write", "Read,Edit", ""},
+		{"spike write maps to the fixer tools with a contained shell", spike, "write", claude, "Read,Glob,Grep,Edit,Write,Bash", "Read,Edit,Bash(go test:*)", ""},
 		{"spike absent is read (codex)", spike, "", codex, "", "", "read-only"},
 		{"spike write uses the workspace sandbox", spike, "write", codex, "", "", "workspace-write"},
 		{"research absent is unchanged", research, "", claude, "Read,Glob,Grep,Edit,Write,Bash,Task", "Read,Edit,Bash(go test:*)", ""},
