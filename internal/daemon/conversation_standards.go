@@ -85,6 +85,18 @@ func standardsResult(v any) (messaging.StandardsResult, error) {
 		refs["digest"] = x.Proposal.ChangeDigest
 		refs["base"] = strconv.FormatInt(x.Proposal.BaseRevision, 10)
 		refs["kind"] = "proposal"
+	case standards.Review:
+		refs["id"] = x.Proposal.ProposalID
+		refs["version"] = strconv.FormatInt(x.Proposal.Version, 10)
+		refs["digest"] = x.Proposal.ChangeDigest
+		refs["base"] = strconv.FormatInt(x.Proposal.BaseRevision, 10)
+		refs["kind"] = "proposal"
+	case store.StandardsApproval:
+		refs["id"] = x.ProposalID
+		refs["version"] = strconv.FormatInt(x.Version, 10)
+		refs["digest"] = x.ChangeDigest
+		refs["base"] = strconv.FormatInt(x.BaseRevision, 10)
+		refs["kind"] = "proposal"
 	case store.StandardsProposalVersion:
 		refs["id"] = x.ProposalID
 		refs["version"] = strconv.FormatInt(x.Version, 10)
@@ -120,7 +132,7 @@ func (a *ConversationStandards) Read(ctx context.Context, r messaging.StandardsR
 	var e error
 	switch r.Operation {
 	case "discover":
-		return messaging.StandardsResult{Text: "Standards: inspect categories, standards, book history, proposals and authoring sessions; start, answer, edit, continue, validate, complete or rebase authoring; review exact proposals or exceptions before explicit approval; separately confirm publication; create disabled analyst schedules, inspect activity, change, enable or disable them; inspect retained notices."}, nil
+		return messaging.StandardsResult{Text: "Standards: inspect categories, standards, book history, proposals and authoring sessions; start, answer, edit, continue, validate, complete or rebase authoring; approve exact proposals or exceptions and separately publish an approved proposal, each as a confirmed action; create disabled analyst schedules, inspect activity, change, enable or disable them; inspect retained notices."}, nil
 	case "book.current", "book.categories", "book.standards":
 		var revision store.StandardsRevision
 		revision, e = a.Book.Current(ctx)
@@ -146,6 +158,12 @@ func (a *ConversationStandards) Read(ctx context.Context, r messaging.StandardsR
 		n, e = standardsNumber(args, "version")
 		if e == nil {
 			v, e = a.Book.Inspect(ctx, args["id"], n)
+		}
+	case "proposal.review":
+		var n int64
+		n, e = standardsNumber(args, "version")
+		if e == nil {
+			v, e = a.Book.Review(ctx, args["id"], n)
 		}
 	case "author.list":
 		v, e = a.Authoring.List(ctx, 25)
@@ -184,8 +202,7 @@ func (a *ConversationStandards) Read(ctx context.Context, r messaging.StandardsR
 	return standardsResult(v)
 }
 
-// Execute accepts only host-confirmed mutations; complete exact approval is
-// enforced by messaging before the specialized approve operation is dispatched.
+// execute accepts only host-confirmed mutations; approval is one of them.
 func (a *ConversationStandards) execute(ctx context.Context, r messaging.StandardsRequest) (messaging.StandardsResult, error) {
 	if e := a.authorize(ctx, r); e != nil {
 		return messaging.StandardsResult{}, e
@@ -311,41 +328,6 @@ func standardsCategories(v string) []string {
 	return parts
 }
 
-// Review returns the full authoritative before/after data, never a model summary.
-func (a *ConversationStandards) Review(ctx context.Context, r messaging.StandardsRequest) (messaging.StandardsReview, error) {
-	if e := a.authorize(ctx, r); e != nil {
-		return messaging.StandardsReview{}, e
-	}
-	if r.Operation != "proposal.review" && r.Operation != "exception.review" {
-		return messaging.StandardsReview{}, errors.New("standards: exact review operation required")
-	}
-	if e := a.capability(r.Operation); e != nil {
-		return messaging.StandardsReview{}, e
-	}
-	args := r.Arguments
-	if r.Operation == "exception.review" {
-		v, e := a.Exceptions.Show(ctx, args["id"])
-		if e != nil {
-			return messaging.StandardsReview{}, e
-		}
-		b, e := json.MarshalIndent(struct {
-			Proposal standardsexceptions.Proposal `json:"proposal"`
-			Standard *store.StandardsStandard     `json:"standard"`
-		}{v.Proposal, v.Standard}, "", "  ")
-		return messaging.StandardsReview{Kind: "exception", TargetID: v.Proposal.ID, TargetVersion: 1, BaseRevision: v.Proposal.Terms.BookRevision, ChangeDigest: v.Proposal.Digest, ResultDigest: v.Proposal.Digest, Text: string(b)}, e
-	}
-	n, e := standardsNumber(args, "version")
-	if e != nil {
-		return messaging.StandardsReview{}, e
-	}
-	v, e := a.Book.Review(ctx, args["id"], n)
-	if e != nil {
-		return messaging.StandardsReview{}, e
-	}
-	b, e := json.MarshalIndent(v, "", "  ")
-	return messaging.StandardsReview{Kind: "proposal", TargetID: v.Proposal.ProposalID, TargetVersion: v.Proposal.Version, BaseRevision: v.Proposal.BaseRevision, ChangeDigest: v.Proposal.ChangeDigest, ResultDigest: v.Proposal.ResultDigest, Text: string(b)}, e
-}
-
 // Execute saves intent before work and consults the durable receipt before any
 // expected-version check, so an identical admitted retry never repeats an effect.
 func (a *ConversationStandards) Execute(ctx context.Context, r messaging.StandardsRequest) (messaging.StandardsResult, error) {
@@ -383,16 +365,6 @@ func (a *ConversationStandards) Execute(ctx context.Context, r messaging.Standar
 	}
 	if receipt.Status != "saved" {
 		return messaging.StandardsResult{}, fmt.Errorf("standards: retained %s operation: %s", receipt.Status, receipt.Error)
-	}
-	if r.Operation == "proposal.approve" || r.Operation == "exception.approve" {
-		version, parse := standardsNumber(r.Arguments, "version")
-		if parse != nil {
-			return messaging.StandardsResult{}, parse
-		}
-		kind := strings.TrimSuffix(r.Operation, ".approve")
-		if e = a.DB.ValidateStandardsConversationApproval(ctx, kind, r.Arguments["id"], version, r.Arguments["digest"], r.OwnerID, r.ChannelID); e != nil {
-			return messaging.StandardsResult{}, e
-		}
 	}
 	if r.Operation == "author.continue" {
 		if _, e = a.DB.StartStandardsConversationGeneration(ctx, r.OperationKey, d); e != nil {
