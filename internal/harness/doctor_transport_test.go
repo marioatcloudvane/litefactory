@@ -19,7 +19,9 @@ func TestDoctorNativeTransportRetainsUsageAndIsolatesEnvironment(t *testing.T) {
 	// A local fixture asserts stdin/environment; this is not a provider observation.
 	script := `#!/bin/sh
 [ -z "$GH_TOKEN$LF_HOME$ANTHROPIC_BASE_URL$ANTHROPIC_API_KEY" ] || exit 9
-[ "$HOME" = "$CLAUDE_CONFIG_DIR" ] || exit 10
+[ "$HOME" = "OS_HOME" ] || exit 10
+[ "$CLAUDE_CONFIG_DIR" = "CONFIG_DIR" ] || exit 13
+[ "$TMPDIR" != "$CLAUDE_CONFIG_DIR" ] || exit 16
 [ "$GIT_OPTIONAL_LOCKS" = "0" ] || exit 14
 [ "$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB" = "1" ] || exit 15
 [ -L "$CLAUDE_CONFIG_DIR/.credentials.json" ] || exit 12
@@ -30,7 +32,10 @@ mkdir -p "$CLAUDE_CONFIG_DIR/projects/$project"
 printf '%s\n' '{"type":"assistant","sessionId":"s","message":{"id":"m","model":"observed-model","usage":{"input_tokens":10,"output_tokens":3}}}' > "$CLAUDE_CONFIG_DIR/projects/$project/s.jsonl"
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","claude_code_version":"fixture-version"}' '{"type":"assistant","session_id":"s","message":{"id":"m","model":"observed-model","usage":{"input_tokens":10,"output_tokens":3}}}' '{"type":"result","session_id":"s","subtype":"success"}'
 `
+	osHome := t.TempDir()
+	configDir := filepath.Join(t.TempDir(), "claude-home")
 	script = strings.ReplaceAll(script, "PROJECT_KEY", fmt.Sprintf("%q", transcriptProjectKey(dir)))
+	script = strings.ReplaceAll(strings.ReplaceAll(script, "OS_HOME", osHome), "CONFIG_DIR", configDir)
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +45,6 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","claude_code_v
 	}
 	var events []agent.UsageEvent
 	request := agent.DoctorRequest{Attempt: "doctor-attempt", Model: "configured-model", Prompt: "prepared context\n", WorkingDirectory: dir, UsageAttemptID: "usage-attempt", MCPLaunch: spec, Sandbox: &agent.DoctorSandbox{Version: agent.DoctorSandboxVersion, ScratchDirectory: dir, ReadableRoots: []string{"/"}, DeniedReadPaths: []string{"/credential-fixture"}}, Usage: &agent.UsageCapture{AttemptID: "usage-attempt", Sink: func(_ context.Context, event agent.UsageEvent) error { events = append(events, event); return nil }}}
-	osHome := t.TempDir()
 	credentials := filepath.Join(osHome, ".claude", ".credentials.json")
 	if err = os.MkdirAll(filepath.Dir(credentials), 0700); err != nil {
 		t.Fatal(err)
@@ -48,7 +52,7 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","claude_code_v
 	if err = os.WriteFile(credentials, []byte("{}"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	runner := &Runner{binary: config.Executable{Path: binary}, osHome: osHome, timeout: 60 * time.Second, forwardEnv: true, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=unrelated", "ANTHROPIC_BASE_URL=untrusted", "ANTHROPIC_API_KEY=fixture-secret"}}
+	runner := &Runner{claudeConfigDir: configDir, binary: config.Executable{Path: binary}, osHome: osHome, timeout: 60 * time.Second, forwardEnv: true, environ: []string{"PATH=/usr/bin:/bin", "GH_TOKEN=secret", "LF_HOME=unrelated", "ANTHROPIC_BASE_URL=untrusted", "ANTHROPIC_API_KEY=fixture-secret"}}
 	if evidence, gateErr := runner.DoctorIsolation(t.Context()); gateErr != nil || evidence == "" {
 		t.Fatalf("gate: %q %v", evidence, gateErr)
 	}
@@ -58,6 +62,9 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","claude_code_v
 	}
 	if _, err = os.Stat(credentials); err != nil {
 		t.Fatalf("scratch cleanup removed the operator's credentials: %v", err)
+	}
+	if target, err := os.Readlink(filepath.Join(configDir, ".credentials.json")); err != nil || target != credentials {
+		t.Fatalf("persistent claude home did not survive the run: %q %v", target, err)
 	}
 	if result.ObservedModel != "observed-model" || result.ProviderVersion != "fixture-version" || result.Usage == nil || result.Usage.Status != agent.CollectionComplete || len(result.Usage.Diagnostics) != 0 {
 		t.Fatalf("result: %+v coverage: %+v", result, result.Usage)
@@ -78,7 +85,7 @@ printf '%s\n' '{"type":"system","subtype":"init","session_id":"s","claude_code_v
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("transport scratch cleanup: %v %v", entries, err)
 	}
-	args, err := doctorArguments(request, "/private/mcp.json")
+	args, err := doctorArguments(request, "/private/mcp.json", configDir)
 	if err != nil {
 		t.Fatal(err)
 	}
