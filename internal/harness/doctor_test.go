@@ -40,7 +40,7 @@ printf '%%s\n' '{"type":"result","session_id":"s","modelUsage":{"observed":{"inp
 				}
 				return nil
 			}}}
-			runner := &Runner{binary: config.Executable{Path: binary}, timeout: time.Minute, environ: []string{"PATH=/usr/bin:/bin"}}
+			runner := &Runner{claudeConfigDir: t.TempDir(), binary: config.Executable{Path: binary}, timeout: time.Minute, environ: []string{"PATH=/usr/bin:/bin"}}
 			result, err := runner.RunDoctor(t.Context(), request)
 			if err != nil {
 				t.Fatal(err)

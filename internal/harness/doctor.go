@@ -5,18 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/providerprocess"
+	"github.com/cloudvane/litefactory/internal/redact"
 )
 
 // doctorIsolation names the controls every diagnosis launch carries. It is
 // recorded with the attempt; the observed binary version comes from the
 // provider's own init event.
-const doctorIsolation = "claude: doctor-read-only-shell-v1; Bash only, required OS sandbox, scratch-only writes, no shell network or credentials, GIT_OPTIONAL_LOCKS=0; exact five-tool broker; isolated settings and private credential home"
+const doctorIsolation = "claude: doctor-read-only-shell-v1; Bash only, required OS sandbox, scratch-only writes, no shell network or credentials, GIT_OPTIONAL_LOCKS=0; exact five-tool broker; isolated settings, factory claude home unreadable, per-run scratch"
 
 // DoctorIsolation is open for diagnosis (owner-approved in #430). The tool
 // ceiling is enforced by the launch arguments below, not by --bare: bare mode
@@ -51,27 +56,42 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	if err = validateScopedDoctorRequest(request, operation); err != nil {
 		return agent.DoctorRunResult{}, err
 	}
-	// The judge reads its working directory, so its private home (with the
-	// credentials link) lives in the system temp directory instead, outside
-	// every root the judge may read.
-	privateParent := request.WorkingDirectory
-	if operation == "judge" {
-		privateParent = ""
+	// The judge, the doctor and repair run under the factory's persistent
+	// Claude home, the same CLAUDE_CONFIG_DIR every workflow run uses (#1057).
+	// On macOS Claude keeps its refreshed OAuth tokens in a keychain item named
+	// after the config dir; a throwaway dir per run has no such item, so every
+	// run fell back to the linked .credentials.json, spent its rotating refresh
+	// token, and stored the new tokens under a dir that was then deleted.
+	configDir := r.claudeConfigDir
+	if configDir == "" {
+		return agent.DoctorRunResult{}, errors.New("doctor provider requires the factory claude config dir")
 	}
-	home, err := os.MkdirTemp(privateParent, "claude-private-")
+	if _, err = EnsureClaudeConfigDir(configDir, r.osHome); err != nil {
+		return agent.DoctorRunResult{}, err
+	}
+	if operation == "judge" {
+		// The persistent home holds the credentials link; it must sit outside
+		// every root the judge may read.
+		for _, root := range append([]string{request.WorkingDirectory}, request.ReadableDirectories...) {
+			if pathsOverlap(configDir, root) {
+				return agent.DoctorRunResult{}, errors.New("judge readable roots include the factory claude config dir")
+			}
+		}
+	}
+	// Per-run files (mcp.json, TMPDIR) live in a scratch dir that is removed
+	// afterwards. The judge reads its working directory, so its scratch dir
+	// lives in the system temp directory instead.
+	scratchParent := request.WorkingDirectory
+	if operation == "judge" {
+		scratchParent = ""
+	}
+	scratch, err := os.MkdirTemp(scratchParent, "claude-run-")
 	if err != nil {
 		return agent.DoctorRunResult{}, err
 	}
-	defer func() { err = errors.Join(err, os.RemoveAll(home)) }()
-	// The private config dir gets the same credentials link as a workflow run's
-	// claude-home, so subscription (OAuth) login works; nothing else is seeded.
-	// RemoveAll removes the link, never its target.
-	if r.osHome != "" {
-		if err = linkCredentials(home, r.osHome); err != nil {
-			return agent.DoctorRunResult{}, err
-		}
-	}
-	args, err := scopedDoctorArguments(request, filepath.Join(home, "mcp.json"), operation)
+	defer func() { err = errors.Join(err, os.RemoveAll(scratch)) }()
+	mcpPath := filepath.Join(scratch, "mcp.json")
+	args, err := scopedDoctorArguments(request, mcpPath, configDir, operation)
 	if err != nil {
 		return agent.DoctorRunResult{}, err
 	}
@@ -80,11 +100,16 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	if err != nil {
 		return agent.DoctorRunResult{}, err
 	}
-	if err = os.WriteFile(filepath.Join(home, "mcp.json"), encoded, 0600); err != nil {
+	if err = os.WriteFile(mcpPath, encoded, 0600); err != nil {
 		return agent.DoctorRunResult{}, err
 	}
-	env := providerprocess.DoctorEnvironment(r.environ, home)
-	env = append(env, "CLAUDE_CONFIG_DIR="+home)
+	env := providerprocess.DoctorEnvironment(r.environ, scratch)
+	// HOME is the operator's: macOS `security` finds the login keychain (and so
+	// the config dir's refreshed credentials) only through the real HOME.
+	if r.osHome != "" {
+		env = overrideEnv(env, []string{"HOME=" + r.osHome})
+	}
+	env = append(env, ClaudeConfigDirEnv+"="+configDir)
 	if operation == "" {
 		env = append(env, "GIT_OPTIONAL_LOCKS=0", "CLAUDE_CODE_TMPDIR="+request.WorkingDirectory, "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1")
 	}
@@ -100,7 +125,7 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	collector := newUsageCaptureCollector(ctx, request.Usage, "", false)
 	// Establish the empty private-source baseline before the provider starts.
 	if collector != nil && operation == "" {
-		collector.prepareTranscripts(home, request.WorkingDirectory)
+		collector.prepareTranscripts(configDir, request.WorkingDirectory)
 	}
 	result := agent.DoctorRunResult{}
 	session := ""
@@ -152,7 +177,14 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 			}
 		}
 	}
-	err = runScopedDoctorProcess(ctx, r.binary.Path, args, env, request, operation, r.timeout, observe, r.logger)
+	var exitCode int
+	var stderrTail []byte
+	exited := false
+	failure := func(code int, tail []byte) { exited, exitCode, stderrTail = true, code, tail }
+	err = runScopedDoctorProcess(ctx, r.binary.Path, args, env, request, operation, r.timeout, observe, failure, r.logger)
+	if exited {
+		r.logDoctorFailure(ctx, request, operation, exitCode, stderrTail, terminalErrors)
+	}
 	if operation == "judge" && terminal && failed && ctx.Err() == nil && (err == nil || errors.Is(err, providerprocess.ErrProviderExit)) && judgeCapacity(terminalErrors) {
 		err = agent.ErrJudgeUnavailable
 	}
@@ -163,11 +195,11 @@ func (r *Runner) runScopedDoctorTransport(ctx context.Context, request agent.Doc
 	return result, err
 }
 
-func doctorArguments(request agent.DoctorRequest, mcpPath string) ([]string, error) {
-	return scopedDoctorArguments(request, mcpPath, "")
+func doctorArguments(request agent.DoctorRequest, mcpPath, configDir string) ([]string, error) {
+	return scopedDoctorArguments(request, mcpPath, configDir, "")
 }
 
-func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation string) ([]string, error) {
+func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, configDir, operation string) ([]string, error) {
 	if err := validateScopedDoctorRequest(request, operation); err != nil {
 		return nil, err
 	}
@@ -177,8 +209,8 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 	}
 	// Diagnosis exposes only Bash; the judge only Read, Grep and Glob; repair's
 	// explicit empty --tools removes every native tool. Omission would restore the provider default. MCP stays exact.
-	// No --bare: it disables OAuth. The private config dir and empty setting
-	// sources already keep hooks, plugins, memory and CLAUDE.md out.
+	// No --bare: it disables OAuth. Empty setting sources, strict MCP config
+	// and the tool ceiling keep hooks, plugins, memory and CLAUDE.md out.
 	tools := ""
 	args := []string{}
 	if operation != "" {
@@ -187,7 +219,7 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 	if operation == "" {
 		tools = "Bash"
 		allowed = append(allowed, "Bash")
-		settings, err := doctorSandboxSettings(request, filepath.Dir(mcpPath))
+		settings, err := doctorSandboxSettings(request, configDir, filepath.Dir(mcpPath))
 		if err != nil {
 			return nil, err
 		}
@@ -204,6 +236,11 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 		for _, dir := range request.ReadableDirectories {
 			args = append(args, "--add-dir", dir)
 		}
+		// Deny rules win over allow rules: the factory claude home (with the
+		// credentials link) stays unreadable even if a root ever contained it.
+		if configDir != "" {
+			args = append(args, "--disallowedTools", "Read(/"+configDir+"/**)")
+		}
 	}
 	if request.Thinking != "" {
 		args = append(args, "--effort", string(request.Thinking))
@@ -211,12 +248,16 @@ func scopedDoctorArguments(request agent.DoctorRequest, mcpPath, operation strin
 	return append(args, "-p", "--verbose", "--output-format", "stream-json", "--restricted", "--disable-slash-commands", "--no-chrome", "--setting-sources", "", "--tools", tools, "--permission-mode", "dontAsk", "--strict-mcp-config", "--mcp-config", mcpPath, "--allowedTools", strings.Join(allowed, ","), "--model", request.Model), nil
 }
 
-func doctorSandboxSettings(request agent.DoctorRequest, privateHome string) (string, error) {
+func doctorSandboxSettings(request agent.DoctorRequest, private ...string) (string, error) {
 	if err := request.Sandbox.Validate(request.WorkingDirectory); err != nil {
 		return "", err
 	}
 	denied := append([]string(nil), request.Sandbox.DeniedReadPaths...)
-	denied = append(denied, privateHome)
+	for _, path := range private {
+		if path != "" && !slices.Contains(denied, path) {
+			denied = append(denied, path)
+		}
+	}
 	// Claude may choose a short system-temp fallback when the private override
 	// is long. Deny that default explicitly rather than granting another root.
 	uid := fmt.Sprint(os.Getuid())
@@ -239,4 +280,71 @@ func judgeCapacity(diagnostics []string) bool {
 		}
 	}
 	return agent.ProviderCapacity(detail) != nil
+}
+
+// pathsOverlap reports whether one path is the other or lies beneath it.
+func pathsOverlap(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	within := func(child, parent string) bool {
+		rel, err := filepath.Rel(parent, child)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	return within(a, b) || within(b, a)
+}
+
+var (
+	anthropicKey    = regexp.MustCompile(`sk-ant-[A-Za-z0-9_\-]{8,}`)
+	oauthTokenField = regexp.MustCompile(`(?i)("?(?:access|refresh|id)_?token"?\s*[:=]\s*"?)[^\s",}]+`)
+)
+
+// doctorFailureExcerptLimit bounds the redacted stderr kept in the daemon log.
+const doctorFailureExcerptLimit = 1024
+
+// logDoctorFailure writes why a judge, doctor or repair provider exited
+// nonzero to the daemon log (#1057). Stderr is redacted, flattened and bounded
+// here and goes nowhere else: not into the returned error, not into the store.
+func (r *Runner) logDoctorFailure(ctx context.Context, request agent.DoctorRequest, operation string, exitCode int, stderrTail []byte, providerErrors []string) {
+	if r.logger == nil {
+		return
+	}
+	kind := operation
+	if kind == "" {
+		kind = "diagnosis"
+	}
+	redactor := redact.New(redact.Options{Environ: r.environ})
+	clean := func(text string) string {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return "(none)"
+		}
+		body, err := redactor.Apply(ctx, text, 64<<10)
+		if err != nil {
+			return "(withheld: redaction failed)"
+		}
+		// The shared table targets forge bodies; provider stderr can also
+		// carry Anthropic keys and OAuth token fields.
+		text = anthropicKey.ReplaceAllString(body.String(), "[redacted]")
+		text = oauthTokenField.ReplaceAllString(text, "${1}[redacted]")
+		return tailExcerpt(text, doctorFailureExcerptLimit)
+	}
+	r.logger.Warn("doctor provider exited unsuccessfully",
+		slog.String("operation", kind),
+		slog.String("attempt", request.Attempt),
+		slog.Int("exit_code", exitCode),
+		slog.String("stderr", clean(string(stderrTail))),
+		slog.String("provider_errors", clean(strings.Join(providerErrors, "; "))))
+}
+
+// tailExcerpt flattens text to one line and keeps its last limit bytes: a
+// provider's final stderr lines are the ones that say why it stopped.
+func tailExcerpt(text string, limit int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) <= limit {
+		return text
+	}
+	cut := len(text) - limit
+	for cut < len(text) && !utf8.RuneStart(text[cut]) {
+		cut++
+	}
+	return "…" + text[cut:]
 }
