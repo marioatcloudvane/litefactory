@@ -31,11 +31,12 @@ type RepairStep struct {
 
 // Diagnosis is bounded structured agent data. Only the factory may adopt it.
 type Diagnosis struct {
-	Repair       *RepairSummary `json:"repair,omitempty"`
-	Findings     []Finding      `json:"findings"`
-	CoverageGaps []string       `json:"coverage_gaps"`
-	Questions    []string       `json:"questions"`
-	Proposal     []RepairStep   `json:"proposal"`
+	WithdrawProposal bool           `json:"withdraw_proposal,omitempty"`
+	Repair           *RepairSummary `json:"repair,omitempty"`
+	Findings         []Finding      `json:"findings"`
+	CoverageGaps     []string       `json:"coverage_gaps"`
+	Questions        []string       `json:"questions"`
+	Proposal         []RepairStep   `json:"proposal"`
 }
 
 // DecodeDiagnosis rejects unknown fields, trailing values and oversized input.
@@ -67,6 +68,9 @@ func ValidateDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
 // validateRetainedDiagnosis reads previously accepted legacy proposals without
 // granting them admission as a newly submitted proposal.
 func validateRetainedDiagnosis(d Diagnosis, e store.DoctorEvidence) error {
+	if d.WithdrawProposal && len(d.Proposal) > 0 {
+		return errors.New("cannot withdraw and replace a proposal together")
+	}
 	if len(d.Findings) == 0 || len(d.Findings) > 30 || len(d.Proposal) > 30 || len(d.Questions) > 30 || len(d.CoverageGaps) > 100 {
 		return errors.New("doctor diagnosis exceeds collection bounds or has no findings")
 	}

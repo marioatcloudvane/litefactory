@@ -49,6 +49,9 @@ import (
 // lifetime. Saved project versions resolve their own external references once
 // when loaded; refresh explicitly verifies the same retained actor.
 type Setup struct {
+	// BuildVersion identifies the running process; FactorySource is set only when known.
+	BuildVersion  string
+	FactorySource string
 	// ConnectionSecrets resolves project-specific external credential references.
 	ConnectionSecrets secrets.Resolver
 	// ProjectStartup binds a fallback startup credential to its saved origin.
@@ -606,7 +609,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	daemon, err := New(Options{
 		AnalystSchedules: analystSchedules,
 		Paths:            s.Paths,
-		Doctor:           &doctor.Service{Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
+		Doctor:           &doctor.Service{BuildVersion: s.BuildVersion, FactorySource: s.FactorySource, Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
 		Bug:              bugRuntime,
 		Retirement:       RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
