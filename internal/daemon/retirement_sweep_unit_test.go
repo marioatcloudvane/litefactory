@@ -133,3 +133,27 @@ func TestRetirementTicketIssues_LinearConnection(t *testing.T) {
 		}
 	}
 }
+
+// Issue #1029 C1: with project connections, the shared retirement reader
+// addresses the session's Linear ticket container, not the code repository.
+// Before the fix every read failed with ErrTicketIdentityConflict.
+func TestRetirementTicketIssues_ProjectConnectionLinearContainer(t *testing.T) {
+	x := newRetirementLinearFixture(t)
+	code := github.Repo{Owner: x.repo.Owner, Name: x.repo.Name}
+	for _, tt := range []struct {
+		kind, state string
+		closed      bool
+	}{{"completed", "closed", true}, {"canceled", "closed", true}, {"unstarted", "open", false}} {
+		x.setState(tt.kind)
+		issue, err := retirementTicketIssues{d: x.d}.GetIssue(x.ctx(t), code, x.session.IssueNumber)
+		if err != nil {
+			t.Fatalf("%s: %v", tt.kind, err)
+		}
+		if issue.State != tt.state || issue.QualifiedSnapshot == nil || issue.QualifiedSnapshot.Ref.Identity.Provider != ticket.Linear {
+			t.Fatalf("%s: issue not read through Linear connection: %+v", tt.kind, issue)
+		}
+		if got := RetirementIssueClosed(x.repo, x.session.IssueNumber, issue); got != tt.closed {
+			t.Fatalf("%s: closed = %v, want %v", tt.kind, got, tt.closed)
+		}
+	}
+}

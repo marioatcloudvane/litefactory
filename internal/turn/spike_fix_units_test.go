@@ -21,16 +21,16 @@ func TestWriteAccessMapsToTheSpikeFixerToolsUnderTheModeCeiling(t *testing.T) {
 	claude := func(tools, allowed []string) Request {
 		return Request{Agent: agent.Kind(store.AgentClaude), Tools: tools, AllowedTools: allowed}
 	}
-	t.Run("claude grants the role mapping and no shell", func(t *testing.T) {
+	t.Run("claude grants the role mapping with a contained shell and no delegation", func(t *testing.T) {
 		got, err := applyNodeAccess(policy, write, claude([]string{"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write", "Bash", "Task"}, []string{"Read", "Edit", "Bash(go test:*)", "Task"}))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Equal(got.Tools, fixerTools) || strings.Join(got.AllowedTools, ",") != "Read,Edit" || !got.nodeWrite {
+		if !slices.Equal(got.Tools, fixerTools) || strings.Join(got.AllowedTools, ",") != "Read,Edit,Bash(go test:*)" || !got.nodeWrite {
 			t.Fatalf("tools=%v allowed=%v write=%v", got.Tools, got.AllowedTools, got.nodeWrite)
 		}
-		if slices.Contains(got.Tools, "Bash") || slices.Contains(got.Tools, "Task") {
-			t.Fatal("the fixer was given a shell or delegation")
+		if !slices.Contains(got.Tools, "Bash") || slices.Contains(got.Tools, "Task") {
+			t.Fatal("the fixer cannot run its checks, or was given delegation")
 		}
 	})
 	t.Run("claude is capped at a narrower ceiling", func(t *testing.T) {
@@ -211,83 +211,96 @@ func TestShippedSpikeFixPathHasNoReturnEdgeAndNoOwnerWaitForTheFixer(t *testing.
 	}
 	fixers := node("lf_agent", "lf_access", "write")
 	checks := node(SpikeCheckAction, "", "")
-	if len(fixers) != 1 || len(checks) != 1 {
-		t.Fatalf("fixers=%v checks=%v", fixers, checks)
+	if len(fixers) != 2 || len(checks) != 2 {
+		t.Fatalf("want one fixer and one repair pass, each checked: fixers=%v checks=%v", fixers, checks)
 	}
-	fixer, check := fixers[0], checks[0]
-	into := func(target string) []string {
-		var from []string
+	into := func(target string) []graphexec.Edge {
+		var from []graphexec.Edge
 		for _, e := range profile.Edges {
 			if e.To == target {
-				from = append(from, e.From)
+				from = append(from, e)
 			}
 		}
 		return from
 	}
-	// Entry: only the size gate (its small outcome) and only the fixer.
-	if got := into(fixer); len(got) != 1 {
-		t.Fatalf("edges into the fixer: %v", got)
+	checkOf := map[string]string{}
+	for _, check := range checks {
+		c, _ := profile.Node(check)
+		checkOf[c.Attrs["lf_source"]] = check
 	}
-	for _, e := range profile.Edges {
-		if e.To == fixer && !(e.On == "small" && func() bool { n, _ := profile.Node(e.From); return n.Action == SpikeGateAction }()) {
-			t.Fatalf("the fixer is entered other than by the gate's small outcome: %+v", e)
+	for _, fixer := range fixers {
+		check, ok := checkOf[fixer]
+		if !ok {
+			t.Fatalf("fixer %s is never checked", fixer)
 		}
-	}
-	for _, from := range into(check) {
-		if n, _ := profile.Node(from); n.Action != "lf_if" || n.Attrs["lf_source"] != fixer {
-			t.Fatalf("the check is entered other than from the fixer's own response test: %s", from)
+		// Entry: the first fixer only by the gate's small outcome, the repair
+		// only by the first check's failed outcome.
+		entries := into(fixer)
+		if len(entries) != 1 {
+			t.Fatalf("edges into %s: %v", fixer, entries)
 		}
-	}
-	// No path leaving the fixer or the check ever returns to either.
-	for _, start := range []string{fixer, check} {
-		seen := map[string]bool{}
-		var walk func(string)
-		walk = func(name string) {
-			for _, e := range profile.Edges {
-				if e.From != name || seen[e.To] {
-					continue
-				}
-				if e.To == fixer || (start == check && e.To == check) {
-					t.Fatalf("a path from %s returns to %s", start, e.To)
-				}
-				seen[e.To] = true
-				walk(e.To)
+		from, _ := profile.Node(entries[0].From)
+		first := from.Action == SpikeGateAction && entries[0].On == "small"
+		repair := from.Action == SpikeCheckAction && entries[0].On == "failed" && from.Attrs["lf_source"] != fixer
+		if !first && !repair {
+			t.Fatalf("%s is entered other than by the gate's small outcome or a failed check: %+v", fixer, entries[0])
+		}
+		for _, e := range into(check) {
+			if n, _ := profile.Node(e.From); n.Action != "lf_if" || n.Attrs["lf_source"] != fixer {
+				t.Fatalf("the check is entered other than from the fixer's own response test: %s", e.From)
 			}
 		}
-		walk(start)
-		for name := range seen {
-			if n, _ := profile.Node(name); n.Action == "lf_ask" {
-				t.Fatalf("the owner-question node %q is reachable from %s", name, start)
-			}
-		}
-		terminals := 0
-		for name := range seen {
-			if n, _ := profile.Node(name); n.Terminal {
-				terminals++
-				if name == "waiting" {
-					t.Fatalf("%s can end at an owner wait", start)
+		// No path leaving a fixer or its check ever returns to either.
+		for _, start := range []string{fixer, check} {
+			seen := map[string]bool{}
+			var walk func(string)
+			walk = func(name string) {
+				for _, e := range profile.Edges {
+					if e.From != name || seen[e.To] {
+						continue
+					}
+					if e.To == fixer || (start == check && e.To == check) {
+						t.Fatalf("a path from %s returns to %s", start, e.To)
+					}
+					seen[e.To] = true
+					walk(e.To)
 				}
 			}
+			walk(start)
+			for name := range seen {
+				if n, _ := profile.Node(name); n.Action == "lf_ask" {
+					t.Fatalf("the owner-question node %q is reachable from %s", name, start)
+				}
+			}
+			terminals := 0
+			for name := range seen {
+				if n, _ := profile.Node(name); n.Terminal {
+					terminals++
+					if name == "waiting" {
+						t.Fatalf("%s can end at an owner wait", start)
+					}
+				}
+			}
+			if terminals == 0 {
+				t.Fatalf("%s never reaches a terminal", start)
+			}
 		}
-		if terminals == 0 {
-			t.Fatalf("%s never reaches a terminal", start)
+		if graphexec.ResponseReachesOwnerWait(profile, fixer, SpikeControlPolicy()) {
+			t.Fatalf("the fixer %s's ask reaches an owner question", fixer)
 		}
-	}
-	if graphexec.ResponseReachesOwnerWait(profile, fixer, SpikeControlPolicy()) {
-		t.Fatal("the fixer's ask reaches an owner question")
+		// A fixer or note failure reports and stops.
+		for _, name := range append(node(SpikeNoteAction, "lf_source", fixer), fixer) {
+			to, ok := graphexec.Decide(profile, name, "failed")
+			if !ok {
+				t.Fatalf("%s has no failure edge", name)
+			}
+			if n, _ := profile.Node(to); n.Attrs["lf_kind"] != "failure" {
+				t.Fatalf("%s failure goes to %s", name, to)
+			}
+		}
 	}
 	investigators := node("lf_agent", "lf_access", "read")
 	if len(investigators) != 1 || !graphexec.ResponseReachesOwnerWait(profile, investigators[0], SpikeControlPolicy()) {
 		t.Fatal("the investigator's ask no longer reaches an owner question")
-	}
-	// A fixer or note failure reports and stops.
-	for _, name := range append(node(SpikeNoteAction, "lf_source", fixer), fixer) {
-		to, ok := graphexec.Decide(profile, name, "failed")
-		if !ok {
-			t.Fatalf("%s has no failure edge", name)
-		}
-		if n, _ := profile.Node(to); n.Attrs["lf_kind"] != "failure" {
-			t.Fatalf("%s failure goes to %s", name, to)
-		}
 	}
 }

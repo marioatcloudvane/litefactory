@@ -17,6 +17,9 @@ func Validate(p *Profile, registry Registry) error {
 		return errors.New("graph profile is nil")
 	}
 	var faults []error
+	if _, err := slotCostAttribute(p.Attrs); err != nil {
+		faults = append(faults, fmt.Errorf("graph: %w", err))
+	}
 	faults = append(faults, ValidateJudgeGraph(p))
 	if strings.TrimSpace(p.Team) == "" {
 		faults = append(faults, errors.New("graph team is empty"))
@@ -34,6 +37,9 @@ func Validate(p *Profile, registry Registry) error {
 	nodes := make(map[string]Node, len(p.Nodes))
 	var terminals []string
 	for _, node := range p.Nodes {
+		if _, err := slotCostAttribute(node.Attrs); err != nil {
+			faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
+		}
 		if strings.TrimSpace(node.Name) == "" {
 			faults = append(faults, errors.New("node name is empty"))
 		}

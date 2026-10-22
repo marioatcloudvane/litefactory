@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -91,8 +92,8 @@ func TestSpikeGraphNoneEndToEnd(t *testing.T) {
 		t.Fatalf("none path: %+v calls=%d posts=%d err=%v", out, calls, forge.attemptCount(), err)
 	}
 	surface, ok := seen.Permissions.Payload.(harness.ToolSurface)
-	if !ok || strings.Join(surface.Tools, ",") != "Read,Glob,Grep" {
-		t.Fatalf("investigator is not read-only: %+v", seen.Permissions)
+	if !ok || strings.Join(surface.Tools, ",") != "Read,Glob,Grep,Bash" || !surface.ReadOnlyShell || !slices.Contains(surface.AllowedTools, "Bash(go test:*)") {
+		t.Fatalf("investigator is not a read-only shell that can run the tests: %+v", seen.Permissions)
 	}
 	note := spikeNote(t, out.WorktreePath)
 	if !strings.Contains(note, "Status: `answered`") || !strings.Contains(note, "Staging is correct") {

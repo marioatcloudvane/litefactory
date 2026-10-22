@@ -244,7 +244,16 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 			t.Fatal("compatibility omission", term)
 		}
 	}
-	for _, term := range []string{"Static SSR", "Interactive Server", "Interactive WebAssembly", "Auto", "Standalone WebAssembly", "Prerendering", "DI lifetimes", "EditForm", "keyboard", "state ownership", "JavaScript", "authorization", "circuit", "Validate"} {
+	if !bytes.Contains(practices, []byte("factory-blazor-practices")) {
+		t.Fatal("missing retained-book pointer")
+	}
+	advice := migrationStandardBody(t, "factory-blazor-practices")
+	for _, term := range []string{"Static SSR", "Interactive Server", "Interactive WebAssembly", "Auto", "Standalone WebAssembly", "Prerendering", "DI lifetimes", "EditForm", "keyboard", "state ownership", "JavaScript", "authorization"} {
+		if !bytes.Contains(advice, []byte(term)) {
+			t.Fatal("migrated guidance omission", term)
+		}
+	}
+	for _, term := range []string{"circuit", "Validate"} {
 		if !bytes.Contains(practices, []byte(term)) {
 			t.Fatal("guidance omission", term)
 		}
@@ -258,15 +267,15 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if mode == "bug" {
-			shared = legacyBugSourceWithoutSyncGate(t, shared)
-		}
 		if mode == "implement" {
-			shared = legacyImplementSourceWithoutOwnerResumeSync(t, shared)
+			shared = withoutGoStoryWorkerSlotPolicy(t, shared)
+		}
+		if mode == "spike" {
+			shared = legacySpikeSourceWithoutRepair(t, shared)
 		}
 		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
 		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))
-		if !bytes.Equal(want, released) && (mode != "implement" || !pendingWorkerSyncMatchesRelease(want, released)) {
+		if !bytes.Equal(want, released) {
 			t.Fatal("team selection changed shared graph gates", mode)
 		}
 	}

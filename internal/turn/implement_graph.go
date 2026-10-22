@@ -160,10 +160,18 @@ func (rt *implementRuntime) admit(ctx context.Context) (Result, error) {
 			return rt.result, err
 		}
 	}
+	standardsLaunchExisted, err := rt.opts.DB.HasWorkflowLaunch(ctx, rt.req.SessionID, rt.req.Trigger.CommentID)
+	if err != nil {
+		standardsLaunchExisted = true
+		if rt.opts.Logger != nil {
+			rt.opts.Logger.Warn("standards launch freshness could not be verified; current book will not be captured")
+		}
+	}
 	admitted, err := rt.opts.DB.AdmitWorkflowLaunch(ctx, store.WorkflowLaunch{Mode: string(agent.ModeImplement), SessionID: rt.req.SessionID, TriggerID: rt.req.Trigger.CommentID, DefinitionID: pin.ID, Start: definition.Profile.Start, ContentDigest: definition.Digest, TopologyDigest: topology, Files: files, Provenance: store.WorkflowProvenance(definition.Origin), Reply: rt.req.Trigger.Body})
 	if err != nil {
 		return rt.result, err
 	}
+	captureImplementStandards(ctx, rt.opts, rt.req, admitted.LaunchID, !standardsLaunchExisted)
 	actual, err := rt.opts.DB.GetGraphDefinition(ctx, admitted.Instance.DefinitionID)
 	if err != nil {
 		return rt.result, err
@@ -400,9 +408,17 @@ func (rt *implementRuntime) checkEarlyReply(ctx context.Context) error {
 // nothing needs it: stories are running and none is waiting to be merged. A
 // merge that found the branch busy rests briefly before it tries again. In every
 // other case the coordinator runs on, because the ledger, not the graph position,
-// says what is left to do.
+// says what is left to do. The coordinator also rests before an agent stage, due
+// at once: its bookkeeping may run on the reserved coordinator slot, and an
+// agent stage must start on normal run capacity instead.
 func (rt *implementRuntime) parkHook(ctx context.Context, opts Options, instance store.GraphInstance, node graphexec.Node) (ParkDecision, error) {
-	if rt.worker != nil || node.Name != graphexec.ImplementAwaitNode {
+	if rt.worker != nil {
+		return ParkDecision{}, nil
+	}
+	if node.Action == ResearchAgentAction {
+		return ParkDecision{Park: true, Due: rt.now()}, nil
+	}
+	if node.Name != graphexec.ImplementAwaitNode {
 		return ParkDecision{}, nil
 	}
 	rows, err := opts.DB.ListImplementStories(ctx, rt.parentRef.String(), rt.generation)

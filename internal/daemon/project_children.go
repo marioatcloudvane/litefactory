@@ -42,7 +42,7 @@ func (d *Daemon) managedChildSession(ctx context.Context, repo store.Repo, paren
 		return store.Session{}, err
 	}
 	owner, name, _ := strings.Cut(version.Destination, "/")
-	container, err := clients.Tickets.ContainerIdentity(checkCtx, version.Destination)
+	container, err := tickContainerIdentity(checkCtx, clients.Tickets, version.ID, snapshot.ActorID, version.Destination)
 	if err != nil {
 		return store.Session{}, err
 	}

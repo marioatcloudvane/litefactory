@@ -16,6 +16,8 @@ var ErrDoctorIsolationUnverified = errors.New("doctor provider isolation lacks a
 // DoctorRequest is mode-free: no workflow run, session resume or permissions from
 // ordinary work can be carried into the private diagnosis invocation.
 type DoctorRequest struct {
+	// TurnLimit is used only by standalone bounded broker consumers.
+	TurnLimit        int
 	Attempt          string
 	Model            string
 	Thinking         config.Thinking
@@ -25,6 +27,9 @@ type DoctorRequest struct {
 	Usage            *UsageCapture
 	MCPLaunch        *MCPLaunchSpec
 	Sandbox          *DoctorSandbox
+	// ReadableDirectories is judge only: directories beside WorkingDirectory
+	// the provider may read but never write (the factory context files).
+	ReadableDirectories []string
 }
 
 // Validate enforces the only permitted diagnosis communication surface.

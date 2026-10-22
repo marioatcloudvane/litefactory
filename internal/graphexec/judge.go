@@ -48,7 +48,7 @@ func ValidateJudgeGraph(p *Profile) error {
 			if len(n.Outcomes) != 2 || !slices.Contains(n.Outcomes, "success") || !slices.Contains(n.Outcomes, "failed") {
 				faults = append(faults, fmt.Errorf("judge %q requires exactly success and failed outcomes", n.Name))
 			}
-			allowed := []string{"lf_action", "lf_outcomes", "lf_source", "lf_limit", "lf_agent", "lf_model", "lf_thinking", "lf_focus", BudgetAttribute}
+			allowed := []string{"lf_action", "lf_outcomes", "lf_source", "lf_limit", "lf_agent", "lf_model", "lf_thinking", "lf_focus", BudgetAttribute, slotBudgetAttribute}
 			for _, key := range slices.Sorted(maps.Keys(n.Attrs)) {
 				value := n.Attrs[key]
 				if strings.HasPrefix(key, "lf_") && !slices.Contains(allowed, key) {

@@ -28,6 +28,19 @@ func (r *factoryConversationRun) propose(ctx context.Context, inv Invocation, en
 		return err
 	}
 	if clarification != "" {
+		if standardsCommand(inv.Command) {
+			progress, e := s.db.GetStandardsConversationContext(ctx, s.transport, s.owner, r.c.ChannelRef)
+			if e != nil && !errors.Is(e, store.ErrNotFound) {
+				return e
+			}
+			progress.Transport = s.transport
+			progress.OwnerID = s.owner
+			progress.ChannelID = r.c.ChannelRef
+			progress.Clarification = clarification
+			if _, e = s.db.SaveStandardsConversationContext(ctx, progress, progress.Version); e != nil {
+				return e
+			}
+		}
 		return s.conversationOutcome(ctx, r.t, "completed", clarification, r.at)
 	}
 	if p.Invocation.Command == "draft" && strings.TrimSpace(p.Invocation.Arguments["note"]) == "" {
@@ -194,6 +207,24 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 	executionCtx, source := presentation.WithAssessment(ctx)
 	if text == "" {
 		switch reply.Command {
+		case "standards-author", "standards-proposal", "standards-exception", "standards-schedule":
+			request, e := s.standardsRequest(p.Invocation, r.c.ChannelRef, r.t.SourceID, r.at)
+			request.OperationKey = s.transport + ":" + r.c.ChannelRef + ":" + reply.MessageID
+			if e != nil {
+				return e
+			}
+			result, e := s.standards.Execute(executionCtx, request)
+			if e != nil {
+				text = standardsError(e)
+			} else {
+				text = standardsDisplay(result, request.OperationKey)
+				if result.Interrupted {
+					reply.OutcomeStatus = string(presentation.Uncertain)
+				}
+				if _, e = r.saveStandardsReference(ctx, result.References); e != nil {
+					return e
+				}
+			}
 		case "draft":
 			var err error
 			text, err = s.conversationDraft(executionCtx, r.c, r.b, r.t, p.Invocation, r.at, r.invoke)
@@ -276,7 +307,7 @@ func (r *factoryConversationRun) execute(ctx context.Context, reply store.ChatRe
 	}
 	// The saved factual outcome survives every narration failure. Preview bytes
 	// already have a separate exact confirmation gate and are delivered verbatim.
-	if reply.Command == "draft" {
+	if reply.Command == "draft" || standardsCommand(reply.Command) {
 		return s.conversationOutcome(cleanup, r.t, "completed", protected, r.at)
 	}
 	return r.narrate(ctx, protected)

@@ -27,11 +27,14 @@ import (
 	"github.com/cloudvane/litefactory/internal/messaging"
 	"github.com/cloudvane/litefactory/internal/messaging/ask"
 	"github.com/cloudvane/litefactory/internal/messaging/prompts"
+	"github.com/cloudvane/litefactory/internal/messaging/response"
 	"github.com/cloudvane/litefactory/internal/projectconnection"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/secrets"
+	"github.com/cloudvane/litefactory/internal/standards"
+	"github.com/cloudvane/litefactory/internal/standardsexceptions"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/ticket"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -373,13 +376,22 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			if instructionErr != nil {
 				return nil, Startup{}, errors.Join(instructionErr, lock.Close())
 			}
-			options := &messaging.ConversationOptions{Instructions: instructions, Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string)}
+			options := &messaging.ConversationOptions{Instructions: instructions, Factory: true, StateRoot: s.Paths.ConversationsDir(), Providers: make(map[string]messaging.ConversationProvider), Models: make(map[string]string), Reasoners: make(map[string]messaging.ConversationReasoner)}
 			for kind, runner := range runners {
 				if native, ok := runner.(messaging.ConversationProvider); ok {
 					options.Providers[string(kind)] = native
 				}
 				if model, ok := s.Config.Tiers.ResolveModel(config.Kind(kind), config.TierBalanced); ok {
 					options.Models[string(kind)] = model
+				}
+				// The consult reasoner runs on the flagship tier, with high effort
+				// where that model's effort capability is verified.
+				if model, ok := s.Config.Tiers.ResolveModel(config.Kind(kind), config.TierFlagship); ok && model != "" {
+					reasoner := messaging.ConversationReasoner{Model: model}
+					if config.ValidateThinking(config.Kind(kind), model, "high") == nil {
+						reasoner.Effort = "high"
+					}
+					options.Reasoners[string(kind)] = reasoner
 				}
 			}
 			for _, binding := range chatOpts.Settings.Conversations {
@@ -570,11 +582,33 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 	mcpRuntime.ImplementStatus = status
+	analystSchedules, err := newAnalystScheduleRuntime(ctx, s, connections, sharedRedactor, gitBinary)
+	if err != nil {
+		status.Close()
+		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
+		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
+	}
+	if chatOpts != nil && chatOpts.Conversations != nil {
+		instructions, captureErr := instructionpackage.New(ctx, s.Paths)
+		if captureErr != nil {
+			return nil, Startup{}, errors.Join(captureErr, lock.Close())
+		}
+		providers := make(map[string]response.ChatRunner)
+		for kind, runner := range runners {
+			if native, ok := runner.(response.ChatRunner); ok {
+				providers[string(kind)] = native
+			}
+		}
+		book := &standards.Service{Store: s.DB, OwnerID: identities.OwnerUserID}
+		author := &standards.Authoring{Store: s.DB, Book: book, Instructions: instructions, Runner: &conversationStandardsAuthoring{model: &response.NativeModel{Config: s.Config, Paths: s.Paths, Providers: providers, Meter: s.DB}}}
+		chatOpts.Standards = &ConversationStandards{DB: s.DB, Book: book, Authoring: author, Exceptions: &standardsexceptions.Service{Store: s.DB, OwnerID: identities.OwnerUserID}, Schedules: analystSchedules}
+	}
 	daemon, err := New(Options{
-		Paths:      s.Paths,
-		Doctor:     &doctor.Service{Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
-		Bug:        bugRuntime,
-		Retirement: RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
+		AnalystSchedules: analystSchedules,
+		Paths:            s.Paths,
+		Doctor:           &doctor.Service{Logger: s.Logger, DB: s.DB, Paths: s.Paths, Config: s.Config, Redactor: sharedRedactor},
+		Bug:              bugRuntime,
+		Retirement:       RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		Archive: ArchiveOptions{Dir: s.Paths.ArchiveDir(), RunsDir: s.Paths.RunsDir(), StartSteps: []ArchiveStep{NewArchiveExpiryStep(ArchiveExpiryOptions{
 			Runs: s.DB, RunsDir: s.Paths.RunsDir(), RetainDays: s.Config.Settings.ArchiveRetainDays, Logger: s.Logger,
 		})}},

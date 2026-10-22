@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -45,6 +46,11 @@ func (w *researchWorkflow) openResultRoute(ctx context.Context, req *agent.Reque
 		req.MCPLaunch = spec
 	}
 	route.guidance, err = mcpGuidance(ctx, req.MCPLaunch, p.service, nil)
+	var tools []string
+	if req.MCPLaunch != nil {
+		tools = req.MCPLaunch.PermittedTools()
+	}
+	route.guidance = p.standardsGuidance + standardsDeliveryGuidance(tools) + route.guidance
 	if err != nil {
 		return nil, route.abort(ctx, err)
 	}
@@ -76,5 +82,13 @@ func (w *researchWorkflow) finishRoute(ctx context.Context, route *resultRoute, 
 	cold := *req
 	cold.Prompt = coldPrompt + suffix + req.Prompt[beforeRoute:]
 	p := route.prepared
-	return ResearchInvocation{Request: *req, ColdRequest: &cold, Kind: w.req.Agent, Observe: func(actual agent.Request) { prep.request = actual; prep.prompt = actual.Prompt }, SessionPath: sessionPath, Results: p.service, Close: func() error { return p.closeTransports(context.WithoutCancel(ctx)) }, Release: func() error { return w.opts.DB.EndResultAttempt(context.WithoutCancel(ctx), p.service.Binding()) }}, nil
+	return ResearchInvocation{RefreshStandards: func(check context.Context, actual agent.Request) agent.Request {
+		fresh := refreshStandardsGuidance(check, prep, p.service.Binding().Attempt)
+		if p.standardsGuidance != "" {
+			actual.Prompt = strings.ReplaceAll(actual.Prompt, p.standardsGuidance, fresh)
+		} else {
+			actual.Prompt += fresh
+		}
+		return actual
+	}, Request: *req, ColdRequest: &cold, Kind: w.req.Agent, Observe: func(actual agent.Request) { prep.request = actual; prep.prompt = actual.Prompt }, SessionPath: sessionPath, Results: p.service, Close: func() error { return p.closeTransports(context.WithoutCancel(ctx)) }, Release: func() error { return w.opts.DB.EndResultAttempt(context.WithoutCancel(ctx), p.service.Binding()) }}, nil
 }

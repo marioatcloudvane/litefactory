@@ -2,6 +2,7 @@
 - conversation-factory
 - conversation-correction
 - conversation-action-outcome
+- conversation-reasoner
 - challenger
 - merge-conflict-advisor
 - schedule-proposal-advisor
@@ -9,3 +10,6 @@
 - doctor-diagnosis
 - doctor-repair
 - chat-draft
+- standards-author
+- prevention-analyst
+- log-analyst

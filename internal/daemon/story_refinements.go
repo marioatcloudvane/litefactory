@@ -102,9 +102,13 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	// At most sixteen children per parent worker per tick; persisted rotation
 	// makes the bound fair across restarts as well as successive ticks.
 	discoveryDeferred := false
+	// One repository inspection serves the sweep's discovery reads; the scope
+	// closes before the execution recheck and turn below.
+	sweepCtx, checks := withContainerChecks(ctx)
+	defer checks.close()
 	for n := 0; n < min(16, len(stories)); n++ {
 		s := stories[(start+n)%len(stories)]
-		discoveryErr := d.discoverStoryComments(ctx, t, relation, s)
+		discoveryErr := d.discoverStoryComments(sweepCtx, t, relation, s)
 		if errors.Is(discoveryErr, ErrDiscoveryDeferred) {
 			discoveryDeferred = true
 			break
@@ -121,6 +125,7 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 				slog.Int("story_issue", s.IssueNumber), slog.Any("error", discoveryErr))
 		}
 	}
+	checks.close()
 	pending, err := d.db.ListPendingStoryRefinements(ctx, t.session.ID)
 	if err != nil {
 		return true, err
@@ -273,7 +278,7 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 		if c.ID <= after {
 			continue
 		}
-		if routed, err := d.dispatchJudgeChild(ctx, t, child, c); err != nil {
+		if routed, err := d.dispatchJudgeChild(withoutContainerChecks(ctx), t, child, c); err != nil {
 			return err
 		} else if routed {
 			if err := d.db.AdvanceStoryDiscovery(ctx, t.session.ID, s.IssueNumber, c.ID); err != nil {
@@ -281,7 +286,7 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 			}
 			continue
 		}
-		routed, err := d.admitDoctor(ctx, t.repo, child, c)
+		routed, err := d.admitDoctor(withoutContainerChecks(ctx), t.repo, child, c)
 		if err != nil {
 			return err
 		}

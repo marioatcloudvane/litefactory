@@ -43,7 +43,8 @@ func (t *pollingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	page = page && req.Method == http.MethodGet
 	key, safe := representationKey(req)
 	unconditional, _ := req.Context().Value(unconditionalCacheKey{}).(bool)
-	eligible = eligible && safe && !unconditional && req.Method == http.MethodGet
+	_, driftBounded := req.Context().Value(driftResponseKey{}).(*driftResponseBound)
+	eligible = eligible && safe && !unconditional && !driftBounded && req.Method == http.MethodGet
 	var cached cachedRepresentation
 	var found bool
 	if eligible {
@@ -61,7 +62,13 @@ func (t *pollingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 	}
 	start := t.client.clock()
-	resp, err := t.next.RoundTrip(request)
+	var resp *http.Response
+	var err error
+	if budget, ok := req.Context().Value(analysisBudgetKey{}).(*AnalysisBudget); ok && budget != nil {
+		resp, err = budget.read(t.next, request)
+	} else {
+		resp, err = t.next.RoundTrip(request)
+	}
 	observation := networkObservation(request, resp, endpoint, page)
 	if t.observe != nil {
 		t.observe(observation)
@@ -73,6 +80,9 @@ func (t *pollingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		slog.String("method", req.Method), slog.String("url", req.URL.String()),
 		slog.Int("status", observation.StatusCode), slog.Duration("duration", t.client.clock().Sub(start)),
 		slog.Int("rate_limit_remaining", observation.Remaining))
+	if bound, ok := req.Context().Value(driftResponseKey{}).(*driftResponseBound); ok && err == nil {
+		return boundDriftResponse(resp, bound)
+	}
 	if !eligible {
 		return resp, err
 	}

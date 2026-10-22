@@ -1,3 +1,5 @@
 Record source paths and relevant observations, outstanding questions, and reasonable assumptions. Never substitute synthetic fixtures for required authentic host observations. Preserve unfinished findings before asking a material owner question. A question ends the invocation and releases the worker; only an authorized continuation supplies permission for another pass.
 
-Separate what you observed from what you inferred and what you assumed, and say which is which. A search that found nothing does not prove absence; record it as an unanswered question rather than a finding. Prefer current code to archived plans. Ask the owner to make decisions; establish facts yourself.
+Retrieve applicable research evidence guidance from the retained standards book: category `shared-working`, standard `factory-research-evidence`.
+
+Ask the owner to make decisions; establish facts yourself.

@@ -1,0 +1,188 @@
+{
+  "base_revision": 0,
+  "operations": [
+    {
+      "kind": "category.add",
+      "category": {
+        "id": "shared-working",
+        "name": "Shared working guidance",
+        "description": "Reusable factory role voice; investigation advice only when the run permits questions. Applies to participating roles within local controls."
+      }
+    },
+    {
+      "kind": "category.add",
+      "category": {
+        "id": "agent-setup",
+        "name": "Agent setup",
+        "description": "Advice for agent, Markdown and workflow artifacts in Plan. Existing role procedures and gates remain local."
+      }
+    },
+    {
+      "kind": "category.add",
+      "category": {
+        "id": "stack-go",
+        "name": "Go",
+        "description": "Optional Go advice for actual Go scope identified in Plan artifacts; not Markdown-only work."
+      }
+    },
+    {
+      "kind": "category.add",
+      "category": {
+        "id": "stack-python-fastapi",
+        "name": "Python FastAPI and optional React Vite",
+        "description": "Application engineering for repositories using Python/FastAPI/Pydantic and optionally React/TypeScript/Vite. Repository versions and captured profiles govern checks."
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-voice",
+        "title": "Factory role voice",
+        "body": "Applies to these factory roles only: spike-fixer, story-worker, sync-resolver, validate-acceptance, validate-architecture, validate-code, validate-repair.\n\nEffective sentences, straight to the point, in easy language. Your reader is not necessarily an expert, so explain simply.",
+        "category_ids": [
+          "shared-working"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-agent-setup",
+        "title": "Agent setup artifact guidance",
+        "body": "Applies to Plan agent/Markdown/workflow artifacts across all supported stacks.\n\nApply to agent/Markdown/workflow artifacts. Review role/skill responsibilities,\nselection, resource closure, result schemas, tool ceilings, workflow contracts,\nbounded loops and ownership of human gates. Reuse existing activities and focused\nskills where applicable. Record neutral general decisions and applicable interface\ncollaboration. Do not force service/data layers, repositories, Go or OO onto agent\nsetup. Preserve settled instructions and contract references across scoped changes.",
+        "category_ids": [
+          "agent-setup"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-go-planning",
+        "title": "Go advice for Plan artifacts",
+        "body": "Applies only to Plan architecture artifacts for actual Go work.\n\nApply only to Go work identified in the current story/artifacts. Reuse existing\npackages and interfaces; follow repository dependency direction and designated\nownership. Discuss context cancellation, explicit errors, invariants and failure\nboundaries where relevant. Model data and service access only where the change has\nthose concerns. Do not apply Go package/service assumptions to Markdown-only work.\nRecord applicable choices in the shared typed architecture rather than a separate\nGo-specific report.",
+        "category_ids": [
+          "stack-go"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-python-api",
+        "title": "Python FastAPI application engineering",
+        "body": "Use the repository's Python, FastAPI and Pydantic versions; use the retained stack supported-version resource for manifest selection and conditional checks. Use typed request and response models with explicit validation, constrained fields and documented errors. Do not expose persistence objects or secrets through response serialization. Respect repository conventions for Pydantic strictness and coercion.\n\nUse dependency injection with explicit request versus application lifetimes. Initialize shared clients in lifespan and close them on shutdown; yield dependencies release resources on every path. Override dependencies in API tests and restore overrides after each fixture.\n\nUse async handlers for asynchronous I/O. Blocking clients or CPU work must not block the event loop: use the existing synchronous handler, thread offload or task architecture. Do not invent background infrastructure. Propagate cancellation and use bounded timeouts.\n\nTranslate domain failures consistently into documented HTTP error responses; retain unexpected causes internally without exposing secrets. Test successful requests, validation failures, authorization/error paths and cleanup using pytest and the existing HTTPX/TestClient conventions.\n\nThe backend OpenAPI schema is the frontend interface reference. Review request/response and status-code changes together with typed client use. Respect repository conventions for client generation, authentication, persistence and deployment.",
+        "category_ids": [
+          "stack-python-fastapi"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-react-vite",
+        "title": "Optional React TypeScript Vite frontend engineering",
+        "body": "Apply this guidance when the repository uses React, TypeScript and Vite; a frontend is optional. Preserve project versions and scripts. For TypeScript projects, use strict checking; do not silence boundary errors with any or unsafe assertions. Run declared typecheck, lint, test and build scripts; failures must propagate.\n\nUse typed API access based on backend OpenAPI request/response and error contracts. Follow the repository's client generation convention rather than adding a generator. Handle loading, empty, error and success states explicitly; cancel stale requests and respect component lifetimes. Do not expose tokens in logs or frontend bundles.\n\nPrefer accessible semantic elements, labels, keyboard interactions and visible focus. Keep state local where practical and follow existing routing and state conventions. Where configured, test components with Vitest and Testing Library through observable user interactions, including loading/error states and accessibility. Use the repository's DOM test environment and avoid pass-with-no-tests.\n\nRun the declared production build when present. Follow existing authentication, persistence and deployment conventions; this team does not choose infrastructure or scaffold an example application.",
+        "category_ids": [
+          "stack-python-fastapi"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-investigation",
+        "title": "Investigation advice when questions are permitted",
+        "body": "Applies only to factory runs with permission to ask (Research/Plan), within unchanged local human decision gates. Before substantial investigation, check whether the intended outcome, scope and success criteria are clear. For bugs, establish expected behavior, actual behavior and missing reproduction details. Offer concrete options and a recommendation when useful.",
+        "category_ids": [
+          "shared-working"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-voice-investigation",
+        "title": "Factory voice: investigation",
+        "body": "Applies to these factory roles only: bug-analyst.\n\nLead with the finding and use plain sentences. Distinguish source inference, owner reports and observed reproduction honestly, including remaining uncertainty.",
+        "category_ids": [
+          "shared-working"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-voice-execution",
+        "title": "Factory voice: execution",
+        "body": "Applies to these factory roles only: bug-fixer.\n\nUse concise, factual language and report actual execution honestly.",
+        "category_ids": [
+          "shared-working"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-voice-options",
+        "title": "Factory voice: options",
+        "body": "Applies to these factory roles only: plan-acceptance, plan-story, plan-technical, research, shaping.\n\nYou always respond in effective sentences. No over-prose. You talk like an army general, straight to the point. Use easy language. Your counterpart is not an expert so explain and keep it simple. No PhD-styled answers, explain like a good professor would explain to their undergraduate students. Give the counterpart options and explain, never assume the user knows it all.",
+        "category_ids": [
+          "shared-working"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-voice-plan-set",
+        "title": "Factory voice: plan-set",
+        "body": "Applies to these factory roles only: plan-set.\n\nYou always respond in effective sentences. No over-prose. You talk like an army general, straight to the point. Use easy language. Your counterpart is not an expert so explain and keep it simple. No PhD-styled answers, explain like a good professor would explain to their undergraduate students. Give the counterpart options and explain, never assume the user knows it all. You keep things simple - you never over-engineer the stories, you tailor them to the users demands coming in from the briefs you got.",
+        "category_ids": [
+          "shared-working"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-voice-plain-options",
+        "title": "Factory voice: plain-options",
+        "body": "Applies to these factory roles only: spike-investigator.\n\nEffective sentences, straight to the point, in easy language. Your reader is not necessarily an expert, so explain simply and give options rather than assuming.",
+        "category_ids": [
+          "shared-working"
+        ]
+      }
+    },
+    {
+      "kind": "category.add",
+      "category": {
+        "id": "stack-dotnet",
+        "name": ".NET and Blazor",
+        "description": "Applies to .NET/Blazor application work, preserving existing hosting/render modes, repository architecture and unchanged factory gates."
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-blazor-practices",
+        "title": "Blazor application practices",
+        "body": "Respect the existing repository's hosting and render modes. For new Blazor Web App\nwork default to Interactive Server, recording the tradeoff for the current story.\nStatic SSR provides request/response rendering without an interactive circuit;\nuse server form handling and progressive enhancement where appropriate. Interactive\nServer runs component behavior on the server: account for scoped circuit lifetimes,\ndisconnects, reconnection and per-user memory. Interactive WebAssembly executes in\nthe browser and needs a client project and explicit API trust boundary. Auto may\nstart on the server and later run in the browser; don't assume identical service\ninstances or persistent in-memory state across hosts. Standalone WebAssembly uses\nbrowser execution without Blazor Web App server render modes. Do not migrate an\nexisting mode merely because this team was selected.\n\nKeep Razor components cohesive, with explicit parameters, callbacks and ownership\nof state. Avoid hidden shared mutable state. Respect render-mode boundaries and\nserializable parameters. Use stable keys for repeated stateful content. Separate\npresentation from reusable behavior when the repository already does so; do not\nintroduce a new application architecture solely to satisfy a pattern.\n\nPrerendering may initialize a component more than once. Make initialization safe,\nuse persisted prerender state where appropriate and avoid duplicate side effects.\nDOM-dependent JavaScript interop belongs after interactive rendering, commonly in\nOnAfterRenderAsync with a first-render guard. Avoid infinite rendering loops.\nImplement disposal for subscriptions, timers, cancellation sources and JS object\nreferences. Circuit disconnects can make disposal interop unavailable; handle that\ncase without swallowing unrelated errors.\n\nAwait asynchronous work. Avoid async void except unavoidable event contracts and\navoid blocking waits. Use cancellation for superseded loads and disposal, expose\nloading/error states, and guard against stale async results overwriting newer state.\nUse InvokeAsync for state changes originating outside the renderer context. Do not\nhide failures behind indefinite spinners or fake success.\n\nRespect DI lifetimes: server scoped services can live for an entire circuit;\nbrowser scoped services generally live for the browser application. Do not retain\nuser-specific data in singletons. Resolve per-operation services appropriately and\nfollow the existing repository's data access patterns; don't prescribe a database.\n\nUse EditForm and the existing validation model, accessible labels, validation\nsummaries and meaningful field errors. Static SSR forms need explicit server form\nbinding and antiforgery handling. Treat browser input as untrusted and repeat\nvalidation on the server. Preserve keyboard navigation, focus management, semantic\nHTML, accessible names, contrast and meaningful status announcements. Test loading,\nempty, error and reconnect behavior as part of the user-facing feature.\n\nChoose state ownership deliberately: local component state, shared scoped state,\nURL state and durable state solve different lifetimes. Document refresh and circuit\nloss behavior. Never put secrets in browser assemblies, local storage or rendered\nmarkup. Client visibility, AuthorizeView and hidden controls are not authorization:\nenforce permission and ownership checks at server endpoints and service boundaries.\nKeep authentication tokens and interop data within existing trust boundaries.\nAvoid raw HTML injection and unsafe script construction. Use narrow JS modules,\nvalidate inputs and dispose references; do not let browser interop widen authority.",
+        "category_ids": [
+          "stack-dotnet"
+        ]
+      }
+    },
+    {
+      "kind": "standard.add",
+      "standard": {
+        "id": "factory-research-evidence",
+        "title": "Research evidence reasoning",
+        "body": "Applies only to factory Research investigation and shaping evidence, across all supported stacks.\n\nSeparate what you observed from what you inferred and what you assumed, and say which is which. A search that found nothing does not prove absence; record it as an unanswered question rather than a finding. Prefer current code to archived plans.",
+        "category_ids": [
+          "shared-working"
+        ]
+      }
+    }
+  ]
+}

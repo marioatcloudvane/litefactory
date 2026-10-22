@@ -196,3 +196,35 @@ func legacyPromptConflict(kind, prompt string, expected ConversationLegacyInstru
 	}
 	return false
 }
+
+// RefreshConversationCapture replaces a healthy binding's retained
+// instructions at a turn boundary: no turn of the binding is pending or
+// running, so no journaled prompt of an open turn was built from the old
+// capture. Completed turns are never re-validated against instructions. It
+// reports false, changing nothing, when the binding is not at a boundary,
+// paused, inactive or still awaiting its legacy migration. The native session
+// and all queued messages are kept.
+func (db *DB) RefreshConversationCapture(ctx context.Context, id string, raw []byte, at time.Time) (bool, error) {
+	if err := validConversationCapture(raw); err != nil {
+		return false, err
+	}
+	if at.IsZero() {
+		return false, errors.New("invalid conversation instruction refresh time")
+	}
+	refreshed := false
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		var blocked int
+		err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM chat_conversations WHERE id=? AND (active<>1 OR health_reason<>''))+(SELECT count(*) FROM chat_conversation_instruction_legacy WHERE conversation_id=?)+(SELECT count(*) FROM chat_conversation_turns WHERE conversation_id=? AND state IN ('pending','running'))`, id, id, id).Scan(&blocked)
+		if err != nil || blocked != 0 {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE chat_conversation_instructions SET capture=?,legacy_baseline=0,created_at=? WHERE conversation_id=? AND EXISTS(SELECT 1 FROM chat_conversations WHERE id=? AND active=1)`, raw, FormatTime(at), id, id)
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		refreshed = n == 1
+		return err
+	})
+	return refreshed, err
+}

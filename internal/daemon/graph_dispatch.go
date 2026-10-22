@@ -28,11 +28,22 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 	workerCtx := ctx
 	ctx, cancel := d.tickPhaseContext(ctx)
 	defer cancel()
-	pending, err := d.db.ListDueGraphDispatches(ctx, at.UTC(), graphDispatchLimit)
+	// Coordinator bookkeeping is selected on its own first, so story dispatches
+	// blocked on run capacity cannot keep it out of this tick's window.
+	coordinators, err := d.db.ListDueCoordinatorGraphDispatches(ctx, at.UTC(), graphDispatchLimit)
 	if err != nil {
 		return err
 	}
-	for _, dispatch := range pending {
+	general, err := d.db.ListDueGraphDispatches(ctx, at.UTC(), graphDispatchLimit)
+	if err != nil {
+		return err
+	}
+	seen := make(map[int64]bool, len(coordinators)+len(general))
+	for _, dispatch := range append(coordinators, general...) {
+		if seen[dispatch.ID] {
+			continue
+		}
+		seen[dispatch.ID] = true
 		ctx := sessionContext(ctx, dispatch.SessionID)
 		if d.bug != nil {
 			if err := d.bug.CheckExistingAdmission(ctx, dispatch.SessionID); err != nil {
@@ -90,14 +101,25 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 			log.DebugContext(ctx, "graph step waits for this task's in-flight turn")
 			continue
 		}
-		if !d.pool.try() {
+		slot, deferral, err := d.graphStepSlot(ctx, dispatch)
+		if err != nil {
 			d.inflight.leave(session.ID)
-			result.Deferred++
+			log.ErrorContext(ctx, "graph capacity inspection failed; retained work unchanged", slog.Any("error", err))
 			continue
 		}
+		if slot == nil {
+			d.inflight.leave(session.ID)
+			result.Deferred++
+			log.InfoContext(ctx, "graph step deferred for capacity", slog.String("reason", deferral))
+			continue
+		}
+		t.slot = slot.pool
+		t.capacity = slot
+		t.slot.wg.Add(1)
 		reserved, ok, err := d.db.ReserveGraphDispatch(ctx, dispatch.ID, at.UTC())
 		if err != nil || !ok {
-			d.pool.done()
+			slot.Release()
+			t.slot.wg.Done()
 			d.inflight.leave(session.ID)
 			if err != nil {
 				return err
@@ -112,12 +134,52 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 	return nil
 }
 
+// graphStepSlot takes the slot a due dispatch runs on, or reports why none was
+// free. Implement coordinator bookkeeping tries its reserved slot first and
+// falls back to the run pool; an agent stage, a step that cannot be classified,
+// and every other dispatch use the run pool only.
+func (d *Daemon) graphStepSlot(ctx context.Context, dispatch store.GraphDispatch) (*stepReservation, string, error) {
+	cost, err := turn.GraphDispatchSlotCost(ctx, d.db, dispatch)
+	if err != nil {
+		return nil, "", err
+	}
+	if d.coordinator != nil {
+		coordinator, err := d.implementCoordinatorDispatch(ctx, dispatch)
+		if err != nil {
+			return nil, "", err
+		}
+		if coordinator && !d.graphStepRunsAgent(ctx, dispatch) && d.coordinator.acquire(cost) {
+			return &stepReservation{pool: d.coordinator, fallback: d.pool, cost: cost}, "", nil
+		}
+	}
+	if d.pool.acquire(cost) {
+		return &stepReservation{pool: d.pool, cost: cost}, "", nil
+	}
+	used, total := d.pool.capacity()
+	reason := "temporary capacity deferral"
+	if cost > total {
+		reason = "impossible capacity fit"
+	}
+	return nil, fmt.Sprintf("%s: pool=shared workflow_instance=%d node=%s requested=%d used=%d available=%d total=%d", reason, dispatch.InstanceID, dispatch.Node, cost, used, total-used, total), nil
+}
+
+// graphStepRunsAgent classifies a dispatch by its node in the retained graph. A
+// step that cannot be classified counts as an agent step.
+func (d *Daemon) graphStepRunsAgent(ctx context.Context, dispatch store.GraphDispatch) bool {
+	runsAgent, err := turn.GraphDispatchRunsAgent(ctx, d.db, dispatch)
+	if err != nil {
+		d.log.DebugContext(ctx, "graph step not classified; treating it as an agent step", slog.Int64("graph_dispatch_id", dispatch.ID), slog.Any("error", err))
+		return true
+	}
+	return runsAgent
+}
+
 // graphChainLimit bounds how many owed stages one worker runs back to back.
 // The Plan creation cycle owes one per story; the bound only stops a runaway.
 const graphChainLimit = 32
 
 // continueGraphSteps runs the stages a session's graph instance owes right
-// after the worker's own work, on the same slot. A stage parks the instance and
+// after the worker's own work, with fresh weighted admission for each step. A stage parks the instance and
 // leaves a dispatch that is due at once; waiting for the next tick for each one
 // adds a minute per story to a Plan creation cycle. It also means a session the
 // tick keeps busy, such as a graph Plan parent observed every tick for child
@@ -143,6 +205,14 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 				t.log.ErrorContext(ctx, "read the owed graph stage", slog.Any("error", err))
 			}
 			return
+		}
+		// A reserved coordinator worker leaves agent execution to the shared
+		// pool on the next tick, preserving the bookkeeping lane boundary.
+		if t.slot != nil && t.slot == d.coordinator && d.graphStepRunsAgent(ctx, dispatch) {
+			return
+		}
+		if t.capacity != nil {
+			t.capacity.Release()
 		}
 		session, err := d.db.GetSession(ctx, dispatch.SessionID)
 		if err != nil {
@@ -174,16 +244,29 @@ func (d *Daemon) continueGraphSteps(ctx context.Context, t *task) {
 		if dispatch.DueAt.After(at) {
 			at = dispatch.DueAt
 		}
+		reservation, reason, err := d.graphStepSlot(ctx, dispatch)
+		if err != nil {
+			t.recordWorkerError(err)
+			return
+		}
+		if reservation == nil {
+			log.InfoContext(ctx, "graph step deferred for capacity", slog.String("reason", reason))
+			return
+		}
 		reserved, ok, err := d.db.ReserveGraphDispatch(ctx, dispatch.ID, at)
 		if err != nil || !ok {
+			reservation.Release()
 			if err != nil {
 				t.recordWorkerError(err)
 			}
 			return
 		}
 		log.InfoContext(ctx, "running the owed graph stage in the same worker")
-		step := &task{repo: t.repo, forgeRepo: t.forgeRepo, session: session, ref: t.ref, issue: issue, log: log, tickAt: t.tickAt, worker: t.worker, workerLog: t.workerLog}
-		d.runGraphStep(ctx, step, reserved)
+		step := &task{repo: t.repo, forgeRepo: t.forgeRepo, session: session, ref: t.ref, issue: issue, log: log, tickAt: t.tickAt, worker: t.worker, workerLog: t.workerLog, slot: reservation.pool, capacity: reservation}
+		func() { defer reservation.Release(); d.runGraphStep(ctx, step, reserved) }()
+		if step.graphDeferred {
+			return
+		}
 	}
 }
 
@@ -225,6 +308,10 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 	t.commentUnderWay = trigger.CommentID
 	err := d.run(ctx, t, trigger, command, t.log)
 	t.commentUnderWay = previousTrigger
+	if t.graphDeferred && err == nil {
+		t.recordWorkerStatus(workerDeferred)
+		return
+	}
 	if err != nil {
 		t.recordWorkerError(err)
 	}

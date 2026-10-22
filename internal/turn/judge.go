@@ -3,16 +3,12 @@ package turn
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -50,7 +46,6 @@ type JudgeRequest struct {
 	SessionID, CommentID       int64
 	TicketKey, RemoteCommentID string
 	Root                       string
-	CodeURL                    string
 	TaskProvider               config.Kind
 	Options                    JudgeCommandOptions
 	Comments                   []JudgeComment
@@ -80,7 +75,7 @@ type judgeSavedReport struct {
 	Execution    string            `json:"execution"`
 }
 
-// Execute pins source, settings and captured evidence before any provider launch.
+// Execute pins source, settings, discussion and commit before any provider launch.
 // Saved reports and interrupted launches are recovered without rerunning an assessment.
 func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text string, returnedErr error) {
 	if s.DB == nil || s.Config == nil || s.Redactor == nil || in.SessionID < 1 || (in.CommentID < 1 && in.GraphInstanceID == 0) || in.TicketKey == "" || in.RemoteCommentID == "" {
@@ -118,36 +113,8 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 			return "", e
 		}
 
-		sourceText := string(source.Snapshot)
-		if len(source.PlanContext) > 0 {
-			sourceText += "\nFactory-pinned Plan context and constituent revisions:\n" + string(source.PlanContext)
-		}
-		if source.PlanContextGap != "" {
-			sourceText += "\nPlan evidence gap: " + source.PlanContextGap
-		}
-		evidence, e := CaptureJudgeEvidence(ctx, s.Git, in.Root, sourceText, in.Comments)
+		pinned, e := s.pinJudgeContext(ctx, in, source)
 		if e != nil {
-			evidence, _ = CaptureJudgeEvidence(ctx, s.Git, "", sourceText, in.Comments)
-			evidence.Evidence = append(evidence.Evidence, agentresult.JudgeEvidence{ID: "capture", Kind: "code", Essential: true, Gap: "Repository evidence could not be captured consistently."})
-		}
-		if source.PlanContextGap != "" {
-			evidence.Evidence = append(evidence.Evidence, agentresult.JudgeEvidence{ID: "plan-context", Kind: "source", Gap: source.PlanContextGap})
-		}
-		evidence.Cutoff = in.Cutoff
-		codeBase, codeErr := url.Parse(in.CodeURL)
-		if codeErr == nil && codeBase.Scheme == "https" && codeBase.Host == "github.com" && codeBase.User == nil && codeBase.RawQuery == "" && codeBase.Fragment == "" {
-			for i := range evidence.Evidence {
-				entry := &evidence.Evidence[i]
-				if entry.Kind == "code" && entry.Available && strings.HasPrefix(entry.Reference, evidence.Commit+":") {
-					parts := strings.Split(entry.Path, "/")
-					for j := range parts {
-						parts[j] = url.PathEscape(parts[j])
-					}
-					entry.Reference = strings.TrimRight(in.CodeURL, "/") + "/blob/" + evidence.Commit + "/" + strings.Join(parts, "/")
-				}
-			}
-		}
-		if e = s.cleanEvidence(ctx, &evidence); e != nil {
 			return "", e
 		}
 		configuration, e := json.Marshal(cfg)
@@ -157,21 +124,12 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 		if len(configuration) > store.MaxResultInputBytes {
 			return "", errors.New("judge instruction configuration exceeds retained record bound")
 		}
-		captured, e := json.Marshal(evidence)
+		captured, e := json.Marshal(pinned)
 		if e != nil {
 			return "", e
 		}
 		if len(captured) > 128<<20 {
-			evidence, _ = CaptureJudgeEvidence(ctx, s.Git, "", sourceText, in.Comments)
-			evidence.Cutoff = in.Cutoff
-			evidence.Evidence = append(evidence.Evidence, agentresult.JudgeEvidence{ID: "capture-size", Kind: "code", Essential: true, Gap: "Serialized repository evidence exceeds the retained snapshot budget; repository bytes were omitted."})
-			if err := s.cleanEvidence(ctx, &evidence); err != nil {
-				return "", err
-			}
-			captured, e = json.Marshal(evidence)
-			if e != nil {
-				return "", e
-			}
+			return "", errors.New("judge context exceeds retained record bound")
 		}
 		caller := "manual"
 		if in.GraphInstanceID > 0 {
@@ -192,14 +150,14 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 		return savedJudgeText(q.Report)
 	}
 	var cfg judgeConfiguration
-	var evidence JudgeEvidenceSnapshot
+	var pinned judgeContext
 	if len(q.Configuration) > store.MaxResultInputBytes {
 		return "", errors.New("judge retained configuration exceeds record bound")
 	}
 	if err = json.Unmarshal(q.Configuration, &cfg); err != nil {
 		return "", fmt.Errorf("decode judge retained configuration: %w", err)
 	}
-	if err = json.Unmarshal(q.Evidence, &evidence); err != nil {
+	if err = json.Unmarshal(q.Evidence, &pinned); err != nil {
 		return "", err
 	}
 	attempts, err := s.DB.ListJudgeAttempts(ctx, q.ID)
@@ -224,24 +182,24 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 		}
 		if a.State == "completed" {
 			var report agentresult.JudgeReport
-			if json.Unmarshal(revision, &report) == nil && agentresult.ValidateJudge(report, evidence.Evidence).Valid {
-				return s.save(ctx, q, cfg, evidence, report, "completed")
+			if json.Unmarshal(revision, &report) == nil && agentresult.ValidateJudge(report).Valid {
+				return s.save(ctx, q, cfg, pinned, report, "completed")
 			}
 		}
 		if err := s.DB.FinishJudgeAttempt(context.WithoutCancel(ctx), a.ID, "interrupted", "Provider launch interrupted before a usable result was retained."); err != nil {
 			return "", err
 		}
-		return s.save(ctx, q, cfg, evidence, unableJudge("Provider execution was interrupted; no assessment was rerun."), "interrupted")
+		return s.save(ctx, q, cfg, pinned, unableJudge("Provider execution was interrupted; no assessment was rerun."), "interrupted")
 	}
 	if in.RecoverOnly {
-		return s.save(ctx, q, cfg, evidence, unableJudge("Provider execution was abandoned before launch; no assessment was rerun."), "interrupted")
+		return s.save(ctx, q, cfg, pinned, unableJudge("Provider execution was abandoned before launch; no assessment was rerun."), "interrupted")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(q.Configuration))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&cfg); err != nil {
 		return "", fmt.Errorf("decode judge launch configuration: %w", err)
 	}
-	if _, err := validateJudgeInstructions(cfg); err != nil {
+	if err := validateJudgeInstructions(cfg); err != nil {
 		return "", err
 	}
 	if err := ctx.Err(); err != nil {
@@ -255,14 +213,23 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 	}
 	budgetCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
+	workspace, err := s.openJudgeWorkspace(budgetCtx, q, pinned)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if closeErr := workspace.close(context.WithoutCancel(ctx)); closeErr != nil {
+			s.logJudge(ctx, "judge workspace cleanup failed", closeErr)
+		}
+	}()
 	for launch := 0; launch < 2; launch++ {
-		report, runErr := s.launch(budgetCtx, q, &cfg, evidence, invocation)
+		report, runErr := s.launch(budgetCtx, q, &cfg, workspace, invocation)
 		if errors.Is(runErr, errJudgePersistence) {
 			return "", runErr
 		}
 		if runErr == nil {
 			cfg.Effective = invocation
-			return s.save(ctx, q, cfg, evidence, report, "completed")
+			return s.save(ctx, q, cfg, pinned, report, "completed")
 		}
 		retained, acceptedErr := s.DB.JudgeAcceptedResult(ctx, q.ID)
 		if acceptedErr != nil {
@@ -282,17 +249,17 @@ func (s *JudgeService) Execute(ctx context.Context, in JudgeRequest) (text strin
 			return "", e
 		}
 		cfg.Effective = invocation
-		return s.save(context.WithoutCancel(ctx), q, cfg, evidence, unableJudge(body.String()), "failed")
+		return s.save(context.WithoutCancel(ctx), q, cfg, pinned, unableJudge(body.String()), "failed")
 	}
 	return "", errors.New("judge launch bound exceeded")
 }
 
 func unableJudge(reason string) agentresult.JudgeReport {
-	return agentresult.JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: reason, Coverage: []string{"source"}, Uncertainty: []string{reason}, Findings: []agentresult.JudgeFinding{}}
+	return agentresult.JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: reason, Uncertainty: []string{reason}, Findings: []agentresult.JudgeFinding{}}
 }
 
-func (s *JudgeService) save(ctx context.Context, q store.JudgeRequest, cfg judgeConfiguration, e JudgeEvidenceSnapshot, r agentresult.JudgeReport, status string) (string, error) {
-	p := JudgePresentation{SourceName: judgeSourceName(q.Source), SourceReference: q.Source.Reference, Provider: string(cfg.Effective.Provider), Model: cfg.Effective.Model, Thinking: string(cfg.Effective.Thinking), FallbackReason: cfg.Effective.FallbackReason, Commit: e.Commit, LocalDigest: e.LocalDigest, Report: r, Evidence: e.Evidence, ObservedModel: cfg.ObservedModel, ProviderVersion: cfg.ProviderVersion, Cutoff: e.Cutoff.Format(time.RFC3339)}
+func (s *JudgeService) save(ctx context.Context, q store.JudgeRequest, cfg judgeConfiguration, pinned judgeContext, r agentresult.JudgeReport, status string) (string, error) {
+	p := JudgePresentation{SourceName: judgeSourceName(q.Source), SourceReference: q.Source.Reference, Provider: string(cfg.Effective.Provider), Model: cfg.Effective.Model, Thinking: string(cfg.Effective.Thinking), FallbackReason: cfg.Effective.FallbackReason, Commit: pinned.Commit, RepositoryGap: pinned.RepositoryGap, Report: r, ObservedModel: cfg.ObservedModel, ProviderVersion: cfg.ProviderVersion, Cutoff: pinned.Cutoff.Format(time.RFC3339)}
 	if q.Source.NewestLegacy {
 		p.SourceReference += "; chosen as the newest legacy save (older saves have no verified commit order; use --target to pick another)"
 	}
@@ -316,37 +283,11 @@ func savedJudgeText(raw []byte) (string, error) {
 	if err := json.Unmarshal(raw, &saved); err != nil {
 		return "", err
 	}
-	return JudgeText(saved.Presentation) + "\nExecution: " + saved.Execution + "\n", nil
+	return JudgeText(saved.Presentation), nil
 }
 
-func (s *JudgeService) cleanEvidence(ctx context.Context, e *JudgeEvidenceSnapshot) error {
-	for i := range e.Evidence {
-		entry := &e.Evidence[i]
-		text, ok := e.Contents[entry.ID]
-		if !ok {
-			continue
-		}
-		body, err := s.Redactor.Apply(ctx, text, len(text)+4096)
-		if err != nil {
-			return err
-		}
-		if body.Truncated() {
-			return errors.New("judge evidence redaction exceeded bound")
-		}
-		if entry.Kind == "code" && body.String() != text {
-			entry.Reference = "local-snapshot:" + e.LocalDigest + ":" + entry.Path
-		}
-		e.Contents[entry.ID] = body.String()
-		sum := sha256.Sum256([]byte(body.String()))
-		entry.Digest = hex.EncodeToString(sum[:])
-		entry.Lines = len(strings.Split(body.String(), "\n"))
-	}
-	return nil
-}
-
-func (s *JudgeService) launch(ctx context.Context, q store.JudgeRequest, cfg *judgeConfiguration, evidence JudgeEvidenceSnapshot, invocation config.JudgeInvocation) (report agentresult.JudgeReport, returnedErr error) {
-	capture, err := validateJudgeInstructions(*cfg)
-	if err != nil {
+func (s *JudgeService) launch(ctx context.Context, q store.JudgeRequest, cfg *judgeConfiguration, workspace *judgeWorkspace, invocation config.JudgeInvocation) (report agentresult.JudgeReport, returnedErr error) {
+	if err := validateJudgeInstructions(*cfg); err != nil {
 		return report, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -367,7 +308,7 @@ func (s *JudgeService) launch(ctx context.Context, q store.JudgeRequest, cfg *ju
 			returnedErr = fmt.Errorf("%w: %w", errJudgePersistence, finishErr)
 		}
 	}()
-	service, err := bindJudgeResults(ctx, s.DB, a.ID, evidence)
+	service, err := bindJudgeResults(ctx, s.DB, a.ID)
 	if err != nil {
 		return report, fmt.Errorf("%w: %w", errJudgePersistence, err)
 	}
@@ -383,18 +324,12 @@ func (s *JudgeService) launch(ctx context.Context, q store.JudgeRequest, cfg *ju
 	if err != nil {
 		return report, err
 	}
-	scratch, err := os.MkdirTemp("", "lf-judge-")
-	if err != nil {
-		return report, err
-	}
-	defer os.RemoveAll(scratch)
-	description, _ := json.Marshal(struct{ Target, Focus, RoleDigest string }{q.Source.Reference, cfg.Requested.Focus, cfg.RoleDigest})
-	prompt := cfg.Role + string(capture.Resource(instructionpackage.JudgePinPrefixPath)) + string(description) + string(capture.Resource(instructionpackage.JudgeEvidenceSuffixPath))
+	prompt := judgePrompt(cfg.Role, q, cfg.Requested.Focus, workspace)
 	meterAttempt, err := s.DB.StartJudgeMeterAttempt(ctx, a.ID, string(invocation.Provider))
 	if err != nil {
 		return report, fmt.Errorf("%w: %w", errJudgePersistence, err)
 	}
-	req := agent.JudgeRequest{Invocation: agent.DoctorRequest{Attempt: a.ID, Model: invocation.Model, Prompt: prompt, WorkingDirectory: scratch, MCPLaunch: spec, UsageAttemptID: meterAttempt.ID, Usage: &agent.UsageCapture{AttemptID: meterAttempt.ID, Sink: func(c context.Context, event agent.UsageEvent) error {
+	req := agent.JudgeRequest{Invocation: agent.DoctorRequest{Attempt: a.ID, Model: invocation.Model, Prompt: prompt, WorkingDirectory: workspace.repo, ReadableDirectories: []string{workspace.context}, MCPLaunch: spec, UsageAttemptID: meterAttempt.ID, Usage: &agent.UsageCapture{AttemptID: meterAttempt.ID, Sink: func(c context.Context, event agent.UsageEvent) error {
 		return s.DB.RecordMeterEvent(c, meterAttempt.ID, string(invocation.Provider), event)
 	}}}, Thinking: invocation.Thinking}
 	runner := s.Providers[agent.Kind(invocation.Provider)]
@@ -452,11 +387,15 @@ func judgeSourceName(source store.JudgeSource) string {
 	if source.Kind == "plan" {
 		return "saved Plan"
 	}
+	if source.Label != "" {
+		return "saved " + source.Label
+	}
 	var snapshot struct {
 		Result struct {
 			Payload struct {
 				Research *json.RawMessage `json:"research"`
 				Plan     *json.RawMessage `json:"plan"`
+				Bug      *json.RawMessage `json:"bug"`
 			} `json:"payload"`
 		} `json:"result"`
 	}
@@ -466,6 +405,9 @@ func judgeSourceName(source store.JudgeSource) string {
 		}
 		if snapshot.Result.Payload.Plan != nil {
 			return "saved Plan"
+		}
+		if snapshot.Result.Payload.Bug != nil {
+			return "saved Bug analysis"
 		}
 	}
 	return "saved " + source.Kind

@@ -56,13 +56,17 @@ func (t *task) recordWorkerError(err error) {
 	t.recordWorkerStatus(workerFailed)
 }
 
-// runWorker owns admission until the body and its cleanup return. The terminal
-// diagnostic observes released in-flight ownership unless stopped-result repair
-// debt retains it, but not a free pool slot:
-// pool.done stays last, so Quiesce also joins the diagnostic. Panics unwind
-// admission through the defers but are not represented as normal completion.
+// runWorker joins the body, cleanup and terminal diagnostic independently of
+// its current step reservation. In-flight ownership survives until cleanup,
+// unless stopped-result repair debt retains it. Panics unwind both capacity
+// and the join through defers, without claiming normal completion.
 func (d *Daemon) runWorker(ctx context.Context, t *task, body func()) {
-	defer d.pool.done()
+	join := d.slotOf(t)
+	if t.capacity == nil {
+		t.capacity = &stepReservation{pool: join, cost: 1}
+	}
+	defer join.wg.Done()
+	defer t.capacity.Release()
 	if t.discoveryReservation != nil {
 		defer t.discoveryReservation.finish()
 	}
@@ -77,7 +81,7 @@ func (d *Daemon) runWorker(ctx context.Context, t *task, body func()) {
 		body()
 		// Still holding the session: owed graph stages follow without a tick.
 		held, err := d.doctorHeldSession(ctx, t.session.ID)
-		if err == nil && !held {
+		if err == nil && !held && !t.graphDeferred {
 			d.continueGraphSteps(ctx, t)
 		}
 	}()
@@ -88,4 +92,12 @@ func (d *Daemon) runWorker(ctx context.Context, t *task, body func()) {
 		slog.String("status", t.worker.status.String()),
 		slog.Duration("duration", time.Since(started)),
 		slog.Int("execution_requests", t.worker.executionRequests))
+}
+
+// slotOf is the pool a task's worker holds: its reserved slot, or the run pool.
+func (d *Daemon) slotOf(t *task) *pool {
+	if t.slot != nil {
+		return t.slot
+	}
+	return d.pool
 }

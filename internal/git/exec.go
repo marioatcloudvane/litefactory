@@ -222,6 +222,12 @@ func (r runner) runRaw(ctx context.Context, timeout time.Duration, args ...strin
 }
 
 func (r runner) runRawLimit(ctx context.Context, timeout time.Duration, limit int, args ...string) (string, error) {
+	return r.runRawRecordLimit(ctx, timeout, limit, 0, args...)
+}
+
+// runRawRecordLimit stops a NUL-delimited observation after a fixed number of
+// fields. The complete final field is retained before cancelling the child.
+func (r runner) runRawRecordLimit(ctx context.Context, timeout time.Duration, limit, fields int, args ...string) (string, error) {
 	if r.binary == "" || r.dir == "" {
 		return "", ErrUninitialized
 	}
@@ -239,12 +245,15 @@ func (r runner) runRawLimit(ctx context.Context, timeout time.Duration, limit in
 	cmd.Stdin = nil
 	cmd.WaitDelay = waitDelay
 
-	stdout, stderr := gitBoundedOutput{limit: limit}, gitBoundedOutput{limit: limit}
+	stdout, stderr := gitBoundedOutput{limit: limit, fieldsRemaining: fields, cancel: cancel}, gitBoundedOutput{limit: limit, cancel: cancel}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if stdout.exceeded || stderr.exceeded {
 		return "", fmt.Errorf("git observation exceeds %d byte budget", limit)
+	}
+	if stdout.recordsReached && ctx.Err() == nil {
+		return stdout.String(), nil
 	}
 	if err == nil {
 		return stdout.String(), nil
@@ -386,24 +395,53 @@ func checkName(what, value string) error {
 	return nil
 }
 
-// gitBoundedOutput discards excess bytes while draining subprocess pipes, so a
-// large status cannot allocate without bound or leave the child blocked.
+// gitBoundedOutput cancels excessive output and drains buffered pipe data, so a
+// large observation cannot allocate or keep reading source without bound.
 type gitBoundedOutput struct {
-	bytes.Buffer
-	limit    int
-	exceeded bool
+	buffer          bytes.Buffer
+	limit           int
+	exceeded        bool
+	fieldsRemaining int
+	recordsReached  bool
+	cancel          context.CancelFunc
 }
+
+// Keep Buffer named: promoting its ReaderFrom would let io.Copy bypass Write
+// and silently defeat both byte and record bounds.
+func (b *gitBoundedOutput) Len() int       { return b.buffer.Len() }
+func (b *gitBoundedOutput) String() string { return b.buffer.String() }
 
 func (b *gitBoundedOutput) Write(p []byte) (int, error) {
 	n := len(p)
+	if b.recordsReached {
+		return n, nil
+	}
+	if b.fieldsRemaining > 0 {
+		for i, value := range p {
+			if value == 0 {
+				b.fieldsRemaining--
+				if b.fieldsRemaining == 0 {
+					p = p[:i+1]
+					b.recordsReached = true
+					if b.cancel != nil {
+						b.cancel()
+					}
+					break
+				}
+			}
+		}
+	}
 	if b.limit <= 0 {
-		return b.Buffer.Write(p)
+		return b.buffer.Write(p)
 	}
 	remaining := b.limit - b.Len()
 	if len(p) > remaining {
+		if !b.exceeded && !b.recordsReached && b.cancel != nil {
+			b.cancel()
+		}
 		b.exceeded = true
 		p = p[:remaining]
 	}
-	_, err := b.Buffer.Write(p)
+	_, err := b.buffer.Write(p)
 	return n, err
 }

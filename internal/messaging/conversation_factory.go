@@ -29,8 +29,26 @@ type factoryConversationPrompt struct {
 	Context       string                   `json:"context,omitempty"`
 	RecentReplies []conversationPriorReply `json:"recent_factory_replies,omitempty"`
 	Evidence      *conversationReadResult  `json:"evidence,omitempty"`
-	Correction    string                   `json:"correction,omitempty"`
-	SavedOutcome  string                   `json:"saved_outcome,omitempty"`
+	// EarlierEvidence keeps this turn's previous lookup results, so an answer
+	// that needs several lookups can use all of them.
+	EarlierEvidence []conversationReadResult `json:"earlier_evidence,omitempty"`
+	// Focus is the project and issue this conversation discussed last.
+	Focus      *conversationFocus `json:"focus,omitempty"`
+	Correction string             `json:"correction,omitempty"`
+	// CorrectionReason is the factory's plain reason the previous output was
+	// rejected, so the one correction can fix the actual defect.
+	CorrectionReason string `json:"correction_reason,omitempty"`
+	SavedOutcome     string `json:"saved_outcome,omitempty"`
+	// ConsultNote says why a consult is not available now.
+	ConsultNote string `json:"consult_note,omitempty"`
+}
+
+// addEvidence makes result the current evidence and keeps the previous one.
+func (p *factoryConversationPrompt) addEvidence(result conversationReadResult) {
+	if p.Evidence != nil {
+		p.EarlierEvidence = append(p.EarlierEvidence, *p.Evidence)
+	}
+	p.Evidence = &result
 }
 
 type conversationReadResult struct {
@@ -58,6 +76,21 @@ type factoryConversationRun struct {
 	calls, ordinal int
 	savedOutcomes  string
 	safe           bool
+	// focus is the newest project and issue this conversation resolved.
+	focus *conversationFocus
+	// consults counts this turn's reasoner consults; at most one runs.
+	consults int
+	// refSuffix keeps the references of reasoner lookups distinct.
+	refSuffix string
+}
+
+// maxCalls is the turn's conversation invocation budget. A consult adds one
+// invocation, so the model can still answer from the consult's evidence.
+func (r *factoryConversationRun) maxCalls() int {
+	if r.consults > 0 {
+		return 5
+	}
+	return 4
 }
 
 // invoke journals every input before crossing the prompt-only native boundary.
@@ -76,7 +109,7 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 	if err := r.s.validateConversationPrompt(ctx, r.c.ID, prompt, instructions, true, r.at); err != nil {
 		return nil, err
 	}
-	if r.calls >= 4 {
+	if r.calls >= r.maxCalls() {
 		return nil, errors.New("conversation invocation budget exhausted")
 	}
 	runtime := r.s.conversations.Load()
@@ -166,7 +199,12 @@ func (r *factoryConversationRun) invoke(ctx context.Context, prompt string) (_ [
 
 func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversation, b ConversationBinding, t store.ConversationTurn, at time.Time) error {
 	work, cancel := context.WithTimeout(ctx, response.Budget)
-	defer cancel()
+	cancels := []context.CancelFunc{cancel}
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+	}()
 	instructions, err := s.restoreConversationInstructions(work, c.ID, at)
 	if err != nil {
 		return err
@@ -177,6 +215,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		return err
 	}
 	run.savedOutcomes = savedOutcomes
+	if handled, err := run.approveStandards(work); handled || err != nil {
+		return err
+	}
 	// Confirmation and cancellation never enter model interpretation.
 	if handled, err := run.confirm(work); handled || err != nil {
 		return err
@@ -218,9 +259,16 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err != nil {
 		return err
 	}
-	var contextData struct{ PreparedContext, RecoveryNotice string }
+	var contextData struct{ PreparedContext, RecoveryNotice, StandardsClarification string }
 	if err = json.Unmarshal([]byte(t.Prompt), &contextData); err != nil {
 		contextData.PreparedContext = "Retained prepared context is unavailable."
+	}
+	if s.standards != nil {
+		progress, e := s.db.GetStandardsConversationContext(work, s.transport, s.owner, c.ChannelRef)
+		if e != nil && !errors.Is(e, store.ErrNotFound) {
+			return e
+		}
+		contextData.StandardsClarification = progress.Clarification
 	}
 	contextBytes, err := json.Marshal(contextData)
 	if err != nil {
@@ -234,12 +282,15 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 	if err != nil {
 		return err
 	}
-	prompt := factoryConversationPrompt{RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes}
+	if run.focus, err = run.loadFocus(work); err != nil {
+		return err
+	}
+	prompt := factoryConversationPrompt{Focus: run.focus, RecentReplies: recentReplies, Instructions: instructions.Factory(), OwnerInput: t.Source, OwnerSources: turns, Commands: s.ConversationCommands(), References: refs, Context: prepared, SavedOutcome: savedOutcomes}
 	corrected, lookups, pendingLookup, err := run.resumeBoundary(work, &prompt)
 	if err != nil {
 		return run.failed(ctx, err)
 	}
-	for run.calls < 4 {
+	for run.calls < run.maxCalls() {
 		var envelope ConversationEnvelope
 		var inv Invocation
 		var requestText string
@@ -258,9 +309,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			}
 			envelope, inv, err = DecodeConversationEnvelope(raw, ConversationDecodeRequest{Turns: turns, Commands: s.ConversationCommands(), References: refs, OwnerID: s.owner, ChannelID: c.ChannelRef, Now: at})
 			if err != nil {
-				if !corrected && run.calls < 4 {
+				if !corrected && run.calls < run.maxCalls() {
 					corrected = true
 					prompt.Correction = instructions.Correction()
+					prompt.CorrectionReason = conversationEnvelopeReason(err)
 					// The provider completed, but its invalid envelope cannot serve as
 					// the retry boundary. Retain the factory's next prompt instead.
 					encoded, e := json.Marshal(prompt)
@@ -281,9 +333,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 					run.safe = true
 					continue
 				}
-				return s.conversationOutcome(ctx, t, "completed", "I couldn't get a clear answer. Please try again.", at)
+				s.logConversationFailure(ctx, c, t, agent.ConversationError(err, "validation", false))
+				return s.conversationOutcome(ctx, t, "completed", conversationCauseReply(err, at), at)
 			}
-			prompt.Correction = ""
+			prompt.Correction, prompt.CorrectionReason = "", ""
 			run.ordinal++
 			request, _ := json.Marshal(struct {
 				Envelope   ConversationEnvelope `json:"envelope"`
@@ -300,6 +353,19 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		run.safe = true
 		switch envelope.Kind {
 		case "answer", "clarify":
+			if envelope.Kind == "clarify" && s.standards != nil {
+				progress, e := s.db.GetStandardsConversationContext(work, s.transport, s.owner, c.ChannelRef)
+				if e != nil && !errors.Is(e, store.ErrNotFound) {
+					return e
+				}
+				progress.Transport = s.transport
+				progress.OwnerID = s.owner
+				progress.ChannelID = c.ChannelRef
+				progress.Clarification = envelope.Text
+				if _, e = s.db.SaveStandardsConversationContext(work, progress, progress.Version); e != nil {
+					return e
+				}
+			}
 			text := envelope.Text
 			if savedOutcomes != "" {
 				text += "\n\nSaved action outcome:\n" + savedOutcomes
@@ -314,7 +380,10 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 		case "propose":
 			return run.propose(work, inv, envelope, turns)
 		case "lookup":
-			if lookups >= 3 || run.calls >= 4 {
+			if inv.Command == "standards" && (strings.HasSuffix(inv.Arguments["action"], ".review") || inv.Arguments["action"] == "review.next") {
+				return run.reviewStandards(work, inv)
+			}
+			if lookups >= 3 || run.calls >= run.maxCalls() {
 				break
 			}
 			lookups++
@@ -339,6 +408,9 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 			}
 			if ref != nil {
 				refs = append(refs, *ref)
+				if standardsCommand(inv.Command) {
+					refs = expandStandardsReferences(refs)
+				}
 				if len(refs) > 32 {
 					refs = refs[len(refs)-32:]
 				}
@@ -347,7 +419,45 @@ func (s *Service) runFactoryConversation(ctx context.Context, c store.Conversati
 				return s.conversationOutcome(ctx, t, "completed", result.Clarification, at)
 			}
 			prompt.References = refs
-			prompt.Evidence = &result
+			prompt.Focus = run.focus
+			prompt.addEvidence(result)
+		case "consult":
+			if run.consults > 0 {
+				prompt.ConsultNote = conversationReasonerNote
+				break
+			}
+			run.consults++
+			// The consult has its own wall-clock limit; the answer afterwards
+			// keeps the time the turn had left, and at least half a turn.
+			deadline, _ := work.Deadline()
+			remaining := time.Until(deadline)
+			result, consulted := run.consult(ctx, envelope, &prompt, turns, refs)
+			if err := ctx.Err(); err != nil {
+				return run.failed(ctx, err)
+			}
+			cancels[len(cancels)-1]()
+			next, cancelNext := context.WithTimeout(ctx, max(remaining, response.Budget/2))
+			work, cancels = next, append(cancels, cancelNext)
+			run.ordinal++
+			result.FactID = fmt.Sprintf("%s-fact-%d", t.ID, run.ordinal)
+			result.Status = "complete"
+			if !result.Complete {
+				result.Status = "incomplete"
+			}
+			result.Target = conversationEvidenceTarget(result.Arguments)
+			encoded, _ := json.Marshal(result)
+			resultText, err := s.Protect(work, string(encoded))
+			if err != nil {
+				return err
+			}
+			if err = s.db.SaveConversationExchange(work, t, store.ConversationExchange{TurnID: t.ID, Ordinal: run.ordinal, Kind: "evidence", Request: requestText, Result: resultText, CapturedAt: at, Complete: result.Complete, Gaps: strings.Join(result.Gaps, "\n")}); err != nil {
+				return err
+			}
+			refs = consulted
+			prompt.References = refs
+			prompt.Focus = run.focus
+			prompt.ConsultNote = ""
+			prompt.addEvidence(result)
 		}
 	}
 	return s.conversationOutcome(ctx, t, "completed", "The lookup budget was reached before a completed answer. Current evidence is retained, but the answer is unavailable. Please narrow the question.", at)
@@ -373,6 +483,9 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 		return r.s.db.DeferConversationTurn(cleanup, r.t)
 	}
 	if conversationPreStartRetry(cause) {
+		if reply := conversationSpecificCause(cause, r.at); reply != "" {
+			return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply, r.at)
+		}
 		return r.s.conversationPreStartOutcome(cleanup, r.t, r.at)
 	}
 	if errors.Is(cause, agent.ErrConversationBusy) || errors.Is(cause, agent.ErrConversationSessionMissing) || errors.Is(cause, agent.ErrConversationIsolation) {
@@ -386,6 +499,9 @@ func (r *factoryConversationRun) failed(ctx context.Context, cause error) error 
 		return r.s.conversationUnavailable(cleanup, r.c, r.t, "turn unfinished with no saved native identity; no replacement session created", r.at)
 	}
 	// Even a correction or continuation can have uncertain provider completion.
+	if reply := conversationCauseReply(cause, r.at); reply != "" {
+		return r.s.conversationOutcome(cleanup, r.t, "interrupted", reply+" Your next message continues the same conversation.", r.at)
+	}
 	return r.s.conversationOutcome(cleanup, r.t, "interrupted", "The conversation turn was interrupted or unavailable before a completed answer was saved. Its provider input will not be replayed. Your next message will resume the retained session.", r.at)
 }
 
@@ -395,6 +511,18 @@ func (r *factoryConversationRun) references(ctx context.Context) ([]Conversation
 		return nil, err
 	}
 	var refs []ConversationReference
+	if r.s.standards != nil {
+		selected, e := r.s.db.GetStandardsConversationContext(ctx, r.s.transport, r.s.owner, r.c.ChannelRef)
+		if e != nil && !errors.Is(e, store.ErrNotFound) {
+			return nil, e
+		}
+		if e == nil && len(selected.SelectedJSON) > 0 {
+			var args map[string]string
+			if json.Unmarshal(selected.SelectedJSON, &args) == nil {
+				refs = append(refs, ConversationReference{ID: "standards-selected-" + strconv.FormatInt(selected.Version, 10), OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: "retained-standards-context", ExpiresAt: r.at.Add(24 * time.Hour), Arguments: args})
+			}
+		}
+	}
 	for _, v := range saved {
 		var args map[string]string
 		if json.Unmarshal([]byte(v.Content), &args) != nil {
@@ -417,7 +545,7 @@ func (r *factoryConversationRun) references(ctx context.Context) ([]Conversation
 		}
 		refs = append(refs, ConversationReference{ID: v.ID, OwnerID: r.s.owner, ChannelID: r.c.ChannelRef, OriginTurn: v.TurnID, RepoID: repoID, Revision: v.Revision, ExpiresAt: v.ExpiresAt, Arguments: args})
 	}
-	return refs, nil
+	return expandStandardsReferences(refs), nil
 }
 
 func boundedConversationText(text string, limit int) (string, bool) {
@@ -432,6 +560,9 @@ func boundedConversationText(text string, limit int) (string, bool) {
 }
 
 func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (conversationReadResult, *ConversationReference, error) {
+	if standardsCommand(inv.Command) {
+		return r.lookupStandards(ctx, inv)
+	}
 	s := r.s
 	result := conversationReadResult{Command: inv.Command, Arguments: inv.Arguments, Source: "factory:" + inv.Command, CapturedAt: r.at, Complete: true, Gaps: []string{}}
 	if err := conversationAccess(ctx, s.conversations.Load(), r.c.ChannelRef, r.at); err != nil {
@@ -442,6 +573,9 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 		return result, nil, ErrConversationEnvelope
 	}
 	p := naturalPayload{Invocation: validated, Channel: r.c.ChannelRef}
+	if r.focus != nil {
+		p.focus = r.focus.Project
+	}
 	clarification, err := s.resolveNatural(ctx, &p, r.at)
 	if err != nil {
 		return result, nil, err
@@ -464,7 +598,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			prepared, e := s.ask.Prepare(ctx, p.Invocation.Arguments["question"], p.Project, r.c.ChannelRef, r.at)
 			switch {
 			case e != nil:
-				result.Gaps = append(result.Gaps, "Project facts could not be read.")
+				result.Gaps = append(result.Gaps, "Project facts could not be read."+githubBudgetGap(e, r.at))
 			case prepared.Refusal != "":
 				text = prepared.Refusal
 				result.Clarification = prepared.Refusal
@@ -482,10 +616,31 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			break
 		}
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		if len(request.By) > 0 {
+			breakdown, readErr := meterview.ReadBreakdown(bounded, s.db, request, request.By)
+			if readErr != nil {
+				result.Gaps = append(result.Gaps, "Current cost breakdown unavailable.")
+				break
+			}
+			lines := breakdown.Lines()
+			if request.Task > 0 && breakdown.Records > 0 {
+				lines = append([]string{"Scope: the task including its stories."}, lines...)
+			}
+			text = strings.Join(lines, "\n")
+			if _, known := breakdown.TotalAmount(); !known && breakdown.Records > 0 {
+				result.Gaps = append(result.Gaps, "No amount available.")
+			}
+			break
+		}
 		view, readErr := meterview.Read(bounded, s.db, request)
-		cancel()
 		if readErr != nil {
 			result.Gaps = append(result.Gaps, "Current cost unavailable.")
+			break
+		}
+		if len(view.Groups) == 0 {
+			// No recorded usage is a fact about the filter, not a gap.
+			text = "No usage is recorded for this filter."
 			break
 		}
 		amount := view.Summary.EstimatedUSD
@@ -529,7 +684,7 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 			text, err = handler(read, Message{Transport: s.transport, Channel: r.c.ChannelRef, Sender: s.owner, Arguments: p.Invocation.Arguments, Command: inv.Command}, r.at)
 			if err != nil {
 				text = ""
-				result.Gaps = append(result.Gaps, "Factory lookup failed; no result available.")
+				result.Gaps = append(result.Gaps, "Factory lookup failed; no result available."+githubBudgetGap(err, r.at))
 			} else if assessment.Status != presentation.Success {
 				result.Gaps = append(result.Gaps, "Lookup coverage may be incomplete.")
 			}
@@ -561,9 +716,13 @@ func (r *factoryConversationRun) lookup(ctx context.Context, inv Invocation) (co
 		}
 	}
 	raw, _ := json.Marshal(args)
-	saved := store.ConversationReference{ID: fmt.Sprintf("%s-target-%d", r.t.ID, r.ordinal), TurnID: r.t.ID, Kind: "target", Repository: strconv.FormatInt(p.RepoID, 10), Revision: p.Revision, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
+	saved := store.ConversationReference{ID: fmt.Sprintf("%s-target-%d%s", r.t.ID, r.ordinal, r.refSuffix), TurnID: r.t.ID, Kind: "target", Repository: strconv.FormatInt(p.RepoID, 10), Revision: p.Revision, Content: string(raw), ExpiresAt: r.at.Add(24 * time.Hour)}
 	if err = s.db.SaveConversationReference(ctx, r.t, saved); err != nil {
 		return result, nil, err
+	}
+	r.focus = &conversationFocus{Project: p.Project, Issue: args["task"]}
+	if r.focus.Issue == "" {
+		r.focus.Issue = args["issue"]
 	}
 	return result, &ConversationReference{ID: saved.ID, OwnerID: s.owner, ChannelID: r.c.ChannelRef, OriginTurn: r.t.ID, RepoID: p.RepoID, Revision: p.Revision, ExpiresAt: saved.ExpiresAt, Arguments: args}, nil
 }
@@ -599,6 +758,9 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		if x.Kind == "lookup" {
 			lookups++
 		}
+		if x.Kind == "consult" {
+			r.consults++
+		}
 	}
 	last := exchanges[len(exchanges)-1]
 	switch last.Kind {
@@ -606,7 +768,9 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		if r.calls == 0 {
 			return corrected, lookups, nil, nil
 		}
-	case "lookup":
+	case "lookup", "consult":
+		// A saved consult without its evidence runs again: the reasoner is
+		// stateless and read-only, so a repeat cannot double an effect.
 		var pending conversationPendingLookup
 		if !last.Complete {
 			return false, 0, nil, errors.New("incomplete saved lookup")
@@ -614,18 +778,23 @@ func (r *factoryConversationRun) resumeBoundary(ctx context.Context, prompt *fac
 		if err := json.Unmarshal([]byte(last.Request), &pending); err != nil {
 			return false, 0, nil, err
 		}
-		if pending.Envelope.Kind != "lookup" {
+		if pending.Envelope.Kind != last.Kind {
 			return false, 0, nil, errors.New("invalid saved lookup")
 		}
 		pending.Request = last.Request
-		prompt.Correction = ""
+		prompt.Correction, prompt.CorrectionReason = "", ""
+		if last.Kind == "consult" {
+			r.consults--
+			return corrected, lookups, &pending, nil
+		}
 		return corrected, lookups - 1, &pending, nil
 	case "evidence":
 		result, err := decodeConversationEvidence(last)
 		if err != nil {
 			return false, 0, nil, err
 		}
-		prompt.Evidence, prompt.Correction = &result, ""
+		prompt.addEvidence(result)
+		prompt.Correction, prompt.CorrectionReason = "", ""
 		refs, err := r.references(ctx)
 		if err != nil {
 			return false, 0, nil, err
