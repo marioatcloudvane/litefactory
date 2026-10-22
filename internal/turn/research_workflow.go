@@ -171,7 +171,9 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		if !ok {
 			return w.finish(ctx, errors.New("research current node is absent from shipped graph"))
 		}
-		if executed && policy.Park != nil && node.Action != ResearchAgentAction {
+		// Park is consulted before agent nodes too: an Implement coordinator
+		// rests before an agent stage so that stage starts on run capacity.
+		if executed && policy.Park != nil {
 			decision, parkErr := policy.Park(ctx, opts, instance, node)
 			if parkErr != nil {
 				return w.finish(ctx, parkErr)
