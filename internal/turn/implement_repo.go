@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -89,11 +90,31 @@ func (s *gitScratch) Merge(ctx context.Context, storyBranch string) (string, boo
 		return "", false, err
 	}
 	res, err := s.wt.MergeBase(ctx, base, git.MergeOptions{Author: s.repo.Author})
+	if errors.Is(err, git.ErrMergeConflict) {
+		// Best effort: name the conflicting paths. A failed preview (for
+		// example git older than 2.38) leaves the plain conflict.
+		if preview, previewErr := s.wt.MergePreview(ctx, base); previewErr == nil && len(preview.Conflicts) > 0 {
+			return "", false, &implementMergeConflict{err: err, paths: preview.Conflicts}
+		}
+	}
 	if err != nil {
 		return "", false, err
 	}
 	return res.Head, res.Merged, nil
 }
+
+// implementMergeConflict is a merge conflict that names the conflicting
+// paths. It still matches git.ErrMergeConflict.
+type implementMergeConflict struct {
+	err   error
+	paths []string
+}
+
+func (e *implementMergeConflict) Error() string {
+	return fmt.Sprintf("%v (conflicting paths: %s)", e.err, strings.Join(e.paths, ", "))
+}
+
+func (e *implementMergeConflict) Unwrap() error { return e.err }
 
 func (s *gitScratch) Publish(ctx context.Context, integrationBranch, expectedHead string) error {
 	return s.wt.PushHeadTo(ctx, s.repo.Remote, integrationBranch, expectedHead)

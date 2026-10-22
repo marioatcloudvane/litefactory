@@ -214,7 +214,8 @@ func TestJudgeCodexNativeFixture(t *testing.T) {
 		t.Fatalf("native catalog: %s %v", encodedCatalog, err)
 	}
 	model := nativeCatalog.Models[0]
-	if model.Slug != "gpt-6-astra" || !model.ResponsesLite || model.Shell != "disabled" || model.Patch != nil || len(model.Experimental) != 0 {
+	// The native shell stays (the read-confined permissions profile governs it); patching and experimental tools go.
+	if model.Slug != "gpt-6-astra" || !model.ResponsesLite || model.Shell != "shell_command" || model.Patch != nil || len(model.Experimental) != 0 || !slices.Contains(args, `default_permissions="factory_judge"`) {
 		t.Fatalf("native wire metadata or tool ceiling changed: %s", encodedCatalog)
 	}
 	client := submission.Client{DescriptorPath: descriptor}
@@ -249,16 +250,29 @@ func TestJudgeCodexNativeFixture(t *testing.T) {
 		}
 		return response
 	}
-	call("evidence_list", map[string]any{})
-	source := call("evidence_read", map[string]any{"id": "source", "start": 1, "count": 1})
+	// The judge reads the pinned result from the context file the prompt names.
+	prompt, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultPath := ""
+	for _, field := range strings.Fields(string(prompt)) {
+		if filepath.IsAbs(field) && filepath.Base(field) == "result.md" {
+			resultPath = field
+		}
+	}
+	source, err := os.ReadFile(resultPath)
+	if err != nil {
+		t.Fatalf("pinned result file named in the prompt is unreadable: %q %v", resultPath, err)
+	}
 	expectedSource := "Saved conclusion"
 	if os.Args[marker+1] == "plan-success" {
-		expectedSource = `\"name\":\"Saved plan\"`
+		expectedSource = `"name": "Saved plan"`
 	}
-	if !strings.Contains(string(source.Result), expectedSource) {
-		t.Fatalf("pinned source missing: %s", source.Result)
+	if !strings.Contains(string(source), expectedSource) {
+		t.Fatalf("pinned source missing: %s", source)
 	}
-	input := agentresult.JudgeInput{Report: agentresult.JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: "Native Codex captured source inspected", Coverage: []string{"source"}, Uncertainty: []string{"Repository snapshot is unavailable."}, Findings: []agentresult.JudgeFinding{}}}
+	input := agentresult.JudgeInput{Report: agentresult.JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: "Native Codex captured source inspected", Coverage: []string{"result.md"}, Uncertainty: []string{"The repository is not available."}, Findings: []agentresult.JudgeFinding{}}}
 	preflight := call("communication_preflight", input)
 	var diagnostics agentresult.Diagnostics
 	if err = json.Unmarshal(preflight.Result, &diagnostics); err != nil || !diagnostics.Valid {

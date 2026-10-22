@@ -37,11 +37,19 @@ type GraphNodeRequest struct {
 // GraphNodeResult describes the recorded step. AttemptID is zero for terminals
 // and exhausted limits. Status is the instance status, not the activity outcome.
 type GraphNodeResult struct {
-	// Deferred means suite admission was busy; no attempt was reserved.
+	// Deferred means suite or Plan parent admission was busy; no attempt was reserved.
 	Deferred               bool
 	InstanceID, AttemptID  int64
 	Node, NextNode, Status string
 	Activity               ActivityResult
+}
+
+// parentSerializedActivity serializes on a Plan parent's story-progress lock,
+// which ExecuteNodeAction takes before reserving the attempt.
+type parentSerializedActivity interface {
+	ActivityHandler
+	lockParent(context.Context) (func() error, error)
+	withParentLocked() ActivityHandler
 }
 
 // ExecuteNodeAction performs at most one activity. Reservation commits before
@@ -113,6 +121,20 @@ func ExecuteNodeAction(ctx context.Context, opts Options, req GraphNodeRequest) 
 		}
 		defer func() { err = errors.Join(err, unlock()) }()
 		handler = admittedValidateSuite{suite}
+	}
+	// A busy Plan parent is temporary contention: take its story-progress lock
+	// before reserving, so waiting spends no node attempt or revision budget.
+	if serialized, ok := handler.(parentSerializedActivity); ok && workflow == agent.WorkflowPlan && node.Action == graphexec.PlanStoryAction {
+		unlock, lockErr := serialized.lockParent(ctx)
+		if errors.Is(lockErr, store.ErrStoryProgressBusy) {
+			out.Deferred = true
+			return out, nil
+		}
+		if lockErr != nil {
+			return out, fmt.Errorf("admit plan story parent: %w", lockErr)
+		}
+		defer func() { err = errors.Join(err, unlock()) }()
+		handler = serialized.withParentLocked()
 	}
 	var attempt store.GraphNodeAttempt
 	switch {

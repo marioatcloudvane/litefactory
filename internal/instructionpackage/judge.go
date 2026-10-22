@@ -7,19 +7,26 @@ const (
 	ChallengerRole = JudgeRole
 	// JudgeRolePath is the package-relative challenger role source.
 	JudgeRolePath = "agents/challenger.md"
-	// JudgePinPrefixPath is the fixed text before factory invocation JSON.
-	JudgePinPrefixPath = "resources/judge/pin-prefix.md"
-	// JudgeEvidenceSuffixPath is the fixed text after factory invocation JSON.
-	JudgeEvidenceSuffixPath = "resources/judge/evidence-suffix.md"
 )
+
+// legacyJudgeResourcePaths were part of the challenger closure while the judge
+// read a factory evidence snapshot. Captures retained then (in judge requests
+// and pinned workflow definitions) still restore; nothing reads these files.
+var legacyJudgeResourcePaths = []string{"resources/judge/evidence-suffix.md", "resources/judge/pin-prefix.md"}
 
 func capturePaths(role string) []string {
 	paths := []string{CataloguePath, rolePath(role)}
 	if role == StandardsAuthorRole {
 		paths = append(paths, StandardsAuthorSchemaPath)
 	}
-	if role == JudgeRole {
-		paths = append(paths, JudgePinPrefixPath, JudgeEvidenceSuffixPath)
+	return paths
+}
+
+// retainedCapturePaths accepts current closures and historical judge resources.
+func retainedCapturePaths(role string, files int) []string {
+	paths := capturePaths(role)
+	if role == JudgeRole && files == len(paths)+len(legacyJudgeResourcePaths) {
+		paths = append(paths, legacyJudgeResourcePaths...)
 	}
 	return paths
 }

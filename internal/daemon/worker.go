@@ -62,7 +62,7 @@ func (t *task) recordWorkerError(err error) {
 // pool.done stays last, so Quiesce also joins the diagnostic. Panics unwind
 // admission through the defers but are not represented as normal completion.
 func (d *Daemon) runWorker(ctx context.Context, t *task, body func()) {
-	defer d.pool.done()
+	defer d.slotOf(t).done()
 	if t.discoveryReservation != nil {
 		defer t.discoveryReservation.finish()
 	}
@@ -88,4 +88,12 @@ func (d *Daemon) runWorker(ctx context.Context, t *task, body func()) {
 		slog.String("status", t.worker.status.String()),
 		slog.Duration("duration", time.Since(started)),
 		slog.Int("execution_requests", t.worker.executionRequests))
+}
+
+// slotOf is the pool a task's worker holds: its reserved slot, or the run pool.
+func (d *Daemon) slotOf(t *task) *pool {
+	if t.slot != nil {
+		return t.slot
+	}
+	return d.pool
 }

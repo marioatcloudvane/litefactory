@@ -2,7 +2,6 @@ package turn
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -31,31 +30,18 @@ func decodeJudgeSavedReport(t *testing.T, raw []byte) judgeSavedReport {
 	return report
 }
 
-func TestJudgeTextOmitsEvidenceInventory(t *testing.T) {
-	const gap = "Path is outside the authorized evidence ceiling."
-	const unavailable = 5000
-	evidence := []agentresult.JudgeEvidence{
-		{ID: "E-cov-1", Kind: "code", Reference: "https://example.test/a.go", Digest: "sha256:aa", Available: true},
-		{ID: "E-uncited-available", Kind: "code", Reference: "https://example.test/z.go", Digest: "sha256:zz", Available: true},
-	}
-	for i := 0; i < unavailable; i++ {
-		evidence = append(evidence, agentresult.JudgeEvidence{ID: fmt.Sprintf("E-aiteam-%04d", i), Kind: "code", Reference: fmt.Sprintf("local:.aiteam/file-%04d.md", i), Available: false, Gap: gap})
-	}
+func TestJudgeTextOmitsCitationsAndCommit(t *testing.T) {
 	p := JudgePresentation{
-		SourceName: "task", SourceReference: "graph:1", Provider: "codex", Model: "m", Thinking: "high",
+		SourceName: "task", SourceReference: "graph:1", Provider: "codex", Model: "m", Thinking: "high", Commit: "f12ad63d2ade9e711f18419f8ef113e60916ef6d",
 		Report: agentresult.JudgeReport{
-			Version: 1, Verdict: "concerns_found", Summary: "summary", Coverage: []string{"E-cov-1"},
-			Findings: []agentresult.JudgeFinding{{Severity: "high", Concern: "c1", Impact: "i1", Correction: "x1", Evidence: []agentresult.JudgeCitation{{EvidenceID: "E-cov-1", StartLine: 3, EndLine: 7}}}},
+			Version: 1, Verdict: "concerns_found", Summary: "summary", Coverage: []string{"internal/cited/one.go", "result.md"},
+			Findings: []agentresult.JudgeFinding{{Severity: "high", Concern: "c1", Impact: "i1", Correction: "x1", Evidence: []agentresult.JudgeCitation{{Path: "internal/cited/one.go", StartLine: 3, EndLine: 7}}}},
 		},
-		Evidence: evidence,
 	}
 	text := JudgeText(p)
-	if len(text) >= 4096 {
-		t.Fatalf("rendered %d bytes for a large inventory, want the judgment only:\n%s", len(text), text)
-	}
-	for _, bad := range []string{"E-aiteam-", gap, "inventory", "E-cov-1", "E-uncited-available", "example.test", "graph:1"} {
+	for _, bad := range []string{"internal/cited/one.go", "result.md", "f12ad63", "graph:1"} {
 		if strings.Contains(text, bad) {
-			t.Fatalf("rendered evidence inventory %q:\n%s", bad, text)
+			t.Fatalf("rendered provenance %q:\n%s", bad, text)
 		}
 	}
 	assertJudgeTextWithoutProvenance(t, text)
@@ -64,16 +50,15 @@ func TestJudgeTextOmitsEvidenceInventory(t *testing.T) {
 func TestJudgeTextLeadsWithSummaryAndNamedFindings(t *testing.T) {
 	p := JudgePresentation{
 		SourceName: "saved Plan", SourceReference: "result:1631", Provider: "codex", Model: "m", Thinking: "high",
-		ObservedModel: "observed", ProviderVersion: "1.2.3", FallbackReason: "fallback", Cutoff: "2026-10-21T00:00:00Z", Commit: "abc123", LocalDigest: "sha256:local",
+		ObservedModel: "observed", ProviderVersion: "1.2.3", FallbackReason: "fallback", Cutoff: "2026-10-21T00:00:00Z", Commit: "abc123",
 		Report: agentresult.JudgeReport{
 			Version: 1, Verdict: "concerns_found", Summary: "The eleven stories cover the scope, but two promises are not tested.",
-			Coverage: []string{"source"},
+			Coverage: []string{"result.md"},
 			Findings: []agentresult.JudgeFinding{
-				{Title: "No proof that learning works", Severity: "high", Concern: "The analysts can run without producing useful rules.", Impact: "The book stays empty.", Correction: "Add acceptance with real incidents.", Evidence: []agentresult.JudgeCitation{{EvidenceID: "source", StartLine: 1, EndLine: 1}}},
-				{Severity: "medium", Concern: "Exceptions are disconnected. Story 3 ignores them.", Impact: "i", Correction: "x", Evidence: []agentresult.JudgeCitation{{EvidenceID: "source"}}},
+				{Title: "No proof that learning works", Severity: "high", Concern: "The analysts can run without producing useful rules.", Impact: "The book stays empty.", Correction: "Add acceptance with real incidents.", Evidence: []agentresult.JudgeCitation{{Path: "result.md", StartLine: 1, EndLine: 1}}},
+				{Severity: "medium", Concern: "Exceptions are disconnected. Story 3 ignores them.", Impact: "i", Correction: "x", Evidence: []agentresult.JudgeCitation{{Path: "internal/plan/stories.go"}}},
 			},
 		},
-		Evidence: []agentresult.JudgeEvidence{{ID: "source", Kind: "source", Reference: "local:source", Digest: "sha256:aa", Available: true, Lines: 3}},
 	}
 	text := JudgeText(p)
 	summary, findings := strings.Index(text, "# Summary\n"), strings.Index(text, "# Findings\n")
@@ -91,7 +76,7 @@ func TestJudgeTextLeadsWithSummaryAndNamedFindings(t *testing.T) {
 			t.Fatalf("missing %q:\n%s", want, text)
 		}
 	}
-	for _, bad := range []string{"result:1631", "local:source", "observed", "1.2.3", "fallback", "2026-10-21", "abc123", "codex"} {
+	for _, bad := range []string{"result:1631", "result.md", "observed", "1.2.3", "fallback", "2026-10-21", "abc123", "codex"} {
 		if strings.Contains(text, bad) {
 			t.Fatalf("judgment text carries provenance value %q:\n%s", bad, text)
 		}

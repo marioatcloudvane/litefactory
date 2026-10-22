@@ -24,7 +24,18 @@ type RetirementIssues interface {
 // connection (Linear or GitHub), falling back to the forge without one.
 type retirementTicketIssues struct{ d *Daemon }
 
+// A session-scoped read with project connections addresses the session's
+// ticket container, as readScheduledIssue does, not the code repository: a
+// Linear destination never equals the GitHub owner/name.
 func (r retirementTicketIssues) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	if scope, _ := ctx.Value(connectionScopeKey{}).(connectionScope); r.d.connections != nil && scope.sessionID > 0 {
+		binding, err := r.d.db.GetSessionTicket(ctx, scope.sessionID)
+		if err != nil {
+			return github.Issue{}, err
+		}
+		owner, name, _ := strings.Cut(binding.Locator.Container, "/")
+		repo = github.Repo{Owner: owner, Name: name}
+	}
 	return r.d.readIssue(ctx, repo, number)
 }
 

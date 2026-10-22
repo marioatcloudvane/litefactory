@@ -65,7 +65,7 @@ func TestJudgeReportNamesNewestLegacySource(t *testing.T) {
 	if !q.Source.NewestLegacy {
 		t.Fatal("pinned request lost the newest-legacy selection")
 	}
-	text, err := service.save(t.Context(), q, judgeConfiguration{}, JudgeEvidenceSnapshot{}, unableJudge("controlled"), "completed")
+	text, err := service.save(t.Context(), q, judgeConfiguration{}, judgeContext{}, unableJudge("controlled"), "completed")
 	if err != nil {
 		t.Fatal(err)
 	}

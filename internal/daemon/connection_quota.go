@@ -61,6 +61,21 @@ func (q *connectionQuotas) forVersion(v store.ConnectionVersion) *connectionQuot
 	return q.states[key]
 }
 
+// rateLimitHold is a refusal made locally while a credential's rate-limit
+// backoff is held. It remains a discovery deferral for every caller, but names
+// the provider and retry time so a provider rate limit is not mistaken for
+// discovery-budget starvation (#1022).
+type rateLimitHold struct {
+	provider ticket.Provider
+	until    time.Time
+}
+
+func (e *rateLimitHold) Error() string {
+	return fmt.Sprintf("%s rate limit: retry after %s", e.provider, e.until.Local().Format("15:04"))
+}
+
+func (e *rateLimitHold) Is(target error) bool { return target == ErrDiscoveryDeferred }
+
 type quotaVersionKey struct{}
 type quotaReservationKey struct{}
 
@@ -113,8 +128,8 @@ func (d *Daemon) quotaBudget(ctx context.Context) (*discoveryBudget, error) {
 	q := d.quotas.forVersion(v)
 	now := d.quotaNow(ctx)
 	q.discovery.tick(now)
-	if _, held := q.backoff.hold(now); held {
-		return nil, ErrDiscoveryDeferred
+	if until, held := q.backoff.hold(now); held {
+		return nil, &rateLimitHold{provider: v.Provider, until: until}
 	}
 	return &q.discovery, nil
 }
@@ -134,8 +149,8 @@ func (d *Daemon) bindQuotaRequest(ctx context.Context, v store.ConnectionVersion
 	q := d.quotas.forVersion(v)
 	now := d.quotaNow(ctx)
 	q.discovery.tick(now)
-	if _, held := q.backoff.hold(now); held {
-		return ctx, nil, ErrDiscoveryDeferred
+	if until, held := q.backoff.hold(now); held {
+		return ctx, nil, &rateLimitHold{provider: v.Provider, until: until}
 	}
 	r, _ := ctx.Value(quotaReservationKey{}).(*discoveryReservation)
 	if r != nil && r.fallback && r.budget == &q.discovery {
