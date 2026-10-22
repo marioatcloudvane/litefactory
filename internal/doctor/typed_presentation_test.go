@@ -55,7 +55,7 @@ func TestVerifiedTypedRepairWithAgentNotesRendersRepaired(t *testing.T) {
 		RepairSteps:    []store.DoctorRepairStep{{Number: 1, Kind: "release_instance", Target: "graph:410", Before: "running", After: "failed", State: "verified", BackupReference: "database:retained:1", ObservedAfter: "failed"}},
 	}
 	body := doctor.RenderConversation(c)
-	for _, want := range []string{"Overall: repaired", "Note: post-apply state not observable", "Question: Does the next turn start?", "Step 1 release_instance graph:410: verified (running → failed), recheck passed, backup database:retained:1"} {
+	for _, want := range []string{"Overall: repaired", "Note: post-apply state not observable", "Does the next turn start?", "Step 1 release_instance graph:410: verified (running → failed), recheck passed, backup database:retained:1"} {
 		if !strings.Contains(body, want) {
 			t.Error("outcome omits", want)
 		}

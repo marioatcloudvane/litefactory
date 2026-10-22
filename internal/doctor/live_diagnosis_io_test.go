@@ -144,6 +144,8 @@ func TestDoctorMissingPlanOwnersDiagnosisPresentation(t *testing.T) {
 func doctorLiveDiagnosisFixture(t *testing.T, planOwners bool) {
 	t.Helper()
 	s := doctorIOService(t)
+	s.BuildVersion = "running-daemon-commit"
+	s.FactorySource = "/known/factory-source"
 	// Keep the Unix socket path short, independent of Go's descriptive test dirs.
 	root, err := os.MkdirTemp("/tmp", "lf538-")
 	if err != nil {
@@ -222,7 +224,7 @@ func doctorLiveDiagnosisFixture(t *testing.T, planOwners bool) {
 	if err := json.Unmarshal([]byte(got.Attempts[0].Evidence), &saved); err != nil {
 		t.Fatal(err)
 	}
-	if !saved.Live || saved.Worktree != worktree || saved.DaemonLog != s.Paths.DaemonLogPath() || !slices.Equal(saved.RunLogs, []string{runLog}) || saved.SandboxProfile != agent.DoctorSandboxVersion || saved.Isolation == "" || strings.Contains(got.Attempts[0].Evidence, "pre-read-canary") || got.Attempts[0].PromptVersion != "doctor-diagnosis-v2" || got.Attempts[0].GuideVersion != "doctor-field-guide-v2" {
+	if saved.DaemonVersion != s.BuildVersion || saved.FactorySource != s.FactorySource || !saved.Live || saved.Worktree != worktree || saved.DaemonLog != s.Paths.DaemonLogPath() || !slices.Equal(saved.RunLogs, []string{runLog}) || saved.SandboxProfile != agent.DoctorSandboxVersion || saved.Isolation == "" || strings.Contains(got.Attempts[0].Evidence, "pre-read-canary") || got.Attempts[0].PromptVersion != "doctor-diagnosis-v2" || got.Attempts[0].GuideVersion != "doctor-field-guide-v2" {
 		t.Fatalf("saved manifest: %+v", got.Attempts[0])
 	}
 	after, err := os.ReadFile(s.Paths.DaemonLogPath())
@@ -562,5 +564,44 @@ func liveSyncBranchProposal(t *testing.T, mode string) {
 	}
 	if _, err = s.DB.ReserveDoctorRepair(ctx, store.DoctorApproval{ID: "live-sync-repair", SourceID: "owner-apply", Principal: "local-owner", TaskRef: target.String(), PresentationID: "live-sync-presentation"}); err != nil {
 		t.Fatalf("live sync_branch proposal not reservable: %v", err)
+	}
+}
+
+func TestDoctorManifestBuildIdentity(t *testing.T) {
+	s := doctorIOService(t)
+	ref, err := Target("acme/api", 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := gittest.New(t)
+	repo, err := s.DB.UpsertRepo(t.Context(), store.Repo{Path: fixture.Dir, Forge: store.ForgeGitHub, Owner: "acme", Name: "api", RemoteURL: fixture.Origin, BaseBranch: gittest.DefaultBranch, WorktreeRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.DB.GetOrCreateSession(t.Context(), repo, 406)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.SetSessionWorktree(t.Context(), session.ID, fixture.Dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ version, source, want string }{
+		{"daemon-commit", "/known/factory-checkout", "daemon-commit"},
+		{"dev", "", "dev"}, {"", "", "unknown"},
+	} {
+		s.BuildVersion, s.FactorySource = tc.version, tc.source
+		m, _, err := s.pathManifest(t.Context(), ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Worktree != fixture.Dir {
+			t.Fatal("missing independent task checkout")
+		}
+		if m.DaemonVersion != tc.want || m.FactorySource != tc.source {
+			t.Fatalf("manifest: %+v", m)
+		}
+		if m.FactorySource != "" && m.FactorySource == m.Worktree {
+			t.Fatal("task worktree substituted")
+		}
 	}
 }
