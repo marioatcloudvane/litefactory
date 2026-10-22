@@ -12,9 +12,10 @@ type JudgePresentation struct {
 	Cutoff                                                                 string
 	ObservedModel, ProviderVersion                                         string
 	SourceName, SourceReference, Provider, Model, Thinking, FallbackReason string
-	Commit, LocalDigest                                                    string
-	Report                                                                 agentresult.JudgeReport
-	Evidence                                                               []agentresult.JudgeEvidence
+	// Commit is the repository commit the judge read; RepositoryGap says why
+	// there was none. Both are saved-report provenance, never rendered.
+	Commit, RepositoryGap string
+	Report                agentresult.JudgeReport
 }
 
 // JudgeText renders a judge report for the ordinary redacted journal publication path.

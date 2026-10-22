@@ -60,10 +60,11 @@ type ToolSurface struct {
 	// rule here that Tools does not already allow.
 	AllowedTools []string
 
-	// ReadOnlyShell marks a Validate reviewer surface that holds Bash limited
-	// to [config.ValidateReviewerShellRules]. Such a run is started with
-	// --permission-mode dontAsk, so AllowedTools becomes the boundary: any
-	// command or tool it does not name is refused.
+	// ReadOnlyShell marks a Validate reviewer or Spike investigator surface
+	// that holds Bash limited to [config.ValidateReviewerShellRules]. Such a
+	// run is started with --permission-mode dontAsk, so AllowedTools becomes
+	// the boundary: any command or tool it does not name is refused. Its Bash
+	// commands run in an OS sandbox in which the worktree is unwritable.
 	ReadOnlyShell bool
 }
 

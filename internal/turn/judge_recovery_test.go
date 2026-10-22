@@ -45,7 +45,7 @@ func (r *recoveryJudgeRunner) RunJudge(ctx context.Context, q agent.JudgeRequest
 		}
 		return response, err
 	}
-	input := agentresult.JudgeInput{Report: agentresult.JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: "Captured source inspected; repository unavailable", Coverage: []string{"source"}, Uncertainty: []string{"Repository snapshot is unavailable."}, Findings: []agentresult.JudgeFinding{}}}
+	input := agentresult.JudgeInput{Report: agentresult.JudgeReport{Version: 1, Verdict: "unable_to_assess", Summary: "Captured source inspected; repository unavailable", Coverage: []string{"result.md"}, Uncertainty: []string{"The repository is not available."}, Findings: []agentresult.JudgeFinding{}}}
 	preflight, err := call("communication_preflight", input)
 	if err != nil {
 		return agent.JudgeRunResult{}, err
@@ -173,8 +173,7 @@ func TestJudgeInterruptedAndAcceptedLaunchRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg, _ := json.Marshal(judgeConfiguration{Requested: request.Options, Effective: invocation})
-			evidence := JudgeEvidenceSnapshot{Evidence: []agentresult.JudgeEvidence{{ID: "source", Kind: "source", Available: true, Essential: true, Lines: 1}}, Contents: map[string]string{"source": "saved"}}
-			rawEvidence, _ := json.Marshal(evidence)
+			rawEvidence, _ := json.Marshal(judgeContext{Source: "saved"})
 			q, err := service.DB.AdmitJudgeRequest(t.Context(), store.JudgeRequest{Task: request.Ref.String(), TicketKey: request.TicketKey, CommentID: request.RemoteCommentID, SessionID: request.SessionID, TriggerCommentID: request.CommentID, Source: source, Configuration: cfg, Evidence: rawEvidence})
 			if err != nil {
 				t.Fatal(err)
@@ -184,11 +183,11 @@ func TestJudgeInterruptedAndAcceptedLaunchRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			if accepted {
-				results, err := bindJudgeResults(t.Context(), service.DB, attempt.ID, evidence)
+				results, err := bindJudgeResults(t.Context(), service.DB, attempt.ID)
 				if err != nil {
 					t.Fatal(err)
 				}
-				report := []byte(`{"report":{"version":1,"verdict":"no_material_concerns","summary":"Captured source assessed","coverage":["source"],"uncertainty":[],"findings":[]}}`)
+				report := []byte(`{"report":{"version":1,"verdict":"no_material_concerns","summary":"Pinned result assessed","coverage":["result.md"],"uncertainty":[],"findings":[]}}`)
 				if _, err = results.Submit(t.Context(), "accepted-before-crash", report); err != nil {
 					t.Fatal(err)
 				}
@@ -257,8 +256,7 @@ func TestJudgeFailedFallbackRecoveryRetainsLastInvocation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			evidence := JudgeEvidenceSnapshot{Evidence: []agentresult.JudgeEvidence{{ID: "source", Kind: "source", Available: true, Essential: true, Lines: 1}}, Contents: map[string]string{"source": "saved"}}
-			rawEvidence, err := json.Marshal(evidence)
+			rawEvidence, err := json.Marshal(judgeContext{Source: "saved"})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -185,3 +185,17 @@ func (db *DB) requiredWorkflowCapture(ctx context.Context, id int64) (WorkflowCa
 	}
 	return capture, nil
 }
+
+// WorkflowLaunchInstance names the instance an input's retained launch is bound
+// to, reading only the launch row. It neither restores nor checks the capture,
+// so a finished binding is recognized even when its capture no longer restores.
+func (db *DB) WorkflowLaunchInstance(ctx context.Context, sessionID, triggerID int64) (instanceID int64, found bool, err error) {
+	err = db.sql.QueryRowContext(ctx, `SELECT instance_id FROM research_launch_definitions WHERE session_id=? AND trigger_id=?`, sessionID, triggerID).Scan(&instanceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return instanceID, true, nil
+}

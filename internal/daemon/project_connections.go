@@ -307,23 +307,33 @@ func selectTicketConnection(ctx context.Context, db *store.DB, factory *projectc
 // containerCheckKey carries one poll cycle's original-container observations.
 type containerCheckKey struct{}
 
+// containerCheckEntry is one key's inspection. done closes once identity and
+// err are settled; until then later callers for the key wait on it.
 type containerCheckEntry struct {
+	done     chan struct{}
 	identity ticket.Identity
 	err      error
 }
 
 // containerChecks memoizes ContainerIdentity per connection version and actor
-// for one tick, so N task reads in a cycle cost one repository inspection.
-// After close, callers fall back to a fresh per-call check.
+// for one scope (a tick, or a worker's observation pass), so N task reads in
+// the scope cost one repository inspection. The lock never spans I/O:
+// concurrent callers for one key share the in-flight inspection and other keys
+// proceed independently. After close, callers fall back to a fresh check.
 type containerChecks struct {
 	mu      sync.Mutex
 	closed  bool
-	entries map[[2]int64]containerCheckEntry
+	entries map[[2]int64]*containerCheckEntry
 }
 
 func withContainerChecks(ctx context.Context) (context.Context, *containerChecks) {
-	m := &containerChecks{entries: make(map[[2]int64]containerCheckEntry)}
+	m := &containerChecks{entries: make(map[[2]int64]*containerCheckEntry)}
 	return context.WithValue(ctx, containerCheckKey{}, m), m
+}
+
+// withoutContainerChecks hides any enclosing scope so later checks are fresh.
+func withoutContainerChecks(ctx context.Context) context.Context {
+	return context.WithValue(ctx, containerCheckKey{}, (*containerChecks)(nil))
 }
 
 func (m *containerChecks) close() {
@@ -333,27 +343,77 @@ func (m *containerChecks) close() {
 	m.mu.Unlock()
 }
 
+// cachedContainerIdentity returns a settled observation from the live scope
+// without performing I/O; hit is false when none is available. A hit may carry
+// the scope's cached error.
+func cachedContainerIdentity(ctx context.Context, versionID, actor int64) (identity ticket.Identity, hit bool, err error) {
+	m, _ := ctx.Value(containerCheckKey{}).(*containerChecks)
+	if m == nil {
+		return ticket.Identity{}, false, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return ticket.Identity{}, false, nil
+	}
+	e, ok := m.entries[[2]int64{versionID, actor}]
+	if !ok {
+		return ticket.Identity{}, false, nil
+	}
+	select {
+	case <-e.done:
+		return e.identity, true, e.err
+	default:
+		return ticket.Identity{}, false, nil
+	}
+}
+
 func tickContainerIdentity(ctx context.Context, tickets projectconnection.TicketClient, versionID, actor int64, destination string) (ticket.Identity, error) {
 	m, _ := ctx.Value(containerCheckKey{}).(*containerChecks)
 	if m == nil {
 		return tickets.ContainerIdentity(ctx, destination)
 	}
 	key := [2]int64{versionID, actor}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return tickets.ContainerIdentity(ctx, destination)
+	for {
+		m.mu.Lock()
+		if m.closed {
+			m.mu.Unlock()
+			return tickets.ContainerIdentity(ctx, destination)
+		}
+		e, ok := m.entries[key]
+		if !ok {
+			e = &containerCheckEntry{done: make(chan struct{})}
+			m.entries[key] = e
+			m.mu.Unlock()
+			identity, err := tickets.ContainerIdentity(ctx, destination)
+			m.mu.Lock()
+			if err != nil && ctx.Err() != nil {
+				// A caller's own cancellation is not an observation for the
+				// scope; waiters retry with their own context.
+				if m.entries[key] == e {
+					delete(m.entries, key)
+				}
+			} else {
+				e.identity, e.err = identity, err
+			}
+			close(e.done)
+			m.mu.Unlock()
+			return identity, err
+		}
+		m.mu.Unlock()
+		select {
+		case <-e.done:
+		case <-ctx.Done():
+			return ticket.Identity{}, ctx.Err()
+		}
+		m.mu.Lock()
+		settled := m.entries[key] == e
+		m.mu.Unlock()
+		if settled {
+			return e.identity, e.err
+		}
+		// The leader was cancelled (or the scope closed); try again.
 	}
-	if e, ok := m.entries[key]; ok {
-		return e.identity, e.err
-	}
-	identity, err := tickets.ContainerIdentity(ctx, destination)
-	if err != nil && ctx.Err() != nil {
-		// A caller's own cancellation is not an observation for the cycle.
-		return identity, err
-	}
-	m.entries[key] = containerCheckEntry{identity: identity, err: err}
-	return identity, err
 }
 
 func (d *Daemon) connectionIngress(ctx context.Context, repo github.Repo, number int) (TicketIngress, ticket.Origin, error) {

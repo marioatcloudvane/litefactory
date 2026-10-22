@@ -155,6 +155,11 @@ func (p Paths) TeamsLockPath() string { return filepath.Join(p.TeamsDir(), "cata
 // ValidateScratchDir holds suite checkouts outside the denied factory home.
 func (p Paths) ValidateScratchDir() string { return p.home + "-suite" }
 
+// ReviewCacheDir holds the compiler cache and private temporary directories
+// of read-only shell runs (Validate reviewers, Spike investigators). It sits
+// outside the factory home, which their sandbox keeps unwritable.
+func (p Paths) ReviewCacheDir() string { return p.home + "-review-cache" }
+
 // ImplementScratchDir holds merge checkouts outside the denied factory home.
 func (p Paths) ImplementScratchDir() string { return p.home + "-implement" }
 

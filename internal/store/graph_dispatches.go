@@ -221,6 +221,38 @@ func (db *DB) ListDueGraphDispatches(ctx context.Context, now time.Time, limit i
 	return out, nil
 }
 
+// ListDueCoordinatorGraphDispatches selects due pending dispatches of Implement
+// coordinators, oldest first: Implement instances on a session that is no
+// story's worker. It is selected apart from [DB.ListDueGraphDispatches] so
+// story dispatches blocked on run capacity cannot keep bookkeeping out of a
+// tick's window.
+func (db *DB) ListDueCoordinatorGraphDispatches(ctx context.Context, now time.Time, limit int) ([]GraphDispatch, error) {
+	if limit <= 0 {
+		return nil, graphInvariant("due dispatch limit must be positive")
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches
+		WHERE status='pending' AND due_at<=?
+		AND instance_id IN (SELECT i.id FROM graph_instances i JOIN graph_definitions g ON g.id=i.definition_id WHERE g.mode='implement')
+		AND session_id NOT IN (SELECT worker_session FROM implement_stories WHERE worker_session>0)
+		ORDER BY due_at,id LIMIT ?`, FormatTime(now), limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list due coordinator graph dispatches: %w", err)
+	}
+	defer rows.Close()
+	out := make([]GraphDispatch, 0)
+	for rows.Next() {
+		v, e := scanGraphDispatch(rows)
+		if e != nil {
+			return nil, fmt.Errorf("store: scan due coordinator graph dispatch: %w", e)
+		}
+		out = append(out, v)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list due coordinator graph dispatches: %w", err)
+	}
+	return out, nil
+}
+
 // NextFreshGraphDispatch returns the oldest pending dispatch of a session that
 // has never been attempted and is already due: a stage its instance parked for
 // and is owed at once. A dispatch parked for later, such as an Implement

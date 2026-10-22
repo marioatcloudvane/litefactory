@@ -267,6 +267,9 @@ func TestDotnetWebCompatibilityAndGuidance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if mode == "spike" {
+			shared = legacySpikeSourceWithoutRepair(t, shared)
+		}
 		want := bytes.ReplaceAll(shared, []byte("go-development"), []byte("dotnet-web"))
 		want = bytes.ReplaceAll(want, []byte(",litefactory-rules"), []byte(",dotnet-web-engineering"))
 		if !bytes.Equal(want, released) {

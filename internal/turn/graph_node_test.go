@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/cloudvane/litefactory/internal/testutil"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -506,6 +507,165 @@ func TestGraphNodePlanDiscoveryDeferralRetries(t *testing.T) {
 	}
 	if got, err = f.db.GetGraphInstance(t.Context(), instance.ID); err != nil || got.Status != store.GraphFailed {
 		t.Fatalf("ordinary failure instance: %+v %v", got, err)
+	}
+}
+
+// parentLockTestHandler serializes on a real Plan parent story-progress lock,
+// like the production lf_plan_story effect, and records how it was entered.
+type parentLockTestHandler struct {
+	db           *store.DB
+	parent, dir  string
+	locked       bool
+	err          error
+	lockedCalls  *[]bool
+	parentBusies *[]bool
+}
+
+func (h parentLockTestHandler) Execute(ctx context.Context, _ Options, _ ActivityRequest) (ActivityResult, error) {
+	*h.lockedCalls = append(*h.lockedCalls, h.locked)
+	release, err := h.db.LockStoryProgress(ctx, h.parent, h.dir)
+	*h.parentBusies = append(*h.parentBusies, errors.Is(err, store.ErrStoryProgressBusy))
+	if err == nil {
+		if err = release(); err != nil {
+			return ActivityResult{}, err
+		}
+	}
+	if h.err != nil {
+		return ActivityResult{}, h.err
+	}
+	return ActivityResult{Outcome: "done"}, nil
+}
+
+func (h parentLockTestHandler) lockParent(ctx context.Context) (func() error, error) {
+	return lockPlanStory(ctx, 5*time.Millisecond, planStoryLockWait, func() (func() error, error) {
+		return h.db.LockStoryProgress(ctx, h.parent, h.dir)
+	})
+}
+
+func (h parentLockTestHandler) withParentLocked() ActivityHandler {
+	h.locked = true
+	return h
+}
+
+// A busy Plan parent defers lf_plan_story before any attempt is reserved, so
+// contention spends neither the node limit nor the revision budget (#997).
+func TestGraphNodePlanStoryBusyParentDefersWithoutAttempt(t *testing.T) {
+	previous := planStoryLockWait
+	planStoryLockWait = 20 * time.Millisecond
+	defer func() { planStoryLockWait = previous }()
+	f := newFixture(t, nil)
+	lockDir := t.TempDir()
+	at := time.Date(2026, 10, 22, 9, 0, 0, 0, time.UTC)
+	start := func(t *testing.T, action string) (*graphexec.Profile, store.GraphInstance) {
+		t.Helper()
+		dot := `digraph {team=test;mode=plan;profile_version=1;start=story;
+ story [lf_action=` + action + `,lf_outcomes="done",lf_limit=1];
+ end [lf_terminal=true]; story -> end [on=done];}`
+		p, err := graphexec.ParseProfile([]byte(dot))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var registry graphexec.Registry
+		if err = registry.Register(graphexec.ActionSpec{Name: action, Mode: agent.ModePlan, Outcomes: []string{"done"}}); err != nil {
+			t.Fatal(err)
+		}
+		if err = graphexec.Validate(p, registry); err != nil {
+			t.Fatal(err)
+		}
+		def, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: p.Team, Mode: string(p.Mode), ProfileVersion: p.ProfileVersion, Path: "test/" + action + ".dot", Digest: p.Digest, CreatedAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, Status: store.GraphRunning, CurrentNode: p.Start, StartedAt: at, NextDueAt: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p, instance
+	}
+	var lockedCalls, parentBusies []bool
+	h := parentLockTestHandler{db: f.db, parent: f.session.TaskRef, dir: lockDir, lockedCalls: &lockedCalls, parentBusies: &parentBusies}
+	release, err := f.db.LockStoryProgress(t.Context(), f.session.TaskRef, lockDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, instance := start(t, graphexec.PlanStoryAction)
+	req := GraphNodeRequest{Profile: p, InstanceID: instance.ID, At: at, StopOnFailure: true, RetryDueAt: at.Add(time.Minute)}
+	if err = req.Activities.Register(graphexec.PlanStoryAction, h); err != nil {
+		t.Fatal(err)
+	}
+	// AC-1/AC-3: busy beyond the wait, repeatedly, without exhausting lf_limit=1.
+	for range 3 {
+		result, err := ExecuteNodeAction(t.Context(), f.opts, req)
+		if err != nil {
+			t.Fatalf("busy parent returned run error: %v", err)
+		}
+		if !result.Deferred || result.NextNode != "story" || result.Status == store.GraphFailed || result.AttemptID != 0 {
+			t.Fatalf("result: %+v", result)
+		}
+		got, err := f.db.GetGraphInstance(t.Context(), instance.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != store.GraphRunning || got.CurrentNode != "story" {
+			t.Fatalf("instance: %+v", got)
+		}
+		attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(attempts) != 0 || len(lockedCalls) != 0 {
+			t.Fatalf("busy parent reserved attempts=%+v or ran handler=%v", attempts, lockedCalls)
+		}
+	}
+	if err = release(); err != nil {
+		t.Fatal(err)
+	}
+	// Once free, one attempt runs with the parent lock already held for it.
+	result, err := ExecuteNodeAction(t.Context(), f.opts, req)
+	if err != nil || result.Deferred || result.NextNode != "end" || result.AttemptID == 0 {
+		t.Fatalf("released parent: %+v %v", result, err)
+	}
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 1 || attempts[0].Status != store.GraphSucceeded || !slices.Equal(lockedCalls, []bool{true}) || !slices.Equal(parentBusies, []bool{true}) {
+		t.Fatalf("attempts=%+v locked=%v busy=%v", attempts, lockedCalls, parentBusies)
+	}
+	if again, err := f.db.LockStoryProgress(t.Context(), f.session.TaskRef, lockDir); err != nil {
+		t.Fatalf("parent lock not released after the step: %v", err)
+	} else if err = again(); err != nil {
+		t.Fatal(err)
+	}
+
+	// AC-2: a plain dispatch error under a free parent still fails the step.
+	p, instance = start(t, graphexec.PlanStoryAction)
+	req = GraphNodeRequest{Profile: p, InstanceID: instance.ID, At: at, StopOnFailure: true, RetryDueAt: at.Add(time.Minute)}
+	failing := h
+	failing.err = errors.New("transport unavailable")
+	if err = req.Activities.Register(graphexec.PlanStoryAction, failing); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = ExecuteNodeAction(t.Context(), f.opts, req); err == nil {
+		t.Fatal("ordinary dispatch error was not reported")
+	}
+	if got, err := f.db.GetGraphInstance(t.Context(), instance.ID); err != nil || got.Status != store.GraphFailed {
+		t.Fatalf("ordinary failure instance: %+v %v", got, err)
+	}
+
+	// AC-2/AC-3: another Plan action whose handler reports a busy parent fails as today.
+	p, instance = start(t, "lf_plan_other")
+	req = GraphNodeRequest{Profile: p, InstanceID: instance.ID, At: at, StopOnFailure: true, RetryDueAt: at.Add(time.Minute)}
+	other := &graphTestHandler{errs: map[string]error{"story": fmt.Errorf("other: %w", store.ErrStoryProgressBusy)}}
+	if err = req.Activities.Register("lf_plan_other", other); err != nil {
+		t.Fatal(err)
+	}
+	result, err = ExecuteNodeAction(t.Context(), f.opts, req)
+	if err == nil || result.Deferred || !errors.Is(err, store.ErrStoryProgressBusy) {
+		t.Fatalf("other Plan action busy error: %+v %v", result, err)
+	}
+	if got, err := f.db.GetGraphInstance(t.Context(), instance.ID); err != nil || got.Status != store.GraphFailed {
+		t.Fatalf("other Plan action instance: %+v %v", got, err)
 	}
 }
 
