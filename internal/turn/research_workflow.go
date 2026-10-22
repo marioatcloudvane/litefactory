@@ -30,6 +30,12 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 	if definition == nil || definition.Profile == nil || definition.Profile.Mode != policy.Mode || req.mode() != string(policy.Mode) {
 		return result, errors.New("workflow differs from admitted mode policy")
 	}
+	// An owner comment whose saved launch is bound to a finished instance can
+	// never reach a node again, so it is answered and set aside instead of
+	// retried. Plan retires such inputs earlier (retireFinishedPlanLaunch).
+	if req.Trigger.CommentID > 0 && !store.IsPrivateTrigger(req.Trigger.CommentID) && req.Trigger.PlanReply == nil && policy.Mode != agent.ModePlan && admission.Instance.Status != store.GraphRunning {
+		return prelaunchRefused(ctx, opts, result, planAnswerNotApplied)
+	}
 	if admission.LaunchID == 0 {
 		saved, err := opts.DB.WorkflowCaptureForAdmission(ctx, req.SessionID, req.Trigger.CommentID, string(policy.Mode))
 		if err != nil {
@@ -165,7 +171,9 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		if !ok {
 			return w.finish(ctx, errors.New("research current node is absent from shipped graph"))
 		}
-		if executed && policy.Park != nil && node.Action != ResearchAgentAction {
+		// Park is consulted before agent nodes too: an Implement coordinator
+		// rests before an agent stage so that stage starts on run capacity.
+		if executed && policy.Park != nil {
 			decision, parkErr := policy.Park(ctx, opts, instance, node)
 			if parkErr != nil {
 				return w.finish(ctx, parkErr)
