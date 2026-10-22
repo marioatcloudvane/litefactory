@@ -403,3 +403,22 @@ func TestRunArchiveBatch_BackoffHoldSkips(t *testing.T) {
 		t.Fatal("archive ran during backoff hold")
 	}
 }
+
+// Issue #1029 C2: the archive sweep shares the retirement reader, so a closed
+// Linear-bound owner resolves its state instead of deferring on lookup.
+func TestArchiveOwner_LinearProjectConnection(t *testing.T) {
+	x := newRetirementLinearFixture(t)
+	x.setState("completed")
+	_, err := x.db.RecordComment(t.Context(), store.Comment{SessionID: x.session.ID, ForgeCommentID: 1, AuthorHandle: "alice", Body: "hello", CreatedAt: x.now, RecordedAt: x.now, Classification: store.ClassificationInstruction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.d.archive = ArchiveOptions{Dir: filepath.Join(t.TempDir(), "archive")}
+	visit, err := x.d.archiveOwner(x.ctx(t), x.session.ID, x.now, retirementTicketIssues{d: x.d})
+	if visit.Reason == "issue_lookup_failed" || visit.Reason == "issue_not_confirmed_closed" {
+		t.Fatalf("Linear archive owner did not resolve closure: %+v %v", visit, err)
+	}
+	if err != nil || visit.Outcome == ArchiveOutcomeDeferred {
+		t.Fatalf("archive owner: %+v %v", visit, err)
+	}
+}
