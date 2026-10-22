@@ -144,40 +144,22 @@ func (s *Service) read(ctx context.Context, r ReadRequest) Result {
 	if r.Limit == 0 {
 		r.Limit = 10
 	}
-	if r.Cursor != "" && r.Citation != nil {
+	if r.Cursor != "" && r.Citation != nil || r.Offset != 0 && (r.Cursor != "" || r.Citation != nil) {
 		return failureResult("invalid_request")
 	}
 	row, err := s.db.GetPriorRun(ctx, s.query(), r.RunID)
 	if err != nil {
 		return failureResult("unavailable")
 	}
-	path, err := logreader.ResolveRootPath(s.root, row.TaskRef, row.Run)
-	if err != nil || filepath.Ext(path) != ".jsonl" {
-		return sourceUnavailable()
+	src, status := s.openSource(row)
+	if status != "" {
+		if status == "unavailable" {
+			return sourceUnavailable()
+		}
+		return failureResult(status)
 	}
-	root, err := os.OpenRoot(s.root)
-	if err != nil {
-		return sourceUnavailable()
-	}
-	defer root.Close()
-	rel, err := filepath.Rel(s.root, path)
-	if err != nil || !filepath.IsLocal(rel) {
-		return sourceUnavailable()
-	}
-	// Lstat rejects nonregular endpoints before opening (including FIFOs).
-	info, err := root.Lstat(rel)
-	if err != nil || !info.Mode().IsRegular() {
-		return sourceUnavailable()
-	}
-	file, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return sourceUnavailable()
-	}
-	defer file.Close()
-	pinned, err := file.Stat()
-	if err != nil || !pinned.Mode().IsRegular() || !os.SameFile(info, pinned) {
-		return failureResult("source_changed")
-	}
+	defer src.close()
+	root, rel, file, pinned := src.root, src.rel, src.file, src.info
 	fp := fileFingerprint(pinned)
 	pos := logreader.Position{}
 	if r.Cursor != "" {
@@ -189,6 +171,17 @@ func (s *Service) read(ctx context.Context, r ReadRequest) Result {
 			return failureResult("source_changed")
 		}
 		pos = c.Position
+	}
+	if r.Offset != 0 {
+		// A digest offers record starts; anything else is not a record boundary.
+		var boundary [1]byte
+		if r.Offset < 0 || r.Offset >= pinned.Size() {
+			return failureResult("invalid_request")
+		}
+		if _, e := file.ReadAt(boundary[:], r.Offset-1); e != nil || boundary[0] != '\n' {
+			return failureResult("source_changed")
+		}
+		pos.Offset = r.Offset
 	}
 	if r.Citation != nil {
 		c := r.Citation
@@ -301,9 +294,13 @@ func (s *Service) read(ctx context.Context, r ReadRequest) Result {
 		}
 	}
 	out.Coverage.End = pos.Offset
-	if !out.Coverage.EndOfSource {
+	// An offset read is one window, never a path to whole-run coverage.
+	if !out.Coverage.EndOfSource && r.Offset == 0 {
 		out.Coverage.Incomplete = true
 		out.NextCursor = s.sign(cursor{Kind: "read", RunID: r.RunID, Fingerprint: fp, Position: pos})
+	}
+	if r.Offset != 0 {
+		out.Coverage.Incomplete = true
 	}
 	after, e := file.Stat()
 	current, e2 := root.Stat(rel)
@@ -318,6 +315,53 @@ func (s *Service) read(ctx context.Context, r ReadRequest) Result {
 	}
 	return out
 }
+
+// runSource is one opened, pinned retained run log.
+type runSource struct {
+	root *os.Root
+	rel  string
+	file *os.File
+	info os.FileInfo
+}
+
+func (r runSource) close() { _ = r.file.Close(); _ = r.root.Close() }
+
+// openSource opens a run's log below the runs root without following links.
+// The status is "unavailable" or "source_changed" when it cannot be used.
+func (s *Service) openSource(row store.PriorRun) (runSource, string) {
+	path, err := logreader.ResolveRootPath(s.root, row.TaskRef, row.Run)
+	if err != nil || filepath.Ext(path) != ".jsonl" {
+		return runSource{}, "unavailable"
+	}
+	root, err := os.OpenRoot(s.root)
+	if err != nil {
+		return runSource{}, "unavailable"
+	}
+	rel, err := filepath.Rel(s.root, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		_ = root.Close()
+		return runSource{}, "unavailable"
+	}
+	// Lstat rejects nonregular endpoints before opening (including FIFOs).
+	info, err := root.Lstat(rel)
+	if err != nil || !info.Mode().IsRegular() {
+		_ = root.Close()
+		return runSource{}, "unavailable"
+	}
+	file, err := root.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		_ = root.Close()
+		return runSource{}, "unavailable"
+	}
+	pinned, err := file.Stat()
+	if err != nil || !pinned.Mode().IsRegular() || !os.SameFile(info, pinned) {
+		_ = file.Close()
+		_ = root.Close()
+		return runSource{}, "source_changed"
+	}
+	return runSource{root, rel, file, pinned}, ""
+}
+
 func truncateUTF8(s string, n int) string {
 	for n > 0 && n < len(s) && s[n]&0xc0 == 0x80 {
 		n--

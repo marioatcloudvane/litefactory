@@ -29,7 +29,7 @@ type LogAnalystRequest struct {
 
 // LogAnalystToolNames returns the complete authorized broker catalog.
 func LogAnalystToolNames() []string {
-	return []string{"communication_preflight", "communication_receipt", "communication_submit", "run_logs_read", "runs_list", "standards_categories_list", "standards_read", "standards_select"}
+	return []string{"communication_preflight", "communication_receipt", "communication_submit", "incidents_list", "run_digest_read", "run_logs_read", "runs_list", "standards_categories_list", "standards_read", "standards_select"}
 }
 
 // Validate rejects malformed requests and any widening of the tool catalog.

@@ -218,9 +218,17 @@ func checkLogAnalysisWriter(ctx context.Context, tx *sql.Tx, id string, generati
 }
 
 // ReserveLogAnalysisBudget charges calls and encoded delivery before work; reservations are never refunded.
+
+// Whole-analysis ceilings: one model invocation may make at most this many
+// broker calls (one evidence row each) and receive this many encoded bytes.
+const (
+	LogAnalysisMaxCalls = 120
+	LogAnalysisMaxBytes = 1 << 20
+)
+
 // The host passes its immutable limits, including any reserved communication allowance.
 func (db *DB) ReserveLogAnalysisBudget(ctx context.Context, id string, generation int64, calls, bytes, maxCalls, maxBytes int) error {
-	if calls < 0 || bytes < 0 || maxCalls < 0 || maxCalls > 40 || maxBytes < 0 || maxBytes > 256<<10 {
+	if calls < 0 || bytes < 0 || maxCalls < 0 || maxCalls > LogAnalysisMaxCalls || maxBytes < 0 || maxBytes > LogAnalysisMaxBytes {
 		return ErrLogAnalysisBudget
 	}
 	return db.standardsWrite(ctx, func(tx *sql.Tx) error {
@@ -278,7 +286,7 @@ func (db *DB) RecordLogAnalysisEvidence(ctx context.Context, e LogAnalysisEviden
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM log_analysis_evidence WHERE analysis_id=?`, e.AnalysisID).Scan(&count); err != nil {
 			return err
 		}
-		if count >= 40 {
+		if count >= LogAnalysisMaxCalls {
 			return ErrLogAnalysisBudget
 		}
 		res, err := tx.ExecContext(ctx, `INSERT INTO log_analysis_evidence(analysis_id,generation,call_key,metadata_json,created_at) VALUES(?,?,?,?,?)`, e.AnalysisID, e.Generation, e.CallKey, string(e.Metadata), FormatTime(e.CreatedAt))
@@ -588,7 +596,7 @@ func (db *DB) ReserveLogAnalysisRecoveryBudget(ctx context.Context, id string, o
 		if e = json.Unmarshal(a.Limits, &limits); e != nil {
 			return e
 		}
-		maxCalls, maxBytes := 40, 256<<10
+		maxCalls, maxBytes := LogAnalysisMaxCalls, LogAnalysisMaxBytes
 		if limits.Calls > 0 && limits.Calls < maxCalls {
 			maxCalls = limits.Calls
 		}

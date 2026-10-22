@@ -246,12 +246,12 @@ func TestNormalizePreservesLowerOnlyUpstreamLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.IntervalSeconds != 86400 || c.RunLimit != 2 || c.LogLimits.Evidence.Runs != 2 || c.LogLimits.Evidence.Records != 100 || c.LogLimits.Calls != 40 {
+	if c.IntervalSeconds != 86400 || c.RunLimit != 2 || c.LogLimits.Evidence.Runs != 2 || c.LogLimits.Evidence.Records != 100 || c.LogLimits.Calls != 120 {
 		t.Fatalf("normalized finite defaults=%+v", c)
 	}
 	for _, c := range []Config{
-		{Name: "Logs", Kind: "logs", RepositoryID: 1, LogLimits: loganalysis.Limits{Evidence: logevidence.Limits{Runs: 6}}},
-		{Name: "Logs", Kind: "logs", RepositoryID: 1, LogLimits: loganalysis.Limits{Calls: 41}},
+		{Name: "Logs", Kind: "logs", RepositoryID: 1, LogLimits: loganalysis.Limits{Evidence: logevidence.Limits{Runs: logevidence.AnalystLimits().Runs + 1}}},
+		{Name: "Logs", Kind: "logs", RepositoryID: 1, LogLimits: loganalysis.Limits{Calls: 121}},
 		{Name: "Logs", Kind: "logs", RepositoryID: 1, IntervalSeconds: 3599},
 		{Name: "Bugs", Kind: "bugs", RepositoryID: 1, Modes: []string{"implement"}},
 		{Name: "Drift", Kind: "drift", RepositoryID: 1, Ref: "main"},

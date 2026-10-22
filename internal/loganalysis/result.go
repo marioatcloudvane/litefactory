@@ -74,7 +74,7 @@ func (h *invocation) validate(ctx context.Context, r Report) ([]store.LogAnalysi
 	if r.Disposition != "proposals" && r.Disposition != "no_warranted_change" && r.Disposition != "insufficient_evidence" {
 		return nil, "", errors.New("invalid finding disposition")
 	}
-	rows, e := h.service.DB.ListLogAnalysisEvidence(ctx, h.a.ID, 0, 100)
+	rows, e := allEvidence(ctx, h.service.DB, h.a.ID)
 	if e != nil {
 		return nil, "", e
 	}
@@ -126,10 +126,12 @@ func (h *invocation) validate(ctx context.Context, r Report) ([]store.LogAnalysi
 			_ = json.Unmarshal(v.Selector, &in)
 			var selector logevidence.ReadRequest
 			_ = json.Unmarshal(v.Selector, &selector)
-			if v.Coverage.EndOfSource && v.Status == "ok" && selector.Citation == nil {
+			if v.Coverage.EndOfSource && v.Status == "ok" && selector.Citation == nil && selector.Offset == 0 {
 				read[in.RunID] = true
 			}
-			pending[in.RunID] = v.Next
+			if selector.Offset == 0 {
+				pending[in.RunID] = v.Next
+			}
 		}
 	}
 	if len(h.q.RunIDs) > 0 {

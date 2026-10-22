@@ -39,7 +39,7 @@ func newLogAnalysisCommand(action string) *Command {
 		var after, before, key, cursor string
 		var asJSON bool
 		var limit, calls, bytes, seconds, records, rows, dataCalls, evidenceBytes int
-		var evidenceRuns, reportBytes, proposals int
+		var evidenceRuns, reportBytes, proposals, digests int
 		var evidenceAfter int64
 		var citation string
 		fs.BoolVar(&asJSON, "json", false, "emit retained JSON")
@@ -51,16 +51,17 @@ func newLogAnalysisCommand(action string) *Command {
 			fs.StringVar(&after, "after", "", "closed UTC interval start (RFC3339 Z)")
 			fs.StringVar(&before, "before", "", "closed UTC interval end (RFC3339 Z)")
 			fs.StringVar(&key, "start-key", "", "idempotent caller identity; retry never relaunches")
-			fs.IntVar(&evidenceRuns, "evidence-runs", 0, "lower evidence run ceiling (default 5)")
+			fs.IntVar(&evidenceRuns, "evidence-runs", 0, "lower raw-read run ceiling (default 20)")
 			fs.IntVar(&reportBytes, "report-bytes", 0, "lower submitted report byte ceiling (default 131072)")
 			fs.IntVar(&proposals, "proposals", 0, "lower proposed standard ceiling (default 10)")
-			fs.IntVar(&calls, "calls", 0, "lower whole-analysis call ceiling (default 40)")
-			fs.IntVar(&bytes, "bytes", 0, "lower encoded outbound byte ceiling (default 262144)")
-			fs.IntVar(&seconds, "seconds", 0, "lower wall time in seconds (default 600)")
+			fs.IntVar(&calls, "calls", 0, "lower whole-analysis call ceiling (default 120)")
+			fs.IntVar(&bytes, "bytes", 0, "lower encoded outbound byte ceiling (default 1048576)")
+			fs.IntVar(&seconds, "seconds", 0, "lower wall time in seconds (default 1800)")
 			fs.IntVar(&records, "records", 0, "lower evidence record ceiling (default 100)")
-			fs.IntVar(&rows, "rows", 0, "lower discovery row ceiling (default 50)")
-			fs.IntVar(&dataCalls, "data-calls", 0, "lower evidence call ceiling (default 10)")
-			fs.IntVar(&evidenceBytes, "evidence-bytes", 0, "lower encoded evidence byte ceiling (default 32768)")
+			fs.IntVar(&rows, "rows", 0, "lower discovery row ceiling, runs and incidents (default 400)")
+			fs.IntVar(&dataCalls, "data-calls", 0, "lower evidence call ceiling (default 80)")
+			fs.IntVar(&evidenceBytes, "evidence-bytes", 0, "lower encoded evidence byte ceiling (default 786432)")
+			fs.IntVar(&digests, "digests", 0, "lower condensed run view ceiling (default 40)")
 		case "list":
 			fs.StringVar(&cursor, "after", "", "stable analysis ID page cursor")
 			fs.IntVar(&limit, "limit", 20, "page size, maximum 100")
@@ -178,7 +179,7 @@ func newLogAnalysisCommand(action string) *Command {
 				}
 				return writeJSON(env, out)
 			case "start":
-				q := loganalysis.Request{StartKey: key, TaskRefs: tasks, Limits: loganalysis.Limits{ReportBytes: reportBytes, Proposals: proposals, Calls: calls, Bytes: bytes, Seconds: seconds, Evidence: logevidence.Limits{Runs: evidenceRuns, Records: records, Rows: rows, Calls: dataCalls, Bytes: evidenceBytes}}}
+				q := loganalysis.Request{StartKey: key, TaskRefs: tasks, Limits: loganalysis.Limits{ReportBytes: reportBytes, Proposals: proposals, Calls: calls, Bytes: bytes, Seconds: seconds, Evidence: logevidence.Limits{Runs: evidenceRuns, Records: records, Rows: rows, Calls: dataCalls, Bytes: evidenceBytes, Digests: digests}}}
 				for _, s := range repos {
 					forge, slug, ok := strings.Cut(s, ":")
 					owner, name, valid := strings.Cut(slug, "/")
@@ -246,7 +247,7 @@ const logAnalysisUsage = `Start: standards analyze logs --repo forge:owner/name 
 Inspect: standards analyze logs list; standards analyze logs show ID [--json] [--after ROW --limit N].
 Reread: standards analyze logs reread ID --citation JSON. This is a separate bounded owner-authorized pass.
 Recovery: standards analyze logs recover ID after its deadline; accepted results remain unchanged. A start-key retry only returns the original invocation.
-Defaults: five evidence runs, 100 records, 50 discovery rows, ten data calls, 32 KiB encoded evidence; one model invocation, ten minutes, 40 broker calls, 256 KiB encoded outbound data, 128 KiB report, ten proposals. Limits may only be lowered.
+Defaults: 400 discovery rows (runs and incidents), 40 condensed run views, raw reads from 20 runs and 100 records, 80 data calls, 768 KiB encoded evidence; one model invocation, 30 minutes, 120 broker calls, 1 MiB encoded outbound data, 128 KiB report, ten proposals. Limits may only be lowered.
 Requested, discovered, offered and cited evidence differ; unread runs, unknown interval remainder, omissions and exhausted limits are coverage gaps. EOF describes retained source only.
 Retained references do not extend log retention. Rereads may report missing or changed sources. Known-secret redaction cannot remove every unknown secret or personal detail.
 Observations and proposals do not establish root cause; repeated messages need not be independent incidents. Proposals require separate human review, approval and publication.
